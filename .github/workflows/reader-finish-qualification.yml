@@ -2,7 +2,7 @@ name: Reader restoration and backup acceptance
 on:
   push:
     branches: [research/reader-finish-20260918]
-    paths: [.github/workflows/reader-finish-qualification.yml]
+    paths: [.github/workflows/reader-finish-qualification.yml, 'research/**', 'apps/web/**', 'test/reader/**']
 permissions: {contents: read}
 concurrency:
   group: reader-finish-acceptance
