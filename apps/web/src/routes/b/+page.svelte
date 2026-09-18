@@ -2,6 +2,7 @@
   import {
     auditTime,
     debounceTime,
+    distinctUntilChanged,
     EMPTY,
     filter,
     fromEvent,
@@ -238,6 +239,7 @@
 
   const bookId$ = iffBrowser(() => readableToObservable(page)).pipe(
     map((pageObj) => Number(pageObj.url.searchParams.get('id'))),
+    distinctUntilChanged(),
     shareReplay({ refCount: true, bufferSize: 1 })
   );
 
@@ -346,18 +348,14 @@
     reduceToEmptyString()
   );
 
-  const initBookmarkData$ = rawBookData$.pipe(
-    tap((rawBookData) => {
-      if (!rawBookData) return;
-      bookmarkData = database.getBookmark(rawBookData.id);
-    }),
-    reduceToEmptyString()
-  );
-
   const bookData$ = rawBookData$.pipe(
     switchMap((rawBookData) => {
       if (!rawBookData) return EMPTY;
 
+      // Initialize from this book before publishing renderable HTML. A hidden
+      // template subscription to the non-replayed raw stream can miss its only
+      // emission when Svelte mounts the conditional Reader subtree lazily.
+      bookmarkData = database.getBookmark(rawBookData.id);
       sectionList$.next(rawBookData.sections || []);
 
       return loadBookData(
@@ -1580,7 +1578,11 @@
 
 {$collectReaderImageGallerySpoilerToggles$ ?? ''}
 {$handleUpdateImageGalleryPictureSpoilers$ ?? ''}
-<button aria-label="Show reading controls" class="fixed inset-x-0 top-0 z-10 h-8 w-full" on:click={() => (showHeader = true)} ></button>
+<button
+  aria-label="Show reading controls"
+  class="fixed inset-x-0 top-0 z-10 h-8 w-full"
+  on:click={() => (showHeader = true)}
+></button>
 {#if showHeader}
   <div
     class="elevation-4 writing-horizontal-tb fixed inset-x-0 top-0 z-10 w-full"
@@ -1740,7 +1742,6 @@
     on:bookmark={bookmarkPage}
     on:trackerPause={() => pauseTracker(true)}
   />
-  {$initBookmarkData$ ?? ''}
   {$setBackgroundColor$ ?? ''}
   {$setWritingMode$ ?? ''}
   {$textSelector$ ?? ''}

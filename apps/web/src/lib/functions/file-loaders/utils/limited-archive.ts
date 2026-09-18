@@ -26,8 +26,33 @@ export const BOOK_ARCHIVE_LIMITS: Readonly<ArchiveLimits> = Object.freeze({
   metadataReadBytes: 16 * 1024 * 1024
 });
 
+/** One cumulative decoder budget can span an outer backup and its nested books. */
+export class ArchiveBudget {
+  private decoded = 0;
+  constructor(readonly maximum: number) {
+    if (!Number.isSafeInteger(maximum) || maximum <= 0)
+      throw new Error('Invalid shared archive budget');
+  }
+  claim(bytes: number): void {
+    if (!Number.isSafeInteger(bytes) || bytes < 0 || this.decoded + bytes > this.maximum)
+      throw new ArchiveLimitError('Decoded backup data exceeds the shared size limit');
+    this.decoded += bytes;
+  }
+}
+
+export const BACKUP_ARCHIVE_LIMITS: Readonly<ArchiveLimits> = Object.freeze({
+  ...BOOK_ARCHIVE_LIMITS,
+  compressedBytes: 1024 * 1024 * 1024,
+  entryBytes: BOOK_ARCHIVE_LIMITS.compressedBytes,
+  totalBytes: 1024 * 1024 * 1024,
+  entryCount: 32768
+});
+
 export interface ArchiveOptions {
   signal?: AbortSignal;
+  budget?: ArchiveBudget;
+  /** Backup names are literal ZIP keys: upstream encodes title punctuation with %. */
+  literalNames?: boolean;
   limits?: Readonly<ArchiveLimits>;
   useWebWorkers?: boolean;
 }
@@ -40,7 +65,7 @@ export class ArchiveLimitError extends Error {
 }
 
 /** ZIP names are logical, relative paths; never filesystem destinations. */
-export function validateArchivePath(name: string, directory = false): string {
+export function validateArchivePath(name: string, directory = false, literalNames = false): string {
   if (typeof name !== 'string' || name.length === 0 || name.length > 1024) {
     throw new Error('Invalid archive entry name');
   }
@@ -48,7 +73,7 @@ export function validateArchivePath(name: string, directory = false): string {
   if (
     // eslint-disable-next-line no-control-regex
     /[\\\x00-\x1f\x7f]/.test(name) ||
-    /%(?:2e|2f|5c|00)/i.test(name) ||
+    (!literalNames && /%(?:2e|2f|5c|00)/i.test(name)) ||
     name.startsWith('/') ||
     /^[a-z][\w+.-]*:/i.test(name)
   ) {
@@ -189,7 +214,7 @@ export class LimitedArchive {
         archive.controller.signal.throwIfAborted();
         if (++count > archive.limits.entryCount)
           throw new ArchiveLimitError('Archive has too many entries');
-        const name = validateArchivePath(entry.filename, entry.directory);
+        const name = validateArchivePath(entry.filename, entry.directory, options.literalNames);
         if (archive.entries.has(name)) throw new Error(`Duplicate archive path: ${name}`);
         if (entry.encrypted) throw new Error('Encrypted archives are not supported');
         for (const size of [entry.compressedSize, entry.uncompressedSize]) {
@@ -217,6 +242,8 @@ export class LimitedArchive {
 
   async readBlob(name: string, mime = '', maximum = this.limits.entryBytes): Promise<Blob> {
     this.controller.signal.throwIfAborted();
+    if (!Number.isSafeInteger(maximum) || maximum <= 0)
+      throw new Error('Invalid archive read limit');
     const entry = this.entries.get(name);
     if (!entry || entry.directory || !entry.getData)
       throw new Error(`Archive resource not found: ${name}`);
@@ -297,6 +324,7 @@ export class LimitedArchive {
         throw new ArchiveLimitError(`Decoded archive entry is too large: ${entry.filename}`);
       if (this.decoded + bytes > this.limits.totalBytes)
         throw new ArchiveLimitError('Decoded archive data exceeds the total limit');
+      this.options.budget?.claim(bytes);
       this.decoded += bytes;
     }, mime);
     try {

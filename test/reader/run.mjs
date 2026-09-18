@@ -17,6 +17,14 @@ try {
     format: 'esm',
     outfile: archive
   });
+  const restored = join(temp, 'restored-book.test.mjs');
+  await build({
+    entryPoints: [fileURLToPath(new URL('./restored-book.test.ts', import.meta.url))],
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    outfile: restored
+  });
   const localMedia = join(temp, 'local-media.test.mjs');
   await build({
     entryPoints: [fileURLToPath(new URL('./local-media.test.mjs', import.meta.url))],
@@ -39,6 +47,7 @@ try {
       '--test',
       fileURLToPath(new URL('./service-worker.test.mjs', import.meta.url)),
       archive,
+      restored,
       localMedia,
       typography
     ],

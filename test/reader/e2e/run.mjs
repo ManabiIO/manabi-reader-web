@@ -5,6 +5,7 @@ import path from 'node:path';
 import http from 'node:http';
 import {chromium, expect} from '@playwright/test';
 import {runFontAcceptance} from './font-acceptance.mjs';
+import {runBackupAcceptance} from './backup-acceptance.mjs';
 
 const appBase = process.env.READER_BASE_PATH ?? '/Reader-Web';
 assert.match(appBase, /^(?:\/[A-Za-z0-9_-]+)*$/);
@@ -197,7 +198,27 @@ async function hoverWord(word) {
     const content = page.locator('.book-content').first();
     await content.waitFor();
     await page.waitForFunction(() => document.documentElement.dataset.manabitanContentScriptPrepared === 'true');
-    await page.waitForFunction(() => document.fonts.status === 'loaded');
+    await expect(content).not.toHaveText('');
+    await content.evaluate(async (el) => {
+        // The conditional Reader renders its first section asynchronously. A
+        // FontFaceSet can be 'loaded' before that section first requests its
+        // Japanese face. Measure the real text, not only the fixed container.
+        const deadline = performance.now() + 5000;
+        let previous = '', stable = 0;
+        while (performance.now() < deadline) {
+            await new Promise((resolve) => requestAnimationFrame(resolve));
+            const node = document.createTreeWalker(el, NodeFilter.SHOW_TEXT).nextNode();
+            if (!node || document.fonts.status !== 'loaded') { stable = 0; continue; }
+            const range = document.createRange(); range.selectNodeContents(node);
+            const rect = range.getBoundingClientRect();
+            const state = [el.innerHTML.length, el.scrollLeft, el.scrollTop, el.scrollWidth, el.scrollHeight,
+                rect.x, rect.y, rect.width, rect.height].join(',');
+            stable = state === previous ? stable + 1 : 0;
+            previous = state;
+            if (stable >= 12) return;
+        }
+        throw new Error('Reader text geometry did not settle before the scan gesture');
+    });
     // Target visible, unobscured text. A prior popup may cover the first matching
     // word; hovering through that popup does not constitute a new book scan.
     const point = await content.evaluate(async (el, word) => {
@@ -358,6 +379,7 @@ try {
         await check('reader: no automatic dictionary archive download before integration', async () => { assert.deepEqual(requests.filter((r) => /jitendex|JMdict.*zip/i.test(r.url)), []); });
     }
     await runFontAcceptance({page, context, origin, bookURL, check, output});
+    await runBackupAcceptance({page, origin, fixtures, check, books, openBook});
     await close('reader-second-session');
 
     context = await launch('extension', true); page = context.pages()[0] || await context.newPage();

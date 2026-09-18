@@ -1,3 +1,5 @@
+import { readRestoredBook } from '$lib/functions/file-loaders/utils/restored-book';
+import type { ArchiveBudget } from '$lib/functions/file-loaders/utils/limited-archive';
 /**
  * @license BSD-3-Clause
  * Copyright (c) 2026, ッツ Reader Authors
@@ -27,15 +29,7 @@ import {
   type ReplicationDeleteResult
 } from '$lib/functions/replication/replication-progress';
 import pLimit from 'p-limit';
-import {
-  BlobReader,
-  BlobWriter,
-  TextReader,
-  TextWriter,
-  ZipReader,
-  ZipWriter,
-  type Entry
-} from '@zip.js/zip.js';
+import { BlobReader, BlobWriter, TextReader, ZipWriter } from '@zip.js/zip.js';
 
 export enum FilePrefix {
   AUDIO_BOOK = 'audioBook_',
@@ -48,6 +42,8 @@ export interface ExternalFile {
 }
 
 export abstract class BaseStorageHandler {
+  protected restoreBudget: ArchiveBudget | undefined;
+
   abstract updateSettings(
     window: Window,
     isForBrowser: boolean,
@@ -469,160 +465,22 @@ export abstract class BaseStorageHandler {
     }
   }
 
-  protected async readFromZip(
-    writer: BlobWriter,
-    errorForNoRead: string,
-    retrievedData: Entry,
-    progressBase: number
-  ): Promise<Blob>;
-  protected async readFromZip(
-    writer: TextWriter,
-    errorForNoRead: string,
-    retrievedData: Entry,
-    progressBase: number
-  ): Promise<string>;
-  protected async readFromZip(
-    writer: BlobWriter | TextWriter,
-    errorForNoRead: string,
-    retrievedData: Entry,
-    progressBase = 1
-  ) {
-    this.currentLastProgressValue = 0;
-    this.currentProgressBase = progressBase;
-
-    const zipData =
-      writer instanceof BlobWriter
-        ? await retrievedData.getData?.(writer, {
-            onprogress: (...args) => this.reportFunction(...args)
-          })
-        : await retrievedData.getData?.(writer, {
-            onprogress: (...args) => this.reportFunction(...args)
-          });
-
-    if (!zipData) {
-      throw new Error(errorForNoRead);
-    }
-
-    return zipData;
-  }
-
-  protected async extractBookData(book: Blob, filename: string, progressBase = 1) {
-    const bookreader = new ZipReader(new BlobReader(book));
-    const bookDataEntries = await bookreader.getEntries();
-
-    if (!bookDataEntries.length) {
-      BaseStorageHandler.reportProgress(progressBase);
-
-      return undefined;
-    }
-
-    const bookObject: Omit<BooksDbBookData, 'id'> = {
-      title: '',
-      styleSheet: '',
-      elementHtml: '',
-      blobs: {} as Record<string, Blob>,
-      coverImage: '',
+  protected async extractBookData(book: Blob, filename: string, progressBase = 0.9) {
+    const data = await readRestoredBook(book, BaseStorageHandler.getImageMimeTypeFromExtension, {
+      signal: this.cancelSignal,
+      budget: this.restoreBudget
+    });
+    BaseStorageHandler.reportProgress(progressBase);
+    if (!data) return undefined;
+    const { characters, lastBookModified, lastBookOpen } =
+      BaseStorageHandler.getBookMetadata(filename);
+    return {
+      ...data,
       hasThumb: true,
-      characters: 0,
-      sections: [],
-      lastBookModified: 0,
-      lastBookOpen: 0
+      characters: BaseStorageHandler.getBookCharacters(characters || 0, data.sections),
+      lastBookModified,
+      lastBookOpen
     };
-
-    const bookObjectTransforms = [];
-    const limiter = pLimit(1);
-    const progressPerStep = progressBase / bookDataEntries.length;
-
-    for (let index = 0, { length } = bookDataEntries; index < length; index += 1) {
-      bookObjectTransforms.push(
-        limiter(async () => {
-          try {
-            throwIfAborted(this.cancelSignal);
-
-            const entry = bookDataEntries[index];
-
-            if (entry.filename === 'staticdata.json') {
-              const staticData = JSON.parse(
-                await this.readFromZip(
-                  new TextWriter(),
-                  'Unable to read Static Data',
-                  entry,
-                  progressPerStep
-                )
-              ) as Omit<
-                BooksDbBookData,
-                | 'id'
-                | 'blobs'
-                | 'hasThumb'
-                | 'coverImage'
-                | 'lastBookModified'
-                | 'lastBookOpen'
-                | 'storageSource'
-              >;
-
-              if (!staticData.elementHtml) {
-                throw new Error(`Invalid bookdata - empty element html`);
-              }
-
-              const { characters, lastBookModified, lastBookOpen } =
-                BaseStorageHandler.getBookMetadata(filename);
-
-              bookObject.title = staticData.title;
-              bookObject.elementHtml = staticData.elementHtml;
-              bookObject.styleSheet = staticData.styleSheet || '';
-              bookObject.sections = staticData.sections || [];
-              bookObject.characters = BaseStorageHandler.getBookCharacters(
-                characters || 0,
-                bookObject.sections
-              );
-              bookObject.lastBookModified = lastBookModified;
-              bookObject.lastBookOpen = lastBookOpen;
-
-              if (staticData.htmlBackup) {
-                bookObject.htmlBackup = staticData.htmlBackup;
-              }
-            } else if (entry.filename.startsWith('blobs/')) {
-              const imagePath = entry.filename.replace('blobs/', '');
-              const existingBlobEntries = bookObject.blobs || {};
-
-              existingBlobEntries[imagePath] = await this.readFromZip(
-                new BlobWriter(BaseStorageHandler.getImageMimeTypeFromExtension(imagePath)),
-                'Unable to read blob data',
-                entry,
-                progressPerStep
-              );
-              bookObject.blobs = existingBlobEntries;
-            } else if (entry.filename.startsWith('cover.')) {
-              bookObject.coverImage = await this.readFromZip(
-                new BlobWriter(BaseStorageHandler.getImageMimeTypeFromExtension(entry.filename)),
-                'Unable to read cover data',
-                entry,
-                progressPerStep
-              );
-            }
-          } catch (error) {
-            limiter.clearQueue();
-            throw error;
-          }
-        })
-      );
-    }
-
-    await Promise.all(bookObjectTransforms);
-
-    return bookObject;
-  }
-
-  protected async extractAsJSON(entry: Entry, errorMessage: string, progressBase = 0.9) {
-    if (!entry) {
-      return undefined;
-    }
-
-    const jsonData = JSON.parse(
-      await this.readFromZip(new TextWriter(), errorMessage, entry, progressBase)
-    );
-
-    return jsonData;
   }
 
   protected setRootFile(filename: string, file: ExternalFile) {
