@@ -1,6 +1,5 @@
 """Browser acceptance against the built static app, without request interception."""
 import base64
-from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import io
 import json
@@ -39,9 +38,9 @@ class StaticHandler(SimpleHTTPRequestHandler):
 
     def translate_path(self, path):
         path = unquote(urlsplit(path).path)
+        if 'attack-probe' in path:
+            self.probes.append(path)
         if not path.startswith('/Reader-Web/'):
-            if 'attack-probe' in path:
-                self.probes.append(path)
             return str(ROOT / '__not_an_application_route__')
         relative = path[len('/Reader-Web/'):]
         if '..' in Path(relative).parts:
@@ -51,6 +50,12 @@ class StaticHandler(SimpleHTTPRequestHandler):
             if candidate.is_file():
                 return str(candidate)
         return str(ROOT / '404.html')
+
+    def copyfile(self, source, outputfile):
+        try:
+            super().copyfile(source, outputfile)
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # Normal cancellation when a test closes its browser context.
 
     def log_message(self, *args):
         pass
@@ -82,6 +87,12 @@ class ReaderBrowser(unittest.TestCase):
         StaticHandler.probes.clear()
 
     def tearDown(self):
+        # Keep diagnostics for this generated fixture only, never real account data.
+        diagnostics = Path('test-results')
+        diagnostics.mkdir(exist_ok=True)
+        name = self._testMethodName
+        self.page.screenshot(path=str(diagnostics / (name + '.png')), full_page=True)
+        (diagnostics / (name + '.html')).write_text(self.page.content())
         if self.errors:
             print('Browser errors:', self.errors)
         self.context.close()
@@ -93,10 +104,14 @@ class ReaderBrowser(unittest.TestCase):
             settings['fontFamilyGroupOne'] = font
         self.context.add_init_script('for (const [key,value] of Object.entries(' + json.dumps(settings) + ')) localStorage.setItem(key,value);')
         self.page.goto(self.origin + '/Reader-Web/manage')
-        self.page.locator('input[type=file]').set_input_files({'name': 'acceptance.epub', 'mimeType': 'application/epub+zip', 'buffer': epub()})
+        self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files(
+            {'name': 'acceptance.epub', 'mimeType': 'application/epub+zip', 'buffer': epub()})
         self.page.get_by_text(TITLE, exact=True).click(timeout=30000)
         expect(self.page.locator('.book-content')).to_be_visible(timeout=30000)
         self.page.wait_for_function('document.querySelector(".book-content ruby rt")?.textContent === "ほん"')
+
+    def first_font(self):
+        return self.page.locator('.book-content').evaluate('e => getComputedStyle(e).fontFamily.split(",")[0].trim().replace(/^"|"$/g, "")')
 
     def test_anonymous_navigation_without_backend(self):
         self.page.goto(self.origin + '/Reader-Web/manage')
@@ -112,22 +127,17 @@ class ReaderBrowser(unittest.TestCase):
         self.assertEqual(0, self.page.locator('.book-content script, .book-content iframe, .book-content [onerror]').count())
         self.assertFalse(self.page.evaluate('Boolean(window.bookAttack)'))
         self.assertEqual([], StaticHandler.probes)
-        family = self.page.locator('.book-content').evaluate('e => getComputedStyle(e).fontFamily')
-        self.assertTrue(family.startswith('YuKyokasho,'), family)
+        self.assertEqual('YuKyokasho', self.first_font())
         self.page.keyboard.press('ArrowLeft')
         expect(self.page.locator('.book-content')).to_be_visible()
 
     def test_continuous_horizontal_system_font_and_saved_explicit_font(self):
         self.open_book('continuous', 'horizontal-tb')
-        family = self.page.locator('.book-content').evaluate('e => getComputedStyle(e).fontFamily')
-        self.assertTrue(family.startswith('"YuKyokasho Yoko",'), family)
+        self.assertEqual('YuKyokasho Yoko', self.first_font())
         self.page.evaluate('localStorage.setItem("fontFamilyGroupOne", "Noto Serif JP")')
-        self.context.clear_cookies()
         self.page.reload()
         expect(self.page.locator('.book-content')).to_be_visible(timeout=30000)
-        family = self.page.locator('.book-content').evaluate('e => getComputedStyle(e).fontFamily')
-        self.assertIn('Noto Serif JP', family)
-        self.assertNotIn('YuKyokasho', family)
+        self.assertEqual('Noto Serif JP', self.first_font())
 
     def test_offline_reload_preserves_book_and_never_caches_account_requests(self):
         self.page.goto(self.origin + '/Reader-Web/manage')

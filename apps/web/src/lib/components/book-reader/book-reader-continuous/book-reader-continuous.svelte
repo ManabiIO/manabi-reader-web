@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { resolveReaderFontFamily } from '$lib/manabi/reader-fonts';
   import { browser } from '$app/environment';
   import {
     nextChapter$,
@@ -577,7 +578,9 @@
     let fontLoaded = false;
 
     try {
-      fontLoaded = document.fonts.check(`${fontSize}px ${fontFamilyGroupOne || 'Noto Serif JP'}`);
+      fontLoaded = document.fonts.check(
+        `${fontSize}px ${resolveReaderFontFamily(fontFamilyGroupOne, verticalMode)}`
+      );
     } catch (error: any) {
       logger.error(`Error checking Font Load: ${error.message}`);
       fontLoaded = true;
@@ -675,7 +678,7 @@
   style:padding-bottom={!verticalMode && firstDimensionMargin
     ? `${firstDimensionMargin}px`
     : undefined}
-  style:--font-family-serif={fontFamilyGroupOne}
+  style:--font-family-serif={resolveReaderFontFamily(fontFamilyGroupOne, verticalMode)}
   style:--font-family-sans-serif={fontFamilyGroupTwo}
   style:--font-weight={fontWeight}
   style:--book-content-hint-furigana-font-color={hintFuriganaFontColor}

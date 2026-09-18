@@ -5,6 +5,7 @@
  */
 
 export enum LocalFont {
+  AUTOMATIC = 'Manabi Automatic',
   KZUDGOTHIC = 'KZ UDGothic',
   KZUDMINCHO = 'KZ UDMincho',
   GENEI = 'Genei Koburi Mincho v5',
@@ -26,6 +27,7 @@ export interface UserFont {
 export const userFontsCacheName = 'ttu-userfonts';
 
 export const reservedFontNames = new Set([
+  'Manabi Automatic',
   'KZ UDGothic',
   'KZ UDMincho',
   'Genei Koburi Mincho v5',

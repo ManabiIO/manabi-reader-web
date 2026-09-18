@@ -8,16 +8,20 @@ const scopePath = new URL(worker.registration.scope).pathname;
 const prefix = `manabi-reader-web:${scopePath}:build:`;
 const cacheName = `${prefix}${version}`;
 const fallback = `${scopePath}404.html`;
-const assets = [...new Set([...build, ...files, ...prerendered, fallback])].filter(
+const allAssets = [...new Set([...build, ...files, ...prerendered, fallback])].filter(
   (path) => path.startsWith(scopePath) && !path.includes('/api/') && !path.includes('/accounts/')
 );
-const assetPaths = new Set(assets);
+const assetPaths = new Set(allAssets);
+const fontAsset = (path: string) => /\.(?:woff2?|ttf|otf)$/i.test(path);
+const assets = allAssets.filter(
+  (path) => !fontAsset(path) || /KleeOne-Regular\.[^/]+\.woff2$/.test(path)
+);
 
 worker.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(cacheName).then(async (cache) => {
       await cache.addAll(assets);
-      await worker.skipWaiting();
+      // Updates activate after existing clients release the old worker.
     })
   );
 });
@@ -56,6 +60,20 @@ worker.addEventListener('fetch', (event) => {
   if (!url.pathname.startsWith(scopePath)) return;
   if (request.cache === 'only-if-cached' && request.mode !== 'same-origin') return;
 
+  if (fontAsset(url.pathname) && assetPaths.has(url.pathname)) {
+    event.respondWith(
+      (async () => {
+        const cache = await caches.open(cacheName);
+        const saved = await cache.match(url.pathname);
+        if (saved) return saved;
+        const response = await fetch(request);
+        if (response.ok && response.type === 'basic')
+          await cache.put(url.pathname, response.clone());
+        return response;
+      })()
+    );
+    return;
+  }
   if (assetPaths.has(url.pathname)) {
     event.respondWith(
       caches

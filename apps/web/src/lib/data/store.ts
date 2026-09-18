@@ -70,7 +70,7 @@ export const customThemes$ = writableObjectLocalStorageSubject<Record<string, Th
 export const multiplier$ = writableNumberLocalStorageSubject()('autoScrollMultiplier', 20);
 export const fontFamilyGroupOne$ = writableStringLocalStorageSubject()(
   'fontFamilyGroupOne',
-  'Noto Serif JP'
+  'Manabi Automatic'
 );
 export const fontFamilyGroupTwo$ = writableStringLocalStorageSubject()(
   'fontFamilyGroupTwo',

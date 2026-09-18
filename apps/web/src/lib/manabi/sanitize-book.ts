@@ -152,6 +152,12 @@ export function sanitizeBookCss(value: string | undefined): string {
 
 function allowedImage(value: string) {
   if (
+    value.startsWith('data:image/gif;ttu:') &&
+    value.endsWith(';base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==')
+  )
+    return true;
+  if (value.startsWith('ttu:') && value.length <= 4096) return true;
+  if (
     /^data:image\/(?:png|jpeg|gif|webp|avif);(?:[A-Za-z0-9_.:/;-]+;)?base64,[A-Za-z0-9+/=\s]+$/i.test(
       value
     )
@@ -166,10 +172,17 @@ function allowedImage(value: string) {
   }
   return false;
 }
+function hasControlsOrSpace(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 32 || code === 127) return true;
+  }
+  return false;
+}
 function archiveReference(value: string) {
-  // Only archive-relative paths and fragments survive the import pass. External
-  // or root-relative URLs would make detached image elements issue live requests.
-  return value.length <= 4096 && !/^[\s/\\]|[\x00-\x20\x7f:]|\\/.test(value);
+  // Archive-relative paths survive only the inert import pass. The second pass
+  // permits images only after they have been resolved to actual archive blobs.
+  return value.length <= 4096 && !hasControlsOrSpace(value) && !/^[\s/\\]|[:\\]/.test(value);
 }
 
 export function sanitizeBookHtml(html: string, importing = false, wholeDocument = false): string {
@@ -183,7 +196,8 @@ export function sanitizeBookHtml(html: string, importing = false, wholeDocument 
     }
     if (['src', 'href', 'xlink:href'].includes(attribute)) {
       const value = data.attrValue;
-      const fragment = value.startsWith('#') && !/[\x00-\x20\x7f]/.test(value);
+      const fragment =
+        ['a', 'use'].includes(tag) && value.startsWith('#') && !hasControlsOrSpace(value);
       const image = ['img', 'image'].includes(tag) && allowedImage(value);
       data.keepAttr = fragment || image || (importing && archiveReference(value));
     }
@@ -192,6 +206,8 @@ export function sanitizeBookHtml(html: string, importing = false, wholeDocument 
     WHOLE_DOCUMENT: wholeDocument,
     FORBID_TAGS: forbiddenTags,
     FORBID_ATTR: [
+      'background',
+      'poster',
       'srcdoc',
       'srcset',
       'ping',
@@ -204,7 +220,8 @@ export function sanitizeBookHtml(html: string, importing = false, wholeDocument 
     ],
     // These attributes are validated by the stricter hook above. In particular,
     // same-origin blob image URLs are legitimate after book-image substitution.
-    ADD_URI_SAFE_ATTR: ['src', 'href', 'xlink:href'],
+    ALLOWED_URI_REGEXP:
+      /^(?:#[\s\S]*|blob:https?:\/\/[\s\S]*|data:image\/(?:png|jpeg|gif|bmp|webp|avif);[\s\S]*|ttu:[\s\S]*|[^:]+)$/i,
     ALLOW_UNKNOWN_PROTOCOLS: false,
     SANITIZE_DOM: true,
     RETURN_TRUSTED_TYPE: false

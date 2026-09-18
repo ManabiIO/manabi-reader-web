@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { resolveReaderFontFamily } from '$lib/manabi/reader-fonts';
   import { browser } from '$app/environment';
   import { nextChapter$ } from '$lib/components/book-reader/book-toc/book-toc';
   import HtmlRenderer from '$lib/components/html-renderer.svelte';
@@ -515,7 +516,9 @@
     let fontLoaded = false;
 
     try {
-      fontLoaded = document.fonts.check(`${fontSize}px ${fontFamilyGroupOne || 'Noto Serif JP'}`);
+      fontLoaded = document.fonts.check(
+        `${fontSize}px ${resolveReaderFontFamily(fontFamilyGroupOne, verticalMode)}`
+      );
     } catch (error: any) {
       logger.error(`Error checking Font Load: ${error.message}`);
       fontLoaded = true;
@@ -624,7 +627,7 @@
     }
   }
 
-  function onSwipe(ev: CustomEvent<{ direction: 'top' | 'right' | 'left' | 'bottom' }>) {
+  function onSwipe(ev: CustomEvent<{ direction: 'top' | 'right' | 'left' | 'bottom' | null }>) {
     if (!concretePageManager || $skipKeyDownListener$) return;
     if (ev.detail.direction !== 'left' && ev.detail.direction !== 'right') return;
     const swipeLeft = ev.detail.direction === 'left';
@@ -693,7 +696,7 @@
     : undefined}
   style:max-width={width ? `${width}px` : undefined}
   style:max-height={verticalMode && height ? `${height}px` : undefined}
-  style:--font-family-serif={fontFamilyGroupOne}
+  style:--font-family-serif={resolveReaderFontFamily(fontFamilyGroupOne, verticalMode)}
   style:--font-family-sans-serif={fontFamilyGroupTwo}
   style:--font-weight={fontWeight}
   style:--book-content-hint-furigana-font-color={hintFuriganaFontColor}

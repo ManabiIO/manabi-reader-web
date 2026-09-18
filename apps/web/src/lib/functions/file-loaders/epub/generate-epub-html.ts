@@ -14,6 +14,7 @@ import { ImportHTMLFixMode } from '$lib/data/import-html-fix-mode';
 import { getCharacterCount } from '$lib/functions/get-character-count';
 import { getParagraphNodes } from '../../../components/book-reader/get-paragraph-nodes';
 import path from 'path-browserify';
+import { sanitizeBookHtml } from '$lib/manabi/sanitize-book';
 
 export const prependValue = 'ttu-';
 
@@ -248,7 +249,7 @@ export default function generateEpubHtml(
     if (bodyId) {
       childBodyDiv.id = bodyId;
     }
-    childBodyDiv.innerHTML = innerHtml;
+    childBodyDiv.innerHTML = sanitizeBookHtml(innerHtml);
 
     const childHtmlDiv = document.createElement('div');
     childHtmlDiv.className = `ttu-book-html-wrapper ${htmlClass}`;

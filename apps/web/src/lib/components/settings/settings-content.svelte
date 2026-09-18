@@ -541,6 +541,7 @@
       <div slot="header" class="flex items-center">
         <SettingsFontSelector
           availableFonts={[
+            LocalFont.AUTOMATIC,
             LocalFont.NOTOSERIFJP,
             LocalFont.KZUDMINCHO,
             LocalFont.GENEI,

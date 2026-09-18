@@ -12,8 +12,6 @@ jobs:
   static-build:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    outputs:
-      generated: ${{ steps.prepared.outputs.generated }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -29,31 +27,8 @@ jobs:
         with:
           python-version: '3.13'
       - run: pnpm install --frozen-lockfile
-      - name: Prepare asserted source repairs for review
-        run: |
-          python tools/integration-repair.py
-          pnpm --dir apps/web exec svelte-kit sync
-          python - <<'PY'
-          import json, pathlib, subprocess
-          paths = json.loads(pathlib.Path('review/changed-paths.json').read_text())
-          paths += ['apps/web/src/manabi-browser-types.d.ts', 'apps/web/src/lib/manabi/reader-fonts.ts']
-          code = [p for p in paths if p.endswith(('.ts','.js','.svelte'))]
-          subprocess.run(['pnpm','exec','eslint','--fix',*code], check=False)
-          subprocess.run(['pnpm','exec','prettier','--write',*code], check=True)
-          pathlib.Path('review/generated-files.json').write_text(json.dumps([{'path':p,'content':pathlib.Path(p).read_text()} for p in paths]))
-          PY
-      - id: prepared
-        run: |
-          test -f review/generated-files.json
-          echo 'generated=true' >> "$GITHUB_OUTPUT"
-          tar -czf "$RUNNER_TEMP/reader-source.tar.gz" --exclude=.git --exclude=node_modules --exclude=assets --exclude=static --exclude=.svelte-kit --exclude=build --exclude=review .
-          cp "$RUNNER_TEMP/reader-source.tar.gz" review/
-      - uses: actions/upload-artifact@v4
-        with:
-          name: reader-generated-review
-          path: review/
-          retention-days: 1
-      - name: Type-check application source
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - name: Type-check committed application source
         run: pnpm --dir apps/web check
       - name: Compile production static artifact
         env:
@@ -63,52 +38,13 @@ jobs:
         run: |
           python -m pip install 'playwright==1.55.0'
           python -m playwright install --with-deps chromium
-          python tests/browser/test_static_reader.py
+          set -o pipefail
+          python tests/browser/test_static_reader.py 2>&1 | tee browser-results.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: reader-static
-          path: apps/web/build
-          retention-days: 1
-  record-generated-blobs:
-    needs: static-build
-    if: always() && needs.static-build.outputs.generated == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: reader-generated-review
-      - name: Store immutable reviewed source objects without updating branches
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-        run: |
-          python3 - <<'PY'
-          import os, json, hashlib, pathlib, urllib.request
-          repo = os.environ['REPOSITORY']
-          assert repo == 'ManabiIO/manabi-reader-web'
-          entries = json.loads(pathlib.Path('generated-files.json').read_text())
-          assert type(entries) is list and len(entries) <= 50
-          result = []
-          for entry in entries:
-              path, content = entry['path'], entry['content']
-              assert type(path) is str and path.startswith('apps/web/') and '..' not in path.split('/')
-              assert type(content) is str and len(content.encode()) < 1024 * 1024
-              raw = content.encode()
-              expected = hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()
-              req = urllib.request.Request('https://api.github.com/repos/' + repo + '/git/blobs', data=json.dumps({'content':content,'encoding':'utf-8'}).encode(), headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Content-Type':'application/json'}, method='POST')
-              with urllib.request.urlopen(req, timeout=30) as response:
-                  actual = json.load(response)['sha']
-              assert actual == expected
-              result.append({'path':path,'sha':actual})
-          print(json.dumps(result))
-          pathlib.Path('generated-blobs.json').write_text(json.dumps(result))
-          PY
-      - uses: actions/upload-artifact@v4
-        with:
-          name: reader-generated-blobs
-          path: generated-blobs.json
-          retention-days: 1
+          name: reader-browser-results
+          path: |
+            browser-results.log
+            test-results/
+          retention-days: 3
