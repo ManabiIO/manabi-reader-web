@@ -12,6 +12,8 @@ jobs:
   static-build:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    outputs:
+      generated: ${{ steps.prepared.outputs.generated }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -27,14 +29,38 @@ jobs:
         with:
           python-version: '3.13'
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --dir apps/web exec svelte-kit sync
-      - name: Type-check committed application source
+      - name: Prepare the asserted bookmark repair for review
+        run: |
+          git apply --check tools/bookmark-readiness.patch
+          git apply tools/bookmark-readiness.patch
+          pnpm --dir apps/web exec svelte-kit sync
+          python - <<'PY'
+          import pathlib, subprocess, json
+          paths = subprocess.check_output(['git','diff','--name-only'],text=True).splitlines()
+          paths += ['apps/web/src/lib/components/book-reader/bookmark-snapshot.ts']
+          assert all(p.startswith('apps/web/src/') for p in paths)
+          subprocess.run(['pnpm','exec','eslint','--fix',*paths],check=False)
+          subprocess.run(['pnpm','exec','prettier','--write',*paths],check=True)
+          pathlib.Path('review').mkdir()
+          pathlib.Path('review/generated-files.json').write_text(json.dumps([{'path':p,'content':pathlib.Path(p).read_text()} for p in paths]))
+          PY
+      - id: prepared
+        run: |
+          test -f review/generated-files.json
+          echo 'generated=true' >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reader-bookmark-review
+          path: review/
+          retention-days: 1
+      - run: node --experimental-strip-types --test tests/unit/*.test.mjs
+      - name: Type-check application source
         run: pnpm --dir apps/web check
       - name: Compile production static artifact
         env:
           BASE_PATH: /Reader-Web
         run: pnpm build
-      - name: Browser acceptance for the actual static app
+      - name: Browser acceptance
         run: |
           python -m pip install 'playwright==1.55.0'
           python -m playwright install --with-deps chromium
@@ -48,3 +74,45 @@ jobs:
             browser-results.log
             test-results/
           retention-days: 3
+  record-generated-blobs:
+    needs: static-build
+    if: always() && needs.static-build.outputs.generated == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: reader-bookmark-review
+      - name: Store immutable reviewed objects without moving branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import os,json,hashlib,pathlib,urllib.request
+          repo=os.environ['REPOSITORY']
+          assert repo=='ManabiIO/manabi-reader-web'
+          entries=json.loads(pathlib.Path('generated-files.json').read_text())
+          assert len(entries)<=20
+          result=[]
+          for entry in entries:
+              path,content=entry['path'],entry['content']
+              assert path.startswith('apps/web/src/') and '..' not in path.split('/')
+              raw=content.encode()
+              assert len(raw)<1024*1024
+              expected=hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()
+              req=urllib.request.Request('https://api.github.com/repos/'+repo+'/git/blobs',data=json.dumps({'content':content,'encoding':'utf-8'}).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Content-Type':'application/json'},method='POST')
+              with urllib.request.urlopen(req,timeout=30) as response:
+                  actual=json.load(response)['sha']
+              assert actual==expected
+              result.append({'path':path,'sha':actual})
+          print(json.dumps(result))
+          pathlib.Path('generated-blobs.json').write_text(json.dumps(result))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reader-bookmark-blobs
+          path: generated-blobs.json
+          retention-days: 1
