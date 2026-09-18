@@ -1,0 +1,102 @@
+name: Reader foundations qualification
+on:
+  push:
+    branches: [research/reader-foundations-20260918]
+    paths: [.github/workflows/reader-foundations-research.yml]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: reader-foundations-research
+  cancel-in-progress: true
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false, fetch-depth: 0}
+      - uses: actions/setup-node@v4
+        with: {node-version: '24.21.0'}
+      - uses: actions/download-artifact@v4
+        with:
+          repository: ManabiIO/manabitan
+          run-id: 35383208643
+          name: reader-system-typography-chromium
+          github-token: ${{ github.token }}
+          path: prior-input
+      - name: Compose checked runtime and framework group
+        run: python3 research/compose-foundations.py
+      - name: Resolve and freeze the intentional framework upgrade
+        run: |
+          npm install --global pnpm@12.3.4
+          pnpm install --lockfile-only --no-frozen-lockfile > evidence/lock.log 2>&1
+          pnpm install --frozen-lockfile > evidence/install.log 2>&1
+          pnpm --dir apps/web exec svelte-kit sync
+      - name: Type check
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          pnpm --dir apps/web check 2>&1 | tee evidence/typecheck.log
+      - name: Static subpath production build
+        continue-on-error: true
+        env: {BASE_PATH: /Reader-Web}
+        run: |
+          set -o pipefail
+          pnpm build 2>&1 | tee evidence/build.log
+      - name: Retain exact composed text source and resolved dependencies
+        if: always()
+        run: |
+          mkdir -p evidence
+          python3 - <<'PY'
+          import json,pathlib,subprocess
+          base='f18c41b2c4674fd67600c41a6ea1b86f165e8b7f'
+          subprocess.run(['git','add','-N','--','apps/web','test/reader','.node-version'],check=True)
+          paths=subprocess.check_output(['git','diff','--name-only',base],text=True).splitlines()
+          paths=[p for p in paths if not p.startswith('research/') and p!='.github/workflows/reader-foundations-research.yml']
+          entries=[{'path':p,'content':pathlib.Path(p).read_text() if pathlib.Path(p).is_file() else None} for p in paths]
+          pathlib.Path('evidence/toolchain-source.json').write_text(json.dumps(entries))
+          PY
+          if test -d node_modules; then tar -czf evidence/toolchain-dependencies.tar.gz node_modules apps/web/node_modules; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reader-foundations-evidence
+          path: evidence/
+          retention-days: 3
+  record:
+    needs: qualify
+    if: always() && needs.qualify.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions: {contents: write}
+    steps:
+      - uses: actions/download-artifact@v4
+        with: {name: reader-foundations-evidence}
+      - name: Record immutable source blobs only
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          python3 - <<'PY'
+          import os,json,hashlib,pathlib,urllib.request
+          memo={}
+          for phase in ('foundations','toolchain'):
+            files=json.loads(pathlib.Path(phase+'-source.json').read_text()); assert len(files)<=150
+            result=[]
+            for e in files:
+              p=e['path'];c=e['content']
+              assert '..' not in p.split('/') and not p.startswith('/') and (p.startswith(('apps/web/','test/reader/','.github/')) or p in ('package.json','pnpm-lock.yaml','pnpm-workspace.yaml','.node-version'))
+              if c is None: result.append({'path':p,'mode':'100644','type':'blob','sha':None});continue
+              raw=c.encode();assert len(raw)<1024*1024
+              sha=hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()
+              if sha not in memo:
+                r=urllib.request.Request('https://api.github.com/repos/ManabiIO/manabi-reader-web/git/blobs',data=json.dumps({'content':c,'encoding':'utf-8'}).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Content-Type':'application/json'},method='POST')
+                with urllib.request.urlopen(r,timeout=30) as response: actual=json.load(response)['sha']
+                assert actual==sha;memo[sha]=True
+              result.append({'path':p,'sha':sha,'mode':'100644','type':'blob'})
+            pathlib.Path(phase+'-blobs.json').write_text(json.dumps(result));print(phase,json.dumps(result))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reader-foundations-blobs
+          path: '*-blobs.json'
+          retention-days: 7
