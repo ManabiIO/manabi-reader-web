@@ -30,11 +30,18 @@
       const format = ext === 'otf' ? 'opentype' : ext === 'ttf' ? 'truetype' : ext;
       // Font names come from imported metadata. JSON string quoting prevents CSS
       // string termination, and only local user-font cache paths are accepted.
-      if (!/^\/(?:Reader-Web\/)?userfonts\//.test(userFont.path) || !/^(?:woff2?|ttf|otf)$/.test(ext)) continue;
+      if (
+        !/^\/(?:Reader-Web\/)?userfonts\//.test(userFont.path) ||
+        !/^(?:woff2?|ttf|otf)$/.test(ext)
+      )
+        continue;
       styleContent += `@font-face{font-family:${JSON.stringify(userFont.name)};font-style:normal;font-weight:400;font-display:swap;src:url(${JSON.stringify(userFont.path)}) format(${JSON.stringify(format)})}\n`;
     }
     let styleElement = document.getElementById(userFontsCacheName);
-    if (!styleContent) { styleElement?.remove(); return; }
+    if (!styleContent) {
+      styleElement?.remove();
+      return;
+    }
     const textNode = document.createTextNode(styleContent);
     if (styleElement) styleElement.replaceChildren(textNode);
     else {
@@ -58,16 +65,31 @@
 </script>
 
 <svelte:window bind:online={$isOnline$} />
-<MetaTags title="Manabi Reader" description="Local-first ebook reading with optional account and cloud-library sync"
+<MetaTags
+  title="Manabi Reader"
+  description="Local-first ebook reading with optional account and cloud-library sync"
   canonical="{basePath}{path !== '/' ? path : ''}"
-  openGraph={{ type: 'website', images: [{ url: `${basePath}${base}/icons/regular-icon@512x512.png`, width: 512, height: 512 }] }} />
+  openGraph={{
+    type: 'website',
+    images: [{ url: `${basePath}${base}/icons/regular-icon@512x512.png`, width: 512, height: 512 }]
+  }}
+/>
 <ManabiRuntime />
 <slot />
 {#if dialogs.length > 0}
   <div class="writing-horizontal-tb fixed inset-0 z-50 h-full w-full" style:z-index={zIndex}>
-    <div tabindex="0" role="button" class="tap-highlight-transparent absolute inset-0 bg-black/[.32]"
-      on:click={() => { if (!clickOnCloseDisabled) closeAllDialogs(); }} on:keyup={dummyFn} />
-    <div class="relative top-1/2 left-1/2 inline-block max-w-[80vw] -translate-x-1/2 -translate-y-1/2">
+    <div
+      tabindex="0"
+      role="button"
+      class="tap-highlight-transparent absolute inset-0 bg-black/[.32]"
+      on:click={() => {
+        if (!clickOnCloseDisabled) closeAllDialogs();
+      }}
+      on:keyup={dummyFn}
+    />
+    <div
+      class="relative top-1/2 left-1/2 inline-block max-w-[80vw] -translate-x-1/2 -translate-y-1/2"
+    >
       {#each dialogs as dialog}
         {#if typeof dialog.component === 'string'}
           {@html dialog.component}

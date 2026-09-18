@@ -23,14 +23,16 @@ worker.addEventListener('install', (event) => {
 });
 
 worker.addEventListener('activate', (event) => {
-  event.waitUntil((async () => {
-    // Manabi also serves a homepage and other apps on this origin. Never delete
-    // their caches, nor upstream user-imported fonts.
-    for (const key of await caches.keys()) {
-      if (key.startsWith(prefix) && key !== cacheName) await caches.delete(key);
-    }
-    await worker.clients.claim();
-  })());
+  event.waitUntil(
+    (async () => {
+      // Manabi also serves a homepage and other apps on this origin. Never delete
+      // their caches, nor upstream user-imported fonts.
+      for (const key of await caches.keys()) {
+        if (key.startsWith(prefix) && key !== cacheName) await caches.delete(key);
+      }
+      await worker.clients.claim();
+    })()
+  );
 });
 
 worker.addEventListener('fetch', (event) => {
@@ -42,35 +44,47 @@ worker.addEventListener('fetch', (event) => {
   // Existing imported fonts are virtual, local cache entries. Preserve their
   // old URLs without intercepting any other root-level application requests.
   if (url.pathname.startsWith('/userfonts/') || url.pathname.startsWith(`${scopePath}userfonts/`)) {
-    event.respondWith(caches.open(userFontsCacheName).then(async (cache) =>
-      (await cache.match(url.pathname)) ?? new Response(null, { status: 404 })
-    ));
+    event.respondWith(
+      caches
+        .open(userFontsCacheName)
+        .then(
+          async (cache) => (await cache.match(url.pathname)) ?? new Response(null, { status: 404 })
+        )
+    );
     return;
   }
   if (!url.pathname.startsWith(scopePath)) return;
   if (request.cache === 'only-if-cached' && request.mode !== 'same-origin') return;
 
   if (assetPaths.has(url.pathname)) {
-    event.respondWith(caches.open(cacheName).then(async (cache) =>
-      (await cache.match(url.pathname)) ?? fetch(request)
-    ));
+    event.respondWith(
+      caches
+        .open(cacheName)
+        .then(async (cache) => (await cache.match(url.pathname)) ?? fetch(request))
+    );
     return;
   }
   if (request.mode === 'navigate') {
-    event.respondWith((async () => {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
-      try {
-        return await fetch(request, { signal: controller.signal });
-      } catch {
-        const cache = await caches.open(cacheName);
-        return (await cache.match(fallback)) ?? new Response('Reader is not yet available offline.', {
-          status: 503, headers: { 'Content-Type': 'text/plain' }
-        });
-      } finally {
-        clearTimeout(timeout);
-      }
-    })());
+    event.respondWith(
+      (async () => {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        try {
+          return await fetch(request, { signal: controller.signal });
+        } catch {
+          const cache = await caches.open(cacheName);
+          return (
+            (await cache.match(fallback)) ??
+            new Response('Reader is not yet available offline.', {
+              status: 503,
+              headers: { 'Content-Type': 'text/plain' }
+            })
+          );
+        } finally {
+          clearTimeout(timeout);
+        }
+      })()
+    );
   }
   // No dynamic request caching: account/API responses and provider credentials
   // are never intercepted, even while a Reader page controls the client.

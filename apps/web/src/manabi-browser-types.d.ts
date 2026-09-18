@@ -4,6 +4,8 @@
 import 'svelte/elements';
 declare module 'svelte/elements' {
   interface HTMLAttributes<T> {
-    'on:swipe'?: (event: CustomEvent<{ direction: 'top' | 'right' | 'left' | 'bottom' }>) => void;
+    'on:swipe'?: {
+      handler(event: CustomEvent<{ direction: 'top' | 'right' | 'left' | 'bottom' | null }> & { currentTarget: EventTarget & T }): void;
+    }['handler'];
   }
 }

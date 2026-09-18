@@ -12,13 +12,10 @@ jobs:
   static-build:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    outputs:
-      generated: ${{ steps.prepared.outputs.generated }}
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          fetch-depth: 0
       - uses: pnpm/action-setup@v6.1.0
         with:
           version: '12.3.4'
@@ -26,101 +23,22 @@ jobs:
         with:
           node-version: '24.21.0'
           cache: pnpm
-      - name: Prepare reviewed dependency and type fixes
-        run: |
-          python3 tools/prepare-reader-review.py
-          pnpm install --lockfile-only --ignore-scripts
-          pnpm install --frozen-lockfile
-          pnpm --dir apps/web exec svelte-kit sync
-      - name: Normalize changed source for review
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: |
-          python3 - <<'PY'
-          import os, subprocess, pathlib, json, re
-          base = os.environ['BASE_SHA']
-          assert re.fullmatch('[0-9a-f]{40}', base)
-          paths = subprocess.check_output(['git','diff','--name-only','--diff-filter=ACM',base], text=True).splitlines()
-          paths = [p for p in paths if p.startswith('apps/web/') or p in ('package.json','pnpm-lock.yaml','pnpm-workspace.yaml','.github/workflows/ci.yml')]
-          code = [p for p in paths if p.startswith('apps/web/') and p.endswith(('.ts','.js','.svelte'))]
-          if code:
-              subprocess.run(['pnpm','exec','eslint','--fix',*code], check=False)
-          formatted = [p for p in paths if p.endswith(('.ts','.js','.svelte','.json','.yml','.yaml'))]
-          if formatted:
-              subprocess.run(['pnpm','exec','prettier','--write',*formatted], check=True)
-          output = [{'path':path,'content':pathlib.Path(path).read_text()} for path in sorted(set(paths + ['pnpm-lock.yaml']))]
-          pathlib.Path('review').mkdir()
-          pathlib.Path('review/generated-files.json').write_text(json.dumps(output))
-          PY
-      - id: prepared
-        run: |
-          test -f review/generated-files.json
-          echo 'generated=true' >> "$GITHUB_OUTPUT"
-          tar -czf "$RUNNER_TEMP/reader-source.tar.gz" --exclude=.git --exclude=node_modules --exclude=assets --exclude=static --exclude=.svelte-kit --exclude=build --exclude=review .
-          cp "$RUNNER_TEMP/reader-source.tar.gz" review/
-      - uses: actions/upload-artifact@v4
-        with:
-          name: reader-generated-review
-          path: review/
-          retention-days: 1
-      - name: Type-check the integrated Reader
-        run: pnpm --dir apps/web check
+      - run: pnpm install --frozen-lockfile
       - name: Compile the production subpath artifact
         env:
           BASE_PATH: /Reader-Web
         run: pnpm build
-      - name: Check static deployment shape
+      - name: Verify static deployment shape
         run: |
           test -f apps/web/build/404.html
           test -f apps/web/build/service-worker.js
           test -f apps/web/build/manifest.webmanifest
           test -d apps/web/build/_app/immutable
+          ! grep -q '"/_app/' apps/web/build/404.html
       - uses: actions/upload-artifact@v4
         with:
           name: reader-static
           path: apps/web/build
           retention-days: 3
-  record-generated-blobs:
-    needs: static-build
-    if: always() && needs.static-build.outputs.generated == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: reader-generated-review
-      - name: Record immutable reviewed blobs, without moving branches
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-        run: |
-          python3 - <<'PY'
-          import os, json, hashlib, pathlib, urllib.request
-          repo = os.environ['REPOSITORY']
-          assert repo == 'ManabiIO/manabi-reader-web'
-          entries = json.loads(pathlib.Path('generated-files.json').read_text())
-          assert type(entries) is list and len(entries) <= 100
-          result = []
-          for entry in entries:
-              path, content = entry['path'], entry['content']
-              assert type(path) is str and not path.startswith('/') and '..' not in path.split('/')
-              assert path.startswith('apps/web/') or path in ('pnpm-lock.yaml','package.json','pnpm-workspace.yaml','.github/workflows/ci.yml')
-              assert type(content) is str and len(content.encode()) < 1024 * 1024
-              raw = content.encode()
-              expected = hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()
-              request = urllib.request.Request('https://api.github.com/repos/' + repo + '/git/blobs',
-                  data=json.dumps({'content': content, 'encoding':'utf-8'}).encode(),
-                  headers={'Authorization':'Bearer ' + os.environ['GH_TOKEN'], 'Content-Type':'application/json', 'Accept':'application/vnd.github+json'}, method='POST')
-              with urllib.request.urlopen(request, timeout=30) as response: actual = json.load(response)['sha']
-              assert actual == expected
-              result.append({'path':path,'sha':actual})
-              print(json.dumps(result[-1]), flush=True)
-          pathlib.Path('generated-blobs.json').write_text(json.dumps(result))
-          PY
-      - uses: actions/upload-artifact@v4
-        with:
-          name: reader-generated-blobs
-          path: generated-blobs.json
-          retention-days: 1
+      - name: Type-check application source
+        run: pnpm --dir apps/web check

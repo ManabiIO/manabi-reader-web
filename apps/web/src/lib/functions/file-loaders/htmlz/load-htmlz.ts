@@ -12,7 +12,11 @@ import getHtmlzCoverImageFilename from './get-htmlz-cover-image-filename';
 import reduceObjToBlobs from '../utils/reduce-obj-to-blobs';
 import { sanitizeArchiveMarkup } from '$lib/manabi/sanitize-book';
 
-export default async function loadHtmlz(file: File, document: Document, lastBookModified: number): Promise<LoadData> {
+export default async function loadHtmlz(
+  file: File,
+  document: Document,
+  lastBookModified: number
+): Promise<LoadData> {
   const data = sanitizeArchiveMarkup(await extractHtmlz(file));
   const element = getFormattedElementHtmlz(data, document);
   const metadata = new XMLParser().parse(data['metadata.opf'])?.package?.metadata;
@@ -22,7 +26,14 @@ export default async function loadHtmlz(file: File, document: Document, lastBook
   const coverImage = coverImageFilename ? blobData[coverImageFilename] : undefined;
   if (coverImageFilename) delete blobData[coverImageFilename];
   return {
-    title, hasThumb: true, styleSheet: data['style.css'], elementHtml: element.innerHTML,
-    blobs: blobData, coverImage, characters: 0, lastBookModified, lastBookOpen: 0
+    title,
+    hasThumb: true,
+    styleSheet: data['style.css'],
+    elementHtml: element.innerHTML,
+    blobs: blobData,
+    coverImage,
+    characters: 0,
+    lastBookModified,
+    lastBookOpen: 0
   };
 }

@@ -31,17 +31,31 @@ export default async function loadEpub(
     ? contents['opf:package']['opf:metadata']
     : contents.package.metadata;
   if (metadata) {
-    const languageValues = Array.isArray(metadata['dc:language']) ? metadata['dc:language'] : [metadata['dc:language']];
-    const titleValues = Array.isArray(metadata['dc:title']) ? metadata['dc:title'] : [metadata['dc:title']];
+    const languageValues = Array.isArray(metadata['dc:language'])
+      ? metadata['dc:language']
+      : [metadata['dc:language']];
+    const titleValues = Array.isArray(metadata['dc:title'])
+      ? metadata['dc:title']
+      : [metadata['dc:title']];
     for (const dcTitle of titleValues) {
-      if (typeof dcTitle === 'string') { displayData.title = dcTitle; break; }
-      if (dcTitle && typeof dcTitle['#text'] === 'string') { displayData.title = dcTitle['#text']; break; }
+      if (typeof dcTitle === 'string') {
+        displayData.title = dcTitle;
+        break;
+      }
+      if (dcTitle && typeof dcTitle['#text'] === 'string') {
+        displayData.title = dcTitle['#text'];
+        break;
+      }
     }
     const languages: string[] = [];
     for (const dcLanguage of languageValues) {
       const value = typeof dcLanguage === 'string' ? dcLanguage : dcLanguage?.['#text'];
       if (typeof value === 'string') {
-        try { languages.push(...Intl.getCanonicalLocales(value.trim())); } catch { /* Ignore invalid language metadata. */ }
+        try {
+          languages.push(...Intl.getCanonicalLocales(value.trim()));
+        } catch {
+          /* Ignore invalid language metadata. */
+        }
       }
     }
     displayData.language = languages[0] || '';
