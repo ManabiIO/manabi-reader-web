@@ -1,3 +1,4 @@
+import process from 'node:process';
 import adapter from '@sveltejs/adapter-static';
 import preprocess from 'svelte-preprocess';
 
@@ -15,7 +16,17 @@ const config = {
   preprocess: [preprocess({ postcss: true })],
   kit: {
     paths: { base, relative: false },
-    adapter: adapter({ fallback: '404.html', strict: true })
+    adapter: adapter({ fallback: '404.html', strict: true }),
+    csp: {
+      mode: 'hash',
+      directives: {
+        'script-src': ['self'],
+        'object-src': ['none'],
+        'base-uri': ['none'],
+        'worker-src': ['self', 'blob:'],
+        'form-action': ['self']
+      }
+    }
   }
 };
 

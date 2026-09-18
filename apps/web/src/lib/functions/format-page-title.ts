@@ -3,9 +3,6 @@
  * Copyright (c) 2026, ッツ Reader Authors
  * All rights reserved.
  */
-
 export function formatPageTitle(title: string) {
-  const appName = 'ッツ Ebook Reader';
-  if (!title) return appName;
-  return `${title} | ${appName}`;
+  return title ? `${title} | Manabi Reader` : 'Manabi Reader';
 }

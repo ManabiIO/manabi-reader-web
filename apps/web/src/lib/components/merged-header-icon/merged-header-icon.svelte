@@ -7,85 +7,45 @@
   import Popover from '$lib/components/popover/popover.svelte';
   import { baseIconClasses } from '$lib/css-classes';
   import { pagePath } from '$lib/data/env';
-  import { dummyFn } from '$lib/functions/utils';
 
   export let leavePageLink = '';
   export let items = [mergeEntries.MANAGE, mergeEntries.SETTINGS, mergeEntries.BUG_REPORT];
   export let mergeTo = mergeEntries.MANAGE;
   export let disableRouteNavigation = false;
-
   const dispatch = createEventDispatcher<{ action: string }>();
-
-  const actionItems = items.filter((item) => item.routeId !== $page.route.id);
-
+  // Add the new account/library destination to real navigation menus, not to
+  // import or other action-only popovers. Existing caller contracts are retained.
+  const navigationItems = !disableRouteNavigation && items.some((item) => ['/manage', '/settings'].includes(item.routeId)) &&
+    !items.some((item) => item.routeId === '/connections') ? [...items, mergeEntries.CONNECTIONS] : items;
+  const actionItems = navigationItems.filter((item) => item.routeId !== $page.route.id);
   let menuElm: Popover;
-
   function handleActionMenuItem(target: string) {
     dispatch('action', target);
-
-    if (
-      !(target === mergeEntries.FILE_IMPORT.label || target === mergeEntries.FOLDER_IMPORT.label)
-    ) {
-      menuElm.toggleOpen();
-    }
-
+    if (!(target === mergeEntries.FILE_IMPORT.label || target === mergeEntries.FOLDER_IMPORT.label)) menuElm?.toggleOpen();
     if (!disableRouteNavigation) {
       const action = actionItems.find((item) => item.label === target);
-
-      if (action?.routeId) {
-        goto(`${pagePath}${action.routeId}`);
-      }
+      if (action?.routeId) goto(`${pagePath}${action.routeId}`);
     }
   }
-
-  if (actionItems.length === 1 && actionItems[0].routeId) {
-    leavePageLink = actionItems[0].routeId;
-  }
+  if (actionItems.length === 1 && actionItems[0].routeId) leavePageLink = `${pagePath}${actionItems[0].routeId}`;
 </script>
 
 {#if leavePageLink}
-  <a href={leavePageLink}>
-    <div class={baseIconClasses}>
-      <Fa icon={mergeTo.icon} />
-    </div>
-  </a>
+  <a href={leavePageLink}><div class={baseIconClasses}><Fa icon={mergeTo.icon} /></div></a>
 {:else}
   <div class="hidden sm:flex">
     {#each actionItems as actionItem (actionItem.label)}
-      <div
-        tabindex="0"
-        role="button"
-        title={actionItem.title}
-        class={baseIconClasses}
-        on:click={() => handleActionMenuItem(actionItem.label)}
-        on:keyup={dummyFn}
-      >
-        <Fa icon={actionItem.icon} />
-      </div>
+      <button type="button" title={actionItem.title} aria-label={actionItem.label} class={baseIconClasses}
+        on:click={() => handleActionMenuItem(actionItem.label)}><Fa icon={actionItem.icon} /></button>
     {/each}
   </div>
   <div class="flex sm:hidden">
-    <Popover
-      placement="bottom"
-      fallbackPlacements={['bottom-end', 'bottom-start']}
-      yOffset={0}
-      bind:this={menuElm}
-    >
-      <div slot="icon" class={baseIconClasses}>
-        <Fa icon={mergeTo.icon} />
-      </div>
-      <div class="w-40 bg-gray-700 md:w-32" slot="content">
+    <Popover placement="bottom" fallbackPlacements={['bottom-end', 'bottom-start']} yOffset={0} bind:this={menuElm}>
+      <div slot="icon" class={baseIconClasses}><Fa icon={mergeTo.icon} /></div>
+      <div class="w-44 bg-gray-700" slot="content">
         {#each actionItems as actionItem (actionItem.label)}
-          <div
-            tabindex="0"
-            role="button"
-            class="px-4 py-2 text-sm hover:bg-white hover:text-gray-700"
-            title={actionItem.title}
-            on:click={() => handleActionMenuItem(actionItem.label)}
-            on:keyup={dummyFn}
-          >
-            {actionItem.label}
-          </div>
+          <button type="button" class="block w-full px-4 py-2 text-left text-sm hover:bg-white hover:text-gray-700"
+            title={actionItem.title} on:click={() => handleActionMenuItem(actionItem.label)}>{actionItem.label}</button>
         {/each}
       </div>
     </Popover>

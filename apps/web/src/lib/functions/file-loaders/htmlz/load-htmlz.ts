@@ -10,41 +10,19 @@ import extractHtmlz from './extract-htmlz';
 import { getFormattedElementHtmlz } from './generate-htmlz-html';
 import getHtmlzCoverImageFilename from './get-htmlz-cover-image-filename';
 import reduceObjToBlobs from '../utils/reduce-obj-to-blobs';
+import { sanitizeArchiveMarkup } from '$lib/manabi/sanitize-book';
 
-export default async function loadHtmlz(
-  file: File,
-  document: Document,
-  lastBookModified: number
-): Promise<LoadData> {
-  const data = await extractHtmlz(file);
+export default async function loadHtmlz(file: File, document: Document, lastBookModified: number): Promise<LoadData> {
+  const data = sanitizeArchiveMarkup(await extractHtmlz(file));
   const element = getFormattedElementHtmlz(data, document);
-  const parser = new XMLParser();
-  const metadata = parser.parse(data['metadata.opf'])?.package?.metadata;
-
-  const displayData = {
-    title: file.name,
-    hasThumb: true,
-    styleSheet: data['style.css']
-  };
-  if (metadata && metadata['dc:title']) {
-    displayData.title = metadata['dc:title'];
-  }
+  const metadata = new XMLParser().parse(data['metadata.opf'])?.package?.metadata;
+  const title = typeof metadata?.['dc:title'] === 'string' ? metadata['dc:title'] : file.name;
   const blobData = reduceObjToBlobs(data);
   const coverImageFilename = getHtmlzCoverImageFilename();
-  let coverImage: Blob | undefined;
-
-  if (coverImageFilename) {
-    coverImage = blobData[coverImageFilename];
-    delete blobData[coverImageFilename];
-  }
-
+  const coverImage = coverImageFilename ? blobData[coverImageFilename] : undefined;
+  if (coverImageFilename) delete blobData[coverImageFilename];
   return {
-    ...displayData,
-    elementHtml: element.innerHTML,
-    blobs: blobData,
-    coverImage,
-    characters: 0,
-    lastBookModified,
-    lastBookOpen: 0
+    title, hasThumb: true, styleSheet: data['style.css'], elementHtml: element.innerHTML,
+    blobs: blobData, coverImage, characters: 0, lastBookModified, lastBookOpen: 0
   };
 }

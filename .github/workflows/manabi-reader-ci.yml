@@ -12,31 +12,64 @@ jobs:
   static-build:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    outputs:
+      generated: ${{ steps.prepared.outputs.generated }}
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@v4
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6.1.0
         with:
-          version: '10.15.1'
+          version: '12.3.4'
       - uses: actions/setup-node@v4
         with:
           node-version: '24.21.0'
           cache: pnpm
-      - name: Resolve the newly pinned sanitizer lock for review
-        run: pnpm install --lockfile-only --ignore-scripts
-      - name: Preserve lock resolution and source for verification
+      - name: Resolve pinned dependency and prepare review-only generated files
         run: |
-          git diff -- pnpm-lock.yaml > "$RUNNER_TEMP/reader-lock.patch"
-          tar -czf "$RUNNER_TEMP/reader-source.tar.gz" --exclude=.git --exclude=node_modules --exclude=assets --exclude=static --exclude=.svelte-kit --exclude=build .
+          pnpm install --lockfile-only --ignore-scripts
+          pnpm install --frozen-lockfile
+          pnpm --dir apps/web exec svelte-kit sync
+      - name: Normalize changed source with the repository formatters
+        continue-on-error: true
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          python3 - <<'PY'
+          import os, subprocess, pathlib, json, re
+          base = os.environ['BASE_SHA']
+          assert re.fullmatch('[0-9a-f]{40}', base)
+          paths = subprocess.check_output(['git','diff','--name-only','--diff-filter=ACM',base,'HEAD'], text=True).splitlines()
+          code = [p for p in paths if p.startswith('apps/web/') and p.endswith(('.ts','.js','.svelte'))]
+          if code:
+              subprocess.run(['pnpm','exec','eslint','--fix',*code], check=False)
+          formatted = [p for p in paths if p.endswith(('.ts','.js','.svelte','.json','.yml','.yaml')) and p != '.github/workflows/manabi-reader-ci.yml']
+          if formatted:
+              subprocess.run(['pnpm','exec','prettier','--write',*formatted], check=True)
+          paths = sorted(set(paths + ['pnpm-lock.yaml']))
+          output = []
+          for path in paths:
+              if path == '.github/workflows/manabi-reader-ci.yml': continue
+              data = pathlib.Path(path).read_text()
+              assert len(data.encode()) < 1024 * 1024
+              output.append({'path': path, 'content': data})
+          pathlib.Path('generated-files.json').write_text(json.dumps(output))
+          PY
+      - id: prepared
+        run: |
+          test -f generated-files.json
+          echo 'generated=true' >> "$GITHUB_OUTPUT"
+          tar -czf "$RUNNER_TEMP/reader-source.tar.gz" --exclude=.git --exclude=node_modules --exclude=assets --exclude=static --exclude=.svelte-kit --exclude=build --exclude=generated-files.json .
       - uses: actions/upload-artifact@v4
         with:
-          name: reader-lock-review
+          name: reader-generated-review
           path: |
-            ${{ runner.temp }}/reader-lock.patch
+            generated-files.json
             ${{ runner.temp }}/reader-source.tar.gz
           retention-days: 1
-      - run: pnpm install --frozen-lockfile
+      - name: Type-check the integrated Reader
+        run: pnpm --dir apps/web check
       - name: Compile the production subpath artifact
         env:
           BASE_PATH: /Reader-Web
@@ -53,3 +86,50 @@ jobs:
           name: reader-static
           path: apps/web/build
           retention-days: 3
+  record-generated-blobs:
+    # Temporary lock/format preparation. This job cannot change a branch or open
+    # a PR: it only stores immutable blobs for the separately reviewed Git commit.
+    needs: static-build
+    if: always() && needs.static-build.outputs.generated == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: reader-generated-review
+      - name: Record reviewed generated content without moving any branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import os, json, hashlib, pathlib, urllib.request, re
+          repo = os.environ['REPOSITORY']
+          assert repo == 'ManabiIO/manabi-reader-web'
+          entries = json.loads(pathlib.Path('generated-files.json').read_text())
+          assert type(entries) is list and len(entries) <= 100
+          result = []
+          for entry in entries:
+              path, content = entry['path'], entry['content']
+              assert type(path) is str and not path.startswith('/') and '..' not in path.split('/')
+              assert path.startswith('apps/web/') or path in ('pnpm-lock.yaml','package.json','pnpm-workspace.yaml','.github/workflows/ci.yml')
+              assert type(content) is str and len(content.encode()) < 1024 * 1024
+              raw = content.encode()
+              expected = hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()
+              request = urllib.request.Request('https://api.github.com/repos/' + repo + '/git/blobs',
+                  data=json.dumps({'content': content, 'encoding':'utf-8'}).encode(),
+                  headers={'Authorization':'Bearer ' + os.environ['GH_TOKEN'], 'Content-Type':'application/json', 'Accept':'application/vnd.github+json'}, method='POST')
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  actual = json.load(response)['sha']
+              assert actual == expected
+              result.append({'path':path,'sha':actual})
+          print(json.dumps(result, indent=2))
+          pathlib.Path('generated-blobs.json').write_text(json.dumps(result))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reader-generated-blobs
+          path: generated-blobs.json
+          retention-days: 1
