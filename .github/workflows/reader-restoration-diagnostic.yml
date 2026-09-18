@@ -1,0 +1,53 @@
+name: Reader restoration diagnosis
+on:
+  push:
+    branches: [research/reader-restoration-diagnostic-20260918]
+    paths: [.github/workflows/reader-restoration-diagnostic.yml]
+permissions: {contents: read}
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@v4
+        with: {node-version: '24.21.0'}
+      - name: Install pinned dependencies
+        run: |
+          npm install --global pnpm@12.3.4
+          pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps chromium
+      - name: Instrument exact source for observation only
+        run: |
+          mkdir -p evidence
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('apps/web/src/lib/components/book-reader/book-reader-paginated/book-reader-paginated.svelte');s=p.read_text()
+          s=s.replace('    exploredCharCount = 0;', '    console.log("HTML-LOAD",{ready:scrollWhenReady,gen:renderGeneration,html:displayedHtml.length});\n    exploredCharCount = 0;')
+          s=s.replace('    sectionReady$.next(_calculator);','    console.log("CONTENT-READY",{ready:scrollWhenReady,gen:renderGeneration,size:[width,height],virt:virtualScrollPos$.getValue(),scroll:[scrollEl?.scrollLeft,scrollEl?.scrollTop],manager:!!concreteBookmarkManager});\n    sectionReady$.next(_calculator);')
+          s=s.replace('        if (concreteBookmarkManager.scrollToBookmark(data)) {','        console.log("RESTORE",data,{pos:_calculator.getScrollPosByCharCount(data.exploredCharCount),chars:_calculator.charCount,section:sectionIndex$.getValue()});\n        if (concreteBookmarkManager.scrollToBookmark(data)) {')
+          p.write_text(s)
+          p=Path('test/reader/e2e/run.mjs');s=p.read_text()
+          s=s.replace("p.on('pageerror',", "p.on('console', m => { if (m.type() === 'log') console.log('APP', m.text()); });\n    p.on('pageerror',")
+          marker="                await check('pwa: real service worker controls Reader'"
+          at=s.index(marker)
+          s=s[:at]+"                console.log('DIAGNOSTIC COMPLETE');\n                process.exitCode = 0;\n                await close('diagnostic');\n                server.close();\n                process.exit();\n"+s[at:]
+          p.write_text(s)
+          PY
+          pnpm --dir apps/web exec svelte-kit sync
+          BASE_PATH=/Reader-Web pnpm build > evidence/build.log 2>&1
+          python3 test/reader/e2e/make-fixtures.py "$RUNNER_TEMP/reader-fixtures"
+      - name: Actual browser restoration
+        env:
+          READER_BUILD: apps/web/build
+          READER_FIXTURES: ${{ runner.temp }}/reader-fixtures
+          MANABITAN_EXTENSION: unused
+          E2E_OUTPUT: evidence/browser
+        run: node test/reader/e2e/run.mjs 2>&1 | tee evidence/diagnostic.log
+      - name: Exclude bundled font responses from retained traces
+        if: always()
+        run: find evidence -name '*-trace.zip' -delete
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: reader-restoration-diagnostic, path: evidence, retention-days: 3}
