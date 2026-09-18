@@ -12,7 +12,7 @@ concurrency:
 jobs:
   qualify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with: {persist-credentials: false, fetch-depth: 0}
@@ -25,26 +25,76 @@ jobs:
           name: reader-system-typography-chromium
           github-token: ${{ github.token }}
           path: prior-input
-      - name: Compose checked runtime and framework group
-        run: python3 research/compose-foundations.py
-      - name: Resolve and freeze the intentional framework upgrade
+      - name: Compose verified Reader source
         run: |
+          python3 research/compose-foundations.py
+          python3 research/finish-toolchain.py
           npm install --global pnpm@12.3.4
           pnpm install --lockfile-only --no-frozen-lockfile > evidence/lock.log 2>&1
           pnpm install --frozen-lockfile > evidence/install.log 2>&1
+          node research/refine-toolchain.mjs
           pnpm --dir apps/web exec svelte-kit sync
-      - name: Type check
-        continue-on-error: true
+      - name: Require clean types and Reader regressions
         run: |
           set -o pipefail
           pnpm --dir apps/web check 2>&1 | tee evidence/typecheck.log
-      - name: Static subpath production build
-        continue-on-error: true
+          node test/reader/run.mjs 2>&1 | tee evidence/reader-units.log
+      - name: Build two static Reader versions
         env: {BASE_PATH: /Reader-Web}
         run: |
-          set -o pipefail
+          set -eo pipefail
           pnpm build 2>&1 | tee evidence/build.log
-      - name: Retain exact composed text source and resolved dependencies
+          cp -a apps/web/build "$RUNNER_TEMP/reader-build-a"
+          pnpm build > evidence/build-b.log 2>&1
+          cp -a apps/web/build "$RUNNER_TEMP/reader-build-b"
+      - uses: actions/checkout@v4
+        with:
+          repository: ManabiIO/manabitan
+          ref: 1ed219a360cc945fd513fb78ebf3cccb5983f9a1
+          path: extension-test
+          persist-credentials: false
+      - name: Build real ManabiTan extension
+        run: |
+          (cd extension-test && npm ci && npm run build:libs && node dev/bin/build.js chrome-dev) > evidence/extension-build.log 2>&1
+          mkdir "$RUNNER_TEMP/manabitan-extension"
+          unzip -q extension-test/builds/manabitan-chrome-dev.zip -d "$RUNNER_TEMP/manabitan-extension"
+          pnpm exec playwright install --with-deps chromium > evidence/browser-install.log 2>&1
+      - name: Prepare full official JMdict and Japanese books
+        run: |
+          python3 test/reader/e2e/make-fixtures.py "$RUNNER_TEMP/reader-fixtures"
+          curl --fail --location --retry 3 --max-time 180 https://github.com/yomidevs/jmdict-yomitan/releases/download/2026-09-18/JMdict_english.zip -o "$RUNNER_TEMP/reader-fixtures/JMdict_english.zip"
+          python3 - <<'PY'
+          import hashlib,json,pathlib,zipfile,os
+          p=pathlib.Path(os.environ['RUNNER_TEMP'])/'reader-fixtures/JMdict_english.zip'; raw=p.read_bytes()
+          assert len(raw)==15595643
+          digest=hashlib.sha256(raw).hexdigest();assert digest=='b895d0fa41324d5bdd7bd0a943e73b46d25f849ddab6e0491e619bfc4e4e20d9'
+          with zipfile.ZipFile(p) as z:
+            index=json.loads(z.read('index.json'))
+            rows=sum(len(json.loads(z.read(n))) for n in z.namelist() if n.startswith('term_bank_') and n.endswith('.json'))
+          data={'repository':'yomidevs/jmdict-yomitan','release':'2026-09-18','asset':p.name,'bytes':len(raw),'sha256':digest,'termRows':rows,'index':index}
+          p.with_name('jmdict.json').write_text(json.dumps(data,indent=2))
+          pathlib.Path('evidence/jmdict.json').write_text(json.dumps(data,indent=2))
+          PY
+      - name: Real subpath browser acceptance
+        env:
+          READER_BUILD: ${{ runner.temp }}/reader-build-a
+          READER_BUILD_B: ${{ runner.temp }}/reader-build-b
+          MANABITAN_EXTENSION: ${{ runner.temp }}/manabitan-extension
+          READER_FIXTURES: ${{ runner.temp }}/reader-fixtures
+          READER_BASE_PATH: /Reader-Web
+          E2E_OUTPUT: evidence/browser
+        run: |
+          set -o pipefail
+          status=0
+          node test/reader/e2e/run.mjs 2>&1 | tee evidence/browser.log || status=$?
+          printf '%s\n' "$status" > evidence/browser.exit
+      - name: Current dependency advisory scan
+        if: always()
+        run: |
+          status=0
+          pnpm audit --json > evidence/audit.json 2>&1 || status=$?
+          printf '%s\n' "$status" > evidence/audit.exit
+      - name: Retain exact composed source
         if: always()
         run: |
           mkdir -p evidence
@@ -53,50 +103,54 @@ jobs:
           base='f18c41b2c4674fd67600c41a6ea1b86f165e8b7f'
           subprocess.run(['git','add','-N','--','apps/web','test/reader','.node-version'],check=True)
           paths=subprocess.check_output(['git','diff','--name-only',base],text=True).splitlines()
-          paths=[p for p in paths if not p.startswith('research/') and p!='.github/workflows/reader-foundations-research.yml']
+          paths=[p for p in paths if not p.startswith(('research/','extension-test/')) and p!='.github/workflows/reader-foundations-research.yml']
+          paths=sorted(set(paths+['.github/workflows/deploy.yml']))
           entries=[{'path':p,'content':pathlib.Path(p).read_text() if pathlib.Path(p).is_file() else None} for p in paths]
           pathlib.Path('evidence/toolchain-source.json').write_text(json.dumps(entries))
           PY
-          if test -d node_modules; then tar -czf evidence/toolchain-dependencies.tar.gz node_modules apps/web/node_modules; fi
+          find evidence -name '*-trace.zip' -delete
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: reader-foundations-evidence
           path: evidence/
-          retention-days: 3
+          retention-days: 7
   record:
     needs: qualify
-    if: always() && needs.qualify.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions: {contents: write}
     steps:
       - uses: actions/download-artifact@v4
         with: {name: reader-foundations-evidence}
-      - name: Record immutable source blobs only
+      - name: Record immutable source tree without moving any branch
         env: {GH_TOKEN: '${{ github.token }}'}
         run: |
           python3 - <<'PY'
           import os,json,hashlib,pathlib,urllib.request
-          memo={}
-          for phase in ('foundations','toolchain'):
-            files=json.loads(pathlib.Path(phase+'-source.json').read_text()); assert len(files)<=150
-            result=[]
-            for e in files:
-              p=e['path'];c=e['content']
-              assert '..' not in p.split('/') and not p.startswith('/') and (p.startswith(('apps/web/','test/reader/','.github/')) or p in ('package.json','pnpm-lock.yaml','pnpm-workspace.yaml','.node-version'))
-              if c is None: result.append({'path':p,'mode':'100644','type':'blob','sha':None});continue
-              raw=c.encode();assert len(raw)<1024*1024
-              sha=hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()
-              if sha not in memo:
-                r=urllib.request.Request('https://api.github.com/repos/ManabiIO/manabi-reader-web/git/blobs',data=json.dumps({'content':c,'encoding':'utf-8'}).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Content-Type':'application/json'},method='POST')
-                with urllib.request.urlopen(r,timeout=30) as response: actual=json.load(response)['sha']
-                assert actual==sha;memo[sha]=True
-              result.append({'path':p,'sha':sha,'mode':'100644','type':'blob'})
-            pathlib.Path(phase+'-blobs.json').write_text(json.dumps(result));print(phase,json.dumps(result))
+          def post(endpoint,data):
+            r=urllib.request.Request('https://api.github.com/repos/ManabiIO/manabi-reader-web/git/'+endpoint,data=json.dumps(data).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Content-Type':'application/json'},method='POST')
+            with urllib.request.urlopen(r,timeout=30) as response:return json.load(response)
+          files=json.loads(pathlib.Path('toolchain-source.json').read_text());assert len(files)<=150
+          result=[]
+          for e in files:
+            p=e['path'];c=e['content']
+            assert '..' not in p.split('/') and not p.startswith('/') and (p.startswith(('apps/web/','test/reader/','.github/')) or p in ('package.json','pnpm-lock.yaml','pnpm-workspace.yaml','.node-version'))
+            if c is None:result.append({'path':p,'mode':'100644','type':'blob','sha':None});continue
+            raw=c.encode();assert len(raw)<1024*1024
+            sha=hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()
+            assert post('blobs',{'content':c,'encoding':'utf-8'})['sha']==sha
+            result.append({'path':p,'sha':sha,'mode':'100644','type':'blob'})
+          tree=post('trees',{'base_tree':'79a35cd0ab7783463a4a1a26a57feb5b30b128b6','tree':result})['sha']
+          pathlib.Path('toolchain-blobs.json').write_text(json.dumps({'tree':tree,'entries':result}));print(tree)
           PY
       - uses: actions/upload-artifact@v4
-        with:
-          name: reader-foundations-blobs
-          path: '*-blobs.json'
-          retention-days: 7
+        with: {name: reader-toolchain-tree, path: toolchain-blobs.json, retention-days: 7}
+  acceptance:
+    needs: qualify
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with: {name: reader-foundations-evidence}
+      - name: Fail the workflow for any browser failure
+        run: test "$(cat browser.exit)" = 0
