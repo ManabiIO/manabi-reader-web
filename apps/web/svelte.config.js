@@ -17,6 +17,9 @@ const config = {
   kit: {
     paths: { base, relative: false },
     adapter: adapter({ fallback: '404.html', strict: true }),
+    // Enumerate Reader routes explicitly. Account links belong to Django and
+    // must not be crawled as though SvelteKit could prerender the auth server.
+    prerender: { crawl: false, entries: ['*'] },
     csp: {
       mode: 'hash',
       directives: {
