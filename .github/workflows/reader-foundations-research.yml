@@ -33,6 +33,7 @@ jobs:
           pnpm install --lockfile-only --no-frozen-lockfile > evidence/lock.log 2>&1
           pnpm install --frozen-lockfile > evidence/install.log 2>&1
           node research/refine-toolchain.mjs
+          python3 research/repair-reading-readiness.py
           pnpm --dir apps/web exec svelte-kit sync
       - name: Require clean types and Reader regressions
         run: |
