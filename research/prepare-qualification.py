@@ -1,6 +1,7 @@
 from pathlib import Path
 
 p=Path('research/finish-reader.py');s=p.read_text()
+s=s.replace("displayedHtml = html;''')))","displayedHtml = html;'''))")
 start=s.index('def replication(s):');end=s.index("edit('apps/web/src/lib/functions/replication/replicator.ts',replication)",start)
 end+=len("edit('apps/web/src/lib/functions/replication/replicator.ts',replication)")
 s=s[:start]+s[end:]
