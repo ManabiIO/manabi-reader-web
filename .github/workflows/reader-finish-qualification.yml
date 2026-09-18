@@ -1,0 +1,116 @@
+name: Reader restoration and backup acceptance
+on:
+  push:
+    branches: [research/reader-finish-20260918]
+    paths: [.github/workflows/reader-finish-qualification.yml]
+permissions: {contents: read}
+concurrency:
+  group: reader-finish-acceptance
+  cancel-in-progress: true
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false, fetch-depth: 0}
+      - uses: actions/setup-node@v4
+        with: {node-version: '24.21.0'}
+      - name: Prepare reviewed source
+        run: |
+          mkdir -p evidence
+          python3 research/prepare-qualification.py
+          npm install --global pnpm@12.3.4
+          pnpm install --frozen-lockfile > evidence/install.log 2>&1
+          pnpm exec prettier --write apps/web/src/lib/components/html-renderer.svelte apps/web/src/lib/data/storage/handler/base-handler.ts apps/web/src/lib/data/storage/handler/backup-handler.ts apps/web/src/lib/functions/file-loaders/utils/limited-archive.ts apps/web/src/lib/functions/file-loaders/utils/restored-book.ts apps/web/src/lib/functions/replication/replicator.ts apps/web/src/routes/b/+page.svelte test/reader/run.mjs test/reader/restored-book.test.ts > evidence/format.log
+          pnpm --dir apps/web exec svelte-kit sync
+      - name: Type and unit checks
+        run: |
+          set -o pipefail
+          pnpm --dir apps/web check 2>&1 | tee evidence/types.log
+          pnpm test:reader 2>&1 | tee evidence/units.log
+      - name: Build both static versions
+        env: {BASE_PATH: /Reader-Web}
+        run: |
+          pnpm build > evidence/build-a.log 2>&1
+          cp -a apps/web/build "$RUNNER_TEMP/reader-a"
+          pnpm build > evidence/build-b.log 2>&1
+          cp -a apps/web/build "$RUNNER_TEMP/reader-b"
+      - uses: actions/checkout@v4
+        with:
+          repository: ManabiIO/manabitan
+          ref: 1ed219a360cc945fd513fb78ebf3cccb5983f9a1
+          path: extension-test
+          persist-credentials: false
+      - name: Build real extension and prepare browser fixtures
+        run: |
+          (cd extension-test && npm ci && npm run build:libs && node dev/bin/build.js chrome-dev) > evidence/extension.log 2>&1
+          mkdir "$RUNNER_TEMP/extension"
+          unzip -q extension-test/builds/manabitan-chrome-dev.zip -d "$RUNNER_TEMP/extension"
+          pnpm exec playwright install --with-deps chromium > evidence/browser-install.log 2>&1
+          python3 test/reader/e2e/make-fixtures.py "$RUNNER_TEMP/fixtures"
+          python3 test/reader/e2e/make-backup-fixtures.py "$RUNNER_TEMP/fixtures"
+          python3 test/reader/e2e/prepare-jmdict.py "$RUNNER_TEMP/fixtures" > evidence/jmdict.json
+      - name: Actual static Reader and extension acceptance
+        env:
+          READER_BUILD: ${{ runner.temp }}/reader-a
+          READER_BUILD_B: ${{ runner.temp }}/reader-b
+          MANABITAN_EXTENSION: ${{ runner.temp }}/extension
+          READER_FIXTURES: ${{ runner.temp }}/fixtures
+          E2E_OUTPUT: evidence/browser
+        run: |
+          set -o pipefail
+          status=0
+          node test/reader/e2e/run.mjs 2>&1 | tee evidence/browser.log || status=$?
+          printf '%s\n' "$status" > evidence/browser.exit
+      - name: Retain exact tested source without browser font-response traces
+        if: always()
+        run: |
+          mkdir -p evidence
+          python3 - <<'PY'
+          import json,pathlib,subprocess
+          subprocess.run(['git','add','-N','--','apps/web','test/reader'],check=True)
+          paths=subprocess.check_output(['git','diff','--name-only','fbefbc7b73a7c76c3cca728ba294b55dad14d052'],text=True).splitlines()
+          paths=[p for p in paths if p.startswith(('apps/web/','test/reader/'))]
+          entries=[{'path':p,'content':pathlib.Path(p).read_text()} for p in paths]
+          pathlib.Path('evidence/source.json').write_text(json.dumps(entries))
+          PY
+          find evidence -name '*-trace.zip' -delete
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: reader-finish-evidence, path: evidence, retention-days: 7}
+  record:
+    needs: qualify
+    runs-on: ubuntu-24.04
+    permissions: {contents: write}
+    steps:
+      - uses: actions/download-artifact@v4
+        with: {name: reader-finish-evidence}
+      - name: Record immutable tested tree without moving branches
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          python3 - <<'PY'
+          import os,json,pathlib,hashlib,urllib.request
+          def post(endpoint,value):
+            req=urllib.request.Request('https://api.github.com/repos/ManabiIO/manabi-reader-web/git/'+endpoint,data=json.dumps(value).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Content-Type':'application/json'},method='POST')
+            with urllib.request.urlopen(req,timeout=30) as response:return json.load(response)
+          files=json.loads(pathlib.Path('source.json').read_text());assert len(files)<40
+          result=[]
+          for e in files:
+            p=e['path'];c=e['content'];assert p.startswith(('apps/web/','test/reader/')) and '..' not in p.split('/')
+            raw=c.encode();assert len(raw)<1024*1024
+            sha=hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()
+            assert post('blobs',{'content':c,'encoding':'utf-8'})['sha']==sha
+            result.append({'path':p,'mode':'100644','type':'blob','sha':sha})
+          tree=post('trees',{'base_tree':'68817b76c26d377d85e720965017ecc2a736503c','tree':result})['sha']
+          pathlib.Path('tree.json').write_text(json.dumps({'tree':tree,'entries':result}));print(tree)
+          PY
+      - uses: actions/upload-artifact@v4
+        with: {name: reader-finish-tree, path: tree.json, retention-days: 7}
+  acceptance:
+    needs: qualify
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with: {name: reader-finish-evidence}
+      - run: test "$(cat browser.exit)" = 0
