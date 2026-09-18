@@ -14,12 +14,16 @@ export function createBookmarkSnapshot(
   scroll: { scrollX?: number; scrollY?: number } = {}
 ): BooksDbBookmarkData | undefined {
   if (
-    !Number.isSafeInteger(bookId) || bookId <= 0 ||
-    !Number.isFinite(exploredCharCount) || exploredCharCount < 0 ||
-    !Number.isFinite(bookCharCount) || bookCharCount < 0 ||
+    !Number.isSafeInteger(bookId) ||
+    bookId <= 0 ||
+    !Number.isFinite(exploredCharCount) ||
+    exploredCharCount < 0 ||
+    !Number.isFinite(bookCharCount) ||
+    bookCharCount < 0 ||
     exploredCharCount > bookCharCount ||
     Object.values(scroll).some((value) => !Number.isFinite(value))
-  ) return undefined;
+  )
+    return undefined;
   return {
     dataId: bookId,
     exploredCharCount,

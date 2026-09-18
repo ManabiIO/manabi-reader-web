@@ -28,6 +28,12 @@ export class CharacterStatsCalculator {
 
   private forcedInitTimer: number | undefined;
 
+  private measured = false;
+
+  get isReady() {
+    return this.measured;
+  }
+
   constructor(
     public readonly containerEl: HTMLElement,
     private readonly axis: 'horizontal' | 'vertical',
@@ -100,6 +106,7 @@ export class CharacterStatsCalculator {
       indices.push(i);
     }
 
+    this.measured = true;
     this.paragraphPosToAccCharCount = new Map(
       Array.from(paragraphPosToIndices.entries()).map(([paragraphPos, indices]) => [
         paragraphPos,

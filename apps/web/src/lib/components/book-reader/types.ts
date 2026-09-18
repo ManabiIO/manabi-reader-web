@@ -17,12 +17,12 @@ export interface BookmarkManager {
   formatBookmarkData: (
     bookId: number,
     customReadingPointScrollOffset: number
-  ) => BooksDbBookmarkData;
+  ) => BooksDbBookmarkData | undefined;
 
   formatBookmarkDataByRange: (
     bookId: number,
     customReadingPointRange: Range | undefined
-  ) => BooksDbBookmarkData;
+  ) => BooksDbBookmarkData | undefined;
 
   scrollToBookmark: (
     bookmarkData: BooksDbBookmarkData,

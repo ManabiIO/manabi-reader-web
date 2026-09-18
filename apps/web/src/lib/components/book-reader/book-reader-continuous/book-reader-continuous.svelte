@@ -701,6 +701,7 @@
   class:ttu-apply-justification={enableTextJustification}
   class:ttu-margin-manual={textMarginMode === 'manual'}
   class:ttu-text-wrap-pretty={enableTextWrapPretty}
+  aria-busy={!allowDisplay || loadingState}
   class="book-content m-auto"
 >
   <HtmlRenderer html={htmlContent} on:load={onHtmlLoad} />

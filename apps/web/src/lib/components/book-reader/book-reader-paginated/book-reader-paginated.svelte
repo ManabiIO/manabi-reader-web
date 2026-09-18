@@ -726,6 +726,7 @@
   class:ttu-apply-justification={enableTextJustification}
   class:ttu-margin-manual={textMarginMode === 'manual'}
   class:ttu-text-wrap-pretty={enableTextWrapPretty}
+  aria-busy={!allowDisplay || loadingState}
   class="book-content m-auto"
   use:swipe={{ timeframe: 500, minSwipeDistance: $swipeThreshold$, touchAction: 'pan-y' }}
   on:swipe={onSwipe}
