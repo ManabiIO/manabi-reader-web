@@ -1,24 +1,21 @@
 import adapter from '@sveltejs/adapter-static';
 import preprocess from 'svelte-preprocess';
 
+const base = process.env.BASE_PATH ?? '/Reader-Web';
+if (base !== '' && !/^\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*$/.test(base)) {
+  throw new Error('BASE_PATH must be a root-relative path without a trailing slash');
+}
+if (process.env.VITE_GDRIVE_CLIENT_SECRET || process.env.VITE_ONEDRIVE_CLIENT_SECRET) {
+  throw new Error('Cloud client secrets belong on Django, never in a public Vite build');
+}
+
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
-  compilerOptions: {
-    immutable: true
-  },
-
-  // Consult https://github.com/sveltejs/svelte-preprocess
-  // for more information about preprocessors
-  preprocess: [
-    preprocess({
-      postcss: true
-    })
-  ],
-
+  compilerOptions: { immutable: true },
+  preprocess: [preprocess({ postcss: true })],
   kit: {
-    adapter: adapter({
-      fallback: '404.html'
-    })
+    paths: { base, relative: false },
+    adapter: adapter({ fallback: '404.html', strict: true })
   }
 };
 

@@ -4,9 +4,13 @@
  * All rights reserved.
  */
 
-export const basePath = import.meta.env.VITE_BASE_PATH || 'https://reader.ttsu.app';
-export const pagePath = import.meta.env.VITE_PAGE_PATH || '';
+import { base } from '$app/paths';
+
+// Navigation and the compiled asset base must have one source of truth.
+export const basePath = import.meta.env.VITE_BASE_PATH || 'https://manabi.io';
+export const pagePath = base;
 export const clearConsoleOnReload = !!import.meta.env.VITE_CLEAR_ON_RELOAD || false;
+// Preserve existing storage formats/names for upstream backup compatibility.
 export const storageRootName = import.meta.env.VITE_STORAGE_ROOT_NAME || 'ttu-reader-data';
 export const gDriveAuthEndpoint =
   import.meta.env.VITE_GDRIVE_AUTH_ENDPOINT || 'https://accounts.google.com/o/oauth2/v2/auth';
@@ -19,7 +23,7 @@ export const gDriveRevokeEndpoint =
 export const gDriveScope =
   import.meta.env.VITE_GDRIVE_SCOPE || 'https://www.googleapis.com/auth/drive.file';
 export const gDriveClientId = import.meta.env.VITE_GDRIVE_CLIENT_ID || '';
-export const gDriveClientSecret = import.meta.env.VITE_GDRIVE_CLIENT_SECRET || '';
+export const gDriveClientSecret = '';
 export const oneDriveAuthEndpoint =
   import.meta.env.VITE_ONEDRIVE_AUTH_ENDPOINT ||
   'https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize';
@@ -31,4 +35,4 @@ export const oneDriveDiscoveryEndpoint =
   'https://login.microsoftonline.com/consumers/v2.0/.well-known/openid-configuration';
 export const oneDriveScope = import.meta.env.VITE_ONEDRIVE_SCOPE || 'files.readwrite';
 export const oneDriveClientId = import.meta.env.VITE_ONEDRIVE_CLIENT_ID || '';
-export const oneDriveClientSecret = import.meta.env.VITE_ONEDRIVE_CLIENT_SECRET || '';
+export const oneDriveClientSecret = '';

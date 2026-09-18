@@ -1,0 +1,42 @@
+name: Manabi Reader static build
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: reader-static-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  static-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.15.1'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Compile the production subpath artifact
+        env:
+          BASE_PATH: /Reader-Web
+        run: pnpm build
+      - name: Check static deployment shape
+        run: |
+          test -f apps/web/build/404.html
+          test -f apps/web/build/service-worker.js
+          test -f apps/web/build/manifest.webmanifest
+          test -d apps/web/build/_app/immutable
+          ! grep -q '"/_app/' apps/web/build/404.html
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reader-static
+          path: apps/web/build
+          retention-days: 3
