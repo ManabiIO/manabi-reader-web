@@ -160,6 +160,9 @@
 
   let currentSectionId = '';
 
+  let disposed = false;
+  let renderGeneration = 0;
+
   const width$ = new Subject<number>();
 
   const height$ = new Subject<number>();
@@ -370,7 +373,11 @@
   /** Experimental Code - May be removed or changed any time without warning */
 
   onDestroy(() => {
+    disposed = true;
+    renderGeneration += 1;
     stopFontLayout?.();
+    sectionReady$.complete();
+    sectionRenderComplete$.complete();
     document.removeEventListener('ttu-action', handleAction, false);
 
     document.body.classList.remove(cssClassOverflowHidden);
@@ -441,7 +448,9 @@
   });
 
   currentSection$.pipe(takeUntil(destroy$)).subscribe((html) => {
+    const generation = ++renderGeneration;
     const nestAnimationFrame = (fn: () => void, count: number) => {
+      if (disposed || generation !== renderGeneration) return;
       if (count === 0) {
         fn();
         return;
@@ -524,16 +533,26 @@
   }
 
   function onContentDisplayChange(_calculator: SectionCharacterStatsCalculator) {
+    if (disposed || _calculator !== calculator) return;
+    // Initialize the section at the boundary that consumes its geometry. Image
+    // readiness can precede the font callback during Svelte component updates.
+    _calculator.updateCurrentSection(sectionIndex$.getValue());
     _calculator.updateParagraphPos();
     exploredCharCount = _calculator.calcExploredCharCount(customReadingPointRange);
     sectionReady$.next(_calculator);
 
     if (scrollWhenReady) {
-      scrollWhenReady = false;
+      const generation = renderGeneration;
       bookmarkData.then((data) => {
-        if (!data || !bookmarkManager) return;
-        exploredCharCount = data.exploredCharCount || 0;
-        bookmarkManager.scrollToBookmark(data);
+        if (disposed || generation !== renderGeneration || _calculator !== calculator) return;
+        if (!data) { scrollWhenReady = false; return; }
+        // Use this component's actual owner, not the asynchronously propagated
+        // parent binding. Keep restoration pending until its geometry is valid.
+        if (!concreteBookmarkManager) return;
+        if (concreteBookmarkManager.scrollToBookmark(data)) {
+          scrollWhenReady = false;
+          exploredCharCount = data.exploredCharCount || 0;
+        }
       });
     } else {
       bookmarkData.then(updateBookmarkScreen);
@@ -601,7 +620,7 @@
     }
   }
 
-  function onSwipe(ev: CustomEvent<{ direction: 'top' | 'right' | 'left' | 'bottom' }>) {
+  function onSwipe(ev: CustomEvent<{ direction: 'top' | 'right' | 'left' | 'bottom' | null }>) {
     if (!concretePageManager || $skipKeyDownListener$) return;
     if (ev.detail.direction !== 'left' && ev.detail.direction !== 'right') return;
     const swipeLeft = ev.detail.direction === 'left';
@@ -734,7 +753,7 @@
 <svelte:window on:keydown={onKeydown} on:resize={() => (isResizing = true)} />
 
 <style lang="scss">
-  @import '../styles';
+  @use '../styles' as *;
 
   .book-content {
     overflow: hidden;

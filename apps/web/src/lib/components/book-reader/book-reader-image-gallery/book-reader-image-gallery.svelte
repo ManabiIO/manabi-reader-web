@@ -148,11 +148,14 @@
       {#each $readerImageGalleryPictures$ as readerImageGalleryPicture, urlIndex (readerImageGalleryPicture.url)}
         {@const showSpoiler = $hideSpoilerImage$ && !readerImageGalleryPicture.unspoilered}
         <button
+          aria-label={showSpoiler ? 'Show hidden image' : 'Select image'}
           class="flex justify-center my-4"
           class:spoiler={showSpoiler}
           data-image-index={urlIndex}
           on:click={() => {
-            if (window.matchMedia('(min-width: 1024px)').matches) {
+            if (showSpoiler) {
+              toggleGalleryPictureSpoiler(readerImageGalleryPicture.url);
+            } else if (window.matchMedia('(min-width: 1024px)').matches) {
               selectedImageIndex = urlIndex;
             }
           }}
@@ -163,14 +166,7 @@
             class="max-h-96 lg:max-h-64"
           />
           {#if showSpoiler}
-            <button
-              title="Show Image"
-              class="spoiler-label"
-              aria-hidden="true"
-              on:click={() => toggleGalleryPictureSpoiler(readerImageGalleryPicture.url)}
-            >
-              ネタバレ
-            </button>
+            <span class="spoiler-label" aria-hidden="true">ネタバレ</span>
           {/if}
         </button>
       {/each}

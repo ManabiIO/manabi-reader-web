@@ -6,6 +6,8 @@ import http from 'node:http';
 import {chromium, expect} from '@playwright/test';
 import {runFontAcceptance} from './font-acceptance.mjs';
 
+const appBase = process.env.READER_BASE_PATH ?? '/Reader-Web';
+assert.match(appBase, /^(?:\/[A-Za-z0-9_-]+)*$/);
 const root = path.resolve(process.env.READER_BUILD);
 const secondRoot = path.resolve(process.env.READER_BUILD_B || root);
 const extension = path.resolve(process.env.MANABITAN_EXTENSION);
@@ -35,10 +37,11 @@ const serverRequests = [];
 const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
     serverRequests.push(url.pathname);
-    if (url.pathname === '/__test-font-delay') { fontResponseDelay = Math.min(6000,Math.max(0,Number(url.searchParams.get('ms'))||0)); res.writeHead(200).end('ok'); return; }
+    if (url.pathname === appBase + '/__test-font-delay') { fontResponseDelay = Math.min(6000,Math.max(0,Number(url.searchParams.get('ms'))||0)); res.writeHead(200).end('ok'); return; }
     if (/\.woff2?$/.test(url.pathname) && fontResponseDelay) { await new Promise((resolve) => setTimeout(resolve,fontResponseDelay)); }
     try {
-        const relative = decodeURIComponent(url.pathname).replace(/^\/+/, '');
+        if (url.pathname !== appBase && !url.pathname.startsWith(appBase + '/')) { res.writeHead(404).end(); return; }
+        const relative = decodeURIComponent(url.pathname.slice(appBase.length)).replace(/^\/+/, '');
         const resolved = path.resolve(activeRoot, relative);
         if (resolved !== activeRoot && !resolved.startsWith(activeRoot + path.sep)) { res.writeHead(403).end(); return; }
         let file = resolved;
@@ -52,7 +55,7 @@ const server = http.createServer(async (req, res) => {
     } catch { res.writeHead(400).end(); }
 });
 await new Promise((resolve) => server.listen(4173, '127.0.0.1', resolve));
-const origin = 'http://127.0.0.1:4173';
+const origin = 'http://127.0.0.1:4173' + appBase;
 
 async function save() {
     await fs.writeFile(path.join(output, 'results.json'), JSON.stringify({results, browserErrors, requests, serverRequests, embeddedRuntime: {status: 'blocked', reason: 'Reader has no embedded ManabiTan web runtime/provider UI yet. Extension E2E does not satisfy this gate.'}}, null, 2));
@@ -235,13 +238,16 @@ async function hoverWord(word) {
     }, word);
     await page.mouse.move(1, 1);
     await page.keyboard.down('Shift');
-    try { await page.mouse.move(point.x, point.y, {steps: 12}); }
-    finally { await page.keyboard.up('Shift'); }
-    await expect.poll(async () => (await visiblePopupFrames()).length, {timeout: 20000}).toBe(1);
-    const [popup] = await visiblePopupFrames();
-    await expect(popup.locator('body')).toContainText(installedTitle, {timeout: 20000});
-    await expect(popup.locator('.headword-term').first()).toContainText(word === '食べました' ? '食べる' : word);
-    return popup;
+    try {
+        // A hover must keep its modifier down until the result is visible. A
+        // synthetic multi-step sweep may open an intervening popup over target.
+        await page.mouse.move(point.x, point.y);
+        await expect.poll(async () => (await visiblePopupFrames()).length, {timeout: 20000}).toBe(1);
+        const [popup] = await visiblePopupFrames();
+        await expect(popup.locator('body')).toContainText(installedTitle, {timeout: 20000});
+        await expect(popup.locator('.headword-term').first()).toContainText(word === '食べました' ? '食べる' : word);
+        return popup;
+    } finally { await page.keyboard.up('Shift'); }
 }
 
 try {

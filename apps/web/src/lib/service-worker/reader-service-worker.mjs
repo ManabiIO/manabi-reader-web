@@ -106,8 +106,7 @@ export function registerReaderServiceWorker(worker, config) {
     if (request.cache === 'only-if-cached') return;
 
     if (url.origin === scope.origin && url.pathname.startsWith('/userfonts/')) {
-      event.respondWith(storage.open(config.userFontsCacheName).then(async (cache) =>
-        (await cache.match(url.pathname)) ?? new Response(null, {status: 404})));
+      event.respondWith(readUserFont(url.origin + url.pathname));
       return;
     }
     if (inScope(url)) {

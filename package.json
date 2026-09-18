@@ -10,7 +10,8 @@
     "check": "eslint --fix-dry-run .",
     "check:pretty": "prettier --debug-check .",
     "lint": "eslint --fix .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "test:reader": "node test/reader/run.mjs"
   },
   "devDependencies": {
     "@commitlint/cli": "21.2.2",
@@ -29,12 +30,14 @@
     "husky": "9.1.7",
     "lint-staged": "17.5.0",
     "prettier": "3.6.2",
-    "prettier-plugin-svelte": "3.4.0",
+    "prettier-plugin-svelte": "4.1.1",
     "prettier-plugin-tailwindcss": "0.7.2",
-    "svelte": "4.2.20",
+    "svelte": "5.57.0",
     "svelte-eslint-parser": "1.8.1",
     "typescript": "6.0.3",
-    "typescript-eslint": "8.25.0"
+    "typescript-eslint": "8.25.0",
+    "esbuild": "0.28.2",
+    "@playwright/test": "1.63.0"
   },
   "lint-staged": {
     "*.{js,cjs,mjs,ts,svelte}": [
