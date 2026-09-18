@@ -31,11 +31,9 @@ export async function importData(
   fileCountData?: Record<string, number>
 ) {
   const dataIds: number[] = [];
-  const tasks: Promise<void>[] = [];
   const lastBookModified = new Date().getTime();
   const progressBase = 3; // load -> save -> cover;
   const maxProgress = progressBase * files.length;
-  const limiter = pLimit(1);
 
   let errorMessage = '';
 
@@ -49,73 +47,66 @@ export async function importData(
 
   let newFileData = 0;
 
-  files.forEach((file) =>
-    tasks.push(
-      limiter(async () => {
-        let currentTitle = file.name;
+  for (const file of files) {
+    let currentTitle = file.name;
 
-        if (fileCountData && Object.prototype.hasOwnProperty.call(fileCountData, currentTitle)) {
-          checkCancelAndProgress(cancelSignal, true, true);
-          checkCancelAndProgress(cancelSignal, true, true);
-          checkCancelAndProgress(cancelSignal, true, true);
+    if (fileCountData && Object.prototype.hasOwnProperty.call(fileCountData, currentTitle)) {
+      checkCancelAndProgress(cancelSignal, true, true);
+      checkCancelAndProgress(cancelSignal, true, true);
+      checkCancelAndProgress(cancelSignal, true, true);
 
-          return;
-        }
+      continue;
+    }
 
-        try {
-          throwIfAborted(cancelSignal);
+    try {
+      throwIfAborted(cancelSignal);
 
-          let bookContent: LoadData;
+      let bookContent: LoadData;
 
-          if (file.name.endsWith('.epub')) {
-            bookContent = await loadEpub(file, document, lastBookModified);
-          } else if (file.name.endsWith('.txt')) {
-            bookContent = await loadTxt(file, lastBookModified);
-          } else {
-            bookContent = await loadHtmlz(file, document, lastBookModified);
-          }
+      if (file.name.endsWith('.epub')) {
+        bookContent = await loadEpub(file, document, lastBookModified, cancelSignal);
+      } else if (file.name.endsWith('.txt')) {
+        bookContent = await loadTxt(file, lastBookModified);
+      } else {
+        bookContent = await loadHtmlz(file, document, lastBookModified, cancelSignal);
+      }
 
-          if (fileCountData) {
-            fileCountData[currentTitle] = bookContent.characters;
-            checkCancelAndProgress(cancelSignal, true, true);
-            checkCancelAndProgress(cancelSignal, true, true);
-            checkCancelAndProgress(cancelSignal, true, true);
+      if (fileCountData) {
+        fileCountData[currentTitle] = bookContent.characters;
+        checkCancelAndProgress(cancelSignal, true, true);
+        checkCancelAndProgress(cancelSignal, true, true);
+        checkCancelAndProgress(cancelSignal, true, true);
 
-            newFileData += 1;
+        newFileData += 1;
 
-            return;
-          }
+        continue;
+      }
 
-          checkCancelAndProgress(cancelSignal, true, true);
+      checkCancelAndProgress(cancelSignal, true, true);
 
-          currentTitle = bookContent.title;
+      currentTitle = bookContent.title;
 
-          targetHandler.startContext(
-            { title: bookContent.title, imagePath: bookContent.coverImage || '' },
-            cancelSignal
-          );
+      targetHandler.startContext(
+        { title: bookContent.title, imagePath: bookContent.coverImage || '' },
+        cancelSignal
+      );
 
-          dataIds.push(await targetHandler.saveBook(bookContent, false));
+      dataIds.push(await targetHandler.saveBook(bookContent, false));
 
-          checkCancelAndProgress(cancelSignal, false);
+      checkCancelAndProgress(cancelSignal, false);
 
-          if (bookContent.coverImage) {
-            await targetHandler.saveCover(bookContent.coverImage);
-          }
+      if (bookContent.coverImage) {
+        await targetHandler.saveCover(bookContent.coverImage);
+      }
 
-          database.dataListChanged$.next(targetHandler);
+      database.dataListChanged$.next(targetHandler);
 
-          checkCancelAndProgress(cancelSignal, true, !bookContent.coverImage);
-        } catch (error: any) {
-          errorMessage = handleErrorDuringReplication(error, `Error importing ${currentTitle}: `, [
-            limiter
-          ]);
-        }
-      })
-    )
-  );
-
-  await Promise.all(tasks).catch(() => {});
+      checkCancelAndProgress(cancelSignal, true, !bookContent.coverImage);
+    } catch (error: any) {
+      if (cancelSignal.aborted || error?.name === 'AbortError') break;
+      errorMessage = handleErrorDuringReplication(error, `Error importing ${currentTitle}: `);
+    }
+  }
 
   if (fileCountData && newFileData) {
     const a = document.createElement('a');

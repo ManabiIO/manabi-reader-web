@@ -537,10 +537,16 @@
         <ButtonToggleGroup options={optionsForViewMode} bind:selectedOptionId={viewMode} />
       </SettingsItemGroup>
     </div>
+    <p class="text-sm opacity-75">
+      System Japanese prefers Yu Kyokasho (Yoko for horizontal text), then other local Japanese
+      fonts. Klee One is the self-hosted fallback. Optional fonts download only when used and can
+      remain available offline when browser storage permits. Existing font choices are kept.
+    </p>
     <SettingsItemGroup title="Font family (Group 1)">
       <div slot="header" class="flex items-center">
         <SettingsFontSelector
           availableFonts={[
+            LocalFont.SYSTEMJAPANESE,
             LocalFont.NOTOSERIFJP,
             LocalFont.KZUDMINCHO,
             LocalFont.GENEI,
@@ -572,14 +578,19 @@
       <input
         type="text"
         class={inputClasses}
-        placeholder="Noto Serif JP"
+        placeholder="System Japanese"
         bind:value={fontFamilyGroupOne}
       />
     </SettingsItemGroup>
     <SettingsItemGroup title="Font family (Group 2)">
       <div slot="header" class="flex items-center">
         <SettingsFontSelector
-          availableFonts={[LocalFont.NOTOSANSJP, LocalFont.KZUDGOTHIC, LocalFont.SANSSERIF]}
+          availableFonts={[
+            LocalFont.SYSTEMSANS,
+            LocalFont.NOTOSANSJP,
+            LocalFont.KZUDGOTHIC,
+            LocalFont.SANSSERIF
+          ]}
           bind:fontValue={fontFamilyGroupTwo}
         />
         {#if fontCacheSupported}
@@ -602,7 +613,7 @@
       <input
         type="text"
         class={inputClasses}
-        placeholder="Noto Sans JP"
+        placeholder="System Sans"
         bind:value={fontFamilyGroupTwo}
       />
     </SettingsItemGroup>

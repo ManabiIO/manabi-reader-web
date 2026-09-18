@@ -1,5 +1,13 @@
 .book-content {
-  font-family: var(--font-family-serif, 'Lora', 'Noto Serif JP', serif);
+  font-family: var(
+    --font-family-serif,
+    'YuKyokasho Yoko',
+    YuKyokasho,
+    'Hiragino Mincho ProN',
+    'Yu Mincho',
+    'Klee One',
+    serif
+  );
 }
 
 .book-content {
@@ -212,7 +220,7 @@
       padding: 12px 8px;
       border-radius: 20px;
       font-size: 15px;
-      font-family: 'Noto Sans JP', sans-serif;
+      font-family: system-ui, sans-serif;
       text-transform: uppercase;
       font-weight: 700;
     }

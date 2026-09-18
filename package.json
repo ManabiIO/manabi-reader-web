@@ -1,5 +1,5 @@
 {
-  "name": "ttu-reader",
+  "name": "manabi-reader-web",
   "version": "2.0.0",
   "license": "BSD-3-Clause",
   "private": true,
@@ -42,5 +42,9 @@
       "prettier --write"
     ],
     "*.{json,md,html,scss,yml,yaml}": "prettier --write"
+  },
+  "engines": {
+    "node": ">=24.21.0 <25",
+    "pnpm": "12.3.4"
   }
 }

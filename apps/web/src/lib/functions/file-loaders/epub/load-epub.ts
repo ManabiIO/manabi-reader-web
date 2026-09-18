@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 
+import { sanitizeBookStyleSheet } from '../../book-security/book-content-security';
 import type { LoadData } from '../types';
 import extractEpub from './extract-epub';
 import generateEpubHtml from './generate-epub-html';
@@ -11,25 +12,30 @@ import generateEpubStyleSheet from './generate-epub-style-sheet';
 import getEpubCoverImageFilename from './get-epub-cover-image-filename';
 import { isOPFType } from './types';
 import reduceObjToBlobs from '../utils/reduce-obj-to-blobs';
-import { sanitizeArchiveMarkup } from '$lib/manabi/sanitize-book';
 
 export default async function loadEpub(
   file: File,
   document: Document,
-  lastBookModified: number
+  lastBookModified: number,
+  signal?: AbortSignal
 ): Promise<LoadData> {
-  const { contents, result: data, contentsDirectory } = await extractEpub(file);
-  sanitizeArchiveMarkup(data);
+  const { contents, result: data, contentsDirectory } = await extractEpub(file, { signal });
   const result = generateEpubHtml(data, contents, document, contentsDirectory);
+
   const displayData = {
     title: file.name,
     language: '',
     hasThumb: true,
-    styleSheet: generateEpubStyleSheet(data, contents)
+    styleSheet: sanitizeBookStyleSheet(
+      generateEpubStyleSheet(data, contents) + '\n' + result.styleSheet,
+      document
+    )
   };
+
   const metadata = isOPFType(contents)
     ? contents['opf:package']['opf:metadata']
     : contents.package.metadata;
+
   if (metadata) {
     const languageValues = Array.isArray(metadata['dc:language'])
       ? metadata['dc:language']
@@ -37,33 +43,46 @@ export default async function loadEpub(
     const titleValues = Array.isArray(metadata['dc:title'])
       ? metadata['dc:title']
       : [metadata['dc:title']];
+
     for (const dcTitle of titleValues) {
       if (typeof dcTitle === 'string') {
         displayData.title = dcTitle;
         break;
-      }
-      if (dcTitle && typeof dcTitle['#text'] === 'string') {
+      } else if (dcTitle && dcTitle['#text']) {
         displayData.title = dcTitle['#text'];
         break;
       }
     }
-    const languages: string[] = [];
-    for (const dcLanguage of languageValues) {
-      const value = typeof dcLanguage === 'string' ? dcLanguage : dcLanguage?.['#text'];
-      if (typeof value === 'string') {
+
+    displayData.language =
+      languageValues.reduce((languages, dcLanguage) => {
         try {
-          languages.push(...Intl.getCanonicalLocales(value.trim()));
-        } catch {
-          /* Ignore invalid language metadata. */
+          if (typeof dcLanguage === 'string') {
+            languages.push(...Intl.getCanonicalLocales(dcLanguage.trim()));
+          } else if (dcLanguage && dcLanguage['#text']) {
+            languages.push(...Intl.getCanonicalLocales(dcLanguage.trim()));
+          }
+        } catch (_) {
+          //no-op
         }
-      }
-    }
-    displayData.language = languages[0] || '';
+
+        return languages;
+      }, [])?.[0] || '';
   }
-  if (!displayData.language) displayData.language = 'ja';
+
+  if (!displayData.language) {
+    displayData.language = 'ja';
+    console.warn(`no language data found for ${file.name} - fallback to ja`);
+  }
+
   const blobData = reduceObjToBlobs(data);
   const coverImageFilename = await getEpubCoverImageFilename(blobData, contents);
-  const coverImage = coverImageFilename ? blobData[coverImageFilename] : undefined;
+  let coverImage: Blob | undefined;
+
+  if (coverImageFilename) {
+    coverImage = blobData[coverImageFilename];
+  }
+
   return {
     ...displayData,
     elementHtml: result.element.innerHTML,

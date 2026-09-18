@@ -4,16 +4,15 @@
   import HtmlRenderer from '$lib/components/html-renderer.svelte';
   import type { BooksDbBookmarkData } from '$lib/data/database/books-db/versions/books-db';
   import { SECTION_CHANGE } from '$lib/data/events';
-  import { isStoredFont } from '$lib/data/fonts';
+  import { resolveReaderFont } from '$lib/data/reader-typography';
+  import { observeReaderFontLayout } from '$lib/functions/reader-font-layout';
   import { FuriganaStyle } from '$lib/data/furigana-style';
-  import { logger } from '$lib/data/logger';
   import {
     disableWheelNavigation$,
     firstDimensionMargin$,
     selectionToBookmarkEnabled$,
     skipKeyDownListener$,
-    swipeThreshold$,
-    userFonts$
+    swipeThreshold$
   } from '$lib/data/store';
   import type { TextMarginMode } from '$lib/data/text-margin-mode';
   import { clearRange, createRange, pulseElement } from '$lib/functions/range-util';
@@ -157,7 +156,7 @@
 
   let bookmarkRightAdjustment: string | undefined;
 
-  let fontLoadingAdded = false;
+  let stopFontLayout: (() => void) | undefined;
 
   let currentSectionId = '';
 
@@ -371,6 +370,7 @@
   /** Experimental Code - May be removed or changed any time without warning */
 
   onDestroy(() => {
+    stopFontLayout?.();
     document.removeEventListener('ttu-action', handleAction, false);
 
     document.body.classList.remove(cssClassOverflowHidden);
@@ -512,31 +512,8 @@
     previousIntendedCount = 0;
     bookCharCount = calculator.charCount;
 
-    let fontLoaded = false;
-
-    try {
-      fontLoaded = document.fonts.check(`${fontSize}px ${fontFamilyGroupOne || 'Noto Serif JP'}`);
-    } catch (error: any) {
-      logger.error(`Error checking Font Load: ${error.message}`);
-      fontLoaded = true;
-    }
-
-    if (fontLoaded || fontLoadingAdded) {
-      triggerContentChange();
-    } else if (!fontLoadingAdded) {
-      fontLoadingAdded = true;
-
-      const timeout = isStoredFont(fontFamilyGroupOne, $userFonts$) ? 30000 : 10000;
-      const fontLoadTimer = setTimeout(() => {
-        logger.error(`Error loading primary Font: ${fontFamilyGroupOne}`);
-        triggerContentChange();
-      }, timeout);
-
-      document.fonts.addEventListener('loadingdone', () => {
-        clearTimeout(fontLoadTimer);
-        triggerContentChange();
-      });
-    }
+    stopFontLayout?.();
+    stopFontLayout = observeReaderFontLayout(scrollEl, triggerContentChange);
   }
 
   function triggerContentChange() {
@@ -693,8 +670,8 @@
     : undefined}
   style:max-width={width ? `${width}px` : undefined}
   style:max-height={verticalMode && height ? `${height}px` : undefined}
-  style:--font-family-serif={fontFamilyGroupOne}
-  style:--font-family-sans-serif={fontFamilyGroupTwo}
+  style:--font-family-serif={resolveReaderFont(fontFamilyGroupOne, verticalMode)}
+  style:--font-family-sans-serif={resolveReaderFont(fontFamilyGroupTwo, verticalMode, true)}
   style:--font-weight={fontWeight}
   style:--book-content-hint-furigana-font-color={hintFuriganaFontColor}
   style:--book-content-hint-furigana-shadow-color={hintFuriganaShadowColor}

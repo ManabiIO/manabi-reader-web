@@ -5,5 +5,7 @@
  */
 
 export function formatPageTitle(title: string) {
-  return title ? `${title} | Manabi Reader` : 'Manabi Reader';
+  const appName = 'Manabi Reader';
+  if (!title) return appName;
+  return `${title} | ${appName}`;
 }

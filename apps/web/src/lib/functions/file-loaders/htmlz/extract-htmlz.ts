@@ -4,45 +4,31 @@
  * All rights reserved.
  */
 
-import { BlobReader, BlobWriter, TextWriter, ZipReader } from '@zip.js/zip.js';
 import initZipSettings from '../utils/init-zip-settings';
+import { LimitedArchive, type ArchiveOptions } from '../utils/limited-archive';
 import type { HtmlzContent } from './types';
 
 initZipSettings();
 
-export default async function extract(blob: Blob) {
-  const reader = new ZipReader(new BlobReader(blob));
-  // get all entries from the zip
-  const entries = await reader.getEntries();
-
-  const result: HtmlzContent = {
-    'index.html': '',
-    'metadata.opf': '',
-    'style.css': ''
-  };
-  if (entries.length) {
-    await Promise.all(
-      entries.map(async (entry) => {
-        if (entry.getData && !entry.directory) {
-          let value: string | Blob;
-          switch (entry.filename) {
-            case 'index.html':
-            case 'metadata.opf':
-            case 'style.css':
-              value = await entry.getData(new TextWriter());
-              break;
-            default: {
-              value = await entry.getData(new BlobWriter(getMimeTypeFromName(entry.filename)));
-            }
-          }
-          result[entry.filename] = value;
-        }
-      })
-    );
+export default async function extract(blob: Blob, options: ArchiveOptions = {}) {
+  const archive = await LimitedArchive.open(blob, options);
+  try {
+    const result: HtmlzContent = Object.assign(Object.create(null), {
+      'index.html': '',
+      'metadata.opf': '',
+      'style.css': ''
+    });
+    await archive.map([...archive.entries], async ([name, entry]) => {
+      if (entry.directory) return;
+      result[name] = ['index.html', 'metadata.opf', 'style.css'].includes(name)
+        ? await archive.readText(name)
+        : await archive.readBlob(name, getMimeTypeFromName(name));
+    });
+    if (!result['index.html']) throw new Error('HTMLZ archive has no index.html');
+    return result;
+  } finally {
+    await archive.close();
   }
-
-  await reader.close();
-  return result;
 }
 
 function getMimeTypeFromName(filename: string): string | undefined {
