@@ -23,6 +23,19 @@ jobs:
         with:
           node-version: '24.21.0'
           cache: pnpm
+      - name: Resolve the newly pinned sanitizer lock for review
+        run: pnpm install --lockfile-only --ignore-scripts
+      - name: Preserve lock resolution and source for verification
+        run: |
+          git diff -- pnpm-lock.yaml > "$RUNNER_TEMP/reader-lock.patch"
+          tar -czf "$RUNNER_TEMP/reader-source.tar.gz" --exclude=.git --exclude=node_modules --exclude=assets --exclude=static --exclude=.svelte-kit --exclude=build .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reader-lock-review
+          path: |
+            ${{ runner.temp }}/reader-lock.patch
+            ${{ runner.temp }}/reader-source.tar.gz
+          retention-days: 1
       - run: pnpm install --frozen-lockfile
       - name: Compile the production subpath artifact
         env:
