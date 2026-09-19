@@ -640,9 +640,9 @@
     >
       {#each statisticsSummaryPages as statisticsSummaryPage, pageIndex (statisticsSummaryPage)}
         <button
-          class="hover:opacity-50 hover:bg-slate-300 hover:text-black"
-          class:bg-slate-300={statisticsSummaryPage === currentStatisticsSummaryPage}
-          class:text-black={statisticsSummaryPage === currentStatisticsSummaryPage}
+          class="hover:opacity-50 hover:bg-surface-hover hover:text-ink"
+          class:bg-surface-hover={statisticsSummaryPage === currentStatisticsSummaryPage}
+          class:text-ink={statisticsSummaryPage === currentStatisticsSummaryPage}
           bind:this={statisticsSummaryPageRefs[pageIndex + 1]}
           on:click={({ target }) => {
             setRowInEditMode();

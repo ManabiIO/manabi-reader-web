@@ -34,7 +34,7 @@
 <span>{label}</span>
 <input
   type="color"
-  class="border border-black"
+  class="border border-line"
   value={values.hexExpression}
   on:change={handleColorChange}
 />

@@ -42,9 +42,9 @@
     max-width: 22rem;
     padding: 0.65rem 1rem;
     border-radius: 0.5rem;
-    background: #fff;
-    color: #222;
-    border: 1px solid #777;
+    background: var(--surface-raised);
+    color: var(--ink);
+    border: 1px solid var(--line);
     box-shadow: 0 2px 8px #0003;
     font:
       14px/1.4 system-ui,

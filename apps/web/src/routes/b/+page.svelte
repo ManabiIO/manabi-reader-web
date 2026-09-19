@@ -61,7 +61,6 @@
     textIndentation$,
     textMarginMode$,
     textMarginValue$,
-    theme$,
     trackerAutostartTime$,
     verticalMode$,
     writingMode$,
@@ -83,7 +82,6 @@
     statisticsMergeMode$,
     isOnline$,
     manualBookmark$,
-    customThemes$,
     overwriteBookCompletion$,
     startDayHoursForTracker$,
     readingGoalsMergeMode$,
@@ -143,7 +141,7 @@
     StorageKey
   } from '$lib/data/storage/storage-types';
   import { storageSource$ } from '$lib/data/storage/storage-view';
-  import { availableThemes } from '$lib/data/theme-option';
+  import { readerTheme } from '$lib/data/theme-option';
   import { ViewMode } from '$lib/data/view-mode';
   import loadBookData from '$lib/functions/book-data-loader/load-book-data';
   import { formatPageTitle } from '$lib/functions/format-page-title';
@@ -387,14 +385,7 @@
     takeWhenBrowser()
   );
 
-  const themeOption$ = theme$.pipe(
-    map(
-      (theme) =>
-        availableThemes.get(theme) || $customThemes$[theme] || availableThemes.get('light-theme')
-    ),
-    filter((o): o is NonNullable<typeof o> => !!o),
-    takeWhenBrowser()
-  );
+  const themeOption$ = of(readerTheme);
 
   const backgroundColor$ = themeOption$.pipe(map((o) => o.backgroundColor));
 

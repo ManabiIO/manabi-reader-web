@@ -92,7 +92,7 @@
 <div class="flex-1 p-4 overflow-auto">
   <div class="flex flex-col mb-6">
     <label for="datesTemplate">Template</label>
-    <select id="datesTemplate" class="text-black" bind:value={$lastStatisticsRangeTemplate$}>
+    <select id="datesTemplate" class="text-ink" bind:value={$lastStatisticsRangeTemplate$}>
       {#each statisticsRangeTemplates as statisticsRangeTemplate (statisticsRangeTemplate)}
         <option value={statisticsRangeTemplate}>
           {statisticsRangeTemplate}
@@ -102,7 +102,7 @@
   </div>
   <div class="flex flex-col mb-4 sm:hidden">
     <label for="weekDay">Start of Week</label>
-    <select id="weekDay" class="text-black" bind:value={$lastStartDayOfWeek$}>
+    <select id="weekDay" class="text-ink" bind:value={$lastStartDayOfWeek$}>
       {#each weekDays as weekDay (weekDay.day)}
         <option value={weekDay.index}>
           {weekDay.day}
@@ -116,7 +116,7 @@
       <input
         id="fromDate"
         type="date"
-        class="text-black"
+        class="text-ink"
         bind:value={selectedStatisticsStartDate}
         on:change={() =>
           dispatch('statisticsDateChange', {
@@ -150,7 +150,7 @@
       <input
         id="toDate"
         type="date"
-        class="text-black"
+        class="text-ink"
         bind:value={selectedStatisticsEndDate}
         on:change={() =>
           dispatch('statisticsDateChange', {
@@ -161,7 +161,7 @@
     </div>
     <div class="flex-col hidden sm:flex">
       <label for="weekDay">Start of Week</label>
-      <select id="weekDay" class="text-black" bind:value={$lastStartDayOfWeek$}>
+      <select id="weekDay" class="text-ink" bind:value={$lastStartDayOfWeek$}>
         {#each weekDays as weekDay (weekDay.day)}
           <option value={weekDay.index}>
             {weekDay.day}
@@ -185,7 +185,7 @@
         <Fa icon={faCircleQuestion} slot="icon" class="mx-2" />
         <label for="timeDataSource">Time Data Source</label>
       </Popover>
-      <select id="timeDataSource" class="text-black" bind:value={$lastReadingTimeDataSource$}>
+      <select id="timeDataSource" class="text-ink" bind:value={$lastReadingTimeDataSource$}>
         {#each readingTimeDataSources as readingTimeDataSource (readingTimeDataSource.key)}
           <option value={readingTimeDataSource.key}>
             {readingTimeDataSource.label}
@@ -201,7 +201,7 @@
         <Fa icon={faCircleQuestion} slot="icon" class="mx-2" />
         <label for="charactersSource">Characters Data Source</label>
       </Popover>
-      <select id="charactersSource" class="text-black" bind:value={$lastCharactersDataSource$}>
+      <select id="charactersSource" class="text-ink" bind:value={$lastCharactersDataSource$}>
         {#each charactersDataSources as charactersDataSource (charactersDataSource.key)}
           <option value={charactersDataSource.key}>
             {charactersDataSource.label}
@@ -217,7 +217,7 @@
         <Fa icon={faCircleQuestion} slot="icon" class="mx-2" />
         <label for="speedSource">Speed Data Source</label>
       </Popover>
-      <select id="speedSource" class="text-black" bind:value={$lastReadingSpeedDataSource$}>
+      <select id="speedSource" class="text-ink" bind:value={$lastReadingSpeedDataSource$}>
         {#each readingSpeedDataSources as readingSpeedDataSource (readingSpeedDataSource.key)}
           <option value={readingSpeedDataSource.key}>
             {readingSpeedDataSource.label}
@@ -236,7 +236,7 @@
     </Popover>
     <select
       id="primaryAggregration"
-      class="text-black"
+      class="text-ink"
       bind:value={$lastPrimaryReadingDataAggregationMode$}
     >
       {#each statisticsDataAggregrationModes as statisticsDataAggregrationMode (statisticsDataAggregrationMode)}

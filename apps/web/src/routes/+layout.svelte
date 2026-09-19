@@ -8,6 +8,7 @@
   import { fontFamilyGroupOne$, isOnline$, userFonts$ } from '$lib/data/store';
   import { dummyFn, isMobile, isMobile$ } from '$lib/functions/utils';
   import ManabiRuntime from '$lib/manabi/runtime.svelte';
+  import AppearanceRuntime from '$lib/appearance/runtime.svelte';
   import { MetaTags } from 'svelte-meta-tags';
   import '../app.scss';
 
@@ -74,6 +75,7 @@
     images: [{ url: `${basePath}${base}/icons/regular-icon@512x512.png`, width: 512, height: 512 }]
   }}
 />
+<AppearanceRuntime />
 <ManabiRuntime />
 <slot />
 {#if dialogs.length > 0}

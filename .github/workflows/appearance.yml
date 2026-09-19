@@ -5,8 +5,11 @@ on:
   pull_request:
     paths:
       - 'apps/web/src/**'
+      - 'apps/web/static/appearance-init.js'
       - 'apps/web/tailwind.config.*'
       - 'tools/appearance/**'
+      - 'tests/browser/test_appearance.py'
+      - 'tests/unit/appearance.test.mjs'
       - '.github/workflows/appearance.yml'
 permissions:
   contents: read
@@ -15,51 +18,43 @@ concurrency:
   cancel-in-progress: true
 jobs:
   appearance:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Capture reviewed source (no fonts or binary assets)
-        run: |
-          mkdir -p /tmp/appearance-evidence
-          git rev-parse HEAD > /tmp/appearance-evidence/commit.txt
-          git ls-tree -r HEAD > /tmp/appearance-evidence/tree.txt
-          python3 - <<'PY'
-          import json, pathlib, subprocess
-          extensions = {'.ts', '.js', '.mjs', '.cjs', '.json', '.svelte', '.css', '.scss', '.html', '.yaml', '.yml', '.md'}
-          files = []
-          for name in subprocess.check_output(['git', 'ls-files'], text=True).splitlines():
-              path = pathlib.Path(name)
-              if path.suffix in extensions and path.stat().st_size < 2000000:
-                  files.append({'path': name, 'content': path.read_text()})
-          pathlib.Path('/tmp/appearance-evidence/source.json').write_text(json.dumps(files))
-          PY
-      - uses: actions/upload-artifact@v4
+      - uses: pnpm/action-setup@v6.1.0
         with:
-          name: appearance-source
-          path: /tmp/appearance-evidence
-          retention-days: 7
-      - uses: pnpm/action-setup@v4
+          version: '12.3.4'
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: '24.21.0'
           cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
       - run: pnpm install --frozen-lockfile
-      - name: Type check and build
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - run: node --experimental-strip-types tools/appearance/generate-css.mjs --check
+      - run: node --experimental-strip-types --test tests/unit/*.test.mjs
+      - run: pnpm --dir apps/web check
+      - name: Build the real subpath application
+        env:
+          BASE_PATH: /Reader-Web
+        run: pnpm build
+      - name: Real browser acceptance
         run: |
-          pnpm --filter web check
-          pnpm --filter web build
-      - name: Browser appearance acceptance
-        if: ${{ hashFiles('tools/appearance/run.mjs') != '' }}
-        run: |
-          pnpm exec playwright install --with-deps chromium
-          node tools/appearance/run.mjs
+          python -m pip install 'playwright==1.55.0'
+          python -m playwright install --with-deps chromium
+          set -o pipefail
+          python tests/browser/test_appearance.py 2>&1 | tee appearance-results.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: appearance-browser
-          path: artifacts/appearance
+          name: appearance-evidence
+          path: |
+            appearance-results.log
+            test-results/
           if-no-files-found: ignore
           retention-days: 7

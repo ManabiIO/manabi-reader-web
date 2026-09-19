@@ -1,5 +1,7 @@
 <script lang="ts">
   import { browser } from '$app/environment';
+  import AppearanceSettings from '$lib/appearance/settings.svelte';
+  import { resolvedMode$ } from '$lib/appearance/state';
   import { faComputer, faPlus, faSpinner } from '@fortawesome/free-solid-svg-icons';
   import {
     TrackerAutoPause,
@@ -42,7 +44,11 @@
     verticalCustomReadingPosition$
   } from '$lib/data/store';
   import type { TextMarginMode } from '$lib/data/text-margin-mode';
-  import { availableThemes as availableThemesMap } from '$lib/data/theme-option';
+  import {
+    availableThemes as availableThemesMap,
+    themeForMode,
+    themeNames
+  } from '$lib/data/theme-option';
   import type { VerticalTextOrientation } from '$lib/data/vertical-text-orientation';
   import { ViewMode } from '$lib/data/view-mode';
   import type { WritingMode } from '$lib/data/writing-mode';
@@ -194,14 +200,14 @@
     browser
       ? [...Array.from(availableThemesMap.entries()), ...Object.entries($customThemes$)]
       : Array.from(availableThemesMap.entries())
-  ).map(([theme, option]) => ({
+  ).map(([theme]) => ({
     theme,
-    option
+    option: themeForMode(theme, $resolvedMode$, $customThemes$)
   }));
 
   $: optionsForTheme = availableThemes.map(({ theme, option }) => ({
     id: theme,
-    text: 'ぁあ',
+    text: themeNames[theme] ?? theme.replace(/^custom-/, ''),
     style: {
       color: option.fontColor,
       'background-color': option.backgroundColor
@@ -496,6 +502,7 @@
 
 <div class="grid grid-cols-1 items-center sm:grid-cols-2 sm:gap-6 lg:md:gap-8 lg:grid-cols-3">
   {#if activeSettings === 'Reader'}
+    <div class="sm:col-span-2 lg:col-span-3"><AppearanceSettings /></div>
     <div class="lg:col-span-2">
       <SettingsItemGroup title="Theme">
         <ButtonToggleGroup
@@ -509,14 +516,15 @@
               }
             ])}
           on:delete={({ detail }) => {
-            $theme$ = optionsForTheme[optionsForTheme.length - 2]?.id || 'light-theme';
+            $theme$ = 'manabi-theme';
             delete $customThemes$[detail];
             $customThemes$ = { ...$customThemes$ };
           }}
         >
           {#if browser}
             <button
-              class="m-1 rounded-md border-2 border-gray-400 p-2 text-lg"
+              aria-label="Add custom theme"
+              class="m-1 rounded-md border-2 border-line p-2 text-lg"
               on:click={() =>
                 dialogManager.dialogs$.next([
                   {
