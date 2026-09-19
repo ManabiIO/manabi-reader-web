@@ -98,6 +98,12 @@
       return;
     }
 
+    if (themeName !== selectedTheme && Object.hasOwn($customThemes$, themeName)) {
+      themeNameElm.setCustomValidity('A theme with this name already exists. Choose another name.');
+      themeNameElm.reportValidity();
+      return;
+    }
+
     const newTheme: any = {};
     const entries = [...Object.entries(customTheme)];
 

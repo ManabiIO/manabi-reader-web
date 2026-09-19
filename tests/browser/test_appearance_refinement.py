@@ -9,13 +9,14 @@ import test_appearance as previous
 
 
 # Real raster bytes; browsers need only decode, not implement every encoder.
-JPEG = '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCABQAHgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwChRRRQfWhRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFAH/2Q=='
+JPEG = '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCABQAHgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwChRRRQfWhRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFAH/2Q=='
 WEBP = 'UklGRlYAAABXRUJQVlA4IEoAAADwBACdASp4AFAAPm02mUmkIyKhIMgAgA2JaQAABje6m/LqHOMoB7qb6NqHOMoBoAAA/uLev//ln/+y3/Zb0bzR0EdEwAAAAAAAAA=='
 
 class RefinedAppearance(previous.AppearanceBrowser):
     def setUp(self):
         if os.environ.get('APPEARANCE_BROWSER', 'chromium') == 'chromium':
             super().setUp()
+            self.context.on('page', self.watch_page)
             return
         # Ordinary Safari uses a persistent store. WebKit's private/ephemeral
         # sessions cannot store IDB Blobs (WebKit #156347 / Playwright #42795).
@@ -27,11 +28,14 @@ class RefinedAppearance(previous.AppearanceBrowser):
         self.errors = []
         self.page.on('pageerror', lambda error: self.errors.append(str(error)))
         previous.baseline.StaticHandler.probes.clear()
+        self.context.on('page', self.watch_page)
+
+    def watch_page(self, page):
+        page.on('pageerror', lambda error: self.errors.append(str(error)))
 
     def test_live_tabs_share_palette_custom_edits_and_fade_without_reloading_book(self):
         self.open_book()
         reader = self.context.new_page()
-        reader.on('pageerror', lambda error: self.errors.append(str(error)))
         reader.goto(self.page.url)
         expect(reader.locator('.book-content')).to_be_visible()
         reader.locator('.book-content').evaluate('e => e.dataset.retained = "yes"')
@@ -174,6 +178,27 @@ class RefinedAppearance(previous.AppearanceBrowser):
         expect(self.page.get_by_label('Background opacity', exact=True)).to_have_value('0')
         self.page.get_by_role('button', name='Save', exact=True).click()
         self.assertEqual('#112233', self.page.evaluate("JSON.parse(localStorage.getItem('customThemes'))['Personal hex'].fontColor"))
+        saved = self.page.evaluate('localStorage.getItem("customThemes")')
+        self.page.get_by_role('button', name='Add custom theme', exact=True).click()
+        self.page.get_by_placeholder('Theme Name', exact=True).fill('Personal hex')
+        self.page.get_by_role('button', name='Save', exact=True).click()
+        name = self.page.get_by_placeholder('Theme Name', exact=True)
+        expect(name).to_be_visible()
+        self.assertIn('already exists', name.evaluate('e => e.validationMessage'))
+        self.assertEqual(saved, self.page.evaluate('localStorage.getItem("customThemes")'))
+        name.fill('Second palette')
+        self.page.get_by_role('button', name='Save', exact=True).click()
+        saved = self.page.evaluate('localStorage.getItem("customThemes")')
+        self.page.get_by_role('button', name='Edit Second palette theme', exact=True).click()
+        self.page.get_by_placeholder('Theme Name', exact=True).fill('Personal hex')
+        self.page.get_by_role('button', name='Save', exact=True).click()
+        self.assertEqual(saved, self.page.evaluate('localStorage.getItem("customThemes")'))
+        self.page.get_by_placeholder('Theme Name', exact=True).fill('Renamed palette')
+        self.page.get_by_role('button', name='Save', exact=True).click()
+        themes = self.page.evaluate('JSON.parse(localStorage.getItem("customThemes"))')
+        self.assertNotIn('Second palette', themes)
+        self.assertIn('Renamed palette', themes)
+        self.assertEqual('#112233', themes['Personal hex']['fontColor'])
 
     def test_print_and_forced_colors_hide_wallpaper_without_deleting_it(self):
         self.settings()
