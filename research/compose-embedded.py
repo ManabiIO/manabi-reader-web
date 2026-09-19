@@ -8,6 +8,8 @@ def edit(name,old,new):
 
 edit('apps/web/src/routes/+layout.svelte',"  import ManabiRuntime from '$lib/manabi/runtime.svelte';","  import ManabiRuntime from '$lib/manabi/runtime.svelte';\n  import DictionaryPanel from '$lib/dictionary/dictionary-panel.svelte';")
 edit('apps/web/src/routes/+layout.svelte','<ManabiRuntime />','<ManabiRuntime />\n<DictionaryPanel />')
+edit('apps/web/src/lib/dictionary/dictionary-panel.svelte',"  import { page } from '$app/stores';","  import { page } from '$app/stores';\n  import { browser } from '$app/environment';")
+edit('apps/web/src/lib/dictionary/dictionary-panel.svelte','  $: routeKey = $page.url.pathname + $page.url.search;',"  $: routeKey = $page.url.pathname + (browser ? $page.url.search : '');")
 edit('apps/web/svelte.config.js',"'script-src': ['self']","'script-src': ['self', 'wasm-unsafe-eval']")
 edit('apps/web/src/lib/service-worker/reader-service-worker.mjs','    if (inScope(url)) {','''    if (inScope(url)) {
       // Only a complete, verified and immutable runtime uses this exact cache.
