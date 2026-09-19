@@ -141,6 +141,7 @@ class SharedStorageRuntime(static.ReaderBrowser):
 
     def test_directory_selection_does_not_create_a_nested_library_in_a_book_folder(self):
         self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.get_by_role('button', name='Accounts and libraries', exact=True).wait_for()
         result = self.page.evaluate('''async () => {
           const {resolveTtuRoot} = await import('/Reader-Web/src/lib/manabi/ttu-folder-contract.ts');
           const disk = await navigator.storage.getDirectory();
@@ -172,6 +173,7 @@ class SharedStorageRuntime(static.ReaderBrowser):
 
     def test_uncached_provider_observes_replacement_and_disappearance_without_losing_local_data(self):
         self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.get_by_role('button', name='Accounts and libraries', exact=True).wait_for()
         result = self.page.evaluate('''async () => {
           const {FilesystemStorageHandler} = await import('/Reader-Web/src/lib/data/storage/handler/filesystem-handler.ts');
           const {database} = await import('/Reader-Web/src/lib/data/store.ts');
@@ -186,9 +188,6 @@ class SharedStorageRuntime(static.ReaderBrowser):
             const writer = await (await directory.getFileHandle(name, {create:true})).createWritable();
             await writer.write(JSON.stringify(value)); await writer.close();
           }
-          // Only directory metadata and progress are exercised in this adapter case.
-          // The separate static E2E imports/exports the real ZIP and reader contents.
-          await write('bookdata_1_6_100_1_0.zip', {});
           await write('progress_1_6_100_0.1.json', {dataId:777, exploredCharCount:10, progress:0.1, lastBookmarkModified:100});
           const db = await database.db;
           await db.put('storageSource', {name:'Runtime fixture', type:StorageKey.FS, storedInManager:false,
@@ -200,6 +199,8 @@ class SharedStorageRuntime(static.ReaderBrowser):
           const handler = new FilesystemStorageHandler(window, StorageKey.FS);
           handler.updateSettings(window, true, ReplicationSaveBehavior.NewOnly, MergeMode.MERGE, MergeMode.MERGE, false, false, 'Runtime fixture');
           handler.startContext({title});
+          // Publish a genuine TTU archive using the production serializer.
+          await handler.saveBook(await db.get('data', localID), true);
           await handler.getBookList();
           const first = await handler.getProgress();
           await directory.removeEntry('progress_1_6_100_0.1.json');
@@ -231,9 +232,10 @@ class SharedStorageRuntime(static.ReaderBrowser):
 
     def test_google_and_onedrive_open_paths_reject_unrelated_local_title_before_authorization(self):
         self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.get_by_role('button', name='Accounts and libraries', exact=True).wait_for()
         result = self.page.evaluate('''async () => {
-          const {GDriveStorageHandler} = await import('/Reader-Web/src/lib/data/storage/handler/gdrive-handler.ts');
-          const {OneDriveStorageHandler} = await import('/Reader-Web/src/lib/data/storage/handler/onedrive-handler.ts');
+          const {getStorageHandler} = await import('/Reader-Web/src/lib/data/storage/storage-handler-factory.ts');
+          const {StorageKey} = await import('/Reader-Web/src/lib/data/storage/storage-types.ts');
           const {database} = await import('/Reader-Web/src/lib/data/store.ts');
           const {MergeMode} = await import('/Reader-Web/src/lib/data/merge-mode.ts');
           const {ReplicationSaveBehavior} = await import('/Reader-Web/src/lib/functions/replication/replication-options.ts');
@@ -242,9 +244,9 @@ class SharedStorageRuntime(static.ReaderBrowser):
           const id = await db.put('data', {title, storageSource:'local-original', elementHtml:'<p>Original</p>',
             styleSheet:'', blobs:{}, coverImage:'', hasThumb:false, characters:8, sections:[], lastBookModified:1, lastBookOpen:0});
           const errors = [];
-          for (const Handler of [GDriveStorageHandler, OneDriveStorageHandler]) {
-            const handler = new Handler(window);
-            handler.updateSettings(window, true, ReplicationSaveBehavior.NewOnly, MergeMode.MERGE, MergeMode.MERGE, false, false, 'unrelated-cloud');
+          for (const storageType of [StorageKey.GDRIVE, StorageKey.ONEDRIVE]) {
+            const handler = getStorageHandler(window, storageType, 'unrelated-cloud', true, false,
+              ReplicationSaveBehavior.NewOnly, MergeMode.MERGE, MergeMode.MERGE, false);
             handler.startContext({title});
             for (const operation of ['hasLocalBookData', 'prepareBookForReading']) {
               try {await handler[operation](); errors.push('did not reject');}
