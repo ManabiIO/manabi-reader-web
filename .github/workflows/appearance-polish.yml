@@ -1,0 +1,70 @@
+name: Review appearance polish
+on:
+  push:
+    branches: [research/appearance-polish-20260919]
+permissions:
+  contents: write
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Apply reviewed source delta
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,lzma,pathlib,subprocess
+          patch=lzma.decompress(pathlib.Path('.github/appearance-polish.xz').read_bytes())
+          assert hashlib.sha256(patch).hexdigest()=='65c76b0fb8911d7dcf2e37a77baf6996cca1209a160a8f695249ce311d109d12'
+          pathlib.Path('/tmp/polish.patch').write_bytes(patch)
+          subprocess.run(['git','apply','--check','/tmp/polish.patch'],check=True)
+          subprocess.run(['git','apply','/tmp/polish.patch'],check=True)
+          paths=[line.split('\t',2)[2] for line in subprocess.check_output(['git','apply','--numstat','/tmp/polish.patch'],text=True).splitlines()]
+          assert len(paths)==8
+          pathlib.Path('/tmp/paths.json').write_text(json.dumps(paths))
+          PY
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - name: Format changed source
+        run: |
+          python3 - <<'PY'
+          import json,pathlib,subprocess
+          paths=json.loads(pathlib.Path('/tmp/paths.json').read_text())
+          subprocess.run(['pnpm','exec','prettier','--write',*[p for p in paths if not p.endswith('.py')]],check=True)
+          PY
+      - name: Capture exact source objects without commits or ref writes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib,urllib.request
+          out=pathlib.Path('/tmp/polish-evidence');out.mkdir();tree=[];source=[]
+          for name in json.loads(pathlib.Path('/tmp/paths.json').read_text()):
+              data=pathlib.Path(name).read_bytes();content=data.decode()
+              expected=hashlib.sha1(f'blob {len(data)}\0'.encode()+data).hexdigest()
+              req=urllib.request.Request('https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/git/blobs',data=json.dumps({'encoding':'utf-8','content':content}).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','Content-Type':'application/json'},method='POST')
+              with urllib.request.urlopen(req,timeout=30) as response: sha=json.load(response)['sha']
+              assert sha==expected
+              source.append({'path':name,'content':content});tree.append({'path':name,'mode':'100644','type':'blob','sha':sha})
+          (out/'source.json').write_text(json.dumps(source));(out/'tree.json').write_text(json.dumps(tree))
+          PY
+      - name: Svelte lint and type checking
+        run: |
+          set -o pipefail
+          node tools/appearance/lint.mjs 2>&1 | tee /tmp/polish-evidence/lint.log
+          pnpm --dir apps/web check 2>&1 | tee /tmp/polish-evidence/types.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: appearance-polish-source
+          path: /tmp/polish-evidence
+          retention-days: 7
