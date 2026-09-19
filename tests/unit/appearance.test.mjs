@@ -251,3 +251,17 @@ test('only portable preset names cross the account boundary', () => {
   for (const id of ['My personal notes', 'personal', '', null, 'constructor', 42])
     assert.equal(portableThemeName(id), undefined);
 });
+
+test('custom names that match Object.prototype retain both mode variants', () => {
+  for (const name of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) {
+    const palettes = Object.fromEntries([[name, custom.personal]]);
+    const saved = JSON.stringify(palettes);
+    const decoded = parseCustomThemes(saved);
+    assert.ok(Object.hasOwn(decoded, name));
+    for (const mode of ['light', 'dark']) {
+      assert.ok(Object.values(themeForMode(name, mode, decoded)).every(parseColor));
+      assert.ok(parseColor(themeProperties(name, mode, decoded).canvas));
+    }
+    assert.equal(JSON.stringify(decoded), saved);
+  }
+});

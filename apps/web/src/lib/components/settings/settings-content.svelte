@@ -207,7 +207,7 @@
 
   $: optionsForTheme = availableThemes.map(({ theme, option }) => ({
     id: theme,
-    text: themeNames[theme] ?? theme.replace(/^custom-/, ''),
+    text: Object.hasOwn(themeNames, theme) ? themeNames[theme] : theme.replace(/^custom-/, ''),
     style: {
       color: option.fontColor,
       'background-color': option.backgroundColor
@@ -1242,7 +1242,7 @@
     {/if}
   {/if}
   {#if showSpinner}
-    <div class="tap-highlight-transparent fixed inset-0 bg-black/[.2]" ></div>
+    <div class="tap-highlight-transparent fixed inset-0 bg-black/[.2]"></div>
     <div class="fixed inset-0 flex h-full w-full items-center justify-center text-7xl">
       <Fa icon={faSpinner} spin />
     </div>

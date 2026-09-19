@@ -239,10 +239,29 @@ class RefinedAppearance(previous.AppearanceBrowser):
         self.assertEqual(saved, self.page.evaluate('localStorage.getItem("customThemes")'))
         self.page.get_by_placeholder('Theme Name', exact=True).fill('Renamed palette')
         self.page.get_by_role('button', name='Save', exact=True).click()
+        expect(self.page.get_by_role('button', name='Edit Renamed palette theme', exact=True)).to_be_visible()
         themes = self.page.evaluate('JSON.parse(localStorage.getItem("customThemes"))')
         self.assertNotIn('Second palette', themes)
         self.assertIn('Renamed palette', themes)
         self.assertEqual('#112233', themes['Personal hex']['fontColor'])
+
+    def test_custom_prototype_name_is_safe_in_both_modes_and_ripples_do_not_intercept_clicks(self):
+        self.settings()
+        self.page.get_by_role('button', name='Add custom theme', exact=True).click()
+        self.page.get_by_placeholder('Theme Name', exact=True).fill('constructor')
+        save = self.page.get_by_role('button', name='Save', exact=True)
+        save.hover()
+        self.assertTrue(save.evaluate("""e => {
+            const r = e.getBoundingClientRect();
+            return document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2) === e;
+        }"""))
+        save.click()
+        expect(self.page.get_by_role('button', name='Edit constructor theme', exact=True)).to_be_visible()
+        for mode in ['Dark', 'Light']:
+            self.mode(mode)
+            expect(self.page.get_by_role('button', name='Edit constructor theme', exact=True)).to_be_visible()
+        self.page.reload()
+        expect(self.page.get_by_role('button', name='Edit constructor theme', exact=True)).to_be_visible()
 
     def test_print_and_forced_colors_hide_wallpaper_without_deleting_it(self):
         self.settings()

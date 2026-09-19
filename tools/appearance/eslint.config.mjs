@@ -8,6 +8,7 @@ export default [
   ...svelte.configs.prettier,
   {
     files: ['**/*.svelte'],
+    plugins: { '@typescript-eslint': ts.plugin },
     languageOptions: {
       parserOptions: { parser: ts.parser }
     }

@@ -285,7 +285,7 @@ export function themeForMode(
     return neutralTheme(mode === 'light' ? '#ffffff' : '#000000', mode, true);
   const originalMode = isDarkColor(original.backgroundColor) ? 'dark' : 'light';
   if (originalMode === mode) return { ...original };
-  if (counterparts[id]) return neutralTheme(counterparts[id], mode);
+  if (Object.hasOwn(counterparts, id)) return neutralTheme(counterparts[id], mode);
   // Keep custom themes byte-for-byte in storage and in their authored mode;
   // derive, never save, a gently tinted counterpart for the opposite mode.
   const target = mode === 'dark' ? [0, 0, 0] : [255, 255, 255];

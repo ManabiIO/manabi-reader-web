@@ -92,8 +92,7 @@
     createRipple(touch.clientX, touch.clientY, rect.left, rect.top, rect.width, rect.height);
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  function animateRipple(node: HTMLElement, params: any = {}) {
+  function animateRipple() {
     return {
       delay: 0,
       duration: 400,
@@ -105,7 +104,12 @@
   }
 </script>
 
-<span bind:this={containerEl} class="absolute inset-0 h-full w-full">
+<!-- Decorative animation must never become the mouse/touch hit target. -->
+<span
+  bind:this={containerEl}
+  class="pointer-events-none absolute inset-0 h-full w-full"
+  aria-hidden="true"
+>
   {#each ripples as _ (_.id)}
     <span
       class="absolute rounded-full bg-gray-400/50"

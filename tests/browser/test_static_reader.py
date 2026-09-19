@@ -91,12 +91,15 @@ class ReaderBrowser(unittest.TestCase):
         diagnostics = Path('test-results')
         diagnostics.mkdir(exist_ok=True)
         name = self._testMethodName
-        self.page.screenshot(path=str(diagnostics / (name + '.png')), full_page=True)
-        (diagnostics / (name + '.html')).write_text(self.page.content())
-        if self.errors:
-            print('Browser errors:', self.errors)
-        self.context.close()
-        self.assertEqual([], self.errors)
+        try:
+            (diagnostics / (name + '.html')).write_text(self.page.content())
+            self.page.screenshot(path=str(diagnostics / (name + '.png')), full_page=True)
+        finally:
+            # A diagnostic failure must not leak a profile into the next test.
+            self.context.close()
+            if self.errors:
+                print('Browser errors:', self.errors)
+            self.assertEqual([], self.errors)
 
     def go_offline(self):
         self.context.set_offline(True)
@@ -163,9 +166,19 @@ class ReaderBrowser(unittest.TestCase):
         # even on macOS hosts that already provide the preferred Japanese face.
         self.open_book(font='Klee One')
         self.assertGreater(self.page.evaluate('''async () => {
-          const faces = await document.fonts.load('20px "Klee One"', '日本語');
-          await document.fonts.ready;
-          return faces.length;
+          let timer;
+          try {
+            return await Promise.race([
+              (async () => {
+                const faces = await document.fonts.load('20px "Klee One"', '日本語');
+                await document.fonts.ready;
+                return faces.length;
+              })(),
+              new Promise((_, reject) => {
+                timer = setTimeout(() => reject(new Error('Packaged font did not settle within 15 seconds')), 15000);
+              })
+            ]);
+          } finally { clearTimeout(timer); }
         }'''), 0)
         keys = self.page.evaluate('async () => (await Promise.all((await caches.keys()).map(async n => (await (await caches.open(n)).keys()).map(r => r.url)))).flat()')
         self.assertFalse(any('/api/' in key or '/accounts/' in key for key in keys))
