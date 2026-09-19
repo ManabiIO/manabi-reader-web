@@ -10,6 +10,7 @@
   import { userFontsCacheName, type UserFont } from '$lib/data/fonts';
   import { isOnline$, userFonts$ } from '$lib/data/store';
   import { dummyFn, isMobile, isMobile$ } from '$lib/functions/utils';
+  import AppearanceRuntime from '$lib/appearance/runtime.svelte';
   import { buildLocalFontStyleSheet } from '$lib/functions/book-security/local-media';
   import { MetaTags } from 'svelte-meta-tags';
   import '../app.scss';
@@ -65,7 +66,10 @@
   });
 
   const stopPage = page.subscribe((p) => (path = p.url.pathname));
-  onDestroy(() => { dialogsSubscription.unsubscribe(); stopPage(); });
+  onDestroy(() => {
+    dialogsSubscription.unsubscribe();
+    stopPage();
+  });
 </script>
 
 <svelte:window bind:online={$isOnline$} />
@@ -85,7 +89,7 @@
     ]
   }}
 />
-
+<AppearanceRuntime />
 <ManabiRuntime />
 <slot />
 

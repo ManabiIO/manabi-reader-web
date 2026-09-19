@@ -65,11 +65,11 @@
 
     <div class="absolute inset-x-0 bottom-0">
       <div
-        class="sm:h-21 h-16 bg-gray-800 bg-opacity-80 p-0.5 px-1.5 text-justify text-sm text-white sm:p-1.5 sm:text-base"
+        class="sm:h-21 h-16 bg-surface-raised p-0.5 px-1.5 text-justify text-sm text-ink sm:p-1.5 sm:text-base"
       >
         <span class="line-clamp-3">{title}</span>
       </div>
-      <div class="h-2.5 bg-gray-400 bg-opacity-80">
+      <div class="h-2.5 bg-line">
         <div
           class="h-full rounded bg-gradient-to-b from-red-600 to-red-900"
           style:width="{progress * 100}%"

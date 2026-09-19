@@ -2,6 +2,8 @@
   "extends": "./tsconfig.json",
   "include": [
     "src/**/*.js",
+    "static/appearance-init.js",
+    "../../tools/appearance/**/*.mjs",
     "src/**/*.mjs",
     "src/**/*.ts",
     "src/**/*.svelte",

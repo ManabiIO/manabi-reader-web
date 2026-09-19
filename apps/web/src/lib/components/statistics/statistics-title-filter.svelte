@@ -181,7 +181,7 @@
   <input
     type="search"
     placeholder="Filter Title"
-    class="w-full text-black"
+    class="w-full text-ink"
     bind:value={titleFilter}
     on:input={handleTitleFilterChange}
   />

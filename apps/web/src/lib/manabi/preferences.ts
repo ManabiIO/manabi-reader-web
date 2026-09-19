@@ -6,6 +6,7 @@
 
 import { get, writable } from 'svelte/store';
 import * as reader from '$lib/data/store';
+import { appearance$ } from '$lib/appearance/state';
 import { account, currentUser, IntegrationError, request } from './client';
 import { equal, exclusive, mergeRecords, metadata, setMetadata } from './persistence';
 
@@ -78,7 +79,10 @@ interface Subject {
   subscribe(fn: () => void): { unsubscribe(): void };
 }
 function subject(name: string): Subject {
-  const value = (reader as unknown as Record<string, Subject>)[`${name}$`];
+  const value =
+    name === 'appearance'
+      ? appearance$
+      : (reader as unknown as Record<string, Subject>)[`${name}$`];
   if (!value || typeof value.getValue !== 'function')
     throw new Error(`Unknown Reader preference ${name}`);
   return value;
@@ -105,13 +109,7 @@ function bind(
     }
   };
 }
-bind(
-  'theme',
-  'theme',
-  (v) => ['light', 'dark', 'system'].includes(v as string),
-  (v) => (v === 'dark-theme' ? 'dark' : v === 'system-theme' ? 'system' : 'light'),
-  (v) => (v === 'dark' ? 'dark-theme' : v === 'system' ? 'system-theme' : 'light-theme')
-);
+bind('theme', 'appearance', (v) => ['light', 'dark', 'system'].includes(v as string));
 bind(
   'font_family',
   'fontFamilyGroupOne',

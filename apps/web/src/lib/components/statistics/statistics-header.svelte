@@ -47,10 +47,10 @@
           <div title="Copy Data in TMW Log Format" slot="icon" class={baseIconClasses}>
             <Fa icon={faCopy} />
           </div>
-          <div class="flex flex-col justify-center w-36 bg-gray-700" slot="content">
+          <div class="flex flex-col justify-center w-36 bg-surface-raised" slot="content">
             {#each copyStatisticsDataItems as copyStatisticsDataItem (copyStatisticsDataItem.key)}
               <button
-                class="p-2 hover:bg-white hover:text-gray-700"
+                class="p-2 hover:bg-surface hover:text-ink"
                 on:click={() => {
                   copyStatisticsData$.next(copyStatisticsDataItem.key);
                   copyStatisticsDataPopover.toggleOpen();
@@ -69,7 +69,7 @@
           ? 'You are already on the Summary Tab'
           : 'Switch to Summary Tab'}
         class={baseIconClasses}
-        class:bg-gray-900={$lastStatisticsTab$ === StatisticsTab.SUMMARY}
+        class:bg-surface-hover={$lastStatisticsTab$ === StatisticsTab.SUMMARY}
         on:click={() => ($lastStatisticsTab$ = StatisticsTab.SUMMARY)}
         on:keyup={dummyFn}
       >
@@ -82,7 +82,7 @@
           ? 'You are already on the Heatmap Tab'
           : 'Switch to Heatmap Tab'}
         class={baseIconClasses}
-        class:bg-gray-900={$lastStatisticsTab$ === StatisticsTab.OVERVIEW}
+        class:bg-surface-hover={$lastStatisticsTab$ === StatisticsTab.OVERVIEW}
         on:click={() => ($lastStatisticsTab$ = StatisticsTab.OVERVIEW)}
         on:keyup={dummyFn}
       >

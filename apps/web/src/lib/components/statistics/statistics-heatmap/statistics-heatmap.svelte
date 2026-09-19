@@ -1160,8 +1160,8 @@
         role="cell"
         class="justify-self-center fadeIn"
         class:cursor-pointer={heatmapDay.isCurrentYear}
-        class:bg-slate-300={heatmapDay.isCurrentYear}
-        class:bg-slate-200={!heatmapDay.isCurrentYear}
+        class:bg-heatmap-empty={heatmapDay.isCurrentYear}
+        class:bg-heatmap-outside={!heatmapDay.isCurrentYear}
         class:border-amber-500={isSelected}
         class:border-red-500={isToday}
         class:highlight={selectedStreakDates.has(heatmapDay.dateString)}
@@ -1389,7 +1389,7 @@
 
 <style>
   .highlight {
-    box-shadow: 0px 1px 5px 1px black;
+    box-shadow: 0 0 0 2px var(--accent);
   }
 
   @media (min-width: 1024px) {

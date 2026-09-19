@@ -63,7 +63,7 @@ import type { WritingMode } from './writing-mode';
 import { writableSetLocalStorageSubject } from './internal/writable-set-local-storage-subject';
 import { writableStringLocalStorageSubject } from './internal/writable-string-local-storage-subject';
 
-export const theme$ = writableStringLocalStorageSubject()('theme', 'light-theme');
+export const theme$ = writableStringLocalStorageSubject()('theme', 'manabi-theme');
 export const customThemes$ = writableObjectLocalStorageSubject<Record<string, ThemeOption>>()(
   'customThemes',
   {}

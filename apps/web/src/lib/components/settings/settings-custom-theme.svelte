@@ -5,8 +5,14 @@
   import SettingsCustomThemeInput from '$lib/components/settings/settings-custom-theme-input.svelte';
   import { buttonClasses } from '$lib/css-classes';
   import { customThemes$, theme$ } from '$lib/data/store';
-  import { availableThemes, type CustomThemeValue, type ThemeOption } from '$lib/data/theme-option';
+  import {
+    availableThemes,
+    themeForMode,
+    type CustomThemeValue,
+    type ThemeOption
+  } from '$lib/data/theme-option';
   import { createEventDispatcher, onMount } from 'svelte';
+  import { resolvedMode$ } from '$lib/appearance/state';
 
   export let selectedTheme: string;
   export let existingThemes: ToggleOption<string>[] = [];
@@ -89,7 +95,7 @@
   }
 
   function handleCopyTheme() {
-    copyTheme(availableThemes.get(themeToCopy) || $customThemes$[themeToCopy]);
+    copyTheme(themeForMode(themeToCopy, $resolvedMode$, $customThemes$));
   }
 
   function handleColorValueChange(
@@ -250,7 +256,7 @@
         bind:this={themeNameElm}
       />
       <button
-        class="flex justify-center items-center rounded-md border-2 border-gray-400 p-2 text-lg"
+        class="flex justify-center items-center rounded-md border-2 border-line p-2 text-lg"
         style={themeStyle}
       >
         ぁあ

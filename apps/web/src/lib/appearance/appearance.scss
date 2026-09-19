@@ -1,0 +1,158 @@
+@import './palettes';
+:root {
+  --manabi-red: #a33539; /* /next/ Reader red, sRGB fallback */
+  --reader-font-color: var(--light-reader-font-color);
+  --reader-background-color: var(--light-reader-background-color);
+  --reader-selection-font-color: var(--light-reader-selection-font-color);
+  --reader-selection-background-color: var(--light-reader-selection-background-color);
+  --reader-hint-furigana-shadow-color: var(--light-reader-hint-furigana-shadow-color);
+  --reader-hint-furigana-font-color: var(--light-reader-hint-furigana-font-color);
+  --reader-tooltip-text-font-color: var(--light-reader-tooltip-text-font-color);
+  --canvas: var(--light-canvas);
+  --ink: var(--light-ink);
+  --muted: var(--light-muted);
+  --surface: var(--light-surface);
+  --surface-raised: var(--light-surface-raised);
+  --surface-hover: var(--light-surface-hover);
+  --line: var(--light-line);
+  --accent: var(--light-accent);
+  --on-accent: var(--light-on-accent);
+  --accent-soft: var(--light-accent-soft);
+  --danger: var(--light-danger);
+  --heatmap-empty: var(--light-heatmap-empty);
+  --heatmap-outside: var(--light-heatmap-outside);
+  color-scheme: light;
+  --image-fade-color: 255 255 255;
+  --font-color: var(--ink);
+  --background-color: var(--canvas);
+  scrollbar-color: var(--muted) var(--canvas);
+  background: var(--canvas);
+}
+@supports (color: color(display-p3 1 0 0)) {
+  :root {
+    --manabi-red: color(display-p3 0.631373 0.101961 0.113725);
+  }
+}
+:root[data-appearance='dark'] {
+  --reader-font-color: var(--dark-reader-font-color);
+  --reader-background-color: var(--dark-reader-background-color);
+  --reader-selection-font-color: var(--dark-reader-selection-font-color);
+  --reader-selection-background-color: var(--dark-reader-selection-background-color);
+  --reader-hint-furigana-shadow-color: var(--dark-reader-hint-furigana-shadow-color);
+  --reader-hint-furigana-font-color: var(--dark-reader-hint-furigana-font-color);
+  --reader-tooltip-text-font-color: var(--dark-reader-tooltip-text-font-color);
+  --canvas: var(--dark-canvas);
+  --ink: var(--dark-ink);
+  --muted: var(--dark-muted);
+  --surface: var(--dark-surface);
+  --surface-raised: var(--dark-surface-raised);
+  --surface-hover: var(--dark-surface-hover);
+  --line: var(--dark-line);
+  --accent: var(--dark-accent);
+  --on-accent: var(--dark-on-accent);
+  --accent-soft: var(--dark-accent-soft);
+  --danger: var(--dark-danger);
+  --heatmap-empty: var(--dark-heatmap-empty);
+  --heatmap-outside: var(--dark-heatmap-outside);
+  color-scheme: dark;
+  --image-fade-color: 0 0 0;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-appearance='light']):not([data-appearance='dark']) {
+    --reader-font-color: var(--dark-reader-font-color);
+    --reader-background-color: var(--dark-reader-background-color);
+    --reader-selection-font-color: var(--dark-reader-selection-font-color);
+    --reader-selection-background-color: var(--dark-reader-selection-background-color);
+    --reader-hint-furigana-shadow-color: var(--dark-reader-hint-furigana-shadow-color);
+    --reader-hint-furigana-font-color: var(--dark-reader-hint-furigana-font-color);
+    --reader-tooltip-text-font-color: var(--dark-reader-tooltip-text-font-color);
+    --canvas: var(--dark-canvas);
+    --ink: var(--dark-ink);
+    --muted: var(--dark-muted);
+    --surface: var(--dark-surface);
+    --surface-raised: var(--dark-surface-raised);
+    --surface-hover: var(--dark-surface-hover);
+    --line: var(--dark-line);
+    --accent: var(--dark-accent);
+    --on-accent: var(--dark-on-accent);
+    --accent-soft: var(--dark-accent-soft);
+    --danger: var(--dark-danger);
+    --heatmap-empty: var(--dark-heatmap-empty);
+    --heatmap-outside: var(--dark-heatmap-outside);
+    color-scheme: dark;
+    --image-fade-color: 0 0 0;
+  }
+}
+body {
+  isolation: isolate;
+}
+:where(input, select, textarea) {
+  color: var(--ink);
+  accent-color: var(--accent);
+}
+:where(
+  input:not([type='range']):not([type='checkbox']):not([type='radio']):not([type='color']),
+  select,
+  textarea
+) {
+  background-color: var(--surface);
+  border-color: var(--line);
+}
+select {
+  appearance: auto;
+  background-image: none;
+}
+input[type='checkbox'],
+input[type='radio'] {
+  color: var(--accent);
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+::selection {
+  color: var(--reader-selection-font-color);
+  background: var(--reader-selection-background-color);
+}
+.app-header {
+  border-bottom: 1px solid var(--line);
+}
+.ui-panel {
+  background: var(--surface-raised);
+  color: var(--ink);
+}
+.ui-link {
+  color: var(--accent);
+}
+.page-background {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+}
+.page-background::after,
+.background-preview::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgb(var(--image-fade-color) / var(--background-fade, 0));
+}
+@media (forced-colors: active) {
+  .page-background,
+  .background-preview {
+    display: none;
+  }
+}
+@media print {
+  .page-background {
+    display: none;
+  }
+}
