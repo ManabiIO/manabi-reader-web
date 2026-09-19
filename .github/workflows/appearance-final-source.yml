@@ -1,0 +1,143 @@
+name: Final appearance source
+on:
+  push:
+    branches: [research/appearance-qualification-20260919]
+    paths: ['.github/workflows/appearance-final-source.yml']
+permissions:
+  contents: write
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: a066f3fffbd9ed169adf7cdc0afdef2cd8bfc2dd
+          persist-credentials: false
+      - name: Apply bounded reviewed corrections
+        run: |
+          python3 - <<'PY'
+          import pathlib,json
+          changes=[]
+          def replace(name,old,new):
+              p=pathlib.Path(name);s=p.read_text();assert old in s,name
+              p.write_text(s.replace(old,new));changes.append(name)
+          replace('apps/web/src/lib/data/theme-option.ts','if (counterparts[id]) return neutralTheme(counterparts[id], mode);','if (Object.hasOwn(counterparts, id)) return neutralTheme(counterparts[id], mode);')
+          replace('apps/web/src/lib/components/settings/settings-content.svelte',"text: themeNames[theme] ?? theme.replace(/^custom-/, ''),","text: Object.hasOwn(themeNames, theme) ? themeNames[theme] : theme.replace(/^custom-/, ''),")
+          replace('apps/web/src/lib/components/ripple.svelte','<span bind:this={containerEl} class="absolute inset-0 h-full w-full">','<!-- Decorative animation must never become the mouse/touch hit target. -->\n<span bind:this={containerEl} class="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">')
+          replace('tools/appearance/lint.mjs',"const files = [","const files = [\n  'apps/web/src/lib/components/ripple.svelte',")
+          p=pathlib.Path('tests/unit/appearance.test.mjs');p.write_text(p.read_text()+'''
+
+          test('custom names that match Object.prototype retain both mode variants', () => {
+            for (const name of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) {
+              const palettes = Object.fromEntries([[name, custom.personal]]);
+              const saved = JSON.stringify(palettes);
+              const decoded = parseCustomThemes(saved);
+              assert.ok(Object.hasOwn(decoded, name));
+              for (const mode of ['light', 'dark']) {
+                assert.ok(Object.values(themeForMode(name, mode, decoded)).every(parseColor));
+                assert.ok(parseColor(themeProperties(name, mode, decoded).canvas));
+              }
+              assert.equal(JSON.stringify(decoded), saved);
+            }
+          });
+          ''');changes.append('tests/unit/appearance.test.mjs')
+          replace('tests/browser/test_static_reader.py', '''        self.page.screenshot(path=str(diagnostics / (name + '.png')), full_page=True)
+                  (diagnostics / (name + '.html')).write_text(self.page.content())
+                  if self.errors:
+                      print('Browser errors:', self.errors)
+                  self.context.close()
+                  self.assertEqual([], self.errors)''', '''        try:
+                      (diagnostics / (name + '.html')).write_text(self.page.content())
+                      self.page.screenshot(path=str(diagnostics / (name + '.png')), full_page=True)
+                  finally:
+                      # A diagnostic failure must not leak a profile into the next test.
+                      self.context.close()
+                      if self.errors:
+                          print('Browser errors:', self.errors)
+                      self.assertEqual([], self.errors)''')
+          replace('tests/browser/test_static_reader.py', '''          const faces = await document.fonts.load('20px "Klee One"', '日本語');
+                    await document.fonts.ready;
+                    return faces.length;''', '''          let timer;
+                    try {
+                      return await Promise.race([
+                        (async () => {
+                          const faces = await document.fonts.load('20px "Klee One"', '日本語');
+                          await document.fonts.ready;
+                          return faces.length;
+                        })(),
+                        new Promise((_, reject) => {
+                          timer = setTimeout(() => reject(new Error('Packaged font did not settle within 15 seconds')), 15000);
+                        })
+                      ]);
+                    } finally { clearTimeout(timer); }''')
+          replace('tests/browser/test_appearance_refinement.py', '''        themes = self.page.evaluate('JSON.parse(localStorage.getItem("customThemes"))')
+                  self.assertNotIn('Second palette', themes)''', '''        expect(self.page.get_by_role('button', name='Edit Renamed palette theme', exact=True)).to_be_visible()
+                  themes = self.page.evaluate('JSON.parse(localStorage.getItem("customThemes"))')
+                  self.assertNotIn('Second palette', themes)''')
+          replace('tests/browser/test_appearance_refinement.py', '''    def test_print_and_forced_colors_hide_wallpaper_without_deleting_it(self):''', '''    def test_custom_prototype_name_is_safe_in_both_modes_and_ripples_do_not_intercept_clicks(self):
+                  self.settings()
+                  self.page.get_by_role('button', name='Add custom theme', exact=True).click()
+                  self.page.get_by_placeholder('Theme Name', exact=True).fill('constructor')
+                  save = self.page.get_by_role('button', name='Save', exact=True)
+                  save.hover()
+                  self.assertTrue(save.evaluate("""e => {
+                      const r = e.getBoundingClientRect();
+                      return document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2) === e;
+                  }"""))
+                  save.click()
+                  expect(self.page.get_by_role('button', name='Edit constructor theme', exact=True)).to_be_visible()
+                  for mode in ['Dark', 'Light']:
+                      self.mode(mode)
+                      expect(self.page.get_by_role('button', name='Edit constructor theme', exact=True)).to_be_visible()
+                  self.page.reload()
+                  expect(self.page.get_by_role('button', name='Edit constructor theme', exact=True)).to_be_visible()
+
+              def test_print_and_forced_colors_hide_wallpaper_without_deleting_it(self):''')
+          pathlib.Path('/tmp/paths.json').write_text(json.dumps(list(dict.fromkeys(changes))))
+          PY
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - name: Format, lint and check
+        run: |
+          mkdir -p /tmp/final-source
+          python3 - <<'PY'
+          import json,pathlib,subprocess
+          paths=json.loads(pathlib.Path('/tmp/paths.json').read_text())
+          subprocess.run(['pnpm','exec','prettier','--write',*[p for p in paths if not p.endswith('.py')]],check=True)
+          for name in paths:
+              if name.endswith('.py'):compile(pathlib.Path(name).read_text(),name,'exec')
+          PY
+          set -o pipefail
+          node tools/appearance/lint.mjs | tee /tmp/final-source/lint.log
+          node --experimental-strip-types --test tests/unit/*.test.mjs | tee /tmp/final-source/units.log
+          pnpm --dir apps/web check 2>&1 | tee /tmp/final-source/types.log
+      - name: Retain exact source objects without commit or ref writes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib,urllib.request
+          out=pathlib.Path('/tmp/final-source');tree=[];source=[]
+          for name in json.loads(pathlib.Path('/tmp/paths.json').read_text()):
+              data=pathlib.Path(name).read_bytes();content=data.decode()
+              expected=hashlib.sha1(f'blob {len(data)}\0'.encode()+data).hexdigest()
+              req=urllib.request.Request('https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/git/blobs',data=json.dumps({'encoding':'utf-8','content':content}).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','Content-Type':'application/json'},method='POST')
+              with urllib.request.urlopen(req,timeout=30) as response: sha=json.load(response)['sha']
+              assert sha==expected
+              tree.append({'path':name,'mode':'100644','type':'blob','sha':sha});source.append({'path':name,'content':content})
+          (out/'tree.json').write_text(json.dumps(tree));(out/'source.json').write_text(json.dumps(source))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: appearance-final-source
+          path: /tmp/final-source
+          retention-days: 7
