@@ -1,0 +1,115 @@
+name: Reader embedded dictionary qualification
+on:
+  push:
+    branches: [research/reader-embedded-integration-20260918]
+    paths: ['.github/workflows/reader-embedded-qualification.yml', 'research/**', 'apps/web/src/lib/dictionary/**', 'scripts/**', 'test/reader/**']
+permissions: {contents: read}
+concurrency:
+  group: reader-embedded-qualification
+  cancel-in-progress: true
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/checkout@v4
+        with:
+          repository: ManabiIO/manabitan
+          ref: ab3817345708835d8e2ef9ee98dbe77a153b9937
+          path: extension-source
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with: {node-version: '24.21.0'}
+      - name: Compose and verify application types
+        run: |
+          mkdir -p evidence
+          python3 research/compose-embedded.py
+          npm install --global pnpm@12.3.4
+          pnpm install --frozen-lockfile > evidence/install.log 2>&1
+          pnpm --dir apps/web exec svelte-kit sync
+          pnpm --dir apps/web check > evidence/types.log 2>&1
+          pnpm test:reader > evidence/units.log 2>&1
+      - name: Build pinned runtime and actual extension
+        run: |
+          (cd extension-source && npm ci && npm run build:libs && node web/build.mjs && node dev/bin/build.js chrome-dev) > evidence/manabitan-build.log 2>&1
+          mkdir "$RUNNER_TEMP/extension"
+          unzip -q extension-source/builds/manabitan-chrome-dev.zip -d "$RUNNER_TEMP/extension"
+          python3 test/reader/e2e/prepare-jmdict.py "$RUNNER_TEMP/fixtures" > evidence/jmdict.json
+          python3 extension-source/web/make-fixtures.py "$RUNNER_TEMP/fixtures"
+          python3 test/reader/e2e/make-fixtures.py "$RUNNER_TEMP/fixtures"
+          python3 test/reader/e2e/make-backup-fixtures.py "$RUNNER_TEMP/fixtures"
+      - name: Build two static Reader versions with verified optional assets
+        env:
+          BASE_PATH: /Reader-Web
+          MANABITAN_ARTIFACT: ${{ github.workspace }}/extension-source/builds/manabitan-web
+        run: |
+          pnpm build > evidence/build-a.log 2>&1
+          cp -a apps/web/build "$RUNNER_TEMP/reader-a"
+          pnpm build > evidence/build-b.log 2>&1
+          cp -a apps/web/build "$RUNNER_TEMP/reader-b"
+          pnpm exec playwright install --with-deps chromium > evidence/browser-install.log 2>&1
+      - name: Exercise actual Reader, dictionary import and cold offline restart
+        env:
+          READER_BUILD: ${{ runner.temp }}/reader-a
+          READER_BUILD_B: ${{ runner.temp }}/reader-b
+          READER_FIXTURES: ${{ runner.temp }}/fixtures
+          MANABITAN_EXTENSION: ${{ runner.temp }}/extension
+          E2E_OUTPUT: evidence/browser
+        run: |
+          set -o pipefail
+          status=0
+          node test/reader/e2e/run.mjs 2>&1 | tee evidence/browser.log || status=$?
+          printf '%s\n' "$status" > evidence/browser.exit
+      - name: Retain exact source and evidence, excluding font-response traces
+        if: always()
+        run: |
+          mkdir -p evidence
+          python3 - <<'PY'
+          import json,pathlib,subprocess
+          subprocess.run(['git','add','-N','--','apps/web','scripts','test/reader','LICENSE-ManabiTan-GPL-3.0.txt','THIRD_PARTY_NOTICES.md'],check=True)
+          paths=subprocess.check_output(['git','diff','--name-only','bca91f6fff6300d10ba47d046dfb1a20a7c97e5e'],text=True).splitlines()
+          paths=[p for p in paths if p.startswith(('apps/web/src/','scripts/','test/reader/')) or p in ('.gitignore','package.json','pnpm-lock.yaml','apps/web/package.json','apps/web/svelte.config.js','LICENSE-ManabiTan-GPL-3.0.txt','THIRD_PARTY_NOTICES.md')]
+          files=[{'path':p,'content':pathlib.Path(p).read_text()} for p in paths]
+          pathlib.Path('evidence/source.json').write_text(json.dumps(files))
+          PY
+          find evidence -name '*-trace.zip' -delete
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: reader-embedded-evidence, path: evidence, retention-days: 7}
+  record:
+    needs: qualify
+    runs-on: ubuntu-24.04
+    permissions: {contents: write}
+    steps:
+      - uses: actions/download-artifact@v4
+        with: {name: reader-embedded-evidence}
+      - name: Record immutable tested source without moving any branch
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          python3 - <<'PY'
+          import os,json,pathlib,hashlib,urllib.request
+          def post(endpoint,value):
+            r=urllib.request.Request('https://api.github.com/repos/ManabiIO/manabi-reader-web/git/'+endpoint,data=json.dumps(value).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Content-Type':'application/json'},method='POST')
+            with urllib.request.urlopen(r,timeout=30) as response:return json.load(response)
+          files=json.loads(pathlib.Path('source.json').read_text());assert len(files)<60
+          entries=[]
+          for e in files:
+            p=e['path'];assert '..' not in p.split('/') and (p.startswith(('apps/web/src/','scripts/','test/reader/')) or p in ('.gitignore','package.json','pnpm-lock.yaml','apps/web/package.json','apps/web/svelte.config.js','LICENSE-ManabiTan-GPL-3.0.txt','THIRD_PARTY_NOTICES.md'))
+            raw=e['content'].encode();assert len(raw)<1024*1024
+            sha=hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()
+            assert post('blobs',{'content':e['content'],'encoding':'utf-8'})['sha']==sha
+            entries.append({'path':p,'sha':sha,'type':'blob','mode':'100644'})
+          tree=post('trees',{'base_tree':'fa6c4b55b49b27bd49271e8de3b394df4ab909dc','tree':entries})['sha']
+          pathlib.Path('tree.json').write_text(json.dumps({'tree':tree,'entries':entries}));print(tree)
+          PY
+      - uses: actions/upload-artifact@v4
+        with: {name: reader-embedded-tested-tree, path: tree.json, retention-days: 7}
+  acceptance:
+    needs: qualify
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with: {name: reader-embedded-evidence}
+      - run: test "$(cat browser.exit)" = 0
