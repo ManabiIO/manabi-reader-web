@@ -23,21 +23,22 @@ export class BookmarkManagerPaginated implements BookmarkManager {
 
   scrollToBookmark(bookmarkData: BooksDbBookmarkData) {
     const charCount = bookmarkData.exploredCharCount;
-    if (!charCount) return;
+    if (!charCount) return true;
 
     const index = this.calculator.getSectionIndexByCharCount(charCount);
 
     const scroll = (calc: SectionCharacterStatsCalculator) => {
       const scrollPos = calc.getScrollPosByCharCount(charCount);
+      if (scrollPos < 0) return false;
       this.pageManager.scrollTo(scrollPos, false);
       this.setIntendedCharCount(charCount);
+      return true;
     };
 
     const currentSectionIndex = this.sectionIndex$.getValue();
 
     if (currentSectionIndex === index) {
-      scroll(this.calculator);
-      return;
+      return scroll(this.calculator);
     }
 
     const subscription = this.sectionReady$.subscribe((updatedCalc) => {
@@ -45,6 +46,7 @@ export class BookmarkManagerPaginated implements BookmarkManager {
       subscription.unsubscribe();
     });
     this.sectionIndex$.next(index);
+    return true;
   }
 
   formatBookmarkData(bookId: number): BooksDbBookmarkData | undefined {

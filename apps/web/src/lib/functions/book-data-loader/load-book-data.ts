@@ -9,7 +9,6 @@ import type { BooksDbBookData } from '$lib/data/database/books-db/versions/books
 import formatBookDataHtml from './format-book-data-html';
 import formatStyleSheet from './format-style-sheet';
 import { map } from 'rxjs/operators';
-import { sanitizeBookHtml, sanitizeBookCss } from '$lib/manabi/sanitize-book';
 
 export default function loadBookData(
   bookData: BooksDbBookData,
@@ -18,16 +17,10 @@ export default function loadBookData(
   isPaginated: boolean,
   blurMode: BlurMode
 ) {
-  // This also protects older books restored from backups, not just new imports.
-  const safeBook = {
-    ...bookData,
-    elementHtml: sanitizeBookHtml(bookData.elementHtml),
-    styleSheet: sanitizeBookCss(bookData.styleSheet)
-  };
-  return formatBookDataHtml(safeBook, document, isPaginated, blurMode).pipe(
+  return formatBookDataHtml(bookData, document, isPaginated, blurMode).pipe(
     map((htmlContent) => ({
-      htmlContent: sanitizeBookHtml(htmlContent),
-      styleSheet: formatStyleSheet(safeBook, parentSelector)
+      htmlContent,
+      styleSheet: formatStyleSheet(bookData, parentSelector, document)
     }))
   );
 }

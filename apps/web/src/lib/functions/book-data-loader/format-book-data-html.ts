@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 
+import { sanitizeBookHtml } from '../book-security/book-content-security';
 import { BlurMode } from '$lib/data/blur-mode';
 import type { BooksDbBookData } from '$lib/data/database/books-db/versions/books-db';
 import { Observable } from 'rxjs';
@@ -22,10 +23,10 @@ export default function formatBookDataHtml(
   isPaginated: boolean,
   blurMode: BlurMode
 ) {
-  return getHtmlWithImageSource(bookData, isPaginated).pipe(
-    map((elementHtml) => {
+  return getHtmlWithImageSource(bookData, document, isPaginated).pipe(
+    map(({ html, imageUrls }) => {
       const element = document.createElement('div');
-      element.innerHTML = elementHtml;
+      element.innerHTML = html;
 
       addImageContainerClass(element);
       // combineImagePairs(element);
@@ -33,49 +34,80 @@ export default function formatBookDataHtml(
       addSpoilerTags(element, document, blurMode);
       removeOldBrTagSolution(element);
 
-      return element.innerHTML;
+      return sanitizeBookHtml(element.innerHTML, { document, imageUrls });
     })
   );
 }
 
-function getHtmlWithImageSource(bookData: BooksDbBookData, isPaginated: boolean) {
-  return new Observable<string>((subscriber) => {
-    const { blobs } = bookData;
+function getHtmlWithImageSource(
+  bookData: BooksDbBookData,
+  document: Document,
+  isPaginated: boolean
+) {
+  return new Observable<{ html: string; imageUrls: ReadonlySet<string> }>((subscriber) => {
     const objectUrls: string[] = [];
-    const urlIndexes = new Map<string, number>();
-
-    let { elementHtml } = bookData;
-
-    Object.entries(blobs).forEach(([key, value]) => {
-      const url = URL.createObjectURL(
-        value.type
-          ? value
-          : new Blob([value], { type: BaseStorageHandler.getImageMimeTypeFromExtension(key) })
-      );
-      const dummyUrl = buildDummyBookImage(key);
-
-      objectUrls.push(url);
-      urlIndexes.set(url, elementHtml.indexOf(dummyUrl));
-
-      elementHtml = elementHtml.replaceAll(dummyUrl, url).replaceAll(`ttu:${key}`, url);
+    let cancelled = false;
+    void (async () => {
+      const replacements = new Map<string, string>();
+      const pictures: Array<ReaderImageGalleryPicture & { index: number }> = [];
+      for (const [key, original] of Object.entries(bookData.blobs)) {
+        if (cancelled) return;
+        if (!(original instanceof Blob) || original.size > 64 * 1024 * 1024)
+          throw new Error('Book image exceeds the size limit');
+        const mime = (original.type || BaseStorageHandler.getImageMimeTypeFromExtension(key) || '')
+          .split(';', 1)[0]
+          .toLowerCase();
+        let value = original;
+        if (mime === 'image/svg+xml') {
+          if (value.size > 16 * 1024 * 1024) throw new Error('Book SVG exceeds the size limit');
+          value = new Blob([sanitizeBookHtml(await value.text(), { document, svgOnly: true })], {
+            type: mime
+          });
+        } else if (
+          ![
+            'image/png',
+            'image/jpeg',
+            'image/gif',
+            'image/webp',
+            'image/bmp',
+            'image/avif'
+          ].includes(mime)
+        ) {
+          continue;
+        } else if (!original.type || original.type !== mime) {
+          value = new Blob([original], { type: mime });
+        }
+        if (cancelled) return;
+        const url = URL.createObjectURL(value);
+        objectUrls.push(url);
+        const placeholder = buildDummyBookImage(key);
+        replacements.set(placeholder, url);
+        replacements.set(`ttu:${key}`, url);
+        pictures.push({
+          url,
+          unspoilered: !isPaginated,
+          index: bookData.elementHtml.indexOf(placeholder)
+        });
+      }
+      if (cancelled) return;
+      const imageUrls = new Set(objectUrls);
+      const html = sanitizeBookHtml(bookData.elementHtml, {
+        document,
+        resolveImage: (source) => replacements.get(source)
+      });
+      subscriber.next({ html, imageUrls });
+      if (!cancelled && !subscriber.closed) {
+        readerImageGalleryPictures$.next(
+          pictures
+            .sort((a, b) => a.index - b.index)
+            .map(({ url, unspoilered }) => ({ url, unspoilered }))
+        );
+      }
+    })().catch((error) => {
+      if (!cancelled) subscriber.error(error);
     });
-    subscriber.next(elementHtml);
-
-    const readerImageGalleryPictures: ReaderImageGalleryPicture[] = objectUrls.map((url) => ({
-      url,
-      unspoilered: !isPaginated
-    }));
-
-    readerImageGalleryPictures.sort((picture1, picture2) => {
-      const index1 = urlIndexes.get(picture1.url) || 0;
-      const index2 = urlIndexes.get(picture2.url) || 0;
-
-      return index1 - index2;
-    });
-
-    readerImageGalleryPictures$.next(readerImageGalleryPictures);
-
     return () => {
+      cancelled = true;
       objectUrls.forEach((url) => URL.revokeObjectURL(url));
     };
   });

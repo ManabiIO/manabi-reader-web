@@ -259,7 +259,7 @@
             <path
               class="fill-current"
               d="M20,4v12H8V4H20 M20,2H8C6.9,2,6,2.9,6,4v12c0,1.1,0.9,2,2,2h12c1.1,0,2-0.9,2-2V4C22,2.9,21.1,2,20,2L20,2z M12.47,14 L9,10.5l1.4-1.41l2.07,2.08L17.6,6L19,7.41L12.47,14z M4,6H2v14c0,1.1,0.9,2,2,2h14v-2H4V6z"
-            />
+            ></path>
           </svg>
         </div>
       {:else}
@@ -304,7 +304,7 @@
                 <path
                   class="fill-current"
                   d="M21 5c-1.11-.35-2.33-.5-3.5-.5-1.95 0-4.05.4-5.5 1.5-1.45-1.1-3.55-1.5-5.5-1.5S2.45 4.9 1 6v14.65c0 .25.25.5.5.5.1 0 .15-.05.25-.05C3.1 20.45 5.05 20 6.5 20c1.95 0 4.05.4 5.5 1.5 1.35-.85 3.8-1.5 5.5-1.5 1.65 0 3.35.3 4.75 1.05.1.05.15.05.25.05.25 0 .5-.25.5-.5V6c-.6-.45-1.25-.75-2-1zm0 13.5c-1.1-.35-2.3-.5-3.5-.5-1.7 0-4.15.65-5.5 1.5V8c1.35-.85 3.8-1.5 5.5-1.5 1.2 0 2.4.15 3.5.5v11.5zm-3.5-8c.88 0 1.73.09 2.5.26V9.24c-.79-.15-1.64-.24-2.5-.24-1.7 0-3.24.29-4.5.83v1.66c1.13-.64 2.7-.99 4.5-.99zM13 12.49v1.66c1.13-.64 2.7-.99 4.5-.99.88 0 1.73.09 2.5.26V11.9c-.79-.15-1.64-.24-2.5-.24-1.7 0-3.24.3-4.5.83zm4.5 1.84c-1.7 0-3.24.29-4.5.83v1.66c1.13-.64 2.7-.99 4.5-.99.88 0 1.73.09 2.5.26v-1.52c-.79-.16-1.64-.24-2.5-.24z"
-                />
+                ></path>
               </svg>
             </div>
           {/if}
@@ -324,7 +324,7 @@
               <path
                 class="fill-current"
                 d="M18 7l-1.41-1.41-6.34 6.34 1.41 1.41L18 7zm4.24-1.41L11.66 16.17 7.48 12l-1.41 1.41L11.66 19l12-12-1.42-1.41zM.41 13.41L6 19l1.41-1.41L1.83 12 .41 13.41z"
-              />
+              ></path>
             </svg>
           </div>
         {/if}
@@ -362,7 +362,7 @@
                     xmlns="http://www.w3.org/2000/svg"
                     viewBox={$storageIcon$.viewBox}
                   >
-                    <path class="fill-current" d={$storageIcon$.d} />
+                    <path class="fill-current" d={$storageIcon$.d} ></path>
                   </svg>
                 {/key}
               </div>
@@ -574,7 +574,7 @@
           <Fa icon={faCircleXmark} class="cursor-pointer" />
         </div>
       </Popover>
-      <progress class="mx-4 w-full" value={replicationProgress} max={replicationToProgress} />
+      <progress class="mx-4 w-full" value={replicationProgress} max={replicationToProgress} ></progress>
       <div class="ml-4 min-w-fit">{replicationProgressRemaining}</div>
     </div>
   {/if}

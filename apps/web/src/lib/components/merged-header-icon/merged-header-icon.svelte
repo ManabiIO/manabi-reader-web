@@ -13,14 +13,22 @@
   export let mergeTo = mergeEntries.MANAGE;
   export let disableRouteNavigation = false;
   const dispatch = createEventDispatcher<{ action: string }>();
-  // Add the new account/library destination to real navigation menus, not to
-  // import or other action-only popovers. Existing caller contracts are retained.
-  const navigationItems =
+  const sharedLibrary = {
+    routeId: '/shared-library',
+    label: 'Shared TTU libraries',
+    title: 'Local folders shared with TTU Reader',
+    icon: mergeEntries.FOLDER_IMPORT.icon
+  };
+  const navigationItems = [...items];
+  if (
     !disableRouteNavigation &&
-    items.some((item) => ['/manage', '/settings'].includes(item.routeId)) &&
-    !items.some((item) => item.routeId === '/connections')
-      ? [...items, mergeEntries.CONNECTIONS]
-      : items;
+    items.some((item) => ['/manage', '/settings'].includes(item.routeId))
+  ) {
+    for (const destination of [mergeEntries.CONNECTIONS, sharedLibrary]) {
+      if (!navigationItems.some((item) => item.routeId === destination.routeId))
+        navigationItems.push(destination);
+    }
+  }
   const actionItems = navigationItems.filter((item) => item.routeId !== $page.route.id);
   let menuElm: Popover;
   function handleActionMenuItem(target: string) {

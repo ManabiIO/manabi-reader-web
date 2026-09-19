@@ -23,6 +23,7 @@ import {
 } from '$lib/components/statistics/statistics-types';
 import { BlurMode } from '$lib/data/blur-mode';
 import type { UserFont } from '$lib/data/fonts';
+import { SYSTEM_JAPANESE, SYSTEM_SANS } from '$lib/data/reader-typography';
 import { MergeMode } from '$lib/data/merge-mode';
 import type { ReadingGoal } from '$lib/data/reading-goal';
 import { SortDirection, type SortOption } from '$lib/data/sort-types';
@@ -70,11 +71,11 @@ export const customThemes$ = writableObjectLocalStorageSubject<Record<string, Th
 export const multiplier$ = writableNumberLocalStorageSubject()('autoScrollMultiplier', 20);
 export const fontFamilyGroupOne$ = writableStringLocalStorageSubject()(
   'fontFamilyGroupOne',
-  'Manabi Automatic'
+  SYSTEM_JAPANESE
 );
 export const fontFamilyGroupTwo$ = writableStringLocalStorageSubject()(
   'fontFamilyGroupTwo',
-  'Noto Sans JP'
+  SYSTEM_SANS
 );
 export const fontWeight$ = writableNumberOrNullLocalStorageSubject()('fontWeight', null);
 export const fontSize$ = writableNumberLocalStorageSubject()('fontSize', 20);

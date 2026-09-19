@@ -6,8 +6,16 @@ const config = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['Noto Sans JP', 'sans-serif'],
-        serif: ['Noto Serif JP', 'serif']
+        sans: [
+          'system-ui',
+          '-apple-system',
+          'BlinkMacSystemFont',
+          'Hiragino Sans',
+          'Yu Gothic',
+          'Meiryo',
+          'sans-serif'
+        ],
+        serif: ['Hiragino Mincho ProN', 'Yu Mincho', 'YuMincho', 'serif']
       },
       colors: {
         'background-color': 'var(--background-color)',

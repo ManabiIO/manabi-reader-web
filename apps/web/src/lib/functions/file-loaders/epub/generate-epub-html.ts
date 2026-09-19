@@ -13,8 +13,8 @@ import { importHTMLFixMode$, restrictImportFixToAnchor$ } from '$lib/data/store'
 import { ImportHTMLFixMode } from '$lib/data/import-html-fix-mode';
 import { getCharacterCount } from '$lib/functions/get-character-count';
 import { getParagraphNodes } from '../../../components/book-reader/get-paragraph-nodes';
-import path from 'path-browserify';
-import { sanitizeBookHtml } from '$lib/manabi/sanitize-book';
+import { resolveArchivePath } from '../utils/limited-archive';
+import { sanitizeBookHtml } from '../../book-security/book-content-security';
 
 export const prependValue = 'ttu-';
 
@@ -81,7 +81,7 @@ export default function generateEpubHtml(
       }
     }
     return acc;
-  }, {});
+  }, Object.create(null));
 
   const blobLocations = Object.entries(data).reduce<string[]>((acc, [key, value]) => {
     const isV2Toc = key.endsWith('.ncx') && !tocData.content;
@@ -99,11 +99,33 @@ export default function generateEpubHtml(
     return acc;
   }, []);
 
+  const embeddedStyles: string[] = [];
+  const manifestOwner =
+    contentsDirectory === '.' ? '__manifest__.opf' : `${contentsDirectory}/__manifest__.opf`;
+  const imagePaths = new Map(
+    blobLocations.map((key) => [resolveArchivePath(manifestOwner, key), buildDummyBookImage(key)])
+  );
+  const imageUrls = new Set(imagePaths.values());
   const parser = new DOMParser();
   const spineItemRef = isOPFType(contents)
     ? contents['opf:package']['opf:spine']['opf:itemref']
     : contents.package.spine.itemref;
   const itemRefs = Array.isArray(spineItemRef) ? spineItemRef : [spineItemRef];
+  // A small ZIP can repeat a large chapter thousands of times. Bound the
+  // rendering work as well as decompression, before creating chapter DOMs.
+  if (!itemRefs.length || itemRefs.length > 8192)
+    throw new Error('EPUB spine exceeds the size limit');
+  let renderedCharacters = 0;
+  for (const item of itemRefs) {
+    if (!item || typeof item['@_idref'] !== 'string') throw new Error('Invalid EPUB spine item');
+    const id = item['@_idref'];
+    const href = itemIdToHtmlRef[id] || itemIdToHtmlRef[fallbackData.get(id) ?? ''];
+    if (!href || typeof data[href] !== 'string')
+      throw new Error('EPUB spine has no supported local chapter');
+    renderedCharacters += (data[href] as string).length;
+    if (renderedCharacters > 32 * 1024 * 1024)
+      throw new Error('EPUB expanded reading content exceeds the size limit');
+  }
   const sectionData: Section[] = [];
   const result = document.createElement('div');
 
@@ -115,13 +137,21 @@ export default function generateEpubHtml(
   }
 
   if (tocData.type && tocData.content) {
-    let parsedToc = parser.parseFromString(tocData.content, 'text/html');
+    let parsedToc = parser.parseFromString(
+      tocData.type === 3
+        ? sanitizeBookHtml(tocData.content, { document, wholeDocument: true })
+        : tocData.content,
+      tocData.type === 3 ? 'text/html' : 'application/xml'
+    );
 
     if (tocData.type === 3) {
       let navTocElement = parsedToc.querySelector('nav[epub\\:type="toc"],nav#toc');
 
       if (!navTocElement) {
-        parsedToc = parser.parseFromString(tocData.content, 'text/xml');
+        parsedToc = parser.parseFromString(
+          sanitizeBookHtml(tocData.content, { document, wholeDocument: true }),
+          'text/html'
+        );
       }
 
       navTocElement = parsedToc.querySelector('nav[epub\\:type="toc"],nav#toc');
@@ -130,7 +160,11 @@ export default function generateEpubHtml(
         mainChapters = [...navTocElement.querySelectorAll('a')].map((elm) => {
           const anchor = elm as HTMLAnchorElement;
 
-          return { reference: anchor.href, charactersWeight: 1, label: anchor.innerText };
+          return {
+            reference: anchor.getAttribute('href') || '',
+            charactersWeight: 1,
+            label: anchor.textContent || ''
+          };
         });
       }
     } else {
@@ -141,7 +175,7 @@ export default function generateEpubHtml(
         return {
           reference: contentElm.getAttribute('src') as string,
           charactersWeight: 1,
-          label: navLabel.innerText
+          label: navLabel.textContent || ''
         };
       });
     }
@@ -185,13 +219,9 @@ export default function generateEpubHtml(
     let contentToParse = (data[htmlHref] as string) || '';
 
     for (const tagMatch of selfClosingContentTagsToFix) {
-      const matches = contentToParse.match(new RegExp(`<${tagMatch}[^>]+?>`, 'gim')) || [];
-
-      for (const match of matches) {
-        if (match.endsWith('/>')) {
-          contentToParse = contentToParse.replace(match, `${match.slice(0, -2)}></${tagMatch}>`);
-        }
-      }
+      contentToParse = contentToParse.replace(new RegExp(`<${tagMatch}[^>]+?>`, 'gim'), (match) =>
+        match.endsWith('/>') ? `${match.slice(0, -2)}></${tagMatch}>` : match
+      );
     }
 
     if (importHTMLFixMode === ImportHTMLFixMode.EXTENDED) {
@@ -204,6 +234,13 @@ export default function generateEpubHtml(
         .trim();
     }
 
+    const chapterOwner = resolveArchivePath(manifestOwner, htmlHref);
+    contentToParse = sanitizeBookHtml(contentToParse, {
+      document,
+      wholeDocument: true,
+      resolveImage: (source) => imagePaths.get(resolveArchivePath(chapterOwner, source)),
+      onEmbeddedStyle: (css) => embeddedStyles.push(css)
+    });
     let parsedContent = parser.parseFromString(contentToParse, 'text/html');
     let body = parsedContent.body;
 
@@ -220,28 +257,10 @@ export default function generateEpubHtml(
     const bodyId = body.id || '';
     const bodyClass = body.className || '';
 
-    for (const elm of [...body.querySelectorAll('image,img')]) {
-      const attributes =
-        elm.tagName.toLowerCase() === 'image'
-          ? elm.getAttributeNames().filter((attr) => attr.endsWith('href'))
-          : ['src'];
-
-      for (const attr of attributes) {
-        const value = elm.getAttribute(attr);
-
-        if (value) {
-          elm.setAttribute(attr, path.join(path.dirname(htmlHref), value));
-        }
-      }
-    }
-
-    let innerHtml = body.innerHTML || '';
-
-    blobLocations.forEach((blobLocation) => {
-      innerHtml = innerHtml.replaceAll(
-        relative(contentsDirectory, blobLocation),
-        buildDummyBookImage(blobLocation)
-      );
+    const innerHtml = sanitizeBookHtml(body.innerHTML || '', {
+      document,
+      imageUrls,
+      allowRelativeLinks: true
     });
 
     const childBodyDiv = document.createElement('div');
@@ -249,7 +268,7 @@ export default function generateEpubHtml(
     if (bodyId) {
       childBodyDiv.id = bodyId;
     }
-    childBodyDiv.innerHTML = sanitizeBookHtml(innerHtml);
+    childBodyDiv.innerHTML = innerHtml;
 
     const childHtmlDiv = document.createElement('div');
     childHtmlDiv.className = `ttu-book-html-wrapper ${htmlClass}`;
@@ -312,6 +331,7 @@ export default function generateEpubHtml(
 
   return {
     element: result,
+    styleSheet: embeddedStyles.join('\n'),
     characters: currentCharCount,
     sections: sectionData.filter((item: Section) => item.reference.startsWith(prependValue))
   };
@@ -335,38 +355,4 @@ function flattenAnchorHref(el: HTMLElement) {
     if (!oldHref) return;
     tag.setAttribute('href', `#${oldHref.replace(/.+#/, '')}`);
   });
-}
-
-/**
- * Replicates https://nodejs.org/api/path.html#path_path_relative_from_to
- */
-function relative(fromPath: string, toPath: string): string {
-  const fromDirName = path.dirname(fromPath);
-  const toDirName = path.dirname(toPath);
-  const toFilename = path.basename(toPath);
-
-  if (fromDirName === toDirName) {
-    return toFilename;
-  }
-
-  const fromParts = fromDirName === '.' ? [] : fromDirName.split('/');
-  const toParts = toDirName === '.' ? [] : toDirName.split('/');
-
-  if (fromParts.length >= toParts.length) {
-    for (let i = 0; i < fromParts.length; i += 1) {
-      if (fromParts[i] !== toParts[i]) {
-        return path.join(
-          '../'.repeat(fromParts.length - i) + toParts.slice(i).join('/'),
-          toFilename
-        );
-      }
-    }
-  }
-  for (let i = 0; i < fromParts.length; i += 1) {
-    if (fromParts[i] !== toParts[i]) {
-      return path.join('../'.repeat(fromParts.length - i) + toParts.slice(i).join('/'), toFilename);
-    }
-  }
-
-  return path.join(toParts.slice(fromParts.length - toParts.length).join('/'), toFilename);
 }

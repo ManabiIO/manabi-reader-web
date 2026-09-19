@@ -4,77 +4,69 @@
  * All rights reserved.
  */
 
-import { BlobReader, BlobWriter, TextWriter, ZipReader } from '@zip.js/zip.js';
 import { isOPFType, type EpubContent, type EpubOPFContent } from './types';
-
-import type { Entry } from '@zip.js/zip.js';
 import { XMLParser } from 'fast-xml-parser';
 import initZipSettings from '../utils/init-zip-settings';
+import { LimitedArchive, resolveArchivePath, type ArchiveOptions } from '../utils/limited-archive';
 import path from 'path-browserify';
 
 initZipSettings();
 
-export default async function extractEpub(blob: Blob) {
-  const reader = new ZipReader(new BlobReader(blob));
-  // get all entries from the zip
-  const entries = await reader.getEntries();
-
-  const result: Record<string, string | Blob> = {};
-  let contentsDirectory = '';
-  let contents!: EpubContent | EpubOPFContent;
-  if (entries.length) {
-    const fileMap = entries.reduce<Record<string, Entry>>((acc, cur) => {
-      acc[cur.filename] = cur;
-      return acc;
-    }, {});
-
-    const containerXml = await fileMap['META-INF/container.xml'].getData!(new TextWriter());
-    const parser = new XMLParser({
-      ignoreAttributes: false
-    });
-    const container = parser.parse(containerXml);
-    const rootFiles = container.container.rootfiles.rootfile;
+export default async function extractEpub(blob: Blob, options: ArchiveOptions = {}) {
+  const archive = await LimitedArchive.open(blob, options);
+  try {
+    const result: Record<string, string | Blob> = Object.create(null);
+    const parser = new XMLParser({ ignoreAttributes: false, processEntities: false });
+    const containerXml = await archive.readText('META-INF/container.xml', 1024 * 1024);
+    const rootFiles = parser.parse(containerXml)?.container?.rootfiles?.rootfile;
     const rootFile = Array.isArray(rootFiles) ? rootFiles[0] : rootFiles;
-
-    const contentOpfFilename = rootFile['@_full-path'];
-
-    const contentsXml = await fileMap[contentOpfFilename].getData!(new TextWriter());
+    const contentOpfFilename = resolveArchivePath('', rootFile?.['@_full-path']);
+    const contentsXml = await archive.readText(contentOpfFilename, 4 * 1024 * 1024);
     result[contentOpfFilename] = contentsXml;
-
-    contentsDirectory = path.dirname(contentOpfFilename);
-
-    contents = parser.parse(contentsXml);
-
-    await Promise.all(
-      (isOPFType(contents)
-        ? contents['opf:package']['opf:manifest']['opf:item']
-        : contents.package.manifest.item
-      ).map(async (item) => {
-        const fileRelativePath = item['@_href'];
-        const entry = fileMap[path.join(contentsDirectory, fileRelativePath)];
-
-        if (!entry) {
-          throw new Error(`item ${fileRelativePath} not found`);
-        }
-
-        if (entry.getData && !entry.directory) {
-          let value: string | Blob;
-          const mediaType: string = item['@_media-type'];
-          if (mediaType.startsWith('image/')) {
-            value = await entry.getData(new BlobWriter(mediaType));
-          } else {
-            value = await entry.getData(new TextWriter());
-          }
-          result[fileRelativePath] = value;
-        }
-      })
-    );
+    const contentsDirectory = path.dirname(contentOpfFilename);
+    const contents = parser.parse(contentsXml) as EpubContent | EpubOPFContent;
+    const manifest = isOPFType(contents)
+      ? contents['opf:package']?.['opf:manifest']
+      : contents.package?.manifest;
+    if (!manifest) throw new Error('EPUB package has no manifest');
+    const rawItems = 'item' in manifest ? manifest.item : manifest['opf:item'];
+    const items = Array.isArray(rawItems) ? rawItems : [rawItems];
+    if (
+      !items.length ||
+      items.length > archive.limits.entryCount ||
+      items.some(
+        (item) =>
+          !item ||
+          typeof item['@_href'] !== 'string' ||
+          typeof item['@_media-type'] !== 'string' ||
+          typeof item['@_id'] !== 'string' ||
+          item['@_id'].length === 0 ||
+          item['@_id'].length > 512
+      )
+    ) {
+      throw new Error('Invalid EPUB manifest');
+    }
+    // Preserve the array contract consumed by the existing EPUB formatters.
+    if ('item' in manifest) manifest.item = items;
+    else manifest['opf:item'] = items;
+    const ids = new Set<string>();
+    for (const item of items) {
+      if (ids.has(item['@_id'])) throw new Error('Duplicate EPUB manifest ID');
+      ids.add(item['@_id']);
+    }
+    const references = new Set<string>();
+    await archive.map(items, async (item) => {
+      const reference = item['@_href'];
+      if (references.has(reference))
+        throw new Error(`Duplicate EPUB manifest resource: ${reference}`);
+      references.add(reference);
+      const name = resolveArchivePath(contentOpfFilename, reference);
+      result[reference] = item['@_media-type'].startsWith('image/')
+        ? await archive.readBlob(name, item['@_media-type'])
+        : await archive.readText(name);
+    });
+    return { contentsDirectory, contents, result };
+  } finally {
+    await archive.close();
   }
-
-  await reader.close();
-  return {
-    contentsDirectory,
-    contents,
-    result
-  };
 }

@@ -5,7 +5,7 @@
     debounceTime,
     filter,
     map,
-    mergeMap,
+    switchMap,
     of,
     ReplaySubject,
     share,
@@ -185,21 +185,23 @@
     )
   );
 
+  // Content and font reflows replace the listener lifetime; accumulating
+  // subscriptions here makes one ruby click toggle twice after a late font.
   const reactiveElements$ = iffBrowser(() => of(document)).pipe(
-    mergeMap((document) => {
+    switchMap((document) => {
       const reactiveElementsFn = reactiveElements(
         document,
         furiganaStyle,
         hideSpoilerImage,
         navigator.standalone || window.matchMedia('(display-mode: fullscreen)').matches
       );
-      return contentEl$.pipe(mergeMap((contentEl) => reactiveElementsFn(contentEl)));
+      return contentEl$.pipe(switchMap((contentEl) => reactiveElementsFn(contentEl)));
     }),
     reduceToEmptyString()
   );
 
   const imageLoadingState$ = contentEl$.pipe(
-    mergeMap((contentEl) => imageLoadingState(contentEl)),
+    switchMap((contentEl) => imageLoadingState(contentEl)),
     share()
   );
 

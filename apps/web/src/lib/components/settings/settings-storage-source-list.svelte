@@ -267,7 +267,7 @@
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox={icon.viewBox}
               >
-                <path class="fill-current" d={icon.d} />
+                <path class="fill-current" d={icon.d} ></path>
               </svg>
               <div class="ml-3 self-center">{storageSource.name}</div>
             </div>
@@ -335,5 +335,5 @@
       </div>
     {/if}
   </div>
-  <div />
+  <div ></div>
 </div>

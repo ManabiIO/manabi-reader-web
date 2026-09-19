@@ -83,12 +83,15 @@ function spoilerImageListener(document: Document) {
   return (contentEl: HTMLElement) => {
     const elements = Array.from(contentEl.querySelectorAll('[data-ttu-spoiler-img]'));
     const obs$ = elements.map((el) => {
-      const spoilerLabelEl = document.createElement('span');
+      // Rebinding the same content after a font reflow must not append a
+      // second label. The previous stream's listeners have been unsubscribed.
+      const spoilerLabelEl =
+        el.querySelector<HTMLElement>(':scope > .spoiler-label') ?? document.createElement('span');
       spoilerLabelEl.title = 'Show Image';
       spoilerLabelEl.classList.add('spoiler-label');
       spoilerLabelEl.setAttribute('aria-hidden', 'true');
       spoilerLabelEl.innerText = 'ネタバレ';
-      el.appendChild(spoilerLabelEl);
+      if (!spoilerLabelEl.parentNode) el.appendChild(spoilerLabelEl);
 
       const imageElement = el.querySelector('img,image');
 
@@ -97,7 +100,7 @@ function spoilerImageListener(document: Document) {
       return fromClickEvent(el).pipe(
         take(1),
         tap(() => {
-          el.removeChild(spoilerLabelEl);
+          spoilerLabelEl.remove();
           el.removeAttribute('data-ttu-spoiler-img');
 
           imageElement?.classList.add('ttu-unspoilered');

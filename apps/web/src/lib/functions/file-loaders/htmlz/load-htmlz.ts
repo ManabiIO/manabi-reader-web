@@ -4,32 +4,52 @@
  * All rights reserved.
  */
 
+import { sanitizeBookStyleSheet } from '../../book-security/book-content-security';
 import type { LoadData } from '../types';
 import { XMLParser } from 'fast-xml-parser';
 import extractHtmlz from './extract-htmlz';
 import { getFormattedElementHtmlz } from './generate-htmlz-html';
 import getHtmlzCoverImageFilename from './get-htmlz-cover-image-filename';
 import reduceObjToBlobs from '../utils/reduce-obj-to-blobs';
-import { sanitizeArchiveMarkup } from '$lib/manabi/sanitize-book';
 
 export default async function loadHtmlz(
   file: File,
   document: Document,
-  lastBookModified: number
+  lastBookModified: number,
+  signal?: AbortSignal
 ): Promise<LoadData> {
-  const data = sanitizeArchiveMarkup(await extractHtmlz(file));
-  const element = getFormattedElementHtmlz(data, document);
-  const metadata = new XMLParser().parse(data['metadata.opf'])?.package?.metadata;
-  const title = typeof metadata?.['dc:title'] === 'string' ? metadata['dc:title'] : file.name;
+  const data = await extractHtmlz(file, { signal });
+  const embeddedStyles: string[] = [];
+  const element = getFormattedElementHtmlz(data, document, embeddedStyles);
+  const parser = new XMLParser({ processEntities: false });
+  const metadata = parser.parse(data['metadata.opf'])?.package?.metadata;
+
+  const displayData = {
+    title: file.name,
+    hasThumb: true,
+    styleSheet: sanitizeBookStyleSheet(
+      data['style.css'] + '\n' + embeddedStyles.join('\n'),
+      document
+    )
+  };
+  if (metadata && metadata['dc:title']) {
+    displayData.title = metadata['dc:title'];
+  }
   const blobData = reduceObjToBlobs(data);
   const coverImageFilename = getHtmlzCoverImageFilename();
-  const coverImage = coverImageFilename ? blobData[coverImageFilename] : undefined;
-  if (coverImageFilename) delete blobData[coverImageFilename];
+  let coverImage: Blob | undefined;
+
+  if (coverImageFilename) {
+    coverImage = blobData[coverImageFilename];
+    delete blobData[coverImageFilename];
+  }
+
   return {
-    title,
-    hasThumb: true,
-    styleSheet: data['style.css'],
-    elementHtml: element.innerHTML,
+    ...displayData,
+    // Reader pagination treats each top-level element as a section and renders
+    // its innerHTML. Keep the complete HTMLZ body inside one section so root
+    // text, paragraph/heading semantics and following siblings are preserved.
+    elementHtml: element.outerHTML,
     blobs: blobData,
     coverImage,
     characters: 0,

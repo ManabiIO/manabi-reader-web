@@ -1,0 +1,53 @@
+name: Shared TTU library qualification
+on:
+  pull_request:
+    paths:
+      - 'apps/web/**'
+      - 'tests/browser/**'
+      - '.github/workflows/ttu-shared-qualification.yml'
+permissions:
+  contents: read
+concurrency:
+  group: ttu-shared-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - name: Verify committed source
+        run: pnpm eslint .
+      - run: pnpm --dir apps/web check
+      - name: Build the actual static app
+        env:
+          BASE_PATH: /Reader-Web
+        run: pnpm build
+      - name: Actual TTU package and native-format reading-data round trip
+        run: |
+          python -m pip install 'playwright==1.55.0'
+          python -m playwright install --with-deps chromium
+          set -o pipefail
+          python tests/browser/test_shared_ttu.py 2>&1 | tee ttu-shared.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ttu-shared-results
+          path: |
+            ttu-shared.log
+            test-results/
+          retention-days: 3
