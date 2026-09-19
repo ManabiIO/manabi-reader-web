@@ -5,7 +5,7 @@
   import { buttonClasses } from '$lib/css-classes';
   import type { BooksDbStorageSource } from '$lib/data/database/books-db/versions/books-db';
   import { gDriveRevokeEndpoint } from '$lib/data/env';
-  import { BaseStorageHandler } from '$lib/data/storage/handler/base-handler';
+  import { resolveTtuRoot } from '$lib/manabi/ttu-folder-contract';
   import { getStorageHandler } from '$lib/data/storage/storage-handler-factory';
   import { StorageOAuthManager, storageOAuthTokens } from '$lib/data/storage/storage-oauth-manager';
   import {
@@ -75,12 +75,11 @@
         id: 'ttu-reader-root',
         mode: 'readwrite'
       });
-      directoryHandle = await dirHandle.getDirectoryHandle(BaseStorageHandler.rootName, {
-        create: true
-      });
-      handleFsPath = `${dirHandle.name === '\\' ? '' : `${dirHandle.name}/`}${
-        BaseStorageHandler.rootName
-      }`;
+      directoryHandle = await resolveTtuRoot(dirHandle, true);
+      handleFsPath =
+        directoryHandle.name === dirHandle.name
+          ? directoryHandle.name
+          : `${dirHandle.name}/${directoryHandle.name}`;
     } catch (err: any) {
       directoryHandle = undefined;
       handleFsPath = '';
