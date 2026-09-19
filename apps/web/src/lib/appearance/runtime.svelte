@@ -62,5 +62,5 @@
     style:background-image={`url("${background.url}")`}
     style:--background-fade={opacity}
     aria-hidden="true"
-  />
+  ></div>
 {/if}

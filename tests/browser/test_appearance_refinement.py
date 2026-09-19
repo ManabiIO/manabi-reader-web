@@ -1,19 +1,32 @@
 """Appearance regressions against the real static Reader and real browser storage."""
+import base64
 import os
+from tempfile import TemporaryDirectory
 from pathlib import Path
 import unittest
 from playwright.sync_api import expect
 import test_appearance as previous
 
 
+# Real raster bytes; browsers need only decode, not implement every encoder.
+JPEG = '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCABQAHgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwChRRRQfWhRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFAH/2Q=='
+WEBP = 'UklGRlYAAABXRUJQVlA4IEoAAADwBACdASp4AFAAPm02mUmkIyKhIMgAgA2JaQAABje6m/LqHOMoB7qb6NqHOMoBoAAA/uLev//ln/+y3/Zb0bzR0EdEwAAAAAAAAA=='
+
 class RefinedAppearance(previous.AppearanceBrowser):
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        engine = os.environ.get('APPEARANCE_BROWSER', 'chromium')
-        if engine != 'chromium':
-            cls.browser.close()
-            cls.browser = getattr(cls.playwright, engine).launch()
+    def setUp(self):
+        if os.environ.get('APPEARANCE_BROWSER', 'chromium') == 'chromium':
+            super().setUp()
+            return
+        # Ordinary Safari uses a persistent store. WebKit's private/ephemeral
+        # sessions cannot store IDB Blobs (WebKit #156347 / Playwright #42795).
+        # Real, isolated disk-backed profiles; no API replacements or interception.
+        profile = TemporaryDirectory(prefix='reader-appearance-webkit-')
+        self.addCleanup(profile.cleanup)
+        self.context = self.playwright.webkit.launch_persistent_context(profile.name)
+        self.page = self.context.pages[0]
+        self.errors = []
+        self.page.on('pageerror', lambda error: self.errors.append(str(error)))
+        previous.baseline.StaticHandler.probes.clear()
 
     def test_live_tabs_share_palette_custom_edits_and_fade_without_reloading_book(self):
         self.open_book()
@@ -41,8 +54,9 @@ class RefinedAppearance(previous.AppearanceBrowser):
         expect(reader.locator('html')).to_have_attribute('data-theme', 'custom')
         self.page.get_by_role('button', name='Edit Midnight notes theme', exact=True).click()
         self.page.get_by_label('Font color', exact=True).evaluate('e => {e.value = "#ffeecc"; e.dispatchEvent(new Event("change", {bubbles: true}));}')
+        self.page.get_by_label('Font opacity', exact=True).fill('1')
         self.page.get_by_role('button', name='Save', exact=True).click()
-        reader.wait_for_function('getComputedStyle(document.documentElement).getPropertyValue("--reader-font-color").replace(/\s/g, "") === "rgba(255,238,204,1)"')
+        expect(reader.locator('.book-content')).to_have_css('color', 'rgb(255, 238, 204)')
         expect(reader.locator('.book-content')).to_have_attribute('data-retained', 'yes')
         reader.close()
 
@@ -120,16 +134,15 @@ class RefinedAppearance(previous.AppearanceBrowser):
     def test_png_jpeg_webp_reencoding_and_cross_tab_removal(self):
         self.settings()
         self.page.get_by_text('Background images', exact=True).click()
-        for mime in ['image/png', 'image/jpeg', 'image/webp']:
-            data = self.page.evaluate('''async mime => {
-              const c = document.createElement('canvas'); c.width=120; c.height=80;
-              const x = c.getContext('2d'); x.fillStyle='#b84d71'; x.fillRect(0,0,120,80);
-              const blob = await new Promise(resolve => c.toBlob(resolve, mime));
-              return {type:blob.type, bytes:Array.from(new Uint8Array(await blob.arrayBuffer()))};
-            }''', mime)
-            self.assertEqual(mime, data['type'])
-            self.page.locator('#background-library').set_input_files({'name':'real-image.' + data['type'].split('/')[1], 'mimeType':data['type'], 'buffer':bytes(data['bytes'])})
-            expect(self.page.get_by_text('real-image.' + mime.split('/')[1], exact=True)).to_be_visible()
+        fixtures = [
+            ('image/png', previous.png([184, 77, 113], 120, 80)),
+            ('image/jpeg', base64.b64decode(JPEG)),
+            ('image/webp', base64.b64decode(WEBP))
+        ]
+        for mime, data in fixtures:
+            name = 'real-image.' + mime.split('/')[1]
+            self.page.locator('#background-library').set_input_files({'name':name, 'mimeType':mime, 'buffer':data})
+            expect(self.page.get_by_text(name, exact=True)).to_be_visible()
             expect(self.page.get_by_text('Preparing image…', exact=True)).to_have_count(0)
             expect(self.page.get_by_role('alert')).to_have_count(0)
         other = self.context.new_page()

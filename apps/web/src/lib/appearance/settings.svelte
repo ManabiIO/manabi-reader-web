@@ -16,7 +16,7 @@
 <section aria-labelledby="appearance-heading">
   <h2 id="appearance-heading">Appearance</h2>
   <div role="group" aria-label="Appearance mode" class="modes">
-    {#each modes as mode}
+    {#each modes as mode (mode.value)}
       <button
         type="button"
         aria-pressed={$appearance$ === mode.value}
@@ -35,7 +35,9 @@
       the fade to keep text readable.
     </p>
     <div class="backgrounds">
-      {#each backgrounds as background}<BackgroundSettings {...background} />{/each}
+      {#each backgrounds as background (background.target)}<BackgroundSettings
+          {...background}
+        />{/each}
     </div>
   </details>
 </section>

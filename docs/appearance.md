@@ -95,6 +95,7 @@ Run from the repository root (same toolchain as the existing Reader workflow):
 node --experimental-strip-types tools/appearance/generate-css.mjs
 node --experimental-strip-types tools/appearance/generate-css.mjs --check
 node --experimental-strip-types --test tests/unit/*.test.mjs
+node tools/appearance/lint.mjs
 pnpm --dir apps/web check
 BASE_PATH=/Reader-Web pnpm build
 python -m playwright install --with-deps chromium webkit
@@ -105,6 +106,16 @@ APPEARANCE_BROWSER=webkit python tests/browser/test_appearance_refinement.py
 The browser suite extends the existing real static Reader tests and uses actual
 EPUB import, real file inputs, IndexedDB, media emulation and offline reloads;
 there is no request interception. Screenshots are generated fixtures only.
+WebKit tests use isolated disk-backed profiles, matching ordinary Safari rather
+than WebKit's ephemeral/private profile, which cannot store IndexedDB Blobs
+(WebKit #156347 and microsoft/playwright#42795). This is not private-browsing
+qualification. PNG/JPEG/WebP upload fixtures are actual image bytes, independent
+of which formats the tested browser can encode. The application accepts a native
+PNG fallback when canvas WebP encoding is unavailable.
+A separate scoped lint job checks all nine audited Svelte components, verifies
+that none are ignored and that the Svelte parser is selected, and fails on any
+warning or error. The inherited root-level-only Svelte glob is not treated as
+component lint coverage. A repository-wide lint migration is outside this change.
 Images can still make low-fade text hard to read: the control explicitly tells
 users to raise the fade, rather than pretending arbitrary photographs guarantee
 contrast. Desktop Chromium/WebKit automation is not a substitute for final Safari/iOS device

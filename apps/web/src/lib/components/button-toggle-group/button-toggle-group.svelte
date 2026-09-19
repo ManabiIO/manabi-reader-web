@@ -25,7 +25,7 @@
 </script>
 
 <div class="-m-1 flex flex-wrap" class:legacy-invert={invertColors}>
-  {#each options as option}
+  {#each options as option (option.id)}
     <div class="flex">
       <button
         title={option.id}

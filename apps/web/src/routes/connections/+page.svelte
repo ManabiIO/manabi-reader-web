@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { base } from '$app/paths';
+  import { resolve } from '$app/paths';
   import {
     account,
     currentUser,
@@ -201,7 +201,7 @@
 
 <main class="connections-page">
   <nav aria-label="Reader navigation">
-    <a href="{base}/manage">← Books</a><a href="{base}/settings">Reader settings</a>
+    <a href={resolve('/manage')}>← Books</a><a href={resolve('/settings')}>Reader settings</a>
   </nav>
   <header>
     <h1>Accounts and libraries</h1>
@@ -283,8 +283,10 @@
     {:else}
       <p>An account is optional. Sign in to sync your preferences and connect cloud libraries.</p>
       <div class="actions">
-        <a class="button" href="/accounts/login/?next=/Reader-Web/connections">Sign in to Manabi</a>
-        <a class="button" href="/accounts/signup/?next=/Reader-Web/connections"
+        <a class="button" rel="external" href="/accounts/login/?next=/Reader-Web/connections"
+          >Sign in to Manabi</a
+        >
+        <a class="button" rel="external" href="/accounts/signup/?next=/Reader-Web/connections"
           >Create a Manabi account</a
         >
       </div>
@@ -311,7 +313,7 @@
     </p>
     {#if $account.session?.user}
       <div class="actions">
-        {#each $account.session.providers as provider}
+        {#each $account.session.providers as provider (provider)}
           <button disabled={busy} on:click={() => action(() => connectProvider(provider))}
             >Connect {providerLabels[provider] ?? provider}</button
           >
@@ -341,7 +343,7 @@
           {#if !connection.roots.length}<p>
               No folders selected. Manabi will not read files from this connection.
             </p>{/if}
-          {#each connection.roots as root}
+          {#each connection.roots as root (root)}
             <button disabled={busy} on:click={() => action(() => openCloud(connection, root))}
               >Browse selected folder {root}</button
             >
@@ -356,7 +358,7 @@
           The provider’s OAuth permission may cover more than these folders. Manabi restricts book
           access to your selection.
         </p>
-        {#each folderPicker.folders as folder}
+        {#each folderPicker.folders as folder (folder.id)}
           <label class="folder-choice"
             ><input
               type="checkbox"
@@ -386,7 +388,7 @@
     {:else}
       <p>
         Persistent folder access needs a compatible browser, such as desktop Chrome or Edge. You can
-        still <a href="{base}/manage">import individual books</a>.
+        still <a href={resolve('/manage')}>import individual books</a>.
       </p>
     {/if}
     {#each localLibraries as library (library.id)}
@@ -426,7 +428,7 @@
     <section aria-labelledby="browse-heading">
       <h2 id="browse-heading">Browse {sourceName}</h2>
       <nav aria-label="Folder path">
-        {#each trail as part, index}
+        {#each trail as part, index (part.id)}
           <button
             disabled={busy}
             on:click={() =>
@@ -471,7 +473,9 @@
           >Load more files</button
         >{/if}
       {#if lastImported}<p>
-          <a class="button" href="{base}/b?id={lastImported.bookId}">Read {lastImported.title}</a>
+          <a class="button" href={resolve(`/b?id=${lastImported.bookId}`)}
+            >Read {lastImported.title}</a
+          >
         </p>{/if}
     </section>
   {/if}
@@ -486,7 +490,7 @@
       </p>{/if}
     {#each $linkedBooks as link (link.id)}
       <article class="library" aria-label="Reading sync for {link.title}">
-        <h3><a href="{base}/b?id={link.bookId}">{link.title}</a></h3>
+        <h3><a href={resolve(`/b?id=${link.bookId}`)}>{link.title}</a></h3>
         <label
           ><input
             type="checkbox"
@@ -509,7 +513,7 @@
               >Keep this device’s reading data</button
             >
             {#if $bookSyncStatus[link.id]?.branches}
-              {#each $bookSyncStatus[link.id].branches ?? [] as branch}
+              {#each $bookSyncStatus[link.id].branches ?? [] as branch (branch.id)}
                 <button
                   disabled={busy}
                   on:click={() => action(() => syncBook(link.id, 'remote', branch.id))}

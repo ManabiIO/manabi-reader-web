@@ -105,6 +105,8 @@ async function refresh(target: BackgroundTarget) {
   }
 }
 function errorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.includes('Error preparing Blob/File data'))
+    return 'This browser session cannot store images. Try a regular window instead of private browsing. The previous background has been kept.';
   if (error instanceof DOMException && error.name === 'QuotaExceededError')
     return 'There is not enough browser storage. The previous background has been kept.';
   return error instanceof Error
