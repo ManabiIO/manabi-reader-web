@@ -1,0 +1,50 @@
+name: Appearance qualification source
+on:
+  push:
+    branches: [research/appearance-qualification-20260919]
+permissions:
+  contents: write
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Apply and validate exact reviewed test delta
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,lzma,pathlib,subprocess
+          patch=lzma.decompress(pathlib.Path('.github/appearance-qualification.xz').read_bytes())
+          assert hashlib.sha256(patch).hexdigest()=='1fce029cbb487aa9f07138ebc67d70816185cb5cd75a6b8db40e820dfc97f518'
+          pathlib.Path('/tmp/qualification.patch').write_bytes(patch)
+          subprocess.run(['git','apply','--check','/tmp/qualification.patch'],check=True)
+          subprocess.run(['git','apply','/tmp/qualification.patch'],check=True)
+          paths=[line.split('\t',2)[2] for line in subprocess.check_output(['git','apply','--numstat','/tmp/qualification.patch'],text=True).splitlines()]
+          assert set(paths)=={'docs/appearance.md','tests/browser/test_static_reader.py','tests/browser/test_appearance.py','tests/browser/test_appearance_refinement.py'}
+          for name in paths:
+              if name.endswith('.py'): compile(pathlib.Path(name).read_text(),name,'exec')
+          pathlib.Path('/tmp/paths.json').write_text(json.dumps(paths))
+          PY
+      - name: Retain exact source objects, without commit or ref writes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib,urllib.request
+          out=pathlib.Path('/tmp/qualification-source');out.mkdir();tree=[];source=[]
+          for name in json.loads(pathlib.Path('/tmp/paths.json').read_text()):
+              data=pathlib.Path(name).read_bytes();content=data.decode()
+              expected=hashlib.sha1(f'blob {len(data)}\0'.encode()+data).hexdigest()
+              req=urllib.request.Request('https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/git/blobs',data=json.dumps({'encoding':'utf-8','content':content}).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','Content-Type':'application/json'},method='POST')
+              with urllib.request.urlopen(req,timeout=30) as response: sha=json.load(response)['sha']
+              assert sha==expected
+              tree.append({'path':name,'mode':'100644','type':'blob','sha':sha});source.append({'path':name,'content':content})
+          (out/'tree.json').write_text(json.dumps(tree));(out/'source.json').write_text(json.dumps(source))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qualification-source
+          path: /tmp/qualification-source
+          retention-days: 7
