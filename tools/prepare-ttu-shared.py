@@ -12,6 +12,9 @@ def replace(path, old, new):
         changed.append(path)
 
 root = 'apps/web/src/'
+file = root + 'lib/data/storage/handler/base-handler.ts'
+replace(file, '  protected static sanitizeForFilename(', '  static sanitizeForFilename(')
+replace(file, '  protected static desanitizeFilename(', '  static desanitizeFilename(')
 file = root + 'lib/components/settings/settings-storage-source.svelte'
 replace(file, "  import { BaseStorageHandler } from '$lib/data/storage/handler/base-handler';", "  import { resolveTtuRoot } from '$lib/manabi/ttu-folder-contract';")
 replace(file, "      directoryHandle = await dirHandle.getDirectoryHandle(BaseStorageHandler.rootName, {\n        create: true\n      });\n      handleFsPath = `${dirHandle.name === '\\\\' ? '' : `${dirHandle.name}/`}${\n        BaseStorageHandler.rootName\n      }`;", "      directoryHandle = await resolveTtuRoot(dirHandle, true);\n      handleFsPath = directoryHandle.name === dirHandle.name\n        ? directoryHandle.name\n        : `${dirHandle.name}/${directoryHandle.name}`;")
