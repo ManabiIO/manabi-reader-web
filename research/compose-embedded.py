@@ -1,6 +1,7 @@
 """Research composition only. The resulting normal-history PR contains source, not this helper."""
 from pathlib import Path
-import json,re
+import json,re,subprocess
+subprocess.run(['git','fetch','--depth=1','origin','bca91f6fff6300d10ba47d046dfb1a20a7c97e5e'],check=True)
 
 def edit(name,old,new):
     p=Path(name);s=p.read_text();assert s.count(old)==1,(name,old,s.count(old));p.write_text(s.replace(old,new))
@@ -52,14 +53,15 @@ edit('test/reader/run.mjs','      archive,','      provider,\n      archive,')
 p=Path('test/reader/e2e/run.mjs');s=p.read_text()
 s=s.replace("import {runBackupAcceptance}","import {runEmbeddedAcceptance} from './embedded-acceptance.mjs';\nimport {runBackupAcceptance}")
 s=s.replace("embeddedRuntime: {status: 'blocked', reason: 'Reader has no embedded ManabiTan web runtime/provider UI yet. Extension E2E does not satisfy this gate.'}","embeddedRuntime: {status: results.some(r => r.name.startsWith('embedded:') && r.status === 'failed') ? 'failed' : results.some(r => r.name.startsWith('embedded:')) ? 'tested' : 'not-run'}")
-old="    context = await launch('extension', true); page = context.pages()[0] || await context.newPage();"
+old="    context = await launch('extension', true); page = context.pages()[0] || await context.newPage();\n"
 assert s.count(old)==1
 s=s.replace(old,old+'''
     await page.goto(origin + '/manage');
     await page.getByRole('button', {name: 'Dictionary settings', exact: true}).click();
     await page.getByLabel('Lookup provider').selectOption('extension');
     await expect(page.locator('[data-dictionary-settings]')).toHaveAttribute('data-provider-state', 'active');
-    await page.getByRole('button', {name: 'Close dictionary settings'}).click();''')
+    await page.getByRole('button', {name: 'Close dictionary settings'}).click();
+''')
 marker="    await check('browser: no uncaught application page exceptions'";assert s.count(marker)==1
 s=s.replace(marker,'''
     await close('extension-last-session');
