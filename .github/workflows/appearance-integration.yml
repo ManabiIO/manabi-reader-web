@@ -1,0 +1,62 @@
+name: Appearance integration evidence
+on:
+  push:
+    branches: [feat/manabi-appearance-20260919]
+    paths: ['.github/workflows/appearance-integration.yml']
+permissions:
+  contents: write
+jobs:
+  integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prepare three-way merge evidence without changing refs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name 'Appearance integration'
+          git config user.email 'appearance@example.invalid'
+          git merge --no-commit --no-ff 941aabeba40848792e0060929c315c935855b6a4 || true
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib,subprocess,urllib.request
+          def git(*args): return subprocess.check_output(['git',*args],text=True)
+          out=pathlib.Path('/tmp/integration');out.mkdir()
+          parent=os.environ['GITHUB_SHA'];main='941aabeba40848792e0060929c315c935855b6a4'
+          known={line.split()[2] for ref in [parent,main] for line in git('ls-tree','-r',ref).splitlines()}
+          previous={line.split('\t',1)[1] for line in git('ls-tree','-r',parent).splitlines()}
+          stages={}; tree=[]; sources=[]
+          for line in git('ls-files','-s').splitlines():
+              info,name=line.split('\t',1);mode,sha,stage=info.split()
+              stages.setdefault(name,{})[stage]=(mode,sha)
+          conflicts=[]
+          for name,values in stages.items():
+              if '0' not in values:
+                  entry={'path':name,'merged':pathlib.Path(name).read_text() if pathlib.Path(name).exists() else None}
+                  for stage,label in [('1','base'),('2','ours'),('3','theirs')]:
+                      entry[label]=git('cat-file','blob',values[stage][1]) if stage in values else None
+                  conflicts.append(entry);continue
+              mode,sha=values['0']
+              if sha not in known:
+                  data=pathlib.Path(name).read_bytes();content=data.decode()
+                  assert hashlib.sha1(f'blob {len(data)}\0'.encode()+data).hexdigest()==sha
+                  request=urllib.request.Request('https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/git/blobs',data=json.dumps({'encoding':'utf-8','content':content}).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','Content-Type':'application/json'},method='POST')
+                  with urllib.request.urlopen(request,timeout=30) as response: assert json.load(response)['sha']==sha
+                  sources.append({'path':name,'content':content})
+              tree.append({'path':name,'mode':mode,'type':'blob','sha':sha})
+          for name in previous-set(stages):tree.append({'path':name,'mode':'100644','type':'blob','sha':None})
+          (out/'tree.json').write_text(json.dumps(tree))
+          (out/'source.json').write_text(json.dumps(sources))
+          (out/'conflicts.json').write_text(json.dumps(conflicts))
+          (out/'parent.txt').write_text(parent)
+          (out/'main.txt').write_text(main)
+          (out/'status.txt').write_text(git('status','--short'))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: appearance-main-integration
+          path: /tmp/integration
+          retention-days: 7
