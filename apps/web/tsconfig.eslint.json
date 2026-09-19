@@ -5,6 +5,7 @@
     "src/**/*.ts",
     "src/**/*.svelte",
     "tests/**/*.ts",
+    "../../tests/unit/**/*.mjs",
     "playwright.config.js",
     "svelte.config.js",
     "vite.config.js",

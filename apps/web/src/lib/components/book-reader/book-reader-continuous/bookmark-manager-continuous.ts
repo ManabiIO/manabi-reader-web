@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 
+import { createBookmarkSnapshot } from '$lib/components/book-reader/bookmark-snapshot';
 import type { BookmarkManager } from '../types';
 import type { BooksDbBookmarkData } from '$lib/data/database/books-db/versions/books-db';
 import type { CharacterStatsCalculator } from './character-stats-calculator';
@@ -32,23 +33,23 @@ export class BookmarkManagerContinuous implements BookmarkManager {
     this.window.scrollTo(scrollToData);
   }
 
-  formatBookmarkData(bookId: number, customReadingPointScrollOffset = 0): BooksDbBookmarkData {
+  formatBookmarkData(
+    bookId: number,
+    customReadingPointScrollOffset = 0
+  ): BooksDbBookmarkData | undefined {
+    if (!this.calculator.isReady) return undefined;
     const exploredCharCount = this.calculator.calcExploredCharCount(customReadingPointScrollOffset);
     const bookCharCount = this.calculator.charCount;
 
     const { verticalMode } = this.calculator;
     const scrollAxis = verticalMode ? 'scrollX' : 'scrollY';
 
-    return {
-      dataId: bookId,
-      exploredCharCount,
-      progress: exploredCharCount / bookCharCount,
-      [scrollAxis]: this.window[scrollAxis],
-      lastBookmarkModified: new Date().getTime()
-    };
+    return createBookmarkSnapshot(bookId, exploredCharCount, bookCharCount, {
+      [scrollAxis]: this.window[scrollAxis]
+    });
   }
 
-  formatBookmarkDataByRange(bookId: number): BooksDbBookmarkData {
+  formatBookmarkDataByRange(bookId: number): BooksDbBookmarkData | undefined {
     return this.formatBookmarkData(bookId);
   }
 

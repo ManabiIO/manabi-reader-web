@@ -23,22 +23,30 @@ jobs:
         with:
           node-version: '24.21.0'
           cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
       - run: pnpm install --frozen-lockfile
-      - name: Compile the production subpath artifact
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - run: node --experimental-strip-types --test tests/unit/*.test.mjs
+      - name: Type-check committed application source
+        run: pnpm --dir apps/web check
+      - name: Compile production static artifact
         env:
           BASE_PATH: /Reader-Web
         run: pnpm build
-      - name: Verify static deployment shape
+      - name: Browser acceptance for the actual static app and filesystem adapter
         run: |
-          test -f apps/web/build/404.html
-          test -f apps/web/build/service-worker.js
-          test -f apps/web/build/manifest.webmanifest
-          test -d apps/web/build/_app/immutable
-          ! grep -q '"/_app/' apps/web/build/404.html
+          python -m pip install 'playwright==1.55.0'
+          python -m playwright install --with-deps chromium
+          set -o pipefail
+          python tests/browser/test_static_reader.py 2>&1 | tee browser-results.log
+          python tests/browser/test_local_library.py 2>&1 | tee -a browser-results.log
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: reader-static
-          path: apps/web/build
+          name: reader-browser-results
+          path: |
+            browser-results.log
+            test-results/
           retention-days: 3
-      - name: Type-check application source
-        run: pnpm --dir apps/web check

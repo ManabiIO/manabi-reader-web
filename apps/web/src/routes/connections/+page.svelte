@@ -152,18 +152,21 @@
     await reload();
   }
   async function disconnect(connection: CloudConnection) {
-    const result = await request<{ provider_revocation_confirmed: boolean }>(
-      `connections/${connection.id}/`,
-      { method: 'DELETE' }
-    );
+    const result = await request<{
+      provider_revocation_confirmed: boolean;
+      provider_revocation_supported?: boolean;
+    }>(`connections/${connection.id}/`, { method: 'DELETE' });
     if (source?.id === connection.id) {
       source = null;
       entries = [];
     }
     await reload();
-    message = result.provider_revocation_confirmed
-      ? 'Cloud access disconnected. Downloaded books are still available locally.'
-      : 'Disconnected locally. Manabi will retry provider revocation; you can also remove access in the provider’s account settings.';
+    message =
+      result.provider_revocation_supported === false
+        ? 'Disconnected locally. Remove Manabi access in the provider account settings to revoke its authorization.'
+        : result.provider_revocation_confirmed
+          ? 'Cloud access disconnected. Downloaded books are still available locally.'
+          : 'Disconnected locally. Manabi will retry provider revocation; you can also remove access in the provider’s account settings.';
   }
   onMount(() => {
     nativeFolders = supportsLocalLibraries();

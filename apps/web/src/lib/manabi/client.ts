@@ -68,6 +68,7 @@ export function accountScope(): { userId: string; generation: number } {
 }
 
 function invalidateAccount() {
+  refreshSerial += 1;
   generation += 1;
   account.update((state) => ({
     ...state,
@@ -190,9 +191,14 @@ export async function request<T>(
   if (options.binary) {
     const bytes = await response.arrayBuffer();
     if (bytes.byteLength > 128 * 1024 * 1024) throw new IntegrationError('too_large');
+    if (scope.generation !== generation || currentUser()?.id !== scope.userId)
+      throw new IntegrationError('account_changed', 409);
     return bytes as T;
   }
-  return (await jsonResponse(response)) as T;
+  const value = (await jsonResponse(response)) as T;
+  if (scope.generation !== generation || currentUser()?.id !== scope.userId)
+    throw new IntegrationError('account_changed', 409);
+  return value;
 }
 
 export async function connectProvider(provider: string) {

@@ -393,6 +393,8 @@ export async function syncBook(
         merged = unflat(link.contentHash, result.merged);
       }
       validateState(merged, link.contentHash);
+      const stillEnabled = async () => (await integration.get('books', id))?.syncEnabled === true;
+      if (!(await stillEnabled())) return;
       let accepted: StateCopy = remote;
       if (remote.branches?.length || !equal(merged, there)) {
         accepted = await source.write(`book_${link.contentHash}`, merged, remote.revision);
@@ -405,6 +407,8 @@ export async function syncBook(
           throw new IntegrationError('conflict');
         }
       }
+      if (!(await stillEnabled())) return;
+      ensureOwner(link);
       const clean = await applyAcknowledged(link, captured, merged);
       // Do not resurrect a binding removed or disabled while synchronization ran.
       const current = await integration.get('books', id);

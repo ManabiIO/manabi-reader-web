@@ -6,6 +6,7 @@
 
 import type { BehaviorSubject, Observable } from 'rxjs';
 
+import { createBookmarkSnapshot } from '$lib/components/book-reader/bookmark-snapshot';
 import type { BookmarkManager } from '$lib/components/book-reader/types';
 import type { BooksDbBookmarkData } from '$lib/data/database/books-db/versions/books-db';
 import type { PageManagerPaginated } from './page-manager-paginated';
@@ -48,22 +49,18 @@ export class BookmarkManagerPaginated implements BookmarkManager {
     return true;
   }
 
-  formatBookmarkData(bookId: number): BooksDbBookmarkData {
+  formatBookmarkData(bookId: number): BooksDbBookmarkData | undefined {
     return this.formatBookmarkDataByRange(bookId, undefined);
   }
 
   formatBookmarkDataByRange(
     bookId: number,
     customReadingPointRange: Range | undefined
-  ): BooksDbBookmarkData {
+  ): BooksDbBookmarkData | undefined {
+    if (!this.calculator.isReady) return undefined;
     const exploredCharCount = this.calculator.calcExploredCharCount(customReadingPointRange);
     const bookCharCount = this.calculator.charCount;
 
-    return {
-      dataId: bookId,
-      exploredCharCount,
-      progress: exploredCharCount / bookCharCount,
-      lastBookmarkModified: new Date().getTime()
-    };
+    return createBookmarkSnapshot(bookId, exploredCharCount, bookCharCount);
   }
 }

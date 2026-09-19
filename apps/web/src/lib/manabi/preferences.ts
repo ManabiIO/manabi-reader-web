@@ -199,6 +199,7 @@ let active: SavedPreferences | null = null;
 let writes: Promise<unknown> = Promise.resolve();
 let debounce: ReturnType<typeof setTimeout> | undefined;
 let retryAt = 0;
+let activation = 0;
 function persist(user: string, state: SavedPreferences) {
   const copy = structuredClone(state);
   writes = writes.catch(() => undefined).then(() => setMetadata(`preferences/${user}`, copy));
@@ -212,13 +213,18 @@ function unchangedUser(user: string) {
 export async function syncPreferences(choice?: 'local' | 'remote'): Promise<void> {
   const user = currentUser()?.id;
   if (!user || user !== activeUser || !active?.enabled) return;
+  const state = active;
+  const admitted = activation;
+  const isCurrent = () =>
+    active === state && activation === admitted && state.enabled && currentUser()?.id === user;
   await exclusive(`preferences/${user}`, async () => {
+    if (!isCurrent()) return;
     unchangedUser(user);
-    const state = active!;
     preferenceStatus.set({ enabled: true, state: 'syncing', conflicts: [] });
     const captured = structuredClone(state.local);
     try {
       const remote = await request<PreferenceReply>('preferences/', { userId: user });
+      if (!isCurrent()) return;
       unchangedUser(user);
       if (
         remote.user_id !== user ||
@@ -256,6 +262,7 @@ export async function syncPreferences(choice?: 'local' | 'remote'): Promise<void
           revision: `"${remote.revision}"`,
           userId: user
         });
+        if (!isCurrent()) return;
         unchangedUser(user);
         if (accepted.user_id !== user || !Number.isSafeInteger(accepted.revision))
           throw new IntegrationError('invalid_response');
@@ -269,6 +276,7 @@ export async function syncPreferences(choice?: 'local' | 'remote'): Promise<void
       state.initialized = true;
       apply(state.local);
       await persist(user, state);
+      if (!isCurrent()) return;
       unchangedUser(user);
       preferenceStatus.set({
         enabled: true,
@@ -276,7 +284,7 @@ export async function syncPreferences(choice?: 'local' | 'remote'): Promise<void
         conflicts: []
       });
     } catch (error) {
-      if (currentUser()?.id !== user) return;
+      if (!isCurrent()) return;
       const failure =
         error instanceof IntegrationError ? error : new IntegrationError('unavailable');
       retryAt = Date.now() + Math.max(failure.retryAfter * 1000, 5000);
@@ -289,11 +297,14 @@ export async function syncPreferences(choice?: 'local' | 'remote'): Promise<void
 export async function enablePreferenceSync(enabled: boolean, choice?: 'local' | 'remote') {
   const user = currentUser()?.id;
   if (!user || user !== activeUser || !active) throw new IntegrationError('sign_in_required');
-  active.enabled = enabled;
-  if (enabled && !active.initialized) active.local = capture();
-  await persist(user, active);
+  activation += 1;
+  active = { ...active, enabled };
+  if (enabled) active.local = { ...active.local, ...capture() };
+  const state = active;
+  await persist(user, state);
+  if (active !== state || currentUser()?.id !== user) return;
   preferenceStatus.set({ enabled, state: enabled ? 'pending' : 'off', conflicts: [] });
-  if (enabled) await syncPreferences(choice);
+  if (enabled) await syncPreferences(state.initialized ? undefined : choice);
 }
 
 export function startPreferenceSync() {
@@ -301,6 +312,7 @@ export function startPreferenceSync() {
   async function switchUser() {
     const user = currentUser()?.id ?? null;
     if (user === activeUser) return;
+    activation += 1;
     activeUser = user;
     active = null;
     clearTimeout(debounce);
@@ -344,6 +356,7 @@ export function startPreferenceSync() {
   const tick = () => {
     if (
       Date.now() >= retryAt &&
+      get(preferenceStatus).state !== 'conflict' &&
       get(account).status === 'available' &&
       document.visibilityState === 'visible'
     )
@@ -353,6 +366,7 @@ export function startPreferenceSync() {
   window.addEventListener('online', tick);
   return () => {
     stopped = true;
+    activation += 1;
     clearInterval(timer);
     clearTimeout(debounce);
     accountSubscription();

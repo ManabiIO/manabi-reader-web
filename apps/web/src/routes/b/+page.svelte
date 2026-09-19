@@ -791,6 +791,8 @@
       if (bookmarkManager) {
         const data = {
           ...bookmarkManager.formatBookmarkData($rawBookData$.id, customReadingPointScrollOffset),
+          dataId: $rawBookData$.id,
+          lastBookmarkModified: Date.now(),
           exploredCharCount: Math.max(0, bookCharCount - 1),
           progress: 1
         };
@@ -1137,7 +1139,7 @@
     const bookId = getBookIdSync();
     if (!bookId || !bookmarkManager) return;
 
-    let data: BooksDbBookmarkData;
+    let data: BooksDbBookmarkData | undefined;
 
     showHeader = false;
 
@@ -1157,6 +1159,10 @@
     } else {
       data = bookmarkManager.formatBookmarkData(bookId, customReadingPointScrollOffset);
     }
+
+    // A font/layout pass has not produced a trustworthy reading position yet.
+    // Keep the last good bookmark rather than saving a sentinel or zero progress.
+    if (!data) return;
 
     await database.putBookmark(data);
 

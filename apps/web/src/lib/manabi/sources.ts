@@ -16,6 +16,7 @@ export interface LibraryEntry {
 export interface StateCopy {
   value: Record<string, unknown> | null;
   revision: string;
+  headIds?: string[];
   branches?: { id: string; value: Record<string, unknown>; createdAt: string }[];
 }
 export interface LibrarySource {
@@ -153,6 +154,7 @@ function segments(path: string) {
   if (!path) return [];
   const parts = path.split('/');
   if (
+    // eslint-disable-next-line no-control-regex
     parts.some((p) => !p || p === '.' || p === '..' || p.includes('\\') || /[\x00-\x1f]/.test(p))
   ) {
     throw new IntegrationError('forbidden');
@@ -274,12 +276,14 @@ export class LocalLibrarySource implements LibrarySource {
       .sort((a, b) => a.id.localeCompare(b.id));
     if (documents.length && !heads.length) throw new IntegrationError('invalid_response');
     const revision = `"${await sha256(heads.map((doc) => doc.id).join('\n'))}"`;
-    if (!heads.length) return { value: null, revision };
+    const headIds = heads.map((head) => head.id);
+    if (!heads.length) return { value: null, revision, headIds };
     if (heads.every((head) => equal(head.value, heads[0].value)))
-      return { value: heads[0].value, revision };
+      return { value: heads[0].value, revision, headIds };
     return {
       value: null,
       revision,
+      headIds,
       branches: heads.map(({ id, value, createdAt }) => ({ id, value, createdAt }))
     };
   }
@@ -289,9 +293,8 @@ export class LocalLibrarySource implements LibrarySource {
     return exclusive(`local-state/${this.id}/${key}`, async () => {
       const current = await this.state(key);
       if (current.revision !== revision) throw new IntegrationError('conflict', 412);
-      const documents = await this.revisions(key);
-      const superseded = new Set(documents.flatMap((doc) => doc.parents));
-      const parents = documents.filter((doc) => !superseded.has(doc.id)).map((doc) => doc.id);
+      const parents = current.headIds;
+      if (!parents) throw new IntegrationError('invalid_response');
       if (parents.length > 100) throw new IntegrationError('too_large');
       const document: RevisionDocument = {
         version: 1,
