@@ -122,3 +122,5 @@ contrast. Desktop Chromium/WebKit automation is not a substitute for final Safar
 visual and native file-picker QA. The appearance-only suite does not exercise an
 authenticated account server; preset portability is checked separately as a pure
 contract and uses the existing account revision/merge path.
+
+WebKit network-disruption tests stop the real loopback origin and verify a negative-control request fails; Chromium additionally uses its offline flag. Playwright issue #42775 reproduces WebKit offline-emulation failure even for a literal service-worker response. No requests, cache APIs, storage APIs or reader components are replaced. This is server-unavailability coverage, not native Safari airplane-mode qualification.

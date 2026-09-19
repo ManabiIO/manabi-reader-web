@@ -152,7 +152,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         self.page.goto(self.origin + '/Reader-Web/manage')
         self.page.evaluate('navigator.serviceWorker.ready')
         self.page.wait_for_function('navigator.serviceWorker.controller !== null')
-        self.context.set_offline(True)
+        self.go_offline()
         self.page.reload()
         expect(self.page.locator('[data-background="library"]')).to_have_count(1)
         self.assertEqual('cover', self.page.locator('.page-background').evaluate('e => getComputedStyle(e).backgroundSize'))

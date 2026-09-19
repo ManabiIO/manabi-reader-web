@@ -27,6 +27,7 @@
     themeForMode(themeToCopy, $resolvedMode$, $customThemes$)
   );
   let themeName = '';
+  let nameError = '';
   let themeNameElm: HTMLInputElement;
 
   $: themeStyle = `color: ${customTheme.fontColor.rgbaExpression}; background-color: ${customTheme.backgroundColor.rgbaExpression}`;
@@ -82,25 +83,33 @@
     };
   }
 
-  function handleSave() {
+  function clearNameError() {
+    nameError = '';
     themeNameElm.setCustomValidity('');
+  }
+
+  function invalidName(message: string) {
+    nameError = message;
+    themeNameElm.setCustomValidity(message);
+    themeNameElm.focus();
+  }
+
+  function handleSave() {
+    clearNameError();
 
     themeName = themeName.trim();
     if (!themeName) {
-      themeNameElm.setCustomValidity('You have to enter a Name!');
-      themeNameElm.reportValidity();
+      invalidName('Enter a theme name.');
       return;
     }
 
     if (availableThemes.has(themeName) || themeName === 'system-theme') {
-      themeNameElm.setCustomValidity('This Name is reserved!');
-      themeNameElm.reportValidity();
+      invalidName('This name is reserved for a built-in theme.');
       return;
     }
 
     if (themeName !== selectedTheme && Object.hasOwn($customThemes$, themeName)) {
-      themeNameElm.setCustomValidity('A theme with this name already exists. Choose another name.');
-      themeNameElm.reportValidity();
+      invalidName('A theme with this name already exists. Choose another name.');
       return;
     }
 
@@ -220,6 +229,9 @@
         type="text"
         placeholder="Theme Name"
         aria-label="Theme name"
+        aria-invalid={Boolean(nameError)}
+        aria-describedby={nameError ? 'custom-theme-name-error' : undefined}
+        on:input={clearNameError}
         bind:value={themeName}
         bind:this={themeNameElm}
       />
@@ -231,7 +243,9 @@
         <Ripple />
       </button>
     </div>
-    <div class="flex mt-4"></div>
+    {#if nameError}
+      <p id="custom-theme-name-error" role="alert" class="mt-3">{nameError}</p>
+    {/if}
   </div>
   <div class="mt-2 flex grow justify-between" slot="footer">
     <button class={buttonClasses} on:click={() => dispatch('close')}>

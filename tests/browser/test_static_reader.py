@@ -98,12 +98,18 @@ class ReaderBrowser(unittest.TestCase):
         self.context.close()
         self.assertEqual([], self.errors)
 
+    def go_offline(self):
+        self.context.set_offline(True)
+
     def open_book(self, view='paginated', writing='vertical-rl', font=None):
         settings = {'viewMode': view, 'writingMode': writing, 'hideFurigana': 'false', 'hideSpoilerImage': 'false'}
         if font:
             settings['fontFamilyGroupOne'] = font
-        self.context.add_init_script('for (const [key,value] of Object.entries(' + json.dumps(settings) + ')) localStorage.setItem(key,value);')
+        self.context.add_init_script('if (location.origin === ' + json.dumps(self.origin) + ') { for (const [key,value] of Object.entries(' + json.dumps(settings) + ')) localStorage.setItem(key,value); }')
         self.page.goto(self.origin + '/Reader-Web/manage')
+        # This attribute is installed by a Svelte action, not prerendered HTML.
+        # Wait for real input handlers before assigning files to hidden SSR inputs.
+        expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files(
             {'name': 'acceptance.epub', 'mimeType': 'application/epub+zip', 'buffer': epub()})
         self.page.get_by_text(TITLE, exact=True).click(timeout=30000)
@@ -156,14 +162,18 @@ class ReaderBrowser(unittest.TestCase):
         # Select a packaged face explicitly so this remains a cache-on-use test
         # even on macOS hosts that already provide the preferred Japanese face.
         self.open_book(font='Klee One')
-        self.page.evaluate('document.fonts.ready')
+        self.assertGreater(self.page.evaluate('''async () => {
+          const faces = await document.fonts.load('20px "Klee One"', '日本語');
+          await document.fonts.ready;
+          return faces.length;
+        }'''), 0)
         keys = self.page.evaluate('async () => (await Promise.all((await caches.keys()).map(async n => (await (await caches.open(n)).keys()).map(r => r.url)))).flat()')
         self.assertFalse(any('/api/' in key or '/accounts/' in key for key in keys))
         fonts = [key for key in keys if key.endswith(('.woff', '.woff2'))]
         self.assertLessEqual(len(fonts), 3, fonts)
         self.assertTrue(any('KleeOne-Regular' in key and key.endswith('.woff2') for key in fonts))
         self.assertIn('other-manabi-app', self.page.evaluate('caches.keys()'))
-        self.context.set_offline(True)
+        self.go_offline()
         self.page.reload()
         expect(self.page.locator('.book-content')).to_be_visible(timeout=30000)
         self.assertEqual('ほん', self.page.locator('.book-content ruby rt').first.text_content())

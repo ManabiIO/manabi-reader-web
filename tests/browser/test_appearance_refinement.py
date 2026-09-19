@@ -1,5 +1,9 @@
 """Appearance regressions against the real static Reader and real browser storage."""
 import base64
+import json
+import threading
+from urllib.request import urlopen
+from urllib.error import URLError
 import os
 from tempfile import TemporaryDirectory
 from pathlib import Path
@@ -9,14 +13,21 @@ import test_appearance as previous
 
 
 # Real raster bytes; browsers need only decode, not implement every encoder.
-JPEG = '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCABQAHgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwChRRRQfWhRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFAH/2Q=='
+JPEG = '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCABQAHgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwChRRRQfWhRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFAH/2Q=='
 WEBP = 'UklGRlYAAABXRUJQVlA4IEoAAADwBACdASp4AFAAPm02mUmkIyKhIMgAgA2JaQAABje6m/LqHOMoB7qb6NqHOMoBoAAA/uLev//ln/+y3/Zb0bzR0EdEwAAAAAAAAA=='
 
 class RefinedAppearance(previous.AppearanceBrowser):
     def setUp(self):
+        if not self.thread.is_alive():
+            cls = type(self)
+            cls.server = previous.baseline.ThreadingHTTPServer(('127.0.0.1', 0), previous.baseline.StaticHandler)
+            cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
+            cls.thread.start()
+            cls.origin = 'http://127.0.0.1:' + str(cls.server.server_port)
         if os.environ.get('APPEARANCE_BROWSER', 'chromium') == 'chromium':
             super().setUp()
             self.context.on('page', self.watch_page)
+            self.record_network()
             return
         # Ordinary Safari uses a persistent store. WebKit's private/ephemeral
         # sessions cannot store IDB Blobs (WebKit #156347 / Playwright #42795).
@@ -29,9 +40,42 @@ class RefinedAppearance(previous.AppearanceBrowser):
         self.page.on('pageerror', lambda error: self.errors.append(str(error)))
         previous.baseline.StaticHandler.probes.clear()
         self.context.on('page', self.watch_page)
+        self.record_network()
 
     def watch_page(self, page):
         page.on('pageerror', lambda error: self.errors.append(str(error)))
+
+    def record_network(self):
+        self.network = []
+        self.context.on('request', lambda r: self.network.append({
+            'event': 'request', 'url': r.url, 'kind': r.resource_type,
+            'range': r.headers.get('range'), 'cache': r.headers.get('cache-control')
+        }))
+        self.context.on('response', lambda r: self.network.append({
+            'event': 'response', 'url': r.url, 'status': r.status, 'worker': r.from_service_worker
+        }))
+        self.context.on('requestfailed', lambda r: self.network.append({
+            'event': 'requestfailed', 'url': r.url, 'failure': r.failure
+        }))
+        self.page.on('console', lambda m: self.network.append({'event': 'console', 'level': m.type, 'text': m.text}))
+
+    def tearDown(self):
+        Path('test-results').mkdir(exist_ok=True)
+        Path('test-results', self._testMethodName + '-network.json').write_text(json.dumps(self.network, indent=2))
+        super().tearDown()
+
+    def go_offline(self):
+        if os.environ.get('APPEARANCE_BROWSER', 'chromium') == 'chromium':
+            super().go_offline()
+            return
+        # Playwright #42775: WebKit's offline flag rejects even literal worker
+        # responses. Stop the real origin instead, not the app's fetch/cache APIs.
+        # This proves server-independent reload, not native airplane-mode UI.
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join()
+        with self.assertRaises(URLError):
+            urlopen(self.origin + '/network-negative-control', timeout=2)
 
     def test_live_tabs_share_palette_custom_edits_and_fade_without_reloading_book(self):
         self.open_book()
