@@ -8,54 +8,24 @@
   import {
     availableThemes,
     themeForMode,
+    customThemeValues,
     type CustomThemeValue,
     type ThemeOption
   } from '$lib/data/theme-option';
   import { createEventDispatcher, onMount } from 'svelte';
   import { resolvedMode$ } from '$lib/appearance/state';
 
-  export let selectedTheme: string;
+  export let selectedTheme = '';
   export let existingThemes: ToggleOption<string>[] = [];
 
   const dispatch = createEventDispatcher<{
     close: void;
   }>();
 
-  let customTheme: Record<keyof ThemeOption, CustomThemeValue> = {
-    fontColor: { hexExpression: '#ffffff', alphaValue: 1, rgbaExpression: 'rgba(255,255,255,1)' },
-    backgroundColor: {
-      hexExpression: '#000000',
-      alphaValue: 1,
-      rgbaExpression: 'rgba(0,0,0,1)'
-    },
-    selectionFontColor: {
-      hexExpression: '#ffffff',
-      alphaValue: 1,
-      rgbaExpression: 'rgba(255,255,255,1)'
-    },
-    selectionBackgroundColor: {
-      hexExpression: '#ffffff',
-      alphaValue: 1,
-      rgbaExpression: 'rgba(255,255,255,1)'
-    },
-    hintFuriganaShadowColor: {
-      hexExpression: '#ffffff',
-      alphaValue: 1,
-      rgbaExpression: 'rgba(255,255,255,1)'
-    },
-    hintFuriganaFontColor: {
-      hexExpression: '#ffffff',
-      alphaValue: 1,
-      rgbaExpression: 'rgba(255,255,255,1)'
-    },
-    tooltipTextFontColor: {
-      hexExpression: '#ffffff',
-      alphaValue: 1,
-      rgbaExpression: 'rgba(255,255,255,1)'
-    }
-  };
-
-  let themeToCopy = existingThemes[0].id;
+  let themeToCopy = $theme$;
+  let customTheme: Record<keyof ThemeOption, CustomThemeValue> = customThemeValues(
+    themeForMode(themeToCopy, $resolvedMode$, $customThemes$)
+  );
   let themeName = '';
   let themeNameElm: HTMLInputElement;
 
@@ -68,31 +38,9 @@
       return;
     }
 
-    customTheme = getThemeData(existingThemeObject);
+    customTheme = customThemeValues(existingThemeObject);
     themeName = selectedTheme;
   });
-
-  function getThemeData(referenceObject: ThemeOption): Record<keyof ThemeOption, CustomThemeValue> {
-    const result: any = {};
-    const entries = [...Object.entries(referenceObject)];
-
-    for (let index = 0, { length } = entries; index < length; index += 1) {
-      const [key, value] = entries[index];
-      const [r, g, b, a] = (value.match(/rgba\((.+)\)/)?.[1] || '0,0,0,1')
-        .split(',')
-        .map((x: string) => parseFloat(x.trim()));
-
-      result[key as keyof ThemeOption] = {
-        hexExpression: `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b
-          .toString(16)
-          .padStart(2, '0')}`,
-        alphaValue: a,
-        rgbaExpression: value
-      };
-    }
-
-    return result;
-  }
 
   function handleCopyTheme() {
     copyTheme(themeForMode(themeToCopy, $resolvedMode$, $customThemes$));
@@ -137,13 +85,14 @@
   function handleSave() {
     themeNameElm.setCustomValidity('');
 
+    themeName = themeName.trim();
     if (!themeName) {
       themeNameElm.setCustomValidity('You have to enter a Name!');
       themeNameElm.reportValidity();
       return;
     }
 
-    if (availableThemes.has(themeName)) {
+    if (availableThemes.has(themeName) || themeName === 'system-theme') {
       themeNameElm.setCustomValidity('This Name is reserved!');
       themeNameElm.reportValidity();
       return;
@@ -158,11 +107,9 @@
       newTheme[key] = value.rgbaExpression;
     }
 
-    if (selectedTheme && selectedTheme !== themeName) {
-      delete $customThemes$[selectedTheme];
-    }
-
-    $customThemes$ = { ...$customThemes$, ...{ [themeName]: newTheme } };
+    const themes = { ...$customThemes$, [themeName]: newTheme };
+    if (selectedTheme && selectedTheme !== themeName) delete themes[selectedTheme];
+    $customThemes$ = themes;
     $theme$ = themeName;
     dispatch('close');
   }
@@ -172,7 +119,7 @@
       return;
     }
 
-    customTheme = getThemeData(theme);
+    customTheme = customThemeValues(theme);
   }
 
   function hexToRGB(h: string, alpha: number) {
@@ -199,7 +146,7 @@
     <div
       class="grid grid-cols-1 gap-2 items-center overflow-auto max-h-[60vh] sm:grid-cols-[auto_auto_5rem] sm:gap-4"
     >
-      <select class="sm:col-span-2" bind:value={themeToCopy}>
+      <select aria-label="Copy colors from theme" class="sm:col-span-2" bind:value={themeToCopy}>
         {#each existingThemes as theme (theme.id)}
           <option value={theme.id}>
             {theme.id}
@@ -228,6 +175,20 @@
         on:alpha={handleAlphaValueChange}
       />
       <SettingsCustomThemeInput
+        label="Selected text"
+        attribute="selectionFontColor"
+        values={customTheme.selectionFontColor}
+        on:color={handleColorValueChange}
+        on:alpha={handleAlphaValueChange}
+      />
+      <SettingsCustomThemeInput
+        label="Selection background"
+        attribute="selectionBackgroundColor"
+        values={customTheme.selectionBackgroundColor}
+        on:color={handleColorValueChange}
+        on:alpha={handleAlphaValueChange}
+      />
+      <SettingsCustomThemeInput
         label="Furigana Partial Hide Font"
         attribute="hintFuriganaFontColor"
         values={customTheme.hintFuriganaFontColor}
@@ -252,6 +213,7 @@
         class="sm:col-span-2"
         type="text"
         placeholder="Theme Name"
+        aria-label="Theme name"
         bind:value={themeName}
         bind:this={themeNameElm}
       />
@@ -263,7 +225,7 @@
         <Ripple />
       </button>
     </div>
-    <div class="flex mt-4" ></div>
+    <div class="flex mt-4"></div>
   </div>
   <div class="mt-2 flex grow justify-between" slot="footer">
     <button class={buttonClasses} on:click={() => dispatch('close')}>

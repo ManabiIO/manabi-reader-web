@@ -246,7 +246,8 @@
     font-weight: 650;
   }
   section {
-    border: 1px solid #8886;
+    border: 1px solid var(--line);
+    background: var(--surface);
     border-radius: 0.6rem;
     padding: 1rem;
     margin: 1rem 0;
@@ -255,6 +256,7 @@
     margin: 0.75rem 0;
   }
   a {
+    color: var(--accent);
     text-decoration: underline;
   }
   label {
@@ -266,7 +268,7 @@
   button,
   select {
     background: transparent;
-    border: 1px solid #8888;
+    border: 1px solid var(--line);
     border-radius: 0.35rem;
     padding: 0.45rem 0.75rem;
     margin: 0.25rem;

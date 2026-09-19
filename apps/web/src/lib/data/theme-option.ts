@@ -50,14 +50,14 @@ const lightTheme = updateHintFuriganaFontColor({
     b: 0xff
   },
   selectionFontColor: {
-    r: 0xf5,
-    g: 0xf5,
-    b: 0xf5
+    r: 0xff,
+    g: 0xff,
+    b: 0xff
   },
   selectionBackgroundColor: {
-    r: 0x97,
-    g: 0x97,
-    b: 0x97
+    r: 0x24,
+    g: 0x50,
+    b: 0x6c
   },
   hintFuriganaFontColor: {
     r: 0x00,
@@ -91,16 +91,14 @@ const darkTheme = updateHintFuriganaFontColor({
     b: 0x2a
   },
   selectionFontColor: {
-    r: 85,
-    g: 90,
-    b: 92,
-    a: 0.6
+    r: 11,
+    g: 11,
+    b: 11
   },
   selectionBackgroundColor: {
-    r: 212,
-    g: 217,
-    b: 220,
-    a: 0.8
+    r: 165,
+    g: 201,
+    b: 225
   },
   hintFuriganaFontColor: {
     r: 0x00,
@@ -255,12 +253,17 @@ export function initialAppearance(
     : 'light';
 }
 
-function neutralTheme(background: string, mode: ColorMode): ThemeOption {
+function neutralTheme(background: string, mode: ColorMode, manabi = false): ThemeOption {
   return {
     ...availableThemes.get(mode === 'dark' ? 'gray-theme' : 'light-theme')!,
     backgroundColor: rgba(parseColor(background)!),
-    selectionBackgroundColor: mode === 'dark' ? 'rgba(217, 177, 65, 1)' : 'rgba(163, 53, 57, 1)',
-    selectionFontColor: mode === 'dark' ? 'rgba(11, 11, 11, 1)' : 'rgba(255, 255, 255, 1)'
+    ...(manabi
+      ? {
+          selectionBackgroundColor:
+            mode === 'dark' ? 'rgba(217, 177, 65, 1)' : 'rgba(163, 53, 57, 1)',
+          selectionFontColor: mode === 'dark' ? 'rgba(11, 11, 11, 1)' : 'rgba(255, 255, 255, 1)'
+        }
+      : {})
   };
 }
 
@@ -269,16 +272,17 @@ export function themeForMode(
   mode: ColorMode,
   custom: Record<string, ThemeOption> = {}
 ): ThemeOption {
-  const original = availableThemes.get(id) ?? custom[id];
+  const original = availableThemes.get(id) ?? (Object.hasOwn(custom, id) ? custom[id] : undefined);
   if (
     !original ||
     !Object.keys(availableThemes.get('light-theme')!).every((key) =>
       parseColor(original[key as keyof ThemeOption])
     )
   ) {
-    return neutralTheme(mode === 'light' ? '#ffffff' : '#000000', mode);
+    return neutralTheme(mode === 'light' ? '#ffffff' : '#000000', mode, true);
   }
-  if (id === 'manabi-theme') return neutralTheme(mode === 'light' ? '#ffffff' : '#000000', mode);
+  if (id === 'manabi-theme')
+    return neutralTheme(mode === 'light' ? '#ffffff' : '#000000', mode, true);
   const originalMode = isDarkColor(original.backgroundColor) ? 'dark' : 'light';
   if (originalMode === mode) return { ...original };
   if (counterparts[id]) return neutralTheme(counterparts[id], mode);
@@ -307,7 +311,9 @@ export function themeProperties(
   const canvas = mode === 'dark' ? [0, 0, 0] : [255, 255, 255];
   const ink = mode === 'dark' ? [238, 238, 238] : [33, 31, 28];
   const bg = parseColor(reading.backgroundColor)!;
-  const opaqueBackground = mix(canvas, bg, bg[3]);
+  // Custom reading colors remain exact. Application chrome must stay usable even
+  // when an authored reading background is mid-gray, transparent or low contrast.
+  const opaqueBackground = availableThemes.has(id) ? mix(canvas, bg, bg[3]) : mix(canvas, bg, 0.08);
   const accent =
     id === 'manabi-theme'
       ? mode === 'dark'
@@ -318,7 +324,10 @@ export function themeProperties(
         : '#24506c';
   return {
     ...Object.fromEntries(
-      Object.entries(reading).map(([key, value]) => [`reader-${cssName(key)}`, value])
+      Object.keys(availableThemes.get('light-theme')!).map((key) => [
+        `reader-${cssName(key)}`,
+        reading[key as keyof ThemeOption]
+      ])
     ),
     canvas: rgba(opaqueBackground),
     ink: rgba(ink),
@@ -327,13 +336,66 @@ export function themeProperties(
     'surface-raised': rgba(mix(opaqueBackground, ink, 0.065)),
     'surface-hover': rgba(mix(opaqueBackground, ink, 0.12)),
     line: rgba(mix(opaqueBackground, ink, 0.28)),
+    'control-line': rgba(mix(opaqueBackground, ink, 0.6)),
     accent: accent,
     'on-accent': mode === 'dark' ? '#0b0b0b' : '#ffffff',
     'accent-soft': rgba(
-      mix(opaqueBackground, mode === 'dark' ? [217, 177, 65] : [163, 53, 57], 0.13)
+      mix(
+        opaqueBackground,
+        id === 'manabi-theme'
+          ? mode === 'dark'
+            ? [217, 177, 65]
+            : [163, 53, 57]
+          : mode === 'dark'
+            ? [165, 201, 225]
+            : [36, 80, 108],
+        0.13
+      )
     ),
     danger: mode === 'dark' ? '#ffb4b1' : '#a11a1d',
     'heatmap-empty': rgba(mix(opaqueBackground, ink, 0.15)),
     'heatmap-outside': rgba(mix(opaqueBackground, ink, 0.07))
   };
+}
+
+/** A damaged optional setting must not prevent the Reader from starting. */
+export function parseCustomThemes(raw: string | null | undefined): Record<string, ThemeOption> {
+  try {
+    const value: unknown = JSON.parse(raw ?? '{}');
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, ThemeOption>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Shared editor decoding: hex/rgb/rgba and zero alpha round-trip without a black fallback. */
+export function customThemeValues(value: unknown): Record<keyof ThemeOption, CustomThemeValue> {
+  const input = value && typeof value === 'object' ? (value as Partial<ThemeOption>) : {};
+  const fallback = availableThemes.get('gray-theme')!;
+  return Object.fromEntries(
+    Object.keys(fallback).map((name) => {
+      const key = name as keyof ThemeOption;
+      const candidate = input[key];
+      const color = parseColor(candidate);
+      const [r, g, b, a] = color ?? parseColor(fallback[key])!;
+      return [
+        key,
+        {
+          hexExpression:
+            '#' +
+            [r, g, b].map((channel) => Math.round(channel).toString(16).padStart(2, '0')).join(''),
+          alphaValue: a,
+          rgbaExpression: color ? candidate! : fallback[key]
+        }
+      ];
+    })
+  ) as Record<keyof ThemeOption, CustomThemeValue>;
+}
+
+/** Custom definitions are local-only; never upload an unusable custom palette ID. */
+export function portableThemeName(value: unknown): string | undefined {
+  const id = value === 'system-theme' ? 'manabi-theme' : value;
+  return typeof id === 'string' && availableThemes.has(id) ? id : undefined;
 }

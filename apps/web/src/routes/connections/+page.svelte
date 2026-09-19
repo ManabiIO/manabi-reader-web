@@ -562,7 +562,8 @@
     margin-bottom: 0.4rem;
   }
   section {
-    border: 1px solid #8886;
+    border: 1px solid var(--line);
+    background: var(--surface);
     border-radius: 0.75rem;
     padding: 1.25rem;
     margin: 1rem 0;
@@ -571,13 +572,14 @@
     margin: 0.6rem 0;
   }
   a {
+    color: var(--accent);
     text-decoration: underline;
     text-underline-offset: 0.16em;
   }
   button,
   .button {
     display: inline-block;
-    border: 1px solid #8889;
+    border: 1px solid var(--line);
     border-radius: 0.4rem;
     padding: 0.45rem 0.75rem;
     margin: 0.25rem 0;
@@ -586,7 +588,7 @@
   }
   button:hover,
   .button:hover {
-    background: #8882;
+    background: var(--surface-hover);
   }
   button:disabled {
     opacity: 0.5;
@@ -596,12 +598,12 @@
   a:focus-visible,
   input:focus-visible,
   select:focus-visible {
-    outline: 2px solid currentColor;
+    outline: 2px solid var(--accent);
     outline-offset: 3px;
   }
   .library,
   form {
-    border-top: 1px solid #8885;
+    border-top: 1px solid var(--line);
     margin-top: 1rem;
     padding-top: 1rem;
   }
@@ -618,7 +620,7 @@
   input[type='number'],
   select {
     background: transparent;
-    border: 1px solid #8888;
+    border: 1px solid var(--line);
     border-radius: 0.3rem;
     padding: 0.3rem;
   }
@@ -628,12 +630,12 @@
   .notice {
     border-left: 3px solid currentColor;
     padding: 0.75rem;
-    background: #8881;
+    background: var(--surface-raised);
   }
   .hint,
   small {
     font-size: 0.87rem;
-    opacity: 0.8;
+    color: var(--muted);
   }
   small {
     display: block;
@@ -645,7 +647,7 @@
     justify-content: space-between;
     gap: 1rem;
     padding: 0.55rem 0;
-    border-bottom: 1px solid #8883;
+    border-bottom: 1px solid var(--line);
   }
   .file-entry span {
     min-width: 0;

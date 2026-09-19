@@ -15,6 +15,7 @@ import {
 } from './image-format';
 
 interface SavedImage {
+  revision?: string;
   blob: Blob;
   name: string;
 }
@@ -22,6 +23,7 @@ interface BackgroundDatabase extends DBSchema {
   backgrounds: { key: BackgroundTarget; value: SavedImage };
 }
 interface BackgroundState {
+  revision?: string;
   url?: string;
   name?: string;
   busy: boolean;
@@ -64,31 +66,42 @@ function db() {
 function update(target: BackgroundTarget, patch: Partial<BackgroundState>) {
   backgrounds.update((value) => ({ ...value, [target]: { ...value[target], ...patch } }));
 }
-function publish(target: BackgroundTarget, saved?: SavedImage) {
-  if (!mounted) return;
+function publish(target: BackgroundTarget, saved: SavedImage | undefined, url?: string) {
   const old = current[target].url;
-  const url = saved ? URL.createObjectURL(saved.blob) : undefined;
-  update(target, { url, name: saved?.name, error: undefined });
+  update(target, { url, name: saved?.name, revision: saved?.revision, error: undefined });
   if (old) URL.revokeObjectURL(old);
 }
 async function refresh(target: BackgroundTarget) {
   const generation = ++versions[target],
     life = lifetime;
+  let url: string | undefined;
   try {
     const saved = await (await db()).get('backgrounds', target);
     if (!mounted || lifetime !== life || generation !== versions[target]) return;
-    if (
-      saved &&
-      (!(saved.blob instanceof Blob) ||
-        !backgroundMimeTypes.includes(saved.blob.type) ||
-        saved.blob.size > maxBackgroundBytes)
-    ) {
-      throw new Error('The saved background cannot be read. Remove it and choose another image.');
+    if (saved) {
+      if (
+        !(saved.blob instanceof Blob) ||
+        typeof saved.name !== 'string' ||
+        saved.name.length > 200
+      )
+        throw new Error('The saved background cannot be read. Remove it and choose another image.');
+      // Focus/tab switches need not decode or replace an unchanged, already
+      // validated image. Older records without a revision are still supported.
+      if (saved.revision && saved.revision === current[target].revision && current[target].url)
+        return;
+      const decoded = await decodeImage(saved.blob);
+      url = decoded.url;
+      decoded.image.src = '';
     }
-    publish(target, saved);
+    if (!mounted || lifetime !== life || generation !== versions[target]) return;
+    publish(target, saved, url);
+    url = undefined; // Ownership transferred to the visible state.
   } catch (error) {
     if (mounted && life === lifetime && generation === versions[target])
       update(target, { error: errorMessage(error) });
+  } finally {
+    // A newer read, unmount, or failed decode must not leak an object URL.
+    if (url) URL.revokeObjectURL(url);
   }
 }
 function errorMessage(error: unknown): string {
@@ -98,13 +111,13 @@ function errorMessage(error: unknown): string {
     ? error.message
     : 'The background could not be saved. The previous image has been kept.';
 }
-async function prepare(file: File): Promise<SavedImage> {
-  if (!backgroundMimeTypes.includes(file.type))
+async function decodeImage(blob: Blob): Promise<{ image: HTMLImageElement; url: string }> {
+  if (!backgroundMimeTypes.includes(blob.type))
     throw new Error('Choose a PNG, JPEG, or WebP image. SVG and GIF are not supported.');
-  if (!file.size || file.size > maxBackgroundBytes)
+  if (!blob.size || blob.size > maxBackgroundBytes)
     throw new Error('Choose an image no larger than 8 MB.');
-  imageDimensions(new Uint8Array(await file.arrayBuffer()), file.type);
-  const url = URL.createObjectURL(file);
+  imageDimensions(new Uint8Array(await blob.arrayBuffer()), blob.type);
+  const url = URL.createObjectURL(blob);
   const image = new Image();
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -120,11 +133,27 @@ async function prepare(file: File): Promise<SavedImage> {
     if (
       !image.naturalWidth ||
       !image.naturalHeight ||
+      image.naturalWidth > 8192 ||
+      image.naturalHeight > 8192 ||
       image.naturalWidth * image.naturalHeight > maxBackgroundPixels
     )
       throw new Error('The decoded image is too large. Choose an image up to 24 megapixels.');
+    return { image, url };
+  } catch (error) {
+    image.src = '';
+    URL.revokeObjectURL(url);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    image.onload = null;
+    image.onerror = null;
+  }
+}
+async function prepare(file: File): Promise<SavedImage> {
+  const { image, url } = await decodeImage(file);
+  const canvas = document.createElement('canvas');
+  try {
     const scale = Math.min(1, 2560 / Math.max(image.naturalWidth, image.naturalHeight));
-    const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
     canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
     const context = canvas.getContext('2d');
@@ -138,30 +167,24 @@ async function prepare(file: File): Promise<SavedImage> {
         0.88
       )
     );
+    if (blob.size > maxBackgroundBytes) throw new Error('The prepared image is too large to save.');
+    return { blob, name: file.name.slice(0, 200), revision: crypto.randomUUID() };
+  } finally {
     canvas.width = 0;
     canvas.height = 0;
-    if (blob.size > maxBackgroundBytes) throw new Error('The prepared image is too large to save.');
-    return { blob, name: file.name.slice(0, 200) };
-  } finally {
-    clearTimeout(timer);
-    image.onload = null;
-    image.onerror = null;
     image.src = '';
     URL.revokeObjectURL(url);
   }
 }
-function mutate(
-  target: BackgroundTarget,
-  work: () => Promise<SavedImage | undefined>
-): Promise<void> {
+function mutate(target: BackgroundTarget, work: () => Promise<void>): Promise<void> {
   const operation = queues[target].then(async () => {
     update(target, { busy: true, error: undefined });
     ++versions[target];
     try {
-      const saved = await work();
+      await work();
       // idb's convenience writes resolve after transaction commit, not just request success.
       ++versions[target];
-      publish(target, saved);
+      await refresh(target);
       channel?.postMessage(target);
     } catch (error) {
       update(target, { error: errorMessage(error) });
@@ -177,13 +200,11 @@ export function chooseBackground(target: BackgroundTarget, file: File): Promise<
   return mutate(target, async () => {
     const saved = await prepare(file);
     await (await db()).put('backgrounds', saved, target);
-    return saved;
   });
 }
 export function removeBackground(target: BackgroundTarget): Promise<void> {
   return mutate(target, async () => {
     await (await db()).delete('backgrounds', target);
-    return undefined;
   });
 }
 export function startBackgrounds(): () => void {
@@ -194,10 +215,14 @@ export function startBackgrounds(): () => void {
     void refresh('reader');
   };
   if (typeof BroadcastChannel !== 'undefined') {
-    channel = new BroadcastChannel('manabi-reader-backgrounds');
-    channel.onmessage = ({ data }) => {
-      if (data === 'library' || data === 'reader') void refresh(data);
-    };
+    try {
+      channel = new BroadcastChannel('manabi-reader-backgrounds');
+      channel.onmessage = ({ data }) => {
+        if (data === 'library' || data === 'reader') void refresh(data);
+      };
+    } catch {
+      /* Focus refresh still works when cross-tab messaging is unavailable. */
+    }
   }
   window.addEventListener('focus', reload);
   reload();

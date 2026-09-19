@@ -1,4 +1,4 @@
-@import './palettes';
+@use './palettes';
 :root {
   --manabi-red: #a33539; /* /next/ Reader red, sRGB fallback */
   --reader-font-color: var(--light-reader-font-color);
@@ -15,6 +15,7 @@
   --surface-raised: var(--light-surface-raised);
   --surface-hover: var(--light-surface-hover);
   --line: var(--light-line);
+  --control-line: var(--light-control-line);
   --accent: var(--light-accent);
   --on-accent: var(--light-on-accent);
   --accent-soft: var(--light-accent-soft);
@@ -48,6 +49,7 @@
   --surface-raised: var(--dark-surface-raised);
   --surface-hover: var(--dark-surface-hover);
   --line: var(--dark-line);
+  --control-line: var(--dark-control-line);
   --accent: var(--dark-accent);
   --on-accent: var(--dark-on-accent);
   --accent-soft: var(--dark-accent-soft);
@@ -73,6 +75,7 @@
     --surface-raised: var(--dark-surface-raised);
     --surface-hover: var(--dark-surface-hover);
     --line: var(--dark-line);
+    --control-line: var(--dark-control-line);
     --accent: var(--dark-accent);
     --on-accent: var(--dark-on-accent);
     --accent-soft: var(--dark-accent-soft);
@@ -96,7 +99,7 @@ body {
   textarea
 ) {
   background-color: var(--surface);
-  border-color: var(--line);
+  border-color: var(--control-line);
 }
 select {
   appearance: auto;
@@ -154,5 +157,19 @@ textarea::placeholder {
 @media print {
   .page-background {
     display: none;
+  }
+}
+
+/* Controls need stronger boundaries than decorative panel separators. */
+button,
+input,
+select,
+textarea {
+  --line: var(--control-line);
+}
+@media (forced-colors: active) {
+  button[aria-pressed='true'] {
+    outline: 2px solid Highlight;
+    outline-offset: -4px;
   }
 }

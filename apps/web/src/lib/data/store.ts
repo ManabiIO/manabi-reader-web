@@ -56,18 +56,13 @@ import {
   writableObjectLocalStorageSubject
 } from './internal/writable-object-local-storage-subject';
 import type { TextMarginMode } from './text-margin-mode';
-import type { ThemeOption } from './theme-option';
 import type { VerticalTextOrientation } from './vertical-text-orientation';
 import { ViewMode } from './view-mode';
 import type { WritingMode } from './writing-mode';
 import { writableSetLocalStorageSubject } from './internal/writable-set-local-storage-subject';
 import { writableStringLocalStorageSubject } from './internal/writable-string-local-storage-subject';
 
-export const theme$ = writableStringLocalStorageSubject()('theme', 'manabi-theme');
-export const customThemes$ = writableObjectLocalStorageSubject<Record<string, ThemeOption>>()(
-  'customThemes',
-  {}
-);
+export { theme$, customThemes$ } from '$lib/appearance/state';
 export const multiplier$ = writableNumberLocalStorageSubject()('autoScrollMultiplier', 20);
 export const fontFamilyGroupOne$ = writableStringLocalStorageSubject()(
   'fontFamilyGroupOne',

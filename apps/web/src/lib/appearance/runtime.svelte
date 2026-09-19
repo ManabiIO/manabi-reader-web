@@ -7,6 +7,7 @@
   import { availableThemes, themeProperties } from '$lib/data/theme-option';
   import {
     appearance$,
+    startAppearanceSync,
     resolvedMode$,
     libraryBackgroundOptions$,
     readerBackgroundOptions$,
@@ -42,16 +43,11 @@
   $: opacity = options.fade ? options.amount / 100 : 0;
 
   onMount(() => {
-    if ($theme$ === 'system-theme') theme$.next('manabi-theme');
-    const stop = startBackgrounds();
-    const storageChanged = (event: StorageEvent) => {
-      if (event.key === 'appearance' && ['system', 'light', 'dark'].includes(event.newValue ?? ''))
-        appearance$.next(event.newValue as 'system' | 'light' | 'dark');
-    };
-    window.addEventListener('storage', storageChanged);
+    const stopAppearance = startAppearanceSync();
+    const stopBackgrounds = startBackgrounds();
     return () => {
-      stop();
-      window.removeEventListener('storage', storageChanged);
+      stopAppearance();
+      stopBackgrounds();
     };
   });
 </script>

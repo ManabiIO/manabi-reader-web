@@ -56,24 +56,40 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --dir apps/web exec svelte-kit sync
       - run: node --experimental-strip-types tools/appearance/generate-css.mjs --check
-      - run: node --experimental-strip-types --test tests/unit/*.test.mjs
-      - run: pnpm --dir apps/web check
+      - run: |
+          set -o pipefail
+          node --experimental-strip-types --test tests/unit/*.test.mjs | tee appearance-units.log
+      - run: |
+          set -o pipefail
+          pnpm --dir apps/web check 2>&1 | tee appearance-types.log
       - name: Build the real subpath application
         env:
           BASE_PATH: /Reader-Web
-        run: pnpm build
+        run: |
+          set -o pipefail
+          pnpm build 2>&1 | tee appearance-build.log
       - name: Real browser acceptance
         run: |
           python -m pip install 'playwright==1.55.0'
-          python -m playwright install --with-deps chromium
-          set -o pipefail
-          python tests/browser/test_appearance.py 2>&1 | tee appearance-results.log
+          python -m playwright install --with-deps chromium webkit
+          set +e
+          status=0
+          for engine in chromium webkit; do
+            mkdir -p artifacts/appearance/$engine
+            APPEARANCE_BROWSER=$engine python tests/browser/test_appearance_refinement.py 2>&1 | tee artifacts/appearance/$engine/results.log
+            result=${PIPESTATUS[0]}
+            if [ "$result" -ne 0 ]; then status=1; fi
+            if [ -d test-results ]; then mv test-results artifacts/appearance/$engine/screenshots; fi
+          done
+          exit "$status"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: appearance-evidence
           path: |
-            appearance-results.log
-            test-results/
+            appearance-units.log
+            appearance-types.log
+            appearance-build.log
+            artifacts/appearance/
           if-no-files-found: ignore
           retention-days: 7

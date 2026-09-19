@@ -10,7 +10,7 @@
   export let label: string;
   $: options = target === 'library' ? libraryBackgroundOptions$ : readerBackgroundOptions$;
   $: state = $backgrounds[target];
-  $: opacity = $options.fade ? $options.amount / 100 : 0;
+  $: opacity = state.url && $options.fade ? $options.amount / 100 : 0;
   async function select(event: Event) {
     const input = event.currentTarget as HTMLInputElement;
     const file = input.files?.[0];
@@ -27,7 +27,11 @@
     style:--background-fade={opacity}
     aria-hidden="true"
   >
-    {#if !state.url}<span>No image</span>{/if}
+    {#if state.url}
+      <span class:reader-preview={target === 'reader'}
+        >本を読む<br /><small>Read comfortably</small></span
+      >
+    {:else}<span>No image</span>{/if}
   </div>
   <label class="image-picker" for="background-{target}">Choose image</label>
   <input
@@ -99,7 +103,12 @@
     display: grid;
     place-items: center;
     z-index: 1;
-    color: var(--muted);
+    color: var(--ink);
+    text-align: center;
+    align-content: center;
+  }
+  .background-preview .reader-preview {
+    color: var(--reader-font-color);
   }
   .image-picker {
     display: block;

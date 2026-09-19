@@ -4,7 +4,8 @@ Theme identity is separate from **System / Light / Dark**. New installations use
 **Manabi + System**. Existing saved theme IDs and their light/dark intent survive
 upgrade; existing custom theme records are never rewritten. The former portable
 `system-theme` alias migrates to Manabi + System. The portable account `theme`
-field now binds appearance, while `reader.themeName` binds identity. Wallpapers
+field now binds appearance, while `reader.themeName` transports built-in identity only. A selected local custom
+palette is not uploaded or replaced by a remote preset; its definition stays local. Wallpapers
 and their adjustment settings remain browser-local and are not in that payload.
 
 ## Branding and prior art
@@ -33,8 +34,11 @@ slightly raised, with restrained accents rather than a colored reading page.
 `themeForMode` keeps a custom palette's authored mode exactly and synthesizes an
 opposite-mode tint without saving it. Paper, Ecru, Water, Slate, Charcoal and
 Monochrome retain their stable historical IDs. Manabi is added, not substituted
-for an existing choice. Preset original reading colors are retained in their
-original mode. UI text is separate and contrast-checked on each opaque surface.
+for an existing choice. Preset page colors are retained in their original mode. Built-in selection colors
+now have opaque, readable foreground/background pairs; custom authored selections
+remain untouched. Custom menu surfaces use a restrained 8% tint independent of
+the exact reading background, so arbitrary reading palettes cannot hide controls.
+UI text, composited selection colors and control boundaries are contrast-checked.
 
 The generated `palettes.scss` contains both variants. Native CSS
 `prefers-color-scheme` selects System; root `data-appearance` overrides it for
@@ -43,6 +47,15 @@ not reconstruct EPUB DOM, remount content or trigger pagination. The tiny,
 external `appearance-init.js` establishes persisted mode and preset before first
 paint, works with the existing CSP, and is precached as a normal static asset.
 The root runtime also updates browser chrome and reacts to custom-theme edits.
+Appearance, preset identity, custom definitions, and both fade settings synchronize
+between live tabs through storage notifications. Receivers re-read the latest value
+without writing it back, including removal/clear events. A focus refresh catches
+missed events without replacing session-only edits when disk contents are unchanged.
+Malformed optional custom-theme JSON is ignored in memory without overwriting the
+stored data. The bootstrap uses the same accepted color formats and is checked
+against runtime behavior for malformed records, transparent colors and hex values.
+The custom editor starts from the current resolved palette, exposes selection colors,
+and shares the color parser rather than turning hex values into black.
 
 There is no global CSS filter. Real book images, cover art, semantic status
 colors and heatmap data colors are deliberately not recolored. Shared headers,
@@ -64,6 +77,10 @@ Writes are serialized per slot. Replacing an image commits storage before
 publishing its object URL; failures leave the last successful image in place.
 Stale reads are fenced, object URLs are revoked on replacement/removal/disposal,
 and cross-tab image changes reload through BroadcastChannel (focus fallback).
+Persisted blobs are validated and actually decoded before becoming visible, not
+trusted solely because a MIME label or header looks right. Decode errors have a
+Remove/retry path. Unchanged revisioned images keep their object URLs on focus;
+canvas/image resources are released even when preparation fails.
 A decorative, pointer-transparent, viewport-fixed layer uses `cover` and centered
 cropping. Only `/manage` and `/b` show images. Settings and other routes keep
 opaque theme surfaces. Fade is independently adjustable 0–100% or disabled;
@@ -80,7 +97,9 @@ node --experimental-strip-types tools/appearance/generate-css.mjs --check
 node --experimental-strip-types --test tests/unit/*.test.mjs
 pnpm --dir apps/web check
 BASE_PATH=/Reader-Web pnpm build
-python tests/browser/test_appearance.py
+python -m playwright install --with-deps chromium webkit
+APPEARANCE_BROWSER=chromium python tests/browser/test_appearance_refinement.py
+APPEARANCE_BROWSER=webkit python tests/browser/test_appearance_refinement.py
 ```
 
 The browser suite extends the existing real static Reader tests and uses actual
@@ -88,4 +107,7 @@ EPUB import, real file inputs, IndexedDB, media emulation and offline reloads;
 there is no request interception. Screenshots are generated fixtures only.
 Images can still make low-fade text hard to read: the control explicitly tells
 users to raise the fade, rather than pretending arbitrary photographs guarantee
-contrast. Chromium automation is not a substitute for final Safari/iOS visual QA.
+contrast. Desktop Chromium/WebKit automation is not a substitute for final Safari/iOS device
+visual and native file-picker QA. The appearance-only suite does not exercise an
+authenticated account server; preset portability is checked separately as a pure
+contract and uses the existing account revision/merge path.

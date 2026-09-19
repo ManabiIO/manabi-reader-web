@@ -22,7 +22,7 @@
 
     let value = target.value ? parseFloat(target.value) : undefined;
 
-    if (value === undefined || value < 0 || value > 1) {
+    if (!Number.isFinite(value) || value === undefined || value < 0 || value > 1) {
       value = 1;
       target.value = '1';
     }
@@ -33,12 +33,14 @@
 
 <span>{label}</span>
 <input
+  aria-label={`${label} color`}
   type="color"
   class="border border-line"
   value={values.hexExpression}
   on:change={handleColorChange}
 />
 <input
+  aria-label={`${label} opacity`}
   type="number"
   step="0.1"
   min="0"

@@ -29,9 +29,10 @@
     <div class="flex">
       <button
         title={option.id}
-        class="m-1 rounded-md border-2 border-line p-2 text-lg"
+        class="m-1 rounded-md border-2 p-2 text-lg"
         aria-pressed={option.id === selectedOptionId}
         class:border-4={option.thickBorders && option.id === selectedOptionId}
+        class:border-line={option.id !== selectedOptionId}
         class:border-accent={option.id === selectedOptionId}
         class:bg-accent={option.id === selectedOptionId}
         class:text-on-accent={option.id === selectedOptionId}
