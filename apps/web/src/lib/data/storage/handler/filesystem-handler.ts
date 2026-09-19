@@ -32,6 +32,7 @@ import { handleErrorDuringReplication } from '$lib/functions/replication/error-h
 import pLimit from 'p-limit';
 import { replicationProgress$ } from '$lib/functions/replication/replication-progress';
 import { throwIfAborted } from '$lib/functions/replication/replication-error';
+import { selectTtuFile, ttuPrefixes } from '$lib/manabi/ttu-folder-contract';
 
 export class FilesystemStorageHandler extends BaseStorageHandler {
   private rootDirectory: FileSystemDirectoryHandle | undefined;
@@ -729,6 +730,7 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
             if (!files.length) {
               return;
             }
+            for (const prefix of ttuPrefixes) selectTtuFile(files, prefix);
 
             const bookCard: BookCardProps = {
               id: BaseStorageHandler.getDummyId(),
@@ -799,7 +801,7 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
     BaseStorageHandler.reportProgress(progressPerStep);
 
     const files = await this.getExternalFiles(rootDirectory);
-    const file = files.find((entry) => entry.name.startsWith(fileIdentifier));
+    const file = selectTtuFile(files, fileIdentifier);
 
     BaseStorageHandler.reportProgress(progressPerStep);
 
@@ -826,8 +828,9 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
     ) {
       const directory = await rootHandle
         .getDirectoryHandle(this.sanitizedTitle, { create: false })
-        .catch(() => {
-          // no-op
+        .catch((error: unknown) => {
+          if (!(error instanceof DOMException && error.name === 'NotFoundError')) throw error;
+          return undefined;
         });
 
       if (directory) {

@@ -9,19 +9,38 @@ import clearAllBadImageRef from '../utils/clear-all-bad-image-ref';
 import fixXHtmlHref from '../utils/fix-xhtml-href';
 import type { HtmlzContent } from './types';
 
-export function getFormattedElementHtmlz(data: HtmlzContent, document: Document) {
-  const regexResult = /.*<body[^>]*>((.|\s)+)<\/body>.*/.exec(data['index.html'])!;
-  let html = regexResult[1];
-  Object.entries(data)
-    .filter(([, value]) => value instanceof Blob)
-    .forEach(([key]) => {
-      html = html.replaceAll(key, buildDummyBookImage(key));
-    });
-  const result = document.createElement('div');
-  result.innerHTML = html;
+import { sanitizeBookHtml } from '../../book-security/book-content-security';
+import { resolveArchivePath } from '../utils/limited-archive';
 
+export function getFormattedElementHtmlz(
+  data: HtmlzContent,
+  document: Document,
+  embeddedStyles: string[] = []
+) {
+  const images = new Map(
+    Object.entries(data)
+      .filter(([, value]) => value instanceof Blob)
+      .map(([key]) => [key, buildDummyBookImage(key)])
+  );
+  const safe = sanitizeBookHtml(data['index.html'], {
+    document,
+    wholeDocument: true,
+    resolveImage: (source) => images.get(resolveArchivePath('index.html', source)),
+    onEmbeddedStyle: (css) => embeddedStyles.push(css)
+  });
+  const parsed = new DOMParser().parseFromString(safe, 'text/html');
+  const result = document.createElement('div');
+  result.innerHTML = sanitizeBookHtml(parsed.body.innerHTML, {
+    document,
+    imageUrls: new Set(images.values()),
+    allowRelativeLinks: true
+  });
   clearAllBadImageRef(result);
   fixXHtmlHref(result);
-
+  for (const anchor of Array.from(result.querySelectorAll('a[href]'))) {
+    const href = anchor.getAttribute('href') || '';
+    if (href.includes('#')) anchor.setAttribute('href', '#' + href.split('#').pop());
+    else anchor.removeAttribute('href');
+  }
   return result;
 }

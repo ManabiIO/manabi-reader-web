@@ -8,14 +8,13 @@
   } from '$lib/components/book-reader/book-toc/book-toc';
   import HtmlRenderer from '$lib/components/html-renderer.svelte';
   import type { BooksDbBookmarkData } from '$lib/data/database/books-db/versions/books-db';
-  import { isStoredFont } from '$lib/data/fonts';
+  import { resolveReaderFont } from '$lib/data/reader-typography';
+  import { observeReaderFontLayout } from '$lib/functions/reader-font-layout';
   import { FuriganaStyle } from '$lib/data/furigana-style';
-  import { logger } from '$lib/data/logger';
   import {
     customReadingPointEnabled$,
     disableWheelNavigation$,
-    skipKeyDownListener$,
-    userFonts$
+    skipKeyDownListener$
   } from '$lib/data/store';
   import type { TextMarginMode } from '$lib/data/text-margin-mode';
   import { prependValue } from '$lib/functions/file-loaders/epub/generate-epub-html';
@@ -161,7 +160,7 @@
 
   let bookmarkAdjustment = window.matchMedia('(min-width: 640px)').matches ? '0.5rem' : '0.25rem';
 
-  let fontLoadingAdded = false;
+  let stopFontLayout: (() => void) | undefined;
 
   const scrollFn = browser
     ? horizontalMouseWheel(4, document.documentElement, requestAnimationFrame)
@@ -356,6 +355,7 @@
   /** Experimental Code - May be removed any time without warning */
 
   onDestroy(() => {
+    stopFontLayout?.();
     document.removeEventListener('ttu-action', handleAction, false);
 
     destroy$.next();
@@ -574,38 +574,10 @@
     prevIntendedCharCount = exploredCharCount;
     bookCharCount = calculator.charCount;
 
-    let fontLoaded = false;
-
-    try {
-      fontLoaded = document.fonts.check(`${fontSize}px ${fontFamilyGroupOne || 'Noto Serif JP'}`);
-    } catch (error: any) {
-      logger.error(`Error checking Font Load: ${error.message}`);
-      fontLoaded = true;
-    }
-
-    if (fontLoaded) {
-      dispatch('contentChange', contentEl);
-    } else if (!fontLoadingAdded) {
-      fontLoadingAdded = true;
-
-      const timeout = isStoredFont(fontFamilyGroupOne, $userFonts$) ? 30000 : 10000;
-      const fontLoadTimer = setTimeout(() => {
-        if (!contentEl) {
-          return;
-        }
-
-        logger.error(`Error loading primary Font: ${fontFamilyGroupOne}`);
-        dispatch('contentChange', contentEl);
-      }, timeout);
-
-      document.fonts.addEventListener('loadingdone', () => {
-        clearTimeout(fontLoadTimer);
-
-        if (contentEl) {
-          dispatch('contentChange', contentEl);
-        }
-      });
-    }
+    stopFontLayout?.();
+    stopFontLayout = observeReaderFontLayout(contentEl, () => {
+      if (contentEl) dispatch('contentChange', contentEl);
+    });
   }
 
   nextChapter$.pipe(takeUntil(destroy$)).subscribe((chapterId) => {
@@ -675,8 +647,8 @@
   style:padding-bottom={!verticalMode && firstDimensionMargin
     ? `${firstDimensionMargin}px`
     : undefined}
-  style:--font-family-serif={fontFamilyGroupOne}
-  style:--font-family-sans-serif={fontFamilyGroupTwo}
+  style:--font-family-serif={resolveReaderFont(fontFamilyGroupOne, verticalMode)}
+  style:--font-family-sans-serif={resolveReaderFont(fontFamilyGroupTwo, verticalMode, true)}
   style:--font-weight={fontWeight}
   style:--book-content-hint-furigana-font-color={hintFuriganaFontColor}
   style:--book-content-hint-furigana-shadow-color={hintFuriganaShadowColor}
@@ -698,6 +670,7 @@
   class:ttu-apply-justification={enableTextJustification}
   class:ttu-margin-manual={textMarginMode === 'manual'}
   class:ttu-text-wrap-pretty={enableTextWrapPretty}
+  aria-busy={!allowDisplay || loadingState}
   class="book-content m-auto"
 >
   <HtmlRenderer html={htmlContent} on:load={onHtmlLoad} />
@@ -710,14 +683,14 @@
     class:inset-x-0={!verticalMode}
     style:background-color={backgroundColor}
     style="{fullLengthDimension}: 100%; {modifyingDimension}: {firstDimensionMargin}px; {boundSide[0]}: 0"
-  />
+  ></div>
   <div
     class="fixed z-[5]"
     class:inset-y-0={verticalMode}
     class:inset-x-0={!verticalMode}
     style:background-color={backgroundColor}
     style="{fullLengthDimension}: 100%; {modifyingDimension}: {firstDimensionMargin}px; {boundSide[1]}: 0"
-  />
+  ></div>
 {/if}
 
 {#if bookmarkPos}
@@ -770,7 +743,7 @@
 />
 
 <style lang="scss">
-  @import '../styles';
+  @use '../styles' as *;
 
   .book-content {
     :global(svg),

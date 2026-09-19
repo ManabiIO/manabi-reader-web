@@ -24,7 +24,7 @@ async function generateKey(window: Window, salt: Uint8Array, secret: string) {
   return window.crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
-      salt,
+      salt: new Uint8Array(salt),
       iterations: 100000,
       hash: 'SHA-256'
     },

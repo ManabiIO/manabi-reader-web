@@ -14,11 +14,18 @@ import {
   faHashtag,
   faImages,
   faSignOutAlt,
-  faTriangleExclamation
+  faTriangleExclamation,
+  faCloud
 } from '@fortawesome/free-solid-svg-icons';
 
 export const mergeEntries = {
   MANAGE: { routeId: '/manage', label: 'Manager', icon: faSignOutAlt, title: 'Go to Book Manager' },
+  CONNECTIONS: {
+    routeId: '/connections',
+    label: 'Accounts and libraries',
+    icon: faCloud,
+    title: 'Accounts and libraries'
+  },
   SETTINGS: {
     routeId: '/settings',
     label: 'Settings',
@@ -31,12 +38,7 @@ export const mergeEntries = {
     icon: faChartLine,
     title: 'Go to Statistics'
   },
-  JUMP_TO_POSITION: {
-    routeId: '',
-    label: 'Jump',
-    icon: faHashtag,
-    title: 'Jump to Position'
-  },
+  JUMP_TO_POSITION: { routeId: '', label: 'Jump', icon: faHashtag, title: 'Jump to Position' },
   READER_IMAGE_GALLERY: {
     routeId: '',
     label: 'Images',

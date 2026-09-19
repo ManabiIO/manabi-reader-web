@@ -2,9 +2,13 @@
   "extends": "./tsconfig.json",
   "include": [
     "src/**/*.js",
+    "src/**/*.mjs",
     "src/**/*.ts",
     "src/**/*.svelte",
     "tests/**/*.ts",
+    "../../test/**/*.mjs",
+    "../../test/**/*.ts",
+    "../../tests/unit/**/*.mjs",
     "playwright.config.js",
     "svelte.config.js",
     "vite.config.js",

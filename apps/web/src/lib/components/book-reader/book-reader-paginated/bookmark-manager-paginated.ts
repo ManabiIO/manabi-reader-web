@@ -6,6 +6,7 @@
 
 import type { BehaviorSubject, Observable } from 'rxjs';
 
+import { createBookmarkSnapshot } from '$lib/components/book-reader/bookmark-snapshot';
 import type { BookmarkManager } from '$lib/components/book-reader/types';
 import type { BooksDbBookmarkData } from '$lib/data/database/books-db/versions/books-db';
 import type { PageManagerPaginated } from './page-manager-paginated';
@@ -22,21 +23,22 @@ export class BookmarkManagerPaginated implements BookmarkManager {
 
   scrollToBookmark(bookmarkData: BooksDbBookmarkData) {
     const charCount = bookmarkData.exploredCharCount;
-    if (!charCount) return;
+    if (!charCount) return true;
 
     const index = this.calculator.getSectionIndexByCharCount(charCount);
 
     const scroll = (calc: SectionCharacterStatsCalculator) => {
       const scrollPos = calc.getScrollPosByCharCount(charCount);
+      if (scrollPos < 0) return false;
       this.pageManager.scrollTo(scrollPos, false);
       this.setIntendedCharCount(charCount);
+      return true;
     };
 
     const currentSectionIndex = this.sectionIndex$.getValue();
 
     if (currentSectionIndex === index) {
-      scroll(this.calculator);
-      return;
+      return scroll(this.calculator);
     }
 
     const subscription = this.sectionReady$.subscribe((updatedCalc) => {
@@ -44,24 +46,21 @@ export class BookmarkManagerPaginated implements BookmarkManager {
       subscription.unsubscribe();
     });
     this.sectionIndex$.next(index);
+    return true;
   }
 
-  formatBookmarkData(bookId: number): BooksDbBookmarkData {
+  formatBookmarkData(bookId: number): BooksDbBookmarkData | undefined {
     return this.formatBookmarkDataByRange(bookId, undefined);
   }
 
   formatBookmarkDataByRange(
     bookId: number,
     customReadingPointRange: Range | undefined
-  ): BooksDbBookmarkData {
+  ): BooksDbBookmarkData | undefined {
+    if (!this.calculator.isReady) return undefined;
     const exploredCharCount = this.calculator.calcExploredCharCount(customReadingPointRange);
     const bookCharCount = this.calculator.charCount;
 
-    return {
-      dataId: bookId,
-      exploredCharCount,
-      progress: exploredCharCount / bookCharCount,
-      lastBookmarkModified: new Date().getTime()
-    };
+    return createBookmarkSnapshot(bookId, exploredCharCount, bookCharCount);
   }
 }

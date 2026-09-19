@@ -413,7 +413,7 @@ export class StorageOAuthManager {
           const arr = new Uint8Array(32);
 
           this.parentWindow.crypto.getRandomValues(arr);
-          this.codeVerifier = this.base64Url(arr);
+          this.codeVerifier = this.base64Url(arr.buffer);
         }
 
         event.ports[0].postMessage({

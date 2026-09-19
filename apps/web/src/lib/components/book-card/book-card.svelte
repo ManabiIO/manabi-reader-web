@@ -1,6 +1,7 @@
 <script lang="ts">
   import { faImage } from '@fortawesome/free-regular-svg-icons';
   import { onDestroy } from 'svelte';
+  import { createLocalCoverUrl } from '$lib/functions/book-security/local-media';
   import Fa from 'svelte-fa';
 
   export let imagePath: string | Blob;
@@ -20,43 +21,18 @@
       URL.revokeObjectURL(objectUrl);
       objectUrl = '';
     }
-    if (typeof value !== 'string') {
-      objectUrl = URL.createObjectURL(
-        value.type ? value : new Blob([value], { type: 'image/jpeg' })
-      );
-
-      return objectUrl;
-    }
-
-    return value;
+    const url = createLocalCoverUrl(value);
+    if (url.startsWith('blob:')) objectUrl = url;
+    return url;
   }
 
-  function mapImagePathFactory() {
-    let prevValue: string | Blob | undefined;
-    let prevResponse: string | undefined;
-
-    const isEqual = (newValue: string | Blob) => {
-      if (!prevValue) return false;
-      if (prevValue instanceof Blob && newValue instanceof Blob) {
-        return prevValue.type === newValue.type && prevValue.size === newValue.size;
-      }
-      if (typeof prevValue !== 'object' || typeof newValue !== 'object') {
-        return prevValue === newValue;
-      }
-      return false;
-    };
-
-    return (value: string | Blob) => {
-      if (isEqual(value)) return prevResponse as string;
-
-      prevValue = value;
-      prevResponse = convertImagePath(value);
-
-      return prevResponse;
-    };
+  let previousImage: string | Blob | undefined;
+  let coverUrl = '';
+  $: if (imagePath !== previousImage) {
+    previousImage = imagePath;
+    coverUrl = convertImagePath(imagePath);
+    imageLoading = true;
   }
-
-  const mapImagePath = mapImagePathFactory();
 
   let imgEl: HTMLImageElement | undefined;
   let imageLoading = true;
@@ -72,14 +48,14 @@
         <Fa class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" icon={faImage} />
       {/if}
 
-      {#if imagePath}
+      {#if coverUrl}
         <img
           decoding="async"
           loading="lazy"
           referrerpolicy="no-referrer"
           class="book-cover relative h-full w-full object-cover transition delay-150 duration-700 ease-out"
           class:blur={!imageLoadComplete}
-          src={mapImagePath(imagePath)}
+          src={coverUrl}
           {alt}
           bind:this={imgEl}
           on:load={() => (imageLoading = false)}
@@ -97,7 +73,7 @@
         <div
           class="h-full rounded bg-gradient-to-b from-red-600 to-red-900"
           style:width="{progress * 100}%"
-        />
+        ></div>
       </div>
     </div>
   </div>

@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 
+import { sanitizeBookStyleSheet } from '../../book-security/book-content-security';
 import type { LoadData } from '../types';
 import extractEpub from './extract-epub';
 import generateEpubHtml from './generate-epub-html';
@@ -15,16 +16,20 @@ import reduceObjToBlobs from '../utils/reduce-obj-to-blobs';
 export default async function loadEpub(
   file: File,
   document: Document,
-  lastBookModified: number
+  lastBookModified: number,
+  signal?: AbortSignal
 ): Promise<LoadData> {
-  const { contents, result: data, contentsDirectory } = await extractEpub(file);
+  const { contents, result: data, contentsDirectory } = await extractEpub(file, { signal });
   const result = generateEpubHtml(data, contents, document, contentsDirectory);
 
   const displayData = {
     title: file.name,
     language: '',
     hasThumb: true,
-    styleSheet: generateEpubStyleSheet(data, contents)
+    styleSheet: sanitizeBookStyleSheet(
+      generateEpubStyleSheet(data, contents) + '\n' + result.styleSheet,
+      document
+    )
   };
 
   const metadata = isOPFType(contents)

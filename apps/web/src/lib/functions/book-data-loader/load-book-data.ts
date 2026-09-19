@@ -20,7 +20,7 @@ export default function loadBookData(
   return formatBookDataHtml(bookData, document, isPaginated, blurMode).pipe(
     map((htmlContent) => ({
       htmlContent,
-      styleSheet: formatStyleSheet(bookData, parentSelector)
+      styleSheet: formatStyleSheet(bookData, parentSelector, document)
     }))
   );
 }

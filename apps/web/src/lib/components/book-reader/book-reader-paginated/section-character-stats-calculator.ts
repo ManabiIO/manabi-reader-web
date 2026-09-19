@@ -44,6 +44,10 @@ export class SectionCharacterStatsCalculator {
     this.charCount = exploredCharCount;
   }
 
+  get isReady() {
+    return this.calculator?.isReady === true;
+  }
+
   updateCurrentSection(sectionIndex: number) {
     this.calculator = new CharacterStatsCalculator(
       this.containerEl,

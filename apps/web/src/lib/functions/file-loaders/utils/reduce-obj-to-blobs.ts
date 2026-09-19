@@ -10,5 +10,5 @@ export default function reduceObjToBlobs<T>(data: Record<string, T | Blob>) {
     .reduce<Record<string, Blob>>((acc, [k, v]) => {
       acc[k] = v;
       return acc;
-    }, {});
+    }, Object.create(null));
 }

@@ -7,61 +7,56 @@
   import Popover from '$lib/components/popover/popover.svelte';
   import { baseIconClasses } from '$lib/css-classes';
   import { pagePath } from '$lib/data/env';
-  import { dummyFn } from '$lib/functions/utils';
 
   export let leavePageLink = '';
   export let items = [mergeEntries.MANAGE, mergeEntries.SETTINGS, mergeEntries.BUG_REPORT];
   export let mergeTo = mergeEntries.MANAGE;
   export let disableRouteNavigation = false;
-
   const dispatch = createEventDispatcher<{ action: string }>();
-
-  const actionItems = items.filter((item) => item.routeId !== $page.route.id);
-
+  const sharedLibrary = {
+    routeId: '/shared-library',
+    label: 'Shared TTU libraries',
+    title: 'Local folders shared with TTU Reader',
+    icon: mergeEntries.FOLDER_IMPORT.icon
+  };
+  const navigationItems = [...items];
+  if (
+    !disableRouteNavigation &&
+    items.some((item) => ['/manage', '/settings'].includes(item.routeId))
+  ) {
+    for (const destination of [mergeEntries.CONNECTIONS, sharedLibrary]) {
+      if (!navigationItems.some((item) => item.routeId === destination.routeId))
+        navigationItems.push(destination);
+    }
+  }
+  const actionItems = navigationItems.filter((item) => item.routeId !== $page.route.id);
   let menuElm: Popover;
-
   function handleActionMenuItem(target: string) {
     dispatch('action', target);
-
-    if (
-      !(target === mergeEntries.FILE_IMPORT.label || target === mergeEntries.FOLDER_IMPORT.label)
-    ) {
-      menuElm.toggleOpen();
-    }
-
+    if (!(target === mergeEntries.FILE_IMPORT.label || target === mergeEntries.FOLDER_IMPORT.label))
+      menuElm?.toggleOpen();
     if (!disableRouteNavigation) {
       const action = actionItems.find((item) => item.label === target);
-
-      if (action?.routeId) {
-        goto(`${pagePath}${action.routeId}`);
-      }
+      if (action?.routeId) goto(`${pagePath}${action.routeId}`);
     }
   }
-
-  if (actionItems.length === 1 && actionItems[0].routeId) {
-    leavePageLink = actionItems[0].routeId;
-  }
+  if (actionItems.length === 1 && actionItems[0].routeId)
+    leavePageLink = `${pagePath}${actionItems[0].routeId}`;
 </script>
 
 {#if leavePageLink}
-  <a href={leavePageLink}>
-    <div class={baseIconClasses}>
-      <Fa icon={mergeTo.icon} />
-    </div>
-  </a>
+  <a href={leavePageLink}><div class={baseIconClasses}><Fa icon={mergeTo.icon} /></div></a>
 {:else}
   <div class="hidden sm:flex">
     {#each actionItems as actionItem (actionItem.label)}
-      <div
-        tabindex="0"
-        role="button"
+      <button
+        type="button"
         title={actionItem.title}
+        aria-label={actionItem.label}
         class={baseIconClasses}
         on:click={() => handleActionMenuItem(actionItem.label)}
-        on:keyup={dummyFn}
+        ><Fa icon={actionItem.icon} /></button
       >
-        <Fa icon={actionItem.icon} />
-      </div>
     {/each}
   </div>
   <div class="flex sm:hidden">
@@ -71,21 +66,15 @@
       yOffset={0}
       bind:this={menuElm}
     >
-      <div slot="icon" class={baseIconClasses}>
-        <Fa icon={mergeTo.icon} />
-      </div>
-      <div class="w-40 bg-gray-700 md:w-32" slot="content">
+      <div slot="icon" class={baseIconClasses}><Fa icon={mergeTo.icon} /></div>
+      <div class="w-44 bg-gray-700" slot="content">
         {#each actionItems as actionItem (actionItem.label)}
-          <div
-            tabindex="0"
-            role="button"
-            class="px-4 py-2 text-sm hover:bg-white hover:text-gray-700"
+          <button
+            type="button"
+            class="block w-full px-4 py-2 text-left text-sm hover:bg-white hover:text-gray-700"
             title={actionItem.title}
-            on:click={() => handleActionMenuItem(actionItem.label)}
-            on:keyup={dummyFn}
+            on:click={() => handleActionMenuItem(actionItem.label)}>{actionItem.label}</button
           >
-            {actionItem.label}
-          </div>
         {/each}
       </div>
     </Popover>

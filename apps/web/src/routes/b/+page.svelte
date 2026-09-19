@@ -2,6 +2,7 @@
   import {
     auditTime,
     debounceTime,
+    distinctUntilChanged,
     EMPTY,
     filter,
     fromEvent,
@@ -238,6 +239,7 @@
 
   const bookId$ = iffBrowser(() => readableToObservable(page)).pipe(
     map((pageObj) => Number(pageObj.url.searchParams.get('id'))),
+    distinctUntilChanged(),
     shareReplay({ refCount: true, bufferSize: 1 })
   );
 
@@ -346,18 +348,14 @@
     reduceToEmptyString()
   );
 
-  const initBookmarkData$ = rawBookData$.pipe(
-    tap((rawBookData) => {
-      if (!rawBookData) return;
-      bookmarkData = database.getBookmark(rawBookData.id);
-    }),
-    reduceToEmptyString()
-  );
-
   const bookData$ = rawBookData$.pipe(
     switchMap((rawBookData) => {
       if (!rawBookData) return EMPTY;
 
+      // Initialize from this book before publishing renderable HTML. A hidden
+      // template subscription to the non-replayed raw stream can miss its only
+      // emission when Svelte mounts the conditional Reader subtree lazily.
+      bookmarkData = database.getBookmark(rawBookData.id);
       sectionList$.next(rawBookData.sections || []);
 
       return loadBookData(
@@ -793,6 +791,8 @@
       if (bookmarkManager) {
         const data = {
           ...bookmarkManager.formatBookmarkData($rawBookData$.id, customReadingPointScrollOffset),
+          dataId: $rawBookData$.id,
+          lastBookmarkModified: Date.now(),
           exploredCharCount: Math.max(0, bookCharCount - 1),
           progress: 1
         };
@@ -1139,7 +1139,7 @@
     const bookId = getBookIdSync();
     if (!bookId || !bookmarkManager) return;
 
-    let data: BooksDbBookmarkData;
+    let data: BooksDbBookmarkData | undefined;
 
     showHeader = false;
 
@@ -1159,6 +1159,10 @@
     } else {
       data = bookmarkManager.formatBookmarkData(bookId, customReadingPointScrollOffset);
     }
+
+    // A font/layout pass has not produced a trustworthy reading position yet.
+    // Keep the last good bookmark rather than saving a sentinel or zero progress.
+    if (!data) return;
 
     await database.putBookmark(data);
 
@@ -1580,7 +1584,11 @@
 
 {$collectReaderImageGallerySpoilerToggles$ ?? ''}
 {$handleUpdateImageGalleryPictureSpoilers$ ?? ''}
-<button class="fixed inset-x-0 top-0 z-10 h-8 w-full" on:click={() => (showHeader = true)} />
+<button
+  aria-label="Show reading controls"
+  class="fixed inset-x-0 top-0 z-10 h-8 w-full"
+  on:click={() => (showHeader = true)}
+></button>
 {#if showHeader}
   <div
     class="elevation-4 writing-horizontal-tb fixed inset-x-0 top-0 z-10 w-full"
@@ -1740,7 +1748,6 @@
     on:bookmark={bookmarkPage}
     on:trackerPause={() => pauseTracker(true)}
   />
-  {$initBookmarkData$ ?? ''}
   {$setBackgroundColor$ ?? ''}
   {$setWritingMode$ ?? ''}
   {$textSelector$ ?? ''}
@@ -1784,26 +1791,28 @@
   <div
     class="fixed left-0 z-20 h-[1px] w-full border border-red-500"
     style:top={`${customReadingPointTop}px`}
-  />
+  ></div>
   <div
     class="fixed top-0 z-20 h-full w-[1px] border border-red-500"
     style:left={`${customReadingPointLeft}px`}
-  />
+  ></div>
 {/if}
 
 {#if $enableTapEdgeToFlip$ && isPaginated && !$skipKeyDownListener$}
   <button
+    aria-label={$verticalMode$ ? 'Next page' : 'Previous page'}
     class="fixed left-0 z-10 w-5"
     on:click={$verticalMode$ ? () => pageManager?.nextPage() : () => pageManager?.prevPage()}
     style:height={tapButtonHeight}
     style:top={tapButtonTop}
-  />
+  ></button>
   <button
+    aria-label={$verticalMode$ ? 'Previous page' : 'Next page'}
     class="fixed right-0 z-10 w-5"
     on:click={$verticalMode$ ? () => pageManager?.prevPage() : () => pageManager?.nextPage()}
     style:height={tapButtonHeight}
     style:top={tapButtonTop}
-  />
+  ></button>
 {/if}
 
 {#if showSpinner}

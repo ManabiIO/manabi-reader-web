@@ -23,7 +23,7 @@
     xmlns="http://www.w3.org/2000/svg"
     {viewBox}
   >
-    <path class="fill-current" {d} />
+    <path class="fill-current" {d} ></path>
   </svg>
   <div class="mt-2">{label}</div>
 </div>

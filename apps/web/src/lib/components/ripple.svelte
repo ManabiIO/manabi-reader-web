@@ -93,7 +93,7 @@
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  function animateRipple(node: HTMLElement, params: any) {
+  function animateRipple(node: HTMLElement, params: any = {}) {
     return {
       delay: 0,
       duration: 400,
@@ -115,18 +115,18 @@
       style:left="{rippleLeft}px"
       in:animateRipple|local
       on:introend={() => (ripples = [])}
-    />
+    ></span>
   {/each}
   {#if hold}
     <span
       class="absolute inset-0 h-full w-full bg-gray-400/25"
       transition:fade|local={{ easing: quintOut }}
-    />
+    ></span>
   {/if}
   {#if hold || focus}
     <span
       class="absolute inset-0 h-full w-full bg-gray-400/[.10]"
       transition:fade|local={{ easing: quintOut }}
-    />
+    ></span>
   {/if}
 </span>

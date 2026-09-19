@@ -5,15 +5,20 @@
  */
 
 import type { BooksDbBookData } from '$lib/data/database/books-db/versions/books-db';
+import { sanitizeBookStyleSheet } from '../book-security/book-content-security';
 import parseCss from '../css-parser/css-parser';
 import stringifyCss from '../css-parser/css-stringify';
-import type { Declaration, Rule } from '../css-parser/types';
+import type { Declaration } from '../css-parser/types';
 
-const htmlRegex = /\s?html\s?/gi;
-const bodyRegex = /\s?body\s?/gi;
+const htmlRegex = /\bhtml\b/i;
+const bodyRegex = /\bbody\b/i;
 
-export default function formatStyleSheet(bookData: BooksDbBookData, parentSelector: string) {
-  const cssTree = parseCss(bookData.styleSheet);
+export default function formatStyleSheet(
+  bookData: BooksDbBookData,
+  parentSelector: string,
+  document: Document
+) {
+  const cssTree = parseCss(sanitizeBookStyleSheet(bookData.styleSheet, document));
 
   const newRules = cssTree.stylesheet.rules
     .filter((r) => r.type === 'rule')
@@ -46,22 +51,18 @@ export default function formatStyleSheet(bookData: BooksDbBookData, parentSelect
     rule.declarations = rule.declarations.filter((d) => !/writing-mode\s*$/.test(d.property));
   });
 
-  newRules.push(getGeckoBrSolutionRule());
-
-  newRules.forEach((rule) => {
-    rule.selectors = encapsulatedSelectors(rule.selectors, parentSelector);
-  });
-
-  return stringifyCss({
-    stylesheet: {
-      rules: newRules
-    },
-    type: 'stylesheet'
-  });
-}
-
-function encapsulatedSelectors(selectors: string[], parentSelector: string) {
-  return selectors.map((selector) => `${parentSelector} ${selector}`);
+  const sanitized = sanitizeBookStyleSheet(
+    stringifyCss({
+      stylesheet: {
+        rules: newRules
+      },
+      type: 'stylesheet'
+    }),
+    document,
+    parentSelector
+  );
+  // Application-authored rule; book-provided !important is still discarded.
+  return `${sanitized}\n${parentSelector} br{display:inline!important}`;
 }
 
 function assignKeyValToObj(
@@ -134,19 +135,4 @@ class LineBreakFormatter {
     }
     return undefined;
   }
-}
-
-function getGeckoBrSolutionRule(): Rule {
-  // <br> + display: block makes it line-height: 0 on Firefox, when it creates space on Chrome (regardless of display value)
-  return {
-    type: 'rule',
-    selectors: ['br'],
-    declarations: [
-      {
-        type: 'declaration',
-        property: 'display',
-        value: 'inline!important'
-      }
-    ]
-  };
 }

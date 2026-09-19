@@ -17,12 +17,20 @@ import { readingGoalSortFunction } from '$lib/data/reading-goal';
 import { BaseStorageHandler, FilePrefix } from '$lib/data/storage/handler/base-handler';
 import { ReplicationSaveBehavior } from '$lib/functions/replication/replication-options';
 import type { ReplicationContext } from '$lib/functions/replication/replication-progress';
-import { BlobReader, BlobWriter, ZipReader, type Entry, type ZipWriter } from '@zip.js/zip.js';
+import type { Entry, ZipWriter } from '@zip.js/zip.js';
+import {
+  LimitedArchive,
+  ArchiveBudget,
+  BACKUP_ARCHIVE_LIMITS
+} from '$lib/functions/file-loaders/utils/limited-archive';
+import { logger } from '$lib/data/logger';
 
 export class BackupStorageHandler extends BaseStorageHandler {
   private exportZipWriter: ZipWriter<Blob> | undefined;
 
-  private importReader: ZipReader<Blob> | undefined;
+  private importArchive: LimitedArchive | undefined;
+
+  private importOpening = false;
 
   private importEntries: Entry[] = [];
 
@@ -89,37 +97,73 @@ export class BackupStorageHandler extends BaseStorageHandler {
   clearData(clearAll = true) {
     if (clearAll) {
       this.exportZipWriter = undefined;
-      this.importReader = undefined;
+      void this.closeBackupZip().catch((error) => logger.error(error));
       this.importEntries = [];
     }
   }
 
-  async setBackupZip(data: Blob) {
-    this.importReader = new ZipReader(new BlobReader(data));
-    this.importEntries = await this.importReader.getEntries();
+  async closeBackupZip(): Promise<void> {
+    const archive = this.importArchive;
+    this.importArchive = undefined;
+    this.importEntries = [];
+    this.rootFiles.clear();
+    this.restoreBudget = undefined;
+    await archive?.close();
+  }
 
-    const titles = new Map<string, ReplicationContext>();
-
-    for (let index = 0, { length } = this.importEntries; index < length; index += 1) {
-      const entry = this.importEntries[index];
-      const nameParts = entry.filename.split('/');
-      const sanitizedTitle = nameParts[0];
-      const title = BaseStorageHandler.desanitizeFilename(sanitizedTitle);
-
-      if (nameParts.length === 1) {
-        this.setRootFile(title, { id: title, name: title });
-      } else if (nameParts.length > 1) {
-        const context = titles.get(title) || { title, imagePath: '' };
-
-        if (entry.filename.startsWith(`${sanitizedTitle}/cover_`)) {
-          context.imagePath = entry;
+  async setBackupZip(data: Blob, signal?: AbortSignal) {
+    if (this.importOpening || this.importArchive)
+      throw new Error('A backup import is already active');
+    this.importOpening = true;
+    const budget = new ArchiveBudget(BACKUP_ARCHIVE_LIMITS.totalBytes);
+    let archive: LimitedArchive | undefined;
+    try {
+      archive = await LimitedArchive.open(data, {
+        signal,
+        budget,
+        limits: BACKUP_ARCHIVE_LIMITS,
+        literalNames: true
+      });
+      const entries = [...archive.entries.values()].filter((entry) => !entry.directory);
+      const titles = new Map<string, ReplicationContext>();
+      for (const entry of entries) {
+        signal?.throwIfAborted();
+        const nameParts = entry.filename.split('/');
+        const sanitizedTitle = nameParts[0];
+        const title = BaseStorageHandler.desanitizeFilename(sanitizedTitle);
+        if (nameParts.length === 1) {
+          // Preserve the actual ZIP key, not a decoded filename used as a path.
+          this.setRootFile(title, { id: entry.filename, name: entry.filename });
+        } else {
+          const context = titles.get(title) || { title, imagePath: '' };
+          titles.set(title, context);
         }
-
-        titles.set(title, context);
       }
+      this.importArchive = archive;
+      this.importEntries = entries;
+      this.restoreBudget = budget;
+      return [...titles.values()];
+    } catch (error) {
+      await archive?.close();
+      this.rootFiles.clear();
+      throw error;
+    } finally {
+      this.importOpening = false;
     }
+  }
 
-    return [...titles.values()];
+  private async readBackupBlob(entry: Entry, progressBase = 0.9): Promise<Blob> {
+    if (!this.importArchive) throw new Error('No backup import is active');
+    const blob = await this.importArchive.readBlob(entry.filename);
+    BaseStorageHandler.reportProgress(progressBase);
+    return blob;
+  }
+
+  private async extractAsJSON(entry: Entry, _errorMessage: string, progressBase = 0.9) {
+    if (!this.importArchive) throw new Error('No backup import is active');
+    const text = await this.importArchive.readText(entry.filename);
+    BaseStorageHandler.reportProgress(progressBase);
+    return JSON.parse(text);
   }
 
   async getFilenameForRecentCheck(fileIdentifier: string) {
@@ -144,12 +188,7 @@ export class BackupStorageHandler extends BaseStorageHandler {
       return undefined;
     }
 
-    const bookBlob = await this.readFromZip(
-      new BlobWriter(),
-      'Unable to read book data',
-      zipEntry,
-      this.isForBrowser ? 0.3 : 0.9
-    );
+    const bookBlob = await this.readBackupBlob(zipEntry, this.isForBrowser ? 0.3 : 0.9);
 
     return this.isForBrowser
       ? this.extractBookData(bookBlob, filename, 0.6)
@@ -167,12 +206,7 @@ export class BackupStorageHandler extends BaseStorageHandler {
       return this.extractAsJSON(zipEntry, 'Unable to read progress data');
     }
 
-    const progressBlob = await this.readFromZip(
-      new BlobWriter(),
-      'Unable to read progress data',
-      zipEntry,
-      0.9
-    );
+    const progressBlob = await this.readBackupBlob(zipEntry, 0.9);
 
     return new File([progressBlob], filename, { type: 'application/json' });
   }
@@ -206,12 +240,7 @@ export class BackupStorageHandler extends BaseStorageHandler {
       return undefined;
     }
 
-    const cover = await this.readFromZip(
-      new BlobWriter(),
-      'Unable to read cover data',
-      zipEntry,
-      0.9
-    );
+    const cover = await this.readBackupBlob(zipEntry, 0.9);
 
     return cover;
   }
@@ -242,12 +271,7 @@ export class BackupStorageHandler extends BaseStorageHandler {
       return this.extractAsJSON(zipEntry, 'Unable to read audioBook data');
     }
 
-    const audioBookBlob = await this.readFromZip(
-      new BlobWriter(),
-      'Unable to read audioBook data',
-      zipEntry,
-      0.9
-    );
+    const audioBookBlob = await this.readBackupBlob(zipEntry, 0.9);
 
     return new File([audioBookBlob], filename, { type: 'application/json' });
   }
@@ -263,12 +287,7 @@ export class BackupStorageHandler extends BaseStorageHandler {
       return this.extractAsJSON(zipEntry, 'Unable to read subtitles data');
     }
 
-    const subtitleDataBlob = await this.readFromZip(
-      new BlobWriter(),
-      'Unable to read subtitles data',
-      zipEntry,
-      0.9
-    );
+    const subtitleDataBlob = await this.readBackupBlob(zipEntry, 0.9);
 
     return new File([subtitleDataBlob], filename, { type: 'application/json' });
   }

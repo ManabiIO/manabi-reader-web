@@ -79,6 +79,29 @@ module.exports = (async () => {
       }
     },
     {
+      files: ['test/reader/**/*.{mjs,ts}'],
+      languageOptions: {
+        globals: {
+          caches: 'readonly',
+          chrome: 'readonly',
+          clearTimeout: 'readonly',
+          console: 'readonly',
+          crossOriginIsolated: 'readonly',
+          document: 'readonly',
+          getComputedStyle: 'readonly',
+          indexedDB: 'readonly',
+          innerHeight: 'readonly',
+          innerWidth: 'readonly',
+          localStorage: 'readonly',
+          navigator: 'readonly',
+          performance: 'readonly',
+          process: 'readonly',
+          requestAnimationFrame: 'readonly',
+          setTimeout: 'readonly'
+        }
+      }
+    },
+    {
       ...eslintPluginSvelte.configs['flat/recommended'],
       files: ['*.svelte'],
       languageOptions: {
