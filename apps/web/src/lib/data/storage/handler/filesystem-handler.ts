@@ -30,6 +30,7 @@ import { dialogManager } from '$lib/data/dialog-manager';
 import { getStorageHandler } from '$lib/data/storage/storage-handler-factory';
 import { handleErrorDuringReplication } from '$lib/functions/replication/error-handler';
 import pLimit from 'p-limit';
+import { assertExternalBookSource } from '$lib/manabi/external-book-source';
 import { replicationProgress$ } from '$lib/functions/replication/replication-progress';
 import { throwIfAborted } from '$lib/functions/replication/replication-error';
 import { selectTtuFile, ttuPrefixes } from '$lib/manabi/ttu-folder-contract';
@@ -104,6 +105,7 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
 
   async prepareBookForReading(): Promise<number> {
     const book = await database.getDataByTitle(this.currentContext.title);
+    assertExternalBookSource(book, this.storageSourceName);
 
     let idToReturn = 0;
     let data: Omit<BooksDbBookData, 'id'> | undefined = book;
@@ -728,6 +730,9 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
             )) as FileSystemFileHandle[];
 
             if (!files.length) {
+              const title = BaseStorageHandler.desanitizeFilename(directory.name);
+              this.titleToFiles.delete(title);
+              this.titleToBookCard.delete(title);
               return;
             }
             for (const prefix of ttuPrefixes) selectTtuFile(files, prefix);
@@ -822,10 +827,7 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
   private async getExternalFiles(
     rootHandle: FileSystemDirectoryHandle
   ): Promise<FileSystemFileHandle[]> {
-    if (
-      (!this.cacheStorageData || !this.dataListFetched) &&
-      !this.titleToFiles.has(this.currentContext.title)
-    ) {
+    if (!this.cacheStorageData || !this.titleToFiles.has(this.currentContext.title)) {
       const directory = await rootHandle
         .getDirectoryHandle(this.sanitizedTitle, { create: false })
         .catch((error: unknown) => {
@@ -835,6 +837,11 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
 
       if (directory) {
         await this.setTitleData([directory], false);
+      } else {
+        // Disappearance is not permission to reuse a previous native-app revision.
+        this.titleToDirectory.delete(this.currentContext.title);
+        this.titleToFiles.delete(this.currentContext.title);
+        this.titleToBookCard.delete(this.currentContext.title);
       }
     }
 
