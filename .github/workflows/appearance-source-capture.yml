@@ -1,0 +1,74 @@
+name: Capture final appearance objects
+on:
+  push:
+    branches: [research/appearance-qualification-20260919]
+    paths: ['.github/workflows/appearance-source-capture.yml']
+permissions:
+  contents: write
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 4904f7d4bd96541d3b21a5338d15aa0ba7756929
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Load pinned reviewed corrections
+        run: |
+          python -m pip install 'PyYAML==6.0.3'
+          python3 - <<'PY'
+          import pathlib,subprocess,yaml
+          definition=yaml.safe_load(pathlib.Path('.github/workflows/appearance-final-source.yml').read_text())
+          run=definition['jobs']['source']['steps'][1]['run']
+          subprocess.run(['git','checkout','a066f3fffbd9ed169adf7cdc0afdef2cd8bfc2dd'],check=True)
+          subprocess.run(['bash','-e','-c',run],check=True)
+          import json
+          p=pathlib.Path('tools/appearance/eslint.config.mjs');s=p.read_text()
+          old="    files: ['**/*.svelte'],"
+          assert old in s
+          p.write_text(s.replace(old,old+"\n    plugins: { '@typescript-eslint': ts.plugin },"))
+          paths=json.loads(pathlib.Path('/tmp/paths.json').read_text());paths.append(str(p))
+          pathlib.Path('/tmp/paths.json').write_text(json.dumps(paths))
+          PY
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - name: Format and capture exact source, never change commits or refs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib,subprocess,urllib.request
+          paths=json.loads(pathlib.Path('/tmp/paths.json').read_text())
+          subprocess.run(['pnpm','exec','prettier','--write',*[p for p in paths if not p.endswith('.py')]],check=True)
+          out=pathlib.Path('/tmp/final-source');out.mkdir();tree=[];source=[]
+          for name in paths:
+              data=pathlib.Path(name).read_bytes();content=data.decode()
+              if name.endswith('.py'):compile(content,name,'exec')
+              expected=hashlib.sha1(f'blob {len(data)}\0'.encode()+data).hexdigest()
+              req=urllib.request.Request('https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/git/blobs',data=json.dumps({'encoding':'utf-8','content':content}).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','Content-Type':'application/json'},method='POST')
+              with urllib.request.urlopen(req,timeout=30) as response: sha=json.load(response)['sha']
+              assert sha==expected
+              tree.append({'path':name,'mode':'100644','type':'blob','sha':sha});source.append({'path':name,'content':content})
+          (out/'tree.json').write_text(json.dumps(tree));(out/'source.json').write_text(json.dumps(source))
+          PY
+      - name: Lint, unit tests and types
+        run: |
+          set -o pipefail
+          node tools/appearance/lint.mjs 2>&1 | tee /tmp/final-source/lint.log
+          node --experimental-strip-types --test tests/unit/*.test.mjs | tee /tmp/final-source/units.log
+          pnpm --dir apps/web check 2>&1 | tee /tmp/final-source/types.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: appearance-final-objects
+          path: /tmp/final-source
+          retention-days: 7
