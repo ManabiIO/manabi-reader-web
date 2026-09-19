@@ -1,15 +1,15 @@
 name: Appearance
 on:
   push:
-    branches: [feat/manabi-appearance-20260919]
+    branches: [main, 'fix/appearance-*']
   pull_request:
     paths:
-      - 'apps/web/src/**'
-      - 'apps/web/static/appearance-init.js'
-      - 'apps/web/tailwind.config.*'
+      - 'apps/web/**'
       - 'tools/appearance/**'
-      - 'tests/browser/test_appearance.py'
-      - 'tests/unit/appearance.test.mjs'
+      - 'tests/browser/**'
+      - 'tests/unit/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
       - '.github/workflows/appearance.yml'
 permissions:
   contents: read
@@ -24,6 +24,25 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Capture exact reviewed source
+        run: |
+          mkdir -p /tmp/appearance-source
+          git rev-parse HEAD > /tmp/appearance-source/commit.txt
+          git ls-tree -r HEAD > /tmp/appearance-source/tree.txt
+          python3 - <<'PY'
+          import json, pathlib, subprocess
+          files = []
+          for name in subprocess.check_output(['git', 'ls-files'], text=True).splitlines():
+              p = pathlib.Path(name)
+              if p.suffix in {'.ts','.js','.mjs','.cjs','.svelte','.scss','.css','.html','.json','.yml','.yaml','.py','.md'} and p.stat().st_size < 2000000:
+                  files.append({'path': name, 'content': p.read_text()})
+          pathlib.Path('/tmp/appearance-source/source.json').write_text(json.dumps(files))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: appearance-source
+          path: /tmp/appearance-source
+          retention-days: 7
       - uses: pnpm/action-setup@v6.1.0
         with:
           version: '12.3.4'
