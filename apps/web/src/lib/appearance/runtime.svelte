@@ -27,6 +27,9 @@
     }
   }
   $: if (browser) {
+    document
+      .querySelector('meta[name="color-scheme"]')
+      ?.setAttribute('content', $appearance$ === 'system' ? 'light dark' : $appearance$);
     // Browser chrome follows the resolved mode; CSS handles all actual page colors.
     document
       .querySelector('meta[name="theme-color"]')
