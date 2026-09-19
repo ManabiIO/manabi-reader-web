@@ -4,7 +4,6 @@ on:
     paths:
       - 'apps/web/**'
       - 'tests/browser/**'
-      - 'tools/prepare-ttu-shared.py'
       - '.github/workflows/ttu-shared-qualification.yml'
 permissions:
   contents: read
@@ -15,8 +14,6 @@ jobs:
   qualify:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    outputs:
-      generated: ${{ steps.generated.outputs.value }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,25 +29,9 @@ jobs:
         with:
           python-version: '3.13'
       - run: pnpm install --frozen-lockfile
-      - name: Prepare and format reviewed compatibility edits
-        run: |
-          python tools/prepare-ttu-shared.py
-          pnpm --dir apps/web exec svelte-kit sync
-          python - <<'PY'
-          import json,pathlib,subprocess
-          paths=json.loads(pathlib.Path('review/changed-paths.json').read_text())
-          assert all(p.startswith('apps/web/src/') for p in paths)
-          subprocess.run(['pnpm','exec','eslint','--fix',*paths],check=False)
-          subprocess.run(['pnpm','exec','prettier','--write',*paths],check=True)
-          pathlib.Path('review/generated-files.json').write_text(json.dumps([{'path':p,'content':pathlib.Path(p).read_text()} for p in paths]))
-          PY
-      - id: generated
-        run: echo 'value=true' >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ttu-shared-source-review
-          path: review/
-          retention-days: 1
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - name: Verify committed source
+        run: pnpm eslint .
       - run: pnpm --dir apps/web check
       - name: Build the actual static app
         env:
@@ -70,41 +51,3 @@ jobs:
             ttu-shared.log
             test-results/
           retention-days: 3
-  record-reviewed-objects:
-    needs: qualify
-    if: always() && needs.qualify.outputs.generated == 'true' && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: ttu-shared-source-review
-      - name: Record immutable blobs only; branch updates remain separately reviewed
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-        run: |
-          python - <<'PY'
-          import os,json,hashlib,pathlib,urllib.request
-          repo=os.environ['REPOSITORY']; assert repo=='ManabiIO/manabi-reader-web'
-          entries=json.loads(pathlib.Path('generated-files.json').read_text()); assert len(entries)<=10
-          result=[]
-          for entry in entries:
-              path,content=entry['path'],entry['content']
-              assert path.startswith('apps/web/src/') and '..' not in path.split('/')
-              raw=content.encode(); assert len(raw)<1024*1024
-              expected=hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()
-              req=urllib.request.Request('https://api.github.com/repos/'+repo+'/git/blobs',data=json.dumps({'content':content,'encoding':'utf-8'}).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Content-Type':'application/json'},method='POST')
-              with urllib.request.urlopen(req,timeout=30) as response: actual=json.load(response)['sha']
-              assert actual==expected
-              result.append({'path':path,'sha':actual})
-          print(json.dumps(result))
-          pathlib.Path('generated-blobs.json').write_text(json.dumps(result))
-          PY
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ttu-shared-reviewed-blobs
-          path: generated-blobs.json
-          retention-days: 1
