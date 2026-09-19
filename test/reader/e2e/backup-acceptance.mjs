@@ -1,44 +1,57 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import {expect} from '@playwright/test';
+import { expect } from '@playwright/test';
 
-export async function runBackupAcceptance({page, origin, fixtures, check, books, openBook}) {
-  const title='E2E Backup / 日本語';
-  const start=async(file)=>{
-    await page.goto(origin+'/manage');
+export async function runBackupAcceptance({ page, origin, fixtures, check, books, openBook }) {
+  const title = 'E2E Backup / 日本語';
+  const start = async (file) => {
+    await page.goto(origin + '/manage');
     await expect(page.locator('[title="Import Files"]').first()).toBeVisible();
-    await page.locator('input[type=file][accept=".zip,application/zip"]').setInputFiles(path.join(fixtures,file));
+    await page
+      .locator('input[type=file][accept=".zip,application/zip"]')
+      .setInputFiles(path.join(fixtures, file));
   };
-  const settled=async()=>{
-    await expect(page.locator('[title="Cancel Operation"]')).toHaveCount(0,{timeout:60000});
+  const settled = async () => {
+    await expect(page.locator('[title="Cancel Operation"]')).toHaveCount(0, { timeout: 60000 });
     await expect(page.locator('[title="Import Files"]').first()).toBeVisible();
   };
-  await check('backup: real nested export import preserves Japanese content and literal encoded title',async()=>{
-    await start('backup-valid.zip');
-    await expect(page.getByText(title,{exact:true}).first()).toBeVisible({timeout:60000});
-    await settled();await openBook(title);
-    await expect(page.locator('.book-content')).toContainText('復元された本');
-    await expect(page.locator('.book-content rt').first()).toHaveText('ねこ');
-    await page.reload();await expect(page.locator('.book-content')).toContainText('日本語');
-  });
-  for(const file of ['backup-invalid.zip','backup-traversal.zip','backup-nested-limit.zip']){
-    await check(`backup: ${file} fails without publishing a partial book`,async()=>{
-      const before=await books();
-      await start(file);
-      await expect(page.getByText('Import failed',{exact:true}).first()).toBeVisible({timeout:60000});
+  await check(
+    'backup: real nested export import preserves Japanese content and literal encoded title',
+    async () => {
+      await start('backup-valid.zip');
+      await expect(page.getByText(title, { exact: true }).first()).toBeVisible({ timeout: 60000 });
       await settled();
-      assert.equal((await books()).length,before.length);
+      await openBook(title);
+      await expect(page.locator('.book-content')).toContainText('復元された本');
+      await expect(page.locator('.book-content rt').first()).toHaveText('ねこ');
+      await page.reload();
+      await expect(page.locator('.book-content')).toContainText('日本語');
+    }
+  );
+  for (const file of ['backup-invalid.zip', 'backup-traversal.zip', 'backup-nested-limit.zip']) {
+    await check(`backup: ${file} fails without publishing a partial book`, async () => {
+      const before = await books();
+      await start(file);
+      await expect(page.getByText('Import failed', { exact: true }).first()).toBeVisible({
+        timeout: 60000
+      });
+      await settled();
+      assert.equal((await books()).length, before.length);
     });
   }
-  await check('backup: cancel drains active work and permits a fresh import',async()=>{
+  await check('backup: cancel drains active work and permits a fresh import', async () => {
     await start('backup-cancel.zip');
-    const cancel=page.locator('[title="Cancel Operation"]').getByRole('button').first();
-    await expect(cancel).toBeVisible();await cancel.click();
+    const cancel = page.locator('[title="Cancel Operation"]').getByRole('button').first();
+    await expect(cancel).toBeVisible();
+    await cancel.click();
     await settled();
-    assert.ok((await books()).filter((b)=>b.title.startsWith('E2E Cancel ')).length<40);
+    assert.ok((await books()).filter((b) => b.title.startsWith('E2E Cancel ')).length < 40);
     await start('backup-retry.zip');
-    await expect(page.getByText('E2E Backup Retry',{exact:true}).first()).toBeVisible({timeout:60000});
-    await settled();await openBook('E2E Backup Retry');
+    await expect(page.getByText('E2E Backup Retry', { exact: true }).first()).toBeVisible({
+      timeout: 60000
+    });
+    await settled();
+    await openBook('E2E Backup Retry');
     await expect(page.locator('.book-content')).toContainText('復元された本');
   });
 }

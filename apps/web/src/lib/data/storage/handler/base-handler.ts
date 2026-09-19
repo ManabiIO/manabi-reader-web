@@ -1,11 +1,11 @@
-import { readRestoredBook } from '$lib/functions/file-loaders/utils/restored-book';
-import type { ArchiveBudget } from '$lib/functions/file-loaders/utils/limited-archive';
 /**
  * @license BSD-3-Clause
  * Copyright (c) 2026, ッツ Reader Authors
  * All rights reserved.
  */
 
+import { readRestoredBook } from '$lib/functions/file-loaders/utils/restored-book';
+import type { ArchiveBudget } from '$lib/functions/file-loaders/utils/limited-archive';
 import type { BookCardProps } from '$lib/components/book-card/book-card-props';
 import {
   currentDbVersion,

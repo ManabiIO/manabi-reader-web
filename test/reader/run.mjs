@@ -5,7 +5,6 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
-const appRequire = createRequire(new URL('../../apps/web/package.json', import.meta.url));
 const { build } = createRequire(new URL('../../package.json', import.meta.url))('esbuild');
 const temp = await mkdtemp(join(tmpdir(), 'manabi-reader-tests-'));
 try {

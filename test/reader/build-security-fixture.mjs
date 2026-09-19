@@ -1,6 +1,5 @@
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-const appRequire = createRequire(new URL('../../apps/web/package.json', import.meta.url));
 const { build } = createRequire(new URL('../../package.json', import.meta.url))('esbuild');
 await build({
   stdin: {

@@ -108,7 +108,9 @@ class ReaderBrowser(unittest.TestCase):
             {'name': 'acceptance.epub', 'mimeType': 'application/epub+zip', 'buffer': epub()})
         self.page.get_by_text(TITLE, exact=True).click(timeout=30000)
         expect(self.page.locator('.book-content')).to_be_visible(timeout=30000)
-        self.page.wait_for_function('document.querySelector(".book-content ruby rt")?.textContent === "ほん"')
+        self.page.wait_for_function(
+            '() => document.querySelector(".book-content ruby rt")?.textContent === "ほん"'
+        )
 
     def first_font(self):
         return self.page.locator('.book-content').evaluate('e => getComputedStyle(e).fontFamily.split(",")[0].trim().replace(/^"|"$/g, "")')
@@ -123,7 +125,9 @@ class ReaderBrowser(unittest.TestCase):
     def test_paginated_ruby_images_and_untrusted_resources(self):
         self.open_book()
         self.assertEqual('ほん', self.page.locator('.book-content ruby rt').first.text_content())
-        self.page.wait_for_function('document.querySelector("#safe-image")?.naturalWidth > 0')
+        self.page.wait_for_function(
+            '() => document.querySelector("#safe-image")?.naturalWidth > 0'
+        )
         self.assertEqual(0, self.page.locator('.book-content script, .book-content iframe, .book-content [onerror]').count())
         self.assertFalse(self.page.evaluate('Boolean(window.bookAttack)'))
         self.assertEqual([], StaticHandler.probes)
@@ -142,9 +146,17 @@ class ReaderBrowser(unittest.TestCase):
     def test_offline_reload_preserves_book_and_never_caches_account_requests(self):
         self.page.goto(self.origin + '/Reader-Web/manage')
         self.page.evaluate('caches.open("other-manabi-app").then(c => c.put("/other-app",new Response("keep")))')
-        self.open_book()
+        # Select a packaged face explicitly so this remains a cache-on-use test
+        # even on macOS hosts that already provide the preferred Japanese face.
+        self.open_book(font='Klee One')
         self.page.evaluate('navigator.serviceWorker.ready')
-        self.page.wait_for_function('navigator.serviceWorker.controller !== null')
+        # The worker intentionally does not claim a tab that loaded under the
+        # previous shell. A normal online navigation hands the next document to
+        # the activated worker without mixing application generations.
+        if not self.page.evaluate('Boolean(navigator.serviceWorker.controller)'):
+            self.page.reload()
+            expect(self.page.locator('.book-content')).to_be_visible(timeout=30000)
+        self.page.wait_for_function('() => navigator.serviceWorker.controller !== null')
         keys = self.page.evaluate('async () => (await Promise.all((await caches.keys()).map(async n => (await (await caches.open(n)).keys()).map(r => r.url)))).flat()')
         self.assertFalse(any('/api/' in key or '/accounts/' in key for key in keys))
         fonts = [key for key in keys if key.endswith(('.woff', '.woff2'))]
