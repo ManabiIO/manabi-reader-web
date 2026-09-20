@@ -1,0 +1,107 @@
+name: Rhea qualification
+on:
+  push:
+    branches: [research/rhea-toolchain-20260920]
+    paths: ['.github/workflows/rhea-qualify.yml']
+permissions:
+  contents: write
+  actions: read
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 129e7c9a03145387b9c3aeebaceb6abfef60c9f5
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: rhea-foundation-source
+          run-id: 35491229950
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: /tmp/source
+      - name: Restore exact reviewed source and valid Tailwind directive
+        run: |
+          python3 - <<'PY'
+          import pathlib,json,re
+          for f in json.loads(pathlib.Path('/tmp/source/source.json').read_text()):
+              p=pathlib.Path(f['path']);p.parent.mkdir(parents=True,exist_ok=True);p.write_text(f['content'])
+          p=pathlib.Path('apps/web/src/app.css');s=p.read_text();s=re.sub(r'@source inline\(\s*([\s\S]*?)\s*\);',lambda m:'/* prettier-ignore */\n@source inline('+m[1].strip()+');',s);p.write_text(s)
+          p=pathlib.Path('apps/web/src/lib/css-classes.ts');p.write_text(p.read_text().replace('bg-background-color','bg-background'))
+          PY
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - name: Format and retain candidate before checks
+        run: |
+          mkdir -p /tmp/qualified
+          python3 - <<'PY'
+          import pathlib,subprocess,json
+          names=sorted(set(subprocess.check_output(['git','ls-files','--modified','--others','--exclude-standard'],text=True).splitlines()))
+          formatted=[n for n in names if pathlib.Path(n).suffix in {'.ts','.svelte','.js','.mjs','.cjs','.css','.scss','.json','.md'} and not n.endswith('palettes.scss')]
+          subprocess.run(['pnpm','exec','prettier','--write',*formatted],check=True)
+          pathlib.Path('/tmp/qualified/source.json').write_text(json.dumps([{'path':n,'content':pathlib.Path(n).read_text()} for n in names]))
+          PY
+      - name: All static diagnostics
+        id: checks
+        run: |
+          set +e
+          pnpm exec eslint . > /tmp/qualified/lint.log 2>&1; echo $? > /tmp/qualified/lint.status
+          pnpm --dir apps/web check > /tmp/qualified/types.log 2>&1; echo $? > /tmp/qualified/types.status
+          node --experimental-strip-types --test tests/unit/*.test.mjs test/reader/typography.test.mjs > /tmp/qualified/units.log 2>&1; echo $? > /tmp/qualified/units.status
+          BASE_PATH=/Reader-Web pnpm build > /tmp/qualified/build.log 2>&1; status=$?; echo $status > /tmp/qualified/build.status
+          exit $status
+      - name: Real browsers
+        if: steps.checks.outcome == 'success'
+        run: |
+          python -m pip install 'playwright==1.63.0'
+          python -m playwright install --with-deps chromium webkit
+          for engine in chromium webkit; do
+            mkdir -p /tmp/qualified/$engine
+            set +e
+            APPEARANCE_BROWSER=$engine python tests/browser/test_appearance_refinement.py > /tmp/qualified/$engine/results.log 2>&1
+            echo $? > /tmp/qualified/$engine/test.status
+            set -e
+            if [ -d test-results ]; then mv test-results /tmp/qualified/$engine/screenshots; fi
+          done
+      - name: Retain exact candidate tree without redundant blob writes
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import pathlib,json,hashlib,os,urllib.request,urllib.error
+          source=json.loads(pathlib.Path('/tmp/qualified/source.json').read_text())
+          original={f['path']:f['sha'] for f in json.loads(pathlib.Path('/tmp/source/tree.json').read_text())}
+          tree=[]
+          for f in source:
+              data=f['content'].encode();sha=hashlib.sha1(f'blob {len(data)}\0'.encode()+data).hexdigest()
+              item={'path':f['path'],'mode':'100644','type':'blob'}
+              if original.get(f['path'])==sha:item['sha']=sha
+              else:item['content']=f['content']
+              tree.append(item)
+          pathlib.Path('/tmp/qualified/tree-input.json').write_text(json.dumps(tree))
+          request=urllib.request.Request('https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/git/trees',data=json.dumps({'base_tree':'8c16ccf8caaeac79fb495cdd336ec3a240c5eae6','tree':tree}).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Content-Type':'application/json','Accept':'application/vnd.github+json'},method='POST')
+          try:
+              with urllib.request.urlopen(request,timeout=60) as response:
+                  pathlib.Path('/tmp/qualified/tree-sha.txt').write_text(json.load(response)['sha'])
+          except urllib.error.HTTPError as error:
+              pathlib.Path('/tmp/qualified/export-error.txt').write_text(str(error)+'\n'+error.read().decode())
+              raise
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rhea-qualified
+          path: /tmp/qualified
+          retention-days: 7
