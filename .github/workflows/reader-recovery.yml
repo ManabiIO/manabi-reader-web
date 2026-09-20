@@ -1,0 +1,57 @@
+name: Reader recovery qualification
+on:
+  pull_request:
+    paths:
+      - 'apps/web/**'
+      - 'tests/browser/**'
+      - '.github/workflows/reader-recovery.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/web/**'
+      - 'tests/browser/**'
+      - '.github/workflows/reader-recovery.yml'
+permissions:
+  contents: read
+concurrency:
+  group: reader-recovery-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  static-recovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - run: pnpm --dir apps/web check
+      - name: Build the actual static Reader
+        env:
+          BASE_PATH: /Reader-Web
+        run: pnpm build
+      - name: Real storage loss and recovery through the application UI
+        run: |
+          python -m pip install 'playwright==1.55.0'
+          python -m playwright install --with-deps chromium
+          set -o pipefail
+          python tests/browser/test_reading_recovery.py 2>&1 | tee reading-recovery.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reading-recovery-results
+          path: |
+            reading-recovery.log
+            test-results/
+          retention-days: 3

@@ -8,6 +8,7 @@ import io
 import json
 from pathlib import Path
 import sys
+import time
 import unittest
 import zipfile
 from playwright.sync_api import expect
@@ -16,6 +17,18 @@ import test_static_reader as static
 
 class SharedTtuBrowser(static.ReaderBrowser):
     def seed_shared_source(self):
+        # Opening an absent IndexedDB database from a fixture creates a version-1
+        # empty DB and races the real app's initial migrations. Observe readiness
+        # without opening/creating anything, then insert the fixture capability.
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            ready = self.page.evaluate('''async () => (await indexedDB.databases()).some(
+              database => database.name === 'books' && database.version >= 6)''')
+            if ready:
+                break
+            self.page.wait_for_timeout(50)
+        else:
+            self.fail('The actual Reader did not initialize its books database')
         self.page.evaluate('''async () => {
           const opfs = await navigator.storage.getDirectory();
           const root = await opfs.getDirectoryHandle('ttu-reader-data', {create:true});
@@ -66,8 +79,6 @@ class SharedTtuBrowser(static.ReaderBrowser):
             self.assertEqual(static.TITLE, data['title'])
             self.assertIn('<ruby>', data['elementHtml'])
         self.assertFalse(any('book_' in name and name.endswith('.json') for name in files[static.TITLE]))
-        # Native main's TTU wire representation: progress fraction, seconds for
-        # readingTime, an array of day rows, and metadata in the filename.
         chars = int(book_name.split('_')[3])
         now = self.page.evaluate('Date.now() + 10000')
         progress = {'dataId':777,'exploredCharCount':30,'progress':30/chars,'lastBookmarkModified':now}
@@ -99,8 +110,9 @@ class SharedTtuBrowser(static.ReaderBrowser):
         imported_day = next(row for row in result['statistics'] if row['dateKey']=='2026-09-19')
         self.assertEqual(300, imported_day['readingTime'])
         self.assertEqual(60, imported_day['charactersRead'])
-        self.page.get_by_role('button', name='Import selected shared books').is_disabled()
-        # Export the exact generated files for native compatibility qualification.
+        expect(self.page.get_by_role('button', name='Import selected shared books')).to_be_disabled()
+        # Book ZIP is actually exported by Reader; progress/statistics above are
+        # intentional native-format inputs, not output from executing Swift.
         output=Path('test-results');output.mkdir(exist_ok=True)
         (output/'shared-ttu-wire-fixture.json').write_text(json.dumps({'files':self.read_shared_files(),'progress':progress,'statistics':[day]},ensure_ascii=False))
 

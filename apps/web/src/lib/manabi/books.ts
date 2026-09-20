@@ -293,6 +293,10 @@ async function applyAcknowledged(link: BookLink, captured: ReadingState, accepte
       link.contentHash
     );
     const merge = mergeRecords(flat(captured), flat(latest), flat(accepted));
+    // A new local edit and the downloaded state may have changed the same day or
+    // bookmark while I/O was pending. Do not acknowledge an unresolved conflict:
+    // advancing the baseline here would let a later retry silently overwrite it.
+    if (merge.conflicts.length) throw new IntegrationError('conflict', 412);
     const next = unflat(link.contentHash, merge.merged);
     // Keep changes made while I/O was pending; the acknowledgement is only the
     // accepted remote baseline, not permission to replace newer local reading.
@@ -351,6 +355,24 @@ export async function syncBook(
       const captured = await capture(link);
       const remote = await source.state(`book_${link.contentHash}`);
       ensureOwner(link);
+      const base = link.base ? validateState(link.base, link.contentHash) : empty(link.contentHash);
+      const missingHistory =
+        remote.value === null &&
+        !remote.branches?.length &&
+        (base.bookmark !== null || Object.keys(base.statistics).length > 0);
+      // A missing file is not a reset document. Treating it as an empty snapshot
+      // would delete previously synced local history during the three-way merge.
+      // A never-written new library has an empty baseline and is still writable.
+      if (missingHistory && choice !== 'local') {
+        setStatus(id, {
+          state: 'conflict',
+          message:
+            'The library reading-data file is missing. Your local history was kept. Choose “Keep this device’s reading data” to restore it.',
+          // No remote copy exists to choose. The recovery UI offers local only.
+          branches: []
+        });
+        return;
+      }
       let there: ReadingState;
       if (remote.branches?.length) {
         if (choice !== 'local' && !(choice === 'remote' && branchId)) {
@@ -376,7 +398,6 @@ export async function syncBook(
           remote.value === null
             ? empty(link.contentHash)
             : validateState(remote.value, link.contentHash);
-      const base = link.base ? validateState(link.base, link.contentHash) : empty(link.contentHash);
       let merged: ReadingState;
       if (choice === 'local') merged = captured;
       else if (choice === 'remote') merged = there;
@@ -396,7 +417,7 @@ export async function syncBook(
       const stillEnabled = async () => (await integration.get('books', id))?.syncEnabled === true;
       if (!(await stillEnabled())) return;
       let accepted: StateCopy = remote;
-      if (remote.branches?.length || !equal(merged, there)) {
+      if (missingHistory || remote.branches?.length || !equal(merged, there)) {
         accepted = await source.write(`book_${link.contentHash}`, merged, remote.revision);
         ensureOwner(link);
         if (
