@@ -1,0 +1,76 @@
+name: Rhea runtime diagnostics
+on:
+  push:
+    branches: [research/rhea-ui-qualification-20260920]
+    paths: ['.github/workflows/rhea-runtime-diagnostic.yml']
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 6fd80901d4865ab1fe90a97583120513af99b75f
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pnpm install --frozen-lockfile
+      - name: Build identical source with readable production stack traces
+        env:
+          BASE_PATH: /Reader-Web
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('apps/web/vite.config.js')
+          p.write_text(p.read_text().replace('plugins: [tailwindcss(), sveltekit()]', 'plugins: [tailwindcss(), sveltekit()], build: {minify: false, sourcemap: true}'))
+          PY
+          pnpm build
+      - name: Record full uncaught error stacks without filtering errors
+        run: |
+          python -m pip install 'playwright==1.63.0'
+          python -m playwright install --with-deps chromium
+          mkdir -p diagnostics
+          cat > tests/browser/rhea_observe.py <<'PY'
+          import unittest,json
+          from pathlib import Path
+          import test_completed_reading as completed
+          class ObserveCompleted(completed.CompletedReadingBrowser):
+              def setUp(self):
+                  super().setUp()
+                  self.page.on('pageerror', lambda e: print('FULL_STACK\n'+e.stack+'\nEND_STACK',flush=True))
+          suite=unittest.TestSuite([ObserveCompleted('test_finished_book_survives_folder_sync_export_migration_and_retry')])
+          result=unittest.TextTestRunner(verbosity=2).run(suite)
+          Path('diagnostics/status.txt').write_text(str(result.wasSuccessful()))
+          PY
+          python tests/browser/rhea_observe.py > diagnostics/complete.log 2>&1
+      - name: Retain text rendering sources and generated-fixture screenshots only
+        if: always()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          files=[]
+          root=Path('apps/web/build')
+          for p in root.rglob('*'):
+              if p.is_file() and p.suffix in {'.js','.map','.css','.html','.json'}:
+                  files.append({'path':p.relative_to(root).as_posix(),'content':p.read_text()})
+          Path('diagnostics/rendering-source.json').write_text(json.dumps(files))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rhea-runtime-diagnostics
+          path: |
+            diagnostics/
+            test-results/
+          retention-days: 3
