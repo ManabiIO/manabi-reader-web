@@ -9,6 +9,7 @@ import {
   SYSTEM_SANS_STACK
 } from '../../apps/web/src/lib/data/reader-typography.ts';
 import { observeReaderFontLayout } from '../../apps/web/src/lib/functions/reader-font-layout.ts';
+import { normalizeLegacyTextCombine } from '../../apps/web/src/lib/functions/book-security/legacy-writing-mode-compat.ts';
 
 const { Event, EventTarget } = globalThis;
 
@@ -33,6 +34,25 @@ test('automatic and explicit selections resolve without rewriting stored names',
 test('malformed or unbounded preference values fall back safely', () => {
   for (const value of [null, undefined, {}, 42, '', '   ', 'x'.repeat(1025)])
     assert.equal(resolveReaderFont(value, true), japaneseFontStack(true));
+});
+
+test('legacy EPUB tate-chu-yoko aliases normalize to the standards property', () => {
+  const normalized = normalizeLegacyTextCombine(`
+.tcy {
+  -webkit-text-combine: horizontal;
+  -epub-text-combine: horizontal !important;
+}
+.reset { -epub-text-combine: none; }
+`);
+
+  assert.equal((normalized.match(/text-combine-upright: all/g) ?? []).length, 2);
+  assert.match(normalized, /text-combine-upright: all !important/);
+  assert.match(normalized, /text-combine-upright: none/);
+  assert.doesNotMatch(normalized, /-(?:epub|webkit)-text-combine/);
+  assert.equal(
+    normalizeLegacyTextCombine('-webkit-text-combine: horizontal'),
+    'text-combine-upright: all'
+  );
 });
 
 // A small standards-shaped fake document controls timing only; browser coverage
