@@ -236,6 +236,7 @@ class RheaReader(previous.RefinedAppearance):
         self.page.get_by_role('button', name='Library actions', exact=True).click()
         self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
         self.page.get_by_role('button', name='Select all', exact=True).click()
+        expect(self.page.get_by_text('1 selected', exact=True)).to_be_visible()
         self.page.get_by_role('button', name='Export', exact=True).click()
         dialog = self.page.locator('[data-slot="dialog-content"]')
         expect(dialog).to_be_visible()
