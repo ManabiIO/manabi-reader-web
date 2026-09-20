@@ -1,0 +1,77 @@
+name: Books library
+on:
+  pull_request:
+    paths:
+      - 'apps/web/**'
+      - 'tests/browser/**'
+      - 'tests/unit/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/books-library.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/web/**'
+      - 'tests/browser/**'
+      - 'tests/unit/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/books-library.yml'
+permissions:
+  contents: read
+concurrency:
+  group: books-library-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  library:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - name: Production models and file-operation fault tests
+        run: |
+          mkdir -p artifacts/library
+          git rev-parse HEAD > artifacts/library/commit.txt
+          set -o pipefail
+          node --experimental-strip-types --test tests/unit/library*.test.mjs 2>&1 | tee artifacts/library/units.log
+      - name: Build static application
+        env:
+          BASE_PATH: /Reader-Web
+        run: |
+          set -o pipefail
+          pnpm build 2>&1 | tee artifacts/library/build.log
+      - name: Actual browser, storage and file-operation acceptance
+        run: |
+          python -m pip install 'playwright==1.63.0'
+          python -m playwright install --with-deps chromium webkit
+          set +e
+          status=0
+          for engine in chromium webkit; do
+            mkdir -p artifacts/library/$engine
+            cases=BooksLibraryBrowser
+            if [ "$engine" = chromium ]; then cases="$cases BooksLibraryFilesystem"; fi
+            LIBRARY_BROWSER=$engine python tests/browser/test_books_library.py $cases 2>&1 | tee artifacts/library/$engine/results.log
+            result=${PIPESTATUS[0]}
+            if [ "$result" -ne 0 ]; then status=1; fi
+            if [ -d test-results ]; then mv test-results artifacts/library/$engine/screenshots; fi
+          done
+          exit "$status"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: books-library-evidence
+          path: artifacts/library
+          retention-days: 7
+          if-no-files-found: error
