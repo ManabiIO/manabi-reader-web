@@ -28,7 +28,8 @@ class CompletedReadingBrowser(LocalLibraryBrowser):
         self.import_book()
         self.page.get_by_role('link', name='Read local-book', exact=True).click()
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy','false',timeout=35000)
-        self.page.get_by_role('button', name='Complete Book', exact=True).evaluate('button => button.click()')
+        self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+        self.page.get_by_role('button', name='Complete Book', exact=True).click()
         self.page.get_by_role('button', name='Confirm', exact=True).click()
         self.page.wait_for_function('''() => new Promise(resolve => {
           const open=indexedDB.open('books');open.onsuccess=()=>{const db=open.result,tx=db.transaction('statistic');

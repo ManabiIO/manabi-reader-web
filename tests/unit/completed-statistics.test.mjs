@@ -29,6 +29,7 @@ const completed = {
 test('actual Complete Book metadata and legacy totals both remain valid', () => {
   assert.equal(isCompletedStatistics(totals, day), true);
   assert.equal(isCompletedStatistics(completed, day), true);
+  assert.equal(isCompletedStatistics({ ...completed, dbVersion: 5 }, day), true);
   assert.equal(isCompletedStatistics({ ...completed, finishDate: day }, day), true);
   assert.equal(isCompletedStatistics({ ...totals, completedBook: 1 }, day), true);
 });
