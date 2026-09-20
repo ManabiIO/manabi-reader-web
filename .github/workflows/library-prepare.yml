@@ -20,15 +20,14 @@ jobs:
       - name: Apply readable follow-up to exact clean parent
         run: |
           mkdir -p /tmp/library-staging /tmp/library-evidence
-          cp .github/library-followup.py .github/library-refinements.py .github/library-files.test.mjs .github/test_books_library.py .github/epub-direction.ts .github/books-library.yml /tmp/library-staging/
+          cp .github/library-followup.py .github/library-refinements.py .github/library-files.test.mjs .github/test_books_library.py .github/epub-direction.ts /tmp/library-staging/
           git reset --hard e71e675cf0e2937d545577202d360ea43c868625
           python3 /tmp/library-staging/library-followup.py
           cp /tmp/library-staging/library-files.test.mjs tests/unit/library-files.test.mjs
           cp /tmp/library-staging/test_books_library.py tests/browser/test_books_library.py
           cp /tmp/library-staging/epub-direction.ts apps/web/src/lib/functions/file-loaders/epub/epub-direction.ts
-          cp /tmp/library-staging/books-library.yml .github/workflows/books-library.yml
           python3 /tmp/library-staging/library-refinements.py
-          git add apps/web tests .github/workflows/books-library.yml
+          git add apps/web tests
           git diff --cached --name-only > /tmp/library-evidence/changed-paths.txt
           python3 -m py_compile tests/browser/test_books_library.py
       - uses: pnpm/action-setup@v6.1.0
@@ -48,7 +47,8 @@ jobs:
           python3 - <<'PY'
           import pathlib, subprocess
           paths = pathlib.Path('/tmp/library-evidence/changed-paths.txt').read_text().splitlines()
-          formatted = [p for p in paths if pathlib.Path(p).suffix in {'.ts','.svelte','.mjs','.json','.md','.yml'}]
+          assert paths and all(p.startswith(('apps/web/','tests/')) for p in paths)
+          formatted = [p for p in paths if pathlib.Path(p).suffix in {'.ts','.svelte','.mjs','.json','.md'}]
           subprocess.run(['pnpm','exec','prettier','--write',*formatted],check=True)
           subprocess.run(['git','add',*paths],check=True)
           subprocess.run(['git','diff','--cached','--check'],check=True)
