@@ -16,10 +16,28 @@ import {
   directoryName
 } from '../../apps/web/src/lib/library/series-metadata.ts';
 import { resolvePageDirection } from '../../apps/web/src/lib/library/direction.ts';
+import { boundedBytes } from '../../apps/web/src/lib/library/bounded-response.ts';
 
 const file = (id, parent, name = id) => ({ id, parent, name, kind: 'file' });
 const folder = (id, parent, name = id) => ({ id, parent, name, kind: 'folder' });
 const tree = (entries) => directoryTree(entries, '', (e) => e.id);
+
+test('bounded metadata reads enforce both declared and streamed byte limits', async () => {
+  const exact = await boundedBytes(new Response(new Uint8Array([1, 2, 3])), 3);
+  assert.deepEqual([...new Uint8Array(exact)], [1, 2, 3]);
+  await assert.rejects(
+    boundedBytes(new Response('large', { headers: { 'Content-Length': '5' } }), 4),
+    /too large/
+  );
+  const dishonest = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new Uint8Array([1, 2]));
+      controller.enqueue(new Uint8Array([3, 4]));
+      controller.close();
+    }
+  });
+  await assert.rejects(boundedBytes(new Response(dishonest), 3), /too large/);
+});
 
 test('singleton directories flatten recursively, without turning a multi-book directory into a flat shelf', () => {
   const entries = [
