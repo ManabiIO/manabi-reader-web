@@ -2,33 +2,40 @@
   import { faFont } from '@fortawesome/free-solid-svg-icons';
   import Popover from '$lib/components/popover/popover.svelte';
   import { LocalFont } from '$lib/data/fonts';
-  import { dummyFn } from '$lib/functions/utils';
   import Fa from 'svelte-fa';
 
   export let availableFonts: LocalFont[] = [LocalFont.NOTOSANSJP];
   export let fontValue: string;
+  export let label = 'Show available fonts';
 
   let element: Popover;
 </script>
 
 <Popover bind:this={element} placement="bottom">
-  <div slot="icon" class="mx-2" title="Show available default Fonts">
+  <button
+    slot="icon"
+    type="button"
+    class="mx-2"
+    title={label}
+    aria-label={label}
+    on:click|stopPropagation={() => element.toggleOpen()}
+  >
     <Fa icon={faFont} />
-  </div>
-  <div slot="content">
+  </button>
+  <div slot="content" class="min-w-40 py-1">
     {#each availableFonts as font (font)}
-      <div
-        tabindex="0"
-        role="button"
-        class="px-4 py-2 hover:bg-surface-hover"
+      <button
+        type="button"
+        aria-pressed={fontValue === font}
+        class="block w-full px-4 py-2 text-left hover:bg-surface-hover"
+        class:text-accent={fontValue === font}
         on:click={() => {
           fontValue = font;
           element.toggleOpen();
         }}
-        on:keyup={dummyFn}
       >
         {font}
-      </div>
+      </button>
     {/each}
   </div>
 </Popover>

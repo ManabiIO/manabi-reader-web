@@ -595,6 +595,7 @@
     <SettingsItemGroup title="Primary / Serif font">
       <div slot="header" class="flex items-center">
         <SettingsFontSelector
+          label="Show available primary / serif fonts"
           availableFonts={availablePrimaryFonts}
           bind:fontValue={fontFamilyGroupOne}
         />
@@ -630,6 +631,7 @@
     <SettingsItemGroup title="Sans-serif font">
       <div slot="header" class="flex items-center">
         <SettingsFontSelector
+          label="Show available sans-serif fonts"
           availableFonts={[
             LocalFont.SYSTEMSANS,
             LocalFont.NOTOSANSJP,

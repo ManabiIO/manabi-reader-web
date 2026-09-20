@@ -163,7 +163,7 @@ class ReaderBrowser(unittest.TestCase):
         expect(primary).to_have_value('YuKyokasho' if available else 'Klee One', timeout=3000)
         # A device fallback must not replace the portable/account preference.
         self.assertIsNone(self.page.evaluate('localStorage.getItem("fontFamilyGroupOne")'))
-        self.page.locator('[title="Show available default Fonts"]').click()
+        self.page.get_by_role('button', name='Show available primary / serif fonts', exact=True).click()
         expect(self.page.get_by_text('YuKyokasho', exact=True)).to_have_count(1 if available else 0)
 
     def test_paginated_ruby_images_and_untrusted_resources(self):
