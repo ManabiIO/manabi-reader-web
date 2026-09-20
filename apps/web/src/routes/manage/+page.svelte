@@ -6,6 +6,7 @@
   import type { BookCardProps } from '$lib/components/book-card/book-card-props';
   import BookManagerHeader from '$lib/components/book-card/book-manager-header.svelte';
   import BookExportDialog from '$lib/components/book-export/book-export-dialog.svelte';
+  import { Button } from '$lib/components/ui/button';
   import ConfirmDialog from '$lib/components/confirm-dialog.svelte';
   import ExternalReadDialog from '$lib/components/external-read-dialog.svelte';
   import LogReportDialog from '$lib/components/log-report-dialog.svelte';
@@ -109,6 +110,7 @@
   let replicationDone = new Subject<void>();
   let progressBase = 0;
   let executionStart: number;
+  let firstBookFileInput: HTMLInputElement;
 
   $: {
     if (!selectMode) {
@@ -682,19 +684,18 @@
       Open EPUB, HTMLZ, or text files. Your books stay on this device unless you choose a connected
       library.
     </p>
-    <label
-      for="first-book-file"
-      class="mt-5 inline-flex cursor-pointer rounded-2xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
-      >Add your first book</label
-    >
+    <Button class="mt-5" size="lg" onclick={() => firstBookFileInput.click()}>
+      Add your first book
+    </Button>
     <input
       id="first-book-file"
-      class="mt-3 block w-full text-sm"
+      hidden
       type="file"
       accept="application/epub+zip,.epub,.htmlz,plain/text,.txt"
       multiple
       aria-label="Add your first book"
       use:inputFile={onFilesChange}
+      bind:this={firstBookFileInput}
     />
     <p class="mt-4 text-xs text-muted-foreground">
       You can also drop files here or use Add books for folders, backups, and Ttu imports.
