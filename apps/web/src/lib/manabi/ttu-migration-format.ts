@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { isCompletedStatistics } from './completed-statistics.js';
+
 /** Import-only wire validation. No provider credentials or storage bindings enter here. */
 export type ImportPart = 'book' | 'bookmark' | 'statistics' | 'audio' | 'subtitles' | 'goals';
 export const importLabels: Record<ImportPart, string> = {
@@ -145,17 +147,8 @@ const statisticNumbers = [
 ] as const;
 function completed(value: unknown, day: string): Plain {
   const v = record(value, 'completed statistics');
-  keys(v, [...statisticNumbers, 'dateKey', 'completedBook'], 'completed statistics');
-  const out: Plain = {};
-  for (const key of statisticNumbers) out[key] = number(v[key], key);
-  if (date(v.dateKey) !== day)
-    throw new Error('Completion date disagrees with its statistics row.');
-  out.dateKey = day;
-  if (v.completedBook !== undefined) {
-    if (v.completedBook !== 1) throw new Error('Invalid completed-book flag.');
-    out.completedBook = 1;
-  }
-  return out;
+  if (!isCompletedStatistics(v, day)) throw new Error('Invalid completed statistics.');
+  return { ...v };
 }
 export function statistics(value: unknown, title: string): Plain[] {
   const seen = new Set<string>();

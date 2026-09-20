@@ -45,6 +45,18 @@ export async function resolveTtuRoot(
   create = false
 ): Promise<FileSystemDirectoryHandle> {
   if (selected.name === ttuRootName) return selected;
+  // A title folder is not a library parent. Check before any create operation;
+  // validating the newly created empty child afterwards would be too late.
+  let entries = 0;
+  for await (const [name, handle] of selected.entries()) {
+    if (++entries > 10000)
+      throw new Error('The selected folder contains too many entries to inspect safely.');
+    if (handle.kind === 'file' && ttuPrefixes.some((prefix) => name.startsWith(prefix))) {
+      throw new Error(
+        'This is a book folder, not the library root. Select its parent ttu-reader-data folder.'
+      );
+    }
+  }
   try {
     return await selected.getDirectoryHandle(ttuRootName, { create });
   } catch (error) {

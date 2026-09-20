@@ -44,7 +44,7 @@ jobs:
         run: pnpm eslint .
       - run: pnpm --dir apps/web check
       - name: Production format and repeated-import contracts
-        run: node --experimental-strip-types --test tests/unit/ttu-migration.test.mjs
+        run: node --experimental-strip-types --test tests/unit/ttu-migration.test.mjs tests/unit/completed-statistics.test.mjs
       - name: Build production static Reader
         env:
           BASE_PATH: /Reader-Web
@@ -59,6 +59,10 @@ jobs:
         run: |
           set -o pipefail
           python tests/browser/test_ttu_migration_edges.py 2>&1 | tee migration-edges.log
+      - name: Complete book, folder sync, export and migration
+        run: |
+          set -o pipefail
+          python tests/browser/test_completed_reading.py 2>&1 | tee completed-reading.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -66,5 +70,6 @@ jobs:
           path: |
             migration-browser.log
             migration-edges.log
+            completed-reading.log
             test-results/
           retention-days: 3

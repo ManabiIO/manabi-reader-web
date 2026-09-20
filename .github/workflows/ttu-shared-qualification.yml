@@ -4,6 +4,7 @@ on:
     paths:
       - 'apps/web/**'
       - 'tests/browser/**'
+      - 'tests/unit/shared-library.test.mjs'
       - '.github/workflows/ttu-shared-qualification.yml'
 permissions:
   contents: read
@@ -32,6 +33,8 @@ jobs:
       - run: pnpm --dir apps/web exec svelte-kit sync
       - name: Verify committed source
         run: pnpm eslint .
+      - name: Source isolation and TTU format contracts
+        run: node --experimental-strip-types --test tests/unit/shared-library.test.mjs
       - run: pnpm --dir apps/web check
       - name: Build the actual static app
         env:
@@ -43,11 +46,16 @@ jobs:
           python -m playwright install --with-deps chromium
           set -o pipefail
           python tests/browser/test_shared_ttu.py 2>&1 | tee ttu-shared.log
+      - name: Static-app isolation and real filesystem adapter regressions
+        run: |
+          set -o pipefail
+          python tests/browser/test_shared_safety.py 2>&1 | tee ttu-shared-safety.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: ttu-shared-results
           path: |
             ttu-shared.log
+            ttu-shared-safety.log
             test-results/
           retention-days: 3
