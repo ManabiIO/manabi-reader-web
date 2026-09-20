@@ -9,7 +9,6 @@
   import ActionMenu from '$lib/components/navigation/action-menu.svelte';
   import MoreHorizontal from '@lucide/svelte/icons/ellipsis';
   import ArrowLeft from '@lucide/svelte/icons/arrow-left';
-  import Layers from '@lucide/svelte/icons/layers';
   import Search from '@lucide/svelte/icons/search';
   import CircleCheck from '@lucide/svelte/icons/circle-check';
   import { booklistSortOptions$ } from '$lib/data/store';
@@ -73,13 +72,13 @@
     sources: SourceDescriptor[] = [],
     locals: LocalLibrary[] = [],
     pending: MovePlan[] = [];
+  export let collectionsOpen = false;
   let layout: 'grid' | 'list' = 'grid',
     query = '',
     busy = false,
     scanning = false,
     error = '',
-    notice = '',
-    collectionsOpen = false;
+    notice = '';
   let dialogOpen = false,
     dialog: 'rename' | 'date' | 'membership' | 'series-name' | 'new-series' = 'rename';
   let targetBook: ShelfBook | undefined,
@@ -506,9 +505,6 @@
             ? collectionTitle
             : 'Library'}</Button
       >{/if}
-    <Button variant="outline" class="min-h-11" onclick={() => (collectionsOpen = true)}
-      ><Layers aria-hidden="true" />Collections</Button
-    >
     <ActionMenu label="View" title="Library view options">
       <Menu.RadioGroup value={layout} onValueChange={setLayout}
         ><Menu.RadioItem value="grid">Grid</Menu.RadioItem><Menu.RadioItem value="list"

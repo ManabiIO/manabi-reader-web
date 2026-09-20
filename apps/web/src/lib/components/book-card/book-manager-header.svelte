@@ -25,6 +25,8 @@
   import { inputAllowDirectory } from '$lib/functions/file-dom/input-allow-directory';
   import { inputFile } from '$lib/functions/file-dom/input-file';
   import { isMobile$, isOnOldUrl } from '$lib/functions/utils';
+  import MoreHorizontal from '@lucide/svelte/icons/ellipsis';
+  import Layers from '@lucide/svelte/icons/layers';
 
   export let modernLibrary = false;
   export let hasBookOpened: boolean;
@@ -47,6 +49,7 @@
     deleteStatistics: void;
     replicateData: void;
     cancelReplication: void;
+    collectionsClick: void;
   }>();
   let fileImportElm: HTMLInputElement;
   let folderImportElm: HTMLInputElement;
@@ -136,6 +139,140 @@
   bind:this={countImportElm}
 />
 
+{#if modernLibrary}
+  <header class="app-header bg-background text-foreground" aria-label="Library toolbar">
+    <div class="mx-auto flex min-h-20 max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
+      <h1 class="truncate font-serif text-4xl font-bold tracking-tight sm:text-5xl">Library</h1>
+      <div class="flex shrink-0 items-center gap-2">
+        <Button
+          variant="outline"
+          size="icon"
+          class="size-11 rounded-full"
+          aria-label="Collections"
+          title="Collections"
+          onclick={() => dispatch('collectionsClick')}
+          disabled={!!replicationToProgress}
+        >
+          <Layers class="size-5" aria-hidden="true" />
+        </Button>
+        <Menu.Root>
+          <Menu.Trigger>
+            {#snippet child({ props })}
+              <Button
+                {...props}
+                variant="outline"
+                size="icon"
+                class="size-11 rounded-full"
+                aria-label="Library actions"
+                title="Library actions"
+                disabled={!!replicationToProgress}
+              >
+                <MoreHorizontal class="size-5" aria-hidden="true" />
+              </Button>
+            {/snippet}
+          </Menu.Trigger>
+          <Menu.Content
+            align="end"
+            class="max-h-[min(80dvh,40rem)] w-72 max-w-[calc(100vw-1rem)] overflow-y-auto"
+          >
+            {#if hasBookOpened}
+              <Menu.Item onSelect={() => dispatch('backToBookClick')}>Resume Reading</Menu.Item>
+              <Menu.Separator />
+            {/if}
+            <Menu.Item disabled={!hasBooks} onSelect={() => (selectMode = true)}>Select Books</Menu.Item>
+            <Menu.Sub>
+              <Menu.SubTrigger>Add Books</Menu.SubTrigger>
+              <Menu.SubContent class="w-64">
+                <Menu.Item onSelect={() => fileImportElm.click()}>Import File(s)…</Menu.Item>
+                {#if !$isMobile$}
+                  <Menu.Item onSelect={() => folderImportElm.click()}>Import Folder(s)…</Menu.Item>
+                {/if}
+                <Menu.Item onSelect={() => backupImportElm.click()}>Import Backup…</Menu.Item>
+                <Menu.Separator />
+                <Menu.Item onSelect={() => goto(resolve('/import-ttu'))}
+                  >Import from Ttu Ebook Reader…</Menu.Item
+                >
+              </Menu.SubContent>
+            </Menu.Sub>
+            <Menu.Separator />
+            <Menu.Item onSelect={() => goto(resolve('/connections'))}>Accounts and Libraries</Menu.Item>
+            <Menu.Item onSelect={() => goto(resolve('/statistics'))}>Statistics</Menu.Item>
+            <Menu.Item onSelect={() => goto(resolve('/settings'))}>Settings</Menu.Item>
+            <Menu.Item onSelect={() => goto(resolve('/shared-library'))}>Shared Libraries</Menu.Item>
+            {#if sources.length > 1}
+              <Menu.Separator />
+              <Menu.Sub>
+                <Menu.SubTrigger>Storage View</Menu.SubTrigger>
+                <Menu.SubContent class="w-64">
+                  <Menu.Label>Legacy storage views</Menu.Label>
+                  <Menu.RadioGroup
+                    value={$storageSource$}
+                    onValueChange={(value) => sourceChanged(value as StorageKey)}
+                  >
+                    {#each sources as source (source.key)}
+                      <Menu.RadioItem
+                        value={source.key}
+                        disabled={source.online && !$isOnline$}>{source.label}</Menu.RadioItem
+                      >
+                    {/each}
+                  </Menu.RadioGroup>
+                </Menu.SubContent>
+              </Menu.Sub>
+            {/if}
+            <Menu.Separator />
+            <Menu.Item onSelect={() => dispatch('bugReportClick')}>Report an Issue</Menu.Item>
+            {#if isOldUrl}
+              <Menu.Item onSelect={() => dispatch('domainHintClick')}>Old Domain Information</Menu.Item>
+            {/if}
+            {#if showLoadCount}
+              <Menu.Item onSelect={() => countImportElm.click()}
+                >Import Character Counts{$fileCountData$ ? ' (Loaded)' : ''}</Menu.Item
+              >
+            {/if}
+          </Menu.Content>
+        </Menu.Root>
+      </div>
+    </div>
+    {#if replicationToProgress}
+      <div class="mx-auto flex min-h-14 max-w-6xl items-center gap-2 px-4 pb-3 sm:px-6">
+        <Button variant="outline" onclick={() => dispatch('cancelReplication')} title={cancelTooltip}
+          >Cancel Operation</Button
+        >
+        <progress
+          class="h-2 min-w-20 flex-1"
+          aria-label="Export progress"
+          value={replicationProgress}
+          max={replicationToProgress}
+        ></progress>
+        <span role="status" class="whitespace-nowrap text-sm">{replicationProgressRemaining}</span>
+      </div>
+    {:else if selectMode}
+      <div
+        class="mx-auto flex min-h-14 max-w-6xl flex-wrap items-center gap-2 border-t border-border/60 px-4 py-2 sm:px-6"
+        aria-label="Book selection"
+      >
+        <Button variant="ghost" onclick={() => (selectMode = false)}>Cancel Selection</Button>
+        <span class="whitespace-nowrap text-sm" aria-live="polite">{selectedCount} selected</span>
+        <Button variant="outline" onclick={() => dispatch('selectAllClick')}>Select All</Button>
+        {#if selectedCount > 0}
+          <Button variant="secondary" onclick={() => dispatch('replicateData')}>Export</Button>
+          <ActionMenu label="Actions" title="Selected book actions">
+            <Menu.Item onSelect={() => dispatch('selectionToStatistics')}
+              >Statistics for Selected Books</Menu.Item
+            >
+            <Menu.Item variant="destructive" onSelect={() => dispatch('deleteStatistics')}
+              >Delete Selected Statistics</Menu.Item
+            >
+            <Menu.Separator />
+            <Menu.Item variant="destructive" onSelect={() => dispatch('removeClick')}
+              >Delete Selected Books</Menu.Item
+            >
+          </ActionMenu>
+        {/if}
+      </div>
+    {/if}
+  </header>
+{:else}
 <header
   class="app-header border-b border-border bg-card text-foreground"
   aria-label="Library toolbar"
@@ -256,3 +393,5 @@
     {/if}
   </div>
 </header>
+
+{/if}
