@@ -155,7 +155,7 @@
 {#if isOpen}
   <div
     data-popover
-    class="max-w-60vw absolute z-10 rounded bg-surface-raised text-sm font-bold text-ink md:max-w-lg"
+    class="max-w-60vw absolute z-10 rounded bg-card text-sm font-bold text-foreground md:max-w-lg"
     class:whitespace-pre-wrap={contentText}
     bind:this={popoverElement}
   >

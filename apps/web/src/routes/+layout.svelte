@@ -8,7 +8,12 @@
   import { basePath, clearConsoleOnReload } from '$lib/data/env';
   import { dialogManager, type Dialog } from '$lib/data/dialog-manager';
   import { userFontsCacheName, type UserFont } from '$lib/data/fonts';
-  import { fontFamilyGroupOne$, isOnline$, userFonts$, yuKyokashoAvailable$ } from '$lib/data/store';
+  import {
+    fontFamilyGroupOne$,
+    isOnline$,
+    userFonts$,
+    yuKyokashoAvailable$
+  } from '$lib/data/store';
   import { dummyFn, isMobile, isMobile$ } from '$lib/functions/utils';
   import AppearanceRuntime from '$lib/appearance/runtime.svelte';
   import { buildLocalFontStyleSheet } from '$lib/functions/book-security/local-media';
@@ -18,6 +23,7 @@
     YU_KYOKASHO
   } from '$lib/data/reader-typography';
   import { MetaTags } from 'svelte-meta-tags';
+  import '../app.css';
   import '../app.scss';
 
   let path = '';

@@ -35,7 +35,7 @@
       .querySelector('meta[name="theme-color"]')
       ?.setAttribute(
         'content',
-        themeProperties($theme$, $resolvedMode$, $customThemes$ ?? {}).canvas
+        themeProperties($theme$, $resolvedMode$, $customThemes$ ?? {}).background
       );
   }
   let target: BackgroundTarget | undefined;

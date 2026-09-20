@@ -1389,7 +1389,7 @@
 
 <style>
   .highlight {
-    box-shadow: 0 0 0 2px var(--accent);
+    box-shadow: 0 0 0 2px var(--primary);
   }
 
   @media (min-width: 1024px) {

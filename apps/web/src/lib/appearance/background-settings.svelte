@@ -122,7 +122,7 @@
 <style>
   fieldset {
     min-width: 0;
-    border: 1px solid var(--line);
+    border: 1px solid var(--border);
     border-radius: 0.75rem;
     padding: 1rem;
   }
@@ -181,7 +181,7 @@
     font-size: 0.875rem;
   }
   button {
-    border: 1px solid var(--line);
+    border: 1px solid var(--border);
     border-radius: 0.3rem;
     padding: 0.35rem 0.7rem;
   }
@@ -190,7 +190,7 @@
   }
   .filename {
     overflow-wrap: anywhere;
-    color: var(--muted);
+    color: var(--muted-foreground);
     font-size: 0.8rem;
     margin-top: 0.4rem;
   }
@@ -210,12 +210,12 @@
     width: 100%;
   }
   .fade-note {
-    color: var(--muted);
+    color: var(--muted-foreground);
     font-size: 0.8rem;
     margin-top: 0.3rem;
   }
   .error {
-    color: var(--danger);
+    color: var(--destructive);
     margin-top: 0.5rem;
   }
 </style>

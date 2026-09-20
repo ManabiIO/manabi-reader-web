@@ -124,7 +124,7 @@
       tabindex="0"
       role="button"
       title={canSave ? 'Save' : 'Select a File and Font name to save'}
-      class:text-muted={!canSave}
+      class:text-muted-foreground={!canSave}
       class:cursor-not-allowed={!canSave}
       on:click={() => {
         if (canSave) {

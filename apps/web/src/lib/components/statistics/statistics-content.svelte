@@ -846,7 +846,7 @@
 {/if}
 {#if $statisticsTitleFilterIsOpen$}
   <div
-    class="writing-horizontal-tb fixed top-0 right-0 z-[60] flex h-full w-full max-w-xl flex-col justify-between bg-surface-raised text-ink"
+    class="writing-horizontal-tb fixed top-0 right-0 z-[60] flex h-full w-full max-w-xl flex-col justify-between bg-card text-foreground"
     in:fly|local={{ x: 100, duration: 100, easing: quintInOut }}
     use:clickOutside={() => ($statisticsTitleFilterIsOpen$ = false)}
   >
@@ -860,7 +860,7 @@
   </div>
 {/if}
 {#if $statisticsActionInProgress$}
-  <div class="tap-highlight-transparent fixed inset-0 bg-black/[.2] z-[70]" ></div>
+  <div class="tap-highlight-transparent fixed inset-0 bg-black/[.2] z-[70]"></div>
   <div class="flex fixed items-center justify-center inset-0 h-full w-full text-7xl">
     <Fa icon={faSpinner} spin />
   </div>

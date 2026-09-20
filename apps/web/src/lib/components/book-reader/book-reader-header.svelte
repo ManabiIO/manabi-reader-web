@@ -99,7 +99,7 @@
   }
 </script>
 
-<div class="flex justify-between bg-surface-raised px-4 md:px-8 {baseHeaderClasses}">
+<div class="flex justify-between bg-card px-4 md:px-8 {baseHeaderClasses}">
   <div class="flex transform-gpu {nTranslateXHeaderFa}">
     {#if hasChapterData}
       <div
@@ -167,12 +167,12 @@
           <div slot="icon" title="Open Custom Point Actions" class={baseIconClasses}>
             <Fa icon={faCrosshairs} />
           </div>
-          <div class="w-40 bg-surface-raised md:w-32" slot="content">
+          <div class="w-40 bg-card md:w-32" slot="content">
             {#each customReadingPointMenuItems as actionItem (actionItem.label)}
               <div
                 tabindex="0"
                 role="button"
-                class="px-4 py-2 text-sm hover:bg-surface hover:text-ink"
+                class="px-4 py-2 text-sm hover:bg-muted hover:text-foreground"
                 on:click={() => dispatchCustomReadingPointAction(actionItem.action)}
                 on:keyup={dummyFn}
               >

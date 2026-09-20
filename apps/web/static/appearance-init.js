@@ -80,7 +80,7 @@
         var reading = mode === (dark ? 'dark' : 'light') ? n : Math.round(n * 0.1 + canvas * 0.9);
         return Math.round(canvas * 0.92 + reading * 0.08);
       });
-      root.style.setProperty('--' + mode + '-canvas', 'rgba(' + rgb.join(', ') + ', 1)');
+      root.style.setProperty('--' + mode + '-background', 'rgba(' + rgb.join(', ') + ', 1)');
     });
   }
   root.dataset.theme = theme === 'system-theme' ? 'manabi-theme' : theme;

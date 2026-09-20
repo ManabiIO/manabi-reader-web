@@ -60,18 +60,18 @@
   }
   button {
     padding: 0.55rem 1.05rem;
-    border: 1px solid var(--line);
+    border: 1px solid var(--border);
     border-radius: 0.5rem;
-    background: var(--surface);
-    color: var(--ink);
+    background: var(--muted);
+    color: var(--foreground);
   }
   button[aria-pressed='true'] {
-    background: var(--accent);
-    color: var(--on-accent);
-    border-color: var(--accent);
+    background: var(--primary);
+    color: var(--primary-foreground);
+    border-color: var(--primary);
   }
   .description {
-    color: var(--muted);
+    color: var(--muted-foreground);
     max-width: 65ch;
     font-size: 0.875rem;
     margin: 0.75rem 0 1rem;

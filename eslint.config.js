@@ -113,6 +113,14 @@ module.exports = (async () => {
       }
     },
     {
+      files: [
+        'apps/web/src/lib/components/ui/**/*.ts',
+        'apps/web/src/lib/hooks/**/*.ts',
+        'apps/web/src/lib/utils.ts'
+      ],
+      rules: { 'headers/header-format': 'off' }
+    },
+    {
       files: ['service-worker.ts'],
       rules: {
         'headers/header-format': 'off'

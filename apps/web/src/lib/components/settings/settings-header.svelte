@@ -30,8 +30,8 @@
       {#each settingItems as settingItem (settingItem.label)}
         <button
           class="flex grow flex-col items-center justify-center text-xs"
-          class:bg-surface-hover={activeSettings === settingItem.label}
-          class:hover:bg-surface-hover={activeSettings !== settingItem.label}
+          class:bg-accent={activeSettings === settingItem.label}
+          class:hover:bg-accent={activeSettings !== settingItem.label}
           on:click={() => (activeSettings = settingItem.label)}
         >
           <Fa class="mb-1" icon={settingItem.icon} />

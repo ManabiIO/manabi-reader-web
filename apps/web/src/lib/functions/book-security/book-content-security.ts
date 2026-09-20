@@ -163,7 +163,7 @@ const CSS_PROPERTIES = new Set([
   'text-align-last',
   'text-indent',
   'text-decoration',
-  'text-decoration-line',
+  'text-decoration-border',
   'text-decoration-style',
   'text-decoration-color',
   'text-emphasis',

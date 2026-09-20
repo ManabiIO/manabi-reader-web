@@ -28,8 +28,8 @@
       <button
         type="button"
         aria-pressed={(selectedFont ?? fontValue) === font}
-        class="block w-full px-4 py-2 text-left hover:bg-surface-hover"
-        class:text-accent={(selectedFont ?? fontValue) === font}
+        class="block w-full px-4 py-2 text-left hover:bg-accent"
+        class:text-primary={(selectedFont ?? fontValue) === font}
         on:click={() => {
           fontValue = font;
           element.toggleOpen();

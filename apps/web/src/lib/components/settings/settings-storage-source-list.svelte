@@ -247,7 +247,7 @@
       <Ripple />
     </button>
   </div>
-  <hr class="border border-line" />
+  <hr class="border border-border" />
   <div class="mt-6">
     {#if !listLoading && storageSources}
       <div class="grid grid-cols-1 gap-x-8 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">
@@ -267,7 +267,7 @@
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox={icon.viewBox}
               >
-                <path class="fill-current" d={icon.d} ></path>
+                <path class="fill-current" d={icon.d}></path>
               </svg>
               <div class="ml-3 self-center">{storageSource.name}</div>
             </div>
@@ -335,5 +335,5 @@
       </div>
     {/if}
   </div>
-  <div ></div>
+  <div></div>
 </div>

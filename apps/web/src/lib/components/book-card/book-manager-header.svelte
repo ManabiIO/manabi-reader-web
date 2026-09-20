@@ -368,16 +368,16 @@
                   </svg>
                 {/key}
               </div>
-              <div class="w-40 bg-surface-raised" slot="content">
+              <div class="w-40 bg-card" slot="content">
                 {#each storageSourceMenuItems as sourceMenuItem (sourceMenuItem.key)}
                   <div
                     tabindex="0"
                     role="button"
-                    class="cursor-pointer px-4 py-2 text-sm hover:bg-surface hover:text-ink"
-                    class:hover:bg-surface={!sourceMenuItem.requiresConnectivity || $isOnline$}
-                    class:hover:text-ink={!sourceMenuItem.requiresConnectivity || $isOnline$}
+                    class="cursor-pointer px-4 py-2 text-sm hover:bg-muted hover:text-foreground"
+                    class:hover:bg-muted={!sourceMenuItem.requiresConnectivity || $isOnline$}
+                    class:hover:text-foreground={!sourceMenuItem.requiresConnectivity || $isOnline$}
                     class:cursor-not-allowed={sourceMenuItem.requiresConnectivity && !$isOnline$}
-                    class:text-muted={sourceMenuItem.requiresConnectivity && !$isOnline$}
+                    class:text-muted-foreground={sourceMenuItem.requiresConnectivity && !$isOnline$}
                     on:click={async () => {
                       if (sourceMenuItem.requiresConnectivity && !$isOnline$) {
                         return;
@@ -419,7 +419,7 @@
                   <Fa icon={faArrowDownWideShort} />
                 {/if}
               </div>
-              <div class="w-44 bg-surface-raised" slot="content">
+              <div class="w-44 bg-card" slot="content">
                 {#each sortMenuItems as sortMenuItem (sortMenuItem.property)}
                   {@const isCurrentSort =
                     $booklistSortOptions$[$storageSource$].property === sortMenuItem.property}
@@ -427,9 +427,9 @@
                     isCurrentSort &&
                     $booklistSortOptions$[$storageSource$].direction === SortDirection.ASC}
                   <div
-                    class="grid cursor-default grid-cols-[auto_auto_auto] text-sm hover:bg-surface hover:text-ink"
-                    class:bg-surface={isCurrentSort}
-                    class:text-ink={isCurrentSort}
+                    class="grid cursor-default grid-cols-[auto_auto_auto] text-sm hover:bg-muted hover:text-foreground"
+                    class:bg-muted={isCurrentSort}
+                    class:text-foreground={isCurrentSort}
                     class:hover:opacity-70={isCurrentSort}
                   >
                     <div
@@ -437,7 +437,7 @@
                       role="button"
                       class="self-center justify-self-start"
                       class:text-red-500={isCurrentSortAsc}
-                      class:hover:text-ink={isCurrentSortAsc}
+                      class:hover:text-foreground={isCurrentSortAsc}
                       class:hover:text-red-500={!isCurrentSortAsc}
                       on:click={() => {
                         changeSortOptions(sortMenuItem.property, SortDirection.ASC);
@@ -454,7 +454,7 @@
                       role="button"
                       class="justify-self-end hover:text-red-500"
                       class:text-red-500={isCurrentSort && !isCurrentSortAsc}
-                      class:hover:text-ink={isCurrentSort && !isCurrentSortAsc}
+                      class:hover:text-foreground={isCurrentSort && !isCurrentSortAsc}
                       class:hover:text-red-500={!isCurrentSort || isCurrentSortAsc}
                       on:click={() => {
                         changeSortOptions(sortMenuItem.property, SortDirection.DESC);

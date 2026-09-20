@@ -55,11 +55,19 @@ test('all 14 preset variants have readable UI surfaces and independent reading p
   for (const id of availableThemes.keys())
     for (const mode of ['light', 'dark']) {
       const p = themeProperties(id, mode);
-      for (const surface of ['canvas', 'surface', 'surface-raised', 'surface-hover']) {
-        assert.ok(contrast(p.ink, p[surface]) >= 4.5, `${id}/${mode} text on ${surface}`);
-        assert.ok(contrast(p.muted, p[surface]) >= 4.5, `${id}/${mode} muted on ${surface}`);
+      for (const surface of ['background', 'muted', 'card', 'accent']) {
+        assert.ok(contrast(p['foreground'], p[surface]) >= 4.5, `${id}/${mode} text on ${surface}`);
+        assert.ok(
+          contrast(p['muted-foreground'], p[surface]) >= 4.5,
+          `${id}/${mode} muted on ${surface}`
+        );
       }
-      assert.ok(contrast(p.accent === 'var(--manabi-red)' ? '#a33539' : p.accent, p.canvas) >= 4.5);
+      assert.ok(
+        contrast(
+          p['primary'] === 'var(--manabi-red)' ? '#a33539' : p['primary'],
+          p['background']
+        ) >= 4.5
+      );
       assert.ok(Object.values(themeForMode(id, mode)).every(parseColor));
     }
   assert.equal(themeForMode('manabi-theme', 'light').backgroundColor, 'rgba(255, 255, 255, 1)');
@@ -155,14 +163,11 @@ test('selection and meaningful control borders have actual composited contrast',
   for (const id of availableThemes.keys())
     for (const mode of ['light', 'dark']) {
       const p = themeProperties(id, mode);
-      const selection = over(p['reader-selection-background-color'], p.canvas);
+      const selection = over(p['reader-selection-background-color'], p['background']);
       const selectedText = over(p['reader-selection-font-color'], selection);
       assert.ok(contrast(selectedText, selection) >= 4.5, `${id}/${mode} selected text`);
-      for (const surface of ['canvas', 'surface', 'surface-raised', 'surface-hover'])
-        assert.ok(
-          contrast(p['control-line'], p[surface]) >= 3,
-          `${id}/${mode} control on ${surface}`
-        );
+      for (const surface of ['background', 'muted', 'card', 'accent'])
+        assert.ok(contrast(p['input'], p[surface]) >= 3, `${id}/${mode} control on ${surface}`);
     }
 });
 
@@ -176,10 +181,10 @@ test('custom reading colors do not make application chrome unreadable', () => {
       const saved = { personal: palette };
       for (const mode of ['light', 'dark']) {
         const p = themeProperties('personal', mode, saved);
-        for (const surface of ['canvas', 'surface', 'surface-raised', 'surface-hover']) {
-          assert.ok(contrast(p.ink, p[surface]) >= 4.5);
-          assert.ok(contrast(p.muted, p[surface]) >= 4.5);
-          assert.ok(contrast(p['control-line'], p[surface]) >= 3);
+        for (const surface of ['background', 'muted', 'card', 'accent']) {
+          assert.ok(contrast(p['foreground'], p[surface]) >= 4.5);
+          assert.ok(contrast(p['muted-foreground'], p[surface]) >= 4.5);
+          assert.ok(contrast(p['input'], p[surface]) >= 3);
         }
       }
       assert.deepEqual(themeForMode('personal', shade < 128 ? 'dark' : 'light', saved), palette);
@@ -218,10 +223,10 @@ test('bootstrap handles damaged optional JSON, hex colors, transparency and expl
       assert.equal(root.dataset.appearance, expected, `${raw}/${appearance}`);
       assert.equal(nativeScheme, expected === 'system' ? 'light dark' : expected);
       for (const mode of ['light', 'dark'])
-        if (styles[`--${mode}-canvas`])
+        if (styles[`--${mode}-background`])
           assert.equal(
-            styles[`--${mode}-canvas`],
-            themeProperties('personal', mode, parsed).canvas
+            styles[`--${mode}-background`],
+            themeProperties('personal', mode, parsed).background
           );
     }
 });
@@ -260,7 +265,7 @@ test('custom names that match Object.prototype retain both mode variants', () =>
     assert.ok(Object.hasOwn(decoded, name));
     for (const mode of ['light', 'dark']) {
       assert.ok(Object.values(themeForMode(name, mode, decoded)).every(parseColor));
-      assert.ok(parseColor(themeProperties(name, mode, decoded).canvas));
+      assert.ok(parseColor(themeProperties(name, mode, decoded).background));
     }
     assert.equal(JSON.stringify(decoded), saved);
   }

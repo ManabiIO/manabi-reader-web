@@ -32,12 +32,12 @@
         class="m-1 rounded-md border-2 p-2 text-lg"
         aria-pressed={option.id === selectedOptionId}
         class:border-4={option.thickBorders && option.id === selectedOptionId}
-        class:border-line={option.id !== selectedOptionId}
-        class:border-accent={option.id === selectedOptionId}
-        class:bg-accent={option.id === selectedOptionId}
-        class:text-on-accent={option.id === selectedOptionId}
-        class:text-ink={option.id !== selectedOptionId}
-        class:bg-surface={option.id !== selectedOptionId}
+        class:border-border={option.id !== selectedOptionId}
+        class:border-primary={option.id === selectedOptionId}
+        class:bg-primary={option.id === selectedOptionId}
+        class:text-primary-foreground={option.id === selectedOptionId}
+        class:text-foreground={option.id !== selectedOptionId}
+        class:bg-muted={option.id !== selectedOptionId}
         style={mapToStyleString(option.style)}
         on:click={() => (selectedOptionId = option.id)}
       >

@@ -67,11 +67,11 @@
       bind:this={menuElm}
     >
       <div slot="icon" class={baseIconClasses}><Fa icon={mergeTo.icon} /></div>
-      <div class="w-64 max-w-[80vw] bg-surface-raised" slot="content">
+      <div class="w-64 max-w-[80vw] bg-card" slot="content">
         {#each actionItems as actionItem (actionItem.label)}
           <button
             type="button"
-            class="block w-full px-4 py-2 text-left text-sm hover:bg-surface hover:text-ink"
+            class="block w-full px-4 py-2 text-left text-sm hover:bg-muted hover:text-foreground"
             title={actionItem.title}
             on:click={() => handleActionMenuItem(actionItem.label)}>{actionItem.label}</button
           >

@@ -80,16 +80,16 @@ class AppearanceBrowser(baseline.ReaderBrowser):
                     self.assertEqual(mode.lower(), self.scheme())
                     palette = self.page.locator('html').evaluate('''e => {
                       const style = getComputedStyle(e);
-                      return Object.fromEntries(['canvas', 'surface-raised', 'ink'].map(key => [
+                      return Object.fromEntries(['background', 'card', 'foreground'].map(key => [
                         key, style.getPropertyValue('--' + key).trim().replace('rgba(', 'rgb(').replace(', 1)', ')')
                       ]));
                     }''')
                     # Inputs intentionally animate color changes. Require final
                     # rendered values, not whichever frame a single read hits.
-                    expect(self.page.locator('.app-header').first).to_have_css('background-color', palette['surface-raised'])
+                    expect(self.page.locator('.app-header').first).to_have_css('background-color', palette['card'])
                     field = self.page.locator('input[type="number"]').first
-                    expect(field).to_have_css('background-color', palette['canvas'])
-                    expect(field).to_have_css('color', palette['ink'])
+                    expect(field).to_have_css('background-color', palette['background'])
+                    expect(field).to_have_css('color', palette['foreground'])
             self.page.screenshot(path='test-results/palette-' + theme + '.png', full_page=True)
         self.page.goto(self.origin + '/Reader-Web/statistics')
         self.assertEqual('dark', self.scheme())

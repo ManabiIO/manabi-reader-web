@@ -570,7 +570,7 @@
           {#if browser}
             <button
               aria-label="Add custom theme"
-              class="m-1 rounded-md border-2 border-line p-2 text-lg"
+              class="m-1 rounded-md border-2 border-border p-2 text-lg"
               on:click={() =>
                 dialogManager.dialogs$.next([
                   {

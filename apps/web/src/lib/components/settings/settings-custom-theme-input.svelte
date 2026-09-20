@@ -35,7 +35,7 @@
 <input
   aria-label={`${label} color`}
   type="color"
-  class="border border-line"
+  class="border border-border"
   value={values.hexExpression}
   on:change={handleColorChange}
 />

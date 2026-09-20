@@ -86,15 +86,15 @@
           {#each tabs as tab (tab)}
             <li class="flex-1">
               <button
-                class="relative flex items-center justify-center gap-2 px-1 py-3 hover:text-accent"
-                class:text-accent={currentTab === tab}
+                class="relative flex items-center justify-center gap-2 px-1 py-3 hover:text-primary"
+                class:text-primary={currentTab === tab}
                 class:after:absolute={currentTab === tab}
                 class:after:left-0={currentTab === tab}
                 class:after:bottom-0={currentTab === tab}
                 class:after:h-0.5={currentTab === tab}
                 class:after:w-full={currentTab === tab}
-                class:after:bg-accent={currentTab === tab}
-                class:text-muted={currentTab !== tab}
+                class:after:bg-primary={currentTab === tab}
+                class:text-muted-foreground={currentTab !== tab}
                 on:click={() => (currentTab = tab)}
               >
                 {tab}
@@ -114,7 +114,7 @@
                   tabindex="0"
                   role="button"
                   title="Click to select Font"
-                  class="hover:text-accent"
+                  class="hover:text-primary"
                   on:click={() => selectFont(userFont.name)}
                   on:keyup={dummyFn}
                 >
@@ -124,7 +124,7 @@
                   tabindex="0"
                   role="button"
                   title="Click to select Font"
-                  class="hover:text-accent"
+                  class="hover:text-primary"
                   on:click={() => selectFont(userFont.name)}
                   on:keyup={dummyFn}
                 >
@@ -134,7 +134,7 @@
                   tabindex="0"
                   role="button"
                   title="Remove Font"
-                  class="hover:text-accent"
+                  class="hover:text-primary"
                   on:click={() => removeFont(userFont.path)}
                   on:keyup={dummyFn}
                 >
