@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import {
   japaneseFontStack,
-  normalizePrimaryReaderFont,
+  effectivePrimaryReaderFont,
   resolveReaderFont,
   JAPANESE_FALLBACK_FONT,
   LEGACY_SYSTEM_JAPANESE,
@@ -34,13 +34,16 @@ test('YuKyokasho and its released alias resolve to the directional native stack'
   for (const font of ['Noto Serif JP', 'My Custom Font', '"A, B", serif', 'Klee One SemiBold'])
     assert.ok(resolveReaderFont(font, false).startsWith(font + ', '));
 });
-test('unavailable YuKyokasho normalizes to Klee One without rewriting explicit choices', () => {
-  assert.equal(normalizePrimaryReaderFont(YU_KYOKASHO, true), YU_KYOKASHO);
-  assert.equal(normalizePrimaryReaderFont(LEGACY_SYSTEM_JAPANESE, true), YU_KYOKASHO);
-  assert.equal(normalizePrimaryReaderFont(YU_KYOKASHO, false), JAPANESE_FALLBACK_FONT);
-  assert.equal(normalizePrimaryReaderFont(LEGACY_SYSTEM_JAPANESE, false), JAPANESE_FALLBACK_FONT);
-  assert.equal(normalizePrimaryReaderFont('', false), JAPANESE_FALLBACK_FONT);
-  assert.equal(normalizePrimaryReaderFont('Noto Serif JP', false), 'Noto Serif JP');
+test('device fallback does not rewrite the portable preferred font', () => {
+  assert.equal(effectivePrimaryReaderFont(YU_KYOKASHO, true), YU_KYOKASHO);
+  assert.equal(effectivePrimaryReaderFont(LEGACY_SYSTEM_JAPANESE, true), YU_KYOKASHO);
+  assert.equal(effectivePrimaryReaderFont(YU_KYOKASHO, false), JAPANESE_FALLBACK_FONT);
+  assert.equal(
+    effectivePrimaryReaderFont(LEGACY_SYSTEM_JAPANESE, false),
+    JAPANESE_FALLBACK_FONT
+  );
+  assert.equal(effectivePrimaryReaderFont('', false), JAPANESE_FALLBACK_FONT);
+  assert.equal(effectivePrimaryReaderFont('Noto Serif JP', false), 'Noto Serif JP');
 });
 test('malformed or unbounded preference values fall back safely', () => {
   for (const value of [null, undefined, {}, 42, '', '   ', 'x'.repeat(1025)])
@@ -51,6 +54,9 @@ test('malformed or unbounded preference values fall back safely', () => {
 // separately uses actual CSS fonts, frames, HTTP and service workers.
 function layoutHarness() {
   const fonts = new EventTarget();
+  const faces = [];
+  fonts[Symbol.iterator] = () => faces[Symbol.iterator]();
+  fonts.forEach = (fn) => faces.forEach(fn);
   let resolve;
   fonts.ready = new Promise((r) => {
     resolve = r;
@@ -78,6 +84,21 @@ function layoutHarness() {
     fonts,
     element,
     resolve: () => resolve(),
+    loadingFace: () => {
+      let resolveFace;
+      const face = {
+        status: 'loading',
+        loaded: new Promise((resolve) => {
+          resolveFace = resolve;
+        })
+      };
+      faces.push(face);
+      fonts.dispatchEvent(new Event('loading'));
+      return () => {
+        face.status = 'loaded';
+        resolveFace(face);
+      };
+    },
     get layouts() {
       return layouts;
     },
@@ -126,6 +147,20 @@ test('slow fonts do not indefinitely block the book, later completion can remeas
   assert.equal(h.notifications, 2);
   stop();
 });
+test('individual face completion remeasures even while the global font set stays pending', async () => {
+  const h = layoutHarness();
+  const stop = observeReaderFontLayout(h.element, h.notify, 5);
+  const finishFace = h.loadingFace();
+  await new Promise((r) => setTimeout(r, 12));
+  h.flush();
+  assert.equal(h.notifications, 1);
+  finishFace();
+  await Promise.resolve();
+  h.flush();
+  assert.equal(h.notifications, 2);
+  stop();
+});
+
 test('load errors let native fallback render, disconnected elements cannot notify', () => {
   const h = layoutHarness();
   const stop = observeReaderFontLayout(h.element, h.notify);

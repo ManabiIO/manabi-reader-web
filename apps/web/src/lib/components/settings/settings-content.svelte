@@ -25,7 +25,10 @@
   import { BlurMode } from '$lib/data/blur-mode';
   import { dialogManager } from '$lib/data/dialog-manager';
   import { LocalFont } from '$lib/data/fonts';
-  import { detectYuKyokashoAvailability } from '$lib/data/reader-typography';
+  import {
+    effectivePrimaryReaderFont,
+    YU_KYOKASHO
+  } from '$lib/data/reader-typography';
   import { FuriganaStyle } from '$lib/data/furigana-style';
   import { ImportHTMLFixMode } from '$lib/data/import-html-fix-mode';
   import { logger } from '$lib/data/logger';
@@ -61,7 +64,7 @@
   } from '$lib/functions/replication/replication-options';
   import { map } from 'rxjs';
   import Fa from 'svelte-fa';
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy } from 'svelte';
 
   export let selectedTheme: string;
 
@@ -71,7 +74,8 @@
 
   export let fontFamilyGroupTwo: string;
 
-  let yuKyokashoAvailable = false;
+  export let yuKyokashoAvailable: boolean | undefined = undefined;
+
   const primaryFontsWithoutYuKyokasho = [
     LocalFont.NOTOSERIFJP,
     LocalFont.KZUDMINCHO,
@@ -81,19 +85,31 @@
     LocalFont.KLEEONESEMIBOLD,
     LocalFont.SERIF
   ];
-  $: availablePrimaryFonts = yuKyokashoAvailable
-    ? [LocalFont.YUKYOKASHO, ...primaryFontsWithoutYuKyokasho]
-    : primaryFontsWithoutYuKyokasho;
+  $: availablePrimaryFonts =
+    yuKyokashoAvailable === true
+      ? [LocalFont.YUKYOKASHO, ...primaryFontsWithoutYuKyokasho]
+      : primaryFontsWithoutYuKyokasho;
+  let editingPrimaryFont = false;
+  let primaryFontInput = '';
+  $: if (!editingPrimaryFont) {
+    primaryFontInput = effectivePrimaryReaderFont(fontFamilyGroupOne, yuKyokashoAvailable);
+  }
 
-  onMount(() => {
-    let active = true;
-    void detectYuKyokashoAvailability().then((available) => {
-      if (active) yuKyokashoAvailable = available;
-    });
-    return () => {
-      active = false;
-    };
-  });
+  function commitPrimaryFont() {
+    editingPrimaryFont = false;
+    fontFamilyGroupOne = primaryFontInput.trim() || YU_KYOKASHO;
+    primaryFontInput = effectivePrimaryReaderFont(fontFamilyGroupOne, yuKyokashoAvailable);
+  }
+
+  function handlePrimaryFontKeydown(event: KeyboardEvent) {
+    const target = event.currentTarget;
+    if (!(target instanceof HTMLInputElement)) return;
+    if (event.key === 'Enter') target.blur();
+    if (event.key !== 'Escape') return;
+    editingPrimaryFont = false;
+    primaryFontInput = effectivePrimaryReaderFont(fontFamilyGroupOne, yuKyokashoAvailable);
+    target.blur();
+  }
 
   export let fontWeight: number | null;
 
@@ -576,7 +592,7 @@
       fallback. Optional fonts download only when used and can remain available offline when
       browser storage permits. Existing explicit font choices are kept.
     </p>
-    <SettingsItemGroup title="Font family (Group 1)">
+    <SettingsItemGroup title="Primary / Serif font">
       <div slot="header" class="flex items-center">
         <SettingsFontSelector
           availableFonts={availablePrimaryFonts}
@@ -603,11 +619,15 @@
       <input
         type="text"
         class={inputClasses}
-        placeholder="YuKyokasho"
-        bind:value={fontFamilyGroupOne}
+        aria-label="Primary / Serif font"
+        placeholder={yuKyokashoAvailable === false ? 'Klee One' : 'YuKyokasho'}
+        bind:value={primaryFontInput}
+        on:focus={() => (editingPrimaryFont = true)}
+        on:blur={commitPrimaryFont}
+        on:keydown={handlePrimaryFontKeydown}
       />
     </SettingsItemGroup>
-    <SettingsItemGroup title="Font family (Group 2)">
+    <SettingsItemGroup title="Sans-serif font">
       <div slot="header" class="flex items-center">
         <SettingsFontSelector
           availableFonts={[
@@ -638,6 +658,7 @@
       <input
         type="text"
         class={inputClasses}
+        aria-label="Sans-serif font"
         placeholder="System Sans"
         bind:value={fontFamilyGroupTwo}
       />

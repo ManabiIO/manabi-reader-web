@@ -26,6 +26,7 @@
     firstDimensionMargin$,
     fontFamilyGroupOne$,
     fontFamilyGroupTwo$,
+    yuKyokashoAvailable$,
     fontSize$,
     fontWeight$,
     furiganaStyle$,
@@ -152,6 +153,7 @@
       bind:selectedTheme={$theme$}
       bind:fontFamilyGroupOne={$fontFamilyGroupOne$}
       bind:fontFamilyGroupTwo={$fontFamilyGroupTwo$}
+      yuKyokashoAvailable={$yuKyokashoAvailable$}
       bind:fontWeight={$fontWeight$}
       bind:fontSize={$fontSize$}
       bind:lineHeight={$lineHeight$}

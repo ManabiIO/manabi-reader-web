@@ -72,6 +72,7 @@ export const fontFamilyGroupTwo$ = writableStringLocalStorageSubject()(
   'fontFamilyGroupTwo',
   SYSTEM_SANS
 );
+export const yuKyokashoAvailable$ = writableSubject<boolean | undefined>(undefined);
 export const fontWeight$ = writableNumberOrNullLocalStorageSubject()('fontWeight', null);
 export const fontSize$ = writableNumberLocalStorageSubject()('fontSize', 20);
 export const lineHeight$ = writableNumberLocalStorageSubject()('lineHeight', 1.65);

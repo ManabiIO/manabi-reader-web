@@ -26,13 +26,18 @@ export function japaneseFontStack(vertical: boolean): string {
 }
 
 /**
- * Normalize only the automatic/native choice. Explicit packaged, imported and custom
- * family names remain user-owned even when CSS ultimately has to use a fallback.
+ * Resolve the device-effective primary font without changing the portable preference.
+ * Explicit packaged, imported and custom family names remain user-owned.
  */
-export function normalizePrimaryReaderFont(value: unknown, yuKyokashoAvailable: boolean): string {
+export function effectivePrimaryReaderFont(
+  value: unknown,
+  yuKyokashoAvailable: boolean | undefined
+): string {
   const family = typeof value === 'string' ? value.trim() : '';
   if (!family || family === LEGACY_SYSTEM_JAPANESE || family === YU_KYOKASHO) {
-    return yuKyokashoAvailable ? YU_KYOKASHO : JAPANESE_FALLBACK_FONT;
+    // Keep YuKyokasho as the portable preference. Availability is device-local,
+    // so a Windows/Linux fallback must not become an account-setting change.
+    return yuKyokashoAvailable === false ? JAPANESE_FALLBACK_FONT : YU_KYOKASHO;
   }
   return family;
 }
@@ -43,14 +48,24 @@ export function normalizePrimaryReaderFont(value: unknown, yuKyokashoAvailable: 
  */
 let yuKyokashoAvailability: Promise<boolean> | undefined;
 
-async function localFontFaceAvailable(source: string): Promise<boolean> {
+async function localFontFaceAvailable(source: string, timeoutMs = 1000): Promise<boolean> {
   if (typeof FontFace === 'undefined') return false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const face = new FontFace('__manabi_yukyokasho_probe__', source);
-    await face.load();
-    return face.status === 'loaded';
+    return await Promise.race([
+      face.load().then(
+        () => face.status === 'loaded',
+        () => false
+      ),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(false), timeoutMs);
+      })
+    ]);
   } catch {
     return false;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
 }
 
@@ -58,7 +73,7 @@ export function detectYuKyokashoAvailability(): Promise<boolean> {
   yuKyokashoAvailability ??= Promise.all([
     localFontFaceAvailable('local("YuKyokasho Medium"), local("YuKyokasho")'),
     localFontFaceAvailable('local("YuKyokasho Yoko Medium"), local("YuKyokasho Yoko")')
-  ]).then((available) => available.some(Boolean));
+  ]).then((available) => available.every(Boolean));
   return yuKyokashoAvailability;
 }
 

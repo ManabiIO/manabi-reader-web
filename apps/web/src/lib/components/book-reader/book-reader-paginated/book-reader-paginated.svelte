@@ -529,6 +529,15 @@
     if (!calculator || !scrollEl) return;
 
     calculator.updateCurrentSection(sectionIndex$.getValue());
+    calculator.updateParagraphPos();
+    if (!scrollWhenReady && concretePageManager) {
+      const scrollPos = calculator.getScrollPosByCharCount(previousIntendedCount);
+      if (scrollPos >= 0) {
+        isResizing = true;
+        concretePageManager.scrollTo(scrollPos, false);
+        isResizing = false;
+      }
+    }
     dispatch('contentChange', scrollEl);
   }
 

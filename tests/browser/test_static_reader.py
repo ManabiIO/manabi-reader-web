@@ -142,6 +142,30 @@ class ReaderBrowser(unittest.TestCase):
         expect(self.page.get_by_text('Manabi account services are not available on this deployment. Local libraries still work.')).to_be_visible()
         self.assertTrue(self.page.get_by_role('link', name='Sign in to Manabi').get_attribute('href').startswith('/accounts/login/'))
 
+    def test_yukyokasho_default_is_device_local_and_requires_both_faces(self):
+        self.page.goto(self.origin + '/Reader-Web/settings')
+        primary = self.page.get_by_label('Primary / Serif font', exact=True)
+        expect(primary).to_be_visible()
+        available = self.page.evaluate('''async () => {
+          const load = async (source) => {
+            let timer;
+            try {
+              const face = new FontFace('__acceptance_yukyokasho__', source);
+              return await Promise.race([
+                face.load().then(() => face.status === 'loaded', () => false),
+                new Promise(resolve => { timer = setTimeout(() => resolve(false), 1000); })
+              ]);
+            } finally { clearTimeout(timer); }
+          };
+          return (await load('local("YuKyokasho Medium"), local("YuKyokasho")')) &&
+            (await load('local("YuKyokasho Yoko Medium"), local("YuKyokasho Yoko")'));
+        }''')
+        expect(primary).to_have_value('YuKyokasho' if available else 'Klee One', timeout=3000)
+        # A device fallback must not replace the portable/account preference.
+        self.assertIsNone(self.page.evaluate('localStorage.getItem("fontFamilyGroupOne")'))
+        self.page.locator('[title="Show available default Fonts"]').click()
+        expect(self.page.get_by_text('YuKyokasho', exact=True)).to_have_count(1 if available else 0)
+
     def test_paginated_ruby_images_and_untrusted_resources(self):
         self.open_book(font='Klee One')
         self.assertEqual('ほん', self.page.locator('.book-content ruby rt').first.text_content())
@@ -155,7 +179,7 @@ class ReaderBrowser(unittest.TestCase):
         self.page.keyboard.press('ArrowLeft')
         expect(self.page.locator('.book-content')).to_be_visible()
 
-    def test_continuous_horizontal_system_font_and_saved_explicit_font(self):
+    def test_continuous_horizontal_saved_explicit_font(self):
         self.open_book('continuous', 'horizontal-tb', font='Klee One')
         self.assertEqual('Klee One', self.first_font())
         # Finish the currently used face before deliberately replacing it. WebKit
@@ -178,7 +202,13 @@ class ReaderBrowser(unittest.TestCase):
             ]);
           } finally { clearTimeout(timer); }
         }'''), 0)
-        self.wait_for_fonts()
+        # WebKit can keep the global FontFaceSet in `loading` after a cancelled
+        # previous face even though the selected face completed. The Reader's
+        # contract is selected-face completion plus usable, refreshed geometry.
+        before = self.page.evaluate('window.scrollY')
+        self.page.keyboard.press('PageDown')
+        self.page.wait_for_function('(before) => window.scrollY != before', arg=before)
+        expect(self.page.locator('.book-content')).to_contain_text('日本語')
 
     def test_offline_reload_preserves_book_and_never_caches_account_requests(self):
         self.page.goto(self.origin + '/Reader-Web/manage')

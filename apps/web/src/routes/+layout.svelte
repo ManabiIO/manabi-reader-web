@@ -8,13 +8,14 @@
   import { basePath, clearConsoleOnReload } from '$lib/data/env';
   import { dialogManager, type Dialog } from '$lib/data/dialog-manager';
   import { userFontsCacheName, type UserFont } from '$lib/data/fonts';
-  import { fontFamilyGroupOne$, isOnline$, userFonts$ } from '$lib/data/store';
+  import { fontFamilyGroupOne$, isOnline$, userFonts$, yuKyokashoAvailable$ } from '$lib/data/store';
   import { dummyFn, isMobile, isMobile$ } from '$lib/functions/utils';
   import AppearanceRuntime from '$lib/appearance/runtime.svelte';
   import { buildLocalFontStyleSheet } from '$lib/functions/book-security/local-media';
   import {
     detectYuKyokashoAvailability,
-    normalizePrimaryReaderFont
+    LEGACY_SYSTEM_JAPANESE,
+    YU_KYOKASHO
   } from '$lib/data/reader-typography';
   import { MetaTags } from 'svelte-meta-tags';
   import '../app.scss';
@@ -23,24 +24,22 @@
   let dialogs: Dialog[] = [];
   let clickOnCloseDisabled = false;
   let zIndex = '';
-  let yuKyokashoAvailable: boolean | undefined;
 
   $: if (browser) {
     isMobile$.next(isMobile(window));
     addUserFonts($userFonts$);
   }
 
-  // "YuKyokasho" is a real local-font choice, not a synthetic system alias.
-  // Keep it selected only while this browser can actually activate either native variant.
-  $: if (browser && yuKyokashoAvailable !== undefined) {
-    const normalized = normalizePrimaryReaderFont($fontFamilyGroupOne$, yuKyokashoAvailable);
-    if (normalized !== $fontFamilyGroupOne$) fontFamilyGroupOne$.next(normalized);
+  // Migrate only the released synthetic name. Device capability is resolved
+  // separately so a local fallback can never overwrite a synced preference.
+  $: if (browser && $fontFamilyGroupOne$ === LEGACY_SYSTEM_JAPANESE) {
+    fontFamilyGroupOne$.next(YU_KYOKASHO);
   }
 
   onMount(() => {
     let active = true;
     void detectYuKyokashoAvailability().then((available) => {
-      if (active) yuKyokashoAvailable = available;
+      if (active) yuKyokashoAvailable$.next(available);
     });
     return () => {
       active = false;

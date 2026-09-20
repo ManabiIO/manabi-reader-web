@@ -16,11 +16,11 @@ export async function runFontAcceptance({ page, context, origin, bookURL, check,
       });
   const openSettings = async () => {
     await page.goto(origin + '/settings');
-    await expect(page.locator('input[placeholder="YuKyokasho"]')).toBeVisible();
+    await expect(page.getByLabel('Primary / Serif font', { exact: true })).toBeVisible();
   };
   const choose = async (family, writingMode = 'horizontal-tb', viewMode = 'paginated') => {
     await openSettings();
-    await page.locator('input[placeholder="YuKyokasho"]').fill(family);
+    await page.getByLabel('Primary / Serif font', { exact: true }).fill(family);
     await page.locator(`button[title="${writingMode}"]`).click();
     await page.locator(`button[title="${viewMode}"]`).click();
     await expect
@@ -56,7 +56,7 @@ export async function runFontAcceptance({ page, context, origin, bookURL, check,
       }
     };
     return (
-      (await load('local("YuKyokasho Medium"), local("YuKyokasho")')) ||
+      (await load('local("YuKyokasho Medium"), local("YuKyokasho")')) &&
       (await load('local("YuKyokasho Yoko Medium"), local("YuKyokasho Yoko")'))
     );
   });
@@ -64,16 +64,20 @@ export async function runFontAcceptance({ page, context, origin, bookURL, check,
     await openSettings();
     await page.evaluate(() => localStorage.removeItem('fontFamilyGroupOne'));
     await page.reload();
-    const expected = yuKyokashoAvailable ? 'YuKyokasho' : 'Klee One';
+    // The portable preference remains YuKyokasho; only the device-effective
+    // selection falls back, so another synced Apple device can still use Yu.
     await expect
       .poll(() => page.evaluate(() => localStorage.getItem('fontFamilyGroupOne')))
-      .toBe(expected);
+      .toBe(null);
+    await expect(page.getByLabel('Primary / Serif font', { exact: true })).toHaveValue(
+      yuKyokashoAvailable ? 'YuKyokasho' : 'Klee One'
+    );
     await page.locator('[title="Show available default Fonts"]').click();
     await expect(page.getByText('YuKyokasho', { exact: true })).toHaveCount(
       yuKyokashoAvailable ? 1 : 0
     );
     await page.locator('[title="Show available default Fonts"]').click();
-    return { yuKyokashoAvailable, expected };
+    return { yuKyokashoAvailable };
   });
   if (yuKyokashoAvailable) {
     for (const viewMode of ['paginated', 'continuous']) {
@@ -152,7 +156,9 @@ export async function runFontAcceptance({ page, context, origin, bookURL, check,
     assert.match((await css()).font, /^"?Noto Serif JP"?,/);
     await openSettings();
     await page.reload();
-    await expect(page.locator('input[placeholder="YuKyokasho"]')).toHaveValue('Noto Serif JP');
+    await expect(
+      page.getByLabel('Primary / Serif font', { exact: true })
+    ).toHaveValue('Noto Serif JP');
   });
   await check('fonts: absent custom face falls back rather than blocking Reader', async () => {
     await choose('ReaderE2EMissingFont');
@@ -169,7 +175,7 @@ export async function runFontAcceptance({ page, context, origin, bookURL, check,
   await check('fonts: late font completion does not block initial reading', async () => {
     // A slow real asset response, not a replacement FontFaceSet/Reader store.
     await openSettings();
-    await page.locator('input[placeholder="YuKyokasho"]').fill('Klee One SemiBold');
+    await page.getByLabel('Primary / Serif font', { exact: true }).fill('Klee One SemiBold');
     const hideFurigana = page
       .locator('section')
       .filter({ has: page.locator('h2').filter({ hasText: /^Hide furigana$/ }) });
