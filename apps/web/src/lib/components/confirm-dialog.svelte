@@ -2,7 +2,7 @@
   import DialogTemplate from '$lib/components/dialog-template.svelte';
   import Ripple from '$lib/components/ripple.svelte';
   import { buttonClasses } from '$lib/css-classes';
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onDestroy } from 'svelte';
 
   export let dialogHeader: string;
   export let dialogMessage: string;
@@ -14,7 +14,13 @@
     close: void;
   }>();
 
+  let settled = false;
+  onDestroy(() => {
+    if (!settled) resolver(true);
+  });
+
   function closeDialog(wasCanceled = false) {
+    settled = true;
     resolver(wasCanceled);
     dispatch('close');
   }

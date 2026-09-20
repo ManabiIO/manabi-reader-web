@@ -36,7 +36,7 @@ class RheaReader(previous.RefinedAppearance):
 
     def test_settings_categories_global_search_and_persistent_values(self):
         self.settings()
-        font = self.page.get_by_label('Font size', exact=True)
+        font = self.page.get_by_role('spinbutton', name='Font size', exact=True)
         expect(font).to_be_hidden()
         self.category('Fonts & text')
         expect(font).to_be_visible()
@@ -52,8 +52,8 @@ class RheaReader(previous.RefinedAppearance):
         expect(self.page.get_by_role('status').filter(has_text='No matching settings')).to_be_visible()
         search.fill('')
         self.category('All settings')
-        for name in ['Primary / Serif font','Sans-serif font','Font size','Line Height']:
-            expect(self.page.get_by_label(name, exact=True)).to_be_visible()
+        for role, name in [('textbox','Primary / Serif font'),('textbox','Sans-serif font'),('spinbutton','Font size'),('spinbutton','Line Height')]:
+            expect(self.page.get_by_role(role, name=name, exact=True)).to_be_visible()
         self.page.reload()
         self.category('Fonts & text')
         expect(font).to_have_value('24')
@@ -68,7 +68,7 @@ class RheaReader(previous.RefinedAppearance):
         expect(choice).to_be_visible()
         choice.focus()
         choice.press('Enter')
-        expect(self.page.get_by_label('Primary / Serif font', exact=True)).to_have_value('Noto Serif JP')
+        expect(self.page.get_by_role('textbox', name='Primary / Serif font', exact=True)).to_have_value('Noto Serif JP')
         self.assertEqual('Noto Serif JP', self.page.evaluate('localStorage.getItem("fontFamilyGroupOne")'))
         expect(trigger).to_be_focused()
 
@@ -103,6 +103,7 @@ class RheaReader(previous.RefinedAppearance):
         before = self.page.locator('.book-content').evaluate('e => [e.getBoundingClientRect().x,e.getBoundingClientRect().y,window.scrollX,window.scrollY]')
         for key in ['ArrowDown','ArrowDown','End','Home','ArrowUp']:
             self.page.keyboard.press(key)
+            expect(toolbar).to_be_visible()
         after = self.page.locator('.book-content').evaluate('e => [e.getBoundingClientRect().x,e.getBoundingClientRect().y,window.scrollX,window.scrollY]')
         self.assertEqual(before, after)
         self.page.keyboard.press('Escape')
@@ -134,6 +135,53 @@ class RheaReader(previous.RefinedAppearance):
         for name in ['Import File(s)','Import Folder(s)','Import Backup','Import from Ttu Ebook Reader']:
             expect(self.page.get_by_role('menuitem', name=name, exact=True)).to_be_visible()
         self.page.keyboard.press('Escape')
+
+    def test_statistics_filter_is_one_focus_managed_sheet(self):
+        self.page.goto(self.origin + '/Reader-Web/statistics')
+        trigger = self.page.get_by_role('button', name='Filter books', exact=True)
+        trigger.click()
+        sheet = self.page.get_by_role('dialog', name='Filter books', exact=True)
+        expect(sheet).to_be_visible()
+        expect(self.page.get_by_role('dialog')).to_have_count(1)
+        field = sheet.get_by_role('searchbox', name='Filter book titles', exact=True)
+        field.fill('A title that is not present')
+        expect(sheet.get_by_text('No Titles to filter', exact=True)).to_be_visible()
+        for _ in range(8):
+            self.page.keyboard.press('Tab')
+            self.assertTrue(sheet.evaluate('e => e.contains(document.activeElement)'))
+        self.page.keyboard.press('Escape')
+        expect(sheet).to_have_count(0)
+        expect(trigger).to_be_focused()
+
+    def test_dismissing_jump_and_completion_settles_without_blocking_reader(self):
+        self.open_book()
+        for action in ['Jump to Position', 'Complete Book']:
+            self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+            self.page.get_by_role('button', name='Reading tools', exact=True).click()
+            self.page.get_by_role('menuitem', name=action, exact=True).click()
+            dialog = self.page.get_by_role('dialog')
+            expect(dialog).to_be_visible()
+            expect(dialog.get_by_role('button', name='Confirm', exact=True)).to_be_visible()
+            self.page.keyboard.press('Escape')
+            expect(dialog).to_have_count(0)
+            expect(self.page.locator('.book-content')).to_be_visible()
+        self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+        expect(self.page.get_by_role('banner', name='Reader toolbar')).to_be_visible()
+
+    def test_tracking_panel_owns_focus_and_preserves_controls(self):
+        self.context.add_init_script("localStorage.setItem('statisticsEnabled', 'true');")
+        self.open_book()
+        trigger = self.page.get_by_role('button', name='Open reading tracker', exact=True)
+        expect(trigger).to_be_visible(timeout=30000)
+        trigger.click()
+        sheet = self.page.get_by_role('dialog', name='Reading tracker', exact=True)
+        expect(sheet).to_be_visible()
+        expect(self.page.get_by_role('dialog')).to_have_count(1)
+        for label in ['Toggle Tracker', 'Update Position', 'Toggle Freeze Position', 'Save']:
+            expect(sheet.get_by_role('button', name=label, exact=True)).to_be_visible()
+        self.page.keyboard.press('Escape')
+        expect(sheet).to_have_count(0)
+        expect(trigger).to_be_focused()
 
     def test_statistics_navigation_and_options_sheet(self):
         self.page.goto(self.origin + '/Reader-Web/statistics')

@@ -38,7 +38,7 @@ class LocalLibraryBrowser(unittest.TestCase):
         self.page = self.context.new_page()
         self.page.set_default_timeout(20000)
         self.errors = []
-        self.page.on('pageerror', lambda error: self.errors.append(str(error)))
+        self.page.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))
         self.page.goto(self.origin + '/Reader-Web/connections')
         expect(self.page.get_by_role('button', name='Refresh connections')).to_be_enabled()
 

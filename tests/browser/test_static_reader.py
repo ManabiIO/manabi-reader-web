@@ -85,7 +85,7 @@ class ReaderBrowser(unittest.TestCase):
         self.context = self.browser.new_context()
         self.page = self.context.new_page()
         self.errors = []
-        self.page.on('pageerror', lambda error: self.errors.append(str(error)))
+        self.page.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))
         StaticHandler.probes.clear()
 
     def tearDown(self):
@@ -147,7 +147,7 @@ class ReaderBrowser(unittest.TestCase):
 
     def test_yukyokasho_default_is_device_local_and_requires_both_faces(self):
         self.page.goto(self.origin + '/Reader-Web/settings#typography')
-        primary = self.page.get_by_label('Primary / Serif font', exact=True)
+        primary = self.page.get_by_role('textbox', name='Primary / Serif font', exact=True)
         expect(primary).to_be_visible()
         available = self.page.evaluate('''async () => {
           const load = async (source) => {

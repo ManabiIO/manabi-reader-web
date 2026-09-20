@@ -65,8 +65,11 @@
   }
 </script>
 
-<div class="settings-workspace grid gap-6 lg:grid-cols-[14rem_minmax(0,1fr)]" bind:this={root}>
-  <aside class="self-start lg:sticky lg:top-20" aria-label="Settings sections">
+<div
+  class="settings-workspace grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-[14rem_minmax(0,1fr)]"
+  bind:this={root}
+>
+  <aside class="min-w-0 self-start lg:sticky lg:top-20" aria-label="Settings sections">
     <label for="settings-search" class="mb-2 block text-sm font-medium">Search settings</label>
     <Input
       id="settings-search"

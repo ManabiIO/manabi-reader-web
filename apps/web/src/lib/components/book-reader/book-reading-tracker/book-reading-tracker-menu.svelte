@@ -15,7 +15,6 @@
     getChapterData,
     type SectionWithProgress
   } from '$lib/components/book-reader/book-toc/book-toc';
-  import { dialogManager } from '$lib/data/dialog-manager';
   import type { BooksDbStatistic } from '$lib/data/database/books-db/versions/books-db';
   import type { ReadingGoal } from '$lib/data/reading-goal';
   import { lastBlurredTrackerItems$, skipKeyDownListener$ } from '$lib/data/store';
@@ -102,12 +101,6 @@
 
   onMount(() => {
     $skipKeyDownListener$ = true;
-    dialogManager.dialogs$.next([
-      {
-        component: '<div/>',
-        disableCloseOnClick: true
-      }
-    ]);
 
     if (sectionData) {
       const [mainChapters, chapterIndex] = getChapterData(sectionData);
@@ -129,7 +122,6 @@
 
     return () => {
       $skipKeyDownListener$ = false;
-      dialogManager.dialogs$.next([]);
     };
   });
 
@@ -230,7 +222,7 @@
           <!-- eslint-enable svelte/no-unknown-style-directive-property -->
         </div>
       {/if}
-      <div class="grid grid-cols-[max-content,auto] gap-x-4 gap-y-2 mt-4">
+      <div class="grid grid-cols-[max-content_auto] gap-x-4 gap-y-2 mt-4">
         <div>Current Reading Goal:</div>
         <div class="flex flex-col sm:block">
           <span>{currentReadingGoalStart}</span>
@@ -269,7 +261,7 @@
         {/if}
       </div>
       <hr />
-      <div class="grid grid-cols-[max-content,auto] gap-x-4 gap-y-2">
+      <div class="grid grid-cols-[max-content_auto] gap-x-4 gap-y-2">
         {#if statistic.id === 'All Time'}
           <div class="mt-3">Book started on:</div>
           <div class="mt-3">{bookStartDate}</div>

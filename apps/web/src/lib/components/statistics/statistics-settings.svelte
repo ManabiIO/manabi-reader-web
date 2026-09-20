@@ -2,7 +2,7 @@
   import faCircleQuestion from '@lucide/svelte/icons/circle-help';
   import faLeftLong from '@lucide/svelte/icons/arrow-left';
   import faRightLong from '@lucide/svelte/icons/arrow-right';
-  import faXmark from '@lucide/svelte/icons/x';
+  import { Button } from '$lib/components/ui/button';
   import ButtonToggleGroup from '$lib/components/button-toggle-group/button-toggle-group.svelte';
   import { optionsForToggle } from '$lib/components/button-toggle-group/toggle-option';
   import Popover from '$lib/components/popover/popover.svelte';
@@ -20,7 +20,6 @@
     setStatisticsDatesToAllTime$
   } from '$lib/components/statistics/statistics-types';
   import { daysOfWeek } from '$lib/components/statistics/statistics-heatmap/statistics-heatmap';
-  import { dialogManager } from '$lib/data/dialog-manager';
   import {
     confirmStatisticsDeletion$,
     lastCharactersDataSource$,
@@ -32,7 +31,7 @@
     lastStatisticsRangeTemplate$,
     lastStatisticsStartDate$
   } from '$lib/data/store';
-  import { createEventDispatcher, onMount } from 'svelte';
+  import { createEventDispatcher } from 'svelte';
   import AppIcon from '$lib/components/app-icon.svelte';
 
   const dispatch = createEventDispatcher<{
@@ -51,12 +50,6 @@
 
   $: selectedStatisticsEndDate = $lastStatisticsEndDate$;
 
-  onMount(() => {
-    dialogManager.dialogs$.next([{ component: '<div/>' }]);
-
-    return () => dialogManager.dialogs$.next([]);
-  });
-
   async function exportStatisticsData(exportAllStatisticsData = true) {
     $statisticsActionInProgress$ = true;
 
@@ -70,21 +63,28 @@
   }
 </script>
 
-<div class="flex items-center p-4">
-  <button class="flex items-end md:items-center" on:click={() => dispatch('close')}>
-    <AppIcon icon={faXmark} />
-  </button>
-  <div class="flex flex-1 justify-end">
-    <button class="mr-2 sm:mr-4 hover:text-red-500" on:click={() => exportStatisticsData(false)}>
+<div class="flex flex-wrap items-center gap-2 p-4">
+  <Button variant="ghost" onclick={() => dispatch('close')}>Close</Button>
+  <div class="flex flex-1 flex-wrap justify-end gap-2">
+    <button
+      class="rounded-lg px-2 py-1 hover:bg-accent"
+      on:click={() => exportStatisticsData(false)}
+    >
       Export Selection
     </button>
-    <button class="mr-2 sm:mr-4 hover:text-red-500" on:click={() => deleteStatisticsData(false)}>
+    <button
+      class="rounded-lg px-2 py-1 hover:bg-accent"
+      on:click={() => deleteStatisticsData(false)}
+    >
       Delete Selection
     </button>
-    <button class="mr-2 sm:mr-4 hover:text-red-500" on:click={() => exportStatisticsData()}>
+    <button class="rounded-lg px-2 py-1 hover:bg-accent" on:click={() => exportStatisticsData()}>
       Export All
     </button>
-    <button class="hover:text-red-500" on:click={() => deleteStatisticsData()}>Delete All</button>
+    <button
+      class="rounded-lg px-2 py-1 text-destructive hover:bg-accent"
+      on:click={() => deleteStatisticsData()}>Delete All</button
+    >
   </div>
 </div>
 <div class="flex-1 p-4 overflow-auto">
@@ -125,6 +125,8 @@
     </div>
     <div class="flex flex-col justify-between pt-4 mx-2 text-xl sm:mx-0">
       <button
+        aria-label="Set end date to start date"
+        title="Set end date to start date"
         on:click={() =>
           dispatch('statisticsDateChange', {
             isStartDate: false,
@@ -134,6 +136,8 @@
         <AppIcon icon={faRightLong} />
       </button>
       <button
+        aria-label="Set start date to end date"
+        title="Set start date to end date"
         on:click={() =>
           dispatch('statisticsDateChange', {
             isStartDate: true,

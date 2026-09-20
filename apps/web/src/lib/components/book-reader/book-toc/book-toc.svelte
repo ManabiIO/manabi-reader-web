@@ -9,7 +9,6 @@
     type SectionWithProgress
   } from '$lib/components/book-reader/book-toc/book-toc';
   import { isTrackerPaused$ } from '$lib/components/book-reader/book-reading-tracker/book-reading-tracker';
-  import { dialogManager } from '$lib/data/dialog-manager';
   import { PAGE_CHANGE } from '$lib/data/events';
   import { skipKeyDownListener$, statisticsEnabled$ } from '$lib/data/store';
   import { getWeightedAverage } from '$lib/functions/utils';
@@ -63,18 +62,12 @@
 
   onMount(() => {
     $skipKeyDownListener$ = true;
-    dialogManager.dialogs$.next([
-      {
-        component: '<div/>'
-      }
-    ]);
     if (currentChapter) {
       scrollToChapterItem(document.getElementById(`for${currentChapter.reference}`));
     }
 
     return () => {
       $skipKeyDownListener$ = false;
-      dialogManager.dialogs$.next([]);
     };
   });
 
@@ -121,7 +114,6 @@
 
   function closeTocMenu() {
     tocIsOpen$.next(false);
-    dialogManager.dialogs$.next([]);
 
     if ($statisticsEnabled$ && !wasTrackerPaused) {
       isTrackerPaused$.next(false);

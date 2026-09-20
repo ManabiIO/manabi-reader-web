@@ -1,4 +1,5 @@
 <script lang="ts">
+  import * as Sheet from '$lib/components/ui/sheet';
   import { readerUIOwnsEvent } from '$lib/functions/reader-ui-events';
   import {
     auditTime,
@@ -1666,8 +1667,6 @@
 {#if $bookData$ && $rawBookData$}
   {#if $statisticsEnabled$}
     <BookReadingTracker
-      fontColor={$themeOption$.fontColor}
-      backgroundColor={$backgroundColor$}
       bookTitle={$rawBookData$.title}
       sectionData={$sectionData$}
       {frozenPosition}
@@ -1755,27 +1754,34 @@
   {$leaveIfBookMissing$ ?? ''}
 {/if}
 
-{#if $tocIsOpen$ && $sectionData$}
-  <div
-    class="writing-horizontal-tb fixed top-0 left-0 z-[60] flex h-full w-full max-w-xl flex-col justify-between"
-    style:color={$themeOption$?.fontColor}
-    style:background-color={$backgroundColor$}
-    in:fly|local={{ x: -100, duration: 100, easing: quintInOut }}
-    use:clickOutside={() => {
-      if ($statisticsEnabled$ && !wasTrackerPaused) {
-        isTrackerPaused$.next(false);
-      }
+<Sheet.Root
+  open={$tocIsOpen$}
+  onOpenChange={(open) => {
+    if (!open) {
+      if ($statisticsEnabled$ && !wasTrackerPaused) isTrackerPaused$.next(false);
       tocIsOpen$.next(false);
+    }
+  }}
+>
+  <Sheet.Content
+    side="left"
+    showCloseButton={false}
+    class="data-[side=left]:w-full data-[side=left]:sm:max-w-xl"
+    onCloseAutoFocus={(event) => {
+      event.preventDefault();
+      document.querySelector<HTMLButtonElement>('[aria-label="Show reading controls"]')?.focus();
     }}
   >
-    <BookToc
-      sectionData={$sectionData$}
-      verticalMode={$verticalMode$}
-      {exploredCharCount}
-      {wasTrackerPaused}
-    />
-  </div>
-{/if}
+    <Sheet.Title class="sr-only">Table of contents</Sheet.Title>
+    <Sheet.Description class="sr-only">Chapter navigation and reading progress.</Sheet.Description>
+    {#if $sectionData$}<BookToc
+        sectionData={$sectionData$}
+        verticalMode={$verticalMode$}
+        {exploredCharCount}
+        {wasTrackerPaused}
+      />{/if}
+  </Sheet.Content>
+</Sheet.Root>
 
 {#if showReaderImageGallery}
   <BookReaderImageGallery
@@ -1819,33 +1825,35 @@
   </div>
 {/if}
 
-<div
+<footer
   id="ttu-page-footer"
-  tabindex="0"
-  role="button"
   class="writing-horizontal-tb fixed bottom-0 left-0 z-10 flex h-8 w-full items-center justify-between text-xs leading-none"
   style:color={$themeOption$?.tooltipTextFontColor}
-  on:click={() => (showFooter = !showFooter)}
-  on:keyup={dummyFn}
 >
-  <div class="flex h-full">
+  <div class="flex h-full items-center">
+    <button
+      class="h-full px-2"
+      aria-expanded={showFooter}
+      on:click={() => (showFooter = !showFooter)}>Progress</button
+    >
     {#if showTrackerIcon}
-      <div
-        role="button"
-        title="Click to open Tracker Menu or Double Click to toggle Tracker"
-        class="flex h-full w-8 items-center justify-center text-sm sm:text-lg"
+      <button
+        type="button"
+        aria-label="Open reading tracker"
+        title="Open Tracker Menu; double-click to toggle tracking"
+        class="flex h-full items-center justify-center gap-1 px-2 text-xs"
         class:text-red-500={$isTrackerPaused$}
         class:animate-pulse={frozenPosition > -1}
         use:multiClickHandler={[trackerSingleClickHandler, trackerDblClickHandler]}
       >
-        <AppIcon icon={$isTrackerPaused$ ? faPlay : faPause} />
-      </div>
+        <AppIcon icon={$isTrackerPaused$ ? faPlay : faPause} /><span>Tracker</span>
+      </button>
     {/if}
     {#if dataToReplicate.length}
-      <div
-        tabindex="0"
-        role="button"
-        class="flex h-full w-8 items-center justify-center text-sm sm:text-lg"
+      <button
+        type="button"
+        aria-label="Sync reading data"
+        class="flex h-full items-center justify-center gap-1 px-2 text-xs"
         class:text-red-500={externalStorageErrors > 1}
         class:animate-pulse={externalStorageErrors > 1 || isReplicating}
         on:click|stopPropagation={() => {
@@ -1862,8 +1870,8 @@
         }}
         on:keyup={dummyFn}
       >
-        <AppIcon icon={faCloudBolt} />
-      </div>
+        <AppIcon icon={faCloudBolt} /><span>Sync</span>
+      </button>
     {/if}
   </div>
   {#if showFooter && bookCharCount}
@@ -1874,10 +1882,9 @@
     ]
       .filter(Boolean)
       .join(' ')}
-    <div
-      tabindex="0"
-      role="button"
-      title="Click to copy Progress"
+    <button
+      type="button"
+      title="Copy Progress"
       class="writing-horizontal-tb fixed bottom-2 right-2 z-10 text-xs leading-none select-none whitespace-pre"
       class:invisible={!$showCharacterCounter$ &&
         !$showPercentage$ &&
@@ -1899,9 +1906,9 @@
     >
       <span class="mr-4" class:invisible={!footerChapterProgress}>{footerChapterProgress}</span>
       <span class:invisible={!$showCharacterCounter$ && !$showPercentage$}>{currentProgress}</span>
-    </div>
+    </button>
   {/if}
-</div>
+</footer>
 
 {#if bookCompleted}
   <BookCompletionConfetti {confettiWidthModifier} {confettiMaxRuns} {window} />

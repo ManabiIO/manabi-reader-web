@@ -88,7 +88,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
                     # Inputs intentionally animate color changes. Require final
                     # rendered values, not whichever frame a single read hits.
                     expect(self.page.locator('.app-header').first).to_have_css('background-color', palette['card'])
-                    field = self.page.get_by_label('Font size', exact=True)
+                    field = self.page.get_by_role('spinbutton', name='Font size', exact=True)
                     expect(field).to_have_css('background-color', palette['background'])
                     expect(field).to_have_css('color', palette['foreground'])
             self.page.screenshot(path='test-results/palette-' + theme + '.png', full_page=True)

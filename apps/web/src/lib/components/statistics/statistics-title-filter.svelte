@@ -14,7 +14,6 @@
     preFilteredTitlesForStatistics$,
     type StatisticsTitleFilterItem
   } from '$lib/components/statistics/statistics-types';
-  import { dialogManager } from '$lib/data/dialog-manager';
   import {
     lastStatisticsFilterDateRangeOnly$,
     lastStatisticsFilterShowSelectedTitlesOnly$,
@@ -68,12 +67,10 @@
 
   onMount(() => {
     $skipKeyDownListener$ = true;
-    dialogManager.dialogs$.next([{ component: '<div/>' }]);
 
     updateStatisticsTitleFilterRowsPerPage();
 
     return () => {
-      dialogManager.dialogs$.next([]);
       $skipKeyDownListener$ = false;
     };
   });
@@ -179,11 +176,12 @@
   <input
     type="search"
     placeholder="Filter Title"
+    aria-label="Filter book titles"
     class="w-full text-foreground"
     bind:value={titleFilter}
     on:input={handleTitleFilterChange}
   />
-  <div class="flex justify-between mt-6 text-2xl">
+  <div class="flex flex-wrap justify-between gap-3 mt-6 text-sm">
     <button
       title="Apply Filter"
       class="hover:text-red-500"
@@ -208,6 +206,7 @@
       on:click={() => ($lastStatisticsFilterDateRangeOnly$ = !$lastStatisticsFilterDateRangeOnly$)}
     >
       <AppIcon icon={$lastStatisticsFilterDateRangeOnly$ ? faCalendarXmark : faCalendar} />
+      <span>{$lastStatisticsFilterDateRangeOnly$ ? 'All dates' : 'Selected dates only'}</span>
     </button>
     <button
       title={$lastStatisticsFilterShowSelectedTitlesOnly$
@@ -219,6 +218,11 @@
           !$lastStatisticsFilterShowSelectedTitlesOnly$)}
     >
       <AppIcon icon={$lastStatisticsFilterShowSelectedTitlesOnly$ ? faEyeSlash : faEye} />
+      <span
+        >{$lastStatisticsFilterShowSelectedTitlesOnly$
+          ? 'All titles'
+          : 'Selected titles only'}</span
+      >
     </button>
     {#if $preFilteredTitlesForStatistics$.size}
       <button
@@ -233,12 +237,13 @@
   <div class="grow mt-8 pl-1 overflow-auto" bind:this={statisticsTitleFilterTableContainerElm}>
     {#if filteredTitles.length}
       <div
-        class="grid grid-cols-[max-content,auto] gap-x-8 items-center"
+        class="grid grid-cols-[max-content_auto] gap-x-8 items-center"
         style:grid-auto-rows={`${statisticsTitleFilterBaseRowRem}rem`}
         style:row-gap={`${statisticsTitleFilterBaseRowGap}rem`}
       >
         {#each currentTitlesToFilterRows as currentTitlesToFilterRow (currentTitlesToFilterRow.title)}
           <input
+            aria-label={currentTitlesToFilterRow.title}
             type="checkbox"
             bind:checked={currentTitlesToFilterRow.isSelected}
             on:change={() => {
@@ -271,7 +276,7 @@
       class:cursor-not-allowed={currentStatisticsTitleFilterPage === 1}
       on:click={() => (currentStatisticsTitleFilterPage -= 1)}
     >
-      <AppIcon icon={faChevronLeft} />
+      <AppIcon icon={faChevronLeft} />Previous
     </button>
     <div class="mx-6">{statisticsTitleFilterPageLabel}</div>
     <button
@@ -280,7 +285,7 @@
       class:cursor-not-allowed={currentStatisticsTitleFilterPage === statisticsTitleFilterMaxPages}
       on:click={() => (currentStatisticsTitleFilterPage += 1)}
     >
-      <AppIcon icon={faChevronRight} />
+      <AppIcon icon={faChevronRight} />Next
     </button>
   </div>
 </div>
