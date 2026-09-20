@@ -1,0 +1,209 @@
+name: Rhea pointer boundary qualification
+on:
+  push:
+    branches: [research/rhea-closeout-20260920]
+    paths: ['.github/workflows/rhea-pointer.yml']
+permissions:
+  contents: write
+  actions: read
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: a8d7a63afad2cd265c29813aa6ce9118d9756923
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: rhea-final-source
+          run-id: 35520470191
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: /tmp/previous-source
+      - name: Apply reviewed pointer ownership repair
+        run: |
+          python3 - <<'PY'
+          import pathlib,json
+          for f in json.loads(pathlib.Path('/tmp/previous-source/source.json').read_text()):
+              p=pathlib.Path(f['path']);p.write_text(f['content'])
+          p=pathlib.Path('apps/web/src/lib/functions/use-click-outside.ts')
+          p.write_text('''/**
+           * @license BSD-3-Clause
+           * Copyright (c) 2026, ッツ Reader Authors
+           * All rights reserved.
+           */
+
+          export function clickOutside(node: Node, listener: (ev: PointerEvent) => void) {
+            const ownerDocument = node.ownerDocument ?? document;
+            const handler = (ev: PointerEvent) => {
+              if (ev.defaultPrevented) return;
+              // Decide ownership at pointerdown, before a modal menu changes body pointer
+              // events. Its subsequent click may be retargeted to <html>, not its trigger.
+              // The composed path also retains ownership through shadow/portalled controls.
+              const inside = ev.composedPath().some(
+                (target) =>
+                  target === node ||
+                  (target instanceof Element &&
+                    (node.contains(target) ||
+                      target.closest(
+                        '[data-slot="dropdown-menu-content"], [data-slot="dialog-content"], [data-slot="sheet-content"], [data-popover]'
+                      )))
+              );
+              if (!inside) listener(ev);
+            };
+
+            ownerDocument.addEventListener('pointerdown', handler, true);
+
+            return {
+              destroy() {
+                ownerDocument.removeEventListener('pointerdown', handler, true);
+              }
+            };
+          }
+          ''')
+          p=pathlib.Path('tests/unit/rhea-ui.test.mjs');s=p.read_text()
+          s=s.replace("import { readerUIOwnsEvent }", "import { clickOutside } from '../../apps/web/src/lib/functions/use-click-outside.ts';\nimport { readerUIOwnsEvent }")
+          s+='''
+
+          test('outside dismissal uses original pointer ownership, never retargeted clicks', () => {
+            const originalElement = globalThis.Element;
+            const listeners = new Map();
+            let calls = 0;
+            class Target {
+              constructor(kind) { this.kind = kind; }
+              closest() { return this.kind === 'portal' ? this : null; }
+            }
+            const ownerDocument = {
+              addEventListener(type, callback, capture) {
+                assert.equal(capture, true);
+                listeners.set(type, callback);
+              },
+              removeEventListener(type, callback, capture) {
+                assert.equal(capture, true);
+                assert.equal(listeners.get(type), callback);
+                listeners.delete(type);
+              }
+            };
+            try {
+              globalThis.Element = Target;
+              const node = { ownerDocument, contains: (target) => target.kind === 'trigger' };
+              const stop = clickOutside(node, () => calls++);
+              assert.deepEqual([...listeners.keys()], ['pointerdown']);
+              const pointer = (kind, defaultPrevented = false) => listeners.get('pointerdown')({
+                composedPath: () => [new Target(kind), ownerDocument], defaultPrevented
+              });
+              pointer('trigger');
+              pointer('portal');
+              pointer('outside', true);
+              assert.equal(calls, 0);
+              pointer('outside');
+              assert.equal(calls, 1);
+              stop.destroy();
+              assert.equal(listeners.size, 0);
+            } finally {
+              if (originalElement === undefined) delete globalThis.Element;
+              else globalThis.Element = originalElement;
+            }
+          });
+          ''';p.write_text(s)
+          p=pathlib.Path('tests/browser/test_rhea_ui.py');s=p.read_text()
+          needle='    def test_autobookmark_does_not_dismiss_an_open_reader_menu(self):'
+          addition='''    def test_real_outside_pointer_dismisses_toolbar_after_menu_escape(self):
+                  self.open_book(font='Klee One')
+                  self.wait_for_fonts()
+                  self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+                  toolbar = self.page.get_by_role('banner', name='Reader toolbar')
+                  toolbar.get_by_role('button', name='Reading tools', exact=True).click()
+                  expect(self.page.get_by_role('menu')).to_be_visible()
+                  self.page.keyboard.press('Escape')
+                  expect(toolbar).to_be_visible()
+                  expect(toolbar.get_by_role('button', name='Reading tools', exact=True)).to_be_focused()
+                  viewport = self.page.viewport_size
+                  self.page.mouse.click(viewport['width'] / 2, viewport['height'] - 100)
+                  expect(toolbar).to_have_count(0)
+                  expect(self.page.locator('.book-content')).to_be_visible()
+                  self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+                  expect(toolbar).to_be_visible()
+
+          '''
+          assert s.count(needle)==1;s=s.replace(needle,addition+needle);compile(s,str(p),'exec');p.write_text(s)
+          p=pathlib.Path('docs/rhea-ui.md');p.write_text(p.read_text()+'''
+          ### Pointer ownership
+
+          Reader toolbar dismissal observes pointerdown capture, not a late click after
+          Bits UI has opened a modal menu and changed body pointer events. The original
+          composed path preserves trigger/portal ownership; real outside taps still close
+          the toolbar. Automatic bookmark commits do not close it. Browser acceptance
+          checks focus return after Escape, subsequent outside dismissal, actual scheduled
+          bookmark persistence, and Jump/Complete dialog cancellation without losing tools.
+          ''')
+          PY
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - name: Format and retain clean source tree without commits or ref writes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p /tmp/rhea-pointer
+          python3 - <<'PY'
+          import pathlib,json,subprocess,urllib.request,os
+          names=subprocess.check_output(['git','diff','--name-only'],text=True).splitlines()
+          assert len(names)==10
+          subprocess.run(['pnpm','exec','prettier','--write',*[n for n in names if not n.endswith('.py')]],check=True)
+          source=[{'path':n,'content':pathlib.Path(n).read_text()} for n in names]
+          assert not any('RHEA_EVENT' in f['content'] or 'RHEA_HEADER_CLOSE' in f['content'] for f in source)
+          out=pathlib.Path('/tmp/rhea-pointer');(out/'source.json').write_text(json.dumps(source))
+          base=subprocess.check_output(['git','rev-parse','HEAD^{tree}'],text=True).strip()
+          request=urllib.request.Request('https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/git/trees',data=json.dumps({'base_tree':base,'tree':[{'path':f['path'],'mode':'100644','type':'blob','content':f['content']} for f in source]}).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Content-Type':'application/json','Accept':'application/vnd.github+json'},method='POST')
+          with urllib.request.urlopen(request,timeout=60) as response: tree=json.load(response)
+          (out/'tree-sha.txt').write_text(tree['sha']);(out/'tree.json').write_text(json.dumps(tree))
+          (out/'diff.patch').write_text(subprocess.check_output(['git','diff'],text=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rhea-pointer-source
+          path: /tmp/rhea-pointer
+          retention-days: 7
+      - name: Lint, units and types
+        run: |
+          set -o pipefail
+          pnpm exec eslint . 2>&1 | tee /tmp/rhea-pointer/lint.log
+          node tools/appearance/lint.mjs 2>&1 | tee /tmp/rhea-pointer/components.log
+          node --experimental-strip-types --test tests/unit/*.test.mjs test/reader/typography.test.mjs | tee /tmp/rhea-pointer/units.log
+          pnpm --dir apps/web check 2>&1 | tee /tmp/rhea-pointer/types.log
+      - name: Build and exercise both real browsers
+        env:
+          BASE_PATH: /Reader-Web
+        run: |
+          set -o pipefail
+          pnpm build 2>&1 | tee /tmp/rhea-pointer/build.log
+          python -m pip install 'playwright==1.63.0'
+          python -m playwright install --with-deps chromium webkit
+          status=0
+          for engine in chromium webkit; do
+            mkdir -p /tmp/rhea-pointer/$engine
+            set +e
+            APPEARANCE_BROWSER=$engine python tests/browser/test_rhea_ui.py > /tmp/rhea-pointer/$engine/results.log 2>&1
+            result=$?
+            set -e
+            [ $result -eq 0 ] || status=1
+            if [ -d test-results ]; then mv test-results /tmp/rhea-pointer/$engine/screenshots; fi
+          done
+          exit $status
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rhea-pointer-results
+          path: /tmp/rhea-pointer
+          retention-days: 7
