@@ -869,6 +869,14 @@
 </Dialog.Root>
 
 <style>
+  .search-box input {
+    border: 0;
+    border-radius: 0;
+    padding-inline: 0;
+    background: transparent;
+    box-shadow: none;
+    outline: none;
+  }
   .series-hero {
     background: linear-gradient(
       145deg,

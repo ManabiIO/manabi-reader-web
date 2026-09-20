@@ -125,7 +125,7 @@ test('physical grouping verifies all copies before relinking and removing origin
     fs.root,
     fs.plan,
     async (plan) => {
-      journals.push(structuredClone(plan));
+      journals.push(globalThis.structuredClone(plan));
       if (plan.phase === 'copied') {
         assert.equal(await fs.read('My Series/1.epub'), 'one');
         assert.equal(await fs.read('My Series/2.epub'), 'two');
@@ -195,7 +195,7 @@ test('interrupted link publication resumes from durable copied journal without l
       fs.root,
       fs.plan,
       async (plan) => {
-        persisted = structuredClone(plan);
+        persisted = globalThis.structuredClone(plan);
       },
       async (file) => {
         if (file.to.endsWith('2.epub')) throw new Error('Injected link persistence failure');
@@ -212,7 +212,7 @@ test('interrupted link publication resumes from durable copied journal without l
     fs.root,
     persisted,
     async (plan) => {
-      persisted = structuredClone(plan);
+      persisted = globalThis.structuredClone(plan);
     },
     async (file) => {
       linked.push(file.to);

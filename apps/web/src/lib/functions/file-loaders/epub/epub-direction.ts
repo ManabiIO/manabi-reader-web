@@ -3,6 +3,7 @@
  * Copyright (c) 2026, ッツ Reader Authors
  * All rights reserved.
  */
+
 import {
   resolvePageDirection,
   type DirectionEvidence,

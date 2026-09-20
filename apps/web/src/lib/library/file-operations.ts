@@ -29,10 +29,12 @@ export interface MovePlan {
 export function safePath(path: string): string[] {
   if (!path) return [];
   const parts = path.split('/');
+  // Control characters and Windows separators must never enter a filesystem path.
   // eslint-disable-next-line no-control-regex
+  const forbiddenCharacter = /[\\\x00-\x1f\x7f]/;
   if (
     parts.some(
-      (p) => !p || p === '.' || p === '..' || p === '.manabi-reader' || /[\\\x00-\x1f\x7f]/.test(p)
+      (p) => !p || p === '.' || p === '..' || p === '.manabi-reader' || forbiddenCharacter.test(p)
     )
   )
     throw new Error('Invalid library path.');
