@@ -33,6 +33,8 @@ import { ReplicationSaveBehavior } from '$lib/functions/replication/replication-
 import { replicationProgress$ } from '$lib/functions/replication/replication-progress';
 import { mergeStatistics, updateStatisticToStore } from '$lib/functions/statistic-util';
 import pLimit from 'p-limit';
+import { selectTtuFile } from '$lib/manabi/ttu-folder-contract';
+import { assertExternalBookSource } from '$lib/manabi/external-book-source';
 
 interface RequestOptions {
   method?: string;
@@ -122,12 +124,14 @@ export abstract class ApiStorageHandler extends BaseStorageHandler {
 
   async hasLocalBookData(): Promise<boolean> {
     const data = await database.getDataByTitle(this.currentContext.title);
+    assertExternalBookSource(data, this.storageSourceName);
 
     return !!data?.elementHtml;
   }
 
   async prepareBookForReading(): Promise<number> {
     const data = await database.getDataByTitle(this.currentContext.title);
+    assertExternalBookSource(data, this.storageSourceName);
 
     let idToReturn = 0;
     let bookData: Omit<BooksDbBookData, 'id'> | undefined = data;
@@ -735,7 +739,7 @@ export abstract class ApiStorageHandler extends BaseStorageHandler {
     }
 
     const files = await this.getExternalFiles(titleId);
-    const file = files.find((entry) => entry.name.startsWith(fileIdentifier));
+    const file = selectTtuFile(files, fileIdentifier);
 
     BaseStorageHandler.reportProgress(progressPerStep);
 
