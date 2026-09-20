@@ -1,0 +1,213 @@
+name: Rhea closeout qualification
+on:
+  push:
+    branches: [research/rhea-closeout-20260920]
+    paths: ['.github/workflows/rhea-closeout.yml']
+permissions:
+  contents: write
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: a8d7a63afad2cd265c29813aa6ce9118d9756923
+          persist-credentials: false
+      - name: Apply bounded reviewed corrections
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          changed=[]
+          def edit(name,old,new):
+              p=Path(name);text=p.read_text();assert text.count(old)==1,(name,old[:100],text.count(old))
+              p.write_text(text.replace(old,new));changed.append(name)
+          route='apps/web/src/routes/b/+page.svelte'
+          edit(route,'  async function bookmarkPage() {\n','''  function bookmarkPage() {
+              showHeader = false;
+              return saveBookmark();
+            }
+
+            // Autosave is persistence, not a toolbar action. It must not unmount the
+            // trigger of an open menu or steal keyboard focus while somebody uses it.
+            async function saveBookmark() {
+          ''')
+          edit(route,'''    let data: BooksDbBookmarkData | undefined;
+
+              showHeader = false;
+
+              if (isPaginated)''','''    let data: BooksDbBookmarkData | undefined;
+
+              if (isPaginated)''')
+          edit(route,'    on:bookmark={bookmarkPage}','    on:bookmark={saveBookmark}')
+          for name in ['trackerSingleClickHandler','trackerDblClickHandler']:
+              edit(route,f'  function {name}() {{\n    if (!statisticsEnabled$) {{',f'  function {name}() {{\n    if (!$statisticsEnabled$) {{')
+          workspace='apps/web/src/lib/components/settings/settings-workspace.svelte'
+          edit(workspace,'''  onMount(() =>
+              filter.subscribe(() => {
+                void tick().then(() => {
+                  if (root?.isConnected)
+                    visibleCount = root.querySelectorAll('[data-setting]:not([hidden])').length;
+                });
+              })
+            );''','''  onMount(() => {
+              const countVisibleSettings = () => {
+                if (root?.isConnected)
+                  visibleCount = root.querySelectorAll('[data-setting]:not([hidden])').length;
+              };
+              const stop = filter.subscribe(() => {
+                void tick().then(countVisibleSettings);
+              });
+              // Enabling tracking or changing writing mode mounts conditional fields even
+              // when the search hasn't changed. Count those real fields, not stale results.
+              const observer = new MutationObserver(countVisibleSettings);
+              observer.observe(root, {
+                subtree: true,
+                childList: true,
+                attributes: true,
+                attributeFilter: ['hidden']
+              });
+              countVisibleSettings();
+              return () => {
+                stop();
+                observer.disconnect();
+              };
+            });''')
+          edit('apps/web/src/lib/appearance/settings.svelte','    padding: 1.25rem 0;','    padding: 0;')
+          test='tests/browser/test_rhea_ui.py'
+          edit(test,'''        self.context.add_init_script("localStorage.setItem('statisticsEnabled', 'true');")
+                  self.open_book()
+          ''','''        self.settings()
+                  self.category('Tracking & goals')
+                  self.page.get_by_role('switch', name='Enable Statistics', exact=True).check()
+                  self.assertEqual('1', self.page.evaluate('localStorage.getItem("statisticsEnabled")'))
+                  self.open_book(font='Klee One')
+          ''')
+          edit(test,'''        for action in ['Jump to Position', 'Complete Book']:
+                      self.page.get_by_role('button', name='Show reading controls', exact=True).click()''','''        for action in ['Jump to Position', 'Complete Book']:
+                      toolbar = self.page.get_by_role('banner', name='Reader toolbar')
+                      if not toolbar.is_visible():
+                          self.page.get_by_role('button', name='Show reading controls', exact=True).click()''')
+          tests='''    def test_autobookmark_does_not_dismiss_an_open_reader_menu(self):
+                  self.context.add_init_script("localStorage.setItem('autoBookmarkTime', '2');")
+                  self.open_book(font='Klee One')
+                  self.wait_for_fonts()
+                  started = self.page.evaluate('Date.now()')
+                  self.page.keyboard.press('PageDown')
+                  self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+                  tools = self.page.get_by_role('button', name='Reading tools', exact=True)
+                  tools.click()
+                  menu = self.page.get_by_role('menu')
+                  expect(menu).to_be_visible()
+                  self.page.keyboard.press('ArrowDown')
+                  # Observe the actual scheduled bookmark commit; no synthetic bookmark or
+                  # timeout used to suppress an autosave. The menu must survive that commit.
+                  self.page.wait_for_function(\'''async (started) => {
+                    const db = await new Promise((resolve, reject) => {
+                      const request = indexedDB.open('books');
+                      request.onsuccess = () => resolve(request.result);
+                      request.onerror = () => reject(request.error);
+                    });
+                    try {
+                      const data = await new Promise((resolve, reject) => {
+                        const id = Number(new URL(location.href).searchParams.get('id'));
+                        const request = db.transaction('bookmark').objectStore('bookmark').get(id);
+                        request.onsuccess = () => resolve(request.result);
+                        request.onerror = () => reject(request.error);
+                      });
+                      return data?.lastBookmarkModified >= started && data.exploredCharCount > 0;
+                    } finally { db.close(); }
+                  }\''', arg=started, timeout=15000)
+                  expect(menu).to_be_visible()
+                  self.assertTrue(menu.evaluate('e => e.contains(document.activeElement)'))
+                  self.page.keyboard.press('Escape')
+                  expect(menu).to_have_count(0)
+                  expect(tools).to_be_focused()
+
+              def test_settings_search_counts_newly_available_tracking_controls(self):
+                  self.settings()
+                  self.page.get_by_label('Search settings', exact=True).fill('statistics')
+                  enable = self.page.get_by_role('switch', name='Enable Statistics', exact=True)
+                  expect(enable).to_be_visible()
+                  before = self.page.locator('[data-setting]:not([hidden])').count()
+                  enable.check()
+                  self.page.wait_for_function('(before) => document.querySelectorAll("[data-setting]:not([hidden])").length > before', arg=before)
+                  count = self.page.locator('[data-setting]:not([hidden])').count()
+                  expect(self.page.get_by_role('status').filter(has_text='matching settings')).to_have_text(
+                      f'{count} matching settings')
+                  enable.uncheck()
+                  expect(self.page.get_by_role('status').filter(has_text='matching settings')).to_have_text(
+                      f'{before} matching settings')
+
+          '''
+          edit(test,'    def test_library_sort_and_export_preserve_all_export_parts(self):',tests+'    def test_library_sort_and_export_preserve_all_export_parts(self):')
+          compile(Path(test).read_text(),test,'exec')
+          Path('/tmp/rhea-closeout-paths.json').write_text(json.dumps(sorted(set(changed))))
+          PY
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - name: Format and retain exact source tree, without commits or ref changes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p /tmp/rhea-closeout
+          python3 - <<'PY'
+          import pathlib,json,subprocess,urllib.request,os,hashlib
+          names=json.loads(pathlib.Path('/tmp/rhea-closeout-paths.json').read_text())
+          subprocess.run(['pnpm','exec','prettier','--write',*[n for n in names if not n.endswith('.py')]],check=True)
+          source=[{'path':n,'content':pathlib.Path(n).read_text()} for n in names]
+          out=pathlib.Path('/tmp/rhea-closeout');(out/'source.json').write_text(json.dumps(source))
+          base=subprocess.check_output(['git','rev-parse','HEAD^{tree}'],text=True).strip()
+          request=urllib.request.Request('https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/git/trees',data=json.dumps({'base_tree':base,'tree':[{'path':f['path'],'mode':'100644','type':'blob','content':f['content']} for f in source]}).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Content-Type':'application/json','Accept':'application/vnd.github+json'},method='POST')
+          with urllib.request.urlopen(request,timeout=60) as response: tree=json.load(response)
+          (out/'tree-sha.txt').write_text(tree['sha']);(out/'tree.json').write_text(json.dumps(tree))
+          (out/'diff.patch').write_text(subprocess.check_output(['git','diff'],text=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rhea-closeout-source
+          path: /tmp/rhea-closeout
+          retention-days: 7
+      - name: Lint, units and types
+        run: |
+          set -o pipefail
+          pnpm exec eslint . 2>&1 | tee /tmp/rhea-closeout/lint.log
+          node tools/appearance/lint.mjs 2>&1 | tee /tmp/rhea-closeout/components.log
+          node --experimental-strip-types --test tests/unit/*.test.mjs test/reader/typography.test.mjs | tee /tmp/rhea-closeout/units.log
+          pnpm --dir apps/web check 2>&1 | tee /tmp/rhea-closeout/types.log
+      - name: Build and exercise actual browsers
+        env:
+          BASE_PATH: /Reader-Web
+        run: |
+          set -o pipefail
+          pnpm build 2>&1 | tee /tmp/rhea-closeout/build.log
+          python -m pip install 'playwright==1.63.0'
+          python -m playwright install --with-deps chromium webkit
+          status=0
+          for engine in chromium webkit; do
+            mkdir -p /tmp/rhea-closeout/$engine
+            set +e
+            APPEARANCE_BROWSER=$engine python tests/browser/test_rhea_ui.py > /tmp/rhea-closeout/$engine/results.log 2>&1
+            result=$?
+            set -e
+            [ $result -eq 0 ] || status=1
+            if [ -d test-results ]; then mv test-results /tmp/rhea-closeout/$engine/screenshots; fi
+          done
+          exit $status
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rhea-closeout-results
+          path: /tmp/rhea-closeout
+          retention-days: 7
