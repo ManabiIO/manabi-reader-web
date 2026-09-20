@@ -66,6 +66,16 @@ Series rename changes its YAML display name, not the physical folder path.
 Existing book IDs, source hashes, progress baselines and canonical titles remain
 unchanged. Copy/delete is not advertised as an atomic filesystem rename.
 
+## Library chrome
+
+The browser-owned personal library uses one title bar rather than exposing the
+inherited Book Manager command row. Collections has a dedicated round action;
+imports, selection, account/library navigation, statistics/settings, help and
+legacy storage views remain available from the labelled overflow menu. Selection
+and replication controls appear contextually only while those operations are
+active. The shelf row is reserved for View, Organize and search so the primary
+surface stays about the user's books rather than storage machinery.
+
 ## Covers and views
 
 Grid and list share the same projection, filters, menus and source identities.
