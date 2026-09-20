@@ -4,6 +4,7 @@ on:
     paths:
       - 'apps/web/**'
       - 'tests/**'
+      - 'tools/prepare-ttu-migration.py'
       - '.github/workflows/ttu-migration.yml'
 permissions:
   contents: read
@@ -14,6 +15,8 @@ jobs:
   migration:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    outputs:
+      generated: ${{ steps.prepared.outputs.generated }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -25,15 +28,75 @@ jobs:
         with:
           node-version: '24.21.0'
           cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
       - run: pnpm install --frozen-lockfile
       - run: pnpm --dir apps/web exec svelte-kit sync
-      - run: pnpm --dir apps/web check
-      - name: Preserve exact public review inputs
-        run: |
-          cp "$(command -v node)" "$RUNNER_TEMP/node"
-          tar -czf "$RUNNER_TEMP/migration-toolchain.tar.gz" -C "$RUNNER_TEMP" node -C "$PWD" node_modules apps/web/node_modules
+      - name: Prepare asserted UI edits for review
+        run: python tools/prepare-ttu-migration.py
+      - id: prepared
+        run: echo 'generated=true' >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:
-          name: migration-toolchain
-          path: ${{ runner.temp }}/migration-toolchain.tar.gz
+          name: migration-source-review
+          path: review/
+          retention-days: 1
+      - run: pnpm eslint .
+      - run: pnpm --dir apps/web check
+      - run: node --experimental-strip-types --test tests/unit/ttu-migration.test.mjs
+      - name: Build production static Reader
+        env:
+          BASE_PATH: /Reader-Web
+        run: pnpm build
+      - name: Real export and migration browser acceptance
+        run: |
+          python -m pip install 'playwright==1.55.0'
+          python -m playwright install --with-deps chromium
+          set -o pipefail
+          python tests/browser/test_ttu_migration.py 2>&1 | tee migration-browser.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: migration-results
+          path: |
+            migration-browser.log
+            test-results/
+          retention-days: 3
+  record-reviewed-objects:
+    needs: migration
+    if: always() && needs.migration.outputs.generated == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: migration-source-review
+      - name: Record immutable blobs without updating branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, urllib.request, hashlib
+          repo=os.environ['REPOSITORY'];assert repo=='ManabiIO/manabi-reader-web'
+          entries=json.loads(pathlib.Path('generated-files.json').read_text());assert len(entries)<=20
+          result=[]
+          for entry in entries:
+              path,content=entry['path'],entry['content']
+              assert (path.startswith('apps/web/src/') or path in ('tests/unit/ttu-migration.test.mjs','tests/browser/test_shared_ttu.py')) and '..' not in path.split('/')
+              raw=content.encode();assert len(raw)<1024*1024
+              expected=hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()
+              request=urllib.request.Request('https://api.github.com/repos/'+repo+'/git/blobs',data=json.dumps({'content':content,'encoding':'utf-8'}).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Content-Type':'application/json'},method='POST')
+              with urllib.request.urlopen(request,timeout=30) as response: sha=json.load(response)['sha']
+              assert sha==expected
+              result.append({'path':path,'sha':sha})
+          pathlib.Path('generated-blobs.json').write_text(json.dumps(result));print(json.dumps(result))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: migration-reviewed-blobs
+          path: generated-blobs.json
           retention-days: 1
