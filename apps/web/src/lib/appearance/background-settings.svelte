@@ -169,9 +169,6 @@
   .background-preview.dark-preview span {
     color: #f7f7f7;
   }
-  .background-preview .reader-preview {
-    color: inherit;
-  }
   .image-picker {
     display: block;
     font-size: 0.875rem;

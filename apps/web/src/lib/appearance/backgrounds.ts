@@ -23,11 +23,9 @@ interface SavedBackgrounds {
   light?: SavedImage;
   dark?: SavedImage;
 }
-type StoredBackground = SavedImage | SavedBackgrounds;
 interface BackgroundDatabase extends DBSchema {
-  // Keep one record per surface. Released single-image records are read as both
-  // modes; the first edit writes the new {light,dark} shape in place.
-  backgrounds: { key: BackgroundTarget; value: StoredBackground };
+  // First-release schema: two independent mode slots per surface.
+  backgrounds: { key: BackgroundTarget; value: SavedBackgrounds };
 }
 export interface BackgroundImageState {
   revision?: string;
@@ -77,17 +75,6 @@ function db() {
       throw error;
     });
   return database;
-}
-
-function storedBackgrounds(value: StoredBackground | undefined): SavedBackgrounds {
-  if (!value) return {};
-  if (typeof value === 'object' && value !== null && ('light' in value || 'dark' in value)) {
-    const saved = value as SavedBackgrounds;
-    return { light: saved.light, dark: saved.dark };
-  }
-  // Released schema: one image was shared by both appearances.
-  const legacy = value as SavedImage;
-  return { light: legacy, dark: legacy };
 }
 
 function update(
@@ -170,7 +157,7 @@ async function refresh(target: BackgroundTarget) {
   try {
     const stored = await (await db()).get('backgrounds', target);
     if (!mounted || lifetime !== life || generation !== versions[target]) return;
-    const saved = storedBackgrounds(stored);
+    const saved = stored ?? {};
     await Promise.all(
       modes.map((mode) => refreshMode(target, mode, saved[mode], generation, life))
     );
@@ -286,18 +273,24 @@ export function chooseBackground(
   file: File
 ): Promise<void> {
   return mutate(target, [mode], async (database) => {
-    const saved = storedBackgrounds(await database.get('backgrounds', target));
-    saved[mode] = await prepare(file);
-    await database.put('backgrounds', saved, target);
+    // Decode outside the transaction; keep read-modify-write atomic across tabs.
+    const image = await prepare(file);
+    const tx = database.transaction('backgrounds', 'readwrite');
+    const saved = (await tx.store.get(target)) ?? {};
+    saved[mode] = image;
+    await tx.store.put(saved, target);
+    await tx.done;
   });
 }
 
 export function removeBackground(target: BackgroundTarget, mode: BackgroundMode): Promise<void> {
   return mutate(target, [mode], async (database) => {
-    const saved = storedBackgrounds(await database.get('backgrounds', target));
+    const tx = database.transaction('backgrounds', 'readwrite');
+    const saved = (await tx.store.get(target)) ?? {};
     delete saved[mode];
-    if (saved.light || saved.dark) await database.put('backgrounds', saved, target);
-    else await database.delete('backgrounds', target);
+    if (saved.light || saved.dark) await tx.store.put(saved, target);
+    else await tx.store.delete(target);
+    await tx.done;
   });
 }
 

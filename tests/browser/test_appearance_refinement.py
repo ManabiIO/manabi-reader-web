@@ -155,74 +155,11 @@ class RefinedAppearance(previous.AppearanceBrowser):
         self.assertIsNone(other.evaluate('localStorage.getItem("appearance")'))
         other.close()
 
-    def test_released_single_background_migrates_lazily_to_two_mode_slots(self):
-        legacy = list(previous.png([70, 110, 160], 80, 60))
-        self.settings()
-        self.page.evaluate('''async (bytes) => {
-          const db = await new Promise((resolve, reject) => {
-            const request = indexedDB.open('manabi-reader-appearance', 1);
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-          });
-          await new Promise((resolve, reject) => {
-            const tx = db.transaction('backgrounds', 'readwrite');
-            tx.objectStore('backgrounds').put({
-              name: 'legacy.png',
-              revision: 'released-single-image',
-              blob: new Blob([Uint8Array.from(bytes)], {type:'image/png'})
-            }, 'reader');
-            tx.oncomplete = resolve;
-            tx.onabort = () => reject(tx.error);
-          });
-          db.close();
-        }''', legacy)
-        self.settings(reload=True)
-        self.page.get_by_text('Background images', exact=True).click()
-        expect(self.page.get_by_text('legacy.png', exact=True)).to_have_count(2)
-
-        self.page.get_by_role(
-            'button', name='Remove light book reader background', exact=True
-        ).click()
-        expect(
-            self.page.locator('section:has(#background-reader-light)').get_by_text(
-                'legacy.png', exact=True
-            )
-        ).to_have_count(0)
-        expect(
-            self.page.locator('section:has(#background-reader-dark)').get_by_text(
-                'legacy.png', exact=True
-            )
-        ).to_be_visible()
-        stored = self.page.evaluate('''async () => {
-          const db = await new Promise((resolve, reject) => {
-            const request = indexedDB.open('manabi-reader-appearance', 1);
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-          });
-          const tx = db.transaction('backgrounds', 'readonly');
-          const value = await new Promise((resolve, reject) => {
-            const request = tx.objectStore('backgrounds').get('reader');
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-          });
-          db.close();
-          return {
-            hasLight: Object.prototype.hasOwnProperty.call(value, 'light') && !!value.light,
-            darkName: value.dark?.name
-          };
-        }''')
-        self.assertEqual({'hasLight': False, 'darkName': 'legacy.png'}, stored)
-
-        self.page.get_by_role(
-            'button', name='Remove both book reader background images', exact=True
-        ).click()
-        expect(self.page.get_by_text('legacy.png', exact=True)).to_have_count(0)
-
     def test_corrupt_persisted_image_is_recoverable_and_never_published(self):
         self.settings()
         self.page.get_by_text('Background images', exact=True).click()
         self.upload('library', [40, 100, 160], 'light')
-        # Defensive released-schema damaged record: one image used by both modes.
+        # Corrupt each real mode slot independently; there is no shipped legacy schema.
         self.page.evaluate('''async () => {
           const db = await new Promise((resolve, reject) => {
             const request = indexedDB.open('manabi-reader-appearance', 1);
@@ -235,7 +172,8 @@ class RefinedAppearance(previous.AppearanceBrowser):
           await new Promise((resolve, reject) => {
             const tx = db.transaction('backgrounds', 'readwrite');
             tx.objectStore('backgrounds').put(
-              {name:'broken.png', blob:new Blob([bytes], {type:'image/png'})},
+              {light:{name:'broken.png', blob:new Blob([bytes], {type:'image/png'})},
+                       dark:{name:'broken.png', blob:new Blob([bytes], {type:'image/png'})}},
               'library'
             );
             tx.oncomplete = resolve; tx.onabort = () => reject(tx.error);
@@ -246,7 +184,7 @@ class RefinedAppearance(previous.AppearanceBrowser):
         self.page.get_by_text('Background images', exact=True).click()
         expect(self.page.get_by_role('alert')).to_have_count(2)
         for mode in ['light', 'dark']:
-            section = self.page.locator(f'section:has(#background-library-{mode})')
+            section = self.page.locator(f'.mode-image:has(#background-library-{mode})')
             expect(section.get_by_role('alert')).to_contain_text('decode')
             self.assertEqual(
                 'none',
@@ -264,6 +202,42 @@ class RefinedAppearance(previous.AppearanceBrowser):
         expect(self.page.locator('[data-background="library"]')).to_have_attribute(
             'data-background-mode', 'light'
         )
+    def test_concurrent_tabs_keep_independent_background_slots(self):
+        self.settings()
+        self.page.get_by_text('Background images', exact=True).click()
+        other = self.context.new_page()
+        other.goto(self.origin + '/Reader-Web/settings')
+        other.get_by_text('Background images', exact=True).click()
+        self.page.locator('#background-library-light').set_input_files({
+            'name':'simultaneous-light.png', 'mimeType':'image/png',
+            'buffer': previous.png([210, 160, 100], 2400, 1600)
+        })
+        other.locator('#background-library-dark').set_input_files({
+            'name':'simultaneous-dark.png', 'mimeType':'image/png',
+            'buffer': previous.png([20, 30, 90], 2400, 1600)
+        })
+        expect(self.page.get_by_text('simultaneous-light.png', exact=True)).to_be_visible()
+        expect(other.get_by_text('simultaneous-dark.png', exact=True)).to_be_visible()
+        self.settings(reload=True)
+        self.page.get_by_text('Background images', exact=True).click()
+        expect(self.page.get_by_text('simultaneous-light.png', exact=True)).to_be_visible()
+        expect(self.page.get_by_text('simultaneous-dark.png', exact=True)).to_be_visible()
+        self.page.get_by_role('button', name='Remove light book browser background', exact=True).click()
+        expect(other.get_by_text('simultaneous-light.png', exact=True)).to_have_count(0)
+        expect(other.get_by_text('simultaneous-dark.png', exact=True)).to_be_visible()
+        other.close()
+
+    def test_focus_and_escape_do_not_commit_the_device_font_fallback(self):
+        self.settings()
+        font = self.page.get_by_label('Primary / Serif font', exact=True)
+        saved = self.page.evaluate('localStorage.getItem("fontFamilyGroupOne")')
+        font.focus()
+        font.press('Tab')
+        self.assertEqual(saved, self.page.evaluate('localStorage.getItem("fontFamilyGroupOne")'))
+        font.fill('Changed but cancelled')
+        font.press('Escape')
+        self.assertEqual(saved, self.page.evaluate('localStorage.getItem("fontFamilyGroupOne")'))
+
     def test_selected_theme_has_a_distinct_border_and_forced_colors_marker(self):
         self.settings()
         self.mode('Light')
@@ -283,7 +257,7 @@ class RefinedAppearance(previous.AppearanceBrowser):
             ('image/jpeg', base64.b64decode(JPEG)),
             ('image/webp', base64.b64decode(WEBP))
         ]
-        light = self.page.locator('section:has(#background-library-light)')
+        light = self.page.locator('.mode-image:has(#background-library-light)')
         for mime, data in fixtures:
             name = 'real-image.' + mime.split('/')[1]
             self.page.locator('#background-library-light').set_input_files({

@@ -33,7 +33,13 @@
     icons = [
       ...icons,
       ...(isStorageSourceAvailable(StorageKey.GDRIVE, $gDriveStorageSource$, window)
-        ? [{ ...getStorageIconData(StorageKey.GDRIVE), source: StorageKey.GDRIVE, label: 'GDrive' }]
+        ? [
+            {
+              ...getStorageIconData(StorageKey.GDRIVE),
+              source: StorageKey.GDRIVE,
+              label: 'Google Drive'
+            }
+          ]
         : []),
       ...(isStorageSourceAvailable(StorageKey.ONEDRIVE, $oneDriveStorageSource$, window)
         ? [

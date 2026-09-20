@@ -181,6 +181,10 @@ export async function request<T>(
   }
   if (!response.ok) {
     const body = await jsonResponse(response).catch(() => ({ error: 'unavailable' }));
+    // Response headers and the error body can arrive separately. An old account's
+    // delayed 401/409 must not clear the newly authenticated account in this tab.
+    if (scope.generation !== generation || currentUser()?.id !== scope.userId)
+      throw new IntegrationError('account_changed', 409);
     if (response.status === 401 || body.error === 'account_changed') invalidateAccount();
     throw new IntegrationError(
       typeof body.error === 'string' ? body.error : 'unavailable',

@@ -55,12 +55,12 @@
     (passwordManagerAvailable && configuredStoredInManager) || false;
   let storageSourceEncryptionDisabled = configuredEncryptionDisabled || false;
   let storageSourceTypes = [
-    { key: StorageKey.GDRIVE, label: 'GDrive' },
+    { key: StorageKey.GDRIVE, label: 'Google Drive' },
     { key: StorageKey.ONEDRIVE, label: 'OneDrive' }
   ];
 
   $: if (browser && 'showDirectoryPicker' in window) {
-    storageSourceTypes = [...storageSourceTypes, { key: StorageKey.FS, label: 'Filesystem' }];
+    storageSourceTypes = [...storageSourceTypes, { key: StorageKey.FS, label: 'Local folder' }];
   }
 
   $: setInitialPassword(pwElm);
@@ -256,6 +256,11 @@
     slot="content"
     bind:this={containerElm}
   >
+    <p class="mb-3 text-sm">
+      Advanced Ttu Ebook Reader storage. These sources use <code>ttu-reader-data</code> and its
+      book, bookmark and statistics format. For ordinary Manabi folders, use
+      <strong>Accounts and libraries</strong>.
+    </p>
     <input
       required
       type="text"

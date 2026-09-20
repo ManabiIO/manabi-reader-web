@@ -86,7 +86,7 @@
     easing: quintOut
   };
 
-  const importMenuItems = [mergeEntries.FILE_IMPORT];
+  const importMenuItems = [mergeEntries.FILE_IMPORT, mergeEntries.TTU_IMPORT];
   const storageSourceMenuItems = [
     { label: 'Browser', key: StorageKey.BROWSER, requiresConnectivity: false }
   ];
@@ -114,7 +114,7 @@
       ...(isStorageSourceAvailable(StorageKey.GDRIVE, $gDriveStorageSource$, window)
         ? [
             {
-              label: 'GDrive',
+              label: 'Google Drive',
               key: StorageKey.GDRIVE,
               requiresConnectivity: true
             }
@@ -153,6 +153,8 @@
 
   function triggerInput(event: CustomEvent<string>) {
     switch (event.detail) {
+      case mergeEntries.TTU_IMPORT.label:
+        break;
       case mergeEntries.FOLDER_IMPORT.label:
         folderImportElm.click();
         break;
@@ -362,11 +364,11 @@
                     xmlns="http://www.w3.org/2000/svg"
                     viewBox={$storageIcon$.viewBox}
                   >
-                    <path class="fill-current" d={$storageIcon$.d} ></path>
+                    <path class="fill-current" d={$storageIcon$.d}></path>
                   </svg>
                 {/key}
               </div>
-              <div class="w-28 bg-surface-raised" slot="content">
+              <div class="w-40 bg-surface-raised" slot="content">
                 {#each storageSourceMenuItems as sourceMenuItem (sourceMenuItem.key)}
                   <div
                     tabindex="0"
@@ -574,7 +576,8 @@
           <Fa icon={faCircleXmark} class="cursor-pointer" />
         </div>
       </Popover>
-      <progress class="mx-4 w-full" value={replicationProgress} max={replicationToProgress} ></progress>
+      <progress class="mx-4 w-full" value={replicationProgress} max={replicationToProgress}
+      ></progress>
       <div class="ml-4 min-w-fit">{replicationProgressRemaining}</div>
     </div>
   {/if}

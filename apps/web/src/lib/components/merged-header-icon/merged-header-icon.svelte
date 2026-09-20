@@ -15,8 +15,8 @@
   const dispatch = createEventDispatcher<{ action: string }>();
   const sharedLibrary = {
     routeId: '/shared-library',
-    label: 'Shared TTU libraries',
-    title: 'Local folders shared with TTU Reader',
+    label: 'Shared Ttu Ebook Reader libraries',
+    title: 'Local folders shared with Ttu Ebook Reader',
     icon: mergeEntries.FOLDER_IMPORT.icon
   };
   const navigationItems = [...items];
@@ -67,7 +67,7 @@
       bind:this={menuElm}
     >
       <div slot="icon" class={baseIconClasses}><Fa icon={mergeTo.icon} /></div>
-      <div class="w-44 bg-surface-raised" slot="content">
+      <div class="w-64 max-w-[80vw] bg-surface-raised" slot="content">
         {#each actionItems as actionItem (actionItem.label)}
           <button
             type="button"

@@ -49,7 +49,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
             'mimeType': 'image/png',
             'buffer': png(color)
         })
-        section = self.page.locator(f'section:has(#background-{target}-{mode})')
+        section = self.page.locator(f'.mode-image:has(#background-{target}-{mode})')
         expect(section.get_by_text(filename, exact=True)).to_be_visible()
         expect(section.get_by_text('Preparing image…', exact=True)).to_have_count(0)
     def test_default_modes_and_persistence(self):
@@ -174,10 +174,10 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         self.page.get_by_text('Background images', exact=True).click()
         self.mode('Light')
         light_preview = self.page.locator(
-            'section:has(#background-reader-light) .background-preview'
+            '.mode-image:has(#background-reader-light) .background-preview'
         )
         dark_preview = self.page.locator(
-            'section:has(#background-reader-dark) .background-preview'
+            '.mode-image:has(#background-reader-dark) .background-preview'
         )
         self.assertEqual(
             'rgba(255, 255, 255, 0.25)',
@@ -193,12 +193,12 @@ class AppearanceBrowser(baseline.ReaderBrowser):
             'button', name='Remove dark book browser background', exact=True
         ).click()
         expect(
-            self.page.locator('section:has(#background-library-dark)').get_by_text(
+            self.page.locator('.mode-image:has(#background-library-dark)').get_by_text(
                 'library-dark.png', exact=True
             )
         ).to_have_count(0)
         expect(
-            self.page.locator('section:has(#background-library-light)').get_by_text(
+            self.page.locator('.mode-image:has(#background-library-light)').get_by_text(
                 'library-light.png', exact=True
             )
         ).to_be_visible()
@@ -220,12 +220,12 @@ class AppearanceBrowser(baseline.ReaderBrowser):
             'button', name='Remove both book reader background images', exact=True
         ).click()
         expect(
-            self.page.locator('section:has(#background-reader-light)').get_by_text(
+            self.page.locator('.mode-image:has(#background-reader-light)').get_by_text(
                 'reader-light.png', exact=True
             )
         ).to_have_count(0)
         expect(
-            self.page.locator('section:has(#background-reader-dark)').get_by_text(
+            self.page.locator('.mode-image:has(#background-reader-dark)').get_by_text(
                 'reader-dark.png', exact=True
             )
         ).to_have_count(0)
@@ -238,7 +238,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
             'mimeType':'image/svg+xml',
             'buffer': b'<svg/>'
         })
-        light = self.page.locator('section:has(#background-library-light)')
+        light = self.page.locator('.mode-image:has(#background-library-light)')
         expect(light.get_by_role('alert')).to_contain_text('PNG, JPEG, or WebP')
         expect(light.get_by_text('library-light.png', exact=True)).to_be_visible()
         self.page.locator(

@@ -25,10 +25,7 @@
   import { BlurMode } from '$lib/data/blur-mode';
   import { dialogManager } from '$lib/data/dialog-manager';
   import { LocalFont } from '$lib/data/fonts';
-  import {
-    effectivePrimaryReaderFont,
-    YU_KYOKASHO
-  } from '$lib/data/reader-typography';
+  import { effectivePrimaryReaderFont, YU_KYOKASHO } from '$lib/data/reader-typography';
   import { FuriganaStyle } from '$lib/data/furigana-style';
   import { ImportHTMLFixMode } from '$lib/data/import-html-fix-mode';
   import { logger } from '$lib/data/logger';
@@ -90,6 +87,11 @@
       ? [LocalFont.YUKYOKASHO, ...primaryFontsWithoutYuKyokasho]
       : primaryFontsWithoutYuKyokasho;
   let editingPrimaryFont = false;
+  let primaryFontAtFocus = '';
+  function beginPrimaryFontEdit() {
+    primaryFontAtFocus = primaryFontInput;
+    editingPrimaryFont = true;
+  }
   let primaryFontInput = '';
   $: if (!editingPrimaryFont) {
     primaryFontInput = effectivePrimaryReaderFont(fontFamilyGroupOne, yuKyokashoAvailable);
@@ -97,7 +99,8 @@
 
   function commitPrimaryFont() {
     editingPrimaryFont = false;
-    fontFamilyGroupOne = primaryFontInput.trim() || YU_KYOKASHO;
+    if (primaryFontInput !== primaryFontAtFocus)
+      fontFamilyGroupOne = primaryFontInput.trim() || YU_KYOKASHO;
     primaryFontInput = effectivePrimaryReaderFont(fontFamilyGroupOne, yuKyokashoAvailable);
   }
 
@@ -106,8 +109,10 @@
     if (!(target instanceof HTMLInputElement)) return;
     if (event.key === 'Enter') target.blur();
     if (event.key !== 'Escape') return;
+    primaryFontInput = primaryFontAtFocus;
     editingPrimaryFont = false;
     primaryFontInput = effectivePrimaryReaderFont(fontFamilyGroupOne, yuKyokashoAvailable);
+    primaryFontAtFocus = primaryFontInput;
     target.blur();
   }
 
@@ -589,8 +594,8 @@
     <p class="text-sm opacity-75">
       YuKyokasho is the default when this browser can use it: Yoko for horizontal text and the
       standard face for vertical text. It is hidden when unavailable; Klee One becomes the default
-      fallback. Optional fonts download only when used and can remain available offline when
-      browser storage permits. Existing explicit font choices are kept.
+      fallback. Optional fonts download only when used and can remain available offline when browser
+      storage permits. Existing explicit font choices are kept.
     </p>
     <SettingsItemGroup title="Primary / Serif font">
       <div slot="header" class="flex items-center">
@@ -624,7 +629,7 @@
         aria-label="Primary / Serif font"
         placeholder={yuKyokashoAvailable === false ? 'Klee One' : 'YuKyokasho'}
         bind:value={primaryFontInput}
-        on:focus={() => (editingPrimaryFont = true)}
+        on:focus={beginPrimaryFontEdit}
         on:blur={commitPrimaryFont}
         on:keydown={handlePrimaryFontKeydown}
       />

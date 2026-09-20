@@ -32,8 +32,8 @@
     <p class="description">
       Book browser and reader images can each be different in Light and Dark mode. Images fill the
       screen without stretching and are saved only in this browser, never uploaded or included in
-      account settings sync. PNG, JPEG, or WebP, up to 8 MB. Existing single-image backgrounds are
-      used for both modes until you change or remove either one.
+      account settings sync. PNG, JPEG, or WebP, up to 8 MB. Remove either image independently or
+      remove both for a surface. A mode without an image uses the plain theme background.
     </p>
     <div class="backgrounds">
       {#each backgrounds as background (background.target)}<BackgroundSettings
