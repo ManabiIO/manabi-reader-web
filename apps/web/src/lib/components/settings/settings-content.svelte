@@ -597,6 +597,7 @@
         <SettingsFontSelector
           label="Show available primary / serif fonts"
           availableFonts={availablePrimaryFonts}
+          selectedFont={effectivePrimaryReaderFont(fontFamilyGroupOne, yuKyokashoAvailable)}
           bind:fontValue={fontFamilyGroupOne}
         />
         {#if fontCacheSupported}
