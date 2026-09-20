@@ -174,7 +174,7 @@
     else url.searchParams.delete('collection');
     if (unfinished) url.searchParams.set('unfinished', '1');
     else url.searchParams.delete('unfinished');
-    void goto(resolve(`/manage${url.search}` as '/manage' | `/manage?${string}`));
+    void goto(resolve(`/manage?${url.searchParams.toString()}`));
   }
   function setLayout(value: string) {
     if (value !== 'grid' && value !== 'list') return;
@@ -217,6 +217,10 @@
   }
   async function load(refresh = false) {
     if (refresh) previewFailures = 0;
+    previewQueue?.stop();
+    previewQueue = new PreviewQueue(() => {
+      if (alive) previewFailures++;
+    });
     const run = ++generation;
     controller?.abort();
     controller = new AbortController();
@@ -231,8 +235,10 @@
       sources = nextSources;
       locals = nextLocals;
       catalogs = cached.filter((c): c is Catalog => !!c);
-      pending = await pendingMoves();
+      const nextPending = await pendingMoves();
       await refreshLinkedBooks();
+      if (!alive || run !== generation || owner !== currentUser()?.id) return;
+      pending = nextPending;
       for (const source of nextSources) {
         if (
           !refresh &&
@@ -863,6 +869,14 @@
 </Dialog.Root>
 
 <style>
+  .search-box input {
+    border: 0;
+    border-radius: 0;
+    padding-inline: 0;
+    background: transparent;
+    box-shadow: none;
+    outline: none;
+  }
   .series-hero {
     background: linear-gradient(
       145deg,
