@@ -1,0 +1,127 @@
+name: Rhea final UI qualification
+on:
+  push:
+    branches: [research/rhea-closeout-20260920]
+    paths: ['.github/workflows/rhea-final.yml']
+permissions:
+  contents: write
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: a8d7a63afad2cd265c29813aa6ce9118d9756923
+          persist-credentials: false
+      - name: Apply exact scoped UI patch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json,base64,lzma,pathlib,hashlib,subprocess,urllib.request,os
+          req=urllib.request.Request('https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/git/blobs/d14dd7175dd9b57326289bea4a7f86c8aeb736e6',headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+          with urllib.request.urlopen(req,timeout=30) as response: data=json.load(response)
+          patch=lzma.decompress(base64.b64decode(data['content']))
+          assert hashlib.sha256(patch).hexdigest()=='3c2d153d53faf0c9c77c39bcb22bd4f1994852a3e7a02e60193abe2b8804214a'
+          pathlib.Path('/tmp/rhea.patch').write_bytes(patch)
+          subprocess.run(['git','apply','--check','/tmp/rhea.patch'],check=True)
+          subprocess.run(['git','apply','/tmp/rhea.patch'],check=True)
+          names=subprocess.check_output(['git','diff','--name-only'],text=True).splitlines()
+          assert len(names)==8 and all(n.startswith(('apps/web/src/','tests/browser/','tools/appearance/','docs/')) for n in names)
+          pathlib.Path('/tmp/rhea-paths.json').write_text(json.dumps(names))
+          for n in names:
+              if n.endswith('.py'):compile(pathlib.Path(n).read_text(),n,'exec')
+          PY
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - name: Format and capture reviewed candidate tree
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p /tmp/rhea-final
+          python3 - <<'PY'
+          import pathlib,json,subprocess,urllib.request,os
+          names=json.loads(pathlib.Path('/tmp/rhea-paths.json').read_text())
+          subprocess.run(['pnpm','exec','prettier','--write',*[n for n in names if not n.endswith('.py')]],check=True)
+          source=[{'path':n,'content':pathlib.Path(n).read_text()} for n in names]
+          out=pathlib.Path('/tmp/rhea-final');(out/'source.json').write_text(json.dumps(source))
+          base=subprocess.check_output(['git','rev-parse','HEAD^{tree}'],text=True).strip()
+          request=urllib.request.Request('https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/git/trees',data=json.dumps({'base_tree':base,'tree':[{'path':f['path'],'mode':'100644','type':'blob','content':f['content']} for f in source]}).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Content-Type':'application/json','Accept':'application/vnd.github+json'},method='POST')
+          with urllib.request.urlopen(request,timeout=60) as response: tree=json.load(response)
+          (out/'tree-sha.txt').write_text(tree['sha']);(out/'tree.json').write_text(json.dumps(tree))
+          (out/'diff.patch').write_text(subprocess.check_output(['git','diff'],text=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rhea-final-source
+          path: /tmp/rhea-final
+          retention-days: 7
+      - name: Lint, units and types
+        run: |
+          set -o pipefail
+          pnpm exec eslint . 2>&1 | tee /tmp/rhea-final/lint.log
+          node tools/appearance/lint.mjs 2>&1 | tee /tmp/rhea-final/components.log
+          node --experimental-strip-types --test tests/unit/*.test.mjs test/reader/typography.test.mjs | tee /tmp/rhea-final/units.log
+          pnpm --dir apps/web check 2>&1 | tee /tmp/rhea-final/types.log
+      - name: Add observation-only toolbar close tracing (not in captured tree)
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          p=pathlib.Path('apps/web/src/routes/b/+page.svelte');s=p.read_text();lines=s.splitlines()
+          for i,line in enumerate(lines):
+              if 'showHeader = false' in line and 'let showHeader' not in line:
+                  lines[i]=line.replace('showHeader = false',f"showHeader = traceToolbarClose({i+1})")
+          s='\n'.join(lines)+'\n'
+          s=s.replace('  function onKeydown(ev: KeyboardEvent) {', '''  function traceToolbarClose(line: number) {
+              console.info('RHEA_HEADER_CLOSE', line, new Error().stack,
+                document.activeElement?.outerHTML.slice(0, 200));
+              return false;
+            }
+            function onKeydown(ev: KeyboardEvent) {''')
+          p.write_text(s)
+          p=pathlib.Path('tests/browser/test_rhea_ui.py');s=p.read_text();needle='class RheaReader(previous.RefinedAppearance):\n'
+          s=s.replace(needle,needle+'''    def setUp(self):
+                  super().setUp()
+                  self.context.add_init_script("""for (const type of ['keydown','click']) {
+                    addEventListener(type, e => console.info('RHEA_EVENT', e.type, e.key,
+                      e.target?.outerHTML?.slice(0,180)), true);
+                  }""")
+
+          ''');p.write_text(s)
+          PY
+      - name: Build and exercise real browsers
+        env:
+          BASE_PATH: /Reader-Web
+        run: |
+          set -o pipefail
+          pnpm build 2>&1 | tee /tmp/rhea-final/build.log
+          python -m pip install 'playwright==1.63.0'
+          python -m playwright install --with-deps chromium webkit
+          status=0
+          for engine in chromium webkit; do
+            mkdir -p /tmp/rhea-final/$engine
+            set +e
+            APPEARANCE_BROWSER=$engine python tests/browser/test_rhea_ui.py > /tmp/rhea-final/$engine/results.log 2>&1
+            result=$?
+            set -e
+            [ $result -eq 0 ] || status=1
+            if [ -d test-results ]; then mv test-results /tmp/rhea-final/$engine/screenshots; fi
+          done
+          exit $status
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rhea-final-results
+          path: /tmp/rhea-final
+          retention-days: 7
