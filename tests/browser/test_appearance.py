@@ -60,24 +60,45 @@ class AppearanceBrowser(baseline.ReaderBrowser):
                 with self.subTest(theme=theme, mode=mode):
                     self.mode(mode)
                     self.assertEqual(mode.lower(), self.scheme())
-                    colors = self.page.locator('.app-header').first.evaluate('(e) => ({bg: getComputedStyle(e).backgroundColor, expected: getComputedStyle(document.documentElement).getPropertyValue("--surface-raised").trim()})')
-                    self.assertNotIn(colors['bg'], ['rgba(0, 0, 0, 0)', 'rgb(55, 65, 81)'])
+                    # Assert actual rendered controls, not merely the palette model.
+                    actual = self.page.locator('.app-header').first.evaluate('''e => {
+                      const root = getComputedStyle(document.documentElement);
+                      return {header:getComputedStyle(e).backgroundColor, raised:root.getPropertyValue('--surface-raised').trim()};
+                    }''')
+                    self.assertEqual(actual['raised'].replace('rgba(', 'rgb(').replace(', 1)', ')'), actual['header'])
+                    field = self.page.locator('input[type="number"]').first
+                    self.assertEqual(field.evaluate('e => getComputedStyle(document.documentElement).getPropertyValue("--canvas").trim().replace("rgba(","rgb(").replace(", 1)",")")'), field.evaluate('e => getComputedStyle(e).backgroundColor'))
             self.page.screenshot(path='test-results/palette-' + theme + '.png', full_page=True)
         self.page.goto(self.origin + '/Reader-Web/statistics')
         self.assertEqual('dark', self.scheme())
         self.page.screenshot(path='test-results/appearance-statistics-dark.png', full_page=True)
 
-    def test_legacy_night_theme_and_custom_theme_are_not_reset(self):
-        self.page.goto(self.origin + '/Reader-Web/manage')
-        self.page.evaluate('localStorage.removeItem("appearance"); localStorage.setItem("theme", "gray-theme")')
+    def seed_released_preferences(self, values):
+        # Seed before bootstrap/hydration instead of navigating away from a newly
+        # mounted app while its optional session request is still in flight.
+        self.context.add_init_script(
+            'if (location.origin === ' + json.dumps(self.origin) +
+            ' && localStorage.getItem("theme") === null) {' +
+            'for (const [key, value] of Object.entries(' + json.dumps(values) +
+            ')) localStorage.setItem(key, value); }'
+        )
+
+    def test_legacy_night_theme_is_not_reset(self):
+        self.seed_released_preferences({'theme': 'gray-theme'})
         self.settings()
         self.assertEqual('dark', self.scheme())
+        expect(self.page.locator('button[title="gray-theme"]')).to_have_attribute('aria-pressed', 'true')
         self.assertEqual('gray-theme', self.page.evaluate('localStorage.getItem("theme")'))
+        self.mode('Light')
+        self.assertEqual('gray-theme', self.page.evaluate('localStorage.getItem("theme")'))
+
+    def test_legacy_custom_theme_is_not_reset(self):
         custom = {key: 'rgba(240, 240, 240, 1)' for key in ['fontColor','selectionFontColor','selectionBackgroundColor','hintFuriganaShadowColor','hintFuriganaFontColor','tooltipTextFontColor']}
         custom['backgroundColor'] = 'rgba(24, 20, 32, 1)'
-        self.page.evaluate('(v) => {localStorage.removeItem("appearance"); localStorage.setItem("theme", "Personal");localStorage.setItem("customThemes", JSON.stringify({Personal:v}));}', custom)
-        self.page.reload()
+        self.seed_released_preferences({'theme': 'Personal', 'customThemes': json.dumps({'Personal': custom})})
+        self.settings()
         self.assertEqual('dark', self.scheme())
+        expect(self.page.get_by_role('button', name='Edit Personal theme', exact=True)).to_be_visible()
         self.mode('Light')
         self.assertEqual(custom, self.page.evaluate('JSON.parse(localStorage.getItem("customThemes")).Personal'))
         self.assertEqual('Personal', self.page.evaluate('localStorage.getItem("theme")'))

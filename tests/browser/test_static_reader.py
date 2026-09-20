@@ -121,6 +121,11 @@ class ReaderBrowser(unittest.TestCase):
             '() => document.querySelector(".book-content ruby rt")?.textContent === "ほん"'
         )
 
+    def wait_for_fonts(self):
+        # Bounded assertion, not a sleep, screenshot bypass or synthetic face.
+        self.page.locator('.book-content').evaluate('e => e.getBoundingClientRect()')
+        self.page.wait_for_function("document.fonts.status === 'loaded'", timeout=15000)
+
     def first_font(self):
         return self.page.locator('.book-content').evaluate('e => getComputedStyle(e).fontFamily.split(",")[0].trim().replace(/^"|"$/g, "")')
 
@@ -147,10 +152,27 @@ class ReaderBrowser(unittest.TestCase):
     def test_continuous_horizontal_system_font_and_saved_explicit_font(self):
         self.open_book('continuous', 'horizontal-tb')
         self.assertEqual('YuKyokasho Yoko', self.first_font())
+        # Finish the currently used face before deliberately replacing it. WebKit
+        # can leave FontFaceSet.ready pending after a reload cancels the old face,
+        # even though the new face subsequently loads. This test checks saved font
+        # preference/decoding, not cancellation during an unfinished font download.
+        self.wait_for_fonts()
         self.page.evaluate('localStorage.setItem("fontFamilyGroupOne", "Noto Serif JP")')
         self.page.reload()
         expect(self.page.locator('.book-content')).to_be_visible(timeout=30000)
         self.assertEqual('Noto Serif JP', self.first_font())
+        self.assertGreater(self.page.evaluate('''async () => {
+          let timer;
+          try {
+            return await Promise.race([
+              document.fonts.load('20px "Noto Serif JP"', '日本語').then(faces => faces.length),
+              new Promise((_, reject) => {
+                timer = setTimeout(() => reject(new Error('Selected font did not load')), 15000);
+              })
+            ]);
+          } finally { clearTimeout(timer); }
+        }'''), 0)
+        self.wait_for_fonts()
 
     def test_offline_reload_preserves_book_and_never_caches_account_requests(self):
         self.page.goto(self.origin + '/Reader-Web/manage')
