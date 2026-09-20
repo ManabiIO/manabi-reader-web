@@ -29,8 +29,4 @@ edit('apps/web/src/lib/library/library-workspace.svelte', '<style>\n', '''<style
     box-shadow: none;
     outline: none;
   }
-  .search-box:focus-within {
-    outline: 2px solid var(--ring);
-    outline-offset: 2px;
-  }
 ''')
