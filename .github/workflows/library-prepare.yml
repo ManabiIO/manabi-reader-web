@@ -25,7 +25,11 @@ jobs:
           import base64, gzip, hashlib, pathlib, subprocess
           root = pathlib.Path('/tmp/library-evidence')
           parts = [(root / f'library-payload-{i}.txt').read_text().strip() for i in range(1,5)]
-          parts[0] = parts[0].replace('GcTXwdbW7s7VarW+', 'GcTXwdbW7s7mMArD3b3d4dNBFGxtbu7v7n7VarW+').replace('3uWyAQvSTST4iejDYRub', '3uWyAQvST4iejDYRub')
+          # Exact offsets compared against the downloaded received-payload artifact.
+          fixes = [[[218,218,'7mMArD3b3d4dNBFGxtbu7v7n'],[1457,1459,'']],[],[],[[5511,5511,'/']]]
+          for i, edits in enumerate(fixes):
+              for start,end,text in reversed(edits):
+                  parts[i] = parts[i][:start] + text + parts[i][end:]
           raw = gzip.decompress(base64.b64decode(''.join(parts), validate=True))
           expected = '4a162a4083a934111041d577b82d59722b54067dfc3639f328e979bd807dda9e'
           assert len(raw) == 146947 and hashlib.sha256(raw).hexdigest() == expected, 'Authored patch checksum mismatch; do not apply'
