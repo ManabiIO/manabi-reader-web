@@ -1,0 +1,102 @@
+name: Isolated library preparation
+on:
+  push:
+    branches: [codex/library-prepare-20260920]
+permissions:
+  contents: write
+concurrency:
+  group: isolated-library-prepare
+  cancel-in-progress: true
+jobs:
+  prepare:
+    if: github.repository == 'ManabiIO/manabi-reader-web' && github.ref == 'refs/heads/codex/library-prepare-20260920'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact authored patch before applying
+        run: |
+          mkdir -p /tmp/library-evidence
+          cp .github/library-payload-*.txt /tmp/library-evidence/
+          python3 - <<'PY'
+          import base64, gzip, hashlib, pathlib, subprocess
+          root = pathlib.Path('/tmp/library-evidence')
+          parts = [(root / f'library-payload-{i}.txt').read_text().strip() for i in range(1,5)]
+          parts[0] = parts[0].replace('GcTXwdbW7s7VarW+', 'GcTXwdbW7s7mMArD3b3d4dNBFGxtbu7v7n7VarW+').replace('3uWyAQvSTST4iejDYRub', '3uWyAQvST4iejDYRub')
+          raw = gzip.decompress(base64.b64decode(''.join(parts), validate=True))
+          expected = '4a162a4083a934111041d577b82d59722b54067dfc3639f328e979bd807dda9e'
+          assert len(raw) == 146947 and hashlib.sha256(raw).hexdigest() == expected, 'Authored patch checksum mismatch; do not apply'
+          patch = root / 'library.patch'
+          patch.write_bytes(raw)
+          subprocess.run(['git','reset','--hard','d61e5c93001b975a2ab8ae4299643648e2759413'],check=True)
+          subprocess.run(['git','apply','--check',str(patch)],check=True)
+          subprocess.run(['git','apply',str(patch)],check=True)
+          subprocess.run(['git','add','apps/web','docs/books-library.md','tests','tools/appearance/lint.mjs'],check=True)
+          paths = subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines()
+          assert paths and all(p.startswith(('apps/web/','tests/','tools/appearance/')) or p == 'docs/books-library.md' for p in paths)
+          (root / 'changed-paths.json').write_text(__import__('json').dumps(paths))
+          PY
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - name: Format only this candidate's changed source
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, subprocess
+          paths = json.loads(pathlib.Path('/tmp/library-evidence/changed-paths.json').read_text())
+          formatted = [p for p in paths if pathlib.Path(p).suffix in {'.ts','.svelte','.mjs','.json','.md'}]
+          subprocess.run(['pnpm','exec','prettier','--write',*formatted],check=True)
+          subprocess.run(['git','add',*paths],check=True)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          PY
+      - name: Publish clean candidate objects, excluding preparation ancestry
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name 'Manabi library preparation'
+          git config user.email 'noreply@github.com'
+          tree=$(git write-tree)
+          commit=$(printf '%s\n' 'feat: introduce the Books-style personal library' | git commit-tree "$tree" -p d61e5c93001b975a2ab8ae4299643648e2759413)
+          echo "$tree" > /tmp/library-evidence/tree-sha.txt
+          echo "$commit" > /tmp/library-evidence/commit.txt
+          git ls-tree -r "$commit" > /tmp/library-evidence/tree.txt
+          HEADER=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $HEADER" push origin "$commit:refs/heads/codex/library-prepared-20260920"
+          python3 - <<'PY'
+          import json, pathlib, subprocess
+          files=[]
+          for name in subprocess.check_output(['git','ls-files'],text=True).splitlines():
+              p=pathlib.Path(name)
+              if p.is_file() and p.suffix in {'.ts','.js','.mjs','.cjs','.svelte','.scss','.css','.html','.json','.yml','.yaml','.py','.md'} and p.stat().st_size < 2000000:
+                  files.append({'path':name,'content':p.read_text()})
+          pathlib.Path('/tmp/library-evidence/source.json').write_text(json.dumps(files))
+          PY
+      - name: Candidate unit, type and component checks
+        run: |
+          set +e
+          node --experimental-strip-types --test tests/unit/*.test.mjs test/reader/typography.test.mjs > /tmp/library-evidence/units.log 2>&1
+          echo "units=$?" >> /tmp/library-evidence/results.txt
+          pnpm --dir apps/web check > /tmp/library-evidence/types.log 2>&1
+          echo "types=$?" >> /tmp/library-evidence/results.txt
+          node tools/appearance/lint.mjs > /tmp/library-evidence/lint.log 2>&1
+          echo "lint=$?" >> /tmp/library-evidence/results.txt
+          BASE_PATH=/Reader-Web pnpm build > /tmp/library-evidence/build.log 2>&1
+          echo "build=$?" >> /tmp/library-evidence/results.txt
+          cat /tmp/library-evidence/results.txt
+          ! grep -Eq '=[1-9][0-9]*$' /tmp/library-evidence/results.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: isolated-library-evidence
+          path: /tmp/library-evidence
+          retention-days: 7
+          if-no-files-found: error
