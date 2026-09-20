@@ -1,0 +1,81 @@
+name: Rhea toolchain research
+on:
+  push:
+    branches: [research/rhea-toolchain-20260920]
+    paths: ['.github/workflows/rhea-research.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: pnpm
+      - name: Resolve current stable versions from the public package registry
+        run: |
+          mkdir -p /tmp/rhea-evidence
+          node --input-type=module <<'JS'
+          import {execFileSync} from 'node:child_process';
+          import {writeFileSync} from 'node:fs';
+          const result={};
+          for (const name of ['shadcn-svelte','bits-ui','tailwindcss','@tailwindcss/vite','@tailwindcss/forms','@lucide/svelte','tailwind-variants','tailwind-merge','tw-animate-css','clsx','svelte','@sveltejs/kit','@sveltejs/vite-plugin-svelte','vite']) {
+            result[name]=JSON.parse(execFileSync('npm',['view',name,'version','dist-tags','engines','peerDependencies','--json'],{encoding:'utf8'}));
+          }
+          writeFileSync('/tmp/rhea-evidence/versions.json',JSON.stringify(result,null,2));
+          JS
+      - name: Inspect official upstream source and CLI
+        run: |
+          git clone --depth 1 https://github.com/huntabyte/shadcn-svelte.git /tmp/shadcn-svelte
+          git -C /tmp/shadcn-svelte rev-parse HEAD > /tmp/rhea-evidence/upstream-sha.txt
+          git -C /tmp/shadcn-svelte ls-tree -r HEAD > /tmp/rhea-evidence/upstream-tree.txt
+          pnpm dlx shadcn-svelte@latest init --help > /tmp/rhea-evidence/init-help.txt
+          pnpm dlx shadcn-svelte@latest add --help > /tmp/rhea-evidence/add-help.txt
+          python3 - <<'PY'
+          import pathlib,json
+          root=pathlib.Path('/tmp/shadcn-svelte')
+          source=[]
+          for p in root.rglob('*'):
+              if not p.is_file() or '.git' in p.parts or p.suffix not in {'.svelte','.ts','.js','.json','.css','.md'}:continue
+              name=p.relative_to(root).as_posix()
+              if p.stat().st_size<500000 and ('rhea' in name or 'packages/cli/' in name or 'preset' in name or 'registry/styles' in name or name.endswith('registry/index.ts')):
+                  source.append({'path':name,'content':p.read_text()})
+          pathlib.Path('/tmp/rhea-evidence/upstream-source.json').write_text(json.dumps(source))
+          PY
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - name: Generate the official Rhea components into this disposable checkout
+        run: |
+          cat > apps/web/components.json <<'JSON'
+          {"$schema":"https://shadcn-svelte.com/schema.json","style":"rhea","tailwind":{"css":"src/app.css","baseColor":"neutral"},"aliases":{"lib":"$lib","utils":"$lib/utils","components":"$lib/components","ui":"$lib/components/ui","hooks":"$lib/hooks"},"typescript":true,"registry":"https://shadcn-svelte.com/registry","iconLibrary":"lucide"}
+          JSON
+          printf '@import "tailwindcss";\n' > apps/web/src/app.css
+          set -o pipefail
+          pnpm dlx shadcn-svelte@latest add -c apps/web --skip-preflight --no-deps-install -y button badge card input field tabs sheet dropdown-menu separator sidebar switch checkbox select toggle-group command dialog scroll-area tooltip 2>&1 | tee /tmp/rhea-evidence/generation.log
+      - name: Retain generated source only, no fonts or credentials
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import pathlib,json,subprocess
+          names=subprocess.check_output(['git','ls-files','--modified','--others','--exclude-standard'],text=True).splitlines()
+          source=[]
+          for name in sorted(set(names)):
+              p=pathlib.Path(name)
+              if p.is_file() and p.suffix in {'.svelte','.ts','.js','.json','.css','.cjs','.mjs'}:
+                  source.append({'path':name,'content':p.read_text()})
+          pathlib.Path('/tmp/rhea-evidence/generated-source.json').write_text(json.dumps(source))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rhea-toolchain-source
+          path: /tmp/rhea-evidence
+          retention-days: 7
