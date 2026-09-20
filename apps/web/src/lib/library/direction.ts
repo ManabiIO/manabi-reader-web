@@ -9,6 +9,18 @@ export interface DirectionEvidence {
   value: PageDirection;
   source: 'spine' | 'content' | 'unknown';
 }
+/** Only the authored/imported evidence shape crosses backup restoration. */
+export function validDirectionEvidence(value: unknown): value is DirectionEvidence {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    Object.keys(v).every((key) => key === 'value' || key === 'source') &&
+    (v.value === 'unknown'
+      ? v.source === 'unknown'
+      : (v.value === 'ltr' || v.value === 'rtl') &&
+        (v.source === 'spine' || v.source === 'content'))
+  );
+}
 export interface FlowSample {
   writingMode: string;
   direction: string;

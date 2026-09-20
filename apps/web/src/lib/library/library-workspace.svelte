@@ -174,7 +174,7 @@
     else url.searchParams.delete('collection');
     if (unfinished) url.searchParams.set('unfinished', '1');
     else url.searchParams.delete('unfinished');
-    void goto(`${url.pathname}${url.search}`);
+    void goto(`${resolve('/manage')}${url.search}`);
   }
   function setLayout(value: string) {
     if (value !== 'grid' && value !== 'list') return;
@@ -217,6 +217,10 @@
   }
   async function load(refresh = false) {
     if (refresh) previewFailures = 0;
+    previewQueue?.stop();
+    previewQueue = new PreviewQueue(() => {
+      if (alive) previewFailures++;
+    });
     const run = ++generation;
     controller?.abort();
     controller = new AbortController();
@@ -231,8 +235,10 @@
       sources = nextSources;
       locals = nextLocals;
       catalogs = cached.filter((c): c is Catalog => !!c);
-      pending = await pendingMoves();
+      const nextPending = await pendingMoves();
       await refreshLinkedBooks();
+      if (!alive || run !== generation || owner !== currentUser()?.id) return;
+      pending = nextPending;
       for (const source of nextSources) {
         if (
           !refresh &&
@@ -518,7 +524,8 @@
       >
       <Menu.Separator /><Menu.Label>Sort by</Menu.Label>
       <Menu.RadioGroup value={sort.property} onValueChange={(value) => setSort(value)}
-        >{#each sortItems as item}<Menu.RadioItem value={item.property}>{item.label}</Menu.RadioItem
+        >{#each sortItems as item (item.property)}<Menu.RadioItem value={item.property}
+            >{item.label}</Menu.RadioItem
           >{/each}</Menu.RadioGroup
       >
       <Menu.Separator /><Menu.RadioGroup
@@ -580,7 +587,7 @@
     </p>{/if}
   {#if warnings.length}<details class="mb-4 rounded-2xl border border-border p-4 text-sm">
       <summary>Some series names could not be read ({warnings.length})</summary
-      >{#each warnings as warning}<p class="mt-2 break-words">{warning}</p>{/each}
+      >{#each warnings as warning, index (index)}<p class="mt-2 break-words">{warning}</p>{/each}
     </details>{/if}
   {#if series}
     <header
@@ -814,7 +821,8 @@
               class="min-h-11 rounded-xl border border-input bg-background px-3"
               bind:value={groupSource}
               on:change={() => (groupFiles = [])}
-              >{#each locals as local}<option value={local.id}>{local.name}</option>{/each}</select
+              >{#each locals as local (local.id)}<option value={local.id}>{local.name}</option
+                >{/each}</select
             ></label
           >
           {#if !locals.length}<p class="text-sm text-muted-foreground">
