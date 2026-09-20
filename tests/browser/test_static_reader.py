@@ -139,8 +139,8 @@ class ReaderBrowser(unittest.TestCase):
 
     def test_anonymous_navigation_without_backend(self):
         self.page.goto(self.origin + '/Reader-Web/manage')
-        self.page.get_by_role('button', name='Navigate', exact=True).click()
-        self.page.get_by_role('link', name='Accounts and libraries', exact=True).click()
+        self.page.get_by_role('button', name='Library actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Accounts and Libraries', exact=True).click()
         expect(self.page.get_by_role('heading', name='Accounts and libraries', exact=True)).to_be_visible()
         expect(self.page.get_by_text('Manabi account services are not available on this deployment. Local libraries still work.')).to_be_visible()
         self.assertTrue(self.page.get_by_role('link', name='Sign in to Manabi').get_attribute('href').startswith('/accounts/login/'))
