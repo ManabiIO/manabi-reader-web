@@ -40,7 +40,7 @@ jobs:
         run: |
           mkdir -p test-results/whispersync
           git rev-parse HEAD > test-results/whispersync/source-commit.txt
-          git archive --format=zip --output=test-results/whispersync/source.zip HEAD apps/web/src test docs .github/workflows eslint.config.js tsconfig.eslint.json package.json pnpm-lock.yaml apps/web/package.json apps/web/static/licenses
+          git archive --format=zip --output=test-results/whispersync/source.zip HEAD apps/web/src test docs .github/workflows eslint.config.js package.json pnpm-lock.yaml apps/web/package.json apps/web/static/licenses .prettierrc.cjs
       - uses: pnpm/action-setup@v6.1.0
         with:
           version: '12.3.4'
