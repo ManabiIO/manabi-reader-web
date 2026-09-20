@@ -177,8 +177,8 @@ class BooksLibraryBrowser(LibraryBase):
         expect(self.page.get_by_role('menuitem', name='Statistics', exact=True)).to_be_visible()
         expect(self.page.get_by_role('menuitem', name='Settings', exact=True)).to_be_visible()
         self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
-        expect(header.get_by_role('button', name='Cancel Selection', exact=True)).to_be_visible()
-        header.get_by_role('button', name='Cancel Selection', exact=True).click()
+        expect(header.get_by_role('button', name='Cancel selection', exact=True)).to_be_visible()
+        header.get_by_role('button', name='Cancel selection', exact=True).click()
 
         header.get_by_role('button', name='Collections', exact=True).click()
         expect(self.page.locator('[data-slot="sheet-content"]').get_by_role(
