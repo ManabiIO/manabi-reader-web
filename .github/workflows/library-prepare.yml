@@ -2,6 +2,7 @@ name: Isolated library preparation
 on:
   push:
     branches: [codex/library-prepare-20260920]
+    paths: ['.github/workflows/library-prepare.yml', '.github/library-lastmile.py']
 permissions:
   contents: write
 concurrency:
@@ -17,16 +18,12 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Apply readable follow-up to exact clean parent
+      - name: Apply exact follow-up to clean parent
         run: |
           mkdir -p /tmp/library-staging /tmp/library-evidence
-          cp .github/library-followup.py .github/library-refinements.py .github/library-files.test.mjs .github/test_books_library.py .github/epub-direction.ts /tmp/library-staging/
-          git reset --hard e71e675cf0e2937d545577202d360ea43c868625
-          python3 /tmp/library-staging/library-followup.py
-          cp /tmp/library-staging/library-files.test.mjs tests/unit/library-files.test.mjs
-          cp /tmp/library-staging/test_books_library.py tests/browser/test_books_library.py
-          cp /tmp/library-staging/epub-direction.ts apps/web/src/lib/functions/file-loaders/epub/epub-direction.ts
-          python3 /tmp/library-staging/library-refinements.py
+          cp .github/library-lastmile.py /tmp/library-staging/
+          git reset --hard 2d4cfa50cff977a1567866b346f142b07d05104b
+          python3 /tmp/library-staging/library-lastmile.py
           git add apps/web tests
           git diff --cached --name-only > /tmp/library-evidence/changed-paths.txt
           python3 -m py_compile tests/browser/test_books_library.py
@@ -42,7 +39,7 @@ jobs:
           python-version: '3.13'
       - run: pnpm install --frozen-lockfile
       - run: pnpm --dir apps/web exec svelte-kit sync
-      - name: Format changed source and capture candidate
+      - name: Format only changed source
         run: |
           python3 - <<'PY'
           import pathlib, subprocess
@@ -54,14 +51,14 @@ jobs:
           subprocess.run(['git','diff','--cached','--check'],check=True)
           PY
           git diff --cached > /tmp/library-evidence/followup.patch
-      - name: Publish clean candidate, never the preparation ancestry
+      - name: Publish clean candidate, excluding preparation ancestry
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           git config user.name 'Manabi library preparation'
           git config user.email 'noreply@github.com'
           tree=$(git write-tree)
-          commit=$(printf '%s\n' 'fix: qualify library metadata, cover direction and physical folder operations' | git commit-tree "$tree" -p e71e675cf0e2937d545577202d360ea43c868625)
+          commit=$(printf '%s\n' 'fix: retain live cover direction and prove portable library metadata' | git commit-tree "$tree" -p 2d4cfa50cff977a1567866b346f142b07d05104b)
           echo "$tree" > /tmp/library-evidence/tree-sha.txt
           echo "$commit" > /tmp/library-evidence/commit.txt
           git ls-tree -r "$commit" > /tmp/library-evidence/tree.txt
@@ -76,7 +73,7 @@ jobs:
                   files.append({'path':name,'content':p.read_text()})
           pathlib.Path('/tmp/library-evidence/source.json').write_text(json.dumps(files))
           PY
-      - name: Candidate units, types, component lint and production build
+      - name: Units, types, lint and production build
         run: |
           set +e
           node --experimental-strip-types --test tests/unit/*.test.mjs test/reader/typography.test.mjs > /tmp/library-evidence/units.log 2>&1
@@ -85,11 +82,20 @@ jobs:
           echo "types=$?" >> /tmp/library-evidence/results.txt
           node tools/appearance/lint.mjs > /tmp/library-evidence/lint.log 2>&1
           echo "lint=$?" >> /tmp/library-evidence/results.txt
+          pnpm lint > /tmp/library-evidence/full-lint.log 2>&1
+          echo "full-lint=$?" >> /tmp/library-evidence/results.txt
           BASE_PATH=/Reader-Web pnpm build > /tmp/library-evidence/build.log 2>&1
           echo "build=$?" >> /tmp/library-evidence/results.txt
           cat /tmp/library-evidence/results.txt
           ! grep -Eq '=[1-9][0-9]*$' /tmp/library-evidence/results.txt
-      - name: Library browser acceptance
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: library-checkpoint
+          path: /tmp/library-evidence
+          retention-days: 7
+          if-no-files-found: error
+      - name: Actual library browser acceptance
         if: always()
         run: |
           test -d apps/web/build
