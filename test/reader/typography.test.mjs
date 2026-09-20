@@ -38,10 +38,7 @@ test('device fallback does not rewrite the portable preferred font', () => {
   assert.equal(effectivePrimaryReaderFont(YU_KYOKASHO, true), YU_KYOKASHO);
   assert.equal(effectivePrimaryReaderFont(LEGACY_SYSTEM_JAPANESE, true), YU_KYOKASHO);
   assert.equal(effectivePrimaryReaderFont(YU_KYOKASHO, false), JAPANESE_FALLBACK_FONT);
-  assert.equal(
-    effectivePrimaryReaderFont(LEGACY_SYSTEM_JAPANESE, false),
-    JAPANESE_FALLBACK_FONT
-  );
+  assert.equal(effectivePrimaryReaderFont(LEGACY_SYSTEM_JAPANESE, false), JAPANESE_FALLBACK_FONT);
   assert.equal(effectivePrimaryReaderFont('', false), JAPANESE_FALLBACK_FONT);
   assert.equal(effectivePrimaryReaderFont('Noto Serif JP', false), 'Noto Serif JP');
 });

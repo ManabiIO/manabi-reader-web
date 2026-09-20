@@ -156,9 +156,9 @@ export async function runFontAcceptance({ page, context, origin, bookURL, check,
     assert.match((await css()).font, /^"?Noto Serif JP"?,/);
     await openSettings();
     await page.reload();
-    await expect(
-      page.getByLabel('Primary / Serif font', { exact: true })
-    ).toHaveValue('Noto Serif JP');
+    await expect(page.getByLabel('Primary / Serif font', { exact: true })).toHaveValue(
+      'Noto Serif JP'
+    );
   });
   await check('fonts: absent custom face falls back rather than blocking Reader', async () => {
     await choose('ReaderE2EMissingFont');
