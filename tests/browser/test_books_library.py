@@ -163,6 +163,7 @@ class BooksLibraryBrowser(LibraryBase):
         self.import_book('Header book')
         self.page.set_viewport_size({'width':390, 'height':844})
         header = self.page.get_by_role('banner', name='Library toolbar')
+        expect(self.page).to_have_title(re.compile(r'Library'))
         expect(header.get_by_role('heading', name='Library', exact=True)).to_be_visible()
         expect(header.get_by_role('button', name='Collections', exact=True)).to_be_visible()
         expect(header.get_by_role('button', name='Library actions', exact=True)).to_be_visible()
