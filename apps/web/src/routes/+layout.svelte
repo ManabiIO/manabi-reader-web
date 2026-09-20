@@ -3,15 +3,19 @@
   import { sanitizeDialogHtml } from '$lib/functions/book-security/dialog-content-security';
   import { page } from '$app/stores';
   import { base } from '$app/paths';
-  import { onDestroy } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import ManabiRuntime from '$lib/manabi/runtime.svelte';
   import { basePath, clearConsoleOnReload } from '$lib/data/env';
   import { dialogManager, type Dialog } from '$lib/data/dialog-manager';
   import { userFontsCacheName, type UserFont } from '$lib/data/fonts';
-  import { isOnline$, userFonts$ } from '$lib/data/store';
+  import { fontFamilyGroupOne$, isOnline$, userFonts$ } from '$lib/data/store';
   import { dummyFn, isMobile, isMobile$ } from '$lib/functions/utils';
   import AppearanceRuntime from '$lib/appearance/runtime.svelte';
   import { buildLocalFontStyleSheet } from '$lib/functions/book-security/local-media';
+  import {
+    detectYuKyokashoAvailability,
+    normalizePrimaryReaderFont
+  } from '$lib/data/reader-typography';
   import { MetaTags } from 'svelte-meta-tags';
   import '../app.scss';
 
@@ -19,11 +23,29 @@
   let dialogs: Dialog[] = [];
   let clickOnCloseDisabled = false;
   let zIndex = '';
+  let yuKyokashoAvailable: boolean | undefined;
 
   $: if (browser) {
     isMobile$.next(isMobile(window));
     addUserFonts($userFonts$);
   }
+
+  // "YuKyokasho" is a real local-font choice, not a synthetic system alias.
+  // Keep it selected only while this browser can actually activate either native variant.
+  $: if (browser && yuKyokashoAvailable !== undefined) {
+    const normalized = normalizePrimaryReaderFont($fontFamilyGroupOne$, yuKyokashoAvailable);
+    if (normalized !== $fontFamilyGroupOne$) fontFamilyGroupOne$.next(normalized);
+  }
+
+  onMount(() => {
+    let active = true;
+    void detectYuKyokashoAvailability().then((available) => {
+      if (active) yuKyokashoAvailable = available;
+    });
+    return () => {
+      active = false;
+    };
+  });
 
   if (clearConsoleOnReload && import.meta.hot) {
     // eslint-disable-next-line no-console

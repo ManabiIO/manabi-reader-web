@@ -3,10 +3,13 @@ import { test } from 'node:test';
 
 import {
   japaneseFontStack,
+  normalizePrimaryReaderFont,
   resolveReaderFont,
-  SYSTEM_JAPANESE,
+  JAPANESE_FALLBACK_FONT,
+  LEGACY_SYSTEM_JAPANESE,
   SYSTEM_SANS,
-  SYSTEM_SANS_STACK
+  SYSTEM_SANS_STACK,
+  YU_KYOKASHO
 } from '../../apps/web/src/lib/data/reader-typography.ts';
 import { observeReaderFontLayout } from '../../apps/web/src/lib/functions/reader-font-layout.ts';
 
@@ -23,12 +26,24 @@ test('local Japanese choices precede self-hosted Google-font fallback', () => {
     assert.ok(stack.endsWith('"Klee One", serif'));
   }
 });
-test('automatic and explicit selections resolve without rewriting stored names', () => {
-  assert.equal(resolveReaderFont(SYSTEM_JAPANESE, true), japaneseFontStack(true));
+test('YuKyokasho and its released alias resolve to the directional native stack', () => {
+  assert.equal(resolveReaderFont(YU_KYOKASHO, true), japaneseFontStack(true));
+  assert.equal(resolveReaderFont(LEGACY_SYSTEM_JAPANESE, false), japaneseFontStack(false));
   assert.equal(resolveReaderFont(SYSTEM_SANS, true), SYSTEM_SANS_STACK);
   assert.equal(resolveReaderFont('', true, true), SYSTEM_SANS_STACK);
   for (const font of ['Noto Serif JP', 'My Custom Font', '"A, B", serif', 'Klee One SemiBold'])
     assert.ok(resolveReaderFont(font, false).startsWith(font + ', '));
+});
+test('unavailable YuKyokasho normalizes to Klee One without rewriting explicit choices', () => {
+  assert.equal(normalizePrimaryReaderFont(YU_KYOKASHO, true), YU_KYOKASHO);
+  assert.equal(normalizePrimaryReaderFont(LEGACY_SYSTEM_JAPANESE, true), YU_KYOKASHO);
+  assert.equal(normalizePrimaryReaderFont(YU_KYOKASHO, false), JAPANESE_FALLBACK_FONT);
+  assert.equal(
+    normalizePrimaryReaderFont(LEGACY_SYSTEM_JAPANESE, false),
+    JAPANESE_FALLBACK_FONT
+  );
+  assert.equal(normalizePrimaryReaderFont('', false), JAPANESE_FALLBACK_FONT);
+  assert.equal(normalizePrimaryReaderFont('Noto Serif JP', false), 'Noto Serif JP');
 });
 test('malformed or unbounded preference values fall back safely', () => {
   for (const value of [null, undefined, {}, 42, '', '   ', 'x'.repeat(1025)])

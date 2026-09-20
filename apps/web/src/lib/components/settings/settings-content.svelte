@@ -25,6 +25,7 @@
   import { BlurMode } from '$lib/data/blur-mode';
   import { dialogManager } from '$lib/data/dialog-manager';
   import { LocalFont } from '$lib/data/fonts';
+  import { detectYuKyokashoAvailability } from '$lib/data/reader-typography';
   import { FuriganaStyle } from '$lib/data/furigana-style';
   import { ImportHTMLFixMode } from '$lib/data/import-html-fix-mode';
   import { logger } from '$lib/data/logger';
@@ -60,7 +61,7 @@
   } from '$lib/functions/replication/replication-options';
   import { map } from 'rxjs';
   import Fa from 'svelte-fa';
-  import { onDestroy } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
 
   export let selectedTheme: string;
 
@@ -69,6 +70,30 @@
   export let fontFamilyGroupOne: string;
 
   export let fontFamilyGroupTwo: string;
+
+  let yuKyokashoAvailable = false;
+  const primaryFontsWithoutYuKyokasho = [
+    LocalFont.NOTOSERIFJP,
+    LocalFont.KZUDMINCHO,
+    LocalFont.GENEI,
+    LocalFont.SHIPPORIMINCHO,
+    LocalFont.KLEEONE,
+    LocalFont.KLEEONESEMIBOLD,
+    LocalFont.SERIF
+  ];
+  $: availablePrimaryFonts = yuKyokashoAvailable
+    ? [LocalFont.YUKYOKASHO, ...primaryFontsWithoutYuKyokasho]
+    : primaryFontsWithoutYuKyokasho;
+
+  onMount(() => {
+    let active = true;
+    void detectYuKyokashoAvailability().then((available) => {
+      if (active) yuKyokashoAvailable = available;
+    });
+    return () => {
+      active = false;
+    };
+  });
 
   export let fontWeight: number | null;
 
@@ -546,23 +571,15 @@
       </SettingsItemGroup>
     </div>
     <p class="text-sm opacity-75">
-      System Japanese prefers Yu Kyokasho (Yoko for horizontal text), then other local Japanese
-      fonts. Klee One is the self-hosted fallback. Optional fonts download only when used and can
-      remain available offline when browser storage permits. Existing font choices are kept.
+      YuKyokasho is the default when this browser can use it: Yoko for horizontal text and the
+      standard face for vertical text. It is hidden when unavailable; Klee One becomes the default
+      fallback. Optional fonts download only when used and can remain available offline when
+      browser storage permits. Existing explicit font choices are kept.
     </p>
     <SettingsItemGroup title="Font family (Group 1)">
       <div slot="header" class="flex items-center">
         <SettingsFontSelector
-          availableFonts={[
-            LocalFont.SYSTEMJAPANESE,
-            LocalFont.NOTOSERIFJP,
-            LocalFont.KZUDMINCHO,
-            LocalFont.GENEI,
-            LocalFont.SHIPPORIMINCHO,
-            LocalFont.KLEEONE,
-            LocalFont.KLEEONESEMIBOLD,
-            LocalFont.SERIF
-          ]}
+          availableFonts={availablePrimaryFonts}
           bind:fontValue={fontFamilyGroupOne}
         />
         {#if fontCacheSupported}
@@ -586,7 +603,7 @@
       <input
         type="text"
         class={inputClasses}
-        placeholder="System Japanese"
+        placeholder="YuKyokasho"
         bind:value={fontFamilyGroupOne}
       />
     </SettingsItemGroup>

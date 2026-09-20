@@ -137,7 +137,7 @@ class ReaderBrowser(unittest.TestCase):
         self.assertTrue(self.page.get_by_role('link', name='Sign in to Manabi').get_attribute('href').startswith('/accounts/login/'))
 
     def test_paginated_ruby_images_and_untrusted_resources(self):
-        self.open_book()
+        self.open_book(font='Klee One')
         self.assertEqual('ほん', self.page.locator('.book-content ruby rt').first.text_content())
         self.page.wait_for_function(
             '() => document.querySelector("#safe-image")?.naturalWidth > 0'
@@ -145,13 +145,13 @@ class ReaderBrowser(unittest.TestCase):
         self.assertEqual(0, self.page.locator('.book-content script, .book-content iframe, .book-content [onerror]').count())
         self.assertFalse(self.page.evaluate('Boolean(window.bookAttack)'))
         self.assertEqual([], StaticHandler.probes)
-        self.assertEqual('YuKyokasho', self.first_font())
+        self.assertEqual('Klee One', self.first_font())
         self.page.keyboard.press('ArrowLeft')
         expect(self.page.locator('.book-content')).to_be_visible()
 
     def test_continuous_horizontal_system_font_and_saved_explicit_font(self):
-        self.open_book('continuous', 'horizontal-tb')
-        self.assertEqual('YuKyokasho Yoko', self.first_font())
+        self.open_book('continuous', 'horizontal-tb', font='Klee One')
+        self.assertEqual('Klee One', self.first_font())
         # Finish the currently used face before deliberately replacing it. WebKit
         # can leave FontFaceSet.ready pending after a reload cancels the old face,
         # even though the new face subsequently loads. This test checks saved font
