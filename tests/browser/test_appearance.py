@@ -22,13 +22,16 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         # Observe the actual optional session probe, including its completed 404
         # body, before a subsequent deliberate navigation. Do not intercept or
         # replace it, and do not wait for unrelated global network idleness.
-        with self.page.expect_response(lambda r: r.url == self.origin + '/api/reader-web/session/') as probe:
+        with self.page.expect_request_finished(
+            predicate=lambda r: r.url == self.origin + '/api/reader-web/session/'
+        ) as probe:
             if reload:
                 self.page.reload()
             else:
                 self.page.goto(self.origin + '/Reader-Web/settings')
-        self.assertEqual(404, probe.value.status)
-        self.assertIsNone(probe.value.finished())
+        response = probe.value.response()
+        self.assertIsNotNone(response)
+        self.assertEqual(404, response.status)
         expect(self.page.get_by_role('heading', name='Appearance', exact=True)).to_be_visible()
 
     def mode(self, name):
