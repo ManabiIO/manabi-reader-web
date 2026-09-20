@@ -157,7 +157,6 @@ async function refreshMode(
     }
     const decoded = await decodeImage(saved.blob);
     url = decoded.url;
-    decoded.image.src = '';
     if (!mounted || lifetime !== life || generation !== versions[target]) return;
     publish(target, mode, saved, url);
     url = undefined; // Ownership transferred to the visible state.

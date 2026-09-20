@@ -32,6 +32,8 @@
   let dialogs: Dialog[] = [];
   let clickOnCloseDisabled = false;
   let zIndex = '';
+  let lastPointerTarget: HTMLElement | undefined;
+  let dialogReturnFocus: HTMLElement | undefined;
 
   $: if (browser) {
     isMobile$.next(isMobile(window));
@@ -88,7 +90,24 @@
     zIndex = '';
   }
 
+  function rememberPointerTarget(event: PointerEvent) {
+    if (dialogs.length || !(event.target instanceof HTMLElement)) return;
+    lastPointerTarget =
+      event.target.closest<HTMLElement>(
+        'button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      ) ?? event.target;
+  }
+
   const dialogsSubscription = dialogManager.dialogs$.subscribe((d) => {
+    if (browser && !dialogs.length && d.length) {
+      const active = document.activeElement;
+      dialogReturnFocus =
+        active instanceof HTMLElement && active !== document.body
+          ? active
+          : lastPointerTarget?.isConnected
+            ? lastPointerTarget
+            : undefined;
+    }
     clickOnCloseDisabled = d[0]?.disableCloseOnClick ?? false;
     zIndex = d[0]?.zIndex ?? '';
     dialogs = d;
@@ -101,7 +120,7 @@
   });
 </script>
 
-<svelte:window bind:online={$isOnline$} />
+<svelte:window bind:online={$isOnline$} on:pointerdown|capture={rememberPointerTarget} />
 
 <MetaTags
   title="Manabi Reader"
@@ -138,6 +157,11 @@
       }}
       onEscapeKeydown={(event) => {
         if (clickOnCloseDisabled) event.preventDefault();
+      }}
+      onCloseAutoFocus={(event) => {
+        event.preventDefault();
+        dialogReturnFocus?.focus();
+        dialogReturnFocus = undefined;
       }}
     >
       <Modal.Title class="sr-only">Reader dialog</Modal.Title>

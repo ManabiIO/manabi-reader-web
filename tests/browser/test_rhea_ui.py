@@ -86,7 +86,7 @@ class RheaReader(previous.RefinedAppearance):
         self.page.get_by_label('Theme name', exact=True).fill('Not saved')
         for _ in range(18):
             self.page.keyboard.press('Tab')
-            self.assertTrue(dialog.evaluate('e => e.contains(document.activeElement)'))
+            expect(dialog.locator(':focus')).to_have_count(1)
         self.page.keyboard.press('Escape')
         expect(dialog).to_have_count(0)
         expect(trigger).to_be_focused()
@@ -221,7 +221,7 @@ class RheaReader(previous.RefinedAppearance):
         expect(sheet.get_by_text('No Titles to filter', exact=True)).to_be_visible()
         for _ in range(8):
             self.page.keyboard.press('Tab')
-            self.assertTrue(sheet.evaluate('e => e.contains(document.activeElement)'))
+            expect(sheet.locator(':focus')).to_have_count(1)
         self.page.keyboard.press('Escape')
         expect(sheet).to_have_count(0)
         expect(trigger).to_be_focused()
@@ -260,7 +260,7 @@ class RheaReader(previous.RefinedAppearance):
         expect(sheet.get_by_role('button', name='Save', exact=True)).to_be_disabled()
         for _ in range(12):
             self.page.keyboard.press('Tab')
-            self.assertTrue(sheet.evaluate('e => e.contains(document.activeElement)'))
+            expect(sheet.locator(':focus')).to_have_count(1)
         self.page.keyboard.press('Escape')
         expect(sheet).to_have_count(0)
         expect(trigger).to_be_focused()
@@ -317,7 +317,7 @@ class RheaReader(previous.RefinedAppearance):
         self.page.wait_for_function('() => document.querySelector(".gallery-viewer img")?.naturalWidth === 600')
         for _ in range(9):
             self.page.keyboard.press('Tab')
-            self.assertTrue(gallery.evaluate('e => e.contains(document.activeElement)'))
+            expect(gallery.locator(':focus')).to_have_count(1)
         self.assertEqual(before, self.page.locator('.book-content').evaluate('e => e.getBoundingClientRect().x'))
         self.page.screenshot(path='test-results/rhea-image-gallery-desktop.png', full_page=True)
         self.page.keyboard.press('Escape')

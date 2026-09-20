@@ -11,6 +11,7 @@
   import SheetPortal from './sheet-portal.svelte';
   import type { Snippet } from 'svelte';
   import type { ComponentProps } from 'svelte';
+  import { containModalTab } from '$lib/hooks/focus-trap-fallback.js';
 
   let {
     ref = $bindable(null),
@@ -32,6 +33,7 @@
   <SheetOverlay />
   <SheetPrimitive.Content
     bind:ref
+    onkeydowncapture={containModalTab}
     data-slot="sheet-content"
     data-side={side}
     class={cn(

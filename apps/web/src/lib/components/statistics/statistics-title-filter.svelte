@@ -120,6 +120,11 @@
 
   function updateStatisticsTitleFilterRowsPerPage(newPage?: number) {
     tick().then(() => {
+      if (
+        !statisticsTitleFilterTableContainerElm?.isConnected ||
+        !statisticsTitleFilterButtonContainer?.isConnected
+      )
+        return;
       statisticsTitleFilterRowsPerPage = Math.max(
         1,
         Math.ceil(

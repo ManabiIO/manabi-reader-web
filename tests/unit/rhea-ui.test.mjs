@@ -127,6 +127,12 @@ test('Rhea is native Svelte with Lucide and no Font Awesome or Popper imports', 
   visit('apps/web/src');
 });
 
+test('theme token migration does not rewrite valid EPUB CSS property names', () => {
+  const sanitizer = read('apps/web/src/lib/functions/book-security/book-content-security.ts');
+  assert.match(sanitizer, /'text-decoration-line'/);
+  assert.doesNotMatch(sanitizer, /'text-decoration-border'/);
+});
+
 test('outside dismissal uses original pointer ownership, never retargeted clicks', () => {
   const originalElement = globalThis.Element;
   const listeners = new Map();
