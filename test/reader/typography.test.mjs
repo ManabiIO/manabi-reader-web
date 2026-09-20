@@ -38,10 +38,7 @@ test('unavailable YuKyokasho normalizes to Klee One without rewriting explicit c
   assert.equal(normalizePrimaryReaderFont(YU_KYOKASHO, true), YU_KYOKASHO);
   assert.equal(normalizePrimaryReaderFont(LEGACY_SYSTEM_JAPANESE, true), YU_KYOKASHO);
   assert.equal(normalizePrimaryReaderFont(YU_KYOKASHO, false), JAPANESE_FALLBACK_FONT);
-  assert.equal(
-    normalizePrimaryReaderFont(LEGACY_SYSTEM_JAPANESE, false),
-    JAPANESE_FALLBACK_FONT
-  );
+  assert.equal(normalizePrimaryReaderFont(LEGACY_SYSTEM_JAPANESE, false), JAPANESE_FALLBACK_FONT);
   assert.equal(normalizePrimaryReaderFont('', false), JAPANESE_FALLBACK_FONT);
   assert.equal(normalizePrimaryReaderFont('Noto Serif JP', false), 'Noto Serif JP');
 });
