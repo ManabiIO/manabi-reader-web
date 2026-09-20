@@ -12,7 +12,7 @@ export const pHeaderFa = 'p-4 xl:p-3';
 export const nTranslateXHeaderFa = '-translate-x-4 xl:-translate-x-3';
 export const translateXHeaderFa = 'translate-x-4 xl:translate-x-3';
 export const inputClasses =
-  'mt-1 block w-full px-0.5 bg-background border-0 border-b-2 border-border focus:ring-0 focus:border-primary transition';
+  'mt-1 block w-full rounded-2xl border border-input bg-background px-3 py-2 text-base text-foreground outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 sm:text-sm';
 export const buttonClasses =
-  'inline-block no-underline font-medium rounded min-w-[32px] sm:min-w-[64px] px-4 leading-9 cursor-pointer text-primary';
+  'inline-flex min-h-9 items-center justify-center gap-2 rounded-2xl border border-transparent px-3 text-sm font-medium text-primary hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50';
 export const baseIconClasses = `flex justify-center select-none items-center h-12 w-12 cursor-pointer text-xl xl:h-10 xl:w-10 xl:text-lg ${pHeaderMat} ${opacityHeaderIcon}`;

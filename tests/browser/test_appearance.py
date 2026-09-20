@@ -32,7 +32,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         response = probe.value.response()
         self.assertIsNotNone(response)
         self.assertEqual(404, response.status)
-        expect(self.page.get_by_role('heading', name='Appearance', exact=True)).to_be_visible()
+        expect(self.page.get_by_label('Search settings', exact=True)).to_be_visible()
 
     def mode(self, name):
         self.page.get_by_role('group', name='Appearance mode').get_by_role('button', name=name, exact=True).click()
@@ -72,6 +72,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
 
     def test_all_presets_theme_forms_headers_and_statistics(self):
         self.settings()
+        self.page.get_by_role('button', name='All settings', exact=True).click()
         for theme in ['manabi-theme', 'light-theme', 'ecru-theme', 'water-theme', 'gray-theme', 'dark-theme', 'black-theme']:
             self.page.locator('button[title="' + theme + '"]').click()
             for mode in ['Light', 'Dark']:
@@ -87,7 +88,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
                     # Inputs intentionally animate color changes. Require final
                     # rendered values, not whichever frame a single read hits.
                     expect(self.page.locator('.app-header').first).to_have_css('background-color', palette['card'])
-                    field = self.page.locator('input[type="number"]').first
+                    field = self.page.get_by_label('Font size', exact=True)
                     expect(field).to_have_css('background-color', palette['background'])
                     expect(field).to_have_css('color', palette['foreground'])
             self.page.screenshot(path='test-results/palette-' + theme + '.png', full_page=True)
@@ -243,7 +244,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         expect(light.get_by_text('library-light.png', exact=True)).to_be_visible()
         self.page.locator(
             'fieldset:has(#background-library-light)'
-        ).get_by_role('checkbox', name='Fade background').uncheck()
+        ).get_by_role('switch').uncheck()
         self.mode('Light')
         self.page.goto(self.origin + '/Reader-Web/manage')
         self.assertEqual(

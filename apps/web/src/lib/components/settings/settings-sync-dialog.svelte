@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { faArrowsUpDown } from '@fortawesome/free-solid-svg-icons';
+  import faArrowsUpDown from '@lucide/svelte/icons/move-vertical';
   import DialogTemplate from '$lib/components/dialog-template.svelte';
   import Ripple from '$lib/components/ripple.svelte';
   import { baseIconClasses, buttonClasses } from '$lib/css-classes';
@@ -9,7 +9,7 @@
   import { lastSyncedSettingsSource$, lastSyncedSettingsTarget$ } from '$lib/data/store';
   import { dummyFn } from '$lib/functions/utils';
   import { createEventDispatcher } from 'svelte';
-  import Fa from 'svelte-fa';
+  import AppIcon from '$lib/components/app-icon.svelte';
 
   export let settingsSyncHeader = '';
   export let storageSources: BooksDbStorageSource[] = [];
@@ -93,7 +93,7 @@
         }}
         on:keyup={dummyFn}
       >
-        <Fa icon={faArrowsUpDown} />
+        <AppIcon icon={faArrowsUpDown} />
       </div>
       <div>Target</div>
       <select bind:value={selectedTarget}>

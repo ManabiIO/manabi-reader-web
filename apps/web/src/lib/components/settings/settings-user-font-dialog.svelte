@@ -5,11 +5,11 @@
   import { userFontsCacheName } from '$lib/data/fonts';
   import { logger } from '$lib/data/logger';
   import { userFonts$ } from '$lib/data/store';
-  import { dummyFn } from '$lib/functions/utils';
-  import { faSpinner, faTrashCan } from '@fortawesome/free-solid-svg-icons';
+  import faSpinner from '@lucide/svelte/icons/loader-circle';
+  import faTrashCan from '@lucide/svelte/icons/trash-2';
   import type { BehaviorSubject } from 'rxjs';
   import { onMount } from 'svelte';
-  import Fa from 'svelte-fa';
+  import AppIcon from '$lib/components/app-icon.svelte';
 
   export let fontFamily: BehaviorSubject<string>;
 
@@ -110,36 +110,31 @@
               class="grid grid-cols-[repeat(3,auto)] items-center gap-y-4 gap-x-4 max-h-[50vh] overflow-auto break-all md:gap-x-14"
             >
               {#each $userFonts$ as userFont (userFont.path)}
-                <div
-                  tabindex="0"
-                  role="button"
+                <button
+                  type="button"
                   title="Click to select Font"
                   class="hover:text-primary"
                   on:click={() => selectFont(userFont.name)}
-                  on:keyup={dummyFn}
                 >
                   {userFont.name}
-                </div>
-                <div
-                  tabindex="0"
-                  role="button"
+                </button>
+                <button
+                  type="button"
                   title="Click to select Font"
                   class="hover:text-primary"
                   on:click={() => selectFont(userFont.name)}
-                  on:keyup={dummyFn}
                 >
                   {userFont.fileName}
-                </div>
-                <div
-                  tabindex="0"
-                  role="button"
+                </button>
+                <button
+                  type="button"
                   title="Remove Font"
-                  class="hover:text-primary"
+                  class="hover:text-primary gap-2 rounded-xl px-2 py-1.5 text-sm"
                   on:click={() => removeFont(userFont.path)}
-                  on:keyup={dummyFn}
                 >
-                  <Fa icon={faTrashCan} />
-                </div>
+                  <AppIcon icon={faTrashCan} />
+                  <span>Remove Font</span></button
+                >
               {/each}
             </div>
           {:else}
@@ -152,7 +147,7 @@
     {/if}
     {#if !cacheLoaded || isLoading}
       <div class="fixed inset-0 flex h-full w-full items-center justify-center text-7xl">
-        <Fa icon={faSpinner} spin />
+        <AppIcon icon={faSpinner} spin />
       </div>
     {/if}
   </div>

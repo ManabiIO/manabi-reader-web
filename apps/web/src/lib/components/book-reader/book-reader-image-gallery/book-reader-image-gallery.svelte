@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onKeyDownReaderImageGallery } from '../../../../routes/b/on-keydown-reader';
-  import { faChevronLeft, faChevronRight, faXmark } from '@fortawesome/free-solid-svg-icons';
+  import faChevronLeft from '@lucide/svelte/icons/chevron-left';
+  import faChevronRight from '@lucide/svelte/icons/chevron-right';
+  import faXmark from '@lucide/svelte/icons/x';
   import { readerImageGalleryPictures$ } from '$lib/components/book-reader/book-reader-image-gallery/book-reader-image-gallery';
   import {
     hideSpoilerImage$,
@@ -9,7 +11,7 @@
   } from '$lib/data/store';
   import { createEventDispatcher, onMount } from 'svelte';
   import { quintInOut } from 'svelte/easing';
-  import Fa from 'svelte-fa';
+  import AppIcon from '$lib/components/app-icon.svelte';
   import { fly } from 'svelte/transition';
 
   export let fontColor: string;
@@ -141,7 +143,7 @@
         class="flex items-end md:items-center"
         on:click={closeReaderImageGallery}
       >
-        <Fa icon={faXmark} />
+        <AppIcon icon={faXmark} /> <span>Close Image Gallery</span>
       </button>
     </div>
     <div class="flex flex-col overflow-auto p-2">
@@ -186,7 +188,7 @@
           class:invisible={!selectedImageIndex}
           on:click={previousImage}
         >
-          <Fa icon={faChevronLeft} />
+          <AppIcon icon={faChevronLeft} /> <span>Previous Image</span>
         </button>
         <div class="flex justify-center items-center flex-1" class:spoiler={showSpoiler}>
           <img class="max-h-[94vh]" src={selectedImage.url} alt="currentImage" />
@@ -207,7 +209,7 @@
           class:invisible={selectedImageIndex === $readerImageGalleryPictures$.length - 1}
           on:click={nextImage}
         >
-          <Fa icon={faChevronRight} />
+          <AppIcon icon={faChevronRight} /> <span>Next Image</span>
         </button>
       </div>
       <div class="pb-2 text-center text-white">

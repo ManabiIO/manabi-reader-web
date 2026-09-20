@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { readerUIOwnsEvent } from '$lib/functions/reader-ui-events';
   import {
     auditTime,
     debounceTime,
@@ -25,7 +26,10 @@
   import { browser } from '$app/environment';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import { faCloudBolt, faPause, faPlay, faSpinner } from '@fortawesome/free-solid-svg-icons';
+  import faCloudBolt from '@lucide/svelte/icons/cloud-alert';
+  import faPause from '@lucide/svelte/icons/pause';
+  import faPlay from '@lucide/svelte/icons/play';
+  import faSpinner from '@lucide/svelte/icons/loader-circle';
   import { effectivePrimaryReaderFont } from '$lib/data/reader-typography';
   import BookReader from '$lib/components/book-reader/book-reader.svelte';
   import type {
@@ -174,7 +178,7 @@
   } from '$lib/functions/utils';
   import { onKeydownReader } from './on-keydown-reader';
   import { onDestroy, onMount, tick } from 'svelte';
-  import Fa from 'svelte-fa';
+  import AppIcon from '$lib/components/app-icon.svelte';
   import {
     clearRange,
     getParagraphToPoint,
@@ -1088,6 +1092,7 @@
   }
 
   function onKeydown(ev: KeyboardEvent) {
+    if (readerUIOwnsEvent(ev)) return;
     if (
       $skipKeyDownListener$ ||
       ev.altKey ||
@@ -1705,10 +1710,7 @@
     backgroundColor={$backgroundColor$}
     hintFuriganaFontColor={$themeOption$?.hintFuriganaFontColor}
     hintFuriganaShadowColor={$themeOption$?.hintFuriganaShadowColor}
-    fontFamilyGroupOne={effectivePrimaryReaderFont(
-      $fontFamilyGroupOne$,
-      $yuKyokashoAvailable$
-    )}
+    fontFamilyGroupOne={effectivePrimaryReaderFont($fontFamilyGroupOne$, $yuKyokashoAvailable$)}
     fontFamilyGroupTwo={$fontFamilyGroupTwo$}
     fontWeight={$fontWeight$}
     fontSize={$fontSize$}
@@ -1813,7 +1815,7 @@
 
 {#if showSpinner}
   <div class="fixed inset-0 flex h-full w-full items-center justify-center text-7xl">
-    <Fa icon={faSpinner} spin />
+    <AppIcon icon={faSpinner} spin />
   </div>
 {/if}
 
@@ -1836,7 +1838,7 @@
         class:animate-pulse={frozenPosition > -1}
         use:multiClickHandler={[trackerSingleClickHandler, trackerDblClickHandler]}
       >
-        <Fa icon={$isTrackerPaused$ ? faPlay : faPause} />
+        <AppIcon icon={$isTrackerPaused$ ? faPlay : faPause} />
       </div>
     {/if}
     {#if dataToReplicate.length}
@@ -1860,7 +1862,7 @@
         }}
         on:keyup={dummyFn}
       >
-        <Fa icon={faCloudBolt} />
+        <AppIcon icon={faCloudBolt} />
       </div>
     {/if}
   </div>

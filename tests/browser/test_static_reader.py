@@ -139,13 +139,14 @@ class ReaderBrowser(unittest.TestCase):
 
     def test_anonymous_navigation_without_backend(self):
         self.page.goto(self.origin + '/Reader-Web/manage')
-        self.page.get_by_role('button', name='Accounts and libraries', exact=True).click()
+        self.page.get_by_role('button', name='Navigate', exact=True).click()
+        self.page.get_by_role('link', name='Accounts and libraries', exact=True).click()
         expect(self.page.get_by_role('heading', name='Accounts and libraries', exact=True)).to_be_visible()
         expect(self.page.get_by_text('Manabi account services are not available on this deployment. Local libraries still work.')).to_be_visible()
         self.assertTrue(self.page.get_by_role('link', name='Sign in to Manabi').get_attribute('href').startswith('/accounts/login/'))
 
     def test_yukyokasho_default_is_device_local_and_requires_both_faces(self):
-        self.page.goto(self.origin + '/Reader-Web/settings')
+        self.page.goto(self.origin + '/Reader-Web/settings#typography')
         primary = self.page.get_by_label('Primary / Serif font', exact=True)
         expect(primary).to_be_visible()
         available = self.page.evaluate('''async () => {
@@ -166,7 +167,7 @@ class ReaderBrowser(unittest.TestCase):
         # A device fallback must not replace the portable/account preference.
         self.assertIsNone(self.page.evaluate('localStorage.getItem("fontFamilyGroupOne")'))
         self.page.get_by_role('button', name='Show available primary / serif fonts', exact=True).click()
-        expect(self.page.get_by_text('YuKyokasho', exact=True)).to_have_count(1 if available else 0)
+        expect(self.page.get_by_role('menuitemradio', name='YuKyokasho', exact=True)).to_have_count(1 if available else 0)
 
     def test_paginated_ruby_images_and_untrusted_resources(self):
         self.open_book(font='Klee One')

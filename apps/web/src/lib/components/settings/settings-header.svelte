@@ -1,45 +1,16 @@
 <script lang="ts">
-  import { faBookOpenReader, faClock, faDatabase } from '@fortawesome/free-solid-svg-icons';
-  import Fa from 'svelte-fa';
-  import MergedHeaderIcon from '$lib/components/merged-header-icon/merged-header-icon.svelte';
-  import Ripple from '$lib/components/ripple.svelte';
-  import { baseHeaderClasses, pxScreen } from '$lib/css-classes';
-
+  import AppNav from '$lib/components/navigation/app-nav.svelte';
+  import { Button } from '$lib/components/ui/button';
   export let leavePageLink: string;
-  export let activeSettings: string;
-
-  const settingItems = [
-    {
-      label: 'Reader',
-      icon: faBookOpenReader
-    },
-    {
-      label: 'Data',
-      icon: faDatabase
-    },
-    {
-      label: 'Statistics',
-      icon: faClock
-    }
-  ];
 </script>
 
-<div class={baseHeaderClasses}>
-  <div class="{pxScreen} flex px-0 md:px-5">
-    <div class="h12 flex grow justify-evenly xl:h-10">
-      {#each settingItems as settingItem (settingItem.label)}
-        <button
-          class="flex grow flex-col items-center justify-center text-xs"
-          class:bg-accent={activeSettings === settingItem.label}
-          class:hover:bg-accent={activeSettings !== settingItem.label}
-          on:click={() => (activeSettings = settingItem.label)}
-        >
-          <Fa class="mb-1" icon={settingItem.icon} />
-          {settingItem.label}
-          <Ripple />
-        </button>
-      {/each}
-    </div>
-    <MergedHeaderIcon {leavePageLink} />
+<header
+  class="app-header flex h-12 items-center justify-between gap-3 border-b border-border bg-card px-3 text-foreground sm:px-6"
+>
+  <div class="flex items-center gap-3">
+    <Button href={leavePageLink} variant="ghost">Back</Button><span class="font-semibold"
+      >Settings</span
+    >
   </div>
-</div>
+  <AppNav />
+</header>

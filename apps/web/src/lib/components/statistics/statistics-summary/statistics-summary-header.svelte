@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { faArrowDownWideShort, faArrowUpShortWide } from '@fortawesome/free-solid-svg-icons';
+  import faArrowDownWideShort from '@lucide/svelte/icons/arrow-down-wide-narrow';
+  import faArrowUpShortWide from '@lucide/svelte/icons/arrow-up-narrow-wide';
   import Popover from '$lib/components/popover/popover.svelte';
   import type {
     StatisticsDataSourceChange,
@@ -15,7 +16,7 @@
     lastStatisticsSummarySortProperty$
   } from '$lib/data/store';
   import { createEventDispatcher } from 'svelte';
-  import Fa from 'svelte-fa';
+  import AppIcon from '$lib/components/app-icon.svelte';
 
   export let statisticsSummaryKey: StatisticsSummaryKey;
   export let options: StatisticsDataSource[];
@@ -40,8 +41,6 @@
 </script>
 
 <div
-  tabindex="0"
-  role="button"
   class={tableHeaderClasses}
   class:hidden={isHidden}
   style:grid-row={gridRow ? `${gridRow}/${gridRow}` : null}
@@ -85,6 +84,7 @@
   {/if}
   <button
     title="Click to select/sort by this Attribute"
+    aria-label={`Sort by ${selectedOption.label}`}
     class="ml-4"
     class:opacity-20={!optionKeys.has($lastStatisticsSummarySortProperty$)}
     class:cursor-not-allowed={hasRowInEdit}
@@ -93,9 +93,9 @@
       dispatch('propertyChange', { property: selectedOption.key, statisticsSummaryKey })}
   >
     {#if $lastStatisticsSummarySortDirection$ === SortDirection.ASC}
-      <Fa icon={faArrowUpShortWide} />
+      <AppIcon icon={faArrowUpShortWide} />
     {:else}
-      <Fa icon={faArrowDownWideShort} />
+      <AppIcon icon={faArrowDownWideShort} />
     {/if}
   </button>
 </div>

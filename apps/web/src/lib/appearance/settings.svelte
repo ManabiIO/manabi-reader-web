@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Button } from '$lib/components/ui/button';
   import { appearance$, type BackgroundTarget } from './state';
   import type { AppearanceMode } from '$lib/data/theme-option';
   import BackgroundSettings from './background-settings.svelte';
@@ -14,13 +15,13 @@
 </script>
 
 <section aria-labelledby="appearance-heading">
-  <h2 id="appearance-heading">Appearance</h2>
+  <h2 id="appearance-heading">Color mode</h2>
   <div role="group" aria-label="Appearance mode" class="modes">
     {#each modes as mode (mode.value)}
-      <button
-        type="button"
+      <Button
+        variant={$appearance$ === mode.value ? 'default' : 'outline'}
         aria-pressed={$appearance$ === mode.value}
-        on:click={() => appearance$.next(mode.value)}>{mode.label}</button
+        onclick={() => appearance$.next(mode.value)}>{mode.label}</Button
       >
     {/each}
   </div>
@@ -57,18 +58,6 @@
     display: inline-flex;
     flex-wrap: wrap;
     gap: 0.35rem;
-  }
-  button {
-    padding: 0.55rem 1.05rem;
-    border: 1px solid var(--border);
-    border-radius: 0.5rem;
-    background: var(--muted);
-    color: var(--foreground);
-  }
-  button[aria-pressed='true'] {
-    background: var(--primary);
-    color: var(--primary-foreground);
-    border-color: var(--primary);
   }
   .description {
     color: var(--muted-foreground);

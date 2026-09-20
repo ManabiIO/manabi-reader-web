@@ -1,11 +1,9 @@
 <script lang="ts">
-  import {
-    faChevronLeft,
-    faChevronRight,
-    faClose,
-    faLayerGroup,
-    faRepeat
-  } from '@fortawesome/free-solid-svg-icons';
+  import faChevronLeft from '@lucide/svelte/icons/chevron-left';
+  import faChevronRight from '@lucide/svelte/icons/chevron-right';
+  import faClose from '@lucide/svelte/icons/x';
+  import faLayerGroup from '@lucide/svelte/icons/layers';
+  import faRepeat from '@lucide/svelte/icons/repeat';
   import { ReadingGoalFrequency } from '$lib/components/book-reader/book-reading-tracker/book-reading-tracker';
   import Popover from '$lib/components/popover/popover.svelte';
   import {
@@ -50,7 +48,7 @@
   import { caluclatePercentage, dummyFn, limitToRange, pluralize } from '$lib/functions/utils';
   import { debounceTime, fromEvent, tap } from 'rxjs';
   import { onMount, tick } from 'svelte';
-  import Fa from 'svelte-fa';
+  import AppIcon from '$lib/components/app-icon.svelte';
 
   export let heatmapType: HeatmapType = HeatmapType.STATISTICS;
   export let heatmapAggregration: HeatmapDataAggregration;
@@ -1081,7 +1079,7 @@
     class="mx-4 hover:text-red-500"
     on:click={() => changeHeatmapYear(today.getFullYear() - heatmapYear)}
   >
-    <Fa icon={faRepeat} />
+    <AppIcon icon={faRepeat} />
   </button>
   <button
     title="Switch (Streak) Data between 'All Time' and 'Current Year'"
@@ -1092,7 +1090,7 @@
           ? HeatmapDataAggregration.YEAR
           : HeatmapDataAggregration.ALL_TIME)}
   >
-    <Fa icon={faLayerGroup} />
+    <AppIcon icon={faLayerGroup} />
   </button>
 </div>
 <div class="flex justify-between">
@@ -1111,7 +1109,7 @@
       }
     }}
   >
-    <Fa icon={faChevronLeft} />
+    <AppIcon icon={faChevronLeft} />
   </button>
   <div
     class="grid items-center overflow-x-auto py-1"
@@ -1203,7 +1201,7 @@
             class="flex w-full justify-end absolute right-2"
             on:click={() => (popoverDetails = [])}
           >
-            <Fa icon={faClose} />
+            <AppIcon icon={faClose} />
           </button>
           {#each popoverDetails as popoverDetail (popoverDetail)}
             <div class="mb-2 last:mb-0">{popoverDetail}</div>
@@ -1229,7 +1227,7 @@
       }
     }}
   >
-    <Fa icon={faChevronRight} />
+    <AppIcon icon={faChevronRight} />
   </button>
 </div>
 {#if currentHeatmapData}

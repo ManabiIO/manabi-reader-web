@@ -1,10 +1,8 @@
 <script lang="ts">
-  import {
-    faCircleQuestion,
-    faLeftLong,
-    faRightLong,
-    faXmark
-  } from '@fortawesome/free-solid-svg-icons';
+  import faCircleQuestion from '@lucide/svelte/icons/circle-help';
+  import faLeftLong from '@lucide/svelte/icons/arrow-left';
+  import faRightLong from '@lucide/svelte/icons/arrow-right';
+  import faXmark from '@lucide/svelte/icons/x';
   import ButtonToggleGroup from '$lib/components/button-toggle-group/button-toggle-group.svelte';
   import { optionsForToggle } from '$lib/components/button-toggle-group/toggle-option';
   import Popover from '$lib/components/popover/popover.svelte';
@@ -35,7 +33,7 @@
     lastStatisticsStartDate$
   } from '$lib/data/store';
   import { createEventDispatcher, onMount } from 'svelte';
-  import Fa from 'svelte-fa';
+  import AppIcon from '$lib/components/app-icon.svelte';
 
   const dispatch = createEventDispatcher<{
     close: void;
@@ -74,7 +72,7 @@
 
 <div class="flex items-center p-4">
   <button class="flex items-end md:items-center" on:click={() => dispatch('close')}>
-    <Fa icon={faXmark} />
+    <AppIcon icon={faXmark} />
   </button>
   <div class="flex flex-1 justify-end">
     <button class="mr-2 sm:mr-4 hover:text-red-500" on:click={() => exportStatisticsData(false)}>
@@ -133,7 +131,7 @@
             dateString: selectedStatisticsStartDate
           })}
       >
-        <Fa icon={faRightLong} />
+        <AppIcon icon={faRightLong} />
       </button>
       <button
         on:click={() =>
@@ -142,7 +140,7 @@
             dateString: selectedStatisticsEndDate
           })}
       >
-        <Fa icon={faLeftLong} />
+        <AppIcon icon={faLeftLong} />
       </button>
     </div>
     <div class="flex flex-col">
@@ -182,7 +180,7 @@
         contentText={'Reading Time Attribute which should be used for the Summary Tab'}
         contentStyles="padding: 0.5rem;"
       >
-        <Fa icon={faCircleQuestion} slot="icon" class="mx-2" />
+        <AppIcon icon={faCircleQuestion} slot="icon" class="mx-2" />
         <label for="timeDataSource">Time Data Source</label>
       </Popover>
       <select id="timeDataSource" class="text-foreground" bind:value={$lastReadingTimeDataSource$}>
@@ -198,7 +196,7 @@
         contentText={'Characters Read Attribute which should be used for the Summary Tab'}
         contentStyles="padding: 0.5rem; max-width: 20rem;"
       >
-        <Fa icon={faCircleQuestion} slot="icon" class="mx-2" />
+        <AppIcon icon={faCircleQuestion} slot="icon" class="mx-2" />
         <label for="charactersSource">Characters Data Source</label>
       </Popover>
       <select id="charactersSource" class="text-foreground" bind:value={$lastCharactersDataSource$}>
@@ -214,7 +212,7 @@
         contentText={'Reading Speed Attribute which should be used for the Summary Tab'}
         contentStyles="padding: 0.5rem;"
       >
-        <Fa icon={faCircleQuestion} slot="icon" class="mx-2" />
+        <AppIcon icon={faCircleQuestion} slot="icon" class="mx-2" />
         <label for="speedSource">Speed Data Source</label>
       </Popover>
       <select id="speedSource" class="text-foreground" bind:value={$lastReadingSpeedDataSource$}>
@@ -231,7 +229,7 @@
       contentText={'Determines on which primary Attribute the Data will be grouped for the Summary Tab'}
       contentStyles="padding: 0.5rem;"
     >
-      <Fa icon={faCircleQuestion} slot="icon" class="mx-2" />
+      <AppIcon icon={faCircleQuestion} slot="icon" class="mx-2" />
       <label for="primaryAggregration">Primary Aggregration</label>
     </Popover>
     <select

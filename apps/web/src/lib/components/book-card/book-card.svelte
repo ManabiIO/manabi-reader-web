@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { faImage } from '@fortawesome/free-regular-svg-icons';
+  import faImage from '@lucide/svelte/icons/image';
   import { onDestroy } from 'svelte';
   import { createLocalCoverUrl } from '$lib/functions/book-security/local-media';
-  import Fa from 'svelte-fa';
+  import AppIcon from '$lib/components/app-icon.svelte';
 
   export let imagePath: string | Blob;
   export let title: string;
@@ -41,11 +41,19 @@
   $: alt = `${title}_cover`;
 </script>
 
-<div tabindex="0" role="button" class="aspect-w-2 aspect-h-3 relative" on:click on:keyup>
-  <div class="inline">
+<button
+  type="button"
+  class="relative block aspect-[2/3] w-full overflow-hidden rounded-2xl bg-card text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+  aria-label={`Read ${title}`}
+  on:click
+>
+  <div class="absolute inset-0">
     <div class="h-full w-full text-5xl sm:text-7xl">
       {#if !imageLoadComplete}
-        <Fa class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" icon={faImage} />
+        <AppIcon
+          class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
+          icon={faImage}
+        />
       {/if}
 
       {#if coverUrl}
@@ -70,11 +78,8 @@
         <span class="line-clamp-3">{title}</span>
       </div>
       <div class="h-2.5 bg-border">
-        <div
-          class="h-full rounded bg-gradient-to-b from-red-600 to-red-900"
-          style:width="{progress * 100}%"
-        ></div>
+        <div class="h-full rounded bg-primary" style:width="{progress * 100}%"></div>
       </div>
     </div>
   </div>
-</div>
+</button>

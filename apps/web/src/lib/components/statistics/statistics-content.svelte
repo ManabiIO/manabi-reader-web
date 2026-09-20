@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onKeyUpStatisticsTab } from '../../../routes/b/on-keydown-reader';
-  import { faSpinner } from '@fortawesome/free-solid-svg-icons';
+  import faSpinner from '@lucide/svelte/icons/loader-circle';
   import { getDefaultStatistic } from '$lib/components/book-reader/book-reading-tracker/book-reading-tracker';
   import ConfirmDialog from '$lib/components/confirm-dialog.svelte';
   import MessageDialog from '$lib/components/message-dialog.svelte';
@@ -64,7 +64,7 @@
   import pLimit from 'p-limit';
   import { tap } from 'rxjs';
   import { onDestroy, onMount, tick } from 'svelte';
-  import Fa from 'svelte-fa';
+  import AppIcon from '$lib/components/app-icon.svelte';
   import { quintInOut } from 'svelte/easing';
   import { fly } from 'svelte/transition';
 
@@ -809,7 +809,7 @@
 <svelte:window on:keyup={onKeyUp} />
 {#if isLoading}
   <div class="flex fixed items-center justify-center inset-0 h-full w-full text-7xl">
-    <Fa icon={faSpinner} spin />
+    <AppIcon icon={faSpinner} spin />
   </div>
 {:else}
   {#if $lastStatisticsTab$ === StatisticsTab.OVERVIEW}
@@ -862,6 +862,6 @@
 {#if $statisticsActionInProgress$}
   <div class="tap-highlight-transparent fixed inset-0 bg-black/[.2] z-[70]"></div>
   <div class="flex fixed items-center justify-center inset-0 h-full w-full text-7xl">
-    <Fa icon={faSpinner} spin />
+    <AppIcon icon={faSpinner} spin />
   </div>
 {/if}

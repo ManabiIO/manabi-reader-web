@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { readerUIOwnsEvent } from '$lib/functions/reader-ui-events';
   import { browser } from '$app/environment';
   import {
     nextChapter$,
@@ -20,7 +21,8 @@
   import { prependValue } from '$lib/functions/file-loaders/epub/generate-epub-html';
   import { getReferencePoints } from '$lib/functions/range-util';
   import { getExternalTargetElement } from '$lib/functions/utils';
-  import { faBookmark, faSpinner } from '@fortawesome/free-solid-svg-icons';
+  import faBookmark from '@lucide/svelte/icons/bookmark';
+  import faSpinner from '@lucide/svelte/icons/loader-circle';
   import {
     animationFrameScheduler,
     combineLatest,
@@ -40,7 +42,7 @@
     timer
   } from 'rxjs';
   import { createEventDispatcher, onDestroy, onMount } from 'svelte';
-  import Fa from 'svelte-fa';
+  import AppIcon from '$lib/components/app-icon.svelte';
   import type { AutoScroller, BookmarkManager, PageManager } from '../types';
   import { AutoScrollerContinuous } from './auto-scroller-continuous';
   import { BookmarkManagerContinuous, type BookmarkPosData } from './bookmark-manager-continuous';
@@ -542,7 +544,12 @@
   }
 
   function onWheel(ev: WheelEvent) {
-    if (verticalMode && !$disableWheelNavigation$ && !$skipKeyDownListener$) {
+    if (
+      verticalMode &&
+      !$disableWheelNavigation$ &&
+      !$skipKeyDownListener$ &&
+      !readerUIOwnsEvent(ev)
+    ) {
       scrollFn(ev, fontSize, window.innerWidth);
     }
   }
@@ -720,7 +727,7 @@
       style:right={`calc(${bookmarkPos.right} + 1rem)`}
       style:top={bookmarkAdjustment}
     >
-      <Fa icon={faBookmark} />
+      <AppIcon icon={faBookmark} />
     </div>
   {:else}
     <div
@@ -729,7 +736,7 @@
       style:left={bookmarkAdjustment}
       style:top={`calc(${bookmarkPos.top} + 1.5rem)`}
     >
-      <Fa icon={faBookmark} />
+      <AppIcon icon={faBookmark} />
     </div>
   {/if}
 {/if}
@@ -740,7 +747,7 @@
     style:color={fontColor}
     style:background-color={backgroundColor}
   >
-    <Fa icon={faSpinner} spin />
+    <AppIcon icon={faSpinner} spin />
   </div>
 {/if}
 

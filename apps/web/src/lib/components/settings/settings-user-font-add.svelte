@@ -3,8 +3,8 @@
   import { reservedFontNames } from '$lib/data/fonts';
   import { userFonts$ } from '$lib/data/store';
   import { dummyFn } from '$lib/functions/utils';
-  import { faFloppyDisk } from '@fortawesome/free-solid-svg-icons';
-  import Fa from 'svelte-fa';
+  import faFloppyDisk from '@lucide/svelte/icons/save';
+  import AppIcon from '$lib/components/app-icon.svelte';
 
   export let isLoading: boolean;
   export let fontCache: Cache;
@@ -133,7 +133,7 @@
       }}
       on:keyup={dummyFn}
     >
-      <Fa class="text-xl mx-2" icon={faFloppyDisk} />
+      <AppIcon class="text-xl mx-2" icon={faFloppyDisk} />
     </div>
   </div>
 </div>

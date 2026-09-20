@@ -17,9 +17,9 @@
   } from '$lib/data/storage/storage-source-manager';
   import { StorageKey } from '$lib/data/storage/storage-types';
   import { database, isOnline$ } from '$lib/data/store';
-  import { faTriangleExclamation } from '@fortawesome/free-solid-svg-icons';
+  import faTriangleExclamation from '@lucide/svelte/icons/triangle-alert';
   import { createEventDispatcher } from 'svelte';
-  import Fa from 'svelte-fa';
+  import AppIcon from '$lib/components/app-icon.svelte';
 
   export let configuredName: string;
   export let configuredIsSyncTarget: boolean;
@@ -358,7 +358,7 @@
     {/if}
     {#if storageSourceStoredInManager || storageSourceEncryptionDisabled}
       <div class="flex items-center my-4 max-w-xs">
-        <Fa icon={faTriangleExclamation} />
+        <AppIcon icon={faTriangleExclamation} />
         <span class="ml-2">
           Make sure to understand the
           <a

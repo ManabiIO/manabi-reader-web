@@ -113,9 +113,9 @@ class MigrationBrowser(unittest.TestCase):
                 };tx.oncomplete=()=>{db.close();resolve();};tx.onerror=()=>reject(tx.error);
               };
             })''', STAMP)
-            page.locator('[title="Enable Book Selection"] [role=button]').click()
-            page.locator('[title="Select all Books"] [role=button]').click()
-            page.get_by_role('button', name='Open Export Menu', exact=True).click()
+            page.get_by_role('button', name='Select books', exact=True).click()
+            page.get_by_role('button', name='Select all', exact=True).click()
+            page.get_by_role('button', name='Export', exact=True).click()
             page.get_by_role('button', name='Zip File', exact=True).click()
             for label in ('Book Data', 'Bookmark', 'Statistics', 'Audiobook', 'Subtitles'):
                 page.get_by_label(label, exact=True).check()
@@ -376,7 +376,8 @@ class MigrationBrowser(unittest.TestCase):
 
     def test_migration_entrypoint_and_google_drive_labels_use_official_names(self):
         self.page.goto(self.origin+'/Reader-Web/manage')
-        self.page.get_by_role('button',name='Import from Ttu Ebook Reader',exact=True).click()
+        self.page.get_by_role('button',name='Add books',exact=True).click()
+        self.page.get_by_role('menuitem',name='Import from Ttu Ebook Reader',exact=True).click()
         expect(self.page.get_by_role('heading',name='Import from Ttu Ebook Reader',exact=True)).to_be_visible()
         self.assertNotRegex(self.page.locator('body').inner_text(),r'\b(?:TTU|GDrive)\b')
         self.page.goto(self.origin+'/Reader-Web/settings')

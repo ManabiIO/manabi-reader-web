@@ -23,11 +23,9 @@
     getDateString,
     getStartHoursDate
   } from '$lib/functions/statistic-util';
-  import { clickOutside } from '$lib/functions/use-click-outside';
+  import * as Sheet from '$lib/components/ui/sheet';
   import { map, share } from 'rxjs';
   import { onDestroy, tick } from 'svelte';
-  import { quintInOut } from 'svelte/easing';
-  import { fly } from 'svelte/transition';
 
   const currentBookId$ = database.lastItem$.pipe(
     map((item) => item?.dataId),
@@ -127,23 +125,29 @@
 
 <StatisticsHeader currentBookId={$currentBookId$} bind:showStatisticsSettings />
 
-<div class="{pxScreen} flex flex-col pt-16 h-full xl:pt-14">
+<div class="{pxScreen} flex h-full flex-col pt-28">
   <StatisticsContent />
 </div>
 
-{#if showStatisticsSettings}
-  <div
-    class="writing-horizontal-tb fixed top-0 right-0 z-[60] flex h-full w-full max-w-xl flex-col justify-between bg-card text-foreground"
-    in:fly|local={{ x: 100, duration: 100, easing: quintInOut }}
-    use:clickOutside={() => {
-      if (!$statisticsActionInProgress$) {
-        showStatisticsSettings = false;
-      }
+<Sheet.Root bind:open={showStatisticsSettings}>
+  <Sheet.Content
+    side="right"
+    showCloseButton={false}
+    class="w-full overflow-y-auto sm:max-w-xl"
+    onInteractOutside={(event) => {
+      if ($statisticsActionInProgress$) event.preventDefault();
+    }}
+    onEscapeKeydown={(event) => {
+      if ($statisticsActionInProgress$) event.preventDefault();
     }}
   >
+    <Sheet.Title class="sr-only">Statistics options</Sheet.Title>
+    <Sheet.Description class="sr-only"
+      >Date range, aggregation, export, and statistics management.</Sheet.Description
+    >
     <StatisticsSettings
       on:statisticsDateChange={handleSelectedStatisticsDateChange}
       on:close={() => (showStatisticsSettings = false)}
     />
-  </div>
-{/if}
+  </Sheet.Content>
+</Sheet.Root>

@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { faXmark, faChevronLeft, faChevronRight } from '@fortawesome/free-solid-svg-icons';
+  import faXmark from '@lucide/svelte/icons/x';
+  import faChevronLeft from '@lucide/svelte/icons/chevron-left';
+  import faChevronRight from '@lucide/svelte/icons/chevron-right';
   import {
     getChapterData,
     nextChapter$,
@@ -10,10 +12,10 @@
   import { dialogManager } from '$lib/data/dialog-manager';
   import { PAGE_CHANGE } from '$lib/data/events';
   import { skipKeyDownListener$, statisticsEnabled$ } from '$lib/data/store';
-  import { dummyFn, getWeightedAverage } from '$lib/functions/utils';
+  import { getWeightedAverage } from '$lib/functions/utils';
   import { debounceTime, fromEvent, merge, take } from 'rxjs';
   import { onMount } from 'svelte';
-  import Fa from 'svelte-fa';
+  import AppIcon from '$lib/components/app-icon.svelte';
 
   export let sectionData: SectionWithProgress[] = [];
   export let exploredCharCount = 0;
@@ -130,23 +132,21 @@
 <section class="ui-panel flex h-full min-h-0 flex-col" aria-label="Table of contents">
   <div class="flex justify-between p-4">
     <div>Chapter Progress: {currentChapterCharacterProgress} ({currentChapterProgress}%)</div>
-    <div
-      tabindex="0"
-      role="button"
+    <button
+      type="button"
       title="Close Table of Contents"
-      class="flex items-end md:items-center"
+      class="flex items-end md:items-center gap-2 rounded-xl px-2 py-1.5 text-sm"
       on:click={closeTocMenu}
-      on:keyup={dummyFn}
     >
-      <Fa icon={faXmark} />
-    </div>
+      <AppIcon icon={faXmark} />
+      <span>Close Table of Contents</span></button
+    >
   </div>
   <div class="flex-1 overflow-auto p-4">
     {#each chapters as chapter (chapter.reference)}
       <div class="my-6 flex justify-between">
-        <div
-          tabindex="0"
-          role="button"
+        <button
+          type="button"
           title={`Go to ${chapter.label}`}
           id={`for${chapter.reference}`}
           class="mr-4"
@@ -154,10 +154,9 @@
           class:hover:opacity-100={chapter.progress === 100 && chapter !== currentChapter}
           class:hover:opacity-60={chapter.progress < 100 || chapter === currentChapter}
           on:click={() => goToChapter(chapter.reference, true)}
-          on:keyup={dummyFn}
         >
           {chapter.label}
-        </div>
+        </button>
         <div class:opacity-30={chapter.progress === 100 && chapter !== currentChapter}>
           {chapter.startCharacter}
         </div>
@@ -165,25 +164,27 @@
     {/each}
   </div>
   <div class="flex justify-between px-4 py-6">
-    <div
-      tabindex="0"
-      role="button"
-      title={prevChapterAvailable ? `${verticalMode ? 'Next' : 'Previous'} Chapter` : ''}
+    <button
+      type="button"
+      class="inline-flex items-center gap-2 rounded-xl px-2 py-1.5 text-sm"
+      disabled={!prevChapterAvailable}
+      title={`${verticalMode ? 'Next' : 'Previous'} Chapter`}
       class:opacity-30={!prevChapterAvailable}
       on:click={() => changeChapter(prevChapterAvailable, verticalMode ? 1 : -1)}
-      on:keyup={dummyFn}
     >
-      <Fa icon={faChevronLeft} />
-    </div>
-    <div
-      tabindex="0"
-      role="button"
-      title={nextChapterAvailable ? `${verticalMode ? 'Previous' : 'Next'} Chapter` : ''}
+      <AppIcon icon={faChevronLeft} />
+      <span>{verticalMode ? 'Next Chapter' : 'Previous Chapter'}</span></button
+    >
+    <button
+      type="button"
+      class="inline-flex items-center gap-2 rounded-xl px-2 py-1.5 text-sm"
+      disabled={!nextChapterAvailable}
+      title={`${verticalMode ? 'Previous' : 'Next'} Chapter`}
       class:opacity-30={!nextChapterAvailable}
       on:click={() => changeChapter(nextChapterAvailable, verticalMode ? -1 : 1)}
-      on:keyup={dummyFn}
     >
-      <Fa icon={faChevronRight} />
-    </div>
+      <AppIcon icon={faChevronRight} />
+      <span>{verticalMode ? 'Previous Chapter' : 'Next Chapter'}</span></button
+    >
   </div>
 </section>

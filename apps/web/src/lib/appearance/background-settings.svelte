@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { Button } from '$lib/components/ui/button';
+  import { Switch } from '$lib/components/ui/switch';
   import {
     backgrounds,
     chooseBackground,
@@ -41,7 +43,10 @@
   <div class="mode-grid">
     {#each modes as mode (mode.value)}
       {@const image = state[mode.value]}
-      <section class="mode-image" aria-labelledby="{target}-{mode.value}-heading">
+      <section
+        class="mode-image rounded-2xl bg-muted/40 p-3"
+        aria-labelledby="{target}-{mode.value}-heading"
+      >
         <h3 id="{target}-{mode.value}-heading">{mode.label}</h3>
         <div
           class="background-preview"
@@ -58,23 +63,28 @@
           {:else}<span>No image</span>{/if}
         </div>
 
-        <label class="image-picker" for="background-{target}-{mode.value}"
-          >Choose {mode.label.toLowerCase()} image</label
+        <Button
+          variant="outline"
+          class="w-full"
+          onclick={() => document.getElementById(`background-${target}-${mode.value}`)?.click()}
+          disabled={image.busy}>Choose {mode.label.toLowerCase()} image</Button
         >
         <input
           id="background-{target}-{mode.value}"
           type="file"
+          class="sr-only"
+          aria-label={`Choose ${mode.label.toLowerCase()} ${label.toLowerCase()}`}
           accept="image/png,image/jpeg,image/webp"
           disabled={image.busy}
           on:change={(event) => select(mode.value, event)}
         />
 
         {#if image.url || image.error}
-          <button
-            type="button"
+          <Button
+            variant="ghost"
             disabled={image.busy}
-            on:click={() => removeBackground(target, mode.value).catch(() => undefined)}
-            aria-label="Remove {mode.label.toLowerCase()} {label.toLowerCase()}">Remove</button
+            onclick={() => removeBackground(target, mode.value).catch(() => undefined)}
+            aria-label="Remove {mode.label.toLowerCase()} {label.toLowerCase()}">Remove</Button
           >
         {/if}
         {#if image.name}<p class="filename">{image.name}</p>{/if}
@@ -85,23 +95,24 @@
   </div>
 
   {#if hasAnything}
-    <button
-      type="button"
-      class="remove-both"
+    <Button
+      variant="outline"
+      class="mt-3"
       disabled={busy}
-      on:click={() => removeBackgrounds(target).catch(() => undefined)}
-      aria-label="Remove both {label.toLowerCase()} images">Remove both</button
+      onclick={() => removeBackgrounds(target).catch(() => undefined)}
+      aria-label="Remove both {label.toLowerCase()} images">Remove both</Button
     >
   {/if}
 
-  <label class="fade-toggle">
-    <input
-      type="checkbox"
+  <div class="fade-toggle">
+    <Switch
+      id={`fade-enabled-${target}`}
       checked={$options.fade}
-      on:change={(event) => options.next({ ...$options, fade: event.currentTarget.checked })}
+      onCheckedChange={(fade) => options.next({ ...$options, fade })}
+      aria-label={`Fade ${label.toLowerCase()}`}
     />
-    Fade background
-  </label>
+    <label for={`fade-enabled-${target}`}>Fade background</label>
+  </div>
   <label for="fade-{target}" class="fade-label"
     >Fade amount
     <output for="fade-{target}">{$options.amount}%</output></label
@@ -169,25 +180,7 @@
   .background-preview.dark-preview span {
     color: #f7f7f7;
   }
-  .image-picker {
-    display: block;
-    font-size: 0.875rem;
-    font-weight: 600;
-  }
-  input[type='file'] {
-    display: block;
-    max-width: 100%;
-    margin: 0.3rem 0 0.6rem;
-    font-size: 0.875rem;
-  }
-  button {
-    border: 1px solid var(--border);
-    border-radius: 0.3rem;
-    padding: 0.35rem 0.7rem;
-  }
-  .remove-both {
-    margin-top: 0.85rem;
-  }
+
   .filename {
     overflow-wrap: anywhere;
     color: var(--muted-foreground);

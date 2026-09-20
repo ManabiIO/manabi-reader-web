@@ -15,7 +15,7 @@ export async function runFontAcceptance({ page, context, origin, bookURL, check,
         return { font: style.fontFamily, writingMode: style.writingMode, size: style.fontSize };
       });
   const openSettings = async () => {
-    await page.goto(origin + '/settings');
+    await page.goto(origin + '/settings#all');
     await expect(page.getByLabel('Primary / Serif font', { exact: true })).toBeVisible();
   };
   const choose = async (family, writingMode = 'horizontal-tb', viewMode = 'paginated') => {
@@ -75,7 +75,7 @@ export async function runFontAcceptance({ page, context, origin, bookURL, check,
     await page
       .getByRole('button', { name: 'Show available primary / serif fonts', exact: true })
       .click();
-    await expect(page.getByText('YuKyokasho', { exact: true })).toHaveCount(
+    await expect(page.getByRole('menuitemradio', { name: 'YuKyokasho', exact: true })).toHaveCount(
       yuKyokashoAvailable ? 1 : 0
     );
     await page

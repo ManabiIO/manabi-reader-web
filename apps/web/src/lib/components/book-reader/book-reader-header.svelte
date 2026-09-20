@@ -1,30 +1,15 @@
 <script lang="ts">
   import { browser } from '$app/environment';
-  import { faBookmark as farBookmark } from '@fortawesome/free-regular-svg-icons';
-  import {
-    faBookmark as fasBookmark,
-    faCrosshairs,
-    faExpand,
-    faFlag,
-    faList,
-    faRotateLeft,
-    type IconDefinition
-  } from '@fortawesome/free-solid-svg-icons';
+  import { createEventDispatcher } from 'svelte';
+  import { Button } from '$lib/components/ui/button';
+  import * as Menu from '$lib/components/ui/dropdown-menu';
+  import ActionMenu from '$lib/components/navigation/action-menu.svelte';
+  import Bookmark from '@lucide/svelte/icons/bookmark';
+  import List from '@lucide/svelte/icons/list';
   import { readerImageGalleryPictures$ } from '$lib/components/book-reader/book-reader-image-gallery/book-reader-image-gallery';
-  import { mergeEntries } from '$lib/components/merged-header-icon/merged-entries';
-  import MergedHeaderIcon from '$lib/components/merged-header-icon/merged-header-icon.svelte';
-  import Popover from '$lib/components/popover/popover.svelte';
-  import {
-    baseHeaderClasses,
-    baseIconClasses,
-    nTranslateXHeaderFa,
-    translateXHeaderFa
-  } from '$lib/css-classes';
   import { customReadingPointEnabled$, viewMode$ } from '$lib/data/store';
   import { ViewMode } from '$lib/data/view-mode';
-  import { dummyFn, isMobile$, isOnOldUrl } from '$lib/functions/utils';
-  import { createEventDispatcher } from 'svelte';
-  import Fa from 'svelte-fa';
+  import { isMobile$, isOnOldUrl } from '$lib/functions/utils';
 
   export let hasChapterData: boolean;
   export let hasText: boolean;
@@ -50,169 +35,63 @@
     domainHintClick: void;
     bookManagerClick: void;
   }>();
-
-  const customReadingPointMenuItems: {
-    label: string;
-    action: any;
-  }[] = [
-    ...(hasCustomReadingPoint ? [{ label: 'Show Point', action: 'showCustomReadingPoint' }] : []),
-    { label: 'Set Point', action: 'setCustomReadingPoint' },
-    ...(hasCustomReadingPoint ? [{ label: 'Reset Point', action: 'resetCustomReadingPoint' }] : [])
-  ];
-
-  let customReadingPointMenuElm: Popover;
-
-  let menuItems: {
-    routeId: string;
-    label: string;
-    icon: IconDefinition;
-    title: string;
-  }[] = [];
-
-  $: isOldUrl = browser && isOnOldUrl(window);
-
-  $: {
-    const items = [];
-
-    if (isOldUrl) {
-      items.push(mergeEntries.DOMAIN_HINT);
-    } else {
-      items.push(mergeEntries.STATISTICS);
-    }
-
-    if (hasText) {
-      items.push(mergeEntries.JUMP_TO_POSITION);
-    }
-
-    if ($readerImageGalleryPictures$.length) {
-      items.push(mergeEntries.READER_IMAGE_GALLERY);
-    }
-
-    items.push(mergeEntries.SETTINGS, mergeEntries.MANAGE);
-
-    menuItems = items;
-  }
-
-  function dispatchCustomReadingPointAction(action: any) {
-    dispatch(action);
-    customReadingPointMenuElm.toggleOpen();
-  }
+  $: oldDomain = browser && isOnOldUrl(window);
 </script>
 
-<div class="flex justify-between bg-card px-4 md:px-8 {baseHeaderClasses}">
-  <div class="flex transform-gpu {nTranslateXHeaderFa}">
-    {#if hasChapterData}
-      <div
-        tabindex="0"
-        role="button"
-        title="Open Table of Contents"
-        class={baseIconClasses}
-        on:click={() => dispatch('tocClick')}
-        on:keyup={dummyFn}
-      >
-        <Fa icon={faList} />
-      </div>
-    {/if}
-    <div
-      tabindex="0"
-      role="button"
-      title="Create Bookmark"
-      class={baseIconClasses}
-      on:click={() => dispatch('bookmarkClick')}
-      on:keyup={dummyFn}
+<header
+  class="app-header flex h-12 items-center justify-between gap-1 border-b border-border bg-card px-2 text-foreground sm:px-4"
+  aria-label="Reader toolbar"
+>
+  <div class="flex items-center gap-1">
+    <Button variant="ghost" onclick={() => dispatch('bookManagerClick')} title="Go to Book Manager"
+      >Library</Button
     >
-      <Fa icon={isBookmarkScreen ? fasBookmark : farBookmark} />
-    </div>
-    {#if hasBookmarkData}
-      <div
-        tabindex="0"
-        role="button"
-        title="Return to Bookmark"
-        class={baseIconClasses}
-        on:click={() => dispatch('scrollToBookmarkClick')}
-        on:keyup={dummyFn}
-      >
-        <Fa icon={faRotateLeft} />
-      </div>
+    {#if hasChapterData}
+      <Button variant="ghost" onclick={() => dispatch('tocClick')} title="Open Table of Contents">
+        <List class="hidden size-4 sm:block" aria-hidden="true" />Contents
+      </Button>
+    {/if}
+    <Button
+      variant={isBookmarkScreen ? 'secondary' : 'ghost'}
+      aria-pressed={isBookmarkScreen}
+      onclick={() => dispatch('bookmarkClick')}
+      title="Create Bookmark"
+    >
+      <Bookmark class="hidden size-4 sm:block" aria-hidden="true" />Bookmark
+    </Button>
+  </div>
+  <ActionMenu label="Tools" title="Reading tools">
+    <Menu.Label>Reading</Menu.Label>
+    {#if hasBookmarkData}<Menu.Item onSelect={() => dispatch('scrollToBookmarkClick')}
+        >Return to Bookmark</Menu.Item
+      >{/if}
+    {#if hasText}<Menu.Item onSelect={() => dispatch('jumpClick')}>Jump to Position</Menu.Item>{/if}
+    {#if $readerImageGalleryPictures$.length}<Menu.Item
+        onSelect={() => dispatch('readerImageGalleryClick')}>Image Gallery</Menu.Item
+      >{/if}
+    <Menu.Item onSelect={() => dispatch('completeBook')}>Complete Book</Menu.Item>
+    {#if $customReadingPointEnabled$ || $viewMode$ === ViewMode.Paginated}
+      <Menu.Separator />
+      <Menu.Label>Custom reading point</Menu.Label>
+      {#if hasCustomReadingPoint}<Menu.Item onSelect={() => dispatch('showCustomReadingPoint')}
+          >Show Point</Menu.Item
+        >{/if}
+      <Menu.Item onSelect={() => dispatch('setCustomReadingPoint')}>Set Point</Menu.Item>
+      {#if hasCustomReadingPoint}<Menu.Item onSelect={() => dispatch('resetCustomReadingPoint')}
+          >Reset Point</Menu.Item
+        >{/if}
     {/if}
     {#if $viewMode$ === ViewMode.Continuous && !$isMobile$}
-      <div
-        class="flex items-center px-4 text-xl xl:px-3 xl:text-lg"
-        title="Current Autoscroll Speed"
-      >
-        {autoScrollMultiplier}x
-      </div>
+      <Menu.Separator /><Menu.Label>Autoscroll speed: {autoScrollMultiplier}×</Menu.Label>
     {/if}
-  </div>
-
-  <div class="flex transform-gpu {translateXHeaderFa}">
-    <div
-      tabindex="0"
-      role="button"
-      title="Complete Book"
-      class={baseIconClasses}
-      on:click={() => dispatch('completeBook')}
-      on:keyup={dummyFn}
-    >
-      <Fa icon={faFlag} />
-    </div>
-    {#if $customReadingPointEnabled$ || $viewMode$ === ViewMode.Paginated}
-      <div class="flex">
-        <Popover
-          placement="bottom"
-          fallbackPlacements={['bottom-end', 'bottom-start']}
-          yOffset={0}
-          bind:this={customReadingPointMenuElm}
-        >
-          <div slot="icon" title="Open Custom Point Actions" class={baseIconClasses}>
-            <Fa icon={faCrosshairs} />
-          </div>
-          <div class="w-40 bg-card md:w-32" slot="content">
-            {#each customReadingPointMenuItems as actionItem (actionItem.label)}
-              <div
-                tabindex="0"
-                role="button"
-                class="px-4 py-2 text-sm hover:bg-muted hover:text-foreground"
-                on:click={() => dispatchCustomReadingPointAction(actionItem.action)}
-                on:keyup={dummyFn}
-              >
-                {actionItem.label}
-              </div>
-            {/each}
-          </div>
-        </Popover>
-      </div>
-    {/if}
-    {#if showFullscreenButton}
-      <div
-        tabindex="0"
-        role="button"
-        title="Toggle Fullscreen"
-        class={baseIconClasses}
-        on:click={() => dispatch('fullscreenClick')}
-        on:keyup={dummyFn}
-      >
-        <Fa icon={faExpand} />
-      </div>
-    {/if}
-    <MergedHeaderIcon
-      disableRouteNavigation
-      items={menuItems}
-      on:action={({ detail }) => {
-        if (detail === mergeEntries.STATISTICS.label) {
-          dispatch('statisticsClick');
-        } else if (detail === mergeEntries.JUMP_TO_POSITION.label) {
-          dispatch('jumpClick');
-        } else if (detail === mergeEntries.READER_IMAGE_GALLERY.label) {
-          dispatch('readerImageGalleryClick');
-        } else if (detail === mergeEntries.SETTINGS.label) {
-          dispatch('settingsClick');
-        } else if (detail === mergeEntries.DOMAIN_HINT.label) {
-          dispatch('domainHintClick');
-        } else if (detail === mergeEntries.MANAGE.label) {
-          dispatch('bookManagerClick');
-        }
-      }}
-    />
-  </div>
-</div>
+    <Menu.Separator />
+    {#if showFullscreenButton}<Menu.Item onSelect={() => dispatch('fullscreenClick')}
+        >Toggle Fullscreen</Menu.Item
+      >{/if}
+    <Menu.Item onSelect={() => dispatch('settingsClick')}>Settings</Menu.Item>
+    <Menu.Item onSelect={() => dispatch('statisticsClick')}>Statistics</Menu.Item>
+    {#if oldDomain}<Menu.Item onSelect={() => dispatch('domainHintClick')}
+        >Old domain information</Menu.Item
+      >{/if}
+  </ActionMenu>
+</header>

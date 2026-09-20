@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AppNav from '$lib/components/navigation/app-nav.svelte';
   import { onMount } from 'svelte';
   import { resolve } from '$app/paths';
   import {
@@ -196,6 +197,12 @@
     };
   });
 </script>
+
+<header
+  class="app-header flex min-h-12 items-center justify-end border-b border-border bg-card px-3"
+>
+  <AppNav />
+</header>
 
 <svelte:head><title>Accounts and libraries · Manabi Reader</title></svelte:head>
 

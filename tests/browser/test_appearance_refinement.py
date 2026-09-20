@@ -107,7 +107,7 @@ class RefinedAppearance(previous.AppearanceBrowser):
         )
         self.page.locator(
             'fieldset:has(#background-reader-dark)'
-        ).get_by_role('checkbox', name='Fade background').uncheck()
+        ).get_by_role('switch').uncheck()
         reader.wait_for_function(
             '() => getComputedStyle(document.querySelector(".page-background"), '
             '"::after").backgroundColor === "rgba(0, 0, 0, 0)"'
@@ -135,7 +135,7 @@ class RefinedAppearance(previous.AppearanceBrowser):
             self.assertEqual(raw, self.page.evaluate('localStorage.getItem("customThemes")'))
             self.mode('Light')
             self.settings(reload=True)
-            expect(self.page.get_by_role('heading', name='Appearance', exact=True)).to_be_visible()
+            expect(self.page.get_by_label('Search settings', exact=True)).to_be_visible()
             self.assertEqual('light', self.scheme())
 
     def test_rapid_tab_edits_converge_without_writing_back_stale_events(self):
@@ -229,6 +229,7 @@ class RefinedAppearance(previous.AppearanceBrowser):
 
     def test_focus_and_escape_do_not_commit_the_device_font_fallback(self):
         self.settings()
+        self.page.get_by_role('button', name='Fonts & text', exact=True).click()
         font = self.page.get_by_label('Primary / Serif font', exact=True)
         saved = self.page.evaluate('localStorage.getItem("fontFamilyGroupOne")')
         font.focus()

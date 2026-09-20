@@ -1,17 +1,15 @@
 <script lang="ts">
-  import {
-    faCalendar,
-    faCalendarXmark,
-    faChevronLeft,
-    faChevronRight,
-    faCircleCheck,
-    faEye,
-    faEyeSlash,
-    faList,
-    faListCheck,
-    faTrash,
-    faXmark
-  } from '@fortawesome/free-solid-svg-icons';
+  import faCalendar from '@lucide/svelte/icons/calendar';
+  import faCalendarXmark from '@lucide/svelte/icons/calendar-x';
+  import faChevronLeft from '@lucide/svelte/icons/chevron-left';
+  import faChevronRight from '@lucide/svelte/icons/chevron-right';
+  import faCircleCheck from '@lucide/svelte/icons/circle-check';
+  import faEye from '@lucide/svelte/icons/eye';
+  import faEyeSlash from '@lucide/svelte/icons/eye-off';
+  import faList from '@lucide/svelte/icons/list';
+  import faListCheck from '@lucide/svelte/icons/list-check';
+  import faTrash from '@lucide/svelte/icons/trash-2';
+  import faXmark from '@lucide/svelte/icons/x';
   import {
     preFilteredTitlesForStatistics$,
     type StatisticsTitleFilterItem
@@ -26,7 +24,7 @@
   import { convertRemToPixels, getFullHeight, limitToRange } from '$lib/functions/utils';
   import { debounceTime, fromEvent, tap } from 'rxjs';
   import { createEventDispatcher, onMount, tick } from 'svelte';
-  import Fa from 'svelte-fa';
+  import AppIcon from '$lib/components/app-icon.svelte';
 
   export let statisticsTitleFilters: Map<string, boolean>;
   export let titlesInStatisticsDateRange: Set<string>;
@@ -174,7 +172,7 @@
     class="flex items-end md:items-center"
     on:click={() => dispatch('close')}
   >
-    <Fa icon={faXmark} />
+    <AppIcon icon={faXmark} /> <span>Close Title Filter</span>
   </button>
 </div>
 <div class="flex flex-col flex-1 px-4">
@@ -194,13 +192,13 @@
         dispatch('close');
       }}
     >
-      <Fa icon={faCircleCheck} />
+      <AppIcon icon={faCircleCheck} /> <span>Apply Filter</span>
     </button>
     <button title="Select All" class="hover:text-red-500" on:click={() => handleSelectAll(true)}>
-      <Fa icon={faListCheck} />
+      <AppIcon icon={faListCheck} /> <span>Select All</span>
     </button>
     <button title="Remove All" class="hover:text-red-500" on:click={() => handleSelectAll(false)}>
-      <Fa icon={faList} />
+      <AppIcon icon={faList} /> <span>Remove All</span>
     </button>
     <button
       title={$lastStatisticsFilterDateRangeOnly$
@@ -209,7 +207,7 @@
       class="hover:text-red-500"
       on:click={() => ($lastStatisticsFilterDateRangeOnly$ = !$lastStatisticsFilterDateRangeOnly$)}
     >
-      <Fa icon={$lastStatisticsFilterDateRangeOnly$ ? faCalendarXmark : faCalendar} />
+      <AppIcon icon={$lastStatisticsFilterDateRangeOnly$ ? faCalendarXmark : faCalendar} />
     </button>
     <button
       title={$lastStatisticsFilterShowSelectedTitlesOnly$
@@ -220,7 +218,7 @@
         ($lastStatisticsFilterShowSelectedTitlesOnly$ =
           !$lastStatisticsFilterShowSelectedTitlesOnly$)}
     >
-      <Fa icon={$lastStatisticsFilterShowSelectedTitlesOnly$ ? faEyeSlash : faEye} />
+      <AppIcon icon={$lastStatisticsFilterShowSelectedTitlesOnly$ ? faEyeSlash : faEye} />
     </button>
     {#if $preFilteredTitlesForStatistics$.size}
       <button
@@ -228,7 +226,7 @@
         class="hover:text-red-500"
         on:click={() => dispatch('clearPrefilter')}
       >
-        <Fa icon={faTrash} />
+        <AppIcon icon={faTrash} /> <span>Remove Prefilter</span>
       </button>
     {/if}
   </div>
@@ -273,7 +271,7 @@
       class:cursor-not-allowed={currentStatisticsTitleFilterPage === 1}
       on:click={() => (currentStatisticsTitleFilterPage -= 1)}
     >
-      <Fa icon={faChevronLeft} />
+      <AppIcon icon={faChevronLeft} />
     </button>
     <div class="mx-6">{statisticsTitleFilterPageLabel}</div>
     <button
@@ -282,7 +280,7 @@
       class:cursor-not-allowed={currentStatisticsTitleFilterPage === statisticsTitleFilterMaxPages}
       on:click={() => (currentStatisticsTitleFilterPage += 1)}
     >
-      <Fa icon={faChevronRight} />
+      <AppIcon icon={faChevronRight} />
     </button>
   </div>
 </div>

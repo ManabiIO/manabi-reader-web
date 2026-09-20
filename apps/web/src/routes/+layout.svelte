@@ -1,4 +1,6 @@
 <script lang="ts">
+  import * as Modal from '$lib/components/ui/dialog';
+  import { Button } from '$lib/components/ui/button';
   import { browser } from '$app/environment';
   import { sanitizeDialogHtml } from '$lib/functions/book-security/dialog-content-security';
   import { page } from '$app/stores';
@@ -14,7 +16,7 @@
     userFonts$,
     yuKyokashoAvailable$
   } from '$lib/data/store';
-  import { dummyFn, isMobile, isMobile$ } from '$lib/functions/utils';
+  import { isMobile, isMobile$ } from '$lib/functions/utils';
   import AppearanceRuntime from '$lib/appearance/runtime.svelte';
   import { buildLocalFontStyleSheet } from '$lib/functions/book-security/local-media';
   import {
@@ -120,30 +122,42 @@
 <ManabiRuntime />
 <slot />
 
-{#if dialogs.length > 0}
-  <div class="writing-horizontal-tb fixed inset-0 z-50 h-full w-full" style:z-index={zIndex}>
-    <div
-      tabindex="0"
-      role="button"
-      class="tap-highlight-transparent absolute inset-0 bg-black/[.32]"
-      on:click={() => {
-        if (!clickOnCloseDisabled) {
-          closeAllDialogs();
-        }
+<Modal.Root
+  open={dialogs.length > 0}
+  onOpenChange={(open) => {
+    if (!open) closeAllDialogs();
+  }}
+>
+  {#if dialogs.length > 0}
+    <Modal.Content
+      showCloseButton={false}
+      class="max-h-[90dvh] overflow-y-auto p-0 pt-12 sm:max-w-3xl"
+      style={`z-index: ${zIndex || '60'}`}
+      onInteractOutside={(event) => {
+        if (clickOnCloseDisabled) event.preventDefault();
       }}
-      on:keyup={dummyFn}
-    ></div>
-
-    <div
-      class="relative top-1/2 left-1/2 inline-block max-w-[80vw] -translate-x-1/2 -translate-y-1/2"
+      onEscapeKeydown={(event) => {
+        if (clickOnCloseDisabled) event.preventDefault();
+      }}
     >
+      <Modal.Title class="sr-only">Reader dialog</Modal.Title>
+      <Modal.Description class="sr-only"
+        >Adjust the options below, then confirm or cancel.</Modal.Description
+      >
       {#each dialogs as dialog}
         {#if typeof dialog.component === 'string'}
-          {@html browser ? sanitizeDialogHtml(dialog.component, document) : ''}
+          <div class="p-6">
+            {@html browser ? sanitizeDialogHtml(dialog.component, document) : ''}
+          </div>
         {:else}
           <svelte:component this={dialog.component} {...dialog.props} on:close={closeAllDialogs} />
         {/if}
       {/each}
-    </div>
-  </div>
-{/if}
+      {#if !clickOnCloseDisabled}<Button
+          variant="ghost"
+          class="absolute top-2 right-2"
+          onclick={closeAllDialogs}>Close</Button
+        >{/if}
+    </Modal.Content>
+  {/if}
+</Modal.Root>

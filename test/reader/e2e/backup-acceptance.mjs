@@ -6,14 +6,17 @@ export async function runBackupAcceptance({ page, origin, fixtures, check, books
   const title = 'E2E Backup / 日本語';
   const start = async (file) => {
     await page.goto(origin + '/manage');
-    await expect(page.locator('[title="Import Files"]').first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Add books', exact: true })).toBeVisible();
     await page
       .locator('input[type=file][accept=".zip,application/zip"]')
       .setInputFiles(path.join(fixtures, file));
   };
   const settled = async () => {
-    await expect(page.locator('[title="Cancel Operation"]')).toHaveCount(0, { timeout: 60000 });
-    await expect(page.locator('[title="Import Files"]').first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Cancel operation', exact: true })).toHaveCount(
+      0,
+      { timeout: 60000 }
+    );
+    await expect(page.getByRole('button', { name: 'Add books', exact: true })).toBeVisible();
   };
   await check(
     'backup: real nested export import preserves Japanese content and literal encoded title',
@@ -41,7 +44,7 @@ export async function runBackupAcceptance({ page, origin, fixtures, check, books
   }
   await check('backup: cancel drains active work and permits a fresh import', async () => {
     await start('backup-cancel.zip');
-    const cancel = page.locator('[title="Cancel Operation"]').getByRole('button').first();
+    const cancel = page.getByRole('button', { name: 'Cancel operation', exact: true });
     await expect(cancel).toBeVisible();
     await cancel.click();
     await settled();

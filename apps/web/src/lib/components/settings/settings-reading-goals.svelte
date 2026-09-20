@@ -1,13 +1,11 @@
 <script lang="ts">
-  import {
-    faCancel,
-    faChevronLeft,
-    faChevronRight,
-    faEdit,
-    faRotate,
-    faSave,
-    faTrash
-  } from '@fortawesome/free-solid-svg-icons';
+  import faCancel from '@lucide/svelte/icons/x';
+  import faChevronLeft from '@lucide/svelte/icons/chevron-left';
+  import faChevronRight from '@lucide/svelte/icons/chevron-right';
+  import faEdit from '@lucide/svelte/icons/pencil';
+  import faRotate from '@lucide/svelte/icons/refresh-cw';
+  import faSave from '@lucide/svelte/icons/save';
+  import faTrash from '@lucide/svelte/icons/trash-2';
   import { ReadingGoalFrequency } from '$lib/components/book-reader/book-reading-tracker/book-reading-tracker';
   import ConfirmDialog from '$lib/components/confirm-dialog.svelte';
   import MessageDialog from '$lib/components/message-dialog.svelte';
@@ -41,7 +39,7 @@
   import { isOnlineSourceAvailable, pluralize } from '$lib/functions/utils';
   import { getDateKey, secondsToMinutes } from '$lib/functions/statistic-util';
   import { createEventDispatcher, onMount, tick } from 'svelte';
-  import Fa from 'svelte-fa';
+  import AppIcon from '$lib/components/app-icon.svelte';
 
   export let storageSources: BooksDbStorageSource[] = [];
 
@@ -380,7 +378,7 @@
           class:cursor-not-allowed={saveDisabled}
         >
           <span class="mr-2">Save</span>
-          <Fa icon={faSave} />
+          <AppIcon icon={faSave} />
         </div>
       </button>
       <button
@@ -398,20 +396,20 @@
       >
         <div class="flex items-center justify-center hover:opacity-50">
           <span class="mr-2">Cancel</span>
-          <Fa icon={faCancel} />
+          <AppIcon icon={faCancel} />
         </div>
       </button>
     {:else}
       <button class={buttonClasses} on:click={syncReadingGoals}>
         <div class="flex items-center justify-center hover:opacity-50">
           <span class="mr-2">Sync</span>
-          <Fa icon={faRotate} />
+          <AppIcon icon={faRotate} />
         </div>
       </button>
       <button class={buttonClasses} on:click={() => (isInEditMode = true)}>
         <div class="flex items-center justify-center hover:opacity-50">
           <span class="mr-2">Edit</span>
-          <Fa icon={faEdit} />
+          <AppIcon icon={faEdit} />
         </div>
       </button>
       <button
@@ -425,7 +423,7 @@
           class:cursor-not-allowed={!readingGoals.length}
         >
           <span class="mr-2">Reset</span>
-          <Fa icon={faTrash} />
+          <AppIcon icon={faTrash} />
         </div>
       </button>
     {/if}
@@ -495,7 +493,7 @@
             on:click={() => deleteReadingGoals(historyGoal, dateRangeLabel)}
             title="Delete Reading Goal"
           >
-            <Fa icon={faTrash} />
+            <AppIcon icon={faTrash} /> <span>Delete Reading Goal</span>
           </button>
         {/each}
       </div>
@@ -512,7 +510,7 @@
               on:click={() => deleteReadingGoals(historyGoal, dateRangeLabel)}
               title="Delete Reading Goal"
             >
-              <Fa icon={faTrash} />
+              <AppIcon icon={faTrash} /> <span>Delete Reading Goal</span>
             </button>
           </div>
         {/each}
@@ -525,7 +523,7 @@
           class:cursor-not-allowed={currentHistoryIndex === 0}
           on:click={() => (historyIndex -= 1)}
         >
-          <Fa icon={faChevronLeft} />
+          <AppIcon icon={faChevronLeft} />
         </button>
         <button
           title={hasNextHistoryPage ? 'Next Page' : ''}
@@ -534,7 +532,7 @@
           class:cursor-not-allowed={!hasNextHistoryPage}
           on:click={() => (historyIndex += 1)}
         >
-          <Fa icon={faChevronRight} />
+          <AppIcon icon={faChevronRight} />
         </button>
       </div>
     {:else}
