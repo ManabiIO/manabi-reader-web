@@ -12,17 +12,25 @@
   onMount(() => {
     const stopPreferences = startPreferenceSync();
     const stopBooks = startBookSync();
-    const refresh = () => {
+    let lastRefreshStarted = 0;
+    const refresh = (force = false) => {
+      const now = Date.now();
+      // Refocusing a newly mounted page must not start a duplicate request. In
+      // WebKit that request can surface as a CORS page error if the tab closes.
+      if (!force && now - lastRefreshStarted < 30_000) return;
+      lastRefreshStarted = now;
       void refreshAccount();
     };
-    refresh();
-    window.addEventListener('online', refresh);
-    window.addEventListener('focus', refresh);
+    const refreshOnline = () => refresh(true);
+    const refreshFocus = () => refresh();
+    refresh(true);
+    window.addEventListener('online', refreshOnline);
+    window.addEventListener('focus', refreshFocus);
     return () => {
       stopPreferences();
       stopBooks();
-      window.removeEventListener('online', refresh);
-      window.removeEventListener('focus', refresh);
+      window.removeEventListener('online', refreshOnline);
+      window.removeEventListener('focus', refreshFocus);
     };
   });
 </script>

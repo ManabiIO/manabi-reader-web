@@ -52,6 +52,22 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         section = self.page.locator(f'.mode-image:has(#background-{target}-{mode})')
         expect(section.get_by_text(filename, exact=True)).to_be_visible()
         expect(section.get_by_text('Preparing image…', exact=True)).to_have_count(0)
+
+    def test_focus_does_not_duplicate_a_recent_account_probe(self):
+        probes = []
+        self.context.on(
+            'request',
+            lambda request: probes.append(request.url)
+            if request.url == self.origin + '/api/reader-web/session/' else None
+        )
+        self.settings()
+        self.assertEqual(1, len(probes))
+        self.page.evaluate(
+            '() => new Promise(resolve => {'
+            'window.dispatchEvent(new Event("focus")); requestAnimationFrame(resolve);})'
+        )
+        self.assertEqual(1, len(probes))
+
     def test_default_modes_and_persistence(self):
         self.page.emulate_media(color_scheme='dark')
         self.settings()
