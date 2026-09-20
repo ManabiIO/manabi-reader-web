@@ -92,7 +92,7 @@
     createRipple(touch.clientX, touch.clientY, rect.left, rect.top, rect.width, rect.height);
   }
 
-  function animateRipple() {
+  function animateRipple(_node: Element) {
     return {
       delay: 0,
       duration: 400,
