@@ -28,7 +28,6 @@ replace(p, '  BACKUP_IMPORT:', "  TTU_IMPORT: { routeId: '/import-ttu', label: '
 for path in ('lib/components/merged-header-icon/merged-header-icon.svelte', 'lib/manabi/shared-library.ts', 'lib/manabi/ttu-folder-contract.ts', 'routes/shared-library/+page.svelte'):
     p = Path(root + path)
     content = p.read_text()
-    # These files have TTU in prose only, never identifier names.
     assert 'TTU' in content
     content = content.replace('TTU Reader', 'Ttu Ebook Reader').replace('TTU', 'Ttu Ebook Reader')
     if path.endswith('merged-header-icon.svelte'):
@@ -36,6 +35,10 @@ for path in ('lib/components/merged-header-icon/merged-header-icon.svelte', 'lib
     p.write_text(content)
     changed.add(str(p))
 replace('tests/browser/test_shared_ttu.py', 'published in TTU format', 'published in Ttu Ebook Reader format')
+replace(root + 'routes/import-ttu/+page.svelte', 'rows = [...rows];', 'rows = rows.map((item) => item.key === row.key ? { ...row } : item);', 2)
+p = 'tests/browser/test_ttu_migration.py'
+replace(p, "['data','bookmark','statistic','audioBook','subtitle'],'readwrite'", "['data','bookmark','statistic','audioBook','subtitle','lastModified'],'readwrite'")
+replace(p, "                    tx.objectStore('audioBook').put", "                    tx.objectStore('lastModified').put({title:book.title,dataType:'statistic',lastModifiedValue:stamp});\n                    tx.objectStore('audioBook').put")
 changed.update([root + 'lib/manabi/ttu-migration-format.ts', root + 'lib/manabi/ttu-migration.ts', root + 'routes/import-ttu/+page.svelte', 'tests/unit/ttu-migration.test.mjs'])
 paths = sorted(changed)
 code = [p for p in paths if p.endswith(('.ts', '.svelte', '.mjs'))]
