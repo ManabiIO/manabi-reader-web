@@ -5,6 +5,7 @@
  */
 
 import type { Section } from '$lib/data/database/books-db/versions/v4/books-db-v4';
+import type { DirectionEvidence } from '$lib/library/direction';
 import { LimitedArchive, type ArchiveOptions } from './limited-archive';
 
 export interface RestoredContent {
@@ -14,6 +15,7 @@ export interface RestoredContent {
   sections: Section[];
   htmlBackup?: string;
   language?: string;
+  pageDirection?: DirectionEvidence;
   blobs: Record<string, Blob>;
   coverImage?: Blob;
 }
@@ -38,6 +40,13 @@ function readMetadata(value: unknown): Omit<RestoredContent, 'blobs' | 'coverIma
   }
   if (typeof value.language === 'string' && value.language.length > 128)
     throw new Error('Invalid restored book language');
+  if (
+    value.pageDirection !== undefined &&
+    (!object(value.pageDirection) ||
+      !['ltr', 'rtl', 'unknown'].includes(value.pageDirection.value as string) ||
+      !['spine', 'content', 'unknown'].includes(value.pageDirection.source as string))
+  )
+    throw new Error('Invalid restored book page direction');
   const sections: Section[] = [];
   if (value.sections !== undefined) {
     if (!Array.isArray(value.sections) || value.sections.length > 8192)
@@ -83,7 +92,10 @@ function readMetadata(value: unknown): Omit<RestoredContent, 'blobs' | 'coverIma
     styleSheet: (value.styleSheet as string) || '',
     sections,
     ...(value.htmlBackup === undefined ? {} : { htmlBackup: value.htmlBackup as string }),
-    ...(value.language === undefined ? {} : { language: value.language as string })
+    ...(value.language === undefined ? {} : { language: value.language as string }),
+    ...(value.pageDirection === undefined
+      ? {}
+      : { pageDirection: value.pageDirection as unknown as DirectionEvidence })
   };
 }
 

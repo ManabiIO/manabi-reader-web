@@ -17,6 +17,7 @@ import {
   type BooksDbSubtitleData
 } from '$lib/data/database/books-db/versions/books-db';
 import type { Section } from '$lib/data/database/books-db/versions/v4/books-db-v4';
+import type { DirectionEvidence } from '$lib/library/direction';
 import { ttuCompatibilityRootName } from '$lib/data/env';
 import { MergeMode } from '$lib/data/merge-mode';
 import { InternalStorageSources, type StorageKey } from '$lib/data/storage/storage-types';
@@ -373,8 +374,8 @@ export abstract class BaseStorageHandler {
         | 'lastBookOpen'
         | 'storageSource'
       >
-    > = ['title', 'styleSheet', 'elementHtml', 'htmlBackup', 'sections'];
-    const staticData: Record<string, string | Section[] | undefined> = {};
+    > = ['title', 'styleSheet', 'elementHtml', 'htmlBackup', 'sections', 'pageDirection'];
+    const staticData: Record<string, string | Section[] | DirectionEvidence | undefined> = {};
     const limiter = pLimit(1);
     const cover = bookdata.coverImage;
     const isBlobCover = cover instanceof Blob;

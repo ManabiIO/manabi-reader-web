@@ -35,7 +35,7 @@
         decoding="async"
         referrerpolicy="no-referrer"
         on:load={(event) => {
-          const img = event.currentTarget;
+          const img = event.currentTarget as HTMLImageElement;
           if (img.naturalHeight) ratio = img.naturalWidth / img.naturalHeight;
         }}
         on:error={() => {
@@ -95,6 +95,7 @@
     text-align: center;
     overflow-wrap: anywhere;
     display: -webkit-box;
+    line-clamp: 8;
     -webkit-line-clamp: 8;
     -webkit-box-orient: vertical;
     overflow: hidden;

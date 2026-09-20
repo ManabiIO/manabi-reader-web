@@ -29,10 +29,9 @@ export interface MovePlan {
 export function safePath(path: string): string[] {
   if (!path) return [];
   const parts = path.split('/');
-  // eslint-disable-next-line no-control-regex
   if (
     parts.some(
-      (p) => !p || p === '.' || p === '..' || p === '.manabi-reader' || /[\\\x00-\x1f\x7f]/.test(p)
+      (p) => !p || p === '.' || p === '..' || p === '.manabi-reader' || /[\\\x00-\x1f\x7f]/.test(p) // eslint-disable-line no-control-regex
     )
   )
     throw new Error('Invalid library path.');
