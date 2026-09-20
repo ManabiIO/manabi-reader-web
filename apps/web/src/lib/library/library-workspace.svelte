@@ -174,7 +174,7 @@
     else url.searchParams.delete('collection');
     if (unfinished) url.searchParams.set('unfinished', '1');
     else url.searchParams.delete('unfinished');
-    void goto(`${resolve('/manage')}${url.search}`);
+    void goto(resolve(`/manage?${url.searchParams.toString()}`));
   }
   function setLayout(value: string) {
     if (value !== 'grid' && value !== 'list') return;

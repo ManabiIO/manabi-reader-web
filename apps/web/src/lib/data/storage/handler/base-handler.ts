@@ -6,6 +6,7 @@
 
 import { readRestoredBook } from '$lib/functions/file-loaders/utils/restored-book';
 import type { ArchiveBudget } from '$lib/functions/file-loaders/utils/limited-archive';
+import type { Section } from '$lib/data/database/books-db/versions/v4/books-db-v4';
 import type { BookCardProps } from '$lib/components/book-card/book-card-props';
 import {
   currentDbVersion,
