@@ -116,6 +116,7 @@ class MigrationBrowser(unittest.TestCase):
             page.get_by_role('button', name='Library actions', exact=True).click()
             page.get_by_role('menuitem', name='Select Books', exact=True).click()
             page.get_by_role('button', name='Select all', exact=True).click()
+            expect(page.get_by_text('2 selected', exact=True)).to_be_visible()
             page.get_by_role('button', name='Export', exact=True).click()
             page.get_by_role('button', name='Zip File', exact=True).click()
             for label in ('Book Data', 'Bookmark', 'Statistics', 'Audiobook', 'Subtitles'):
