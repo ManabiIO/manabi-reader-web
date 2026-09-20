@@ -62,7 +62,8 @@ class CompletedReadingBrowser(LocalLibraryBrowser):
         self.assertEqual(before,self.statistics(self.page))
 
         self.page.goto(self.origin+'/Reader-Web/manage')
-        self.page.get_by_role('button', name='Select books', exact=True).click()
+        self.page.get_by_role('button', name='Library actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
         self.page.get_by_role('button', name='Select all', exact=True).click()
         self.page.get_by_role('button', name='Export', exact=True).click()
         self.page.get_by_role('button',name='Zip File',exact=True).click()
