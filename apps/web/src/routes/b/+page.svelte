@@ -26,6 +26,7 @@
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { faCloudBolt, faPause, faPlay, faSpinner } from '@fortawesome/free-solid-svg-icons';
+  import { effectivePrimaryReaderFont } from '$lib/data/reader-typography';
   import BookReader from '$lib/components/book-reader/book-reader.svelte';
   import type {
     AutoScroller,
@@ -48,6 +49,7 @@
     firstDimensionMargin$,
     fontFamilyGroupOne$,
     fontFamilyGroupTwo$,
+    yuKyokashoAvailable$,
     fontSize$,
     fontWeight$,
     furiganaStyle$,
@@ -1703,7 +1705,10 @@
     backgroundColor={$backgroundColor$}
     hintFuriganaFontColor={$themeOption$?.hintFuriganaFontColor}
     hintFuriganaShadowColor={$themeOption$?.hintFuriganaShadowColor}
-    fontFamilyGroupOne={$fontFamilyGroupOne$}
+    fontFamilyGroupOne={effectivePrimaryReaderFont(
+      $fontFamilyGroupOne$,
+      $yuKyokashoAvailable$
+    )}
     fontFamilyGroupTwo={$fontFamilyGroupTwo$}
     fontWeight={$fontWeight$}
     fontSize={$fontSize$}

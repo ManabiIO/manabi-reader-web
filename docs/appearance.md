@@ -1,91 +1,104 @@
 # Appearance
 
-Theme identity is separate from **System / Light / Dark**. New installations use
-**Manabi + System**. Existing saved theme IDs and their light/dark intent survive
-upgrade; existing custom theme records are never rewritten. The former portable
-`system-theme` alias migrates to Manabi + System. The portable account `theme`
-field now binds appearance, while `reader.themeName` binds identity. Wallpapers
-and their adjustment settings remain browser-local and are not in that payload.
+## Product status
 
-## Branding and prior art
+Manabi Reader Web has not shipped and has no installed user base. Background images
+have only the first-release schema described below. There is no single-image
+migration, automatic sharing, or substitution between Light and Dark. Compatibility
+with imported Ttu Ebook Reader books, backups, and reading data is a separate
+contract and must be retained.
 
-Manabi's reading canvas is white in light mode and black in dark mode. Chrome is
-slightly raised, with restrained accents rather than a colored reading page.
+## Themes and branding
 
-- Native reference (read-only): `aehlke/manabi-reader`, `v3-hotfix`,
+Theme identity and System / Light / Dark are separate settings. The default is
+Manabi + System. Manabi uses a white reading canvas in Light and black in Dark,
+with restrained raised surfaces and brand accents rather than a colored page.
+
+Brand references consulted read-only:
+
+- Native `aehlke/manabi-reader`, `v3-hotfix`,
   `ManabiReader/Resources/Common Colors.xcassets/Manabi Red.colorset/Contents.json`,
-  blob `8c5c62f67c42bcd4fb7356561d594fcb8b168f14`. The native color is **Display P3**
-  A1/1A/1D, not an sRGB hex value. Supporting browsers use its P3 components.
-- Homepage reference (read-only): `lake-of-fire/manabi`,
-  `website-next/src/styles/generated-theme.css`, blob
-  `32f4158506ee77355a3f414adaf128ad8e9d8925`: Reader red `#A33539` is the
-  sRGB fallback; gold `#D9B141` is the dark accent. Main content deliberately does
-  not inherit the homepage's warm dark full-page background.
-- Reviewed upstream `ttu-ttu/ebook-reader` issue #454 and PR #483 (whole-app
-  theme request), plus scrollbar PR #393. This implementation uses semantic
-  tokens and explicit component edits, not global overrides of `.bg-white`,
-  form geometry, statistics data colors or descendant wildcard `!important`.
-- No Yatsu Reader code or assets were consulted.
+  blob `8c5c62f67c42bcd4fb7356561d594fcb8b168f14`. The native red is Display P3
+  A1/1A/1D, not an sRGB hex value.
+- `lake-of-fire/manabi`, `website-next/src/styles/generated-theme.css`, blob
+  `32f4158506ee77355a3f414adaf128ad8e9d8925`. Reader red `#A33539` is the sRGB
+  fallback; gold `#D9B141` is the dark accent.
+- Upstream whole-app theme issue #454 and PR #483 in `ttu-ttu/ebook-reader`, plus
+  scrollbar PR #393. No Yatsu Reader source or assets were consulted.
 
-## Implementation contract
+Paper, Ecru, Water, Slate, Charcoal and Monochrome retain their upstream theme IDs.
+Custom palettes use the seven-field format and keep their authored values. The
+opposite appearance is derived without rewriting the definition. UI surfaces and
+text are independently contrast-checked, so arbitrary custom page colors cannot
+hide application controls. Artwork and meaningful statistics colors are not
+blanket-recolored.
 
-`theme-option.ts` remains compatible with the seven-field custom-theme format.
-`themeForMode` keeps a custom palette's authored mode exactly and synthesizes an
-opposite-mode tint without saving it. Paper, Ecru, Water, Slate, Charcoal and
-Monochrome retain their stable historical IDs. Manabi is added, not substituted
-for an existing choice. Preset original reading colors are retained in their
-original mode. UI text is separate and contrast-checked on each opaque surface.
+Generated `palettes.scss` and native `prefers-color-scheme` implement System mode;
+`data-appearance` provides explicit overrides. The external, local
+`appearance-init.js` restores appearance before first paint under the existing CSP.
+Mode changes do not recreate EPUB DOM or change reading position. Storage
+notifications re-read authoritative preferences without echoing stale values into
+another tab. Malformed optional custom-theme JSON is ignored in memory, not
+silently overwritten. Only built-in theme names cross the account boundary;
+custom definitions and backgrounds are local.
 
-The generated `palettes.scss` contains both variants. Native CSS
-`prefers-color-scheme` selects System; root `data-appearance` overrides it for
-Light or Dark. Reader colors are CSS-variable references so switching modes does
-not reconstruct EPUB DOM, remount content or trigger pagination. The tiny,
-external `appearance-init.js` establishes persisted mode and preset before first
-paint, works with the existing CSP, and is precached as a normal static asset.
-The root runtime also updates browser chrome and reacts to custom-theme edits.
+## Backgrounds
 
-There is no global CSS filter. Real book images, cover art, semantic status
-colors and heatmap data colors are deliberately not recolored. Shared headers,
-menus, popovers, dialogs, form controls, selectors, metadata panels, statistics
-surfaces, empty heatmap cells, focus rings and scrollbars consume theme tokens.
+The dedicated `manabi-reader-appearance` IndexedDB database stores one
+`{light, dark}` record per surface (`library`, `reader`). All four slots are
+independent. Choose or remove either image, or use Remove both for that surface.
+An empty slot means the plain theme background, even if the other mode has an image.
 
-## Background storage and rendering
+Only `/manage` and `/b` render the corresponding decorative image. Images use
+centered cover sizing, fixed to the viewport, with pointer events disabled. Fade
+is optional and adjustable from 0 to 100 percent per surface. Light fades toward
+white and Dark toward black. Previews show both modes independently of the app's
+current mode. Printing and forced-colors accessibility hide decorative wallpaper.
 
-Two independent slots, `library` and `reader`, use the dedicated
-`manabi-reader-appearance` IndexedDB database, not the released books database.
-Images are browser-local; clearing site data removes them. No external image URL
-input, account requirement, backend upload or localStorage/base64 image storage
-is introduced. PNG, JPEG and still WebP uploads are bounded to 8 MiB, 24 million
-pixels and 8192 pixels per dimension. Header admission happens before decode;
-images are re-encoded without metadata and downscaled to a maximum 2560-pixel
-edge. Unsupported SVG/GIF, malformed headers and animated WebP fail visibly.
+PNG, JPEG and still WebP uploads are bounded to 8 MiB, 24 million pixels and
+8192 pixels per dimension. Header checks precede decoding. Images are re-encoded
+without metadata and reduced to a maximum 2560-pixel edge; native PNG encoding is
+accepted when WebP encoding is unavailable. Unsupported or corrupt images fail
+visibly. A failed replacement keeps the previous image; corrupt stored records
+have a Remove/retry path. Stored data is decoded before publication, object URLs
+are cleaned up, and unchanged revisions avoid repeat decoding on focus.
 
-Writes are serialized per slot. Replacing an image commits storage before
-publishing its object URL; failures leave the last successful image in place.
-Stale reads are fenced, object URLs are revoked on replacement/removal/disposal,
-and cross-tab image changes reload through BroadcastChannel (focus fallback).
-A decorative, pointer-transparent, viewport-fixed layer uses `cover` and centered
-cropping. Only `/manage` and `/b` show images. Settings and other routes keep
-opaque theme surfaces. Fade is independently adjustable 0–100% or disabled;
-its separate overlay is white in light mode and black in dark mode. Forced-color
-accessibility mode and printing hide decorative wallpapers.
+Image preparation occurs outside IndexedDB transactions. Reading, updating one
+slot and writing the record use a single read/write transaction, preventing two
+tabs editing different modes from overwriting each other. Removal is atomic too.
+BroadcastChannel notifications and focus refresh update other tabs. Images are
+never uploaded or embedded in account settings; clearing site data removes them.
 
-## Checks
+## Typography
 
-Run from the repository root (same toolchain as the existing Reader workflow):
+YuKyokasho is the preferred primary font when both native directional faces are
+usable. Horizontal text uses YuKyokasho Yoko and vertical text uses YuKyokasho.
+Otherwise this device uses Klee One. This device-local fallback must not overwrite
+the portable preference. Explicit choices, including Noto Serif JP and imported
+fonts, remain user-controlled. Merely focusing the field or cancelling an edit
+with Escape cannot save a different font.
+
+Font layout has a bounded initial deadline and observes individual FontFace
+completion as well as FontFaceSet events. Late completion remeasures geometry and
+preserves the intended character position, including a restored bookmark.
+
+## Verification
 
 ```sh
-node --experimental-strip-types tools/appearance/generate-css.mjs
 node --experimental-strip-types tools/appearance/generate-css.mjs --check
-node --experimental-strip-types --test tests/unit/*.test.mjs
+node --experimental-strip-types --test tests/unit/*.test.mjs test/reader/typography.test.mjs
+node tools/appearance/lint.mjs
 pnpm --dir apps/web check
 BASE_PATH=/Reader-Web pnpm build
-python tests/browser/test_appearance.py
+python -m playwright install --with-deps chromium webkit
+APPEARANCE_BROWSER=chromium python tests/browser/test_appearance_refinement.py
+APPEARANCE_BROWSER=webkit python tests/browser/test_appearance_refinement.py
 ```
 
-The browser suite extends the existing real static Reader tests and uses actual
-EPUB import, real file inputs, IndexedDB, media emulation and offline reloads;
-there is no request interception. Screenshots are generated fixtures only.
-Images can still make low-fade text hard to read: the control explicitly tells
-users to raise the fade, rather than pretending arbitrary photographs guarantee
-contrast. Chromium automation is not a substitute for final Safari/iOS visual QA.
+Tests use real static pages, EPUB import, images, IndexedDB and live tabs, without
+request interception. WebKit uses isolated disk-backed profiles because its
+private/ephemeral profile cannot store IndexedDB Blobs. Its network-disruption
+tests stop the real loopback origin and verify a negative-control request fails;
+this proves server-independent reload, not native Safari airplane-mode behavior.
+Desktop automation does not replace final Safari/iOS device and native picker QA.
+Arbitrary photos may require a stronger fade for readable text.

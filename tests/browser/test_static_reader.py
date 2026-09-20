@@ -93,19 +93,34 @@ class ReaderBrowser(unittest.TestCase):
         diagnostics = Path('test-results')
         diagnostics.mkdir(exist_ok=True)
         name = self._testMethodName
-        self.page.screenshot(path=str(diagnostics / (name + '.png')), full_page=True)
-        (diagnostics / (name + '.html')).write_text(self.page.content())
-        if self.errors:
-            print('Browser errors:', self.errors)
-        self.context.close()
-        self.assertEqual([], self.errors)
+        try:
+            (diagnostics / (name + '.html')).write_text(self.page.content())
+            self.page.screenshot(path=str(diagnostics / (name + '.png')), full_page=True)
+        finally:
+            # A diagnostic failure must not leak a profile into the next test.
+            self.context.close()
+            if self.errors:
+                print('Browser errors:', self.errors)
+            self.assertEqual([], self.errors)
+
+    def go_offline(self):
+        self.context.set_offline(True)
 
     def open_book(self, view='paginated', writing='vertical-rl', font=None):
         settings = {'viewMode': view, 'writingMode': writing, 'hideFurigana': 'false', 'hideSpoilerImage': 'false'}
+        self.context.add_init_script('if (location.origin === ' + json.dumps(self.origin) + ') { for (const [key,value] of Object.entries(' + json.dumps(settings) + ')) localStorage.setItem(key,value); }')
         if font:
-            settings['fontFamilyGroupOne'] = font
-        self.context.add_init_script('for (const [key,value] of Object.entries(' + json.dumps(settings) + ')) localStorage.setItem(key,value);')
+            # Seed the fixture font on the import page only. Reapplying it on every
+            # document would overwrite a later explicit user choice during reload.
+            self.context.add_init_script(
+                'if (location.origin === ' + json.dumps(self.origin) +
+                ' && location.pathname.endsWith("/manage")) localStorage.setItem("fontFamilyGroupOne", ' +
+                json.dumps(font) + ');'
+            )
         self.page.goto(self.origin + '/Reader-Web/manage')
+        # This attribute is installed by a Svelte action, not prerendered HTML.
+        # Wait for real input handlers before assigning files to hidden SSR inputs.
+        expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files(
             {'name': 'acceptance.epub', 'mimeType': 'application/epub+zip', 'buffer': epub()})
         self.page.get_by_text(TITLE, exact=True).click(timeout=30000)
@@ -113,6 +128,11 @@ class ReaderBrowser(unittest.TestCase):
         self.page.wait_for_function(
             '() => document.querySelector(".book-content ruby rt")?.textContent === "ほん"'
         )
+
+    def wait_for_fonts(self):
+        # Bounded assertion, not a sleep, screenshot bypass or synthetic face.
+        self.page.locator('.book-content').evaluate('e => e.getBoundingClientRect()')
+        self.page.wait_for_function("() => document.fonts.status === 'loaded'", timeout=15000)
 
     def first_font(self):
         return self.page.locator('.book-content').evaluate('e => getComputedStyle(e).fontFamily.split(",")[0].trim().replace(/^"|"$/g, "")')
@@ -124,8 +144,32 @@ class ReaderBrowser(unittest.TestCase):
         expect(self.page.get_by_text('Manabi account services are not available on this deployment. Local libraries still work.')).to_be_visible()
         self.assertTrue(self.page.get_by_role('link', name='Sign in to Manabi').get_attribute('href').startswith('/accounts/login/'))
 
+    def test_yukyokasho_default_is_device_local_and_requires_both_faces(self):
+        self.page.goto(self.origin + '/Reader-Web/settings')
+        primary = self.page.get_by_label('Primary / Serif font', exact=True)
+        expect(primary).to_be_visible()
+        available = self.page.evaluate('''async () => {
+          const load = async (source) => {
+            let timer;
+            try {
+              const face = new FontFace('__acceptance_yukyokasho__', source);
+              return await Promise.race([
+                face.load().then(() => face.status === 'loaded', () => false),
+                new Promise(resolve => { timer = setTimeout(() => resolve(false), 1000); })
+              ]);
+            } finally { clearTimeout(timer); }
+          };
+          return (await load('local("YuKyokasho Medium"), local("YuKyokasho")')) &&
+            (await load('local("YuKyokasho Yoko Medium"), local("YuKyokasho Yoko")'));
+        }''')
+        expect(primary).to_have_value('YuKyokasho' if available else 'Klee One', timeout=3000)
+        # A device fallback must not replace the portable/account preference.
+        self.assertIsNone(self.page.evaluate('localStorage.getItem("fontFamilyGroupOne")'))
+        self.page.get_by_role('button', name='Show available primary / serif fonts', exact=True).click()
+        expect(self.page.get_by_text('YuKyokasho', exact=True)).to_have_count(1 if available else 0)
+
     def test_paginated_ruby_images_and_untrusted_resources(self):
-        self.open_book()
+        self.open_book(font='Klee One')
         self.assertEqual('ほん', self.page.locator('.book-content ruby rt').first.text_content())
         self.assertEqual(
             'all',
@@ -136,17 +180,40 @@ class ReaderBrowser(unittest.TestCase):
         self.assertEqual(0, self.page.locator('.book-content script, .book-content iframe, .book-content [onerror]').count())
         self.assertFalse(self.page.evaluate('Boolean(window.bookAttack)'))
         self.assertEqual([], StaticHandler.probes)
-        self.assertEqual('YuKyokasho', self.first_font())
+        self.assertEqual('Klee One', self.first_font())
         self.page.keyboard.press('ArrowLeft')
         expect(self.page.locator('.book-content')).to_be_visible()
 
-    def test_continuous_horizontal_system_font_and_saved_explicit_font(self):
-        self.open_book('continuous', 'horizontal-tb')
-        self.assertEqual('YuKyokasho Yoko', self.first_font())
+    def test_continuous_horizontal_saved_explicit_font(self):
+        self.open_book('continuous', 'horizontal-tb', font='Klee One')
+        self.assertEqual('Klee One', self.first_font())
+        # Finish the currently used face before deliberately replacing it. WebKit
+        # can leave FontFaceSet.ready pending after a reload cancels the old face,
+        # even though the new face subsequently loads. This test checks saved font
+        # preference/decoding, not cancellation during an unfinished font download.
+        self.wait_for_fonts()
         self.page.evaluate('localStorage.setItem("fontFamilyGroupOne", "Noto Serif JP")')
         self.page.reload()
         expect(self.page.locator('.book-content')).to_be_visible(timeout=30000)
         self.assertEqual('Noto Serif JP', self.first_font())
+        self.assertGreater(self.page.evaluate('''async () => {
+          let timer;
+          try {
+            return await Promise.race([
+              document.fonts.load('20px "Noto Serif JP"', '日本語').then(faces => faces.length),
+              new Promise((_, reject) => {
+                timer = setTimeout(() => reject(new Error('Selected font did not load')), 15000);
+              })
+            ]);
+          } finally { clearTimeout(timer); }
+        }'''), 0)
+        # WebKit can keep the global FontFaceSet in `loading` after a cancelled
+        # previous face even though the selected face completed. The Reader's
+        # contract is selected-face completion plus usable, refreshed geometry.
+        before = self.page.evaluate('window.scrollY')
+        self.page.keyboard.press('PageDown')
+        self.page.wait_for_function('(before) => window.scrollY != before', arg=before)
+        expect(self.page.locator('.book-content')).to_contain_text('日本語')
 
     def test_offline_reload_preserves_book_and_never_caches_account_requests(self):
         self.page.goto(self.origin + '/Reader-Web/manage')
@@ -161,14 +228,28 @@ class ReaderBrowser(unittest.TestCase):
         # Select a packaged face explicitly so this remains a cache-on-use test
         # even on macOS hosts that already provide the preferred Japanese face.
         self.open_book(font='Klee One')
-        self.page.evaluate('document.fonts.ready')
+        self.assertGreater(self.page.evaluate('''async () => {
+          let timer;
+          try {
+            return await Promise.race([
+              (async () => {
+                const faces = await document.fonts.load('20px "Klee One"', '日本語');
+                await document.fonts.ready;
+                return faces.length;
+              })(),
+              new Promise((_, reject) => {
+                timer = setTimeout(() => reject(new Error('Packaged font did not settle within 15 seconds')), 15000);
+              })
+            ]);
+          } finally { clearTimeout(timer); }
+        }'''), 0)
         keys = self.page.evaluate('async () => (await Promise.all((await caches.keys()).map(async n => (await (await caches.open(n)).keys()).map(r => r.url)))).flat()')
         self.assertFalse(any('/api/' in key or '/accounts/' in key for key in keys))
         fonts = [key for key in keys if key.endswith(('.woff', '.woff2'))]
         self.assertLessEqual(len(fonts), 3, fonts)
         self.assertTrue(any('KleeOne-Regular' in key and key.endswith('.woff2') for key in fonts))
         self.assertIn('other-manabi-app', self.page.evaluate('caches.keys()'))
-        self.context.set_offline(True)
+        self.go_offline()
         self.page.reload()
         expect(self.page.locator('.book-content')).to_be_visible(timeout=30000)
         self.assertEqual('ほん', self.page.locator('.book-content ruby rt').first.text_content())

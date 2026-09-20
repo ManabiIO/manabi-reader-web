@@ -7,6 +7,7 @@
   import { availableThemes, themeProperties } from '$lib/data/theme-option';
   import {
     appearance$,
+    startAppearanceSync,
     resolvedMode$,
     libraryBackgroundOptions$,
     readerBackgroundOptions$,
@@ -26,6 +27,9 @@
     }
   }
   $: if (browser) {
+    document
+      .querySelector('meta[name="color-scheme"]')
+      ?.setAttribute('content', $appearance$ === 'system' ? 'light dark' : $appearance$);
     // Browser chrome follows the resolved mode; CSS handles all actual page colors.
     document
       .querySelector('meta[name="theme-color"]')
@@ -37,21 +41,17 @@
   let target: BackgroundTarget | undefined;
   $: path = $page.url.pathname.slice(base.length).replace(/\/$/, '');
   $: target = path === '/manage' ? 'library' : path === '/b' ? 'reader' : undefined;
-  $: background = target ? $backgrounds[target] : undefined;
+  $: backgroundSet = target ? $backgrounds[target] : undefined;
+  $: background = backgroundSet ? backgroundSet[$resolvedMode$] : undefined;
   $: options = target === 'reader' ? $readerBackgroundOptions$ : $libraryBackgroundOptions$;
   $: opacity = options.fade ? options.amount / 100 : 0;
 
   onMount(() => {
-    if ($theme$ === 'system-theme') theme$.next('manabi-theme');
-    const stop = startBackgrounds();
-    const storageChanged = (event: StorageEvent) => {
-      if (event.key === 'appearance' && ['system', 'light', 'dark'].includes(event.newValue ?? ''))
-        appearance$.next(event.newValue as 'system' | 'light' | 'dark');
-    };
-    window.addEventListener('storage', storageChanged);
+    const stopAppearance = startAppearanceSync();
+    const stopBackgrounds = startBackgrounds();
     return () => {
-      stop();
-      window.removeEventListener('storage', storageChanged);
+      stopAppearance();
+      stopBackgrounds();
     };
   });
 </script>
@@ -60,8 +60,9 @@
   <div
     class="page-background"
     data-background={target}
+    data-background-mode={$resolvedMode$}
     style:background-image={`url("${background.url}")`}
     style:--background-fade={opacity}
     aria-hidden="true"
-  />
+  ></div>
 {/if}

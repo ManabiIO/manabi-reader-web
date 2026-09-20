@@ -127,61 +127,63 @@
   }
 </script>
 
-<div class="flex justify-between p-4">
-  <div>Chapter Progress: {currentChapterCharacterProgress} ({currentChapterProgress}%)</div>
-  <div
-    tabindex="0"
-    role="button"
-    title="Close Table of Contents"
-    class="flex items-end md:items-center"
-    on:click={closeTocMenu}
-    on:keyup={dummyFn}
-  >
-    <Fa icon={faXmark} />
-  </div>
-</div>
-<div class="flex-1 overflow-auto p-4">
-  {#each chapters as chapter (chapter.reference)}
-    <div class="my-6 flex justify-between">
-      <div
-        tabindex="0"
-        role="button"
-        title={`Go to ${chapter.label}`}
-        id={`for${chapter.reference}`}
-        class="mr-4"
-        class:opacity-30={chapter.progress === 100 && chapter !== currentChapter}
-        class:hover:opacity-100={chapter.progress === 100 && chapter !== currentChapter}
-        class:hover:opacity-60={chapter.progress < 100 || chapter === currentChapter}
-        on:click={() => goToChapter(chapter.reference, true)}
-        on:keyup={dummyFn}
-      >
-        {chapter.label}
-      </div>
-      <div class:opacity-30={chapter.progress === 100 && chapter !== currentChapter}>
-        {chapter.startCharacter}
-      </div>
+<section class="ui-panel flex h-full min-h-0 flex-col" aria-label="Table of contents">
+  <div class="flex justify-between p-4">
+    <div>Chapter Progress: {currentChapterCharacterProgress} ({currentChapterProgress}%)</div>
+    <div
+      tabindex="0"
+      role="button"
+      title="Close Table of Contents"
+      class="flex items-end md:items-center"
+      on:click={closeTocMenu}
+      on:keyup={dummyFn}
+    >
+      <Fa icon={faXmark} />
     </div>
-  {/each}
-</div>
-<div class="flex justify-between px-4 py-6">
-  <div
-    tabindex="0"
-    role="button"
-    title={prevChapterAvailable ? `${verticalMode ? 'Next' : 'Previous'} Chapter` : ''}
-    class:opacity-30={!prevChapterAvailable}
-    on:click={() => changeChapter(prevChapterAvailable, verticalMode ? 1 : -1)}
-    on:keyup={dummyFn}
-  >
-    <Fa icon={faChevronLeft} />
   </div>
-  <div
-    tabindex="0"
-    role="button"
-    title={nextChapterAvailable ? `${verticalMode ? 'Previous' : 'Next'} Chapter` : ''}
-    class:opacity-30={!nextChapterAvailable}
-    on:click={() => changeChapter(nextChapterAvailable, verticalMode ? -1 : 1)}
-    on:keyup={dummyFn}
-  >
-    <Fa icon={faChevronRight} />
+  <div class="flex-1 overflow-auto p-4">
+    {#each chapters as chapter (chapter.reference)}
+      <div class="my-6 flex justify-between">
+        <div
+          tabindex="0"
+          role="button"
+          title={`Go to ${chapter.label}`}
+          id={`for${chapter.reference}`}
+          class="mr-4"
+          class:opacity-30={chapter.progress === 100 && chapter !== currentChapter}
+          class:hover:opacity-100={chapter.progress === 100 && chapter !== currentChapter}
+          class:hover:opacity-60={chapter.progress < 100 || chapter === currentChapter}
+          on:click={() => goToChapter(chapter.reference, true)}
+          on:keyup={dummyFn}
+        >
+          {chapter.label}
+        </div>
+        <div class:opacity-30={chapter.progress === 100 && chapter !== currentChapter}>
+          {chapter.startCharacter}
+        </div>
+      </div>
+    {/each}
   </div>
-</div>
+  <div class="flex justify-between px-4 py-6">
+    <div
+      tabindex="0"
+      role="button"
+      title={prevChapterAvailable ? `${verticalMode ? 'Next' : 'Previous'} Chapter` : ''}
+      class:opacity-30={!prevChapterAvailable}
+      on:click={() => changeChapter(prevChapterAvailable, verticalMode ? 1 : -1)}
+      on:keyup={dummyFn}
+    >
+      <Fa icon={faChevronLeft} />
+    </div>
+    <div
+      tabindex="0"
+      role="button"
+      title={nextChapterAvailable ? `${verticalMode ? 'Previous' : 'Next'} Chapter` : ''}
+      class:opacity-30={!nextChapterAvailable}
+      on:click={() => changeChapter(nextChapterAvailable, verticalMode ? -1 : 1)}
+      on:keyup={dummyFn}
+    >
+      <Fa icon={faChevronRight} />
+    </div>
+  </div>
+</section>

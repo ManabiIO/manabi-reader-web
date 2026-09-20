@@ -25,6 +25,7 @@
   import { BlurMode } from '$lib/data/blur-mode';
   import { dialogManager } from '$lib/data/dialog-manager';
   import { LocalFont } from '$lib/data/fonts';
+  import { effectivePrimaryReaderFont, YU_KYOKASHO } from '$lib/data/reader-typography';
   import { FuriganaStyle } from '$lib/data/furigana-style';
   import { ImportHTMLFixMode } from '$lib/data/import-html-fix-mode';
   import { logger } from '$lib/data/logger';
@@ -69,6 +70,51 @@
   export let fontFamilyGroupOne: string;
 
   export let fontFamilyGroupTwo: string;
+
+  export let yuKyokashoAvailable: boolean | undefined = undefined;
+
+  const primaryFontsWithoutYuKyokasho = [
+    LocalFont.NOTOSERIFJP,
+    LocalFont.KZUDMINCHO,
+    LocalFont.GENEI,
+    LocalFont.SHIPPORIMINCHO,
+    LocalFont.KLEEONE,
+    LocalFont.KLEEONESEMIBOLD,
+    LocalFont.SERIF
+  ];
+  $: availablePrimaryFonts =
+    yuKyokashoAvailable === true
+      ? [LocalFont.YUKYOKASHO, ...primaryFontsWithoutYuKyokasho]
+      : primaryFontsWithoutYuKyokasho;
+  let editingPrimaryFont = false;
+  let primaryFontAtFocus = '';
+  function beginPrimaryFontEdit() {
+    primaryFontAtFocus = primaryFontInput;
+    editingPrimaryFont = true;
+  }
+  let primaryFontInput = '';
+  $: if (!editingPrimaryFont) {
+    primaryFontInput = effectivePrimaryReaderFont(fontFamilyGroupOne, yuKyokashoAvailable);
+  }
+
+  function commitPrimaryFont() {
+    editingPrimaryFont = false;
+    if (primaryFontInput !== primaryFontAtFocus)
+      fontFamilyGroupOne = primaryFontInput.trim() || YU_KYOKASHO;
+    primaryFontInput = effectivePrimaryReaderFont(fontFamilyGroupOne, yuKyokashoAvailable);
+  }
+
+  function handlePrimaryFontKeydown(event: KeyboardEvent) {
+    const target = event.currentTarget;
+    if (!(target instanceof HTMLInputElement)) return;
+    if (event.key === 'Enter') target.blur();
+    if (event.key !== 'Escape') return;
+    primaryFontInput = primaryFontAtFocus;
+    editingPrimaryFont = false;
+    primaryFontInput = effectivePrimaryReaderFont(fontFamilyGroupOne, yuKyokashoAvailable);
+    primaryFontAtFocus = primaryFontInput;
+    target.blur();
+  }
 
   export let fontWeight: number | null;
 
@@ -207,7 +253,7 @@
 
   $: optionsForTheme = availableThemes.map(({ theme, option }) => ({
     id: theme,
-    text: themeNames[theme] ?? theme.replace(/^custom-/, ''),
+    text: Object.hasOwn(themeNames, theme) ? themeNames[theme] : theme.replace(/^custom-/, ''),
     style: {
       color: option.fontColor,
       'background-color': option.backgroundColor
@@ -546,23 +592,17 @@
       </SettingsItemGroup>
     </div>
     <p class="text-sm opacity-75">
-      System Japanese prefers Yu Kyokasho (Yoko for horizontal text), then other local Japanese
-      fonts. Klee One is the self-hosted fallback. Optional fonts download only when used and can
-      remain available offline when browser storage permits. Existing font choices are kept.
+      YuKyokasho is the default when this browser can use it: Yoko for horizontal text and the
+      standard face for vertical text. It is hidden when unavailable; Klee One becomes the default
+      fallback. Optional fonts download only when used and can remain available offline when browser
+      storage permits. Existing explicit font choices are kept.
     </p>
-    <SettingsItemGroup title="Font family (Group 1)">
+    <SettingsItemGroup title="Primary / Serif font">
       <div slot="header" class="flex items-center">
         <SettingsFontSelector
-          availableFonts={[
-            LocalFont.SYSTEMJAPANESE,
-            LocalFont.NOTOSERIFJP,
-            LocalFont.KZUDMINCHO,
-            LocalFont.GENEI,
-            LocalFont.SHIPPORIMINCHO,
-            LocalFont.KLEEONE,
-            LocalFont.KLEEONESEMIBOLD,
-            LocalFont.SERIF
-          ]}
+          label="Show available primary / serif fonts"
+          availableFonts={availablePrimaryFonts}
+          selectedFont={effectivePrimaryReaderFont(fontFamilyGroupOne, yuKyokashoAvailable)}
           bind:fontValue={fontFamilyGroupOne}
         />
         {#if fontCacheSupported}
@@ -586,13 +626,18 @@
       <input
         type="text"
         class={inputClasses}
-        placeholder="System Japanese"
-        bind:value={fontFamilyGroupOne}
+        aria-label="Primary / Serif font"
+        placeholder={yuKyokashoAvailable === false ? 'Klee One' : 'YuKyokasho'}
+        bind:value={primaryFontInput}
+        on:focus={beginPrimaryFontEdit}
+        on:blur={commitPrimaryFont}
+        on:keydown={handlePrimaryFontKeydown}
       />
     </SettingsItemGroup>
-    <SettingsItemGroup title="Font family (Group 2)">
+    <SettingsItemGroup title="Sans-serif font">
       <div slot="header" class="flex items-center">
         <SettingsFontSelector
+          label="Show available sans-serif fonts"
           availableFonts={[
             LocalFont.SYSTEMSANS,
             LocalFont.NOTOSANSJP,
@@ -621,6 +666,7 @@
       <input
         type="text"
         class={inputClasses}
+        aria-label="Sans-serif font"
         placeholder="System Sans"
         bind:value={fontFamilyGroupTwo}
       />
@@ -1242,7 +1288,7 @@
     {/if}
   {/if}
   {#if showSpinner}
-    <div class="tap-highlight-transparent fixed inset-0 bg-black/[.2]" ></div>
+    <div class="tap-highlight-transparent fixed inset-0 bg-black/[.2]"></div>
     <div class="fixed inset-0 flex h-full w-full items-center justify-center text-7xl">
       <Fa icon={faSpinner} spin />
     </div>

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { base } from '$app/paths';
+  import { resolve } from '$app/paths';
   import {
     account,
     currentUser,
@@ -201,7 +201,7 @@
 
 <main class="connections-page">
   <nav aria-label="Reader navigation">
-    <a href="{base}/manage">← Books</a><a href="{base}/settings">Reader settings</a>
+    <a href={resolve('/manage')}>← Books</a><a href={resolve('/settings')}>Reader settings</a>
   </nav>
   <header>
     <h1>Accounts and libraries</h1>
@@ -283,8 +283,10 @@
     {:else}
       <p>An account is optional. Sign in to sync your preferences and connect cloud libraries.</p>
       <div class="actions">
-        <a class="button" href="/accounts/login/?next=/Reader-Web/connections">Sign in to Manabi</a>
-        <a class="button" href="/accounts/signup/?next=/Reader-Web/connections"
+        <a class="button" rel="external" href="/accounts/login/?next=/Reader-Web/connections"
+          >Sign in to Manabi</a
+        >
+        <a class="button" rel="external" href="/accounts/signup/?next=/Reader-Web/connections"
           >Create a Manabi account</a
         >
       </div>
@@ -311,7 +313,7 @@
     </p>
     {#if $account.session?.user}
       <div class="actions">
-        {#each $account.session.providers as provider}
+        {#each $account.session.providers as provider (provider)}
           <button disabled={busy} on:click={() => action(() => connectProvider(provider))}
             >Connect {providerLabels[provider] ?? provider}</button
           >
@@ -341,7 +343,7 @@
           {#if !connection.roots.length}<p>
               No folders selected. Manabi will not read files from this connection.
             </p>{/if}
-          {#each connection.roots as root}
+          {#each connection.roots as root (root)}
             <button disabled={busy} on:click={() => action(() => openCloud(connection, root))}
               >Browse selected folder {root}</button
             >
@@ -356,7 +358,7 @@
           The provider’s OAuth permission may cover more than these folders. Manabi restricts book
           access to your selection.
         </p>
-        {#each folderPicker.folders as folder}
+        {#each folderPicker.folders as folder (folder.id)}
           <label class="folder-choice"
             ><input
               type="checkbox"
@@ -386,7 +388,7 @@
     {:else}
       <p>
         Persistent folder access needs a compatible browser, such as desktop Chrome or Edge. You can
-        still <a href="{base}/manage">import individual books</a>.
+        still <a href={resolve('/manage')}>import individual books</a>.
       </p>
     {/if}
     {#each localLibraries as library (library.id)}
@@ -426,7 +428,7 @@
     <section aria-labelledby="browse-heading">
       <h2 id="browse-heading">Browse {sourceName}</h2>
       <nav aria-label="Folder path">
-        {#each trail as part, index}
+        {#each trail as part, index (part.id)}
           <button
             disabled={busy}
             on:click={() =>
@@ -471,7 +473,9 @@
           >Load more files</button
         >{/if}
       {#if lastImported}<p>
-          <a class="button" href="{base}/b?id={lastImported.bookId}">Read {lastImported.title}</a>
+          <a class="button" href={resolve(`/b?id=${lastImported.bookId}`)}
+            >Read {lastImported.title}</a
+          >
         </p>{/if}
     </section>
   {/if}
@@ -486,7 +490,7 @@
       </p>{/if}
     {#each $linkedBooks as link (link.id)}
       <article class="library" aria-label="Reading sync for {link.title}">
-        <h3><a href="{base}/b?id={link.bookId}">{link.title}</a></h3>
+        <h3><a href={resolve(`/b?id=${link.bookId}`)}>{link.title}</a></h3>
         <label
           ><input
             type="checkbox"
@@ -509,7 +513,7 @@
               >Keep this device’s reading data</button
             >
             {#if $bookSyncStatus[link.id]?.branches}
-              {#each $bookSyncStatus[link.id].branches ?? [] as branch}
+              {#each $bookSyncStatus[link.id].branches ?? [] as branch (branch.id)}
                 <button
                   disabled={busy}
                   on:click={() => action(() => syncBook(link.id, 'remote', branch.id))}
@@ -562,7 +566,8 @@
     margin-bottom: 0.4rem;
   }
   section {
-    border: 1px solid #8886;
+    border: 1px solid var(--line);
+    background: var(--surface);
     border-radius: 0.75rem;
     padding: 1.25rem;
     margin: 1rem 0;
@@ -571,13 +576,14 @@
     margin: 0.6rem 0;
   }
   a {
+    color: var(--accent);
     text-decoration: underline;
     text-underline-offset: 0.16em;
   }
   button,
   .button {
     display: inline-block;
-    border: 1px solid #8889;
+    border: 1px solid var(--line);
     border-radius: 0.4rem;
     padding: 0.45rem 0.75rem;
     margin: 0.25rem 0;
@@ -586,7 +592,7 @@
   }
   button:hover,
   .button:hover {
-    background: #8882;
+    background: var(--surface-hover);
   }
   button:disabled {
     opacity: 0.5;
@@ -596,12 +602,12 @@
   a:focus-visible,
   input:focus-visible,
   select:focus-visible {
-    outline: 2px solid currentColor;
+    outline: 2px solid var(--accent);
     outline-offset: 3px;
   }
   .library,
   form {
-    border-top: 1px solid #8885;
+    border-top: 1px solid var(--line);
     margin-top: 1rem;
     padding-top: 1rem;
   }
@@ -618,7 +624,7 @@
   input[type='number'],
   select {
     background: transparent;
-    border: 1px solid #8888;
+    border: 1px solid var(--line);
     border-radius: 0.3rem;
     padding: 0.3rem;
   }
@@ -628,12 +634,12 @@
   .notice {
     border-left: 3px solid currentColor;
     padding: 0.75rem;
-    background: #8881;
+    background: var(--surface-raised);
   }
   .hint,
   small {
     font-size: 0.87rem;
-    opacity: 0.8;
+    color: var(--muted);
   }
   small {
     display: block;
@@ -645,7 +651,7 @@
     justify-content: space-between;
     gap: 1rem;
     padding: 0.55rem 0;
-    border-bottom: 1px solid #8883;
+    border-bottom: 1px solid var(--line);
   }
   .file-entry span {
     min-width: 0;

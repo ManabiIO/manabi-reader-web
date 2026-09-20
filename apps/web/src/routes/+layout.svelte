@@ -3,15 +3,20 @@
   import { sanitizeDialogHtml } from '$lib/functions/book-security/dialog-content-security';
   import { page } from '$app/stores';
   import { base } from '$app/paths';
-  import { onDestroy } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import ManabiRuntime from '$lib/manabi/runtime.svelte';
   import { basePath, clearConsoleOnReload } from '$lib/data/env';
   import { dialogManager, type Dialog } from '$lib/data/dialog-manager';
   import { userFontsCacheName, type UserFont } from '$lib/data/fonts';
-  import { isOnline$, userFonts$ } from '$lib/data/store';
+  import { fontFamilyGroupOne$, isOnline$, userFonts$, yuKyokashoAvailable$ } from '$lib/data/store';
   import { dummyFn, isMobile, isMobile$ } from '$lib/functions/utils';
   import AppearanceRuntime from '$lib/appearance/runtime.svelte';
   import { buildLocalFontStyleSheet } from '$lib/functions/book-security/local-media';
+  import {
+    detectYuKyokashoAvailability,
+    LEGACY_SYSTEM_JAPANESE,
+    YU_KYOKASHO
+  } from '$lib/data/reader-typography';
   import { MetaTags } from 'svelte-meta-tags';
   import '../app.scss';
 
@@ -24,6 +29,22 @@
     isMobile$.next(isMobile(window));
     addUserFonts($userFonts$);
   }
+
+  // Migrate only the released synthetic name. Device capability is resolved
+  // separately so a local fallback can never overwrite a synced preference.
+  $: if (browser && $fontFamilyGroupOne$ === LEGACY_SYSTEM_JAPANESE) {
+    fontFamilyGroupOne$.next(YU_KYOKASHO);
+  }
+
+  onMount(() => {
+    let active = true;
+    void detectYuKyokashoAvailability().then((available) => {
+      if (active) yuKyokashoAvailable$.next(available);
+    });
+    return () => {
+      active = false;
+    };
+  });
 
   if (clearConsoleOnReload && import.meta.hot) {
     // eslint-disable-next-line no-console

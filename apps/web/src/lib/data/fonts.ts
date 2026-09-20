@@ -5,7 +5,7 @@
  */
 
 export enum LocalFont {
-  SYSTEMJAPANESE = 'System Japanese',
+  YUKYOKASHO = 'YuKyokasho',
   SYSTEMSANS = 'System Sans',
   KZUDGOTHIC = 'KZ UDGothic',
   KZUDMINCHO = 'KZ UDMincho',
@@ -28,7 +28,9 @@ export interface UserFont {
 export const userFontsCacheName = 'ttu-userfonts';
 
 export const reservedFontNames = new Set([
-  LocalFont.SYSTEMJAPANESE,
+  LocalFont.YUKYOKASHO,
+  // Released builds used this synthetic name; keep it reserved while startup migrates it.
+  'System Japanese',
   LocalFont.SYSTEMSANS,
   'KZ UDGothic',
   'KZ UDMincho',

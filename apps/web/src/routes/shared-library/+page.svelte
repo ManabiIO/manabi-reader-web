@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { base } from '$app/paths';
+  import { resolve } from '$app/paths';
   import { goto } from '$app/navigation';
   import type { BooksDbStorageSource } from '$lib/data/database/books-db/versions/books-db';
   import { BaseStorageHandler } from '$lib/data/storage/handler/base-handler';
@@ -97,8 +97,9 @@
 
 <main>
   <nav aria-label="Reader navigation">
-    <a href="{base}/manage">Books</a><a href="{base}/connections">Accounts and local book folders</a
-    ><a href="{base}/settings">Storage settings</a>
+    <a href={resolve('/manage')}>Books</a><a href={resolve('/connections')}
+      >Accounts and local book folders</a
+    ><a href={resolve('/settings')}>Storage settings</a>
   </nav>
   <h1>Shared Ttu Ebook Reader libraries</h1>
   <p>
@@ -124,7 +125,7 @@
     {/if}
     <p>
       Read/write permission is requested because this is a sync destination. For read-only access to
-      ordinary EPUB files, use <a href="{base}/connections">Add local folder</a> instead.
+      ordinary EPUB files, use <a href={resolve('/connections')}>Add local folder</a> instead.
     </p>
   </section>
   <p role="status">{message}</p>
@@ -133,7 +134,8 @@
       <h2 id="connected-folder">Connected shared library</h2>
       <label
         >Shared folder<select bind:value={selected} disabled={busy} on:change={() => run(refresh)}
-          >{#each sources as item}<option value={item.name}>{item.name}</option>{/each}</select
+          >{#each sources as item (item.name)}<option value={item.name}>{item.name}</option
+            >{/each}</select
         ></label
       >
       {#if source}
@@ -145,7 +147,7 @@
             run(async () => {
               if (!source) return;
               await openSharedFolder(source);
-              await goto(`${base}/manage`);
+              await goto(resolve('/manage'));
             })}>Open shared library</button
         >
         <button disabled={busy} on:click={() => run(refresh)}>Refresh shared library</button>
@@ -167,7 +169,7 @@
     </section>
     <section aria-labelledby="shared-books">
       <h2 id="shared-books">Shared books</h2>
-      {#each remoteTitles as title}<label
+      {#each remoteTitles as title (title)}<label
           ><input type="checkbox" bind:group={imports} value={title} />{title}</label
         >{/each}
       {#if !remoteTitles.length}<p>
@@ -192,7 +194,7 @@
         reading-data files; it does not modify original EPUB files or replace existing shared
         packages.
       </p>
-      {#each localTitles.filter((title) => !remoteTitles.includes(title)) as title}<label
+      {#each localTitles.filter((title) => !remoteTitles.includes(title)) as title (title)}<label
           ><input type="checkbox" bind:group={exports} value={title} />{title}</label
         >{/each}
       <button
@@ -248,7 +250,8 @@
     font-weight: 650;
   }
   section {
-    border: 1px solid #8886;
+    border: 1px solid var(--line);
+    background: var(--surface);
     border-radius: 0.6rem;
     padding: 1rem;
     margin: 1rem 0;
@@ -257,6 +260,7 @@
     margin: 0.75rem 0;
   }
   a {
+    color: var(--accent);
     text-decoration: underline;
   }
   label {
@@ -268,7 +272,7 @@
   button,
   select {
     background: transparent;
-    border: 1px solid #8888;
+    border: 1px solid var(--line);
     border-radius: 0.35rem;
     padding: 0.45rem 0.75rem;
     margin: 0.25rem;

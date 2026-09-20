@@ -16,7 +16,7 @@
 <section aria-labelledby="appearance-heading">
   <h2 id="appearance-heading">Appearance</h2>
   <div role="group" aria-label="Appearance mode" class="modes">
-    {#each modes as mode}
+    {#each modes as mode (mode.value)}
       <button
         type="button"
         aria-pressed={$appearance$ === mode.value}
@@ -30,12 +30,15 @@
   <details>
     <summary>Background images</summary>
     <p class="description">
-      Images fill the screen without stretching. Each background is saved only in this browser,
-      never uploaded or included in account settings sync. PNG, JPEG, or WebP, up to 8 MB. Increase
-      the fade to keep text readable.
+      Book browser and reader images can each be different in Light and Dark mode. Images fill the
+      screen without stretching and are saved only in this browser, never uploaded or included in
+      account settings sync. PNG, JPEG, or WebP, up to 8 MB. Remove either image independently or
+      remove both for a surface. A mode without an image uses the plain theme background.
     </p>
     <div class="backgrounds">
-      {#each backgrounds as background}<BackgroundSettings {...background} />{/each}
+      {#each backgrounds as background (background.target)}<BackgroundSettings
+          {...background}
+        />{/each}
     </div>
   </details>
 </section>

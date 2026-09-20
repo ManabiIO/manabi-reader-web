@@ -3,10 +3,13 @@ import { test } from 'node:test';
 
 import {
   japaneseFontStack,
+  effectivePrimaryReaderFont,
   resolveReaderFont,
-  SYSTEM_JAPANESE,
+  JAPANESE_FALLBACK_FONT,
+  LEGACY_SYSTEM_JAPANESE,
   SYSTEM_SANS,
-  SYSTEM_SANS_STACK
+  SYSTEM_SANS_STACK,
+  YU_KYOKASHO
 } from '../../apps/web/src/lib/data/reader-typography.ts';
 import { observeReaderFontLayout } from '../../apps/web/src/lib/functions/reader-font-layout.ts';
 import { normalizeLegacyTextCombine } from '../../apps/web/src/lib/functions/book-security/legacy-writing-mode-compat.ts';
@@ -17,19 +20,28 @@ test('Yoko face leads horizontal text and non-Yoko leads vertical text', () => {
   assert.ok(japaneseFontStack(false).startsWith('"YuKyokasho Yoko", YuKyokasho'));
   assert.ok(japaneseFontStack(true).startsWith('YuKyokasho, "YuKyokasho Yoko"'));
 });
-test('local Japanese choices precede self-hosted Google-font fallback', () => {
+test('Klee One is the immediate cross-platform fallback after YuKyokasho', () => {
   for (const vertical of [false, true]) {
     const stack = japaneseFontStack(vertical);
-    assert.ok(stack.indexOf('"Yu Mincho"') < stack.indexOf('"Klee One"'));
-    assert.ok(stack.endsWith('"Klee One", serif'));
+    assert.ok(stack.indexOf('"Klee One"') < stack.indexOf('"Yu Mincho"'));
+    assert.ok(stack.endsWith('"Noto Serif CJK JP", serif'));
   }
 });
-test('automatic and explicit selections resolve without rewriting stored names', () => {
-  assert.equal(resolveReaderFont(SYSTEM_JAPANESE, true), japaneseFontStack(true));
+test('YuKyokasho and its released alias resolve to the directional native stack', () => {
+  assert.equal(resolveReaderFont(YU_KYOKASHO, true), japaneseFontStack(true));
+  assert.equal(resolveReaderFont(LEGACY_SYSTEM_JAPANESE, false), japaneseFontStack(false));
   assert.equal(resolveReaderFont(SYSTEM_SANS, true), SYSTEM_SANS_STACK);
   assert.equal(resolveReaderFont('', true, true), SYSTEM_SANS_STACK);
   for (const font of ['Noto Serif JP', 'My Custom Font', '"A, B", serif', 'Klee One SemiBold'])
     assert.ok(resolveReaderFont(font, false).startsWith(font + ', '));
+});
+test('device fallback does not rewrite the portable preferred font', () => {
+  assert.equal(effectivePrimaryReaderFont(YU_KYOKASHO, true), YU_KYOKASHO);
+  assert.equal(effectivePrimaryReaderFont(LEGACY_SYSTEM_JAPANESE, true), YU_KYOKASHO);
+  assert.equal(effectivePrimaryReaderFont(YU_KYOKASHO, false), JAPANESE_FALLBACK_FONT);
+  assert.equal(effectivePrimaryReaderFont(LEGACY_SYSTEM_JAPANESE, false), JAPANESE_FALLBACK_FONT);
+  assert.equal(effectivePrimaryReaderFont('', false), JAPANESE_FALLBACK_FONT);
+  assert.equal(effectivePrimaryReaderFont('Noto Serif JP', false), 'Noto Serif JP');
 });
 test('malformed or unbounded preference values fall back safely', () => {
   for (const value of [null, undefined, {}, 42, '', '   ', 'x'.repeat(1025)])
@@ -59,6 +71,9 @@ test('legacy EPUB tate-chu-yoko aliases normalize to the standards property', ()
 // separately uses actual CSS fonts, frames, HTTP and service workers.
 function layoutHarness() {
   const fonts = new EventTarget();
+  const faces = [];
+  fonts[Symbol.iterator] = () => faces[Symbol.iterator]();
+  fonts.forEach = (fn) => faces.forEach(fn);
   let resolve;
   fonts.ready = new Promise((r) => {
     resolve = r;
@@ -86,6 +101,21 @@ function layoutHarness() {
     fonts,
     element,
     resolve: () => resolve(),
+    loadingFace: () => {
+      let resolveFace;
+      const face = {
+        status: 'loading',
+        loaded: new Promise((resolve) => {
+          resolveFace = resolve;
+        })
+      };
+      faces.push(face);
+      fonts.dispatchEvent(new Event('loading'));
+      return () => {
+        face.status = 'loaded';
+        resolveFace(face);
+      };
+    },
     get layouts() {
       return layouts;
     },
@@ -134,6 +164,20 @@ test('slow fonts do not indefinitely block the book, later completion can remeas
   assert.equal(h.notifications, 2);
   stop();
 });
+test('individual face completion remeasures even while the global font set stays pending', async () => {
+  const h = layoutHarness();
+  const stop = observeReaderFontLayout(h.element, h.notify, 5);
+  const finishFace = h.loadingFace();
+  await new Promise((r) => setTimeout(r, 12));
+  h.flush();
+  assert.equal(h.notifications, 1);
+  finishFace();
+  await Promise.resolve();
+  h.flush();
+  assert.equal(h.notifications, 2);
+  stop();
+});
+
 test('load errors let native fallback render, disconnected elements cannot notify', () => {
   const h = layoutHarness();
   const stop = observeReaderFontLayout(h.element, h.notify);

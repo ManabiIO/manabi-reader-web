@@ -23,7 +23,7 @@ import {
 } from '$lib/components/statistics/statistics-types';
 import { BlurMode } from '$lib/data/blur-mode';
 import type { UserFont } from '$lib/data/fonts';
-import { SYSTEM_JAPANESE, SYSTEM_SANS } from '$lib/data/reader-typography';
+import { SYSTEM_SANS, YU_KYOKASHO } from '$lib/data/reader-typography';
 import { MergeMode } from '$lib/data/merge-mode';
 import type { ReadingGoal } from '$lib/data/reading-goal';
 import { SortDirection, type SortOption } from '$lib/data/sort-types';
@@ -56,27 +56,23 @@ import {
   writableObjectLocalStorageSubject
 } from './internal/writable-object-local-storage-subject';
 import type { TextMarginMode } from './text-margin-mode';
-import type { ThemeOption } from './theme-option';
 import type { VerticalTextOrientation } from './vertical-text-orientation';
 import { ViewMode } from './view-mode';
 import type { WritingMode } from './writing-mode';
 import { writableSetLocalStorageSubject } from './internal/writable-set-local-storage-subject';
 import { writableStringLocalStorageSubject } from './internal/writable-string-local-storage-subject';
 
-export const theme$ = writableStringLocalStorageSubject()('theme', 'manabi-theme');
-export const customThemes$ = writableObjectLocalStorageSubject<Record<string, ThemeOption>>()(
-  'customThemes',
-  {}
-);
+export { theme$, customThemes$ } from '$lib/appearance/state';
 export const multiplier$ = writableNumberLocalStorageSubject()('autoScrollMultiplier', 20);
 export const fontFamilyGroupOne$ = writableStringLocalStorageSubject()(
   'fontFamilyGroupOne',
-  SYSTEM_JAPANESE
+  YU_KYOKASHO
 );
 export const fontFamilyGroupTwo$ = writableStringLocalStorageSubject()(
   'fontFamilyGroupTwo',
   SYSTEM_SANS
 );
+export const yuKyokashoAvailable$ = writableSubject<boolean | undefined>(undefined);
 export const fontWeight$ = writableNumberOrNullLocalStorageSubject()('fontWeight', null);
 export const fontSize$ = writableNumberLocalStorageSubject()('fontSize', 20);
 export const lineHeight$ = writableNumberLocalStorageSubject()('lineHeight', 1.65);

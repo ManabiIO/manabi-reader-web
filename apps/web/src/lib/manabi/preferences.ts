@@ -7,6 +7,7 @@
 import { get, writable } from 'svelte/store';
 import * as reader from '$lib/data/store';
 import { appearance$ } from '$lib/appearance/state';
+import { availableThemes, portableThemeName } from '$lib/data/theme-option';
 import { account, currentUser, IntegrationError, request } from './client';
 import { equal, exclusive, mergeRecords, metadata, setMetadata } from './persistence';
 
@@ -139,7 +140,22 @@ bind(
   (v) => !v,
   (v) => !v
 );
-bind('reader.themeName', 'theme', (v) => typeof v === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(v));
+// The account transports built-in identities, not custom definitions. A local
+// custom palette stays local instead of being replaced by an unrelated remote ID.
+const themeSource = subject('theme');
+bindings['reader.themeName'] = {
+  source: themeSource,
+  read: () => portableThemeName(themeSource.getValue()),
+  apply(value) {
+    const id = portableThemeName(value);
+    const current = themeSource.getValue();
+    const custom =
+      typeof current === 'string' &&
+      !availableThemes.has(current) &&
+      Object.hasOwn(reader.customThemes$.getValue(), current);
+    if (id && !custom) themeSource.next(id);
+  }
+};
 bind(
   'reader.fontFamilyGroupTwo',
   'fontFamilyGroupTwo',
@@ -161,13 +177,23 @@ for (const [key, [min, max]] of Object.entries(numberRanges)) {
 }
 
 function capture(): Flat {
-  return Object.fromEntries(Object.entries(bindings).map(([key, value]) => [key, value.read()]));
+  return Object.fromEntries(
+    Object.entries(bindings)
+      .map(([key, value]) => [key, value.read()])
+      .filter(([, value]) => value !== undefined)
+  );
 }
 function flatten(value: Record<string, unknown>): Flat {
   const result: Flat = Object.create(null);
   for (const [key, item] of Object.entries(value)) {
     if (key === 'reader' && item && typeof item === 'object' && !Array.isArray(item)) {
-      for (const [name, v] of Object.entries(item)) result[`reader.${name}`] = v;
+      for (const [name, v] of Object.entries(item)) {
+        if (name !== 'themeName') result[`reader.${name}`] = v;
+        else {
+          const id = portableThemeName(v);
+          if (id) result['reader.themeName'] = id;
+        }
+      }
     } else result[key] = item;
   }
   return result;
@@ -326,13 +352,15 @@ export function startPreferenceSync() {
     await writes.catch(() => undefined);
     const saved = await metadata<SavedPreferences>(`preferences/${user}`);
     if (stopped || user !== activeUser) return;
-    active = saved ?? {
-      enabled: false,
-      initialized: false,
-      local: capture(),
-      base: {},
-      revision: 0
-    };
+    active = saved
+      ? { ...saved, local: flatten(expand(saved.local)), base: flatten(expand(saved.base)) }
+      : {
+          enabled: false,
+          initialized: false,
+          local: capture(),
+          base: {},
+          revision: 0
+        };
     if (active.enabled) {
       apply(active.local);
       await syncPreferences();

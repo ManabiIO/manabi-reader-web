@@ -16,11 +16,11 @@ export async function runFontAcceptance({ page, context, origin, bookURL, check,
       });
   const openSettings = async () => {
     await page.goto(origin + '/settings');
-    await expect(page.locator('input[placeholder="System Japanese"]')).toBeVisible();
+    await expect(page.getByLabel('Primary / Serif font', { exact: true })).toBeVisible();
   };
   const choose = async (family, writingMode = 'horizontal-tb', viewMode = 'paginated') => {
     await openSettings();
-    await page.locator('input[placeholder="System Japanese"]').fill(family);
+    await page.getByLabel('Primary / Serif font', { exact: true }).fill(family);
     await page.locator(`button[title="${writingMode}"]`).click();
     await page.locator(`button[title="${viewMode}"]`).click();
     await expect
@@ -45,23 +45,59 @@ export async function runFontAcceptance({ page, context, origin, bookURL, check,
       }
       return { names, keys };
     });
-  for (const viewMode of ['paginated', 'continuous']) {
-    for (const writingMode of ['horizontal-tb', 'vertical-rl']) {
-      await check(`fonts: system Japanese ${writingMode} in ${viewMode} Reader`, async () => {
-        await choose('System Japanese', writingMode, viewMode);
-        const style = await css();
-        assert.equal(style.writingMode, writingMode);
-        assert.equal(
-          style.font.split(',')[0].trim().replaceAll('"', ''),
-          writingMode === 'vertical-rl' ? 'YuKyokasho' : 'YuKyokasho Yoko'
-        );
-        assert.ok(style.font.indexOf('Hiragino Mincho ProN') < style.font.indexOf('Klee One'));
-        assert.ok(await page.locator('.book-content ruby').count());
-        await page.screenshot({
-          path: path.join(output, `typography-${viewMode}-${writingMode}.png`)
+  const yuKyokashoAvailable = await page.evaluate(async () => {
+    const load = async (source) => {
+      try {
+        const face = new FontFace('__manabi_yukyokasho_acceptance__', source);
+        await face.load();
+        return face.status === 'loaded';
+      } catch {
+        return false;
+      }
+    };
+    return (
+      (await load('local("YuKyokasho Medium"), local("YuKyokasho")')) &&
+      (await load('local("YuKyokasho Yoko Medium"), local("YuKyokasho Yoko")'))
+    );
+  });
+  await check('fonts: YuKyokasho is the conditional default and selector option', async () => {
+    await openSettings();
+    await page.evaluate(() => localStorage.removeItem('fontFamilyGroupOne'));
+    await page.reload();
+    // The portable preference remains YuKyokasho; only the device-effective
+    // selection falls back, so another synced Apple device can still use Yu.
+    await expect
+      .poll(() => page.evaluate(() => localStorage.getItem('fontFamilyGroupOne')))
+      .toBe(null);
+    await expect(page.getByLabel('Primary / Serif font', { exact: true })).toHaveValue(
+      yuKyokashoAvailable ? 'YuKyokasho' : 'Klee One'
+    );
+    await page
+      .getByRole('button', { name: 'Show available primary / serif fonts', exact: true })
+      .click();
+    await expect(page.getByText('YuKyokasho', { exact: true })).toHaveCount(
+      yuKyokashoAvailable ? 1 : 0
+    );
+    await page
+      .getByRole('button', { name: 'Show available primary / serif fonts', exact: true })
+      .click();
+    return { yuKyokashoAvailable };
+  });
+  if (yuKyokashoAvailable) {
+    for (const viewMode of ['paginated', 'continuous']) {
+      for (const writingMode of ['horizontal-tb', 'vertical-rl']) {
+        await check(`fonts: YuKyokasho ${writingMode} in ${viewMode} Reader`, async () => {
+          await choose('YuKyokasho', writingMode, viewMode);
+          const style = await css();
+          assert.equal(style.writingMode, writingMode);
+          assert.equal(
+            style.font.split(',')[0].trim().replaceAll('"', ''),
+            writingMode === 'vertical-rl' ? 'YuKyokasho' : 'YuKyokasho Yoko'
+          );
+          assert.ok(await page.locator('.book-content ruby').count());
+          return style;
         });
-        return style;
-      });
+      }
     }
   }
   await check('fonts: explicit Klee One uses the real packaged fallback', async () => {
@@ -124,7 +160,9 @@ export async function runFontAcceptance({ page, context, origin, bookURL, check,
     assert.match((await css()).font, /^"?Noto Serif JP"?,/);
     await openSettings();
     await page.reload();
-    await expect(page.locator('input[placeholder="System Japanese"]')).toHaveValue('Noto Serif JP');
+    await expect(page.getByLabel('Primary / Serif font', { exact: true })).toHaveValue(
+      'Noto Serif JP'
+    );
   });
   await check('fonts: absent custom face falls back rather than blocking Reader', async () => {
     await choose('ReaderE2EMissingFont');
@@ -141,7 +179,7 @@ export async function runFontAcceptance({ page, context, origin, bookURL, check,
   await check('fonts: late font completion does not block initial reading', async () => {
     // A slow real asset response, not a replacement FontFaceSet/Reader store.
     await openSettings();
-    await page.locator('input[placeholder="System Japanese"]').fill('Klee One SemiBold');
+    await page.getByLabel('Primary / Serif font', { exact: true }).fill('Klee One SemiBold');
     const hideFurigana = page
       .locator('section')
       .filter({ has: page.locator('h2').filter({ hasText: /^Hide furigana$/ }) });
@@ -186,7 +224,7 @@ export async function runFontAcceptance({ page, context, origin, bookURL, check,
       await page.request.get(origin + '/__test-font-delay?ms=0');
     }
   });
-  await choose('System Japanese');
+  await choose(yuKyokashoAvailable ? 'YuKyokasho' : 'Klee One');
   await fs.writeFile(
     path.join(output, 'typography-cache.json'),
     JSON.stringify(await fontCache(), null, 2)

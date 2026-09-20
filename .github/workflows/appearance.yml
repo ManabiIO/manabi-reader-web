@@ -1,15 +1,15 @@
 name: Appearance
 on:
   push:
-    branches: [feat/manabi-appearance-20260919]
+    branches: [main, 'fix/appearance-*']
   pull_request:
     paths:
-      - 'apps/web/src/**'
-      - 'apps/web/static/appearance-init.js'
-      - 'apps/web/tailwind.config.*'
+      - 'apps/web/**'
       - 'tools/appearance/**'
-      - 'tests/browser/test_appearance.py'
-      - 'tests/unit/appearance.test.mjs'
+      - 'tests/browser/**'
+      - 'tests/unit/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
       - '.github/workflows/appearance.yml'
 permissions:
   contents: read
@@ -17,6 +17,23 @@ concurrency:
   group: appearance-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  component-lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - run: node tools/appearance/lint.mjs
   appearance:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -24,6 +41,25 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Capture exact reviewed source
+        run: |
+          mkdir -p /tmp/appearance-source
+          git rev-parse HEAD > /tmp/appearance-source/commit.txt
+          git ls-tree -r HEAD > /tmp/appearance-source/tree.txt
+          python3 - <<'PY'
+          import json, pathlib, subprocess
+          files = []
+          for name in subprocess.check_output(['git', 'ls-files'], text=True).splitlines():
+              p = pathlib.Path(name)
+              if p.suffix in {'.ts','.js','.mjs','.cjs','.svelte','.scss','.css','.html','.json','.yml','.yaml','.py','.md'} and p.stat().st_size < 2000000:
+                  files.append({'path': name, 'content': p.read_text()})
+          pathlib.Path('/tmp/appearance-source/source.json').write_text(json.dumps(files))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: appearance-source
+          path: /tmp/appearance-source
+          retention-days: 7
       - uses: pnpm/action-setup@v6.1.0
         with:
           version: '12.3.4'
@@ -37,24 +73,40 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --dir apps/web exec svelte-kit sync
       - run: node --experimental-strip-types tools/appearance/generate-css.mjs --check
-      - run: node --experimental-strip-types --test tests/unit/*.test.mjs
-      - run: pnpm --dir apps/web check
+      - run: |
+          set -o pipefail
+          node --experimental-strip-types --test tests/unit/*.test.mjs | tee appearance-units.log
+      - run: |
+          set -o pipefail
+          pnpm --dir apps/web check 2>&1 | tee appearance-types.log
       - name: Build the real subpath application
         env:
           BASE_PATH: /Reader-Web
-        run: pnpm build
+        run: |
+          set -o pipefail
+          pnpm build 2>&1 | tee appearance-build.log
       - name: Real browser acceptance
         run: |
-          python -m pip install 'playwright==1.55.0'
-          python -m playwright install --with-deps chromium
-          set -o pipefail
-          python tests/browser/test_appearance.py 2>&1 | tee appearance-results.log
+          python -m pip install 'playwright==1.63.0'
+          python -m playwright install --with-deps chromium webkit
+          set +e
+          status=0
+          for engine in chromium webkit; do
+            mkdir -p artifacts/appearance/$engine
+            APPEARANCE_BROWSER=$engine python tests/browser/test_appearance_refinement.py 2>&1 | tee artifacts/appearance/$engine/results.log
+            result=${PIPESTATUS[0]}
+            if [ "$result" -ne 0 ]; then status=1; fi
+            if [ -d test-results ]; then mv test-results artifacts/appearance/$engine/screenshots; fi
+          done
+          exit "$status"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: appearance-evidence
           path: |
-            appearance-results.log
-            test-results/
+            appearance-units.log
+            appearance-types.log
+            appearance-build.log
+            artifacts/appearance/
           if-no-files-found: ignore
           retention-days: 7

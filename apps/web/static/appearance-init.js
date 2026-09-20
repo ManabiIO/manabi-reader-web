@@ -1,50 +1,91 @@
 /* global document, localStorage */
-/* Before first paint. External, local and precached: compatible with Reader's strict CSP. */
+/* Before first paint; local and precached. Keep migration in parity with theme-option.ts tests. */
 (function () {
   var root = document.documentElement;
-  var theme = 'manabi-theme';
-  var appearance = 'system';
-  try {
-    theme = localStorage.getItem('theme') || theme;
-    var saved = localStorage.getItem('appearance');
-    var custom = JSON.parse(localStorage.getItem('customThemes') || '{}') || {};
-    var color = custom[theme] && custom[theme].backgroundColor;
-    var c =
-      typeof color === 'string' &&
-      /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*([\d.]+))?\s*\)$/.exec(color);
-    var dark =
-      ['gray-theme', 'dark-theme', 'black-theme'].includes(theme) ||
-      (c && 0.2126 * +c[1] + 0.7152 * +c[2] + 0.0722 * +c[3] < 128);
-    appearance = ['system', 'light', 'dark'].includes(saved)
-      ? saved
-      : ['manabi-theme', 'system-theme'].includes(theme)
-        ? 'system'
-        : dark
-          ? 'dark'
-          : 'light';
-    // A custom theme's authored background prevents a bright loading flash too.
-    if (
-      c &&
-      c.slice(1, 4).every(function (n) {
-        return +n >= 0 && +n <= 255;
-      })
-    ) {
-      var alpha = c[4] === undefined ? 1 : +c[4];
-      if (alpha >= 0 && alpha <= 1)
-        ['light', 'dark'].forEach(function (mode) {
-          var canvas = mode === 'dark' ? 0 : 255;
-          var originalMode = dark ? 'dark' : 'light';
-          var rgb = c.slice(1, 4).map(function (n) {
-            return Math.round(
-              mode === originalMode ? canvas * (1 - alpha) + +n * alpha : +n * 0.1 + canvas * 0.9
-            );
-          });
-          root.style.setProperty('--' + mode + '-canvas', 'rgb(' + rgb.join(',') + ')');
-        });
+  function read(key) {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
     }
-  } catch {
-    /* Default remains usable with storage disabled or damaged. */
   }
-  root.dataset.theme = theme;
+  function color(value) {
+    if (typeof value !== 'string' || value.length > 100) return null;
+    var hex = /^#([\da-f]{6})$/i.exec(value);
+    if (hex)
+      return [0, 2, 4]
+        .map(function (i) {
+          return parseInt(hex[1].slice(i, i + 2), 16);
+        })
+        .concat(1);
+    var match = /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*([\d.]+))?\s*\)$/.exec(
+      value
+    );
+    if (!match) return null;
+    var channels = [+match[1], +match[2], +match[3], +(match[4] === undefined ? 1 : match[4])];
+    return channels.every(function (n, i) {
+      return Number.isFinite(n) && n >= 0 && n <= (i === 3 ? 1 : 255);
+    })
+      ? channels
+      : null;
+  }
+  var theme = read('theme') || 'manabi-theme';
+  var saved = read('appearance');
+  var custom = {};
+  try {
+    var parsed = JSON.parse(read('customThemes') || '{}');
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) custom = parsed;
+  } catch {
+    /* A damaged optional palette must not discard an explicit appearance. */
+  }
+  var preset = [
+    'manabi-theme',
+    'light-theme',
+    'ecru-theme',
+    'water-theme',
+    'gray-theme',
+    'dark-theme',
+    'black-theme'
+  ].includes(theme);
+  var original = Object.hasOwn(custom, theme) ? custom[theme] : null;
+  var c = original && color(original.backgroundColor);
+  var dark =
+    ['gray-theme', 'dark-theme', 'black-theme'].includes(theme) ||
+    (c && 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2] < 128);
+  var appearance = ['system', 'light', 'dark'].includes(saved)
+    ? saved
+    : ['manabi-theme', 'system-theme'].includes(theme)
+      ? 'system'
+      : dark
+        ? 'dark'
+        : 'light';
+  if (
+    !preset &&
+    c &&
+    [
+      'fontColor',
+      'backgroundColor',
+      'selectionFontColor',
+      'selectionBackgroundColor',
+      'hintFuriganaShadowColor',
+      'hintFuriganaFontColor',
+      'tooltipTextFontColor'
+    ].every(function (key) {
+      return color(original[key]);
+    })
+  ) {
+    ['light', 'dark'].forEach(function (mode) {
+      var canvas = mode === 'dark' ? 0 : 255;
+      var rgb = c.slice(0, 3).map(function (n) {
+        var reading = mode === (dark ? 'dark' : 'light') ? n : Math.round(n * 0.1 + canvas * 0.9);
+        return Math.round(canvas * 0.92 + reading * 0.08);
+      });
+      root.style.setProperty('--' + mode + '-canvas', 'rgba(' + rgb.join(', ') + ', 1)');
+    });
+  }
+  root.dataset.theme = theme === 'system-theme' ? 'manabi-theme' : theme;
   root.dataset.appearance = appearance;
+  // Native controls/canvas can be painted before the application's stylesheet loads.
+  var meta = document.querySelector('meta[name="color-scheme"]');
+  if (meta) meta.setAttribute('content', appearance === 'system' ? 'light dark' : appearance);
 })();

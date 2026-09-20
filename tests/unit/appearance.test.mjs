@@ -5,8 +5,11 @@ import { runInNewContext } from 'node:vm';
 import { test } from 'node:test';
 import {
   availableThemes,
+  customThemeValues,
+  portableThemeName,
   initialAppearance,
   parseColor,
+  parseCustomThemes,
   readerTheme,
   themeForMode,
   themeProperties
@@ -87,7 +90,7 @@ test('first-paint bootstrap agrees with runtime migration without reading any re
       const values = { theme, appearance, customThemes: JSON.stringify(custom) };
       const root = { dataset: {}, style: { setProperty() {} } };
       runInNewContext(script, {
-        document: { documentElement: root },
+        document: { documentElement: root, querySelector: () => null },
         localStorage: { getItem: (key) => values[key] ?? null }
       });
       assert.equal(
@@ -98,7 +101,7 @@ test('first-paint bootstrap agrees with runtime migration without reading any re
     }
   const root = { dataset: {}, style: { setProperty() {} } };
   runInNewContext(script, {
-    document: { documentElement: root },
+    document: { documentElement: root, querySelector: () => null },
     localStorage: {
       getItem() {
         throw new Error('blocked');
@@ -138,4 +141,127 @@ test('JPEG and WebP dimension admission and motion restrictions', () => {
   assert.deepEqual(imageDimensions(webp, 'image/webp'), [80, 60]);
   webp[20] = 2;
   assert.throws(() => imageDimensions(webp, 'image/webp'), /still image/);
+});
+
+test('selection and meaningful control borders have actual composited contrast', () => {
+  function over(foreground, background) {
+    const a = parseColor(foreground),
+      b = parseColor(background);
+    return `rgba(${a
+      .slice(0, 3)
+      .map((v, i) => v * a[3] + b[i] * (1 - a[3]))
+      .join(', ')}, 1)`;
+  }
+  for (const id of availableThemes.keys())
+    for (const mode of ['light', 'dark']) {
+      const p = themeProperties(id, mode);
+      const selection = over(p['reader-selection-background-color'], p.canvas);
+      const selectedText = over(p['reader-selection-font-color'], selection);
+      assert.ok(contrast(selectedText, selection) >= 4.5, `${id}/${mode} selected text`);
+      for (const surface of ['canvas', 'surface', 'surface-raised', 'surface-hover'])
+        assert.ok(
+          contrast(p['control-line'], p[surface]) >= 3,
+          `${id}/${mode} control on ${surface}`
+        );
+    }
+});
+
+test('custom reading colors do not make application chrome unreadable', () => {
+  for (const shade of [0, 32, 96, 112, 127, 128, 144, 192, 255])
+    for (const alpha of [0, 0.2, 1]) {
+      const palette = {
+        ...custom.personal,
+        backgroundColor: `rgba(${shade}, ${shade}, ${shade}, ${alpha})`
+      };
+      const saved = { personal: palette };
+      for (const mode of ['light', 'dark']) {
+        const p = themeProperties('personal', mode, saved);
+        for (const surface of ['canvas', 'surface', 'surface-raised', 'surface-hover']) {
+          assert.ok(contrast(p.ink, p[surface]) >= 4.5);
+          assert.ok(contrast(p.muted, p[surface]) >= 4.5);
+          assert.ok(contrast(p['control-line'], p[surface]) >= 3);
+        }
+      }
+      assert.deepEqual(themeForMode('personal', shade < 128 ? 'dark' : 'light', saved), palette);
+    }
+});
+
+test('bootstrap handles damaged optional JSON, hex colors, transparency and explicit overrides', () => {
+  const script = readFileSync(
+    new URL('../../apps/web/static/appearance-init.js', import.meta.url),
+    'utf8'
+  );
+  const palettes = [
+    '{broken',
+    'null',
+    '[]',
+    '42',
+    ...['#112233', '#888888', 'rgba(20, 30, 40, 0.2)', 'rgba(.., 0, 0, 1)'].map((backgroundColor) =>
+      JSON.stringify({ personal: { ...custom.personal, backgroundColor } })
+    )
+  ];
+  for (const raw of palettes)
+    for (const appearance of [null, 'system', 'light', 'dark']) {
+      const styles = {};
+      const root = { dataset: {}, style: { setProperty: (key, value) => (styles[key] = value) } };
+      const values = { theme: 'personal', appearance, customThemes: raw };
+      let nativeScheme;
+      runInNewContext(script, {
+        document: {
+          documentElement: root,
+          querySelector: () => ({ setAttribute: (_key, value) => (nativeScheme = value) })
+        },
+        localStorage: { getItem: (key) => values[key] ?? null }
+      });
+      const parsed = parseCustomThemes(raw);
+      const expected = initialAppearance(appearance, 'personal', parsed);
+      assert.equal(root.dataset.appearance, expected, `${raw}/${appearance}`);
+      assert.equal(nativeScheme, expected === 'system' ? 'light dark' : expected);
+      for (const mode of ['light', 'dark'])
+        if (styles[`--${mode}-canvas`])
+          assert.equal(
+            styles[`--${mode}-canvas`],
+            themeProperties('personal', mode, parsed).canvas
+          );
+    }
+});
+
+test('custom editor reads hex/rgb/rgba, preserves zero alpha and exposes only known fields', () => {
+  const authored = {
+    ...availableThemes.get('gray-theme'),
+    fontColor: '#ffeecc',
+    backgroundColor: 'rgba(12, 24, 36, 0)',
+    selectionFontColor: 'rgb(255, 255, 255)',
+    extra: { oldMetadata: true }
+  };
+  const values = customThemeValues(authored);
+  assert.equal(values.fontColor.hexExpression, '#ffeecc');
+  assert.equal(values.backgroundColor.hexExpression, '#0c1824');
+  assert.equal(values.backgroundColor.alphaValue, 0);
+  assert.equal(values.backgroundColor.rgbaExpression, authored.backgroundColor);
+  assert.equal(values.selectionFontColor.alphaValue, 1);
+  assert.equal(Object.keys(values).length, 7);
+  assert.equal(customThemeValues({ fontColor: 12 }).fontColor.hexExpression, '#ffffff');
+  assert.equal(themeProperties('notes', 'dark', { notes: authored })['reader-extra'], undefined);
+});
+
+test('only portable preset names cross the account boundary', () => {
+  for (const id of availableThemes.keys()) assert.equal(portableThemeName(id), id);
+  assert.equal(portableThemeName('system-theme'), 'manabi-theme');
+  for (const id of ['My personal notes', 'personal', '', null, 'constructor', 42])
+    assert.equal(portableThemeName(id), undefined);
+});
+
+test('custom names that match Object.prototype retain both mode variants', () => {
+  for (const name of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) {
+    const palettes = Object.fromEntries([[name, custom.personal]]);
+    const saved = JSON.stringify(palettes);
+    const decoded = parseCustomThemes(saved);
+    assert.ok(Object.hasOwn(decoded, name));
+    for (const mode of ['light', 'dark']) {
+      assert.ok(Object.values(themeForMode(name, mode, decoded)).every(parseColor));
+      assert.ok(parseColor(themeProperties(name, mode, decoded).canvas));
+    }
+    assert.equal(JSON.stringify(decoded), saved);
+  }
 });

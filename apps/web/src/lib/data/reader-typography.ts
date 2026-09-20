@@ -4,14 +4,17 @@
  * All rights reserved.
  */
 
-/** New defaults only. Existing explicit fontFamilyGroupOne/Two values are retained. */
-export const SYSTEM_JAPANESE = 'System Japanese';
+/** New Group 1 preferences use the native textbook face when the browser can access it. */
+export const YU_KYOKASHO = 'YuKyokasho';
+export const YU_KYOKASHO_YOKO = 'YuKyokasho Yoko';
+export const LEGACY_SYSTEM_JAPANESE = 'System Japanese';
+export const JAPANESE_FALLBACK_FONT = 'Klee One';
 export const SYSTEM_SANS = 'System Sans';
 
-// Yoko is the horizontal-use face. Native Reader currently reverses these two
-// preferences; keep this web choice explicit instead of copying that discrepancy.
+// Yoko is the horizontal-use face. Keep the opposite YuKyokasho face immediately
+// after it so a platform exposing only one variant can still render with the family.
 const JAPANESE_FALLBACKS =
-  'Klee, "Hiragino Mincho ProN", "Yu Mincho", YuMincho, "Noto Serif CJK JP", "Klee One", serif';
+  '"Klee One", Klee, "Hiragino Mincho ProN", "Yu Mincho", YuMincho, "Noto Serif CJK JP", serif';
 export const SYSTEM_SANS_STACK =
   'system-ui, -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", Meiryo, sans-serif';
 
@@ -22,12 +25,65 @@ export function japaneseFontStack(vertical: boolean): string {
   );
 }
 
+/**
+ * Resolve the device-effective primary font without changing the portable preference.
+ * Explicit packaged, imported and custom family names remain user-owned.
+ */
+export function effectivePrimaryReaderFont(
+  value: unknown,
+  yuKyokashoAvailable: boolean | undefined
+): string {
+  const family = typeof value === 'string' ? value.trim() : '';
+  if (!family || family === LEGACY_SYSTEM_JAPANESE || family === YU_KYOKASHO) {
+    // Keep YuKyokasho as the portable preference. Availability is device-local,
+    // so a Windows/Linux fallback must not become an account-setting change.
+    return yuKyokashoAvailable === false ? JAPANESE_FALLBACK_FONT : YU_KYOKASHO;
+  }
+  return family;
+}
+
+/**
+ * Probe the actual browser-visible local faces. local() is intentional: the selector
+ * should expose YuKyokasho only when the web reader can really activate it.
+ */
+let yuKyokashoAvailability: Promise<boolean> | undefined;
+
+async function localFontFaceAvailable(source: string, timeoutMs = 1000): Promise<boolean> {
+  if (typeof FontFace === 'undefined') return false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const face = new FontFace('__manabi_yukyokasho_probe__', source);
+    return await Promise.race([
+      face.load().then(
+        () => face.status === 'loaded',
+        () => false
+      ),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(false), timeoutMs);
+      })
+    ]);
+  } catch {
+    return false;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+export function detectYuKyokashoAvailability(): Promise<boolean> {
+  yuKyokashoAvailability ??= Promise.all([
+    localFontFaceAvailable('local("YuKyokasho Medium"), local("YuKyokasho")'),
+    localFontFaceAvailable('local("YuKyokasho Yoko Medium"), local("YuKyokasho Yoko")')
+  ]).then((available) => available.every(Boolean));
+  return yuKyokashoAvailability;
+}
+
 /** Preserve explicit family lists, including user-installed and imported fonts. */
-export function resolveReaderFont(value: string, vertical: boolean, sans = false): string {
+export function resolveReaderFont(value: unknown, vertical: boolean, sans = false): string {
   const fallback = sans ? SYSTEM_SANS_STACK : japaneseFontStack(vertical);
   if (typeof value !== 'string' || value.length > 1024 || !value.trim()) return fallback;
   const family = value.trim();
-  if (family === SYSTEM_JAPANESE) return japaneseFontStack(vertical);
+  if (family === YU_KYOKASHO || family === LEGACY_SYSTEM_JAPANESE)
+    return japaneseFontStack(vertical);
   if (family === SYSTEM_SANS) return SYSTEM_SANS_STACK;
   return `${family}, ${fallback}`;
 }

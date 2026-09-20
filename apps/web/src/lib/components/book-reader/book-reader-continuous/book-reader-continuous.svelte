@@ -576,7 +576,26 @@
 
     stopFontLayout?.();
     stopFontLayout = observeReaderFontLayout(contentEl, () => {
-      if (contentEl) dispatch('contentChange', contentEl);
+      if (!contentEl || !calculator) return;
+
+      calculator.updateParagraphPos();
+      updateCustomReadingPointPosition();
+      if (pageManagerConcrete && !scrollWhenReady) {
+        const scrollPos =
+          calculator.getScrollPosByCharCount(prevIntendedCharCount) +
+          (verticalMode ? customReadingPointScrollOffset : -customReadingPointScrollOffset);
+        const currentScroll = verticalMode ? window.scrollX : window.scrollY;
+        if (Math.abs(currentScroll - scrollPos) > 0.5) {
+          isResizeScroll = true;
+          pageManagerConcrete.scrollTo(scrollPos);
+        } else {
+          exploredCharCount = calculator.calcExploredCharCount(customReadingPointScrollOffset);
+        }
+      } else {
+        exploredCharCount = calculator.calcExploredCharCount(customReadingPointScrollOffset);
+      }
+      if (sectionToElement.size) updateSectionProgress();
+      dispatch('contentChange', contentEl);
     });
   }
 

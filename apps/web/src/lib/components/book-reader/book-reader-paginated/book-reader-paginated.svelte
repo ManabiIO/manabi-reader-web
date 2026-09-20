@@ -529,6 +529,15 @@
     if (!calculator || !scrollEl) return;
 
     calculator.updateCurrentSection(sectionIndex$.getValue());
+    calculator.updateParagraphPos();
+    if (!scrollWhenReady && concretePageManager) {
+      const scrollPos = calculator.getScrollPosByCharCount(previousIntendedCount);
+      if (scrollPos >= 0) {
+        isResizing = true;
+        concretePageManager.scrollTo(scrollPos, false);
+        isResizing = false;
+      }
+    }
     dispatch('contentChange', scrollEl);
   }
 
@@ -545,13 +554,17 @@
       const generation = renderGeneration;
       bookmarkData.then((data) => {
         if (disposed || generation !== renderGeneration || _calculator !== calculator) return;
-        if (!data) { scrollWhenReady = false; return; }
+        if (!data) {
+          scrollWhenReady = false;
+          return;
+        }
         // Use this component's actual owner, not the asynchronously propagated
         // parent binding. Keep restoration pending until its geometry is valid.
         if (!concreteBookmarkManager) return;
         if (concreteBookmarkManager.scrollToBookmark(data)) {
           scrollWhenReady = false;
           exploredCharCount = data.exploredCharCount || 0;
+          previousIntendedCount = exploredCharCount;
         }
       });
     } else {
