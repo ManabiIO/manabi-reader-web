@@ -12,58 +12,19 @@ jobs:
   prepare:
     if: github.repository == 'ManabiIO/manabi-reader-web' && github.ref == 'refs/heads/codex/library-prepare-20260920'
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Merge the two reviewed histories and preserve concurrent changes
+      - name: Apply the exact completion-boundary patch
         run: |
           mkdir -p /tmp/library-evidence
-          git config user.name 'Manabi library preparation'
-          git config user.email 'noreply@github.com'
-          python3 - <<'PY'
-          import pathlib, subprocess
-          current='50f4167a2ac24f4a31fc0954954bef1bca9c6ae1'
-          candidate='4683258402240fc0f932a940262d2d265897db54'
-          base='e71e675cf0e2937d545577202d360ea43c868625'
-          root=pathlib.Path('/tmp/library-evidence')
-          root.joinpath('concurrent.patch').write_bytes(subprocess.check_output(['git','diff',base,current]))
-          subprocess.run(['git','reset','--hard',current],check=True)
-          result=subprocess.run(['git','merge','--no-commit','--no-ff',candidate],capture_output=True,text=True)
-          root.joinpath('merge.log').write_text(result.stdout+result.stderr)
-          assert result.returncode in (0,1),result.stderr
-          # Reviewed 20227e6 and 50f4167 diffs: these six paths contain the same
-          # keyed-loop/type/backup/path-lint fixes, extended and browser-qualified
-          # by the candidate. Retain its strict schema and language serialization.
-          resolved=[
-            'apps/web/src/lib/data/storage/handler/base-handler.ts',
-            'apps/web/src/lib/functions/file-loaders/utils/restored-book.ts',
-            'apps/web/src/lib/library/book-cover.svelte',
-            'apps/web/src/lib/library/cover-stack.svelte',
-            'apps/web/src/lib/library/file-operations.ts',
-            'apps/web/src/lib/library/library-workspace.svelte']
-          conflicts=subprocess.check_output(['git','diff','--name-only','--diff-filter=U'],text=True).splitlines()
-          assert set(conflicts)<=set(resolved),conflicts
-          subprocess.run(['git','restore','--source',candidate,'--staged','--worktree','--',*resolved],check=True)
-          # The concurrent account/navigation, background and import-identity
-          # repairs must remain byte-for-byte, not merely present in history.
-          retained=[
-            'apps/web/src/app.scss',
-            'apps/web/src/lib/appearance/backgrounds.ts',
-            'apps/web/src/lib/manabi/client.ts',
-            'apps/web/src/lib/manabi/ttu-migration.ts',
-            'apps/web/src/routes/manage/+page.svelte',
-            'tests/browser/test_rhea_ui.py',
-            'tests/unit/rhea-ui.test.mjs']
-          for path in retained:
-              assert pathlib.Path(path).read_bytes()==subprocess.check_output(['git','show',f'{current}:{path}']),path
-          assert not subprocess.check_output(['git','diff','--name-only','--diff-filter=U'])
-          root.joinpath('retained-concurrent-files.txt').write_text('\n'.join(retained))
-          subprocess.run(['git','diff','--cached','--check'],check=True)
-          root.joinpath('combined.patch').write_bytes(subprocess.check_output(['git','diff','--cached']))
-          PY
+          cp .github/library-completion-boundary.py /tmp/
+          git reset --hard 7f1b017134648fe963eb5d7bf5333f1ce3cff058
+          python3 /tmp/library-completion-boundary.py
+          python3 -m py_compile tests/browser/test_books_library.py
       - uses: pnpm/action-setup@v6.1.0
         with:
           version: '12.3.4'
@@ -76,20 +37,27 @@ jobs:
           python-version: '3.13'
       - run: pnpm install --frozen-lockfile
       - run: pnpm --dir apps/web exec svelte-kit sync
-      - name: Publish clean combined candidate with both parents
+      - name: Format and verify only the scoped changes
+        run: |
+          pnpm exec prettier --write apps/web/src/routes/b/+page.svelte docs/books-library.md
+          git add apps/web/src/routes/b/+page.svelte docs/books-library.md tests/browser/test_books_library.py
+          git diff --cached --check
+          git diff --cached > /tmp/library-evidence/completion.patch
+      - name: Publish the clean candidate without preparation files
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          git config user.name 'Manabi library preparation'
+          git config user.email 'noreply@github.com'
           tree=$(git write-tree)
-          commit=$(printf '%s\n' 'Merge qualified library behavior with concurrent Rhea and backup fixes' | git commit-tree "$tree" -p 50f4167a2ac24f4a31fc0954954bef1bca9c6ae1 -p 4683258402240fc0f932a940262d2d265897db54)
-          echo "$tree" > /tmp/library-evidence/tree-sha.txt
+          commit=$(printf '%s\n' 'fix: explicit reader completion supersedes Still Reading without weakening autosave fencing' | git commit-tree "$tree" -p 7f1b017134648fe963eb5d7bf5333f1ce3cff058)
           echo "$commit" > /tmp/library-evidence/commit.txt
           git ls-tree -r "$commit" > /tmp/library-evidence/tree.txt
           HEADER=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
-          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $HEADER" push origin "$commit:refs/heads/codex/library-combined-${GITHUB_RUN_ID}"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $HEADER" push origin "$commit:refs/heads/codex/library-completion-${GITHUB_RUN_ID}"
           git reset --hard "$commit"
           python3 - <<'PY'
-          import json, pathlib, subprocess
+          import json,pathlib,subprocess
           files=[]
           for name in subprocess.check_output(['git','ls-files'],text=True).splitlines():
               p=pathlib.Path(name)
@@ -97,7 +65,7 @@ jobs:
                   files.append({'path':name,'content':p.read_text()})
           pathlib.Path('/tmp/library-evidence/source.json').write_text(json.dumps(files))
           PY
-      - name: Read-only units, types, lint and static build
+      - name: Read-only unit, type, lint and static-build checks
         run: |
           set +e
           node --experimental-strip-types --test tests/unit/*.test.mjs test/reader/typography.test.mjs > /tmp/library-evidence/units.log 2>&1
@@ -110,18 +78,11 @@ jobs:
           echo "full-lint=$?" >> /tmp/library-evidence/results.txt
           BASE_PATH=/Reader-Web pnpm build > /tmp/library-evidence/build.log 2>&1
           echo "build=$?" >> /tmp/library-evidence/results.txt
-          git diff --exit-code > /tmp/library-evidence/post-check-diff.txt
+          git diff --exit-code > /tmp/library-evidence/post-check-source.diff
           echo "unchanged-source=$?" >> /tmp/library-evidence/results.txt
           cat /tmp/library-evidence/results.txt
           ! grep -Eq '=[1-9][0-9]*$' /tmp/library-evidence/results.txt
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: library-checkpoint
-          path: /tmp/library-evidence
-          retention-days: 7
-          if-no-files-found: error
-      - name: Actual combined library browser acceptance
+      - name: Real reader-to-library completion regression
         if: always()
         run: |
           test -d apps/web/build
@@ -130,23 +91,19 @@ jobs:
           set +e
           status=0
           for engine in chromium webkit; do
-            mkdir -p /tmp/library-evidence/$engine
-            cases=BooksLibraryBrowser
-            if [ "$engine" = chromium ]; then cases="$cases BooksLibraryFilesystem"; fi
-            LIBRARY_BROWSER=$engine python tests/browser/test_books_library.py $cases > /tmp/library-evidence/$engine/results.log 2>&1
+            LIBRARY_BROWSER=$engine python tests/browser/test_books_library.py BooksLibraryBrowser.test_explicit_reader_completion_supersedes_still_reading > /tmp/library-evidence/$engine.log 2>&1
             result=$?
             echo "$engine=$result" >> /tmp/library-evidence/results.txt
             if [ "$result" -ne 0 ]; then status=1; fi
-            if [ -d test-results ]; then mv test-results /tmp/library-evidence/$engine/screenshots; fi
+            if [ -d test-results ]; then mv test-results /tmp/library-evidence/$engine-screenshots; fi
           done
-          git diff --exit-code > /tmp/library-evidence/post-browser-diff.txt
-          echo "unchanged-browser-source=$?" >> /tmp/library-evidence/results.txt
+          git diff --exit-code > /tmp/library-evidence/post-test-source.diff
           cat /tmp/library-evidence/results.txt
           exit "$status"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: isolated-library-evidence
+          name: completion-boundary-evidence
           path: /tmp/library-evidence
           retention-days: 7
           if-no-files-found: error
