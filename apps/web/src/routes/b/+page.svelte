@@ -796,10 +796,10 @@
           progress: 1
         };
 
-        await database.putBookmark(data);
-        // This is an explicit finish, not an autosave at 100%. It supersedes a
-        // prior Still Reading decision without weakening stale-save protection.
-        await setCompletion(data.dataId, 'finished');
+        // Persist the final reading position and explicit finish atomically. This
+        // supersedes Still Reading without exposing a half-written state to an
+        // overlapping autosave.
+        await setCompletion(data.dataId, 'finished', undefined, data);
 
         bookmarkData = database.getBookmark(data.dataId);
 

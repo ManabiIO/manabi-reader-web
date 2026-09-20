@@ -5,14 +5,18 @@
  */
 
 import { database } from '$lib/data/store';
+import type { BooksDbBookmarkData } from '$lib/data/database/books-db/versions/books-db';
 import { calendarDay, validDay, type Completion } from './completion';
 
-/** One transaction changes completion only. Scroll, bookmark, counts and statistics are untouched. */
+/** Change completion, optionally with a matching reader snapshot, without touching statistics. */
 export async function setCompletion(
   bookId: number,
   state: Completion['state'],
-  day = calendarDay()
+  day = calendarDay(),
+  bookmark?: BooksDbBookmarkData
 ) {
+  if (bookmark && bookmark.dataId !== bookId)
+    throw new Error('The completion bookmark belongs to a different book.');
   if (state === 'finished' && (!validDay(day) || day > calendarDay()))
     throw new Error('Choose a valid finished date no later than today.');
   const db = await database.db;
@@ -33,7 +37,12 @@ export async function setCompletion(
     );
     const completion: Completion =
       state === 'finished' ? { state, finishedOn: day, modifiedAt } : { state, modifiedAt };
-    await bookmarks.put({ ...before, completion, lastBookmarkModified: modifiedAt });
+    await bookmarks.put({
+      ...before,
+      ...bookmark,
+      completion,
+      lastBookmarkModified: Math.max(bookmark?.lastBookmarkModified ?? 0, modifiedAt)
+    });
     await tx.done;
     database.bookmarksChanged$.next();
   } catch (error) {
