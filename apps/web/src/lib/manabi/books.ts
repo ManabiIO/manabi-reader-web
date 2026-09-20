@@ -293,6 +293,10 @@ async function applyAcknowledged(link: BookLink, captured: ReadingState, accepte
       link.contentHash
     );
     const merge = mergeRecords(flat(captured), flat(latest), flat(accepted));
+    // A new local edit and the downloaded state may have changed the same day or
+    // bookmark while I/O was pending. Do not acknowledge an unresolved conflict:
+    // advancing the baseline here would let a later retry silently overwrite it.
+    if (merge.conflicts.length) throw new IntegrationError('conflict', 412);
     const next = unflat(link.contentHash, merge.merged);
     // Keep changes made while I/O was pending; the acknowledgement is only the
     // accepted remote baseline, not permission to replace newer local reading.
