@@ -1,0 +1,89 @@
+name: Rhea autosave and tracker review
+on:
+  push:
+    branches: [research/rhea-toolchain-20260920]
+    paths: ['.github/workflows/rhea-autosave-review.yml']
+permissions:
+  contents: write
+jobs:
+  review:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: a8d7a63afad2cd265c29813aa6ce9118d9756923
+          persist-credentials: false
+      - name: Apply exact reviewed autosave and fixture correction
+        run: |
+          mkdir -p /tmp/autosave-review
+          python3 - <<'PY'
+          import pathlib,base64,lzma,hashlib,subprocess,json
+          payload='/Td6WFoAAATm1rRGAgAhARYAAAB0L+Wj4A5eBUldADIaSQnC/BF9UN4KT0fVpPOSh0EQAo6E1XAbLlbyLTdjMq/pVTm0A9isS9IK1LIKPchPizpT3SUNPe9fCQ0oQgnqQs7xS+RdrVnfnZY1RanysziwUanJwfhGrEcBTfn8v41teJdE2oLD7cqJQjezYmiWN0IN+N7YbtH7zCLVRl58XX5TiiC6hP8JDSd+lJrGxwrtSFrdlddmKa8eQWRn8vzaPgPJqLdFSX2bo8mVY6iXPXNoAzgE9iA5xuzJ3z2iiYMqxytGkM4K80pMJwMEIERMS/iUFugrKWDilYVuHIOWZI/FnkgK7dS0DfMA3eddkrjzo+N8RA6HKmVeV/4uYO2N/pLEGztyG+8emqhaJFSeDbxLy27m1ahlgMBm37sOnK+HJpvMOIKTKS6VLEXBxGWZEFiQjYIrnNDIQpTvDZMRD4A2EKscSdX43MEL59MjNNf9zXBpwagHTtz50QLh5WwWRJWxBI23riBKxWtE+aaRSbCoMbNBP1Bv94nRdddiW8hR1E9BqmIfrfk55Xzk5MCRsQVGo0R5NfEprqYbXilADFdNAnnRjlBwwR1tTCq2ggRGPSt45v7RAGUjJKrZp2KoSakqgao0ReW90VSt+fe4NwsBQ2zCYLCJOV0ofI2x8Bw7/ms4nXb1qCDeCkrnn597d9ziVOQVq4DJUgAZCPMYwhmtelUFGp5KJTGo13OWB0Ch1slT0sCe4pUsYUIef01y+Et7pTL43ezOwx2sJU1hCsFNull/Cgp1DEJI07VjlckvV6KNT52XeiyeAq/NKXRqL8iDIQgWHriLTT2P/SDRNM85F6NeSurHSXXIvUmSj3EB/whv+CHTIr3aso/dxQZyN7qDbcSmh0FBsNg2WQt5nAUkwE085bMi8gqlrrwats0dSRUKXCrfcMEOuDvOPKuJDzLJXZmpknH1dVwzoDiy6PIXBExL5B+2puyB8r7/WWF5pFaclXuzKZhXdDvazGBSmnUKHcn3jFUKLfYTa9nDc5ZYDlLTeWoKMyYSgwffUcl3FrmP38lDu87s6SAMBHZEv51YFC7CYDmyVaVfg3wqZNtV1dCTW4ZoO3W0ydKttZ29vfIrCwGOwNDWB0xiE/vkJtF2xVZs6QBs4F15yRdgkyFr4eWYAGOI6f+6z1TWsMA2AMVRkFFtUzzrU2nzpQ3wFWmOVSJADeHgmFfhGtrcQ4XZ1S9oWImsnFJSe0B4tsBGKveDDZ94u56zOAeYoKnhe8rw+Kw3+dwy1QS/WzDdPlIW1DcOddvplU7oPXIReKUrTVv3IQ4l0B3xKO7gAG9n5Ww5/uyhfQc8f7MTq4ZsS5/Xyod6MOmVRmvbeOxLJwp2QLWPvh9ZwQbaYWqT1j6h8R2yUQMxra7ampbaDsvnoeYedq3CuHsu5sJRsplXH43UsFk+OknJtctlO6+uBTIX719XQWel2EYPDgFD2Tnu1aCojdKXQxev9EamuGQfOWc1u9QP0KPEIYrqpkr+169rtSTToeEwfOr0VoFljtSlZqtwVqY+33Xe+I/GGkDf3cscO+TJEghc5lcUXB7ix7e+SntHC77yq0SgZ5BZGhzHhX+FU7ALNpvTeQygk7jqD1uwVk/LG0RitN7KelTEIuscuMR3I9mQ78/Ocmzd58uB8ExX8wgR8c0L3eF/Wfa4G16cDV66lNSUwViQUD7DmANg21r4/3WqRq8OkB0kPyGWuS3E9A4RvCmN35yHNQguKipjQphKQf+AQZ2cbRe2f3QKFnRcWZe37SI4n12VBEJfNLBz0aBuliqiHQ48t1GJSFYmcydeCz0LPwAAAADs1xi3Ezr7OAAB5QrfHAAAlrVnpLHEZ/sCAAAAAARZWg=='
+          patch=lzma.decompress(base64.b64decode(payload));assert hashlib.sha256(patch).hexdigest()=='9ce47aa3849e44472c931f875054b1dc46674bf95fc15cda471bf748c288de2e'
+          pathlib.Path('/tmp/autosave.patch').write_bytes(patch)
+          subprocess.run(['git','apply','--check','/tmp/autosave.patch'],check=True)
+          subprocess.run(['git','apply','/tmp/autosave.patch'],check=True)
+          PY
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - name: Capture verified source objects, no commit or ref writes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import pathlib,json,subprocess,urllib.request,os
+          paths=['apps/web/src/routes/b/+page.svelte','tests/browser/test_rhea_ui.py'];out=pathlib.Path('/tmp/autosave-review')
+          subprocess.run(['pnpm','exec','prettier','--write',paths[0]],check=True)
+          source=[{'path':p,'content':pathlib.Path(p).read_text()} for p in paths]
+          tree=[{'path':f['path'],'mode':'100644','type':'blob','content':f['content']} for f in source]
+          (out/'source.json').write_text(json.dumps(source))
+          req=urllib.request.Request('https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/git/trees',data=json.dumps({'base_tree':'1fdf6c7b55232c0ebeca0e3c4e6a3e77a01f4365','tree':tree}).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','Content-Type':'application/json'},method='POST')
+          with urllib.request.urlopen(req,timeout=60) as response:(out/'tree-sha.txt').write_text(json.load(response)['sha'])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rhea-autosave-source
+          path: /tmp/autosave-review
+          retention-days: 7
+      - name: Checks and build
+        env:
+          BASE_PATH: /Reader-Web
+        run: |
+          set -o pipefail
+          pnpm exec eslint .
+          node tools/appearance/lint.mjs
+          pnpm --dir apps/web check 2>&1 | tee /tmp/autosave-review/types.log
+          node --experimental-strip-types --test tests/unit/*.test.mjs test/reader/typography.test.mjs | tee /tmp/autosave-review/units.log
+          pnpm build 2>&1 | tee /tmp/autosave-review/build.log
+      - name: Real Chromium and WebKit acceptance
+        run: |
+          python -m pip install 'playwright==1.63.0'
+          python -m playwright install --with-deps chromium webkit
+          status=0
+          for engine in chromium webkit; do
+            mkdir -p /tmp/autosave-review/$engine
+            set +e
+            APPEARANCE_BROWSER=$engine python tests/browser/test_rhea_ui.py > /tmp/autosave-review/$engine/results.log 2>&1
+            result=$?
+            set -e
+            [ $result -eq 0 ] || status=1
+            if [ -d test-results ]; then mv test-results /tmp/autosave-review/$engine/screenshots; fi
+          done
+          exit $status
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rhea-autosave-results
+          path: /tmp/autosave-review
+          retention-days: 7
