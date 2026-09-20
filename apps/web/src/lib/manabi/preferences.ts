@@ -266,6 +266,13 @@ export async function syncPreferences(choice?: 'local' | 'remote'): Promise<void
           throw new IntegrationError('invalid_response');
       }
       const newer = mergeRecords(captured, state.local, merged);
+      if (newer.conflicts.length) {
+        // Preserve the last mutually accepted baseline. Otherwise a retry would
+        // treat the conflicting local value as uncontested and overwrite remote.
+        preferenceStatus.set({ enabled: true, state: 'conflict', conflicts: newer.conflicts });
+        await persist(user, state);
+        return;
+      }
       // A preference changed locally while the network request was running.
       // Preserve it and let the next pass send it, rather than applying stale UI.
       state.base = merged;
