@@ -2,7 +2,7 @@ name: Isolated library preparation
 on:
   push:
     branches: [codex/library-prepare-20260920]
-    paths: ['.github/workflows/library-prepare.yml', '.github/library-lastmile.py']
+    paths: ['.github/workflows/library-prepare.yml', '.github/library-polish.py']
 permissions:
   contents: write
 concurrency:
@@ -21,9 +21,9 @@ jobs:
       - name: Apply exact follow-up to clean parent
         run: |
           mkdir -p /tmp/library-staging /tmp/library-evidence
-          cp .github/library-lastmile.py /tmp/library-staging/
-          git reset --hard 2d4cfa50cff977a1567866b346f142b07d05104b
-          python3 /tmp/library-staging/library-lastmile.py
+          cp .github/library-polish.py /tmp/library-staging/
+          git reset --hard 29264ad5290dffce8043a9b7dccbace09bb46ec4
+          python3 /tmp/library-staging/library-polish.py
           git add apps/web tests
           git diff --cached --name-only > /tmp/library-evidence/changed-paths.txt
           python3 -m py_compile tests/browser/test_books_library.py
@@ -39,15 +39,17 @@ jobs:
           python-version: '3.13'
       - run: pnpm install --frozen-lockfile
       - run: pnpm --dir apps/web exec svelte-kit sync
-      - name: Format only changed source
+      - name: Format authored source before committing it
         run: |
           python3 - <<'PY'
           import pathlib, subprocess
           paths = pathlib.Path('/tmp/library-evidence/changed-paths.txt').read_text().splitlines()
-          assert paths and all(p.startswith(('apps/web/','tests/')) for p in paths)
           formatted = [p for p in paths if pathlib.Path(p).suffix in {'.ts','.svelte','.mjs','.json','.md'}]
           subprocess.run(['pnpm','exec','prettier','--write',*formatted],check=True)
-          subprocess.run(['git','add',*paths],check=True)
+          subprocess.run(['pnpm','exec','eslint','--fix','.'],check=True)
+          changed = subprocess.check_output(['git','diff','HEAD','--name-only'],text=True).splitlines()
+          assert changed and all(p.startswith(('apps/web/','tests/')) for p in changed)
+          subprocess.run(['git','add',*changed],check=True)
           subprocess.run(['git','diff','--cached','--check'],check=True)
           PY
           git diff --cached > /tmp/library-evidence/followup.patch
@@ -58,12 +60,13 @@ jobs:
           git config user.name 'Manabi library preparation'
           git config user.email 'noreply@github.com'
           tree=$(git write-tree)
-          commit=$(printf '%s\n' 'fix: retain live cover direction and prove portable library metadata' | git commit-tree "$tree" -p 2d4cfa50cff977a1567866b346f142b07d05104b)
+          commit=$(printf '%s\n' 'fix: finalize safe file paths and accessible library search styling' | git commit-tree "$tree" -p 29264ad5290dffce8043a9b7dccbace09bb46ec4)
           echo "$tree" > /tmp/library-evidence/tree-sha.txt
           echo "$commit" > /tmp/library-evidence/commit.txt
           git ls-tree -r "$commit" > /tmp/library-evidence/tree.txt
           HEADER=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $HEADER" push origin "$commit:refs/heads/codex/library-qualified-${GITHUB_RUN_ID}"
+          git reset --hard "$commit"
           python3 - <<'PY'
           import json, pathlib, subprocess
           files=[]
@@ -73,7 +76,7 @@ jobs:
                   files.append({'path':name,'content':p.read_text()})
           pathlib.Path('/tmp/library-evidence/source.json').write_text(json.dumps(files))
           PY
-      - name: Units, types, lint and production build
+      - name: Read-only units, types, lint and production build
         run: |
           set +e
           node --experimental-strip-types --test tests/unit/*.test.mjs test/reader/typography.test.mjs > /tmp/library-evidence/units.log 2>&1
@@ -82,10 +85,12 @@ jobs:
           echo "types=$?" >> /tmp/library-evidence/results.txt
           node tools/appearance/lint.mjs > /tmp/library-evidence/lint.log 2>&1
           echo "lint=$?" >> /tmp/library-evidence/results.txt
-          pnpm lint > /tmp/library-evidence/full-lint.log 2>&1
+          pnpm exec eslint . > /tmp/library-evidence/full-lint.log 2>&1
           echo "full-lint=$?" >> /tmp/library-evidence/results.txt
           BASE_PATH=/Reader-Web pnpm build > /tmp/library-evidence/build.log 2>&1
           echo "build=$?" >> /tmp/library-evidence/results.txt
+          git diff --exit-code > /tmp/library-evidence/post-check-diff.txt
+          echo "unchanged-source=$?" >> /tmp/library-evidence/results.txt
           cat /tmp/library-evidence/results.txt
           ! grep -Eq '=[1-9][0-9]*$' /tmp/library-evidence/results.txt
       - uses: actions/upload-artifact@v4
@@ -113,6 +118,8 @@ jobs:
             if [ "$result" -ne 0 ]; then status=1; fi
             if [ -d test-results ]; then mv test-results /tmp/library-evidence/$engine/screenshots; fi
           done
+          git diff --exit-code > /tmp/library-evidence/post-browser-diff.txt
+          echo "unchanged-browser-source=$?" >> /tmp/library-evidence/results.txt
           cat /tmp/library-evidence/results.txt
           exit "$status"
       - uses: actions/upload-artifact@v4
