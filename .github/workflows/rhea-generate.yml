@@ -1,0 +1,74 @@
+name: Generate native Rhea components
+on:
+  push:
+    branches: [research/rhea-toolchain-20260920]
+    paths: ['.github/workflows/rhea-generate.yml']
+permissions:
+  contents: read
+jobs:
+  generate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: pnpm
+      - name: Select the verified stable Svelte and Tailwind stack
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          for name in ['package.json','apps/web/package.json']:
+              p=pathlib.Path(name);v=json.loads(p.read_text())
+              for deps in ['dependencies','devDependencies']:
+                  if 'svelte' in v.get(deps,{}):v[deps]['svelte']='5.57.1'
+              if name.startswith('apps/'):
+                  d=v['devDependencies'];d['tailwindcss']='4.3.3';d['@tailwindcss/vite']='4.3.3'
+                  for x in ['autoprefixer','@tailwindcss/aspect-ratio']:d.pop(x,None)
+              p.write_text(json.dumps(v,indent=2)+'\n')
+          pathlib.Path('apps/web/components.json').write_text(json.dumps({'$schema':'https://shadcn-svelte.com/schema.json','style':'rhea','tailwind':{'css':'src/app.css','baseColor':'neutral'},'aliases':{'lib':'$lib','utils':'$lib/utils','components':'$lib/components','ui':'$lib/components/ui','hooks':'$lib/hooks'},'typescript':True,'registry':'https://shadcn-svelte.com/registry','iconLibrary':'lucide'},indent=2)+'\n')
+          pathlib.Path('apps/web/src/app.css').write_text('@import "tailwindcss";\n')
+          PY
+          pnpm install --no-frozen-lockfile
+          pnpm --dir apps/web exec svelte-kit sync
+      - name: Generate official source
+        run: |
+          mkdir -p /tmp/rhea-generated
+          set -o pipefail
+          pnpm dlx shadcn-svelte@1.7.0 add -c apps/web --skip-preflight --no-deps-install -y button badge card input field tabs sheet dropdown-menu separator sidebar switch checkbox select toggle-group command dialog scroll-area tooltip alert accordion 2>&1 | tee /tmp/rhea-generated/generation.log
+      - name: Pin direct dependencies and resolve the committed lockfile
+        run: |
+          python3 - <<'PY'
+          import json,pathlib,subprocess
+          p=pathlib.Path('apps/web/package.json');v=json.loads(p.read_text())
+          for deps in ['dependencies','devDependencies']:
+              for name,value in list(v.get(deps,{}).items()):
+                  if value.startswith(('^','~')):v[deps][name]=subprocess.check_output(['npm','view',name,'version'],text=True).strip()
+          p.write_text(json.dumps(v,indent=2)+'\n')
+          PY
+          pnpm install --no-frozen-lockfile
+      - name: Capture generated source and lockfile
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json,pathlib,subprocess
+          out=pathlib.Path('/tmp/rhea-generated');out.mkdir(exist_ok=True)
+          names=subprocess.check_output(['git','ls-files','--modified','--others','--exclude-standard'],text=True).splitlines()
+          files=[]
+          for n in sorted(set(names)):
+              p=pathlib.Path(n)
+              if p.is_file() and p.suffix in {'.svelte','.ts','.js','.json','.css','.cjs','.mjs','.yaml'}:files.append({'path':n,'content':p.read_text()})
+          (out/'source.json').write_text(json.dumps(files))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-rhea-generated
+          path: /tmp/rhea-generated
+          retention-days: 7
