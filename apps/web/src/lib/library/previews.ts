@@ -14,7 +14,7 @@ import { currentUser } from '$lib/manabi/client';
 import { librarySource, type SourceDescriptor } from './catalog';
 import { sourceBookKey } from './organization';
 import type { DirectoryEntry } from './tree';
-import type { DirectionEvidence } from './direction';
+import { validDirectionEvidence, type DirectionEvidence } from './direction';
 
 export interface Preview {
   key: string;
@@ -55,9 +55,7 @@ function restore(saved: SavedPreview | undefined, key: string, scannedAt: number
     typeof saved.title !== 'string' ||
     !saved.title ||
     saved.title.length > 1000 ||
-    !saved.pageDirection ||
-    !['ltr', 'rtl', 'unknown'].includes(saved.pageDirection.value) ||
-    !['spine', 'content', 'unknown'].includes(saved.pageDirection.source) ||
+    !validDirectionEvidence(saved.pageDirection) ||
     'imagePath' in saved ||
     (saved.imageData === undefined
       ? saved.imageType !== undefined
@@ -97,6 +95,11 @@ async function thumbnail(blob: Blob | undefined): Promise<Blob | undefined> {
     bitmap?.close();
   }
 }
+function checkAccess(source: SourceDescriptor, signal: AbortSignal) {
+  signal.throwIfAborted();
+  if (source.owner !== null && source.owner !== currentUser()?.id)
+    throw new Error('The account changed.');
+}
 async function readPreview(
   source: SourceDescriptor,
   file: DirectoryEntry,
@@ -105,7 +108,7 @@ async function readPreview(
 ): Promise<Preview> {
   const key = sourceBookKey(source, file.id);
   const cached = await (await previewDB()).get('previews', key);
-  signal.throwIfAborted();
+  checkAccess(source, signal);
   const restored = restore(cached, key, scannedAt);
   if (restored) return restored;
   const value: Preview = {
@@ -137,19 +140,20 @@ async function readPreview(
     value.imagePath = await thumbnail(name ? blobs[name] : undefined);
     value.pageDirection = epubDirection(contents, result, document);
   }
-  signal.throwIfAborted();
-  if (source.owner !== null && source.owner !== currentUser()?.id)
-    throw new Error('The account changed.');
-  const db = await previewDB(),
-    tx = db.transaction('previews', 'readwrite');
+  // Blob conversion is asynchronous non-IDB work. Complete it before opening
+  // the transaction, which would otherwise become inactive while awaiting it.
   const imagePath = value.imagePath;
-  await tx.store.put({
+  const saved: SavedPreview = {
     key: value.key,
     scannedAt: value.scannedAt,
     title: value.title,
     pageDirection: value.pageDirection,
     ...(imagePath ? { imageData: await imagePath.arrayBuffer(), imageType: imagePath.type } : {})
-  });
+  };
+  const db = await previewDB();
+  checkAccess(source, signal);
+  const tx = db.transaction('previews', 'readwrite');
+  await tx.store.put(saved);
   let count = await tx.store.count();
   let cursor = await tx.store.index('scannedAt').openCursor();
   while (cursor && count > 500) {
@@ -158,6 +162,7 @@ async function readPreview(
     cursor = await cursor.continue();
   }
   await tx.done;
+  checkAccess(source, signal);
   return value;
 }
 /** Two visible-cover reads at a time; never import books, change progress or enable sync. */

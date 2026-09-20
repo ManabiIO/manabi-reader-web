@@ -5,8 +5,8 @@
  */
 
 import type { Section } from '$lib/data/database/books-db/versions/v4/books-db-v4';
-import type { DirectionEvidence } from '$lib/library/direction';
 import { LimitedArchive, type ArchiveOptions } from './limited-archive';
+import { validDirectionEvidence, type DirectionEvidence } from '$lib/library/direction';
 
 export interface RestoredContent {
   title: string;
@@ -40,12 +40,7 @@ function readMetadata(value: unknown): Omit<RestoredContent, 'blobs' | 'coverIma
   }
   if (typeof value.language === 'string' && value.language.length > 128)
     throw new Error('Invalid restored book language');
-  if (
-    value.pageDirection !== undefined &&
-    (!object(value.pageDirection) ||
-      !['ltr', 'rtl', 'unknown'].includes(value.pageDirection.value as string) ||
-      !['spine', 'content', 'unknown'].includes(value.pageDirection.source as string))
-  )
+  if (value.pageDirection !== undefined && !validDirectionEvidence(value.pageDirection))
     throw new Error('Invalid restored book page direction');
   const sections: Section[] = [];
   if (value.sections !== undefined) {
@@ -95,7 +90,7 @@ function readMetadata(value: unknown): Omit<RestoredContent, 'blobs' | 'coverIma
     ...(value.language === undefined ? {} : { language: value.language as string }),
     ...(value.pageDirection === undefined
       ? {}
-      : { pageDirection: value.pageDirection as unknown as DirectionEvidence })
+      : { pageDirection: value.pageDirection as DirectionEvidence })
   };
 }
 

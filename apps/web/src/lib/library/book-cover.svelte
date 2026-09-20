@@ -35,8 +35,9 @@
         decoding="async"
         referrerpolicy="no-referrer"
         on:load={(event) => {
-          const img = event.currentTarget as HTMLImageElement;
-          if (img.naturalHeight) ratio = img.naturalWidth / img.naturalHeight;
+          const img = event.currentTarget;
+          if (img instanceof HTMLImageElement && img.naturalHeight)
+            ratio = img.naturalWidth / img.naturalHeight;
         }}
         on:error={() => {
           release();
@@ -108,6 +109,9 @@
     border-left: 1px solid #0003;
     background: linear-gradient(90deg, #0004 0%, #fff4 20%, #0003 35%, #0000 100%);
     pointer-events: none;
+  }
+  .cover-stage[data-direction='unknown'] .binding {
+    display: none;
   }
   .right-bound .binding {
     left: auto;

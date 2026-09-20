@@ -16,6 +16,10 @@ import {
 } from './file-operations';
 
 const journalKey = (sourceId: string) => `library-file-operation:${sourceId}`;
+// Share the import admission lock: a read/import of the old path cannot publish
+// its locator after the file was moved. Browser Web Locks also cover other tabs.
+const fileChange = <T>(library: LocalLibrary, work: () => Promise<T>) =>
+  exclusive('import-library-book', () => exclusive(`library-files:${library.id}`, work));
 export async function pendingMoves(): Promise<MovePlan[]> {
   const db = await integrationDB(),
     tx = db.transaction('metadata');
@@ -67,7 +71,7 @@ export async function createLocalSeries(
   name: string,
   files: string[]
 ) {
-  return exclusive(`library-files:${library.id}`, async () => {
+  return fileChange(library, async () => {
     const db = await integrationDB();
     if (await db.get('metadata', journalKey(library.id)))
       throw new Error('Resume the unfinished folder change before starting another.');
@@ -78,7 +82,7 @@ export async function createLocalSeries(
   });
 }
 export async function resumeLocalSeries(library: LocalLibrary) {
-  return exclusive(`library-files:${library.id}`, async () => {
+  return fileChange(library, async () => {
     const plan = (await (await integrationDB()).get('metadata', journalKey(library.id))) as
       | MovePlan
       | undefined;
@@ -86,7 +90,7 @@ export async function resumeLocalSeries(library: LocalLibrary) {
   });
 }
 export async function renameLocalSeries(library: LocalLibrary, path: string, name: string) {
-  return exclusive(`library-files:${library.id}`, async () => {
+  return fileChange(library, async () => {
     if (
       !library.writable ||
       (await library.handle.queryPermission({ mode: 'readwrite' })) !== 'granted'
