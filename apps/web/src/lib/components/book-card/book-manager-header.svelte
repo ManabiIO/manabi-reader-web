@@ -7,7 +7,7 @@
   import * as Menu from '$lib/components/ui/dropdown-menu';
   import AppNav from '$lib/components/navigation/app-nav.svelte';
   import ActionMenu from '$lib/components/navigation/action-menu.svelte';
-  import type { BookCardProps } from './book-card-props';
+  import type { SortOption } from '$lib/data/sort-types';
   import { SortDirection } from '$lib/data/sort-types';
   import { FilesystemStorageHandler } from '$lib/data/storage/handler/filesystem-handler';
   import { getStorageHandler } from '$lib/data/storage/storage-handler-factory';
@@ -26,6 +26,7 @@
   import { inputFile } from '$lib/functions/file-dom/input-file';
   import { isMobile$, isOnOldUrl } from '$lib/functions/utils';
 
+  export let modernLibrary = false;
   export let hasBookOpened: boolean;
   export let selectMode: boolean;
   export let selectedCount: number;
@@ -92,7 +93,7 @@
     booklistSortOptions$.next({
       ...$booklistSortOptions$,
       [$storageSource$]: {
-        property: property as Exclude<keyof BookCardProps, 'imagePath' | 'isPlaceholder'>,
+        property: property as SortOption['property'],
         direction
       }
     });
@@ -141,7 +142,7 @@
 >
   <div class="mx-auto flex h-12 max-w-7xl items-center justify-between gap-2 px-3 sm:px-6">
     <div class="flex min-w-0 items-center gap-3">
-      <h1 class="truncate text-lg font-semibold">Library</h1>
+      <h1 class="truncate font-serif text-3xl font-bold tracking-tight">Library</h1>
       <span class="hidden text-sm text-muted-foreground sm:inline">Manabi Reader</span>
     </div>
     <div class="flex items-center gap-1">
@@ -217,27 +218,29 @@
             >{/each}
         </Menu.RadioGroup>
       </ActionMenu>
-      <ActionMenu label="Sort" title="Select Sort Options">
-        <Menu.Label>Sort books</Menu.Label>
-        <Menu.RadioGroup
-          value={$booklistSortOptions$[$storageSource$].property}
-          onValueChange={(property) =>
-            setSort(property, $booklistSortOptions$[$storageSource$].direction)}
-        >
-          {#each sortItems as item (item.property)}<Menu.RadioItem value={item.property}
-              >{item.label}</Menu.RadioItem
-            >{/each}
-        </Menu.RadioGroup>
-        <Menu.Separator />
-        <Menu.RadioGroup
-          value={String($booklistSortOptions$[$storageSource$].direction)}
-          onValueChange={(direction) =>
-            setSort($booklistSortOptions$[$storageSource$].property, direction as SortDirection)}
-        >
-          <Menu.RadioItem value={String(SortDirection.ASC)}>Ascending</Menu.RadioItem>
-          <Menu.RadioItem value={String(SortDirection.DESC)}>Descending</Menu.RadioItem>
-        </Menu.RadioGroup>
-      </ActionMenu>
+      {#if !modernLibrary}
+        <ActionMenu label="Sort" title="Select Sort Options">
+          <Menu.Label>Sort books</Menu.Label>
+          <Menu.RadioGroup
+            value={$booklistSortOptions$[$storageSource$].property}
+            onValueChange={(property) =>
+              setSort(property, $booklistSortOptions$[$storageSource$].direction)}
+          >
+            {#each sortItems as item (item.property)}<Menu.RadioItem value={item.property}
+                >{item.label}</Menu.RadioItem
+              >{/each}
+          </Menu.RadioGroup>
+          <Menu.Separator />
+          <Menu.RadioGroup
+            value={String($booklistSortOptions$[$storageSource$].direction)}
+            onValueChange={(direction) =>
+              setSort($booklistSortOptions$[$storageSource$].property, direction as SortDirection)}
+          >
+            <Menu.RadioItem value={String(SortDirection.ASC)}>Ascending</Menu.RadioItem>
+            <Menu.RadioItem value={String(SortDirection.DESC)}>Descending</Menu.RadioItem>
+          </Menu.RadioGroup>
+        </ActionMenu>
+      {/if}
       <Button variant="ghost" disabled={!hasBooks} onclick={() => (selectMode = true)}
         >Select books</Button
       >

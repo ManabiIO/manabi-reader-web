@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import type { Completion } from '$lib/library/completion';
+import type { DirectionEvidence } from '$lib/library/direction';
 export interface BookCardProps {
   id: number;
   imagePath: string | Blob;
@@ -14,4 +16,6 @@ export interface BookCardProps {
   progress: number;
   lastBookmarkModified: number;
   isPlaceholder: boolean;
+  completion?: Completion;
+  pageDirection?: DirectionEvidence;
 }

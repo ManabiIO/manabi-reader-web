@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 
+import { validCompletion } from '../library/completion.ts';
 import { isCompletedStatistics } from './completed-statistics.js';
 
 /** Import-only wire validation. No provider credentials or storage bindings enter here. */
@@ -118,10 +119,21 @@ export function bookmark(value: unknown, modified: number): Plain {
   const v = record(value, 'bookmark');
   keys(
     v,
-    ['dataId', 'scrollX', 'scrollY', 'exploredCharCount', 'progress', 'lastBookmarkModified'],
+    [
+      'dataId',
+      'scrollX',
+      'scrollY',
+      'exploredCharCount',
+      'progress',
+      'lastBookmarkModified',
+      'completion'
+    ],
     'bookmark'
   );
+  if (v.completion !== undefined && !validCompletion(v.completion))
+    throw new Error('Invalid book completion metadata.');
   const out: Plain = { lastBookmarkModified: number(v.lastBookmarkModified, 'bookmark timestamp') };
+  if (v.completion !== undefined) out.completion = v.completion;
   if (out.lastBookmarkModified !== modified)
     throw new Error('Bookmark filename and data disagree.');
   for (const key of ['scrollX', 'scrollY', 'exploredCharCount']) {

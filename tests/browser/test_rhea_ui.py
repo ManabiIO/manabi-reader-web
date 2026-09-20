@@ -187,9 +187,9 @@ class RheaReader(previous.RefinedAppearance):
     def test_library_sort_and_export_preserve_all_export_parts(self):
         self.open_book(font='Klee One')
         self.page.goto(self.origin + '/Reader-Web/manage')
-        self.page.get_by_role('button', name='Select Sort Options', exact=True).click()
+        self.page.get_by_role('button', name='Library view options', exact=True).click()
         menu = self.page.get_by_role('menu')
-        for name in ['Added','Title','Characters','Last Update','Last Read','Progress','Bookmarked','Ascending','Descending']:
+        for name in ['Added','Title','Characters','Last Update','Recent','Progress','Bookmarked','Ascending','Descending']:
             expect(menu.get_by_role('menuitemradio', name=name, exact=True)).to_be_visible()
         menu.get_by_role('menuitemradio', name='Title', exact=True).click()
         self.page.get_by_role('button', name='Select books', exact=True).click()
@@ -287,7 +287,7 @@ class RheaReader(previous.RefinedAppearance):
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
             'name':'gallery.epub', 'mimeType':'application/epub+zip', 'buffer':output.getvalue()
         })
-        self.page.get_by_text(TITLE, exact=True).click(timeout=30000)
+        self.page.get_by_role('button', name='Read ' + TITLE, exact=True).click(timeout=30000)
         expect(self.page.locator('.book-content')).to_be_visible(timeout=30000)
         self.wait_for_fonts()
 

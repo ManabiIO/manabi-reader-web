@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { validCompletion } from '$lib/library/completion';
+import { bookKey, sourceBookKey, relocatePresentation } from '$lib/library/organization';
 import { get, writable } from 'svelte/store';
 import { database } from '$lib/data/store';
 import type {
@@ -58,7 +60,7 @@ const statisticFields = [
   'maxReadingSpeed',
   'lastStatisticModified'
 ] as const;
-const allowedBookmark = new Set<string>([...numericBookmark, 'progress']);
+const allowedBookmark = new Set<string>([...numericBookmark, 'progress', 'completion']);
 
 function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -96,6 +98,8 @@ function validateState(value: unknown, hash: string): ReadingState {
       )
         throw new IntegrationError('invalid_response');
     }
+    if (value.bookmark.completion !== undefined && !validCompletion(value.bookmark.completion))
+      throw new IntegrationError('invalid_response');
     const progress = value.bookmark.progress;
     if (
       progress !== undefined &&
@@ -156,7 +160,7 @@ function compact(
   const result = empty(hash);
   if (bookmark) {
     result.bookmark = {};
-    for (const key of [...numericBookmark, 'progress'] as const) {
+    for (const key of [...numericBookmark, 'progress', 'completion'] as const) {
       if (bookmark[key] !== undefined) result.bookmark[key] = bookmark[key];
     }
   }
@@ -205,8 +209,20 @@ export async function importLibraryBook(
       JSON.stringify([source.owner, source.id, source.root, item.id, contentHash])
     );
     const integration = await integrationDB();
-    const existing = await integration.get('books', id);
-    if (existing && (await database.getData(existing.bookId))) return existing;
+    const existing =
+      (await integration.get('books', id)) ??
+      (await integration.getAll('books')).find(
+        (link) =>
+          link.owner === source.owner &&
+          link.sourceId === source.id &&
+          link.root === source.root &&
+          link.fileId === item.id &&
+          link.contentHash === contentHash
+      );
+    if (existing && (await database.getData(existing.bookId))) {
+      await relocatePresentation(sourceBookKey(source, item.id), bookKey(existing.bookId));
+      return existing;
+    }
     const same = (await integration.getAll('books')).find(
       (book) => book.contentHash === contentHash && book.owner === source.owner
     );
@@ -246,6 +262,7 @@ export async function importLibraryBook(
       syncEnabled
     };
     await integration.put('books', link);
+    await relocatePresentation(sourceBookKey(source, item.id), bookKey(stored.id));
     getStorageHandler(window, StorageKey.BROWSER).clearData();
     storageSource$.next(StorageKey.BROWSER);
     database.dataListChanged$.next(undefined);

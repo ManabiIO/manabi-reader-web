@@ -107,7 +107,7 @@ class LocalLibraryBrowser(unittest.TestCase):
         expect(self.page.get_by_role('button', name='Browse Fixture books')).to_have_count(0)
         self.assertEqual(CONTENT, self.original())
         self.page.get_by_role('link', name='← Books', exact=True).click()
-        expect(self.page.get_by_text('local-book', exact=True)).to_be_visible()
+        expect(self.page.get_by_role('button', name='Read local-book', exact=True)).to_be_visible()
 
     def test_real_handle_reload_writeback_and_external_conflict(self):
         self.seed(True)

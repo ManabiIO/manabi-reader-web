@@ -123,7 +123,7 @@ class ReaderBrowser(unittest.TestCase):
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files(
             {'name': 'acceptance.epub', 'mimeType': 'application/epub+zip', 'buffer': epub()})
-        self.page.get_by_text(TITLE, exact=True).click(timeout=30000)
+        self.page.get_by_role('button', name='Read ' + TITLE, exact=True).click(timeout=30000)
         expect(self.page.locator('.book-content')).to_be_visible(timeout=30000)
         self.page.wait_for_function(
             '() => document.querySelector(".book-content ruby rt")?.textContent === "ほん"'

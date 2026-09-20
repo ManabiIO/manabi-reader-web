@@ -14,7 +14,9 @@ export default async function getEpubCoverImageFilename(
     ? contents['opf:package']['opf:manifest']['opf:item']
     : contents.package.manifest.item;
 
-  const itemByProperty = manifestItem.find((item) => item['@_properties'] === 'cover-image');
+  const itemByProperty = manifestItem.find((item) =>
+    item['@_properties']?.split(/\s+/).includes('cover-image')
+  );
 
   if (itemByProperty && (await coverValidated(blobData[itemByProperty['@_href']]))) {
     return itemByProperty['@_href'];
