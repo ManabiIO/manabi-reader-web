@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AudiobookLauncher from '$lib/features/whispersync/audiobook-launcher.svelte'
   import * as Sheet from '$lib/components/ui/sheet';
   import { setCompletion } from '$lib/library/commands';
   import { readerUIOwnsEvent } from '$lib/functions/reader-ui-events';
@@ -370,6 +371,10 @@
         document,
         $viewMode$ === ViewMode.Paginated,
         $hideSpoilerImageMode$
+      ).pipe(
+        // Keep audiobook identity paired with the HTML that actually finished
+        // loading. Raw metadata can advance before the rendered book does.
+        map((data) => ({ ...data, bookId: rawBookData.id, bookTitle: rawBookData.title }))
       );
     }),
     shareReplay({ refCount: true, bufferSize: 1 })
@@ -1841,6 +1846,18 @@
       aria-expanded={showFooter}
       on:click={() => (showFooter = !showFooter)}>Progress</button
     >
+    {#if $bookData$ && $bookData$.bookId === $bookId$}
+      {#key JSON.stringify([$bookData$.bookId, $bookData$.bookTitle])}
+        <AudiobookLauncher
+          bookId={$bookData$.bookId}
+          bookTitle={$bookData$.bookTitle}
+          htmlContent={$bookData$.htmlContent}
+          layoutKey={$viewMode$}
+          {bookmarkManager}
+          onFollow={() => autoScroller?.off()}
+        />
+      {/key}
+    {/if}
     {#if showTrackerIcon}
       <button
         type="button"

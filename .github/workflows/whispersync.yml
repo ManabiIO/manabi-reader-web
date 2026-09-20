@@ -1,0 +1,66 @@
+name: Audiobook regression tests
+on:
+  pull_request:
+    paths:
+      - 'apps/web/src/lib/features/whispersync/**'
+      - 'apps/web/src/routes/b/**'
+      - 'apps/web/src/lib/components/book-reader/**'
+      - 'apps/web/src/lib/components/ui/sheet/**'
+      - 'test/whispersync/**'
+      - 'package.json'
+      - 'apps/web/package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/whispersync.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/web/src/lib/features/whispersync/**'
+      - 'apps/web/src/routes/b/**'
+      - 'apps/web/src/lib/components/book-reader/**'
+      - 'apps/web/src/lib/components/ui/sheet/**'
+      - 'test/whispersync/**'
+      - 'package.json'
+      - 'apps/web/package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/whispersync.yml'
+permissions:
+  contents: read
+concurrency:
+  group: audiobook-tests-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  audiobook:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pnpm install --frozen-lockfile
+      - name: Core, orchestration, storage queue and Svelte compilation
+        run: |
+          mkdir -p test-results/whispersync
+          set -o pipefail
+          node test/whispersync/run.mjs --svelte --browser-bundle=test-results/whispersync/bundle.js 2>&1 | tee test-results/whispersync/unit.log
+      - name: Real Chromium DOM, local media and IndexedDB
+        run: |
+          python -m pip install 'playwright==1.55.0'
+          python -m playwright install --with-deps chromium
+          set -o pipefail
+          python test/whispersync/browser.py test-results/whispersync/bundle.js 2>&1 | tee test-results/whispersync/browser.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: audiobook-regression-results
+          path: test-results/whispersync/
+          retention-days: 7
