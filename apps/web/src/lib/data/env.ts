@@ -10,8 +10,12 @@ import { base } from '$app/paths';
 export const basePath = import.meta.env.VITE_BASE_PATH || 'https://manabi.io';
 export const pagePath = base;
 export const clearConsoleOnReload = !!import.meta.env.VITE_CLEAR_ON_RELOAD || false;
-// Preserve existing storage formats/names for upstream backup compatibility.
-export const storageRootName = import.meta.env.VITE_STORAGE_ROOT_NAME || 'ttu-reader-data';
+// This root belongs only to the legacy TTU-compatible storage engine.
+// Manabi-native local folders use the chosen folder directly plus .manabi-reader metadata.
+export const ttuCompatibilityRootName =
+  import.meta.env.VITE_TTU_COMPATIBILITY_ROOT_NAME ||
+  import.meta.env.VITE_STORAGE_ROOT_NAME ||
+  'ttu-reader-data';
 export const gDriveAuthEndpoint =
   import.meta.env.VITE_GDRIVE_AUTH_ENDPOINT || 'https://accounts.google.com/o/oauth2/v2/auth';
 export const gDriveTokenEndpoint =
