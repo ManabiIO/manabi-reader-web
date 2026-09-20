@@ -247,7 +247,8 @@ class RheaReader(previous.RefinedAppearance):
         expect(dialog).to_have_count(0)
         expect(self.page.get_by_role('button', name='Export', exact=True)).to_be_visible()
         self.page.get_by_role('button', name='Cancel selection', exact=True).click()
-        self.page.get_by_role('button', name='Add books', exact=True).click()
+        self.page.get_by_role('button', name='Library actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Add Books', exact=True).click()
         for name in ['Import File(s)','Import Folder(s)','Import Backup','Import from Ttu Ebook Reader']:
             expect(self.page.get_by_role('menuitem', name=name, exact=True)).to_be_visible()
         self.page.keyboard.press('Escape')
