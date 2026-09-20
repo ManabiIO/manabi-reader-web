@@ -45,16 +45,34 @@ class ReadingRecoveryBrowser(LocalLibraryBrowser):
     def article(self):
         return self.page.locator('article[aria-label="Reading sync for local-book"]')
 
+    def settled(self):
+        # A previous operation may already say "Saved". Do not mistake that old
+        # status for completion of the new asynchronous import or sync operation.
+        expect(self.page.get_by_role('button',name='Refresh connections')).to_be_enabled()
+
+    def sync_now(self):
+        self.article().get_by_role('button',name='Sync local-book',exact=True).click()
+        self.settled()
+
+    def restore(self):
+        self.article().get_by_role('button',name='Keep this device’s reading data',exact=True).click()
+        self.settled()
+        expect(self.article().get_by_role('status')).to_contain_text('Saved to this folder')
+
     def synced_history(self):
         self.seed(True)
         self.import_book()
+        self.settled()
         # First import has no bookmark, no remote file, and an empty baseline.
         # First real reading must still be able to create its initial remote file.
         self.seed_history()
-        self.article().get_by_role('button',name='Sync local-book',exact=True).click()
+        seeded=self.local_history()
+        self.assertEqual(30,seeded['bookmarks'][0]['exploredCharCount'])
+        self.sync_now()
         expect(self.article().get_by_role('status')).to_contain_text('Saved to this folder')
         self.assertTrue(self.documents())
-        return self.local_history()
+        self.assertEqual(seeded,self.local_history())
+        return seeded
 
     def test_missing_remote_history_is_preserved_across_reload_and_explicitly_restored(self):
         before=self.synced_history()
@@ -64,17 +82,15 @@ class ReadingRecoveryBrowser(LocalLibraryBrowser):
           await folder.removeEntry('.manabi-reader',{recursive:true});
         }''')
         for _ in range(2):
-            self.article().get_by_role('button',name='Sync local-book',exact=True).click()
+            self.sync_now()
             expect(self.article().get_by_role('status')).to_contain_text('reading-data file is missing')
             self.assertEqual(before,self.local_history())
             self.assertEqual([],self.documents())
-            # There is no remote version to select and no destructive empty reset.
             expect(self.article().get_by_role('button',name='Use the library’s reading data',exact=True)).to_have_count(0)
             self.page.reload()
-            expect(self.page.get_by_role('button',name='Refresh connections')).to_be_enabled()
-        self.article().get_by_role('button',name='Sync local-book',exact=True).click()
-        self.article().get_by_role('button',name='Keep this device’s reading data',exact=True).click()
-        expect(self.article().get_by_role('status')).to_contain_text('Saved to this folder')
+            self.settled()
+        self.sync_now()
+        self.restore()
         self.assertEqual(before,self.local_history())
         documents=self.documents()
         self.assertEqual(1,len(documents))
@@ -101,7 +117,7 @@ class ReadingRecoveryBrowser(LocalLibraryBrowser):
               createdAt:new Date().toISOString(),value}));await writer.close();
           }
         }''')
-        self.article().get_by_role('button',name='Sync local-book',exact=True).click()
+        self.sync_now()
         expect(self.article().get_by_role('status')).to_contain_text('Saved to this folder')
         self.assertEqual({'bookmarks':[],'statistics':[]},self.local_history())
         self.assertEqual(CONTENT,self.original())
@@ -116,10 +132,9 @@ class ReadingRecoveryBrowser(LocalLibraryBrowser):
             tx.objectStore('bookmark').clear();tx.objectStore('statistic').clear();
             tx.oncomplete=()=>{db.close();resolve();};};});
         }''')
-        self.article().get_by_role('button',name='Sync local-book',exact=True).click()
+        self.sync_now()
         expect(self.article().get_by_role('status')).to_contain_text('reading-data file is missing')
-        self.article().get_by_role('button',name='Keep this device’s reading data',exact=True).click()
-        expect(self.article().get_by_role('status')).to_contain_text('Saved to this folder')
+        self.restore()
         documents=self.documents()
         self.assertEqual(1,len(documents))
         self.assertIsNone(documents[0]['value']['bookmark'])
