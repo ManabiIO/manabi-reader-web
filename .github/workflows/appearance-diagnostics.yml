@@ -1,0 +1,95 @@
+name: Isolate appearance browser failures
+on:
+  push:
+    branches: [research/appearance-diagnostics-20260919]
+permissions:
+  contents: read
+jobs:
+  diagnostic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pnpm install --frozen-lockfile
+      - name: Add observation-only worker stage tracing
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          p=pathlib.Path('apps/web/src/lib/service-worker/reader-service-worker.mjs')
+          s=p.read_text()
+          s='globalThis.__fontTrace = [];\n'+s
+          for old,new in [
+            ('async function readPackagedFont(request, key) {', 'async function readPackagedFont(request, key) {\n    globalThis.__fontTrace.push([key, "enter", Date.now()]);'),
+            ('const cached = await cache.match(key);', 'globalThis.__fontTrace.push([key, "opened", Date.now()]);\n      const cached = await cache.match(key);\n      globalThis.__fontTrace.push([key, "matched", Boolean(cached), Date.now()]);'),
+            ('const response = await worker.fetch(request);', 'globalThis.__fontTrace.push([request.url, "fetch-start", Date.now()]);\n    const response = await worker.fetch(request);\n    globalThis.__fontTrace.push([request.url, "fetch-headers", response.status, Date.now()]);'),
+            ('await cache.put(key, response.clone());', 'globalThis.__fontTrace.push([key, "put-start", Date.now()]);\n        await cache.put(key, response.clone());\n        globalThis.__fontTrace.push([key, "put-done", Date.now()]);')]:
+            assert old in s
+            s=s.replace(old,new)
+          p.write_text(s)
+          PY
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - run: pnpm build
+        env:
+          BASE_PATH: /Reader-Web
+      - name: Observe failing scenarios without suppressing their diagnostics
+        run: |
+          python -m pip install 'playwright==1.63.0'
+          python -m playwright install --with-deps webkit chromium
+          mkdir -p diagnostics
+          cat > tests/browser/observe_appearance.py <<'PY'
+          import json, os
+          from pathlib import Path
+          from test_appearance_refinement import RefinedAppearance
+          os.environ['APPEARANCE_BROWSER']='webkit'
+          RefinedAppearance.setUpClass()
+          try:
+            for method in ['test_continuous_horizontal_system_font_and_saved_explicit_font','test_legacy_night_theme_and_custom_theme_are_not_reset']:
+              for attempt in range(2):
+                test=RefinedAppearance(method)
+                test.setUp()
+                test.context.add_init_script('''window.__nativeErrors=[];
+                  addEventListener('error', e => __nativeErrors.push({kind:'error',message:e.message,file:e.filename,line:e.lineno,error:String(e.error)}));
+                  addEventListener('unhandledrejection', e => __nativeErrors.push({kind:'rejection',reason:String(e.reason)}));''')
+                result={'test':method,'attempt':attempt}
+                try:
+                  getattr(test,method)()
+                  result['assertions']='passed'
+                except Exception as error:
+                  result['assertions']=str(error)
+                try:
+                  result['fontReady']=test.page.evaluate('''async () => {
+                    let timer;
+                    try { return await Promise.race([document.fonts.ready.then(()=>true), new Promise(r => timer=setTimeout(()=>r(false),5000))]); }
+                    finally {clearTimeout(timer);}
+                  }''')
+                  result['document']=test.page.evaluate('''() => ({url:location.href, fonts:[...document.fonts].filter(f=>f.status!=='unloaded').map(f=>({family:f.family,status:f.status})), errors:window.__nativeErrors, control:Boolean(navigator.serviceWorker.controller)})''')
+                  result['workers']=[w.evaluate('globalThis.__fontTrace') for w in test.context.service_workers]
+                  result['pageErrors']=test.errors
+                  result['network']=test.network
+                  print(json.dumps({k:v for k,v in result.items() if k!='network'}),flush=True)
+                finally:
+                  Path('diagnostics', method+'-'+str(attempt)+'.json').write_text(json.dumps(result,indent=2))
+                  test.context.close()
+                  test.doCleanups()
+          finally:
+            RefinedAppearance.tearDownClass()
+          PY
+          python tests/browser/observe_appearance.py | tee diagnostics/results.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: appearance-diagnostics
+          path: diagnostics/
+          retention-days: 7
