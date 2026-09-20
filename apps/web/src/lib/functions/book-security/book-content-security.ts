@@ -5,6 +5,7 @@
  */
 
 import createDOMPurify from 'dompurify';
+import { normalizeLegacyTextCombine } from './legacy-writing-mode-compat';
 
 const MAX_HTML_CHARACTERS = 32 * 1024 * 1024;
 const MAX_CSS_CHARACTERS = 4 * 1024 * 1024;
@@ -260,7 +261,7 @@ function cleanDeclarations(style: CSSStyleDeclaration): string {
 export function sanitizeBookInlineStyle(css: string, document: Document): string {
   if (css.length > 16384) return '';
   const style = document.createElement('span').style;
-  style.cssText = css;
+  style.cssText = normalizeLegacyTextCombine(css);
   return cleanDeclarations(style);
 }
 
@@ -279,7 +280,7 @@ export function sanitizeBookStyleSheet(css: string, document: Document, scope?: 
     return '';
   }
   const sheet = new constructor();
-  sheet.replaceSync(css);
+  sheet.replaceSync(normalizeLegacyTextCombine(css));
   if (sheet.cssRules.length > MAX_CSS_RULES) throw new Error('Book stylesheet has too many rules');
   const result: string[] = [];
   for (const rule of Array.from(sheet.cssRules)) {
