@@ -113,7 +113,8 @@ class MigrationBrowser(unittest.TestCase):
                 };tx.oncomplete=()=>{db.close();resolve();};tx.onerror=()=>reject(tx.error);
               };
             })''', STAMP)
-            page.get_by_role('button', name='Select books', exact=True).click()
+            page.get_by_role('button', name='Library actions', exact=True).click()
+            page.get_by_role('menuitem', name='Select Books', exact=True).click()
             page.get_by_role('button', name='Select all', exact=True).click()
             page.get_by_role('button', name='Export', exact=True).click()
             page.get_by_role('button', name='Zip File', exact=True).click()
