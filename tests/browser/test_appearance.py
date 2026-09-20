@@ -41,11 +41,17 @@ class AppearanceBrowser(baseline.ReaderBrowser):
     def scheme(self):
         return self.page.locator('html').evaluate('e => getComputedStyle(e).colorScheme')
 
-    def upload(self, target, color):
-        self.page.locator('#background-' + target).set_input_files({'name': target + '.png', 'mimeType': 'image/png', 'buffer': png(color)})
-        expect(self.page.get_by_text(target + '.png', exact=True)).to_be_visible()
-        expect(self.page.get_by_text('Preparing image…', exact=True)).to_have_count(0)
-
+    def upload(self, target, color, mode='light', name=None):
+        filename = name or f'{target}-{mode}.png'
+        slot = self.page.locator(f'#background-{target}-{mode}')
+        slot.set_input_files({
+            'name': filename,
+            'mimeType': 'image/png',
+            'buffer': png(color)
+        })
+        section = self.page.locator(f'section:has(#background-{target}-{mode})')
+        expect(section.get_by_text(filename, exact=True)).to_be_visible()
+        expect(section.get_by_text('Preparing image…', exact=True)).to_have_count(0)
     def test_default_modes_and_persistence(self):
         self.page.emulate_media(color_scheme='dark')
         self.settings()
@@ -122,8 +128,10 @@ class AppearanceBrowser(baseline.ReaderBrowser):
     def test_backgrounds_are_independent_persistent_cover_and_mode_aware(self):
         self.settings()
         self.page.get_by_text('Background images', exact=True).click()
-        self.upload('library', [180, 40, 30])
-        self.upload('reader', [30, 70, 180])
+        self.upload('library', [180, 40, 30], 'light')
+        self.upload('library', [30, 150, 70], 'dark')
+        self.upload('reader', [190, 140, 30], 'light')
+        self.upload('reader', [30, 70, 180], 'dark')
         self.mode('Dark')
         self.page.locator('#fade-library').focus()
         self.page.keyboard.press('Home')
@@ -133,67 +141,175 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         self.page.keyboard.press('Home')
         for _ in range(25):
             self.page.keyboard.press('ArrowRight')
+
         self.page.goto(self.origin + '/Reader-Web/manage')
         background = self.page.locator('[data-background="library"]')
-        expect(background).to_have_count(1)
-        style = background.evaluate('e => ({size:getComputedStyle(e).backgroundSize, fade:getComputedStyle(e,"::after").backgroundColor, pointer:getComputedStyle(e).pointerEvents})')
-        self.assertEqual({'size':'cover','fade':'rgba(0, 0, 0, 0.65)','pointer':'none'}, style)
+        expect(background).to_have_attribute('data-background-mode', 'dark')
+        style = background.evaluate(
+            'e => ({size:getComputedStyle(e).backgroundSize, '
+            'fade:getComputedStyle(e,"::after").backgroundColor, '
+            'pointer:getComputedStyle(e).pointerEvents})'
+        )
+        self.assertEqual(
+            {'size':'cover','fade':'rgba(0, 0, 0, 0.65)','pointer':'none'},
+            style
+        )
         self.page.screenshot(path='test-results/appearance-library-background.png', full_page=True)
+
         self.open_book()
-        expect(self.page.locator('[data-background="reader"]')).to_have_count(1)
-        self.assertEqual('rgba(0, 0, 0, 0.25)', self.page.locator('.page-background').evaluate('e => getComputedStyle(e,"::after").backgroundColor'))
-        self.page.screenshot(path='test-results/appearance-reader-background.png', full_page=True)
+        reader_background = self.page.locator('[data-background="reader"]')
+        expect(reader_background).to_have_attribute('data-background-mode', 'dark')
+        self.assertEqual(
+            'rgba(0, 0, 0, 0.25)',
+            reader_background.evaluate('e => getComputedStyle(e,"::after").backgroundColor')
+        )
         self.page.reload()
         expect(self.page.locator('.book-content')).to_be_visible(timeout=30000)
-        expect(self.page.locator('[data-background="reader"]')).to_have_count(1)
+        expect(self.page.locator('[data-background="reader"]')).to_have_attribute(
+            'data-background-mode', 'dark'
+        )
+
         self.settings()
         expect(self.page.locator('.page-background')).to_have_count(0)
         self.page.get_by_text('Background images', exact=True).click()
         self.mode('Light')
-        self.assertEqual('rgba(255, 255, 255, 0.25)', self.page.locator('fieldset:has(#background-reader) .background-preview').evaluate('e => getComputedStyle(e,"::after").backgroundColor'))
-        self.page.get_by_role('button', name='Remove book browser background', exact=True).click()
-        expect(self.page.get_by_text('library.png', exact=True)).to_have_count(0)
-        expect(self.page.get_by_text('reader.png', exact=True)).to_be_visible()
-        self.page.goto(self.origin + '/Reader-Web/manage')
-        expect(self.page.locator('.page-background')).to_have_count(0)
+        light_preview = self.page.locator(
+            'section:has(#background-reader-light) .background-preview'
+        )
+        dark_preview = self.page.locator(
+            'section:has(#background-reader-dark) .background-preview'
+        )
+        self.assertEqual(
+            'rgba(255, 255, 255, 0.25)',
+            light_preview.evaluate('e => getComputedStyle(e,"::after").backgroundColor')
+        )
+        self.assertEqual(
+            'rgba(0, 0, 0, 0.25)',
+            dark_preview.evaluate('e => getComputedStyle(e,"::after").backgroundColor')
+        )
 
+        # Removing one mode must leave the other mode intact.
+        self.page.get_by_role(
+            'button', name='Remove dark book browser background', exact=True
+        ).click()
+        expect(
+            self.page.locator('section:has(#background-library-dark)').get_by_text(
+                'library-dark.png', exact=True
+            )
+        ).to_have_count(0)
+        expect(
+            self.page.locator('section:has(#background-library-light)').get_by_text(
+                'library-light.png', exact=True
+            )
+        ).to_be_visible()
+
+        self.mode('Dark')
+        self.page.goto(self.origin + '/Reader-Web/manage')
+        expect(self.page.locator('[data-background="library"]')).to_have_count(0)
+        self.settings()
+        self.mode('Light')
+        self.page.goto(self.origin + '/Reader-Web/manage')
+        expect(self.page.locator('[data-background="library"]')).to_have_attribute(
+            'data-background-mode', 'light'
+        )
+
+        # "Remove both" clears both mode slots for one surface at once.
+        self.settings()
+        self.page.get_by_text('Background images', exact=True).click()
+        self.page.get_by_role(
+            'button', name='Remove both book reader background images', exact=True
+        ).click()
+        expect(
+            self.page.locator('section:has(#background-reader-light)').get_by_text(
+                'reader-light.png', exact=True
+            )
+        ).to_have_count(0)
+        expect(
+            self.page.locator('section:has(#background-reader-dark)').get_by_text(
+                'reader-dark.png', exact=True
+            )
+        ).to_have_count(0)
     def test_invalid_upload_keeps_previous_image_and_fade_can_be_disabled(self):
         self.settings()
         self.page.get_by_text('Background images', exact=True).click()
-        self.upload('library', [40, 150, 80])
-        self.page.locator('#background-library').set_input_files({'name':'bad.svg','mimeType':'image/svg+xml','buffer': b'<svg/>'})
-        expect(self.page.get_by_role('alert')).to_contain_text('PNG, JPEG, or WebP')
-        expect(self.page.get_by_text('library.png', exact=True)).to_be_visible()
-        self.page.locator('fieldset:has(#background-library)').get_by_role('checkbox', name='Fade background').uncheck()
+        self.upload('library', [40, 150, 80], 'light')
+        self.page.locator('#background-library-light').set_input_files({
+            'name':'bad.svg',
+            'mimeType':'image/svg+xml',
+            'buffer': b'<svg/>'
+        })
+        light = self.page.locator('section:has(#background-library-light)')
+        expect(light.get_by_role('alert')).to_contain_text('PNG, JPEG, or WebP')
+        expect(light.get_by_text('library-light.png', exact=True)).to_be_visible()
+        self.page.locator(
+            'fieldset:has(#background-library-light)'
+        ).get_by_role('checkbox', name='Fade background').uncheck()
+        self.mode('Light')
         self.page.goto(self.origin + '/Reader-Web/manage')
-        self.assertEqual('rgba(255, 255, 255, 0)', self.page.locator('.page-background').evaluate('e => getComputedStyle(e,"::after").backgroundColor'))
-        self.assertFalse(self.page.evaluate('Object.values(localStorage).some(v => v.startsWith("data:image"))'))
-
+        self.assertEqual(
+            'rgba(255, 255, 255, 0)',
+            self.page.locator('.page-background').evaluate(
+                'e => getComputedStyle(e,"::after").backgroundColor'
+            )
+        )
+        self.assertFalse(
+            self.page.evaluate('Object.values(localStorage).some(v => v.startsWith("data:image"))')
+        )
     def test_system_changes_do_not_remount_or_repaginate_the_book(self):
         self.page.emulate_media(color_scheme='light')
+        self.settings()
+        self.page.get_by_text('Background images', exact=True).click()
+        self.upload('reader', [230, 210, 180], 'light')
+        self.upload('reader', [20, 30, 60], 'dark')
+        self.mode('System')
         self.open_book()
-        self.page.locator('.book-content').evaluate('e => {e.dataset.appearanceSentinel = "same"}')
+        background = self.page.locator('[data-background="reader"]')
+        expect(background).to_have_attribute('data-background-mode', 'light')
+        light_image = background.evaluate('e => getComputedStyle(e).backgroundImage')
+
+        self.page.locator('.book-content').evaluate(
+            'e => {e.dataset.appearanceSentinel = "same"}'
+        )
         size = self.page.locator('.book-content').evaluate('e => [e.scrollWidth, e.scrollHeight]')
         self.page.emulate_media(color_scheme='dark')
-        self.page.wait_for_function('() => getComputedStyle(document.documentElement).colorScheme === "dark"')
-        expect(self.page.locator('.book-content')).to_have_attribute('data-appearance-sentinel','same')
-        self.assertEqual(size, self.page.locator('.book-content').evaluate('e => [e.scrollWidth, e.scrollHeight]'))
-        self.assertEqual('rgb(0, 0, 0)', self.page.locator('body').evaluate('e => getComputedStyle(e).backgroundColor'))
-
+        self.page.wait_for_function(
+            '() => getComputedStyle(document.documentElement).colorScheme === "dark"'
+        )
+        expect(background).to_have_attribute('data-background-mode', 'dark')
+        dark_image = background.evaluate('e => getComputedStyle(e).backgroundImage')
+        self.assertNotEqual(light_image, dark_image)
+        expect(self.page.locator('.book-content')).to_have_attribute(
+            'data-appearance-sentinel','same'
+        )
+        self.assertEqual(
+            size,
+            self.page.locator('.book-content').evaluate('e => [e.scrollWidth, e.scrollHeight]')
+        )
+        self.assertEqual(
+            'rgb(0, 0, 0)',
+            self.page.locator('body').evaluate('e => getComputedStyle(e).backgroundColor')
+        )
     def test_offline_background_reload_and_mobile_layout(self):
         self.page.set_viewport_size({'width':390, 'height':844})
         self.settings()
         self.page.get_by_text('Background images', exact=True).click()
-        self.upload('library', [100, 60, 150])
+        self.upload('library', [100, 60, 150], 'light')
+        self.mode('Light')
         self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), 390)
         self.page.goto(self.origin + '/Reader-Web/manage')
         self.page.evaluate('navigator.serviceWorker.ready')
         self.page.wait_for_function('() => navigator.serviceWorker.controller !== null')
         self.go_offline()
         self.page.reload()
-        expect(self.page.locator('[data-background="library"]')).to_have_count(1)
-        self.assertEqual('cover', self.page.locator('.page-background').evaluate('e => getComputedStyle(e).backgroundSize'))
-
+        expect(self.page.locator('[data-background="library"]')).to_have_attribute(
+            'data-background-mode', 'light'
+        )
+        self.assertEqual(
+            'cover',
+            self.page.locator('.page-background').evaluate(
+                'e => getComputedStyle(e).backgroundSize'
+            )
+        )
 
 if __name__ == '__main__':
     Path('test-results').mkdir(exist_ok=True)

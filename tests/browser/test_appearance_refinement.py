@@ -95,25 +95,37 @@ class RefinedAppearance(previous.AppearanceBrowser):
         self.mode('Dark')
         expect(reader.locator('html')).to_have_attribute('data-appearance', 'dark')
         self.page.get_by_text('Background images', exact=True).click()
-        self.upload('reader', [100, 40, 150])
-        expect(reader.locator('[data-background="reader"]')).to_have_count(1)
+        self.upload('reader', [100, 40, 150], 'dark')
+        expect(reader.locator('[data-background="reader"]')).to_have_attribute(
+            'data-background-mode', 'dark'
+        )
         self.page.locator('#fade-reader').focus()
         self.page.keyboard.press('End')
-        reader.wait_for_function('() => getComputedStyle(document.querySelector(".page-background"), "::after").backgroundColor === "rgb(0, 0, 0)"')
-        self.page.locator('fieldset:has(#background-reader)').get_by_role('checkbox', name='Fade background').uncheck()
-        reader.wait_for_function('() => getComputedStyle(document.querySelector(".page-background"), "::after").backgroundColor === "rgba(0, 0, 0, 0)"')
+        reader.wait_for_function(
+            '() => getComputedStyle(document.querySelector(".page-background"), '
+            '"::after").backgroundColor === "rgb(0, 0, 0)"'
+        )
+        self.page.locator(
+            'fieldset:has(#background-reader-dark)'
+        ).get_by_role('checkbox', name='Fade background').uncheck()
+        reader.wait_for_function(
+            '() => getComputedStyle(document.querySelector(".page-background"), '
+            '"::after").backgroundColor === "rgba(0, 0, 0, 0)"'
+        )
         self.page.get_by_role('button', name='Add custom theme', exact=True).click()
         self.page.get_by_placeholder('Theme Name', exact=True).fill('Midnight notes')
         self.page.get_by_role('button', name='Save', exact=True).click()
         expect(reader.locator('html')).to_have_attribute('data-theme', 'custom')
         self.page.get_by_role('button', name='Edit Midnight notes theme', exact=True).click()
-        self.page.get_by_label('Font color', exact=True).evaluate('e => {e.value = "#ffeecc"; e.dispatchEvent(new Event("change", {bubbles: true}));}')
+        self.page.get_by_label('Font color', exact=True).evaluate(
+            'e => {e.value = "#ffeecc"; '
+            'e.dispatchEvent(new Event("change", {bubbles: true}));}'
+        )
         self.page.get_by_label('Font opacity', exact=True).fill('1')
         self.page.get_by_role('button', name='Save', exact=True).click()
         expect(reader.locator('.book-content')).to_have_css('color', 'rgb(255, 238, 204)')
         expect(reader.locator('.book-content')).to_have_attribute('data-retained', 'yes')
         reader.close()
-
     def test_damaged_optional_palette_does_not_break_startup_or_override(self):
         self.settings()
         for raw in ['{invalid', 'null', '[]', '42']:
@@ -143,37 +155,115 @@ class RefinedAppearance(previous.AppearanceBrowser):
         self.assertIsNone(other.evaluate('localStorage.getItem("appearance")'))
         other.close()
 
+    def test_released_single_background_migrates_lazily_to_two_mode_slots(self):
+        legacy = list(previous.png([70, 110, 160], 80, 60))
+        self.settings()
+        self.page.evaluate('''async (bytes) => {
+          const db = await new Promise((resolve, reject) => {
+            const request = indexedDB.open('manabi-reader-appearance', 1);
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          await new Promise((resolve, reject) => {
+            const tx = db.transaction('backgrounds', 'readwrite');
+            tx.objectStore('backgrounds').put({
+              name: 'legacy.png',
+              revision: 'released-single-image',
+              blob: new Blob([Uint8Array.from(bytes)], {type:'image/png'})
+            }, 'reader');
+            tx.oncomplete = resolve;
+            tx.onabort = () => reject(tx.error);
+          });
+          db.close();
+        }''', legacy)
+        self.settings(reload=True)
+        self.page.get_by_text('Background images', exact=True).click()
+        expect(self.page.get_by_text('legacy.png', exact=True)).to_have_count(2)
+
+        self.page.get_by_role(
+            'button', name='Remove light book reader background', exact=True
+        ).click()
+        expect(
+            self.page.locator('section:has(#background-reader-light)').get_by_text(
+                'legacy.png', exact=True
+            )
+        ).to_have_count(0)
+        expect(
+            self.page.locator('section:has(#background-reader-dark)').get_by_text(
+                'legacy.png', exact=True
+            )
+        ).to_be_visible()
+        stored = self.page.evaluate('''async () => {
+          const db = await new Promise((resolve, reject) => {
+            const request = indexedDB.open('manabi-reader-appearance', 1);
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          const tx = db.transaction('backgrounds', 'readonly');
+          const value = await new Promise((resolve, reject) => {
+            const request = tx.objectStore('backgrounds').get('reader');
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          db.close();
+          return {
+            hasLight: Object.prototype.hasOwnProperty.call(value, 'light') && !!value.light,
+            darkName: value.dark?.name
+          };
+        }''')
+        self.assertEqual({'hasLight': False, 'darkName': 'legacy.png'}, stored)
+
+        self.page.get_by_role(
+            'button', name='Remove both book reader background images', exact=True
+        ).click()
+        expect(self.page.get_by_text('legacy.png', exact=True)).to_have_count(0)
+
     def test_corrupt_persisted_image_is_recoverable_and_never_published(self):
         self.settings()
         self.page.get_by_text('Background images', exact=True).click()
-        self.upload('library', [40, 100, 160])
-        # Defensive damaged-record case, not a mocked decoder or IndexedDB.
+        self.upload('library', [40, 100, 160], 'light')
+        # Defensive released-schema damaged record: one image used by both modes.
         self.page.evaluate('''async () => {
           const db = await new Promise((resolve, reject) => {
-            const r = indexedDB.open('manabi-reader-appearance', 1);
-            r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error);
+            const request = indexedDB.open('manabi-reader-appearance', 1);
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
           });
           const bytes = new Uint8Array(24);
           bytes.set([137,80,78,71,13,10,26,10]);
           bytes.set([73,72,68,82], 12); bytes[19] = 1; bytes[23] = 1;
           await new Promise((resolve, reject) => {
             const tx = db.transaction('backgrounds', 'readwrite');
-            tx.objectStore('backgrounds').put({name:'broken.png', blob:new Blob([bytes], {type:'image/png'})}, 'library');
+            tx.objectStore('backgrounds').put(
+              {name:'broken.png', blob:new Blob([bytes], {type:'image/png'})},
+              'library'
+            );
             tx.oncomplete = resolve; tx.onabort = () => reject(tx.error);
           });
           db.close();
         }''')
         self.settings(reload=True)
         self.page.get_by_text('Background images', exact=True).click()
-        expect(self.page.get_by_role('alert')).to_contain_text('decode')
-        preview = self.page.locator('fieldset:has(#background-library) .background-preview')
-        self.assertEqual('none', preview.evaluate('e => getComputedStyle(e).backgroundImage'))
-        self.page.get_by_role('button', name='Remove book browser background', exact=True).click()
+        expect(self.page.get_by_role('alert')).to_have_count(2)
+        for mode in ['light', 'dark']:
+            section = self.page.locator(f'section:has(#background-library-{mode})')
+            expect(section.get_by_role('alert')).to_contain_text('decode')
+            self.assertEqual(
+                'none',
+                section.locator('.background-preview').evaluate(
+                    'e => getComputedStyle(e).backgroundImage'
+                )
+            )
+        self.page.get_by_role(
+            'button', name='Remove both book browser background images', exact=True
+        ).click()
         expect(self.page.get_by_role('alert')).to_have_count(0)
-        self.upload('library', [170, 60, 90])
+        self.upload('library', [170, 60, 90], 'light')
+        self.mode('Light')
         self.page.goto(self.origin + '/Reader-Web/manage')
-        expect(self.page.locator('[data-background="library"]')).to_have_count(1)
-
+        expect(self.page.locator('[data-background="library"]')).to_have_attribute(
+            'data-background-mode', 'light'
+        )
     def test_selected_theme_has_a_distinct_border_and_forced_colors_marker(self):
         self.settings()
         self.mode('Light')
@@ -193,19 +283,26 @@ class RefinedAppearance(previous.AppearanceBrowser):
             ('image/jpeg', base64.b64decode(JPEG)),
             ('image/webp', base64.b64decode(WEBP))
         ]
+        light = self.page.locator('section:has(#background-library-light)')
         for mime, data in fixtures:
             name = 'real-image.' + mime.split('/')[1]
-            self.page.locator('#background-library').set_input_files({'name':name, 'mimeType':mime, 'buffer':data})
-            expect(self.page.get_by_text(name, exact=True)).to_be_visible()
-            expect(self.page.get_by_text('Preparing image…', exact=True)).to_have_count(0)
-            expect(self.page.get_by_role('alert')).to_have_count(0)
+            self.page.locator('#background-library-light').set_input_files({
+                'name':name, 'mimeType':mime, 'buffer':data
+            })
+            expect(light.get_by_text(name, exact=True)).to_be_visible()
+            expect(light.get_by_text('Preparing image…', exact=True)).to_have_count(0)
+            expect(light.get_by_role('alert')).to_have_count(0)
+        self.mode('Light')
         other = self.context.new_page()
         other.goto(self.origin + '/Reader-Web/manage')
-        expect(other.locator('[data-background="library"]')).to_have_count(1)
-        self.page.get_by_role('button', name='Remove book browser background', exact=True).click()
+        expect(other.locator('[data-background="library"]')).to_have_attribute(
+            'data-background-mode', 'light'
+        )
+        self.page.get_by_role(
+            'button', name='Remove light book browser background', exact=True
+        ).click()
         expect(other.locator('[data-background="library"]')).to_have_count(0)
         other.close()
-
     def test_custom_editor_copies_current_palette_and_keeps_hex_and_transparent_values(self):
         self.settings()
         self.mode('Light')
@@ -272,7 +369,8 @@ class RefinedAppearance(previous.AppearanceBrowser):
     def test_print_and_forced_colors_hide_wallpaper_without_deleting_it(self):
         self.settings()
         self.page.get_by_text('Background images', exact=True).click()
-        self.upload('library', [90, 30, 160])
+        self.upload('library', [90, 30, 160], 'light')
+        self.mode('Light')
         self.page.goto(self.origin + '/Reader-Web/manage')
         background = self.page.locator('[data-background="library"]')
         expect(background).to_be_visible()
@@ -282,7 +380,6 @@ class RefinedAppearance(previous.AppearanceBrowser):
         expect(background).to_be_hidden()
         self.page.emulate_media(forced_colors='none')
         expect(background).to_be_visible()
-
 
 if __name__ == '__main__':
     Path('test-results').mkdir(exist_ok=True)
