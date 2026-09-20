@@ -41,7 +41,8 @@
   let target: BackgroundTarget | undefined;
   $: path = $page.url.pathname.slice(base.length).replace(/\/$/, '');
   $: target = path === '/manage' ? 'library' : path === '/b' ? 'reader' : undefined;
-  $: background = target ? $backgrounds[target] : undefined;
+  $: backgroundSet = target ? $backgrounds[target] : undefined;
+  $: background = backgroundSet ? backgroundSet[$resolvedMode$] : undefined;
   $: options = target === 'reader' ? $readerBackgroundOptions$ : $libraryBackgroundOptions$;
   $: opacity = options.fade ? options.amount / 100 : 0;
 
@@ -59,6 +60,7 @@
   <div
     class="page-background"
     data-background={target}
+    data-background-mode={$resolvedMode$}
     style:background-image={`url("${background.url}")`}
     style:--background-fade={opacity}
     aria-hidden="true"

@@ -73,6 +73,7 @@ export const resolvedMode$ = combineLatest([appearance$, systemDark$]).pipe(
   shareReplay({ bufferSize: 1, refCount: true })
 );
 export type BackgroundTarget = 'library' | 'reader';
+export type BackgroundMode = ColorMode;
 export interface BackgroundOptions {
   fade: boolean;
   amount: number;
