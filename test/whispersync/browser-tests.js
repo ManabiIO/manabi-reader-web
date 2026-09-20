@@ -6,7 +6,11 @@ window.runWhispersyncBrowserTests = async function ({ skipStorage = false } = {}
   const buildIndex = w.buildBookIndex
   w.buildBookIndex = async (...args) => { const index = await buildIndex(...args); indexes.add(index); return index }
   const assert = (condition, message = 'assertion failed') => { if (!condition) throw new Error(message) }
-  const equal = (a, b) => assert(JSON.stringify(a) === JSON.stringify(b), `${JSON.stringify(a)} !== ${JSON.stringify(b)}`)
+  // Structured records are equal regardless of property insertion order.
+  const canonical = (value) => Array.isArray(value) ? value.map(canonical)
+    : value && typeof value === 'object'
+      ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])])) : value
+  const equal = (a, b) => assert(JSON.stringify(canonical(a)) === JSON.stringify(canonical(b)), `${JSON.stringify(a)} !== ${JSON.stringify(b)}`)
   const test = async (name, fn) => {
     try { await fn(); results.push({ name, passed: true }) }
     catch (error) { results.push({ name, passed: false, error: String(error), stack: error.stack }) }
@@ -138,6 +142,9 @@ window.runWhispersyncBrowserTests = async function ({ skipStorage = false } = {}
     const [match] = await w.matchCues(index.text, [makeCue('first last')])
     root.insertBefore(document.createTextNode('inserted'), root.lastChild)
     equal(w.rangeForMatch(index, match), undefined)
+    const reordered = await w.buildBookIndex(dom('<p>first</p><p>last</p>'))
+    root.prepend(root.lastChild)
+    equal(reordered.isCurrent(), false)
   })
   await test('newly hidden text invalidates an existing match', async () => {
     dom('<p>original passage</p>')
