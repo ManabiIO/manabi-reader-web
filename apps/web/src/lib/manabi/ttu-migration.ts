@@ -307,6 +307,7 @@ export class TtuMigration {
           css: data.styleSheet,
           sections: data.sections,
           language: data.language,
+          pageDirection: data.pageDirection,
           characters,
           media,
           cover: data.coverImage ? await hash(data.coverImage) : null

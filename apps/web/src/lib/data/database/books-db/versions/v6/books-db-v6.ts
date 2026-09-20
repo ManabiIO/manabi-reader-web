@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import type { Completion } from '$lib/library/completion';
+import type { DirectionEvidence } from '$lib/library/direction';
 import type { FsHandle, RemoteContext } from '$lib/data/storage/storage-source-manager';
 
 import type { DBSchema } from 'idb';
@@ -34,6 +36,7 @@ interface BooksDbV6BookData {
   id: number;
   title: string;
   language?: string;
+  pageDirection?: DirectionEvidence;
   styleSheet: string;
   elementHtml: string;
   blobs: Record<string, Blob>;
@@ -53,6 +56,7 @@ interface BooksDbV6BookmarkData {
   scrollY?: number;
   exploredCharCount?: number;
   progress: number | string | undefined;
+  completion?: Completion;
   lastBookmarkModified: number;
 }
 

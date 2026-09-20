@@ -91,6 +91,14 @@ class LocalLibraryBrowser(unittest.TestCase):
           return values;
         }''')
 
+    def add_book(self, name, content):
+        self.page.evaluate('''async ({name,content}) => {
+          const root=await navigator.storage.getDirectory();
+          const folder=await root.getDirectoryHandle('Fixture books');
+          const file=await folder.getFileHandle(name,{create:true});
+          const stream=await file.createWritable();await stream.write(content);await stream.close();
+        }''', {'name': name, 'content': content})
+
     def import_book(self):
         self.page.get_by_role('button', name='Browse Fixture books').click()
         self.page.get_by_role('button', name='Import local-book.txt', exact=True).click()
@@ -107,7 +115,7 @@ class LocalLibraryBrowser(unittest.TestCase):
         expect(self.page.get_by_role('button', name='Browse Fixture books')).to_have_count(0)
         self.assertEqual(CONTENT, self.original())
         self.page.get_by_role('link', name='← Books', exact=True).click()
-        expect(self.page.get_by_text('local-book', exact=True)).to_be_visible()
+        expect(self.page.get_by_role('button', name='Read local-book', exact=True)).to_be_visible()
 
     def test_real_handle_reload_writeback_and_external_conflict(self):
         self.seed(True)
@@ -169,6 +177,38 @@ class LocalLibraryBrowser(unittest.TestCase):
         self.assertGreaterEqual(len(heads[0]['parents']),2)
         self.assertNotEqual(0.99,heads[0]['value']['bookmark']['progress'])
         self.assertEqual(CONTENT,self.original())
+
+    def test_library_groups_real_files_into_a_verified_series(self):
+        self.seed(True)
+        self.add_book('second-book.txt', '二冊目の本。\n' + CONTENT)
+        self.page.goto(self.origin + '/Reader-Web/manage')
+        expect(self.page.get_by_role('button', name='Read local-book', exact=True)).to_be_visible(
+            timeout=30000)
+        expect(self.page.get_by_role('button', name='Read second-book', exact=True)).to_be_visible()
+
+        self.page.get_by_role('button', name='Organize', exact=True).click()
+        self.page.get_by_role('menuitem', name='Create Series from Books…', exact=True).click()
+        dialog = self.page.get_by_role('dialog', name='Create series')
+        dialog.get_by_role('textbox', name='Name', exact=True).fill('Study Pair')
+        checkboxes = dialog.get_by_role('checkbox')
+        self.assertEqual(2, checkboxes.count())
+        for index in range(checkboxes.count()):
+            checkboxes.nth(index).check()
+        dialog.get_by_role('button', name='Move into Series', exact=True).click()
+        expect(self.page.get_by_role('button', name='Open series Study Pair', exact=True)).to_be_visible(
+            timeout=30000)
+
+        contents = self.page.evaluate('''async () => {
+          const root=await navigator.storage.getDirectory();
+          const folder=await root.getDirectoryHandle('Fixture books');
+          const series=await folder.getDirectoryHandle('Study Pair');
+          const names=[];for await(const [name] of series.entries())names.push(name);
+          let original=false;try{await folder.getFileHandle('local-book.txt');original=true;}catch{}
+          return {names:names.sort(),original};
+        }''')
+        self.assertEqual(
+            ['.Manabi-Reader.yaml', 'local-book.txt', 'second-book.txt'], contents['names'])
+        self.assertFalse(contents['original'])
 
 
 if __name__ == '__main__':

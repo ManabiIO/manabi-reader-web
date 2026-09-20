@@ -27,6 +27,39 @@ class RheaReader(previous.RefinedAppearance):
         action.focus()
         expect(action).to_be_focused()
 
+    def test_library_workspace_import_collection_search_and_completion(self):
+        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.locator('#first-book-file').set_input_files({
+            'name': 'acceptance.epub',
+            'mimeType': 'application/epub+zip',
+            'buffer': epub()
+        })
+        read = self.page.get_by_role('button', name=f'Read {TITLE}', exact=True)
+        expect(read).to_be_visible(timeout=30000)
+
+        self.page.get_by_role('button', name=f'Actions for {TITLE}', exact=True).click()
+        self.page.get_by_role('menuitem', name='Add to Collection…', exact=True).click()
+        self.page.get_by_role('textbox', name='New collection name', exact=True).fill('Study')
+        self.page.get_by_role('button', name='Create', exact=True).click()
+        membership = self.page.get_by_role('checkbox', name='Study', exact=True)
+        expect(membership).to_be_checked()
+        self.page.get_by_role('button', name='Done', exact=True).click()
+
+        self.page.get_by_role('button', name='Collections', exact=True).click()
+        self.page.get_by_role('button').filter(has_text='Study').click()
+        expect(self.page.get_by_role('heading', name='Study', exact=True)).to_be_visible()
+        expect(read).to_be_visible()
+
+        self.page.get_by_role('button', name=f'Actions for {TITLE}', exact=True).click()
+        self.page.get_by_role('menuitem', name='Mark as Finished', exact=True).click()
+        expect(self.page.get_by_text('Finished', exact=True).first).to_be_visible()
+
+        search = self.page.get_by_role('searchbox', name='Search library', exact=True)
+        search.fill('not-this-book')
+        expect(self.page.get_by_role('heading', name='No books here', exact=True)).to_be_visible()
+        search.fill('reader browser')
+        expect(read).to_be_visible()
+
     def test_navigation_sheet_is_labeled_keyboard_operable_and_mobile_sized(self):
         self.page.set_viewport_size({'width':390, 'height':844})
         self.page.goto(self.origin + '/Reader-Web/manage')
@@ -195,9 +228,9 @@ class RheaReader(previous.RefinedAppearance):
     def test_library_sort_and_export_preserve_all_export_parts(self):
         self.open_book(font='Klee One')
         self.page.goto(self.origin + '/Reader-Web/manage')
-        self.page.get_by_role('button', name='Select Sort Options', exact=True).click()
+        self.page.get_by_role('button', name='Library view options', exact=True).click()
         menu = self.page.get_by_role('menu')
-        for name in ['Added','Title','Characters','Last Update','Last Read','Progress','Bookmarked','Ascending','Descending']:
+        for name in ['Added','Title','Characters','Last Update','Recent','Progress','Bookmarked','Ascending','Descending']:
             expect(menu.get_by_role('menuitemradio', name=name, exact=True)).to_be_visible()
         menu.get_by_role('menuitemradio', name='Title', exact=True).click()
         self.page.get_by_role('button', name='Select books', exact=True).click()
@@ -295,7 +328,7 @@ class RheaReader(previous.RefinedAppearance):
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
             'name':'gallery.epub', 'mimeType':'application/epub+zip', 'buffer':output.getvalue()
         })
-        self.page.get_by_text(TITLE, exact=True).click(timeout=30000)
+        self.page.get_by_role('button', name='Read ' + TITLE, exact=True).click(timeout=30000)
         expect(self.page.locator('.book-content')).to_be_visible(timeout=30000)
         self.wait_for_fonts()
 

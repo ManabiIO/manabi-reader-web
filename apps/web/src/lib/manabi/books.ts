@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { validCompletion } from '$lib/library/completion';
+import { bookKey, sourceBookKey, relocatePresentation } from '$lib/library/organization';
 import { get, writable } from 'svelte/store';
 import { database } from '$lib/data/store';
 import type {
@@ -58,7 +60,7 @@ const statisticFields = [
   'maxReadingSpeed',
   'lastStatisticModified'
 ] as const;
-const allowedBookmark = new Set<string>([...numericBookmark, 'progress']);
+const allowedBookmark = new Set<string>([...numericBookmark, 'progress', 'completion']);
 
 function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -96,6 +98,8 @@ function validateState(value: unknown, hash: string): ReadingState {
       )
         throw new IntegrationError('invalid_response');
     }
+    if (value.bookmark.completion !== undefined && !validCompletion(value.bookmark.completion))
+      throw new IntegrationError('invalid_response');
     const progress = value.bookmark.progress;
     if (
       progress !== undefined &&
@@ -156,7 +160,7 @@ function compact(
   const result = empty(hash);
   if (bookmark) {
     result.bookmark = {};
-    for (const key of [...numericBookmark, 'progress'] as const) {
+    for (const key of [...numericBookmark, 'progress', 'completion'] as const) {
       if (bookmark[key] !== undefined) result.bookmark[key] = bookmark[key];
     }
   }
@@ -205,8 +209,20 @@ export async function importLibraryBook(
       JSON.stringify([source.owner, source.id, source.root, item.id, contentHash])
     );
     const integration = await integrationDB();
-    const existing = await integration.get('books', id);
-    if (existing && (await database.getData(existing.bookId))) return existing;
+    const existing =
+      (await integration.get('books', id)) ??
+      (await integration.getAll('books')).find(
+        (link) =>
+          link.owner === source.owner &&
+          link.sourceId === source.id &&
+          link.root === source.root &&
+          link.fileId === item.id &&
+          link.contentHash === contentHash
+      );
+    if (existing && (await database.getData(existing.bookId))) {
+      await relocatePresentation(sourceBookKey(source, item.id), bookKey(existing.bookId));
+      return existing;
+    }
     const same = (await integration.getAll('books')).find(
       (book) => book.contentHash === contentHash && book.owner === source.owner
     );
@@ -246,6 +262,7 @@ export async function importLibraryBook(
       syncEnabled
     };
     await integration.put('books', link);
+    await relocatePresentation(sourceBookKey(source, item.id), bookKey(stored.id));
     getStorageHandler(window, StorageKey.BROWSER).clearData();
     storageSource$.next(StorageKey.BROWSER);
     database.dataListChanged$.next(undefined);
@@ -257,11 +274,13 @@ export async function importLibraryBook(
 
 export async function setBookSync(id: string, enabled: boolean) {
   const db = await integrationDB();
-  const link = await db.get('books', id);
+  // Read and patch in one transaction so a concurrent folder move cannot be undone.
+  const tx = db.transaction('books', 'readwrite');
+  const link = await tx.store.get(id);
   if (!link) throw new IntegrationError('not_found');
   ensureOwner(link);
-  link.syncEnabled = enabled;
-  await db.put('books', link);
+  await tx.store.put({ ...link, syncEnabled: enabled });
+  await tx.done;
   await refreshLinkedBooks();
   if (enabled) await syncBook(id);
   else
@@ -425,8 +444,12 @@ export async function syncBook(
       ensureOwner(link);
       const clean = await applyAcknowledged(link, captured, merged);
       // Do not resurrect a binding removed or disabled while synchronization ran.
-      const current = await integration.get('books', id);
-      if (current) await integration.put('books', { ...current, base: merged });
+      // A move may have updated fileId while remote I/O was pending. Patch only
+      // the accepted baseline in a single read/write transaction, never a stale locator.
+      const tx = integration.transaction('books', 'readwrite');
+      const current = await tx.store.get(id);
+      if (current?.syncEnabled) await tx.store.put({ ...current, base: merged });
+      await tx.done;
       setStatus(id, {
         state: clean ? 'synced' : 'pending',
         message: clean

@@ -1,5 +1,6 @@
 <script lang="ts">
   import * as Sheet from '$lib/components/ui/sheet';
+  import { setCompletion } from '$lib/library/commands';
   import { readerUIOwnsEvent } from '$lib/functions/reader-ui-events';
   import {
     auditTime,
@@ -795,9 +796,12 @@
           progress: 1
         };
 
-        await database.putBookmark(data);
+        // Persist the final reading position and explicit finish atomically. This
+        // supersedes Still Reading without exposing a half-written state to an
+        // overlapping autosave.
+        await setCompletion(data.dataId, 'finished', undefined, data);
 
-        bookmarkData = Promise.resolve(data);
+        bookmarkData = database.getBookmark(data.dataId);
 
         scheduleReplication(StorageDataType.PROGRESS);
       }

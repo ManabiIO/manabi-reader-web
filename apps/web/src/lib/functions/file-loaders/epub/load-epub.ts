@@ -11,6 +11,7 @@ import generateEpubHtml from './generate-epub-html';
 import generateEpubStyleSheet from './generate-epub-style-sheet';
 import getEpubCoverImageFilename from './get-epub-cover-image-filename';
 import { isOPFType } from './types';
+import { epubDirection } from './epub-direction';
 import reduceObjToBlobs from '../utils/reduce-obj-to-blobs';
 
 export default async function loadEpub(
@@ -60,7 +61,7 @@ export default async function loadEpub(
           if (typeof dcLanguage === 'string') {
             languages.push(...Intl.getCanonicalLocales(dcLanguage.trim()));
           } else if (dcLanguage && dcLanguage['#text']) {
-            languages.push(...Intl.getCanonicalLocales(dcLanguage.trim()));
+            languages.push(...Intl.getCanonicalLocales(String(dcLanguage['#text']).trim()));
           }
         } catch (_) {
           //no-op
@@ -85,6 +86,7 @@ export default async function loadEpub(
 
   return {
     ...displayData,
+    pageDirection: epubDirection(contents, data, document),
     elementHtml: result.element.innerHTML,
     blobs: blobData,
     coverImage,

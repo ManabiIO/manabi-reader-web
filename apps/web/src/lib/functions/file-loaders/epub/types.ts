@@ -19,6 +19,7 @@ export interface EpubManifestItem {
 
 export interface EpubSpineItemRef {
   '@_idref': string;
+  '@_linear'?: string;
 }
 
 export interface EpubContent {
@@ -40,6 +41,7 @@ export interface EpubContent {
       item: EpubManifestItem[];
     };
     spine: {
+      '@_page-progression-direction'?: string;
       itemref: EpubSpineItemRef[];
     };
   };
@@ -64,6 +66,7 @@ export interface EpubOPFContent {
       'opf:item': EpubManifestItem[];
     };
     'opf:spine': {
+      '@_page-progression-direction'?: string;
       'opf:itemref': EpubSpineItemRef[];
     };
   };

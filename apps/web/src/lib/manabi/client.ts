@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 
+import { boundedBytes } from '$lib/library/bounded-response';
 import { get, writable } from 'svelte/store';
 
 export interface ManabiUser {
@@ -147,6 +148,7 @@ export async function request<T>(
     revision?: string;
     userId?: string;
     binary?: boolean;
+    maximumBytes?: number;
   } = {}
 ): Promise<T> {
   if (
@@ -200,7 +202,10 @@ export async function request<T>(
     );
   }
   if (options.binary) {
-    const bytes = await response.arrayBuffer();
+    const bytes =
+      options.maximumBytes === undefined
+        ? await response.arrayBuffer()
+        : await boundedBytes(response, options.maximumBytes);
     if (bytes.byteLength > 128 * 1024 * 1024) throw new IntegrationError('too_large');
     if (scope.generation !== generation || currentUser()?.id !== scope.userId)
       throw new IntegrationError('account_changed', 409);

@@ -12,6 +12,9 @@ export enum SortDirection {
 }
 
 export interface SortOption {
-  property: Exclude<keyof BookCardProps, 'imagePath' | 'isPlaceholder'>;
+  property: Exclude<
+    keyof BookCardProps,
+    'imagePath' | 'isPlaceholder' | 'completion' | 'pageDirection'
+  >;
   direction: SortDirection;
 }

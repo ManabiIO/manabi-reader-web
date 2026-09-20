@@ -93,7 +93,7 @@ class MigrationBrowser(unittest.TestCase):
             for title in (TITLE, OTHER):
                 page.locator('input[type=file][accept*=".epub"]').first.set_input_files(
                     {'name': title+'.epub', 'mimeType': 'application/epub+zip', 'buffer': fixture_epub(title)})
-                expect(page.get_by_text(title, exact=True)).to_be_visible()
+                expect(page.get_by_role('button', name='Read ' + title, exact=True)).to_be_visible()
             # Source history deliberately initialized at the persistence boundary.
             # Export remains the actual user-facing exporter with real serializers.
             page.evaluate('''stamp => new Promise((resolve,reject) => {

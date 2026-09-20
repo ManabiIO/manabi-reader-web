@@ -1,6 +1,8 @@
 <script lang="ts">
+  import { progressFraction } from '$lib/library/completion';
   import { goto } from '$app/navigation';
   import BookCardList from '$lib/components/book-card/book-card-list.svelte';
+  import LibraryWorkspace from '$lib/library/library-workspace.svelte';
   import type { BookCardProps } from '$lib/components/book-card/book-card-props';
   import BookManagerHeader from '$lib/components/book-card/book-manager-header.svelte';
   import BookExportDialog from '$lib/components/book-export/book-export-dialog.svelte';
@@ -119,12 +121,11 @@
   onDestroy(() => dialogManager.dialogs$.next([]));
 
   function bookmarkToProgress(b: BooksDbBookmarkData | undefined) {
-    return b?.progress
-      ? {
-          progress: typeof b.progress === 'string' ? +b.progress.slice(0, -1) : b.progress,
-          lastBookmarkModified: b.lastBookmarkModified || 0
-        }
-      : { progress: 0, lastBookmarkModified: 0 };
+    return {
+      progress: progressFraction(b?.progress),
+      lastBookmarkModified: b?.lastBookmarkModified || 0,
+      completion: b?.completion
+    };
   }
 
   function sortBookCards(
@@ -171,7 +172,9 @@
       let idToOpen = bookId;
 
       try {
-        const bookItem = $bookCards$.find((book) => book.id === bookId);
+        const bookItem =
+          $bookCards$.find((book) => book.id === bookId) ??
+          ($storageSource$ === StorageKey.BROWSER ? await database.getData(bookId) : undefined);
 
         if (!bookItem) {
           throw new Error('Book title not found');
@@ -196,7 +199,7 @@
         handler.startContext({
           id: isForBrowser ? bookItem.id : 0,
           title: bookItem.title,
-          imagePath: bookItem.imagePath
+          imagePath: 'imagePath' in bookItem ? bookItem.imagePath : ''
         });
 
         idToOpen = await handler.prepareBookForReading();
@@ -672,14 +675,43 @@
   }
 </script>
 
+{#snippet emptyLibrary()}
+  <section
+    class="mx-auto mt-12 max-w-xl rounded-3xl border border-dashed border-border bg-card p-8 text-center"
+  >
+    <h2 class="text-xl font-semibold">Make room for a good book</h2>
+    <p class="mt-2 text-sm text-muted-foreground">
+      Open EPUB, HTMLZ, or text files. Your books stay on this device unless you choose a connected
+      library.
+    </p>
+    <Button class="mt-5" size="lg" onclick={() => firstBookFileInput.click()}>
+      Add your first book
+    </Button>
+    <input
+      id="first-book-file"
+      hidden
+      type="file"
+      accept="application/epub+zip,.epub,.htmlz,plain/text,.txt"
+      multiple
+      aria-label="Add your first book"
+      use:inputFile={onFilesChange}
+      bind:this={firstBookFileInput}
+    />
+    <p class="mt-4 text-xs text-muted-foreground">
+      You can also drop files here or use Add books for folders, backups, and Ttu imports.
+    </p>
+  </section>
+{/snippet}
+
 <svelte:head>
   <title>{formatPageTitle('Book Manager')}</title>
 </svelte:head>
 
 {$replicator$ ?? ''}
 
-<div class="elevation-4 fixed inset-x-0 top-0 z-10">
+<div class="sticky top-0 z-10">
   <BookManagerHeader
+    modernLibrary={$storageSource$ === StorageKey.BROWSER}
     hasBookOpened={!!$currentBookId$}
     selectedCount={selectedBookIds.size}
     hasBooks={!!$bookCards$?.length}
@@ -716,7 +748,7 @@
 <div
   role="region"
   aria-label="Book library"
-  class="{pxScreen} min-h-full pt-32"
+  class="{pxScreen} min-h-full pt-3"
   on:dragenter={(ev) => ev.preventDefault()}
   on:dragover={(ev) => ev.preventDefault()}
   on:dragend={(ev) => ev.preventDefault()}
@@ -725,6 +757,17 @@
 >
   {#if !$bookCards$ || $booksAreLoading$}
     Loading...
+  {:else if $storageSource$ === StorageKey.BROWSER}
+    <LibraryWorkspace
+      currentBookId={$currentBookId$}
+      {selectedBookIds}
+      {selectMode}
+      bookCards={$bookCards$}
+      on:bookClick={(ev) => onBookClick(ev.detail.id)}
+      on:removeBookClick={(ev) => removeBooks([ev.detail.id])}
+    >
+      {@render emptyLibrary()}
+    </LibraryWorkspace>
   {:else if $bookCards$.length}
     <BookCardList
       currentBookId={$currentBookId$}
@@ -734,30 +777,6 @@
       on:removeBookClick={(ev) => removeBooks([ev.detail.id])}
     />
   {:else}
-    <section
-      class="mx-auto mt-12 max-w-xl rounded-3xl border border-dashed border-border bg-card p-8 text-center"
-    >
-      <h2 class="text-xl font-semibold">Make room for a good book</h2>
-      <p class="mt-2 text-sm text-muted-foreground">
-        Open EPUB, HTMLZ, or text files. Your books stay on this device unless you choose a
-        connected library.
-      </p>
-      <Button class="mt-5" size="lg" onclick={() => firstBookFileInput.click()}>
-        Add your first book
-      </Button>
-      <input
-        id="first-book-file"
-        hidden
-        type="file"
-        accept="application/epub+zip,.epub,.htmlz,plain/text,.txt"
-        multiple
-        aria-label="Add your first book"
-        use:inputFile={onFilesChange}
-        bind:this={firstBookFileInput}
-      />
-      <p class="mt-4 text-xs text-muted-foreground">
-        You can also drop files here or use Add books for folders, backups, and Ttu imports.
-      </p>
-    </section>
+    {@render emptyLibrary()}
   {/if}
 </div>

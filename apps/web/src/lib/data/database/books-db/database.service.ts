@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 
+import { mergeCompletion } from '$lib/library/completion';
 import type {
   BooksDbAudioBook,
   BooksDbBookData,
@@ -322,7 +323,11 @@ export class DatabaseService {
   async putBookmark(bookmarkData: BooksDbBookmarkData) {
     const db = await this.db;
 
-    return db.put('bookmark', bookmarkData);
+    const tx = db.transaction('bookmark', 'readwrite');
+    const before = await tx.store.get(bookmarkData.dataId);
+    const key = await tx.store.put(mergeCompletion(before, bookmarkData));
+    await tx.done;
+    return key;
   }
 
   async putAudioBook(audioBook: BooksDbAudioBook) {
