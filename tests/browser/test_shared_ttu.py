@@ -69,7 +69,7 @@ class SharedTtuBrowser(static.ReaderBrowser):
         self.page.get_by_role('heading', name='Publish browser books').wait_for()
         self.page.get_by_label(static.TITLE, exact=True).check()
         self.page.get_by_role('button', name='Publish selected browser books').click()
-        expect(self.page.get_by_role('status')).to_contain_text('published in TTU format', timeout=30000)
+        expect(self.page.get_by_role('status')).to_contain_text('published in Ttu Ebook Reader format', timeout=30000)
         files = self.read_shared_files()
         self.assertEqual([static.TITLE], list(files))
         book_name = next(name for name in files[static.TITLE] if name.startswith('bookdata_'))

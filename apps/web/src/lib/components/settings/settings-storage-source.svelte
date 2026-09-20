@@ -55,7 +55,7 @@
     (passwordManagerAvailable && configuredStoredInManager) || false;
   let storageSourceEncryptionDisabled = configuredEncryptionDisabled || false;
   let storageSourceTypes = [
-    { key: StorageKey.GDRIVE, label: 'GDrive' },
+    { key: StorageKey.GDRIVE, label: 'Google Drive' },
     { key: StorageKey.ONEDRIVE, label: 'OneDrive' }
   ];
 

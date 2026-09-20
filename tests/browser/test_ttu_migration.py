@@ -98,12 +98,13 @@ class MigrationBrowser(unittest.TestCase):
             # Export remains the actual user-facing exporter with real serializers.
             page.evaluate('''stamp => new Promise((resolve,reject) => {
               const open=indexedDB.open('books'); open.onerror=()=>reject(open.error);
-              open.onsuccess=()=>{ const db=open.result,tx=db.transaction(['data','bookmark','statistic','audioBook','subtitle'],'readwrite');
+              open.onsuccess=()=>{ const db=open.result,tx=db.transaction(['data','bookmark','statistic','audioBook','subtitle','lastModified'],'readwrite');
                 const all=tx.objectStore('data').getAll();all.onsuccess=()=>{
                   for(const book of all.result){
                     tx.objectStore('bookmark').put({dataId:book.id,exploredCharCount:30,progress:30/book.characters,lastBookmarkModified:stamp});
                     tx.objectStore('statistic').put({title:book.title,dateKey:'2026-09-19',charactersRead:60,readingTime:300,
                       minReadingSpeed:720,altMinReadingSpeed:720,lastReadingSpeed:720,maxReadingSpeed:720,lastStatisticModified:stamp});
+                    tx.objectStore('lastModified').put({title:book.title,dataType:'statistic',lastModifiedValue:stamp});
                     tx.objectStore('audioBook').put({title:book.title,playbackPosition:12.5,lastAudioBookModified:stamp});
                     tx.objectStore('subtitle').put({title:book.title,lastSubtitleDataModified:stamp,
                       subtitleData:{name:'book.srt',subtitles:[{id:'line-1',originalStartSeconds:0,startSeconds:0,startTime:'00:00:00',

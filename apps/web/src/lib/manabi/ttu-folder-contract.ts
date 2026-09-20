@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-/** The public on-disk contract used by TTU and native Manabi, not app-private state. */
+/** The public on-disk contract used by Ttu Ebook Reader and native Manabi, not app-private state. */
 export const ttuRootName = 'ttu-reader-data';
 export const ttuPrefixes = ['bookdata_', 'progress_', 'statistics_', 'cover_'] as const;
 
@@ -25,15 +25,16 @@ export function selectTtuFile<T extends { name: string }>(
   const parts = file.name.slice(0, -extension.length).split('_');
   if (!file.name.endsWith(extension) || parts[1] !== '1' || parts[2] !== '6') {
     throw new Error(
-      `Unsupported TTU file format: ${file.name}. This integration supports exporter 1 / database 6.`
+      `Unsupported Ttu Ebook Reader file format: ${file.name}. This integration supports exporter 1 / database 6.`
     );
   }
   const expected = prefix === 'bookdata_' ? [6] : prefix === 'progress_' ? [5] : [16, 17];
-  if (!expected.includes(parts.length)) throw new Error(`Malformed TTU filename: ${file.name}`);
+  if (!expected.includes(parts.length))
+    throw new Error(`Malformed Ttu Ebook Reader filename: ${file.name}`);
   const numeric =
     prefix === 'progress_' ? parts.slice(3, 4) : parts.slice(3, prefix === 'bookdata_' ? 6 : 16);
   if (numeric.some((part) => !/^\d+$/.test(part) || !Number.isSafeInteger(Number(part)))) {
-    throw new Error(`Invalid numeric TTU metadata: ${file.name}`);
+    throw new Error(`Invalid numeric Ttu Ebook Reader metadata: ${file.name}`);
   }
   return file;
 }
@@ -80,7 +81,9 @@ export async function inspectTtuRoot(root: FileSystemDirectoryHandle): Promise<s
     if (!files.some((file) => ttuPrefixes.some((prefix) => file.name.startsWith(prefix)))) continue;
     for (const prefix of ttuPrefixes) selectTtuFile(files, prefix);
     if (!selectTtuFile(files, 'bookdata_')) {
-      throw new Error(`${name} has reading data but no TTU book package. No files were changed.`);
+      throw new Error(
+        `${name} has reading data but no Ttu Ebook Reader book package. No files were changed.`
+      );
     }
     titles.push(name);
   }

@@ -94,7 +94,7 @@
       if (controller.signal.aborted || stopped) break;
       row.status = 'importing';
       row.message = 'Importing…';
-      rows = [...rows];
+      rows = rows.map((item) => (item.key === row.key ? { ...row } : item));
       try {
         const result = await row.source.importItem(
           row.id,
@@ -115,7 +115,7 @@
           : describe(error);
       }
       completed++;
-      rows = [...rows];
+      rows = rows.map((item) => (item.key === row.key ? { ...row } : item));
     }
     await Promise.all(sources.map((source) => source.close().catch(() => undefined)));
     let refreshError = '';
@@ -153,11 +153,13 @@
     else cancel();
   });
   onMount(() => {
-    void migratedBookChoices().then((value) => {
-      if (!stopped) choices = value;
-    }).catch((error) => {
-      if (!stopped) message = describe(error);
-    });
+    void migratedBookChoices()
+      .then((value) => {
+        if (!stopped) choices = value;
+      })
+      .catch((error) => {
+        if (!stopped) message = describe(error);
+      });
   });
   onDestroy(() => {
     stopped = true;
@@ -176,11 +178,13 @@
   <section aria-labelledby="export-instructions">
     <h2 id="export-instructions">Export in Ttu Ebook Reader</h2>
     <ol>
-      <li>In Book Manager, select books or use <strong>Select All Books</strong>.</li>
+      <li>
+        In Book Manager, enter selection mode and select books or <strong>Select All Books</strong>.
+      </li>
       <li>Choose <strong>Export → ZIP File</strong>.</li>
       <li>
         Include <strong>Book Data</strong>, <strong>Bookmark</strong> and
-        <strong>Statistics</strong>, then export.
+        <strong>Statistics</strong>, then choose <strong>Start</strong>.
       </li>
     </ol>
     <p>Choose the ZIPs below. A few books at a time is fine.</p>
