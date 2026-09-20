@@ -112,7 +112,7 @@ than WebKit's ephemeral/private profile, which cannot store IndexedDB Blobs
 qualification. PNG/JPEG/WebP upload fixtures are actual image bytes, independent
 of which formats the tested browser can encode. The application accepts a native
 PNG fallback when canvas WebP encoding is unavailable.
-A separate scoped lint job checks all nine audited Svelte components, verifies
+A separate scoped lint job checks all ten audited Svelte components, verifies
 that none are ignored and that the Svelte parser is selected, and fails on any
 warning or error. The inherited root-level-only Svelte glob is not treated as
 component lint coverage. A repository-wide lint migration is outside this change.
@@ -124,3 +124,13 @@ authenticated account server; preset portability is checked separately as a pure
 contract and uses the existing account revision/merge path.
 
 WebKit network-disruption tests stop the real loopback origin and verify a negative-control request fails; Chromium additionally uses its offline flag. Playwright issue #42775 reproduces WebKit offline-emulation failure even for a literal service-worker response. No requests, cache APIs, storage APIs or reader components are replaced. This is server-unavailability coverage, not native Safari airplane-mode qualification.
+
+The explicit-font regression waits for the currently used face to settle before
+reloading with a different saved face, then requires the selected Noto Serif JP
+face to decode. This separates preference restoration from WebKit's unresolved
+FontFaceSet.ready after cancellation. Screenshots still wait for fonts; no errors
+are filtered. Released-preference migration fixtures are seeded before bootstrap,
+not by abandoning a newly mounted document during its optional session request.
+Function-form browser polling preserves the application's strict CSP, including
+under the older Chromium runner used by the baseline suite.
+The runtime font-layout deadline remains in force for slow or failed font loads.

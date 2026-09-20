@@ -124,7 +124,7 @@ class ReaderBrowser(unittest.TestCase):
     def wait_for_fonts(self):
         # Bounded assertion, not a sleep, screenshot bypass or synthetic face.
         self.page.locator('.book-content').evaluate('e => e.getBoundingClientRect()')
-        self.page.wait_for_function("document.fonts.status === 'loaded'", timeout=15000)
+        self.page.wait_for_function("() => document.fonts.status === 'loaded'", timeout=15000)
 
     def first_font(self):
         return self.page.locator('.book-content').evaluate('e => getComputedStyle(e).fontFamily.split(",")[0].trim().replace(/^"|"$/g, "")')
