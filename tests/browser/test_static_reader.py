@@ -23,12 +23,14 @@ def epub():
     body += '<img src="missing/../../attack-probe"/><img src="#attack-probe"/>'
     body += '<iframe src="/attack-probe"></iframe><script>window.bookAttack=true</script>'
     body += '<p style="background-image:url(/attack-probe);color:rgb(20,30,40)">安全な文章</p>'
+    body += '<p><span id="legacy-tcy" class="tcy">!?</span></p>'
     body += ''.join('<p>日本語の本を読みます。文章を丁寧に読んで、次のページに進みます。</p>' for _ in range(150))
     with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
         archive.writestr('mimetype', 'application/epub+zip')
         archive.writestr('META-INF/container.xml', '<container><rootfiles><rootfile full-path="content.opf"/></rootfiles></container>')
-        archive.writestr('content.opf', '<package><metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">' + TITLE + '</dc:title></metadata><manifest><item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/><item id="image" href="絵.png" media-type="image/png"/></manifest><spine><itemref idref="chapter"/></spine></package>')
-        archive.writestr('chapter.xhtml', '<html><body>' + body + '</body></html>')
+        archive.writestr('content.opf', '<package><metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">' + TITLE + '</dc:title></metadata><manifest><item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/><item id="style" href="style.css" media-type="text/css"/><item id="image" href="絵.png" media-type="image/png"/></manifest><spine><itemref idref="chapter"/></spine></package>')
+        archive.writestr('chapter.xhtml', '<html><head><link rel="stylesheet" href="style.css"/></head><body>' + body + '</body></html>')
+        archive.writestr('style.css', '.tcy{-webkit-text-combine:horizontal;-epub-text-combine:horizontal}')
         archive.writestr('絵.png', png)
     return output.getvalue()
 
@@ -125,6 +127,9 @@ class ReaderBrowser(unittest.TestCase):
     def test_paginated_ruby_images_and_untrusted_resources(self):
         self.open_book()
         self.assertEqual('ほん', self.page.locator('.book-content ruby rt').first.text_content())
+        self.assertEqual(
+            'all',
+            self.page.locator('#legacy-tcy').evaluate('element => getComputedStyle(element).textCombineUpright'))
         self.page.wait_for_function(
             '() => document.querySelector("#safe-image")?.naturalWidth > 0'
         )
