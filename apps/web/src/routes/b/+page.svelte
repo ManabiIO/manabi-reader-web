@@ -1,5 +1,6 @@
 <script lang="ts">
   import * as Sheet from '$lib/components/ui/sheet';
+  import { setCompletion } from '$lib/library/commands';
   import { readerUIOwnsEvent } from '$lib/functions/reader-ui-events';
   import {
     auditTime,
@@ -796,8 +797,11 @@
         };
 
         await database.putBookmark(data);
+        // This is an explicit finish, not an autosave at 100%. It supersedes a
+        // prior Still Reading decision without weakening stale-save protection.
+        await setCompletion(data.dataId, 'finished');
 
-        bookmarkData = Promise.resolve(data);
+        bookmarkData = database.getBookmark(data.dataId);
 
         scheduleReplication(StorageDataType.PROGRESS);
       }
