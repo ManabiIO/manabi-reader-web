@@ -38,7 +38,9 @@ resetting the position, scroll, counts or statistics. A delayed autosave cannot
 erase a newer finish/date choice. The first actual 100% save records a date;
 historical 100% bookmarks with no date remain unknown until edited. Existing
 Complete Book statistics are a distinct analytics operation, not invoked by
-these library actions. Sync retains the existing whole-bookmark conflict
+these library actions. The reader's explicit Complete Book action also publishes
+a new completion decision, so it can supersede Still Reading; ordinary autosaves
+cannot. Sync retains the existing whole-bookmark conflict
 boundary, rather than claiming independent field conflict resolution.
 
 ## Physical grouping and recovery
