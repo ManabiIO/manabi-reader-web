@@ -102,6 +102,47 @@ module.exports = (async () => {
       }
     },
     {
+      files: ['test/whispersync/**/*.{cjs,js,mjs}'],
+      languageOptions: {
+        globals: {
+          CSS: 'readonly',
+          AbortController: 'readonly',
+          Audio: 'readonly',
+          Blob: 'readonly',
+          CustomEvent: 'readonly',
+          DOMException: 'readonly',
+          DOMParser: 'readonly',
+          Event: 'readonly',
+          EventTarget: 'readonly',
+          File: 'readonly',
+          HTMLElement: 'readonly',
+          MutationObserver: 'readonly',
+          URL: 'readonly',
+          __dirname: 'readonly',
+          cancelAnimationFrame: 'readonly',
+          clearTimeout: 'readonly',
+          console: 'readonly',
+          document: 'readonly',
+          indexedDB: 'readonly',
+          module: 'readonly',
+          performance: 'readonly',
+          process: 'readonly',
+          queueMicrotask: 'readonly',
+          require: 'readonly',
+          requestAnimationFrame: 'readonly',
+          setTimeout: 'readonly',
+          structuredClone: 'readonly',
+          window: 'readonly'
+        },
+        parserOptions: {
+          project: false
+        }
+      },
+      rules: {
+        '@typescript-eslint/no-require-imports': 'off'
+      }
+    },
+    {
       ...eslintPluginSvelte.configs['flat/recommended'],
       files: ['*.svelte'],
       languageOptions: {

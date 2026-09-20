@@ -1,5 +1,5 @@
 <script lang="ts">
-  import AudiobookLauncher from '$lib/features/whispersync/audiobook-launcher.svelte'
+  import AudiobookLauncher from '$lib/features/whispersync/audiobook-launcher.svelte';
   import * as Sheet from '$lib/components/ui/sheet';
   import { setCompletion } from '$lib/library/commands';
   import { readerUIOwnsEvent } from '$lib/functions/reader-ui-events';
