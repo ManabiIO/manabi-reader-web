@@ -1,0 +1,104 @@
+name: Rhea foundation verification
+on:
+  push:
+    branches: [research/rhea-toolchain-20260920]
+    paths: ['.github/workflows/rhea-foundation-check.yml']
+permissions:
+  contents: write
+  actions: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 129e7c9a03145387b9c3aeebaceb6abfef60c9f5
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: rhea-foundation-source
+          run-id: 35491229950
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: /tmp/foundation-source
+      - name: Restore exact generated source and correct CSS directive formatting
+        run: |
+          python3 - <<'PY'
+          import pathlib,json,re
+          for f in json.loads(pathlib.Path('/tmp/foundation-source/source.json').read_text()):
+              p=pathlib.Path(f['path']);p.parent.mkdir(parents=True,exist_ok=True);p.write_text(f['content'])
+          p=pathlib.Path('apps/web/src/app.css');s=p.read_text()
+          s=re.sub(r'@source inline\(\s*([\s\S]*?)\s*\);',lambda m:'/* prettier-ignore */\n@source inline('+m[1].strip()+');',s)
+          p.write_text(s)
+          p=pathlib.Path('apps/web/src/lib/css-classes.ts');p.write_text(p.read_text().replace('bg-background-color','bg-background'))
+          PY
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - name: Format changed source and capture Git objects
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p /tmp/foundation-review
+          python3 - <<'PY'
+          import pathlib,json,subprocess,urllib.request,os,hashlib
+          names=sorted(set(subprocess.check_output(['git','ls-files','--modified','--others','--exclude-standard'],text=True).splitlines()))
+          formatted=[n for n in names if pathlib.Path(n).suffix in {'.ts','.svelte','.js','.mjs','.cjs','.css','.scss','.json','.md'} and not n.endswith('palettes.scss')]
+          subprocess.run(['pnpm','exec','prettier','--write',*formatted],check=True)
+          tree=[];source=[];out=pathlib.Path('/tmp/foundation-review')
+          def post(endpoint,data):
+              req=urllib.request.Request('https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/git/'+endpoint,data=json.dumps(data).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Content-Type':'application/json','Accept':'application/vnd.github+json'},method='POST')
+              with urllib.request.urlopen(req,timeout=30) as r:return json.load(r)
+          for name in names:
+              data=pathlib.Path(name).read_bytes();content=data.decode();sha=post('blobs',{'content':content,'encoding':'utf-8'})['sha']
+              assert hashlib.sha1(f'blob {len(data)}\0'.encode()+data).hexdigest()==sha
+              tree.append({'path':name,'mode':'100644','type':'blob','sha':sha});source.append({'path':name,'content':content})
+          base=subprocess.check_output(['git','rev-parse','HEAD^{tree}'],text=True).strip()
+          (out/'tree-sha.txt').write_text(post('trees',{'base_tree':base,'tree':tree})['sha'])
+          (out/'source.json').write_text(json.dumps(source));(out/'tree.json').write_text(json.dumps(tree))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: foundation-reviewed-source
+          path: /tmp/foundation-review
+          retention-days: 7
+      - name: Lint, type check and units
+        run: |
+          set -o pipefail
+          pnpm exec eslint . 2>&1 | tee /tmp/foundation-review/lint.log
+          pnpm --dir apps/web check 2>&1 | tee /tmp/foundation-review/types.log
+          node --experimental-strip-types --test tests/unit/*.test.mjs test/reader/typography.test.mjs | tee /tmp/foundation-review/units.log
+      - name: Build and real browser regression tests
+        env:
+          BASE_PATH: /Reader-Web
+        run: |
+          set -o pipefail
+          pnpm build 2>&1 | tee /tmp/foundation-review/build.log
+          python -m pip install 'playwright==1.63.0'
+          python -m playwright install --with-deps chromium webkit
+          status=0
+          for engine in chromium webkit; do
+            mkdir -p /tmp/foundation-review/$engine
+            set +e
+            APPEARANCE_BROWSER=$engine python tests/browser/test_appearance_refinement.py > /tmp/foundation-review/$engine/results.log 2>&1
+            result=$?
+            set -e
+            [ $result -eq 0 ] || status=1
+            if [ -d test-results ]; then mv test-results /tmp/foundation-review/$engine/screenshots; fi
+          done
+          exit $status
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: foundation-reviewed-results
+          path: /tmp/foundation-review
+          retention-days: 7
