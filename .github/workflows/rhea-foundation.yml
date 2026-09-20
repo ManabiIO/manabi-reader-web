@@ -1,0 +1,205 @@
+name: Rhea foundation candidate
+on:
+  push:
+    branches: [research/rhea-toolchain-20260920]
+    paths: ['.github/workflows/rhea-foundation.yml']
+permissions:
+  contents: write
+jobs:
+  foundation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 129e7c9a03145387b9c3aeebaceb6abfef60c9f5
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install verified stable native Svelte toolchain
+        run: |
+          mkdir -p /tmp/rhea-foundation
+          python3 - <<'PY'
+          import pathlib,json
+          for n in ['package.json','apps/web/package.json']:
+              p=pathlib.Path(n);v=json.loads(p.read_text())
+              for k in ['dependencies','devDependencies']:
+                  if 'svelte' in v.get(k,{}):v[k]['svelte']='5.57.1'
+              if n.startswith('apps/'):
+                  v['devDependencies'].update({'tailwindcss':'4.3.3','@tailwindcss/vite':'4.3.3','bits-ui':'2.19.2','@lucide/svelte':'1.47.0','tailwind-variants':'3.3.1','tailwind-merge':'3.7.0','tw-animate-css':'1.4.0','clsx':'2.1.1','shadcn-svelte':'1.7.0','@internationalized/date':'3.12.4'})
+                  v['devDependencies'].pop('autoprefixer',None)
+              p.write_text(json.dumps(v,indent=2)+'\n')
+          pathlib.Path('apps/web/components.json').write_text(json.dumps({'$schema':'https://shadcn-svelte.com/schema.json','style':'rhea','tailwind':{'css':'src/app.css','baseColor':'neutral'},'aliases':{'lib':'$lib','utils':'$lib/utils','components':'$lib/components','ui':'$lib/components/ui','hooks':'$lib/hooks'},'typescript':True,'registry':'https://shadcn-svelte.com/registry','iconLibrary':'lucide'},indent=2)+'\n')
+          pathlib.Path('apps/web/src/app.css').write_text('@import "tailwindcss";\n')
+          PY
+          pnpm install --no-frozen-lockfile
+          pnpm --dir apps/web exec svelte-kit sync
+          pnpm --dir apps/web exec shadcn-svelte add --skip-preflight --no-deps-install -y button badge card input field tabs sheet dropdown-menu separator sidebar switch checkbox select toggle-group command dialog scroll-area tooltip alert accordion
+      - name: Apply canonical tokens without changing reader geometry
+        run: |
+          python3 - <<'PY'
+          import pathlib,re,json
+          root=pathlib.Path('.')
+          mapping={'surface-raised':'card','surface-hover':'accent','control-line':'input','accent-soft':'secondary','on-accent':'primary-foreground','canvas':'background','ink':'foreground','muted':'muted-foreground','surface':'muted','line':'border','accent':'primary','danger':'destructive'}
+          pattern='|'.join(map(re.escape,sorted(mapping,key=len,reverse=True)))
+          for p in (root/'apps/web/src').rglob('*'):
+              if p.suffix not in {'.svelte','.scss','.ts','.js','.css'} or '/components/ui/' in str(p) or p.name=='palettes.scss':continue
+              s=p.read_text()
+              s=re.sub(r'--((?:light-|dark-)?)(?:'+pattern+r')(?![\w-])',lambda m:'--'+m[1]+mapping[m[0][2+len(m[1]):]],s)
+              s=re.sub(r'\b(bg|text|border|outline|ring|fill|stroke|divide|decoration|caret|from|via|to)-('+pattern+r')(?![\w-])',lambda m:m[1]+'-'+mapping[m[2]],s)
+              if p.name=='runtime.svelte' and '/appearance/' in str(p):s=s.replace('.canvas','.background')
+              p.write_text(s)
+          p=pathlib.Path('apps/web/static/appearance-init.js');p.write_text(p.read_text().replace("'-canvas'","'-background'"))
+          p=pathlib.Path('apps/web/src/lib/data/theme-option.ts');s=p.read_text();a=s.index('    canvas: rgba(opaqueBackground),');b=s.index("    'heatmap-empty'",a);new=s[a:b]
+          for key in ['canvas','ink','muted','surface','line','accent','danger']:new=re.sub(r'(?m)^    '+key+r':','    '+repr(mapping[key])+':',new)
+          for key in ['surface-raised','surface-hover','control-line','on-accent','accent-soft']:new=new.replace("    '"+key+"':","    '"+mapping[key]+"':")
+          new+='''    'card-foreground': rgba(ink),
+              popover: rgba(mix(opaqueBackground, ink, 0.065)),
+              'popover-foreground': rgba(ink),
+              'secondary-foreground': rgba(ink),
+              'accent-foreground': rgba(ink),
+              ring: accent,
+              sidebar: rgba(mix(opaqueBackground, ink, 0.025)),
+              'sidebar-foreground': rgba(ink),
+              'sidebar-primary': accent,
+              'sidebar-primary-foreground': mode === 'dark' ? '#0b0b0b' : '#ffffff',
+              'sidebar-accent': rgba(mix(opaqueBackground, ink, 0.12)),
+              'sidebar-accent-foreground': rgba(ink),
+              'sidebar-border': rgba(mix(opaqueBackground, ink, 0.28)),
+              'sidebar-ring': accent,
+              'chart-1': accent,
+              'chart-2': mode === 'dark' ? '#94c9b0' : '#2b6750',
+              'chart-3': mode === 'dark' ? '#a5c9e1' : '#24506c',
+              'chart-4': mode === 'dark' ? '#c8a9dd' : '#76538d',
+              'chart-5': mode === 'dark' ? '#f2b691' : '#914a21',
+          '''
+          p.write_text(s[:a]+new+s[b:])
+          for name in ['tests/unit/appearance.test.mjs','tests/browser/test_appearance.py']:
+              p=pathlib.Path(name);s=p.read_text();s=re.sub(r"(['\"])(''|"+pattern+r")\1",lambda m:m[1]+mapping.get(m[2],m[2])+m[1],s)
+              for k in ['canvas','ink','muted','accent']:s=s.replace('p.'+k,"p['"+mapping[k]+"']")
+              s=s.replace('-canvas','-background').replace('.canvas','.background');p.write_text(s)
+          p=pathlib.Path('apps/web/src/lib/appearance/appearance.scss');s=p.read_text()
+          extras=['card-foreground','popover','popover-foreground','secondary-foreground','accent-foreground','ring','sidebar','sidebar-foreground','sidebar-primary','sidebar-primary-foreground','sidebar-accent','sidebar-accent-foreground','sidebar-border','sidebar-ring']+['chart-'+str(i) for i in range(1,6)]
+          for mode in ['light','dark']:
+              s=re.sub(r'(?m)^(\s*)--heatmap-outside: var\(--'+mode+r'-heatmap-outside\);$',lambda m:m[0]+'\n'+'\n'.join(m[1]+'--'+key+': var(--'+mode+'-'+key+');' for key in extras),s)
+          a=s.index(':where(input, select, textarea)');b=s.index('::selection',a);s=s[:a]+'@layer base {\n'+s[a:b]+'}\n'+s[b:]
+          a=s.index('/* Controls need stronger');b=s.index('@media (forced-colors:',a);s=s[:a]+s[b:];p.write_text(s)
+          p=pathlib.Path('apps/web/src/app.scss');p.write_text(re.sub(r'@tailwind (base|components|utilities);\n','',p.read_text()))
+          p=pathlib.Path('apps/web/src/routes/+layout.svelte');p.write_text(p.read_text().replace("  import '../app.scss';","  import '../app.css';\n  import '../app.scss';"))
+          p=pathlib.Path('apps/web/vite.config.js');p.write_text(p.read_text().replace("import { sveltekit }","import tailwindcss from '@tailwindcss/vite';\nimport { sveltekit }").replace('plugins: [sveltekit()]','plugins: [tailwindcss(), sveltekit()]'))
+          pathlib.Path('apps/web/postcss.config.cjs').write_text('module.exports = { plugins: [] };\n')
+          p=pathlib.Path('apps/web/tailwind.config.cjs');s=p.read_text();a=s.index('      colors: {');b=s.index('      spacing:',a);s=s[:a]+s[b:];a=s.index('  safelist: [');s=s[:a]+s[s.index('\n};',a):];p.write_text(s.replace('  ],\n\n};','  ]\n};'))
+          p=pathlib.Path('eslint.config.js');s=p.read_text();needle="    {\n      files: ['service-worker.ts'],";assert needle in s;s=s.replace(needle,"    { files: ['apps/web/src/lib/components/ui/**/*.ts','apps/web/src/lib/hooks/**/*.ts','apps/web/src/lib/utils.ts'], rules: { 'headers/header-format': 'off' } },\n"+needle);p.write_text(s)
+          p=pathlib.Path('.prettierrc.cjs');p.write_text(p.read_text().replace('  singleQuote: true,',"  tailwindStylesheet: './apps/web/src/app.css',\n  singleQuote: true,"))
+          names=list(dict.fromkeys(mapping.values()))+['card-foreground','popover','popover-foreground','secondary-foreground','accent-foreground','ring','sidebar','sidebar-foreground','sidebar-primary','sidebar-primary-foreground','sidebar-accent','sidebar-accent-foreground','sidebar-border','sidebar-ring','heatmap-empty','heatmap-outside']+['chart-'+str(i) for i in range(1,6)]
+          css='''@import "tailwindcss";
+          @import "tw-animate-css";
+          @config "../tailwind.config.cjs";
+          @custom-variant dark {
+            &:where([data-appearance='dark'], [data-appearance='dark'] *) { @slot; }
+            @media (prefers-color-scheme: dark) {
+              &:where(:root:not([data-appearance='light']):not([data-appearance='dark']), :root:not([data-appearance='light']):not([data-appearance='dark']) *) { @slot; }
+            }
+          }
+          @theme inline {
+          '''+''.join(f'  --color-{n}: var(--{n});\n' for n in names)+'''  --radius-sm: calc(var(--radius) - 4px);
+            --radius-md: calc(var(--radius) - 2px);
+            --radius-lg: var(--radius);
+            --radius-xl: calc(var(--radius) + 4px);
+          }
+          :root { --radius: 1rem; }
+          @layer base {
+            * { border-color: var(--border); }
+            body { font-family: var(--font-sans); }
+            button:not(:disabled), [role='button']:not([aria-disabled='true']) { cursor: pointer; }
+          }
+          @source inline("md:grid-cols-2 md:grid-cols-3 animate-[pulse_0.5s_cubic-bezier(0.4,0,0.6,1)_1] animate-[pulse_1s_cubic-bezier(0.4,0,0.6,1)_infinite]");
+          @utility writing-horizontal-tb { writing-mode: horizontal-tb; }
+          @utility tap-highlight-transparent { -webkit-tap-highlight-color: transparent; }
+          @media (prefers-reduced-motion: reduce) {
+            [data-slot] { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+          }
+          '''
+          pathlib.Path('apps/web/src/app.css').write_text(css)
+          pathlib.Path('apps/web/src/lib/utils.ts').write_text('''import { clsx, type ClassValue } from 'clsx';
+          import { twMerge } from 'tailwind-merge';
+          export function cn(...inputs: ClassValue[]) { return twMerge(clsx(inputs)); }
+          export type WithoutChild<T> = T extends { child?: any } ? Omit<T, 'child'> : T;
+          export type WithoutChildren<T> = T extends { children?: any } ? Omit<T, 'children'> : T;
+          export type WithoutChildrenOrChild<T> = WithoutChildren<WithoutChild<T>>;
+          export type WithElementRef<T, U extends HTMLElement = HTMLElement> = T & { ref?: U | null };
+          ''')
+          # CLI may request ranges; all newly added runtime packages remain pinned.
+          p=pathlib.Path('apps/web/package.json');v=json.loads(p.read_text())
+          pins={'bits-ui':'2.19.2','@lucide/svelte':'1.47.0','tailwind-variants':'3.3.1','@internationalized/date':'3.12.4'}
+          for group in ['dependencies','devDependencies']:
+              for key in pins:
+                  if key in v.get(group,{}):v[group][key]=pins[key]
+          p.write_text(json.dumps(v,indent=2)+'\n')
+          PY
+          curl --fail --silent --show-error https://raw.githubusercontent.com/huntabyte/shadcn-svelte/cca0797342bb6cca361a97e61cfab90e68167c04/LICENSE.md > THIRD_PARTY_UI_LICENSES.md
+          pnpm install --no-frozen-lockfile
+          node --experimental-strip-types tools/appearance/generate-css.mjs
+      - name: Format candidate and export exact Git objects without changing refs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import pathlib,subprocess,json,os,urllib.request,hashlib
+          names=sorted(set(subprocess.check_output(['git','ls-files','--modified','--others','--exclude-standard'],text=True).splitlines()))
+          formatted=[n for n in names if pathlib.Path(n).suffix in {'.ts','.svelte','.js','.mjs','.cjs','.css','.scss','.json','.md'} and not n.endswith('palettes.scss')]
+          subprocess.run(['pnpm','exec','prettier','--write',*formatted],check=True)
+          out=pathlib.Path('/tmp/rhea-foundation');source=[];tree=[]
+          for name in names:
+              data=pathlib.Path(name).read_bytes();content=data.decode();expected=hashlib.sha1(f'blob {len(data)}\0'.encode()+data).hexdigest()
+              req=urllib.request.Request('https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/git/blobs',data=json.dumps({'encoding':'utf-8','content':content}).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Content-Type':'application/json','Accept':'application/vnd.github+json'},method='POST')
+              with urllib.request.urlopen(req,timeout=30) as r:sha=json.load(r)['sha']
+              assert sha==expected
+              tree.append({'path':name,'mode':'100644','type':'blob','sha':sha});source.append({'path':name,'content':content})
+          (out/'source.json').write_text(json.dumps(source));(out/'tree.json').write_text(json.dumps(tree))
+          (out/'base.txt').write_text('129e7c9a03145387b9c3aeebaceb6abfef60c9f5')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rhea-foundation-source
+          path: /tmp/rhea-foundation
+          retention-days: 7
+      - name: Lint, types and unit tests
+        run: |
+          set -o pipefail
+          pnpm exec eslint . 2>&1 | tee /tmp/rhea-foundation/lint.log
+          pnpm --dir apps/web check 2>&1 | tee /tmp/rhea-foundation/types.log
+          node --experimental-strip-types --test tests/unit/*.test.mjs test/reader/typography.test.mjs | tee /tmp/rhea-foundation/units.log
+      - name: Build and browser acceptance
+        env:
+          BASE_PATH: /Reader-Web
+        run: |
+          set -o pipefail
+          pnpm build 2>&1 | tee /tmp/rhea-foundation/build.log
+          python -m pip install 'playwright==1.63.0'
+          python -m playwright install --with-deps chromium webkit
+          status=0
+          for engine in chromium webkit; do
+            mkdir -p /tmp/rhea-foundation/$engine
+            set +e
+            APPEARANCE_BROWSER=$engine python tests/browser/test_appearance_refinement.py > /tmp/rhea-foundation/$engine/results.log 2>&1
+            result=$?
+            set -e
+            [ $result -eq 0 ] || status=1
+            if [ -d test-results ]; then mv test-results /tmp/rhea-foundation/$engine/screenshots; fi
+          done
+          exit $status
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rhea-foundation-results
+          path: /tmp/rhea-foundation
+          retention-days: 7
