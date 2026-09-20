@@ -1,8 +1,8 @@
 <script lang="ts">
   import { browser } from '$app/environment';
-  import { faSpinner } from '@fortawesome/free-solid-svg-icons';
+  import faSpinner from '@lucide/svelte/icons/loader-circle';
   import { convertAuthErrorResponse } from '$lib/functions/replication/error-handler';
-  import Fa from 'svelte-fa';
+  import AppIcon from '$lib/components/app-icon.svelte';
 
   $: if (browser) {
     handleAuthRequest();
@@ -199,5 +199,5 @@
 </script>
 
 <div class="fixed inset-0 flex h-full w-full items-center justify-center text-7xl">
-  <Fa icon={faSpinner} spin />
+  <AppIcon icon={faSpinner} spin />
 </div>

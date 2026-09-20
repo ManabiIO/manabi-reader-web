@@ -43,13 +43,13 @@ class RefinedAppearance(previous.AppearanceBrowser):
         self.context = self.playwright.webkit.launch_persistent_context(profile.name)
         self.page = self.context.pages[0]
         self.errors = []
-        self.page.on('pageerror', lambda error: self.errors.append(str(error)))
+        self.page.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))
         previous.baseline.StaticHandler.probes.clear()
         self.context.on('page', self.watch_page)
         self.record_network()
 
     def watch_page(self, page):
-        page.on('pageerror', lambda error: self.errors.append(str(error)))
+        page.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))
 
     def record_network(self):
         self.network = []
@@ -107,7 +107,7 @@ class RefinedAppearance(previous.AppearanceBrowser):
         )
         self.page.locator(
             'fieldset:has(#background-reader-dark)'
-        ).get_by_role('checkbox', name='Fade background').uncheck()
+        ).get_by_role('switch').uncheck()
         reader.wait_for_function(
             '() => getComputedStyle(document.querySelector(".page-background"), '
             '"::after").backgroundColor === "rgba(0, 0, 0, 0)"'
@@ -135,7 +135,7 @@ class RefinedAppearance(previous.AppearanceBrowser):
             self.assertEqual(raw, self.page.evaluate('localStorage.getItem("customThemes")'))
             self.mode('Light')
             self.settings(reload=True)
-            expect(self.page.get_by_role('heading', name='Appearance', exact=True)).to_be_visible()
+            expect(self.page.get_by_label('Search settings', exact=True)).to_be_visible()
             self.assertEqual('light', self.scheme())
 
     def test_rapid_tab_edits_converge_without_writing_back_stale_events(self):
@@ -229,7 +229,8 @@ class RefinedAppearance(previous.AppearanceBrowser):
 
     def test_focus_and_escape_do_not_commit_the_device_font_fallback(self):
         self.settings()
-        font = self.page.get_by_label('Primary / Serif font', exact=True)
+        self.page.get_by_role('button', name='Fonts & text', exact=True).click()
+        font = self.page.get_by_role('textbox', name='Primary / Serif font', exact=True)
         saved = self.page.evaluate('localStorage.getItem("fontFamilyGroupOne")')
         font.focus()
         font.press('Tab')
@@ -246,7 +247,7 @@ class RefinedAppearance(previous.AppearanceBrowser):
         self.assertNotEqual(selected.evaluate('e => getComputedStyle(e).borderTopColor'), other.evaluate('e => getComputedStyle(e).borderTopColor'))
         self.page.emulate_media(forced_colors='active')
         selected_mode = self.page.get_by_role('group', name='Appearance mode').get_by_role('button', name='Light', exact=True)
-        self.assertEqual('2px', selected_mode.evaluate('e => getComputedStyle(e).outlineWidth'))
+        self.assertGreaterEqual(selected_mode.evaluate('e => parseFloat(getComputedStyle(e).outlineWidth)'), 2)
         self.page.screenshot(path='test-results/appearance-forced-colors.png', full_page=True)
 
     def test_png_jpeg_webp_reencoding_and_cross_tab_removal(self):

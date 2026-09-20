@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AppNav from '$lib/components/navigation/app-nav.svelte';
   import { onDestroy, onMount } from 'svelte';
   import { beforeNavigate } from '$app/navigation';
   import { base } from '$app/paths';
@@ -167,6 +168,12 @@
     void Promise.all(sources.map((source) => source.close().catch(() => undefined)));
   });
 </script>
+
+<header
+  class="app-header flex min-h-12 items-center justify-end border-b border-border bg-card px-3"
+>
+  <AppNav />
+</header>
 
 <svelte:head><title>Import from Ttu Ebook Reader · Manabi Reader</title></svelte:head>
 

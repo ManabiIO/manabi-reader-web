@@ -8,26 +8,45 @@
   --reader-hint-furigana-shadow-color: var(--light-reader-hint-furigana-shadow-color);
   --reader-hint-furigana-font-color: var(--light-reader-hint-furigana-font-color);
   --reader-tooltip-text-font-color: var(--light-reader-tooltip-text-font-color);
-  --canvas: var(--light-canvas);
-  --ink: var(--light-ink);
+  --background: var(--light-background);
+  --foreground: var(--light-foreground);
+  --muted-foreground: var(--light-muted-foreground);
   --muted: var(--light-muted);
-  --surface: var(--light-surface);
-  --surface-raised: var(--light-surface-raised);
-  --surface-hover: var(--light-surface-hover);
-  --line: var(--light-line);
-  --control-line: var(--light-control-line);
+  --card: var(--light-card);
   --accent: var(--light-accent);
-  --on-accent: var(--light-on-accent);
-  --accent-soft: var(--light-accent-soft);
-  --danger: var(--light-danger);
+  --border: var(--light-border);
+  --input: var(--light-input);
+  --primary: var(--light-primary);
+  --primary-foreground: var(--light-primary-foreground);
+  --secondary: var(--light-secondary);
+  --destructive: var(--light-destructive);
   --heatmap-empty: var(--light-heatmap-empty);
   --heatmap-outside: var(--light-heatmap-outside);
+  --card-foreground: var(--light-card-foreground);
+  --popover: var(--light-popover);
+  --popover-foreground: var(--light-popover-foreground);
+  --secondary-foreground: var(--light-secondary-foreground);
+  --accent-foreground: var(--light-accent-foreground);
+  --ring: var(--light-ring);
+  --sidebar: var(--light-sidebar);
+  --sidebar-foreground: var(--light-sidebar-foreground);
+  --sidebar-primary: var(--light-sidebar-primary);
+  --sidebar-primary-foreground: var(--light-sidebar-primary-foreground);
+  --sidebar-accent: var(--light-sidebar-accent);
+  --sidebar-accent-foreground: var(--light-sidebar-accent-foreground);
+  --sidebar-border: var(--light-sidebar-border);
+  --sidebar-ring: var(--light-sidebar-ring);
+  --chart-1: var(--light-chart-1);
+  --chart-2: var(--light-chart-2);
+  --chart-3: var(--light-chart-3);
+  --chart-4: var(--light-chart-4);
+  --chart-5: var(--light-chart-5);
   color-scheme: light;
   --image-fade-color: 255 255 255;
-  --font-color: var(--ink);
-  --background-color: var(--canvas);
-  scrollbar-color: var(--muted) var(--canvas);
-  background: var(--canvas);
+  --font-color: var(--foreground);
+  --background-color: var(--background);
+  scrollbar-color: var(--muted-foreground) var(--background);
+  background: var(--background);
 }
 @supports (color: color(display-p3 1 0 0)) {
   :root {
@@ -42,20 +61,39 @@
   --reader-hint-furigana-shadow-color: var(--dark-reader-hint-furigana-shadow-color);
   --reader-hint-furigana-font-color: var(--dark-reader-hint-furigana-font-color);
   --reader-tooltip-text-font-color: var(--dark-reader-tooltip-text-font-color);
-  --canvas: var(--dark-canvas);
-  --ink: var(--dark-ink);
+  --background: var(--dark-background);
+  --foreground: var(--dark-foreground);
+  --muted-foreground: var(--dark-muted-foreground);
   --muted: var(--dark-muted);
-  --surface: var(--dark-surface);
-  --surface-raised: var(--dark-surface-raised);
-  --surface-hover: var(--dark-surface-hover);
-  --line: var(--dark-line);
-  --control-line: var(--dark-control-line);
+  --card: var(--dark-card);
   --accent: var(--dark-accent);
-  --on-accent: var(--dark-on-accent);
-  --accent-soft: var(--dark-accent-soft);
-  --danger: var(--dark-danger);
+  --border: var(--dark-border);
+  --input: var(--dark-input);
+  --primary: var(--dark-primary);
+  --primary-foreground: var(--dark-primary-foreground);
+  --secondary: var(--dark-secondary);
+  --destructive: var(--dark-destructive);
   --heatmap-empty: var(--dark-heatmap-empty);
   --heatmap-outside: var(--dark-heatmap-outside);
+  --card-foreground: var(--dark-card-foreground);
+  --popover: var(--dark-popover);
+  --popover-foreground: var(--dark-popover-foreground);
+  --secondary-foreground: var(--dark-secondary-foreground);
+  --accent-foreground: var(--dark-accent-foreground);
+  --ring: var(--dark-ring);
+  --sidebar: var(--dark-sidebar);
+  --sidebar-foreground: var(--dark-sidebar-foreground);
+  --sidebar-primary: var(--dark-sidebar-primary);
+  --sidebar-primary-foreground: var(--dark-sidebar-primary-foreground);
+  --sidebar-accent: var(--dark-sidebar-accent);
+  --sidebar-accent-foreground: var(--dark-sidebar-accent-foreground);
+  --sidebar-border: var(--dark-sidebar-border);
+  --sidebar-ring: var(--dark-sidebar-ring);
+  --chart-1: var(--dark-chart-1);
+  --chart-2: var(--dark-chart-2);
+  --chart-3: var(--dark-chart-3);
+  --chart-4: var(--dark-chart-4);
+  --chart-5: var(--dark-chart-5);
   color-scheme: dark;
   --image-fade-color: 0 0 0;
 }
@@ -68,20 +106,39 @@
     --reader-hint-furigana-shadow-color: var(--dark-reader-hint-furigana-shadow-color);
     --reader-hint-furigana-font-color: var(--dark-reader-hint-furigana-font-color);
     --reader-tooltip-text-font-color: var(--dark-reader-tooltip-text-font-color);
-    --canvas: var(--dark-canvas);
-    --ink: var(--dark-ink);
+    --background: var(--dark-background);
+    --foreground: var(--dark-foreground);
+    --muted-foreground: var(--dark-muted-foreground);
     --muted: var(--dark-muted);
-    --surface: var(--dark-surface);
-    --surface-raised: var(--dark-surface-raised);
-    --surface-hover: var(--dark-surface-hover);
-    --line: var(--dark-line);
-    --control-line: var(--dark-control-line);
+    --card: var(--dark-card);
     --accent: var(--dark-accent);
-    --on-accent: var(--dark-on-accent);
-    --accent-soft: var(--dark-accent-soft);
-    --danger: var(--dark-danger);
+    --border: var(--dark-border);
+    --input: var(--dark-input);
+    --primary: var(--dark-primary);
+    --primary-foreground: var(--dark-primary-foreground);
+    --secondary: var(--dark-secondary);
+    --destructive: var(--dark-destructive);
     --heatmap-empty: var(--dark-heatmap-empty);
     --heatmap-outside: var(--dark-heatmap-outside);
+    --card-foreground: var(--dark-card-foreground);
+    --popover: var(--dark-popover);
+    --popover-foreground: var(--dark-popover-foreground);
+    --secondary-foreground: var(--dark-secondary-foreground);
+    --accent-foreground: var(--dark-accent-foreground);
+    --ring: var(--dark-ring);
+    --sidebar: var(--dark-sidebar);
+    --sidebar-foreground: var(--dark-sidebar-foreground);
+    --sidebar-primary: var(--dark-sidebar-primary);
+    --sidebar-primary-foreground: var(--dark-sidebar-primary-foreground);
+    --sidebar-accent: var(--dark-sidebar-accent);
+    --sidebar-accent-foreground: var(--dark-sidebar-accent-foreground);
+    --sidebar-border: var(--dark-sidebar-border);
+    --sidebar-ring: var(--dark-sidebar-ring);
+    --chart-1: var(--dark-chart-1);
+    --chart-2: var(--dark-chart-2);
+    --chart-3: var(--dark-chart-3);
+    --chart-4: var(--dark-chart-4);
+    --chart-5: var(--dark-chart-5);
     color-scheme: dark;
     --image-fade-color: 0 0 0;
   }
@@ -89,48 +146,50 @@
 body {
   isolation: isolate;
 }
-:where(input, select, textarea) {
-  color: var(--ink);
-  accent-color: var(--accent);
-}
-:where(
-  input:not([type='range']):not([type='checkbox']):not([type='radio']):not([type='color']),
-  select,
-  textarea
-) {
-  background-color: var(--surface);
-  border-color: var(--control-line);
-}
-select {
-  appearance: auto;
-  background-image: none;
-}
-input[type='checkbox'],
-input[type='radio'] {
-  color: var(--accent);
-}
-input::placeholder,
-textarea::placeholder {
-  color: var(--muted);
-  opacity: 1;
-}
-:where(button, a, input, select, textarea, [tabindex]):focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
+@layer base {
+  :where(input, select, textarea) {
+    color: var(--foreground);
+    accent-color: var(--primary);
+  }
+  :where(
+    input:not([type='range']):not([type='checkbox']):not([type='radio']):not([type='color']),
+    select,
+    textarea
+  ) {
+    background-color: var(--muted);
+    border-color: var(--input);
+  }
+  select {
+    appearance: auto;
+    background-image: none;
+  }
+  input[type='checkbox'],
+  input[type='radio'] {
+    color: var(--primary);
+  }
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--muted-foreground);
+    opacity: 1;
+  }
+  :where(button, a, input, select, textarea, [tabindex]):focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 3px;
+  }
 }
 ::selection {
   color: var(--reader-selection-font-color);
   background: var(--reader-selection-background-color);
 }
 .app-header {
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--border);
 }
 .ui-panel {
-  background: var(--surface-raised);
-  color: var(--ink);
+  background: var(--card);
+  color: var(--foreground);
 }
 .ui-link {
-  color: var(--accent);
+  color: var(--primary);
 }
 .page-background {
   position: fixed;
@@ -160,13 +219,6 @@ textarea::placeholder {
   }
 }
 
-/* Controls need stronger boundaries than decorative panel separators. */
-button,
-input,
-select,
-textarea {
-  --line: var(--control-line);
-}
 @media (forced-colors: active) {
   button[aria-pressed='true'] {
     outline: 2px solid Highlight;

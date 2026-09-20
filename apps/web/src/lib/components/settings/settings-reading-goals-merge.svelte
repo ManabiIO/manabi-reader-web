@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { faSpinner } from '@fortawesome/free-solid-svg-icons';
+  import faSpinner from '@lucide/svelte/icons/loader-circle';
   import DialogTemplate from '$lib/components/dialog-template.svelte';
   import Ripple from '$lib/components/ripple.svelte';
   import { buttonClasses } from '$lib/css-classes';
@@ -21,7 +21,7 @@
   } from '$lib/functions/statistic-util';
   import { pluralize } from '$lib/functions/utils';
   import { createEventDispatcher, onMount, tick } from 'svelte';
-  import Fa from 'svelte-fa';
+  import AppIcon from '$lib/components/app-icon.svelte';
 
   export let newReadingGoal: ReadingGoal;
   export let resolver: (arg0: ReadingGoalSaveResult) => void;
@@ -266,9 +266,9 @@
 </script>
 
 {#if showSpinner}
-  <div class="tap-highlight-transparent absolute inset-0 bg-black/[.2]" ></div>
+  <div class="tap-highlight-transparent absolute inset-0 bg-black/[.2]"></div>
   <div class="fixed inset-0 flex h-full w-full items-center justify-center text-7xl">
-    <Fa icon={faSpinner} spin />
+    <AppIcon icon={faSpinner} spin />
   </div>
 {/if}
 <DialogTemplate>

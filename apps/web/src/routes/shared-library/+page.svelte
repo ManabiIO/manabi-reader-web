@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AppNav from '$lib/components/navigation/app-nav.svelte';
   import { onMount } from 'svelte';
   import { resolve } from '$app/paths';
   import { goto } from '$app/navigation';
@@ -92,6 +93,12 @@
     void run(refresh);
   });
 </script>
+
+<header
+  class="app-header flex min-h-12 items-center justify-end border-b border-border bg-card px-3"
+>
+  <AppNav />
+</header>
 
 <svelte:head><title>Shared Ttu Ebook Reader libraries · Manabi Reader</title></svelte:head>
 
@@ -250,8 +257,8 @@
     font-weight: 650;
   }
   section {
-    border: 1px solid var(--line);
-    background: var(--surface);
+    border: 1px solid var(--border);
+    background: var(--muted);
     border-radius: 0.6rem;
     padding: 1rem;
     margin: 1rem 0;
@@ -260,7 +267,7 @@
     margin: 0.75rem 0;
   }
   a {
-    color: var(--accent);
+    color: var(--primary);
     text-decoration: underline;
   }
   label {
@@ -272,7 +279,7 @@
   button,
   select {
     background: transparent;
-    border: 1px solid var(--line);
+    border: 1px solid var(--border);
     border-radius: 0.35rem;
     padding: 0.45rem 0.75rem;
     margin: 0.25rem;

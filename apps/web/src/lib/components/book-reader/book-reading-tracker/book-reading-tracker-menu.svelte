@@ -1,30 +1,28 @@
 <script lang="ts">
-  import {
-    faChevronLeft,
-    faChevronRight,
-    faClockRotateLeft,
-    faFloppyDisk,
-    faPause,
-    faPlay,
-    faRepeat,
-    faSpinner,
-    faTrash,
-    faXmark,
-    type IconDefinition
-  } from '@fortawesome/free-solid-svg-icons';
+  import { Button } from '$lib/components/ui/button';
+  import faChevronLeft from '@lucide/svelte/icons/chevron-left';
+  import faChevronRight from '@lucide/svelte/icons/chevron-right';
+  import faClockRotateLeft from '@lucide/svelte/icons/history';
+  import faFloppyDisk from '@lucide/svelte/icons/save';
+  import faPause from '@lucide/svelte/icons/pause';
+  import faPlay from '@lucide/svelte/icons/play';
+  import faRepeat from '@lucide/svelte/icons/repeat';
+  import faSpinner from '@lucide/svelte/icons/loader-circle';
+  import faTrash from '@lucide/svelte/icons/trash-2';
+  import faXmark from '@lucide/svelte/icons/x';
+  import type { IconDefinition } from '$lib/components/icon-types';
   import type { TrackingHistory } from '$lib/components/book-reader/book-reading-tracker/book-reading-tracker';
   import {
     getChapterData,
     type SectionWithProgress
   } from '$lib/components/book-reader/book-toc/book-toc';
-  import { dialogManager } from '$lib/data/dialog-manager';
   import type { BooksDbStatistic } from '$lib/data/database/books-db/versions/books-db';
   import type { ReadingGoal } from '$lib/data/reading-goal';
   import { lastBlurredTrackerItems$, skipKeyDownListener$ } from '$lib/data/store';
   import { secondsToMinutes, toTimeString } from '$lib/functions/statistic-util';
-  import { caluclatePercentage, dummyFn } from '$lib/functions/utils';
+  import { caluclatePercentage } from '$lib/functions/utils';
   import { createEventDispatcher, onMount } from 'svelte';
-  import Fa from 'svelte-fa';
+  import AppIcon from '$lib/components/app-icon.svelte';
 
   export let fontColor: string;
   export let backgroundColor: string;
@@ -104,12 +102,6 @@
 
   onMount(() => {
     $skipKeyDownListener$ = true;
-    dialogManager.dialogs$.next([
-      {
-        component: '<div/>',
-        disableCloseOnClick: true
-      }
-    ]);
 
     if (sectionData) {
       const [mainChapters, chapterIndex] = getChapterData(sectionData);
@@ -131,7 +123,6 @@
 
     return () => {
       $skipKeyDownListener$ = false;
-      dialogManager.dialogs$.next([]);
     };
   });
 
@@ -183,16 +174,15 @@
       Last Update failed
     {/if}
   </div>
-  <div
-    tabindex="0"
-    role="button"
+  <button
+    type="button"
     title="Close Tracker Menu"
-    class="flex items-center hover:text-red-500 md:items-center"
+    class="flex items-center hover:text-red-500 md:items-center gap-2 rounded-xl px-2 py-1.5 text-sm"
     on:click={() => dispatch('trackerMenuClosed')}
-    on:keyup={dummyFn}
   >
-    <Fa icon={faXmark} />
-  </div>
+    <AppIcon icon={faXmark} />
+    <span>Close Tracker Menu</span></button
+  >
 </div>
 <div class="flex flex-1 flex-col overflow-auto p-4">
   {#if currentReadingGoal}
@@ -233,7 +223,7 @@
           <!-- eslint-enable svelte/no-unknown-style-directive-property -->
         </div>
       {/if}
-      <div class="grid grid-cols-[max-content,auto] gap-x-4 gap-y-2 mt-4">
+      <div class="grid grid-cols-[max-content_auto] gap-x-4 gap-y-2 mt-4">
         <div>Current Reading Goal:</div>
         <div class="flex flex-col sm:block">
           <span>{currentReadingGoalStart}</span>
@@ -251,29 +241,28 @@
   {/if}
   {#each allStatistics as statistic (statistic.id)}
     <div class="mb-7 last:mb-4">
-      <div class="flex items-center">
+      <div class="flex flex-wrap items-center gap-2">
         <div>
           {statistic.id}
         </div>
         {#if statistic.id === 'Current Session'}
           {#each actions as action (action.event)}
-            {#if action.event !== 'saveStatistics' || (action.event === 'saveStatistics' && canSaveStatistics)}
-              <div
-                tabindex="0"
-                role="button"
-                class="ml-4 hover:text-red-500"
-                title={action.title}
-                on:click={() => executeAction(action.event)}
-                on:keyup={dummyFn}
-              >
-                <Fa icon={getActionIcon(action, wasTrackerPaused)} />
-              </div>
-            {/if}
+            <Button
+              variant="ghost"
+              size="sm"
+              title={action.title}
+              disabled={actionInProgress ||
+                (action.event === 'saveStatistics' && !canSaveStatistics)}
+              onclick={() => executeAction(action.event)}
+            >
+              <AppIcon icon={getActionIcon(action, wasTrackerPaused)} />
+              {action.title}
+            </Button>
           {/each}
         {/if}
       </div>
       <hr />
-      <div class="grid grid-cols-[max-content,auto] gap-x-4 gap-y-2">
+      <div class="grid grid-cols-[max-content_auto] gap-x-4 gap-y-2">
         {#if statistic.id === 'All Time'}
           <div class="mt-3">Book started on:</div>
           <div class="mt-3">{bookStartDate}</div>
@@ -289,66 +278,56 @@
         >
           Characters Read:
         </button>
-        <div
-          role="button"
-          tabindex="0"
+        <button
+          type="button"
           class:blur={$lastBlurredTrackerItems$.has('charactersRead')}
           class:mt-3={statistic.id !== 'All Time' && statistic.id !== 'Book Completion'}
           on:click={() => handleBlurredKey('charactersRead')}
-          on:keyup={dummyFn}
         >
           {statistic.charactersRead}
-        </div>
+        </button>
         <button class="text-left" on:click={() => handleBlurredKey('lastReadingSpeed')}>
           Reading Speed:
         </button>
-        <div
-          role="button"
-          tabindex="0"
+        <button
+          type="button"
           class:blur={$lastBlurredTrackerItems$.has('lastReadingSpeed')}
           on:click={() => handleBlurredKey('lastReadingSpeed')}
-          on:keyup={dummyFn}
         >
           {statistic.lastReadingSpeed} / h
-        </div>
+        </button>
         <button class="text-left" on:click={() => handleBlurredKey('readingTime')}>
           Reading Time:
         </button>
-        <div
-          role="button"
-          tabindex="0"
+        <button
+          type="button"
           class:blur={$lastBlurredTrackerItems$.has('readingTime')}
           on:click={() => handleBlurredKey('readingTime')}
-          on:keyup={dummyFn}
         >
           {toTimeString(statistic.readingTime)}
-        </div>
+        </button>
         {#if statistic.id === 'Current Session'}
           <button class="text-left" on:click={() => handleBlurredKey('finishETA')}>
             Time to Finish Book:
           </button>
-          <div
-            role="button"
-            tabindex="0"
+          <button
+            type="button"
             class:blur={$lastBlurredTrackerItems$.has('finishETA')}
             on:click={() => handleBlurredKey('finishETA')}
-            on:keyup={dummyFn}
           >
             {timeToFinishBook}
-          </div>
+          </button>
           {#if timeToFinishChapter}
             <button class="text-left" on:click={() => handleBlurredKey('finishChapterETA')}>
               Time to Finish Chapter:
             </button>
-            <div
-              role="button"
-              tabindex="0"
+            <button
+              type="button"
               class:blur={$lastBlurredTrackerItems$.has('finishChapterETA')}
               on:click={() => handleBlurredKey('finishChapterETA')}
-              on:keyup={dummyFn}
             >
               {timeToFinishChapter}
-            </div>
+            </button>
           {/if}
 
           <div class="mt-3">Current Position:</div>
@@ -385,14 +364,14 @@
                   class="hover:text-red-500"
                   on:click={() => dispatch('revertStatistic', trackingHistoryItem)}
                 >
-                  <Fa icon={faTrash} />
+                  <AppIcon icon={faTrash} /> <span>Revert Item</span>
                 </button>
                 <div
                   title="Item saved to Database"
                   class="ml-4 cursor-not-allowed"
                   class:text-green-500={trackingHistoryItem.saved}
                 >
-                  <Fa icon={faFloppyDisk} />
+                  <AppIcon icon={faFloppyDisk} />
                 </div>
               </div>
             {/each}
@@ -405,7 +384,7 @@
               class:cursor-not-allowed={currentTrackingHistoryIndex === 0}
               on:click={() => (trackingHistoryIndex -= 1)}
             >
-              <Fa icon={faChevronLeft} />
+              <AppIcon icon={faChevronLeft} />
             </button>
             <button
               title={hasNextPage ? 'Next Page' : ''}
@@ -414,7 +393,7 @@
               class:cursor-not-allowed={!hasNextPage}
               on:click={() => (trackingHistoryIndex += 1)}
             >
-              <Fa icon={faChevronRight} />
+              <AppIcon icon={faChevronRight} />
             </button>
           </div>
         </details>
@@ -422,9 +401,9 @@
     </div>
   {/each}
   {#if actionInProgress}
-    <div class="tap-highlight-transparent absolute inset-0 bg-black/[.2]" ></div>
+    <div class="tap-highlight-transparent absolute inset-0 bg-black/[.2]"></div>
     <div class="absolute inset-0 flex h-full w-full items-center justify-center text-7xl">
-      <Fa icon={faSpinner} spin />
+      <AppIcon icon={faSpinner} spin />
     </div>
   {/if}
 </div>

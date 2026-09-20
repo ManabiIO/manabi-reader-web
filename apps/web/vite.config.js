@@ -1,7 +1,7 @@
+import tailwindcss from '@tailwindcss/vite';
 import { sveltekit } from '@sveltejs/kit/vite';
 
 /** @type {import('vite').UserConfig} */
 export default {
-  plugins: [sveltekit()],
-  ssr: { noExternal: ['@fortawesome/*', '@popperjs/*'] }
+  plugins: [tailwindcss(), sveltekit()]
 };

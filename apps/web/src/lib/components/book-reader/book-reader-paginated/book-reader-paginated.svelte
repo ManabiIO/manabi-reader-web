@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { readerUIOwnsEvent } from '$lib/functions/reader-ui-events';
   import { browser } from '$app/environment';
   import { nextChapter$ } from '$lib/components/book-reader/book-toc/book-toc';
   import HtmlRenderer from '$lib/components/html-renderer.svelte';
@@ -18,7 +19,8 @@
   import { clearRange, createRange, pulseElement } from '$lib/functions/range-util';
   import { iffBrowser } from '$lib/functions/rxjs/iff-browser';
   import { getExternalTargetElement, isMobile$ } from '$lib/functions/utils';
-  import { faBookmark, faSpinner } from '@fortawesome/free-solid-svg-icons';
+  import faBookmark from '@lucide/svelte/icons/bookmark';
+  import faSpinner from '@lucide/svelte/icons/loader-circle';
   import {
     BehaviorSubject,
     combineLatest,
@@ -34,7 +36,7 @@
     takeUntil,
     throttleTime
   } from 'rxjs';
-  import Fa from 'svelte-fa';
+  import AppIcon from '$lib/components/app-icon.svelte';
   import { swipe } from 'svelte-gestures';
   import type { BookmarkManager, PageManager } from '../types';
   import { BookmarkManagerPaginated } from './bookmark-manager-paginated';
@@ -466,7 +468,9 @@
 
   iffBrowser(() => fromEvent<WheelEvent>(document.body, 'wheel', { passive: true }))
     .pipe(
-      filter(() => !$disableWheelNavigation$ && !$skipKeyDownListener$),
+      filter(
+        (event) => !$disableWheelNavigation$ && !$skipKeyDownListener$ && !readerUIOwnsEvent(event)
+      ),
       throttleTime(50),
       takeUntil(destroy$)
     )
@@ -634,7 +638,7 @@
   }
 
   function onSwipe(ev: CustomEvent<{ direction: 'top' | 'right' | 'left' | 'bottom' | null }>) {
-    if (!concretePageManager || $skipKeyDownListener$) return;
+    if (!concretePageManager || $skipKeyDownListener$ || readerUIOwnsEvent(ev)) return;
     if (ev.detail.direction !== 'left' && ev.detail.direction !== 'right') return;
     const swipeLeft = ev.detail.direction === 'left';
     const nextPage = verticalMode ? !swipeLeft : swipeLeft;
@@ -642,6 +646,7 @@
   }
 
   function onKeydown(ev: KeyboardEvent) {
+    if (readerUIOwnsEvent(ev)) return;
     if (
       !concretePageManager ||
       $skipKeyDownListener$ ||
@@ -748,7 +753,7 @@
     style:color={fontColor}
     style:background-color={backgroundColor}
   >
-    <Fa icon={faSpinner} spin />
+    <AppIcon icon={faSpinner} spin />
   </div>
 {/if}
 
@@ -760,7 +765,7 @@
     style:left={bookmarkLeftAdjustment}
     style:right={bookmarkRightAdjustment}
   >
-    <Fa icon={faBookmark} />
+    <AppIcon icon={faBookmark} />
   </div>
 {/if}
 

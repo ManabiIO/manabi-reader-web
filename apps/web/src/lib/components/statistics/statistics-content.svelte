@@ -1,6 +1,7 @@
 <script lang="ts">
+  import * as Sheet from '$lib/components/ui/sheet';
   import { onKeyUpStatisticsTab } from '../../../routes/b/on-keydown-reader';
-  import { faSpinner } from '@fortawesome/free-solid-svg-icons';
+  import faSpinner from '@lucide/svelte/icons/loader-circle';
   import { getDefaultStatistic } from '$lib/components/book-reader/book-reading-tracker/book-reading-tracker';
   import ConfirmDialog from '$lib/components/confirm-dialog.svelte';
   import MessageDialog from '$lib/components/message-dialog.svelte';
@@ -59,14 +60,11 @@
     getStartHoursDate,
     secondsToMinutes
   } from '$lib/functions/statistic-util';
-  import { clickOutside } from '$lib/functions/use-click-outside';
   import { pluralize } from '$lib/functions/utils';
   import pLimit from 'p-limit';
   import { tap } from 'rxjs';
   import { onDestroy, onMount, tick } from 'svelte';
-  import Fa from 'svelte-fa';
-  import { quintInOut } from 'svelte/easing';
-  import { fly } from 'svelte/transition';
+  import AppIcon from '$lib/components/app-icon.svelte';
 
   const copyStatisticsDataHandler$ = copyStatisticsData$.pipe(
     tap((dataKeyToCopy) => {
@@ -220,11 +218,7 @@
         request.titlesToCheck.add(dataList[index].title);
       }
 
-      handleDeleteRequest(
-        new CustomEvent<StatisticsDeleteRequest>('delete', { detail: request })
-      ).finally(() => {
-        tick().then(() => dialogManager.dialogs$.next([{ component: '<div/>' }]));
-      });
+      handleDeleteRequest(new CustomEvent<StatisticsDeleteRequest>('delete', { detail: request }));
     }),
     reduceToEmptyString()
   );
@@ -809,7 +803,7 @@
 <svelte:window on:keyup={onKeyUp} />
 {#if isLoading}
   <div class="flex fixed items-center justify-center inset-0 h-full w-full text-7xl">
-    <Fa icon={faSpinner} spin />
+    <AppIcon icon={faSpinner} spin />
   </div>
 {:else}
   {#if $lastStatisticsTab$ === StatisticsTab.OVERVIEW}
@@ -844,12 +838,23 @@
     />
   {/if}
 {/if}
-{#if $statisticsTitleFilterIsOpen$}
-  <div
-    class="writing-horizontal-tb fixed top-0 right-0 z-[60] flex h-full w-full max-w-xl flex-col justify-between bg-surface-raised text-ink"
-    in:fly|local={{ x: 100, duration: 100, easing: quintInOut }}
-    use:clickOutside={() => ($statisticsTitleFilterIsOpen$ = false)}
+<Sheet.Root
+  open={$statisticsTitleFilterIsOpen$}
+  onOpenChange={(open) => ($statisticsTitleFilterIsOpen$ = open)}
+>
+  <Sheet.Content
+    side="right"
+    showCloseButton={false}
+    class="data-[side=right]:w-full data-[side=right]:sm:max-w-xl"
+    onCloseAutoFocus={(e) => {
+      e.preventDefault();
+      document.querySelector<HTMLButtonElement>('[title="Open Title Filter Menu"]')?.focus();
+    }}
   >
+    <Sheet.Title class="sr-only">Filter books</Sheet.Title>
+    <Sheet.Description class="sr-only"
+      >Choose the books included in reading statistics.</Sheet.Description
+    >
     <StatisticsTitleFilter
       {statisticsTitleFilters}
       {titlesInStatisticsDateRange}
@@ -857,11 +862,11 @@
       on:clearPrefilter={clearPrefilter}
       on:close={() => ($statisticsTitleFilterIsOpen$ = false)}
     />
-  </div>
-{/if}
+  </Sheet.Content>
+</Sheet.Root>
 {#if $statisticsActionInProgress$}
-  <div class="tap-highlight-transparent fixed inset-0 bg-black/[.2] z-[70]" ></div>
+  <div class="tap-highlight-transparent fixed inset-0 bg-black/[.2] z-[70]"></div>
   <div class="flex fixed items-center justify-center inset-0 h-full w-full text-7xl">
-    <Fa icon={faSpinner} spin />
+    <AppIcon icon={faSpinner} spin />
   </div>
 {/if}

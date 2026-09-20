@@ -6,6 +6,7 @@
 
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import { writable } from 'svelte/store';
+import { tick } from 'svelte';
 import type { BackgroundMode, BackgroundTarget } from './state';
 import {
   backgroundMimeTypes,
@@ -60,6 +61,23 @@ const queues: Record<BackgroundTarget, Promise<void>> = {
   reader: Promise.resolve()
 };
 
+// A store update does not synchronously detach Svelte's CSS references. Revoking
+// before that update can make WebKit report failed image requests on removal.
+function releaseAfterRender(url: string) {
+  void tick().then(() => {
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      clearTimeout(timer);
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      URL.revokeObjectURL(url);
+    };
+    const timer = setTimeout(release, 1000);
+    const frame = requestAnimationFrame(release);
+  });
+}
+
 function db() {
   if (!database)
     database = openDB<BackgroundDatabase>('manabi-reader-appearance', 1, {
@@ -104,7 +122,7 @@ function publish(
     revision: saved?.revision,
     error: undefined
   });
-  if (old && old !== url) URL.revokeObjectURL(old);
+  if (old && old !== url) releaseAfterRender(old);
 }
 
 function validateSaved(saved: SavedImage) {
@@ -139,7 +157,6 @@ async function refreshMode(
     }
     const decoded = await decodeImage(saved.blob);
     url = decoded.url;
-    decoded.image.src = '';
     if (!mounted || lifetime !== life || generation !== versions[target]) return;
     publish(target, mode, saved, url);
     url = undefined; // Ownership transferred to the visible state.
@@ -326,7 +343,7 @@ export function startBackgrounds(): () => void {
     channel?.close();
     channel = undefined;
     for (const target of Object.values(current))
-      for (const value of Object.values(target)) if (value.url) URL.revokeObjectURL(value.url);
+      for (const value of Object.values(target)) if (value.url) releaseAfterRender(value.url);
     backgrounds.set(empty());
   };
 }

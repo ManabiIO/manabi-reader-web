@@ -1,6 +1,5 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import { faUpload } from '@fortawesome/free-solid-svg-icons';
   import BookCardList from '$lib/components/book-card/book-card-list.svelte';
   import type { BookCardProps } from '$lib/components/book-card/book-card-props';
   import BookManagerHeader from '$lib/components/book-card/book-manager-header.svelte';
@@ -55,7 +54,6 @@
   import pLimit from 'p-limit';
   import { combineLatest, map, Observable, share, Subject, switchMap, takeUntil } from 'rxjs';
   import { onDestroy, tick } from 'svelte';
-  import Fa from 'svelte-fa';
 
   const booksAreLoading$ = database.listLoading$.pipe(map((isLoading) => isLoading));
 
@@ -714,9 +712,9 @@
 </div>
 
 <div
-  tabindex="0"
-  role="button"
-  class="{pxScreen} h-full pt-16 xl:pt-14"
+  role="region"
+  aria-label="Book library"
+  class="{pxScreen} min-h-full pt-32"
   on:dragenter={(ev) => ev.preventDefault()}
   on:dragover={(ev) => ev.preventDefault()}
   on:dragend={(ev) => ev.preventDefault()}
@@ -734,19 +732,31 @@
       on:removeBookClick={(ev) => removeBooks([ev.detail.id])}
     />
   {:else}
-    <div class="flex justify-center pt-44 text-gray-400 text-opacity-40">
-      <div class="flex w-3/6 justify-center xl:w-3/12">
-        <Fa icon={faUpload} style="width: 100%; height: auto" />
-      </div>
-    </div>
-    <label class="fixed inset-0 z-0">
+    <section
+      class="mx-auto mt-12 max-w-xl rounded-3xl border border-dashed border-border bg-card p-8 text-center"
+    >
+      <h2 class="text-xl font-semibold">Make room for a good book</h2>
+      <p class="mt-2 text-sm text-muted-foreground">
+        Open EPUB, HTMLZ, or text files. Your books stay on this device unless you choose a
+        connected library.
+      </p>
+      <label
+        for="first-book-file"
+        class="mt-5 inline-flex cursor-pointer rounded-2xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+        >Add your first book</label
+      >
       <input
+        id="first-book-file"
+        class="mt-3 block w-full text-sm"
         type="file"
         accept="application/epub+zip,.epub,.htmlz,plain/text,.txt"
         multiple
-        hidden
+        aria-label="Add your first book"
         use:inputFile={onFilesChange}
       />
-    </label>
+      <p class="mt-4 text-xs text-muted-foreground">
+        You can also drop files here or use Add books for folders, backups, and Ttu imports.
+      </p>
+    </section>
   {/if}
 </div>

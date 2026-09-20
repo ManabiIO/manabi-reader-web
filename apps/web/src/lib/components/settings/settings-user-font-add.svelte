@@ -3,8 +3,8 @@
   import { reservedFontNames } from '$lib/data/fonts';
   import { userFonts$ } from '$lib/data/store';
   import { dummyFn } from '$lib/functions/utils';
-  import { faFloppyDisk } from '@fortawesome/free-solid-svg-icons';
-  import Fa from 'svelte-fa';
+  import faFloppyDisk from '@lucide/svelte/icons/save';
+  import AppIcon from '$lib/components/app-icon.svelte';
 
   export let isLoading: boolean;
   export let fontCache: Cache;
@@ -124,7 +124,7 @@
       tabindex="0"
       role="button"
       title={canSave ? 'Save' : 'Select a File and Font name to save'}
-      class:text-muted={!canSave}
+      class:text-muted-foreground={!canSave}
       class:cursor-not-allowed={!canSave}
       on:click={() => {
         if (canSave) {
@@ -133,7 +133,7 @@
       }}
       on:keyup={dummyFn}
     >
-      <Fa class="text-xl mx-2" icon={faFloppyDisk} />
+      <AppIcon class="text-xl mx-2" icon={faFloppyDisk} />
     </div>
   </div>
 </div>

@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { tap } from 'rxjs';
   import { afterNavigate } from '$app/navigation';
+  import SettingsWorkspace from '$lib/components/settings/settings-workspace.svelte';
   import SettingsContent from '$lib/components/settings/settings-content.svelte';
   import SettingsHeader from '$lib/components/settings/settings-header.svelte';
   import { pxScreen } from '$lib/css-classes';
@@ -90,7 +91,7 @@
 
   let prevPage = `${pagePath}${mergeEntries.MANAGE.routeId}`;
 
-  let activeSettings = 'Reader';
+  const activeSettings = 'All';
 
   let storageQuota = '';
 
@@ -142,11 +143,11 @@
 </svelte:head>
 
 <div class="elevation-4 fixed inset-x-0 top-0 z-10">
-  <SettingsHeader leavePageLink={prevPage} bind:activeSettings />
+  <SettingsHeader leavePageLink={prevPage} />
 </div>
 
 <div class="{pxScreen} h-full pt-16 xl:pt-14">
-  <div class="max-w-5xl">
+  <SettingsWorkspace>
     <SettingsContent
       {activeSettings}
       {storageQuota}
@@ -217,6 +218,6 @@
       bind:trackerPopupDetection={$trackerPopupDetection$}
       bind:adjustStatisticsAfterIdleTime={$adjustStatisticsAfterIdleTime$}
     />
-  </div>
+  </SettingsWorkspace>
 </div>
 {$setPersistentStorage$ ?? ''}

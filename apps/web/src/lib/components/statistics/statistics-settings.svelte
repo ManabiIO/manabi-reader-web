@@ -1,10 +1,8 @@
 <script lang="ts">
-  import {
-    faCircleQuestion,
-    faLeftLong,
-    faRightLong,
-    faXmark
-  } from '@fortawesome/free-solid-svg-icons';
+  import faCircleQuestion from '@lucide/svelte/icons/circle-help';
+  import faLeftLong from '@lucide/svelte/icons/arrow-left';
+  import faRightLong from '@lucide/svelte/icons/arrow-right';
+  import { Button } from '$lib/components/ui/button';
   import ButtonToggleGroup from '$lib/components/button-toggle-group/button-toggle-group.svelte';
   import { optionsForToggle } from '$lib/components/button-toggle-group/toggle-option';
   import Popover from '$lib/components/popover/popover.svelte';
@@ -22,7 +20,6 @@
     setStatisticsDatesToAllTime$
   } from '$lib/components/statistics/statistics-types';
   import { daysOfWeek } from '$lib/components/statistics/statistics-heatmap/statistics-heatmap';
-  import { dialogManager } from '$lib/data/dialog-manager';
   import {
     confirmStatisticsDeletion$,
     lastCharactersDataSource$,
@@ -34,8 +31,8 @@
     lastStatisticsRangeTemplate$,
     lastStatisticsStartDate$
   } from '$lib/data/store';
-  import { createEventDispatcher, onMount } from 'svelte';
-  import Fa from 'svelte-fa';
+  import { createEventDispatcher } from 'svelte';
+  import AppIcon from '$lib/components/app-icon.svelte';
 
   const dispatch = createEventDispatcher<{
     close: void;
@@ -53,12 +50,6 @@
 
   $: selectedStatisticsEndDate = $lastStatisticsEndDate$;
 
-  onMount(() => {
-    dialogManager.dialogs$.next([{ component: '<div/>' }]);
-
-    return () => dialogManager.dialogs$.next([]);
-  });
-
   async function exportStatisticsData(exportAllStatisticsData = true) {
     $statisticsActionInProgress$ = true;
 
@@ -72,27 +63,34 @@
   }
 </script>
 
-<div class="flex items-center p-4">
-  <button class="flex items-end md:items-center" on:click={() => dispatch('close')}>
-    <Fa icon={faXmark} />
-  </button>
-  <div class="flex flex-1 justify-end">
-    <button class="mr-2 sm:mr-4 hover:text-red-500" on:click={() => exportStatisticsData(false)}>
+<div class="flex flex-wrap items-center gap-2 p-4">
+  <Button variant="ghost" onclick={() => dispatch('close')}>Close</Button>
+  <div class="flex flex-1 flex-wrap justify-end gap-2">
+    <button
+      class="rounded-lg px-2 py-1 hover:bg-accent"
+      on:click={() => exportStatisticsData(false)}
+    >
       Export Selection
     </button>
-    <button class="mr-2 sm:mr-4 hover:text-red-500" on:click={() => deleteStatisticsData(false)}>
+    <button
+      class="rounded-lg px-2 py-1 hover:bg-accent"
+      on:click={() => deleteStatisticsData(false)}
+    >
       Delete Selection
     </button>
-    <button class="mr-2 sm:mr-4 hover:text-red-500" on:click={() => exportStatisticsData()}>
+    <button class="rounded-lg px-2 py-1 hover:bg-accent" on:click={() => exportStatisticsData()}>
       Export All
     </button>
-    <button class="hover:text-red-500" on:click={() => deleteStatisticsData()}>Delete All</button>
+    <button
+      class="rounded-lg px-2 py-1 text-destructive hover:bg-accent"
+      on:click={() => deleteStatisticsData()}>Delete All</button
+    >
   </div>
 </div>
 <div class="flex-1 p-4 overflow-auto">
   <div class="flex flex-col mb-6">
     <label for="datesTemplate">Template</label>
-    <select id="datesTemplate" class="text-ink" bind:value={$lastStatisticsRangeTemplate$}>
+    <select id="datesTemplate" class="text-foreground" bind:value={$lastStatisticsRangeTemplate$}>
       {#each statisticsRangeTemplates as statisticsRangeTemplate (statisticsRangeTemplate)}
         <option value={statisticsRangeTemplate}>
           {statisticsRangeTemplate}
@@ -102,7 +100,7 @@
   </div>
   <div class="flex flex-col mb-4 sm:hidden">
     <label for="weekDay">Start of Week</label>
-    <select id="weekDay" class="text-ink" bind:value={$lastStartDayOfWeek$}>
+    <select id="weekDay" class="text-foreground" bind:value={$lastStartDayOfWeek$}>
       {#each weekDays as weekDay (weekDay.day)}
         <option value={weekDay.index}>
           {weekDay.day}
@@ -116,7 +114,7 @@
       <input
         id="fromDate"
         type="date"
-        class="text-ink"
+        class="text-foreground"
         bind:value={selectedStatisticsStartDate}
         on:change={() =>
           dispatch('statisticsDateChange', {
@@ -127,22 +125,26 @@
     </div>
     <div class="flex flex-col justify-between pt-4 mx-2 text-xl sm:mx-0">
       <button
+        aria-label="Set end date to start date"
+        title="Set end date to start date"
         on:click={() =>
           dispatch('statisticsDateChange', {
             isStartDate: false,
             dateString: selectedStatisticsStartDate
           })}
       >
-        <Fa icon={faRightLong} />
+        <AppIcon icon={faRightLong} />
       </button>
       <button
+        aria-label="Set start date to end date"
+        title="Set start date to end date"
         on:click={() =>
           dispatch('statisticsDateChange', {
             isStartDate: true,
             dateString: selectedStatisticsEndDate
           })}
       >
-        <Fa icon={faLeftLong} />
+        <AppIcon icon={faLeftLong} />
       </button>
     </div>
     <div class="flex flex-col">
@@ -150,7 +152,7 @@
       <input
         id="toDate"
         type="date"
-        class="text-ink"
+        class="text-foreground"
         bind:value={selectedStatisticsEndDate}
         on:change={() =>
           dispatch('statisticsDateChange', {
@@ -161,7 +163,7 @@
     </div>
     <div class="flex-col hidden sm:flex">
       <label for="weekDay">Start of Week</label>
-      <select id="weekDay" class="text-ink" bind:value={$lastStartDayOfWeek$}>
+      <select id="weekDay" class="text-foreground" bind:value={$lastStartDayOfWeek$}>
         {#each weekDays as weekDay (weekDay.day)}
           <option value={weekDay.index}>
             {weekDay.day}
@@ -182,10 +184,10 @@
         contentText={'Reading Time Attribute which should be used for the Summary Tab'}
         contentStyles="padding: 0.5rem;"
       >
-        <Fa icon={faCircleQuestion} slot="icon" class="mx-2" />
+        <AppIcon icon={faCircleQuestion} slot="icon" class="mx-2" />
         <label for="timeDataSource">Time Data Source</label>
       </Popover>
-      <select id="timeDataSource" class="text-ink" bind:value={$lastReadingTimeDataSource$}>
+      <select id="timeDataSource" class="text-foreground" bind:value={$lastReadingTimeDataSource$}>
         {#each readingTimeDataSources as readingTimeDataSource (readingTimeDataSource.key)}
           <option value={readingTimeDataSource.key}>
             {readingTimeDataSource.label}
@@ -198,10 +200,10 @@
         contentText={'Characters Read Attribute which should be used for the Summary Tab'}
         contentStyles="padding: 0.5rem; max-width: 20rem;"
       >
-        <Fa icon={faCircleQuestion} slot="icon" class="mx-2" />
+        <AppIcon icon={faCircleQuestion} slot="icon" class="mx-2" />
         <label for="charactersSource">Characters Data Source</label>
       </Popover>
-      <select id="charactersSource" class="text-ink" bind:value={$lastCharactersDataSource$}>
+      <select id="charactersSource" class="text-foreground" bind:value={$lastCharactersDataSource$}>
         {#each charactersDataSources as charactersDataSource (charactersDataSource.key)}
           <option value={charactersDataSource.key}>
             {charactersDataSource.label}
@@ -214,10 +216,10 @@
         contentText={'Reading Speed Attribute which should be used for the Summary Tab'}
         contentStyles="padding: 0.5rem;"
       >
-        <Fa icon={faCircleQuestion} slot="icon" class="mx-2" />
+        <AppIcon icon={faCircleQuestion} slot="icon" class="mx-2" />
         <label for="speedSource">Speed Data Source</label>
       </Popover>
-      <select id="speedSource" class="text-ink" bind:value={$lastReadingSpeedDataSource$}>
+      <select id="speedSource" class="text-foreground" bind:value={$lastReadingSpeedDataSource$}>
         {#each readingSpeedDataSources as readingSpeedDataSource (readingSpeedDataSource.key)}
           <option value={readingSpeedDataSource.key}>
             {readingSpeedDataSource.label}
@@ -231,12 +233,12 @@
       contentText={'Determines on which primary Attribute the Data will be grouped for the Summary Tab'}
       contentStyles="padding: 0.5rem;"
     >
-      <Fa icon={faCircleQuestion} slot="icon" class="mx-2" />
+      <AppIcon icon={faCircleQuestion} slot="icon" class="mx-2" />
       <label for="primaryAggregration">Primary Aggregration</label>
     </Popover>
     <select
       id="primaryAggregration"
-      class="text-ink"
+      class="text-foreground"
       bind:value={$lastPrimaryReadingDataAggregationMode$}
     >
       {#each statisticsDataAggregrationModes as statisticsDataAggregrationMode (statisticsDataAggregrationMode)}

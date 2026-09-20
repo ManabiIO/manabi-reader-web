@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { faArrowDown19 } from '@fortawesome/free-solid-svg-icons';
-  import Fa from 'svelte-fa';
+  import faArrowDown19 from '@lucide/svelte/icons/arrow-down-0-1';
+  import AppIcon from '$lib/components/app-icon.svelte';
   import Popover from '../popover/popover.svelte';
   import SettingsDimensionContent from './settings-dimension-content.svelte';
 
@@ -10,6 +10,6 @@
 </script>
 
 <Popover>
-  <Fa icon={faArrowDown19} slot="icon" class="mx-2" />
+  <AppIcon icon={faArrowDown19} slot="icon" class="mx-2" />
   <SettingsDimensionContent slot="content" {isFirstDimension} {isVertical} bind:dimensionValue />
 </Popover>

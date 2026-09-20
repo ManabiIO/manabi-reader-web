@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { faArrowDownWideShort, faArrowUpShortWide } from '@fortawesome/free-solid-svg-icons';
+  import faArrowDownWideShort from '@lucide/svelte/icons/arrow-down-wide-narrow';
+  import faArrowUpShortWide from '@lucide/svelte/icons/arrow-up-narrow-wide';
   import Popover from '$lib/components/popover/popover.svelte';
   import type {
     StatisticsDataSourceChange,
@@ -15,7 +16,7 @@
     lastStatisticsSummarySortProperty$
   } from '$lib/data/store';
   import { createEventDispatcher } from 'svelte';
-  import Fa from 'svelte-fa';
+  import AppIcon from '$lib/components/app-icon.svelte';
 
   export let statisticsSummaryKey: StatisticsSummaryKey;
   export let options: StatisticsDataSource[];
@@ -30,7 +31,7 @@
   }>();
 
   const tableHeaderClasses =
-    'flex items-center py-2.5 px-0 text-sm w-full bg-transparent border-0 md:border-b-2 border-line appearance-none focus:outline-none focus:ring-0 focus:border-line peer lg:text-base';
+    'flex items-center py-2.5 px-0 text-sm w-full bg-transparent border-0 md:border-b-2 border-border appearance-none focus:outline-none focus:ring-0 focus:border-border peer lg:text-base';
 
   let summaryHeaderPopover: Popover;
 
@@ -40,8 +41,6 @@
 </script>
 
 <div
-  tabindex="0"
-  role="button"
   class={tableHeaderClasses}
   class:hidden={isHidden}
   style:grid-row={gridRow ? `${gridRow}/${gridRow}` : null}
@@ -58,7 +57,7 @@
       <div slot="content" class="flex flex-col overflow-auto w-46 p-2">
         {#each options as option (option.key)}
           <button
-            class="flex flex-1 my-2 hover:opacity-50 hover:bg-surface-hover hover:text-ink"
+            class="flex flex-1 my-2 hover:opacity-50 hover:bg-accent hover:text-foreground"
             on:click|stopPropagation={() => {
               selectedOption = option;
               dispatch('propertyChange', { property: option.key, statisticsSummaryKey });
@@ -85,6 +84,7 @@
   {/if}
   <button
     title="Click to select/sort by this Attribute"
+    aria-label={`Sort by ${selectedOption.label}`}
     class="ml-4"
     class:opacity-20={!optionKeys.has($lastStatisticsSummarySortProperty$)}
     class:cursor-not-allowed={hasRowInEdit}
@@ -93,9 +93,9 @@
       dispatch('propertyChange', { property: selectedOption.key, statisticsSummaryKey })}
   >
     {#if $lastStatisticsSummarySortDirection$ === SortDirection.ASC}
-      <Fa icon={faArrowUpShortWide} />
+      <AppIcon icon={faArrowUpShortWide} />
     {:else}
-      <Fa icon={faArrowDownWideShort} />
+      <AppIcon icon={faArrowDownWideShort} />
     {/if}
   </button>
 </div>

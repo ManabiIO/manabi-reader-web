@@ -4,19 +4,17 @@
  * All rights reserved.
  */
 
-import {
-  faBug,
-  faChartLine,
-  faCog,
-  faFileArrowUp,
-  faFileZipper,
-  faFolderPlus,
-  faHashtag,
-  faImages,
-  faSignOutAlt,
-  faTriangleExclamation,
-  faCloud
-} from '@fortawesome/free-solid-svg-icons';
+import faBug from '@lucide/svelte/icons/bug';
+import faChartLine from '@lucide/svelte/icons/chart-no-axes-combined';
+import faCog from '@lucide/svelte/icons/settings';
+import faFileArrowUp from '@lucide/svelte/icons/file-up';
+import faFileZipper from '@lucide/svelte/icons/file-archive';
+import faFolderPlus from '@lucide/svelte/icons/folder-plus';
+import faHashtag from '@lucide/svelte/icons/hash';
+import faImages from '@lucide/svelte/icons/images';
+import faSignOutAlt from '@lucide/svelte/icons/library';
+import faTriangleExclamation from '@lucide/svelte/icons/triangle-alert';
+import faCloud from '@lucide/svelte/icons/cloud';
 
 export const mergeEntries = {
   MANAGE: { routeId: '/manage', label: 'Manager', icon: faSignOutAlt, title: 'Go to Book Manager' },

@@ -2,7 +2,7 @@
   import DialogTemplate from '$lib/components/dialog-template.svelte';
   import Ripple from '$lib/components/ripple.svelte';
   import { buttonClasses } from '$lib/css-classes';
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onDestroy } from 'svelte';
 
   export let dialogHeader: string;
   export let showCancel = true;
@@ -17,11 +17,20 @@
     close: void;
   }>();
 
+  let settled = false;
+  onDestroy(() => {
+    if (!settled) resolver(undefined);
+  });
+
   function closeDialog(position?: number) {
-    if (typeof position === 'number' && (position < minValue || position > maxValue)) {
+    if (
+      typeof position === 'number' &&
+      (!Number.isFinite(position) || position < minValue || position > maxValue)
+    ) {
       error = `Must be between ${minValue} and ${maxValue}`;
       return;
     }
+    settled = true;
     resolver(position);
     dispatch('close');
   }
@@ -31,6 +40,7 @@
   <svelte:fragment slot="header">{dialogHeader}</svelte:fragment>
   <div class="flex flex-col text-sm sm:text-base" slot="content">
     <input
+      aria-label={dialogHeader}
       type="number"
       min={minValue}
       max={maxValue}

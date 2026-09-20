@@ -1,4 +1,5 @@
 <script lang="ts">
+  import * as Sheet from '$lib/components/ui/sheet';
   import {
     getDefaultStatistic,
     isTrackerPaused$,
@@ -14,7 +15,6 @@
     BooksDbReadingGoal,
     BooksDbStatistic
   } from '$lib/data/database/books-db/versions/books-db';
-  import { dialogManager } from '$lib/data/dialog-manager';
   import { PAGE_CHANGE } from '$lib/data/events';
   import { logger } from '$lib/data/logger';
   import { MergeMode } from '$lib/data/merge-mode';
@@ -41,7 +41,6 @@
     getSecondsToDate,
     toTimeString
   } from '$lib/functions/statistic-util';
-  import { clickOutside } from '$lib/functions/use-click-outside';
   import { filterNotNullAndNotUndefined } from '$lib/functions/utils';
   import {
     fromEvent,
@@ -55,11 +54,7 @@
     throttleTime
   } from 'rxjs';
   import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
-  import { quintInOut } from 'svelte/easing';
-  import { fly } from 'svelte/transition';
 
-  export let fontColor: string;
-  export let backgroundColor: string;
   export let bookTitle: string;
   export let wasTrackerPaused: boolean;
   export let exploredCharCount: number;
@@ -768,22 +763,34 @@
 <svelte:window on:blur={handleBlur} on:focus={handleFocus} />
 <svelte:document bind:visibilityState />
 
-{#if $isTrackerMenuOpen$}
-  <div
-    class="writing-horizontal-tb fixed top-0 left-0 z-[60] flex h-full w-full max-w-xl flex-col justify-between"
-    style:color={fontColor}
-    style:background-color={backgroundColor}
-    in:fly|local={{ x: -100, duration: 100, easing: quintInOut }}
-    use:clickOutside={() => {
-      if (!actionInProgress) {
-        dialogManager.dialogs$.next([]);
-        dispatch('trackerMenuClosed');
-      }
+<Sheet.Root
+  open={$isTrackerMenuOpen$}
+  onOpenChange={(open) => {
+    if (!open && !actionInProgress) dispatch('trackerMenuClosed');
+  }}
+>
+  <Sheet.Content
+    side="left"
+    showCloseButton={false}
+    class="data-[side=left]:w-full data-[side=left]:sm:max-w-xl"
+    onInteractOutside={(e) => {
+      if (actionInProgress) e.preventDefault();
+    }}
+    onEscapeKeydown={(e) => {
+      if (actionInProgress) e.preventDefault();
+    }}
+    onCloseAutoFocus={(e) => {
+      e.preventDefault();
+      document.querySelector<HTMLButtonElement>('[aria-label="Open reading tracker"]')?.focus();
     }}
   >
+    <Sheet.Title class="sr-only">Reading tracker</Sheet.Title>
+    <Sheet.Description class="sr-only"
+      >Session statistics, reading goals, saved progress, and tracking history.</Sheet.Description
+    >
     <BookTimerMenu
-      {fontColor}
-      {backgroundColor}
+      fontColor="var(--foreground)"
+      backgroundColor="var(--background)"
       {actionInProgress}
       {hadError}
       {currentReadingGoal}
@@ -813,5 +820,5 @@
       on:saveStatistics={() => flushUpdates()}
       on:revertStatistic={revertTrackerHistory}
     />
-  </div>
-{/if}
+  </Sheet.Content>
+</Sheet.Root>

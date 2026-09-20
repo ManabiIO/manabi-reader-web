@@ -1,67 +1,68 @@
 <script lang="ts">
-  import { faPen, faTrash } from '@fortawesome/free-solid-svg-icons';
-  import type { ToggleOption } from '$lib/components/button-toggle-group/toggle-option';
-  import Ripple from '$lib/components/ripple.svelte';
+  import { createEventDispatcher, getContext } from 'svelte';
+  import { Button } from '$lib/components/ui/button';
+  import { Switch } from '$lib/components/ui/switch';
+  import { SETTINGS_FIELD } from '$lib/components/settings/settings-context';
+  import type { ToggleOption } from './toggle-option';
   import { availableThemes } from '$lib/data/theme-option';
-  import { createEventDispatcher } from 'svelte';
-  import Fa from 'svelte-fa';
-
   export let options: ToggleOption<any>[];
   export let selectedOptionId: any;
   export let invertColors = false;
-
-  const dispatch = createEventDispatcher<{
-    edit: string;
-    delete: string;
-  }>();
-
-  function mapToStyleString(style: Record<string, any> | undefined) {
-    if (!style) return '';
-
-    return Object.entries(style)
-      .map(([key, value]) => `${key}: ${value}`)
-      .join(';');
+  const fieldName = getContext<() => string>(SETTINGS_FIELD) ?? (() => 'Option');
+  const dispatch = createEventDispatcher<{ edit: string; delete: string }>();
+  $: isBoolean =
+    options.length === 2 &&
+    options.some((o) => o.id === true) &&
+    options.some((o) => o.id === false);
+  function styles(style: Record<string, any> | undefined) {
+    return style
+      ? Object.entries(style)
+          .map(([key, value]) => `${key}: ${value}`)
+          .join(';')
+      : '';
   }
 </script>
 
-<div class="-m-1 flex flex-wrap" class:legacy-invert={invertColors}>
-  {#each options as option (option.id)}
-    <div class="flex">
-      <button
-        title={option.id}
-        class="m-1 rounded-md border-2 p-2 text-lg"
-        aria-pressed={option.id === selectedOptionId}
-        class:border-4={option.thickBorders && option.id === selectedOptionId}
-        class:border-line={option.id !== selectedOptionId}
-        class:border-accent={option.id === selectedOptionId}
-        class:bg-accent={option.id === selectedOptionId}
-        class:text-on-accent={option.id === selectedOptionId}
-        class:text-ink={option.id !== selectedOptionId}
-        class:bg-surface={option.id !== selectedOptionId}
-        style={mapToStyleString(option.style)}
-        on:click={() => (selectedOptionId = option.id)}
-      >
-        {option.text}
-        <Ripple />
-      </button>
-      {#if option.showIcons && option.id === selectedOptionId && !availableThemes.has(option.id)}
-        <div class="flex flex-col justify-around mr-2">
-          <button
+{#if isBoolean}
+  <div class="flex min-h-9 items-center gap-3">
+    <Switch
+      aria-label={fieldName()}
+      checked={selectedOptionId === true}
+      onCheckedChange={(value) => (selectedOptionId = value)}
+    />
+    <span class="text-sm text-muted-foreground">{selectedOptionId ? 'On' : 'Off'}</span>
+  </div>
+{:else}
+  <div
+    role="group"
+    aria-label={fieldName()}
+    class="flex flex-wrap gap-2"
+    class:legacy-invert={invertColors}
+  >
+    {#each options as option (option.id)}
+      <div class="flex flex-wrap items-center gap-1">
+        <Button
+          title={String(option.id)}
+          variant={option.id === selectedOptionId ? 'secondary' : 'outline'}
+          class={option.id === selectedOptionId ? 'border-2 border-primary' : 'border-border'}
+          aria-pressed={option.id === selectedOptionId}
+          style={styles(option.style)}
+          onclick={() => (selectedOptionId = option.id)}>{option.text}</Button
+        >
+        {#if option.showIcons && option.id === selectedOptionId && !availableThemes.has(option.id)}
+          <Button
+            variant="ghost"
             aria-label={`Edit ${option.text} theme`}
-            on:click={() => dispatch('edit', option.id)}
+            onclick={() => dispatch('edit', option.id)}>Edit</Button
           >
-            <Fa icon={faPen} />
-          </button>
-          <button
+          <Button
+            variant="ghost"
             aria-label={`Delete ${option.text} theme`}
-            on:click={() => dispatch('delete', option.id)}
+            onclick={() => dispatch('delete', option.id)}>Delete</Button
           >
-            <Fa icon={faTrash} />
-          </button>
-        </div>
-      {/if}
-    </div>
-  {/each}
-
-  <slot />
-</div>
+        {/if}
+      </div>
+    {/each}
+    <slot />
+  </div>
+{/if}

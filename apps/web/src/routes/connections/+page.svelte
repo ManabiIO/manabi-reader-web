@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AppNav from '$lib/components/navigation/app-nav.svelte';
   import { onMount } from 'svelte';
   import { resolve } from '$app/paths';
   import {
@@ -196,6 +197,12 @@
     };
   });
 </script>
+
+<header
+  class="app-header flex min-h-12 items-center justify-end border-b border-border bg-card px-3"
+>
+  <AppNav />
+</header>
 
 <svelte:head><title>Accounts and libraries · Manabi Reader</title></svelte:head>
 
@@ -566,8 +573,8 @@
     margin-bottom: 0.4rem;
   }
   section {
-    border: 1px solid var(--line);
-    background: var(--surface);
+    border: 1px solid var(--border);
+    background: var(--muted);
     border-radius: 0.75rem;
     padding: 1.25rem;
     margin: 1rem 0;
@@ -576,14 +583,14 @@
     margin: 0.6rem 0;
   }
   a {
-    color: var(--accent);
+    color: var(--primary);
     text-decoration: underline;
     text-underline-offset: 0.16em;
   }
   button,
   .button {
     display: inline-block;
-    border: 1px solid var(--line);
+    border: 1px solid var(--border);
     border-radius: 0.4rem;
     padding: 0.45rem 0.75rem;
     margin: 0.25rem 0;
@@ -592,7 +599,7 @@
   }
   button:hover,
   .button:hover {
-    background: var(--surface-hover);
+    background: var(--accent);
   }
   button:disabled {
     opacity: 0.5;
@@ -602,12 +609,12 @@
   a:focus-visible,
   input:focus-visible,
   select:focus-visible {
-    outline: 2px solid var(--accent);
+    outline: 2px solid var(--primary);
     outline-offset: 3px;
   }
   .library,
   form {
-    border-top: 1px solid var(--line);
+    border-top: 1px solid var(--border);
     margin-top: 1rem;
     padding-top: 1rem;
   }
@@ -624,7 +631,7 @@
   input[type='number'],
   select {
     background: transparent;
-    border: 1px solid var(--line);
+    border: 1px solid var(--border);
     border-radius: 0.3rem;
     padding: 0.3rem;
   }
@@ -634,12 +641,12 @@
   .notice {
     border-left: 3px solid currentColor;
     padding: 0.75rem;
-    background: var(--surface-raised);
+    background: var(--card);
   }
   .hint,
   small {
     font-size: 0.87rem;
-    color: var(--muted);
+    color: var(--muted-foreground);
   }
   small {
     display: block;
@@ -651,7 +658,7 @@
     justify-content: space-between;
     gap: 1rem;
     padding: 0.55rem 0;
-    border-bottom: 1px solid var(--line);
+    border-bottom: 1px solid var(--border);
   }
   .file-entry span {
     min-width: 0;

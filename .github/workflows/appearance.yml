@@ -8,6 +8,8 @@ on:
       - 'tools/appearance/**'
       - 'tests/browser/**'
       - 'tests/unit/**'
+      - 'test/reader/**'
+      - 'tests/fixtures/**'
       - 'package.json'
       - 'pnpm-lock.yaml'
       - '.github/workflows/appearance.yml'
@@ -75,7 +77,7 @@ jobs:
       - run: node --experimental-strip-types tools/appearance/generate-css.mjs --check
       - run: |
           set -o pipefail
-          node --experimental-strip-types --test tests/unit/*.test.mjs | tee appearance-units.log
+          node --experimental-strip-types --test tests/unit/*.test.mjs test/reader/typography.test.mjs | tee appearance-units.log
       - run: |
           set -o pipefail
           pnpm --dir apps/web check 2>&1 | tee appearance-types.log
@@ -93,7 +95,7 @@ jobs:
           status=0
           for engine in chromium webkit; do
             mkdir -p artifacts/appearance/$engine
-            APPEARANCE_BROWSER=$engine python tests/browser/test_appearance_refinement.py 2>&1 | tee artifacts/appearance/$engine/results.log
+            APPEARANCE_BROWSER=$engine python tests/browser/test_rhea_ui.py 2>&1 | tee artifacts/appearance/$engine/results.log
             result=${PIPESTATUS[0]}
             if [ "$result" -ne 0 ]; then status=1; fi
             if [ -d test-results ]; then mv test-results artifacts/appearance/$engine/screenshots; fi

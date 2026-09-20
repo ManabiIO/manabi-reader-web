@@ -329,17 +329,17 @@ export function themeProperties(
         reading[key as keyof ThemeOption]
       ])
     ),
-    canvas: rgba(opaqueBackground),
-    ink: rgba(ink),
-    muted: rgba(mix(ink, opaqueBackground, 0.28)),
-    surface: rgba(mix(opaqueBackground, ink, 0.025)),
-    'surface-raised': rgba(mix(opaqueBackground, ink, 0.065)),
-    'surface-hover': rgba(mix(opaqueBackground, ink, 0.12)),
-    line: rgba(mix(opaqueBackground, ink, 0.28)),
-    'control-line': rgba(mix(opaqueBackground, ink, 0.6)),
-    accent: accent,
-    'on-accent': mode === 'dark' ? '#0b0b0b' : '#ffffff',
-    'accent-soft': rgba(
+    background: rgba(opaqueBackground),
+    foreground: rgba(ink),
+    'muted-foreground': rgba(mix(ink, opaqueBackground, 0.28)),
+    muted: rgba(mix(opaqueBackground, ink, 0.025)),
+    card: rgba(mix(opaqueBackground, ink, 0.065)),
+    accent: rgba(mix(opaqueBackground, ink, 0.12)),
+    border: rgba(mix(opaqueBackground, ink, 0.28)),
+    input: rgba(mix(opaqueBackground, ink, 0.6)),
+    primary: accent,
+    'primary-foreground': mode === 'dark' ? '#0b0b0b' : '#ffffff',
+    secondary: rgba(
       mix(
         opaqueBackground,
         id === 'manabi-theme'
@@ -352,7 +352,26 @@ export function themeProperties(
         0.13
       )
     ),
-    danger: mode === 'dark' ? '#ffb4b1' : '#a11a1d',
+    destructive: mode === 'dark' ? '#ffb4b1' : '#a11a1d',
+    'card-foreground': rgba(ink),
+    popover: rgba(mix(opaqueBackground, ink, 0.065)),
+    'popover-foreground': rgba(ink),
+    'secondary-foreground': rgba(ink),
+    'accent-foreground': rgba(ink),
+    ring: accent,
+    sidebar: rgba(mix(opaqueBackground, ink, 0.025)),
+    'sidebar-foreground': rgba(ink),
+    'sidebar-primary': accent,
+    'sidebar-primary-foreground': mode === 'dark' ? '#0b0b0b' : '#ffffff',
+    'sidebar-accent': rgba(mix(opaqueBackground, ink, 0.12)),
+    'sidebar-accent-foreground': rgba(ink),
+    'sidebar-border': rgba(mix(opaqueBackground, ink, 0.28)),
+    'sidebar-ring': accent,
+    'chart-1': accent,
+    'chart-2': mode === 'dark' ? '#94c9b0' : '#2b6750',
+    'chart-3': mode === 'dark' ? '#a5c9e1' : '#24506c',
+    'chart-4': mode === 'dark' ? '#c8a9dd' : '#76538d',
+    'chart-5': mode === 'dark' ? '#f2b691' : '#914a21',
     'heatmap-empty': rgba(mix(opaqueBackground, ink, 0.15)),
     'heatmap-outside': rgba(mix(opaqueBackground, ink, 0.07))
   };

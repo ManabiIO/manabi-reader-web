@@ -1,251 +1,285 @@
 <script lang="ts">
   import { onKeyDownReaderImageGallery } from '../../../../routes/b/on-keydown-reader';
-  import { faChevronLeft, faChevronRight, faXmark } from '@fortawesome/free-solid-svg-icons';
-  import { readerImageGalleryPictures$ } from '$lib/components/book-reader/book-reader-image-gallery/book-reader-image-gallery';
+  import ChevronLeft from '@lucide/svelte/icons/chevron-left';
+  import ChevronRight from '@lucide/svelte/icons/chevron-right';
+  import { readerImageGalleryPictures$ } from './book-reader-image-gallery';
   import {
     hideSpoilerImage$,
     readerImageGalleryKeybindMap$,
     skipKeyDownListener$
   } from '$lib/data/store';
-  import { createEventDispatcher, onMount } from 'svelte';
-  import { quintInOut } from 'svelte/easing';
-  import Fa from 'svelte-fa';
-  import { fly } from 'svelte/transition';
+  import { createEventDispatcher, onMount, tick } from 'svelte';
+  import { Button } from '$lib/components/ui/button';
+  import * as Dialog from '$lib/components/ui/dialog';
 
-  export let fontColor: string;
-  export let backgroundColor: string;
-
-  const dispatch = createEventDispatcher<{
-    close: void;
-  }>();
-
+  const dispatch = createEventDispatcher<{ close: void }>();
   let contentContainer: HTMLElement;
   let imageContainer: HTMLElement;
-  let selectedImageIndex = window.matchMedia('(min-width: 1024px)').matches ? 0 : -1;
-
+  let desktop = window.matchMedia('(min-width: 1024px)').matches;
+  let selectedImageIndex = desktop ? 0 : -1;
   $: selectedImage = $readerImageGalleryPictures$[selectedImageIndex];
-
-  $: if (imageContainer && selectedImage) {
-    imageContainer.focus();
-  }
+  $: selectedIsHidden = !!selectedImage && $hideSpoilerImage$ && !selectedImage.unspoilered;
 
   onMount(() => {
+    const wasSkipping = $skipKeyDownListener$;
     $skipKeyDownListener$ = true;
-
-    return () => ($skipKeyDownListener$ = false);
+    const media = window.matchMedia('(min-width: 1024px)');
+    const resize = () => {
+      desktop = media.matches;
+      if (desktop && selectedImageIndex < 0) selectedImageIndex = 0;
+    };
+    media.addEventListener('change', resize);
+    return () => {
+      media.removeEventListener('change', resize);
+      $skipKeyDownListener$ = wasSkipping;
+    };
   });
 
-  function onKeyDown(ev: KeyboardEvent) {
-    const result = onKeyDownReaderImageGallery(
-      ev,
-      readerImageGalleryKeybindMap$.getValue(),
-      previousImage,
-      nextImage,
-      closeReaderImageGallery
-    );
-
-    if (!result) return;
-
-    if (document.activeElement instanceof HTMLElement) {
-      document.activeElement.blur();
-    }
-
-    ev.preventDefault();
-  }
-
-  function onWheel(ev: WheelEvent) {
-    if (document.activeElement !== imageContainer) {
-      return;
-    }
-
-    if (ev.deltaY < 0) {
-      previousImage();
-    } else {
-      nextImage();
-    }
-
-    ev.preventDefault();
-  }
-
-  function closeReaderImageGallery() {
+  function close() {
     dispatch('close');
   }
 
-  function toggleGalleryPictureSpoiler(galleryPictureUrl: string) {
-    $readerImageGalleryPictures$ = $readerImageGalleryPictures$.map((galleryPicture) => {
-      const picture = galleryPicture;
+  function onKeyDown(event: KeyboardEvent) {
+    // The dialog owns Tab/Escape and their focus behavior. Retain the reader's
+    // configurable gallery bindings for image navigation and alternative close keys.
+    if (event.defaultPrevented || event.key === 'Tab' || event.key === 'Escape') return;
+    if (
+      onKeyDownReaderImageGallery(
+        event,
+        readerImageGalleryKeybindMap$.getValue(),
+        previousImage,
+        nextImage,
+        close
+      )
+    )
+      event.preventDefault();
+  }
 
-      if (picture.url === galleryPictureUrl) {
-        picture.unspoilered = !galleryPicture.unspoilered;
-      }
+  function onWheel(event: WheelEvent) {
+    if (document.activeElement !== imageContainer) return;
+    if (event.deltaY < 0) previousImage();
+    else if (event.deltaY > 0) nextImage();
+    event.preventDefault();
+  }
 
-      return picture;
+  function reveal(url: string) {
+    $readerImageGalleryPictures$ = $readerImageGalleryPictures$.map((picture) =>
+      picture.url === url ? { ...picture, unspoilered: true } : picture
+    );
+  }
+
+  function select(index: number) {
+    selectedImageIndex = index;
+    void tick().then(() => {
+      if (imageContainer?.isConnected) imageContainer.focus();
     });
-
-    if (selectedImageIndex !== -1) {
-      selectedImage = { ...$readerImageGalleryPictures$[selectedImageIndex] };
-    }
   }
 
   function previousImage() {
-    if (selectedImageIndex <= 0) {
-      return;
-    }
-
-    updateImage(-1);
+    if (selectedImageIndex > 0) move(-1);
   }
 
   function nextImage() {
-    if (
-      selectedImageIndex === -1 ||
-      selectedImageIndex === $readerImageGalleryPictures$.length - 1
-    ) {
-      return;
-    }
-
-    updateImage(1);
+    if (selectedImageIndex >= 0 && selectedImageIndex < $readerImageGalleryPictures$.length - 1)
+      move(1);
   }
 
-  function updateImage(indexMod: number) {
-    selectedImageIndex += indexMod;
-
-    const elm = contentContainer.querySelector(`button[data-image-index="${selectedImageIndex}"]`);
-
-    if (elm instanceof HTMLElement) {
-      const absoluteElementTop = elm.offsetTop + elm.clientHeight / 2;
-      const middle = absoluteElementTop - contentContainer.clientHeight / 2;
-
-      contentContainer.scrollTo(0, middle);
+  function move(offset: number) {
+    selectedImageIndex += offset;
+    const thumbnail = contentContainer?.querySelector<HTMLElement>(
+      `button[data-image-index="${selectedImageIndex}"]`
+    );
+    if (thumbnail) {
+      contentContainer.scrollTo(0, thumbnail.offsetTop - contentContainer.clientHeight / 2);
     }
+  }
+
+  function backToImages() {
+    const index = selectedImageIndex;
+    selectedImageIndex = -1;
+    void tick().then(() => {
+      contentContainer?.querySelector<HTMLElement>(`button[data-image-index="${index}"]`)?.focus();
+    });
   }
 </script>
 
 <svelte:window on:keydown={onKeyDown} on:wheel|nonpassive={onWheel} />
-<div
-  class="flex h-full w-full writing-horizontal-tb fixed top-0 left-0 z-[60]"
-  style:color={fontColor}
+<Dialog.Root
+  open={true}
+  onOpenChange={(open) => {
+    if (!open) close();
+  }}
 >
-  <div
-    tabindex="-1"
-    class="flex-1 flex-col justify-between overflow-auto lg:max-w-md"
-    style:background-color={backgroundColor}
-    in:fly|local={{ x: -100, duration: 100, easing: quintInOut }}
-    bind:this={contentContainer}
+  <Dialog.Content
+    showCloseButton={false}
+    class="top-0 left-0 h-dvh max-h-dvh w-full max-w-none translate-x-0 translate-y-0 grid-rows-[auto_minmax(0,1fr)] gap-0 rounded-none p-0 sm:max-w-none writing-horizontal-tb"
+    onCloseAutoFocus={(event) => {
+      event.preventDefault();
+      document.querySelector<HTMLButtonElement>('[aria-label="Show reading controls"]')?.focus();
+    }}
   >
-    <div
-      class="sticky top-0 flex justify-between p-2 z-10"
-      style:background-color={backgroundColor}
-    >
-      <button
-        title="Close Image Gallery"
-        class="flex items-end md:items-center"
-        on:click={closeReaderImageGallery}
+    <header class="flex items-center justify-between gap-3 border-b px-4 py-3">
+      <div>
+        <Dialog.Title>Image gallery</Dialog.Title>
+        <Dialog.Description
+          >{$readerImageGalleryPictures$.length} book images. Select an image to view it.</Dialog.Description
+        >
+      </div>
+      <Button variant="outline" onclick={close}>Close Image Gallery</Button>
+    </header>
+    <div class="gallery-layout" class:has-selection={!!selectedImage}>
+      <div class="gallery-list bg-muted/40" bind:this={contentContainer}>
+        {#each $readerImageGalleryPictures$ as picture, index (picture.url)}
+          {@const hidden = $hideSpoilerImage$ && !picture.unspoilered}
+          <button
+            type="button"
+            class="gallery-thumbnail rounded-xl border bg-card p-2 text-card-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label={hidden ? `Show hidden image ${index + 1}` : `View image ${index + 1}`}
+            aria-pressed={selectedImageIndex === index}
+            data-image-index={index}
+            on:click={() => {
+              if (hidden) reveal(picture.url);
+              else select(index);
+            }}
+          >
+            <div class="thumbnail-art" class:spoiler={hidden}>
+              <img src={picture.url} alt={hidden ? '' : `Book illustration ${index + 1}`} />
+              {#if hidden}<span class="spoiler-label">Show image · ネタバレ</span>{/if}
+            </div>
+            <span class="mt-2 block text-xs">Image {index + 1}</span>
+          </button>
+        {/each}
+      </div>
+      <div
+        class="gallery-viewer bg-background text-foreground"
+        tabindex="-1"
+        bind:this={imageContainer}
       >
-        <Fa icon={faXmark} />
-      </button>
-    </div>
-    <div class="flex flex-col overflow-auto p-2">
-      {#each $readerImageGalleryPictures$ as readerImageGalleryPicture, urlIndex (readerImageGalleryPicture.url)}
-        {@const showSpoiler = $hideSpoilerImage$ && !readerImageGalleryPicture.unspoilered}
-        <button
-          aria-label={showSpoiler ? 'Show hidden image' : 'Select image'}
-          class="flex justify-center my-4"
-          class:spoiler={showSpoiler}
-          data-image-index={urlIndex}
-          on:click={() => {
-            if (showSpoiler) {
-              toggleGalleryPictureSpoiler(readerImageGalleryPicture.url);
-            } else if (window.matchMedia('(min-width: 1024px)').matches) {
-              selectedImageIndex = urlIndex;
-            }
-          }}
-        >
-          <img
-            src={readerImageGalleryPicture.url}
-            alt="galleryImage"
-            class="max-h-96 lg:max-h-64"
-          />
-          {#if showSpoiler}
-            <span class="spoiler-label" aria-hidden="true">ネタバレ</span>
-          {/if}
-        </button>
-      {/each}
-    </div>
-  </div>
-  <div
-    tabindex="-1"
-    class="invisible tap-highlight-transparent bg-black/[.85] lg:visible lg:flex lg:flex-1 lg:flex-col"
-    bind:this={imageContainer}
-  >
-    {#if selectedImage}
-      {@const showSpoiler = $hideSpoilerImage$ && !selectedImage.unspoilered}
-      <div class="flex flex-1">
-        <button
-          title="Previous Image"
-          class="mx-4 text-5xl hover:text-red-500"
-          class:invisible={!selectedImageIndex}
-          on:click={previousImage}
-        >
-          <Fa icon={faChevronLeft} />
-        </button>
-        <div class="flex justify-center items-center flex-1" class:spoiler={showSpoiler}>
-          <img class="max-h-[94vh]" src={selectedImage.url} alt="currentImage" />
-          {#if showSpoiler}
-            <button
-              title="Show Image"
-              class="spoiler-label"
-              aria-hidden="true"
-              on:click={() => toggleGalleryPictureSpoiler(selectedImage.url)}
-            >
-              ネタバレ
-            </button>
-          {/if}
-        </div>
-        <button
-          title="Next Image"
-          class="mx-4 text-5xl hover:text-red-500"
-          class:invisible={selectedImageIndex === $readerImageGalleryPictures$.length - 1}
-          on:click={nextImage}
-        >
-          <Fa icon={faChevronRight} />
-        </button>
+        {#if selectedImage}
+          <div class="flex flex-wrap items-center justify-between gap-2 border-b p-3">
+            {#if !desktop}<Button variant="outline" onclick={backToImages}>All images</Button>{/if}
+            <div class="flex items-center gap-2">
+              <Button variant="outline" disabled={selectedImageIndex === 0} onclick={previousImage}>
+                <ChevronLeft /> Previous
+              </Button>
+              <span class="text-sm tabular-nums" aria-live="polite"
+                >{selectedImageIndex + 1} / {$readerImageGalleryPictures$.length}</span
+              >
+              <Button
+                variant="outline"
+                disabled={selectedImageIndex === $readerImageGalleryPictures$.length - 1}
+                onclick={nextImage}
+              >
+                Next <ChevronRight />
+              </Button>
+            </div>
+          </div>
+          <div class="gallery-art" class:spoiler={selectedIsHidden}>
+            <img
+              src={selectedImage.url}
+              alt={selectedIsHidden ? '' : `Book illustration ${selectedImageIndex + 1}`}
+            />
+            {#if selectedIsHidden}
+              <button type="button" class="spoiler-label" on:click={() => reveal(selectedImage.url)}
+                >Show image · ネタバレ</button
+              >
+            {/if}
+          </div>
+        {/if}
       </div>
-      <div class="pb-2 text-center text-white">
-        {selectedImageIndex + 1} / {$readerImageGalleryPictures$.length}
-      </div>
-    {/if}
-  </div>
-</div>
+    </div>
+  </Dialog.Content>
+</Dialog.Root>
 
 <style>
+  .gallery-layout {
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .gallery-list {
+    position: relative;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 1rem;
+  }
+  .gallery-thumbnail {
+    display: block;
+    width: 100%;
+    margin-bottom: 1rem;
+    text-align: center;
+  }
+  .gallery-thumbnail[aria-pressed='true'] {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 1px var(--primary);
+  }
+  .thumbnail-art {
+    position: relative;
+    display: grid;
+    place-items: center;
+    min-height: 4rem;
+  }
+  .thumbnail-art img {
+    max-height: 16rem;
+    max-width: 100%;
+  }
+  .gallery-viewer {
+    display: none;
+    min-width: 0;
+    min-height: 0;
+    grid-template-rows: auto minmax(0, 1fr);
+    outline: none;
+  }
+  .has-selection .gallery-viewer {
+    display: grid;
+  }
+  .has-selection .gallery-list {
+    display: none;
+  }
+  .gallery-art {
+    position: relative;
+    min-height: 0;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    overflow: auto;
+  }
+  .gallery-art img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+  }
   .spoiler {
     overflow: hidden;
-    position: relative;
   }
-
-  .spoiler .spoiler-label {
+  .spoiler img {
+    filter: blur(44px);
+  }
+  .spoiler-label {
     position: absolute;
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    color: #dcddde;
-    background-color: rgba(0, 0, 0, 0.6);
-    display: inline-block;
-    padding: 12px 8px;
-    border-radius: 20px;
-    font-size: 15px;
-    font-family: system-ui, sans-serif;
-    text-transform: uppercase;
-    font-weight: 700;
-    cursor: pointer;
+    padding: 0.75rem 1rem;
+    border-radius: 1rem;
+    background: var(--popover);
+    color: var(--popover-foreground);
+    border: 1px solid var(--border);
+    font-size: 0.875rem;
+    white-space: nowrap;
   }
-
-  .spoiler .spoiler-label:hover {
-    color: #ffffff;
-    background-color: rgba(0, 0, 0, 0.9);
-  }
-
-  .spoiler img {
-    filter: blur(44px);
+  @media (min-width: 1024px) {
+    .gallery-layout {
+      grid-template-columns: 20rem minmax(0, 1fr);
+    }
+    .has-selection .gallery-list {
+      display: block;
+      border-right: 1px solid var(--border);
+    }
+    .gallery-viewer {
+      display: grid;
+    }
   }
 </style>

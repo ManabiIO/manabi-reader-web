@@ -1,6 +1,6 @@
 import process from 'node:process';
 import adapter from '@sveltejs/adapter-static';
-import preprocess from 'svelte-preprocess';
+import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 
 const base = process.env.BASE_PATH ?? '/Reader-Web';
 if (base !== '' && !/^\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*$/.test(base)) {
@@ -12,7 +12,7 @@ if (process.env.VITE_GDRIVE_CLIENT_SECRET || process.env.VITE_ONEDRIVE_CLIENT_SE
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
-  preprocess: [preprocess({ postcss: true })],
+  preprocess: [vitePreprocess({ script: true })],
   kit: {
     paths: { base, relative: false },
     adapter: adapter({ fallback: '404.html', strict: true }),

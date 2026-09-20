@@ -29,7 +29,8 @@ class CompletedReadingBrowser(LocalLibraryBrowser):
         self.page.get_by_role('link', name='Read local-book', exact=True).click()
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy','false',timeout=35000)
         self.page.get_by_role('button', name='Show reading controls', exact=True).click()
-        self.page.get_by_role('button', name='Complete Book', exact=True).click()
+        self.page.get_by_role('button', name='Reading tools', exact=True).click()
+        self.page.get_by_role('menuitem', name='Complete Book', exact=True).click()
         self.page.get_by_role('button', name='Confirm', exact=True).click()
         self.page.wait_for_function('''() => new Promise(resolve => {
           const open=indexedDB.open('books');open.onsuccess=()=>{const db=open.result,tx=db.transaction('statistic');
@@ -61,9 +62,9 @@ class CompletedReadingBrowser(LocalLibraryBrowser):
         self.assertEqual(before,self.statistics(self.page))
 
         self.page.goto(self.origin+'/Reader-Web/manage')
-        self.page.locator('[title="Enable Book Selection"] [role=button]').click()
-        self.page.locator('[title="Select all Books"] [role=button]').click()
-        self.page.get_by_role('button',name='Open Export Menu',exact=True).click()
+        self.page.get_by_role('button', name='Select books', exact=True).click()
+        self.page.get_by_role('button', name='Select all', exact=True).click()
+        self.page.get_by_role('button', name='Export', exact=True).click()
         self.page.get_by_role('button',name='Zip File',exact=True).click()
         for label in ('Book Data','Bookmark','Statistics'):
             self.page.get_by_label(label,exact=True).check()

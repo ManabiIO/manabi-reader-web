@@ -1,0 +1,392 @@
+[
+  {
+    "id": "selected-theme",
+    "category": "appearance",
+    "title": "Theme",
+    "binding": "selectedTheme"
+  },
+  {
+    "id": "view-mode",
+    "category": "layout",
+    "title": "View mode",
+    "binding": "viewMode"
+  },
+  {
+    "id": "primary-font-input",
+    "category": "typography",
+    "title": "Primary / Serif font",
+    "binding": "primaryFontInput"
+  },
+  {
+    "id": "font-family-group-two",
+    "category": "typography",
+    "title": "Sans-serif font",
+    "binding": "fontFamilyGroupTwo"
+  },
+  {
+    "id": "font-weight",
+    "category": "typography",
+    "title": "Font Weight",
+    "binding": "fontWeight"
+  },
+  {
+    "id": "font-size",
+    "category": "typography",
+    "title": "Font size",
+    "binding": "fontSize"
+  },
+  {
+    "id": "line-height",
+    "category": "typography",
+    "title": "Line Height",
+    "binding": "lineHeight"
+  },
+  {
+    "id": "text-indentation",
+    "category": "typography",
+    "title": "Paragraph Indentation",
+    "binding": "textIndentation"
+  },
+  {
+    "id": "text-margin-value",
+    "category": "typography",
+    "title": "Paragraph Margins",
+    "binding": "textMarginValue"
+  },
+  {
+    "id": "first-dimension-margin",
+    "category": "layout",
+    "title": "{verticalMode ? 'Reader Left/right margin' : 'Reader Top/bottom margin'}",
+    "binding": "firstDimensionMargin"
+  },
+  {
+    "id": "second-dimension-max-value",
+    "category": "layout",
+    "title": "{verticalMode ? 'Reader Max height' : 'Reader Max width'}>",
+    "binding": "secondDimensionMaxValue"
+  },
+  {
+    "id": "swipe-threshold",
+    "category": "reading",
+    "title": "Swipe Threshold",
+    "binding": "swipeThreshold"
+  },
+  {
+    "id": "auto-bookmark-time",
+    "category": "reading",
+    "title": "Auto Bookmark Time",
+    "binding": "autoBookmarkTime"
+  },
+  {
+    "id": "writing-mode",
+    "category": "layout",
+    "title": "Writing mode",
+    "binding": "writingMode"
+  },
+  {
+    "id": "enable-font-kerning",
+    "category": "typography",
+    "title": "Enable Font Kerning",
+    "binding": "enableFontKerning"
+  },
+  {
+    "id": "enable-font-vpal",
+    "category": "typography",
+    "title": "Enable VPAL",
+    "binding": "enableFontVPAL"
+  },
+  {
+    "id": "vertical-text-orientation",
+    "category": "typography",
+    "title": "Text Orientation",
+    "binding": "verticalTextOrientation"
+  },
+  {
+    "id": "prioritize-reader-styles",
+    "category": "reading",
+    "title": "Prioritize Reader Styles",
+    "binding": "prioritizeReaderStyles"
+  },
+  {
+    "id": "enable-text-justification",
+    "category": "typography",
+    "title": "Enable Text Justification",
+    "binding": "enableTextJustification"
+  },
+  {
+    "id": "enable-text-wrap-pretty",
+    "category": "typography",
+    "title": "Enable Pretty Text Wrap",
+    "binding": "enableTextWrapPretty"
+  },
+  {
+    "id": "text-margin-mode",
+    "category": "typography",
+    "title": "Paragraph Margin Mode",
+    "binding": "textMarginMode"
+  },
+  {
+    "id": "enable-reader-wake-lock",
+    "category": "reading",
+    "title": "Enable Screen Lock",
+    "binding": "enableReaderWakeLock"
+  },
+  {
+    "id": "show-character-counter",
+    "category": "reading",
+    "title": "Show Character Counter",
+    "binding": "showCharacterCounter"
+  },
+  {
+    "id": "show-percentage",
+    "category": "reading",
+    "title": "Show Percentage",
+    "binding": "showPercentage"
+  },
+  {
+    "id": "show-footer-chapter-character-counter",
+    "category": "reading",
+    "title": "Show Footer Chapter Characters",
+    "binding": "showFooterChapterCharacterCounter"
+  },
+  {
+    "id": "show-footer-chapter-percentage",
+    "category": "reading",
+    "title": "Show Footer Chapter Percentage",
+    "binding": "showFooterChapterPercentage"
+  },
+  {
+    "id": "disable-wheel-navigation",
+    "category": "reading",
+    "title": "Disable Wheel Navigation",
+    "binding": "disableWheelNavigation"
+  },
+  {
+    "id": "confirm-close",
+    "category": "reading",
+    "title": "Close Confirmation",
+    "binding": "confirmClose"
+  },
+  {
+    "id": "manual-bookmark",
+    "category": "reading",
+    "title": "Manual Bookmark",
+    "binding": "manualBookmark"
+  },
+  {
+    "id": "auto-bookmark",
+    "category": "reading",
+    "title": "Auto Bookmark",
+    "binding": "autoBookmark"
+  },
+  {
+    "id": "blur-image",
+    "category": "reading",
+    "title": "Blur image",
+    "binding": "blurImage"
+  },
+  {
+    "id": "blur-image-mode",
+    "category": "reading",
+    "title": "Blur Mode",
+    "binding": "blurImageMode"
+  },
+  {
+    "id": "hide-furigana",
+    "category": "reading",
+    "title": "Hide furigana",
+    "binding": "hideFurigana"
+  },
+  {
+    "id": "furigana-style",
+    "category": "reading",
+    "title": "Hide furigana style",
+    "binding": "furiganaStyle"
+  },
+  {
+    "id": "pause-tracker-on-custom-point-change",
+    "category": "reading",
+    "title": "Custom Point pauses Tracker",
+    "binding": "pauseTrackerOnCustomPointChange"
+  },
+  {
+    "id": "custom-reading-point-enabled",
+    "category": "reading",
+    "title": "Custom Reading Point",
+    "binding": "customReadingPointEnabled"
+  },
+  {
+    "id": "auto-position-on-resize",
+    "category": "layout",
+    "title": "Auto position on resize",
+    "binding": "autoPositionOnResize"
+  },
+  {
+    "id": "avoid-page-break",
+    "category": "layout",
+    "title": "Avoid Page Break",
+    "binding": "avoidPageBreak"
+  },
+  {
+    "id": "selection-to-bookmark-enabled",
+    "category": "reading",
+    "title": "Selection to Bookmark",
+    "binding": "selectionToBookmarkEnabled"
+  },
+  {
+    "id": "enable-tap-edge-to-flip",
+    "category": "reading",
+    "title": "Tap to Flip",
+    "binding": "enableTapEdgeToFlip"
+  },
+  {
+    "id": "page-columns",
+    "category": "layout",
+    "title": "Page Columns",
+    "binding": "pageColumns"
+  },
+  {
+    "id": "persistent-storage",
+    "category": "library",
+    "title": "Persistent storage",
+    "binding": "persistentStorage"
+  },
+  {
+    "id": "hide-external-read-hint",
+    "category": "library",
+    "title": "Hide Source Hint",
+    "binding": "hideExternalReadHint"
+  },
+  {
+    "id": "import-htmlfix-mode",
+    "category": "library",
+    "title": "Epub Import Fixes",
+    "binding": "importHTMLFixMode"
+  },
+  {
+    "id": "restrict-import-fix-to-anchor",
+    "category": "library",
+    "title": "Restrict to Links",
+    "binding": "restrictImportFixToAnchor"
+  },
+  {
+    "id": "cache-storage-data",
+    "category": "library",
+    "title": "Cache Data",
+    "binding": "cacheStorageData"
+  },
+  {
+    "id": "auto-replication",
+    "category": "library",
+    "title": "Auto Import/Export",
+    "binding": "autoReplication"
+  },
+  {
+    "id": "replication-save-behavior",
+    "category": "library",
+    "title": "Import/Export Behavior",
+    "binding": "replicationSaveBehavior"
+  },
+  {
+    "id": "show-external-placeholder",
+    "category": "library",
+    "title": "Show Placeholder",
+    "binding": "showExternalPlaceholder"
+  },
+  {
+    "id": "keep-local-statistics-on-deletion",
+    "category": "tracking",
+    "title": "Keep Local Data on Deletion",
+    "binding": "keepLocalStatisticsOnDeletion"
+  },
+  {
+    "id": "overwrite-book-completion",
+    "category": "tracking",
+    "title": "Overwrite Book Completion",
+    "binding": "overwriteBookCompletion"
+  },
+  {
+    "id": "start-day-hours-for-tracker",
+    "category": "tracking",
+    "title": "{`Start Day Hours: ${startOfDayHours}`}",
+    "binding": "startDayHoursForTracker"
+  },
+  {
+    "id": "statistics-merge-mode",
+    "category": "tracking",
+    "title": "Statistics Merge",
+    "binding": "statisticsMergeMode"
+  },
+  {
+    "id": "reading-goals-merge-mode",
+    "category": "tracking",
+    "title": "Reading Goals Merge",
+    "binding": "readingGoalsMergeMode"
+  },
+  {
+    "id": "statistics-enabled",
+    "category": "tracking",
+    "title": "Enable Statistics",
+    "binding": "statisticsEnabled"
+  },
+  {
+    "id": "tracker-auto-pause",
+    "category": "tracking",
+    "title": "Tracker Auto Pause",
+    "binding": "trackerAutoPause"
+  },
+  {
+    "id": "open-tracker-on-completion",
+    "category": "tracking",
+    "title": "Open Tracker on Completion",
+    "binding": "openTrackerOnCompletion"
+  },
+  {
+    "id": "add-characters-on-completion",
+    "category": "tracking",
+    "title": "Update on Completion",
+    "binding": "addCharactersOnCompletion"
+  },
+  {
+    "id": "tracker-auto-start-time",
+    "category": "tracking",
+    "title": "Autostart tracker (sec)",
+    "binding": "trackerAutoStartTime"
+  },
+  {
+    "id": "tracker-idle-time-in-min",
+    "category": "tracking",
+    "title": "Idle Time (min)",
+    "binding": "trackerIdleTimeInMin"
+  },
+  {
+    "id": "tracker-forward-skip-threshold",
+    "category": "tracking",
+    "title": "Forward Skip Threshold",
+    "binding": "trackerForwardSkipThreshold"
+  },
+  {
+    "id": "tracker-backward-skip-threshold",
+    "category": "tracking",
+    "title": "Backward Skip Threshold",
+    "binding": "trackerBackwardSkipThreshold"
+  },
+  {
+    "id": "tracker-skip-threshold-action",
+    "category": "tracking",
+    "title": "Threshold Action",
+    "binding": "trackerSkipThresholdAction"
+  },
+  {
+    "id": "tracker-popup-detection",
+    "category": "tracking",
+    "title": "Dictionary Detection",
+    "binding": "trackerPopupDetection"
+  },
+  {
+    "id": "adjust-statistics-after-idle-time",
+    "category": "tracking",
+    "title": "Rollback Statistics on Idle",
+    "binding": "adjustStatisticsAfterIdleTime"
+  }
+]

@@ -1,13 +1,11 @@
 <script lang="ts">
-  import {
-    faChevronLeft,
-    faChevronRight,
-    faClose,
-    faFloppyDisk,
-    faPen,
-    faTrash,
-    faXmark
-  } from '@fortawesome/free-solid-svg-icons';
+  import faChevronLeft from '@lucide/svelte/icons/chevron-left';
+  import faChevronRight from '@lucide/svelte/icons/chevron-right';
+  import faClose from '@lucide/svelte/icons/x';
+  import faFloppyDisk from '@lucide/svelte/icons/save';
+  import faPen from '@lucide/svelte/icons/pen';
+  import faTrash from '@lucide/svelte/icons/trash-2';
+  import faXmark from '@lucide/svelte/icons/x';
   import Popover from '$lib/components/popover/popover.svelte';
   import {
     StatisticsSummaryKey,
@@ -40,10 +38,10 @@
   } from '$lib/data/store';
   import { getNumberFromObject, secondsToMinutes } from '$lib/functions/statistic-util';
   import { reduceToEmptyString } from '$lib/functions/rxjs/reduce-to-empty-string';
-  import { convertRemToPixels, dummyFn, getFullHeight, limitToRange } from '$lib/functions/utils';
+  import { convertRemToPixels, getFullHeight, limitToRange } from '$lib/functions/utils';
   import { debounceTime, fromEvent, tap } from 'rxjs';
   import { createEventDispatcher, tick } from 'svelte';
-  import Fa from 'svelte-fa';
+  import AppIcon from '$lib/components/app-icon.svelte';
 
   export let aggregratedStatistics: BookStatistic[];
   export let statisticsDateRangeLabel: string;
@@ -429,7 +427,7 @@
               }
             }}
           >
-            <Fa icon={currentRowInEdit ? faXmark : faTrash} />
+            <AppIcon icon={currentRowInEdit ? faXmark : faTrash} />
           </button>
           {#if isNoneAggregation}
             <button
@@ -452,16 +450,15 @@
                 }
               }}
             >
-              <Fa icon={currentRowInEdit ? faFloppyDisk : faPen} />
+              <AppIcon icon={currentRowInEdit ? faFloppyDisk : faPen} />
             </button>
           {/if}
         </div>
         <div class:hidden={isTitleAggregation}>
           {currentStatisticsSummaryRow.dateKey}
         </div>
-        <div
-          tabindex="0"
-          role="button"
+        <button
+          type="button"
           class="line-clamp-2"
           class:hidden={isDateAggregation}
           title={currentStatisticsSummaryRow.title}
@@ -474,10 +471,9 @@
               }
             });
           }}
-          on:keyup={dummyFn}
         >
           {currentStatisticsSummaryRow.title}
-        </div>
+        </button>
         {#if currentRowInEdit}
           <input
             class="w-full"
@@ -589,7 +585,7 @@
             class="flex w-full justify-end absolute top-1 right-2"
             on:click={() => (statisticsSummaryPopoverDetails = [])}
           >
-            <Fa icon={faClose} />
+            <AppIcon icon={faClose} />
           </button>
           {#each statisticsSummaryPopoverDetails as popoverDetail (popoverDetail)}
             <div class="mb-2 last:mb-0">{popoverDetail}</div>
@@ -615,7 +611,7 @@
       currentStatisticsSummaryPage -= 1;
     }}
   >
-    <Fa icon={faChevronLeft} />
+    <AppIcon icon={faChevronLeft} />
   </button>
   <Popover
     yOffset={5}
@@ -640,9 +636,9 @@
     >
       {#each statisticsSummaryPages as statisticsSummaryPage, pageIndex (statisticsSummaryPage)}
         <button
-          class="hover:opacity-50 hover:bg-surface-hover hover:text-ink"
-          class:bg-surface-hover={statisticsSummaryPage === currentStatisticsSummaryPage}
-          class:text-ink={statisticsSummaryPage === currentStatisticsSummaryPage}
+          class="hover:opacity-50 hover:bg-accent hover:text-foreground"
+          class:bg-accent={statisticsSummaryPage === currentStatisticsSummaryPage}
+          class:text-foreground={statisticsSummaryPage === currentStatisticsSummaryPage}
           bind:this={statisticsSummaryPageRefs[pageIndex + 1]}
           on:click={({ target }) => {
             setRowInEditMode();
@@ -665,6 +661,6 @@
       currentStatisticsSummaryPage += 1;
     }}
   >
-    <Fa icon={faChevronRight} />
+    <AppIcon icon={faChevronRight} />
   </button>
 </div>

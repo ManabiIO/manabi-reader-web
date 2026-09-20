@@ -1,15 +1,13 @@
 <script lang="ts">
   import { browser } from '$app/environment';
-  import {
-    faCircleQuestion,
-    faCloudArrowUp,
-    faPenToSquare,
-    faPlus,
-    faSpinner,
-    faTableList,
-    faTrash,
-    faTriangleExclamation
-  } from '@fortawesome/free-solid-svg-icons';
+  import faCircleQuestion from '@lucide/svelte/icons/circle-help';
+  import faCloudArrowUp from '@lucide/svelte/icons/cloud-upload';
+  import faPenToSquare from '@lucide/svelte/icons/square-pen';
+  import faPlus from '@lucide/svelte/icons/plus';
+  import faSpinner from '@lucide/svelte/icons/loader-circle';
+  import faTableList from '@lucide/svelte/icons/table';
+  import faTrash from '@lucide/svelte/icons/trash-2';
+  import faTriangleExclamation from '@lucide/svelte/icons/triangle-alert';
   import MessageDialog from '$lib/components/message-dialog.svelte';
   import Popover from '$lib/components/popover/popover.svelte';
   import Ripple from '$lib/components/ripple.svelte';
@@ -40,8 +38,7 @@
     syncTarget$
   } from '$lib/data/store';
   import { AutoReplicationType } from '$lib/functions/replication/replication-options';
-  import { dummyFn } from '$lib/functions/utils';
-  import Fa from 'svelte-fa';
+  import AppIcon from '$lib/components/app-icon.svelte';
 
   export let storageSources: BooksDbStorageSource[];
 
@@ -221,14 +218,14 @@
         <span class="capitalize">Storage Sources</span>
       </h1>
       <Popover contentText={listTooltip} contentStyles="padding: 0.5rem;">
-        <Fa icon={faCircleQuestion} slot="icon" class="mx-2" />
+        <AppIcon icon={faCircleQuestion} slot="icon" class="mx-2" />
       </Popover>
       {#if $autoReplication$ !== AutoReplicationType.Off && !$syncTarget$}
         <Popover
           contentText={'Auto import/export enabled but no source as sync target from list selected'}
           contentStyles="padding: 0.25rem;"
         >
-          <Fa icon={faTriangleExclamation} slot="icon" class="mx-2" />
+          <AppIcon icon={faTriangleExclamation} slot="icon" class="mx-2" />
         </Popover>
       {/if}
     </div>
@@ -241,13 +238,13 @@
       }}
     >
       <div class="flex items-center justify-center">
-        <Fa icon={faPlus} />
-        <span class="ml-1 hidden sm:block">Add</span>
+        <AppIcon icon={faPlus} />
+        <span class="ml-1">Add</span>
       </div>
       <Ripple />
     </button>
   </div>
-  <hr class="border border-line" />
+  <hr class="border border-border" />
   <div class="mt-6">
     {#if !listLoading && storageSources}
       <div class="grid grid-cols-1 gap-x-8 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">
@@ -267,52 +264,51 @@
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox={icon.viewBox}
               >
-                <path class="fill-current" d={icon.d} ></path>
+                <path class="fill-current" d={icon.d}></path>
               </svg>
               <div class="ml-3 self-center">{storageSource.name}</div>
             </div>
-            <div class="mt-4 flex">
-              <div
-                tabindex="0"
-                role="button"
+            <div class="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
                 title="Edit source"
-                class="mr-4"
+                class="mr-4 gap-2 rounded-xl px-2 py-1.5 text-sm"
                 class:hidden={isDefault}
                 on:click={() => modifyStorageSource(storageSource)}
-                on:keyup={dummyFn}
               >
-                <Fa icon={faPenToSquare} />
-              </div>
-              <div
-                tabindex="0"
-                role="button"
+                <AppIcon icon={faPenToSquare} />
+                <span>Edit</span></button
+              >
+              <button
+                type="button"
                 title="Toggle source as sync target"
-                class="mr-4"
+                aria-pressed={storageSourceIsSyncTarget}
+                class="mr-4 gap-2 rounded-xl px-2 py-1.5 text-sm"
                 class:opacity-50={!storageSourceIsSyncTarget}
                 on:click={() =>
                   syncTarget$.next($syncTarget$ === storageSource.name ? '' : storageSource.name)}
-                on:keyup={dummyFn}
               >
-                <Fa icon={faCloudArrowUp} />
-              </div>
-              <div
-                tabindex="0"
-                role="button"
+                <AppIcon icon={faCloudArrowUp} />
+                <span>Sync target</span></button
+              >
+              <button
+                type="button"
                 title="Toggle source as data source for this type"
-                class="mr-4"
+                aria-pressed={storageSourceIsSourceDefault}
+                class="mr-4 gap-2 rounded-xl px-2 py-1.5 text-sm"
                 class:opacity-50={!storageSourceIsSourceDefault}
                 on:click={() =>
                   setStorageSourceDefault(
                     storageSourceIsSourceDefault ? '' : storageSource.name,
                     storageSource.type
                   )}
-                on:keyup={dummyFn}
               >
-                <Fa icon={faTableList} />
-              </div>
-              <div
-                tabindex="0"
-                role="button"
+                <AppIcon icon={faTableList} />
+                <span>Use by default</span></button
+              >
+              <button
+                type="button"
+                class="inline-flex items-center gap-2 rounded-xl px-2 py-1.5 text-sm"
                 title="Delete source"
                 class:hidden={isDefault}
                 on:click={() =>
@@ -321,19 +317,19 @@
                     storageSourceIsSyncTarget,
                     storageSourceIsSourceDefault
                   )}
-                on:keyup={dummyFn}
               >
-                <Fa icon={faTrash} />
-              </div>
+                <AppIcon icon={faTrash} />
+                <span>Remove</span></button
+              >
             </div>
           </div>
         {/each}
       </div>
     {:else}
       <div class="text-xl">
-        <Fa icon={faSpinner} spin />
+        <AppIcon icon={faSpinner} spin />
       </div>
     {/if}
   </div>
-  <div ></div>
+  <div></div>
 </div>
