@@ -18,13 +18,30 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Apply the exact completion-boundary patch
+      - name: Correct the test-only committed-value wait
         run: |
           mkdir -p /tmp/library-evidence
-          cp .github/library-completion-boundary.py /tmp/
-          git reset --hard 7f1b017134648fe963eb5d7bf5333f1ce3cff058
-          python3 /tmp/library-completion-boundary.py
+          cp .github/library-browser-poll.py /tmp/
+          git reset --hard 8694fd3f6e92a3e9c765e0d5992b7cf498010fe2
+          python3 /tmp/library-browser-poll.py
           python3 -m py_compile tests/browser/test_books_library.py
+          git add tests/browser/test_books_library.py
+          git diff --cached --check
+          git diff --cached > /tmp/library-evidence/poll.patch
+      - name: Publish clean test refinement
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name 'Manabi library preparation'
+          git config user.email 'noreply@github.com'
+          tree=$(git write-tree)
+          commit=$(printf '%s\n' 'test: poll committed bookmark values and exercise the actual scheduled autosave' | git commit-tree "$tree" -p 8694fd3f6e92a3e9c765e0d5992b7cf498010fe2)
+          echo "$commit" > /tmp/library-evidence/commit.txt
+          git ls-tree -r "$commit" > /tmp/library-evidence/tree.txt
+          HEADER=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $HEADER" push origin "$commit:refs/heads/codex/library-poll-${GITHUB_RUN_ID}"
+          git reset --hard "$commit"
+          cp tests/browser/test_books_library.py /tmp/library-evidence/
       - uses: pnpm/action-setup@v6.1.0
         with:
           version: '12.3.4'
@@ -37,73 +54,42 @@ jobs:
           python-version: '3.13'
       - run: pnpm install --frozen-lockfile
       - run: pnpm --dir apps/web exec svelte-kit sync
-      - name: Format and verify only the scoped changes
+      - name: All unit tests and unchanged production static build
         run: |
-          pnpm exec prettier --write apps/web/src/routes/b/+page.svelte docs/books-library.md
-          git add apps/web/src/routes/b/+page.svelte docs/books-library.md tests/browser/test_books_library.py
-          git diff --cached --check
-          git diff --cached > /tmp/library-evidence/completion.patch
-      - name: Publish the clean candidate without preparation files
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          git config user.name 'Manabi library preparation'
-          git config user.email 'noreply@github.com'
-          tree=$(git write-tree)
-          commit=$(printf '%s\n' 'fix: explicit reader completion supersedes Still Reading without weakening autosave fencing' | git commit-tree "$tree" -p 7f1b017134648fe963eb5d7bf5333f1ce3cff058)
-          echo "$commit" > /tmp/library-evidence/commit.txt
-          git ls-tree -r "$commit" > /tmp/library-evidence/tree.txt
-          HEADER=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
-          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $HEADER" push origin "$commit:refs/heads/codex/library-completion-${GITHUB_RUN_ID}"
-          git reset --hard "$commit"
-          python3 - <<'PY'
-          import json,pathlib,subprocess
-          files=[]
-          for name in subprocess.check_output(['git','ls-files'],text=True).splitlines():
-              p=pathlib.Path(name)
-              if p.is_file() and p.suffix in {'.ts','.js','.mjs','.cjs','.svelte','.scss','.css','.html','.json','.yml','.yaml','.py','.md'} and p.stat().st_size < 2000000:
-                  files.append({'path':name,'content':p.read_text()})
-          pathlib.Path('/tmp/library-evidence/source.json').write_text(json.dumps(files))
-          PY
-      - name: Read-only unit, type, lint and static-build checks
-        run: |
-          set +e
-          node --experimental-strip-types --test tests/unit/*.test.mjs test/reader/typography.test.mjs > /tmp/library-evidence/units.log 2>&1
-          echo "units=$?" >> /tmp/library-evidence/results.txt
-          pnpm --dir apps/web check > /tmp/library-evidence/types.log 2>&1
-          echo "types=$?" >> /tmp/library-evidence/results.txt
-          node tools/appearance/lint.mjs > /tmp/library-evidence/lint.log 2>&1
-          echo "lint=$?" >> /tmp/library-evidence/results.txt
-          pnpm exec eslint . > /tmp/library-evidence/full-lint.log 2>&1
-          echo "full-lint=$?" >> /tmp/library-evidence/results.txt
+          set -o pipefail
+          node --experimental-strip-types --test tests/unit/*.test.mjs test/reader/typography.test.mjs 2>&1 | tee /tmp/library-evidence/units.log
           BASE_PATH=/Reader-Web pnpm build > /tmp/library-evidence/build.log 2>&1
-          echo "build=$?" >> /tmp/library-evidence/results.txt
-          git diff --exit-code > /tmp/library-evidence/post-check-source.diff
-          echo "unchanged-source=$?" >> /tmp/library-evidence/results.txt
-          cat /tmp/library-evidence/results.txt
-          ! grep -Eq '=[1-9][0-9]*$' /tmp/library-evidence/results.txt
-      - name: Real reader-to-library completion regression
-        if: always()
+      - name: Complete real Library browser acceptance
         run: |
-          test -d apps/web/build
           python -m pip install 'playwright==1.63.0'
           python -m playwright install --with-deps chromium webkit
           set +e
           status=0
           for engine in chromium webkit; do
-            LIBRARY_BROWSER=$engine python tests/browser/test_books_library.py BooksLibraryBrowser.test_explicit_reader_completion_supersedes_still_reading > /tmp/library-evidence/$engine.log 2>&1
+            mkdir -p /tmp/library-evidence/$engine
+            cases=BooksLibraryBrowser
+            if [ "$engine" = chromium ]; then cases="$cases BooksLibraryFilesystem"; fi
+            LIBRARY_BROWSER=$engine python tests/browser/test_books_library.py $cases > /tmp/library-evidence/$engine/results.log 2>&1
             result=$?
             echo "$engine=$result" >> /tmp/library-evidence/results.txt
             if [ "$result" -ne 0 ]; then status=1; fi
-            if [ -d test-results ]; then mv test-results /tmp/library-evidence/$engine-screenshots; fi
+            if [ -d test-results ]; then mv test-results /tmp/library-evidence/$engine/screenshots; fi
           done
+          LIBRARY_BROWSER=chromium python tests/browser/test_library_preview_cache.py > /tmp/library-evidence/preview-cache.log 2>&1
+          result=$?
+          echo "preview-cache=$result" >> /tmp/library-evidence/results.txt
+          if [ "$result" -ne 0 ]; then status=1; fi
+          if [ -d test-results ]; then mv test-results /tmp/library-evidence/preview-cache-screenshots; fi
           git diff --exit-code > /tmp/library-evidence/post-test-source.diff
+          result=$?
+          echo "unchanged-source=$result" >> /tmp/library-evidence/results.txt
+          if [ "$result" -ne 0 ]; then status=1; fi
           cat /tmp/library-evidence/results.txt
           exit "$status"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: completion-boundary-evidence
+          name: library-committed-wait-evidence
           path: /tmp/library-evidence
           retention-days: 7
           if-no-files-found: error
