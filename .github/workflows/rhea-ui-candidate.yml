@@ -1,0 +1,102 @@
+name: Rhea navigation and settings candidate
+on:
+  push:
+    branches: [research/rhea-ui-qualification-20260920]
+    paths: ['.github/rhea-ui-patch.*', '.github/workflows/rhea-ui-candidate.yml']
+permissions:
+  contents: write
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Apply exact reviewed source
+        run: |
+          mkdir -p /tmp/rhea-candidate
+          python3 - <<'PY'
+          import pathlib,lzma,hashlib,subprocess,json
+          patch=lzma.decompress(b''.join(pathlib.Path(f'.github/rhea-ui-patch.{i}').read_bytes() for i in range(6)))
+          assert hashlib.sha256(patch).hexdigest()=='d1839c3aa2777b76342b01843380980e97266915aaeec65b38f790cd24f24ded'
+          pathlib.Path('/tmp/rhea.patch').write_bytes(patch)
+          subprocess.run(['git','apply','--check','/tmp/rhea.patch'],check=True)
+          subprocess.run(['git','apply','/tmp/rhea.patch'],check=True)
+          paths=[line.split('\t',2)[2] for line in subprocess.check_output(['git','apply','--numstat','/tmp/rhea.patch'],text=True).splitlines()]
+          assert len(paths)==69
+          assert all(p.startswith(('apps/web/','tests/','test/reader/','docs/','tools/appearance/')) or p in ['pnpm-lock.yaml','.github/workflows/appearance.yml'] for p in paths)
+          pathlib.Path('/tmp/rhea-candidate/paths.json').write_text(json.dumps(paths))
+          for p in paths:
+              if p.endswith('.py'):compile(pathlib.Path(p).read_text(),p,'exec')
+          PY
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Prune removed icon and popper dependencies
+        run: pnpm install --no-frozen-lockfile
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - name: Capture exact formatted candidate as one Git tree, never write refs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import pathlib,json,subprocess,urllib.request,os
+          out=pathlib.Path('/tmp/rhea-candidate');paths=json.loads((out/'paths.json').read_text())
+          formatted=[p for p in paths if pathlib.Path(p).suffix in {'.svelte','.ts','.js','.mjs','.json','.css','.scss','.md','.yml'}]
+          subprocess.run(['pnpm','exec','prettier','--write',*formatted],check=True)
+          source=[{'path':p,'content':pathlib.Path(p).read_text()} for p in paths]
+          tree=[{'path':f['path'],'mode':'100644','type':'blob','content':f['content']} for f in source]
+          (out/'source.json').write_text(json.dumps(source));(out/'tree.json').write_text(json.dumps(tree))
+          request=urllib.request.Request('https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/git/trees',data=json.dumps({'base_tree':'5ef11845d5f9898030bfd7892a9591cd24db694b','tree':tree}).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','Content-Type':'application/json'},method='POST')
+          with urllib.request.urlopen(request,timeout=60) as response:result=json.load(response)
+          (out/'tree-sha.txt').write_text(result['sha'])
+          (out/'base.txt').write_text('7945125db2a894f0bf22c3994a3b15840ab58fc4')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rhea-ui-candidate-source
+          path: /tmp/rhea-candidate
+          retention-days: 7
+      - name: Lint, types and unit contracts
+        run: |
+          set -o pipefail
+          pnpm exec eslint . 2>&1 | tee /tmp/rhea-candidate/lint.log
+          node tools/appearance/lint.mjs 2>&1 | tee /tmp/rhea-candidate/component-lint.log
+          pnpm --dir apps/web check 2>&1 | tee /tmp/rhea-candidate/types.log
+          node --experimental-strip-types tools/appearance/generate-css.mjs --check
+          node --experimental-strip-types --test tests/unit/*.test.mjs test/reader/typography.test.mjs 2>&1 | tee /tmp/rhea-candidate/units.log
+      - name: Build real static subpath application
+        env:
+          BASE_PATH: /Reader-Web
+        run: |
+          set -o pipefail
+          pnpm build 2>&1 | tee /tmp/rhea-candidate/build.log
+      - name: Real Chromium and WebKit interaction and regression tests
+        run: |
+          python -m pip install 'playwright==1.63.0'
+          python -m playwright install --with-deps chromium webkit
+          status=0
+          for engine in chromium webkit; do
+            mkdir -p /tmp/rhea-candidate/$engine
+            set +e
+            APPEARANCE_BROWSER=$engine python tests/browser/test_rhea_ui.py > /tmp/rhea-candidate/$engine/results.log 2>&1
+            result=$?
+            set -e
+            [ $result -eq 0 ] || status=1
+            if [ -d test-results ]; then mv test-results /tmp/rhea-candidate/$engine/screenshots; fi
+          done
+          exit $status
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rhea-ui-candidate-results
+          path: /tmp/rhea-candidate
+          retention-days: 7
