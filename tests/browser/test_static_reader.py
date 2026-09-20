@@ -106,9 +106,15 @@ class ReaderBrowser(unittest.TestCase):
 
     def open_book(self, view='paginated', writing='vertical-rl', font=None):
         settings = {'viewMode': view, 'writingMode': writing, 'hideFurigana': 'false', 'hideSpoilerImage': 'false'}
-        if font:
-            settings['fontFamilyGroupOne'] = font
         self.context.add_init_script('if (location.origin === ' + json.dumps(self.origin) + ') { for (const [key,value] of Object.entries(' + json.dumps(settings) + ')) localStorage.setItem(key,value); }')
+        if font:
+            # Seed the fixture font on the import page only. Reapplying it on every
+            # document would overwrite a later explicit user choice during reload.
+            self.context.add_init_script(
+                'if (location.origin === ' + json.dumps(self.origin) +
+                ' && location.pathname.endsWith("/manage")) localStorage.setItem("fontFamilyGroupOne", ' +
+                json.dumps(font) + ');'
+            )
         self.page.goto(self.origin + '/Reader-Web/manage')
         # This attribute is installed by a Svelte action, not prerendered HTML.
         # Wait for real input handlers before assigning files to hidden SSR inputs.
