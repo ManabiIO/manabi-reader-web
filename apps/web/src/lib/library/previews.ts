@@ -24,7 +24,11 @@ export interface Preview {
   pageDirection: DirectionEvidence;
 }
 interface PreviewDB extends DBSchema {
-  previews: { key: string; value: Preview; indexes: { scannedAt: number } };
+  previews: { key: string; value: SavedPreview; indexes: { scannedAt: number } };
+}
+interface SavedPreview extends Omit<Preview, 'imagePath'> {
+  imageData?: ArrayBuffer;
+  imageType?: string;
 }
 let database: ReturnType<typeof openDB<PreviewDB>> | undefined;
 function previewDB() {
@@ -42,6 +46,36 @@ function publish(value: Preview) {
     for (const key of keys.slice(0, Math.max(0, keys.length - 500))) delete next[key];
     return next;
   });
+}
+function restore(saved: SavedPreview | undefined, key: string, scannedAt: number) {
+  if (
+    !saved ||
+    saved.key !== key ||
+    saved.scannedAt !== scannedAt ||
+    typeof saved.title !== 'string' ||
+    !saved.title ||
+    saved.title.length > 1000 ||
+    !saved.pageDirection ||
+    !['ltr', 'rtl', 'unknown'].includes(saved.pageDirection.value) ||
+    !['spine', 'content', 'unknown'].includes(saved.pageDirection.source) ||
+    'imagePath' in saved ||
+    (saved.imageData === undefined
+      ? saved.imageType !== undefined
+      : !(saved.imageData instanceof ArrayBuffer) ||
+        !saved.imageData.byteLength ||
+        saved.imageData.byteLength > 1024 * 1024 ||
+        !['image/png', 'image/jpeg', 'image/webp'].includes(saved.imageType || ''))
+  )
+    return undefined;
+  return {
+    key,
+    scannedAt,
+    title: saved.title,
+    pageDirection: saved.pageDirection,
+    ...(saved.imageData
+      ? { imagePath: new Blob([saved.imageData], { type: saved.imageType }) }
+      : {})
+  } satisfies Preview;
 }
 async function thumbnail(blob: Blob | undefined): Promise<Blob | undefined> {
   if (!blob) return;
@@ -72,7 +106,8 @@ async function readPreview(
   const key = sourceBookKey(source, file.id);
   const cached = await (await previewDB()).get('previews', key);
   signal.throwIfAborted();
-  if (cached?.scannedAt === scannedAt) return cached;
+  const restored = restore(cached, key, scannedAt);
+  if (restored) return restored;
   const value: Preview = {
     key,
     scannedAt,
@@ -107,7 +142,14 @@ async function readPreview(
     throw new Error('The account changed.');
   const db = await previewDB(),
     tx = db.transaction('previews', 'readwrite');
-  await tx.store.put(value);
+  const imagePath = value.imagePath;
+  await tx.store.put({
+    key: value.key,
+    scannedAt: value.scannedAt,
+    title: value.title,
+    pageDirection: value.pageDirection,
+    ...(imagePath ? { imageData: await imagePath.arrayBuffer(), imageType: imagePath.type } : {})
+  });
   let count = await tx.store.count();
   let cursor = await tx.store.index('scannedAt').openCursor();
   while (cursor && count > 500) {

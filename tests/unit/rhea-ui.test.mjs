@@ -139,6 +139,13 @@ test('persisted backgrounds avoid navigation-scoped Blob URLs in WebKit', () => 
   assert.doesNotMatch(backgrounds, /URL\.createObjectURL/);
 });
 
+test('persisted library previews do not store WebKit-sensitive Blob wrappers', () => {
+  const previews = read('apps/web/src/lib/library/previews.ts');
+  assert.match(previews, /imageData: await imagePath\.arrayBuffer\(\)/);
+  assert.match(previews, /new Blob\(\[saved\.imageData\]/);
+  assert.doesNotMatch(previews, /tx\.store\.put\(value\)/);
+});
+
 test('outside dismissal uses original pointer ownership, never retargeted clicks', () => {
   const originalElement = globalThis.Element;
   const listeners = new Map();
