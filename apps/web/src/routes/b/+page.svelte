@@ -601,7 +601,7 @@
   }
 
   function trackerSingleClickHandler() {
-    if (!statisticsEnabled$) {
+    if (!$statisticsEnabled$) {
       return;
     }
 
@@ -611,7 +611,7 @@
   }
 
   function trackerDblClickHandler() {
-    if (!statisticsEnabled$) {
+    if (!$statisticsEnabled$) {
       return;
     }
 
@@ -1134,13 +1134,18 @@
     return bookId;
   }
 
-  async function bookmarkPage() {
+  function bookmarkPage() {
+    showHeader = false;
+    return saveBookmark();
+  }
+
+  // Autosave is persistence, not a toolbar action. It must not unmount the
+  // trigger of an open menu or steal keyboard focus while somebody uses it.
+  async function saveBookmark() {
     const bookId = getBookIdSync();
     if (!bookId || !bookmarkManager) return;
 
     let data: BooksDbBookmarkData | undefined;
-
-    showHeader = false;
 
     if (isPaginated) {
       const userSelectedRange = $selectionToBookmarkEnabled$
@@ -1742,7 +1747,7 @@
     bind:customReadingPointScrollOffset
     bind:customReadingPointRange
     bind:showCustomReadingPoint
-    on:bookmark={bookmarkPage}
+    on:bookmark={saveBookmark}
     on:trackerPause={() => pauseTracker(true)}
   />
   {$setBackgroundColor$ ?? ''}
@@ -1784,11 +1789,7 @@
 </Sheet.Root>
 
 {#if showReaderImageGallery}
-  <BookReaderImageGallery
-    fontColor={$themeOption$.fontColor}
-    backgroundColor={$backgroundColor$}
-    on:close={() => (showReaderImageGallery = false)}
-  />
+  <BookReaderImageGallery on:close={() => (showReaderImageGallery = false)} />
 {/if}
 
 {#if (isSelectingCustomReadingPoint && !$isMobile$) || (!isPaginated && showCustomReadingPoint)}

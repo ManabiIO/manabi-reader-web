@@ -46,7 +46,7 @@
 
 <style>
   section {
-    padding: 1.25rem 0;
+    padding: 0;
     writing-mode: horizontal-tb;
   }
   h2 {

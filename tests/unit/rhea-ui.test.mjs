@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { test } from 'node:test';
 import { matchesSetting } from '../../apps/web/src/lib/components/settings/settings-context.ts';
+import { clickOutside } from '../../apps/web/src/lib/functions/use-click-outside.ts';
 import { readerUIOwnsEvent } from '../../apps/web/src/lib/functions/reader-ui-events.ts';
 const read = (path) => readFileSync(new URL('../../' + path, import.meta.url), 'utf8');
 
@@ -124,4 +125,51 @@ test('Rhea is native Svelte with Lucide and no Font Awesome or Popper imports', 
     }
   }
   visit('apps/web/src');
+});
+
+test('outside dismissal uses original pointer ownership, never retargeted clicks', () => {
+  const originalElement = globalThis.Element;
+  const listeners = new Map();
+  let calls = 0;
+  class Target {
+    constructor(kind) {
+      this.kind = kind;
+    }
+    closest() {
+      return this.kind === 'portal' ? this : null;
+    }
+  }
+  const ownerDocument = {
+    addEventListener(type, callback, capture) {
+      assert.equal(capture, true);
+      listeners.set(type, callback);
+    },
+    removeEventListener(type, callback, capture) {
+      assert.equal(capture, true);
+      assert.equal(listeners.get(type), callback);
+      listeners.delete(type);
+    }
+  };
+  try {
+    globalThis.Element = Target;
+    const node = { ownerDocument, contains: (target) => target.kind === 'trigger' };
+    const stop = clickOutside(node, () => calls++);
+    assert.deepEqual([...listeners.keys()], ['pointerdown']);
+    const pointer = (kind, defaultPrevented = false) =>
+      listeners.get('pointerdown')({
+        composedPath: () => [new Target(kind), ownerDocument],
+        defaultPrevented
+      });
+    pointer('trigger');
+    pointer('portal');
+    pointer('outside', true);
+    assert.equal(calls, 0);
+    pointer('outside');
+    assert.equal(calls, 1);
+    stop.destroy();
+    assert.equal(listeners.size, 0);
+  } finally {
+    if (originalElement === undefined) delete globalThis.Element;
+    else globalThis.Element = originalElement;
+  }
 });

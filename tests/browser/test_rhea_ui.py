@@ -4,6 +4,11 @@ No UI replacements, request interception, or fake font availability. Book and
 wallpaper fixtures are generated locally by the existing acceptance harness.
 """
 from pathlib import Path
+import io
+import zipfile
+import json
+from test_static_reader import epub, TITLE
+from test_appearance import png
 import unittest
 from playwright.sync_api import expect
 import test_appearance_refinement as previous
@@ -111,6 +116,74 @@ class RheaReader(previous.RefinedAppearance):
         expect(tools).to_be_focused()
         self.page.screenshot(path='test-results/rhea-reader-toolbar.png', full_page=True)
 
+    def test_real_outside_pointer_dismisses_toolbar_after_menu_escape(self):
+        self.open_book(font='Klee One')
+        self.wait_for_fonts()
+        self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+        toolbar = self.page.get_by_role('banner', name='Reader toolbar')
+        toolbar.get_by_role('button', name='Reading tools', exact=True).click()
+        expect(self.page.get_by_role('menu')).to_be_visible()
+        self.page.keyboard.press('Escape')
+        expect(toolbar).to_be_visible()
+        expect(toolbar.get_by_role('button', name='Reading tools', exact=True)).to_be_focused()
+        viewport = self.page.viewport_size
+        self.page.mouse.click(viewport['width'] / 2, viewport['height'] - 100)
+        expect(toolbar).to_have_count(0)
+        expect(self.page.locator('.book-content')).to_be_visible()
+        self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+        expect(toolbar).to_be_visible()
+
+    def test_autobookmark_does_not_dismiss_an_open_reader_menu(self):
+        self.context.add_init_script("localStorage.setItem('autoBookmarkTime', '2');")
+        self.open_book(font='Klee One')
+        self.wait_for_fonts()
+        started = self.page.evaluate('Date.now()')
+        self.page.keyboard.press('PageDown')
+        self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+        tools = self.page.get_by_role('button', name='Reading tools', exact=True)
+        tools.click()
+        menu = self.page.get_by_role('menu')
+        expect(menu).to_be_visible()
+        self.page.keyboard.press('ArrowDown')
+        # Observe the actual scheduled bookmark commit; no synthetic bookmark or
+        # timeout used to suppress an autosave. The menu must survive that commit.
+        self.page.wait_for_function('''async (started) => {
+          const db = await new Promise((resolve, reject) => {
+            const request = indexedDB.open('books');
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          try {
+            const data = await new Promise((resolve, reject) => {
+              const id = Number(new URL(location.href).searchParams.get('id'));
+              const request = db.transaction('bookmark').objectStore('bookmark').get(id);
+              request.onsuccess = () => resolve(request.result);
+              request.onerror = () => reject(request.error);
+            });
+            return data?.lastBookmarkModified >= started && data.exploredCharCount > 0;
+          } finally { db.close(); }
+        }''', arg=started, timeout=15000)
+        expect(menu).to_be_visible()
+        self.assertTrue(menu.evaluate('e => e.contains(document.activeElement)'))
+        self.page.keyboard.press('Escape')
+        expect(menu).to_have_count(0)
+        expect(tools).to_be_focused()
+
+    def test_settings_search_counts_newly_available_tracking_controls(self):
+        self.settings()
+        self.page.get_by_label('Search settings', exact=True).fill('statistics')
+        enable = self.page.get_by_role('switch', name='Enable Statistics', exact=True)
+        expect(enable).to_be_visible()
+        before = self.page.locator('[data-setting]:not([hidden])').count()
+        enable.check()
+        self.page.wait_for_function('(before) => document.querySelectorAll("[data-setting]:not([hidden])").length > before', arg=before)
+        count = self.page.locator('[data-setting]:not([hidden])').count()
+        expect(self.page.get_by_role('status').filter(has_text='matching settings')).to_have_text(
+            f'{count} matching settings')
+        enable.uncheck()
+        expect(self.page.get_by_role('status').filter(has_text='matching settings')).to_have_text(
+            f'{before} matching settings')
+
     def test_library_sort_and_export_preserve_all_export_parts(self):
         self.open_book(font='Klee One')
         self.page.goto(self.origin + '/Reader-Web/manage')
@@ -156,7 +229,9 @@ class RheaReader(previous.RefinedAppearance):
     def test_dismissing_jump_and_completion_settles_without_blocking_reader(self):
         self.open_book()
         for action in ['Jump to Position', 'Complete Book']:
-            self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+            toolbar = self.page.get_by_role('banner', name='Reader toolbar')
+            if not toolbar.is_visible():
+                self.page.get_by_role('button', name='Show reading controls', exact=True).click()
             self.page.get_by_role('button', name='Reading tools', exact=True).click()
             self.page.get_by_role('menuitem', name=action, exact=True).click()
             dialog = self.page.get_by_role('dialog')
@@ -169,8 +244,11 @@ class RheaReader(previous.RefinedAppearance):
         expect(self.page.get_by_role('banner', name='Reader toolbar')).to_be_visible()
 
     def test_tracking_panel_owns_focus_and_preserves_controls(self):
-        self.context.add_init_script("localStorage.setItem('statisticsEnabled', 'true');")
-        self.open_book()
+        self.settings()
+        self.category('Tracking & goals')
+        self.page.get_by_role('switch', name='Enable Statistics', exact=True).check()
+        self.assertEqual('1', self.page.evaluate('localStorage.getItem("statisticsEnabled")'))
+        self.open_book(font='Klee One')
         trigger = self.page.get_by_role('button', name='Open reading tracker', exact=True)
         expect(trigger).to_be_visible(timeout=30000)
         trigger.click()
@@ -179,9 +257,103 @@ class RheaReader(previous.RefinedAppearance):
         expect(self.page.get_by_role('dialog')).to_have_count(1)
         for label in ['Toggle Tracker', 'Update Position', 'Toggle Freeze Position', 'Save']:
             expect(sheet.get_by_role('button', name=label, exact=True)).to_be_visible()
+        expect(sheet.get_by_role('button', name='Save', exact=True)).to_be_disabled()
+        for _ in range(12):
+            self.page.keyboard.press('Tab')
+            self.assertTrue(sheet.evaluate('e => e.contains(document.activeElement)'))
         self.page.keyboard.press('Escape')
         expect(sheet).to_have_count(0)
         expect(trigger).to_be_focused()
+
+    def open_illustrated_book(self, hide_spoilers=False):
+        # Actual EPUB entries and actual raster data through the normal importer.
+        source = zipfile.ZipFile(io.BytesIO(epub()))
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as target:
+            for name in source.namelist():
+                value = source.read(name)
+                if name == 'content.opf':
+                    value = value.replace(b'</manifest>', b'<item id="second-image" href="second.png" media-type="image/png"/></manifest>')
+                elif name == 'chapter.xhtml':
+                    value = value.replace(b'</body>', b'<img src="second.png" alt="Second illustration"/></body>')
+                elif name == '絵.png':
+                    value = png([184,77,113], 600, 400)
+                target.writestr(name, value)
+            target.writestr('second.png', png([24,100,146], 500, 700))
+        values = {'fontFamilyGroupOne':'Klee One', 'hideSpoilerImage': '1' if hide_spoilers else '0'}
+        self.context.add_init_script('for (const [key, value] of Object.entries(' + json.dumps(values) + ')) localStorage.setItem(key, value);')
+        self.page.goto(self.origin + '/Reader-Web/manage')
+        expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
+        self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
+            'name':'gallery.epub', 'mimeType':'application/epub+zip', 'buffer':output.getvalue()
+        })
+        self.page.get_by_text(TITLE, exact=True).click(timeout=30000)
+        expect(self.page.locator('.book-content')).to_be_visible(timeout=30000)
+        self.wait_for_fonts()
+
+    def open_gallery(self):
+        self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+        self.page.get_by_role('button', name='Reading tools', exact=True).click()
+        self.page.get_by_role('menuitem', name='Image Gallery', exact=True).click()
+        gallery = self.page.get_by_role('dialog', name='Image gallery', exact=True)
+        expect(gallery).to_be_visible()
+        return gallery
+
+    def test_gallery_is_focus_managed_and_preserves_images_keys_and_wheel(self):
+        self.page.set_viewport_size({'width':1400, 'height':900})
+        self.open_illustrated_book()
+        before = self.page.locator('.book-content').evaluate('e => e.getBoundingClientRect().x')
+        gallery = self.open_gallery()
+        expect(gallery.get_by_role('button', name='Previous', exact=True)).to_be_disabled()
+        gallery.get_by_role('button', name='View image 1', exact=True).click()
+        self.page.keyboard.press('ArrowRight')
+        expect(gallery.locator('.gallery-viewer img')).to_have_attribute('alt', 'Book illustration 2')
+        expect(gallery.get_by_role('button', name='Next', exact=True)).to_be_disabled()
+        viewer = gallery.locator('.gallery-viewer')
+        viewer.focus()
+        viewer.hover()
+        self.page.mouse.wheel(0, -200)
+        expect(gallery.locator('.gallery-viewer img')).to_have_attribute('alt', 'Book illustration 1')
+        self.page.wait_for_function('() => document.querySelector(".gallery-viewer img")?.naturalWidth === 600')
+        for _ in range(9):
+            self.page.keyboard.press('Tab')
+            self.assertTrue(gallery.evaluate('e => e.contains(document.activeElement)'))
+        self.assertEqual(before, self.page.locator('.book-content').evaluate('e => e.getBoundingClientRect().x'))
+        self.page.screenshot(path='test-results/rhea-image-gallery-desktop.png', full_page=True)
+        self.page.keyboard.press('Escape')
+        expect(gallery).to_have_count(0)
+        expect(self.page.get_by_role('button', name='Show reading controls', exact=True)).to_be_focused()
+
+    def test_gallery_mobile_image_view_and_return_to_list(self):
+        self.page.set_viewport_size({'width':390, 'height':844})
+        self.open_illustrated_book()
+        gallery = self.open_gallery()
+        gallery.get_by_role('button', name='View image 2', exact=True).click()
+        expect(gallery.locator('.gallery-viewer img')).to_have_attribute('alt', 'Book illustration 2')
+        self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), 391)
+        self.assertLessEqual(gallery.evaluate('e => e.scrollWidth'), 391)
+        self.page.screenshot(path='test-results/rhea-image-gallery-mobile.png', full_page=True)
+        gallery.get_by_role('button', name='All images', exact=True).click()
+        expect(gallery.get_by_role('button', name='View image 2', exact=True)).to_be_focused()
+        gallery.get_by_role('button', name='Close Image Gallery', exact=True).click()
+        expect(gallery).to_have_count(0)
+
+    def test_gallery_spoiler_reveal_is_a_real_keyboard_button(self):
+        self.page.set_viewport_size({'width':1400, 'height':900})
+        self.open_illustrated_book(hide_spoilers=True)
+        gallery = self.open_gallery()
+        gallery.get_by_role('button', name='Next', exact=True).click()
+        reveal = gallery.locator('.gallery-viewer').get_by_role('button', name='Show image · ネタバレ', exact=True)
+        expect(reveal).to_be_visible()
+        reveal.focus()
+        reveal.press('Enter')
+        expect(reveal).to_have_count(0)
+        expect(gallery.locator('.gallery-viewer img')).to_have_attribute('alt', 'Book illustration 2')
+        self.page.keyboard.press('Escape')
+        gallery = self.open_gallery()
+        gallery.get_by_role('button', name='View image 2', exact=True).click()
+        expect(gallery.locator('.gallery-viewer .spoiler-label')).to_have_count(0)
+        self.page.keyboard.press('Escape')
 
     def test_statistics_navigation_and_options_sheet(self):
         self.page.goto(self.origin + '/Reader-Web/statistics')

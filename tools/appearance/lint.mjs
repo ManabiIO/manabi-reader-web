@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { ESLint } from 'eslint';
 
 const files = [
+  'apps/web/src/lib/components/book-reader/book-reader-image-gallery/book-reader-image-gallery.svelte',
   'apps/web/src/lib/components/ripple.svelte',
   'apps/web/src/lib/appearance/background-settings.svelte',
   'apps/web/src/lib/appearance/runtime.svelte',

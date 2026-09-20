@@ -52,14 +52,29 @@
     if (category && categories.some((item) => item.id === category))
       filter.set({ category, query: '' });
   });
-  onMount(() =>
-    filter.subscribe(() => {
-      void tick().then(() => {
-        if (root?.isConnected)
-          visibleCount = root.querySelectorAll('[data-setting]:not([hidden])').length;
-      });
-    })
-  );
+  onMount(() => {
+    const countVisibleSettings = () => {
+      if (root?.isConnected)
+        visibleCount = root.querySelectorAll('[data-setting]:not([hidden])').length;
+    };
+    const stop = filter.subscribe(() => {
+      void tick().then(countVisibleSettings);
+    });
+    // Enabling tracking or changing writing mode mounts conditional fields even
+    // when the search hasn't changed. Count those real fields, not stale results.
+    const observer = new MutationObserver(countVisibleSettings);
+    observer.observe(root, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['hidden']
+    });
+    countVisibleSettings();
+    return () => {
+      stop();
+      observer.disconnect();
+    };
+  });
   function choose(category: string) {
     filter.set({ category, query: '' });
   }

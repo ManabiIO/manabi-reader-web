@@ -63,6 +63,11 @@ an account-setting change; a no-op field focus or Escape does not commit it.
 Reading goals retain their explicit Save/Cancel flow. Storage capability and
 sync controls, custom font import and custom theme editing remain available.
 
+Image Gallery is a full-viewport Rhea dialog with a thumbnail list, labelled
+Previous/Next controls, keyboard and wheel navigation, accessible spoiler reveal,
+and a mobile full-image view with return to the list. Gallery chrome uses UI
+tokens rather than arbitrary EPUB colors. Closing restores the reader controls.
+
 The global dialog manager now uses the Rhea/Bits focus trap and Escape/outside
 handling while preserving each operation's close-disabled contract. Legacy
 informational popovers use Bits UI with the same dynamic anchoring and close
@@ -74,7 +79,9 @@ are Lucide. Custom book artwork and provider logos are not recoloured.
 `test_rhea_ui.py` extends the actual appearance/reader tests; it adds menu and
 sheet keyboard operation, mobile overflow, category/search persistence, custom
 palette focus/escape, explicit font selection, reading-key isolation, all export
-parts, all sorting options and statistics navigation. The suite runs on the
+parts, all sorting options and statistics navigation. Additional checks cover
+autosave while a menu owns focus, conditionally available setting counts, and
+real multi-image EPUB galleries on desktop and mobile. The suite runs on the
 built `/Reader-Web/` application in Chromium and regular-profile WebKit. It does
 not intercept requests or substitute UI/storage/font implementations.
 
@@ -99,3 +106,12 @@ python -m playwright install --with-deps chromium webkit
 APPEARANCE_BROWSER=chromium python tests/browser/test_rhea_ui.py
 APPEARANCE_BROWSER=webkit python tests/browser/test_rhea_ui.py
 ```
+
+### Pointer ownership
+
+Reader toolbar dismissal observes pointerdown capture, not a late click after
+Bits UI has opened a modal menu and changed body pointer events. The original
+composed path preserves trigger/portal ownership; real outside taps still close
+the toolbar. Automatic bookmark commits do not close it. Browser acceptance
+checks focus return after Escape, subsequent outside dismissal, actual scheduled
+bookmark persistence, and Jump/Complete dialog cancellation without losing tools.

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Button } from '$lib/components/ui/button';
   import faChevronLeft from '@lucide/svelte/icons/chevron-left';
   import faChevronRight from '@lucide/svelte/icons/chevron-right';
   import faClockRotateLeft from '@lucide/svelte/icons/history';
@@ -240,23 +241,23 @@
   {/if}
   {#each allStatistics as statistic (statistic.id)}
     <div class="mb-7 last:mb-4">
-      <div class="flex items-center">
+      <div class="flex flex-wrap items-center gap-2">
         <div>
           {statistic.id}
         </div>
         {#if statistic.id === 'Current Session'}
           {#each actions as action (action.event)}
-            {#if action.event !== 'saveStatistics' || (action.event === 'saveStatistics' && canSaveStatistics)}
-              <button
-                type="button"
-                class="ml-4 hover:text-red-500 gap-2 rounded-xl px-2 py-1.5 text-sm"
-                title={action.title}
-                on:click={() => executeAction(action.event)}
-              >
-                <AppIcon icon={getActionIcon(action, wasTrackerPaused)} />
-                <span>{action.title}</span></button
-              >
-            {/if}
+            <Button
+              variant="ghost"
+              size="sm"
+              title={action.title}
+              disabled={actionInProgress ||
+                (action.event === 'saveStatistics' && !canSaveStatistics)}
+              onclick={() => executeAction(action.event)}
+            >
+              <AppIcon icon={getActionIcon(action, wasTrackerPaused)} />
+              {action.title}
+            </Button>
           {/each}
         {/if}
       </div>
