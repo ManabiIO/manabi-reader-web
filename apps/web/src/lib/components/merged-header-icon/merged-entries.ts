@@ -59,5 +59,11 @@ export const mergeEntries = {
     title: 'Import from Folder'
   },
   FILE_IMPORT: { routeId: '', label: 'Import File(s)', icon: faFileArrowUp, title: 'Import Files' },
+  TTU_IMPORT: {
+    routeId: '/import-ttu',
+    label: 'Import from Ttu Ebook Reader',
+    icon: faFileZipper,
+    title: 'Import from Ttu Ebook Reader'
+  },
   BACKUP_IMPORT: { routeId: '', label: 'Import Backup', icon: faFileZipper, title: 'Import Backup' }
 };

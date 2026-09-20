@@ -93,17 +93,17 @@
   });
 </script>
 
-<svelte:head><title>Shared TTU libraries · Manabi Reader</title></svelte:head>
+<svelte:head><title>Shared Ttu Ebook Reader libraries · Manabi Reader</title></svelte:head>
 
 <main>
   <nav aria-label="Reader navigation">
     <a href="{base}/manage">Books</a><a href="{base}/connections">Accounts and local book folders</a
     ><a href="{base}/settings">Storage settings</a>
   </nav>
-  <h1>Shared TTU libraries</h1>
+  <h1>Shared Ttu Ebook Reader libraries</h1>
   <p>
-    Use the same <code>ttu-reader-data</code> library as TTU Reader. This mode stores book packages,
-    bookmarks, and statistics in TTU’s existing format—not private Manabi Web sidecars.
+    Use the same <code>ttu-reader-data</code> library as Ttu Ebook Reader. This mode stores book packages,
+    bookmarks, and statistics in Ttu Ebook Reader’s existing format—not private Manabi Web sidecars.
   </p>
   <section aria-labelledby="connect-folder">
     <h2 id="connect-folder">Connect a local or cloud-synced folder</h2>
@@ -155,7 +155,7 @@
             checked={$syncTarget$ === source.name && $autoReplication$ === AutoReplicationType.All}
             disabled={busy}
             on:change={(event) => setAutomatic(event.currentTarget.checked)}
-          />Use this library as the automatic TTU import/export target</label
+          />Use this library as the automatic Ttu Ebook Reader import/export target</label
         >
         <p class="note">
           This replaces the current automatic sync target. Read the shared copy from “Open shared
@@ -171,8 +171,8 @@
           ><input type="checkbox" bind:group={imports} value={title} />{title}</label
         >{/each}
       {#if !remoteTitles.length}<p>
-          No TTU book packages are present yet. A folder of EPUBs alone is not a TTU library;
-          publish selected books below.
+          No Ttu Ebook Reader book packages are present yet. A folder of EPUBs alone is not a Ttu
+          Ebook Reader library; publish selected books below.
         </p>{/if}
       <button
         disabled={busy || !source || !imports.length}
@@ -188,8 +188,9 @@
     <section aria-labelledby="publish-books">
       <h2 id="publish-books">Publish browser books</h2>
       <p>
-        Publish only the books you select. This creates TTU book packages and their reading-data
-        files; it does not modify original EPUB files or replace existing shared packages.
+        Publish only the books you select. This creates Ttu Ebook Reader book packages and their
+        reading-data files; it does not modify original EPUB files or replace existing shared
+        packages.
       </p>
       {#each localTitles.filter((title) => !remoteTitles.includes(title)) as title}<label
           ><input type="checkbox" bind:group={exports} value={title} />{title}</label
@@ -202,7 +203,7 @@
             await transferSharedBooks(source, 'publish', exports);
             await refresh();
             message =
-              'Selected books published in TTU format. Your cloud client manages remote upload.';
+              'Selected books published in Ttu Ebook Reader format. Your cloud client manages remote upload.';
           })}>Publish selected browser books</button
       >
     </section>
@@ -210,15 +211,16 @@
   <section aria-labelledby="native-compatibility">
     <h2 id="native-compatibility">Using the native Manabi app</h2>
     <p>
-      The native app’s current main-branch TTU integration reads a Google Drive <code
+      The native app’s current main-branch Ttu Ebook Reader integration reads a Google Drive <code
         >ttu-reader-data</code
       > library. Point both apps at the same visible library, and ensure their Google authorizations
       can see the same files. The same Google account alone does not guarantee that.
     </p>
     <p>
-      Native OneDrive, Dropbox, and local TTU-folder connections are not implemented by the existing
-      Google-only native connector. The managed cloud connections on the Accounts page currently use
-      a different reading-data format and are not a replacement for this shared-library mode.
+      Native OneDrive, Dropbox, and local Ttu Ebook Reader-folder connections are not implemented by
+      the existing Google-only native connector. The managed cloud connections on the Accounts page
+      currently use a different reading-data format and are not a replacement for this
+      shared-library mode.
     </p>
   </section>
 </main>

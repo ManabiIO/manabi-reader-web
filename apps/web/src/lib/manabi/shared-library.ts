@@ -57,7 +57,7 @@ export async function registerSharedFolder(
 ): Promise<BooksDbStorageSource> {
   if (BaseStorageHandler.rootName !== ttuRootName) {
     throw new Error(
-      'This deployment overrides the TTU root name and cannot promise native-library compatibility.'
+      'This deployment overrides the Ttu Ebook Reader root name and cannot promise native-library compatibility.'
     );
   }
   if ((await root.queryPermission({ mode: 'readwrite' })) !== 'granted') {
@@ -72,9 +72,10 @@ export async function registerSharedFolder(
     const existing = filesystemData(source);
     if (await existing.directoryHandle.isSameEntry(root)) return source;
   }
-  let name = 'Shared TTU library';
+  let name = 'Shared Ttu Ebook Reader library';
   let suffix = 1;
-  while (sources.some((source) => source.name === name)) name = `Shared TTU library ${++suffix}`;
+  while (sources.some((source) => source.name === name))
+    name = `Shared Ttu Ebook Reader library ${++suffix}`;
   const source: BooksDbStorageSource = {
     name,
     type: StorageKey.FS,
@@ -109,7 +110,7 @@ export async function openSharedFolder(source: BooksDbStorageSource) {
   storageSource$.next(StorageKey.FS);
 }
 
-/** Use the real TTU serializers/replication path, never a second reading-state schema. */
+/** Use the real Ttu Ebook Reader serializers/replication path, never a second reading-state schema. */
 export async function transferSharedBooks(
   source: BooksDbStorageSource,
   direction: 'import' | 'publish',
@@ -132,13 +133,13 @@ export async function transferSharedBooks(
             `${title} already exists in the shared library. Open it there to sync reading data; publishing will not replace its package.`
           );
         }
-        // Percent encoding and TTU title markers must round-trip before creating a folder.
+        // Percent encoding and Ttu Ebook Reader title markers must round-trip before creating a folder.
         if (
           BaseStorageHandler.desanitizeFilename(BaseStorageHandler.sanitizeForFilename(title)) !==
           title
         ) {
           throw new Error(
-            `${title} cannot be represented unambiguously in the TTU folder format. Rename it before publishing.`
+            `${title} cannot be represented unambiguously in the Ttu Ebook Reader folder format. Rename it before publishing.`
           );
         }
       } else {

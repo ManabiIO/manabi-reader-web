@@ -18,6 +18,7 @@ import loadEpub from '$lib/functions/file-loaders/epub/load-epub';
 import loadTxt from '$lib/functions/file-loaders/txt/load-txt';
 import loadHtmlz from '$lib/functions/file-loaders/htmlz/load-htmlz';
 import { account, currentUser, IntegrationError } from './client';
+import { isCompletedStatistics } from './completed-statistics.js';
 import { integrationDB, exclusive, equal, mergeRecords, type BookLink } from './persistence';
 import {
   sha256,
@@ -120,19 +121,11 @@ function validateState(value: unknown, hash: string): ReadingState {
       if (!finite(statistic[key])) throw new IntegrationError('invalid_response');
     if (statistic.completedBook !== undefined && statistic.completedBook !== 1)
       throw new IntegrationError('invalid_response');
-    if (statistic.completedData !== undefined) {
-      if (
-        !object(statistic.completedData) ||
-        Object.keys(statistic.completedData).some(
-          (key) => ![...statisticFields, 'dateKey', 'completedBook'].includes(key as any)
-        )
-      )
-        throw new IntegrationError('invalid_response');
-      for (const [key, field] of Object.entries(statistic.completedData)) {
-        if (key === 'dateKey' ? field !== date : !finite(field))
-          throw new IntegrationError('invalid_response');
-      }
-    }
+    if (
+      statistic.completedData !== undefined &&
+      !isCompletedStatistics(statistic.completedData, date)
+    )
+      throw new IntegrationError('invalid_response');
   }
   if (new TextEncoder().encode(JSON.stringify(value)).length > 65536)
     throw new IntegrationError('too_large');

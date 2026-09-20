@@ -27,7 +27,10 @@ test('logical TTU revisions are unambiguous, version-qualified and left intact',
     'bookdata_1_7_1_1_1.zip',
     'bookdata_1_6_1_1_1.json'
   ]) {
-    assert.throws(() => selectTtuFile([{ name }], 'bookdata_'), /Unsupported TTU file format/);
+    assert.throws(
+      () => selectTtuFile([{ name }], 'bookdata_'),
+      /Unsupported Ttu Ebook Reader file format/
+    );
   }
   assert.throws(
     () => selectTtuFile([{ name: 'bookdata_1_6_9007199254740992_1_1.zip' }], 'bookdata_'),
