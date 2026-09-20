@@ -2,7 +2,7 @@ name: Isolated library preparation
 on:
   push:
     branches: [codex/library-prepare-20260920]
-    paths: ['.github/workflows/library-prepare.yml', '.github/library-polish.py']
+    paths: ['.github/workflows/library-prepare.yml']
 permissions:
   contents: write
 concurrency:
@@ -18,15 +18,52 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Apply exact follow-up to clean parent
+      - name: Merge the two reviewed histories and preserve concurrent changes
         run: |
-          mkdir -p /tmp/library-staging /tmp/library-evidence
-          cp .github/library-polish.py /tmp/library-staging/
-          git reset --hard 29264ad5290dffce8043a9b7dccbace09bb46ec4
-          python3 /tmp/library-staging/library-polish.py
-          git add apps/web tests
-          git diff --cached --name-only > /tmp/library-evidence/changed-paths.txt
-          python3 -m py_compile tests/browser/test_books_library.py
+          mkdir -p /tmp/library-evidence
+          git config user.name 'Manabi library preparation'
+          git config user.email 'noreply@github.com'
+          python3 - <<'PY'
+          import pathlib, subprocess
+          current='50f4167a2ac24f4a31fc0954954bef1bca9c6ae1'
+          candidate='4683258402240fc0f932a940262d2d265897db54'
+          base='e71e675cf0e2937d545577202d360ea43c868625'
+          root=pathlib.Path('/tmp/library-evidence')
+          root.joinpath('concurrent.patch').write_bytes(subprocess.check_output(['git','diff',base,current]))
+          subprocess.run(['git','reset','--hard',current],check=True)
+          result=subprocess.run(['git','merge','--no-commit','--no-ff',candidate],capture_output=True,text=True)
+          root.joinpath('merge.log').write_text(result.stdout+result.stderr)
+          assert result.returncode in (0,1),result.stderr
+          # Reviewed 20227e6 and 50f4167 diffs: these six paths contain the same
+          # keyed-loop/type/backup/path-lint fixes, extended and browser-qualified
+          # by the candidate. Retain its strict schema and language serialization.
+          resolved=[
+            'apps/web/src/lib/data/storage/handler/base-handler.ts',
+            'apps/web/src/lib/functions/file-loaders/utils/restored-book.ts',
+            'apps/web/src/lib/library/book-cover.svelte',
+            'apps/web/src/lib/library/cover-stack.svelte',
+            'apps/web/src/lib/library/file-operations.ts',
+            'apps/web/src/lib/library/library-workspace.svelte']
+          conflicts=subprocess.check_output(['git','diff','--name-only','--diff-filter=U'],text=True).splitlines()
+          assert set(conflicts)<=set(resolved),conflicts
+          subprocess.run(['git','restore','--source',candidate,'--staged','--worktree','--',*resolved],check=True)
+          # The concurrent account/navigation, background and import-identity
+          # repairs must remain byte-for-byte, not merely present in history.
+          retained=[
+            'apps/web/src/app.scss',
+            'apps/web/src/lib/appearance/backgrounds.ts',
+            'apps/web/src/lib/manabi/client.ts',
+            'apps/web/src/lib/manabi/ttu-migration.ts',
+            'apps/web/src/routes/manage/+page.svelte',
+            'tests/browser/test_rhea_ui.py',
+            'tests/unit/rhea-ui.test.mjs']
+          for path in retained:
+              assert pathlib.Path(path).read_bytes()==subprocess.check_output(['git','show',f'{current}:{path}']),path
+          assert not subprocess.check_output(['git','diff','--name-only','--diff-filter=U'])
+          root.joinpath('retained-concurrent-files.txt').write_text('\n'.join(retained))
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          root.joinpath('combined.patch').write_bytes(subprocess.check_output(['git','diff','--cached']))
+          PY
       - uses: pnpm/action-setup@v6.1.0
         with:
           version: '12.3.4'
@@ -39,33 +76,17 @@ jobs:
           python-version: '3.13'
       - run: pnpm install --frozen-lockfile
       - run: pnpm --dir apps/web exec svelte-kit sync
-      - name: Format authored source before committing it
-        run: |
-          python3 - <<'PY'
-          import pathlib, subprocess
-          paths = pathlib.Path('/tmp/library-evidence/changed-paths.txt').read_text().splitlines()
-          formatted = [p for p in paths if pathlib.Path(p).suffix in {'.ts','.svelte','.mjs','.json','.md'}]
-          subprocess.run(['pnpm','exec','prettier','--write',*formatted],check=True)
-          subprocess.run(['pnpm','exec','eslint','--fix','.'],check=True)
-          changed = subprocess.check_output(['git','diff','HEAD','--name-only'],text=True).splitlines()
-          assert changed and all(p.startswith(('apps/web/','tests/')) for p in changed)
-          subprocess.run(['git','add',*changed],check=True)
-          subprocess.run(['git','diff','--cached','--check'],check=True)
-          PY
-          git diff --cached > /tmp/library-evidence/followup.patch
-      - name: Publish clean candidate, excluding preparation ancestry
+      - name: Publish clean combined candidate with both parents
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          git config user.name 'Manabi library preparation'
-          git config user.email 'noreply@github.com'
           tree=$(git write-tree)
-          commit=$(printf '%s\n' 'fix: finalize safe file paths and accessible library search styling' | git commit-tree "$tree" -p 29264ad5290dffce8043a9b7dccbace09bb46ec4)
+          commit=$(printf '%s\n' 'Merge qualified library behavior with concurrent Rhea and backup fixes' | git commit-tree "$tree" -p 50f4167a2ac24f4a31fc0954954bef1bca9c6ae1 -p 4683258402240fc0f932a940262d2d265897db54)
           echo "$tree" > /tmp/library-evidence/tree-sha.txt
           echo "$commit" > /tmp/library-evidence/commit.txt
           git ls-tree -r "$commit" > /tmp/library-evidence/tree.txt
           HEADER=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
-          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $HEADER" push origin "$commit:refs/heads/codex/library-qualified-${GITHUB_RUN_ID}"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $HEADER" push origin "$commit:refs/heads/codex/library-combined-${GITHUB_RUN_ID}"
           git reset --hard "$commit"
           python3 - <<'PY'
           import json, pathlib, subprocess
@@ -76,7 +97,7 @@ jobs:
                   files.append({'path':name,'content':p.read_text()})
           pathlib.Path('/tmp/library-evidence/source.json').write_text(json.dumps(files))
           PY
-      - name: Read-only units, types, lint and production build
+      - name: Read-only units, types, lint and static build
         run: |
           set +e
           node --experimental-strip-types --test tests/unit/*.test.mjs test/reader/typography.test.mjs > /tmp/library-evidence/units.log 2>&1
@@ -100,7 +121,7 @@ jobs:
           path: /tmp/library-evidence
           retention-days: 7
           if-no-files-found: error
-      - name: Actual library browser acceptance
+      - name: Actual combined library browser acceptance
         if: always()
         run: |
           test -d apps/web/build
