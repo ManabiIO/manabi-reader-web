@@ -121,11 +121,7 @@ function publish(
 }
 
 function validateSaved(saved: SavedImage) {
-  if (
-    !(saved.blob instanceof Blob) ||
-    typeof saved.name !== 'string' ||
-    saved.name.length > 200
-  )
+  if (!(saved.blob instanceof Blob) || typeof saved.name !== 'string' || saved.name.length > 200)
     throw new Error('The saved background cannot be read. Remove it and choose another image.');
 }
 
