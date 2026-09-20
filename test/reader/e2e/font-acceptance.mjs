@@ -72,11 +72,15 @@ export async function runFontAcceptance({ page, context, origin, bookURL, check,
     await expect(page.getByLabel('Primary / Serif font', { exact: true })).toHaveValue(
       yuKyokashoAvailable ? 'YuKyokasho' : 'Klee One'
     );
-    await page.getByRole('button', { name: 'Show available primary / serif fonts', exact: true }).click();
+    await page
+      .getByRole('button', { name: 'Show available primary / serif fonts', exact: true })
+      .click();
     await expect(page.getByText('YuKyokasho', { exact: true })).toHaveCount(
       yuKyokashoAvailable ? 1 : 0
     );
-    await page.getByRole('button', { name: 'Show available primary / serif fonts', exact: true }).click();
+    await page
+      .getByRole('button', { name: 'Show available primary / serif fonts', exact: true })
+      .click();
     return { yuKyokashoAvailable };
   });
   if (yuKyokashoAvailable) {
