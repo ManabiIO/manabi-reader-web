@@ -92,12 +92,16 @@ async function jsonResponse(response: Response): Promise<any> {
 
 export async function refreshAccount(): Promise<ManabiSession | null> {
   const serial = ++refreshSerial;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  const cancelNavigationFetch = () => controller.abort();
+  window.addEventListener('pagehide', cancelNavigationFetch, { once: true });
   try {
     const response = await fetch(`${ROOT}session/`, {
       credentials: 'same-origin',
       cache: 'no-store',
       redirect: 'error',
-      signal: AbortSignal.timeout(15000)
+      signal: controller.signal
     });
     if (response.status === 404 || response.status === 503) {
       if (serial === refreshSerial)
@@ -129,6 +133,9 @@ export async function refreshAccount(): Promise<ManabiSession | null> {
         status: navigator.onLine ? 'unavailable' : 'offline'
       }));
     return null;
+  } finally {
+    clearTimeout(timeout);
+    window.removeEventListener('pagehide', cancelNavigationFetch);
   }
 }
 

@@ -6,7 +6,6 @@
 
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import { writable } from 'svelte/store';
-import { tick } from 'svelte';
 import type { BackgroundMode, BackgroundTarget } from './state';
 import {
   backgroundMimeTypes,
@@ -17,7 +16,8 @@ import {
 
 interface SavedImage {
   revision?: string;
-  blob: Blob;
+  blob?: Blob;
+  dataUrl?: string;
   name: string;
 }
 interface SavedBackgrounds {
@@ -61,23 +61,6 @@ const queues: Record<BackgroundTarget, Promise<void>> = {
   reader: Promise.resolve()
 };
 
-// A store update does not synchronously detach Svelte's CSS references. Revoking
-// before that update can make WebKit report failed image requests on removal.
-function releaseAfterRender(url: string) {
-  void tick().then(() => {
-    let released = false;
-    const release = () => {
-      if (released) return;
-      released = true;
-      clearTimeout(timer);
-      if (frame !== undefined) cancelAnimationFrame(frame);
-      URL.revokeObjectURL(url);
-    };
-    const timer = setTimeout(release, 1000);
-    const frame = requestAnimationFrame(release);
-  });
-}
-
 function db() {
   if (!database)
     database = openDB<BackgroundDatabase>('manabi-reader-appearance', 1, {
@@ -115,18 +98,21 @@ function publish(
   saved: SavedImage | undefined,
   url?: string
 ) {
-  const old = current[target][mode].url;
   update(target, mode, {
     url,
     name: saved?.name,
     revision: saved?.revision,
     error: undefined
   });
-  if (old && old !== url) releaseAfterRender(old);
 }
 
 function validateSaved(saved: SavedImage) {
-  if (!(saved.blob instanceof Blob) || typeof saved.name !== 'string' || saved.name.length > 200)
+  const hasLegacyBlob = saved.blob instanceof Blob;
+  const hasDataUrl =
+    typeof saved.dataUrl === 'string' &&
+    saved.dataUrl.length <= Math.ceil((maxBackgroundBytes * 4) / 3) + 100 &&
+    /^data:image\/(?:png|jpeg|webp);base64,/i.test(saved.dataUrl);
+  if ((!hasLegacyBlob && !hasDataUrl) || typeof saved.name !== 'string' || saved.name.length > 200)
     throw new Error('The saved background cannot be read. Remove it and choose another image.');
 }
 
@@ -137,7 +123,6 @@ async function refreshMode(
   generation: number,
   life: number
 ) {
-  let url: string | undefined;
   try {
     if (!saved) {
       if (mounted && lifetime === life && generation === versions[target])
@@ -155,16 +140,14 @@ async function refreshMode(
       update(target, mode, { error: undefined });
       return;
     }
-    const decoded = await decodeImage(saved.blob);
-    url = decoded.url;
+    const { url } = saved.dataUrl
+      ? await decodeDataUrl(saved.dataUrl)
+      : await decodeImage(saved.blob as Blob);
     if (!mounted || lifetime !== life || generation !== versions[target]) return;
     publish(target, mode, saved, url);
-    url = undefined; // Ownership transferred to the visible state.
   } catch (error) {
     if (mounted && life === lifetime && generation === versions[target])
       update(target, mode, { error: errorMessage(error) });
-  } finally {
-    if (url) URL.revokeObjectURL(url);
   }
 }
 
@@ -194,13 +177,14 @@ function errorMessage(error: unknown): string {
     : 'The background could not be saved. The previous image has been kept.';
 }
 
-async function decodeImage(blob: Blob): Promise<{ image: HTMLImageElement; url: string }> {
-  if (!backgroundMimeTypes.includes(blob.type))
-    throw new Error('Choose a PNG, JPEG, or WebP image. SVG and GIF are not supported.');
-  if (!blob.size || blob.size > maxBackgroundBytes)
-    throw new Error('Choose an image no larger than 8 MB.');
-  imageDimensions(new Uint8Array(await blob.arrayBuffer()), blob.type);
-  const url = URL.createObjectURL(blob);
+function bytesToDataUrl(bytes: Uint8Array, mime: string) {
+  let binary = '';
+  for (let offset = 0; offset < bytes.length; offset += 32768)
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768));
+  return `data:${mime};base64,${btoa(binary)}`;
+}
+
+async function decodeUrl(url: string): Promise<{ image: HTMLImageElement; url: string }> {
   const image = new Image();
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -224,7 +208,6 @@ async function decodeImage(blob: Blob): Promise<{ image: HTMLImageElement; url: 
     return { image, url };
   } catch (error) {
     image.src = '';
-    URL.revokeObjectURL(url);
     throw error;
   } finally {
     clearTimeout(timer);
@@ -233,8 +216,33 @@ async function decodeImage(blob: Blob): Promise<{ image: HTMLImageElement; url: 
   }
 }
 
+async function decodeDataUrl(url: string): Promise<{ image: HTMLImageElement; url: string }> {
+  const match = /^data:(image\/(?:png|jpeg|webp));base64,([a-z0-9+/]*={0,2})$/i.exec(url);
+  if (!match)
+    throw new Error('The saved background cannot be read. Remove it and choose another image.');
+  const binary = atob(match[2]);
+  if (!binary.length || binary.length > maxBackgroundBytes)
+    throw new Error('The saved background cannot be read. Remove it and choose another image.');
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  imageDimensions(bytes, match[1].toLowerCase());
+  return decodeUrl(url);
+}
+
+async function decodeImage(blob: Blob): Promise<{ image: HTMLImageElement; url: string }> {
+  if (!backgroundMimeTypes.includes(blob.type))
+    throw new Error('Choose a PNG, JPEG, or WebP image. SVG and GIF are not supported.');
+  if (!blob.size || blob.size > maxBackgroundBytes)
+    throw new Error('Choose an image no larger than 8 MB.');
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  imageDimensions(bytes, blob.type);
+  // Data URLs are independent of a document's Blob registry. WebKit can
+  // invalidate IndexedDB Blob wrappers during navigation while CSS is still
+  // resolving them, producing access-control failures and lost backgrounds.
+  return decodeUrl(bytesToDataUrl(bytes, blob.type));
+}
+
 async function prepare(file: File): Promise<SavedImage> {
-  const { image, url } = await decodeImage(file);
+  const { image } = await decodeImage(file);
   const canvas = document.createElement('canvas');
   try {
     const scale = Math.min(1, 2560 / Math.max(image.naturalWidth, image.naturalHeight));
@@ -251,12 +259,17 @@ async function prepare(file: File): Promise<SavedImage> {
       )
     );
     if (blob.size > maxBackgroundBytes) throw new Error('The prepared image is too large to save.');
-    return { blob, name: file.name.slice(0, 200), revision: crypto.randomUUID() };
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    imageDimensions(bytes, blob.type);
+    return {
+      dataUrl: bytesToDataUrl(bytes, blob.type),
+      name: file.name.slice(0, 200),
+      revision: crypto.randomUUID()
+    };
   } finally {
     canvas.width = 0;
     canvas.height = 0;
     image.src = '';
-    URL.revokeObjectURL(url);
   }
 }
 
@@ -342,8 +355,6 @@ export function startBackgrounds(): () => void {
     window.removeEventListener('focus', reload);
     channel?.close();
     channel = undefined;
-    for (const target of Object.values(current))
-      for (const value of Object.values(target)) if (value.url) releaseAfterRender(value.url);
     backgrounds.set(empty());
   };
 }

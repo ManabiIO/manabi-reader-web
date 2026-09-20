@@ -133,6 +133,12 @@ test('theme token migration does not rewrite valid EPUB CSS property names', () 
   assert.doesNotMatch(sanitizer, /'text-decoration-border'/);
 });
 
+test('persisted backgrounds avoid navigation-scoped Blob URLs in WebKit', () => {
+  const backgrounds = read('apps/web/src/lib/appearance/backgrounds.ts');
+  assert.match(backgrounds, /dataUrl: bytesToDataUrl\(bytes, blob\.type\)/);
+  assert.doesNotMatch(backgrounds, /URL\.createObjectURL/);
+});
+
 test('outside dismissal uses original pointer ownership, never retargeted clicks', () => {
   const originalElement = globalThis.Element;
   const listeners = new Map();
