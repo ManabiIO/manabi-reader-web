@@ -1,0 +1,118 @@
+name: Rhea validation environment
+on:
+  push:
+    branches: [research/rhea-toolchain-20260920]
+    paths: ['.github/workflows/rhea-local-validation.yml']
+permissions:
+  contents: write
+  actions: read
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 129e7c9a03145387b9c3aeebaceb6abfef60c9f5
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: rhea-foundation-source
+          run-id: 35491229950
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: /tmp/foundation-source
+      - name: Restore reviewed source
+        run: |
+          python3 - <<'PY'
+          import json,pathlib,re
+          for f in json.loads(pathlib.Path('/tmp/foundation-source/source.json').read_text()):
+              p=pathlib.Path(f['path']);p.parent.mkdir(parents=True,exist_ok=True);p.write_text(f['content'])
+          p=pathlib.Path('apps/web/src/app.css');s=p.read_text();s=re.sub(r'@source inline\(\s*([\s\S]*?)\s*\);',lambda m:'/* prettier-ignore */\n@source inline('+m[1].strip()+');',s);p.write_text(s)
+          p=pathlib.Path('apps/web/src/lib/css-classes.ts');p.write_text(p.read_text().replace('bg-background-color','bg-background'))
+          PY
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - name: Retain installed public validation dependencies, no repository assets or credentials
+        run: |
+          mkdir -p /tmp/rhea-tools
+          tar -czf /tmp/rhea-tools/dependencies.tar.gz node_modules apps/web/node_modules apps/web/.svelte-kit
+          cp "$(command -v node)" /tmp/rhea-tools/node
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rhea-validation-tools
+          path: /tmp/rhea-tools
+          retention-days: 1
+      - name: Format, lint and record exact source
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p /tmp/rhea-validation
+          pnpm exec prettier --write apps/web/src/app.css apps/web/src/lib/css-classes.ts
+          set +e
+          pnpm exec eslint . --fix > /tmp/rhea-validation/lint.log 2>&1
+          echo $? > /tmp/rhea-validation/lint-status
+          pnpm --dir apps/web check > /tmp/rhea-validation/types.log 2>&1
+          echo $? > /tmp/rhea-validation/types-status
+          node --experimental-strip-types --test tests/unit/*.test.mjs test/reader/typography.test.mjs > /tmp/rhea-validation/units.log 2>&1
+          echo $? > /tmp/rhea-validation/units-status
+          set -e
+          python3 - <<'PY'
+          import pathlib,json,subprocess,os,hashlib,urllib.request
+          out=pathlib.Path('/tmp/rhea-validation')
+          names=sorted(set(subprocess.check_output(['git','ls-files','--modified','--others','--exclude-standard'],text=True).splitlines()))
+          known={f['sha'] for f in json.loads(pathlib.Path('/tmp/foundation-source/tree.json').read_text())}
+          source=[{'path':n,'content':pathlib.Path(n).read_text()} for n in names]
+          (out/'source.json').write_text(json.dumps(source));tree=[]
+          def post(endpoint,data):
+              req=urllib.request.Request('https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/git/'+endpoint,data=json.dumps(data).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Content-Type':'application/json','Accept':'application/vnd.github+json'},method='POST')
+              with urllib.request.urlopen(req,timeout=30) as r:return json.load(r)
+          for f in source:
+              data=f['content'].encode();sha=hashlib.sha1(f'blob {len(data)}\0'.encode()+data).hexdigest()
+              if sha not in known:assert post('blobs',{'encoding':'utf-8','content':f['content']})['sha']==sha
+              tree.append({'path':f['path'],'mode':'100644','type':'blob','sha':sha})
+          (out/'tree.json').write_text(json.dumps(tree))
+          base=subprocess.check_output(['git','rev-parse','HEAD^{tree}'],text=True).strip()
+          (out/'tree-sha.txt').write_text(post('trees',{'base_tree':base,'tree':tree})['sha'])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rhea-validated-source
+          path: /tmp/rhea-validation
+          retention-days: 7
+      - name: Production build and browser regression tests
+        env:
+          BASE_PATH: /Reader-Web
+        run: |
+          set -o pipefail
+          pnpm build 2>&1 | tee /tmp/rhea-validation/build.log
+          python -m pip install 'playwright==1.63.0'
+          python -m playwright install --with-deps chromium webkit
+          status=0
+          for engine in chromium webkit; do
+            mkdir -p /tmp/rhea-validation/$engine
+            set +e
+            APPEARANCE_BROWSER=$engine python tests/browser/test_appearance_refinement.py > /tmp/rhea-validation/$engine/results.log 2>&1
+            result=$?
+            set -e
+            [ $result -eq 0 ] || status=1
+            if [ -d test-results ]; then mv test-results /tmp/rhea-validation/$engine/screenshots; fi
+          done
+          for file in /tmp/rhea-validation/*-status; do [ "$(cat "$file")" = 0 ] || status=1; done
+          exit $status
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rhea-validated-results
+          path: /tmp/rhea-validation
+          retention-days: 7
