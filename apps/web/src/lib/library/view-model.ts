@@ -43,6 +43,9 @@ export function buildShelf(
   const byId = new Map(cards.map((card) => [card.id, card])),
     represented = new Set<number>();
   const result: ShelfNode[] = [];
+  const revisions = new Map(
+    catalogs.map((catalog) => [sourceKey(catalog.source), catalog.scannedAt])
+  );
   const decorate = (
     card: BookCardProps | undefined,
     source?: SourceDescriptor,
@@ -50,7 +53,11 @@ export function buildShelf(
   ): ShelfBook => {
     const key = card ? bookKey(card.id) : sourceBookKey(source!, file!.id);
     const presentation = organization.books[key];
-    const preview = source && file ? previews[sourceBookKey(source, file.id)] : undefined;
+    const cachedPreview = source && file ? previews[sourceBookKey(source, file.id)] : undefined;
+    const preview =
+      source && cachedPreview?.scannedAt === revisions.get(sourceKey(source))
+        ? cachedPreview
+        : undefined;
     return {
       title:
         presentation?.title ||

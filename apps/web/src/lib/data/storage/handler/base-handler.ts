@@ -6,6 +6,7 @@
 
 import { readRestoredBook } from '$lib/functions/file-loaders/utils/restored-book';
 import type { ArchiveBudget } from '$lib/functions/file-loaders/utils/limited-archive';
+import type { Section } from '$lib/data/database/books-db/versions/v4/books-db-v4';
 import type { BookCardProps } from '$lib/components/book-card/book-card-props';
 import {
   currentDbVersion,
@@ -16,8 +17,6 @@ import {
   type BooksDbAudioBook,
   type BooksDbSubtitleData
 } from '$lib/data/database/books-db/versions/books-db';
-import type { Section } from '$lib/data/database/books-db/versions/v4/books-db-v4';
-import type { DirectionEvidence } from '$lib/library/direction';
 import { ttuCompatibilityRootName } from '$lib/data/env';
 import { MergeMode } from '$lib/data/merge-mode';
 import { InternalStorageSources, type StorageKey } from '$lib/data/storage/storage-types';
@@ -363,19 +362,16 @@ export abstract class BaseStorageHandler {
     const zipWriter = new ZipWriter(new BlobWriter('application/zip'));
     const blobsToZip = [];
     const blobEntries = [...Object.entries(bookdata.blobs)];
-    const staticDataToZip: Array<
-      Exclude<
-        keyof Omit<BooksDbBookData, 'id'>,
-        | 'blobs'
-        | 'hasThumb'
-        | 'coverImage'
-        | 'characters'
-        | 'lastBookModified'
-        | 'lastBookOpen'
-        | 'storageSource'
-      >
-    > = ['title', 'styleSheet', 'elementHtml', 'htmlBackup', 'sections', 'pageDirection'];
-    const staticData: Record<string, string | Section[] | DirectionEvidence | undefined> = {};
+    const staticDataToZip = [
+      'title',
+      'styleSheet',
+      'elementHtml',
+      'htmlBackup',
+      'sections',
+      'language',
+      'pageDirection'
+    ] as const satisfies readonly (keyof BooksDbBookData)[];
+    const staticData: Record<string, BooksDbBookData[(typeof staticDataToZip)[number]]> = {};
     const limiter = pLimit(1);
     const cover = bookdata.coverImage;
     const isBlobCover = cover instanceof Blob;
