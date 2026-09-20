@@ -19,11 +19,11 @@ test('Yoko face leads horizontal text and non-Yoko leads vertical text', () => {
   assert.ok(japaneseFontStack(false).startsWith('"YuKyokasho Yoko", YuKyokasho'));
   assert.ok(japaneseFontStack(true).startsWith('YuKyokasho, "YuKyokasho Yoko"'));
 });
-test('local Japanese choices precede self-hosted Google-font fallback', () => {
+test('Klee One is the immediate cross-platform fallback after YuKyokasho', () => {
   for (const vertical of [false, true]) {
     const stack = japaneseFontStack(vertical);
-    assert.ok(stack.indexOf('"Yu Mincho"') < stack.indexOf('"Klee One"'));
-    assert.ok(stack.endsWith('"Klee One", serif'));
+    assert.ok(stack.indexOf('"Klee One"') < stack.indexOf('"Yu Mincho"'));
+    assert.ok(stack.endsWith('"Noto Serif CJK JP", serif'));
   }
 });
 test('YuKyokasho and its released alias resolve to the directional native stack', () => {

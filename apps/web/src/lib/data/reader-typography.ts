@@ -14,7 +14,7 @@ export const SYSTEM_SANS = 'System Sans';
 // Yoko is the horizontal-use face. Keep the opposite YuKyokasho face immediately
 // after it so a platform exposing only one variant can still render with the family.
 const JAPANESE_FALLBACKS =
-  'Klee, "Hiragino Mincho ProN", "Yu Mincho", YuMincho, "Noto Serif CJK JP", "Klee One", serif';
+  '"Klee One", Klee, "Hiragino Mincho ProN", "Yu Mincho", YuMincho, "Noto Serif CJK JP", serif';
 export const SYSTEM_SANS_STACK =
   'system-ui, -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", Meiryo, sans-serif';
 
