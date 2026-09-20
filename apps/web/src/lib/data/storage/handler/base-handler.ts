@@ -17,7 +17,7 @@ import {
   type BooksDbSubtitleData
 } from '$lib/data/database/books-db/versions/books-db';
 import type { Section } from '$lib/data/database/books-db/versions/v4/books-db-v4';
-import { storageRootName } from '$lib/data/env';
+import { ttuCompatibilityRootName } from '$lib/data/env';
 import { MergeMode } from '$lib/data/merge-mode';
 import { InternalStorageSources, type StorageKey } from '$lib/data/storage/storage-types';
 import { exporterVersion } from '$lib/functions/replication/replicator';
@@ -125,7 +125,8 @@ export abstract class BaseStorageHandler {
     keepLocalStatistics: boolean
   ): Promise<ReplicationDeleteResult>;
 
-  static rootName = storageRootName;
+  // This serializer is the TTU compatibility engine. Manabi-native libraries must not use this root.
+  static rootName = ttuCompatibilityRootName;
 
   static readingGoalsFilePrefix = 'ttu-user-goals_';
 
