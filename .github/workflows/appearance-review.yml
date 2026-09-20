@@ -1,0 +1,204 @@
+name: Appearance merge review
+on:
+  push:
+    branches: [research/rhea-toolchain-20260920]
+    paths: ['.github/workflows/appearance-review.yml']
+permissions:
+  contents: write
+jobs:
+  review:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 075dc84f533a81ff2591ed92b05d17c45a17013e
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Integrate current main without publishing a commit
+        run: |
+          git config user.name 'Manabi review'
+          git config user.email 'review@example.invalid'
+          git merge --no-commit --no-ff 8860dd705a1950ab8358e7dcc0f9aef1e8704afb
+      - name: Apply bounded source corrections
+        run: |
+          python3 - <<'PY'
+          import pathlib,re
+          def edit(name,old,new):
+              p=pathlib.Path(name);s=p.read_text();assert old in s,name
+              p.write_text(s.replace(old,new))
+          p=pathlib.Path('apps/web/src/lib/appearance/backgrounds.ts');s=p.read_text()
+          s=s.replace('type StoredBackground = SavedImage | SavedBackgrounds;\n','')
+          s=s.replace('  // Keep one record per surface. Released single-image records are read as both\n  // modes; the first edit writes the new {light,dark} shape in place.\n','  // First-release schema: two independent mode slots per surface.\n')
+          s=s.replace('value: StoredBackground','value: SavedBackgrounds')
+          start=s.index('function storedBackgrounds(');end=s.index('\nfunction update(',start)
+          s=s[:start]+s[end+1:]
+          s=s.replace('const saved = storedBackgrounds(stored);','const saved = stored ?? {};')
+          old="""    const saved = storedBackgrounds(await database.get('backgrounds', target));
+              saved[mode] = await prepare(file);
+              await database.put('backgrounds', saved, target);"""
+          new="""    // Decode outside the transaction; keep read-modify-write atomic across tabs.
+              const image = await prepare(file);
+              const tx = database.transaction('backgrounds', 'readwrite');
+              const saved = (await tx.store.get(target)) ?? {};
+              saved[mode] = image;
+              await tx.store.put(saved, target);
+              await tx.done;"""
+          assert old in s;s=s.replace(old,new)
+          old="""    const saved = storedBackgrounds(await database.get('backgrounds', target));
+              delete saved[mode];
+              if (saved.light || saved.dark) await database.put('backgrounds', saved, target);
+              else await database.delete('backgrounds', target);"""
+          new="""    const tx = database.transaction('backgrounds', 'readwrite');
+              const saved = (await tx.store.get(target)) ?? {};
+              delete saved[mode];
+              if (saved.light || saved.dark) await tx.store.put(saved, target);
+              else await tx.store.delete(target);
+              await tx.done;"""
+          assert old in s;s=s.replace(old,new);p.write_text(s)
+          edit('apps/web/src/lib/appearance/settings.svelte', 'account settings sync. PNG, JPEG, or WebP, up to 8 MB. Existing single-image backgrounds are\n      used for both modes until you change or remove either one.', 'account settings sync. PNG, JPEG, or WebP, up to 8 MB. Remove either image independently or\n      remove both for a surface. A mode without an image uses the plain theme background.')
+          p=pathlib.Path('apps/web/src/lib/appearance/background-settings.svelte');s=p.read_text()
+          s=s.replace('  .background-preview .reader-preview {\n    color: inherit;\n  }\n','')
+          p.write_text(s)
+          p=pathlib.Path('apps/web/src/lib/components/settings/settings-content.svelte');s=p.read_text()
+          s=s.replace("  let editingPrimaryFont = false;", "  let editingPrimaryFont = false;\n  let primaryFontAtFocus = '';\n  function beginPrimaryFontEdit() {\n    primaryFontAtFocus = primaryFontInput;\n    editingPrimaryFont = true;\n  }")
+          s=s.replace('    fontFamilyGroupOne = primaryFontInput.trim() || YU_KYOKASHO;', '    if (primaryFontInput !== primaryFontAtFocus)\n      fontFamilyGroupOne = primaryFontInput.trim() || YU_KYOKASHO;')
+          s=s.replace("    if (event.key !== 'Escape') return;\n    editingPrimaryFont = false;", "    if (event.key !== 'Escape') return;\n    primaryFontInput = primaryFontAtFocus;\n    editingPrimaryFont = false;")
+          # Escape must skip the blur commit even if capability changed mid-edit.
+          s=s.replace('    target.blur();\n  }', '    primaryFontAtFocus = primaryFontInput;\n    target.blur();\n  }')
+          s=s.replace('on:focus={() => (editingPrimaryFont = true)}','on:focus={beginPrimaryFontEdit}')
+          p.write_text(s)
+          # Retain the semantic bookmark anchor for the later font-layout callback.
+          p=pathlib.Path('apps/web/src/lib/components/book-reader/book-reader-paginated/book-reader-paginated.svelte');s=p.read_text()
+          old='          exploredCharCount = data.exploredCharCount || 0;'
+          assert old in s;s=s.replace(old,old+'\n          previousIntendedCount = exploredCharCount;');p.write_text(s)
+          for name in ['tests/browser/test_appearance.py','tests/browser/test_appearance_refinement.py']:
+              p=pathlib.Path(name);s=p.read_text().replace('section:has(#background-', '.mode-image:has(#background-');p.write_text(s)
+          p=pathlib.Path('tests/browser/test_appearance_refinement.py');s=p.read_text()
+          start=s.index('    def test_released_single_background_migrates_lazily_to_two_mode_slots(')
+          end=s.index('    def test_corrupt_persisted_image_is_recoverable_and_never_published(',start)
+          s=s[:start]+s[end:]
+          s=s.replace('# Defensive released-schema damaged record: one image used by both modes.', '# Corrupt each real mode slot independently; there is no shipped legacy schema.')
+          s=s.replace("{name:'broken.png', blob:new Blob([bytes], {type:'image/png'})},", "{light:{name:'broken.png', blob:new Blob([bytes], {type:'image/png'})},\n                       dark:{name:'broken.png', blob:new Blob([bytes], {type:'image/png'})}},")
+          marker='    def test_selected_theme_has_a_distinct_border_and_forced_colors_marker(self):'
+          test='''    def test_concurrent_tabs_keep_independent_background_slots(self):
+                  self.settings()
+                  self.page.get_by_text('Background images', exact=True).click()
+                  other = self.context.new_page()
+                  other.goto(self.origin + '/Reader-Web/settings')
+                  other.get_by_text('Background images', exact=True).click()
+                  self.page.locator('#background-library-light').set_input_files({
+                      'name':'simultaneous-light.png', 'mimeType':'image/png',
+                      'buffer': previous.png([210, 160, 100], 2400, 1600)
+                  })
+                  other.locator('#background-library-dark').set_input_files({
+                      'name':'simultaneous-dark.png', 'mimeType':'image/png',
+                      'buffer': previous.png([20, 30, 90], 2400, 1600)
+                  })
+                  expect(self.page.get_by_text('simultaneous-light.png', exact=True)).to_be_visible()
+                  expect(other.get_by_text('simultaneous-dark.png', exact=True)).to_be_visible()
+                  self.settings(reload=True)
+                  self.page.get_by_text('Background images', exact=True).click()
+                  expect(self.page.get_by_text('simultaneous-light.png', exact=True)).to_be_visible()
+                  expect(self.page.get_by_text('simultaneous-dark.png', exact=True)).to_be_visible()
+                  self.page.get_by_role('button', name='Remove light book browser background', exact=True).click()
+                  expect(other.get_by_text('simultaneous-light.png', exact=True)).to_have_count(0)
+                  expect(other.get_by_text('simultaneous-dark.png', exact=True)).to_be_visible()
+                  other.close()
+
+              def test_focus_and_escape_do_not_commit_the_device_font_fallback(self):
+                  self.settings()
+                  font = self.page.get_by_label('Primary / Serif font', exact=True)
+                  saved = self.page.evaluate('localStorage.getItem("fontFamilyGroupOne")')
+                  font.focus()
+                  font.press('Tab')
+                  self.assertEqual(saved, self.page.evaluate('localStorage.getItem("fontFamilyGroupOne")'))
+                  font.fill('Changed but cancelled')
+                  font.press('Escape')
+                  self.assertEqual(saved, self.page.evaluate('localStorage.getItem("fontFamilyGroupOne")'))
+
+          '''
+          assert marker in s;s=s.replace(marker,test+marker);p.write_text(s)
+          p=pathlib.Path('docs/appearance.md');s=p.read_text()
+          s += '\n## Pre-release status\n\nManabi Reader Web has not shipped and has no installed user base. Backgrounds use only the first-release `{light, dark}` record per surface. There is no single-image migration, automatic sharing, or substitution between slots. Two-tab edits use one read/write transaction after image preparation, preserving the other slot. Upstream Ttu Ebook Reader import/backup compatibility is a different contract and is retained.\n'
+          p.write_text(s)
+          for p in pathlib.Path('tests/browser').glob('*.py'):compile(p.read_text(),str(p),'exec')
+          PY
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - name: Format reviewed source
+        run: |
+          python3 - <<'PY'
+          import subprocess,pathlib
+          names=subprocess.check_output(['git','diff','--name-only','075dc84f533a81ff2591ed92b05d17c45a17013e'],text=True).splitlines()
+          names=[n for n in names if pathlib.Path(n).suffix in {'.ts','.svelte','.mjs','.js','.md'} and pathlib.Path(n).exists()]
+          subprocess.run(['pnpm','exec','prettier','--write',*names],check=True)
+          PY
+      - name: Export reviewed candidate as Git objects only
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import subprocess,json,pathlib,urllib.request,os
+          base='075dc84f533a81ff2591ed92b05d17c45a17013e';out=pathlib.Path('/tmp/review');out.mkdir()
+          subprocess.run(['git','add','-A'],check=True)
+          files={line.split('\t',1)[1]:line.split('\t',1)[0].split() for line in subprocess.check_output(['git','ls-files','-s'],text=True).splitlines()}
+          names=subprocess.check_output(['git','diff','--cached','--name-only',base],text=True).splitlines()
+          tree=[];source=[]
+          for name in names:
+              if name not in files:tree.append({'path':name,'mode':'100644','type':'blob','sha':None});continue
+              mode,sha,_=files[name];data=pathlib.Path(name).read_bytes()
+              try:content=data.decode()
+              except UnicodeDecodeError:tree.append({'path':name,'mode':mode,'type':'blob','sha':sha});continue
+              req=urllib.request.Request('https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/git/blobs',data=json.dumps({'encoding':'utf-8','content':content}).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','Content-Type':'application/json'},method='POST')
+              with urllib.request.urlopen(req,timeout=30) as r:assert json.load(r)['sha']==sha
+              tree.append({'path':name,'mode':mode,'type':'blob','sha':sha});source.append({'path':name,'content':content})
+          (out/'tree.json').write_text(json.dumps(tree));(out/'source.json').write_text(json.dumps(source))
+          (out/'diff.patch').write_text(subprocess.check_output(['git','diff','--cached',base],text=True))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: appearance-reviewed-source
+          path: /tmp/review
+          retention-days: 7
+      - name: Lint, units and types
+        run: |
+          set -o pipefail
+          pnpm exec eslint .
+          node tools/appearance/lint.mjs
+          node --experimental-strip-types --test tests/unit/*.test.mjs test/reader/typography.test.mjs | tee /tmp/review/units.log
+          pnpm --dir apps/web check 2>&1 | tee /tmp/review/types.log
+      - name: Build and real browsers
+        env:
+          BASE_PATH: /Reader-Web
+        run: |
+          pnpm build
+          python -m pip install 'playwright==1.63.0'
+          python -m playwright install --with-deps chromium webkit
+          status=0
+          for engine in chromium webkit; do
+            mkdir -p /tmp/review/$engine
+            set +e
+            APPEARANCE_BROWSER=$engine python tests/browser/test_appearance_refinement.py > /tmp/review/$engine/results.log 2>&1
+            result=$?
+            set -e
+            [ $result -eq 0 ] || status=1
+            if [ -d test-results ]; then mv test-results /tmp/review/$engine/screenshots; fi
+          done
+          exit $status
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: appearance-reviewed-results
+          path: /tmp/review
+          retention-days: 7
