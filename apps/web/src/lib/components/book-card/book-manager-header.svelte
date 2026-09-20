@@ -183,14 +183,14 @@
             <Menu.Sub>
               <Menu.SubTrigger>Add Books</Menu.SubTrigger>
               <Menu.SubContent class="w-64">
-                <Menu.Item onSelect={() => fileImportElm.click()}>Import File(s)…</Menu.Item>
+                <Menu.Item onSelect={() => fileImportElm.click()}>Import File(s)</Menu.Item>
                 {#if !$isMobile$}
-                  <Menu.Item onSelect={() => folderImportElm.click()}>Import Folder(s)…</Menu.Item>
+                  <Menu.Item onSelect={() => folderImportElm.click()}>Import Folder(s)</Menu.Item>
                 {/if}
-                <Menu.Item onSelect={() => backupImportElm.click()}>Import Backup…</Menu.Item>
+                <Menu.Item onSelect={() => backupImportElm.click()}>Import Backup</Menu.Item>
                 <Menu.Separator />
                 <Menu.Item onSelect={() => goto(resolve('/import-ttu'))}
-                  >Import from Ttu Ebook Reader…</Menu.Item
+                  >Import from Ttu Ebook Reader</Menu.Item
                 >
               </Menu.SubContent>
             </Menu.Sub>
@@ -251,9 +251,9 @@
         class="mx-auto flex min-h-14 max-w-6xl flex-wrap items-center gap-2 border-t border-border/60 px-4 py-2 sm:px-6"
         aria-label="Book selection"
       >
-        <Button variant="ghost" onclick={() => (selectMode = false)}>Cancel Selection</Button>
+        <Button variant="ghost" onclick={() => (selectMode = false)}>Cancel selection</Button>
         <span class="whitespace-nowrap text-sm" aria-live="polite">{selectedCount} selected</span>
-        <Button variant="outline" onclick={() => dispatch('selectAllClick')}>Select All</Button>
+        <Button variant="outline" onclick={() => dispatch('selectAllClick')}>Select all</Button>
         {#if selectedCount > 0}
           <Button variant="secondary" onclick={() => dispatch('replicateData')}>Export</Button>
           <ActionMenu label="Actions" title="Selected book actions">
