@@ -141,7 +141,7 @@ class SharedStorageRuntime(static.ReaderBrowser):
 
     def test_directory_selection_does_not_create_a_nested_library_in_a_book_folder(self):
         self.page.goto(self.origin + '/Reader-Web/manage')
-        self.page.get_by_role('button', name='Navigate', exact=True).wait_for()
+        self.page.get_by_role('button', name='Library actions', exact=True).wait_for()
         result = self.page.evaluate('''async () => {
           const {resolveTtuRoot} = await import('/Reader-Web/src/lib/manabi/ttu-folder-contract.ts');
           const disk = await navigator.storage.getDirectory();
@@ -173,7 +173,7 @@ class SharedStorageRuntime(static.ReaderBrowser):
 
     def test_uncached_provider_observes_replacement_and_disappearance_without_losing_local_data(self):
         self.page.goto(self.origin + '/Reader-Web/manage')
-        self.page.get_by_role('button', name='Navigate', exact=True).wait_for()
+        self.page.get_by_role('button', name='Library actions', exact=True).wait_for()
         result = self.page.evaluate('''async () => {
           const {FilesystemStorageHandler} = await import('/Reader-Web/src/lib/data/storage/handler/filesystem-handler.ts');
           const {database} = await import('/Reader-Web/src/lib/data/store.ts');
@@ -232,7 +232,7 @@ class SharedStorageRuntime(static.ReaderBrowser):
 
     def test_google_and_onedrive_open_paths_reject_unrelated_local_title_before_authorization(self):
         self.page.goto(self.origin + '/Reader-Web/manage')
-        self.page.get_by_role('button', name='Navigate', exact=True).wait_for()
+        self.page.get_by_role('button', name='Library actions', exact=True).wait_for()
         result = self.page.evaluate('''async () => {
           const {getStorageHandler} = await import('/Reader-Web/src/lib/data/storage/storage-handler-factory.ts');
           const {StorageKey} = await import('/Reader-Web/src/lib/data/storage/storage-types.ts');

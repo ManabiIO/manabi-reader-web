@@ -60,22 +60,22 @@ class RheaReader(previous.RefinedAppearance):
         search.fill('reader browser')
         expect(read).to_be_visible()
 
-    def test_navigation_sheet_is_labeled_keyboard_operable_and_mobile_sized(self):
+    def test_library_overflow_is_labeled_keyboard_operable_and_mobile_sized(self):
         self.page.set_viewport_size({'width':390, 'height':844})
         self.page.goto(self.origin + '/Reader-Web/manage')
-        trigger = self.page.get_by_role('button', name='Navigate', exact=True)
+        trigger = self.page.get_by_role('button', name='Library actions', exact=True)
         trigger.focus()
         trigger.press('Enter')
-        navigation = self.page.get_by_role('navigation', name='Main navigation')
-        expect(navigation).to_be_visible()
-        for name in ['Library','Statistics','Settings','Accounts and libraries','Shared libraries','Import from Ttu Ebook Reader']:
-            expect(navigation.get_by_role('link', name=name, exact=True)).to_be_visible()
-        expect(navigation.get_by_role('link', name='Library', exact=True)).to_have_attribute('aria-current', 'page')
+        menu = self.page.get_by_role('menu')
+        expect(menu).to_be_visible()
+        for name in ['Select Books','Add Books','Accounts and Libraries','Statistics','Settings','Shared Libraries','Report an Issue']:
+            expect(menu.get_by_role('menuitem', name=name, exact=True)).to_be_visible()
         self.page.keyboard.press('Escape')
-        expect(navigation).to_have_count(0)
+        expect(menu).to_have_count(0)
         expect(trigger).to_be_focused()
+        self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), 391)
         trigger.click()
-        navigation.get_by_role('link', name='Settings', exact=True).click()
+        self.page.get_by_role('menuitem', name='Settings', exact=True).click()
         expect(self.page.get_by_label('Search settings', exact=True)).to_be_visible()
         self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), 391)
         self.page.screenshot(path='test-results/rhea-mobile-settings.png', full_page=True)
@@ -233,8 +233,10 @@ class RheaReader(previous.RefinedAppearance):
         for name in ['Added','Title','Characters','Last Update','Recent','Progress','Bookmarked','Ascending','Descending']:
             expect(menu.get_by_role('menuitemradio', name=name, exact=True)).to_be_visible()
         menu.get_by_role('menuitemradio', name='Title', exact=True).click()
-        self.page.get_by_role('button', name='Select books', exact=True).click()
+        self.page.get_by_role('button', name='Library actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
         self.page.get_by_role('button', name='Select all', exact=True).click()
+        expect(self.page.get_by_text('1 selected', exact=True)).to_be_visible()
         self.page.get_by_role('button', name='Export', exact=True).click()
         dialog = self.page.locator('[data-slot="dialog-content"]')
         expect(dialog).to_be_visible()
@@ -245,7 +247,8 @@ class RheaReader(previous.RefinedAppearance):
         expect(dialog).to_have_count(0)
         expect(self.page.get_by_role('button', name='Export', exact=True)).to_be_visible()
         self.page.get_by_role('button', name='Cancel selection', exact=True).click()
-        self.page.get_by_role('button', name='Add books', exact=True).click()
+        self.page.get_by_role('button', name='Library actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Add Books', exact=True).click()
         for name in ['Import File(s)','Import Folder(s)','Import Backup','Import from Ttu Ebook Reader']:
             expect(self.page.get_by_role('menuitem', name=name, exact=True)).to_be_visible()
         self.page.keyboard.press('Escape')

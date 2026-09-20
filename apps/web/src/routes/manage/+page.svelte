@@ -111,6 +111,7 @@
   let progressBase = 0;
   let executionStart: number;
   let firstBookFileInput: HTMLInputElement;
+  let collectionsOpen = false;
 
   $: {
     if (!selectMode) {
@@ -704,7 +705,7 @@
 {/snippet}
 
 <svelte:head>
-  <title>{formatPageTitle('Book Manager')}</title>
+  <title>{formatPageTitle('Library')}</title>
 </svelte:head>
 
 {$replicator$ ?? ''}
@@ -720,6 +721,7 @@
     {replicationToProgress}
     {replicationProgressRemaining}
     bind:selectMode
+    on:collectionsClick={() => (collectionsOpen = true)}
     on:selectAllClick={onSelectAllBooks}
     on:backToBookClick={backToCurrentBook}
     on:removeClick={() => removeBooks(Array.from(selectedBookIds))}
@@ -762,6 +764,7 @@
       currentBookId={$currentBookId$}
       {selectedBookIds}
       {selectMode}
+      bind:collectionsOpen
       bookCards={$bookCards$}
       on:bookClick={(ev) => onBookClick(ev.detail.id)}
       on:removeBookClick={(ev) => removeBooks([ev.detail.id])}

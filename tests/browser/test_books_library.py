@@ -159,6 +159,34 @@ class BooksLibraryBrowser(LibraryBase):
         self.choose_view('Grid')
         expect(self.page.locator('.shelf-grid')).to_be_visible()
 
+    def test_compact_library_header_preserves_management_actions(self):
+        self.import_book('Header book')
+        self.page.set_viewport_size({'width':390, 'height':844})
+        header = self.page.get_by_role('banner', name='Library toolbar')
+        expect(self.page).to_have_title(re.compile(r'Library'))
+        expect(header.get_by_role('heading', name='Library', exact=True)).to_be_visible()
+        expect(header.get_by_role('button', name='Collections', exact=True)).to_be_visible()
+        expect(header.get_by_role('button', name='Library actions', exact=True)).to_be_visible()
+        for obsolete in ('Add books', 'Browser', 'Select books', 'Help', 'Navigate'):
+            expect(header.get_by_role('button', name=obsolete, exact=True)).to_have_count(0)
+
+        header.get_by_role('button', name='Library actions', exact=True).click()
+        expect(self.page.get_by_role('menuitem', name='Select Books', exact=True)).to_be_visible()
+        expect(self.page.get_by_role('menuitem', name='Add Books', exact=True)).to_be_visible()
+        expect(self.page.get_by_role('menuitem', name='Accounts and Libraries', exact=True)).to_be_visible()
+        expect(self.page.get_by_role('menuitem', name='Statistics', exact=True)).to_be_visible()
+        expect(self.page.get_by_role('menuitem', name='Settings', exact=True)).to_be_visible()
+        self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
+        expect(header.get_by_role('button', name='Cancel selection', exact=True)).to_be_visible()
+        header.get_by_role('button', name='Cancel selection', exact=True).click()
+
+        header.get_by_role('button', name='Collections', exact=True).click()
+        expect(self.page.locator('[data-slot="sheet-content"]').get_by_role(
+            'heading', name='Collections', exact=True)).to_be_visible()
+        self.page.keyboard.press('Escape')
+        expect(self.page.locator('[data-slot="sheet-content"]')).to_have_count(0)
+        self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), 391)
+
     def test_direction_uses_css_cascade_not_language_and_ignores_hidden_text(self):
         self.import_book('Japanese horizontal')
         self.import_book('Japanese vertical', style='body{writing-mode:horizontal-tb} main.story{writing-mode:vertical-rl}', body='<main class="story">' + '<p>縦書きの文章を読みます。</p>' * 50 + '</main>')
@@ -275,8 +303,10 @@ class BooksLibraryBrowser(LibraryBase):
         self.dialog().get_by_role('button', name='Save', exact=True).click()
         expect(self.dialog()).to_have_count(0)
         before = self.stores('books', ['bookmark','statistic','data'])
-        self.page.get_by_role('button', name='Select books', exact=True).click()
+        self.page.get_by_role('button', name='Library actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
         self.page.get_by_role('button', name='Select all', exact=True).click()
+        expect(self.page.get_by_text('1 selected', exact=True)).to_be_visible()
         self.page.get_by_role('button', name='Export', exact=True).click()
         self.page.get_by_role('button', name='Zip File', exact=True).click()
         for label in ('Book Data','Bookmark','Statistics'):
