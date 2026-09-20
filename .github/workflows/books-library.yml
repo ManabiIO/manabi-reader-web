@@ -8,7 +8,7 @@ on:
       - 'pnpm-lock.yaml'
       - '.github/workflows/books-library.yml'
   push:
-    branches: [main, feat/library-chrome-20260920]
+    branches: [main]
     paths:
       - 'apps/web/**'
       - 'tests/browser/**'
