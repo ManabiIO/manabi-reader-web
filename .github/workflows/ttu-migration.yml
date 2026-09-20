@@ -55,12 +55,17 @@ jobs:
           python -m playwright install --with-deps chromium
           set -o pipefail
           python tests/browser/test_ttu_migration.py 2>&1 | tee migration-browser.log
+      - name: Large files, piecemeal selection and interruption
+        run: |
+          set -o pipefail
+          python tests/browser/test_ttu_migration_edges.py 2>&1 | tee migration-edges.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: migration-results
           path: |
             migration-browser.log
+            migration-edges.log
             test-results/
           retention-days: 3
   record-reviewed-objects:
@@ -86,7 +91,7 @@ jobs:
           result=[]
           for entry in entries:
               path,content=entry['path'],entry['content']
-              assert (path.startswith('apps/web/src/') or path in ('tests/unit/ttu-migration.test.mjs','tests/browser/test_shared_ttu.py')) and '..' not in path.split('/')
+              assert (path.startswith('apps/web/src/') or path in ('tests/unit/ttu-migration.test.mjs','tests/browser/test_shared_ttu.py','tests/browser/test_ttu_migration.py')) and '..' not in path.split('/')
               raw=content.encode();assert len(raw)<1024*1024
               expected=hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()
               request=urllib.request.Request('https://api.github.com/repos/'+repo+'/git/blobs',data=json.dumps({'content':content,'encoding':'utf-8'}).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Content-Type':'application/json'},method='POST')
