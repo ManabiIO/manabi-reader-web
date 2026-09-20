@@ -12,6 +12,7 @@ from pathlib import Path
 import struct
 import tempfile
 import threading
+import time
 import unittest
 import zipfile
 import zlib
@@ -109,6 +110,19 @@ class LibraryBase(unittest.TestCase):
             await Promise.all(names.map(name=>new Promise((resolve,reject)=>{const r=tx.objectStore(name).getAll();r.onsuccess=()=>{result[name]=r.result;resolve();};r.onerror=()=>reject(r.error);})));return result;
           } finally {db.close();}
         }''', {'database': database, 'names': names})
+
+    def wait_bookmark(self, data_id, predicate):
+        # Playwright 1.63 wait_for_function treats a predicate Promise as truthy
+        # before its eventual boolean result. Read committed rows and poll the
+        # actual value with a bounded deadline, never a fixed settling sleep.
+        deadline = time.monotonic() + 20
+        while True:
+            rows = self.stores('books', ['bookmark'])['bookmark']
+            row = next((value for value in rows if value['dataId'] == data_id), None)
+            if row is not None and predicate(row):
+                return row
+            self.assertLess(time.monotonic(), deadline, 'Bookmark condition not met: ' + repr(row))
+            self.page.wait_for_timeout(25)
 
     def add_collection(self, title, name):
         self.menu(title, 'Add to Collection…')
@@ -213,14 +227,14 @@ class BooksLibraryBrowser(LibraryBase):
         self.menu('Open reader', 'Mark as Finished')
         expect(self.tile('Open reader').locator('.progress-label')).to_have_text('Finished')
         before = self.stores('books', ['bookmark'])['bookmark'][0]
+        reader.bring_to_front()
         reader.keyboard.press('PageDown')
-        reader.keyboard.press('KeyB')
-        reader.wait_for_function('''async old => {
-          const db=await new Promise(r=>{const q=indexedDB.open('books');q.onsuccess=()=>r(q.result)});
-          try {const row=await new Promise(r=>{const q=db.transaction('bookmark').objectStore('bookmark').get(old.dataId);q.onsuccess=()=>r(q.result)});return row?.lastBookmarkModified>old.lastBookmarkModified;}
-          finally {db.close();}
-        }''', arg=before, timeout=20000)
-        after = self.stores('books', ['bookmark'])['bookmark'][0]
+        # Let the existing three-second reader autosave actually persist. Do not
+        # replace it with a direct database write or merely check unchanged data.
+        after = self.wait_bookmark(before['dataId'],
+            lambda row: row.get('lastBookmarkModified', 0) > before['lastBookmarkModified'])
+        self.assertGreater(after['lastBookmarkModified'], before['lastBookmarkModified'])
+        self.page.bring_to_front()
         self.assertEqual(before['completion'], after['completion'])
         self.menu('Open reader', 'Mark as Still Reading')
         expect(self.tile('Open reader').locator('.progress-label')).not_to_have_text('Finished')
@@ -327,11 +341,8 @@ class BooksLibraryBrowser(LibraryBase):
         toolbar.get_by_role('button', name='Reading tools', exact=True).click()
         self.page.get_by_role('menuitem', name='Complete Book', exact=True).click()
         self.page.get_by_role('dialog').get_by_role('button', name='Confirm', exact=True).click()
-        self.page.wait_for_function("""async id => {
-          const db=await new Promise((resolve,reject)=>{const r=indexedDB.open('books');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)});
-          try {const row=await new Promise((resolve,reject)=>{const r=db.transaction('bookmark').objectStore('bookmark').get(id);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)});return row?.completion?.state==='finished';}
-          finally {db.close();}
-        }""", arg=before['dataId'], timeout=20000)
+        self.wait_bookmark(before['dataId'],
+            lambda row: row.get('completion', {}).get('state') == 'finished')
         after = self.stores('books', ['bookmark','statistic'])
         self.assertEqual('finished', after['bookmark'][0]['completion']['state'])
         self.assertGreater(after['bookmark'][0]['completion']['modifiedAt'], before['completion']['modifiedAt'])
