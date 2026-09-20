@@ -13,7 +13,7 @@ import test_appearance as previous
 
 
 # Real raster bytes; browsers need only decode, not implement every encoder.
-JPEG = '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCABQAHgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwChRRRQfWhRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFAH/2Q=='
+JPEG = '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCABQAHgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwChRRRQfWhRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFAH/2Q=='
 WEBP = 'UklGRlYAAABXRUJQVlA4IEoAAADwBACdASp4AFAAPm02mUmkIyKhIMgAgA2JaQAABje6m/LqHOMoB7qb6NqHOMoBoAAA/uLev//ln/+y3/Zb0bzR0EdEwAAAAAAAAA=='
 
 class RefinedAppearance(previous.AppearanceBrowser):
@@ -93,9 +93,9 @@ class RefinedAppearance(previous.AppearanceBrowser):
         expect(reader.locator('[data-background="reader"]')).to_have_count(1)
         self.page.locator('#fade-reader').focus()
         self.page.keyboard.press('End')
-        reader.wait_for_function('getComputedStyle(document.querySelector(".page-background"), "::after").backgroundColor === "rgb(0, 0, 0)"')
+        reader.wait_for_function('() => getComputedStyle(document.querySelector(".page-background"), "::after").backgroundColor === "rgb(0, 0, 0)"')
         self.page.locator('fieldset:has(#background-reader)').get_by_role('checkbox', name='Fade background').uncheck()
-        reader.wait_for_function('getComputedStyle(document.querySelector(".page-background"), "::after").backgroundColor === "rgba(0, 0, 0, 0)"')
+        reader.wait_for_function('() => getComputedStyle(document.querySelector(".page-background"), "::after").backgroundColor === "rgba(0, 0, 0, 0)"')
         self.page.get_by_role('button', name='Add custom theme', exact=True).click()
         self.page.get_by_placeholder('Theme Name', exact=True).fill('Midnight notes')
         self.page.get_by_role('button', name='Save', exact=True).click()
@@ -109,14 +109,14 @@ class RefinedAppearance(previous.AppearanceBrowser):
         reader.close()
 
     def test_damaged_optional_palette_does_not_break_startup_or_override(self):
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.settings()
         for raw in ['{invalid', 'null', '[]', '42']:
             self.page.evaluate('(raw) => {localStorage.setItem("customThemes", raw); localStorage.setItem("appearance", "dark");}', raw)
             self.settings()
             self.assertEqual('dark', self.scheme())
             self.assertEqual(raw, self.page.evaluate('localStorage.getItem("customThemes")'))
             self.mode('Light')
-            self.page.reload()
+            self.settings(reload=True)
             expect(self.page.get_by_role('heading', name='Appearance', exact=True)).to_be_visible()
             self.assertEqual('light', self.scheme())
 
@@ -157,7 +157,7 @@ class RefinedAppearance(previous.AppearanceBrowser):
           });
           db.close();
         }''')
-        self.page.reload()
+        self.settings(reload=True)
         self.page.get_by_text('Background images', exact=True).click()
         expect(self.page.get_by_role('alert')).to_contain_text('decode')
         preview = self.page.locator('fieldset:has(#background-library) .background-preview')
@@ -216,7 +216,7 @@ class RefinedAppearance(previous.AppearanceBrowser):
           themes['Personal hex'].backgroundColor = 'rgba(240, 245, 255, 0)';
           localStorage.setItem('customThemes', JSON.stringify(themes));
         }""")
-        self.page.reload()
+        self.settings(reload=True)
         self.page.get_by_role('button', name='Edit Personal hex theme', exact=True).click()
         expect(self.page.get_by_label('Font color', exact=True)).to_have_value('#112233')
         expect(self.page.get_by_label('Background opacity', exact=True)).to_have_value('0')
@@ -260,7 +260,7 @@ class RefinedAppearance(previous.AppearanceBrowser):
         for mode in ['Dark', 'Light']:
             self.mode(mode)
             expect(self.page.get_by_role('button', name='Edit constructor theme', exact=True)).to_be_visible()
-        self.page.reload()
+        self.settings(reload=True)
         expect(self.page.get_by_role('button', name='Edit constructor theme', exact=True)).to_be_visible()
 
     def test_print_and_forced_colors_hide_wallpaper_without_deleting_it(self):

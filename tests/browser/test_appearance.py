@@ -18,8 +18,17 @@ def png(rgb, width=80, height=60):
 class AppearanceBrowser(baseline.ReaderBrowser):
     # The inherited baseline suite also exercises actual EPUB/ruby/illustration,
     # writing modes and offline restoration under the new default theme.
-    def settings(self):
-        self.page.goto(self.origin + '/Reader-Web/settings')
+    def settings(self, *, reload=False):
+        # Observe the actual optional session probe, including its completed 404
+        # body, before a subsequent deliberate navigation. Do not intercept or
+        # replace it, and do not wait for unrelated global network idleness.
+        with self.page.expect_response(lambda r: r.url == self.origin + '/api/reader-web/session/') as probe:
+            if reload:
+                self.page.reload()
+            else:
+                self.page.goto(self.origin + '/Reader-Web/settings')
+        self.assertEqual(404, probe.value.status)
+        self.assertIsNone(probe.value.finished())
         expect(self.page.get_by_role('heading', name='Appearance', exact=True)).to_be_visible()
 
     def mode(self, name):
@@ -42,7 +51,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         self.assertEqual('rgb(0, 0, 0)', self.page.locator('body').evaluate('e => getComputedStyle(e).backgroundColor'))
         self.mode('Light')
         self.assertEqual('light', self.scheme())
-        self.page.reload()
+        self.settings(reload=True)
         self.assertEqual('light', self.scheme())
         self.page.emulate_media(color_scheme='light')
         self.mode('Dark')
@@ -50,7 +59,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         self.mode('System')
         self.assertEqual('light', self.scheme())
         self.page.emulate_media(color_scheme='dark')
-        self.page.wait_for_function('getComputedStyle(document.documentElement).colorScheme === "dark"')
+        self.page.wait_for_function('() => getComputedStyle(document.documentElement).colorScheme === "dark"')
 
     def test_all_presets_theme_forms_headers_and_statistics(self):
         self.settings()
@@ -60,14 +69,18 @@ class AppearanceBrowser(baseline.ReaderBrowser):
                 with self.subTest(theme=theme, mode=mode):
                     self.mode(mode)
                     self.assertEqual(mode.lower(), self.scheme())
-                    # Assert actual rendered controls, not merely the palette model.
-                    actual = self.page.locator('.app-header').first.evaluate('''e => {
-                      const root = getComputedStyle(document.documentElement);
-                      return {header:getComputedStyle(e).backgroundColor, raised:root.getPropertyValue('--surface-raised').trim()};
+                    palette = self.page.locator('html').evaluate('''e => {
+                      const style = getComputedStyle(e);
+                      return Object.fromEntries(['canvas', 'surface-raised', 'ink'].map(key => [
+                        key, style.getPropertyValue('--' + key).trim().replace('rgba(', 'rgb(').replace(', 1)', ')')
+                      ]));
                     }''')
-                    self.assertEqual(actual['raised'].replace('rgba(', 'rgb(').replace(', 1)', ')'), actual['header'])
+                    # Inputs intentionally animate color changes. Require final
+                    # rendered values, not whichever frame a single read hits.
+                    expect(self.page.locator('.app-header').first).to_have_css('background-color', palette['surface-raised'])
                     field = self.page.locator('input[type="number"]').first
-                    self.assertEqual(field.evaluate('e => getComputedStyle(document.documentElement).getPropertyValue("--canvas").trim().replace("rgba(","rgb(").replace(", 1)",")")'), field.evaluate('e => getComputedStyle(e).backgroundColor'))
+                    expect(field).to_have_css('background-color', palette['canvas'])
+                    expect(field).to_have_css('color', palette['ink'])
             self.page.screenshot(path='test-results/palette-' + theme + '.png', full_page=True)
         self.page.goto(self.origin + '/Reader-Web/statistics')
         self.assertEqual('dark', self.scheme())
@@ -159,7 +172,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         self.page.locator('.book-content').evaluate('e => {e.dataset.appearanceSentinel = "same"}')
         size = self.page.locator('.book-content').evaluate('e => [e.scrollWidth, e.scrollHeight]')
         self.page.emulate_media(color_scheme='dark')
-        self.page.wait_for_function('getComputedStyle(document.documentElement).colorScheme === "dark"')
+        self.page.wait_for_function('() => getComputedStyle(document.documentElement).colorScheme === "dark"')
         expect(self.page.locator('.book-content')).to_have_attribute('data-appearance-sentinel','same')
         self.assertEqual(size, self.page.locator('.book-content').evaluate('e => [e.scrollWidth, e.scrollHeight]'))
         self.assertEqual('rgb(0, 0, 0)', self.page.locator('body').evaluate('e => getComputedStyle(e).backgroundColor'))
@@ -172,7 +185,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), 390)
         self.page.goto(self.origin + '/Reader-Web/manage')
         self.page.evaluate('navigator.serviceWorker.ready')
-        self.page.wait_for_function('navigator.serviceWorker.controller !== null')
+        self.page.wait_for_function('() => navigator.serviceWorker.controller !== null')
         self.go_offline()
         self.page.reload()
         expect(self.page.locator('[data-background="library"]')).to_have_count(1)
