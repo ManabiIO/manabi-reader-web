@@ -274,11 +274,13 @@ export async function importLibraryBook(
 
 export async function setBookSync(id: string, enabled: boolean) {
   const db = await integrationDB();
-  const link = await db.get('books', id);
+  // Read and patch in one transaction so a concurrent folder move cannot be undone.
+  const tx = db.transaction('books', 'readwrite');
+  const link = await tx.store.get(id);
   if (!link) throw new IntegrationError('not_found');
   ensureOwner(link);
-  link.syncEnabled = enabled;
-  await db.put('books', link);
+  await tx.store.put({ ...link, syncEnabled: enabled });
+  await tx.done;
   await refreshLinkedBooks();
   if (enabled) await syncBook(id);
   else
@@ -442,8 +444,12 @@ export async function syncBook(
       ensureOwner(link);
       const clean = await applyAcknowledged(link, captured, merged);
       // Do not resurrect a binding removed or disabled while synchronization ran.
-      const current = await integration.get('books', id);
-      if (current) await integration.put('books', { ...current, base: merged });
+      // A move may have updated fileId while remote I/O was pending. Patch only
+      // the accepted baseline in a single read/write transaction, never a stale locator.
+      const tx = integration.transaction('books', 'readwrite');
+      const current = await tx.store.get(id);
+      if (current?.syncEnabled) await tx.store.put({ ...current, base: merged });
+      await tx.done;
       setStatus(id, {
         state: clean ? 'synced' : 'pending',
         message: clean

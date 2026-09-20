@@ -3,7 +3,10 @@
   import type { ShelfBook } from './view-model';
   export let books: ShelfBook[];
   export let hero = false;
-  $: visible = books.slice(0, hero ? 5 : 2);
+  $: visible = Array.from(new Map(books.map((book) => [book.key, book])).values()).slice(
+    0,
+    hero ? 5 : 2
+  );
 </script>
 
 <div class="cover-stack" class:hero aria-hidden="true" data-cover-count={visible.length}>
