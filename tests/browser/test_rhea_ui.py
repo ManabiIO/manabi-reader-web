@@ -19,6 +19,14 @@ class RheaReader(previous.RefinedAppearance):
         self.page.get_by_role('navigation', name='Settings categories').get_by_role(
             'button', name=name, exact=True).click()
 
+    def test_empty_library_has_one_polished_keyboard_import_action(self):
+        self.page.goto(self.origin + '/Reader-Web/manage')
+        action = self.page.get_by_role('button', name='Add your first book', exact=True)
+        expect(action).to_be_visible()
+        expect(self.page.locator('#first-book-file')).to_be_hidden()
+        action.focus()
+        expect(action).to_be_focused()
+
     def test_navigation_sheet_is_labeled_keyboard_operable_and_mobile_sized(self):
         self.page.set_viewport_size({'width':390, 'height':844})
         self.page.goto(self.origin + '/Reader-Web/manage')
