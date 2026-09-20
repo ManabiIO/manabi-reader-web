@@ -121,6 +121,11 @@ module.exports = (async () => {
       rules: { 'headers/header-format': 'off' }
     },
     {
+      // Preserve the copied/adapted MIT notices; never rewrite them as TTU BSD.
+      files: ['apps/web/src/lib/features/whispersync/**/*.ts'],
+      rules: { 'headers/header-format': 'off' }
+    },
+    {
       files: ['service-worker.ts'],
       rules: {
         'headers/header-format': 'off'
