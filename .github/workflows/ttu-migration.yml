@@ -30,9 +30,10 @@ jobs:
       - run: pnpm --dir apps/web check
       - name: Preserve exact public review inputs
         run: |
-          tar -czf "$RUNNER_TEMP/migration-workspace.tar.gz" --exclude=.git --exclude=.svelte-kit --exclude=build --exclude=assets/readme .
+          cp "$(command -v node)" "$RUNNER_TEMP/node"
+          tar -czf "$RUNNER_TEMP/migration-toolchain.tar.gz" -C "$RUNNER_TEMP" node -C "$PWD" node_modules apps/web/node_modules
       - uses: actions/upload-artifact@v4
         with:
-          name: migration-workspace
-          path: ${{ runner.temp }}/migration-workspace.tar.gz
+          name: migration-toolchain
+          path: ${{ runner.temp }}/migration-toolchain.tar.gz
           retention-days: 1
