@@ -24,7 +24,7 @@ jobs:
       - name: Apply exact reviewed implementation on the committed foundation
         run: |
           python3 - <<'PY'
-          import pathlib,lzma,json,hashlib,subprocess,zipfile
+          import pathlib,lzma,json,hashlib,subprocess,zipfile,re
           raw=lzma.decompress(b''.join(pathlib.Path(f'.github/rhea-ui.{i}').read_bytes() for i in range(3)))
           assert hashlib.sha256(raw).hexdigest()=='a8a191ea8fb2fd08013ddb8dd1871b90bccbccf7afdc41a1266d168b45f65cbf'
           scripts=json.loads(raw)
@@ -35,6 +35,9 @@ jobs:
           for script in scripts:
               content=script['content'].replace('/mnt/data/manabi-reader-web',root).replace('/mnt/data/rhea-toolchain-source.zip','/tmp/rhea-toolchain-source.zip')
               exec(compile(content,script['name'],'exec'),{})
+          for route in ['connections','shared-library','import-ttu']:
+              p=pathlib.Path('apps/web/src/routes')/route/'+page.svelte'
+              p.write_text(re.sub(r'</button\s*>','</Button>',p.read_text()))
           for p in pathlib.Path('tests/browser').glob('*.py'):compile(p.read_text(),str(p),'exec')
           PY
       - uses: pnpm/action-setup@v6.1.0
@@ -57,7 +60,8 @@ jobs:
           names=sorted(set(subprocess.check_output(['git','ls-files','--modified','--others','--exclude-standard'],text=True).splitlines()))
           assert all(n.startswith(('apps/web/','tests/','test/','docs/','.github/workflows/appearance.yml')) or n=='pnpm-lock.yaml' for n in names),names
           fmt=[n for n in names if pathlib.Path(n).is_file() and pathlib.Path(n).suffix in {'.ts','.js','.mjs','.cjs','.json','.svelte','.css','.scss','.md','.yml'} and not n.endswith('palettes.scss')]
-          subprocess.run(['pnpm','exec','prettier','--write',*fmt],check=True)
+          with open('/tmp/rhea-ui/format.log','w') as log:result=subprocess.run(['pnpm','exec','prettier','--write',*fmt],stdout=log,stderr=subprocess.STDOUT)
+          pathlib.Path('/tmp/rhea-ui/format.status').write_text(str(result.returncode))
           source=[{'path':n,'content':pathlib.Path(n).read_text() if pathlib.Path(n).is_file() else None} for n in names]
           pathlib.Path('/tmp/rhea-ui/source.json').write_text(json.dumps(source))
           pathlib.Path('/tmp/rhea-ui/base.txt').write_text('7945125db2a894f0bf22c3994a3b15840ab58fc4')
@@ -116,7 +120,7 @@ jobs:
           python3 - <<'PY'
           import pathlib
           root=pathlib.Path('/tmp/rhea-ui')
-          names=['lint.status','components.status','types.status','units.status','build.status','chromium/test.status','webkit/test.status']
+          names=['format.status','lint.status','components.status','types.status','units.status','build.status','chromium/test.status','webkit/test.status']
           failures=[n for n in names if not (root/n).exists() or (root/n).read_text().strip()!='0']
           assert not failures,failures
           PY
