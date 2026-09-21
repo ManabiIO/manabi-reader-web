@@ -13,6 +13,7 @@ import {
   ZipReader,
   ZipWriter
 } from '@zip.js/zip.js';
+import { getEntryFiles } from '../../apps/web/src/lib/functions/file-dom/get-entry-files.ts';
 import { prepareBookImportFiles } from '../../apps/web/src/lib/functions/file-dom/prepare-book-import-files.ts';
 
 const EPUB_MIME_TYPE = 'application/epub+zip';
@@ -101,6 +102,27 @@ test('package-directory EPUB files are rebuilt as one standards-compliant EPUB',
   assert.equal(archive.names.some((name) => name.includes('.DS_Store')), false);
 });
 
+test('dropped package files retain their package-relative path', async () => {
+  const source = new File([EPUB_MIME_TYPE], 'mimetype', { lastModified: 4321 });
+  const entry = {
+    fullPath: '/藪の中 2.epub/mimetype',
+    isDirectory: false,
+    isFile: true,
+    name: 'mimetype',
+    filesystem: {},
+    file(resolve) {
+      resolve(source);
+    }
+  };
+
+  const [file] = await getEntryFiles(entry);
+
+  assert.equal(file.name, 'mimetype');
+  assert.equal(file.webkitRelativePath, '藪の中 2.epub/mimetype');
+  assert.equal(file.lastModified, 4321);
+  assert.equal(await file.text(), EPUB_MIME_TYPE);
+});
+
 test('.epub.zip transfer wrappers containing a package EPUB are normalized before import', async () => {
   const wrapper = await wrappedPackage();
 
@@ -120,6 +142,39 @@ test('.epub.zip transfer wrappers containing a package EPUB are normalized befor
     archive.names.filter((name) => !name.endsWith('/')).sort(),
     ['META-INF/container.xml', 'item/chapter.xhtml', 'item/standard.opf', 'mimetype'].sort()
   );
+});
+
+test('a conventional EPUB with an extra .zip suffix is normalized too', async () => {
+  const writer = new ZipWriter(new BlobWriter(EPUB_MIME_TYPE));
+  await writer.add('mimetype', new BlobReader(new Blob([EPUB_MIME_TYPE])), { level: 0 });
+  await writer.add(
+    'META-INF/container.xml',
+    new BlobReader(
+      new Blob([
+        '<container><rootfiles><rootfile full-path="item/standard.opf"/></rootfiles></container>'
+      ])
+    )
+  );
+  await writer.add(
+    'item/standard.opf',
+    new BlobReader(
+      new Blob([
+        '<package><metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">Direct</dc:title></metadata><manifest></manifest><spine></spine></package>'
+      ])
+    )
+  );
+  const blob = await writer.close();
+
+  const prepared = await prepareBookImportFiles([
+    new File([blob], 'Direct.epub.zip', { type: 'application/zip' })
+  ]);
+
+  assert.equal(prepared.length, 1);
+  assert.equal(prepared[0].name, 'Direct.epub');
+  assert.equal(prepared[0].type, EPUB_MIME_TYPE);
+  const archive = await inspectZip(prepared[0]);
+  assert.equal(archive.entries[0].filename, 'mimetype');
+  assert.equal(archive.mimetype?.compressionMethod, 0);
 });
 
 test('ordinary ZIP backups are not treated as books', async () => {
