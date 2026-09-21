@@ -2,10 +2,16 @@
   import * as Sheet from '$lib/components/ui/sheet';
   import * as Dialog from '$lib/components/ui/dialog';
   import { Button } from '$lib/components/ui/button';
-  import BookOpen from '@lucide/svelte/icons/book-open';
-  import CircleCheck from '@lucide/svelte/icons/circle-check';
-  import List from '@lucide/svelte/icons/list';
-  import Plus from '@lucide/svelte/icons/plus';
+  import {
+    BookOpenIcon as BookOpen,
+    CaretRightIcon as CaretRight,
+    CheckCircleIcon as CircleCheck,
+    ListIcon as List,
+    PencilSimpleIcon as PencilSimple,
+    PlusIcon as Plus,
+    TrashIcon as Trash,
+    XIcon
+  } from 'phosphor-svelte';
   import {
     organization,
     createCollection,
@@ -26,8 +32,9 @@
     name = '',
     error = '',
     busy = false;
-  $: keys = new Set(books.map((book) => book.key));
+  $: keys = new Set(books.flatMap((book) => book.organizationAliases));
   $: finished = books.filter(isFinished).length;
+  $: if (!open) editing = false;
   function choose(id: string) {
     onchoose(id);
     open = false;
@@ -60,69 +67,92 @@
 
 <Sheet.Root bind:open>
   <Sheet.Content
+    id="library-collections-sheet"
     side="bottom"
-    class="mx-auto max-h-[85dvh] max-w-xl overflow-y-auto rounded-t-3xl p-6 pb-10"
+    class="mx-auto max-h-[90dvh] max-w-xl overflow-y-auto rounded-t-3xl p-5 pb-10 sm:p-6"
+    showCloseButton={false}
   >
-    <Sheet.Header class="mb-6 pr-10">
+    <Sheet.Header class="mb-7 grid grid-cols-[1fr_auto_1fr] items-center gap-3 p-0">
+      <span aria-hidden="true"></span>
       <Sheet.Title class="font-serif text-2xl">Collections</Sheet.Title>
-      <Sheet.Description
+      <div class="flex justify-self-end gap-2">
+        <Button
+          variant="secondary"
+          class="min-h-11 rounded-full px-4"
+          aria-pressed={editing}
+          onclick={() => (editing = !editing)}>{editing ? 'Done' : 'Edit'}</Button
+        >
+        <Button
+          variant="secondary"
+          size="icon"
+          class="size-11 rounded-full"
+          aria-label="Close collections"
+          title="Close"
+          onclick={() => (open = false)}><XIcon class="size-5" aria-hidden="true" /></Button
+        >
+      </div>
+      <Sheet.Description class="sr-only"
         >Organize books without moving their files. A book can be in several collections.</Sheet.Description
       >
     </Sheet.Header>
-    <div class="mb-5 flex justify-end">
-      <Button variant="outline" onclick={() => (editing = !editing)}
-        >{editing ? 'Done' : 'Edit collections'}</Button
-      >
-    </div>
     <div class="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card">
       <button
         class="collection-row"
         aria-current={active === 'books' ? 'page' : undefined}
-        on:click={() => choose('books')}
+        onclick={() => choose('books')}
         ><BookOpen aria-hidden="true" /><span>Books</span><span class="count">{books.length}</span
-        ></button
+        ><CaretRight class="text-muted-foreground" aria-hidden="true" /></button
       >
       <button
         class="collection-row"
         aria-current={active === 'finished' ? 'page' : undefined}
-        on:click={() => choose('finished')}
+        onclick={() => choose('finished')}
         ><CircleCheck aria-hidden="true" /><span>Finished</span><span class="count">{finished}</span
-        ></button
+        ><CaretRight class="text-muted-foreground" aria-hidden="true" /></button
       >
     </div>
     <div
       class="mt-6 divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card"
     >
       {#each $organization.collections as collection (collection.id)}
-        <div>
+        <div class="collection-entry">
           <button
             class="collection-row"
             aria-current={active === collection.id ? 'page' : undefined}
-            on:click={() => choose(collection.id)}
+            onclick={() => choose(collection.id)}
             ><List aria-hidden="true" /><span class="min-w-0 break-words">{collection.name}</span
             ><span class="count">{collection.members.filter((key) => keys.has(key)).length}</span
-            ></button
+            >{#if !editing}<CaretRight
+                class="text-muted-foreground"
+                aria-hidden="true"
+              />{/if}</button
           >
-          {#if editing}<div class="flex gap-2 px-5 pb-4">
+          {#if editing}<div class="collection-actions">
               <Button
-                variant="outline"
+                variant="ghost"
+                size="icon"
+                class="size-11"
                 onclick={() => edit(collection)}
-                aria-label={`Rename collection ${collection.name}`}>Rename</Button
+                aria-label={`Rename collection ${collection.name}`}
+                title="Rename collection"><PencilSimple aria-hidden="true" /></Button
               ><Button
-                variant="destructive"
+                variant="ghost"
+                size="icon"
+                class="size-11 text-destructive hover:text-destructive"
                 onclick={() => edit(collection, true)}
-                aria-label={`Delete collection ${collection.name}`}>Delete collection</Button
+                aria-label={`Delete collection ${collection.name}`}
+                title="Delete collection"><Trash aria-hidden="true" /></Button
               >
             </div>{/if}
         </div>
       {/each}
-      <button class="collection-row" on:click={() => edit()}
+      <button class="collection-row" onclick={() => edit()}
         ><Plus aria-hidden="true" /><span>New Collection…</span></button
       >
     </div>
     <p class="mt-4 text-xs text-muted-foreground">
-      Collections and display names are saved in this browser. Original files and series folders are
-      unchanged.
+      Collections and book overrides sync with your Manabi Reader settings when account sync is on.
+      Unavailable books stay in their collections and reappear when their library is connected.
     </p>
   </Sheet.Content>
 </Sheet.Root>
@@ -141,7 +171,13 @@
           : 'Choose a name for this collection.'}</Dialog.Description
       ></Dialog.Header
     >
-    <form on:submit|preventDefault={submit} class="grid gap-5">
+    <form
+      onsubmit={(event) => {
+        event.preventDefault();
+        submit();
+      }}
+      class="grid gap-5"
+    >
       {#if !deleting}<label class="grid gap-2"
           >Name<input
             class="min-h-11 rounded-xl border border-input bg-background px-3"
@@ -164,7 +200,8 @@
 
 <style>
   .collection-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1.5rem minmax(0, 1fr) auto auto;
     align-items: center;
     gap: 1rem;
     width: 100%;
@@ -187,8 +224,17 @@
     outline-offset: -3px;
   }
   .count {
-    margin-left: auto;
     color: var(--muted-foreground);
     font-variant-numeric: tabular-nums;
+  }
+  .collection-entry {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+  .collection-actions {
+    display: flex;
+    gap: 0.15rem;
+    padding-right: 0.5rem;
   }
 </style>

@@ -55,6 +55,7 @@
   } from '$lib/functions/replication/replication-progress';
   import { pluralize } from '$lib/functions/utils';
   import { creatorSortKey } from '$lib/library/book-metadata';
+  import type { LibraryMenuModel } from '$lib/library/library-menu';
   import { reduceToEmptyString } from '$lib/functions/rxjs/reduce-to-empty-string';
   import pLimit from 'p-limit';
   import { combineLatest, map, Observable, share, Subject, switchMap, takeUntil } from 'rxjs';
@@ -114,10 +115,10 @@
   let executionStart: number;
   let firstBookFileInput: HTMLInputElement;
   let collectionsOpen = false;
-  let desktopRailOpen = false;
   let destinationTitle = 'Library';
   let selectionScopeKey = '';
   let selectableBookIds: number[] = [];
+  let libraryMenu: LibraryMenuModel | undefined;
 
   $: {
     if (!selectMode) {
@@ -439,14 +440,7 @@
   }
 
   function toggleCollections() {
-    if (window.innerWidth >= 1280) {
-      desktopRailOpen = !desktopRailOpen;
-      try {
-        localStorage.setItem('manabi-library-rail-open', desktopRailOpen ? '1' : '0');
-      } catch {
-        /* preference is optional */
-      }
-    } else collectionsOpen = true;
+    collectionsOpen = true;
   }
 
   function backToCurrentBook() {
@@ -772,8 +766,8 @@
   <BookManagerHeader
     modernLibrary={$storageSource$ === StorageKey.BROWSER}
     title={destinationTitle}
-    collectionsExpanded={desktopRailOpen || collectionsOpen}
-    wideLibrary={desktopRailOpen}
+    {libraryMenu}
+    collectionsExpanded={collectionsOpen}
     hasBookOpened={!!$currentBookId$}
     selectedCount={selectedBookIds.size}
     hasBooks={!!$bookCards$?.length}
@@ -829,7 +823,7 @@
       {selectMode}
       bind:destinationTitle
       bind:collectionsOpen
-      bind:desktopRailOpen
+      bind:menu={libraryMenu}
       bookCards={$bookCards$}
       on:bookClick={(ev) => onBookClick(ev.detail.id)}
       on:selectionManyClick={(ev) => toggleSelectedBooks(ev.detail.ids)}

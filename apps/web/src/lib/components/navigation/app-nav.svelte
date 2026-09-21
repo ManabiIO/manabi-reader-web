@@ -3,13 +3,16 @@
   import { base, resolve } from '$app/paths';
   import * as Sheet from '$lib/components/ui/sheet';
   import { Button } from '$lib/components/ui/button';
-  import MenuIcon from '@lucide/svelte/icons/menu';
-  import BookOpen from '@lucide/svelte/icons/book-open';
-  import ChartNoAxesCombined from '@lucide/svelte/icons/chart-no-axes-combined';
-  import Settings from '@lucide/svelte/icons/settings';
-  import Cloud from '@lucide/svelte/icons/cloud';
-  import FolderOpen from '@lucide/svelte/icons/folder-open';
-  import FileInput from '@lucide/svelte/icons/file-input';
+  import {
+    BookOpenIcon as BookOpen,
+    ChartBarIcon as ChartNoAxesCombined,
+    CloudIcon as Cloud,
+    FileArrowUpIcon as FileInput,
+    FolderOpenIcon as FolderOpen,
+    GearIcon as Settings,
+    ListIcon as MenuIcon
+  } from 'phosphor-svelte';
+  export let iconOnly = false;
   let open = false;
   const destinations = [
     {
@@ -54,13 +57,23 @@
 <Sheet.Root bind:open>
   <Sheet.Trigger>
     {#snippet child({ props })}
-      <Button {...props} variant="ghost" class="min-h-9" aria-label="Navigate">
-        <MenuIcon class="size-4" aria-hidden="true" />Navigate
+      <Button
+        {...props}
+        variant="ghost"
+        size={iconOnly ? 'icon' : 'default'}
+        class={iconOnly ? 'size-11 shrink-0 rounded-full' : 'min-h-9'}
+        aria-label={iconOnly ? 'Main menu' : 'Navigate'}
+        title={iconOnly ? 'Main menu' : undefined}
+      >
+        <MenuIcon
+          class={iconOnly ? 'size-5' : 'size-4'}
+          aria-hidden="true"
+        />{#if !iconOnly}Navigate{/if}
       </Button>
     {/snippet}
   </Sheet.Trigger>
   <Sheet.Content
-    side="right"
+    side={iconOnly ? 'left' : 'right'}
     class="w-[min(24rem,calc(100vw-1rem))] overflow-y-auto"
     showCloseButton={false}
   >

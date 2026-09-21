@@ -5,7 +5,13 @@
  */
 
 import { validCompletion } from '$lib/library/completion';
-import { bookKey, sourceBookKey, relocatePresentation } from '$lib/library/organization';
+import {
+  bookKey,
+  contentBookKey,
+  sourceBookKey,
+  relocatePresentation,
+  stabilizeOrganization
+} from '$lib/library/organization';
 import { get, writable } from 'svelte/store';
 import { database } from '$lib/data/store';
 import type {
@@ -192,7 +198,9 @@ function setStatus(id: string, value: SyncStatus) {
 }
 export async function refreshLinkedBooks() {
   const books = await (await integrationDB()).getAll('books');
-  linkedBooks.set(books.filter((book) => book.owner === null || book.owner === currentUser()?.id));
+  const visible = books.filter((book) => book.owner === null || book.owner === currentUser()?.id);
+  await stabilizeOrganization(visible);
+  linkedBooks.set(visible);
 }
 
 export async function importLibraryBook(
@@ -220,7 +228,11 @@ export async function importLibraryBook(
           link.contentHash === contentHash
       );
     if (existing && (await database.getData(existing.bookId))) {
-      await relocatePresentation(sourceBookKey(source, item.id), bookKey(existing.bookId));
+      await relocatePresentation(
+        sourceBookKey(source, item.id),
+        contentBookKey(existing.contentHash)
+      );
+      await relocatePresentation(bookKey(existing.bookId), contentBookKey(existing.contentHash));
       return existing;
     }
     const same = (await integration.getAll('books')).find(
@@ -262,7 +274,8 @@ export async function importLibraryBook(
       syncEnabled
     };
     await integration.put('books', link);
-    await relocatePresentation(sourceBookKey(source, item.id), bookKey(stored.id));
+    await relocatePresentation(sourceBookKey(source, item.id), contentBookKey(contentHash));
+    await relocatePresentation(bookKey(stored.id), contentBookKey(contentHash));
     getStorageHandler(window, StorageKey.BROWSER).clearData();
     storageSource$.next(StorageKey.BROWSER);
     database.dataListChanged$.next(undefined);

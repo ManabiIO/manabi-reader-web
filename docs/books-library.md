@@ -23,10 +23,13 @@ this requires no new provider grant. Missing names fall back to directory names.
 **Collections are many-to-many memberships.** Books and Finished are the two
 smart views. Custom collections have stable UUIDs and support create, rename,
 delete, add and remove membership. Collection deletion never deletes books.
-Collections and book display-name/binding overrides are currently stored in
-this browser's IndexedDB, not in the series YAML and not synchronized between
-devices. The sheet states this explicitly. Importing a source book or moving its
-original relocates its presentation/membership keys rather than losing them.
+Collections and book display-name, cover and binding overrides are stored in
+the organization preference, separate from series YAML. They remain available
+locally in IndexedDB and sync through the existing Manabi account preference
+document when account sync is enabled. Known books use content hashes as stable
+organization identities so provider and path changes do not lose memberships or
+presentation overrides. References to unavailable books are retained for later
+reconnection but are hidden from shelves and excluded from visible counts.
 Renaming a book changes its display name, not its filename or the inherited
 canonical title used by reading statistics.
 
@@ -88,19 +91,25 @@ unchanged. Copy/delete is not advertised as an atomic filesystem rename.
 ## Library chrome
 
 The browser-owned personal library uses one title bar rather than exposing the
-inherited Book Manager command row. Collections has a dedicated round action;
-imports, selection, account/library navigation, statistics/settings, help and
-legacy storage views remain available from the labelled overflow menu. Selection
-and replication controls appear contextually only while those operations are
-active. The shelf row is reserved for View, Organize and search so the primary
-surface stays about the user's books rather than storage machinery.
+inherited Book Manager command row. In compact horizontal size, the leading
+hamburger opens main navigation and a separate Collections action opens the
+grouped collection sheet. The sheet exposes Books, Finished, custom collections,
+counts and Edit/Done management. At widths of 1024px and above, those compact
+controls disappear and a persistent 224px collection sidebar is shown instead.
+Imports, selection, View Options, Organize Library, account/library navigation,
+statistics/settings, help and legacy storage views remain available from the
+labelled overflow menu. Root navigation identifies Manabi Reader for Web. A
+pushed collection or series replaces that brand with a back action and
+destination title. Selection and replication controls appear contextually only
+while those operations are active. The shelf row is reserved for search so the
+primary surface stays about the user's books rather than storage machinery.
 
 ## Covers and views
 
 Grid and list share the same projection, filters, menus and source identities.
 The follow-up destination model, selection rules, Continue shelf, Finished
-timeline, series reading target, creator metadata, desktop collection rail and
-visual qualification matrix are specified in
+timeline, series reading target, creator metadata and visual qualification
+matrix are specified in
 [`library-experience-spec.md`](library-experience-spec.md).
 Two covers overlap on a series tile; the destination shows up to five distinct
 covers in a centered fan. Covers preserve intrinsic aspect ratio and have a

@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 import struct
+import threading
 import unittest
 import zlib
 from playwright.sync_api import expect
@@ -67,6 +68,39 @@ class AppearanceBrowser(baseline.ReaderBrowser):
             'window.dispatchEvent(new Event("focus")); requestAnimationFrame(resolve);})'
         )
         self.assertEqual(1, len(probes))
+
+    def test_session_probe_can_outlive_page_navigation_and_close(self):
+        page = self.context.new_page()
+        errors = []
+        page.on('pageerror', lambda error: errors.append(error.stack or str(error)))
+
+        # First exercise consecutive real documents. Each document may probe the
+        # optional account endpoint, and neither probe may leak a browser error.
+        with page.expect_request_finished(
+            predicate=lambda r: r.url == self.origin + '/api/reader-web/session/'
+        ):
+            page.goto(self.origin + '/Reader-Web/manage')
+        with page.expect_request_finished(
+            predicate=lambda r: r.url == self.origin + '/api/reader-web/session/'
+        ):
+            page.goto(self.origin + '/Reader-Web/settings')
+
+        # Hold a forced refresh in the real HTTP handler, then destroy its page.
+        # This deterministically covers the WebKit teardown path without request
+        # interception or a timing sleep.
+        gate = threading.Event()
+        started = threading.Event()
+        baseline.StaticHandler.session_gate = gate
+        baseline.StaticHandler.session_started = started
+        try:
+            page.evaluate('window.dispatchEvent(new Event("online"))')
+            self.assertTrue(started.wait(timeout=5), 'session probe did not reach the server')
+            page.close()
+        finally:
+            gate.set()
+            baseline.StaticHandler.session_gate = None
+            baseline.StaticHandler.session_started = None
+        self.assertEqual([], errors)
 
     def test_default_modes_and_persistence(self):
         self.page.emulate_media(color_scheme='dark')

@@ -45,14 +45,17 @@ class RheaReader(previous.RefinedAppearance):
         expect(membership).to_be_checked()
         self.page.get_by_role('button', name='Done', exact=True).click()
 
+        self.page.set_viewport_size({'width':390, 'height':844})
         self.page.get_by_role('button', name='Collections', exact=True).click()
-        self.page.get_by_role('button').filter(has_text='Study').click()
+        self.page.locator('#library-collections-sheet').get_by_role(
+            'button', name='Study', exact=False).click()
         expect(self.page.get_by_role('heading', name='Study', exact=True)).to_be_visible()
+        read = self.page.get_by_role('button', name=f'Read {TITLE}', exact=True)
         expect(read).to_be_visible()
 
         self.page.get_by_role('button', name=f'Actions for {TITLE}', exact=True).click()
         self.page.get_by_role('menuitem', name='Mark as Finished', exact=True).click()
-        expect(self.page.get_by_text('Finished', exact=True).first).to_be_visible()
+        expect(self.page.locator('.progress-label', has_text='Finished')).to_be_visible()
 
         search = self.page.get_by_role('searchbox', name='Search library', exact=True)
         search.fill('not-this-book')
@@ -228,12 +231,16 @@ class RheaReader(previous.RefinedAppearance):
     def test_library_sort_and_export_preserve_all_export_parts(self):
         self.open_book(font='Klee One')
         self.page.goto(self.origin + '/Reader-Web/manage')
-        self.page.get_by_role('button', name='Library view options', exact=True).click()
-        menu = self.page.get_by_role('menu')
+        self.page.get_by_role('button', name='Library actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='View Options', exact=True).hover()
+        self.page.get_by_role('menuitem', name='Sort by…', exact=True).hover()
+        menu = self.page.get_by_role('menu').last
         for name in ['Added','Title','Author','Recent','Ascending','Descending']:
             expect(menu.get_by_role('menuitemradio', name=name, exact=True)).to_be_visible()
         menu.get_by_role('menuitemradio', name='Title', exact=True).click()
-        self.page.get_by_role('button', name='Library view options', exact=True).click()
+        self.page.get_by_role('button', name='Library actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='View Options', exact=True).hover()
+        self.page.get_by_role('menuitem', name='Sort by…', exact=True).hover()
         self.page.get_by_role('menuitem', name='More Sort Options', exact=True).hover()
         more = self.page.get_by_role('menu').last
         for name in ['Characters','Last Update','Progress','Bookmarked']:

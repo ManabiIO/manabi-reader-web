@@ -10,6 +10,7 @@ import { appearance$ } from '$lib/appearance/state';
 import { availableThemes, portableThemeName } from '$lib/data/theme-option';
 import { account, currentUser, IntegrationError, request } from './client';
 import { equal, exclusive, mergeRecords, metadata, setMetadata } from './persistence';
+import { organizationPreference, reloadOrganization } from '$lib/library/organization';
 
 type Flat = Record<string, unknown>;
 interface SavedPreferences {
@@ -110,6 +111,13 @@ function bind(
     }
   };
 }
+bindings.library_organization = {
+  source: organizationPreference,
+  read: () => structuredClone(organizationPreference.getValue()),
+  apply(value) {
+    organizationPreference.next(value);
+  }
+};
 bind('theme', 'appearance', (v) => ['light', 'dark', 'system'].includes(v as string));
 bind(
   'font_family',
@@ -338,7 +346,7 @@ export async function enablePreferenceSync(enabled: boolean, choice?: 'local' | 
   if (enabled) await syncPreferences(state.initialized ? undefined : choice);
 }
 
-export function startPreferenceSync() {
+function startPreferenceSyncReady() {
   let stopped = false;
   async function switchUser() {
     const user = currentUser()?.id ?? null;
@@ -407,5 +415,17 @@ export function startPreferenceSync() {
     window.removeEventListener('online', tick);
     active = null;
     activeUser = null;
+  };
+}
+
+export function startPreferenceSync() {
+  let stopped = false,
+    stop: () => void = () => undefined;
+  void reloadOrganization().then(() => {
+    if (!stopped) stop = startPreferenceSyncReady();
+  });
+  return () => {
+    stopped = true;
+    stop();
   };
 }

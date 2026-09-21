@@ -5,8 +5,9 @@
  */
 
 import { writable } from 'svelte/store';
-import { integrationDB } from '$lib/manabi/persistence';
+import { equal, integrationDB, setMetadata, type BookLink } from '$lib/manabi/persistence';
 import { libraryName } from './series-metadata';
+import { applyPortableOrganization, portableOrganization } from './organization-portability';
 import type { PageDirection } from './direction';
 
 export interface Collection {
@@ -17,6 +18,7 @@ export interface Collection {
 export interface BookPresentation {
   title?: string;
   direction?: PageDirection;
+  cover?: string;
   modifiedAt: number;
 }
 export interface Organization {
@@ -26,8 +28,10 @@ export interface Organization {
 }
 const key = 'books-organization-v1';
 export const emptyOrganization = (): Organization => ({ version: 1, collections: [], books: {} });
-export const organization = writable<Organization>(emptyOrganization());
+let currentOrganization = emptyOrganization();
+export const organization = writable<Organization>(currentOrganization);
 export const bookKey = (id: number) => `book:${id}`;
+export const contentBookKey = (hash: string) => `content:${hash}`;
 export const sourceKey = (source: { id: string; owner: string | null; root: string }) =>
   JSON.stringify([source.owner, source.id, source.root]);
 export const sourceBookKey = (
@@ -35,9 +39,81 @@ export const sourceBookKey = (
   fileId: string
 ) => `source:${JSON.stringify([source.owner, source.id, source.root, fileId])}`;
 
+function validPresentation(value: unknown): value is BookPresentation {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const item = value as Record<string, unknown>;
+  return (
+    Number.isFinite(item.modifiedAt) &&
+    (item.title === undefined || (typeof item.title === 'string' && item.title.length <= 1000)) &&
+    (item.direction === undefined ||
+      ['ltr', 'rtl', 'unknown'].includes(item.direction as string)) &&
+    (item.cover === undefined ||
+      (typeof item.cover === 'string' &&
+        item.cover.length <= 512 * 1024 &&
+        /^data:image\/(?:png|jpeg|webp);base64,/.test(item.cover)))
+  );
+}
+function normalizedOrganization(value: unknown): Organization | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return;
+  const item = value as Partial<Organization>;
+  if (
+    item.version !== 1 ||
+    !Array.isArray(item.collections) ||
+    !item.books ||
+    typeof item.books !== 'object' ||
+    Array.isArray(item.books)
+  )
+    return;
+  const collections = item.collections.filter(
+    (collection): collection is Collection =>
+      !!collection &&
+      typeof collection.id === 'string' &&
+      typeof collection.name === 'string' &&
+      collection.name.length <= 240 &&
+      Array.isArray(collection.members) &&
+      collection.members.every((member) => typeof member === 'string' && member.length <= 1000)
+  );
+  if (collections.length !== item.collections.length || collections.length > 1000) return;
+  const entries = Object.entries(item.books);
+  if (
+    entries.length > 50000 ||
+    entries.some(([id, book]) => id.length > 1000 || !validPresentation(book))
+  )
+    return;
+  return {
+    version: 1,
+    collections: collections.map((collection) => ({
+      ...collection,
+      members: [...new Set(collection.members)]
+    })),
+    books: Object.fromEntries(entries)
+  };
+}
+function publish(value: Organization) {
+  currentOrganization = value;
+  organization.set(value);
+}
+
+/** Account sync transports content identity, never another browser's numeric IDs. */
+export const organizationPreference = {
+  getValue: () => portableOrganization(currentOrganization),
+  next(value: unknown) {
+    const normalized = normalizedOrganization(value);
+    if (!normalized) return;
+    const applied = applyPortableOrganization(currentOrganization, normalized);
+    publish(applied);
+    void setMetadata(key, applied);
+  },
+  subscribe(fn: () => void) {
+    const unsubscribe = organization.subscribe(() => fn());
+    return { unsubscribe };
+  }
+};
+
 export async function reloadOrganization() {
-  const value = (await (await integrationDB()).get('metadata', key)) as Organization | undefined;
-  organization.set(value ?? emptyOrganization());
+  const saved = await (await integrationDB()).get('metadata', key);
+  const value = normalizedOrganization(saved) ?? emptyOrganization();
+  if (!equal(value, currentOrganization)) publish(value);
 }
 export async function updateOrganization(change: (value: Organization) => void) {
   // IndexedDB serializes cross-tab read/modify/write transactions even without Web Locks.
@@ -45,10 +121,15 @@ export async function updateOrganization(change: (value: Organization) => void) 
     tx = db.transaction('metadata', 'readwrite');
   const value = ((await tx.store.get(key)) as Organization | undefined) ?? emptyOrganization();
   try {
+    const before = structuredClone(value);
     change(value);
+    if (equal(before, value)) {
+      await tx.done;
+      return;
+    }
     await tx.store.put(value, key);
     await tx.done;
-    organization.set(value);
+    publish(value);
     if (typeof BroadcastChannel !== 'undefined') {
       try {
         const channel = new BroadcastChannel(key);
@@ -112,11 +193,38 @@ export async function setMembership(id: string, member: string, included: boolea
 }
 export async function presentBook(
   id: string,
-  change: { title?: string; direction?: PageDirection }
+  change: { title?: string; direction?: PageDirection; cover?: string }
 ) {
   if (change.title !== undefined) change.title = libraryName(change.title);
+  if (change.cover !== undefined && !validPresentation({ ...change, modifiedAt: Date.now() }))
+    throw new Error('The cover image is too large or unsupported.');
   await updateOrganization((value) => {
     value.books[id] = { ...value.books[id], ...change, modifiedAt: Date.now() };
+  });
+}
+
+/** Replace browser- and provider-specific locators with content identity once it is known. */
+export async function stabilizeOrganization(links: BookLink[]) {
+  const replacements = new Map<string, string>();
+  for (const link of links) {
+    const stable = contentBookKey(link.contentHash);
+    replacements.set(bookKey(link.bookId), stable);
+    replacements.set(
+      sourceBookKey({ id: link.sourceId, owner: link.owner, root: link.root }, link.fileId),
+      stable
+    );
+  }
+  await updateOrganization((value) => {
+    for (const collection of value.collections)
+      collection.members = [
+        ...new Set(collection.members.map((member) => replacements.get(member) || member))
+      ];
+    for (const [before, after] of replacements) {
+      const prior = value.books[before],
+        current = value.books[after];
+      if (prior && (!current || prior.modifiedAt > current.modifiedAt)) value.books[after] = prior;
+      if (before !== after) delete value.books[before];
+    }
   });
 }
 /** Import and file moves change locators, not the user's collections or display names. */

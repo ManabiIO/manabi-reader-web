@@ -14,5 +14,5 @@
   },
   "typescript": true,
   "registry": "https://shadcn-svelte.com/registry",
-  "iconLibrary": "lucide"
+  "iconLibrary": "phosphor"
 }

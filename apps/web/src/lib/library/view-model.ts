@@ -10,7 +10,7 @@ import type { Catalog, SourceDescriptor } from './catalog';
 import type { Organization } from './organization';
 import type { PageDirection } from './direction';
 import type { Preview } from './previews';
-import { bookKey, sourceKey, sourceBookKey } from './organization';
+import { bookKey, contentBookKey, sourceKey, sourceBookKey } from './organization';
 import { directoryTree, type DirectoryEntry, type LibraryNode } from './tree';
 import { isFinished } from './completion';
 import type { SortOption } from '$lib/data/sort-types';
@@ -18,6 +18,8 @@ import { creatorSortKey, sharedCreatorLine } from './book-metadata';
 
 export interface ShelfBook extends Omit<BookCardProps, 'id'> {
   key: string;
+  organizationKey: string;
+  organizationAliases: string[];
   canonicalTitle: string;
   bookId?: number;
   direction: PageDirection;
@@ -44,6 +46,13 @@ export function buildShelf(
 ): ShelfNode[] {
   const byId = new Map(cards.map((card) => [card.id, card])),
     represented = new Set<number>();
+  const linksByBook = new Map(links.map((link) => [link.bookId, link]));
+  const linksByFile = new Map(
+    links.map((link) => [
+      sourceBookKey({ id: link.sourceId, owner: link.owner, root: link.root }, link.fileId),
+      link
+    ])
+  );
   const result: ShelfNode[] = [];
   const revisions = new Map(
     catalogs.map((catalog) => [sourceKey(catalog.source), catalog.scannedAt])
@@ -54,7 +63,18 @@ export function buildShelf(
     file?: DirectoryEntry
   ): ShelfBook => {
     const key = card ? bookKey(card.id) : sourceBookKey(source!, file!.id);
-    const presentation = organization.books[key];
+    const linked = card ? linksByBook.get(card.id) : linksByFile.get(key);
+    const organizationKey = linked ? contentBookKey(linked.contentHash) : key;
+    const organizationAliases = [
+      organizationKey,
+      key,
+      ...(linked ? [bookKey(linked.bookId)] : []),
+      ...(source && file ? [sourceBookKey(source, file.id)] : [])
+    ].filter((value, index, values) => values.indexOf(value) === index);
+    const presentation = organizationAliases
+      .map((alias) => organization.books[alias])
+      .filter((value): value is NonNullable<typeof value> => !!value)
+      .sort((left, right) => right.modifiedAt - left.modifiedAt)[0];
     const cachedPreview = source && file ? previews[sourceBookKey(source, file.id)] : undefined;
     const preview =
       source && cachedPreview?.scannedAt === revisions.get(sourceKey(source))
@@ -69,7 +89,7 @@ export function buildShelf(
       title: presentation?.title || canonicalTitle,
       canonicalTitle,
       creators: card?.creators || preview?.creators,
-      imagePath: card?.imagePath || preview?.imagePath || '',
+      imagePath: presentation?.cover || card?.imagePath || preview?.imagePath || '',
       characters: card?.characters || 0,
       lastBookModified: card?.lastBookModified || 0,
       lastBookOpen: card?.lastBookOpen || 0,
@@ -83,6 +103,8 @@ export function buildShelf(
           ? presentation.direction
           : card?.pageDirection?.value || preview?.pageDirection.value || 'unknown',
       key,
+      organizationKey,
+      organizationAliases,
       bookId: card?.id,
       source,
       file

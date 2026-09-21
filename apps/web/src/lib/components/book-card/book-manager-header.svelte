@@ -25,13 +25,30 @@
   import { inputAllowDirectory } from '$lib/functions/file-dom/input-allow-directory';
   import { inputFile } from '$lib/functions/file-dom/input-file';
   import { isMobile$, isOnOldUrl } from '$lib/functions/utils';
-  import MoreHorizontal from '@lucide/svelte/icons/ellipsis';
-  import Layers from '@lucide/svelte/icons/layers';
+  import type { LibraryMenuModel } from '$lib/library/library-menu';
+  import {
+    ArrowLeftIcon as ArrowLeft,
+    BooksIcon as Books,
+    BugIcon as Bug,
+    CalendarBlankIcon as CalendarBlank,
+    ChartBarIcon as ChartBar,
+    CloudIcon as Cloud,
+    DotsThreeIcon as MoreHorizontal,
+    FileArrowUpIcon as FileArrowUp,
+    FolderOpenIcon as FolderOpen,
+    FolderPlusIcon as FolderPlus,
+    GearIcon as Gear,
+    ListIcon as List,
+    TextAlignLeftIcon as CollectionsList,
+    SelectionAllIcon as SelectionAll,
+    SquaresFourIcon as SquaresFour,
+    UserCircleIcon as UserCircle
+  } from 'phosphor-svelte';
 
   export let modernLibrary = false;
   export let title = 'Library';
   export let collectionsExpanded = false;
-  export let wideLibrary = false;
+  export let libraryMenu: LibraryMenuModel | undefined = undefined;
   export let hasBookOpened: boolean;
   export let selectMode: boolean;
   export let selectedCount: number;
@@ -146,24 +163,42 @@
 {#if modernLibrary}
   <header class="app-header bg-background text-foreground" aria-label="Library toolbar">
     <div
-      class="mx-auto flex min-h-20 items-center justify-between gap-3 px-4 py-3 sm:px-6 {wideLibrary
-        ? 'max-w-[1440px]'
-        : 'max-w-6xl'}"
+      class="mx-auto flex min-h-16 max-w-[1440px] items-center justify-between gap-3 px-4 py-2 sm:px-6"
     >
-      <h1 class="truncate font-serif text-4xl font-bold tracking-tight sm:text-5xl">{title}</h1>
+      <div class="flex min-w-0 items-center gap-2">
+        <span class="lg:hidden"><AppNav iconOnly /></span>
+        {#if libraryMenu?.canGoBack}
+          <Button
+            variant="ghost"
+            size="icon"
+            class="size-11 shrink-0 rounded-full"
+            aria-label="Back"
+            title="Back"
+            onclick={() => libraryMenu?.back()}
+          >
+            <ArrowLeft class="size-5" aria-hidden="true" />
+          </Button>
+          <h1 class="truncate text-base font-semibold tracking-tight sm:text-2xl">{title}</h1>
+        {:else}
+          <h1 class="truncate text-base font-semibold tracking-tight sm:text-2xl">
+            Manabi Reader <span class="font-normal text-muted-foreground">for Web</span>
+          </h1>
+        {/if}
+      </div>
       <div class="flex shrink-0 items-center gap-2">
         <Button
           variant="outline"
           size="icon"
-          class="size-11 rounded-full"
+          class="size-11 rounded-full lg:hidden"
           aria-label="Collections"
           title="Collections"
           aria-expanded={collectionsExpanded}
-          aria-controls="library-collections-navigation"
+          aria-haspopup="dialog"
+          aria-controls="library-collections-sheet"
           onclick={() => dispatch('collectionsClick')}
           disabled={!!replicationToProgress}
         >
-          <Layers class="size-5" aria-hidden="true" />
+          <CollectionsList class="size-5" aria-hidden="true" />
         </Button>
         <Menu.Root>
           <Menu.Trigger>
@@ -186,18 +221,24 @@
             class="max-h-[min(80dvh,40rem)] w-72 max-w-[calc(100vw-1rem)] overflow-y-auto"
           >
             {#if hasBookOpened}
-              <Menu.Item onSelect={() => dispatch('backToBookClick')}>Resume Reading</Menu.Item>
+              <Menu.Item onSelect={() => dispatch('backToBookClick')}
+                ><Books aria-hidden="true" />Resume Reading</Menu.Item
+              >
               <Menu.Separator />
             {/if}
             <Menu.Item disabled={!hasBooks} onSelect={() => (selectMode = true)}
-              >Select Books</Menu.Item
+              ><SelectionAll aria-hidden="true" />Select Books</Menu.Item
             >
             <Menu.Sub>
-              <Menu.SubTrigger>Add Books</Menu.SubTrigger>
+              <Menu.SubTrigger><FolderPlus aria-hidden="true" />Add Books</Menu.SubTrigger>
               <Menu.SubContent class="w-64">
-                <Menu.Item onSelect={() => fileImportElm.click()}>Import File(s)</Menu.Item>
+                <Menu.Item onSelect={() => fileImportElm.click()}
+                  ><FileArrowUp aria-hidden="true" />Import File(s)</Menu.Item
+                >
                 {#if !$isMobile$}
-                  <Menu.Item onSelect={() => folderImportElm.click()}>Import Folder(s)</Menu.Item>
+                  <Menu.Item onSelect={() => folderImportElm.click()}
+                    ><FolderPlus aria-hidden="true" />Import Folder(s)</Menu.Item
+                  >
                 {/if}
                 <Menu.Item onSelect={() => backupImportElm.click()}>Import Backup</Menu.Item>
                 <Menu.Separator />
@@ -206,12 +247,113 @@
                 >
               </Menu.SubContent>
             </Menu.Sub>
+            {#if libraryMenu}
+              <Menu.Sub>
+                <Menu.SubTrigger><SquaresFour aria-hidden="true" />View Options</Menu.SubTrigger>
+                <Menu.SubContent class="w-64">
+                  <Menu.RadioGroup
+                    value={libraryMenu.currentLayout}
+                    onValueChange={libraryMenu.setLayout}
+                  >
+                    {#each libraryMenu.layouts as choice (choice.value)}
+                      <Menu.RadioItem value={choice.value}>
+                        {#if choice.icon === 'grid'}<SquaresFour
+                            aria-hidden="true"
+                          />{:else if choice.icon === 'list'}<List
+                            aria-hidden="true"
+                          />{:else}<CalendarBlank aria-hidden="true" />{/if}{choice.label}
+                      </Menu.RadioItem>
+                    {/each}
+                  </Menu.RadioGroup>
+                  <Menu.Separator /><Menu.Label>Show</Menu.Label>
+                  <Menu.RadioGroup
+                    value={libraryMenu.showValue}
+                    onValueChange={libraryMenu.setShow}
+                  >
+                    {#each libraryMenu.showChoices as choice (choice.value)}
+                      <Menu.RadioItem
+                        value={choice.value}
+                        disabled={libraryMenu.showChoices.length === 1}
+                        >{choice.label}</Menu.RadioItem
+                      >
+                    {/each}
+                  </Menu.RadioGroup>
+                  <Menu.Separator />
+                  <Menu.Sub>
+                    <Menu.SubTrigger>Sort by…</Menu.SubTrigger>
+                    <Menu.SubContent class="w-56">
+                      {#if libraryMenu.finishedOrder}
+                        <Menu.Label>Finished date</Menu.Label>
+                        <Menu.RadioGroup
+                          value={libraryMenu.finishedOrder}
+                          onValueChange={libraryMenu.setFinishedOrder}
+                        >
+                          <Menu.RadioItem value="desc">Newest first</Menu.RadioItem>
+                          <Menu.RadioItem value="asc">Oldest first</Menu.RadioItem>
+                        </Menu.RadioGroup>
+                      {:else}
+                        <Menu.RadioGroup
+                          value={libraryMenu.sortProperty}
+                          onValueChange={(value) => libraryMenu?.setSort(value)}
+                        >
+                          {#each libraryMenu.sortChoices as choice (choice.property)}
+                            <Menu.RadioItem value={choice.property}>{choice.label}</Menu.RadioItem>
+                          {/each}
+                        </Menu.RadioGroup>
+                        <Menu.Sub>
+                          <Menu.SubTrigger>More Sort Options</Menu.SubTrigger>
+                          <Menu.SubContent class="w-52">
+                            <Menu.RadioGroup
+                              value={libraryMenu.sortProperty}
+                              onValueChange={(value) => libraryMenu?.setSort(value)}
+                            >
+                              {#each libraryMenu.moreSortChoices as choice (choice.property)}
+                                <Menu.RadioItem value={choice.property}
+                                  >{choice.label}</Menu.RadioItem
+                                >
+                              {/each}
+                            </Menu.RadioGroup>
+                          </Menu.SubContent>
+                        </Menu.Sub>
+                        <Menu.Separator />
+                        <Menu.RadioGroup
+                          value={libraryMenu.sortDirection}
+                          onValueChange={(value) =>
+                            libraryMenu?.setSort(
+                              libraryMenu.sortProperty,
+                              value === 'asc' ? 'asc' : 'desc'
+                            )}
+                        >
+                          <Menu.RadioItem value="asc">Ascending</Menu.RadioItem>
+                          <Menu.RadioItem value="desc">Descending</Menu.RadioItem>
+                        </Menu.RadioGroup>
+                      {/if}
+                    </Menu.SubContent>
+                  </Menu.Sub>
+                </Menu.SubContent>
+              </Menu.Sub>
+              <Menu.Sub>
+                <Menu.SubTrigger><FolderOpen aria-hidden="true" />Organize Library</Menu.SubTrigger>
+                <Menu.SubContent class="w-64">
+                  <Menu.Item onSelect={libraryMenu.createSeries}
+                    ><FolderPlus aria-hidden="true" />Create Series from Books…</Menu.Item
+                  >
+                  <Menu.Item onSelect={libraryMenu.refreshFolders}
+                    ><Cloud aria-hidden="true" />Refresh Connected Folders</Menu.Item
+                  >
+                </Menu.SubContent>
+              </Menu.Sub>
+            {/if}
             <Menu.Separator />
             <Menu.Item onSelect={() => goto(resolve('/connections'))}
-              >Accounts and Libraries</Menu.Item
+              ><UserCircle aria-hidden="true" />Accounts and Libraries</Menu.Item
             >
-            <Menu.Item onSelect={() => goto(resolve('/statistics'))}>Statistics</Menu.Item>
-            <Menu.Item onSelect={() => goto(resolve('/settings'))}>Settings</Menu.Item>
+            <Menu.Item onSelect={() => goto(resolve('/statistics'))}
+              ><ChartBar aria-hidden="true" />Statistics</Menu.Item
+            >
+            <Menu.Item onSelect={() => goto(resolve('/settings'))}
+              ><Gear aria-hidden="true" />Settings</Menu.Item
+            >
             <Menu.Item onSelect={() => goto(resolve('/shared-library'))}>Shared Libraries</Menu.Item
             >
             {#if sources.length > 1}
@@ -234,7 +376,9 @@
               </Menu.Sub>
             {/if}
             <Menu.Separator />
-            <Menu.Item onSelect={() => dispatch('bugReportClick')}>Report an Issue</Menu.Item>
+            <Menu.Item onSelect={() => dispatch('bugReportClick')}
+              ><Bug aria-hidden="true" />Report an Issue</Menu.Item
+            >
             {#if isOldUrl}
               <Menu.Item onSelect={() => dispatch('domainHintClick')}
                 >Old Domain Information</Menu.Item
