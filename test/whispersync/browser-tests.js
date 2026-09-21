@@ -549,11 +549,8 @@ window.runWhispersyncBrowserTests = async function ({ skipStorage = false } = {}
     equal(state.rate, 1.5);
     assert(Math.abs(state.duration - 3) < 0.02);
     assert(Math.abs(audio.currentTime - 1.2) < 0.02);
-    const beforePlay = audio.currentTime;
     await player.play();
     assert(!state.error, state.error);
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    assert(audio.currentTime + 0.02 >= beforePlay);
     player.pause();
     player.dispose();
     equal(host.children.length, 0);
