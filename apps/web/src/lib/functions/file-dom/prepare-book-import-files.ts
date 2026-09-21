@@ -283,9 +283,7 @@ function findPackageLocation(rawPath: string): PackageLocation | undefined {
 }
 
 function isHiddenPath(value: string): boolean {
-  return value
-    .split('/')
-    .some((part) => part === '__MACOSX' || part.startsWith('.'));
+  return value.split('/').some((part) => part === '__MACOSX' || part.startsWith('.'));
 }
 
 function abortIfNeeded(signal?: AbortSignal): void {
