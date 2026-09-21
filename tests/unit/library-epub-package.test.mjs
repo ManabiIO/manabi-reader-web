@@ -12,13 +12,9 @@ import { getEntryFiles } from '../../apps/web/src/lib/functions/file-dom/get-ent
 import { prepareBookImportFiles } from '../../apps/web/src/lib/functions/file-dom/prepare-book-import-files.ts';
 
 const requireFromWeb = createRequire(new URL('../../apps/web/package.json', import.meta.url));
-const {
-  BlobReader,
-  BlobWriter,
-  TextWriter,
-  ZipReader,
-  ZipWriter
-} = await import(pathToFileURL(requireFromWeb.resolve('@zip.js/zip.js')).href);
+const { BlobReader, BlobWriter, TextWriter, ZipReader, ZipWriter } = await import(
+  pathToFileURL(requireFromWeb.resolve('@zip.js/zip.js')).href
+);
 
 const EPUB_MIME_TYPE = 'application/epub+zip';
 
@@ -45,7 +41,11 @@ function packageFiles() {
       '<package><metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">藪の中</dc:title><dc:language xmlns:dc="http://purl.org/dc/elements/1.1/">ja</dc:language></metadata><manifest><item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="chapter"/></spine></package>',
       'application/oebps-package+xml'
     ),
-    packageFile('item/chapter.xhtml', '<html><body>これはテストです</body></html>', 'application/xhtml+xml'),
+    packageFile(
+      'item/chapter.xhtml',
+      '<html><body>これはテストです</body></html>',
+      'application/xhtml+xml'
+    ),
     packageFile('.DS_Store', 'ignored')
   ];
 }
@@ -69,10 +69,7 @@ async function wrappedPackage() {
     const relativePath = file.webkitRelativePath.split('/').slice(1).join('/');
     await writer.add(relativePath, new BlobReader(file));
   }
-  await writer.add(
-    '__MACOSX/藪の中 2.epub/._mimetype',
-    new BlobReader(new Blob(['appledouble']))
-  );
+  await writer.add('__MACOSX/藪の中 2.epub/._mimetype', new BlobReader(new Blob(['appledouble'])));
   const blob = await writer.close();
   return new File([blob], '藪の中 2.epub.zip', {
     type: 'application/zip',
@@ -103,7 +100,10 @@ test('package-directory EPUB files are rebuilt as one standards-compliant EPUB',
   assert.ok(archive.names.includes('META-INF/container.xml'));
   assert.ok(archive.names.includes('item/standard.opf'));
   assert.ok(archive.names.includes('item/chapter.xhtml'));
-  assert.equal(archive.names.some((name) => name.includes('.DS_Store')), false);
+  assert.equal(
+    archive.names.some((name) => name.includes('.DS_Store')),
+    false
+  );
 });
 
 test('dropped package files retain their package-relative path', async () => {
@@ -141,7 +141,10 @@ test('.epub.zip transfer wrappers containing a package EPUB are normalized befor
   assert.equal(archive.entries[0].filename, 'mimetype');
   assert.equal(archive.mimetype?.compressionMethod, 0);
   assert.equal(archive.mimetypeText, EPUB_MIME_TYPE);
-  assert.equal(archive.names.some((name) => name.startsWith('__MACOSX/')), false);
+  assert.equal(
+    archive.names.some((name) => name.startsWith('__MACOSX/')),
+    false
+  );
   assert.deepEqual(
     archive.names.filter((name) => !name.endsWith('/')).sort(),
     ['META-INF/container.xml', 'item/chapter.xhtml', 'item/standard.opf', 'mimetype'].sort()
