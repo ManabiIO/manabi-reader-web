@@ -70,7 +70,7 @@ async function inspectZip(blob) {
   }
 }
 
-async function wrappedPackage() {
+async function macosBrowserPackageHandoff() {
   const writer = new ZipWriter(new BlobWriter('application/zip'));
   for (const file of packageFiles()) {
     const relativePath = file.webkitRelativePath.split('/').slice(1).join('/');
@@ -134,8 +134,11 @@ test('dropped package files retain their package-relative path', async () => {
   assert.equal(await file.text(), EPUB_MIME_TYPE);
 });
 
-test('.epub.zip transfer wrappers containing a package EPUB are normalized before import', async () => {
-  const wrapper = await wrappedPackage();
+test('macOS browser package replacement (.epub.zip + application/zip) normalizes before import', async () => {
+  // Chrome and Safari/WebKit expose selected macOS packages this way after the native picker.
+  const wrapper = await macosBrowserPackageHandoff();
+  assert.equal(wrapper.name, '藪の中 2.epub.zip');
+  assert.equal(wrapper.type, 'application/zip');
 
   const prepared = await prepareBookImportFiles([wrapper]);
 
