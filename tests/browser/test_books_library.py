@@ -56,7 +56,7 @@ def book(title, spine='', style='body{writing-mode:horizontal-tb}', body=None, s
     return output.getvalue()
 
 
-def wrapped_package_book(title):
+def macos_browser_package_handoff(title):
     source = zipfile.ZipFile(io.BytesIO(book(title)))
     output = io.BytesIO()
     try:
@@ -227,8 +227,23 @@ class BooksLibraryBrowser(LibraryBase):
         self.page.get_by_role('menuitemradio', name='Grid', exact=True).click()
         expect(self.page.locator('.shelf-grid')).to_be_visible()
 
-    def test_package_directory_and_epub_zip_wrapper_import(self):
-        folder_title = 'Package EPUB'
+    def test_macos_package_file_picker_handoff_and_directory_fallback(self):
+        # Chromium and WebKit turn a selected macOS package into an application/zip
+        # File named <original package>.zip before JavaScript sees it. CI cannot run
+        # the native macOS picker, so this feeds that documented post-picker File
+        # shape through the real app input and import pipeline.
+        wrapper_title = 'Mac Package EPUB'
+        file_input = self.page.locator('input[type=file][accept*=".epub"]').first
+        expect(file_input).to_have_attribute('accept', re.compile(r'\.epub\.zip'))
+        file_input.set_input_files({
+            'name': wrapper_title + '.epub.zip',
+            'mimeType': 'application/zip',
+            'buffer': macos_browser_package_handoff(wrapper_title)
+        })
+        expect(self.page.get_by_role(
+            'button', name='Read ' + wrapper_title, exact=True)).to_be_visible(timeout=30000)
+
+        folder_title = 'Package EPUB Fallback'
         with tempfile.TemporaryDirectory() as directory:
             package_dir = Path(directory) / (folder_title + '.epub')
             package_dir.mkdir()
@@ -237,15 +252,6 @@ class BooksLibraryBrowser(LibraryBase):
             self.page.locator('input[type=file][webkitdirectory]').set_input_files(str(package_dir))
             expect(self.page.get_by_role(
                 'button', name='Read ' + folder_title, exact=True)).to_be_visible(timeout=30000)
-
-        wrapper_title = 'Wrapped EPUB'
-        self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
-            'name': wrapper_title + '.epub.zip',
-            'mimeType': 'application/zip',
-            'buffer': wrapped_package_book(wrapper_title)
-        })
-        expect(self.page.get_by_role(
-            'button', name='Read ' + wrapper_title, exact=True)).to_be_visible(timeout=30000)
 
     def test_mobile_grid_list_fitted_covers_and_authored_binding(self):
         self.import_book('Left binding', spine='ltr', style='body{writing-mode:vertical-rl}')
