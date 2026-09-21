@@ -60,6 +60,9 @@ contains a valid EPUB package (`mimetype` plus `META-INF/container.xml`). Generi
 remain excluded from book import. Package-directory selection and drag/drop remain secondary
 fallbacks for browsers that expose the package's member files directly.
 
+`__MACOSX` and AppleDouble `._*` entries are optional Finder/archive metadata, not EPUB content.
+They are never required for package import and are discarded if a supplied wrapper contains them.
+
 Browser CI exercises the post-picker `.epub.zip` / `application/zip` File shape through the
 real book file input. The native macOS picker transformation itself belongs to the browser and is
 documented by the upstream Chromium/WebKit implementations rather than emulated as application
