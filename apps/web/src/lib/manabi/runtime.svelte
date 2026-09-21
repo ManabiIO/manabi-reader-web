@@ -19,11 +19,11 @@
       // WebKit that request can surface as a CORS page error if the tab closes.
       if (!force && now - lastRefreshStarted < 30_000) return;
       lastRefreshStarted = now;
-      void refreshAccount();
+      void refreshAccount(force);
     };
     const refreshOnline = () => refresh(true);
     const refreshFocus = () => refresh();
-    refresh(true);
+    refresh();
     window.addEventListener('online', refreshOnline);
     window.addEventListener('focus', refreshFocus);
     return () => {

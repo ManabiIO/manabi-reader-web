@@ -4,10 +4,45 @@
  * All rights reserved.
  */
 
-import type { Organization } from './organization';
+import type { BookPresentation, Organization } from './organization';
 
 /** A browser ID, provider locator or filename is not a cross-device book identity. */
 export const isPortableBookKey = (key: string) => /^content:[a-f0-9]{64}$/.test(key);
+
+export function isPortableText(value: unknown, maximum: number): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= maximum &&
+    ![...value].some((character) => {
+      const code = character.codePointAt(0) ?? 0;
+      return code < 32 || code === 127 || (code >= 0xd800 && code <= 0xdfff);
+    })
+  );
+}
+
+export function isPortablePresentation(value: unknown): value is BookPresentation {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const item = value as Record<string, unknown>;
+  if (Object.keys(item).some((key) => !['title', 'direction', 'cover', 'modifiedAt'].includes(key)))
+    return false;
+  if (
+    !Number.isSafeInteger(item.modifiedAt) ||
+    (item.modifiedAt as number) < 0 ||
+    (item.title !== undefined && !isPortableText(item.title, 1000)) ||
+    (item.direction !== undefined && !['ltr', 'rtl', 'unknown'].includes(item.direction as string))
+  )
+    return false;
+  if (item.cover === undefined) return true;
+  if (typeof item.cover !== 'string' || item.cover.length > 512 * 1024) return false;
+  const match = /^data:image\/(?:png|jpeg|webp);base64,([A-Za-z0-9+/]+={0,2})$/.exec(item.cover);
+  if (!match) return false;
+  try {
+    return atob(match[1]).length <= 384 * 1024;
+  } catch {
+    return false;
+  }
+}
 
 /** Export only identities that another installation can independently verify. */
 export function portableOrganization(value: Organization): Organization {

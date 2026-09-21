@@ -39,6 +39,32 @@ class StaticHandler(SimpleHTTPRequestHandler):
     probes = []
     session_gate = None
     session_started = None
+    account_fixture = None
+    account_requests = []
+    preference_revision = 0
+    preference_settings = {}
+
+    def api_request(self):
+        length = int(self.headers.get('Content-Length') or '0')
+        raw = self.rfile.read(length) if length else b''
+        type(self).account_requests.append({
+            'method': self.command,
+            'path': urlsplit(self.path).path,
+            'user': self.headers.get('X-Manabi-User'),
+            'csrf': self.headers.get('X-CSRFToken'),
+            'if_match': self.headers.get('If-Match'),
+            'body': json.loads(raw) if raw else None
+        })
+
+    def api_response(self, value, *, user=''):
+        body = json.dumps(value).encode()
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(body)))
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('X-Manabi-User', user)
+        self.end_headers()
+        self.wfile.write(body)
 
     def do_GET(self):
         # A focused lifecycle test can hold one real session response open while
@@ -53,7 +79,56 @@ class StaticHandler(SimpleHTTPRequestHandler):
                 if started is not None:
                     started.set()
                 gate.wait(timeout=10)
+        fixture = type(self).account_fixture
+        path = urlsplit(self.path).path
+        if fixture is not None and path.startswith('/api/reader-web/'):
+            self.api_request()
+            user = fixture['user']
+            identity = user['id'] if user else ''
+            if path.endswith('/session/'):
+                self.api_response(fixture, user=identity)
+            elif path.endswith('/preferences/'):
+                self.api_response({
+                    'user_id': identity,
+                    'schema_version': 1,
+                    'revision': type(self).preference_revision,
+                    'settings': type(self).preference_settings
+                }, user=identity)
+            elif path.endswith('/connections/'):
+                self.api_response({'items': []}, user=identity)
+            else:
+                self.send_error(404)
+            return
         super().do_GET()
+
+    def do_PUT(self):
+        fixture = type(self).account_fixture
+        path = urlsplit(self.path).path
+        if fixture is not None and path.endswith('/preferences/'):
+            self.api_request()
+            request = type(self).account_requests[-1]
+            type(self).preference_settings = request['body']['settings']
+            type(self).preference_revision += 1
+            identity = fixture['user']['id']
+            self.api_response({
+                'user_id': identity,
+                'schema_version': 1,
+                'revision': type(self).preference_revision,
+                'settings': type(self).preference_settings
+            }, user=identity)
+            return
+        self.send_error(404)
+
+    def do_POST(self):
+        fixture = type(self).account_fixture
+        path = urlsplit(self.path).path
+        if fixture is not None and path.endswith('/logout/'):
+            admitted = fixture['user']['id']
+            self.api_request()
+            fixture['user'] = None
+            self.api_response({'signed_out': True}, user=admitted)
+            return
+        self.send_error(404)
 
     def translate_path(self, path):
         path = unquote(urlsplit(path).path)
@@ -106,6 +181,10 @@ class ReaderBrowser(unittest.TestCase):
         StaticHandler.probes.clear()
         StaticHandler.session_gate = None
         StaticHandler.session_started = None
+        StaticHandler.account_fixture = None
+        StaticHandler.account_requests = []
+        StaticHandler.preference_revision = 0
+        StaticHandler.preference_settings = {}
 
     def tearDown(self):
         # Keep diagnostics for this generated fixture only, never real account data.
@@ -119,6 +198,7 @@ class ReaderBrowser(unittest.TestCase):
             gate = StaticHandler.session_gate
             StaticHandler.session_gate = None
             StaticHandler.session_started = None
+            StaticHandler.account_fixture = None
             if gate is not None:
                 gate.set()
             # A diagnostic failure must not leak a profile into the next test.

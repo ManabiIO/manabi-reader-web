@@ -30,6 +30,9 @@ document when account sync is enabled. Known books use content hashes as stable
 organization identities so provider and path changes do not lose memberships or
 presentation overrides. References to unavailable books are retained for later
 reconnection but are hidden from shelves and excluded from visible counts.
+The account API accepts only canonical `content:<sha256>` references and bounded
+PNG, JPEG or WebP cover data; browser IDs, provider locators, remote URLs and
+credential-shaped fields fail its closed organization schema.
 Renaming a book changes its display name, not its filename or the inherited
 canonical title used by reading statistics.
 
@@ -44,7 +47,9 @@ Complete Book statistics are a distinct analytics operation, not invoked by
 these library actions. The reader's explicit Complete Book action also publishes
 a new completion decision, so it can supersede Still Reading; ordinary autosaves
 cannot. Sync retains the existing whole-bookmark conflict
-boundary, rather than claiming independent field conflict resolution.
+boundary, rather than claiming independent field conflict resolution. Managed
+bookmark/statistics state is bounded at 1 MiB per linked book so multi-year
+daily history does not hit the former 64 KiB envelope.
 
 ## macOS package EPUB import
 

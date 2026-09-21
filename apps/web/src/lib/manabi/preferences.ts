@@ -11,6 +11,7 @@ import { availableThemes, portableThemeName } from '$lib/data/theme-option';
 import { account, currentUser, IntegrationError, request } from './client';
 import { equal, exclusive, mergeRecords, metadata, setMetadata } from './persistence';
 import { organizationPreference, reloadOrganization } from '$lib/library/organization';
+import { parsePreferenceReply } from './auth-contract';
 
 type Flat = Record<string, unknown>;
 interface SavedPreferences {
@@ -19,12 +20,6 @@ interface SavedPreferences {
   base: Flat;
   local: Flat;
   revision: number;
-}
-interface PreferenceReply {
-  user_id: string;
-  schema_version: number;
-  revision: number;
-  settings: Record<string, unknown>;
 }
 export const preferenceStatus = writable<{ enabled: boolean; state: string; conflicts: string[] }>({
   enabled: false,
@@ -255,20 +250,13 @@ export async function syncPreferences(choice?: 'local' | 'remote'): Promise<void
     preferenceStatus.set({ enabled: true, state: 'syncing', conflicts: [] });
     const captured = structuredClone(state.local);
     try {
-      const remote = await request<PreferenceReply>('preferences/', { userId: user });
+      const remote = parsePreferenceReply(
+        await request<unknown>('preferences/', { userId: user }),
+        user
+      );
       if (!isCurrent()) return;
       unchangedUser(user);
-      if (
-        remote.user_id !== user ||
-        remote.schema_version !== 1 ||
-        !Number.isSafeInteger(remote.revision) ||
-        remote.revision < 0 ||
-        !remote.settings ||
-        typeof remote.settings !== 'object' ||
-        Array.isArray(remote.settings)
-      ) {
-        throw new IntegrationError('invalid_response');
-      }
+      if (!remote) throw new IntegrationError('invalid_response');
       const there = flatten(remote.settings);
       let merged: Flat;
       if (
@@ -288,16 +276,24 @@ export async function syncPreferences(choice?: 'local' | 'remote'): Promise<void
       }
       let accepted = remote;
       if (!equal(merged, there)) {
-        accepted = await request<PreferenceReply>('preferences/', {
-          method: 'PUT',
-          value: { settings: expand(merged) },
-          revision: `"${remote.revision}"`,
-          userId: user
-        });
+        const response = parsePreferenceReply(
+          await request<unknown>('preferences/', {
+            method: 'PUT',
+            value: { settings: expand(merged) },
+            revision: `"${remote.revision}"`,
+            userId: user
+          }),
+          user
+        );
         if (!isCurrent()) return;
         unchangedUser(user);
-        if (accepted.user_id !== user || !Number.isSafeInteger(accepted.revision))
+        if (
+          !response ||
+          response.revision !== remote.revision + 1 ||
+          !equal(flatten(response.settings), merged)
+        )
           throw new IntegrationError('invalid_response');
+        accepted = response;
       }
       const newer = mergeRecords(captured, state.local, merged);
       if (newer.conflicts.length) {

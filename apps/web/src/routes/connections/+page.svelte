@@ -58,6 +58,7 @@
   let preferenceChoice: 'remote' | 'local' = 'remote';
   let navigation = 0;
   let stopped = false;
+  const connectionReturn = encodeURIComponent(resolve('/connections'));
 
   function report(error: unknown) {
     message =
@@ -290,10 +291,10 @@
     {:else}
       <p>An account is optional. Sign in to sync your preferences and connect cloud libraries.</p>
       <div class="actions">
-        <a class="button" rel="external" href="/accounts/login/?next=/Reader-Web/connections"
+        <a class="button" rel="external" href="/accounts/login/?next={connectionReturn}"
           >Sign in to Manabi</a
         >
-        <a class="button" rel="external" href="/accounts/signup/?next=/Reader-Web/connections"
+        <a class="button" rel="external" href="/accounts/signup/?next={connectionReturn}"
           >Create a Manabi account</a
         >
       </div>
@@ -306,7 +307,7 @@
       disabled={busy}
       on:click={() =>
         action(async () => {
-          await refreshAccount();
+          await refreshAccount(true);
           await reload();
         })}>Refresh connections</button
     >

@@ -3,6 +3,8 @@ import test from 'node:test';
 import {
   applyPortableOrganization,
   isPortableBookKey,
+  isPortablePresentation,
+  isPortableText,
   portableOrganization
 } from '../../apps/web/src/lib/library/organization-portability.ts';
 
@@ -28,6 +30,31 @@ test('only canonical full content hashes are portable book identities', () => {
   ]) {
     assert.equal(isPortableBookKey(key), false, key);
   }
+});
+
+test('portable presentation values match the account contract', () => {
+  assert.equal(isPortableText('Study', 240), true);
+  for (const value of ['', 'bad\nname', 'x'.repeat(241)])
+    assert.equal(isPortableText(value, 240), false, JSON.stringify(value));
+  assert.equal(
+    isPortablePresentation({
+      title: 'Account title',
+      direction: 'rtl',
+      cover: 'data:image/png;base64,AA==',
+      modifiedAt: 123
+    }),
+    true
+  );
+  for (const value of [
+    { title: '', modifiedAt: 1 },
+    { title: 'bad\nname', modifiedAt: 1 },
+    { direction: 'vertical', modifiedAt: 1 },
+    { cover: 'data:image/png;base64,%%%', modifiedAt: 1 },
+    { refresh_token: 'secret', modifiedAt: 1 },
+    { modifiedAt: -1 },
+    { modifiedAt: Number.MAX_SAFE_INTEGER + 1 }
+  ])
+    assert.equal(isPortablePresentation(value), false, JSON.stringify(value));
 });
 
 test('exports content identities without numeric book IDs or source locators', () => {
