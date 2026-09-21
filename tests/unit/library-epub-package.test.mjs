@@ -77,7 +77,10 @@ async function macosBrowserPackageHandoff({ includeMacMetadata = false } = {}) {
     await writer.add(relativePath, new BlobReader(file));
   }
   if (includeMacMetadata) {
-    await writer.add('__MACOSX/藪の中 2.epub/._mimetype', new BlobReader(new Blob(['appledouble'])));
+    await writer.add(
+      '__MACOSX/藪の中 2.epub/._mimetype',
+      new BlobReader(new Blob(['appledouble']))
+    );
   }
   const blob = await writer.close();
   return new File([blob], '藪の中 2.epub.zip', {
