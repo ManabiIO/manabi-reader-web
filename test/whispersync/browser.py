@@ -1,7 +1,7 @@
 """Run isolated real-browser core tests, not the complete Svelte application.
 
 Prepare with: node test/whispersync/run.mjs --browser-bundle=/tmp/ws-browser/bundle.js
-Then: python test/whispersync/browser.py /tmp/ws-browser/bundle.js [--chromium /usr/bin/chromium]
+Then: python test/whispersync/browser.py /tmp/ws-browser/bundle.js [--browser chromium]
 Requires Python Playwright and a browser. Uses only a temporary loopback HTTP server.
 """
 from __future__ import annotations
@@ -14,7 +14,10 @@ from playwright.sync_api import sync_playwright
 
 parser = argparse.ArgumentParser()
 parser.add_argument('bundle', type=Path)
-parser.add_argument('--chromium', default=None)
+parser.add_argument('--browser', choices=('chromium', 'firefox', 'webkit'), default='chromium')
+parser.add_argument('--executable', default=None, help='Browser executable path (engine-specific)')
+parser.add_argument('--autoplay-policy', choices=('normal', 'allow'), default='normal',
+                    help='Use normal browser autoplay policy, or allow media playback without a gesture')
 parser.add_argument('--offline-dom', action='store_true', help='Use about:blank, with no HTTP navigation; skips origin-dependent IndexedDB tests')
 args = parser.parse_args()
 bundle = args.bundle.read_bytes()
@@ -37,10 +40,12 @@ thread = threading.Thread(target=server.serve_forever, daemon=True)
 thread.start()
 try:
     with sync_playwright() as p:
-        options = {'headless': True, 'args': ['--autoplay-policy=no-user-gesture-required']}
-        if args.chromium:
-            options['executable_path'] = args.chromium
-        browser = p.chromium.launch(**options)
+        options = {'headless': True}
+        if args.executable:
+            options['executable_path'] = args.executable
+        if args.browser == 'chromium' and args.autoplay_policy == 'allow':
+            options['args'] = ['--autoplay-policy=no-user-gesture-required']
+        browser = getattr(p, args.browser).launch(**options)
         page = browser.new_page()
         if args.offline_dom:
             page.set_content('<!doctype html><title>Offline DOM tests</title><body></body>')
@@ -50,7 +55,11 @@ try:
             page.goto(f'http://127.0.0.1:{server.server_port}')
         results = page.evaluate('(skipStorage) => window.runWhispersyncBrowserTests({ skipStorage })', args.offline_dom)
         executed = [r for r in results if not r.get('skipped')]
-        report = {'browser': browser.version, 'passed': sum(r['passed'] for r in executed), 'total': len(executed), 'registered': len(results), 'skipped': len(results) - len(executed), 'mode': 'offline DOM (no origin storage)' if args.offline_dom else 'loopback origin', 'tests': results}
+        report = {'engine': args.browser, 'browser': browser.version, 'autoplay_policy': args.autoplay_policy,
+                  'passed': sum(r['passed'] for r in executed), 'total': len(executed),
+                  'registered': len(results), 'skipped': len(results) - len(executed),
+                  'mode': 'offline DOM (no origin storage)' if args.offline_dom else 'loopback origin',
+                  'tests': results}
         print(json.dumps(report, ensure_ascii=False, indent=2))
         browser.close()
         if report['passed'] != report['total']:

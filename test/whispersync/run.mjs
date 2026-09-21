@@ -32,6 +32,8 @@ try {
     lib: ['lib.es2022.d.ts', 'lib.dom.d.ts', 'lib.es2022.intl.d.ts'],
     types: [],
     outDir: output,
+    sourceMap: process.argv.includes('--coverage'),
+    inlineSources: process.argv.includes('--coverage'),
     skipLibCheck: false
   });
   const emit = program.emit();
@@ -47,14 +49,21 @@ try {
     process.exitCode = 1;
   } else {
     console.log(`Strict core typecheck passed (TypeScript ${ts.version})`);
-    const result = spawnSync(
-      process.execPath,
-      ['--test', join(root, 'test/whispersync/core.test.cjs')],
-      {
-        stdio: 'inherit',
-        env: { ...process.env, WHISPERSYNC_COMPILED: output }
-      }
-    );
+    const testArguments = ['--test'];
+    if (process.argv.includes('--coverage')) {
+      testArguments.push(
+        '--enable-source-maps',
+        '--experimental-test-coverage',
+        '--test-coverage-lines=75',
+        '--test-coverage-branches=85',
+        '--test-coverage-functions=85'
+      );
+    }
+    testArguments.push(join(root, 'test/whispersync/core.test.cjs'));
+    const result = spawnSync(process.execPath, testArguments, {
+      stdio: 'inherit',
+      env: { ...process.env, WHISPERSYNC_COMPILED: output }
+    });
     status = result.status ?? 1;
     if (process.argv.includes('--svelte')) {
       const webRequire = createRequire(join(root, 'apps/web/package.json'));

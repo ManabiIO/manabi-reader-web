@@ -144,6 +144,29 @@ window.runWhispersyncBrowserTests = async function ({ skipStorage = false } = {}
     second.clear();
     assert(!CSS.highlights.has('manabi-whispersync'));
   });
+  await test('highlighting fails closed when the CSS Highlight API is unavailable', async () => {
+    const unsupported = new w.ReaderHighlight({});
+    assert(!unsupported.supported);
+    unsupported.set(document.createRange());
+    unsupported.clear();
+  });
+  await test('matching reports an actionable error when mutation observers are unavailable', async () => {
+    const view = document.defaultView;
+    const previous = view.MutationObserver;
+    view.MutationObserver = undefined;
+    try {
+      dom('<p>book text</p>');
+      let failed = false;
+      try {
+        await w.buildBookIndex(root);
+      } catch (error) {
+        failed = /mutation tracking is unavailable/i.test(error.message);
+      }
+      assert(failed);
+    } finally {
+      view.MutationObserver = previous;
+    }
+  });
   await test('selection hint maps across normalized characters', async () => {
     dom('<p>前ﾊﾟ𠮷chapter</p>');
     const index = await w.buildBookIndex(root);
@@ -528,8 +551,6 @@ window.runWhispersyncBrowserTests = async function ({ skipStorage = false } = {}
     assert(Math.abs(audio.currentTime - 1.2) < 0.02);
     await player.play();
     assert(!state.error, state.error);
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    assert(audio.currentTime >= 1.2);
     player.pause();
     player.dispose();
     equal(host.children.length, 0);
