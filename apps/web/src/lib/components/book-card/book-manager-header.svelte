@@ -39,8 +39,8 @@
     FolderPlusIcon as FolderPlus,
     GearIcon as Gear,
     ListIcon as List,
+    TextAlignLeftIcon as CollectionsList,
     SelectionAllIcon as SelectionAll,
-    SidebarSimpleIcon as SidebarSimple,
     SquaresFourIcon as SquaresFour,
     UserCircleIcon as UserCircle
   } from 'phosphor-svelte';
@@ -48,7 +48,6 @@
   export let modernLibrary = false;
   export let title = 'Library';
   export let collectionsExpanded = false;
-  export let wideLibrary = false;
   export let libraryMenu: LibraryMenuModel | undefined = undefined;
   export let hasBookOpened: boolean;
   export let selectMode: boolean;
@@ -164,24 +163,10 @@
 {#if modernLibrary}
   <header class="app-header bg-background text-foreground" aria-label="Library toolbar">
     <div
-      class="mx-auto flex min-h-16 items-center justify-between gap-3 px-4 py-2 sm:px-6 {wideLibrary
-        ? 'max-w-[1440px]'
-        : 'max-w-6xl'}"
+      class="mx-auto flex min-h-16 max-w-[1440px] items-center justify-between gap-3 px-4 py-2 sm:px-6"
     >
       <div class="flex min-w-0 items-center gap-2">
-        <Button
-          variant="ghost"
-          size="icon"
-          class="size-11 shrink-0 rounded-full"
-          aria-label="Show or hide library sidebar"
-          title="Library sidebar"
-          aria-expanded={collectionsExpanded}
-          aria-controls="library-collections-navigation"
-          onclick={() => dispatch('collectionsClick')}
-          disabled={!!replicationToProgress}
-        >
-          <SidebarSimple class="size-5" aria-hidden="true" />
-        </Button>
+        <span class="lg:hidden"><AppNav iconOnly /></span>
         {#if libraryMenu?.canGoBack}
           <Button
             variant="ghost"
@@ -201,6 +186,20 @@
         {/if}
       </div>
       <div class="flex shrink-0 items-center gap-2">
+        <Button
+          variant="outline"
+          size="icon"
+          class="size-11 rounded-full lg:hidden"
+          aria-label="Collections"
+          title="Collections"
+          aria-expanded={collectionsExpanded}
+          aria-haspopup="dialog"
+          aria-controls="library-collections-sheet"
+          onclick={() => dispatch('collectionsClick')}
+          disabled={!!replicationToProgress}
+        >
+          <CollectionsList class="size-5" aria-hidden="true" />
+        </Button>
         <Menu.Root>
           <Menu.Trigger>
             {#snippet child({ props })}

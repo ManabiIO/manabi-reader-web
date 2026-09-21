@@ -45,8 +45,10 @@ class RheaReader(previous.RefinedAppearance):
         expect(membership).to_be_checked()
         self.page.get_by_role('button', name='Done', exact=True).click()
 
-        self.page.get_by_role('button', name='Show or hide library sidebar', exact=True).click()
-        self.page.get_by_role('button').filter(has_text='Study').click()
+        self.page.set_viewport_size({'width':390, 'height':844})
+        self.page.get_by_role('button', name='Collections', exact=True).click()
+        self.page.locator('#library-collections-sheet').get_by_role(
+            'button', name='Study', exact=False).click()
         expect(self.page.get_by_role('heading', name='Study', exact=True)).to_be_visible()
         read = self.page.get_by_role('button', name=f'Read {TITLE}', exact=True)
         expect(read).to_be_visible()

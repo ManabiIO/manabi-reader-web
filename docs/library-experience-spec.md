@@ -17,17 +17,18 @@ Success means distinct, coherent destinations rather than one grid with differen
 - A reading-evidence-based Continue shelf, Finished timeline/Grid preference, and responsive scoped series hero/list.
 - Separate root, series, and Finished layout preferences; contextual empty states; no contradictory Not Finished control inside Finished.
 - Optional creator metadata through EPUB/HTMLZ import, persistence, bounded versioned preview cache, export/restore, and Ttu migration; creator display, search, and Author sort.
-- Deterministic identity-seeded missing covers, dark shadows in both themes, Unread status, and a collapsible 224px desktop collection rail.
+- Deterministic identity-seeded missing covers, dark shadows in both themes, Unread status, and responsive collection navigation: a compact sheet below 1024px and a persistent 224px sidebar at regular widths.
 - Connected previews remain explicit: selecting never imports one, and Save to This Browser is a named book action.
+- Collections and book presentation overrides sync through the existing opt-in account preference document using content identities that survive provider/path moves. Missing references remain stored but are hidden and excluded from visible counts.
 
-Series batch completion/collection menus, selection of unsaved previews for metadata-only collection membership, URL-backed search history, and artwork-derived hero tint remain later slices. Cloud mutation and cross-device organization remain separate projects.
+Series batch completion/collection menus, selection of unsaved previews for metadata-only collection membership, URL-backed search history, and artwork-derived hero tint remain later slices. Cloud physical mutation remains a separate project.
 
 ## Scope and invariants
 
 - Personal ebooks only in this work. Store, discovery, purchases, ratings, and audiobook navigation shown in the references are outside this specification.
 - Preserve the compact Library header; do not restore the old exposed TTU management toolbar.
 - Series remain directory-backed. Source roots are not series; structural empty/single-child wrappers flatten; nested series precede individual books. Filtering must not mutate or re-identify the directory tree.
-- Collections remain many-to-many memberships and never move files. Browser-local organization remains honestly labeled until a separate sync project ships.
+- Collections remain many-to-many memberships and never move files. Organization persists locally and participates in the existing account preference sync when the user enables it.
 - Retain completion dates, explicit Still Reading precedence, autosave fencing, migration, and reader Complete Book behavior.
 - Preserve EPUB-derived binding direction and manual cover-edge overrides. Japanese language alone never implies RTL.
 - Keep local move journaling, verification, relinking, recovery, and collision handling unchanged.
@@ -83,12 +84,12 @@ A later slice that makes previews selectable must remap selected keys through th
 
 ## 3. Shared shell and collection navigation
 
-- Root heading: Manabi Reader for Web in the system face, with a conventional leading sidebar action and trailing Library actions button.
+- Root heading: Manabi Reader for Web in the system face, with compact main-navigation and Collections actions plus the trailing Library actions button.
 - Collection/Finished destination: its name is the primary heading; provide Library/back navigation and contextual destination actions. Avoid a large Library heading followed by a second competing destination title.
 - Series: parent navigation and hero title establish the destination; do not repeat another large heading above the hero.
 - Keep Search near the shelf. Put View Options and Organize Library inside the top Library actions menu. All existing actions remain reachable, including imports, legacy storage, settings, statistics, shared libraries, migration, and reporting.
-- Add a collapsible library-only desktop rail at viewport widths of at least 1280px. Width: 224px. Entries: Books, Finished, My Collections, New Collection. On narrower screens use the existing Collections sheet. Persist desktop collapse preference locally; never squeeze a rail into mobile.
-- On wide screens the sidebar button toggles the rail; on narrow screens it opens the sheet. Expose the appropriate expanded/control relationship to assistive technology.
+- Treat widths below 1024px as compact horizontal size. Hide the sidebar and show a hamburger that opens main navigation from the left plus a distinct Collections action beside Library actions. Collections opens a grouped bottom sheet with Books, Finished, custom collections, counts, Edit/Done management, and New Collection.
+- At widths of 1024px and above, show the 224px collection sidebar persistently and omit both compact actions. Entries: Books, Finished, My Collections, New Collection. Crossing the breakpoint swaps the two representations without duplicating visible navigation or persisting a manual collapse state.
 - Collection actions: Rename Collection and Delete Collection. Deletion removes membership container only and returns to Books if deleting the active collection.
 - Use one content container for headings, controls, and shelves: maximum 1152px in the available main column; 16px mobile gutters, 24px tablet, 32px desktop. Remove conflicting nested width rules. Final dimensions may be tuned through screenshot review, but alignment is an acceptance requirement.
 
@@ -191,13 +192,13 @@ Refactor by responsibility while preserving the existing catalog and file operat
 | Import types/loaders, DB, preview cache, storage export, Ttu migration | Optional bounded creator metadata end to end                                                                 |
 | `book-cover.svelte`, `cover-stack.svelte`                              | Shared geometry, fallback cover identity, color/shadow treatment                                             |
 
-Keep query/navigation state in the URL; transient selection and active operations in memory; layout/sort/rail preferences in versioned local storage. Store collections and book presentation overrides with the account preference document, using content identity for linked books so provider and path changes do not break references. Missing sources remain referenced but are omitted from visible shelves and counts. Use separate preference families for Books, custom collections, Finished, and series. Read current layout/sort preferences as migration defaults for Books; do not blindly share those defaults with Finished or series.
+Keep query/navigation state in the URL; transient selection and active operations in memory; layout/sort preferences in versioned local storage. Store collections and book presentation overrides with the account preference document, using content identity for linked books so provider and path changes do not break references. Missing sources remain referenced but are omitted from visible shelves and counts. Use separate preference families for Books, custom collections, Finished, and series. Read current layout/sort preferences as migration defaults for Books; do not blindly share those defaults with Finished or series.
 
 ## 10. Work breakdown and dependencies
 
 1. **Scope and command safety.** Unified projection, selection rules, source-preview selection without import, Finished filter/empty-state corrections, scoped series hero. Ship focused behavior regressions first.
 2. **Metadata.** Creator extraction, optional persistence/preview enrichment, export/import migration, search and Author sorting. Requires identity preservation and no eager source rereads.
-3. **Navigation and shared layout.** Destination headings, desktop rail/mobile sheet, common alignment, contextual collection actions, persistent preference families.
+3. **Navigation and shared layout.** Destination headings, regular-width sidebar/compact sheet, common alignment, contextual collection actions, persistent preference families.
 4. **Continue and shelf presentation.** Reading evidence helper, Continue cards, status labels, fallback covers, dark shadows. Uses metadata and shared shell.
 5. **Finished history.** Timeline/Grid preference, date grouping/formatting, unknown dates, scoped search, completion actions.
 6. **Series experience.** Responsive hero, independent volume layout/order, scoped group actions and failure handling. Reuse the fixed selection/capability model.
@@ -206,10 +207,12 @@ Each slice must be independently reviewable and preserve working import/export/n
 
 ## 11. Acceptance and qualification
 
-Use Luna medium subagents for all tests/builds/runs, per session preference. This document does not claim that the new behavior is implemented or qualified.
+Use Luna medium subagents for all tests/builds/runs, per session preference. Items identified above as later slices remain specifications rather than claims of implementation or qualification.
 
 Essential regression scenarios:
 
+- At 390px, the sidebar is absent; Main menu opens from the left; Collections opens the grouped sheet; Edit/Done and collection create/rename/delete remain reachable; pushed destinations retain Back and do not overflow.
+- At 1023px/1024px and through later resizes, navigation swaps cleanly between compact controls and the persistent sidebar without duplicated visible controls or a saved collapse state.
 - Eight imported books; a one-book collection and matching search; Select all reports one and export targets one. No hidden selections survive scope changes.
 - A filtered series tile selects only matching descendants, shows mixed state correctly, and counts each logical book once.
 - Selecting source previews changes no book/import/bookmark/statistics records and causes no source reads; explicit Save imports only the requested items and preserves/remaps memberships.

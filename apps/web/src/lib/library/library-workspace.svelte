@@ -85,7 +85,6 @@
   export let selectedBookIds: ReadonlySet<number> = new Set();
   export let selectMode = false;
   export let destinationTitle = 'Library';
-  export let desktopRailOpen = false;
   export let menu: LibraryMenuModel | undefined = undefined;
   const dispatch = createEventDispatcher<{
     bookClick: { id: number };
@@ -499,11 +498,6 @@
   }
   onMount(() => {
     alive = true;
-    try {
-      desktopRailOpen = localStorage.getItem('manabi-library-rail-open') === '1';
-    } catch {
-      /* preference is optional */
-    }
     previewQueue = new PreviewQueue(() => {
       if (alive) previewFailures++;
     });
@@ -755,50 +749,46 @@
   </Menu.Root>
 {/snippet}
 
-<div class="library-frame" class:rail-open={desktopRailOpen}>
-  {#if desktopRailOpen}<aside
-      id="library-collections-navigation"
-      class="library-rail"
-      aria-label="Collections"
-    >
-      <h2>Library</h2>
-      <nav>
-        <button
-          aria-current={collectionId === 'books' ? 'page' : undefined}
+<div class="library-frame">
+  <aside id="library-collections-navigation" class="library-rail" aria-label="Collections">
+    <h2>Library</h2>
+    <nav>
+      <button
+        aria-current={collectionId === 'books' ? 'page' : undefined}
+        onclick={() => {
+          query = '';
+          navigate(undefined, 'books', false);
+        }}><BookOpen aria-hidden="true" /><span>Books</span><span>{books.length}</span></button
+      >
+      <button
+        aria-current={collectionId === 'finished' ? 'page' : undefined}
+        onclick={() => {
+          query = '';
+          navigate(undefined, 'finished', false);
+        }}
+        ><CircleCheck aria-hidden="true" /><span>Finished</span><span
+          >{books.filter(isFinished).length}</span
+        ></button
+      >
+      <h3>My Collection</h3>
+      {#each $organization.collections as collection (collection.id)}<button
+          aria-current={collectionId === collection.id ? 'page' : undefined}
           onclick={() => {
             query = '';
-            navigate(undefined, 'books', false);
-          }}><BookOpen aria-hidden="true" /><span>Books</span><span>{books.length}</span></button
-        >
-        <button
-          aria-current={collectionId === 'finished' ? 'page' : undefined}
-          onclick={() => {
-            query = '';
-            navigate(undefined, 'finished', false);
+            navigate(undefined, collection.id, false);
           }}
-          ><CircleCheck aria-hidden="true" /><span>Finished</span><span
-            >{books.filter(isFinished).length}</span
+          ><List aria-hidden="true" /><span>{collection.name}</span><span
+            >{books.filter((book) =>
+              book.organizationAliases.some((alias) => collection.members.includes(alias))
+            ).length}</span
           ></button
-        >
-        <h3>My Collection</h3>
-        {#each $organization.collections as collection (collection.id)}<button
-            aria-current={collectionId === collection.id ? 'page' : undefined}
-            onclick={() => {
-              query = '';
-              navigate(undefined, collection.id, false);
-            }}
-            ><List aria-hidden="true" /><span>{collection.name}</span><span
-              >{books.filter((book) =>
-                book.organizationAliases.some((alias) => collection.members.includes(alias))
-              ).length}</span
-            ></button
-          >{/each}
-        <button onclick={() => (collectionsOpen = true)}
-          ><Plus aria-hidden="true" /><span>New Collection…</span></button
-        >
-      </nav>
-      <p>Synced with Manabi Reader settings when account sync is on.</p>
-    </aside>{/if}
+        >{/each}
+      <button onclick={() => (collectionsOpen = true)}
+        ><Plus aria-hidden="true" /><span>New Collection…</span></button
+      >
+    </nav>
+    <p>Synced with Manabi Reader settings when account sync is on.</p>
+  </aside>
   <section
     class="library-workspace max-w-none pb-14"
     aria-label="Library shelves"
@@ -1573,8 +1563,8 @@
       font-size: 0.95rem;
     }
   }
-  @media (min-width: 1280px) {
-    .library-frame.rail-open {
+  @media (min-width: 1024px) {
+    .library-frame {
       display: grid;
       grid-template-columns: 14rem minmax(0, 1fr);
       gap: 2rem;

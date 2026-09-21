@@ -115,7 +115,6 @@
   let executionStart: number;
   let firstBookFileInput: HTMLInputElement;
   let collectionsOpen = false;
-  let desktopRailOpen = false;
   let destinationTitle = 'Library';
   let selectionScopeKey = '';
   let selectableBookIds: number[] = [];
@@ -441,14 +440,7 @@
   }
 
   function toggleCollections() {
-    if (window.innerWidth >= 1280) {
-      desktopRailOpen = !desktopRailOpen;
-      try {
-        localStorage.setItem('manabi-library-rail-open', desktopRailOpen ? '1' : '0');
-      } catch {
-        /* preference is optional */
-      }
-    } else collectionsOpen = true;
+    collectionsOpen = true;
   }
 
   function backToCurrentBook() {
@@ -775,8 +767,7 @@
     modernLibrary={$storageSource$ === StorageKey.BROWSER}
     title={destinationTitle}
     {libraryMenu}
-    collectionsExpanded={desktopRailOpen || collectionsOpen}
-    wideLibrary={desktopRailOpen}
+    collectionsExpanded={collectionsOpen}
     hasBookOpened={!!$currentBookId$}
     selectedCount={selectedBookIds.size}
     hasBooks={!!$bookCards$?.length}
@@ -832,7 +823,6 @@
       {selectMode}
       bind:destinationTitle
       bind:collectionsOpen
-      bind:desktopRailOpen
       bind:menu={libraryMenu}
       bookCards={$bookCards$}
       on:bookClick={(ev) => onBookClick(ev.detail.id)}
