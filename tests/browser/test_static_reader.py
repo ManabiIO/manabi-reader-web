@@ -37,6 +37,23 @@ def epub():
 
 class StaticHandler(SimpleHTTPRequestHandler):
     probes = []
+    session_gate = None
+    session_started = None
+
+    def do_GET(self):
+        # A focused lifecycle test can hold one real session response open while
+        # the document navigates or closes. Consume the gate once so a new
+        # document's own account probe is never held accidentally.
+        if urlsplit(self.path).path == '/api/reader-web/session/':
+            gate = type(self).session_gate
+            started = type(self).session_started
+            if gate is not None:
+                type(self).session_gate = None
+                type(self).session_started = None
+                if started is not None:
+                    started.set()
+                gate.wait(timeout=10)
+        super().do_GET()
 
     def translate_path(self, path):
         path = unquote(urlsplit(path).path)
@@ -87,6 +104,8 @@ class ReaderBrowser(unittest.TestCase):
         self.errors = []
         self.page.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))
         StaticHandler.probes.clear()
+        StaticHandler.session_gate = None
+        StaticHandler.session_started = None
 
     def tearDown(self):
         # Keep diagnostics for this generated fixture only, never real account data.
@@ -97,6 +116,11 @@ class ReaderBrowser(unittest.TestCase):
             (diagnostics / (name + '.html')).write_text(self.page.content())
             self.page.screenshot(path=str(diagnostics / (name + '.png')), full_page=True)
         finally:
+            gate = StaticHandler.session_gate
+            StaticHandler.session_gate = None
+            StaticHandler.session_started = None
+            if gate is not None:
+                gate.set()
             # A diagnostic failure must not leak a profile into the next test.
             self.context.close()
             if self.errors:

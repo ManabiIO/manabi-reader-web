@@ -95,13 +95,16 @@ export async function refreshAccount(): Promise<ManabiSession | null> {
   const serial = ++refreshSerial;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
-  const cancelNavigationFetch = () => controller.abort();
-  window.addEventListener('pagehide', cancelNavigationFetch, { once: true });
   try {
     const response = await fetch(`${ROOT}session/`, {
       credentials: 'same-origin',
       cache: 'no-store',
       redirect: 'error',
+      // This small, optional session probe may overlap a same-origin navigation.
+      // Let it finish instead of aborting from pagehide: WebKit can surface an
+      // unload-time fetch cancellation as a CORS page error even when the
+      // rejected promise is caught. The timeout still bounds a stalled probe.
+      keepalive: true,
       signal: controller.signal
     });
     if (response.status === 404 || response.status === 503) {
@@ -136,7 +139,6 @@ export async function refreshAccount(): Promise<ManabiSession | null> {
     return null;
   } finally {
     clearTimeout(timeout);
-    window.removeEventListener('pagehide', cancelNavigationFetch);
   }
 }
 
