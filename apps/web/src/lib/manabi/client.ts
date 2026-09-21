@@ -6,18 +6,16 @@
 
 import { boundedBytes } from '$lib/library/bounded-response';
 import { get, writable } from 'svelte/store';
+import {
+  parseSession,
+  providerAuthorization,
+  validInternalPath,
+  validJsonMediaType,
+  type ManabiSession,
+  type ManabiUser
+} from './auth-contract';
 
-export interface ManabiUser {
-  id: string;
-  username: string;
-}
-export interface ManabiSession {
-  user: ManabiUser | null;
-  csrf_token: string;
-  providers: string[];
-  login_url: string;
-  signup_url: string;
-}
+export type { ManabiSession, ManabiUser } from './auth-contract';
 export type AccountStatus = 'loading' | 'available' | 'unavailable' | 'offline';
 export const account = writable<{ status: AccountStatus; session: ManabiSession | null }>({
   status: 'loading',
@@ -27,6 +25,10 @@ export const account = writable<{ status: AccountStatus; session: ManabiSession 
 const ROOT = '/api/reader-web/';
 let generation = 0;
 let refreshSerial = 0;
+let refreshInFlight: { generation: number; promise: Promise<ManabiSession | null> } | undefined;
+let lastRefreshFinished = 0;
+let lastRefreshResult: ManabiSession | null = null;
+let refreshAttempt = 0;
 
 export class IntegrationError extends Error {
   constructor(
@@ -55,6 +57,7 @@ const messages: Record<string, string> = {
   invalid_cursor: 'The folder listing changed or expired. Refresh the folder.',
   permission_required: 'Reconnect this local folder to grant access again.',
   unsupported: 'This browser does not support persistent local-folder access.',
+  request_too_large: 'This reading or settings record exceeds the supported size limit.',
   too_large: 'This file or reading-data record exceeds the supported size limit.'
 };
 
@@ -71,6 +74,9 @@ export function accountScope(): { userId: string; generation: number } {
 function invalidateAccount() {
   refreshSerial += 1;
   generation += 1;
+  refreshAttempt += 1;
+  lastRefreshFinished = 0;
+  lastRefreshResult = null;
   account.update((state) => ({
     ...state,
     session: state.session ? { ...state.session, user: null } : null
@@ -78,20 +84,18 @@ function invalidateAccount() {
 }
 
 async function jsonResponse(response: Response): Promise<any> {
-  if (!response.headers.get('Content-Type')?.includes('application/json')) {
+  if (!validJsonMediaType(response.headers.get('Content-Type'))) {
     throw new IntegrationError('invalid_response', response.status);
   }
-  const value = await response.text();
-  if (value.length > 4 * 1024 * 1024)
-    throw new IntegrationError('invalid_response', response.status);
   try {
-    return JSON.parse(value);
+    const bytes = await boundedBytes(response, 4 * 1024 * 1024);
+    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
   } catch {
     throw new IntegrationError('invalid_response', response.status);
   }
 }
 
-export async function refreshAccount(): Promise<ManabiSession | null> {
+async function performAccountRefresh(): Promise<ManabiSession | null> {
   const serial = ++refreshSerial;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
@@ -113,21 +117,12 @@ export async function refreshAccount(): Promise<ManabiSession | null> {
       return null;
     }
     if (!response.ok) throw new IntegrationError('unavailable', response.status);
-    const session = (await jsonResponse(response)) as ManabiSession;
-    if (
-      typeof session.csrf_token !== 'string' ||
-      !Array.isArray(session.providers) ||
-      !session.providers.every((p) => typeof p === 'string' && /^[a-z][a-z0-9-]{0,31}$/.test(p)) ||
-      (session.user !== null &&
-        (typeof session.user?.id !== 'string' || typeof session.user?.username !== 'string'))
-    ) {
+    const session = parseSession(await jsonResponse(response));
+    if (!session) throw new IntegrationError('invalid_response');
+    if (response.headers.get('X-Manabi-User') !== (session.user?.id ?? ''))
       throw new IntegrationError('invalid_response');
-    }
     if (serial !== refreshSerial) return null;
     if (currentUser()?.id !== session.user?.id) generation += 1;
-    // Auth navigation is fixed locally, never a server-controlled open redirect.
-    session.login_url = '/accounts/login/?next=/Reader-Web/connections';
-    session.signup_url = '/accounts/signup/?next=/Reader-Web/connections';
     account.set({ status: 'available', session });
     return session;
   } catch {
@@ -142,6 +137,26 @@ export async function refreshAccount(): Promise<ManabiSession | null> {
   }
 }
 
+export function refreshAccount(force = false): Promise<ManabiSession | null> {
+  const admittedGeneration = generation;
+  if (refreshInFlight?.generation === admittedGeneration) return refreshInFlight.promise;
+  if (!force && Date.now() - lastRefreshFinished < 5000) return Promise.resolve(lastRefreshResult);
+  const attempt = ++refreshAttempt;
+  const promise = performAccountRefresh()
+    .then((result) => {
+      if (attempt === refreshAttempt) {
+        lastRefreshResult = result;
+        lastRefreshFinished = Date.now();
+      }
+      return result;
+    })
+    .finally(() => {
+      if (refreshInFlight?.promise === promise) refreshInFlight = undefined;
+    });
+  refreshInFlight = { generation: admittedGeneration, promise };
+  return promise;
+}
+
 export async function request<T>(
   path: string,
   options: {
@@ -153,13 +168,7 @@ export async function request<T>(
     maximumBytes?: number;
   } = {}
 ): Promise<T> {
-  if (
-    !/^[A-Za-z0-9][A-Za-z0-9_/?=&.%:+-]*$/.test(path) ||
-    path.includes('..') ||
-    path.startsWith('//')
-  ) {
-    throw new Error('Invalid internal API path');
-  }
+  if (!validInternalPath(path)) throw new Error('Invalid internal API path');
   const scope = accountScope();
   if (options.userId && options.userId !== scope.userId)
     throw new IntegrationError('account_changed', 409);
@@ -225,23 +234,15 @@ export async function connectProvider(provider: string) {
     method: 'POST',
     value: {}
   });
-  const url = new URL(result.authorize_url);
-  const httpsProvider =
-    url.protocol === 'https:' &&
-    ['accounts.google.com', 'login.microsoftonline.com', 'www.dropbox.com'].includes(url.hostname);
-  const isolatedLocal =
-    ['127.0.0.1', 'localhost'].includes(location.hostname) &&
-    url.protocol === 'http:' &&
-    url.hostname === '127.0.0.1';
-  if ((!httpsProvider && !isolatedLocal) || url.username || url.password)
-    throw new IntegrationError('invalid_response');
+  const url = providerAuthorization(result.authorize_url, location.hostname);
+  if (!url) throw new IntegrationError('invalid_response');
   location.assign(url.href);
 }
 
 export async function signOut() {
   await request('logout/', { method: 'POST' });
   invalidateAccount();
-  await refreshAccount();
+  await refreshAccount(true);
 }
 
 export const providerLabels: Record<string, string> = {

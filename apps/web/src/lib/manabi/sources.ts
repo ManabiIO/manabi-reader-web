@@ -6,6 +6,7 @@
 
 import { decodeSeriesMetadata, seriesMetadataFilename } from '$lib/library/series-metadata';
 import { IntegrationError, currentUser, request } from './client';
+import { maxManagedStateBytes } from './auth-contract';
 import { integrationDB, exclusive, equal, type LocalLibrary } from './persistence';
 
 export interface LibraryEntry {
@@ -38,7 +39,6 @@ export interface CloudConnection {
 export const supportedBook = (name: string) => /\.(epub|txt|htmlz)$/i.test(name);
 const maxBookBytes = 128 * 1024 * 1024;
 const stateDirectory = '.manabi-reader';
-const maxStateBytes = 65536;
 const maxLocalRevisions = 5000;
 
 export async function sha256(value: ArrayBuffer | Uint8Array | string): Promise<string> {
@@ -56,7 +56,8 @@ function jsonObject(value: unknown): value is Record<string, unknown> {
 }
 function boundState(value: Record<string, unknown>) {
   const raw = JSON.stringify(value);
-  if (new TextEncoder().encode(raw).length > maxStateBytes) throw new IntegrationError('too_large');
+  if (new TextEncoder().encode(raw).length > maxManagedStateBytes)
+    throw new IntegrationError('too_large');
   return raw;
 }
 
@@ -269,7 +270,7 @@ export class LocalLibrarySource implements LibrarySource {
       if (!/^[a-f0-9-]{36}\.json$/.test(name) || handle.kind !== 'file') continue;
       if (documents.length >= maxLocalRevisions) throw new IntegrationError('too_large');
       const file = await handle.getFile();
-      if (file.size > maxStateBytes + 16384) throw new IntegrationError('invalid_response');
+      if (file.size > maxManagedStateBytes + 16384) throw new IntegrationError('invalid_response');
       let value: RevisionDocument;
       try {
         value = JSON.parse(await file.text());

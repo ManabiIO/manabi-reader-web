@@ -102,6 +102,64 @@ class AppearanceBrowser(baseline.ReaderBrowser):
             baseline.StaticHandler.session_started = None
         self.assertEqual([], errors)
 
+    def test_optional_account_auth_syncs_with_csrf_and_one_bootstrap_probe(self):
+        gate = threading.Event()
+        started = threading.Event()
+        baseline.StaticHandler.session_gate = gate
+        baseline.StaticHandler.session_started = started
+        baseline.StaticHandler.account_fixture = {
+            'user': {'id': '42', 'username': 'reader'},
+            'csrf_token': 'c' * 64,
+            'providers': []
+        }
+        self.page.goto(self.origin + '/Reader-Web/connections')
+        try:
+            self.assertTrue(started.wait(timeout=5), 'account bootstrap did not reach the server')
+        finally:
+            gate.set()
+
+        expect(self.page.get_by_text('Signed in as', exact=False)).to_contain_text('reader')
+        session_requests = [
+            request for request in baseline.StaticHandler.account_requests
+            if request['path'].endswith('/session/')
+        ]
+        self.assertEqual(1, len(session_requests))
+
+        sync = self.page.get_by_label('Sync reader settings with this Manabi account', exact=True)
+        sync.check()
+        expect(self.page.get_by_role('status', name='Settings sync status')).to_contain_text(
+            'synced'
+        )
+        preferences = [
+            request for request in baseline.StaticHandler.account_requests
+            if request['path'].endswith('/preferences/')
+        ]
+        self.assertEqual(['GET', 'PUT'], [request['method'] for request in preferences])
+        self.assertEqual('42', preferences[0]['user'])
+        self.assertIsNone(preferences[0]['csrf'])
+        self.assertEqual('42', preferences[1]['user'])
+        self.assertEqual('c' * 64, preferences[1]['csrf'])
+        self.assertEqual('"0"', preferences[1]['if_match'])
+        self.assertEqual({'settings'}, set(preferences[1]['body']))
+
+        self.page.get_by_role('button', name='Sign out', exact=True).click()
+        sign_in = self.page.get_by_role('link', name='Sign in to Manabi', exact=True)
+        expect(sign_in).to_be_visible()
+        self.assertEqual(
+            '/accounts/login/?next=%2FReader-Web%2Fconnections',
+            sign_in.get_attribute('href')
+        )
+        logout = next(
+            request for request in baseline.StaticHandler.account_requests
+            if request['path'].endswith('/logout/')
+        )
+        self.assertEqual('42', logout['user'])
+        self.assertEqual('c' * 64, logout['csrf'])
+        self.assertEqual(2, len([
+            request for request in baseline.StaticHandler.account_requests
+            if request['path'].endswith('/session/')
+        ]))
+
     def test_default_modes_and_persistence(self):
         self.page.emulate_media(color_scheme='dark')
         self.settings()

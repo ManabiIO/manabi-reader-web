@@ -35,6 +35,7 @@ import {
   type LibrarySource,
   type StateCopy
 } from './sources';
+import { maxManagedStateBytes } from './auth-contract';
 
 interface ReadingState extends Record<string, unknown> {
   version: 1;
@@ -137,7 +138,7 @@ function validateState(value: unknown, hash: string): ReadingState {
     )
       throw new IntegrationError('invalid_response');
   }
-  if (new TextEncoder().encode(JSON.stringify(value)).length > 65536)
+  if (new TextEncoder().encode(JSON.stringify(value)).length > maxManagedStateBytes)
     throw new IntegrationError('too_large');
   return value as ReadingState;
 }
