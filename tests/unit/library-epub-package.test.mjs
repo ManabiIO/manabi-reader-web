@@ -12,8 +12,14 @@ import { getEntryFiles } from '../../apps/web/src/lib/functions/file-dom/get-ent
 import { prepareBookImportFiles } from '../../apps/web/src/lib/functions/file-dom/prepare-book-import-files.ts';
 
 const requireFromWeb = createRequire(new URL('../../apps/web/package.json', import.meta.url));
-const { BlobReader, BlobWriter, TextWriter, ZipReader, ZipWriter, configure: zipConfigure } =
-  await import(pathToFileURL(requireFromWeb.resolve('@zip.js/zip.js')).href);
+const {
+  BlobReader,
+  BlobWriter,
+  TextWriter,
+  ZipReader,
+  ZipWriter,
+  configure: zipConfigure
+} = await import(pathToFileURL(requireFromWeb.resolve('@zip.js/zip.js')).href);
 
 zipConfigure({ useWebWorkers: false });
 
