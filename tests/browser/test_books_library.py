@@ -43,6 +43,21 @@ def book(title, spine='', style='body{writing-mode:horizontal-tb}', body=None, s
     return output.getvalue()
 
 
+def wrapped_package_book(title):
+    source = zipfile.ZipFile(io.BytesIO(book(title)))
+    output = io.BytesIO()
+    try:
+        with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
+            for info in source.infolist():
+                if info.is_dir():
+                    continue
+                archive.writestr(title + '.epub/' + info.filename, source.read(info))
+            archive.writestr('__MACOSX/' + title + '.epub/._mimetype', b'appledouble')
+    finally:
+        source.close()
+    return output.getvalue()
+
+
 class LibraryBase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -137,6 +152,26 @@ class LibraryBase(unittest.TestCase):
 
 
 class BooksLibraryBrowser(LibraryBase):
+    def test_package_directory_and_epub_zip_wrapper_import(self):
+        folder_title = 'Package EPUB'
+        with tempfile.TemporaryDirectory() as directory:
+            package_dir = Path(directory) / (folder_title + '.epub')
+            package_dir.mkdir()
+            with zipfile.ZipFile(io.BytesIO(book(folder_title))) as archive:
+                archive.extractall(package_dir)
+            self.page.locator('input[type=file][webkitdirectory]').set_input_files(str(package_dir))
+            expect(self.page.get_by_role(
+                'button', name='Read ' + folder_title, exact=True)).to_be_visible(timeout=30000)
+
+        wrapper_title = 'Wrapped EPUB'
+        self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
+            'name': wrapper_title + '.epub.zip',
+            'mimeType': 'application/zip',
+            'buffer': wrapped_package_book(wrapper_title)
+        })
+        expect(self.page.get_by_role(
+            'button', name='Read ' + wrapper_title, exact=True)).to_be_visible(timeout=30000)
+
     def test_mobile_grid_list_fitted_covers_and_authored_binding(self):
         self.import_book('Left binding', spine='ltr', style='body{writing-mode:vertical-rl}')
         self.import_book('Right binding', spine='rtl', size=(180, 380))

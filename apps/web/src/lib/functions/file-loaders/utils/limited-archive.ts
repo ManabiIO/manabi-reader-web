@@ -29,7 +29,10 @@ export const BOOK_ARCHIVE_LIMITS: Readonly<ArchiveLimits> = Object.freeze({
 /** One cumulative decoder budget can span an outer backup and its nested books. */
 export class ArchiveBudget {
   private decoded = 0;
-  constructor(readonly maximum: number) {
+  readonly maximum: number;
+
+  constructor(maximum: number) {
+    this.maximum = maximum;
     if (!Number.isSafeInteger(maximum) || maximum <= 0)
       throw new Error('Invalid shared archive budget');
   }
@@ -113,11 +116,13 @@ export function resolveArchivePath(owner: string, reference: string): string {
 }
 
 class LimitedBlobReader extends BlobReader {
-  constructor(
-    private readonly input: Blob,
-    private readonly maximumRead: number
-  ) {
+  private readonly input: Blob;
+  private readonly maximumRead: number;
+
+  constructor(input: Blob, maximumRead: number) {
     super(input);
+    this.input = input;
+    this.maximumRead = maximumRead;
   }
 
   override async readUint8Array(index: number, length: number): Promise<Uint8Array> {
@@ -139,12 +144,13 @@ class LimitedBlobReader extends BlobReader {
 class LimitedBlobWriter extends Writer<Blob> {
   private parts: ArrayBuffer[] = [];
   private written = 0;
+  private readonly claim: (bytes: number, entryBytes: number) => void;
+  private readonly mime: string;
 
-  constructor(
-    private readonly claim: (bytes: number, entryBytes: number) => void,
-    private readonly mime: string
-  ) {
+  constructor(claim: (bytes: number, entryBytes: number) => void, mime: string) {
     super();
+    this.claim = claim;
+    this.mime = mime;
   }
 
   override async writeUint8Array(bytes: Uint8Array): Promise<void> {
@@ -185,10 +191,10 @@ export class LimitedArchive {
   private decoded = 0;
   private closing: Promise<void> | undefined;
 
-  private constructor(
-    blob: Blob,
-    private readonly options: ArchiveOptions
-  ) {
+  private readonly options: ArchiveOptions;
+
+  private constructor(blob: Blob, options: ArchiveOptions) {
+    this.options = options;
     this.limits = Object.freeze({ ...(options.limits ?? BOOK_ARCHIVE_LIMITS) });
     for (const value of Object.values(this.limits)) {
       if (!Number.isSafeInteger(value) || value <= 0) throw new Error('Invalid archive limit');

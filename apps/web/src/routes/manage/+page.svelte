@@ -42,6 +42,7 @@
   import { cloneMutateSet } from '$lib/functions/clone-mutate-set';
   import { getDropEventFiles } from '$lib/functions/file-dom/get-drop-event-files';
   import { inputFile } from '$lib/functions/file-dom/input-file';
+  import { prepareBookImportFiles } from '$lib/functions/file-dom/prepare-book-import-files';
   import { formatPageTitle } from '$lib/functions/format-page-title';
   import { keyBy } from '$lib/functions/key-by';
   import { handleErrorDuringReplication } from '$lib/functions/replication/error-handler';
@@ -311,14 +312,28 @@
 
     initializeReplicationProgressData();
 
-    const supportedExtRegex = /\.(?:htmlz|epub|txt)$/;
-    const files = Array.from(fileList).filter((f) => supportedExtRegex.test(f.name));
     const errorTitle = 'Bookimport failed';
+    let files: File[];
+    try {
+      files = await prepareBookImportFiles(fileList, cancelSignal);
+    } catch (error) {
+      resetProgress();
+      showError(
+        errorTitle,
+        error instanceof Error ? error.message : String(error),
+        'Unable to prepare the selected EPUB package'
+      );
+      return;
+    }
 
     if (!files.length) {
       resetProgress();
 
-      showError(errorTitle, 'File(s) must be HTMLZ, TXT or EPUB', '');
+      showError(
+        errorTitle,
+        'File(s) must be HTMLZ, TXT, EPUB, an EPUB package folder, or an .epub.zip wrapper',
+        ''
+      );
       return;
     }
 
@@ -692,7 +707,7 @@
       id="first-book-file"
       hidden
       type="file"
-      accept="application/epub+zip,.epub,.htmlz,plain/text,.txt"
+      accept="application/epub+zip,.epub,.epub.zip,.htmlz,plain/text,.txt"
       multiple
       aria-label="Add your first book"
       use:inputFile={onFilesChange}
