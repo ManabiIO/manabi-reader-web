@@ -63,7 +63,12 @@ function normalizedOrganization(value: unknown): Organization | undefined {
       Array.isArray(collection.members) &&
       collection.members.every((member) => typeof member === 'string' && member.length <= 1000)
   );
-  if (collections.length !== item.collections.length || collections.length > 1000) return;
+  if (
+    collections.length !== item.collections.length ||
+    collections.length > 1000 ||
+    new Set(collections.map((collection) => collection.id)).size !== collections.length
+  )
+    return;
   const entries = Object.entries(item.books);
   if (
     entries.length > 50000 ||
