@@ -39,7 +39,7 @@ jobs:
         run: pnpm build
       - name: Browser acceptance for the actual static app and filesystem adapter
         run: |
-          python -m pip install 'playwright==1.63.0'
+          python -m pip install 'playwright==1.55.0'
           python -m playwright install --with-deps chromium
           set -o pipefail
           python tests/browser/test_static_reader.py 2>&1 | tee browser-results.log
