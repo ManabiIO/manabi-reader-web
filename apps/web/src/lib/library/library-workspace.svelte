@@ -124,15 +124,41 @@
     { property: 'lastBookModified', label: 'Last Update' },
     { property: 'lastBookmarkModified', label: 'Bookmarked' }
   ];
-  function booksInMatchingSeries(nodes: ShelfNode[], search: string): Set<string> {
-    const matches = new Set<string>();
+  function booksInMatchingSeries(nodes: ShelfNode[], search: string): string[] {
+    let matches: string[] = [];
     for (const node of nodes) {
       if (node.kind !== 'series') continue;
       if (node.name.normalize('NFKC').toLocaleLowerCase().includes(search))
-        for (const book of node.books) matches.add(book.key);
-      for (const key of booksInMatchingSeries(node.children, search)) matches.add(key);
+        matches = [...matches, ...node.books.map((book) => book.key)];
+      matches = [...matches, ...booksInMatchingSeries(node.children, search)];
     }
-    return matches;
+    return matches.filter((key, index) => matches.indexOf(key) === index);
+  }
+  function matchesBookQuery(book: ShelfBook, search: string, seriesMatches: string[]) {
+    return (
+      !search ||
+      seriesMatches.includes(book.key) ||
+      [
+        book.title,
+        book.canonicalTitle,
+        ...(book.creators || []).map((creator) => creator.name)
+      ].some((value) => value.normalize('NFKC').toLocaleLowerCase().includes(search))
+    );
+  }
+  function includesBook(
+    book: ShelfBook,
+    destination: string,
+    members: string[] | undefined,
+    unfinishedOnly: boolean,
+    search: string,
+    seriesMatches: string[]
+  ) {
+    return (
+      (destination !== 'finished' || isFinished(book)) &&
+      (!members || members.includes(book.key)) &&
+      (!unfinishedOnly || !isFinished(book)) &&
+      matchesBookQuery(book, search, seriesMatches)
+    );
   }
   function orderFinishedNodes(nodes: ShelfNode[], direction: 'asc' | 'desc'): ShelfNode[] {
     return [...nodes].sort((left, right) => {
@@ -170,29 +196,63 @@
   $: seriesMatchedKeys =
     normalizedQuery && !flatDestination
       ? booksInMatchingSeries(series?.children || tree, normalizedQuery)
-      : new Set<string>();
-  $: matchesQuery = (book: ShelfBook) =>
-    !normalizedQuery ||
-    seriesMatchedKeys.has(book.key) ||
-    [book.title, book.canonicalTitle, ...(book.creators || []).map((creator) => creator.name)].some(
-      (value) => value.normalize('NFKC').toLocaleLowerCase().includes(normalizedQuery)
-    );
-  $: includeBook = (book: ShelfBook) =>
-    (collectionId !== 'finished' || isFinished(book)) &&
-    (!selectedCollection || selectedCollection.members.includes(book.key)) &&
-    (!notFinished || !isFinished(book)) &&
-    matchesQuery(book);
+      : [];
   $: destinationNodes = flatDestination
-    ? books.filter(includeBook).map((book) => ({ kind: 'book' as const, id: book.key, book }))
+    ? books
+        .filter((book) =>
+          includesBook(
+            book,
+            collectionId,
+            selectedCollection?.members,
+            notFinished,
+            normalizedQuery,
+            seriesMatchedKeys
+          )
+        )
+        .map((book) => ({ kind: 'book' as const, id: book.key, book }))
     : series?.children || tree;
-  $: sortedDestination = visibleShelf(destinationNodes, includeBook, sort);
+  $: sortedDestination = visibleShelf(
+    destinationNodes,
+    (book) =>
+      includesBook(
+        book,
+        collectionId,
+        selectedCollection?.members,
+        notFinished,
+        normalizedQuery,
+        seriesMatchedKeys
+      ),
+    sort
+  );
   $: displayed =
     collectionId === 'finished' && !series
       ? orderFinishedNodes(sortedDestination, finishedOrder)
       : sortedDestination;
   $: visibleBooks = allBooks(displayed);
-  $: scopedSeriesBooks = series ? series.books.filter(includeBook) : [];
-  $: scopedVolumeOrder = series ? allBooks(series.children).filter(includeBook) : [];
+  $: scopedSeriesBooks = series
+    ? series.books.filter((book) =>
+        includesBook(
+          book,
+          collectionId,
+          selectedCollection?.members,
+          notFinished,
+          normalizedQuery,
+          seriesMatchedKeys
+        )
+      )
+    : [];
+  $: scopedVolumeOrder = series
+    ? allBooks(series.children).filter((book) =>
+        includesBook(
+          book,
+          collectionId,
+          selectedCollection?.members,
+          notFinished,
+          normalizedQuery,
+          seriesMatchedKeys
+        )
+      )
+    : [];
   $: resume = series ? seriesReadingTarget(scopedSeriesBooks, scopedVolumeOrder) : undefined;
   $: seriesCreators = series ? sharedCreatorLine(scopedSeriesBooks) : undefined;
   $: recentBooks =
@@ -836,9 +896,9 @@
           </div>
           <p class="mt-2 text-sm text-muted-foreground">
             Series · {scopedSeriesBooks.length}
-            {scopedSeriesBooks.length === 1
-              ? 'Book'
-              : 'Books'}{#if collectionId !== 'books'}{' in '}{collectionTitle}{/if}
+            {scopedSeriesBooks.length === 1 ? 'Book' : 'Books'}{#if collectionId !== 'books'}<span>
+                in {collectionTitle}</span
+              >{/if}
           </p>
           {#if seriesCreators}<p class="mt-1 text-sm text-muted-foreground">
               {seriesCreators}
