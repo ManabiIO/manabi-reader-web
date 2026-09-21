@@ -6,15 +6,19 @@
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
+import { getEntryFiles } from '../../apps/web/src/lib/functions/file-dom/get-entry-files.ts';
+import { prepareBookImportFiles } from '../../apps/web/src/lib/functions/file-dom/prepare-book-import-files.ts';
+
+const requireFromWeb = createRequire(new URL('../../apps/web/package.json', import.meta.url));
+const {
   BlobReader,
   BlobWriter,
   TextWriter,
   ZipReader,
   ZipWriter
-} from '@zip.js/zip.js';
-import { getEntryFiles } from '../../apps/web/src/lib/functions/file-dom/get-entry-files.ts';
-import { prepareBookImportFiles } from '../../apps/web/src/lib/functions/file-dom/prepare-book-import-files.ts';
+} = await import(pathToFileURL(requireFromWeb.resolve('@zip.js/zip.js')).href);
 
 const EPUB_MIME_TYPE = 'application/epub+zip';
 
