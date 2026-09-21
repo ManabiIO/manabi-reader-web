@@ -414,7 +414,7 @@ class BooksLibraryBrowser(LibraryBase):
         self.page.set_viewport_size({'width':390, 'height':844})
         self.page.get_by_role('button', name='Collections', exact=True).click()
         sheet = self.page.locator('#library-collections-sheet')
-        sheet.get_by_role('button', name='Edit collections', exact=True).click()
+        sheet.get_by_role('button', name='Edit', exact=True).click()
         sheet.get_by_role('button', name='Rename collection Japanese', exact=True).click()
         self.dialog().get_by_label('Name', exact=True).fill('Reading in Japanese')
         self.dialog().get_by_role('button', name='Save', exact=True).click()
