@@ -79,6 +79,10 @@ surface stays about the user's books rather than storage machinery.
 ## Covers and views
 
 Grid and list share the same projection, filters, menus and source identities.
+The follow-up destination model, selection rules, Continue shelf, Finished
+timeline, series reading target, creator metadata, desktop collection rail and
+visual qualification matrix are specified in
+[`library-experience-spec.md`](library-experience-spec.md).
 Two covers overlap on a series tile; the destination shows up to five distinct
 covers in a centered fan. Covers preserve intrinsic aspect ratio and have a
 subtle directional binding and shadow. Monochrome service glyphs identify

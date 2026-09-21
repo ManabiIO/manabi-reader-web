@@ -6,6 +6,7 @@
 
 import type { Completion } from '$lib/library/completion';
 import type { DirectionEvidence } from '$lib/library/direction';
+import type { BookCreator } from '$lib/library/book-metadata';
 import type { FsHandle, RemoteContext } from '$lib/data/storage/storage-source-manager';
 
 import type { DBSchema } from 'idb';
@@ -36,6 +37,7 @@ interface BooksDbV6BookData {
   id: number;
   title: string;
   language?: string;
+  creators?: BookCreator[];
   pageDirection?: DirectionEvidence;
   styleSheet: string;
   elementHtml: string;

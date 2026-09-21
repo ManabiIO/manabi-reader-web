@@ -369,6 +369,7 @@ export abstract class BaseStorageHandler {
       'htmlBackup',
       'sections',
       'language',
+      'creators',
       'pageDirection'
     ] as const satisfies readonly (keyof BooksDbBookData)[];
     const staticData: Record<string, BooksDbBookData[(typeof staticDataToZip)[number]]> = {};

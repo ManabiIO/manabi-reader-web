@@ -25,21 +25,34 @@ from test_static_reader import StaticHandler
 def raster(width=240, height=360, color=(155, 75, 45)):
     def chunk(kind, value):
         return struct.pack('>I', len(value)) + kind + value + struct.pack('>I', zlib.crc32(kind + value) & 0xffffffff)
+    pixels = bytearray()
+    accent = tuple(min(255, channel + 55) for channel in color)
+    dark = tuple(max(0, channel - 45) for channel in color)
+    for y in range(height):
+        pixels.append(0)
+        for x in range(width):
+            value = color
+            if width // 7 < x < width * 6 // 7 and height // 5 < y < height * 3 // 5:
+                value = accent if (x + y) // max(8, width // 10) % 2 else dark
+            elif (x * 2 + y) % max(12, width // 5) < max(5, width // 18):
+                value = dark
+            pixels.extend(value)
     return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0)) +
-            chunk(b'IDAT', zlib.compress((b'\0' + bytes(color) * width) * height)) + chunk(b'IEND', b''))
+            chunk(b'IDAT', zlib.compress(bytes(pixels))) + chunk(b'IEND', b''))
 
 
-def book(title, spine='', style='body{writing-mode:horizontal-tb}', body=None, size=(240, 360)):
+def book(title, spine='', style='body{writing-mode:horizontal-tb}', body=None, size=(240, 360), creators=(), color=(155, 75, 45)):
     output = io.BytesIO()
     if body is None:
         body = '<h1>' + escape(title) + '</h1>' + '<p>日本語の本を読みます。文章を丁寧に読み進めます。</p>' * 180
     with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
         archive.writestr('mimetype', 'application/epub+zip')
         archive.writestr('META-INF/container.xml', '<container><rootfiles><rootfile full-path="OEBPS/book.opf"/></rootfiles></container>')
-        archive.writestr('OEBPS/book.opf', '<package><metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">' + escape(title) + '</dc:title><dc:language xmlns:dc="http://purl.org/dc/elements/1.1/">ja</dc:language></metadata><manifest><item id="chapter" href="Text/chapter.xhtml" media-type="application/xhtml+xml"/><item id="style" href="Styles/book.css" media-type="text/css"/><item id="cover" href="Images/cover.png" media-type="image/png" properties="cover-image"/></manifest><spine' + (' page-progression-direction="' + spine + '"' if spine else '') + '><itemref idref="chapter"/></spine></package>')
+        creator_xml = ''.join('<dc:creator xmlns:dc="http://purl.org/dc/elements/1.1/">' + escape(value) + '</dc:creator>' for value in creators)
+        archive.writestr('OEBPS/book.opf', '<package><metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">' + escape(title) + '</dc:title><dc:language xmlns:dc="http://purl.org/dc/elements/1.1/">ja</dc:language>' + creator_xml + '</metadata><manifest><item id="chapter" href="Text/chapter.xhtml" media-type="application/xhtml+xml"/><item id="style" href="Styles/book.css" media-type="text/css"/><item id="cover" href="Images/cover.png" media-type="image/png" properties="cover-image"/></manifest><spine' + (' page-progression-direction="' + spine + '"' if spine else '') + '><itemref idref="chapter"/></spine></package>')
         archive.writestr('OEBPS/Text/chapter.xhtml', '<html><head><link rel="stylesheet" href="../Styles/book.css"/></head><body>' + body + '</body></html>')
         archive.writestr('OEBPS/Styles/book.css', style)
-        archive.writestr('OEBPS/Images/cover.png', raster(*size))
+        archive.writestr('OEBPS/Images/cover.png', raster(*size, color=color))
     return output.getvalue()
 
 
@@ -150,8 +163,70 @@ class LibraryBase(unittest.TestCase):
         self.page.get_by_role('button', name='Library view options', exact=True).click()
         self.page.get_by_role('menuitemradio', name=name, exact=True).click()
 
+    def choose_collection(self, name):
+        self.page.get_by_role('button', name='Collections', exact=True).click()
+        self.page.locator('[data-slot="sheet-content"]').get_by_role(
+            'button', name=re.compile('^' + re.escape(name) + r'\b')).click()
+
 
 class BooksLibraryBrowser(LibraryBase):
+    def test_scoped_selection_clears_when_collection_or_search_changes(self):
+        for title in ('Alpha scope', 'Beta scope', 'Gamma scope'):
+            self.import_book(title)
+        self.add_collection('Beta scope', 'One book only')
+        self.choose_collection('One book only')
+        self.page.get_by_role('button', name='Library actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
+        self.page.get_by_role('button', name='Select all', exact=True).click()
+        expect(self.page.get_by_text('1 selected', exact=True)).to_be_visible()
+        self.page.get_by_placeholder('Search library').fill('no result')
+        expect(self.page.get_by_text('0 selected', exact=True)).to_be_visible()
+        expect(self.page.get_by_role('heading', name='No matching books', exact=True)).to_be_visible()
+        self.page.get_by_placeholder('Search library').fill('Beta')
+        self.page.get_by_role('button', name='Select all', exact=True).click()
+        expect(self.page.get_by_text('1 selected', exact=True)).to_be_visible()
+        self.choose_collection('Books')
+        expect(self.page.get_by_text('0 selected', exact=True)).to_be_visible()
+
+    def test_continue_finished_timeline_and_author_search_are_distinct_destinations(self):
+        self.import_book('Started book', creators=('Author One',))
+        self.import_book('Untouched book', creators=('Author Two',))
+        self.import_book('Finished book', creators=('Author Three',))
+        self.page.get_by_role('button', name='Read Started book', exact=True).click()
+        expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=30000)
+        self.go_library()
+        expect(self.page.get_by_role('heading', name='Continue', exact=True)).to_be_visible()
+        expect(self.page.get_by_role('button', name='Continue Started book', exact=True)).to_be_visible()
+        expect(self.page.get_by_role('button', name='Continue Untouched book', exact=True)).to_have_count(0)
+        expect(self.tile('Untouched book').locator('.progress-label')).to_have_text('Unread')
+
+        self.choose_view('List')
+        expect(self.tile('Started book').locator('.book-author')).to_have_text('Author One')
+        self.page.get_by_placeholder('Search library').fill('Author Two')
+        expect(self.page.get_by_role('button', name='Read Untouched book', exact=True)).to_be_visible()
+        expect(self.page.get_by_role('button', name='Read Started book', exact=True)).to_have_count(0)
+        self.page.get_by_placeholder('Search library').fill('')
+
+        self.menu('Finished book', 'Mark as Finished')
+        self.menu('Finished book', 'Edit Finished Date…')
+        self.dialog().get_by_label('Finished on', exact=True).fill('2024-02-29')
+        self.dialog().get_by_role('button', name='Save', exact=True).click()
+        self.menu('Untouched book', 'Mark as Finished')
+        self.menu('Untouched book', 'Edit Finished Date…')
+        self.dialog().get_by_label('Finished on', exact=True).fill('2023-01-15')
+        self.dialog().get_by_role('button', name='Save', exact=True).click()
+        self.choose_collection('Finished')
+        expect(self.page.get_by_role('list', name='Finished books', exact=True)).to_be_visible()
+        expect(self.page.locator('.finished-day').first).to_contain_text(re.compile(r'Feb.*29.*2024|29.*Feb.*2024'))
+        expect(self.page.locator('.finished-author').first).to_have_text('Author Three')
+        self.page.get_by_role('button', name='Library view options', exact=True).click()
+        expect(self.page.get_by_role('menuitemradio', name='Not Finished', exact=True)).to_have_count(0)
+        self.page.get_by_role('menuitemradio', name='Oldest first', exact=True).click()
+        expect(self.page.locator('.finished-day').first).to_contain_text(re.compile(r'Jan.*15.*2023|15.*Jan.*2023'))
+        self.page.get_by_role('button', name='Library view options', exact=True).click()
+        self.page.get_by_role('menuitemradio', name='Grid', exact=True).click()
+        expect(self.page.locator('.shelf-grid')).to_be_visible()
+
     def test_package_directory_and_epub_zip_wrapper_import(self):
         folder_title = 'Package EPUB'
         with tempfile.TemporaryDirectory() as directory:
@@ -183,7 +258,7 @@ class BooksLibraryBrowser(LibraryBase):
             geometry = tile.locator('.book-thumbnail').evaluate('e => {const c=e.querySelector(".cover-surface");return [e.clientWidth,e.clientHeight,c.clientWidth,c.clientHeight];}')
             self.assertLessEqual(geometry[2], geometry[0] + 1)
             self.assertLessEqual(geometry[3], geometry[1] + 1)
-            expect(tile.locator('.progress-label')).to_have_text('0%')
+            expect(tile.locator('.progress-label')).to_have_text('Unread')
             expect(tile.get_by_role('img')).to_have_count(0)
         self.choose_view('List')
         expect(self.page.locator('.shelf-list')).to_be_visible()
@@ -222,6 +297,22 @@ class BooksLibraryBrowser(LibraryBase):
         expect(self.page.locator('[data-slot="sheet-content"]')).to_have_count(0)
         self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), 391)
 
+    def test_desktop_collections_action_toggles_persistent_library_rail(self):
+        self.import_book('Rail book')
+        self.page.set_viewport_size({'width':1440, 'height':900})
+        button = self.page.get_by_role('button', name='Collections', exact=True)
+        button.click()
+        rail = self.page.get_by_role('complementary', name='Collections', exact=True)
+        expect(rail).to_be_visible()
+        expect(button).to_have_attribute('aria-expanded', 'true')
+        rail.get_by_role('button', name=re.compile(r'^Finished\b')).click()
+        expect(self.page.get_by_role('heading', name='Finished', exact=True)).to_be_visible()
+        expect(rail).to_be_visible()
+        self.page.reload()
+        expect(rail).to_be_visible()
+        button.click()
+        expect(rail).to_have_count(0)
+
     def test_direction_uses_css_cascade_not_language_and_ignores_hidden_text(self):
         self.import_book('Japanese horizontal')
         self.import_book('Japanese vertical', style='body{writing-mode:horizontal-tb} main.story{writing-mode:vertical-rl}', body='<main class="story">' + '<p>縦書きの文章を読みます。</p>' * 50 + '</main>')
@@ -247,7 +338,7 @@ class BooksLibraryBrowser(LibraryBase):
         self.page.reload()
         expect(self.tile('Library test').locator('.progress-label')).to_have_text('Finished')
         self.menu('Library test', 'Mark as Still Reading')
-        expect(self.tile('Library test').locator('.progress-label')).to_have_text('0%')
+        expect(self.tile('Library test').locator('.progress-label')).to_have_text('Unread')
         still = self.stores('books', ['bookmark','statistic'])
         self.assertEqual(completed['statistic'], still['statistic'])
         self.assertEqual(0, still['bookmark'][0]['progress'])
@@ -329,7 +420,7 @@ class BooksLibraryBrowser(LibraryBase):
         expect(self.page.get_by_role('button', name='Read Still reading selection', exact=True)).to_be_visible()
 
     def test_finished_date_and_binding_survive_real_export_migration_and_repeat(self):
-        self.import_book('Portable finished book', spine='rtl')
+        self.import_book('Portable finished book', spine='rtl', creators=('Portable Author',))
         expect(self.tile('Portable finished book').locator('.cover-stage')).to_have_attribute('data-direction', 'rtl')
         self.menu('Portable finished book', 'Mark as Finished')
         expect(self.tile('Portable finished book').locator('.progress-label')).to_have_text('Finished')
@@ -355,6 +446,7 @@ class BooksLibraryBrowser(LibraryBase):
                 static = json.loads(content.read('staticdata.json'))
                 self.assertEqual({'value':'rtl','source':'spine'}, static['pageDirection'])
                 self.assertEqual('ja', static['language'])
+                self.assertEqual([{'name':'Portable Author'}], static['creators'])
         original = self.page
         with tempfile.TemporaryDirectory() as profile:
             destination = getattr(self.playwright, self.engine).launch_persistent_context(profile)
@@ -365,7 +457,10 @@ class BooksLibraryBrowser(LibraryBase):
                 chooser = self.page.get_by_label('Choose Ttu export ZIPs', exact=True)
                 chooser.set_input_files({'name':'library-backup.zip','mimeType':'application/zip','buffer':raw})
                 expect(chooser).to_be_enabled()
-                self.page.get_by_role('button', name=re.compile(r'^Import selected \(')).click()
+                import_selected = self.page.get_by_role(
+                    'button', name=re.compile(r'^Import selected \('))
+                expect(import_selected).to_be_visible(timeout=60000)
+                import_selected.click()
                 imported = self.page.get_by_role('article', name='Import Portable finished book', exact=True)
                 expect(imported.get_by_role('status')).to_have_text('Imported Portable finished book.', timeout=30000)
                 migrated = self.stores('books', ['bookmark','statistic','data'])
@@ -373,8 +468,9 @@ class BooksLibraryBrowser(LibraryBase):
                 self.assertEqual(before['bookmark'][0]['progress'], migrated['bookmark'][0]['progress'])
                 self.assertEqual(before['statistic'], migrated['statistic'])
                 self.assertEqual(before['data'][0]['pageDirection'], migrated['data'][0]['pageDirection'])
+                self.assertEqual(before['data'][0]['creators'], migrated['data'][0]['creators'])
                 self.page.get_by_role('button', name='Select all', exact=True).click()
-                self.page.get_by_role('button', name=re.compile(r'^Import selected \(')).click()
+                import_selected.click()
                 expect(imported.get_by_role('status')).to_contain_text('Already imported', timeout=30000)
                 self.assertEqual(migrated['bookmark'], self.stores('books', ['bookmark'])['bookmark'])
                 self.go_library()
@@ -395,7 +491,7 @@ class BooksLibraryBrowser(LibraryBase):
         self.menu('Finish once more', 'Mark as Finished')
         expect(self.tile('Finish once more').locator('.progress-label')).to_have_text('Finished')
         self.menu('Finish once more', 'Mark as Still Reading')
-        expect(self.tile('Finish once more').locator('.progress-label')).to_have_text('0%')
+        expect(self.tile('Finish once more').locator('.progress-label')).to_have_text('Unread')
         before = self.stores('books', ['bookmark'])['bookmark'][0]
         self.assertEqual('reading', before['completion']['state'])
         self.page.get_by_role('button', name='Read Finish once more', exact=True).click()
@@ -446,6 +542,8 @@ class BooksLibraryFilesystem(LibraryBase):
         before = self.disk()
         expect(self.page.get_by_role('button',name='Open series Named series',exact=True)).to_be_visible()
         expect(self.page.get_by_role('button',name='Read Single book',exact=True)).to_be_visible(timeout=30000)
+        self.menu('Single book','Mark as Finished')
+        expect(self.tile('Single book').locator('.progress-label')).to_have_text('Finished')
         expect(self.page.get_by_role('button',name='Open series Wrapper',exact=True)).to_have_count(0)
         tile = self.page.locator('.shelf-item').filter(has=self.page.get_by_role('button',name='Open series Named series',exact=True))
         expect(tile.locator('.cover-stack')).to_have_attribute('data-cover-count','2')
@@ -459,6 +557,15 @@ class BooksLibraryFilesystem(LibraryBase):
         self.page.get_by_role('button',name='Open series Nested',exact=True).click()
         expect(self.page.get_by_role('button',name='Read Volume 3',exact=True)).to_be_visible(timeout=30000)
         self.menu('Volume 3','Mark as Finished')
+        expect(self.tile('Volume 3').locator('.progress-label')).to_have_text('Finished')
+        series_url = self.page.url
+        self.page.goto(series_url + '&collection=finished')
+        expect(self.page.locator('.series-hero')).to_contain_text('Series · 1 Book')
+        expect(self.page.locator('.series-hero')).to_contain_text('All books finished')
+        expect(self.page.get_by_role('button',name='Read Volume 3',exact=True)).to_be_visible()
+        expect(self.page.get_by_role('button',name='Read Volume 4',exact=True)).to_have_count(0)
+        expect(self.page.get_by_role('button',name='Read Single book',exact=True)).to_have_count(0)
+        self.page.goto(series_url)
         self.choose_view('Not Finished')
         expect(self.page.get_by_role('button',name='Read Volume 3',exact=True)).to_have_count(0)
         expect(self.page.get_by_role('button',name='Read Volume 4',exact=True)).to_be_visible()

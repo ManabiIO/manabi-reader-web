@@ -6,10 +6,12 @@
 
 import type { Completion } from '$lib/library/completion';
 import type { DirectionEvidence } from '$lib/library/direction';
+import type { BookCreator } from '$lib/library/book-metadata';
 export interface BookCardProps {
   id: number;
   imagePath: string | Blob;
   title: string;
+  creators?: BookCreator[];
   characters: number;
   lastBookModified: number;
   lastBookOpen: number;

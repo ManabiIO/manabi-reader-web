@@ -5,8 +5,20 @@
  */
 
 export interface EpubMetadataMeta {
-  '@_name': string;
-  '@_content': string;
+  '@_name'?: string;
+  '@_content'?: string;
+  '@_refines'?: string;
+  '@_property'?: string;
+  '#text'?: string;
+}
+
+export interface EpubCreator {
+  '#text': string;
+  '@_id'?: string;
+  '@_role'?: string;
+  '@_opf:role'?: string;
+  '@_file-as'?: string;
+  '@_opf:file-as'?: string;
 }
 
 export interface EpubManifestItem {
@@ -35,6 +47,7 @@ export interface EpubContent {
         | {
             '#text': string;
           };
+      'dc:creator'?: string | EpubCreator | (string | EpubCreator)[];
       meta?: EpubMetadataMeta | EpubMetadataMeta[];
     };
     manifest: {
@@ -60,6 +73,7 @@ export interface EpubOPFContent {
         | {
             '#text': string;
           };
+      'dc:creator'?: string | EpubCreator | (string | EpubCreator)[];
       'opf:meta'?: EpubMetadataMeta | EpubMetadataMeta[];
     };
     'opf:manifest': {

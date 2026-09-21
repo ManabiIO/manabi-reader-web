@@ -1,5 +1,6 @@
 <script lang="ts">
   import BookCover from './book-cover.svelte';
+  import { creatorLine } from './book-metadata';
   import type { ShelfBook } from './view-model';
   export let books: ShelfBook[];
   export let hero = false;
@@ -12,7 +13,13 @@
 <div class="cover-stack" class:hero aria-hidden="true" data-cover-count={visible.length}>
   {#each visible as book, index (book.key)}
     <div class="stack-item" class:front={index === 0} style:--index={index}>
-      <BookCover imagePath={book.imagePath} title={book.title} direction={book.direction} />
+      <BookCover
+        imagePath={book.imagePath}
+        title={book.title}
+        author={creatorLine(book.creators)}
+        identity={book.key}
+        direction={book.direction}
+      />
     </div>
   {/each}
 </div>
