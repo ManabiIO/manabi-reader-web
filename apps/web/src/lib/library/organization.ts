@@ -7,6 +7,7 @@
 import { writable } from 'svelte/store';
 import { equal, integrationDB, setMetadata, type BookLink } from '$lib/manabi/persistence';
 import { libraryName } from './series-metadata';
+import { applyPortableOrganization, portableOrganization } from './organization-portability';
 import type { PageDirection } from './direction';
 
 export interface Collection {
@@ -93,14 +94,15 @@ function publish(value: Organization) {
   organization.set(value);
 }
 
-/** Adapter used by account preference sync. The image override is a bounded thumbnail. */
+/** Account sync transports content identity, never another browser's numeric IDs. */
 export const organizationPreference = {
-  getValue: () => currentOrganization,
+  getValue: () => portableOrganization(currentOrganization),
   next(value: unknown) {
     const normalized = normalizedOrganization(value);
     if (!normalized) return;
-    publish(normalized);
-    void setMetadata(key, normalized);
+    const applied = applyPortableOrganization(currentOrganization, normalized);
+    publish(applied);
+    void setMetadata(key, applied);
   },
   subscribe(fn: () => void) {
     const unsubscribe = organization.subscribe(() => fn());
