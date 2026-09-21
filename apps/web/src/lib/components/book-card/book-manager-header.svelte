@@ -178,9 +178,9 @@
           >
             <ArrowLeft class="size-5" aria-hidden="true" />
           </Button>
-          <h1 class="truncate text-lg font-semibold tracking-tight sm:text-2xl">{title}</h1>
+          <h1 class="truncate text-base font-semibold tracking-tight sm:text-2xl">{title}</h1>
         {:else}
-          <h1 class="truncate text-lg font-semibold tracking-tight sm:text-2xl">
+          <h1 class="truncate text-base font-semibold tracking-tight sm:text-2xl">
             Manabi Reader <span class="font-normal text-muted-foreground">for Web</span>
           </h1>
         {/if}
