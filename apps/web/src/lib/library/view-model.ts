@@ -14,9 +14,11 @@ import { bookKey, sourceKey, sourceBookKey } from './organization';
 import { directoryTree, type DirectoryEntry, type LibraryNode } from './tree';
 import { isFinished } from './completion';
 import type { SortOption } from '$lib/data/sort-types';
+import { creatorSortKey, sharedCreatorLine } from './book-metadata';
 
 export interface ShelfBook extends Omit<BookCardProps, 'id'> {
   key: string;
+  canonicalTitle: string;
   bookId?: number;
   direction: PageDirection;
   source?: SourceDescriptor;
@@ -58,13 +60,15 @@ export function buildShelf(
       source && cachedPreview?.scannedAt === revisions.get(sourceKey(source))
         ? cachedPreview
         : undefined;
+    const canonicalTitle =
+      card?.title ||
+      preview?.title ||
+      file?.name.replace(/\.(epub|txt|htmlz)$/i, '') ||
+      'Untitled book';
     return {
-      title:
-        presentation?.title ||
-        card?.title ||
-        preview?.title ||
-        file?.name.replace(/\.(epub|txt|htmlz)$/i, '') ||
-        'Untitled book',
+      title: presentation?.title || canonicalTitle,
+      canonicalTitle,
+      creators: card?.creators || preview?.creators,
       imagePath: card?.imagePath || preview?.imagePath || '',
       characters: card?.characters || 0,
       lastBookModified: card?.lastBookModified || 0,
@@ -158,10 +162,14 @@ export function visibleShelf(
   const natural = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
   function value(node: ShelfNode): string | number {
     if (sort.property === 'title') return node.kind === 'series' ? node.name : node.book.title;
+    if (sort.property === 'author')
+      return node.kind === 'series'
+        ? sharedCreatorLine(node.books) || ''
+        : creatorSortKey(node.book.creators) || '';
+    const property = sort.property as Exclude<SortOption['property'], 'author' | 'title'>;
     const books = node.kind === 'series' ? node.books : [node.book];
     return books.reduce(
-      (max, b) =>
-        Math.max(max, sort.property === 'id' ? b.bookId || 0 : Number(b[sort.property]) || 0),
+      (max, b) => Math.max(max, property === 'id' ? b.bookId || 0 : Number(b[property]) || 0),
       0
     );
   }
@@ -179,9 +187,21 @@ export function visibleShelf(
         bv = value(b);
       const compared =
         typeof av === 'string' && typeof bv === 'string'
-          ? natural.compare(av, bv)
+          ? sort.property === 'author' && (!av || !bv)
+            ? av
+              ? -1
+              : bv
+                ? 1
+                : 0
+            : natural.compare(av, bv)
           : Number(av) - Number(bv);
-      return (sort.direction === 'desc' ? -compared : compared) || natural.compare(a.id, b.id);
+      const directed =
+        sort.property === 'author' && (!av || !bv)
+          ? compared
+          : sort.direction === 'desc'
+            ? -compared
+            : compared;
+      return directed || natural.compare(a.id, b.id);
     });
 }
 export function continueBook(books: ShelfBook[]): ShelfBook | undefined {

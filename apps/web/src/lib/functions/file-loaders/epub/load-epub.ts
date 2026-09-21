@@ -13,6 +13,7 @@ import getEpubCoverImageFilename from './get-epub-cover-image-filename';
 import { isOPFType } from './types';
 import { epubDirection } from './epub-direction';
 import reduceObjToBlobs from '../utils/reduce-obj-to-blobs';
+import { extractCreators, type BookCreator } from '$lib/library/book-metadata';
 
 export default async function loadEpub(
   file: File,
@@ -23,8 +24,15 @@ export default async function loadEpub(
   const { contents, result: data, contentsDirectory } = await extractEpub(file, { signal });
   const result = generateEpubHtml(data, contents, document, contentsDirectory);
 
-  const displayData = {
+  const displayData: {
+    title: string;
+    creators: BookCreator[];
+    language: string;
+    hasThumb: true;
+    styleSheet: string;
+  } = {
     title: file.name,
+    creators: [],
     language: '',
     hasThumb: true,
     styleSheet: sanitizeBookStyleSheet(
@@ -38,6 +46,7 @@ export default async function loadEpub(
     : contents.package.metadata;
 
   if (metadata) {
+    displayData.creators = extractCreators(metadata as unknown as Record<string, unknown>);
     const languageValues = Array.isArray(metadata['dc:language'])
       ? metadata['dc:language']
       : [metadata['dc:language']];

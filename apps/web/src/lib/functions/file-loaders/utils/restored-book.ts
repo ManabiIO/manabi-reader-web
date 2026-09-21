@@ -7,6 +7,7 @@
 import type { Section } from '$lib/data/database/books-db/versions/v4/books-db-v4';
 import { LimitedArchive, type ArchiveOptions } from './limited-archive';
 import { validDirectionEvidence, type DirectionEvidence } from '$lib/library/direction';
+import { validCreators, type BookCreator } from '$lib/library/book-metadata';
 
 export interface RestoredContent {
   title: string;
@@ -15,6 +16,7 @@ export interface RestoredContent {
   sections: Section[];
   htmlBackup?: string;
   language?: string;
+  creators?: BookCreator[];
   pageDirection?: DirectionEvidence;
   blobs: Record<string, Blob>;
   coverImage?: Blob;
@@ -88,6 +90,7 @@ function readMetadata(value: unknown): Omit<RestoredContent, 'blobs' | 'coverIma
     sections,
     ...(value.htmlBackup === undefined ? {} : { htmlBackup: value.htmlBackup as string }),
     ...(value.language === undefined ? {} : { language: value.language as string }),
+    ...(validCreators(value.creators) ? { creators: value.creators as BookCreator[] } : {}),
     ...(value.pageDirection === undefined
       ? {}
       : { pageDirection: value.pageDirection as DirectionEvidence })

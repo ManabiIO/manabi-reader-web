@@ -11,6 +11,7 @@ import extractHtmlz from './extract-htmlz';
 import { getFormattedElementHtmlz } from './generate-htmlz-html';
 import getHtmlzCoverImageFilename from './get-htmlz-cover-image-filename';
 import reduceObjToBlobs from '../utils/reduce-obj-to-blobs';
+import { extractCreators, type BookCreator } from '$lib/library/book-metadata';
 
 export default async function loadHtmlz(
   file: File,
@@ -21,10 +22,15 @@ export default async function loadHtmlz(
   const data = await extractHtmlz(file, { signal });
   const embeddedStyles: string[] = [];
   const element = getFormattedElementHtmlz(data, document, embeddedStyles);
-  const parser = new XMLParser({ processEntities: false });
+  const parser = new XMLParser({ ignoreAttributes: false, processEntities: false });
   const metadata = parser.parse(data['metadata.opf'])?.package?.metadata;
 
-  const displayData = {
+  const displayData: {
+    title: string;
+    creators?: BookCreator[];
+    hasThumb: true;
+    styleSheet: string;
+  } = {
     title: file.name,
     hasThumb: true,
     styleSheet: sanitizeBookStyleSheet(
@@ -32,8 +38,14 @@ export default async function loadHtmlz(
       document
     )
   };
-  if (metadata && metadata['dc:title']) {
-    displayData.title = metadata['dc:title'];
+  if (metadata) {
+    const title = Array.isArray(metadata['dc:title'])
+      ? metadata['dc:title'][0]
+      : metadata['dc:title'];
+    const titleText = typeof title === 'string' ? title : title?.['#text'];
+    if (typeof titleText === 'string' && titleText.trim()) displayData.title = titleText.trim();
+    const creators = extractCreators(metadata as Record<string, unknown>);
+    if (creators.length) displayData.creators = creators;
   }
   const blobData = reduceObjToBlobs(data);
   const coverImageFilename = getHtmlzCoverImageFilename();

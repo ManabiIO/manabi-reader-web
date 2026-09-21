@@ -15,11 +15,14 @@ import { librarySource, type SourceDescriptor } from './catalog';
 import { sourceBookKey } from './organization';
 import type { DirectoryEntry } from './tree';
 import { validDirectionEvidence, type DirectionEvidence } from './direction';
+import { extractCreators, validCreators, type BookCreator } from './book-metadata';
 
 export interface Preview {
   key: string;
   scannedAt: number;
+  metadataVersion: number;
   title: string;
+  creators?: BookCreator[];
   imagePath?: Blob;
   pageDirection: DirectionEvidence;
 }
@@ -31,6 +34,7 @@ interface SavedPreview extends Omit<Preview, 'imagePath'> {
   imageType?: string;
 }
 let database: ReturnType<typeof openDB<PreviewDB>> | undefined;
+const metadataVersion = 1;
 function previewDB() {
   return (database ??= openDB<PreviewDB>('manabi-library-previews', 1, {
     upgrade(db) {
@@ -52,9 +56,11 @@ function restore(saved: SavedPreview | undefined, key: string, scannedAt: number
     !saved ||
     saved.key !== key ||
     saved.scannedAt !== scannedAt ||
+    saved.metadataVersion !== metadataVersion ||
     typeof saved.title !== 'string' ||
     !saved.title ||
     saved.title.length > 1000 ||
+    (saved.creators !== undefined && !validCreators(saved.creators)) ||
     !validDirectionEvidence(saved.pageDirection) ||
     'imagePath' in saved ||
     (saved.imageData === undefined
@@ -68,7 +74,9 @@ function restore(saved: SavedPreview | undefined, key: string, scannedAt: number
   return {
     key,
     scannedAt,
+    metadataVersion,
     title: saved.title,
+    ...(saved.creators?.length ? { creators: saved.creators } : {}),
     pageDirection: saved.pageDirection,
     ...(saved.imageData
       ? { imagePath: new Blob([saved.imageData], { type: saved.imageType }) }
@@ -114,6 +122,7 @@ async function readPreview(
   const value: Preview = {
     key,
     scannedAt,
+    metadataVersion,
     title: file.name.replace(/\.(epub|txt|htmlz)$/i, ''),
     pageDirection: { value: 'unknown', source: 'unknown' }
   };
@@ -133,6 +142,8 @@ async function readPreview(
       .map((v) => (typeof v === 'string' ? v : v?.['#text']))
       .find((v) => typeof v === 'string' && v.trim());
     if (title) value.title = title.trim().slice(0, 1000);
+    const creators = extractCreators(metadata as unknown as Record<string, unknown>);
+    if (creators.length) value.creators = creators;
     const blobs = Object.fromEntries(
       Object.entries(result).filter((entry): entry is [string, Blob] => entry[1] instanceof Blob)
     );
@@ -146,7 +157,9 @@ async function readPreview(
   const saved: SavedPreview = {
     key: value.key,
     scannedAt: value.scannedAt,
+    metadataVersion,
     title: value.title,
+    ...(value.creators?.length ? { creators: value.creators } : {}),
     pageDirection: value.pageDirection,
     ...(imagePath ? { imageData: await imagePath.arrayBuffer(), imageType: imagePath.type } : {})
   };

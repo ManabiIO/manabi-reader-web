@@ -48,6 +48,7 @@ export class BrowserStorageHandler extends BaseStorageHandler {
           this.addBookCard(book.title, {
             id: book.id,
             imagePath: book.coverImage || '',
+            creators: book.creators,
             characters: BaseStorageHandler.getBookCharacters(
               book.characters || 0,
               book.sections || []

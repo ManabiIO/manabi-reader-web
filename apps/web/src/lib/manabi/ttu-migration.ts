@@ -307,6 +307,7 @@ export class TtuMigration {
           css: data.styleSheet,
           sections: data.sections,
           language: data.language,
+          creators: data.creators,
           pageDirection: data.pageDirection,
           characters,
           media,

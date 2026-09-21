@@ -53,6 +53,7 @@
     type ReplicationProgress
   } from '$lib/functions/replication/replication-progress';
   import { pluralize } from '$lib/functions/utils';
+  import { creatorSortKey } from '$lib/library/book-metadata';
   import { reduceToEmptyString } from '$lib/functions/rxjs/reduce-to-empty-string';
   import pLimit from 'p-limit';
   import { combineLatest, map, Observable, share, Subject, switchMap, takeUntil } from 'rxjs';
@@ -67,7 +68,7 @@
   ]).pipe(
     map(([dataList, bookmarks]) => {
       const sortProp = $booklistSortOptions$[$storageSource$];
-      const isTitleSort = sortProp.property === 'title';
+      const isTextSort = sortProp.property === 'title' || sortProp.property === 'author';
 
       if ($storageSource$ === StorageKey.BROWSER) {
         const bookmarkMap = keyBy(bookmarks, 'dataId');
@@ -80,14 +81,14 @@
               ...bookmarkToProgress(bookmarkMap.get(d.id))
             }))
             .sort((card1: BookCardProps, card2: BookCardProps) =>
-              sortBookCards(card1, card2, sortProp, isTitleSort)
+              sortBookCards(card1, card2, sortProp, isTextSort)
             )
         ];
       }
 
       return [
         ...dataList.sort((card1: BookCardProps, card2: BookCardProps) =>
-          sortBookCards(card1, card2, sortProp, isTitleSort)
+          sortBookCards(card1, card2, sortProp, isTextSort)
         )
       ];
     }),
@@ -112,6 +113,10 @@
   let executionStart: number;
   let firstBookFileInput: HTMLInputElement;
   let collectionsOpen = false;
+  let desktopRailOpen = false;
+  let destinationTitle = 'Library';
+  let selectionScopeKey = '';
+  let selectableBookIds: number[] = [];
 
   $: {
     if (!selectMode) {
@@ -133,20 +138,26 @@
     card1: BookCardProps,
     card2: BookCardProps,
     sortProp: SortOption,
-    isTitleSort: boolean
+    isTextSort: boolean
   ) {
-    const card1Prop = card1[sortProp.property] || (isTitleSort ? '' : 0);
-    const card2Prop = card2[sortProp.property] || (isTitleSort ? '' : 0);
+    const card1Prop =
+      sortProp.property === 'author'
+        ? creatorSortKey(card1.creators) || ''
+        : card1[sortProp.property] || (isTextSort ? '' : 0);
+    const card2Prop =
+      sortProp.property === 'author'
+        ? creatorSortKey(card2.creators) || ''
+        : card2[sortProp.property] || (isTextSort ? '' : 0);
 
     let sortDiff = 0;
 
     if (sortProp.direction === SortDirection.ASC) {
-      sortDiff = isTitleSort
-        ? card1.title.localeCompare(card2.title, 'ja-JP', { numeric: true })
+      sortDiff = isTextSort
+        ? String(card1Prop).localeCompare(String(card2Prop), 'ja-JP', { numeric: true })
         : +card1Prop - +card2Prop;
     } else {
-      sortDiff = isTitleSort
-        ? card2.title.localeCompare(card1.title, 'ja-JP', { numeric: true })
+      sortDiff = isTextSort
+        ? String(card2Prop).localeCompare(String(card1Prop), 'ja-JP', { numeric: true })
         : +card2Prop - +card1Prop;
     }
 
@@ -385,10 +396,42 @@
   }
 
   function onSelectAllBooks() {
-    const bookCards = $bookCards$;
     selectedBookIds = cloneMutateSet(selectedBookIds, (set) => {
-      bookCards.forEach((x) => set.add(x.id));
+      selectableBookIds.forEach((id) => set.add(id));
     });
+  }
+
+  function toggleSelectedBooks(bookIds: number[]) {
+    if (!bookIds.length) return;
+    const allSelected = bookIds.every((id) => selectedBookIds.has(id));
+    selectedBookIds = cloneMutateSet(selectedBookIds, (set) => {
+      for (const id of bookIds) {
+        if (allSelected) set.delete(id);
+        else set.add(id);
+      }
+    });
+  }
+
+  function updateSelectionScope(key: string, ids: number[]) {
+    selectableBookIds = ids;
+    if (key !== selectionScopeKey) {
+      selectionScopeKey = key;
+      selectedBookIds = new Set();
+    } else {
+      const eligible = new Set(ids);
+      selectedBookIds = new Set([...selectedBookIds].filter((id) => eligible.has(id)));
+    }
+  }
+
+  function toggleCollections() {
+    if (window.innerWidth >= 1280) {
+      desktopRailOpen = !desktopRailOpen;
+      try {
+        localStorage.setItem('manabi-library-rail-open', desktopRailOpen ? '1' : '0');
+      } catch {
+        /* preference is optional */
+      }
+    } else collectionsOpen = true;
   }
 
   function backToCurrentBook() {
@@ -713,6 +756,9 @@
 <div class="sticky top-0 z-10">
   <BookManagerHeader
     modernLibrary={$storageSource$ === StorageKey.BROWSER}
+    title={destinationTitle}
+    collectionsExpanded={desktopRailOpen || collectionsOpen}
+    wideLibrary={desktopRailOpen}
     hasBookOpened={!!$currentBookId$}
     selectedCount={selectedBookIds.size}
     hasBooks={!!$bookCards$?.length}
@@ -721,7 +767,7 @@
     {replicationToProgress}
     {replicationProgressRemaining}
     bind:selectMode
-    on:collectionsClick={() => (collectionsOpen = true)}
+    on:collectionsClick={toggleCollections}
     on:selectAllClick={onSelectAllBooks}
     on:backToBookClick={backToCurrentBook}
     on:removeClick={() => removeBooks(Array.from(selectedBookIds))}
@@ -750,7 +796,9 @@
 <div
   role="region"
   aria-label="Book library"
-  class="{pxScreen} min-h-full pt-3"
+  class="{$storageSource$ === StorageKey.BROWSER
+    ? 'mx-auto max-w-[1440px] px-4 sm:px-6'
+    : pxScreen} min-h-full pt-3"
   on:dragenter={(ev) => ev.preventDefault()}
   on:dragover={(ev) => ev.preventDefault()}
   on:dragend={(ev) => ev.preventDefault()}
@@ -764,9 +812,13 @@
       currentBookId={$currentBookId$}
       {selectedBookIds}
       {selectMode}
+      bind:destinationTitle
       bind:collectionsOpen
+      bind:desktopRailOpen
       bookCards={$bookCards$}
       on:bookClick={(ev) => onBookClick(ev.detail.id)}
+      on:selectionManyClick={(ev) => toggleSelectedBooks(ev.detail.ids)}
+      on:selectionScopeChange={(ev) => updateSelectionScope(ev.detail.key, ev.detail.ids)}
       on:removeBookClick={(ev) => removeBooks([ev.detail.id])}
     >
       {@render emptyLibrary()}

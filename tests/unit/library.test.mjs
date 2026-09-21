@@ -17,10 +17,36 @@ import {
 } from '../../apps/web/src/lib/library/series-metadata.ts';
 import { resolvePageDirection } from '../../apps/web/src/lib/library/direction.ts';
 import { boundedBytes } from '../../apps/web/src/lib/library/bounded-response.ts';
+import {
+  continueBooks,
+  finishedGroups,
+  formatCalendarDay,
+  seriesReadingTarget
+} from '../../apps/web/src/lib/library/reading-state.ts';
+import {
+  creatorLine,
+  extractCreators,
+  validCreators
+} from '../../apps/web/src/lib/library/book-metadata.ts';
 
 const file = (id, parent, name = id) => ({ id, parent, name, kind: 'file' });
 const folder = (id, parent, name = id) => ({ id, parent, name, kind: 'folder' });
 const tree = (entries) => directoryTree(entries, '', (e) => e.id);
+const shelfBook = (key, options = {}) => ({
+  key,
+  canonicalTitle: options.title || key,
+  title: options.title || key,
+  imagePath: '',
+  creators: [],
+  characters: 0,
+  lastBookModified: 0,
+  lastBookOpen: 0,
+  progress: 0,
+  lastBookmarkModified: 0,
+  isPlaceholder: false,
+  direction: 'unknown',
+  ...options
+});
 
 test('bounded metadata reads enforce both declared and streamed byte limits', async () => {
   const exact = await boundedBytes(new Response(new Uint8Array([1, 2, 3])), 3);
@@ -242,4 +268,80 @@ test('ambiguous, missing and mixed direction remains unknown rather than guessed
     ]).value,
     'unknown'
   );
+});
+
+test('Continue requires reading evidence, excludes finished books, and has stable recency order', () => {
+  const untouched = shelfBook('untouched');
+  const opened = shelfBook('opened', { lastBookOpen: 40 });
+  const migrated = shelfBook('migrated', { progress: 0.2, lastBookmarkModified: 50 });
+  const finished = shelfBook('finished', {
+    lastBookOpen: 60,
+    completion: { state: 'finished', finishedOn: '2026-09-20', modifiedAt: 60 }
+  });
+  assert.deepEqual(
+    continueBooks([untouched, opened, finished, migrated]).map((book) => book.key),
+    ['migrated', 'opened']
+  );
+});
+
+test('series reading target prefers recent evidence then deterministic natural volume order', () => {
+  const ten = shelfBook('ten', {
+    file: { id: '10.epub', name: '10.epub', parent: '', kind: 'file' }
+  });
+  const two = shelfBook('two', {
+    file: { id: '2.epub', name: '2.epub', parent: '', kind: 'file' }
+  });
+  const one = shelfBook('one', {
+    file: { id: '1.epub', name: '1.epub', parent: '', kind: 'file' }
+  });
+  assert.equal(seriesReadingTarget([ten, two, one]).key, 'one');
+  assert.equal(seriesReadingTarget([ten, two, one], [two, ten, one]).key, 'two');
+  two.lastBookOpen = 25;
+  assert.equal(seriesReadingTarget([ten, two, one]).key, 'two');
+  two.completion = { state: 'finished', finishedOn: '2026-09-20', modifiedAt: 30 };
+  assert.equal(seriesReadingTarget([ten, two, one]).key, 'one');
+});
+
+test('Finished groups date-only values newest first and leaves missing dates last', () => {
+  const groups = finishedGroups([
+    shelfBook('unknown', { progress: 1 }),
+    shelfBook('older', {
+      completion: { state: 'finished', finishedOn: '2024-02-29', modifiedAt: 1 }
+    }),
+    shelfBook('newer', {
+      completion: { state: 'finished', finishedOn: '2026-09-20', modifiedAt: 2 }
+    })
+  ]);
+  assert.deepEqual(
+    groups.map((group) => group.day),
+    ['2026-09-20', '2024-02-29', undefined]
+  );
+  assert.deepEqual(
+    finishedGroups(
+      groups.flatMap((group) => group.books),
+      'asc'
+    ).map((group) => group.day),
+    ['2024-02-29', '2026-09-20', undefined]
+  );
+  assert.match(formatCalendarDay('2024-02-29'), /2024/);
+  assert.match(formatCalendarDay('2024-02-29'), /29/);
+});
+
+test('creator metadata honors roles and EPUB refinements while remaining bounded', () => {
+  const creators = extractCreators({
+    'dc:creator': [
+      { '#text': '  夏目   漱石  ', '@_id': 'creator-1' },
+      { '#text': 'Editor', '@_role': 'edt' },
+      { '#text': 'Ignored unroled when an author exists' }
+    ],
+    meta: [
+      { '@_refines': '#creator-1', '@_property': 'role', '#text': 'aut' },
+      { '@_refines': '#creator-1', '@_property': 'file-as', '#text': 'Natsume, Soseki' }
+    ]
+  });
+  assert.deepEqual(creators, [{ name: '夏目 漱石', sortAs: 'Natsume, Soseki' }]);
+  assert.equal(creatorLine(creators), '夏目 漱石');
+  assert.equal(validCreators(creators), true);
+  assert.equal(validCreators([{ name: '' }]), false);
+  assert.equal(validCreators(Array.from({ length: 33 }, () => ({ name: 'Author' }))), false);
 });

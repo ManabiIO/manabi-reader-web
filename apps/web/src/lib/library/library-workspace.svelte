@@ -11,6 +11,9 @@
   import ArrowLeft from '@lucide/svelte/icons/arrow-left';
   import Search from '@lucide/svelte/icons/search';
   import CircleCheck from '@lucide/svelte/icons/circle-check';
+  import BookOpen from '@lucide/svelte/icons/book-open';
+  import List from '@lucide/svelte/icons/list';
+  import Plus from '@lucide/svelte/icons/plus';
   import { booklistSortOptions$ } from '$lib/data/store';
   import { StorageKey } from '$lib/data/storage/storage-types';
   import { SortDirection, type SortOption } from '$lib/data/sort-types';
@@ -39,11 +42,10 @@
     allBooks,
     seriesTrail,
     visibleShelf,
-    continueBook,
     type ShelfBook,
     type ShelfSeries
   } from './view-model';
-  import { isFinished, finishedDay, calendarDay, progressFraction } from './completion';
+  import { isFinished, finishedDay, calendarDay } from './completion';
   import { setCompletion } from './commands';
   import {
     createLocalSeries,
@@ -58,14 +60,27 @@
   import CoverStack from './cover-stack.svelte';
   import SourceIcon from './source-icon.svelte';
   import CollectionsSheet from './collections-sheet.svelte';
+  import { creatorLine, sharedCreatorLine } from './book-metadata';
+  import {
+    continueBooks,
+    finishedGroups,
+    formatCalendarDay,
+    hasReadingEvidence,
+    readingLabel,
+    seriesReadingTarget
+  } from './reading-state';
 
   export let children: Snippet | undefined = undefined;
   export let bookCards: BookCardProps[];
   export let currentBookId: number | undefined;
   export let selectedBookIds: ReadonlySet<number> = new Set();
   export let selectMode = false;
+  export let destinationTitle = 'Library';
+  export let desktopRailOpen = false;
   const dispatch = createEventDispatcher<{
     bookClick: { id: number };
+    selectionManyClick: { ids: number[] };
+    selectionScopeChange: { key: string; ids: number[] };
     removeBookClick: { id: number };
   }>();
   let catalogs: Catalog[] = [],
@@ -74,11 +89,15 @@
     pending: MovePlan[] = [];
   export let collectionsOpen = false;
   let layout: 'grid' | 'list' = 'grid',
+    seriesLayout: 'grid' | 'list' = 'list',
+    finishedLayout: 'grid' | 'timeline' = 'timeline',
+    finishedOrder: 'asc' | 'desc' = 'desc',
     query = '',
     busy = false,
     scanning = false,
     error = '',
     notice = '';
+  let announcedSelectionScope = '';
   let dialogOpen = false,
     dialog: 'rename' | 'date' | 'membership' | 'series-name' | 'new-series' = 'rename';
   let targetBook: ShelfBook | undefined,
@@ -96,12 +115,45 @@
   const sortItems: { property: SortOption['property']; label: string }[] = [
     { property: 'lastBookOpen', label: 'Recent' },
     { property: 'title', label: 'Title' },
-    { property: 'id', label: 'Added' },
+    { property: 'author', label: 'Author' },
+    { property: 'id', label: 'Added' }
+  ];
+  const moreSortItems: { property: SortOption['property']; label: string }[] = [
     { property: 'progress', label: 'Progress' },
     { property: 'characters', label: 'Characters' },
     { property: 'lastBookModified', label: 'Last Update' },
     { property: 'lastBookmarkModified', label: 'Bookmarked' }
   ];
+  function booksInMatchingSeries(nodes: ShelfNode[], search: string): Set<string> {
+    const matches = new Set<string>();
+    for (const node of nodes) {
+      if (node.kind !== 'series') continue;
+      if (node.name.normalize('NFKC').toLocaleLowerCase().includes(search))
+        for (const book of node.books) matches.add(book.key);
+      for (const key of booksInMatchingSeries(node.children, search)) matches.add(key);
+    }
+    return matches;
+  }
+  function orderFinishedNodes(nodes: ShelfNode[], direction: 'asc' | 'desc'): ShelfNode[] {
+    return [...nodes].sort((left, right) => {
+      if (left.kind !== 'book' || right.kind !== 'book') return 0;
+      const leftDay = finishedDay(left.book),
+        rightDay = finishedDay(right.book);
+      if (!leftDay || !rightDay) {
+        if (leftDay) return -1;
+        if (rightDay) return 1;
+      } else {
+        const compared = leftDay.localeCompare(rightDay);
+        if (compared) return direction === 'asc' ? compared : -compared;
+      }
+      return (
+        left.book.title.localeCompare(right.book.title, undefined, {
+          numeric: true,
+          sensitivity: 'base'
+        }) || left.book.key.localeCompare(right.book.key)
+      );
+    });
+  }
   $: sort = $booklistSortOptions$[StorageKey.BROWSER];
   $: tree = buildShelf(bookCards, $linkedBooks, catalogs, sources, $organization, $previews);
   $: books = allBooks(tree);
@@ -112,17 +164,52 @@
   $: trail = seriesTrail(tree, $page.url.searchParams.get('series') || '');
   $: series = trail.at(-1);
   $: notFinished = $page.url.searchParams.get('unfinished') === '1';
-  $: displayed = visibleShelf(
-    series?.children || tree,
-    (book) =>
-      (collectionId !== 'finished' || isFinished(book)) &&
-      (!selectedCollection || selectedCollection.members.includes(book.key)) &&
-      (!notFinished || !isFinished(book)) &&
-      (!query.trim() || book.title.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())),
-    sort
-  );
+  $: destinationTitle = collectionId === 'books' ? 'Library' : collectionTitle;
+  $: normalizedQuery = query.trim().normalize('NFKC').toLocaleLowerCase();
+  $: flatDestination = !series && (collectionId === 'finished' || !!selectedCollection);
+  $: seriesMatchedKeys =
+    normalizedQuery && !flatDestination
+      ? booksInMatchingSeries(series?.children || tree, normalizedQuery)
+      : new Set<string>();
+  $: matchesQuery = (book: ShelfBook) =>
+    !normalizedQuery ||
+    seriesMatchedKeys.has(book.key) ||
+    [book.title, book.canonicalTitle, ...(book.creators || []).map((creator) => creator.name)].some(
+      (value) => value.normalize('NFKC').toLocaleLowerCase().includes(normalizedQuery)
+    );
+  $: includeBook = (book: ShelfBook) =>
+    (collectionId !== 'finished' || isFinished(book)) &&
+    (!selectedCollection || selectedCollection.members.includes(book.key)) &&
+    (!notFinished || !isFinished(book)) &&
+    matchesQuery(book);
+  $: destinationNodes = flatDestination
+    ? books.filter(includeBook).map((book) => ({ kind: 'book' as const, id: book.key, book }))
+    : series?.children || tree;
+  $: sortedDestination = visibleShelf(destinationNodes, includeBook, sort);
+  $: displayed =
+    collectionId === 'finished' && !series
+      ? orderFinishedNodes(sortedDestination, finishedOrder)
+      : sortedDestination;
   $: visibleBooks = allBooks(displayed);
-  $: resume = series ? continueBook(series.books) : undefined;
+  $: scopedSeriesBooks = series ? series.books.filter(includeBook) : [];
+  $: scopedVolumeOrder = series ? allBooks(series.children).filter(includeBook) : [];
+  $: resume = series ? seriesReadingTarget(scopedSeriesBooks, scopedVolumeOrder) : undefined;
+  $: seriesCreators = series ? sharedCreatorLine(scopedSeriesBooks) : undefined;
+  $: recentBooks =
+    !series && collectionId === 'books' && !notFinished && !normalizedQuery && !selectMode
+      ? continueBooks(books)
+      : [];
+  $: completedGroups =
+    collectionId === 'finished' && !series ? finishedGroups(visibleBooks, finishedOrder) : [];
+  $: currentLayout =
+    collectionId === 'finished' && !series ? finishedLayout : series ? seriesLayout : layout;
+  $: selectableBookIds = visibleBooks.flatMap((book) => (book.bookId ? [book.bookId] : []));
+  $: selectionScopeKey = `${collectionId}:${series?.id || ''}:${notFinished ? 'unfinished' : 'all'}:${normalizedQuery}`;
+  $: selectionSignature = `${selectionScopeKey}:${selectableBookIds.join(',')}`;
+  $: if (selectionSignature !== announcedSelectionScope) {
+    announcedSelectionScope = selectionSignature;
+    dispatch('selectionScopeChange', { key: selectionScopeKey, ids: selectableBookIds });
+  }
   $: groupCandidates = books.filter(
     (book) => book.source?.owner === null && book.source.id === groupSource && book.file
   );
@@ -131,7 +218,7 @@
   function previewVisible(element: HTMLElement, node: ShelfNode) {
     let visible = false;
     const schedule = (value: ShelfNode) => {
-      if (!visible) return;
+      if (!visible || selectMode) return;
       const wanted = value.kind === 'book' ? [value.book] : value.books.slice(0, 5);
       for (const book of wanted)
         if (book.source && book.file && (!book.imagePath || !book.pageDirection)) {
@@ -176,10 +263,25 @@
     void goto(resolve(`/manage?${url.searchParams.toString()}`));
   }
   function setLayout(value: string) {
-    if (value !== 'grid' && value !== 'list') return;
-    layout = value;
+    if (collectionId === 'finished' && !series) {
+      if (value !== 'grid' && value !== 'timeline') return;
+      finishedLayout = value;
+    } else if (series) {
+      if (value !== 'grid' && value !== 'list') return;
+      seriesLayout = value;
+    } else {
+      if (value !== 'grid' && value !== 'list') return;
+      layout = value;
+    }
     try {
-      localStorage.setItem('manabi-library-layout', value);
+      localStorage.setItem(
+        collectionId === 'finished' && !series
+          ? 'manabi-finished-layout'
+          : series
+            ? 'manabi-series-layout'
+            : 'manabi-library-layout',
+        value
+      );
     } catch {
       /* layout still works for this session */
     }
@@ -190,6 +292,15 @@
       ...$booklistSortOptions$,
       [StorageKey.BROWSER]: { property: property as SortOption['property'], direction }
     });
+  }
+  function setFinishedOrder(value: string) {
+    if (value !== 'asc' && value !== 'desc') return;
+    finishedOrder = value;
+    try {
+      localStorage.setItem('manabi-finished-order', value);
+    } catch {
+      /* preference is optional */
+    }
   }
   async function action(work: () => Promise<void>) {
     if (busy) return;
@@ -274,11 +385,20 @@
   }
   onMount(() => {
     alive = true;
+    try {
+      desktopRailOpen = localStorage.getItem('manabi-library-rail-open') === '1';
+    } catch {
+      /* preference is optional */
+    }
     previewQueue = new PreviewQueue(() => {
       if (alive) previewFailures++;
     });
     try {
       layout = localStorage.getItem('manabi-library-layout') === 'list' ? 'list' : 'grid';
+      seriesLayout = localStorage.getItem('manabi-series-layout') === 'grid' ? 'grid' : 'list';
+      finishedLayout =
+        localStorage.getItem('manabi-finished-layout') === 'grid' ? 'grid' : 'timeline';
+      finishedOrder = localStorage.getItem('manabi-finished-order') === 'asc' ? 'asc' : 'desc';
     } catch {
       /* default */
     }
@@ -323,6 +443,12 @@
     void action(async () => {
       const id = await ensureBook(book);
       dispatch('bookClick', { id });
+    });
+  }
+  function saveBook(book: ShelfBook) {
+    void action(async () => {
+      await ensureBook(book);
+      notice = `Saved “${book.title}” to this browser.`;
     });
   }
   function editBook(book: ShelfBook, kind: 'rename' | 'date' | 'membership') {
@@ -413,7 +539,7 @@
   }
 </script>
 
-{#snippet bookMenu(book: ShelfBook)}
+{#snippet bookMenu(book: ShelfBook, labelSuffix: string)}
   <Menu.Root>
     <Menu.Trigger>
       {#snippet child({ props })}<Button
@@ -421,13 +547,15 @@
           variant="ghost"
           class="min-h-11 min-w-11"
           size="icon"
-          aria-label={`Actions for ${book.title}`}
-          title={`Actions for ${book.title}`}
+          aria-label={`Actions for ${book.title}${labelSuffix}`}
+          title={`Actions for ${book.title}${labelSuffix}`}
           disabled={busy}><MoreHorizontal aria-hidden="true" /></Button
         >{/snippet}
     </Menu.Trigger>
     <Menu.Content align="end" class="w-64 max-w-[calc(100vw-1rem)]">
       <Menu.Item onSelect={() => openBook(book)}>Read</Menu.Item>
+      {#if !book.bookId}<Menu.Item onSelect={() => saveBook(book)}>Save to This Browser</Menu.Item
+        >{/if}
       <Menu.Separator />
       <Menu.Item onSelect={() => editBook(book, 'rename')}>Rename…</Menu.Item>
       <Menu.Item onSelect={() => editBook(book, 'membership')}>Add to Collection…</Menu.Item>
@@ -435,7 +563,7 @@
         >{isFinished(book) ? 'Mark as Still Reading' : 'Mark as Finished'}</Menu.Item
       >
       {#if isFinished(book)}<Menu.Item onSelect={() => editBook(book, 'date')}
-          >Edit Finished Date…</Menu.Item
+          >{finishedDay(book) ? 'Edit Finished Date…' : 'Set Finished Date…'}</Menu.Item
         >{/if}
       <Menu.Separator />
       <Menu.Sub
@@ -484,237 +612,463 @@
   </Menu.Root>
 {/snippet}
 
-<section
-  class="library-workspace mx-auto max-w-6xl pb-14"
-  aria-label="Library shelves"
-  aria-busy={busy || scanning}
->
-  <div class="library-toolbar mb-7 flex flex-wrap items-center gap-2 py-3">
-    {#if series || collectionId !== 'books'}<Button
-        variant="ghost"
-        class="min-h-11"
-        onclick={() =>
-          navigate(
-            trail.length > 1 ? trail.at(-2)?.id : undefined,
-            series ? collectionId : 'books',
-            false
-          )}
-        ><ArrowLeft aria-hidden="true" />{trail.length > 1
-          ? trail.at(-2)?.name
-          : series
-            ? collectionTitle
-            : 'Library'}</Button
-      >{/if}
-    <ActionMenu label="View" title="Library view options">
-      <Menu.RadioGroup value={layout} onValueChange={setLayout}
-        ><Menu.RadioItem value="grid">Grid</Menu.RadioItem><Menu.RadioItem value="list"
-          >List</Menu.RadioItem
-        ></Menu.RadioGroup
-      >
-      <Menu.Separator /><Menu.Label>Show</Menu.Label>
-      <Menu.RadioGroup
-        value={notFinished ? 'unfinished' : 'all'}
-        onValueChange={(value) => navigate(series?.id, collectionId, value === 'unfinished')}
-        ><Menu.RadioItem value="all">{series ? 'All in Series' : 'All Books'}</Menu.RadioItem
-        ><Menu.RadioItem value="unfinished">Not Finished</Menu.RadioItem></Menu.RadioGroup
-      >
-      <Menu.Separator /><Menu.Label>Sort by</Menu.Label>
-      <Menu.RadioGroup value={sort.property} onValueChange={(value) => setSort(value)}
-        >{#each sortItems as item (item.property)}<Menu.RadioItem value={item.property}
-            >{item.label}</Menu.RadioItem
-          >{/each}</Menu.RadioGroup
-      >
-      <Menu.Separator /><Menu.RadioGroup
-        value={sort.direction}
-        onValueChange={(value) =>
-          setSort(sort.property, value === 'asc' ? SortDirection.ASC : SortDirection.DESC)}
-        ><Menu.RadioItem value="asc">Ascending</Menu.RadioItem><Menu.RadioItem value="desc"
-          >Descending</Menu.RadioItem
-        ></Menu.RadioGroup
-      >
-    </ActionMenu>
-    <ActionMenu label="Organize" disabled={busy}>
-      <Menu.Item onSelect={newSeries}>Create Series from Books…</Menu.Item>
-      <Menu.Item
-        onSelect={() => {
-          void action(() => load(true));
-        }}>Refresh Connected Folders</Menu.Item
-      >
-      <Menu.Item
-        onSelect={() => {
-          void goto(resolve('/connections'));
-        }}>Accounts and Libraries</Menu.Item
-      >
-    </ActionMenu>
-    <label
-      class="search-box ml-auto flex min-h-11 min-w-0 items-center gap-2 rounded-2xl border border-input bg-background px-3"
-      ><Search class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /><span
-        class="sr-only">Search library</span
-      ><input
-        class="min-w-0 w-full bg-transparent outline-none"
-        type="search"
-        placeholder="Search library"
-        bind:value={query}
-      /></label
+<div class="library-frame" class:rail-open={desktopRailOpen}>
+  {#if desktopRailOpen}<aside
+      id="library-collections-navigation"
+      class="library-rail"
+      aria-label="Collections"
     >
-  </div>
-  {#if error}<p
-      role="alert"
-      class="mb-5 rounded-2xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"
-    >
-      {error}
-    </p>{/if}
-  {#if notice}<p role="status" class="mb-4 text-sm text-muted-foreground">{notice}</p>{/if}
-  {#if scanning}<p role="status" class="mb-4 text-sm text-muted-foreground">
-      Reading connected folders…
-    </p>{/if}
-  {#each pending as plan (plan.id)}<div
-      class="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-border p-4"
-    >
-      <p class="flex-1 text-sm">
-        A folder change for “{plan.name}” needs to finish. Verified copies and remaining originals
-        have been kept.
-      </p>
-      <Button onclick={() => resumeMove(plan)} disabled={busy}>Resume Folder Change</Button>
-    </div>{/each}
-  {#if previewFailures}<p class="mb-4 text-sm text-muted-foreground">
-      Some cover previews could not be loaded. Your files are unchanged. Refresh connected folders
-      to retry.
-    </p>{/if}
-  {#if warnings.length}<details class="mb-4 rounded-2xl border border-border p-4 text-sm">
-      <summary>Some series names could not be read ({warnings.length})</summary
-      >{#each warnings as warning, index (index)}<p class="mt-2 break-words">{warning}</p>{/each}
-    </details>{/if}
-  {#if series}
-    <header
-      use:previewVisible={series}
-      class="series-hero mb-10 rounded-3xl px-6 pt-8 pb-7 text-center"
-    >
-      <CoverStack books={series.books} hero />
-      <div class="mt-7 flex items-center justify-center gap-2">
-        <h2 class="min-w-0 break-words font-serif text-3xl font-semibold sm:text-4xl">
-          {series.name}
-        </h2>
-        {@render seriesMenu(series)}
-      </div>
-      <p class="mt-2 text-sm text-muted-foreground">
-        Series · {series.books.length}
-        {series.books.length === 1 ? 'Book' : 'Books'}
-      </p>
-      {#if resume}<Button
-          class="mx-auto mt-6 h-auto min-h-14 max-w-lg flex-col whitespace-normal px-6 py-3"
-          onclick={() => openBook(resume!)}
-          disabled={busy}
-          ><span class="font-semibold"
-            >{resume.lastBookOpen || resume.progress ? 'Continue Reading' : 'Start Reading'}</span
-          ><span class="max-w-full truncate font-normal opacity-80">{resume.title}</span></Button
-        >{:else}<p class="mt-6 inline-flex items-center gap-2 text-sm">
-          <CircleCheck class="size-4" aria-hidden="true" />All books finished
-        </p>{/if}
-    </header>
-  {:else if collectionId !== 'books'}<h2 class="mb-8 break-words font-serif text-3xl font-semibold">
-      {collectionTitle}
-    </h2>{/if}
-  {#if displayed.length}
-    <div
-      class:shelf-grid={layout === 'grid'}
-      class:shelf-list={layout === 'list'}
-      role="list"
-      aria-label={series?.name || collectionTitle}
-    >
-      {#each displayed as node (node.id)}
-        <article
-          role="listitem"
-          class="shelf-item"
-          use:previewVisible={node}
-          class:series-item={node.kind === 'series'}
+      <h2>Library</h2>
+      <nav>
+        <button
+          aria-current={collectionId === 'books' ? 'page' : undefined}
+          on:click={() => {
+            query = '';
+            navigate(undefined, 'books', false);
+          }}><BookOpen aria-hidden="true" /><span>Books</span><span>{books.length}</span></button
         >
-          {#if node.kind === 'series'}
-            <button
-              class="book-open"
-              on:click={() => navigate(node.id)}
-              aria-label={`Open series ${node.name}`}
-            >
-              <div class="book-thumbnail"><CoverStack books={node.books} /></div>
-              <div class="book-copy series-copy">
-                <h3>{node.name}</h3>
-                <p class="list-detail">Series · {node.books.length} books</p>
-              </div>
-            </button>
-            <div class="book-status">
-              <span class="progress-label">{node.books.length} books</span><SourceIcon
-                provider={node.source.provider}
-                name={node.source.name}
-              />{@render seriesMenu(node)}
-            </div>
-          {:else}
-            {@const book = node.book}
-            <button
-              class="book-open"
-              class:selected={!!book.bookId && selectedBookIds.has(book.bookId)}
-              aria-pressed={selectMode
-                ? !!book.bookId && selectedBookIds.has(book.bookId)
-                : undefined}
-              aria-label={`${selectMode ? 'Select' : 'Read'} ${book.title}`}
-              on:click={() => openBook(book)}
-            >
-              <div class="book-thumbnail">
-                <BookCover
-                  imagePath={book.imagePath}
-                  title={book.title}
-                  direction={book.direction}
-                />{#if book.bookId && selectedBookIds.has(book.bookId)}<span class="selection-label"
-                    >Selected</span
-                  >{/if}
-              </div>
-              <div class="book-copy">
-                <h3>{book.title}</h3>
-                <p class="list-detail">
-                  {isFinished(book)
-                    ? 'Finished'
-                    : `${Math.floor(progressFraction(book.progress) * 100)}%`}{#if isFinished(book) && finishedDay(book)}
-                    · {finishedDay(book)}{:else if book.bookId === currentBookId}
-                    · Reading now{/if}
-                </p>
-              </div>
-            </button>
-            <div class="book-status">
-              <span class="progress-label"
-                >{isFinished(book)
-                  ? 'Finished'
-                  : `${Math.floor(progressFraction(book.progress) * 100)}%`}</span
-              ><SourceIcon
-                provider={book.source?.provider}
-                name={book.source?.name || ''}
-              />{@render bookMenu(book)}
-            </div>
-          {/if}
-        </article>
-      {/each}
-    </div>
-    <p class="mt-12 text-center text-sm text-muted-foreground">
-      {visibleBooks.length}
-      {visibleBooks.length === 1 ? 'book' : 'books'}
-    </p>
-  {:else if books.length || series || collectionId !== 'books'}
-    <div class="py-16 text-center">
-      <h3 class="text-lg font-medium">No books here</h3>
-      <p class="mt-2 text-sm text-muted-foreground">
-        {query || notFinished
-          ? 'Try another search or show all books.'
-          : 'Add books to this collection from a book’s menu.'}
-      </p>
-      <Button
-        class="mt-5"
-        variant="outline"
-        onclick={() => {
-          query = '';
-          navigate(series?.id, 'books', false);
-        }}>Show All Books</Button
+        <button
+          aria-current={collectionId === 'finished' ? 'page' : undefined}
+          on:click={() => {
+            query = '';
+            navigate(undefined, 'finished', false);
+          }}
+          ><CircleCheck aria-hidden="true" /><span>Finished</span><span
+            >{books.filter(isFinished).length}</span
+          ></button
+        >
+        <h3>My Collections</h3>
+        {#each $organization.collections as collection (collection.id)}<button
+            aria-current={collectionId === collection.id ? 'page' : undefined}
+            on:click={() => {
+              query = '';
+              navigate(undefined, collection.id, false);
+            }}
+            ><List aria-hidden="true" /><span>{collection.name}</span><span
+              >{collection.members.filter((key) => books.some((book) => book.key === key))
+                .length}</span
+            ></button
+          >{/each}
+        <button on:click={() => (collectionsOpen = true)}
+          ><Plus aria-hidden="true" /><span>New Collection…</span></button
+        >
+      </nav>
+      <p>Collections are saved in this browser.</p>
+    </aside>{/if}
+  <section
+    class="library-workspace mx-auto max-w-6xl pb-14"
+    aria-label="Library shelves"
+    aria-busy={busy || scanning}
+  >
+    <div class="library-toolbar mb-7 flex flex-wrap items-center gap-2 py-3">
+      {#if series || collectionId !== 'books'}<Button
+          variant="ghost"
+          class="min-h-11"
+          onclick={() =>
+            navigate(
+              trail.length > 1 ? trail.at(-2)?.id : undefined,
+              series ? collectionId : 'books',
+              false
+            )}
+          ><ArrowLeft aria-hidden="true" />{trail.length > 1
+            ? trail.at(-2)?.name
+            : series
+              ? collectionTitle
+              : 'Library'}</Button
+        >{/if}
+      <ActionMenu label="View" title="Library view options">
+        <Menu.RadioGroup value={currentLayout} onValueChange={setLayout}
+          >{#if collectionId === 'finished' && !series}<Menu.RadioItem value="timeline"
+              >Timeline</Menu.RadioItem
+            >{/if}<Menu.RadioItem value="grid">Grid</Menu.RadioItem
+          >{#if collectionId !== 'finished' || series}<Menu.RadioItem value="list"
+              >List</Menu.RadioItem
+            >{/if}</Menu.RadioGroup
+        >
+        <Menu.Separator /><Menu.Label>Show</Menu.Label>
+        {#if collectionId === 'finished'}
+          <Menu.Item disabled>Finished books</Menu.Item>
+        {:else}
+          <Menu.RadioGroup
+            value={notFinished ? 'unfinished' : 'all'}
+            onValueChange={(value) => navigate(series?.id, collectionId, value === 'unfinished')}
+            ><Menu.RadioItem value="all">{series ? 'All in Series' : 'All Books'}</Menu.RadioItem
+            ><Menu.RadioItem value="unfinished">Not Finished</Menu.RadioItem></Menu.RadioGroup
+          >
+        {/if}
+        <Menu.Separator /><Menu.Label>Sort by</Menu.Label>
+        {#if collectionId === 'finished' && !series}
+          <Menu.Item disabled>Finished date</Menu.Item>
+          <Menu.Separator /><Menu.RadioGroup value={finishedOrder} onValueChange={setFinishedOrder}
+            ><Menu.RadioItem value="desc">Newest first</Menu.RadioItem><Menu.RadioItem value="asc"
+              >Oldest first</Menu.RadioItem
+            ></Menu.RadioGroup
+          >
+        {:else}
+          <Menu.RadioGroup value={sort.property} onValueChange={(value) => setSort(value)}
+            >{#each sortItems as item (item.property)}<Menu.RadioItem value={item.property}
+                >{item.label}</Menu.RadioItem
+              >{/each}</Menu.RadioGroup
+          >
+          <Menu.Sub>
+            <Menu.SubTrigger>More Sort Options</Menu.SubTrigger>
+            <Menu.SubContent class="w-52">
+              <Menu.RadioGroup value={sort.property} onValueChange={(value) => setSort(value)}>
+                {#each moreSortItems as item (item.property)}<Menu.RadioItem value={item.property}
+                    >{item.label}</Menu.RadioItem
+                  >{/each}
+              </Menu.RadioGroup>
+            </Menu.SubContent>
+          </Menu.Sub>
+          <Menu.Separator /><Menu.RadioGroup
+            value={sort.direction}
+            onValueChange={(value) =>
+              setSort(sort.property, value === 'asc' ? SortDirection.ASC : SortDirection.DESC)}
+            ><Menu.RadioItem value="asc">Ascending</Menu.RadioItem><Menu.RadioItem value="desc"
+              >Descending</Menu.RadioItem
+            ></Menu.RadioGroup
+          >
+        {/if}
+      </ActionMenu>
+      <ActionMenu label="Organize" disabled={busy}>
+        <Menu.Item onSelect={newSeries}>Create Series from Books…</Menu.Item>
+        <Menu.Item
+          onSelect={() => {
+            void action(() => load(true));
+          }}>Refresh Connected Folders</Menu.Item
+        >
+        <Menu.Item
+          onSelect={() => {
+            void goto(resolve('/connections'));
+          }}>Accounts and Libraries</Menu.Item
+        >
+      </ActionMenu>
+      <label
+        class="search-box ml-auto flex min-h-11 min-w-0 items-center gap-2 rounded-2xl border border-input bg-background px-3"
+        ><Search class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /><span
+          class="sr-only">Search library</span
+        ><input
+          class="min-w-0 w-full bg-transparent outline-none"
+          type="search"
+          placeholder="Search library"
+          bind:value={query}
+        /></label
       >
     </div>
-  {:else}{@render children?.()}{/if}
-</section>
+    {#if selectMode}<p class="mb-5 text-sm text-muted-foreground">
+        Selecting a series includes its matching saved books. Connected previews must be saved
+        before they can be exported.
+      </p>{/if}
+    {#if error}<p
+        role="alert"
+        class="mb-5 rounded-2xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"
+      >
+        {error}
+      </p>{/if}
+    {#if notice}<p role="status" class="mb-4 text-sm text-muted-foreground">{notice}</p>{/if}
+    {#if scanning}<p role="status" class="mb-4 text-sm text-muted-foreground">
+        Reading connected folders…
+      </p>{/if}
+    {#each pending as plan (plan.id)}<div
+        class="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-border p-4"
+      >
+        <p class="flex-1 text-sm">
+          A folder change for “{plan.name}” needs to finish. Verified copies and remaining originals
+          have been kept.
+        </p>
+        <Button onclick={() => resumeMove(plan)} disabled={busy}>Resume Folder Change</Button>
+      </div>{/each}
+    {#if previewFailures}<p class="mb-4 text-sm text-muted-foreground">
+        Some cover previews could not be loaded. Your files are unchanged. Refresh connected folders
+        to retry.
+      </p>{/if}
+    {#if warnings.length}<details class="mb-4 rounded-2xl border border-border p-4 text-sm">
+        <summary>Some series names could not be read ({warnings.length})</summary
+        >{#each warnings as warning, index (index)}<p class="mt-2 break-words">{warning}</p>{/each}
+      </details>{/if}
+    {#if recentBooks.length}
+      <section class="continue-section mb-10" aria-labelledby="continue-heading">
+        <h2 id="continue-heading" class="mb-4 font-serif text-2xl font-semibold">Continue</h2>
+        <div class="continue-track" role="list">
+          {#each recentBooks as book (book.key)}
+            <article class="continue-card" role="listitem">
+              <button
+                class="continue-open"
+                on:click={() => openBook(book)}
+                aria-label={`Continue ${book.title}`}
+              >
+                <div class="continue-cover">
+                  <BookCover
+                    imagePath={book.imagePath}
+                    title={book.title}
+                    author={creatorLine(book.creators)}
+                    identity={book.key}
+                    direction={book.direction}
+                  />
+                </div>
+                <span class="min-w-0 flex-1">
+                  <strong class="continue-title">{book.title}</strong>
+                  {#if creatorLine(book.creators)}<span class="continue-author"
+                      >{creatorLine(book.creators)}</span
+                    >{/if}
+                  <span class="continue-progress">{readingLabel(book)}</span>
+                </span>
+              </button>
+              <SourceIcon provider={book.source?.provider} name={book.source?.name || ''} />
+              {@render bookMenu(book, ' in Continue')}
+            </article>
+          {/each}
+        </div>
+      </section>
+    {/if}
+    {#if series}
+      <header
+        use:previewVisible={series}
+        class="series-hero mb-10 rounded-3xl px-6 pt-8 pb-7 text-center"
+      >
+        <div class="series-hero-art"><CoverStack books={scopedSeriesBooks} hero /></div>
+        <div class="series-hero-copy">
+          <div class="flex items-center justify-center gap-2 md:justify-start">
+            <h2 class="min-w-0 break-words font-serif text-3xl font-semibold sm:text-4xl">
+              {series.name}
+            </h2>
+            {@render seriesMenu(series)}
+          </div>
+          <p class="mt-2 text-sm text-muted-foreground">
+            Series · {scopedSeriesBooks.length}
+            {scopedSeriesBooks.length === 1
+              ? 'Book'
+              : 'Books'}{#if collectionId !== 'books'}{' in '}{collectionTitle}{/if}
+          </p>
+          {#if seriesCreators}<p class="mt-1 text-sm text-muted-foreground">
+              {seriesCreators}
+            </p>{/if}
+          {#if resume}<Button
+              class="mt-6 h-auto min-h-14 max-w-lg flex-col whitespace-normal px-6 py-3"
+              onclick={() => openBook(resume!)}
+              disabled={busy}
+              ><span class="font-semibold"
+                >{hasReadingEvidence(resume) ? 'Continue Reading' : 'Start Reading'}</span
+              ><span class="max-w-full truncate font-normal opacity-80">{resume.title}</span
+              ></Button
+            >{:else}<p class="mt-6 inline-flex items-center gap-2 text-sm">
+              <CircleCheck class="size-4" aria-hidden="true" />All books finished
+            </p>{/if}
+          {#if collectionId !== 'books'}<Button
+              class="mt-3"
+              variant="ghost"
+              onclick={() => navigate(series.id, 'books', false)}>View full series</Button
+            >{/if}
+        </div>
+      </header>
+    {:else if recentBooks.length}<h2 class="mb-8 font-serif text-3xl font-semibold">Books</h2>{/if}
+    {#if completedGroups.length && collectionId === 'finished' && !series && currentLayout === 'timeline'}
+      <div class="finished-timeline" role="list" aria-label="Finished books">
+        {#each completedGroups as group (group.day || 'unknown')}
+          <section class="finished-group" aria-labelledby={`finished-${group.day || 'unknown'}`}>
+            <h3 id={`finished-${group.day || 'unknown'}`} class="finished-day">
+              {group.day ? formatCalendarDay(group.day) : 'Date not set'}
+            </h3>
+            <div class="finished-group-books">
+              {#each group.books as book (book.key)}
+                <article class="finished-row" role="listitem">
+                  <button
+                    class="finished-open"
+                    on:click={() => openBook(book)}
+                    aria-label={`Read ${book.title}`}
+                  >
+                    <div class="finished-cover">
+                      <BookCover
+                        imagePath={book.imagePath}
+                        title={book.title}
+                        author={creatorLine(book.creators)}
+                        identity={book.key}
+                        direction={book.direction}
+                      />
+                    </div>
+                    <span class="min-w-0 flex-1">
+                      <strong class="finished-title">{book.title}</strong>
+                      {#if creatorLine(book.creators)}<span class="finished-author"
+                          >{creatorLine(book.creators)}</span
+                        >{/if}
+                      <span class="finished-detail"
+                        >Finished{group.day ? ` · ${formatCalendarDay(group.day)}` : ''}</span
+                      >
+                    </span>
+                  </button>
+                  <SourceIcon provider={book.source?.provider} name={book.source?.name || ''} />
+                  {@render bookMenu(book, '')}
+                </article>
+              {/each}
+            </div>
+          </section>
+        {/each}
+      </div>
+      <p class="mt-12 text-center text-sm text-muted-foreground">
+        {visibleBooks.length}
+        {visibleBooks.length === 1 ? 'book' : 'books'}
+      </p>
+    {:else if displayed.length}
+      <div
+        class:shelf-grid={currentLayout === 'grid'}
+        class:shelf-list={currentLayout === 'list'}
+        role="list"
+        aria-label={series?.name || collectionTitle}
+      >
+        {#each displayed as node (node.id)}
+          <article
+            role="listitem"
+            class="shelf-item"
+            use:previewVisible={node}
+            class:series-item={node.kind === 'series'}
+          >
+            {#if node.kind === 'series'}
+              {@const seriesBookIds = node.books.flatMap((book) =>
+                book.bookId ? [book.bookId] : []
+              )}
+              {@const selectedInSeries = seriesBookIds.filter((id) =>
+                selectedBookIds.has(id)
+              ).length}
+              <button
+                class="book-open"
+                class:selected={selectMode && selectedInSeries > 0}
+                disabled={selectMode && seriesBookIds.length === 0}
+                title={selectMode && seriesBookIds.length === 0
+                  ? 'Save books in this series to the browser before selecting them'
+                  : undefined}
+                aria-pressed={selectMode
+                  ? selectedInSeries === 0
+                    ? false
+                    : selectedInSeries === seriesBookIds.length
+                      ? true
+                      : 'mixed'
+                  : undefined}
+                on:click={() =>
+                  selectMode
+                    ? dispatch('selectionManyClick', {
+                        ids: seriesBookIds
+                      })
+                    : navigate(node.id)}
+                aria-label={`${selectMode ? 'Select' : 'Open'} series ${node.name}`}
+              >
+                <div class="book-thumbnail">
+                  <CoverStack books={node.books} />
+                  {#if selectMode && selectedInSeries > 0}<span class="selection-label"
+                      >{selectedInSeries} selected</span
+                    >{/if}
+                </div>
+                <div class="book-copy series-copy">
+                  <h3>{node.name}</h3>
+                  <p class="list-detail">Series · {node.books.length} books</p>
+                </div>
+              </button>
+              <div class="book-status">
+                <span class="progress-label">{node.books.length} books</span><SourceIcon
+                  provider={node.source.provider}
+                  name={node.source.name}
+                />{#if !selectMode}{@render seriesMenu(node)}{/if}
+              </div>
+            {:else}
+              {@const book = node.book}
+              <button
+                class="book-open"
+                class:selected={!!book.bookId && selectedBookIds.has(book.bookId)}
+                aria-pressed={selectMode
+                  ? !!book.bookId && selectedBookIds.has(book.bookId)
+                  : undefined}
+                aria-label={`${selectMode ? 'Select' : 'Read'} ${book.title}`}
+                aria-describedby={isFinished(book) && book.bookId
+                  ? `finished-description-${book.bookId}`
+                  : undefined}
+                disabled={selectMode && !book.bookId}
+                title={selectMode && !book.bookId
+                  ? 'Save this book to the browser before selecting it'
+                  : undefined}
+                on:click={() =>
+                  selectMode && book.bookId
+                    ? dispatch('bookClick', { id: book.bookId })
+                    : !selectMode
+                      ? openBook(book)
+                      : undefined}
+              >
+                <div class="book-thumbnail">
+                  <BookCover
+                    imagePath={book.imagePath}
+                    title={book.title}
+                    author={creatorLine(book.creators)}
+                    identity={book.key}
+                    direction={book.direction}
+                  />{#if book.bookId && selectedBookIds.has(book.bookId)}<span
+                      class="selection-label">Selected</span
+                    >{/if}
+                </div>
+                <div class="book-copy">
+                  <h3>{book.title}</h3>
+                  {#if creatorLine(book.creators)}<p class="book-author">
+                      {creatorLine(book.creators)}
+                    </p>{/if}
+                  <p class="list-detail">
+                    {readingLabel(book)}{#if isFinished(book) && finishedDay(book)}
+                      · {finishedDay(book)}{:else if book.bookId === currentBookId}
+                      · Reading now{/if}
+                  </p>
+                </div>
+              </button>
+              {#if isFinished(book) && book.bookId}<span
+                  id={`finished-description-${book.bookId}`}
+                  class="sr-only"
+                  >{finishedDay(book)
+                    ? `Finished ${formatCalendarDay(finishedDay(book)!)}.`
+                    : 'Finished. Date not set.'}</span
+                >{/if}
+              <div class="book-status">
+                <span class="progress-label">{readingLabel(book)}</span><SourceIcon
+                  provider={book.source?.provider}
+                  name={book.source?.name || ''}
+                />{#if !selectMode}{@render bookMenu(book, '')}{/if}
+              </div>
+            {/if}
+          </article>
+        {/each}
+      </div>
+      <p class="mt-12 text-center text-sm text-muted-foreground">
+        {visibleBooks.length}
+        {visibleBooks.length === 1 ? 'book' : 'books'}
+      </p>
+    {:else if books.length || series || collectionId !== 'books'}
+      <div class="py-16 text-center">
+        <h3 class="text-lg font-medium">
+          {normalizedQuery
+            ? 'No matching books'
+            : collectionId === 'finished'
+              ? 'No finished books'
+              : notFinished
+                ? 'All books here are finished'
+                : selectedCollection
+                  ? 'No books in this collection'
+                  : 'No books here'}
+        </h3>
+        <p class="mt-2 text-sm text-muted-foreground">
+          {normalizedQuery
+            ? 'Try another search or clear the current search.'
+            : collectionId === 'finished'
+              ? 'Books you finish will appear here.'
+              : notFinished
+                ? 'Show all books to include finished titles.'
+                : 'Add books to this collection from a book’s menu.'}
+        </p>
+        {#if normalizedQuery || notFinished}<Button
+            class="mt-5"
+            variant="outline"
+            onclick={() => {
+              if (normalizedQuery) query = '';
+              else navigate(series?.id, collectionId, false);
+            }}>{normalizedQuery ? 'Clear Search' : 'Show All'}</Button
+          >{/if}
+      </div>
+    {:else}{@render children?.()}{/if}
+  </section>
+</div>
 
 <CollectionsSheet
   bind:open={collectionsOpen}
@@ -865,6 +1219,12 @@
 </Dialog.Root>
 
 <style>
+  .library-frame {
+    min-width: 0;
+  }
+  .library-rail {
+    display: none;
+  }
   .search-box input {
     border: 0;
     border-radius: 0;
@@ -879,6 +1239,130 @@
       color-mix(in oklch, var(--primary) 12%, var(--background)),
       var(--muted)
     );
+  }
+  .continue-track {
+    display: flex;
+    gap: 1rem;
+    overflow-x: auto;
+    padding: 0.25rem 0.25rem 0.75rem;
+    scroll-snap-type: x proximity;
+  }
+  .continue-card {
+    display: flex;
+    align-items: center;
+    flex: 0 0 min(19rem, calc(100vw - 3rem));
+    min-height: 6.5rem;
+    border-radius: 1.25rem;
+    background: color-mix(in oklch, var(--primary) 12%, var(--card));
+    color: var(--card-foreground);
+    overflow: hidden;
+    scroll-snap-align: start;
+  }
+  .continue-open {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    min-width: 0;
+    flex: 1;
+    padding: 0.75rem 0 0.75rem 0.75rem;
+    text-align: left;
+  }
+  .continue-open:focus-visible,
+  .finished-open:focus-visible {
+    outline: 3px solid var(--ring);
+    outline-offset: -3px;
+  }
+  .continue-cover {
+    width: 3.7rem;
+    height: 5rem;
+    flex: none;
+  }
+  .continue-title,
+  .continue-author,
+  .continue-progress,
+  .finished-title,
+  .finished-author,
+  .finished-detail {
+    display: block;
+  }
+  .continue-title {
+    display: -webkit-box;
+    overflow: hidden;
+    line-clamp: 2;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    line-height: 1.25;
+  }
+  .continue-progress,
+  .continue-author,
+  .finished-author,
+  .finished-detail {
+    margin-top: 0.35rem;
+    color: var(--muted-foreground);
+    font-size: 0.875rem;
+  }
+  .series-hero-art {
+    min-width: 0;
+  }
+  .series-hero-copy {
+    min-width: 0;
+  }
+  .finished-timeline {
+    display: grid;
+    gap: 2.5rem;
+  }
+  .finished-group {
+    display: grid;
+    gap: 1rem;
+  }
+  .finished-day {
+    font-family: var(--font-serif, Georgia, serif);
+    font-size: 1.35rem;
+    font-weight: 600;
+  }
+  .finished-group-books {
+    display: grid;
+    border-top: 1px solid var(--border);
+  }
+  .finished-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+    padding: 1rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .finished-open {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex: 1;
+    min-width: 0;
+    text-align: left;
+  }
+  .finished-cover {
+    width: 4rem;
+    height: 6rem;
+    flex: none;
+  }
+  .finished-title {
+    overflow-wrap: anywhere;
+    font-weight: 600;
+  }
+  .continue-author,
+  .finished-author,
+  .book-author {
+    overflow: hidden;
+    color: var(--muted-foreground);
+    font-size: 0.875rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .continue-author {
+    margin-top: 0.25rem;
+  }
+  .book-author {
+    margin-top: 0.25rem;
   }
   .search-box {
     width: 15rem;
@@ -999,9 +1483,99 @@
       grid-template-columns: repeat(3, minmax(0, 1fr));
     }
   }
+  @media (min-width: 768px) {
+    .series-hero {
+      display: grid;
+      grid-template-columns: minmax(18rem, 1fr) minmax(18rem, 1fr);
+      align-items: center;
+      gap: 2.5rem;
+      text-align: left;
+    }
+    .finished-group {
+      grid-template-columns: 9rem minmax(0, 1fr);
+      align-items: start;
+    }
+    .finished-day {
+      position: sticky;
+      top: 7rem;
+      color: var(--muted-foreground);
+      font-family: inherit;
+      font-size: 0.95rem;
+    }
+  }
   @media (min-width: 960px) {
     .shelf-grid {
       grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+  @media (min-width: 1280px) {
+    .library-frame.rail-open {
+      display: grid;
+      grid-template-columns: 14rem minmax(0, 1fr);
+      gap: 2rem;
+      align-items: start;
+    }
+    .library-rail {
+      display: block;
+      position: sticky;
+      top: 6.5rem;
+      max-height: calc(100dvh - 8rem);
+      overflow-y: auto;
+      padding: 1rem 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 1.25rem;
+      background: var(--card);
+    }
+    .library-rail h2 {
+      padding: 0.5rem 0.75rem 0.75rem;
+      font-family: var(--font-serif, Georgia, serif);
+      font-size: 1.35rem;
+      font-weight: 650;
+    }
+    .library-rail h3 {
+      padding: 1.25rem 0.75rem 0.4rem;
+      color: var(--muted-foreground);
+      font-size: 0.75rem;
+      font-weight: 650;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .library-rail button {
+      display: grid;
+      grid-template-columns: 1.1rem minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 0.65rem;
+      width: 100%;
+      min-height: 2.75rem;
+      padding: 0.5rem 0.75rem;
+      border-radius: 0.75rem;
+      text-align: left;
+    }
+    .library-rail button:hover,
+    .library-rail button[aria-current='page'] {
+      background: var(--accent);
+    }
+    .library-rail button:focus-visible {
+      outline: 2px solid var(--ring);
+      outline-offset: 2px;
+    }
+    .library-rail button :global(svg) {
+      width: 1.1rem;
+      height: 1.1rem;
+    }
+    .library-rail button span:nth-child(2) {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .library-rail button span:last-child:not(:nth-child(2)) {
+      color: var(--muted-foreground);
+      font-variant-numeric: tabular-nums;
+    }
+    .library-rail p {
+      margin: 1rem 0.75rem 0.25rem;
+      color: var(--muted-foreground);
+      font-size: 0.75rem;
     }
   }
   @media (max-width: 560px) {

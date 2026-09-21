@@ -29,6 +29,9 @@
   import Layers from '@lucide/svelte/icons/layers';
 
   export let modernLibrary = false;
+  export let title = 'Library';
+  export let collectionsExpanded = false;
+  export let wideLibrary = false;
   export let hasBookOpened: boolean;
   export let selectMode: boolean;
   export let selectedCount: number;
@@ -72,6 +75,7 @@
   $: sortItems = [
     ...($storageSource$ === StorageKey.BROWSER ? [{ property: 'id', label: 'Added' }] : []),
     { property: 'title', label: 'Title' },
+    { property: 'author', label: 'Author' },
     { property: 'characters', label: 'Characters' },
     { property: 'lastBookModified', label: 'Last Update' },
     { property: 'lastBookOpen', label: 'Last Read' },
@@ -141,8 +145,12 @@
 
 {#if modernLibrary}
   <header class="app-header bg-background text-foreground" aria-label="Library toolbar">
-    <div class="mx-auto flex min-h-20 max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
-      <h1 class="truncate font-serif text-4xl font-bold tracking-tight sm:text-5xl">Library</h1>
+    <div
+      class="mx-auto flex min-h-20 items-center justify-between gap-3 px-4 py-3 sm:px-6 {wideLibrary
+        ? 'max-w-[1440px]'
+        : 'max-w-6xl'}"
+    >
+      <h1 class="truncate font-serif text-4xl font-bold tracking-tight sm:text-5xl">{title}</h1>
       <div class="flex shrink-0 items-center gap-2">
         <Button
           variant="outline"
@@ -150,6 +158,8 @@
           class="size-11 rounded-full"
           aria-label="Collections"
           title="Collections"
+          aria-expanded={collectionsExpanded}
+          aria-controls="library-collections-navigation"
           onclick={() => dispatch('collectionsClick')}
           disabled={!!replicationToProgress}
         >
@@ -179,7 +189,9 @@
               <Menu.Item onSelect={() => dispatch('backToBookClick')}>Resume Reading</Menu.Item>
               <Menu.Separator />
             {/if}
-            <Menu.Item disabled={!hasBooks} onSelect={() => (selectMode = true)}>Select Books</Menu.Item>
+            <Menu.Item disabled={!hasBooks} onSelect={() => (selectMode = true)}
+              >Select Books</Menu.Item
+            >
             <Menu.Sub>
               <Menu.SubTrigger>Add Books</Menu.SubTrigger>
               <Menu.SubContent class="w-64">
@@ -195,10 +207,13 @@
               </Menu.SubContent>
             </Menu.Sub>
             <Menu.Separator />
-            <Menu.Item onSelect={() => goto(resolve('/connections'))}>Accounts and Libraries</Menu.Item>
+            <Menu.Item onSelect={() => goto(resolve('/connections'))}
+              >Accounts and Libraries</Menu.Item
+            >
             <Menu.Item onSelect={() => goto(resolve('/statistics'))}>Statistics</Menu.Item>
             <Menu.Item onSelect={() => goto(resolve('/settings'))}>Settings</Menu.Item>
-            <Menu.Item onSelect={() => goto(resolve('/shared-library'))}>Shared Libraries</Menu.Item>
+            <Menu.Item onSelect={() => goto(resolve('/shared-library'))}>Shared Libraries</Menu.Item
+            >
             {#if sources.length > 1}
               <Menu.Separator />
               <Menu.Sub>
@@ -210,9 +225,8 @@
                     onValueChange={(value) => sourceChanged(value as StorageKey)}
                   >
                     {#each sources as source (source.key)}
-                      <Menu.RadioItem
-                        value={source.key}
-                        disabled={source.online && !$isOnline$}>{source.label}</Menu.RadioItem
+                      <Menu.RadioItem value={source.key} disabled={source.online && !$isOnline$}
+                        >{source.label}</Menu.RadioItem
                       >
                     {/each}
                   </Menu.RadioGroup>
@@ -222,7 +236,9 @@
             <Menu.Separator />
             <Menu.Item onSelect={() => dispatch('bugReportClick')}>Report an Issue</Menu.Item>
             {#if isOldUrl}
-              <Menu.Item onSelect={() => dispatch('domainHintClick')}>Old Domain Information</Menu.Item>
+              <Menu.Item onSelect={() => dispatch('domainHintClick')}
+                >Old Domain Information</Menu.Item
+              >
             {/if}
             {#if showLoadCount}
               <Menu.Item onSelect={() => countImportElm.click()}
@@ -235,8 +251,10 @@
     </div>
     {#if replicationToProgress}
       <div class="mx-auto flex min-h-14 max-w-6xl items-center gap-2 px-4 pb-3 sm:px-6">
-        <Button variant="outline" onclick={() => dispatch('cancelReplication')} title={cancelTooltip}
-          >Cancel Operation</Button
+        <Button
+          variant="outline"
+          onclick={() => dispatch('cancelReplication')}
+          title={cancelTooltip}>Cancel Operation</Button
         >
         <progress
           class="h-2 min-w-20 flex-1"
@@ -273,125 +291,131 @@
     {/if}
   </header>
 {:else}
-<header
-  class="app-header border-b border-border bg-card text-foreground"
-  aria-label="Library toolbar"
->
-  <div class="mx-auto flex h-12 max-w-7xl items-center justify-between gap-2 px-3 sm:px-6">
-    <div class="flex min-w-0 items-center gap-3">
-      <h1 class="truncate font-serif text-3xl font-bold tracking-tight">Library</h1>
-      <span class="hidden text-sm text-muted-foreground sm:inline">Manabi Reader</span>
+  <header
+    class="app-header border-b border-border bg-card text-foreground"
+    aria-label="Library toolbar"
+  >
+    <div class="mx-auto flex h-12 max-w-7xl items-center justify-between gap-2 px-3 sm:px-6">
+      <div class="flex min-w-0 items-center gap-3">
+        <h1 class="truncate font-serif text-3xl font-bold tracking-tight">Library</h1>
+        <span class="hidden text-sm text-muted-foreground sm:inline">Manabi Reader</span>
+      </div>
+      <div class="flex items-center gap-1">
+        {#if hasBookOpened && !replicationToProgress}<Button
+            variant="ghost"
+            onclick={() => dispatch('backToBookClick')}
+            title="Back to Book">Resume reading</Button
+          >{/if}
+        {#if !replicationToProgress}<AppNav />{/if}
+      </div>
     </div>
-    <div class="flex items-center gap-1">
-      {#if hasBookOpened && !replicationToProgress}<Button
-          variant="ghost"
-          onclick={() => dispatch('backToBookClick')}
-          title="Back to Book">Resume reading</Button
-        >{/if}
-      {#if !replicationToProgress}<AppNav />{/if}
-    </div>
-  </div>
-  <div class="mx-auto flex min-h-14 max-w-7xl items-center gap-2 overflow-x-auto px-3 pb-2 sm:px-6">
-    {#if replicationToProgress}
-      <Button variant="outline" onclick={() => dispatch('cancelReplication')} title={cancelTooltip}
-        >Cancel operation</Button
-      >
-      <progress
-        class="h-2 min-w-20 flex-1"
-        aria-label="Export progress"
-        value={replicationProgress}
-        max={replicationToProgress}
-      ></progress>
-      <span role="status" class="whitespace-nowrap text-sm">{replicationProgressRemaining}</span>
-    {:else if selectMode}
-      <Button variant="ghost" onclick={() => (selectMode = false)}>Cancel selection</Button>
-      <span class="whitespace-nowrap text-sm" aria-live="polite">{selectedCount} selected</span>
-      <Button variant="outline" onclick={() => dispatch('selectAllClick')}>Select all</Button>
-      {#if selectedCount > 0}
+    <div
+      class="mx-auto flex min-h-14 max-w-7xl items-center gap-2 overflow-x-auto px-3 pb-2 sm:px-6"
+    >
+      {#if replicationToProgress}
         <Button
-          variant="secondary"
-          onclick={() => dispatch('replicateData')}
-          title="Open Export Menu">Export</Button
+          variant="outline"
+          onclick={() => dispatch('cancelReplication')}
+          title={cancelTooltip}>Cancel operation</Button
         >
-        <ActionMenu label="Actions" title="Selected book actions">
-          {#if $storageSource$ === StorageKey.BROWSER}
-            <Menu.Item onSelect={() => dispatch('selectionToStatistics')}
-              >Statistics for selected books</Menu.Item
+        <progress
+          class="h-2 min-w-20 flex-1"
+          aria-label="Export progress"
+          value={replicationProgress}
+          max={replicationToProgress}
+        ></progress>
+        <span role="status" class="whitespace-nowrap text-sm">{replicationProgressRemaining}</span>
+      {:else if selectMode}
+        <Button variant="ghost" onclick={() => (selectMode = false)}>Cancel selection</Button>
+        <span class="whitespace-nowrap text-sm" aria-live="polite">{selectedCount} selected</span>
+        <Button variant="outline" onclick={() => dispatch('selectAllClick')}>Select all</Button>
+        {#if selectedCount > 0}
+          <Button
+            variant="secondary"
+            onclick={() => dispatch('replicateData')}
+            title="Open Export Menu">Export</Button
+          >
+          <ActionMenu label="Actions" title="Selected book actions">
+            {#if $storageSource$ === StorageKey.BROWSER}
+              <Menu.Item onSelect={() => dispatch('selectionToStatistics')}
+                >Statistics for selected books</Menu.Item
+              >
+              <Menu.Item variant="destructive" onSelect={() => dispatch('deleteStatistics')}
+                >Delete selected statistics</Menu.Item
+              >
+              <Menu.Separator />
+            {/if}
+            <Menu.Item variant="destructive" onSelect={() => dispatch('removeClick')}
+              >Delete selected books</Menu.Item
             >
-            <Menu.Item variant="destructive" onSelect={() => dispatch('deleteStatistics')}
-              >Delete selected statistics</Menu.Item
-            >
-            <Menu.Separator />
-          {/if}
-          <Menu.Item variant="destructive" onSelect={() => dispatch('removeClick')}
-            >Delete selected books</Menu.Item
+          </ActionMenu>
+        {/if}
+      {:else}
+        <ActionMenu label="Add books">
+          <Menu.Item onSelect={() => fileImportElm.click()}>Import File(s)</Menu.Item>
+          {#if !$isMobile$}<Menu.Item onSelect={() => folderImportElm.click()}
+              >Import Folder(s)</Menu.Item
+            >{/if}
+          <Menu.Item onSelect={() => backupImportElm.click()}>Import Backup</Menu.Item>
+          <Menu.Separator />
+          <Menu.Item onSelect={() => goto(resolve('/import-ttu'))}
+            >Import from Ttu Ebook Reader</Menu.Item
           >
         </ActionMenu>
-      {/if}
-    {:else}
-      <ActionMenu label="Add books">
-        <Menu.Item onSelect={() => fileImportElm.click()}>Import File(s)</Menu.Item>
-        {#if !$isMobile$}<Menu.Item onSelect={() => folderImportElm.click()}
-            >Import Folder(s)</Menu.Item
-          >{/if}
-        <Menu.Item onSelect={() => backupImportElm.click()}>Import Backup</Menu.Item>
-        <Menu.Separator />
-        <Menu.Item onSelect={() => goto(resolve('/import-ttu'))}
-          >Import from Ttu Ebook Reader</Menu.Item
+        <ActionMenu
+          label={sources.find((source) => source.key === $storageSource$)?.label ?? 'Storage'}
+          title="Select Storage Source"
         >
-      </ActionMenu>
-      <ActionMenu
-        label={sources.find((source) => source.key === $storageSource$)?.label ?? 'Storage'}
-        title="Select Storage Source"
-      >
-        <Menu.Label>Storage source</Menu.Label>
-        <Menu.RadioGroup
-          value={$storageSource$}
-          onValueChange={(value) => sourceChanged(value as StorageKey)}
-        >
-          {#each sources as source (source.key)}<Menu.RadioItem
-              value={source.key}
-              disabled={source.online && !$isOnline$}>{source.label}</Menu.RadioItem
-            >{/each}
-        </Menu.RadioGroup>
-      </ActionMenu>
-      {#if !modernLibrary}
-        <ActionMenu label="Sort" title="Select Sort Options">
-          <Menu.Label>Sort books</Menu.Label>
+          <Menu.Label>Storage source</Menu.Label>
           <Menu.RadioGroup
-            value={$booklistSortOptions$[$storageSource$].property}
-            onValueChange={(property) =>
-              setSort(property, $booklistSortOptions$[$storageSource$].direction)}
+            value={$storageSource$}
+            onValueChange={(value) => sourceChanged(value as StorageKey)}
           >
-            {#each sortItems as item (item.property)}<Menu.RadioItem value={item.property}
-                >{item.label}</Menu.RadioItem
+            {#each sources as source (source.key)}<Menu.RadioItem
+                value={source.key}
+                disabled={source.online && !$isOnline$}>{source.label}</Menu.RadioItem
               >{/each}
           </Menu.RadioGroup>
-          <Menu.Separator />
-          <Menu.RadioGroup
-            value={String($booklistSortOptions$[$storageSource$].direction)}
-            onValueChange={(direction) =>
-              setSort($booklistSortOptions$[$storageSource$].property, direction as SortDirection)}
-          >
-            <Menu.RadioItem value={String(SortDirection.ASC)}>Ascending</Menu.RadioItem>
-            <Menu.RadioItem value={String(SortDirection.DESC)}>Descending</Menu.RadioItem>
-          </Menu.RadioGroup>
+        </ActionMenu>
+        {#if !modernLibrary}
+          <ActionMenu label="Sort" title="Select Sort Options">
+            <Menu.Label>Sort books</Menu.Label>
+            <Menu.RadioGroup
+              value={$booklistSortOptions$[$storageSource$].property}
+              onValueChange={(property) =>
+                setSort(property, $booklistSortOptions$[$storageSource$].direction)}
+            >
+              {#each sortItems as item (item.property)}<Menu.RadioItem value={item.property}
+                  >{item.label}</Menu.RadioItem
+                >{/each}
+            </Menu.RadioGroup>
+            <Menu.Separator />
+            <Menu.RadioGroup
+              value={String($booklistSortOptions$[$storageSource$].direction)}
+              onValueChange={(direction) =>
+                setSort(
+                  $booklistSortOptions$[$storageSource$].property,
+                  direction as SortDirection
+                )}
+            >
+              <Menu.RadioItem value={String(SortDirection.ASC)}>Ascending</Menu.RadioItem>
+              <Menu.RadioItem value={String(SortDirection.DESC)}>Descending</Menu.RadioItem>
+            </Menu.RadioGroup>
+          </ActionMenu>
+        {/if}
+        <Button variant="ghost" disabled={!hasBooks} onclick={() => (selectMode = true)}
+          >Select books</Button
+        >
+        <ActionMenu label="Help">
+          <Menu.Item onSelect={() => dispatch('bugReportClick')}>Report an Issue</Menu.Item>
+          {#if isOldUrl}<Menu.Item onSelect={() => dispatch('domainHintClick')}
+              >Old domain information</Menu.Item
+            >{/if}
+          {#if showLoadCount}<Menu.Item onSelect={() => countImportElm.click()}
+              >Import character counts{$fileCountData$ ? ' (loaded)' : ''}</Menu.Item
+            >{/if}
         </ActionMenu>
       {/if}
-      <Button variant="ghost" disabled={!hasBooks} onclick={() => (selectMode = true)}
-        >Select books</Button
-      >
-      <ActionMenu label="Help">
-        <Menu.Item onSelect={() => dispatch('bugReportClick')}>Report an Issue</Menu.Item>
-        {#if isOldUrl}<Menu.Item onSelect={() => dispatch('domainHintClick')}
-            >Old domain information</Menu.Item
-          >{/if}
-        {#if showLoadCount}<Menu.Item onSelect={() => countImportElm.click()}
-            >Import character counts{$fileCountData$ ? ' (loaded)' : ''}</Menu.Item
-          >{/if}
-      </ActionMenu>
-    {/if}
-  </div>
-</header>
-
+    </div>
+  </header>
 {/if}

@@ -4,6 +4,8 @@
   import type { PageDirection } from './direction';
   export let imagePath: string | Blob = '';
   export let title = '';
+  export let author = '';
+  export let identity = '';
   export let direction: PageDirection = 'unknown';
   let url = '',
     previous: string | Blob | undefined,
@@ -17,6 +19,10 @@
     ratio = 2 / 3;
     url = createLocalCoverUrl(imagePath);
   }
+  $: palette = [...(identity || title)].reduce(
+    (value, character) => (value * 31 + character.codePointAt(0)!) % 360,
+    211
+  );
   onDestroy(release);
 </script>
 
@@ -45,7 +51,10 @@
         }}
       />
     {:else}
-      <div class="placeholder-cover"><span>{title}</span></div>
+      <div class="placeholder-cover" style:--cover-hue={`${palette}deg`}>
+        <span class="placeholder-title">{title}</span>
+        {#if author}<span class="placeholder-author">{author}</span>{/if}
+      </div>
     {/if}
     <span class="binding"></span>
     <span class="cover-edge"></span>
@@ -67,8 +76,8 @@
     border-radius: 2px;
     background: var(--muted);
     box-shadow:
-      0 14px 18px -10px color-mix(in srgb, var(--foreground) 45%, transparent),
-      0 2px 4px color-mix(in srgb, var(--foreground) 12%, transparent);
+      0 14px 18px -10px rgb(0 0 0 / 45%),
+      0 2px 4px rgb(0 0 0 / 18%);
   }
   img {
     display: block;
@@ -81,15 +90,20 @@
     position: absolute;
     inset: 0;
     display: flex;
-    align-items: flex-start;
+    flex-direction: column;
+    align-items: center;
     justify-content: center;
     overflow: hidden;
     padding: 14% 10%;
-    background: linear-gradient(155deg, var(--muted), var(--secondary));
-    color: var(--foreground);
+    background: linear-gradient(
+      155deg,
+      oklch(52% 0.08 var(--cover-hue)),
+      oklch(30% 0.055 var(--cover-hue))
+    );
+    color: white;
     border: 1px solid var(--border);
   }
-  .placeholder-cover span {
+  .placeholder-title {
     font-family: var(--font-serif, Georgia, serif);
     font-size: clamp(0.8rem, 2.8vw, 1.5rem);
     line-height: 1.3;
@@ -100,6 +114,16 @@
     -webkit-line-clamp: 8;
     -webkit-box-orient: vertical;
     overflow: hidden;
+  }
+  .placeholder-author {
+    margin-top: 0.75rem;
+    overflow: hidden;
+    max-width: 100%;
+    font-size: clamp(0.55rem, 1.7vw, 0.9rem);
+    text-align: center;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    opacity: 0.82;
   }
   .binding {
     position: absolute;

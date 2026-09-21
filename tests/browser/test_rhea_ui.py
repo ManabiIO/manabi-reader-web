@@ -56,7 +56,7 @@ class RheaReader(previous.RefinedAppearance):
 
         search = self.page.get_by_role('searchbox', name='Search library', exact=True)
         search.fill('not-this-book')
-        expect(self.page.get_by_role('heading', name='No books here', exact=True)).to_be_visible()
+        expect(self.page.get_by_role('heading', name='No matching books', exact=True)).to_be_visible()
         search.fill('reader browser')
         expect(read).to_be_visible()
 
@@ -230,9 +230,16 @@ class RheaReader(previous.RefinedAppearance):
         self.page.goto(self.origin + '/Reader-Web/manage')
         self.page.get_by_role('button', name='Library view options', exact=True).click()
         menu = self.page.get_by_role('menu')
-        for name in ['Added','Title','Characters','Last Update','Recent','Progress','Bookmarked','Ascending','Descending']:
+        for name in ['Added','Title','Author','Recent','Ascending','Descending']:
             expect(menu.get_by_role('menuitemradio', name=name, exact=True)).to_be_visible()
         menu.get_by_role('menuitemradio', name='Title', exact=True).click()
+        self.page.get_by_role('button', name='Library view options', exact=True).click()
+        self.page.get_by_role('menuitem', name='More Sort Options', exact=True).hover()
+        more = self.page.get_by_role('menu').last
+        for name in ['Characters','Last Update','Progress','Bookmarked']:
+            expect(more.get_by_role('menuitemradio', name=name, exact=True)).to_be_visible()
+        self.page.keyboard.press('Escape')
+        self.page.keyboard.press('Escape')
         self.page.get_by_role('button', name='Library actions', exact=True).click()
         self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
         self.page.get_by_role('button', name='Select all', exact=True).click()
