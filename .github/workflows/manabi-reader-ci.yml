@@ -29,6 +29,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --dir apps/web exec svelte-kit sync
       - run: node --experimental-strip-types --test tests/unit/*.test.mjs
+      - name: Whispersync core and Svelte compilation
+        run: node test/whispersync/run.mjs --svelte --browser-bundle=test-results/whispersync-bundle.js
       - name: Type-check committed application source
         run: pnpm --dir apps/web check
       - name: Compile production static artifact
@@ -42,6 +44,8 @@ jobs:
           set -o pipefail
           python tests/browser/test_static_reader.py 2>&1 | tee browser-results.log
           python tests/browser/test_local_library.py 2>&1 | tee -a browser-results.log
+          python test/whispersync/browser.py test-results/whispersync-bundle.js 2>&1 | tee -a browser-results.log
+          python tests/browser/test_whispersync.py 2>&1 | tee -a browser-results.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:

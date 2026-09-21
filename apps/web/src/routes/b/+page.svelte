@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AudiobookLauncher from '$lib/features/whispersync/audiobook-launcher.svelte';
   import * as Sheet from '$lib/components/ui/sheet';
   import { setCompletion } from '$lib/library/commands';
   import { readerUIOwnsEvent } from '$lib/functions/reader-ui-events';
@@ -1841,6 +1842,18 @@
       aria-expanded={showFooter}
       on:click={() => (showFooter = !showFooter)}>Progress</button
     >
+    {#if $bookData$ && $rawBookData$}
+      {#key `${$rawBookData$.id}:${$rawBookData$.title}`}
+        <AudiobookLauncher
+          bookId={$rawBookData$.id}
+          bookTitle={$rawBookData$.title}
+          htmlContent={$bookData$.htmlContent}
+          layoutKey={$viewMode$}
+          {bookmarkManager}
+          onFollow={() => autoScroller?.off()}
+        />
+      {/key}
+    {/if}
     {#if showTrackerIcon}
       <button
         type="button"
