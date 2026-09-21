@@ -234,7 +234,7 @@ export async function connectProvider(provider: string) {
     method: 'POST',
     value: {}
   });
-  const url = providerAuthorization(result.authorize_url, location.hostname);
+  const url = providerAuthorization(result.authorize_url, provider, location.hostname);
   if (!url) throw new IntegrationError('invalid_response');
   location.assign(url.href);
 }

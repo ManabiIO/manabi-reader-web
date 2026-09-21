@@ -7,7 +7,12 @@
 import { writable } from 'svelte/store';
 import { equal, integrationDB, setMetadata, type BookLink } from '$lib/manabi/persistence';
 import { libraryName } from './series-metadata';
-import { applyPortableOrganization, portableOrganization } from './organization-portability';
+import {
+  applyPortableOrganization,
+  isPortablePresentation,
+  isPortableText,
+  portableOrganization
+} from './organization-portability';
 import type { PageDirection } from './direction';
 
 export interface Collection {
@@ -39,20 +44,6 @@ export const sourceBookKey = (
   fileId: string
 ) => `source:${JSON.stringify([source.owner, source.id, source.root, fileId])}`;
 
-function validPresentation(value: unknown): value is BookPresentation {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const item = value as Record<string, unknown>;
-  return (
-    Number.isFinite(item.modifiedAt) &&
-    (item.title === undefined || (typeof item.title === 'string' && item.title.length <= 1000)) &&
-    (item.direction === undefined ||
-      ['ltr', 'rtl', 'unknown'].includes(item.direction as string)) &&
-    (item.cover === undefined ||
-      (typeof item.cover === 'string' &&
-        item.cover.length <= 512 * 1024 &&
-        /^data:image\/(?:png|jpeg|webp);base64,/.test(item.cover)))
-  );
-}
 function normalizedOrganization(value: unknown): Organization | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return;
   const item = value as Partial<Organization>;
@@ -67,9 +58,8 @@ function normalizedOrganization(value: unknown): Organization | undefined {
   const collections = item.collections.filter(
     (collection): collection is Collection =>
       !!collection &&
-      typeof collection.id === 'string' &&
-      typeof collection.name === 'string' &&
-      collection.name.length <= 240 &&
+      isPortableText(collection.id, 128) &&
+      isPortableText(collection.name, 240) &&
       Array.isArray(collection.members) &&
       collection.members.every((member) => typeof member === 'string' && member.length <= 1000)
   );
@@ -77,7 +67,7 @@ function normalizedOrganization(value: unknown): Organization | undefined {
   const entries = Object.entries(item.books);
   if (
     entries.length > 50000 ||
-    entries.some(([id, book]) => id.length > 1000 || !validPresentation(book))
+    entries.some(([id, book]) => id.length > 1000 || !isPortablePresentation(book))
   )
     return;
   return {
@@ -196,10 +186,11 @@ export async function presentBook(
   change: { title?: string; direction?: PageDirection; cover?: string }
 ) {
   if (change.title !== undefined) change.title = libraryName(change.title);
-  if (change.cover !== undefined && !validPresentation({ ...change, modifiedAt: Date.now() }))
-    throw new Error('The cover image is too large or unsupported.');
   await updateOrganization((value) => {
-    value.books[id] = { ...value.books[id], ...change, modifiedAt: Date.now() };
+    const presentation = { ...value.books[id], ...change, modifiedAt: Date.now() };
+    if (!isPortablePresentation(presentation))
+      throw new Error('The book presentation override is invalid or too large.');
+    value.books[id] = presentation;
   });
 }
 

@@ -24,11 +24,11 @@ export interface PreferenceReply {
 
 export const maxManagedStateBytes = 1024 * 1024;
 
-const providerHosts = new Set([
-  'accounts.google.com',
-  'login.microsoftonline.com',
-  'www.dropbox.com'
-]);
+const providerHosts: Record<string, string> = {
+  google: 'accounts.google.com',
+  onedrive: 'login.microsoftonline.com',
+  dropbox: 'www.dropbox.com'
+};
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -113,10 +113,17 @@ export function validInternalPath(path: string): boolean {
 
 export function validJsonMediaType(value: string | null): boolean {
   const mediaType = value?.split(';', 1)[0].trim().toLowerCase() ?? '';
-  return mediaType === 'application/json' || mediaType.endsWith('+json');
+  return (
+    mediaType === 'application/json' ||
+    /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+\+json$/.test(mediaType)
+  );
 }
 
-export function providerAuthorization(value: unknown, applicationHostname: string): URL | null {
+export function providerAuthorization(
+  value: unknown,
+  provider: string,
+  applicationHostname: string
+): URL | null {
   if (!boundedText(value, 16_384)) return null;
   let url: URL;
   try {
@@ -126,9 +133,10 @@ export function providerAuthorization(value: unknown, applicationHostname: strin
   }
   const production =
     url.protocol === 'https:' &&
-    providerHosts.has(url.hostname) &&
+    providerHosts[provider] === url.hostname &&
     (url.port === '' || url.port === '443');
   const isolatedLocal =
+    provider === 'fake' &&
     ['127.0.0.1', 'localhost'].includes(applicationHostname) &&
     url.protocol === 'http:' &&
     url.hostname === '127.0.0.1' &&

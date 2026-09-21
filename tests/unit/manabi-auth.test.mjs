@@ -102,28 +102,30 @@ test('JSON responses require an exact JSON media type', () => {
     'application/problem+json'
   ])
     assert.equal(validJsonMediaType(type), true, type);
-  for (const type of [null, '', 'text/plain', 'text/application/json-evil'])
+  for (const type of [null, '', 'text/plain', 'text/application/json-evil', 'problem+json'])
     assert.equal(validJsonMediaType(type), false, String(type));
 });
 
 test('provider redirects match the backend origin allowlist', () => {
-  for (const href of [
-    'https://accounts.google.com/o/oauth2/v2/auth?client_id=x',
-    'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=x',
-    'https://www.dropbox.com/oauth2/authorize?client_id=x'
+  for (const [provider, href] of [
+    ['google', 'https://accounts.google.com/o/oauth2/v2/auth?client_id=x'],
+    ['onedrive', 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=x'],
+    ['dropbox', 'https://www.dropbox.com/oauth2/authorize?client_id=x']
   ])
-    assert.equal(providerAuthorization(href, 'manabi.io')?.href, href);
+    assert.equal(providerAuthorization(href, provider, 'manabi.io')?.href, href);
   assert.equal(
-    providerAuthorization('http://127.0.0.1:8123/authorize?client_id=x', 'localhost')?.port,
+    providerAuthorization('http://127.0.0.1:8123/authorize?client_id=x', 'fake', 'localhost')?.port,
     '8123'
   );
-  for (const href of [
-    'http://accounts.google.com/o/oauth2/auth',
-    'https://accounts.google.com:444/o/oauth2/auth',
-    'https://accounts.google.com/o/oauth2/auth#token',
-    'https://user@accounts.google.com/o/oauth2/auth',
-    'https://accounts.google.com.attacker.invalid/o/oauth2/auth',
-    'http://127.0.0.1:8123/authorize'
+  for (const [provider, href, hostname = 'manabi.io'] of [
+    ['google', 'http://accounts.google.com/o/oauth2/auth'],
+    ['google', 'https://accounts.google.com:444/o/oauth2/auth'],
+    ['google', 'https://accounts.google.com/o/oauth2/auth#token'],
+    ['google', 'https://user@accounts.google.com/o/oauth2/auth'],
+    ['google', 'https://accounts.google.com.attacker.invalid/o/oauth2/auth'],
+    ['dropbox', 'https://accounts.google.com/o/oauth2/auth'],
+    ['google', 'http://127.0.0.1:8123/authorize', 'localhost'],
+    ['fake', 'http://127.0.0.1:8123/authorize']
   ])
-    assert.equal(providerAuthorization(href, 'manabi.io'), null, href);
+    assert.equal(providerAuthorization(href, provider, hostname), null, href);
 });
