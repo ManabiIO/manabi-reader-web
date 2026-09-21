@@ -10,7 +10,7 @@ import {
   BOOK_ARCHIVE_LIMITS,
   LimitedArchive,
   validateArchivePath
-} from '../file-loaders/utils/limited-archive';
+} from '../file-loaders/utils/limited-archive.ts';
 
 const EPUB_MIME_TYPE = 'application/epub+zip';
 const EPUB_CONTAINER_PATH = 'META-INF/container.xml';
