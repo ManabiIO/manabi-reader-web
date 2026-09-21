@@ -27,10 +27,7 @@ export function portableOrganization(value: Organization): Organization {
 }
 
 /** Apply accepted shared state without adopting another browser's local locators. */
-export function applyPortableOrganization(
-  local: Organization,
-  remote: Organization
-): Organization {
+export function applyPortableOrganization(local: Organization, remote: Organization): Organization {
   const shared = portableOrganization(remote);
   const localCollections = new Map(
     local.collections.map((collection) => [collection.id, collection])
