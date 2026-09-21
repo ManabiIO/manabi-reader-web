@@ -35,13 +35,13 @@
     width: 90%;
     height: 94%;
     bottom: 6%;
-    right: 0;
+    left: 0;
     z-index: 1;
   }
   .stack-item.front {
     bottom: 0;
-    left: 0;
-    right: auto;
+    right: 0;
+    left: auto;
     z-index: 5;
   }
   .hero {

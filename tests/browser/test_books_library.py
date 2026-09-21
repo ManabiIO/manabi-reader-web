@@ -160,11 +160,22 @@ class LibraryBase(unittest.TestCase):
         self.dialog().get_by_role('button', name='Done', exact=True).click()
 
     def choose_view(self, name):
-        self.page.get_by_role('button', name='Library view options', exact=True).click()
+        self.open_view_menu()
+        choice = self.page.get_by_role('menuitemradio', name=name, exact=True)
+        if choice.count() == 0:
+            self.page.get_by_role('menuitem', name='Sort by…', exact=True).hover()
         self.page.get_by_role('menuitemradio', name=name, exact=True).click()
 
+    def open_view_menu(self):
+        self.page.get_by_role('button', name='Library actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='View Options', exact=True).hover()
+
+    def open_organize_menu(self):
+        self.page.get_by_role('button', name='Library actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Organize Library', exact=True).hover()
+
     def choose_collection(self, name):
-        self.page.get_by_role('button', name='Collections', exact=True).click()
+        self.page.get_by_role('button', name='Show or hide library sidebar', exact=True).click()
         self.page.locator('[data-slot="sheet-content"]').get_by_role(
             'button', name=re.compile('^' + re.escape(name) + r'\b')).click()
 
@@ -219,11 +230,12 @@ class BooksLibraryBrowser(LibraryBase):
         expect(self.page.get_by_role('list', name='Finished books', exact=True)).to_be_visible()
         expect(self.page.locator('.finished-day').first).to_contain_text(re.compile(r'Feb.*29.*2024|29.*Feb.*2024'))
         expect(self.page.locator('.finished-author').first).to_have_text('Author Three')
-        self.page.get_by_role('button', name='Library view options', exact=True).click()
+        self.open_view_menu()
         expect(self.page.get_by_role('menuitemradio', name='Not Finished', exact=True)).to_have_count(0)
+        self.page.get_by_role('menuitem', name='Sort by…', exact=True).hover()
         self.page.get_by_role('menuitemradio', name='Oldest first', exact=True).click()
         expect(self.page.locator('.finished-day').first).to_contain_text(re.compile(r'Jan.*15.*2023|15.*Jan.*2023'))
-        self.page.get_by_role('button', name='Library view options', exact=True).click()
+        self.open_view_menu()
         self.page.get_by_role('menuitemradio', name='Grid', exact=True).click()
         expect(self.page.locator('.shelf-grid')).to_be_visible()
 
@@ -274,8 +286,8 @@ class BooksLibraryBrowser(LibraryBase):
         self.page.set_viewport_size({'width':390, 'height':844})
         header = self.page.get_by_role('banner', name='Library toolbar')
         expect(self.page).to_have_title(re.compile(r'Library'))
-        expect(header.get_by_role('heading', name='Library', exact=True)).to_be_visible()
-        expect(header.get_by_role('button', name='Collections', exact=True)).to_be_visible()
+        expect(header.get_by_role('heading', name='Manabi Reader for Web', exact=True)).to_be_visible()
+        expect(header.get_by_role('button', name='Show or hide library sidebar', exact=True)).to_be_visible()
         expect(header.get_by_role('button', name='Library actions', exact=True)).to_be_visible()
         for obsolete in ('Add books', 'Browser', 'Select books', 'Help', 'Navigate'):
             expect(header.get_by_role('button', name=obsolete, exact=True)).to_have_count(0)
@@ -290,7 +302,7 @@ class BooksLibraryBrowser(LibraryBase):
         expect(header.get_by_role('button', name='Cancel selection', exact=True)).to_be_visible()
         header.get_by_role('button', name='Cancel selection', exact=True).click()
 
-        header.get_by_role('button', name='Collections', exact=True).click()
+        header.get_by_role('button', name='Show or hide library sidebar', exact=True).click()
         expect(self.page.locator('[data-slot="sheet-content"]').get_by_role(
             'heading', name='Collections', exact=True)).to_be_visible()
         self.page.keyboard.press('Escape')
@@ -300,10 +312,13 @@ class BooksLibraryBrowser(LibraryBase):
     def test_desktop_collections_action_toggles_persistent_library_rail(self):
         self.import_book('Rail book')
         self.page.set_viewport_size({'width':1440, 'height':900})
-        button = self.page.get_by_role('button', name='Collections', exact=True)
+        button = self.page.get_by_role('button', name='Show or hide library sidebar', exact=True)
         button.click()
         rail = self.page.get_by_role('complementary', name='Collections', exact=True)
         expect(rail).to_be_visible()
+        expect(self.tile('Rail book')).to_be_visible()
+        workspace = self.page.get_by_role('region', name='Library shelves', exact=True)
+        self.assertGreater(workspace.bounding_box()['width'], 800)
         expect(button).to_have_attribute('aria-expanded', 'true')
         rail.get_by_role('button', name=re.compile(r'^Finished\b')).click()
         expect(self.page.get_by_role('heading', name='Finished', exact=True)).to_be_visible()
@@ -312,6 +327,27 @@ class BooksLibraryBrowser(LibraryBase):
         expect(rail).to_be_visible()
         button.click()
         expect(rail).to_have_count(0)
+
+    def test_book_menu_uses_concise_actions_and_persistent_cover_override(self):
+        self.import_book('Cover override')
+        self.page.get_by_role('button', name='Actions for Cover override', exact=True).click()
+        expect(self.page.get_by_role('menuitem', name='Read', exact=True)).to_have_count(0)
+        expect(self.page.get_by_text('Book Binding', exact=True)).to_have_count(0)
+        expect(self.page.get_by_role(
+            'menuitem', name='Remove from this browser…', exact=True)).to_be_visible()
+        with self.page.expect_file_chooser() as chooser:
+            self.page.get_by_role('menuitem', name='Change Cover…', exact=True).click()
+        chooser.value.set_files({
+            'name': 'replacement.png',
+            'mimeType': 'image/png',
+            'buffer': raster(120, 180, (40, 120, 180))
+        })
+        cover = self.tile('Cover override').locator('img')
+        expect(cover).to_have_attribute('src', re.compile(r'^data:image/(?:png|webp);base64,'))
+        self.page.reload()
+        cover = self.tile('Cover override').locator('img')
+        expect(cover).to_have_attribute(
+            'src', re.compile(r'^data:image/(?:png|webp);base64,'), timeout=30000)
 
     def test_direction_uses_css_cascade_not_language_and_ignores_hidden_text(self):
         self.import_book('Japanese horizontal')
@@ -356,7 +392,7 @@ class BooksLibraryBrowser(LibraryBase):
         self.dialog().get_by_role('checkbox', name='Favorites').uncheck()
         expect(self.dialog().get_by_role('checkbox', name='Japanese')).to_be_checked()
         self.dialog().get_by_role('button', name='Done').click()
-        self.page.get_by_role('button', name='Collections', exact=True).click()
+        self.page.get_by_role('button', name='Show or hide library sidebar', exact=True).click()
         sheet = self.page.locator('[data-slot="sheet-content"]')
         sheet.get_by_role('button', name='Edit collections', exact=True).click()
         sheet.get_by_role('button', name='Rename collection Japanese', exact=True).click()
@@ -402,7 +438,7 @@ class BooksLibraryBrowser(LibraryBase):
         self.menu('Finished selection', 'Mark as Finished')
         expect(self.tile('Finished selection').locator('.progress-label')).to_have_text('Finished')
         def choose(name):
-            self.page.get_by_role('button', name='Collections', exact=True).click()
+            self.page.get_by_role('button', name='Show or hide library sidebar', exact=True).click()
             self.page.locator('[data-slot="sheet-content"]').get_by_role('button', name=re.compile('^' + re.escape(name) + r'\b')).click()
         choose('Finished')
         expect(self.page.get_by_role('heading', name='Finished', exact=True)).to_be_visible()
@@ -581,7 +617,7 @@ class BooksLibraryFilesystem(LibraryBase):
         old_reading=self.stores('books',['bookmark','statistic'])
         old_links=self.stores('manabi-reader-integrations',['books'])['books']
         before=self.disk()
-        self.page.get_by_role('button',name='Organize',exact=True).click()
+        self.open_organize_menu()
         self.page.get_by_role('menuitem',name='Create Series from Books…',exact=True).click()
         self.dialog().get_by_label('Name',exact=True).fill('Combined')
         for checkbox in self.dialog().get_by_role('checkbox').all(): checkbox.check()

@@ -6,17 +6,24 @@
   import { Button } from '$lib/components/ui/button';
   import * as Menu from '$lib/components/ui/dropdown-menu';
   import * as Dialog from '$lib/components/ui/dialog';
-  import ActionMenu from '$lib/components/navigation/action-menu.svelte';
-  import MoreHorizontal from '@lucide/svelte/icons/ellipsis';
-  import ArrowLeft from '@lucide/svelte/icons/arrow-left';
-  import Search from '@lucide/svelte/icons/search';
-  import CircleCheck from '@lucide/svelte/icons/circle-check';
-  import BookOpen from '@lucide/svelte/icons/book-open';
-  import List from '@lucide/svelte/icons/list';
-  import Plus from '@lucide/svelte/icons/plus';
+  import {
+    BookOpenIcon as BookOpen,
+    BooksIcon as Books,
+    CalendarBlankIcon as CalendarBlank,
+    CheckCircleIcon as CircleCheck,
+    DotsThreeIcon as MoreHorizontal,
+    DownloadSimpleIcon as DownloadSimple,
+    FolderOpenIcon as FolderOpen,
+    ImageSquareIcon as ImageSquare,
+    ListIcon as List,
+    MagnifyingGlassIcon as Search,
+    PencilSimpleIcon as PencilSimple,
+    PlusIcon as Plus,
+    TrashIcon as Trash
+  } from 'phosphor-svelte';
   import { booklistSortOptions$ } from '$lib/data/store';
   import { StorageKey } from '$lib/data/storage/storage-types';
-  import { SortDirection, type SortOption } from '$lib/data/sort-types';
+  import type { SortOption } from '$lib/data/sort-types';
   import type { BookCardProps } from '$lib/components/book-card/book-card-props';
   import { account, currentUser } from '$lib/manabi/client';
   import { linkedBooks, refreshLinkedBooks, importLibraryBook } from '$lib/manabi/books';
@@ -61,6 +68,8 @@
   import SourceIcon from './source-icon.svelte';
   import CollectionsSheet from './collections-sheet.svelte';
   import { creatorLine, sharedCreatorLine } from './book-metadata';
+  import { coverOverride } from './cover-override';
+  import type { LibraryMenuModel } from './library-menu';
   import {
     continueBooks,
     finishedGroups,
@@ -77,6 +86,7 @@
   export let selectMode = false;
   export let destinationTitle = 'Library';
   export let desktopRailOpen = false;
+  export let menu: LibraryMenuModel | undefined = undefined;
   const dispatch = createEventDispatcher<{
     bookClick: { id: number };
     selectionManyClick: { ids: number[] };
@@ -101,6 +111,8 @@
   let dialogOpen = false,
     dialog: 'rename' | 'date' | 'membership' | 'series-name' | 'new-series' = 'rename';
   let targetBook: ShelfBook | undefined,
+    coverTarget: ShelfBook | undefined,
+    coverInput: HTMLInputElement,
     targetSeries: ShelfSeries | undefined,
     name = '',
     date = '',
@@ -155,7 +167,7 @@
   ) {
     return (
       (destination !== 'finished' || isFinished(book)) &&
-      (!members || members.includes(book.key)) &&
+      (!members || book.organizationAliases.some((alias) => members.includes(alias))) &&
       (!unfinishedOnly || !isFinished(book)) &&
       matchesBookQuery(book, search, seriesMatches)
     );
@@ -190,7 +202,7 @@
   $: trail = seriesTrail(tree, $page.url.searchParams.get('series') || '');
   $: series = trail.at(-1);
   $: notFinished = $page.url.searchParams.get('unfinished') === '1';
-  $: destinationTitle = collectionId === 'books' ? 'Library' : collectionTitle;
+  $: destinationTitle = series?.name || (collectionId === 'books' ? 'Library' : collectionTitle);
   $: normalizedQuery = query.trim().normalize('NFKC').toLocaleLowerCase();
   $: flatDestination = !series && (collectionId === 'finished' || !!selectedCollection);
   $: seriesMatchedKeys =
@@ -274,6 +286,41 @@
     (book) => book.source?.owner === null && book.source.id === groupSource && book.file
   );
   $: warnings = catalogs.flatMap((catalog) => catalog.warnings);
+  $: menu = {
+    title: destinationTitle,
+    canGoBack: !!series || collectionId !== 'books',
+    back: navigateBack,
+    currentLayout,
+    layouts:
+      collectionId === 'finished' && !series
+        ? [
+            { value: 'timeline', label: 'Timeline', icon: 'timeline' },
+            { value: 'grid', label: 'Grid', icon: 'grid' }
+          ]
+        : [
+            { value: 'grid', label: 'Grid', icon: 'grid' },
+            { value: 'list', label: 'List', icon: 'list' }
+          ],
+    setLayout,
+    showValue: collectionId === 'finished' ? 'finished' : notFinished ? 'unfinished' : 'all',
+    showChoices:
+      collectionId === 'finished'
+        ? [{ value: 'finished', label: 'Finished books' }]
+        : [
+            { value: 'all', label: series ? 'All in Series' : 'All Books' },
+            { value: 'unfinished', label: 'Not Finished' }
+          ],
+    setShow: (value: string) => navigate(series?.id, collectionId, value === 'unfinished'),
+    sortProperty: sort.property,
+    sortDirection: sort.direction,
+    sortChoices: collectionId === 'finished' && !series ? [] : sortItems,
+    moreSortChoices: collectionId === 'finished' && !series ? [] : moreSortItems,
+    setSort,
+    finishedOrder: collectionId === 'finished' && !series ? finishedOrder : undefined,
+    setFinishedOrder,
+    createSeries: newSeries,
+    refreshFolders: () => void action(() => load(true))
+  } satisfies LibraryMenuModel;
 
   function previewVisible(element: HTMLElement, node: ShelfNode) {
     let visible = false;
@@ -321,6 +368,13 @@
     if (unfinished) url.searchParams.set('unfinished', '1');
     else url.searchParams.delete('unfinished');
     void goto(resolve(`/manage?${url.searchParams.toString()}`));
+  }
+  function navigateBack() {
+    navigate(
+      trail.length > 1 ? trail.at(-2)?.id : undefined,
+      series ? collectionId : 'books',
+      false
+    );
   }
   function setLayout(value: string) {
     if (collectionId === 'finished' && !series) {
@@ -520,6 +574,23 @@
     error = '';
     dialogOpen = true;
   }
+  function chooseCover(book: ShelfBook) {
+    coverTarget = book;
+    coverInput.value = '';
+    coverInput.click();
+  }
+  function coverChanged(files: FileList | null) {
+    const file = files?.[0],
+      book = coverTarget;
+    if (!file || !book) return;
+    void action(async () => {
+      const cover = await coverOverride(file);
+      const bookId = await ensureBook(book);
+      const linked = $linkedBooks.find((link) => link.bookId === bookId);
+      await presentBook(linked ? `content:${linked.contentHash}` : book.organizationKey, { cover });
+      notice = `Updated the cover for “${book.title}”.`;
+    });
+  }
   function editSeries(value: ShelfSeries) {
     targetSeries = value;
     dialog = 'series-name';
@@ -567,7 +638,8 @@
         : undefined;
     void action(async () => {
       await permission;
-      if (dialog === 'rename' && targetBook) await presentBook(targetBook.key, { title: name });
+      if (dialog === 'rename' && targetBook)
+        await presentBook(targetBook.organizationKey, { title: name });
       else if (dialog === 'date' && targetBook)
         await setCompletion(await ensureBook(targetBook), 'finished', date);
       else if (dialog === 'series-name' && targetSeries && local) {
@@ -599,6 +671,15 @@
   }
 </script>
 
+<input
+  hidden
+  type="file"
+  accept="image/png,image/jpeg,image/webp"
+  aria-label="Choose replacement cover"
+  bind:this={coverInput}
+  onchange={(event) => coverChanged(event.currentTarget.files)}
+/>
+
 {#snippet bookMenu(book: ShelfBook, labelSuffix: string)}
   <Menu.Root>
     <Menu.Trigger>
@@ -613,39 +694,39 @@
         >{/snippet}
     </Menu.Trigger>
     <Menu.Content align="end" class="w-64 max-w-[calc(100vw-1rem)]">
-      <Menu.Item onSelect={() => openBook(book)}>Read</Menu.Item>
-      {#if !book.bookId}<Menu.Item onSelect={() => saveBook(book)}>Save to This Browser</Menu.Item
+      {#if !book.bookId}<Menu.Item onSelect={() => saveBook(book)}
+          ><DownloadSimple aria-hidden="true" />Save to this browser</Menu.Item
         >{/if}
-      <Menu.Separator />
-      <Menu.Item onSelect={() => editBook(book, 'rename')}>Rename…</Menu.Item>
-      <Menu.Item onSelect={() => editBook(book, 'membership')}>Add to Collection…</Menu.Item>
+      {#if !book.bookId}<Menu.Separator />{/if}
+      <Menu.Item onSelect={() => editBook(book, 'rename')}
+        ><PencilSimple aria-hidden="true" />Rename…</Menu.Item
+      >
+      <Menu.Item onSelect={() => editBook(book, 'membership')}
+        ><Books aria-hidden="true" />Add to Collection…</Menu.Item
+      >
       <Menu.Item onSelect={() => finish(book)}
-        >{isFinished(book) ? 'Mark as Still Reading' : 'Mark as Finished'}</Menu.Item
+        >{#if isFinished(book)}<BookOpen aria-hidden="true" />Mark as Still Reading{:else}<CircleCheck
+            aria-hidden="true"
+          />Mark as Finished{/if}</Menu.Item
       >
       {#if isFinished(book)}<Menu.Item onSelect={() => editBook(book, 'date')}
-          >{finishedDay(book) ? 'Edit Finished Date…' : 'Set Finished Date…'}</Menu.Item
+          ><CalendarBlank aria-hidden="true" />{finishedDay(book)
+            ? 'Edit Finished Date…'
+            : 'Set Finished Date…'}</Menu.Item
         >{/if}
       <Menu.Separator />
-      <Menu.Sub
-        ><Menu.SubTrigger>Book Binding</Menu.SubTrigger><Menu.SubContent>
-          <Menu.Label>Cover edge only; reading layout is unchanged</Menu.Label>
-          <Menu.RadioGroup
-            value={$organization.books[book.key]?.direction || 'unknown'}
-            onValueChange={(value) => {
-              if (value === 'ltr' || value === 'rtl' || value === 'unknown')
-                void action(() => presentBook(book.key, { direction: value }));
-            }}
-          >
-            <Menu.RadioItem value="unknown">Automatic</Menu.RadioItem><Menu.RadioItem value="ltr"
-              >Left edge</Menu.RadioItem
-            ><Menu.RadioItem value="rtl">Right edge</Menu.RadioItem>
-          </Menu.RadioGroup>
-        </Menu.SubContent></Menu.Sub
+      <Menu.Item onSelect={() => chooseCover(book)}
+        ><ImageSquare aria-hidden="true" />Change Cover…</Menu.Item
       >
+      {#if $organization.books[book.organizationKey]?.cover}<Menu.Item
+          onSelect={() =>
+            void action(() => presentBook(book.organizationKey, { cover: undefined }))}
+          ><ImageSquare aria-hidden="true" />Use Original Cover</Menu.Item
+        >{/if}
       {#if book.bookId}<Menu.Separator /><Menu.Item
           variant="destructive"
           onSelect={() => dispatch('removeBookClick', { id: book.bookId! })}
-          >Remove from This Browser…</Menu.Item
+          ><Trash aria-hidden="true" />Remove from this browser…</Menu.Item
         >{/if}
     </Menu.Content>
   </Menu.Root>
@@ -663,9 +744,11 @@
         >{/snippet}</Menu.Trigger
     >
     <Menu.Content align="end"
-      ><Menu.Item onSelect={() => navigate(value.id)}>Open Series</Menu.Item>
+      ><Menu.Item onSelect={() => navigate(value.id)}
+        ><FolderOpen aria-hidden="true" />Open Series</Menu.Item
+      >
       {#if value.source.owner === null}<Menu.Item onSelect={() => editSeries(value)}
-          >Rename Series…</Menu.Item
+          ><PencilSimple aria-hidden="true" />Rename Series…</Menu.Item
         >
       {:else}<Menu.Label>Cloud folder names are managed in your drive.</Menu.Label>{/if}
     </Menu.Content>
@@ -682,14 +765,14 @@
       <nav>
         <button
           aria-current={collectionId === 'books' ? 'page' : undefined}
-          on:click={() => {
+          onclick={() => {
             query = '';
             navigate(undefined, 'books', false);
           }}><BookOpen aria-hidden="true" /><span>Books</span><span>{books.length}</span></button
         >
         <button
           aria-current={collectionId === 'finished' ? 'page' : undefined}
-          on:click={() => {
+          onclick={() => {
             query = '';
             navigate(undefined, 'finished', false);
           }}
@@ -697,112 +780,31 @@
             >{books.filter(isFinished).length}</span
           ></button
         >
-        <h3>My Collections</h3>
+        <h3>My Collection</h3>
         {#each $organization.collections as collection (collection.id)}<button
             aria-current={collectionId === collection.id ? 'page' : undefined}
-            on:click={() => {
+            onclick={() => {
               query = '';
               navigate(undefined, collection.id, false);
             }}
             ><List aria-hidden="true" /><span>{collection.name}</span><span
-              >{collection.members.filter((key) => books.some((book) => book.key === key))
-                .length}</span
+              >{books.filter((book) =>
+                book.organizationAliases.some((alias) => collection.members.includes(alias))
+              ).length}</span
             ></button
           >{/each}
-        <button on:click={() => (collectionsOpen = true)}
+        <button onclick={() => (collectionsOpen = true)}
           ><Plus aria-hidden="true" /><span>New Collection…</span></button
         >
       </nav>
-      <p>Collections are saved in this browser.</p>
+      <p>Synced with Manabi Reader settings when account sync is on.</p>
     </aside>{/if}
   <section
-    class="library-workspace mx-auto max-w-6xl pb-14"
+    class="library-workspace max-w-none pb-14"
     aria-label="Library shelves"
     aria-busy={busy || scanning}
   >
-    <div class="library-toolbar mb-7 flex flex-wrap items-center gap-2 py-3">
-      {#if series || collectionId !== 'books'}<Button
-          variant="ghost"
-          class="min-h-11"
-          onclick={() =>
-            navigate(
-              trail.length > 1 ? trail.at(-2)?.id : undefined,
-              series ? collectionId : 'books',
-              false
-            )}
-          ><ArrowLeft aria-hidden="true" />{trail.length > 1
-            ? trail.at(-2)?.name
-            : series
-              ? collectionTitle
-              : 'Library'}</Button
-        >{/if}
-      <ActionMenu label="View" title="Library view options">
-        <Menu.RadioGroup value={currentLayout} onValueChange={setLayout}
-          >{#if collectionId === 'finished' && !series}<Menu.RadioItem value="timeline"
-              >Timeline</Menu.RadioItem
-            >{/if}<Menu.RadioItem value="grid">Grid</Menu.RadioItem
-          >{#if collectionId !== 'finished' || series}<Menu.RadioItem value="list"
-              >List</Menu.RadioItem
-            >{/if}</Menu.RadioGroup
-        >
-        <Menu.Separator /><Menu.Label>Show</Menu.Label>
-        {#if collectionId === 'finished'}
-          <Menu.Item disabled>Finished books</Menu.Item>
-        {:else}
-          <Menu.RadioGroup
-            value={notFinished ? 'unfinished' : 'all'}
-            onValueChange={(value) => navigate(series?.id, collectionId, value === 'unfinished')}
-            ><Menu.RadioItem value="all">{series ? 'All in Series' : 'All Books'}</Menu.RadioItem
-            ><Menu.RadioItem value="unfinished">Not Finished</Menu.RadioItem></Menu.RadioGroup
-          >
-        {/if}
-        <Menu.Separator /><Menu.Label>Sort by</Menu.Label>
-        {#if collectionId === 'finished' && !series}
-          <Menu.Item disabled>Finished date</Menu.Item>
-          <Menu.Separator /><Menu.RadioGroup value={finishedOrder} onValueChange={setFinishedOrder}
-            ><Menu.RadioItem value="desc">Newest first</Menu.RadioItem><Menu.RadioItem value="asc"
-              >Oldest first</Menu.RadioItem
-            ></Menu.RadioGroup
-          >
-        {:else}
-          <Menu.RadioGroup value={sort.property} onValueChange={(value) => setSort(value)}
-            >{#each sortItems as item (item.property)}<Menu.RadioItem value={item.property}
-                >{item.label}</Menu.RadioItem
-              >{/each}</Menu.RadioGroup
-          >
-          <Menu.Sub>
-            <Menu.SubTrigger>More Sort Options</Menu.SubTrigger>
-            <Menu.SubContent class="w-52">
-              <Menu.RadioGroup value={sort.property} onValueChange={(value) => setSort(value)}>
-                {#each moreSortItems as item (item.property)}<Menu.RadioItem value={item.property}
-                    >{item.label}</Menu.RadioItem
-                  >{/each}
-              </Menu.RadioGroup>
-            </Menu.SubContent>
-          </Menu.Sub>
-          <Menu.Separator /><Menu.RadioGroup
-            value={sort.direction}
-            onValueChange={(value) =>
-              setSort(sort.property, value === 'asc' ? SortDirection.ASC : SortDirection.DESC)}
-            ><Menu.RadioItem value="asc">Ascending</Menu.RadioItem><Menu.RadioItem value="desc"
-              >Descending</Menu.RadioItem
-            ></Menu.RadioGroup
-          >
-        {/if}
-      </ActionMenu>
-      <ActionMenu label="Organize" disabled={busy}>
-        <Menu.Item onSelect={newSeries}>Create Series from Books…</Menu.Item>
-        <Menu.Item
-          onSelect={() => {
-            void action(() => load(true));
-          }}>Refresh Connected Folders</Menu.Item
-        >
-        <Menu.Item
-          onSelect={() => {
-            void goto(resolve('/connections'));
-          }}>Accounts and Libraries</Menu.Item
-        >
-      </ActionMenu>
+    <div class="library-toolbar mb-7 flex items-center py-3">
       <label
         class="search-box ml-auto flex min-h-11 min-w-0 items-center gap-2 rounded-2xl border border-input bg-background px-3"
         ><Search class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /><span
@@ -854,7 +856,7 @@
             <article class="continue-card" role="listitem">
               <button
                 class="continue-open"
-                on:click={() => openBook(book)}
+                onclick={() => openBook(book)}
                 aria-label={`Continue ${book.title}`}
               >
                 <div class="continue-cover">
@@ -889,9 +891,9 @@
         <div class="series-hero-art"><CoverStack books={scopedSeriesBooks} hero /></div>
         <div class="series-hero-copy">
           <div class="flex items-center justify-center gap-2 md:justify-start">
-            <h2 class="min-w-0 break-words font-serif text-3xl font-semibold sm:text-4xl">
+            <p class="min-w-0 break-words font-serif text-3xl font-semibold sm:text-4xl">
               {series.name}
-            </h2>
+            </p>
             {@render seriesMenu(series)}
           </div>
           <p class="mt-2 text-sm text-muted-foreground">
@@ -934,7 +936,7 @@
                 <article class="finished-row" role="listitem">
                   <button
                     class="finished-open"
-                    on:click={() => openBook(book)}
+                    onclick={() => openBook(book)}
                     aria-label={`Read ${book.title}`}
                   >
                     <div class="finished-cover">
@@ -1003,7 +1005,7 @@
                       ? true
                       : 'mixed'
                   : undefined}
-                on:click={() =>
+                onclick={() =>
                   selectMode
                     ? dispatch('selectionManyClick', {
                         ids: seriesBookIds
@@ -1044,7 +1046,7 @@
                 title={selectMode && !book.bookId
                   ? 'Save this book to the browser before selecting it'
                   : undefined}
-                on:click={() =>
+                onclick={() =>
                   selectMode && book.bookId
                     ? dispatch('bookClick', { id: book.bookId })
                     : !selectMode
@@ -1166,17 +1168,19 @@
       >
     </Dialog.Header>
     {#if dialog === 'membership' && targetBook}
+      {@const targetOrganizationKey = targetBook.organizationKey}
       <div class="grid max-h-[40dvh] gap-3 overflow-y-auto">
         {#each $organization.collections as collection (collection.id)}<label
             class="flex min-h-11 items-center gap-3 rounded-xl border border-border px-3"
             ><input
               type="checkbox"
-              checked={collection.members.includes(targetBook.key)}
+              checked={targetBook.organizationAliases.some((alias) =>
+                collection.members.includes(alias)
+              )}
               disabled={busy}
-              on:change={(event) => {
-                const member = targetBook!.key,
-                  included = event.currentTarget.checked;
-                void action(() => setMembership(collection.id, member, included));
+              onchange={(event) => {
+                const included = event.currentTarget.checked;
+                void action(() => setMembership(collection.id, targetOrganizationKey, included));
               }}
             /><span>{collection.name}</span></label
           >{/each}
@@ -1186,10 +1190,10 @@
       </div>
       <form
         class="flex gap-2"
-        on:submit|preventDefault={() => {
-          const member = targetBook!.key;
+        onsubmit={(event) => {
+          event.preventDefault();
           void action(async () => {
-            await createCollection(newCollectionName, [member]);
+            await createCollection(newCollectionName, [targetOrganizationKey]);
             newCollectionName = '';
           });
         }}
@@ -1207,7 +1211,13 @@
       {#if error}<p role="alert" class="text-sm text-destructive">{error}</p>{/if}
       <Dialog.Footer><Button onclick={() => (dialogOpen = false)}>Done</Button></Dialog.Footer>
     {:else}
-      <form on:submit|preventDefault={submit} class="grid gap-5">
+      <form
+        onsubmit={(event) => {
+          event.preventDefault();
+          submit();
+        }}
+        class="grid gap-5"
+      >
         {#if dialog === 'date'}<label class="grid gap-2"
             >Finished on<input
               type="date"
@@ -1230,7 +1240,7 @@
             >Local folder<select
               class="min-h-11 rounded-xl border border-input bg-background px-3"
               bind:value={groupSource}
-              on:change={() => (groupFiles = [])}
+              onchange={() => (groupFiles = [])}
               >{#each locals as local (local.id)}<option value={local.id}>{local.name}</option
                 >{/each}</select
             ></label
@@ -1251,7 +1261,7 @@
                 ><input
                   type="checkbox"
                   checked={groupFiles.includes(book.file!.id)}
-                  on:change={(event) => toggleGroup(book.file!.id, event.currentTarget.checked)}
+                  onchange={(event) => toggleGroup(book.file!.id, event.currentTarget.checked)}
                 /><span class="min-w-0"
                   ><span class="block">{book.title}</span><span
                     class="block break-all text-xs text-muted-foreground">{book.file!.id}</span
@@ -1281,6 +1291,12 @@
 <style>
   .library-frame {
     min-width: 0;
+  }
+  .library-workspace {
+    width: 100%;
+    min-width: 0;
+    justify-self: stretch;
+    container-type: inline-size;
   }
   .library-rail {
     display: none;
@@ -1433,7 +1449,7 @@
   }
   .shelf-grid {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(10rem, 100%), 1fr));
     column-gap: clamp(1.25rem, 5vw, 3rem);
     row-gap: 2.4rem;
     align-items: start;
@@ -1471,8 +1487,7 @@
     line-height: 1.35;
   }
   .series-copy {
-    display: block;
-    margin-top: 1rem;
+    display: none;
   }
   .book-status {
     display: flex;
@@ -1538,11 +1553,6 @@
   .shelf-list .progress-label {
     display: none;
   }
-  @media (min-width: 640px) {
-    .shelf-grid {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-  }
   @media (min-width: 768px) {
     .series-hero {
       display: grid;
@@ -1563,11 +1573,6 @@
       font-size: 0.95rem;
     }
   }
-  @media (min-width: 960px) {
-    .shelf-grid {
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-    }
-  }
   @media (min-width: 1280px) {
     .library-frame.rail-open {
       display: grid;
@@ -1586,12 +1591,7 @@
       border-radius: 1.25rem;
       background: var(--card);
     }
-    .library-rail h2 {
-      padding: 0.5rem 0.75rem 0.75rem;
-      font-family: var(--font-serif, Georgia, serif);
-      font-size: 1.35rem;
-      font-weight: 650;
-    }
+    .library-rail h2,
     .library-rail h3 {
       padding: 1.25rem 0.75rem 0.4rem;
       color: var(--muted-foreground);
@@ -1599,6 +1599,9 @@
       font-weight: 650;
       letter-spacing: 0.06em;
       text-transform: uppercase;
+    }
+    .library-rail h2 {
+      padding-top: 0.5rem;
     }
     .library-rail button {
       display: grid;

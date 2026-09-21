@@ -74,7 +74,7 @@ Command capability rules:
 | Save to This Browser             | Already saved/no-op                     | Explicit import, with progress and cancellation |
 | Export                           | Existing full export flow               | Require explicit Save to This Browser first     |
 | Completion/date changes          | Existing completion command             | Require explicit Save to This Browser first     |
-| Remove from This Browser         | Available                               | No browser copy to remove                       |
+| Remove from this browser         | Available                               | No browser copy to remove                       |
 | Create Series from Books         | Available when writable originals exist | Available when writable local originals exist   |
 
 For a mixed selection, never silently operate on an eligible subset. Disable an inapplicable command with an adjacent explanation and provide the explicit Save action where it resolves the limitation. Retain settings controlling statistics retention when removing browser copies.
@@ -83,12 +83,12 @@ A later slice that makes previews selectable must remap selected keys through th
 
 ## 3. Shared shell and collection navigation
 
-- Root heading: Library, with dedicated round Collections and Library actions buttons.
+- Root heading: Manabi Reader for Web in the system face, with a conventional leading sidebar action and trailing Library actions button.
 - Collection/Finished destination: its name is the primary heading; provide Library/back navigation and contextual destination actions. Avoid a large Library heading followed by a second competing destination title.
 - Series: parent navigation and hero title establish the destination; do not repeat another large heading above the hero.
-- Keep View, Organize, and Search near the relevant shelf. All existing Library actions remain reachable, including imports, legacy storage, settings, statistics, shared libraries, migration, and reporting.
+- Keep Search near the shelf. Put View Options and Organize Library inside the top Library actions menu. All existing actions remain reachable, including imports, legacy storage, settings, statistics, shared libraries, migration, and reporting.
 - Add a collapsible library-only desktop rail at viewport widths of at least 1280px. Width: 224px. Entries: Books, Finished, My Collections, New Collection. On narrower screens use the existing Collections sheet. Persist desktop collapse preference locally; never squeeze a rail into mobile.
-- On wide screens the Collections button toggles the rail; on narrow screens it opens the sheet. Expose the appropriate expanded/control relationship to assistive technology.
+- On wide screens the sidebar button toggles the rail; on narrow screens it opens the sheet. Expose the appropriate expanded/control relationship to assistive technology.
 - Collection actions: Rename Collection and Delete Collection. Deletion removes membership container only and returns to Books if deleting the active collection.
 - Use one content container for headings, controls, and shelves: maximum 1152px in the available main column; 16px mobile gutters, 24px tablet, 32px desktop. Remove conflicting nested width rules. Final dimensions may be tuned through screenshot review, but alignment is an acceptance requirement.
 
@@ -167,11 +167,11 @@ Manual order and built-in Want to Read are deferred. Neither is equivalent to un
 ## 8. Covers and state labels
 
 - Preserve intrinsic aspect ratio and bottom-align artwork within uniform cover stages. Keep two columns on mobile; derive larger column counts from available main-column width, not viewport alone, so the rail is accounted for.
-- Keep progress and ellipsis on a shared baseline across books and series. Put a series name below that row or reserve an equivalent caption band for all tiles; do not shift only the series status downward.
+- Keep the book count and ellipsis on the same baseline as book progress and menus. Do not put a separate series-name caption under grid artwork; the accessible tile label and destination title carry the name without shifting that row.
 - Status precedence: Finished; otherwise percent when reading evidence exists; otherwise Unread. Explicit Still Reading at 100% displays 100% and remains unfinished. No time-based New badge in this iteration.
 - Missing/broken artwork uses a deterministic restrained palette, readable title, and known author. Palette seed uses content identity when available and follows identity remapping; duplicate filenames must not merge books.
 - Shadows use dark shadow tokens in both color modes; do not derive shadows from foreground. Use subtle borders/edges for dark-theme separation, not a white glow.
-- Keep evidenced binding crease and manual override. Menu-open/focus states may highlight the owning tile gently; do not add permanent card panels behind every cover.
+- Keep evidenced binding creases. Do not expose a Book Binding item in the book menu. Menu-open/focus states may highlight the owning tile gently; do not add permanent card panels behind every cover.
 - Maintain 44px interaction targets, visible keyboard focus, reduced-motion support, and forced-colors legibility.
 
 ## 9. Implementation structure
@@ -191,7 +191,7 @@ Refactor by responsibility while preserving the existing catalog and file operat
 | Import types/loaders, DB, preview cache, storage export, Ttu migration | Optional bounded creator metadata end to end                                                                 |
 | `book-cover.svelte`, `cover-stack.svelte`                              | Shared geometry, fallback cover identity, color/shadow treatment                                             |
 
-Keep query/navigation state in the URL; transient selection and active operations in memory; layout/sort/rail preferences in versioned local storage. Use separate preference families for Books, custom collections, Finished, and series. Read current layout/sort preferences as migration defaults for Books; do not blindly share those defaults with Finished or series.
+Keep query/navigation state in the URL; transient selection and active operations in memory; layout/sort/rail preferences in versioned local storage. Store collections and book presentation overrides with the account preference document, using content identity for linked books so provider and path changes do not break references. Missing sources remain referenced but are omitted from visible shelves and counts. Use separate preference families for Books, custom collections, Finished, and series. Read current layout/sort preferences as migration defaults for Books; do not blindly share those defaults with Finished or series.
 
 ## 10. Work breakdown and dependencies
 

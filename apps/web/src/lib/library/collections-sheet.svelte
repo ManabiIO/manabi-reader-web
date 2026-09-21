@@ -2,10 +2,12 @@
   import * as Sheet from '$lib/components/ui/sheet';
   import * as Dialog from '$lib/components/ui/dialog';
   import { Button } from '$lib/components/ui/button';
-  import BookOpen from '@lucide/svelte/icons/book-open';
-  import CircleCheck from '@lucide/svelte/icons/circle-check';
-  import List from '@lucide/svelte/icons/list';
-  import Plus from '@lucide/svelte/icons/plus';
+  import {
+    BookOpenIcon as BookOpen,
+    CheckCircleIcon as CircleCheck,
+    ListIcon as List,
+    PlusIcon as Plus
+  } from 'phosphor-svelte';
   import {
     organization,
     createCollection,
@@ -26,7 +28,7 @@
     name = '',
     error = '',
     busy = false;
-  $: keys = new Set(books.map((book) => book.key));
+  $: keys = new Set(books.flatMap((book) => book.organizationAliases));
   $: finished = books.filter(isFinished).length;
   function choose(id: string) {
     onchoose(id);
@@ -121,8 +123,8 @@
       >
     </div>
     <p class="mt-4 text-xs text-muted-foreground">
-      Collections and display names are saved in this browser. Original files and series folders are
-      unchanged.
+      Collections and book overrides sync with your Manabi Reader settings when account sync is on.
+      Unavailable books stay in their collections and reappear when their library is connected.
     </p>
   </Sheet.Content>
 </Sheet.Root>

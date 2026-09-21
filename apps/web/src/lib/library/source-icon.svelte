@@ -1,5 +1,5 @@
 <script lang="ts">
-  import HardDrive from '@lucide/svelte/icons/hard-drive';
+  import { HardDriveIcon as HardDrive } from 'phosphor-svelte';
   export let provider: string | undefined = undefined;
   export let name = '';
   const labels: Record<string, string> = {

@@ -186,7 +186,8 @@ class LocalLibraryBrowser(unittest.TestCase):
             timeout=30000)
         expect(self.page.get_by_role('button', name='Read second-book', exact=True)).to_be_visible()
 
-        self.page.get_by_role('button', name='Organize', exact=True).click()
+        self.page.get_by_role('button', name='Library actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Organize Library', exact=True).hover()
         self.page.get_by_role('menuitem', name='Create Series from Books…', exact=True).click()
         dialog = self.page.get_by_role('dialog', name='Create series')
         dialog.get_by_role('textbox', name='Name', exact=True).fill('Study Pair')

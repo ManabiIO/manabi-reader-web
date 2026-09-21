@@ -55,6 +55,7 @@
   } from '$lib/functions/replication/replication-progress';
   import { pluralize } from '$lib/functions/utils';
   import { creatorSortKey } from '$lib/library/book-metadata';
+  import type { LibraryMenuModel } from '$lib/library/library-menu';
   import { reduceToEmptyString } from '$lib/functions/rxjs/reduce-to-empty-string';
   import pLimit from 'p-limit';
   import { combineLatest, map, Observable, share, Subject, switchMap, takeUntil } from 'rxjs';
@@ -118,6 +119,7 @@
   let destinationTitle = 'Library';
   let selectionScopeKey = '';
   let selectableBookIds: number[] = [];
+  let libraryMenu: LibraryMenuModel | undefined;
 
   $: {
     if (!selectMode) {
@@ -772,6 +774,7 @@
   <BookManagerHeader
     modernLibrary={$storageSource$ === StorageKey.BROWSER}
     title={destinationTitle}
+    {libraryMenu}
     collectionsExpanded={desktopRailOpen || collectionsOpen}
     wideLibrary={desktopRailOpen}
     hasBookOpened={!!$currentBookId$}
@@ -830,6 +833,7 @@
       bind:destinationTitle
       bind:collectionsOpen
       bind:desktopRailOpen
+      bind:menu={libraryMenu}
       bookCards={$bookCards$}
       on:bookClick={(ev) => onBookClick(ev.detail.id)}
       on:selectionManyClick={(ev) => toggleSelectedBooks(ev.detail.ids)}

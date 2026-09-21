@@ -1,7 +1,7 @@
 <script lang="ts">
   import * as Menu from '$lib/components/ui/dropdown-menu';
   import { Button } from '$lib/components/ui/button';
-  import ChevronDown from '@lucide/svelte/icons/chevron-down';
+  import { CaretDownIcon as ChevronDown } from 'phosphor-svelte';
   export let label: string;
   export let title = '';
   export let disabled = false;
