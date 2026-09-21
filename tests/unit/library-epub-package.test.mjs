@@ -70,13 +70,15 @@ async function inspectZip(blob) {
   }
 }
 
-async function macosBrowserPackageHandoff() {
+async function macosBrowserPackageHandoff({ includeMacMetadata = false } = {}) {
   const writer = new ZipWriter(new BlobWriter('application/zip'));
   for (const file of packageFiles()) {
     const relativePath = file.webkitRelativePath.split('/').slice(1).join('/');
     await writer.add(relativePath, new BlobReader(file));
   }
-  await writer.add('__MACOSX/藪の中 2.epub/._mimetype', new BlobReader(new Blob(['appledouble'])));
+  if (includeMacMetadata) {
+    await writer.add('__MACOSX/藪の中 2.epub/._mimetype', new BlobReader(new Blob(['appledouble'])));
+  }
   const blob = await writer.close();
   return new File([blob], '藪の中 2.epub.zip', {
     type: 'application/zip',
@@ -151,13 +153,22 @@ test('macOS browser package replacement (.epub.zip + application/zip) normalizes
   assert.equal(archive.entries[0].filename, 'mimetype');
   assert.equal(archive.mimetype?.compressionMethod, 0);
   assert.equal(archive.mimetypeText, EPUB_MIME_TYPE);
-  assert.equal(
-    archive.names.some((name) => name.startsWith('__MACOSX/')),
-    false
-  );
   assert.deepEqual(
     archive.names.filter((name) => !name.endsWith('/')).sort(),
     ['META-INF/container.xml', 'item/chapter.xhtml', 'item/standard.opf', 'mimetype'].sort()
+  );
+});
+
+test('__MACOSX AppleDouble metadata is ignored when present but is not required', async () => {
+  const wrapper = await macosBrowserPackageHandoff({ includeMacMetadata: true });
+
+  const prepared = await prepareBookImportFiles([wrapper]);
+
+  assert.equal(prepared.length, 1);
+  const archive = await inspectZip(prepared[0]);
+  assert.equal(
+    archive.names.some((name) => name.startsWith('__MACOSX/')),
+    false
   );
 });
 
