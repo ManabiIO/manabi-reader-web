@@ -65,7 +65,6 @@ def macos_browser_package_handoff(title):
                 if info.is_dir():
                     continue
                 archive.writestr(title + '.epub/' + info.filename, source.read(info))
-            archive.writestr('__MACOSX/' + title + '.epub/._mimetype', b'appledouble')
     finally:
         source.close()
     return output.getvalue()
