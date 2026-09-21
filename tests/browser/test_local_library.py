@@ -40,6 +40,11 @@ class LocalLibraryBrowser(unittest.TestCase):
         self.errors = []
         self.page.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))
         self.page.goto(self.origin + '/Reader-Web/connections')
+        # Refresh connections exists, enabled, in the pre-hydration HTML. The
+        # local-folder control is mounted only by onMount, and stays disabled
+        # until initial account/storage loading finishes. Do not let this
+        # fixture win the first IndexedDB open and create an empty schema.
+        expect(self.page.get_by_role('button', name='Add local folder', exact=True)).to_be_enabled()
         expect(self.page.get_by_role('button', name='Refresh connections')).to_be_enabled()
 
     def tearDown(self):
@@ -60,10 +65,25 @@ class LocalLibraryBrowser(unittest.TestCase):
           const id = 'local-' + crypto.randomUUID();
           await new Promise((resolve,reject) => {
             const open=indexedDB.open('manabi-reader-integrations',1);
+            open.onupgradeneeded=()=>{
+              // Only production code may create the integration schema.
+              open.transaction.abort();
+              reject(new Error('Integration storage was not initialized before fixture seeding'));
+            };
             open.onerror=()=>reject(open.error);
-            open.onsuccess=()=>{const db=open.result,tx=db.transaction('localLibraries','readwrite');
-              tx.objectStore('localLibraries').put({id,name:'Fixture books',handle,writable});
-              tx.oncomplete=()=>{db.close();resolve();};tx.onerror=()=>reject(tx.error);};
+            open.onsuccess=()=>{
+              const db=open.result;
+              try {
+                const tx=db.transaction('localLibraries','readwrite');
+                tx.oncomplete=()=>{db.close();resolve();};
+                tx.onabort=()=>{db.close();reject(tx.error || new Error('Fixture transaction aborted'));};
+                tx.onerror=()=>reject(tx.error);
+                tx.objectStore('localLibraries').put({id,name:'Fixture books',handle,writable});
+              } catch(error) {
+                db.close();
+                reject(error);
+              }
+            };
           });
         }''', {'content': CONTENT, 'writable': writable})
         self.page.get_by_role('button', name='Refresh connections').click()
