@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rename, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -55,5 +55,7 @@ try {
   if (result.error) throw result.error;
   process.exitCode = result.status ?? 1;
 } finally {
-  await rm(temp, { recursive: true, force: true });
+  const trash = join(process.env.HOME ?? tmpdir(), '.Trash', `manabi-reader-tests-${Date.now()}`);
+  await mkdir(join(process.env.HOME ?? tmpdir(), '.Trash'), { recursive: true });
+  await rename(temp, trash);
 }
