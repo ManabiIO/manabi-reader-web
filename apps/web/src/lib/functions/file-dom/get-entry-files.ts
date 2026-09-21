@@ -16,7 +16,18 @@ export async function getEntryFiles(entry: FileSystemEntry): Promise<File[]> {
     (entry as FileSystemFileEntry).file(resolve, reject);
   });
 
-  return [file];
+  const relativePath = entry.fullPath.replace(/^\/+/, '');
+  if (!relativePath || file.webkitRelativePath === relativePath) return [file];
+
+  const fileWithRelativePath = new File([file], file.name, {
+    type: file.type,
+    lastModified: file.lastModified
+  });
+  Object.defineProperty(fileWithRelativePath, 'webkitRelativePath', {
+    configurable: true,
+    value: relativePath
+  });
+  return [fileWithRelativePath];
 }
 
 async function getDirectoryEntries(
