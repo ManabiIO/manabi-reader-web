@@ -55,7 +55,7 @@ class RheaReader(previous.RefinedAppearance):
 
         self.page.get_by_role('button', name=f'Actions for {TITLE}', exact=True).click()
         self.page.get_by_role('menuitem', name='Mark as Finished', exact=True).click()
-        expect(self.page.get_by_text('Finished', exact=True).first).to_be_visible()
+        expect(self.page.locator('.progress-label', has_text='Finished')).to_be_visible()
 
         search = self.page.get_by_role('searchbox', name='Search library', exact=True)
         search.fill('not-this-book')
