@@ -4,11 +4,7 @@
  * All rights reserved.
  */
 
-import {
-  BlobReader,
-  BlobWriter,
-  ZipWriter
-} from '@zip.js/zip.js';
+import { BlobReader, BlobWriter, ZipWriter } from '@zip.js/zip.js';
 import {
   ArchiveLimitError,
   BOOK_ARCHIVE_LIMITS,
@@ -110,10 +106,13 @@ async function prepareWrappedEpub(file: File, signal?: AbortSignal): Promise<Fil
 
   try {
     const groups = new Map<string, Array<{ fullPath: string; relativePath: string }>>();
+    const rootEntries: Array<{ fullPath: string; relativePath: string }> = [];
 
     for (const [name, entry] of archive.entries) {
       abortIfNeeded(signal);
-      if (entry.directory) continue;
+      if (entry.directory || isHiddenPath(name)) continue;
+
+      rootEntries.push({ fullPath: name, relativePath: name });
 
       const location = findPackageLocation(name);
       if (!location || isHiddenPath(location.root) || isHiddenPath(location.relativePath)) continue;
@@ -127,6 +126,14 @@ async function prepareWrappedEpub(file: File, signal?: AbortSignal): Promise<Fil
       root: string;
       entries: Array<{ fullPath: string; relativePath: string }>;
     }> = [];
+
+    const rootPaths = new Set(rootEntries.map((entry) => entry.relativePath));
+    if (rootPaths.has(EPUB_MIMETYPE_PATH) && rootPaths.has(EPUB_CONTAINER_PATH)) {
+      validGroups.push({
+        root: file.name.slice(0, -'.zip'.length),
+        entries: rootEntries
+      });
+    }
 
     for (const [root, entries] of groups) {
       const paths = new Set(entries.map((entry) => entry.relativePath));
@@ -174,6 +181,7 @@ async function packageEpub(
   const entryMap = new Map(entries.map((entry) => [entry.path, entry]));
   const mimetype = entryMap.get(EPUB_MIMETYPE_PATH)!;
   const writer = new ZipWriter(new BlobWriter(EPUB_MIME_TYPE));
+  let writerClosed = false;
 
   try {
     await writer.add(EPUB_MIMETYPE_PATH, new BlobReader(mimetype.blob), { level: 0 });
@@ -185,6 +193,7 @@ async function packageEpub(
     }
 
     abortIfNeeded(signal);
+    writerClosed = true;
     const blob = await writer.close();
     const rootName = root.split('/').at(-1) ?? 'book.epub';
     const name =
@@ -196,7 +205,7 @@ async function packageEpub(
       lastModified
     });
   } catch (error) {
-    await writer.close().catch(() => {});
+    if (!writerClosed) await writer.close().catch(() => {});
     throw error;
   }
 }
