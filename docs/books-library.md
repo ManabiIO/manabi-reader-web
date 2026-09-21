@@ -51,6 +51,25 @@ boundary, rather than claiming independent field conflict resolution. Managed
 bookmark/statistics state is bounded at 1 MiB per linked book so multi-year
 daily history does not hit the former 64 KiB envelope.
 
+## macOS package EPUB import
+
+Some EPUBs are stored on macOS as Finder file packages: directories presented as one document.
+The ordinary **Import File(s)** path is the primary compatibility route for these packages.
+Current Chromium (`chrome/browser/file_select_helper_mac.mm`) and WebKit
+(`Source/WebCore/fileapi/FileCocoa.mm`) detect selected macOS packages and expose a temporary
+ZIP replacement to web content. A selected `Book.epub` package therefore reaches JavaScript as
+`Book.epub.zip` with `application/zip`.
+
+The importer recognizes that browser handoff by filename, then accepts it only if the ZIP actually
+contains a valid EPUB package (`mimetype` plus `META-INF/container.xml`). Generic ZIP backups
+remain excluded from book import. Package-directory selection and drag/drop remain secondary
+fallbacks for browsers that expose the package's member files directly.
+
+Browser CI exercises the post-picker `.epub.zip` / `application/zip` File shape through the
+real book file input. The native macOS picker transformation itself belongs to the browser and is
+documented by the upstream Chromium/WebKit implementations rather than emulated as application
+behavior.
+
 ## Physical grouping and recovery
 
 Create Series moves at least two originals within one **local folder mount**

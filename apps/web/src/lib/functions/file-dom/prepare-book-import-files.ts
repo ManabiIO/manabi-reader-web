@@ -56,6 +56,10 @@ export async function prepareBookImportFiles(
     abortIfNeeded(signal);
     if (consumed.has(file)) continue;
 
+    // Chromium and WebKit replace selected macOS file packages with temporary ZIP Files.
+    // A Finder package named "Book.epub" therefore reaches JavaScript as
+    // "Book.epub.zip" with application/zip. Keep this admission filename-specific:
+    // generic ZIP backups must not enter the book-import pipeline.
     if (file.name.toLowerCase().endsWith('.epub.zip')) {
       const unpacked = await prepareWrappedEpub(file, signal);
       if (unpacked.length) {
