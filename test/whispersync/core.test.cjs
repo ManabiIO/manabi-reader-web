@@ -225,6 +225,32 @@ test('storage unavailable is reported without an unhandled rejected queue', asyn
   await assert.rejects(store.save('book', emptySession()), /closed/);
 });
 
+function openFailureFactory(kind) {
+  return {
+    open() {
+      const request = {};
+      queueMicrotask(() => {
+        request.error = new DOMException(
+          kind,
+          kind === 'blocked' ? 'InvalidStateError' : 'UnknownError'
+        );
+        request[kind === 'blocked' ? 'onblocked' : 'onerror']?.();
+      });
+      return request;
+    }
+  };
+}
+test('IndexedDB open errors and blocked upgrades reject with actionable recoverable errors', async () => {
+  await assert.rejects(
+    new AudiobookSessionStore(openFailureFactory('error')).load('book'),
+    /error|open audiobook storage/i
+  );
+  await assert.rejects(
+    new AudiobookSessionStore(openFailureFactory('blocked')).load('book'),
+    /blocked by another tab/i
+  );
+});
+
 class FakeAudio extends EventTarget {
   constructor() {
     super();
@@ -433,6 +459,35 @@ test('dispose is idempotent and suppresses every later callback', async () => {
   assert.equal(h.frames.size, 0);
   assert.equal(h.revoked.length, 1);
   assert.equal(h.audios.length, 1);
+});
+test('clear retires media, cancels looping, revokes its URL and preserves playback rate', async () => {
+  const h = harness();
+  h.player.setRate(1.5);
+  h.player.load(h.file());
+  h.audios[0].fire('loadedmetadata');
+  h.player.setLoop(10, 12);
+  await h.player.play();
+  const old = h.audios[0];
+  h.player.clear();
+  assert.equal(old.paused, true);
+  assert.equal(old.src, '');
+  assert.equal(old.loads, 2);
+  assert.deepEqual(h.revoked, ['blob:local/0']);
+  assert.equal(h.attached.at(-1), undefined);
+  assert.equal(h.frames.size, 0);
+  assert.deepEqual(h.player.snapshot, {
+    time: 0,
+    duration: 0,
+    ready: false,
+    paused: true,
+    rate: 1.5,
+    file: undefined,
+    loop: undefined
+  });
+  const count = h.states.length;
+  old.fire('loadedmetadata');
+  old.fire('timeupdate');
+  assert.equal(h.states.length, count);
 });
 
 test('opening the panel or loading metadata cannot overwrite the existing resume point', () => {
@@ -1101,6 +1156,18 @@ test('a commit abort preserves the last acknowledged revision and permits retry'
     assert.equal(factory.values.get('book').storageRevision, revision);
     await store.save('book', { ...emptySession(), position: 3 });
     assert.equal((await store.load('book')).position, 3);
+  } finally {
+    await store.close();
+  }
+});
+test('a read transaction abort rejects the load and permits a later retry', async () => {
+  const factory = new TransactionFactory(),
+    store = new AudiobookSessionStore(factory);
+  try {
+    factory.failNextAbort = new DOMException('Connection lost', 'AbortError');
+    await assert.rejects(store.load('book'), /Connection lost/);
+    await store.save('book', { ...emptySession(), position: 6 });
+    assert.equal((await store.load('book')).position, 6);
   } finally {
     await store.close();
   }

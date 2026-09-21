@@ -10,6 +10,7 @@ class TransactionFactory {
     this.queue = Promise.resolve();
     this.connections = [];
     this.failNextCommit = undefined;
+    this.failNextAbort = undefined;
   }
   open() {
     const request = {};
@@ -74,6 +75,11 @@ class TransactionFactory {
           if (mode === 'readwrite' && factory.failNextCommit && !aborted) {
             transaction.error = factory.failNextCommit;
             factory.failNextCommit = undefined;
+            aborted = true;
+          }
+          if (factory.failNextAbort && !aborted) {
+            transaction.error = factory.failNextAbort;
+            factory.failNextAbort = undefined;
             aborted = true;
           }
           if (aborted) transaction.onabort?.();

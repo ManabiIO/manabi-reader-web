@@ -173,8 +173,8 @@ There is no automatic merging, live cross-tab synchronization or cross-device
 synchronization. Protection applies to clients implementing this revision protocol;
 an older client that writes without it cannot be controlled by this adapter.
 Storage and follow errors also surface in the compact audio player while the drawer
-is closed, with a View details action. This UI path has an added, unexecuted
-actual-application acceptance test.
+is closed, with a View details action. The actual-application acceptance suite
+exercises this path with and without an audio file loaded.
 
 This record is **not included in TTU/Drive/cloud replication or regular book export**.
 Keep the original subtitle file. Deleting a book elsewhere does not automatically
@@ -217,8 +217,10 @@ player; duplicate playback/controls are not a supported mode.
 - `test/whispersync/`: isolated core and real-browser DOM/media/storage suites.
 - `test/whispersync/idb-test-double.cjs`: deterministic transaction-boundary double
   for unit tests only; not a native IndexedDB implementation or engine test.
-- `tests/browser/test_whispersync.py`: three acceptance tests against the built Svelte
-  app: chapter navigation, restore/reset, and a real two-tab reset/conflict scenario,
+- `tests/browser/test_whispersync.py`: thirteen acceptance tests against the built
+  Svelte app: paginated/continuous and horizontal/vertical chapter navigation,
+  restore/reset, corrupt-data recovery, subtitle/media error handling, mobile
+  dialog semantics, selection retention and real two-tab reset/conflict scenarios,
   using an imported generated EPUB and local generated WAV.
 - `.github/workflows/manabi-reader-ci.yml`: hooks for all those checks.
 - `docs/whispersync-review.md`: review findings, precise validation receipts and
@@ -230,7 +232,7 @@ With the repository's dependencies installed:
 
 ```sh
 pnpm --dir apps/web exec svelte-kit sync
-node test/whispersync/run.mjs --svelte --browser-bundle=test-results/whispersync-bundle.js
+node test/whispersync/run.mjs --coverage --svelte --browser-bundle=test-results/whispersync-bundle.js
 pnpm test:reader
 pnpm --dir apps/web check
 BASE_PATH=/Reader-Web pnpm build
@@ -240,7 +242,10 @@ python tests/browser/test_whispersync.py
 
 The app-local check command invokes `svelte-check --tsconfig ./tsconfig.json`, as
 verified in the target package manifest. The standalone runner strictly typechecks the
-core modules and runs Node tests. `--svelte` additionally invokes the installed
+core modules and runs Node tests. `--coverage` prints Node's source-mapped core
+line, branch and function coverage; it does not include the separate browser or
+Svelte application suites. CI enforces floors of 75% lines, 85% branches and
+85% functions for this core report. `--svelte` additionally invokes the installed
 Svelte compiler for both new components; it is not a replacement for Svelte type
 checking or the full application build.
 
@@ -250,21 +255,27 @@ or copyrighted audio fixture:
 
 ```sh
 node test/whispersync/run.mjs --browser-bundle=/tmp/ws-browser/bundle.js
-python test/whispersync/browser.py /tmp/ws-browser/bundle.js
-# Optional: --chromium /path/to/chromium
+python test/whispersync/browser.py /tmp/ws-browser/bundle.js --browser chromium
+# Cross-engine qualification: --browser firefox or --browser webkit
+# Optional diagnostics: --autoplay-policy allow (normal is the default)
 ```
 
 `--offline-dom` uses `about:blank` without HTTP navigation and skips eight
 origin-dependent IndexedDB tests. Each skip is recorded by name and reason, separate
 from passed/executed totals. Do not count those as passed. Its media test uses
-an autoplay-permissive test-launch setting to exercise the controller, so real
-user-gesture policy must still be checked in normal browsers.
+the selected engine's normal autoplay policy by default. `--autoplay-policy allow`
+is available for isolating controller behavior from user-gesture policy; it does
+not qualify autoplay in a normal browser.
 
-Before merging, run the actual app and verify horizontal/vertical × paginated/
-continuous reading, mobile safe areas, drawer/focus/keyboard behavior, lazy chunk
-loading offline, dark/light reader themes, a long audiobook, native codec failures,
-reload/resume, denied/full browser storage, slow file replacement, deleting saved
-data with a pending save, changing books while matching, subtitle injection as
-plain text and extension dictionary interaction. Test at least Chromium and
-Safari/iOS, and Firefox where supported. These are qualification steps, not claims
-that they have already passed.
+Automated qualification now covers horizontal/vertical × paginated/continuous
+reading, drawer Escape/focus behavior, reload/resume, corrupt-data recovery,
+subtitle/media rejection, stale-tab deletion conflicts, native IndexedDB, and the
+standalone DOM/media/storage suite in Chromium, Firefox and WebKit. The actual app
+suite passes in Chromium and WebKit. Firefox's reader EPUB import did not complete
+in the actual-app harness, before Whispersync mounted, so that path remains
+unqualified. Physical Safari/iOS devices, mobile safe areas,
+operating-system background playback, long recordings and the full native codec
+matrix still require device qualification. Dark/light visual review, offline lazy
+chunk loading, denied/full browser storage, slow file replacement, changing books
+while matching and third-party dictionary extension interaction remain explicit
+manual release checks rather than automated pass claims.
