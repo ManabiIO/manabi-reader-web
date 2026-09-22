@@ -203,7 +203,7 @@
             <input
               bind:this={searchInput}
               type="search"
-              class="min-w-0 w-full border-0 bg-transparent p-0 shadow-none outline-none"
+              class="min-w-0 w-full border-0 bg-transparent p-0 shadow-none outline-none focus:border-transparent focus:shadow-none focus:ring-0"
               placeholder="Search library"
               value={libraryMenu?.search.query || ''}
               oninput={(event) => libraryMenu?.search.setQuery(event.currentTarget.value)}
