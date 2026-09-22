@@ -152,10 +152,16 @@ class LibraryBase(unittest.TestCase):
 
     def add_collection(self, title, name):
         self.menu(title, 'Add to Collection…')
-        self.dialog().get_by_label('New collection name', exact=True).fill(name)
-        self.dialog().get_by_role('button', name='Create', exact=True).click()
-        expect(self.dialog().get_by_role('checkbox', name=name, exact=True)).to_be_checked()
-        self.dialog().get_by_role('button', name='Done', exact=True).click()
+        dialog = self.dialog()
+        name_input = dialog.get_by_label('New collection name', exact=True)
+        name_input.fill(name)
+        dialog.get_by_role('button', name='Create', exact=True).click()
+        # The create action clears the field only after the IndexedDB
+        # transaction publishes the updated organization. Waiting on that
+        # state transition avoids racing the collection checkbox render.
+        expect(name_input).to_have_value('')
+        expect(dialog.get_by_role('checkbox', name=name, exact=True)).to_be_checked()
+        dialog.get_by_role('button', name='Done', exact=True).click()
         # Do not fill the previous dialog's still-mounted exit transition when
         # the next collection is opened immediately after this one.
         expect(self.dialog()).to_have_count(0)
