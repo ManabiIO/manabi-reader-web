@@ -24,9 +24,12 @@ remain separate from application controls, preserving custom authored palettes.
 
 ## Navigation and preserved features
 
-The labelled Navigate sheet provides Library, Statistics, Settings, Accounts and
-libraries, Shared libraries and Import from Ttu Ebook Reader. It uses native
-links, current-page semantics, keyboard dismissal and focus restoration.
+The personal Library's Library actions menu provides Statistics, Settings,
+Accounts and Libraries, Shared Libraries, and Add Books → Import from Ttu Ebook
+Reader. The labelled Navigate sheet remains on Settings, Statistics, and legacy
+storage views. It uses native links, current-page semantics, keyboard dismissal
+and focus restoration. See [TTU feature parity](ttu-feature-parity.md) for the
+current feature-to-control map and qualification limits.
 
 The Library toolbar retains files/folders, backup import, Ttu import, capability-
 aware storage sources, all seven original sort fields and both directions,

@@ -16,6 +16,7 @@
     DownloadSimpleIcon as DownloadSimple,
     FolderOpenIcon as FolderOpen,
     ImageSquareIcon as ImageSquare,
+    InfoIcon as Info,
     ListIcon as List,
     MagnifyingGlassIcon as Search,
     PencilSimpleIcon as PencilSimple,
@@ -117,7 +118,7 @@
     notice = '';
   let announcedSelectionScope = '';
   let dialogOpen = false,
-    dialog: 'rename' | 'date' | 'membership' | 'series-name' | 'new-series' = 'rename';
+    dialog: 'details' | 'rename' | 'date' | 'membership' | 'series-name' | 'new-series' = 'rename';
   let targetBook: ShelfBook | undefined,
     coverTarget: ShelfBook | undefined,
     coverInput: HTMLInputElement,
@@ -586,7 +587,7 @@
       notice = `Saved “${book.title}” to this browser.`;
     });
   }
-  function editBook(book: ShelfBook, kind: 'rename' | 'date' | 'membership') {
+  function editBook(book: ShelfBook, kind: 'details' | 'rename' | 'date' | 'membership') {
     targetBook = book;
     dialog = kind;
     name = book.title;
@@ -594,6 +595,9 @@
     newCollectionName = '';
     error = '';
     dialogOpen = true;
+  }
+  function dateInfo(time: number) {
+    return time ? new Date(time).toLocaleString() : 'No data';
   }
   function chooseCover(book: ShelfBook) {
     coverTarget = book;
@@ -744,6 +748,9 @@
           ><DownloadSimple aria-hidden="true" />Save to this browser</Menu.Item
         >{/if}
       {#if !book.bookId}<Menu.Separator />{/if}
+      <Menu.Item onSelect={() => editBook(book, 'details')}
+        ><Info aria-hidden="true" />Book Details</Menu.Item
+      >
       <Menu.Item onSelect={() => saveWantToRead([book], !collectionContains(wantToRead, book))}
         ><BookmarkSimple
           weight={collectionContains(wantToRead, book) ? 'fill' : 'regular'}
@@ -1238,29 +1245,45 @@
   >
     <Dialog.Header>
       <Dialog.Title class="pr-8"
-        >{dialog === 'rename'
-          ? 'Rename book'
-          : dialog === 'date'
-            ? 'Edit finished date'
-            : dialog === 'membership'
-              ? 'Add to collection'
-              : dialog === 'series-name'
-                ? 'Rename series'
-                : 'Create series'}</Dialog.Title
+        >{dialog === 'details'
+          ? 'Book details'
+          : dialog === 'rename'
+            ? 'Rename book'
+            : dialog === 'date'
+              ? 'Edit finished date'
+              : dialog === 'membership'
+                ? 'Add to collection'
+                : dialog === 'series-name'
+                  ? 'Rename series'
+                  : 'Create series'}</Dialog.Title
       >
       <Dialog.Description
-        >{dialog === 'rename'
-          ? 'Change the display name. The original file, reading position and history are unchanged.'
-          : dialog === 'date'
-            ? 'Change the completion date without changing reading progress or statistics.'
-            : dialog === 'membership'
-              ? 'A book can belong to more than one collection. This does not move files.'
-              : dialog === 'series-name'
-                ? 'Save the display name in this folder’s .Manabi-Reader.yaml. The folder path stays the same.'
-                : 'Move selected ebook files into a new subfolder. Close external editors first. Progress and collections are preserved; files are verified before originals are removed.'}</Dialog.Description
+        >{dialog === 'details'
+          ? targetBook?.title
+          : dialog === 'rename'
+            ? 'Change the display name. The original file, reading position and history are unchanged.'
+            : dialog === 'date'
+              ? 'Change the completion date without changing reading progress or statistics.'
+              : dialog === 'membership'
+                ? 'A book can belong to more than one collection. This does not move files.'
+                : dialog === 'series-name'
+                  ? 'Save the display name in this folder’s .Manabi-Reader.yaml. The folder path stays the same.'
+                  : 'Move selected ebook files into a new subfolder. Close external editors first. Progress and collections are preserved; files are verified before originals are removed.'}</Dialog.Description
       >
     </Dialog.Header>
-    {#if dialog === 'membership' && targetBook}
+    {#if dialog === 'details' && targetBook}
+      <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-5 gap-y-3 text-sm">
+        <dt class="text-muted-foreground">Characters</dt>
+        <dd>{targetBook.characters || 'No data'}</dd>
+        <dt class="text-muted-foreground">Last read</dt>
+        <dd>{dateInfo(targetBook.lastBookOpen)}</dd>
+        <dt class="text-muted-foreground">Bookmarked</dt>
+        <dd>{dateInfo(targetBook.lastBookmarkModified)}</dd>
+        <dt class="text-muted-foreground">Last update</dt>
+        <dd>{dateInfo(targetBook.lastBookModified)}</dd>
+      </dl>
+      <Dialog.Footer><Button onclick={() => (dialogOpen = false)}>Done</Button></Dialog.Footer>
+    {:else if dialog === 'membership' && targetBook}
       {@const targetOrganizationKey = targetBook.organizationKey}
       <div class="grid max-h-[40dvh] gap-3 overflow-y-auto">
         {#each [wantToRead, ...customCollections] as collection (collection.id)}<label
