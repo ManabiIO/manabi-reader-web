@@ -29,6 +29,7 @@
   import type { LibraryMenuModel } from '$lib/library/library-menu';
   import {
     ArrowLeftIcon as ArrowLeft,
+    BookmarkSimpleIcon as BookmarkSimple,
     BooksIcon as Books,
     BugIcon as Bug,
     CalendarBlankIcon as CalendarBlank,
@@ -451,6 +452,17 @@
         {#if selectedCount > 0}
           <Button variant="secondary" onclick={() => dispatch('replicateData')}>Export</Button>
           <ActionMenu label="Actions" title="Selected book actions">
+            {#if libraryMenu?.selectedWantToRead.canAdd}
+              <Menu.Item onSelect={() => libraryMenu?.selectedWantToRead.set(true)}
+                ><BookmarkSimple aria-hidden="true" />Add to Want to Read</Menu.Item
+              >
+            {/if}
+            {#if libraryMenu?.selectedWantToRead.canRemove}
+              <Menu.Item onSelect={() => libraryMenu?.selectedWantToRead.set(false)}
+                ><BookmarkSimple weight="fill" aria-hidden="true" />Remove from Want to Read</Menu.Item
+              >
+            {/if}
+            <Menu.Separator />
             <Menu.Item onSelect={() => dispatch('selectionToStatistics')}
               >Statistics for Selected Books</Menu.Item
             >

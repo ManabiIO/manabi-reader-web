@@ -18,6 +18,7 @@ export interface RestoredContent {
   language?: string;
   creators?: BookCreator[];
   pageDirection?: DirectionEvidence;
+  contentHash?: string;
   blobs: Record<string, Blob>;
   coverImage?: Blob;
 }
@@ -44,6 +45,11 @@ function readMetadata(value: unknown): Omit<RestoredContent, 'blobs' | 'coverIma
     throw new Error('Invalid restored book language');
   if (value.pageDirection !== undefined && !validDirectionEvidence(value.pageDirection))
     throw new Error('Invalid restored book page direction');
+  if (
+    value.contentHash !== undefined &&
+    (typeof value.contentHash !== 'string' || !/^[a-f0-9]{64}$/.test(value.contentHash))
+  )
+    throw new Error('Invalid restored book content identity');
   const sections: Section[] = [];
   if (value.sections !== undefined) {
     if (!Array.isArray(value.sections) || value.sections.length > 8192)
@@ -93,7 +99,8 @@ function readMetadata(value: unknown): Omit<RestoredContent, 'blobs' | 'coverIma
     ...(validCreators(value.creators) ? { creators: value.creators as BookCreator[] } : {}),
     ...(value.pageDirection === undefined
       ? {}
-      : { pageDirection: value.pageDirection as DirectionEvidence })
+      : { pageDirection: value.pageDirection as DirectionEvidence }),
+    ...(value.contentHash === undefined ? {} : { contentHash: value.contentHash as string })
   };
 }
 

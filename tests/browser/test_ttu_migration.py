@@ -12,9 +12,8 @@ import re
 import threading
 import unittest
 import zipfile
-from http.server import ThreadingHTTPServer
 from playwright.sync_api import sync_playwright, expect
-from test_static_reader import StaticHandler, epub, TITLE
+from test_static_reader import StaticHandler, ThreadingHTTPServer, epub, TITLE
 
 OTHER = 'Other book'
 STAMP = 1789837322544

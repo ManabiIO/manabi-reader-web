@@ -20,4 +20,5 @@ export interface BookCardProps {
   isPlaceholder: boolean;
   completion?: Completion;
   pageDirection?: DirectionEvidence;
+  contentHash?: string;
 }

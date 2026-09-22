@@ -258,6 +258,7 @@ export async function importLibraryBook(
       while (await database.getDataByTitle(title))
         title = `${content.title} [${contentHash.slice(0, 10)}-${++attempt}]`;
       content.title = title;
+      content.contentHash = contentHash;
       if (source.owner !== null && source.owner !== currentUser()?.id)
         throw new IntegrationError('account_changed');
       stored = await database.upsertData(content, ReplicationSaveBehavior.NewOnly, false, true);

@@ -20,8 +20,8 @@ complex YAML, duplicate/unknown fields and invalid files are not silently
 rewritten. Existing cloud sidecars are read within the already selected root;
 this requires no new provider grant. Missing names fall back to directory names.
 
-**Collections are many-to-many memberships.** Books and Finished are the two
-smart views. Custom collections have stable UUIDs and support create, rename,
+**Collections are many-to-many memberships.** Books and Finished are smart
+views; Want to Read is a built-in, explicitly curated reading list. Custom collections have stable UUIDs and support create, rename,
 delete, add and remove membership. Collection deletion never deletes books.
 Collections and book display-name, cover and binding overrides are stored in
 the organization preference, separate from series YAML. They remain available
@@ -35,6 +35,30 @@ PNG, JPEG or WebP cover data; browser IDs, provider locators, remote URLs and
 credential-shaped fields fail its closed organization schema.
 Renaming a book changes its display name, not its filename or the inherited
 canonical title used by reading statistics.
+
+### Want to Read
+
+Want to Read always appears between Books and Finished in the sidebar and compact
+Collections sheet, including when empty. Its reserved `want-to-read` collection ID
+uses the existing organization preference contract. It cannot be renamed or deleted;
+a custom collection with the same name remains independent. Book menus, the Add to
+Collection dialog, and selected-book actions support adding/removing membership.
+The destination supports search, Grid/List, sorting, and the Not Finished filter.
+Counts include available books once, regardless of how many matching aliases they
+have. Unavailable references remain saved and reappear when the book is available.
+
+Membership is independent of progress and completion, so starting or finishing a
+book does not silently remove it. Removing it from this list does not delete the
+book or its other memberships. This is a list for personal-library books, without
+store items, purchases, recommendations, or title-only placeholders.
+
+New direct imports retain the original file's SHA-256, just as connected imports
+do. Export/restore preserves that identity. Existing local-only memberships are
+promoted when an original is reimported or a connected book is opened. Legacy
+imports and unopened connected previews without a known content hash remain local
+until then; browser IDs and provider locators are never uploaded as book identities.
+Identical filenames alone do not establish identity, and adding to Want to Read
+never imports a connected preview or enables account sync.
 
 **Completion belongs to reading state.** A bookmark may contain `completion`
 with `state`, `modifiedAt`, and a `finishedOn` calendar date when finished. The
@@ -101,7 +125,7 @@ unchanged. Copy/delete is not advertised as an atomic filesystem rename.
 The browser-owned personal library uses one title bar rather than exposing the
 inherited Book Manager command row. In compact horizontal size, the title leads
 the bar and the Collections action opens the grouped collection sheet. There is
-no sidebar or hamburger control. The sheet exposes Books, Finished, custom collections,
+no sidebar or hamburger control. The sheet exposes Books, Want to Read, Finished, custom collections,
 counts and Edit/Done management. At widths of 1024px and above, the Collections
 action disappears and a persistent 232px collection sidebar is shown instead.
 Imports, selection, View Options, Organize Library, account/library navigation,

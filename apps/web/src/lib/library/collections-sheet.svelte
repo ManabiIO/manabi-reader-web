@@ -4,6 +4,7 @@
   import { Button } from '$lib/components/ui/button';
   import {
     BookOpenIcon as BookOpen,
+    BookmarkSimpleIcon as BookmarkSimple,
     CaretRightIcon as CaretRight,
     CheckCircleIcon as CircleCheck,
     ListIcon as List,
@@ -21,6 +22,7 @@
   } from './organization';
   import { isFinished } from './completion';
   import type { ShelfBook } from './view-model';
+  import { WANT_TO_READ_ID, wantToReadCollection, collectionContains } from './want-to-read';
   export let open = false;
   export let books: ShelfBook[] = [];
   export let active = 'books';
@@ -32,7 +34,10 @@
     name = '',
     error = '',
     busy = false;
-  $: keys = new Set(books.flatMap((book) => book.organizationAliases));
+  $: wantToRead = wantToReadCollection($organization);
+  $: customCollections = $organization.collections.filter(
+    (collection) => collection.id !== WANT_TO_READ_ID
+  );
   $: finished = books.filter(isFinished).length;
   $: if (!open) editing = false;
   function choose(id: string) {
@@ -104,6 +109,14 @@
       >
       <button
         class="collection-row"
+        aria-current={active === WANT_TO_READ_ID ? 'page' : undefined}
+        onclick={() => choose(WANT_TO_READ_ID)}
+        ><BookmarkSimple aria-hidden="true" /><span>Want to Read</span><span class="count"
+          >{books.filter((book) => collectionContains(wantToRead, book)).length}</span
+        ><CaretRight class="text-muted-foreground" aria-hidden="true" /></button
+      >
+      <button
+        class="collection-row"
         aria-current={active === 'finished' ? 'page' : undefined}
         onclick={() => choose('finished')}
         ><CircleCheck aria-hidden="true" /><span>Finished</span><span class="count">{finished}</span
@@ -113,14 +126,15 @@
     <div
       class="mt-6 divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card"
     >
-      {#each $organization.collections as collection (collection.id)}
+      {#each customCollections as collection (collection.id)}
         <div class="collection-entry">
           <button
             class="collection-row"
             aria-current={active === collection.id ? 'page' : undefined}
             onclick={() => choose(collection.id)}
             ><List aria-hidden="true" /><span class="min-w-0 break-words">{collection.name}</span
-            ><span class="count">{collection.members.filter((key) => keys.has(key)).length}</span
+            ><span class="count"
+              >{books.filter((book) => collectionContains(collection, book)).length}</span
             >{#if !editing}<CaretRight
                 class="text-muted-foreground"
                 aria-hidden="true"

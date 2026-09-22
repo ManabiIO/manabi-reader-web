@@ -39,6 +39,8 @@ interface BooksDbV6BookData {
   language?: string;
   creators?: BookCreator[];
   pageDirection?: DirectionEvidence;
+  /** SHA-256 of the original imported file, independent of title and location. */
+  contentHash?: string;
   styleSheet: string;
   elementHtml: string;
   blobs: Record<string, Blob>;

@@ -31,4 +31,9 @@ export interface LibraryMenuModel {
   setFinishedOrder(value: string): void;
   createSeries(): void;
   refreshFolders(): void;
+  selectedWantToRead: {
+    canAdd: boolean;
+    canRemove: boolean;
+    set(included: boolean): void;
+  };
 }
