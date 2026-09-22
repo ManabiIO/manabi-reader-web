@@ -99,11 +99,11 @@ unchanged. Copy/delete is not advertised as an atomic filesystem rename.
 ## Library chrome
 
 The browser-owned personal library uses one title bar rather than exposing the
-inherited Book Manager command row. In compact horizontal size, the leading
-hamburger opens main navigation and a separate Collections action opens the
-grouped collection sheet. The sheet exposes Books, Finished, custom collections,
-counts and Edit/Done management. At widths of 1024px and above, those compact
-controls disappear and a persistent 232px collection sidebar is shown instead.
+inherited Book Manager command row. In compact horizontal size, the title leads
+the bar and the Collections action opens the grouped collection sheet. There is
+no sidebar or hamburger control. The sheet exposes Books, Finished, custom collections,
+counts and Edit/Done management. At widths of 1024px and above, the Collections
+action disappears and a persistent 232px collection sidebar is shown instead.
 Imports, selection, View Options, Organize Library, account/library navigation,
 statistics/settings, help and legacy storage views remain available from the
 labelled overflow menu. Root navigation identifies Manabi Reader for Web. A

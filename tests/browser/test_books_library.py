@@ -317,6 +317,7 @@ class BooksLibraryBrowser(LibraryBase):
             with self.subTest(width=width):
                 self.page.set_viewport_size({'width': width, 'height': 844})
                 header = self.page.get_by_role('banner', name='Library toolbar')
+                expect(header.get_by_role('button', name='Main menu', exact=True)).to_have_count(0)
                 rail = self.page.get_by_role('complementary', name='Collections', exact=True)
                 if width < 1024:
                     expect(rail).not_to_be_visible()
@@ -502,16 +503,12 @@ class BooksLibraryBrowser(LibraryBase):
         expect(heading).to_be_visible()
         title_width = heading.evaluate('element => [element.scrollWidth, element.clientWidth]')
         self.assertLessEqual(title_width[0], title_width[1] + 1)
-        expect(header.get_by_role('button', name='Main menu', exact=True)).to_be_visible()
+        expect(header.get_by_role('button', name='Main menu', exact=True)).to_have_count(0)
         expect(header.get_by_role('button', name='Collections', exact=True)).to_be_visible()
         expect(header.get_by_role('button', name='Library actions', exact=True)).to_be_visible()
         expect(self.page.get_by_role('complementary', name='Collections', exact=True)).not_to_be_visible()
         for obsolete in ('Add books', 'Browser', 'Select books', 'Help', 'Navigate'):
             expect(header.get_by_role('button', name=obsolete, exact=True)).to_have_count(0)
-
-        header.get_by_role('button', name='Main menu', exact=True).click()
-        expect(self.page.get_by_role('navigation', name='Main navigation', exact=True)).to_be_visible()
-        self.page.keyboard.press('Escape')
 
         header.get_by_role('button', name='Library actions', exact=True).click()
         expect(self.page.get_by_role('menuitem', name='Select Books', exact=True)).to_be_visible()
@@ -550,7 +547,7 @@ class BooksLibraryBrowser(LibraryBase):
         expect(rail).to_be_visible()
         self.page.set_viewport_size({'width':1023, 'height':900})
         expect(rail).not_to_be_visible()
-        expect(header.get_by_role('button', name='Main menu', exact=True)).to_be_visible()
+        expect(header.get_by_role('button', name='Main menu', exact=True)).to_have_count(0)
         expect(header.get_by_role('button', name='Collections', exact=True)).to_be_visible()
         self.page.set_viewport_size({'width':1024, 'height':900})
         expect(rail).to_be_visible()

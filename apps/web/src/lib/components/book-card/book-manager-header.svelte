@@ -166,7 +166,6 @@
   <header class="app-header bg-background text-foreground" aria-label="Library toolbar">
     <div class="flex min-h-16 items-center justify-between gap-2 px-3 py-2 sm:px-6">
       <div class="flex min-w-0 items-center gap-2">
-        <span class="lg:hidden"><AppNav iconOnly /></span>
         {#if libraryMenu?.canGoBack}
           <Button
             variant="ghost"
