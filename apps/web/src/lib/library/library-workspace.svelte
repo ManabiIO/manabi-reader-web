@@ -1364,8 +1364,8 @@
     outline-offset: -3px;
   }
   .continue-cover {
-    width: 3.7rem;
-    height: 5rem;
+    width: 3rem;
+    height: 4.5rem;
     flex: none;
   }
   .continue-title,

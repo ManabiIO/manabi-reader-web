@@ -370,6 +370,11 @@ class BooksLibraryBrowser(LibraryBase):
             self.page.get_by_role('button', name='Continue ' + title, exact=True).focus()
             expect(self.page.get_by_role('button', name='Continue ' + title, exact=True)).to_be_in_viewport()
             self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), width + 1)
+            for card in self.page.locator('.continue-card').all():
+                box = card.bounding_box()
+                cover = card.locator('.cover-surface').bounding_box()
+                self.assertGreaterEqual(cover['y'] - box['y'], 12)
+                self.assertGreaterEqual(box['y'] + box['height'] - cover['y'] - cover['height'], 12)
         self.choose_view('List')
         for width in (320, 390, 1440):
             self.page.set_viewport_size({'width': width, 'height': 844})
