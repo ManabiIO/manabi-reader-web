@@ -441,11 +441,15 @@ class WantToReadBrowser(LibraryBase):
                 trigger.focus()
                 self.page.keyboard.press('Enter')
                 sheet = self.page.locator('#library-collections-sheet')
+                # The sheet schedules opening autofocus. Wait for it before
+                # moving focus, or its first button can steal the next Enter.
+                expect(sheet.get_by_role('button', name='Edit', exact=True)).to_be_focused()
                 want = sheet.get_by_role('button', name=re.compile(r'^Want to Read\b'))
             else:
                 want = self.page.get_by_role('complementary', name='Collections').get_by_role(
                     'button', name=re.compile(r'^Want to Read\b'))
             want.focus()
+            expect(want).to_be_focused()
             self.page.keyboard.press('Enter')
             expect(self.page.get_by_role('heading', name='Want to Read', exact=True)).to_be_visible()
             if width < 1024:
