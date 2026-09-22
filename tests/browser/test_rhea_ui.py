@@ -20,7 +20,7 @@ class RheaReader(previous.RefinedAppearance):
             'button', name=name, exact=True).click()
 
     def test_empty_library_has_one_polished_keyboard_import_action(self):
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         action = self.page.get_by_role('button', name='Add your first book', exact=True)
         expect(action).to_be_visible()
         expect(self.page.locator('#first-book-file')).to_be_hidden()
@@ -28,7 +28,7 @@ class RheaReader(previous.RefinedAppearance):
         expect(action).to_be_focused()
 
     def test_library_workspace_import_collection_search_and_completion(self):
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         self.page.locator('#first-book-file').set_input_files({
             'name': 'acceptance.epub',
             'mimeType': 'application/epub+zip',
@@ -65,7 +65,7 @@ class RheaReader(previous.RefinedAppearance):
 
     def test_library_overflow_is_labeled_keyboard_operable_and_mobile_sized(self):
         self.page.set_viewport_size({'width':390, 'height':844})
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         trigger = self.page.get_by_role('button', name='Library actions', exact=True)
         trigger.focus()
         trigger.press('Enter')
@@ -230,7 +230,7 @@ class RheaReader(previous.RefinedAppearance):
 
     def test_library_sort_and_export_preserve_all_export_parts(self):
         self.open_book(font='Klee One')
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         self.page.get_by_role('button', name='Library actions', exact=True).click()
         self.page.get_by_role('menuitem', name='View Options', exact=True).hover()
         self.page.get_by_role('menuitem', name='Sort by…', exact=True).hover()
@@ -268,7 +268,7 @@ class RheaReader(previous.RefinedAppearance):
         self.page.keyboard.press('Escape')
 
     def test_statistics_filter_is_one_focus_managed_sheet(self):
-        self.page.goto(self.origin + '/Reader-Web/statistics')
+        self.page.goto(self.origin + '/reader-web/statistics')
         trigger = self.page.get_by_role('button', name='Filter books', exact=True)
         trigger.click()
         sheet = self.page.get_by_role('dialog', name='Filter books', exact=True)
@@ -340,7 +340,7 @@ class RheaReader(previous.RefinedAppearance):
             target.writestr('second.png', png([24,100,146], 500, 700))
         values = {'fontFamilyGroupOne':'Klee One', 'hideSpoilerImage': '1' if hide_spoilers else '0'}
         self.context.add_init_script('for (const [key, value] of Object.entries(' + json.dumps(values) + ')) localStorage.setItem(key, value);')
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
             'name':'gallery.epub', 'mimeType':'application/epub+zip', 'buffer':output.getvalue()
@@ -414,7 +414,7 @@ class RheaReader(previous.RefinedAppearance):
         self.page.keyboard.press('Escape')
 
     def test_statistics_navigation_and_options_sheet(self):
-        self.page.goto(self.origin + '/Reader-Web/statistics')
+        self.page.goto(self.origin + '/reader-web/statistics')
         self.page.get_by_role('button', name='Heatmap', exact=True).click()
         expect(self.page.get_by_role('button', name='Heatmap', exact=True)).to_have_attribute('aria-pressed','true')
         self.page.get_by_role('button', name='Summary', exact=True).click()

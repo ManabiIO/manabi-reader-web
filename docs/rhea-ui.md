@@ -82,7 +82,7 @@ palette focus/escape, explicit font selection, reading-key isolation, all export
 parts, all sorting options and statistics navigation. Additional checks cover
 autosave while a menu owns focus, conditionally available setting counts, and
 real multi-image EPUB galleries on desktop and mobile. The suite runs on the
-built `/Reader-Web/` application in Chromium and regular-profile WebKit. It does
+built `/reader-web/` application in Chromium and regular-profile WebKit. It does
 not intercept requests or substitute UI/storage/font implementations.
 
 The original reader-recovery, filesystem/shared-library and Ttu import/export
@@ -100,7 +100,7 @@ node tools/appearance/lint.mjs
 pnpm --dir apps/web check
 node --experimental-strip-types tools/appearance/generate-css.mjs --check
 node --experimental-strip-types --test tests/unit/*.test.mjs test/reader/typography.test.mjs
-BASE_PATH=/Reader-Web pnpm build
+BASE_PATH=/reader-web pnpm build
 python -m pip install playwright==1.63.0
 python -m playwright install --with-deps chromium webkit
 APPEARANCE_BROWSER=chromium python tests/browser/test_rhea_ui.py

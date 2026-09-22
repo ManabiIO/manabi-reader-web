@@ -46,7 +46,7 @@ class CompletedReadingBrowser(LocalLibraryBrowser):
         self.assertEqual(6,completion['dbVersion'])
         self.assertIn('averageWeightedRedingTime',completion)
         self.assertIn('averageWeightedCharatersRead',completion)
-        self.page.goto(self.origin+'/Reader-Web/connections')
+        self.page.goto(self.origin+'/reader-web/connections')
         expect(self.page.get_by_role('button', name='Refresh connections')).to_be_enabled()
         article=self.page.locator('article[aria-label="Reading sync for local-book"]')
         article.get_by_role('button',name='Sync local-book',exact=True).click()
@@ -61,7 +61,7 @@ class CompletedReadingBrowser(LocalLibraryBrowser):
         self.assertEqual(CONTENT,self.original())
         self.assertEqual(before,self.statistics(self.page))
 
-        self.page.goto(self.origin+'/Reader-Web/manage')
+        self.page.goto(self.origin+'/reader-web/manage')
         self.page.get_by_role('button', name='Library actions', exact=True).click()
         self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
         self.page.get_by_role('button', name='Select all', exact=True).click()
@@ -82,7 +82,7 @@ class CompletedReadingBrowser(LocalLibraryBrowser):
         try:
             page=destination.new_page()
             page.on('pageerror',lambda error:self.errors.append(str(error)))
-            page.goto(self.origin+'/Reader-Web/import-ttu')
+            page.goto(self.origin+'/reader-web/import-ttu')
             chooser=page.get_by_label('Choose Ttu export ZIPs',exact=True)
             chooser.set_input_files({'name':'completed-books.zip','mimeType':'application/zip','buffer':raw})
             expect(chooser).to_be_enabled()

@@ -35,7 +35,7 @@ jobs:
         run: pnpm --dir apps/web check
       - name: Compile production static artifact
         env:
-          BASE_PATH: /Reader-Web
+          BASE_PATH: /reader-web
         run: pnpm build
       - name: Browser acceptance for the actual static app and filesystem adapter
         run: |
@@ -89,7 +89,7 @@ jobs:
       - name: Build the actual app for WebKit acceptance
         if: matrix.browser == 'webkit'
         env:
-          BASE_PATH: /Reader-Web
+          BASE_PATH: /reader-web
         run: |
           pnpm --dir apps/web exec svelte-kit sync
           pnpm build

@@ -39,7 +39,7 @@ class LocalLibraryBrowser(unittest.TestCase):
         self.page.set_default_timeout(20000)
         self.errors = []
         self.page.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))
-        self.page.goto(self.origin + '/Reader-Web/connections')
+        self.page.goto(self.origin + '/reader-web/connections')
         # Refresh connections exists, enabled, in the pre-hydration HTML. The
         # local-folder control is mounted only by onMount, and stays disabled
         # until initial account/storage loading finishes. Do not let this
@@ -155,7 +155,7 @@ class LocalLibraryBrowser(unittest.TestCase):
             if saved: break
             self.page.wait_for_timeout(50)
         self.assertTrue(saved)
-        self.page.goto(self.origin+'/Reader-Web/connections')
+        self.page.goto(self.origin+'/reader-web/connections')
         expect(self.page.get_by_role('button',name='Refresh connections')).to_be_enabled()
         article=self.page.locator('article[aria-label="Reading sync for local-book"]')
         article.get_by_role('button',name='Sync local-book',exact=True).click()
@@ -201,7 +201,7 @@ class LocalLibraryBrowser(unittest.TestCase):
     def test_library_groups_real_files_into_a_verified_series(self):
         self.seed(True)
         self.add_book('second-book.txt', '二冊目の本。\n' + CONTENT)
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         expect(self.page.get_by_role('button', name='Read local-book', exact=True)).to_be_visible(
             timeout=30000)
         expect(self.page.get_by_role('button', name='Read second-book', exact=True)).to_be_visible()

@@ -83,7 +83,7 @@ jobs:
           pnpm --dir apps/web check 2>&1 | tee appearance-types.log
       - name: Build the real subpath application
         env:
-          BASE_PATH: /Reader-Web
+          BASE_PATH: /reader-web
         run: |
           set -o pipefail
           pnpm build 2>&1 | tee appearance-build.log
