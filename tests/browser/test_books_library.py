@@ -156,6 +156,9 @@ class LibraryBase(unittest.TestCase):
         self.dialog().get_by_role('button', name='Create', exact=True).click()
         expect(self.dialog().get_by_role('checkbox', name=name, exact=True)).to_be_checked()
         self.dialog().get_by_role('button', name='Done', exact=True).click()
+        # Do not fill the previous dialog's still-mounted exit transition when
+        # the next collection is opened immediately after this one.
+        expect(self.dialog()).to_have_count(0)
 
     def choose_view(self, name):
         self.open_view_menu()
@@ -368,6 +371,26 @@ class BooksLibraryBrowser(LibraryBase):
             self.page.set_viewport_size({'width': width, 'height': 844})
             expect(self.page.get_by_role('heading', name='Continue', exact=True)).to_be_visible()
             expect(self.page.get_by_role('heading', name='Books', exact=True)).to_be_visible()
+            track = self.page.locator('.continue-track')
+            shelves = self.page.get_by_role('region', name='Library shelves').bounding_box()
+            track_box = track.bounding_box()
+            self.assertAlmostEqual(track_box['x'], shelves['x'], delta=1)
+            self.assertAlmostEqual(track_box['x'] + track_box['width'], shelves['x'] + shelves['width'], delta=1)
+            if width < 1024:
+                self.assertAlmostEqual(track_box['x'], 0, delta=1)
+                self.assertAlmostEqual(track_box['width'], width, delta=1)
+                track.evaluate('e => e.scrollTo({left: 0, behavior: "instant"})')
+                first = self.page.locator('.continue-card').first.bounding_box()
+                heading = self.page.get_by_role('heading', name='Continue', exact=True).bounding_box()
+                self.assertAlmostEqual(first['x'], heading['x'], delta=1)
+                self.page.mouse.move(width / 2, track_box['y'] + track_box['height'] / 2)
+                self.page.mouse.wheel(2000, 0)
+                self.page.wait_for_function('''() => {
+                    const e = document.querySelector('.continue-track');
+                    return e.scrollLeft >= e.scrollWidth - e.clientWidth - 1;
+                }''')
+                last = self.page.locator('.continue-card').last.bounding_box()
+                self.assertAlmostEqual(width - last['x'] - last['width'], heading['x'], delta=1)
             self.page.get_by_role('button', name='Continue ' + title, exact=True).focus()
             expect(self.page.get_by_role('button', name='Continue ' + title, exact=True)).to_be_in_viewport()
             self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), width + 1)

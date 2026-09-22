@@ -7,6 +7,9 @@ from pathlib import Path
 import io
 import zipfile
 import json
+import os
+import tempfile
+import time
 from test_static_reader import epub, TITLE
 from test_appearance import png
 import unittest
@@ -14,7 +17,221 @@ from playwright.sync_api import expect
 import test_appearance_refinement as previous
 
 
+def chaptered_epub():
+    output = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(epub())) as source, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as target:
+        for item in source.infolist():
+            value = source.read(item)
+            if item.filename == 'content.opf':
+                value = value.replace(b'</manifest>', b'<item id="chapter2" href="chapter2.xhtml" media-type="application/xhtml+xml"/><item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/></manifest>')
+                value = value.replace(b'<spine>', b'<spine toc="ncx">').replace(b'</spine>', b'<itemref idref="chapter2"/></spine>')
+            target.writestr(item.filename, value)
+        target.writestr('chapter2.xhtml', '<html><body><h1>A new morning</h1>' + '<p>新しい朝に、静かな道を歩きます。</p>' * 120 + '</body></html>')
+        target.writestr('toc.ncx', '<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"><head/><docTitle><text>Reader browser acceptance</text></docTitle><navMap><navPoint id="one" playOrder="1"><navLabel><text>The journey begins</text></navLabel><content src="chapter.xhtml"/></navPoint><navPoint id="two" playOrder="2"><navLabel><text>A new morning</text></navLabel><content src="chapter2.xhtml"/></navPoint></navMap></ncx>')
+    return output.getvalue()
+
+
 class RheaReader(previous.RefinedAppearance):
+    def open_reading_appearance(self):
+        # Reload can finish before the hydrated reader mounts its controls.
+        # Wait for the real ready page before inspecting expanded state.
+        expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
+        expect(self.page.locator('button[data-reader-controls]')).to_be_visible()
+        toolbar = self.page.get_by_role('banner', name='Reader toolbar')
+        reveal = self.page.get_by_role('button', name='Show reading controls', exact=True)
+        if reveal.is_visible():
+            reveal.click()
+        toolbar.get_by_role('button', name='Themes & Settings', exact=True).click()
+        panel = self.page.get_by_role('dialog', name='Themes & Settings', exact=True)
+        expect(panel).to_be_visible()
+        return panel
+
+    def test_reading_frame_and_controls_fit_compact_tablet_and_desktop(self):
+        self.open_book(font='Klee One')
+        self.wait_for_fonts()
+        for width, height in [(320, 740), (390, 844), (768, 1024), (1024, 768), (1440, 1000), (1728, 1117)]:
+            with self.subTest(width=width):
+                self.page.set_viewport_size({'width': width, 'height': height})
+                self.page.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+                expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
+                trigger = self.page.get_by_role('button', name='Show reading controls', exact=True)
+                box = trigger.bounding_box()
+                self.assertGreaterEqual(box['width'], 44)
+                self.assertGreaterEqual(box['height'], 44)
+                self.assertLessEqual(box['x'] + box['width'], width)
+                self.assertLessEqual(box['y'] + box['height'], height)
+                frame = self.page.locator('.reader-page-frame').evaluate('(e) => { const s = getComputedStyle(e); return [s.paddingTop, s.paddingBottom, s.paddingLeft, s.paddingRight].map(parseFloat); }')
+                self.assertGreaterEqual(frame[0], 64)
+                self.assertGreaterEqual(frame[1], 72)
+                content = self.page.locator('.book-content').bounding_box()
+                self.assertGreaterEqual(content['y'], 64)
+                self.assertLessEqual(content['y'] + content['height'], box['y'])
+                trigger.click()
+                toolbar = self.page.get_by_role('banner', name='Reader toolbar')
+                for name in ['Library', 'Bookmark', 'Themes & Settings', 'Reading tools']:
+                    bounds = toolbar.get_by_role('button', name=name, exact=True).bounding_box()
+                    self.assertGreaterEqual(bounds['x'], 0)
+                    self.assertLessEqual(bounds['x'] + bounds['width'], width)
+                    self.assertGreaterEqual(bounds['height'], 43.99)
+                progress = self.page.locator('button[title="Copy Progress"]')
+                progress_bounds = progress.bounding_box()
+                self.assertLessEqual(content['y'] + content['height'], progress_bounds['y'])
+                self.page.get_by_role('button', name='Hide reading controls', exact=True).click()
+                expect(toolbar).to_have_count(0)
+
+    def test_in_book_appearance_persists_and_owns_keys_vertical_phone(self):
+        self.verify_reading_appearance('vertical-rl', 390)
+
+    def test_in_book_appearance_persists_and_owns_keys_horizontal_desktop(self):
+        self.verify_reading_appearance('horizontal-tb', 1440)
+
+    def verify_reading_appearance(self, writing, width):
+        self.open_book(writing=writing, font='Klee One')
+        reader_url = self.page.url
+        self.wait_for_fonts()
+        expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
+        self.page.set_viewport_size({'width': width, 'height': 844})
+        panel = self.open_reading_appearance()
+        expect(panel.get_by_role('button', name='Ecru theme', exact=True)).to_be_visible()
+        before = self.page.locator('.book-content').evaluate('e => [e.scrollLeft,e.scrollTop,window.scrollX,window.scrollY]')
+        panel.get_by_role('button', name='Increase text size', exact=True).focus()
+        for key in ['ArrowDown', 'ArrowRight', 'PageDown']:
+            self.page.keyboard.press(key)
+        self.assertEqual(before, self.page.locator('.book-content').evaluate('e => [e.scrollLeft,e.scrollTop,window.scrollX,window.scrollY]'))
+        panel.get_by_role('button', name='Increase text size', exact=True).click()
+        panel.get_by_label('Reading line spacing', exact=True).select_option('1.9')
+        panel.get_by_label('Reading font', exact=True).select_option('Noto Serif JP')
+        panel.get_by_role('button', name='Ecru theme', exact=True).click()
+        panel.get_by_role('button', name='dark', exact=True).click()
+        expect(self.page.locator('html')).to_have_attribute('data-theme', 'ecru-theme')
+        expect(self.page.locator('html')).to_have_attribute('data-appearance', 'dark')
+        self.assertEqual(reader_url, self.page.url)
+        for _ in range(18):
+            self.page.keyboard.press('Tab')
+            expect(panel.locator(':focus')).to_have_count(1)
+        self.page.keyboard.press('Escape')
+        expect(panel).to_have_count(0)
+        expect(self.page.get_by_role('button', name='Themes & Settings', exact=True)).to_be_focused()
+        self.page.reload()
+        panel = self.open_reading_appearance()
+        expect(panel.get_by_label('Reading font', exact=True)).to_have_value('Noto Serif JP')
+        expect(panel.get_by_label('Reading line spacing', exact=True)).to_have_value('1.9')
+        expect(panel.get_by_role('button', name='Ecru theme', exact=True)).to_have_attribute('aria-pressed', 'true')
+        self.assertGreater(int(self.page.evaluate('localStorage.getItem("fontSize")')), 20)
+        self.page.keyboard.press('Escape')
+        self.page.get_by_role('button', name='Hide reading controls', exact=True).click()
+        expect(self.page.get_by_role('banner', name='Reader toolbar')).to_have_count(0)
+
+    def test_in_book_layout_controls_and_advanced_settings_remain_reachable(self):
+        self.open_book(font='Klee One')
+        panel = self.open_reading_appearance()
+        panel.get_by_role('button', name='Scroll', exact=True).click()
+        expect(panel.get_by_role('button', name='Scroll', exact=True)).to_have_attribute('aria-pressed', 'true')
+        self.page.wait_for_function('localStorage.getItem("viewMode") === "continuous"')
+        expect(self.page.locator('.book-content')).to_be_visible()
+        panel.get_by_role('button', name='Pages', exact=True).click()
+        self.page.wait_for_function('localStorage.getItem("viewMode") === "paginated"')
+        expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
+        panel.get_by_role('button', name='All Settings…', exact=True).click()
+        expect(self.page.get_by_label('Search settings', exact=True)).to_be_visible()
+
+    def test_touch_reading_appearance_fits_and_outside_dismissal_restores_controls(self):
+        original_context, original_page = self.context, self.page
+        profile = tempfile.TemporaryDirectory(prefix='reader-touch-')
+        if os.environ.get('APPEARANCE_BROWSER', 'chromium') == 'webkit':
+            touch = self.playwright.webkit.launch_persistent_context(profile.name, has_touch=True, viewport={'width': 390, 'height': 844})
+        else:
+            touch = self.browser.new_context(has_touch=True, viewport={'width': 390, 'height': 844})
+        self.context = touch
+        self.page = touch.pages[0] if touch.pages else touch.new_page()
+        self.page.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))
+        try:
+            self.open_book(font='Klee One')
+            self.page.get_by_role('button', name='Show reading controls', exact=True).tap()
+            self.page.get_by_role('button', name='Themes & Settings', exact=True).tap()
+            panel = self.page.get_by_role('dialog', name='Themes & Settings', exact=True)
+            expect(panel).to_be_visible()
+            self.assertEqual('horizontal-tb', panel.evaluate('e => getComputedStyle(e).writingMode'))
+            box = panel.bounding_box()
+            self.assertGreaterEqual(box['x'], 0)
+            self.assertLessEqual(box['x'] + box['width'], 390)
+            panel.get_by_role('button', name='Increase text size', exact=True).tap()
+            self.page.wait_for_function('localStorage.getItem("fontSize") === "21"')
+            self.page.touchscreen.tap(20, 20)
+            expect(panel).to_have_count(0)
+            expect(self.page.get_by_role('button', name='Show reading controls', exact=True)).to_be_focused()
+            self.page.get_by_role('button', name='Show reading controls', exact=True).tap()
+            self.page.get_by_role('button', name='Themes & Settings', exact=True).tap()
+            panel.get_by_role('button', name='Close reading appearance', exact=True).tap()
+            expect(panel).to_have_count(0)
+            expect(self.page.get_by_role('button', name='Themes & Settings', exact=True)).to_be_focused()
+        finally:
+            touch.close()
+            profile.cleanup()
+            self.context, self.page = original_context, original_page
+
+    def test_contents_navigation_reflows_and_returns_focus_at_phone_and_desktop(self):
+        self.context.add_init_script("if (location.pathname.endsWith('/manage')) { localStorage.setItem('fontFamilyGroupOne', 'Klee One'); localStorage.setItem('viewMode', 'paginated'); }")
+        self.page.goto(self.origin + '/Reader-Web/manage')
+        expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
+        self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
+            'name': 'chapters.epub', 'mimeType': 'application/epub+zip', 'buffer': chaptered_epub()})
+        self.page.get_by_role('button', name='Read ' + TITLE, exact=True).click(timeout=30000)
+        expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
+        self.wait_for_fonts()
+        for width in (320, 390, 1440):
+            self.page.set_viewport_size({'width': width, 'height': 844})
+            self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+            self.page.get_by_role('button', name='Contents', exact=True).click()
+            panel = self.page.get_by_role('dialog', name='Table of contents', exact=True)
+            expect(panel).to_be_visible()
+            expect(panel.get_by_role('heading', name='Contents', exact=True)).to_be_visible()
+            expect(panel.get_by_role('progressbar', name='Chapter progress')).to_be_visible()
+            box = panel.bounding_box()
+            self.assertLessEqual(box['width'], width)
+            for name in ('Previous Chapter', 'Next Chapter', 'Close Table of Contents'):
+                bounds = panel.get_by_role('button', name=name, exact=True).bounding_box()
+                self.assertGreaterEqual(bounds['x'], 0)
+                self.assertLessEqual(bounds['x'] + bounds['width'], width)
+                self.assertGreaterEqual(bounds['height'], 43.99)
+            chapters = panel.get_by_role('navigation', name='Chapters')
+            expect(chapters.get_by_role('button', name='A new morning', exact=True)).to_be_visible()
+            chapters.get_by_role('button', name='A new morning', exact=True).click()
+            expect(panel).to_have_count(0)
+            expect(self.page.locator('.book-content')).to_contain_text('A new morning')
+            expect(self.page.get_by_role('button', name='Show reading controls', exact=True)).to_be_focused()
+            panel = self.open_reading_appearance()
+            panel.get_by_role('button', name='Increase text size', exact=True).click()
+            self.page.keyboard.press('Escape')
+            expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
+            expect(self.page.locator('.book-content')).to_contain_text('A new morning')
+            started = self.page.evaluate('Date.now()')
+            self.page.get_by_role('button', name='Bookmark', exact=True).click()
+            # Bookmark persistence is asynchronous. Reload only after the real
+            # IndexedDB transaction commits the explicit save.
+            deadline = time.monotonic() + 20
+            while not self.page.evaluate('''async started => {
+              const db = await new Promise((resolve, reject) => {
+                const request = indexedDB.open('books');
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+              });
+              try {
+                const id = Number(new URL(location.href).searchParams.get('id'));
+                const saved = await new Promise((resolve, reject) => {
+                  const request = db.transaction('bookmark').objectStore('bookmark').get(id);
+                  request.onsuccess = () => resolve(request.result);
+                  request.onerror = () => reject(request.error);
+                });
+                return saved?.lastBookmarkModified >= started && saved.exploredCharCount > 0;
+              } finally { db.close(); }
+            }''', started):
+                self.assertLess(time.monotonic(), deadline, 'Explicit bookmark did not commit')
+                self.page.wait_for_timeout(25)
+            self.page.reload()
+            expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
+            expect(self.page.locator('.book-content')).to_contain_text('A new morning')
+
     def test_vertical_reader_menu_remains_horizontal_and_inside_mobile_and_desktop(self):
         self.open_book(font='Klee One')
         reader_url = self.page.url
@@ -208,7 +425,7 @@ class RheaReader(previous.RefinedAppearance):
         expect(toolbar).to_be_visible()
         expect(toolbar.get_by_role('button', name='Reading tools', exact=True)).to_be_focused()
         viewport = self.page.viewport_size
-        self.page.mouse.click(viewport['width'] / 2, viewport['height'] - 100)
+        self.page.mouse.click(viewport['width'] / 2, viewport['height'] / 2)
         expect(toolbar).to_have_count(0)
         expect(self.page.locator('.book-content')).to_be_visible()
         self.page.get_by_role('button', name='Show reading controls', exact=True).click()

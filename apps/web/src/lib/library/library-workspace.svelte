@@ -1283,11 +1283,12 @@
     min-width: 0;
   }
   .library-workspace {
+    --library-gutter: 1rem;
     width: 100%;
     max-width: 100rem;
     min-width: 0;
     margin-inline: auto;
-    padding: 1.5rem 1rem 3.5rem;
+    padding: 1.5rem var(--library-gutter) 3.5rem;
     justify-self: stretch;
     container-type: inline-size;
   }
@@ -1333,10 +1334,10 @@
     display: flex;
     gap: 1rem;
     overflow-x: auto;
-    padding: 0.25rem 0.25rem 0.75rem;
-    margin-inline: -0.25rem;
+    padding: 0.25rem var(--library-gutter) 0.75rem;
+    margin-inline: calc(-1 * var(--library-gutter));
     scroll-snap-type: x proximity;
-    scroll-padding-inline: 0.25rem;
+    scroll-padding-inline: var(--library-gutter);
   }
   .continue-card {
     display: flex;
@@ -1575,7 +1576,7 @@
   }
   @media (min-width: 640px) {
     .library-workspace {
-      padding-inline: 1.5rem;
+      --library-gutter: 1.5rem;
     }
   }
   @container (min-width: 48rem) {
@@ -1608,7 +1609,8 @@
       align-items: start;
     }
     .library-workspace {
-      padding: 1.75rem clamp(1.5rem, 3vw, 3.5rem) 3.5rem;
+      --library-gutter: clamp(1.5rem, 3vw, 3.5rem);
+      padding-top: 1.75rem;
     }
     .library-rail {
       display: block;

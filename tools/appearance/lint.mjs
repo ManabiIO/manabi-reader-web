@@ -31,6 +31,8 @@ const files = [
   'apps/web/src/lib/components/book-card/book-card-list.svelte',
   'apps/web/src/lib/components/book-card/book-manager-header.svelte',
   'apps/web/src/lib/components/book-reader/book-reader-header.svelte',
+  'apps/web/src/lib/components/book-reader/reader-appearance.svelte',
+  'apps/web/src/lib/components/ui/sheet/sheet-content.svelte',
   'apps/web/src/lib/components/statistics/statistics-header.svelte',
   'apps/web/src/lib/components/popover/popover.svelte',
   'apps/web/src/lib/components/dialog-template.svelte',
