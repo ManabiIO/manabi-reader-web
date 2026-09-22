@@ -10,7 +10,11 @@ import { appearance$ } from '$lib/appearance/state';
 import { availableThemes, portableThemeName } from '$lib/data/theme-option';
 import { account, currentUser, IntegrationError, request } from './client';
 import { equal, exclusive, mergeRecords, metadata, setMetadata } from './persistence';
-import { organizationPreference, reloadOrganization } from '$lib/library/organization';
+import {
+  organizationPreference,
+  reloadOrganization,
+  watchOrganization
+} from '$lib/library/organization';
 import { parsePreferenceReply } from './auth-contract';
 
 type Flat = Record<string, unknown>;
@@ -86,7 +90,7 @@ function subject(name: string): Subject {
 }
 interface Binding {
   read(): unknown;
-  apply(value: unknown): void;
+  apply(value: unknown): void | Promise<void>;
   source: Subject;
 }
 const bindings: Record<string, Binding> = {};
@@ -110,7 +114,7 @@ bindings.library_organization = {
   source: organizationPreference,
   read: () => structuredClone(organizationPreference.getValue()),
   apply(value) {
-    organizationPreference.next(value);
+    return organizationPreference.next(value);
   }
 };
 bind('theme', 'appearance', (v) => ['light', 'dark', 'system'].includes(v as string));
@@ -213,13 +217,17 @@ function expand(value: Flat): Record<string, unknown> {
 }
 let applying = false;
 function apply(value: Flat) {
+  const pending: (void | Promise<void>)[] = [];
   applying = true;
   try {
     for (const [key, binding] of Object.entries(bindings))
-      if (Object.hasOwn(value, key)) binding.apply(value[key]);
+      if (Object.hasOwn(value, key)) pending.push(binding.apply(value[key]));
   } finally {
     applying = false;
   }
+  // Only synchronous publication suppresses feedback. Local edits made while
+  // organization storage settles must still enter the next sync pass.
+  return Promise.all(pending);
 }
 let activeUser: string | null = null;
 let active: SavedPreferences | null = null;
@@ -309,7 +317,8 @@ export async function syncPreferences(choice?: 'local' | 'remote'): Promise<void
       state.local = newer.merged;
       state.revision = accepted.revision;
       state.initialized = true;
-      apply(state.local);
+      await apply(state.local);
+      if (!isCurrent()) return;
       await persist(user, state);
       if (!isCurrent()) return;
       unchangedUser(user);
@@ -366,7 +375,8 @@ function startPreferenceSyncReady() {
           revision: 0
         };
     if (active.enabled) {
-      apply(active.local);
+      await apply(active.local);
+      if (stopped || user !== activeUser) return;
       await syncPreferences();
     }
   }
@@ -416,12 +426,17 @@ function startPreferenceSyncReady() {
 
 export function startPreferenceSync() {
   let stopped = false,
-    stop: () => void = () => undefined;
+    stop: () => void = () => undefined,
+    stopWatching: () => void = () => undefined;
   void reloadOrganization().then(() => {
-    if (!stopped) stop = startPreferenceSyncReady();
+    if (!stopped) {
+      stopWatching = watchOrganization();
+      stop = startPreferenceSyncReady();
+    }
   });
   return () => {
     stopped = true;
+    stopWatching();
     stop();
   };
 }

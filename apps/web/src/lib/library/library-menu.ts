@@ -16,6 +16,10 @@ export interface LibraryMenuModel {
   title: string;
   canGoBack: boolean;
   back(): void;
+  search: {
+    query: string;
+    setQuery(value: string): void;
+  };
   currentLayout: string;
   layouts: LibraryMenuChoice[];
   setLayout(value: string): void;

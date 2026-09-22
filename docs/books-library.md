@@ -46,6 +46,9 @@ Collection dialog, and selected-book actions support adding/removing membership.
 The destination supports search, Grid/List, sorting, and the Not Finished filter.
 Counts include available books once, regardless of how many matching aliases they
 have. Unavailable references remain saved and reappear when the book is available.
+Older account settings that omit this built-in collection retain this device's
+local-only membership; shared membership removals still apply. Collection dialogs
+scroll within the viewport and provide 44px touch targets for their actions.
 
 Membership is independent of progress and completion, so starting or finishing a
 book does not silently remove it. Removing it from this list does not delete the
@@ -54,11 +57,15 @@ store items, purchases, recommendations, or title-only placeholders.
 
 New direct imports retain the original file's SHA-256, just as connected imports
 do. Export/restore preserves that identity. Existing local-only memberships are
-promoted when an original is reimported or a connected book is opened. Legacy
+promoted when an original is reimported, a backup restores its identity, or a connected book is opened. Legacy
 imports and unopened connected previews without a known content hash remain local
 until then; browser IDs and provider locators are never uploaded as book identities.
 Identical filenames alone do not establish identity, and adding to Want to Read
 never imports a connected preview or enables account sync.
+
+Accepted account organization is committed before settings sync reports success.
+Remote changes notify other open Library tabs, and organization changes remain
+observable while account settings are open outside the Library.
 
 **Completion belongs to reading state.** A bookmark may contain `completion`
 with `state`, `modifiedAt`, and a `finishedOn` calendar date when finished. The
@@ -128,6 +135,17 @@ the bar and the Collections action opens the grouped collection sheet. There is
 no sidebar or hamburger control. The sheet exposes Books, Want to Read, Finished, custom collections,
 counts and Edit/Done management. At widths of 1024px and above, the Collections
 action disappears and a persistent 232px collection sidebar is shown instead.
+Compact search opens from a 44px title-bar action and replaces the title row with
+a focused search field and Cancel; Escape/Cancel clears the query and restores
+focus to that action. Desktop keeps its inline field. Navigation glyphs use bold
+Phosphor strokes at 24px (28px for the ellipsis).
+
+Grid metadata follows the fitted cover width, with the visible ellipsis aligned
+to its right edge inside a 44px target. At a 390px viewport, 24px gutters and gaps
+give 159px covers; the metadata center is 16px below the cover. The supplied Books
+reference has a gap about 15% of cover width and metadata center about 10% below
+its bottom edge. Unopened books use a blue NEW chip; started books keep their
+percentage and finished books retain Finished. Section headings use weight 500.
 Imports, selection, View Options, Organize Library, account/library navigation,
 statistics/settings, help and legacy storage views remain available from the
 labelled overflow menu. Root navigation identifies Manabi Reader for Web. A
@@ -168,8 +186,9 @@ invalidates preview generations. Failed scans do not delete books or history.
 Direction uses explicit EPUB spine page progression first, then text-weighted
 computed writing-mode/direction from a sanitized scriptless, networkless frame.
 Language is never a binding-direction heuristic. Ambiguous/missing evidence and
-unresolved styles remain unknown; the book menu allows a cover-only override.
-The reader's own layout and user-selected writing mode are not changed.
+unresolved styles remain unknown. Change Cover stores presentation artwork
+separately from the original ebook and its direction evidence. The reader's own
+layout and user-selected writing mode are not changed.
 
 ## Qualification
 

@@ -89,6 +89,16 @@ function publish(value: Organization) {
   currentOrganization = value;
   organization.set(value);
 }
+function notifyOrganizationChange() {
+  if (typeof BroadcastChannel === 'undefined') return;
+  try {
+    const channel = new BroadcastChannel(key);
+    channel.postMessage('changed');
+    channel.close();
+  } catch {
+    /* Other tabs refresh on their next visit. */
+  }
+}
 
 /** Account sync transports content identity, never another browser's numeric IDs. */
 export const organizationPreference = {
@@ -98,7 +108,7 @@ export const organizationPreference = {
     if (!normalized) return;
     const applied = applyPortableOrganization(currentOrganization, normalized);
     publish(applied);
-    void setMetadata(key, applied);
+    return setMetadata(key, applied).then(notifyOrganizationChange);
   },
   subscribe(fn: () => void) {
     const unsubscribe = organization.subscribe(() => fn());
@@ -126,15 +136,7 @@ export async function updateOrganization(change: (value: Organization) => void) 
     await tx.store.put(value, key);
     await tx.done;
     publish(value);
-    if (typeof BroadcastChannel !== 'undefined') {
-      try {
-        const channel = new BroadcastChannel(key);
-        channel.postMessage('changed');
-        channel.close();
-      } catch {
-        /* Other tabs refresh on their next visit. */
-      }
-    }
+    notifyOrganizationChange();
   } catch (error) {
     try {
       tx.abort();

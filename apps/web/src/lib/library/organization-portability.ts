@@ -5,6 +5,7 @@
  */
 
 import type { BookPresentation, Organization } from './organization';
+import { WANT_TO_READ_ID, wantToReadCollection } from './want-to-read.ts';
 
 /** A browser ID, provider locator or filename is not a cross-device book identity. */
 export const isPortableBookKey = (key: string) => /^content:[a-f0-9]{64}$/.test(key);
@@ -67,6 +68,15 @@ export function applyPortableOrganization(local: Organization, remote: Organizat
   const localCollections = new Map(
     local.collections.map((collection) => [collection.id, collection])
   );
+  // Accounts last synced before Want to Read existed have no built-in record.
+  // Its absence can clear shared membership, but cannot delete this device's
+  // unsynced references: the built-in collection itself is never deleted.
+  if (
+    !shared.collections.some((collection) => collection.id === WANT_TO_READ_ID) &&
+    localCollections.get(WANT_TO_READ_ID)?.members.some((member) => !isPortableBookKey(member))
+  ) {
+    shared.collections.push(wantToReadCollection(shared));
+  }
   return {
     version: 1,
     // The accepted collection list remains authoritative, including deletions.
