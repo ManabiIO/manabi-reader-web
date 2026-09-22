@@ -1,0 +1,12 @@
+/* Keep Rhea menu primitives; adapt their density and bounds for touch shelves. */
+.library-menu[role='menu'] {
+  max-width: calc(100vw - 1rem);
+  max-height: min(80dvh, var(--bits-dropdown-menu-content-available-height, 80dvh));
+  overflow-y: auto;
+}
+
+@media (pointer: coarse), (max-width: 1023px) {
+  .library-menu :is([role='menuitem'], [role='menuitemradio'], [role='menuitemcheckbox']) {
+    min-height: 2.75rem;
+  }
+}

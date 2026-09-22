@@ -128,10 +128,16 @@
   .binding {
     position: absolute;
     inset: 0 auto 0 0;
-    width: 8%;
-    max-width: 18px;
-    border-left: 1px solid #0003;
-    background: linear-gradient(90deg, #0004 0%, #fff4 20%, #0003 35%, #0000 100%);
+    width: 6%;
+    max-width: 14px;
+    border-left: 1px solid rgb(0 0 0 / 10%);
+    background: linear-gradient(
+      90deg,
+      rgb(0 0 0 / 15%) 0%,
+      rgb(255 255 255 / 15%) 20%,
+      rgb(0 0 0 / 9%) 35%,
+      transparent 100%
+    );
     pointer-events: none;
   }
   .cover-stage[data-direction='unknown'] .binding {

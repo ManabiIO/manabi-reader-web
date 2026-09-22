@@ -104,6 +104,7 @@
 
   let selectedBookIds: ReadonlySet<number> = new Set();
   let selectMode = false;
+  let libraryHeaderHeight = 64;
   let cancelToken = new AbortController();
   let cancelSignal = cancelToken.signal;
   let cancelTooltip = '';
@@ -762,85 +763,86 @@
 
 {$replicator$ ?? ''}
 
-<div class="sticky top-0 z-10">
-  <BookManagerHeader
-    modernLibrary={$storageSource$ === StorageKey.BROWSER}
-    title={destinationTitle}
-    {libraryMenu}
-    collectionsExpanded={collectionsOpen}
-    hasBookOpened={!!$currentBookId$}
-    selectedCount={selectedBookIds.size}
-    hasBooks={!!$bookCards$?.length}
-    {cancelTooltip}
-    {replicationProgress}
-    {replicationToProgress}
-    {replicationProgressRemaining}
-    bind:selectMode
-    on:collectionsClick={toggleCollections}
-    on:selectAllClick={onSelectAllBooks}
-    on:backToBookClick={backToCurrentBook}
-    on:removeClick={() => removeBooks(Array.from(selectedBookIds))}
-    on:filesChange={(ev) => onFilesChange(ev.detail)}
-    on:domainHintClick={onDomainHintClick}
-    on:bugReportClick={onBugReportClick}
-    on:cancelReplication={() => {
-      if (!cancelSignal.aborted) {
-        cancelToken.abort();
-        replicationProgressRemaining = 'Canceling ...';
-      }
-    }}
-    on:selectionToStatistics={() => {
-      $preFilteredTitlesForStatistics$ = new Set(
-        $bookCards$.filter((card) => selectedBookIds.has(card.id)).map((book) => book.title)
-      );
+<div class="min-h-full">
+  <div class="sticky top-0 z-10" bind:clientHeight={libraryHeaderHeight}>
+    <BookManagerHeader
+      modernLibrary={$storageSource$ === StorageKey.BROWSER}
+      title={destinationTitle}
+      {libraryMenu}
+      collectionsExpanded={collectionsOpen}
+      hasBookOpened={!!$currentBookId$}
+      selectedCount={selectedBookIds.size}
+      hasBooks={!!$bookCards$?.length}
+      {cancelTooltip}
+      {replicationProgress}
+      {replicationToProgress}
+      {replicationProgressRemaining}
+      bind:selectMode
+      on:collectionsClick={toggleCollections}
+      on:selectAllClick={onSelectAllBooks}
+      on:backToBookClick={backToCurrentBook}
+      on:removeClick={() => removeBooks(Array.from(selectedBookIds))}
+      on:filesChange={(ev) => onFilesChange(ev.detail)}
+      on:domainHintClick={onDomainHintClick}
+      on:bugReportClick={onBugReportClick}
+      on:cancelReplication={() => {
+        if (!cancelSignal.aborted) {
+          cancelToken.abort();
+          replicationProgressRemaining = 'Canceling ...';
+        }
+      }}
+      on:selectionToStatistics={() => {
+        $preFilteredTitlesForStatistics$ = new Set(
+          $bookCards$.filter((card) => selectedBookIds.has(card.id)).map((book) => book.title)
+        );
 
-      goto(`${pagePath}${mergeEntries.STATISTICS.routeId}`);
-    }}
-    on:deleteStatistics={onDeleteStatistics}
-    on:replicateData={onReplicateData}
-    on:importBackup={(ev) => onImportBackup(ev.detail)}
-  />
-</div>
-
-<div
-  role="region"
-  aria-label="Book library"
-  class="{$storageSource$ === StorageKey.BROWSER
-    ? 'mx-auto max-w-[1440px] px-4 sm:px-6'
-    : pxScreen} min-h-full pt-3"
-  on:dragenter={(ev) => ev.preventDefault()}
-  on:dragover={(ev) => ev.preventDefault()}
-  on:dragend={(ev) => ev.preventDefault()}
-  on:drop={(ev) => ev.preventDefault()}
-  on:drop={(ev) => getDropEventFiles(ev).then(onFilesChange)}
->
-  {#if !$bookCards$ || $booksAreLoading$}
-    Loading...
-  {:else if $storageSource$ === StorageKey.BROWSER}
-    <LibraryWorkspace
-      currentBookId={$currentBookId$}
-      {selectedBookIds}
-      {selectMode}
-      bind:destinationTitle
-      bind:collectionsOpen
-      bind:menu={libraryMenu}
-      bookCards={$bookCards$}
-      on:bookClick={(ev) => onBookClick(ev.detail.id)}
-      on:selectionManyClick={(ev) => toggleSelectedBooks(ev.detail.ids)}
-      on:selectionScopeChange={(ev) => updateSelectionScope(ev.detail.key, ev.detail.ids)}
-      on:removeBookClick={(ev) => removeBooks([ev.detail.id])}
-    >
-      {@render emptyLibrary()}
-    </LibraryWorkspace>
-  {:else if $bookCards$.length}
-    <BookCardList
-      currentBookId={$currentBookId$}
-      {selectedBookIds}
-      bookCards={$bookCards$}
-      on:bookClick={(ev) => onBookClick(ev.detail.id)}
-      on:removeBookClick={(ev) => removeBooks([ev.detail.id])}
+        goto(`${pagePath}${mergeEntries.STATISTICS.routeId}`);
+      }}
+      on:deleteStatistics={onDeleteStatistics}
+      on:replicateData={onReplicateData}
+      on:importBackup={(ev) => onImportBackup(ev.detail)}
     />
-  {:else}
-    {@render emptyLibrary()}
-  {/if}
+  </div>
+
+  <div
+    role="region"
+    aria-label="Book library"
+    style:--library-header-height={`${libraryHeaderHeight}px`}
+    class={$storageSource$ === StorageKey.BROWSER ? 'min-h-full' : `${pxScreen} min-h-full pt-3`}
+    on:dragenter={(ev) => ev.preventDefault()}
+    on:dragover={(ev) => ev.preventDefault()}
+    on:dragend={(ev) => ev.preventDefault()}
+    on:drop={(ev) => ev.preventDefault()}
+    on:drop={(ev) => getDropEventFiles(ev).then(onFilesChange)}
+  >
+    {#if !$bookCards$ || $booksAreLoading$}
+      Loading...
+    {:else if $storageSource$ === StorageKey.BROWSER}
+      <LibraryWorkspace
+        currentBookId={$currentBookId$}
+        {selectedBookIds}
+        {selectMode}
+        bind:destinationTitle
+        bind:collectionsOpen
+        bind:menu={libraryMenu}
+        bookCards={$bookCards$}
+        on:bookClick={(ev) => onBookClick(ev.detail.id)}
+        on:selectionManyClick={(ev) => toggleSelectedBooks(ev.detail.ids)}
+        on:selectionScopeChange={(ev) => updateSelectionScope(ev.detail.key, ev.detail.ids)}
+        on:removeBookClick={(ev) => removeBooks([ev.detail.id])}
+      >
+        {@render emptyLibrary()}
+      </LibraryWorkspace>
+    {:else if $bookCards$.length}
+      <BookCardList
+        currentBookId={$currentBookId$}
+        {selectedBookIds}
+        bookCards={$bookCards$}
+        on:bookClick={(ev) => onBookClick(ev.detail.id)}
+        on:removeBookClick={(ev) => removeBooks([ev.detail.id])}
+      />
+    {:else}
+      {@render emptyLibrary()}
+    {/if}
+  </div>
 </div>

@@ -1,6 +1,6 @@
 """Browser acceptance against the built static app, without request interception."""
 import base64
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer as BaseThreadingHTTPServer
 import io
 import json
 from pathlib import Path
@@ -9,6 +9,13 @@ import unittest
 from urllib.parse import unquote, urlsplit
 import zipfile
 from playwright.sync_api import sync_playwright, expect
+
+class ThreadingHTTPServer(BaseThreadingHTTPServer):
+    # Browser pages request many hashed modules concurrently. The default
+    # backlog of five can reset asset connections before workers accept them
+    # on macOS. Scope the larger queue to this test server, not the stdlib.
+    request_queue_size = 128
+
 
 ROOT = Path(__file__).resolve().parents[2] / 'apps/web/build'
 TITLE = 'Reader browser acceptance'
