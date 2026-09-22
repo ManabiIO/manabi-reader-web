@@ -64,7 +64,11 @@ export function buildShelf(
   ): ShelfBook => {
     const key = card ? bookKey(card.id) : sourceBookKey(source!, file!.id);
     const linked = card ? linksByBook.get(card.id) : linksByFile.get(key);
-    const organizationKey = linked ? contentBookKey(linked.contentHash) : key;
+    const contentHash =
+      card?.contentHash && /^[a-f0-9]{64}$/.test(card.contentHash)
+        ? card.contentHash
+        : linked?.contentHash;
+    const organizationKey = contentHash ? contentBookKey(contentHash) : key;
     const organizationAliases = [
       organizationKey,
       key,
@@ -98,6 +102,7 @@ export function buildShelf(
       completion: card?.completion,
       isPlaceholder: card?.isPlaceholder ?? true,
       pageDirection: card?.pageDirection || preview?.pageDirection,
+      contentHash,
       direction:
         presentation?.direction && presentation.direction !== 'unknown'
           ? presentation.direction

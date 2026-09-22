@@ -8,6 +8,7 @@
   import * as Dialog from '$lib/components/ui/dialog';
   import {
     BookOpenIcon as BookOpen,
+    BookmarkSimpleIcon as BookmarkSimple,
     BooksIcon as Books,
     CalendarBlankIcon as CalendarBlank,
     CheckCircleIcon as CircleCheck,
@@ -42,6 +43,7 @@
     watchOrganization,
     presentBook,
     setMembership,
+    setWantToRead,
     createCollection
   } from './organization';
   import {
@@ -53,6 +55,7 @@
     type ShelfSeries
   } from './view-model';
   import { isFinished, finishedDay, calendarDay } from './completion';
+  import { WANT_TO_READ_ID, wantToReadCollection, collectionContains } from './want-to-read';
   import { setCompletion } from './commands';
   import {
     createLocalSeries,
@@ -196,7 +199,16 @@
   $: tree = buildShelf(bookCards, $linkedBooks, catalogs, sources, $organization, $previews);
   $: books = allBooks(tree);
   $: collectionId = $page.url.searchParams.get('collection') || 'books';
-  $: selectedCollection = $organization.collections.find((c) => c.id === collectionId);
+  $: wantToRead = wantToReadCollection($organization);
+  $: customCollections = $organization.collections.filter(
+    (collection) => collection.id !== WANT_TO_READ_ID
+  );
+  $: selectedCollection =
+    collectionId === WANT_TO_READ_ID
+      ? wantToRead
+      : customCollections.find((c) => c.id === collectionId);
+  $: wantToReadCount = books.filter((book) => collectionContains(wantToRead, book)).length;
+  $: selectedBooks = visibleBooks.filter((book) => book.bookId && selectedBookIds.has(book.bookId));
   $: collectionTitle =
     collectionId === 'finished' ? 'Finished' : selectedCollection?.name || 'Books';
   $: trail = seriesTrail(tree, $page.url.searchParams.get('series') || '');
@@ -319,7 +331,12 @@
     finishedOrder: collectionId === 'finished' && !series ? finishedOrder : undefined,
     setFinishedOrder,
     createSeries: newSeries,
-    refreshFolders: () => void action(() => load(true))
+    refreshFolders: () => void action(() => load(true)),
+    selectedWantToRead: {
+      canAdd: selectedBooks.some((book) => !collectionContains(wantToRead, book)),
+      canRemove: selectedBooks.some((book) => collectionContains(wantToRead, book)),
+      set: (included: boolean) => saveWantToRead(selectedBooks, included)
+    }
   } satisfies LibraryMenuModel;
 
   function previewVisible(element: HTMLElement, node: ShelfNode) {
@@ -401,7 +418,7 @@
     }
   }
   function setSort(property: string, direction = sort.direction) {
-    if (!sortItems.some((item) => item.property === property)) return;
+    if (![...sortItems, ...moreSortItems].some((item) => item.property === property)) return;
     booklistSortOptions$.next({
       ...$booklistSortOptions$,
       [StorageKey.BROWSER]: { property: property as SortOption['property'], direction }
@@ -620,6 +637,12 @@
       await setCompletion(await ensureBook(book), isFinished(book) ? 'reading' : 'finished');
     });
   }
+  function saveWantToRead(targets: ShelfBook[], included: boolean) {
+    void action(async () => {
+      await setWantToRead(targets, included);
+      notice = included ? 'Added to Want to Read.' : 'Removed from Want to Read.';
+    });
+  }
   function submit() {
     if (busy) return;
     const local =
@@ -693,6 +716,14 @@
           ><DownloadSimple aria-hidden="true" />Save to this browser</Menu.Item
         >{/if}
       {#if !book.bookId}<Menu.Separator />{/if}
+      <Menu.Item onSelect={() => saveWantToRead([book], !collectionContains(wantToRead, book))}
+        ><BookmarkSimple
+          weight={collectionContains(wantToRead, book) ? 'fill' : 'regular'}
+          aria-hidden="true"
+        />{collectionContains(wantToRead, book)
+          ? 'Remove from Want to Read'
+          : 'Add to Want to Read'}</Menu.Item
+      >
       <Menu.Item onSelect={() => editBook(book, 'rename')}
         ><PencilSimple aria-hidden="true" />Rename…</Menu.Item
       >
@@ -762,6 +793,15 @@
         }}><BookOpen aria-hidden="true" /><span>Books</span><span>{books.length}</span></button
       >
       <button
+        aria-current={collectionId === WANT_TO_READ_ID ? 'page' : undefined}
+        onclick={() => {
+          query = '';
+          navigate(undefined, WANT_TO_READ_ID, false);
+        }}
+        ><BookmarkSimple aria-hidden="true" /><span>Want to Read</span><span>{wantToReadCount}</span
+        ></button
+      >
+      <button
         aria-current={collectionId === 'finished' ? 'page' : undefined}
         onclick={() => {
           query = '';
@@ -772,7 +812,7 @@
         ></button
       >
       <h3>My Collection</h3>
-      {#each $organization.collections as collection (collection.id)}<button
+      {#each customCollections as collection (collection.id)}<button
           aria-current={collectionId === collection.id ? 'page' : undefined}
           onclick={() => {
             query = '';
@@ -1089,6 +1129,9 @@
       </p>
     {:else if books.length || series || collectionId !== 'books'}
       <div class="py-16 text-center">
+        {#if collectionId === WANT_TO_READ_ID && !normalizedQuery && !notFinished}
+          <BookmarkSimple class="mx-auto mb-4 size-10 text-muted-foreground" aria-hidden="true" />
+        {/if}
         <h3 class="text-lg font-medium">
           {normalizedQuery
             ? 'No matching books'
@@ -1096,9 +1139,11 @@
               ? 'No finished books'
               : notFinished
                 ? 'All books here are finished'
-                : selectedCollection
-                  ? 'No books in this collection'
-                  : 'No books here'}
+                : collectionId === WANT_TO_READ_ID
+                  ? 'What will you read next?'
+                  : selectedCollection
+                    ? 'No books in this collection'
+                    : 'No books here'}
         </h3>
         <p class="mt-2 text-sm text-muted-foreground">
           {normalizedQuery
@@ -1107,7 +1152,9 @@
               ? 'Books you finish will appear here.'
               : notFinished
                 ? 'Show all books to include finished titles.'
-                : 'Add books to this collection from a book’s menu.'}
+                : collectionId === WANT_TO_READ_ID
+                  ? 'Choose Add to Want to Read from a book’s menu to save it for later.'
+                  : 'Add books to this collection from a book’s menu.'}
         </p>
         {#if normalizedQuery || notFinished}<Button
             class="mt-5"
@@ -1117,6 +1164,13 @@
               else navigate(series?.id, collectionId, false);
             }}>{normalizedQuery ? 'Clear Search' : 'Show All'}</Button
           >{/if}
+        {#if collectionId === WANT_TO_READ_ID && !normalizedQuery && !notFinished}
+          <Button
+            class="mt-5 min-h-11 px-5"
+            variant="outline"
+            onclick={() => navigate(undefined, 'books', false)}>Browse Library</Button
+          >
+        {/if}
       </div>
     {:else}{@render children?.()}{/if}
   </section>
@@ -1160,7 +1214,7 @@
     {#if dialog === 'membership' && targetBook}
       {@const targetOrganizationKey = targetBook.organizationKey}
       <div class="grid max-h-[40dvh] gap-3 overflow-y-auto">
-        {#each $organization.collections as collection (collection.id)}<label
+        {#each [wantToRead, ...customCollections] as collection (collection.id)}<label
             class="flex min-h-11 items-center gap-3 rounded-xl border border-border px-3"
             ><input
               type="checkbox"
@@ -1170,11 +1224,21 @@
               disabled={busy}
               onchange={(event) => {
                 const included = event.currentTarget.checked;
-                void action(() => setMembership(collection.id, targetOrganizationKey, included));
+                void action(() =>
+                  setMembership(
+                    collection.id,
+                    targetOrganizationKey,
+                    included,
+                    targetBook!.organizationAliases
+                  )
+                );
               }}
-            /><span>{collection.name}</span></label
+            />{#if collection.id === WANT_TO_READ_ID}<BookmarkSimple
+                class="size-5"
+                aria-hidden="true"
+              />{/if}<span>{collection.name}</span></label
           >{/each}
-        {#if !$organization.collections.length}<p class="text-sm text-muted-foreground">
+        {#if !customCollections.length}<p class="text-sm text-muted-foreground">
             Create your first collection below.
           </p>{/if}
       </div>

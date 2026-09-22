@@ -14,6 +14,7 @@ import {
   portableOrganization
 } from './organization-portability';
 import type { PageDirection } from './direction';
+import { changeWantToRead, WANT_TO_READ_ID, type CollectionBook } from './want-to-read';
 
 export interface Collection {
   id: string;
@@ -165,6 +166,7 @@ export async function createCollection(name: string, members: string[] = []) {
   return collection.id;
 }
 export async function renameCollection(id: string, name: string) {
+  if (id === WANT_TO_READ_ID) throw new Error('Want to Read is a built-in collection.');
   const title = libraryName(name);
   await updateOrganization((value) => {
     const collection = value.collections.find((c) => c.id === id);
@@ -173,17 +175,27 @@ export async function renameCollection(id: string, name: string) {
   });
 }
 export async function removeCollection(id: string) {
+  if (id === WANT_TO_READ_ID) throw new Error('Want to Read is a built-in collection.');
   await updateOrganization((value) => {
     value.collections = value.collections.filter((c) => c.id !== id);
   });
 }
-export async function setMembership(id: string, member: string, included: boolean) {
+export async function setWantToRead(books: CollectionBook[], included: boolean) {
+  await updateOrganization((value) => changeWantToRead(value, books, included));
+}
+export async function setMembership(
+  id: string,
+  member: string,
+  included: boolean,
+  aliases: string[] = []
+) {
+  if (id === WANT_TO_READ_ID)
+    return setWantToRead([{ organizationKey: member, organizationAliases: aliases }], included);
   await updateOrganization((value) => {
     const collection = value.collections.find((c) => c.id === id);
     if (!collection) throw new Error('This collection no longer exists.');
-    collection.members = included
-      ? [...new Set([...collection.members, member])]
-      : collection.members.filter((k) => k !== member);
+    const retained = collection.members.filter((key) => key !== member && !aliases.includes(key));
+    collection.members = included ? [...retained, member] : retained;
   });
 }
 export async function presentBook(

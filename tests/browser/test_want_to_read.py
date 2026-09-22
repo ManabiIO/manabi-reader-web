@@ -1,0 +1,342 @@
+"""Browser acceptance for the built-in Want to Read collection."""
+import re
+import unittest
+import time
+import hashlib
+import tempfile
+
+from playwright.sync_api import expect
+
+from test_books_library import LibraryBase, book
+from test_static_reader import StaticHandler
+
+
+class WantToReadBrowser(LibraryBase):
+    def setUp(self):
+        super().setUp()
+        StaticHandler.account_fixture = None
+        StaticHandler.account_requests = []
+        StaticHandler.preference_revision = 0
+        StaticHandler.preference_settings = {}
+
+    def tearDown(self):
+        StaticHandler.account_fixture = None
+        StaticHandler.account_requests = []
+        StaticHandler.preference_revision = 0
+        StaticHandler.preference_settings = {}
+        super().tearDown()
+
+    def wait_for_wishlist_count(self, count):
+        deadline = time.monotonic() + 20
+        while True:
+            rows = self.stores('manabi-reader-integrations', ['metadata'])['metadata']
+            organization = next((value for value in rows
+                                 if value.get('version') == 1 and 'collections' in value), None)
+            wishlist = next((item for item in organization['collections']
+                             if item['id'] == 'want-to-read'), None) if organization else None
+            if wishlist and len(wishlist['members']) == count:
+                return wishlist
+            self.assertLess(time.monotonic(), deadline, 'Want to Read membership was not committed')
+            self.page.wait_for_timeout(25)
+
+    def import_bytes(self, title, contents, filename=None):
+        self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
+            'name': (filename or title) + '.epub', 'mimeType': 'application/epub+zip', 'buffer': contents
+        })
+        expect(self.page.get_by_role('button', name='Read ' + title, exact=True)).to_be_visible(timeout=30000)
+
+    def test_builtin_collection_exists_when_empty_and_supports_url_views(self):
+        self.page.set_viewport_size({'width': 1200, 'height': 900})
+        rail = self.page.get_by_role('complementary', name='Collections', exact=True)
+        expect(rail.get_by_role('button', name=re.compile(r'^Want to Read\b'))).to_be_visible()
+        rail.get_by_role('button', name=re.compile(r'^Want to Read\b')).click()
+        expect(self.page.get_by_role('heading', name='Want to Read', exact=True)).to_be_visible()
+        expect(self.page.locator('.shelf-item')).to_have_count(0)
+        self.assertIn('collection=want-to-read', self.page.url)
+        await_ghost = self.page.evaluate('''async () => {
+          const db = await new Promise((resolve, reject) => {
+            const request = indexedDB.open('manabi-reader-integrations');
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          try {
+            const tx = db.transaction('metadata', 'readwrite');
+            const store = tx.objectStore('metadata');
+            const value = await new Promise((resolve, reject) => {
+              const request = store.get('books-organization-v1');
+              request.onsuccess = () => resolve(request.result);
+              request.onerror = () => reject(request.error);
+            });
+            const row = value ?? {version: 1, collections: [], books: {}};
+            row.collections = row.collections.filter(item => item.id !== 'want-to-read');
+            row.collections.push({id: 'want-to-read', name: 'Want to Read', members: ['content:' + '0'.repeat(64)]});
+            store.put(row, 'books-organization-v1');
+            await new Promise((resolve, reject) => { tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); });
+          } finally { db.close(); }
+        }''')
+        self.assertIsNone(await_ghost)
+        self.page.reload()
+        rail = self.page.get_by_role('complementary', name='Collections', exact=True)
+        expect(rail.get_by_role('button', name='Want to Read 0', exact=True)).to_be_visible()
+
+        # The URL is a durable destination, including direct load and browser back.
+        destination = self.page.url
+        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(destination)
+        expect(self.page.get_by_role('heading', name='Want to Read', exact=True)).to_be_visible()
+        self.page.go_back()
+        expect(self.page).to_have_url(self.origin + '/Reader-Web/manage')
+        self.page.go_forward()
+        expect(self.page.get_by_role('heading', name='Want to Read', exact=True)).to_be_visible()
+
+        self.page.set_viewport_size({'width': 390, 'height': 844})
+        self.page.reload()
+        self.page.get_by_role('button', name='Collections', exact=True).click()
+        sheet = self.page.locator('#library-collections-sheet')
+        expect(sheet.get_by_role('button', name=re.compile(r'^Want to Read\b'))).to_be_visible()
+        expect(sheet.get_by_role('button', name='Want to Read 0', exact=True)).to_be_visible()
+        sheet.get_by_role('button', name=re.compile(r'^Want to Read\b')).click()
+        expect(self.page.get_by_role('heading', name='Want to Read', exact=True)).to_be_visible()
+        expect(sheet).to_have_count(0)
+        browse = self.page.get_by_role('button', name='Browse Library', exact=True)
+        expect(browse).to_be_visible()
+        self.assertGreaterEqual(browse.bounding_box()['height'], 44)
+
+    def test_book_menu_and_collection_dialog_preserve_other_membership(self):
+        self.import_book('Wishlist one')
+        self.import_book('Wishlist two')
+        self.add_collection('Wishlist one', 'Also saved')
+
+        self.menu('Wishlist one', 'Add to Want to Read')
+        self.wait_for_wishlist_count(1)
+        self.menu('Wishlist two', 'Add to Collection…')
+        dialog = self.dialog()
+        expect(dialog.get_by_role('checkbox', name='Want to Read', exact=True)).to_be_visible()
+        dialog.get_by_role('checkbox', name='Want to Read', exact=True).check()
+        dialog.get_by_role('button', name='Done', exact=True).click()
+        expect(dialog).to_have_count(0)
+
+        collections = self.stores('manabi-reader-integrations', ['metadata'])['metadata']
+        organization = next(value for value in collections if value.get('version') == 1 and 'collections' in value)
+        wishlist = next(value for value in organization['collections'] if value['id'] == 'want-to-read')
+        self.assertEqual('Want to Read', wishlist['name'])
+        self.assertEqual(2, len(wishlist['members']))
+        self.assertTrue(all(member.startswith('content:') and len(member) == 72 for member in wishlist['members']))
+        self.assertEqual(1, len(next(value for value in organization['collections'] if value['name'] == 'Also saved')['members']))
+
+        self.choose_collection('Want to Read')
+        expect(self.page.get_by_role('heading', name='Want to Read', exact=True)).to_be_visible()
+        expect(self.page.get_by_role('button', name='Read Wishlist one', exact=True)).to_be_visible()
+        expect(self.page.get_by_role('button', name='Read Wishlist two', exact=True)).to_be_visible()
+        self.menu('Wishlist one', 'Remove from Want to Read')
+        expect(self.page.get_by_role('button', name='Read Wishlist one', exact=True)).to_have_count(0)
+        expect(self.page.get_by_role('button', name='Read Wishlist two', exact=True)).to_be_visible()
+        self.page.reload()
+        expect(self.page.get_by_role('button', name='Read Wishlist one', exact=True)).to_have_count(0)
+        expect(self.page.get_by_role('button', name='Read Wishlist two', exact=True)).to_be_visible()
+
+    def test_removed_book_is_hidden_until_identical_file_returns(self):
+        original = book('Returning book')
+        self.import_bytes('Returning book', original)
+        previous_id = self.stores('books', ['data'])['data'][0]['id']
+        self.menu('Returning book', 'Add to Want to Read')
+        saved = self.wait_for_wishlist_count(1)['members']
+        self.menu('Returning book', 'Remove from this browser…')
+        expect(self.page.get_by_role('button', name='Read Returning book', exact=True)).to_have_count(0)
+        self.choose_collection('Want to Read')
+        expect(self.page.locator('.shelf-item')).to_have_count(0)
+        rail = self.page.get_by_role('complementary', name='Collections', exact=True)
+        expect(rail.get_by_role('button', name='Want to Read 0', exact=True)).to_be_visible()
+        self.assertEqual(saved, self.wait_for_wishlist_count(1)['members'])
+        self.choose_collection('Books')
+        self.import_bytes('Returning book', original)
+        new_id = self.stores('books', ['data'])['data'][0]['id']
+        self.assertNotEqual(previous_id, new_id)
+        self.choose_collection('Want to Read')
+        expect(self.page.get_by_role('button', name='Read Returning book', exact=True)).to_be_visible()
+        expect(rail.get_by_role('button', name='Want to Read 1', exact=True)).to_be_visible()
+        self.assertEqual(saved, self.wait_for_wishlist_count(1)['members'])
+
+    def test_bulk_want_to_read_actions_and_builtin_cannot_be_edited(self):
+        self.import_book('Bulk wishlist one')
+        self.import_book('Bulk wishlist two')
+        self.page.get_by_role('button', name='Library actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
+        self.page.get_by_role('button', name='Select all', exact=True).click()
+        expect(self.page.get_by_text('2 selected', exact=True)).to_be_visible()
+        self.page.get_by_role('button', name='Selected book actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Add to Want to Read', exact=True).click()
+        expect(self.page.get_by_text('2 selected', exact=True)).to_be_visible()
+        # Selected actions can report completion before the organization write
+        # finishes; observe the committed membership before changing scope.
+        self.wait_for_wishlist_count(2)
+        self.page.get_by_role('button', name='Cancel selection', exact=True).click()
+        self.choose_collection('Want to Read')
+        expect(self.page.get_by_role('button', name='Read Bulk wishlist one', exact=True)).to_be_visible()
+        expect(self.page.get_by_role('button', name='Read Bulk wishlist two', exact=True)).to_be_visible()
+        self.page.get_by_role('button', name='Library actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
+        self.page.get_by_role('button', name='Select all', exact=True).click()
+        expect(self.page.get_by_text('2 selected', exact=True)).to_be_visible()
+        self.page.get_by_role('button', name='Selected book actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Remove from Want to Read', exact=True).click()
+        self.page.get_by_role('button', name='Cancel selection', exact=True).click()
+        expect(self.page.locator('.shelf-item')).to_have_count(0)
+
+        self.page.set_viewport_size({'width': 390, 'height': 844})
+        self.page.get_by_role('button', name='Collections', exact=True).click()
+        sheet = self.page.locator('#library-collections-sheet')
+        sheet.get_by_role('button', name='Edit', exact=True).click()
+        expect(sheet.get_by_role('button', name=re.compile('^Rename collection Want to Read$'))).to_have_count(0)
+        expect(sheet.get_by_role('button', name=re.compile('^Delete collection Want to Read$'))).to_have_count(0)
+
+    def test_want_to_read_does_not_change_reading_state_and_survives_sort_search(self):
+        self.import_book('Want to Read Alpha')
+        self.import_book('Want to Read Beta')
+        before = self.stores('books', ['bookmark', 'statistic'])
+        self.menu('Want to Read Alpha', 'Add to Want to Read')
+        self.menu('Want to Read Beta', 'Add to Want to Read')
+        self.wait_for_wishlist_count(2)
+        self.assertEqual(before, self.stores('books', ['bookmark', 'statistic']))
+        self.menu('Want to Read Alpha', 'Mark as Finished')
+        expect(self.tile('Want to Read Alpha').locator('.progress-label')).to_have_text('Finished')
+        finished = self.stores('books', ['bookmark', 'statistic'])
+        self.assertEqual(before['statistic'], finished['statistic'])
+        self.assertEqual(1, len(finished['bookmark']))
+        self.assertEqual('finished', finished['bookmark'][0]['completion']['state'])
+        self.menu('Want to Read Alpha', 'Remove from Want to Read')
+        self.menu('Want to Read Alpha', 'Add to Want to Read')
+        after = self.stores('books', ['bookmark', 'statistic'])
+        self.assertEqual(finished, after)
+        self.assertEqual(before['statistic'], finished['statistic'])
+
+        self.choose_collection('Want to Read')
+        self.choose_view('Title')
+        self.choose_view('Ascending')
+        self.choose_view('List')
+        expect(self.page.locator('.shelf-list')).to_be_visible()
+        expect(self.page.locator('.shelf-item').first).to_contain_text('Want to Read Alpha')
+        self.choose_view('Descending')
+        expect(self.page.locator('.shelf-item').first).to_contain_text('Want to Read Beta')
+        search = self.page.get_by_role('searchbox', name='Search library', exact=True)
+        search.fill('missing title')
+        expect(self.page.locator('.shelf-item')).to_have_count(0)
+        search.fill('Beta')
+        expect(self.page.get_by_role('button', name='Read Want to Read Beta', exact=True)).to_be_visible()
+        expect(self.page.get_by_role('button', name='Read Want to Read Alpha', exact=True)).to_have_count(0)
+
+    def test_keyboard_touch_controls_and_account_sync_roundtrip(self):
+        portable_bytes = book('Portable wishlist')
+        self.import_bytes('Portable wishlist', portable_bytes)
+        self.menu('Portable wishlist', 'Add to Want to Read')
+        self.wait_for_wishlist_count(1)
+        first_data_id = next(item['id'] for item in self.stores('books', ['data'])['data']
+                             if item['title'] == 'Portable wishlist')
+        organization = next(value for value in self.stores('manabi-reader-integrations', ['metadata'])['metadata']
+                            if value.get('version') == 1 and 'collections' in value)
+        members = next(item['members'] for item in organization['collections'] if item['id'] == 'want-to-read')
+
+        # Exercise the responsive rail/sheet boundary and keyboard activation.
+        for width in (390, 768, 1024, 1440):
+            self.page.set_viewport_size({'width': width, 'height': 844})
+            if width < 1024:
+                trigger = self.page.get_by_role('button', name='Collections', exact=True)
+                trigger.focus()
+                self.page.keyboard.press('Enter')
+                sheet = self.page.locator('#library-collections-sheet')
+                want = sheet.get_by_role('button', name=re.compile(r'^Want to Read\b'))
+            else:
+                want = self.page.get_by_role('complementary', name='Collections').get_by_role(
+                    'button', name=re.compile(r'^Want to Read\b'))
+            want.focus()
+            self.page.keyboard.press('Enter')
+            expect(self.page.get_by_role('heading', name='Want to Read', exact=True)).to_be_visible()
+            if width < 1024:
+                self.page.keyboard.press('Escape')
+
+        # Touch path uses a genuine touch-enabled browser context and real menu.
+        touch_profile = tempfile.TemporaryDirectory()
+        touch = getattr(self.playwright, self.engine).launch_persistent_context(
+            touch_profile.name, viewport={'width': 390, 'height': 844}, is_mobile=True,
+            has_touch=True, reduced_motion='reduce')
+        original = self.page
+        self.page = touch.pages[0]
+        self.page.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))
+        try:
+            self.go_library()
+            self.import_book('Touch wishlist')
+            self.page.get_by_role('button', name='Actions for Touch wishlist', exact=True).tap()
+            self.page.get_by_role('menuitem', name='Add to Want to Read', exact=True).tap()
+            self.choose_collection('Want to Read')
+            expect(self.page.get_by_role('button', name='Read Touch wishlist', exact=True)).to_be_visible()
+        finally:
+            touch.close()
+            touch_profile.cleanup()
+            self.page = original
+
+        # Reuse the real optional session/preferences endpoints. The synced
+        # payload must retain content identity and exclude browser-local keys.
+        StaticHandler.account_fixture = {
+            'user': {'id': '42', 'username': 'reader'}, 'csrf_token': 'c' * 64, 'providers': []
+        }
+        StaticHandler.account_requests = []
+        StaticHandler.preference_revision = 0
+        StaticHandler.preference_settings = {}
+        self.page.goto(self.origin + '/Reader-Web/connections')
+        self.page.get_by_label('Sync reader settings with this Manabi account', exact=True).check()
+        expect(self.page.get_by_role('status', name='Settings sync status')).to_contain_text('synced')
+        deadline = time.monotonic() + 15
+        while not any(request['method'] == 'PUT' and request['path'].endswith('/preferences/')
+                      for request in StaticHandler.account_requests):
+            self.assertLess(time.monotonic(), deadline, 'organization preference was not uploaded')
+            self.page.wait_for_timeout(25)
+        put = next(request for request in StaticHandler.account_requests
+                   if request['method'] == 'PUT' and request['path'].endswith('/preferences/'))
+        shared = put['body']['settings']['library_organization']
+        remote = next(item for item in shared['collections'] if item['id'] == 'want-to-read')
+        self.assertTrue(set(members).issubset(set(remote['members'])))
+        self.assertTrue(all(member.startswith('content:') for member in remote['members']))
+
+        # A second real profile receives the shared membership for identical
+        # bytes even though its IndexedDB book IDs differ. A same-named EPUB
+        # with different bytes must not inherit that membership by filename.
+        StaticHandler.preference_settings = put['body']['settings']
+        StaticHandler.preference_revision = 1
+        second_profile = tempfile.TemporaryDirectory()
+        second = getattr(self.playwright, self.engine).launch_persistent_context(
+            second_profile.name, viewport={'width': 1200, 'height': 900})
+        previous_page = self.page
+        self.page = second.pages[0]
+        self.page.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))
+        try:
+            self.go_library()
+            self.import_book('Unrelated sentinel')
+            self.import_bytes('Portable wishlist', portable_bytes)
+            variant = book('Portable wishlist variant', body='<h1>Different internal title</h1><p>Different original bytes.</p>')
+            self.import_bytes('Portable wishlist variant', variant, filename='Portable wishlist')
+            self.page.goto(self.origin + '/Reader-Web/connections')
+            self.page.get_by_label('Sync reader settings with this Manabi account', exact=True).check()
+            expect(self.page.get_by_role('status', name='Settings sync status')).to_contain_text('synced')
+            self.go_library()
+            self.choose_collection('Want to Read')
+            expect(self.page.get_by_role('button', name='Read Portable wishlist', exact=True)).to_have_count(1)
+            content = self.stores('books', ['data'])['data']
+            original = next(item for item in content if item['title'] == 'Portable wishlist')
+            internal_variant = next(item for item in content if item['title'] == 'Portable wishlist variant')
+            sentinel = next(item for item in content if item['title'] == 'Unrelated sentinel')
+            hashes = [item.get('contentHash') for item in content]
+            expected = hashlib.sha256(portable_bytes).hexdigest()
+            self.assertEqual(expected, original['contentHash'])
+            self.assertNotEqual(original['contentHash'], internal_variant['contentHash'])
+            self.assertNotEqual(original['contentHash'], sentinel['contentHash'])
+            self.assertNotEqual(first_data_id, original['id'])
+            self.assertEqual(3, len(set(hashes)))
+            self.assertEqual([], self.stores('books', ['bookmark'])['bookmark'])
+        finally:
+            second.close()
+            second_profile.cleanup()
+            self.page = previous_page
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)
