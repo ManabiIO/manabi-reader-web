@@ -72,10 +72,9 @@
     class="mx-auto max-h-[90dvh] max-w-xl overflow-y-auto rounded-t-3xl p-5 pb-10 sm:p-6"
     showCloseButton={false}
   >
-    <Sheet.Header class="mb-7 grid grid-cols-[1fr_auto_1fr] items-center gap-3 p-0">
-      <span aria-hidden="true"></span>
+    <Sheet.Header class="mb-6 flex flex-row items-center justify-between gap-3 p-0">
       <Sheet.Title class="font-serif text-2xl">Collections</Sheet.Title>
-      <div class="flex justify-self-end gap-2">
+      <div class="flex shrink-0 gap-2">
         <Button
           variant="secondary"
           class="min-h-11 rounded-full px-4"
@@ -203,9 +202,9 @@
     display: grid;
     grid-template-columns: 1.5rem minmax(0, 1fr) auto auto;
     align-items: center;
-    gap: 1rem;
+    gap: 0.75rem;
     width: 100%;
-    padding: 1rem 1.25rem;
+    padding: 0.875rem 1rem;
     text-align: left;
     font-size: 1.1rem;
     min-height: 60px;

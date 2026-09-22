@@ -15,6 +15,43 @@ import test_appearance_refinement as previous
 
 
 class RheaReader(previous.RefinedAppearance):
+    def test_vertical_reader_menu_remains_horizontal_and_inside_mobile_and_desktop(self):
+        self.open_book(font='Klee One')
+        reader_url = self.page.url
+        self.assertEqual('vertical-rl', self.page.locator('.book-content').evaluate(
+            'element => getComputedStyle(element).writingMode'))
+        for width in (390, 1440):
+            with self.subTest(width=width):
+                self.page.set_viewport_size({'width': width, 'height': 844})
+                toolbar = self.page.get_by_role('banner', name='Reader toolbar')
+                if not toolbar.is_visible():
+                    self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+                tools = toolbar.get_by_role('button', name='Reading tools', exact=True)
+                tools.click()
+                menu = self.page.get_by_role('menu')
+                expect(menu).to_be_visible()
+                self.assertEqual('horizontal-tb', menu.evaluate('e => getComputedStyle(e).writingMode'))
+                box = menu.bounding_box()
+                self.assertGreaterEqual(box['x'], 0)
+                self.assertLessEqual(box['x'] + box['width'], width)
+                settings = menu.get_by_role('menuitem', name='Settings', exact=True)
+                # WebKit's IntersectionObserver can report zero intersection
+                # for this visible horizontal popup in a vertical document.
+                # Assert its actual bounds and exercise a normal click below.
+                box = settings.bounding_box()
+                self.assertGreaterEqual(box['x'], 0)
+                self.assertGreaterEqual(box['y'], 0)
+                self.assertLessEqual(box['x'] + box['width'], width)
+                self.assertLessEqual(box['y'] + box['height'], 844)
+                self.page.keyboard.press('Escape')
+                expect(menu).to_have_count(0)
+                expect(tools).to_be_focused()
+                tools.click()
+                menu.get_by_role('menuitem', name='Settings', exact=True).click()
+                expect(self.page.get_by_label('Search settings', exact=True)).to_be_visible()
+                self.page.goto(reader_url)
+                expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
+
     def category(self, name):
         self.page.get_by_role('navigation', name='Settings categories').get_by_role(
             'button', name=name, exact=True).click()

@@ -70,6 +70,7 @@
   import { creatorLine, sharedCreatorLine } from './book-metadata';
   import { coverOverride } from './cover-override';
   import type { LibraryMenuModel } from './library-menu';
+  import './library-menu.css';
   import {
     continueBooks,
     finishedGroups,
@@ -684,10 +685,10 @@
           size="icon"
           aria-label={`Actions for ${book.title}${labelSuffix}`}
           title={`Actions for ${book.title}${labelSuffix}`}
-          disabled={busy}><MoreHorizontal aria-hidden="true" /></Button
+          disabled={busy}><MoreHorizontal class="size-6" weight="bold" aria-hidden="true" /></Button
         >{/snippet}
     </Menu.Trigger>
-    <Menu.Content align="end" class="w-64 max-w-[calc(100vw-1rem)]">
+    <Menu.Content align="end" class="library-menu w-64 max-w-[calc(100vw-1rem)]">
       {#if !book.bookId}<Menu.Item onSelect={() => saveBook(book)}
           ><DownloadSimple aria-hidden="true" />Save to this browser</Menu.Item
         >{/if}
@@ -734,10 +735,10 @@
           class="min-h-11 min-w-11"
           size="icon"
           aria-label={`Actions for series ${value.name}`}
-          disabled={busy}><MoreHorizontal aria-hidden="true" /></Button
+          disabled={busy}><MoreHorizontal class="size-6" weight="bold" aria-hidden="true" /></Button
         >{/snippet}</Menu.Trigger
     >
-    <Menu.Content align="end"
+    <Menu.Content align="end" class="library-menu"
       ><Menu.Item onSelect={() => navigate(value.id)}
         ><FolderOpen aria-hidden="true" />Open Series</Menu.Item
       >
@@ -787,16 +788,16 @@
         ><Plus aria-hidden="true" /><span>New Collection…</span></button
       >
     </nav>
-    <p>Synced with Manabi Reader settings when account sync is on.</p>
   </aside>
-  <section
-    class="library-workspace max-w-none pb-14"
-    aria-label="Library shelves"
-    aria-busy={busy || scanning}
-  >
-    <div class="library-toolbar mb-7 flex items-center py-3">
+  <section class="library-workspace" aria-label="Library shelves" aria-busy={busy || scanning}>
+    <div class="library-toolbar">
+      {#if !series && collectionId === 'books'}
+        <h2 id={recentBooks.length ? 'continue-heading' : 'books-heading'} class="shelf-heading">
+          {recentBooks.length ? 'Continue' : 'Books'}
+        </h2>
+      {/if}
       <label
-        class="search-box ml-auto flex min-h-11 min-w-0 items-center gap-2 rounded-2xl border border-input bg-background px-3"
+        class="search-box ml-auto flex min-h-11 min-w-0 items-center gap-2 rounded-xl bg-muted px-3"
         ><Search class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /><span
           class="sr-only">Search library</span
         ><input
@@ -840,7 +841,6 @@
       </details>{/if}
     {#if recentBooks.length}
       <section class="continue-section mb-10" aria-labelledby="continue-heading">
-        <h2 id="continue-heading" class="mb-4 font-serif text-2xl font-semibold">Continue</h2>
         <div class="continue-track" role="list">
           {#each recentBooks as book (book.key)}
             <article class="continue-card" role="listitem">
@@ -880,7 +880,7 @@
       >
         <div class="series-hero-art"><CoverStack books={scopedSeriesBooks} hero /></div>
         <div class="series-hero-copy">
-          <div class="flex items-center justify-center gap-2 md:justify-start">
+          <div class="series-title-row">
             <p class="min-w-0 break-words font-serif text-3xl font-semibold sm:text-4xl">
               {series.name}
             </p>
@@ -913,7 +913,7 @@
             >{/if}
         </div>
       </header>
-    {:else if recentBooks.length}<h2 class="mb-8 font-serif text-3xl font-semibold">Books</h2>{/if}
+    {:else if recentBooks.length}<h2 id="books-heading" class="shelf-heading mb-6">Books</h2>{/if}
     {#if completedGroups.length && collectionId === 'finished' && !series && currentLayout === 'timeline'}
       <div class="finished-timeline" role="list" aria-label="Finished books">
         {#each completedGroups as group (group.day || 'unknown')}
@@ -1061,7 +1061,7 @@
                     </p>{/if}
                   <p class="list-detail">
                     {readingLabel(book)}{#if isFinished(book) && finishedDay(book)}
-                      · {finishedDay(book)}{:else if book.bookId === currentBookId}
+                      · {finishedDay(book)}{:else if book.bookId && book.bookId === currentBookId}
                       · Reading now{/if}
                   </p>
                 </div>
@@ -1284,9 +1284,26 @@
   }
   .library-workspace {
     width: 100%;
+    max-width: 100rem;
     min-width: 0;
+    margin-inline: auto;
+    padding: 1.5rem 1rem 3.5rem;
     justify-self: stretch;
     container-type: inline-size;
+  }
+  .library-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    min-height: 2.75rem;
+    margin-bottom: 1.75rem;
+  }
+  .shelf-heading {
+    font-family: var(--font-serif, Georgia, serif);
+    font-size: clamp(1.6rem, 3vw, 2rem);
+    font-weight: 650;
+    letter-spacing: -0.025em;
+    line-height: 1.2;
   }
   .library-rail {
     display: none;
@@ -1302,24 +1319,32 @@
   .series-hero {
     background: linear-gradient(
       145deg,
-      color-mix(in oklch, var(--primary) 12%, var(--background)),
-      var(--muted)
+      var(--muted),
+      color-mix(in oklch, var(--card) 45%, var(--background))
     );
+  }
+  .series-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
   }
   .continue-track {
     display: flex;
     gap: 1rem;
     overflow-x: auto;
     padding: 0.25rem 0.25rem 0.75rem;
+    margin-inline: -0.25rem;
     scroll-snap-type: x proximity;
+    scroll-padding-inline: 0.25rem;
   }
   .continue-card {
     display: flex;
     align-items: center;
     flex: 0 0 min(19rem, calc(100vw - 3rem));
     min-height: 6.5rem;
-    border-radius: 1.25rem;
-    background: color-mix(in oklch, var(--primary) 12%, var(--card));
+    border-radius: 1rem;
+    background: var(--card);
     color: var(--card-foreground);
     overflow: hidden;
     scroll-snap-align: start;
@@ -1339,8 +1364,8 @@
     outline-offset: -3px;
   }
   .continue-cover {
-    width: 3.7rem;
-    height: 5rem;
+    width: 3rem;
+    height: 4.5rem;
     flex: none;
   }
   .continue-title,
@@ -1431,17 +1456,22 @@
     margin-top: 0.25rem;
   }
   .search-box {
-    width: 15rem;
+    width: clamp(9rem, 46%, 16rem);
+    font-size: 0.875rem;
   }
   .search-box:focus-within {
     outline: 2px solid var(--ring);
     outline-offset: 2px;
   }
   .shelf-grid {
+    --shelf-gap: clamp(1rem, 3cqi, 2.5rem);
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(min(10rem, 100%), 1fr));
-    column-gap: clamp(1.25rem, 5vw, 3rem);
-    row-gap: 2.4rem;
+    grid-template-columns: repeat(
+      auto-fill,
+      minmax(min(11rem, calc((100% - var(--shelf-gap)) / 2)), 1fr)
+    );
+    column-gap: var(--shelf-gap);
+    row-gap: 2rem;
     align-items: start;
   }
   .shelf-item {
@@ -1543,13 +1573,21 @@
   .shelf-list .progress-label {
     display: none;
   }
-  @media (min-width: 768px) {
+  @media (min-width: 640px) {
+    .library-workspace {
+      padding-inline: 1.5rem;
+    }
+  }
+  @container (min-width: 48rem) {
     .series-hero {
       display: grid;
-      grid-template-columns: minmax(18rem, 1fr) minmax(18rem, 1fr);
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
       align-items: center;
       gap: 2.5rem;
       text-align: left;
+    }
+    .series-title-row {
+      justify-content: flex-start;
     }
     .finished-group {
       grid-template-columns: 9rem minmax(0, 1fr);
@@ -1566,20 +1604,21 @@
   @media (min-width: 1024px) {
     .library-frame {
       display: grid;
-      grid-template-columns: 14rem minmax(0, 1fr);
-      gap: 2rem;
+      grid-template-columns: 14.5rem minmax(0, 1fr);
       align-items: start;
+    }
+    .library-workspace {
+      padding: 1.75rem clamp(1.5rem, 3vw, 3.5rem) 3.5rem;
     }
     .library-rail {
       display: block;
       position: sticky;
-      top: 6.5rem;
-      max-height: calc(100dvh - 8rem);
+      top: var(--library-header-height, 4rem);
+      height: calc(100dvh - var(--library-header-height, 4rem));
       overflow-y: auto;
-      padding: 1rem 0.75rem;
-      border: 1px solid var(--border);
-      border-radius: 1.25rem;
-      background: var(--card);
+      padding: 1.5rem 0.75rem;
+      border-right: 1px solid var(--border);
+      background: color-mix(in oklch, var(--card) 65%, var(--background));
     }
     .library-rail h2,
     .library-rail h3 {
@@ -1587,8 +1626,6 @@
       color: var(--muted-foreground);
       font-size: 0.75rem;
       font-weight: 650;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
     }
     .library-rail h2 {
       padding-top: 0.5rem;
@@ -1601,12 +1638,15 @@
       width: 100%;
       min-height: 2.75rem;
       padding: 0.5rem 0.75rem;
-      border-radius: 0.75rem;
+      border-radius: 0.625rem;
       text-align: left;
     }
-    .library-rail button:hover,
+    .library-rail button:hover {
+      background: var(--accent);
+    }
     .library-rail button[aria-current='page'] {
       background: var(--accent);
+      font-weight: 600;
     }
     .library-rail button:focus-visible {
       outline: 2px solid var(--ring);
@@ -1625,16 +1665,8 @@
       color: var(--muted-foreground);
       font-variant-numeric: tabular-nums;
     }
-    .library-rail p {
-      margin: 1rem 0.75rem 0.25rem;
-      color: var(--muted-foreground);
-      font-size: 0.75rem;
-    }
   }
   @media (max-width: 560px) {
-    .search-box {
-      width: 100%;
-    }
     .shelf-list .shelf-item {
       gap: 0.4rem;
     }

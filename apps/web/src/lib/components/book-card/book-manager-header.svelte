@@ -3,6 +3,7 @@
   import { resolve } from '$app/paths';
   import { goto } from '$app/navigation';
   import { createEventDispatcher } from 'svelte';
+  import { MediaQuery } from 'svelte/reactivity';
   import { Button } from '$lib/components/ui/button';
   import * as Menu from '$lib/components/ui/dropdown-menu';
   import AppNav from '$lib/components/navigation/app-nav.svelte';
@@ -46,6 +47,7 @@
   } from 'phosphor-svelte';
 
   export let modernLibrary = false;
+  const compactMenus = new MediaQuery('(max-width: 639px)');
   export let title = 'Library';
   export let collectionsExpanded = false;
   export let libraryMenu: LibraryMenuModel | undefined = undefined;
@@ -162,11 +164,8 @@
 
 {#if modernLibrary}
   <header class="app-header bg-background text-foreground" aria-label="Library toolbar">
-    <div
-      class="mx-auto flex min-h-16 max-w-[1440px] items-center justify-between gap-3 px-4 py-2 sm:px-6"
-    >
+    <div class="flex min-h-16 items-center justify-between gap-2 px-3 py-2 sm:px-6">
       <div class="flex min-w-0 items-center gap-2">
-        <span class="lg:hidden"><AppNav iconOnly /></span>
         {#if libraryMenu?.canGoBack}
           <Button
             variant="ghost"
@@ -180,8 +179,11 @@
           </Button>
           <h1 class="truncate text-base font-semibold tracking-tight sm:text-2xl">{title}</h1>
         {:else}
-          <h1 class="truncate text-base font-semibold tracking-tight sm:text-2xl">
-            Manabi Reader <span class="font-normal text-muted-foreground">for Web</span>
+          <h1
+            class="flex min-w-0 flex-wrap gap-x-1 text-sm leading-tight font-semibold tracking-tight min-[390px]:text-base sm:text-xl"
+          >
+            <span class="whitespace-nowrap">Manabi Reader</span>
+            <span class="whitespace-nowrap font-normal text-muted-foreground">for Web</span>
           </h1>
         {/if}
       </div>
@@ -218,7 +220,7 @@
           </Menu.Trigger>
           <Menu.Content
             align="end"
-            class="max-h-[min(80dvh,40rem)] w-72 max-w-[calc(100vw-1rem)] overflow-y-auto"
+            class="library-menu max-h-[min(80dvh,40rem)] w-72 max-w-[calc(100vw-1rem)] overflow-y-auto"
           >
             {#if hasBookOpened}
               <Menu.Item onSelect={() => dispatch('backToBookClick')}
@@ -231,7 +233,12 @@
             >
             <Menu.Sub>
               <Menu.SubTrigger><FolderPlus aria-hidden="true" />Add Books</Menu.SubTrigger>
-              <Menu.SubContent class="w-64">
+              <Menu.SubContent
+                side={compactMenus.current ? 'bottom' : 'right'}
+                align="end"
+                collisionPadding={8}
+                class="library-menu w-64"
+              >
                 <Menu.Item onSelect={() => fileImportElm.click()}
                   ><FileArrowUp aria-hidden="true" />Import File(s)</Menu.Item
                 >
@@ -250,7 +257,12 @@
             {#if libraryMenu}
               <Menu.Sub>
                 <Menu.SubTrigger><SquaresFour aria-hidden="true" />View Options</Menu.SubTrigger>
-                <Menu.SubContent class="w-64">
+                <Menu.SubContent
+                  side={compactMenus.current ? 'bottom' : 'right'}
+                  align="end"
+                  collisionPadding={8}
+                  class="library-menu w-64"
+                >
                   <Menu.RadioGroup
                     value={libraryMenu.currentLayout}
                     onValueChange={libraryMenu.setLayout}
@@ -281,7 +293,12 @@
                   <Menu.Separator />
                   <Menu.Sub>
                     <Menu.SubTrigger>Sort by…</Menu.SubTrigger>
-                    <Menu.SubContent class="w-56">
+                    <Menu.SubContent
+                      side={compactMenus.current ? 'bottom' : 'right'}
+                      align="end"
+                      collisionPadding={8}
+                      class="library-menu w-56"
+                    >
                       {#if libraryMenu.finishedOrder}
                         <Menu.Label>Finished date</Menu.Label>
                         <Menu.RadioGroup
@@ -302,7 +319,12 @@
                         </Menu.RadioGroup>
                         <Menu.Sub>
                           <Menu.SubTrigger>More Sort Options</Menu.SubTrigger>
-                          <Menu.SubContent class="w-52">
+                          <Menu.SubContent
+                            side={compactMenus.current ? 'bottom' : 'right'}
+                            align="end"
+                            collisionPadding={8}
+                            class="library-menu w-52"
+                          >
                             <Menu.RadioGroup
                               value={libraryMenu.sortProperty}
                               onValueChange={(value) => libraryMenu?.setSort(value)}
@@ -334,7 +356,12 @@
               </Menu.Sub>
               <Menu.Sub>
                 <Menu.SubTrigger><FolderOpen aria-hidden="true" />Organize Library</Menu.SubTrigger>
-                <Menu.SubContent class="w-64">
+                <Menu.SubContent
+                  side={compactMenus.current ? 'bottom' : 'right'}
+                  align="end"
+                  collisionPadding={8}
+                  class="library-menu w-64"
+                >
                   <Menu.Item onSelect={libraryMenu.createSeries}
                     ><FolderPlus aria-hidden="true" />Create Series from Books…</Menu.Item
                   >
@@ -360,7 +387,12 @@
               <Menu.Separator />
               <Menu.Sub>
                 <Menu.SubTrigger>Storage View</Menu.SubTrigger>
-                <Menu.SubContent class="w-64">
+                <Menu.SubContent
+                  side={compactMenus.current ? 'bottom' : 'right'}
+                  align="end"
+                  collisionPadding={8}
+                  class="library-menu w-64"
+                >
                   <Menu.Label>Legacy storage views</Menu.Label>
                   <Menu.RadioGroup
                     value={$storageSource$}

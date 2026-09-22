@@ -16,10 +16,9 @@ import time
 import unittest
 import zipfile
 import zlib
-from http.server import ThreadingHTTPServer
 from xml.sax.saxutils import escape
 from playwright.sync_api import sync_playwright, expect
-from test_static_reader import StaticHandler
+from test_static_reader import StaticHandler, ThreadingHTTPServer
 
 
 def raster(width=240, height=360, color=(155, 75, 45)):
@@ -164,6 +163,9 @@ class LibraryBase(unittest.TestCase):
         if choice.count() == 0:
             self.page.get_by_role('menuitem', name='Sort by…', exact=True).hover()
         self.page.get_by_role('menuitemradio', name=name, exact=True).click()
+        # Wait for the closing portal to unmount before resizing the viewport.
+        # Its exit animation still occupies the previous menu position.
+        expect(self.page.get_by_role('menu')).to_have_count(0)
 
     def open_view_menu(self):
         self.page.get_by_role('button', name='Library actions', exact=True).click()
@@ -185,6 +187,207 @@ class LibraryBase(unittest.TestCase):
 
 
 class BooksLibraryBrowser(LibraryBase):
+    def test_touch_menus_and_dark_reflow_keep_actions_accessible(self):
+        profile = tempfile.TemporaryDirectory()
+        # WebKit's ephemeral profiles do not support the real Blob-backed book
+        # store. Match LibraryBase's regular-profile storage in touch mode too.
+        touch = getattr(self.playwright, self.engine).launch_persistent_context(
+            profile.name,
+            viewport={'width': 390, 'height': 844}, device_scale_factor=3,
+            is_mobile=True, has_touch=True, color_scheme='dark', reduced_motion='reduce')
+        original = self.page
+        self.page = touch.pages[0]
+        self.page.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))
+        try:
+            self.go_library()
+            self.import_book('Touch layout')
+            self.assertEqual('dark', self.page.locator('html').evaluate(
+                'element => getComputedStyle(element).colorScheme'))
+            trigger = self.page.get_by_role('button', name='Library actions', exact=True)
+            trigger.tap()
+            self.page.get_by_role('menuitem', name='View Options', exact=True).tap()
+            submenu = self.page.locator('[data-slot="dropdown-menu-sub-content"]')
+            expect(submenu).to_be_visible()
+            box = submenu.bounding_box()
+            self.assertGreaterEqual(box['x'], 0)
+            self.assertLessEqual(box['x'] + box['width'], 390)
+            self.page.get_by_role('menuitem', name='Sort by…', exact=True).tap()
+            for surface in self.page.locator('[data-slot="dropdown-menu-sub-content"]').all():
+                bounds = surface.bounding_box()
+                self.assertGreaterEqual(bounds['x'], 0)
+                self.assertLessEqual(bounds['x'] + bounds['width'], 390)
+                self.assertLessEqual(bounds['y'] + bounds['height'], 844)
+            self.page.get_by_role('menuitemradio', name='Title', exact=True).tap()
+            expect(self.page.get_by_role('menu')).to_have_count(0)
+            trigger.tap()
+            self.page.get_by_role('menuitem', name='View Options', exact=True).tap()
+            self.page.get_by_role('menuitemradio', name='List', exact=True).tap()
+            expect(self.page.locator('.shelf-list')).to_be_visible()
+            self.page.get_by_role('button', name='Actions for Touch layout', exact=True).tap()
+            menu = self.page.get_by_role('menu')
+            expect(menu).to_be_visible()
+            sizes = menu.get_by_role('menuitem').evaluate_all(
+                'items => items.map(item => item.getBoundingClientRect().height)')
+            self.assertTrue(all(height >= 44 for height in sizes), sizes)
+            self.page.get_by_role('menuitem', name='Mark as Finished', exact=True).tap()
+            expect(self.tile('Touch layout').locator('.list-detail')).to_contain_text('Finished')
+            # A 1280px desktop zoomed to 200% has a 640 CSS-pixel layout viewport.
+            for width in (844, 640, 320):
+                self.page.set_viewport_size({'width': width, 'height': 600})
+                trigger.tap()
+                menu = self.page.get_by_role('menu')
+                expect(menu).to_be_visible()
+                box = menu.bounding_box()
+                self.assertGreaterEqual(box['x'], -1)
+                self.assertLessEqual(box['x'] + box['width'], width + 1)
+                self.assertLessEqual(box['y'] + box['height'], 601)
+                self.page.keyboard.press('Escape')
+                expect(trigger).to_be_focused()
+                self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), width + 1)
+        finally:
+            touch.close()
+            profile.cleanup()
+            self.page = original
+
+    def test_responsive_shelf_grows_then_adds_columns_without_clipping_covers(self):
+        # Exercise intrinsic artwork geometry, not only square placeholder boxes.
+        for index, size in enumerate([(240, 360), (180, 380), (360, 240), (240, 240)] * 3):
+            self.import_book('Responsive ' + str(index), size=size)
+        self.page.locator('.shelf-grid img').evaluate_all('''images => Promise.all(images.map(image => {
+            image.loading = 'eager';
+            return image.decode();
+        }))''')
+        measurements = {}
+        for width in (320, 390, 430, 768, 1023, 1024, 1200, 1300, 1400, 1728):
+            with self.subTest(width=width):
+                self.page.set_viewport_size({'width': width, 'height': 900})
+                geometry = self.page.locator('.shelf-grid').evaluate('''grid => {
+                    const stages = [...grid.querySelectorAll('.book-thumbnail')];
+                    return {
+                        columns: getComputedStyle(grid).gridTemplateColumns.split(' ').length,
+                        width: stages[0].getBoundingClientRect().width,
+                        covers: stages.map(stage => {
+                            const cover = stage.querySelector('.cover-surface').getBoundingClientRect();
+                            const box = stage.getBoundingClientRect();
+                            return {width: cover.width, height: cover.height,
+                                maxWidth: box.width, maxHeight: box.height, bottom: cover.bottom - box.bottom};
+                        }),
+                        statuses: [...grid.querySelectorAll('.book-status')].map(e => e.getBoundingClientRect().top)
+                    };
+                }''')
+                measurements[width] = geometry
+                self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), width + 1)
+                if width <= 430:
+                    self.assertEqual(2, geometry['columns'])
+                for cover in geometry['covers']:
+                    self.assertLessEqual(cover['width'], cover['maxWidth'] + 1)
+                    self.assertLessEqual(cover['height'], cover['maxHeight'] + 1)
+                    self.assertAlmostEqual(0, cover['bottom'], delta=1)
+                first_row = geometry['statuses'][:geometry['columns']]
+                self.assertLessEqual(max(first_row) - min(first_row), 1)
+        self.assertEqual(measurements[1200]['columns'], measurements[1300]['columns'])
+        self.assertGreater(measurements[1300]['width'], measurements[1200]['width'])
+        self.assertGreater(measurements[1400]['columns'], measurements[1300]['columns'])
+        self.assertLess(measurements[1400]['width'], measurements[1300]['width'])
+        self.assertGreater(measurements[1728]['columns'], measurements[1400]['columns'])
+        # Selection adds a row to the sticky header. The sidebar must remain
+        # below that measured height when the shelf scrolls, then recover on exit.
+        self.page.set_viewport_size({'width': 1440, 'height': 700})
+        header = self.page.get_by_role('banner', name='Library toolbar')
+        self.page.get_by_role('button', name='Library actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
+        self.page.evaluate('window.scrollTo(0, 600)')
+        rail = self.page.get_by_role('complementary', name='Collections', exact=True)
+        self.page.wait_for_function('''() => {
+            const header = document.querySelector('[aria-label="Library toolbar"]').getBoundingClientRect();
+            const rail = document.querySelector('.library-rail').getBoundingClientRect();
+            return Math.abs(rail.top - header.bottom) < 2 && rail.bottom <= innerHeight + 1;
+        }''')
+        expect(rail.get_by_role('button', name=re.compile('^Books'))).to_be_in_viewport()
+        header.get_by_role('button', name='Cancel selection', exact=True).click()
+        self.page.wait_for_function('''() => {
+            const header = document.querySelector('[aria-label="Library toolbar"]').getBoundingClientRect();
+            return Math.abs(document.querySelector('.library-rail').getBoundingClientRect().top - header.bottom) < 2;
+        }''')
+
+    def test_narrow_collection_editing_and_selection_stay_inside_viewport(self):
+        self.import_book('Small screen book')
+        self.add_collection('Small screen book', 'A long collection name 日本語の読書コレクション')
+        for width in (320, 390, 1023, 1024, 1440, 390):
+            with self.subTest(width=width):
+                self.page.set_viewport_size({'width': width, 'height': 844})
+                header = self.page.get_by_role('banner', name='Library toolbar')
+                expect(header.get_by_role('button', name='Main menu', exact=True)).to_have_count(0)
+                rail = self.page.get_by_role('complementary', name='Collections', exact=True)
+                if width < 1024:
+                    expect(rail).not_to_be_visible()
+                    trigger = header.get_by_role('button', name='Collections', exact=True)
+                    trigger.click()
+                else:
+                    expect(rail).to_be_visible()
+                    trigger = rail.get_by_role('button', name='New Collection…', exact=True)
+                    trigger.click()
+                sheet = self.page.locator('#library-collections-sheet')
+                sheet.get_by_role('button', name='Edit', exact=True).click()
+                bounds = sheet.bounding_box()
+                self.assertGreaterEqual(bounds['x'], -1)
+                self.assertLessEqual(bounds['x'] + bounds['width'], width + 1)
+                self.assertLessEqual(sheet.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
+                # Title and Edit/Close must not overlap at narrow sizes.
+                title = sheet.get_by_role('heading', name='Collections', exact=True).bounding_box()
+                done = sheet.get_by_role('button', name='Done', exact=True).bounding_box()
+                self.assertLessEqual(title['x'] + title['width'], done['x'])
+                rename = sheet.get_by_role('button', name=re.compile('^Rename collection'))
+                expect(rename).to_be_visible()
+                rename.click()
+                dialog = self.dialog()
+                expect(dialog.get_by_role('heading', name='Rename collection', exact=True)).to_be_visible()
+                dialog.get_by_role('button', name='Cancel', exact=True).click()
+                sheet.get_by_role('button', name='Close collections', exact=True).click()
+                expect(sheet).to_have_count(0)
+                self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), width + 1)
+        header.get_by_role('button', name='Library actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
+        header.get_by_role('button', name='Select all', exact=True).click()
+        expect(self.page.get_by_text('1 selected', exact=True)).to_be_visible()
+        self.page.set_viewport_size({'width': 320, 'height': 568})
+        expect(header.get_by_role('button', name='Export', exact=True)).to_be_visible()
+        expect(header.get_by_role('button', name='Cancel selection', exact=True)).to_be_visible()
+        self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), 321)
+
+    def test_continue_search_and_list_reflow_preserve_reading_state(self):
+        title = 'A very long book title 日本語の読書と旅の長い物語'
+        self.import_book(title, creators=('A long author name 日本語',))
+        self.import_book('Second reading book', size=(360, 240))
+        for name in (title, 'Second reading book'):
+            self.page.get_by_role('button', name='Read ' + name, exact=True).click()
+            expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=30000)
+            self.go_library()
+        before = self.stores('books', ['bookmark', 'statistic'])
+        for width in (320, 390, 1440):
+            self.page.set_viewport_size({'width': width, 'height': 844})
+            expect(self.page.get_by_role('heading', name='Continue', exact=True)).to_be_visible()
+            expect(self.page.get_by_role('heading', name='Books', exact=True)).to_be_visible()
+            self.page.get_by_role('button', name='Continue ' + title, exact=True).focus()
+            expect(self.page.get_by_role('button', name='Continue ' + title, exact=True)).to_be_in_viewport()
+            self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), width + 1)
+            for card in self.page.locator('.continue-card').all():
+                box = card.bounding_box()
+                cover = card.locator('.cover-surface').bounding_box()
+                self.assertGreaterEqual(cover['y'] - box['y'], 12)
+                self.assertGreaterEqual(box['y'] + box['height'] - cover['y'] - cover['height'], 12)
+        self.choose_view('List')
+        for width in (320, 390, 1440):
+            self.page.set_viewport_size({'width': width, 'height': 844})
+            self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), width + 1)
+            expect(self.tile(title).get_by_role('heading', name=title, exact=True)).to_be_visible()
+        search = self.page.get_by_role('searchbox', name='Search library', exact=True)
+        search.fill('missing book')
+        expect(self.page.get_by_role('heading', name='No matching books', exact=True)).to_be_visible()
+        self.page.get_by_role('button', name='Clear Search', exact=True).click()
+        expect(self.page.get_by_role('heading', name='Continue', exact=True)).to_be_visible()
+        self.assertEqual(before, self.stores('books', ['bookmark', 'statistic']))
+
     def test_scoped_selection_clears_when_collection_or_search_changes(self):
         for title in ('Alpha scope', 'Beta scope', 'Gamma scope'):
             self.import_book(title)
@@ -300,16 +503,12 @@ class BooksLibraryBrowser(LibraryBase):
         expect(heading).to_be_visible()
         title_width = heading.evaluate('element => [element.scrollWidth, element.clientWidth]')
         self.assertLessEqual(title_width[0], title_width[1] + 1)
-        expect(header.get_by_role('button', name='Main menu', exact=True)).to_be_visible()
+        expect(header.get_by_role('button', name='Main menu', exact=True)).to_have_count(0)
         expect(header.get_by_role('button', name='Collections', exact=True)).to_be_visible()
         expect(header.get_by_role('button', name='Library actions', exact=True)).to_be_visible()
         expect(self.page.get_by_role('complementary', name='Collections', exact=True)).not_to_be_visible()
         for obsolete in ('Add books', 'Browser', 'Select books', 'Help', 'Navigate'):
             expect(header.get_by_role('button', name=obsolete, exact=True)).to_have_count(0)
-
-        header.get_by_role('button', name='Main menu', exact=True).click()
-        expect(self.page.get_by_role('navigation', name='Main navigation', exact=True)).to_be_visible()
-        self.page.keyboard.press('Escape')
 
         header.get_by_role('button', name='Library actions', exact=True).click()
         expect(self.page.get_by_role('menuitem', name='Select Books', exact=True)).to_be_visible()
@@ -348,7 +547,7 @@ class BooksLibraryBrowser(LibraryBase):
         expect(rail).to_be_visible()
         self.page.set_viewport_size({'width':1023, 'height':900})
         expect(rail).not_to_be_visible()
-        expect(header.get_by_role('button', name='Main menu', exact=True)).to_be_visible()
+        expect(header.get_by_role('button', name='Main menu', exact=True)).to_have_count(0)
         expect(header.get_by_role('button', name='Collections', exact=True)).to_be_visible()
         self.page.set_viewport_size({'width':1024, 'height':900})
         expect(rail).to_be_visible()
@@ -576,6 +775,40 @@ class BooksLibraryBrowser(LibraryBase):
 
 
 class BooksLibraryFilesystem(LibraryBase):
+    def test_series_geometry_uses_available_column_width_and_keeps_status_baselines(self):
+        self.seed_files({
+            'Volumes/1.epub': book('First volume'),
+            'Volumes/2.epub': book('Second volume'),
+            'Standalone.epub': book('Standalone')
+        })
+        series = self.page.get_by_role('button', name='Open series Volumes', exact=True)
+        expect(series).to_be_visible()
+        for width in (320, 390, 1024, 1440):
+            self.page.set_viewport_size({'width': width, 'height': 900})
+            tile = self.page.locator('.shelf-item').filter(has=series)
+            front = tile.locator('.stack-item.front').bounding_box()
+            rear = tile.locator('.stack-item:not(.front)').bounding_box()
+            self.assertGreater(front['x'], rear['x'])
+            self.assertGreater(front['y'], rear['y'])
+            expect(tile.locator('.series-copy')).not_to_be_visible()
+            self.assertAlmostEqual(tile.locator('.book-status').bounding_box()['y'],
+                self.tile('Standalone').locator('.book-status').bounding_box()['y'], delta=1)
+        series.click()
+        hero = self.page.locator('.series-hero')
+        for detail in self.page.locator('.shelf-list .list-detail').all():
+            expect(detail).not_to_contain_text('Reading now')
+        for width in (390, 768, 1024, 1440, 1023):
+            with self.subTest(width=width):
+                self.page.set_viewport_size({'width': width, 'height': 900})
+                art = hero.locator('.series-hero-art').bounding_box()
+                copy = hero.locator('.series-hero-copy').bounding_box()
+                if width == 1440:
+                    self.assertGreater(copy['x'], art['x'] + art['width'])
+                elif width in (390, 768, 1024):
+                    self.assertGreaterEqual(copy['y'], art['y'] + art['height'] - 1)
+                self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), width + 1)
+                expect(hero.get_by_role('button', name=re.compile('^Start Reading'))).to_be_visible()
+
     def seed_files(self, files):
         self.page.goto(self.origin + '/Reader-Web/connections')
         expect(self.page.get_by_role('button', name='Refresh connections')).to_be_enabled()
