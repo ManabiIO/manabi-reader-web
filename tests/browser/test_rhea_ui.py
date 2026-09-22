@@ -33,6 +33,10 @@ def chaptered_epub():
 
 class RheaReader(previous.RefinedAppearance):
     def open_reading_appearance(self):
+        # Reload can finish before the hydrated reader mounts its controls.
+        # Wait for the real ready page before inspecting expanded state.
+        expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
+        expect(self.page.locator('button[data-reader-controls]')).to_be_visible()
         toolbar = self.page.get_by_role('banner', name='Reader toolbar')
         reveal = self.page.get_by_role('button', name='Show reading controls', exact=True)
         if reveal.is_visible():
