@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
+  import { Headphones, SpinnerGap } from 'phosphor-svelte';
   import type { BookmarkManager } from '$lib/components/book-reader/types';
 
   export let bookId: number;
@@ -51,7 +52,8 @@
 <button
   bind:this={trigger}
   type="button"
-  class="h-full px-2"
+  class="flex size-11 items-center justify-center rounded-full hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"
+  aria-label={loading ? 'Loading audio…' : failed ? 'Retry audiobook' : 'Audiobook'}
   aria-haspopup="dialog"
   aria-expanded={open}
   aria-busy={loading}
@@ -60,7 +62,10 @@
   title={failed
     ? 'Could not load the audiobook player. Select to retry.'
     : 'Local audiobook and subtitle playback'}
-  >{loading ? 'Loading audio…' : failed ? 'Retry audiobook' : 'Audiobook'}</button
+  >{#if loading}<SpinnerGap class="size-5 animate-spin" aria-hidden="true" />{:else}<Headphones
+      class="size-5"
+      aria-hidden="true"
+    />{/if}</button
 >
 {#if failed}<span class="sr-only" role="alert"
     >The audiobook player could not be loaded. Try again.</span

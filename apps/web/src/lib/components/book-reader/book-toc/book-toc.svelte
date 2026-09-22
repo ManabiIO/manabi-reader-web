@@ -1,7 +1,6 @@
 <script lang="ts">
-  import faXmark from '@lucide/svelte/icons/x';
-  import faChevronLeft from '@lucide/svelte/icons/chevron-left';
-  import faChevronRight from '@lucide/svelte/icons/chevron-right';
+  import { X, CaretLeft, CaretRight, Check } from 'phosphor-svelte';
+  import { Button } from '$lib/components/ui/button';
   import {
     getChapterData,
     nextChapter$,
@@ -14,8 +13,8 @@
   import { getWeightedAverage } from '$lib/functions/utils';
   import { debounceTime, fromEvent, merge, take } from 'rxjs';
   import { onMount } from 'svelte';
-  import AppIcon from '$lib/components/app-icon.svelte';
 
+  export let bookTitle = '';
   export let sectionData: SectionWithProgress[] = [];
   export let exploredCharCount = 0;
   export let verticalMode: boolean;
@@ -121,62 +120,100 @@
   }
 </script>
 
-<section class="ui-panel flex h-full min-h-0 flex-col" aria-label="Table of contents">
-  <div class="flex justify-between p-4">
-    <div>Chapter Progress: {currentChapterCharacterProgress} ({currentChapterProgress}%)</div>
-    <button
-      type="button"
-      title="Close Table of Contents"
-      class="flex items-end md:items-center gap-2 rounded-xl px-2 py-1.5 text-sm"
-      on:click={closeTocMenu}
-    >
-      <AppIcon icon={faXmark} />
-      <span>Close Table of Contents</span></button
+<section class="contents-panel flex h-full min-h-0 flex-col" aria-label="Table of contents">
+  <div class="flex items-start justify-between gap-4 p-6 pb-4">
+    <div class="min-w-0">
+      <h2 class="text-xl font-semibold">Contents</h2>
+      <p class="mt-1 truncate text-sm text-muted-foreground" title={bookTitle}>{bookTitle}</p>
+    </div>
+    <Button
+      variant="secondary"
+      size="icon"
+      class="min-h-11 min-w-11 rounded-full"
+      aria-label="Close Table of Contents"
+      onclick={closeTocMenu}><X aria-hidden="true" /></Button
     >
   </div>
-  <div class="flex-1 overflow-auto p-4">
-    {#each chapters as chapter (chapter.reference)}
-      <div class="my-6 flex justify-between">
-        <button
-          type="button"
-          title={`Go to ${chapter.label}`}
-          id={`for${chapter.reference}`}
-          class="mr-4"
-          class:opacity-30={chapter.progress === 100 && chapter !== currentChapter}
-          class:hover:opacity-100={chapter.progress === 100 && chapter !== currentChapter}
-          class:hover:opacity-60={chapter.progress < 100 || chapter === currentChapter}
-          on:click={() => goToChapter(chapter.reference, true)}
-        >
-          {chapter.label}
-        </button>
-        <div class:opacity-30={chapter.progress === 100 && chapter !== currentChapter}>
-          {chapter.startCharacter}
-        </div>
+  {#if currentChapter}
+    <div class="mx-6 mb-4 rounded-2xl bg-muted p-4">
+      <p class="text-xs font-medium text-muted-foreground">Current chapter</p>
+      <p class="mt-1 font-medium">{currentChapter.label}</p>
+      <div
+        class="mt-3 h-1 overflow-hidden rounded-full bg-foreground/10"
+        role="progressbar"
+        aria-label="Chapter progress"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Number(currentChapterProgress)}
+      >
+        <div
+          class="h-full rounded-full bg-foreground/60"
+          style:width={`${currentChapterProgress}%`}
+        ></div>
       </div>
+      <p class="mt-2 text-xs text-muted-foreground">
+        {currentChapterProgress}% · {currentChapterCharacterProgress} characters
+      </p>
+    </div>
+  {/if}
+  <nav class="min-h-0 flex-1 overflow-y-auto px-3" aria-label="Chapters">
+    {#each chapters as chapter (chapter.reference)}
+      <button
+        type="button"
+        title={`Go to ${chapter.label}`}
+        id={`for${chapter.reference}`}
+        class="chapter-row flex min-h-14 w-full items-center gap-3 rounded-xl px-3 py-3 text-left"
+        aria-current={chapter === currentChapter ? 'location' : undefined}
+        on:click={() => goToChapter(chapter.reference, true)}
+      >
+        <span class="min-w-0 flex-1 break-words">{chapter.label}</span>
+        {#if chapter.progress === 100}<Check
+            class="size-4 shrink-0 text-muted-foreground"
+            aria-label="Finished"
+          />{:else if chapter === currentChapter}<span
+            class="size-1.5 shrink-0 rounded-full bg-foreground"
+            aria-hidden="true"
+          ></span>{/if}
+      </button>
     {/each}
-  </div>
-  <div class="flex justify-between px-4 py-6">
-    <button
-      type="button"
-      class="inline-flex items-center gap-2 rounded-xl px-2 py-1.5 text-sm"
+  </nav>
+  <div class="flex justify-between gap-2 border-t border-border p-4">
+    <Button
+      variant="ghost"
+      class="min-h-11"
       disabled={!prevChapterAvailable}
       title={`${verticalMode ? 'Next' : 'Previous'} Chapter`}
-      class:opacity-30={!prevChapterAvailable}
-      on:click={() => changeChapter(prevChapterAvailable, verticalMode ? 1 : -1)}
+      aria-label={`${verticalMode ? 'Next' : 'Previous'} Chapter`}
+      onclick={() => changeChapter(prevChapterAvailable, verticalMode ? 1 : -1)}
+      ><CaretLeft aria-hidden="true" /><span
+        >{verticalMode ? 'Next' : 'Previous'}<span class="hidden sm:inline"> Chapter</span></span
+      ></Button
     >
-      <AppIcon icon={faChevronLeft} />
-      <span>{verticalMode ? 'Next Chapter' : 'Previous Chapter'}</span></button
-    >
-    <button
-      type="button"
-      class="inline-flex items-center gap-2 rounded-xl px-2 py-1.5 text-sm"
+    <Button
+      variant="ghost"
+      class="min-h-11"
       disabled={!nextChapterAvailable}
       title={`${verticalMode ? 'Previous' : 'Next'} Chapter`}
-      class:opacity-30={!nextChapterAvailable}
-      on:click={() => changeChapter(nextChapterAvailable, verticalMode ? -1 : 1)}
-    >
-      <AppIcon icon={faChevronRight} />
-      <span>{verticalMode ? 'Previous Chapter' : 'Next Chapter'}</span></button
+      aria-label={`${verticalMode ? 'Previous' : 'Next'} Chapter`}
+      onclick={() => changeChapter(nextChapterAvailable, verticalMode ? -1 : 1)}
+      ><span
+        >{verticalMode ? 'Previous' : 'Next'}<span class="hidden sm:inline"> Chapter</span></span
+      ><CaretRight aria-hidden="true" /></Button
     >
   </div>
 </section>
+
+<style>
+  .contents-panel {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .chapter-row:hover,
+  .chapter-row[aria-current] {
+    background: var(--muted);
+  }
+  .chapter-row:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: -2px;
+  }
+</style>

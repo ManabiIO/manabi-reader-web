@@ -115,6 +115,11 @@ and series-hero reflow use the available content width. See
 [`books-responsive-review.md`](books-responsive-review.md) for the responsive
 qualification matrix and the proposed reader follow-up.
 
+The Continue shelf scrolls to the edges of the content pane. Its first and last
+cards retain the same inset as the headings, while intermediate cards pass
+through that inset during scrolling. The next card is not clipped at the grid's
+inner margin, and scrolling the shelf does not widen the page.
+
 ## Covers and views
 
 Grid and list share the same projection, filters, menus and source identities.

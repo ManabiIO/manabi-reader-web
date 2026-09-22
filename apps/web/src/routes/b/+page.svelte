@@ -105,6 +105,8 @@
   } from '$lib/data/store';
   import BookCompletionConfetti from '$lib/components/book-reader/book-completion-confetti/book-completion-confetti.svelte';
   import BookReaderHeader from '$lib/components/book-reader/book-reader-header.svelte';
+  import ReaderAppearance from '$lib/components/book-reader/reader-appearance.svelte';
+  import { TextAlignLeft, X } from 'phosphor-svelte';
   import {
     readerImageGalleryPictures$,
     toggleImageGalleryPictureSpoiler$,
@@ -192,6 +194,7 @@
 
   let showSpinner = true;
   let showHeader = false;
+  let showAppearance = false;
   let isBookmarkScreen = false;
   let showFooter = true;
   let exploredCharCount = 0;
@@ -529,9 +532,9 @@
       ? limitToRange(convertRemToPixels(window, 0.5), window.innerWidth, $firstDimensionMargin$)
       : ($firstDimensionMargin$ ?? 0);
 
-  $: tapButtonHeight = `calc(100% - ${showHeader ? 5 : 4}rem)`;
+  $: tapButtonHeight = 'calc(100% - 10rem - env(safe-area-inset-bottom))';
 
-  $: tapButtonTop = `${showHeader ? 3 : 2}rem`;
+  $: tapButtonTop = 'calc(4.5rem + env(safe-area-inset-top))';
 
   $: footerChapterProgress = getCurrentChapterProgress($sectionData$);
 
@@ -877,9 +880,9 @@
     return [chapterCharacters, chapterProgress, 'C'].filter(Boolean).join(' ');
   }
 
-  function copyCurrentProgress(currentProgress: string) {
+  async function copyCurrentProgress(currentProgress: string) {
     try {
-      navigator.clipboard.writeText(currentProgress);
+      await navigator.clipboard.writeText(currentProgress);
     } catch (error: any) {
       logger.error(`Error writing Progress to Clipboard: ${error.message}`);
     }
@@ -1593,18 +1596,37 @@
 
 {$collectReaderImageGallerySpoilerToggles$ ?? ''}
 {$handleUpdateImageGalleryPictureSpoilers$ ?? ''}
+<div
+  class="reader-context writing-horizontal-tb"
+  aria-hidden="true"
+  style:color={$themeOption$?.tooltipTextFontColor}
+>
+  {$rawBookData$?.title ?? ''}
+</div>
 <button
-  aria-label="Show reading controls"
-  class="fixed inset-x-0 top-0 z-10 h-8 w-full"
-  on:click={() => (showHeader = true)}
-></button>
+  type="button"
+  aria-label={showHeader ? 'Hide reading controls' : 'Show reading controls'}
+  aria-expanded={showHeader}
+  data-reader-controls
+  class="reader-controls writing-horizontal-tb fixed z-20 flex size-11 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-sm"
+  on:click={() => (showHeader = !showHeader)}
+  >{#if showHeader}<X class="size-5" aria-hidden="true" />{:else}<TextAlignLeft
+      class="size-5"
+      aria-hidden="true"
+    />{/if}</button
+>
 {#if showHeader}
   <div
-    class="elevation-4 writing-horizontal-tb fixed inset-x-0 top-0 z-10 w-full"
-    transition:fly|local={{ y: -300, easing: quintInOut }}
-    use:clickOutside={() => (showHeader = false)}
+    class="writing-horizontal-tb fixed inset-x-0 top-0 z-20 w-full"
+    transition:fly|local={{ y: -80, duration: 160, easing: quintInOut }}
+    use:clickOutside={(event) => {
+      if (event.target instanceof Element && event.target.closest('[data-reader-controls]')) return;
+      showHeader = false;
+    }}
   >
     <BookReaderHeader
+      bookTitle={$rawBookData$?.title ?? ''}
+      on:appearanceClick={() => (showAppearance = true)}
       hasChapterData={!!$sectionData$?.length}
       hasText={!!bookCharCount}
       hasCustomReadingPoint={!!(
@@ -1764,6 +1786,11 @@
   {$leaveIfBookMissing$ ?? ''}
 {/if}
 
+<ReaderAppearance
+  bind:open={showAppearance}
+  on:settingsClick={() => leaveReader(mergeEntries.SETTINGS.routeId, false)}
+/>
+
 <Sheet.Root
   open={$tocIsOpen$}
   onOpenChange={(open) => {
@@ -1776,7 +1803,7 @@
   <Sheet.Content
     side="left"
     showCloseButton={false}
-    class="data-[side=left]:w-full data-[side=left]:sm:max-w-xl"
+    class="writing-horizontal-tb data-[side=left]:w-full data-[side=left]:sm:max-w-md"
     onCloseAutoFocus={(event) => {
       event.preventDefault();
       document.querySelector<HTMLButtonElement>('[aria-label="Show reading controls"]')?.focus();
@@ -1785,6 +1812,7 @@
     <Sheet.Title class="sr-only">Table of contents</Sheet.Title>
     <Sheet.Description class="sr-only">Chapter navigation and reading progress.</Sheet.Description>
     {#if $sectionData$}<BookToc
+        bookTitle={$rawBookData$?.title ?? ''}
         sectionData={$sectionData$}
         verticalMode={$verticalMode$}
         {exploredCharCount}
@@ -1833,12 +1861,15 @@
 
 <footer
   id="ttu-page-footer"
-  class="writing-horizontal-tb fixed bottom-0 left-0 z-10 flex h-8 w-full items-center justify-between text-xs leading-none"
+  class="reader-footer writing-horizontal-tb fixed bottom-0 left-0 z-10 flex w-full items-center justify-between text-xs leading-none"
+  class:controls-expanded={showHeader}
+  class:many-controls={showTrackerIcon && !!dataToReplicate.length}
+  data-reader-controls
   style:color={$themeOption$?.tooltipTextFontColor}
 >
   <div class="flex h-full items-center">
     <button
-      class="h-full px-2"
+      class="progress-toggle h-11 px-2"
       aria-expanded={showFooter}
       on:click={() => (showFooter = !showFooter)}>Progress</button
     >
@@ -1859,19 +1890,19 @@
         type="button"
         aria-label="Open reading tracker"
         title="Open Tracker Menu; double-click to toggle tracking"
-        class="flex h-full items-center justify-center gap-1 px-2 text-xs"
+        class="flex size-11 items-center justify-center rounded-full text-base hover:bg-muted"
         class:text-red-500={$isTrackerPaused$}
         class:animate-pulse={frozenPosition > -1}
         use:multiClickHandler={[trackerSingleClickHandler, trackerDblClickHandler]}
       >
-        <AppIcon icon={$isTrackerPaused$ ? faPlay : faPause} /><span>Tracker</span>
+        <AppIcon icon={$isTrackerPaused$ ? faPlay : faPause} /><span class="sr-only">Tracker</span>
       </button>
     {/if}
     {#if dataToReplicate.length}
       <button
         type="button"
         aria-label="Sync reading data"
-        class="flex h-full items-center justify-center gap-1 px-2 text-xs"
+        class="flex size-11 items-center justify-center rounded-full text-base hover:bg-muted"
         class:text-red-500={externalStorageErrors > 1}
         class:animate-pulse={externalStorageErrors > 1 || isReplicating}
         on:click|stopPropagation={() => {
@@ -1888,7 +1919,7 @@
         }}
         on:keyup={dummyFn}
       >
-        <AppIcon icon={faCloudBolt} /><span>Sync</span>
+        <AppIcon icon={faCloudBolt} /><span class="sr-only">Sync</span>
       </button>
     {/if}
   </div>
@@ -1903,7 +1934,7 @@
     <button
       type="button"
       title="Copy Progress"
-      class="writing-horizontal-tb fixed bottom-2 right-2 z-10 text-xs leading-none select-none whitespace-pre"
+      class="reader-progress writing-horizontal-tb absolute z-10 text-xs leading-none select-none"
       class:invisible={!$showCharacterCounter$ &&
         !$showPercentage$ &&
         !$showFooterChapterCharacterCounter$ &&
@@ -1922,8 +1953,12 @@
       }}
       on:keyup={dummyFn}
     >
-      <span class="mr-4" class:invisible={!footerChapterProgress}>{footerChapterProgress}</span>
-      <span class:invisible={!$showCharacterCounter$ && !$showPercentage$}>{currentProgress}</span>
+      <span class="progress-details" class:hidden={!showHeader}>{footerChapterProgress}</span>
+      <span class:invisible={!$showCharacterCounter$ && !$showPercentage$}
+        >{showHeader || !$showPercentage$
+          ? currentProgress
+          : `${Math.floor((exploredCharCount / bookCharCount) * 100)}%`}</span
+      >
     </button>
   {/if}
 </footer>
@@ -1947,3 +1982,65 @@
     }
   }}
 />
+
+<style>
+  .reader-context {
+    position: fixed;
+    top: calc(1.5rem + env(safe-area-inset-top));
+    left: 4rem;
+    right: 4rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: center;
+    font-family: system-ui, sans-serif;
+    font-size: 0.75rem;
+    pointer-events: none;
+  }
+  .reader-controls {
+    right: max(1rem, env(safe-area-inset-right));
+    bottom: calc(1rem + env(safe-area-inset-bottom));
+  }
+  .reader-controls:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 3px;
+  }
+  .reader-footer {
+    height: calc(4.5rem + env(safe-area-inset-bottom));
+    padding: 0 max(1rem, env(safe-area-inset-left)) env(safe-area-inset-bottom);
+    pointer-events: none;
+  }
+  .reader-footer :global(button) {
+    pointer-events: auto;
+  }
+  .reader-progress {
+    left: 50%;
+    bottom: calc(1rem + env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    min-height: 44px;
+    max-width: calc(100% - 9rem);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+  .progress-toggle {
+    display: none;
+  }
+  .controls-expanded .progress-toggle {
+    display: block;
+  }
+  .controls-expanded .reader-progress,
+  .many-controls .reader-progress {
+    bottom: calc(4.25rem + env(safe-area-inset-bottom));
+    padding: 0.5rem 0.75rem;
+    border-radius: 1rem;
+    background: var(--background);
+    max-width: calc(100% - 2rem);
+    width: max-content;
+  }
+  .progress-details {
+    color: var(--muted-foreground);
+  }
+</style>

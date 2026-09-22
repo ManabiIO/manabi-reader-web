@@ -19,10 +19,12 @@
     side = 'right',
     showCloseButton = true,
     portalProps,
+    overlayProps,
     children,
     ...restProps
   }: WithoutChildrenOrChild<SheetPrimitive.ContentProps> & {
     portalProps?: WithoutChildrenOrChild<ComponentProps<typeof SheetPortal>>;
+    overlayProps?: ComponentProps<typeof SheetOverlay>;
     side?: Side;
     showCloseButton?: boolean;
     children: Snippet;
@@ -30,7 +32,7 @@
 </script>
 
 <SheetPortal {...portalProps}>
-  <SheetOverlay />
+  <SheetOverlay {...overlayProps} />
   <SheetPrimitive.Content
     bind:ref
     onkeydowncapture={containModalTab}
