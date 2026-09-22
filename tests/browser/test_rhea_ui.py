@@ -311,10 +311,17 @@ class RheaReader(previous.RefinedAppearance):
         self.page.get_by_role('menuitem', name='Mark as Finished', exact=True).click()
         expect(self.page.locator('.progress-label', has_text='Finished')).to_be_visible()
 
+        compact_search = self.page.get_by_role('button', name='Search library', exact=True)
+        expect(compact_search).to_be_visible()
+        self.assertGreaterEqual(compact_search.bounding_box()['height'], 44)
+        compact_search.click()
         search = self.page.get_by_role('searchbox', name='Search library', exact=True)
+        expect(search).to_be_focused()
         search.fill('not-this-book')
         expect(self.page.get_by_role('heading', name='No matching books', exact=True)).to_be_visible()
         search.fill('reader browser')
+        self.page.keyboard.press('Escape')
+        expect(compact_search).to_be_focused()
         expect(read).to_be_visible()
 
     def test_library_overflow_is_labeled_keyboard_operable_and_mobile_sized(self):

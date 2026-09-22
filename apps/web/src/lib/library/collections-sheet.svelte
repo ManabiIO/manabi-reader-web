@@ -170,9 +170,11 @@
   </Sheet.Content>
 </Sheet.Root>
 <Dialog.Root bind:open={dialogOpen}>
-  <Dialog.Content>
+  <Dialog.Content
+    class="max-h-[85dvh] overflow-y-auto [&_[data-slot=dialog-close]]:top-3 [&_[data-slot=dialog-close]]:right-3 [&_[data-slot=dialog-close]]:size-11 [&_[data-slot=dialog-footer]_button]:min-h-11"
+  >
     <Dialog.Header
-      ><Dialog.Title
+      ><Dialog.Title class="pr-8"
         >{deleting
           ? 'Delete collection?'
           : target

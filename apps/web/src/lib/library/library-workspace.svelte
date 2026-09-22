@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, createEventDispatcher, type Snippet } from 'svelte';
+  import { onMount, createEventDispatcher, tick, type Snippet } from 'svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
@@ -70,6 +70,11 @@
   import CoverStack from './cover-stack.svelte';
   import SourceIcon from './source-icon.svelte';
   import CollectionsSheet from './collections-sheet.svelte';
+  let coverWidths: Record<string, number> = {};
+  let shelfElement: HTMLElement;
+  function rememberCoverWidth(key: string, fraction: number) {
+    if ((coverWidths[key] ?? 1) !== fraction) coverWidths = { ...coverWidths, [key]: fraction };
+  }
   import { creatorLine, sharedCreatorLine } from './book-metadata';
   import { coverOverride } from './cover-override';
   import type { LibraryMenuModel } from './library-menu';
@@ -302,6 +307,7 @@
     title: destinationTitle,
     canGoBack: !!series || collectionId !== 'books',
     back: navigateBack,
+    search: { query, setQuery },
     currentLayout,
     layouts:
       collectionId === 'finished' && !series
@@ -392,6 +398,9 @@
       series ? collectionId : 'books',
       false
     );
+  }
+  function setQuery(value: string) {
+    query = value;
   }
   function setLayout(value: string) {
     if (collectionId === 'finished' && !series) {
@@ -638,9 +647,28 @@
     });
   }
   function saveWantToRead(targets: ShelfBook[], included: boolean) {
+    const removedKeys = new Set(targets.map((book) => book.key));
+    const firstRemoved = visibleBooks.findIndex((book) => removedKeys.has(book.key));
+    const nextBook = [
+      ...visibleBooks.slice(firstRemoved + 1),
+      ...visibleBooks.slice(0, firstRemoved).reverse()
+    ].find((book) => !removedKeys.has(book.key));
+    const focusWasInMenu = !!document.activeElement?.closest('[role="menu"], .shelf-item');
+    let changed = false;
     void action(async () => {
       await setWantToRead(targets, included);
+      changed = true;
       notice = included ? 'Added to Want to Read.' : 'Removed from Want to Read.';
+    }).then(async () => {
+      if (alive && changed && !included && collectionId === WANT_TO_READ_ID && focusWasInMenu) {
+        await tick();
+        const next = nextBook
+          ? shelfElement.querySelector<HTMLButtonElement>(
+              `[data-book-key="${CSS.escape(nextBook.key)}"] button[aria-haspopup="menu"]`
+            )
+          : shelfElement.querySelector<HTMLButtonElement>('[data-empty-library-action]');
+        (next || shelfElement).focus();
+      }
     });
   }
   function submit() {
@@ -829,7 +857,13 @@
       >
     </nav>
   </aside>
-  <section class="library-workspace" aria-label="Library shelves" aria-busy={busy || scanning}>
+  <section
+    bind:this={shelfElement}
+    class="library-workspace"
+    tabindex="-1"
+    aria-label="Library shelves"
+    aria-busy={busy || scanning}
+  >
     <div class="library-toolbar">
       {#if !series && collectionId === 'books'}
         <h2 id={recentBooks.length ? 'continue-heading' : 'books-heading'} class="shelf-heading">
@@ -837,7 +871,7 @@
         </h2>
       {/if}
       <label
-        class="search-box ml-auto flex min-h-11 min-w-0 items-center gap-2 rounded-xl bg-muted px-3"
+        class="search-box ml-auto hidden min-h-11 min-w-0 items-center gap-2 rounded-xl bg-muted px-3 lg:flex"
         ><Search class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /><span
           class="sr-only">Search library</span
         ><input
@@ -1011,6 +1045,7 @@
           <article
             role="listitem"
             class="shelf-item"
+            data-book-key={node.kind === 'book' ? node.book.key : undefined}
             use:previewVisible={node}
             class:series-item={node.kind === 'series'}
           >
@@ -1090,6 +1125,7 @@
                     author={creatorLine(book.creators)}
                     identity={book.key}
                     direction={book.direction}
+                    onWidth={(fraction) => rememberCoverWidth(book.key, fraction)}
                   />{#if book.bookId && selectedBookIds.has(book.bookId)}<span
                       class="selection-label">Selected</span
                     >{/if}
@@ -1100,7 +1136,9 @@
                       {creatorLine(book.creators)}
                     </p>{/if}
                   <p class="list-detail">
-                    {readingLabel(book)}{#if isFinished(book) && finishedDay(book)}
+                    {#if readingLabel(book) === 'Unread'}<span class="new-badge" title="Unread"
+                        >NEW</span
+                      >{:else}{readingLabel(book)}{/if}{#if isFinished(book) && finishedDay(book)}
                       · {finishedDay(book)}{:else if book.bookId && book.bookId === currentBookId}
                       · Reading now{/if}
                   </p>
@@ -1113,8 +1151,16 @@
                     ? `Finished ${formatCalendarDay(finishedDay(book)!)}.`
                     : 'Finished. Date not set.'}</span
                 >{/if}
-              <div class="book-status">
-                <span class="progress-label">{readingLabel(book)}</span><SourceIcon
+              <div
+                class="book-status"
+                style:--book-cover-width={`${(coverWidths[book.key] ?? 1) * 100}%`}
+              >
+                <span
+                  class="progress-label"
+                  class:new-badge={readingLabel(book) === 'Unread'}
+                  title={readingLabel(book) === 'Unread' ? 'Unread' : undefined}
+                  >{readingLabel(book) === 'Unread' ? 'NEW' : readingLabel(book)}</span
+                ><SourceIcon
                   provider={book.source?.provider}
                   name={book.source?.name || ''}
                 />{#if !selectMode}{@render bookMenu(book, '')}{/if}
@@ -1168,6 +1214,7 @@
           <Button
             class="mt-5 min-h-11 px-5"
             variant="outline"
+            data-empty-library-action
             onclick={() => navigate(undefined, 'books', false)}>Browse Library</Button
           >
         {/if}
@@ -1186,9 +1233,11 @@
   }}
 />
 <Dialog.Root bind:open={dialogOpen}>
-  <Dialog.Content class={dialog === 'new-series' ? 'sm:max-w-xl' : ''}>
+  <Dialog.Content
+    class={`max-h-[85dvh] overflow-y-auto [&_[data-slot=dialog-close]]:top-3 [&_[data-slot=dialog-close]]:right-3 [&_[data-slot=dialog-close]]:size-11 [&_[data-slot=dialog-footer]_button]:min-h-11 ${dialog === 'new-series' ? 'sm:max-w-xl' : ''}`}
+  >
     <Dialog.Header>
-      <Dialog.Title
+      <Dialog.Title class="pr-8"
         >{dialog === 'rename'
           ? 'Rename book'
           : dialog === 'date'
@@ -1239,7 +1288,7 @@
               />{/if}<span>{collection.name}</span></label
           >{/each}
         {#if !customCollections.length}<p class="text-sm text-muted-foreground">
-            Create your first collection below.
+            Create a custom collection below.
           </p>{/if}
       </div>
       <form
@@ -1347,7 +1396,7 @@
     min-width: 0;
   }
   .library-workspace {
-    --library-gutter: 1rem;
+    --library-gutter: 1.5rem;
     width: 100%;
     max-width: 100rem;
     min-width: 0;
@@ -1366,7 +1415,7 @@
   .shelf-heading {
     font-family: var(--font-serif, Georgia, serif);
     font-size: clamp(1.6rem, 3vw, 2rem);
-    font-weight: 650;
+    font-weight: 500;
     letter-spacing: -0.025em;
     line-height: 1.2;
   }
@@ -1529,14 +1578,14 @@
     outline-offset: 2px;
   }
   .shelf-grid {
-    --shelf-gap: clamp(1rem, 3cqi, 2.5rem);
+    --shelf-gap: clamp(1.5rem, 3cqi, 2.5rem);
     display: grid;
     grid-template-columns: repeat(
       auto-fill,
       minmax(min(11rem, calc((100% - var(--shelf-gap)) / 2)), 1fr)
     );
     column-gap: var(--shelf-gap);
-    row-gap: 2rem;
+    row-gap: 1.5rem;
     align-items: start;
   }
   .shelf-item {
@@ -1586,6 +1635,44 @@
   .progress-label {
     margin-right: auto;
     font-variant-numeric: tabular-nums;
+  }
+  .new-badge {
+    display: inline-block;
+    border-radius: 999px;
+    padding: 1px 6px;
+    background: #145b91;
+    color: white;
+    font-size: 0.625rem;
+    font-weight: 600;
+    line-height: 1rem;
+    letter-spacing: 0.035em;
+    vertical-align: middle;
+  }
+  .shelf-grid .book-status {
+    width: var(--book-cover-width, 100%);
+    margin: 0 auto;
+    align-items: flex-start;
+    justify-content: flex-end;
+  }
+  .shelf-grid .progress-label {
+    margin-top: 6px;
+    line-height: 20px;
+  }
+  .shelf-grid .new-badge {
+    margin-top: 7px;
+    line-height: 16px;
+  }
+  .shelf-grid .book-status > :global([role='img']) {
+    margin-top: 8px;
+  }
+  .shelf-grid .book-status :global(button) {
+    align-items: flex-start;
+    justify-content: flex-end;
+    padding: 4px 0 0;
+  }
+  .shelf-grid .book-status :global(button svg) {
+    /* Phosphor DotsThree bold leaves 44/256 of its viewBox beyond the last dot. */
+    transform: translateX(17.1875%);
   }
   .list-detail {
     display: none;
@@ -1637,6 +1724,15 @@
   }
   .shelf-list .progress-label {
     display: none;
+  }
+  @media (max-width: 1023px) {
+    .library-toolbar:not(:has(.shelf-heading)) {
+      display: none;
+    }
+    .library-toolbar {
+      min-height: 0;
+      margin-bottom: 1.25rem;
+    }
   }
   @media (min-width: 640px) {
     .library-workspace {

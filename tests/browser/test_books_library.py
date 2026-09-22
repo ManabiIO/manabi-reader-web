@@ -313,6 +313,108 @@ class BooksLibraryBrowser(LibraryBase):
             return Math.abs(document.querySelector('.library-rail').getBoundingClientRect().top - header.bottom) < 2;
         }''')
 
+    def test_library_responsive_search_geometry_and_touch_targets(self):
+        self.import_book('Responsive search book', size=(180, 380))
+        self.import_book('Standard cover', size=(240, 360))
+        self.page.locator('.shelf-grid img').evaluate_all(
+            'images => Promise.all(images.map(image => image.decode()))')
+        for width in (320, 390, 768, 1024, 1440):
+            with self.subTest(width=width):
+                self.page.set_viewport_size({'width': width, 'height': 844})
+                self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), width + 1)
+                if width < 1024:
+                    trigger = self.page.get_by_role('button', name='Search library', exact=True)
+                    expect(trigger).to_be_visible()
+                    box = trigger.bounding_box()
+                    self.assertGreaterEqual(box['width'], 44)
+                    self.assertGreaterEqual(box['height'], 44)
+                    trigger.click()
+                    search = self.page.get_by_role('searchbox', name='Search library', exact=True)
+                    expect(search).to_be_focused()
+                    search.fill('Responsive')
+                    expect(self.page.get_by_role('button', name='Read Responsive search book', exact=True)).to_be_visible()
+                    expect(self.page.get_by_role('button', name='Read Standard cover', exact=True)).to_have_count(0)
+                    search.press('Escape')
+                    expect(trigger).to_be_focused()
+                    expect(self.page.get_by_role('searchbox', name='Search library', exact=True)).to_have_count(0)
+                    expect(self.page.get_by_role('button', name='Read Standard cover', exact=True)).to_be_visible()
+                    trigger.click()
+                    self.page.get_by_role('searchbox', name='Search library', exact=True).fill('No matching title')
+                    expect(self.page.get_by_role('heading', name='No matching books', exact=True)).to_be_visible()
+                    self.page.get_by_role('button', name='Cancel', exact=True).click()
+                    expect(trigger).to_be_focused()
+                else:
+                    expect(self.page.get_by_role('searchbox', name='Search library', exact=True)).to_be_visible()
+                    expect(self.page.get_by_role('button', name='Search library', exact=True)).not_to_be_visible()
+                # Measure painted glyph bounds, including intrinsic narrow artwork.
+                for title in ('Responsive search book', 'Standard cover'):
+                    tile = self.tile(title)
+                    expect(tile.locator('.progress-label')).to_have_text('NEW')
+                    self.page.wait_for_function('''title => {
+                        const tile = [...document.querySelectorAll('.shelf-item')].find(item =>
+                            item.querySelector('.book-open')?.getAttribute('aria-label') === 'Read ' + title);
+                        const image = tile?.querySelector('img');
+                        return image?.complete && image.naturalWidth > 0;
+                    }''', arg=title)
+                    geometry = tile.evaluate('''tile => {
+                        const cover = tile.querySelector('.cover-surface').getBoundingClientRect();
+                        const button = tile.querySelector('.book-status button');
+                        const svg = button.querySelector('svg');
+                        // Phosphor includes an unpainted full-viewBox rect; measure
+                        // its painted path rather than that invisible spacer.
+                        const ink = svg.querySelector('path').getBBox(), matrix = svg.getScreenCTM();
+                        const edge = new DOMPoint(ink.x + ink.width, ink.y + ink.height / 2).matrixTransform(matrix);
+                        const target = button.getBoundingClientRect();
+                        const label = tile.querySelector('.progress-label').getBoundingClientRect();
+                        return {edge: edge.x - cover.right, center: edge.y - cover.bottom,
+                            labelCenter: label.top + label.height / 2 - cover.bottom,
+                            targetWidth: target.width, targetHeight: target.height};
+                    }''')
+                    self.assertAlmostEqual(0, geometry['edge'], delta=2)
+                    self.assertGreaterEqual(geometry['center'], 12)
+                    self.assertLessEqual(geometry['center'], 20)
+                    self.assertAlmostEqual(geometry['center'], geometry['labelCenter'], delta=2)
+                    self.assertGreaterEqual(geometry['targetWidth'], 44)
+                    self.assertGreaterEqual(geometry['targetHeight'], 44)
+                header = self.page.get_by_role('banner', name='Library toolbar')
+                icons = header.locator('button:visible svg').evaluate_all(
+                    'icons => icons.map(icon => icon.getBoundingClientRect().width)')
+                self.assertTrue(icons)
+                self.assertTrue(all(size >= 24 for size in icons), icons)
+                if width == 390:
+                    proportion = self.page.locator('.shelf-grid').evaluate('''grid =>
+                        parseFloat(getComputedStyle(grid).columnGap) /
+                        grid.querySelector('.book-thumbnail').getBoundingClientRect().width''')
+                    self.assertGreaterEqual(proportion, 0.13)
+                    self.assertLessEqual(proportion, 0.19)
+
+        # A resize keeps the same query and only one active search field.
+        search = self.page.get_by_role('searchbox', name='Search library', exact=True)
+        search.fill('Responsive')
+        self.page.set_viewport_size({'width': 390, 'height': 844})
+        expect(search).to_have_count(1)
+        expect(search).to_have_value('Responsive')
+        self.page.get_by_role('button', name='Cancel', exact=True).click()
+        expect(self.page.get_by_role('button', name='Read Standard cover', exact=True)).to_be_visible()
+
+        self.page.set_viewport_size({'width': 320, 'height': 360})
+        self.menu('Responsive search book', 'Add to Collection…')
+        dialog = self.dialog()
+        expect(dialog).to_be_visible()
+        bounds = dialog.bounding_box()
+        self.assertGreaterEqual(bounds['y'], 0)
+        self.assertLessEqual(bounds['y'] + bounds['height'], 360)
+        self.assertLessEqual(dialog.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
+        close = dialog.get_by_role('button', name='Close', exact=True)
+        self.assertGreaterEqual(close.bounding_box()['width'], 44)
+        self.assertGreaterEqual(close.bounding_box()['height'], 44)
+        done = dialog.get_by_role('button', name='Done', exact=True)
+        done.scroll_into_view_if_needed()
+        expect(done).to_be_in_viewport()
+        self.assertGreaterEqual(done.bounding_box()['height'], 44)
+        done.click()
+        expect(dialog).to_have_count(0)
+
     def test_narrow_collection_editing_and_selection_stay_inside_viewport(self):
         self.import_book('Small screen book')
         self.add_collection('Small screen book', 'A long collection name 日本語の読書コレクション')
@@ -439,7 +541,7 @@ class BooksLibraryBrowser(LibraryBase):
         expect(self.page.get_by_role('heading', name='Continue', exact=True)).to_be_visible()
         expect(self.page.get_by_role('button', name='Continue Started book', exact=True)).to_be_visible()
         expect(self.page.get_by_role('button', name='Continue Untouched book', exact=True)).to_have_count(0)
-        expect(self.tile('Untouched book').locator('.progress-label')).to_have_text('Unread')
+        expect(self.tile('Untouched book').locator('.progress-label')).to_have_text('NEW')
 
         self.choose_view('List')
         expect(self.tile('Started book').locator('.book-author')).to_have_text('Author One')
@@ -506,7 +608,7 @@ class BooksLibraryBrowser(LibraryBase):
             geometry = tile.locator('.book-thumbnail').evaluate('e => {const c=e.querySelector(".cover-surface");return [e.clientWidth,e.clientHeight,c.clientWidth,c.clientHeight];}')
             self.assertLessEqual(geometry[2], geometry[0] + 1)
             self.assertLessEqual(geometry[3], geometry[1] + 1)
-            expect(tile.locator('.progress-label')).to_have_text('Unread')
+            expect(tile.locator('.progress-label')).to_have_text('NEW')
             expect(tile.get_by_role('img')).to_have_count(0)
         self.choose_view('List')
         expect(self.page.locator('.shelf-list')).to_be_visible()
@@ -623,7 +725,7 @@ class BooksLibraryBrowser(LibraryBase):
         self.page.reload()
         expect(self.tile('Library test').locator('.progress-label')).to_have_text('Finished')
         self.menu('Library test', 'Mark as Still Reading')
-        expect(self.tile('Library test').locator('.progress-label')).to_have_text('Unread')
+        expect(self.tile('Library test').locator('.progress-label')).to_have_text('NEW')
         still = self.stores('books', ['bookmark','statistic'])
         self.assertEqual(completed['statistic'], still['statistic'])
         self.assertEqual(0, still['bookmark'][0]['progress'])
@@ -775,7 +877,7 @@ class BooksLibraryBrowser(LibraryBase):
         self.menu('Finish once more', 'Mark as Finished')
         expect(self.tile('Finish once more').locator('.progress-label')).to_have_text('Finished')
         self.menu('Finish once more', 'Mark as Still Reading')
-        expect(self.tile('Finish once more').locator('.progress-label')).to_have_text('Unread')
+        expect(self.tile('Finish once more').locator('.progress-label')).to_have_text('NEW')
         before = self.stores('books', ['bookmark'])['bookmark'][0]
         self.assertEqual('reading', before['completion']['state'])
         self.page.get_by_role('button', name='Read Finish once more', exact=True).click()

@@ -4,6 +4,8 @@ import unittest
 import time
 import hashlib
 import tempfile
+import os
+from pathlib import Path
 
 from playwright.sync_api import expect
 
@@ -45,6 +47,64 @@ class WantToReadBrowser(LibraryBase):
         })
         expect(self.page.get_by_role('button', name='Read ' + title, exact=True)).to_be_visible(timeout=30000)
 
+    def seed_legacy_identity(self, title, *, custom_name='Legacy shelf', presentation=True):
+        return self.page.evaluate('''async ({title, customName, presentation}) => {
+          const open = (name) => new Promise((resolve, reject) => {
+            const request = indexedDB.open(name);
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          const books = await open('books');
+          const data = await new Promise((resolve, reject) => {
+            const tx = books.transaction('data');
+            const request = tx.objectStore('data').index('title').get(title);
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          if (!data) throw new Error('Missing seeded book');
+          const id = data.id;
+          delete data.contentHash;
+          data.lastBookModified = 1;
+          await new Promise((resolve, reject) => {
+            const tx = books.transaction('data', 'readwrite');
+            tx.objectStore('data').put(data);
+            tx.oncomplete = resolve;
+            tx.onerror = () => reject(tx.error);
+          });
+          books.close();
+          const integrations = await open('manabi-reader-integrations');
+          const organization = await new Promise((resolve, reject) => {
+            const tx = integrations.transaction('metadata');
+            const request = tx.objectStore('metadata').get('books-organization-v1');
+            request.onsuccess = () => resolve(request.result || {version: 1, collections: [], books: {}});
+            request.onerror = () => reject(request.error);
+          });
+          organization.collections = organization.collections.filter(item => item.id !== 'want-to-read' && item.name !== customName);
+          organization.collections.push({id: 'want-to-read', name: 'Want to Read', members: ['book:' + id]});
+          organization.collections.push({id: 'legacy-custom', name: customName, members: ['book:' + id]});
+          if (presentation) {
+            organization.books['book:' + id] = {
+              title: 'Legacy override',
+              cover: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a/ZkAAAAASUVORK5CYII=',
+              modifiedAt: 2
+            };
+          }
+          await new Promise((resolve, reject) => {
+            const tx = integrations.transaction('metadata', 'readwrite');
+            tx.objectStore('metadata').put(organization, 'books-organization-v1');
+            tx.oncomplete = resolve;
+            tx.onerror = () => reject(tx.error);
+          });
+          integrations.close();
+          return id;
+        }''', {'title': title, 'customName': custom_name, 'presentation': presentation})
+
+    def screenshot(self, name):
+        directory = os.environ.get('WANT_TO_READ_SCREENSHOT_DIR')
+        if directory:
+            Path(directory).mkdir(parents=True, exist_ok=True)
+            self.page.screenshot(path=str(Path(directory) / f'{self.engine}-{name}.png'), full_page=True)
+
     def test_builtin_collection_exists_when_empty_and_supports_url_views(self):
         self.page.set_viewport_size({'width': 1200, 'height': 900})
         rail = self.page.get_by_role('complementary', name='Collections', exact=True)
@@ -52,6 +112,7 @@ class WantToReadBrowser(LibraryBase):
         rail.get_by_role('button', name=re.compile(r'^Want to Read\b')).click()
         expect(self.page.get_by_role('heading', name='Want to Read', exact=True)).to_be_visible()
         expect(self.page.locator('.shelf-item')).to_have_count(0)
+        self.screenshot('desktop-empty')
         self.assertIn('collection=want-to-read', self.page.url)
         await_ghost = self.page.evaluate('''async () => {
           const db = await new Promise((resolve, reject) => {
@@ -134,6 +195,142 @@ class WantToReadBrowser(LibraryBase):
         self.page.reload()
         expect(self.page.get_by_role('button', name='Read Wishlist one', exact=True)).to_have_count(0)
         expect(self.page.get_by_role('button', name='Read Wishlist two', exact=True)).to_be_visible()
+
+    def test_legacy_local_want_to_read_survives_older_empty_remote_organization(self):
+        self.import_book('Legacy synced book')
+        legacy_id = self.seed_legacy_identity('Legacy synced book', presentation=False)
+        self.page.reload()
+        self.choose_collection('Want to Read')
+        expect(self.page.get_by_role('button', name='Read Legacy synced book', exact=True)).to_be_visible()
+        self.screenshot('desktop-legacy-local')
+
+        StaticHandler.account_fixture = {
+            'user': {'id': '42', 'username': 'reader'}, 'csrf_token': 'c' * 64, 'providers': []
+        }
+        StaticHandler.preference_revision = 7
+        StaticHandler.preference_settings = {
+            'library_organization': {'version': 1, 'collections': [], 'books': {}}
+        }
+        self.page.goto(self.origin + '/Reader-Web/connections')
+        self.page.get_by_label('Sync reader settings with this Manabi account', exact=True).check()
+        expect(self.page.get_by_role('status', name='Settings sync status')).to_contain_text('synced')
+        self.go_library()
+        self.choose_collection('Want to Read')
+        expect(self.page.get_by_role('button', name='Read Legacy synced book', exact=True)).to_be_visible()
+        committed = self.wait_for_wishlist_count(1)
+        self.assertIn('book:' + str(legacy_id), committed['members'])
+        uploads = [request for request in StaticHandler.account_requests if request['method'] == 'PUT']
+        self.assertTrue(uploads)
+        for request in uploads:
+            shared = request['body']['settings']['library_organization']
+            self.assertNotIn('book:' + str(legacy_id), str(shared))
+            self.assertTrue(all(member.startswith('content:') for collection in shared['collections'] for member in collection['members']))
+
+    def test_real_export_backup_restore_promotes_legacy_aliases_and_reading_state(self):
+        contents = book('Legacy backup book')
+        self.import_bytes('Legacy backup book', contents)
+        original = next(item for item in self.stores('books', ['data'])['data'] if item['title'] == 'Legacy backup book')
+        expected_hash = hashlib.sha256(contents).hexdigest()
+        self.page.evaluate('''title => new Promise((resolve, reject) => {
+          const open = indexedDB.open('books');
+          open.onerror = () => reject(open.error);
+          open.onsuccess = () => {
+            const db = open.result;
+            const tx = db.transaction('statistic', 'readwrite');
+            tx.objectStore('statistic').put({title, dateKey: '2026-09-20', charactersRead: 60,
+              readingTime: 300, lastStatisticModified: 1000});
+            tx.oncomplete = () => { db.close(); resolve(); };
+            tx.onerror = () => reject(tx.error);
+          };
+        })''', 'Legacy backup book')
+        seeded_statistics = self.stores('books', ['statistic'])['statistic']
+        self.menu('Legacy backup book', 'Mark as Finished')
+        self.wait_bookmark(original['id'], lambda row: row.get('completion', {}).get('state') == 'finished')
+
+        self.page.get_by_role('button', name='Library actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
+        self.page.get_by_role('button', name='Select all', exact=True).click()
+        expect(self.page.get_by_text('1 selected', exact=True)).to_be_visible()
+        self.page.get_by_role('button', name='Export', exact=True).click()
+        self.page.get_by_role('button', name='Zip File', exact=True).click()
+        for label in ('Book Data', 'Bookmark', 'Statistics'):
+            self.page.get_by_label(label, exact=True).check()
+        with self.page.expect_download(timeout=60000) as pending:
+            self.page.get_by_role('button', name='Start', exact=True).click()
+        raw = Path(pending.value.path()).read_bytes()
+        # The exported ZIP carries the original content identity. Make the
+        # existing local record legacy only after export, so restore must
+        # promote the identity supplied by the backup into its retained ID.
+        self.seed_legacy_identity('Legacy backup book')
+        self.page.reload()
+
+        self.page.get_by_role('button', name='Library actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Add Books', exact=True).hover()
+        self.page.get_by_role('menuitem', name='Import Backup', exact=True).click()
+        chooser = self.page.locator('input[type=file][accept=".zip,application/zip"]')
+        chooser.set_input_files({'name': 'legacy-backup.zip', 'mimeType': 'application/zip', 'buffer': raw})
+        deadline = time.monotonic() + 60
+        while True:
+            restored = next(item for item in self.stores('books', ['data'])['data']
+                            if item['title'] == 'Legacy backup book')
+            organization = next(value for value in self.stores('manabi-reader-integrations', ['metadata'])['metadata']
+                                if value.get('version') == 1 and 'collections' in value)
+            aliases = [member for collection in organization['collections'] for member in collection['members']]
+            if restored.get('contentHash') == expected_hash and 'content:' + expected_hash in aliases:
+                break
+            self.assertLess(time.monotonic(), deadline, 'backup import was not committed')
+            self.page.wait_for_timeout(50)
+        self.assertEqual(expected_hash, restored.get('contentHash'))
+        self.assertEqual(original['id'], restored['id'])
+        self.assertIn('content:' + expected_hash, aliases)
+        self.assertNotIn('book:' + str(original['id']), aliases)
+        self.assertIn('Legacy override', [value.get('title') for value in organization['books'].values()])
+        self.assertTrue(any(value.get('cover') for value in organization['books'].values()))
+        self.assertEqual(1, len(self.stores('books', ['bookmark'])['bookmark']))
+        self.assertEqual(seeded_statistics, self.stores('books', ['statistic'])['statistic'])
+        self.screenshot('desktop-backup-restored')
+
+    def test_keyboard_remove_focus_and_local_cross_tab_visibility(self):
+        self.import_book('Focus first')
+        self.import_book('Focus last')
+        self.menu('Focus first', 'Add to Want to Read')
+        self.menu('Focus last', 'Add to Want to Read')
+        self.wait_for_wishlist_count(2)
+        self.choose_collection('Want to Read')
+        focused = self.page.get_by_role('button', name='Actions for Focus first', exact=True)
+        focused.focus()
+        self.page.keyboard.press('Enter')
+        self.page.get_by_role('menuitem', name='Remove from Want to Read', exact=True).focus()
+        self.page.keyboard.press('Enter')
+        expect(self.page.get_by_role('button', name='Read Focus first', exact=True)).to_have_count(0)
+        expect(self.page.get_by_role('button', name='Read Focus last', exact=True)).to_be_visible()
+        expect(self.page.get_by_role('button', name='Actions for Focus last', exact=True)).to_be_focused()
+        self.menu('Focus last', 'Remove from Want to Read')
+        expect(self.page.locator('.shelf-item')).to_have_count(0)
+        expect(self.page.get_by_role('button', name='Browse Library', exact=True)).to_be_focused()
+        self.choose_collection('Books')
+        self.menu('Focus first', 'Add to Want to Read')
+        self.menu('Focus last', 'Add to Want to Read')
+        self.wait_for_wishlist_count(2)
+        self.screenshot('desktop-want-to-read')
+
+        other = self.context.new_page()
+        other.set_default_timeout(20000)
+        other.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))
+        other.goto(self.origin + '/Reader-Web/manage?collection=want-to-read')
+        expect(other.get_by_role('region', name='Library shelves')).to_have_attribute('aria-busy', 'false', timeout=30000)
+        expect(other.get_by_role('button', name='Read Focus first', exact=True)).to_be_visible()
+        expect(other.get_by_role('button', name='Read Focus last', exact=True)).to_be_visible()
+        self.menu('Focus first', 'Remove from Want to Read')
+        expect(other.get_by_role('button', name='Read Focus first', exact=True)).to_have_count(0, timeout=10000)
+        expect(other.get_by_role('button', name='Read Focus last', exact=True)).to_be_visible()
+        other.close()
+
+        self.page.set_viewport_size({'width': 390, 'height': 844})
+        self.page.get_by_role('button', name='Collections', exact=True).click()
+        sheet = self.page.locator('#library-collections-sheet')
+        self.screenshot('phone-picker')
+        expect(sheet.get_by_role('button', name=re.compile(r'^Want to Read\b'))).to_be_visible()
 
     def test_removed_book_is_hidden_until_identical_file_returns(self):
         original = book('Returning book')

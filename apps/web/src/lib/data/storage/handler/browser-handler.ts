@@ -18,6 +18,7 @@ import { database, lastReadingGoalsModified$ } from '$lib/data/store';
 import type { MergeMode } from '$lib/data/merge-mode';
 import { ReplicationSaveBehavior } from '$lib/functions/replication/replication-options';
 import { StorageDataType } from '$lib/data/storage/storage-types';
+import { bookKey, contentBookKey, relocatePresentation } from '$lib/library/organization';
 
 export class BrowserStorageHandler extends BaseStorageHandler {
   updateSettings(
@@ -349,6 +350,14 @@ export class BrowserStorageHandler extends BaseStorageHandler {
       );
 
       idToReturn = storedBookData.id;
+      // Promote the identity actually saved (NewOnly may retain an older book).
+      // This also covers backup restoration, not just direct file imports.
+      if (storedBookData.contentHash && /^[a-f0-9]{64}$/.test(storedBookData.contentHash)) {
+        await relocatePresentation(
+          bookKey(storedBookData.id),
+          contentBookKey(storedBookData.contentHash)
+        );
+      }
       this.addBookCard(data.title, {
         id: storedBookData.id,
         characters: BaseStorageHandler.getBookCharacters(

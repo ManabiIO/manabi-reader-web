@@ -14,7 +14,6 @@ import loadHtmlz from '$lib/functions/file-loaders/htmlz/load-htmlz';
 import loadTxt from '$lib/functions/file-loaders/txt/load-txt';
 import type { LoadData } from '$lib/functions/file-loaders/types';
 import { sha256 } from '$lib/manabi/sources';
-import { bookKey, contentBookKey, relocatePresentation } from '$lib/library/organization';
 import { handleErrorDuringReplication } from '$lib/functions/replication/error-handler';
 import { throwIfAborted } from '$lib/functions/replication/replication-error';
 import {
@@ -94,14 +93,7 @@ export async function importData(
         cancelSignal
       );
 
-      const savedId = await targetHandler.saveBook(bookContent, false);
-      dataIds.push(savedId);
-      if (targetHandler.storageType === StorageKey.BROWSER) {
-        // NewOnly may have kept an older record. Promote only its actual identity.
-        const stored = await database.getData(savedId);
-        if (stored?.contentHash)
-          await relocatePresentation(bookKey(savedId), contentBookKey(stored.contentHash));
-      }
+      dataIds.push(await targetHandler.saveBook(bookContent, false));
 
       checkCancelAndProgress(cancelSignal, false);
 

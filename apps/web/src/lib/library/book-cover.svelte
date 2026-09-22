@@ -7,6 +7,7 @@
   export let author = '';
   export let identity = '';
   export let direction: PageDirection = 'unknown';
+  export let onWidth: ((fraction: number) => void) | undefined = undefined;
   let url = '',
     previous: string | Blob | undefined,
     ratio = 2 / 3;
@@ -17,6 +18,7 @@
     release();
     previous = imagePath;
     ratio = 2 / 3;
+    onWidth?.(1);
     url = createLocalCoverUrl(imagePath);
   }
   $: palette = [...(identity || title)].reduce(
@@ -42,12 +44,16 @@
         referrerpolicy="no-referrer"
         on:load={(event) => {
           const img = event.currentTarget;
-          if (img instanceof HTMLImageElement && img.naturalHeight)
+          if (img instanceof HTMLImageElement && img.naturalHeight) {
             ratio = img.naturalWidth / img.naturalHeight;
+            onWidth?.(Math.min(1, ratio / (2 / 3)));
+          }
         }}
         on:error={() => {
           release();
           url = '';
+          ratio = 2 / 3;
+          onWidth?.(1);
         }}
       />
     {:else}

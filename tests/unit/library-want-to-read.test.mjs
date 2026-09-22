@@ -93,3 +93,19 @@ test('clearing the list keeps an explicit empty built-in record for shared remov
   );
   assert.equal(local.collections.length, 1);
 });
+
+test('older account settings retain local-only Want to Read membership without reviving shared removals', () => {
+  const local = empty();
+  changeWantToRead(local, [book('book:3'), book('source:unopened'), book(first)], true);
+  local.collections.push({ id: 'removed-custom', name: 'Old collection', members: ['book:3'] });
+  const remote = empty();
+  const applied = applyPortableOrganization(local, remote);
+
+  assert.deepEqual(wantToReadCollection(applied).members, ['book:3', 'source:unopened']);
+  assert.equal(
+    applied.collections.some((item) => item.id === 'removed-custom'),
+    false
+  );
+  assert.deepEqual(wantToReadCollection(portableOrganization(applied)).members, []);
+  assert.deepEqual(remote, empty());
+});
