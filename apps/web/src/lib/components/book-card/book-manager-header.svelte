@@ -187,7 +187,10 @@
 />
 
 {#if modernLibrary}
-  <header class="app-header bg-background text-foreground" aria-label="Library toolbar">
+  <header
+    class="app-header floating-library-header text-foreground lg:pl-[16rem]"
+    aria-label="Library toolbar"
+  >
     <div class="flex min-h-16 items-center justify-between gap-2 px-3 py-2 sm:px-6">
       {#if compactLibrary && (searchExpanded || !!libraryMenu?.search.query)}
         <form
@@ -690,3 +693,10 @@
     </div>
   </header>
 {/if}
+
+<style>
+  .floating-library-header {
+    border: 0;
+    background: transparent;
+  }
+</style>

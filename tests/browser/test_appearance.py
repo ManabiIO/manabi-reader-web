@@ -430,6 +430,10 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), 390)
         self.page.goto(self.origin + '/Reader-Web/manage')
         self.page.evaluate('navigator.serviceWorker.ready')
+        # An activated worker takes control on the next navigation; the page
+        # that registered it may remain deliberately uncontrolled.
+        if not self.page.evaluate('Boolean(navigator.serviceWorker.controller)'):
+            self.page.reload()
         self.page.wait_for_function('() => navigator.serviceWorker.controller !== null')
         self.go_offline()
         self.page.reload()

@@ -106,6 +106,7 @@
   let selectedBookIds: ReadonlySet<number> = new Set();
   let selectMode = false;
   let libraryHeaderHeight = 64;
+  let libraryScrollY = 0;
   let cancelToken = new AbortController();
   let cancelSignal = cancelToken.signal;
   let cancelTooltip = '';
@@ -763,10 +764,17 @@
   <title>{formatPageTitle('Library')}</title>
 </svelte:head>
 
+<svelte:window bind:scrollY={libraryScrollY} />
+
 {$replicator$ ?? ''}
 
 <div class="min-h-full">
-  <div class="sticky top-0 z-10" bind:clientHeight={libraryHeaderHeight}>
+  <div
+    class:scrolled={libraryScrollY > 8}
+    class:library-nav-shell={$storageSource$ === StorageKey.BROWSER}
+    class="sticky top-0 z-10"
+    bind:clientHeight={libraryHeaderHeight}
+  >
     <BookManagerHeader
       modernLibrary={$storageSource$ === StorageKey.BROWSER}
       title={destinationTitle}
@@ -848,3 +856,33 @@
     {/if}
   </div>
 </div>
+
+<style>
+  .library-nav-shell::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 -1.25rem;
+    pointer-events: none;
+    opacity: 0;
+    background: linear-gradient(
+      to bottom,
+      color-mix(in oklch, var(--background) 78%, transparent),
+      color-mix(in oklch, var(--background) 52%, transparent) 55%,
+      transparent
+    );
+    backdrop-filter: blur(14px);
+    mask-image: linear-gradient(to bottom, #000 0%, #000 55%, transparent 100%);
+    transition: opacity 180ms ease;
+  }
+  .library-nav-shell.scrolled::before {
+    opacity: 1;
+  }
+  .library-nav-shell :global(header) {
+    position: relative;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .library-nav-shell::before {
+      transition: none;
+    }
+  }
+</style>
