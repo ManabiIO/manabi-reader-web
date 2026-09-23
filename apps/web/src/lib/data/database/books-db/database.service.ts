@@ -5,7 +5,12 @@
  */
 
 import { mergeCompletion } from '$lib/library/completion';
-import { migrateLegacyStatistics, statisticRange, visibleStatistics } from './reader-statistics';
+import {
+  migrateLegacyStatistics,
+  preserveCompletedStatistic,
+  statisticRange,
+  visibleStatistics
+} from './reader-statistics';
 import type {
   BooksDbAudioBook,
   BooksDbBookData,
@@ -619,8 +624,24 @@ export class DatabaseService {
       const tx = db.transaction(['readerStatistic', 'lastModified'], 'readwrite');
       const store = tx.objectStore('readerStatistic');
       if (statisticsMergeMode !== MergeMode.LOCAL) await store.delete(statisticRange(bookKey));
-      for (const row of updated.statisticsToStore)
-        await store.put({ ...row, title: bookTitle, bookKey });
+      const movesCompletion = updated.statisticsToStore.some((row) => row.completedBook === 1);
+      for (const row of updated.statisticsToStore) {
+        const existing =
+          statisticsMergeMode === MergeMode.LOCAL
+            ? await store.get([bookKey, row.dateKey])
+            : undefined;
+        // A tracker flush may have captured this day before Complete Book
+        // committed it. Preserve that explicit completion when the older flush
+        // reaches IndexedDB later. A deliberate completion-date move writes a
+        // new completed row in the same batch, so it may clear the old flag.
+        await store.put(
+          preserveCompletedStatistic(
+            existing,
+            { ...row, title: bookTitle, bookKey },
+            movesCompletion
+          )
+        );
+      }
       await tx.objectStore('lastModified').put({
         title: bookKey,
         dataType: StorageDataType.STATISTICS,

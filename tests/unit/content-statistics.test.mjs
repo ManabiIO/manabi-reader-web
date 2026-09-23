@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   contentStatisticKey,
   migrateLegacyStatistics,
+  preserveCompletedStatistic,
   readStatisticsRecoverySnapshot,
   titlesWithMultipleStatisticIdentities,
   visibleStatistics
@@ -41,6 +42,27 @@ const day = (title, dateKey, charactersRead) => ({
   lastReadingSpeed: 1,
   maxReadingSpeed: 1,
   lastStatisticModified: 100
+});
+
+test('a delayed tracker write cannot erase a completed day or its totals', () => {
+  const existing = {
+    ...day('A book', '2026-09-20', 120),
+    bookKey: `content:${hash('a')}`,
+    lastStatisticModified: 300,
+    completedBook: 1,
+    completedData: { finishDate: '2026-09-20' }
+  };
+  const stale = { ...existing, charactersRead: 80, lastStatisticModified: 200 };
+  delete stale.completedBook;
+  delete stale.completedData;
+  assert.deepEqual(preserveCompletedStatistic(existing, stale, false), existing);
+  const laterReading = { ...stale, charactersRead: 140, lastStatisticModified: 400 };
+  assert.deepEqual(preserveCompletedStatistic(existing, laterReading, false), {
+    ...laterReading,
+    completedBook: 1,
+    completedData: existing.completedData
+  });
+  assert.deepEqual(preserveCompletedStatistic(existing, laterReading, true), laterReading);
 });
 
 test('unambiguous legacy days migrate once without double counting', async () => {

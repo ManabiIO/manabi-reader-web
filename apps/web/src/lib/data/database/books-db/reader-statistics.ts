@@ -24,6 +24,21 @@ export function statisticRange(bookKey: string): IDBKeyRange {
   return IDBKeyRange.bound([bookKey], [bookKey, []]);
 }
 
+/** Keep a delayed tracker snapshot from undoing a later Complete Book write. */
+export function preserveCompletedStatistic(
+  existing: BooksDbContentStatistic | undefined,
+  incoming: BooksDbContentStatistic,
+  movesCompletion: boolean
+): BooksDbContentStatistic {
+  if (!existing?.completedBook || incoming.completedBook || movesCompletion) return incoming;
+  if (existing.lastStatisticModified >= incoming.lastStatisticModified) return existing;
+  return {
+    ...incoming,
+    completedBook: 1,
+    completedData: existing.completedData
+  };
+}
+
 function sameDay(left: BooksDbStatistic, right: BooksDbStatistic): boolean {
   const sameValue = (a: unknown, b: unknown): boolean => {
     if (Object.is(a, b)) return true;
