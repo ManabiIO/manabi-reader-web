@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import re
 import sys
+import time
 import unittest
 import zipfile
 from playwright.sync_api import expect
@@ -32,14 +33,16 @@ class CompletedReadingBrowser(LocalLibraryBrowser):
         self.page.get_by_role('button', name='Reading tools', exact=True).click()
         self.page.get_by_role('menuitem', name='Complete Book', exact=True).click()
         self.page.get_by_role('button', name='Confirm', exact=True).click()
-        self.page.wait_for_function('''() => new Promise(resolve => {
-          const open=indexedDB.open('books');open.onsuccess=()=>{const db=open.result,tx=db.transaction('readerStatistic');
-            const all=tx.objectStore('readerStatistic').getAll();tx.oncomplete=()=>{
-              resolve(all.result.some(row=>row.completedBook===1));db.close();};};
-        })''')
-        # Let the UI's complete-book transaction finish before navigating away.
+        # Playwright's wait_for_function can treat a returned Promise as truthy
+        # before its IndexedDB result settles. Poll committed rows instead.
+        deadline = time.monotonic() + 20
+        while True:
+            before = self.statistics(self.page)
+            if any(row.get('completedBook') == 1 for row in before):
+                break
+            self.assertLess(time.monotonic(), deadline, 'Completion statistic did not commit')
+            self.page.wait_for_timeout(25)
         expect(self.page.get_by_role('button', name='Confirm', exact=True)).to_have_count(0)
-        before=self.statistics(self.page)
         finished=next(row for row in before if row.get('completedBook')==1)
         completion=finished['completedData']
         self.assertEqual(1,completion['exporterVersion'])
