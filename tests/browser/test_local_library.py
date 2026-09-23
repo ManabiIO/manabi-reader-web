@@ -8,8 +8,7 @@ from pathlib import Path
 import threading
 import time
 import unittest
-from playwright.sync_api import sync_playwright, expect
-from playwright._impl._errors import TargetClosedError
+from playwright.sync_api import Error as PlaywrightError, sync_playwright, expect
 from test_static_reader import StaticHandler, ThreadingHTTPServer
 
 CONTENT = '地元の本。\n' + '日本語の物語を読みます。少しずつ先に進みます。\n' * 180
@@ -52,12 +51,15 @@ class LocalLibraryBrowser(unittest.TestCase):
         output.mkdir(exist_ok=True)
         try:
             self.page.screenshot(path=str(output / (self._testMethodName + '.png')), full_page=True)
-        except TargetClosedError:
-            pass  # Keep the original browser/process failure as the primary error.
+        except PlaywrightError as error:
+            if 'closed' not in str(error).lower():
+                raise
+            # Keep the original browser/process failure as the primary error.
         try:
             self.context.close()
-        except TargetClosedError:
-            pass
+        except PlaywrightError as error:
+            if 'closed' not in str(error).lower():
+                raise
         self.assertEqual([], self.errors)
 
     def seed(self, writable):
