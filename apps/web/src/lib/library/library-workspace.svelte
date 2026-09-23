@@ -789,14 +789,14 @@
   async function executeCloudPlan(source: SourceDescriptor, prepared: CloudSeriesPlan) {
     let plan = prepared;
     for (let step = 0; step < 256 && plan.status !== 'complete'; step += 1) {
-      if (plan.status === 'paused' || plan.status === 'cancelled') break;
+      if (['paused', 'cancelled', 'reconcile'].includes(plan.status)) break;
       plan = await advanceCloudSeries(source, plan);
       cloudPlan = plan;
     }
     if (plan.status !== 'complete') {
       cloudPlans = [{ source, plan }, ...cloudPlans.filter((entry) => entry.plan.id !== plan.id)];
       throw new Error(
-        `Series change paused at ${plan.steps.filter((step) => step.state === 'done').length} of ${plan.steps.length} steps. Review its status before resuming.`
+        `Series change ${plan.status === 'reconcile' ? 'needs reconciliation' : 'paused'} at ${plan.steps.filter((step) => step.state === 'done').length} of ${plan.steps.length} steps. Review its status before resuming.`
       );
     }
     cloudPlan = undefined;
@@ -1487,6 +1487,13 @@
             This change is paused ({cloudPlan.issue}). No further files will move. The completed
             steps remain visible in OneDrive.
           </p>{/if}
+        {#if cloudPlan.status === 'reconcile'}<p
+            role="status"
+            class="text-sm text-muted-foreground"
+          >
+            OneDrive may have completed the last step, but its response was uncertain. Wait briefly,
+            then reconcile this change before moving another book.
+          </p>{/if}
         {#if error}<p role="alert" class="text-sm text-destructive">{error}</p>{/if}
         <Dialog.Footer>
           <Button variant="outline" disabled={busy} onclick={() => (dialogOpen = false)}
@@ -1499,7 +1506,9 @@
               ? 'Updating…'
               : cloudPlan.status === 'prepared'
                 ? 'Confirm Change'
-                : 'Continue Change'}</Button
+                : cloudPlan.status === 'reconcile'
+                  ? 'Reconcile Change'
+                  : 'Continue Change'}</Button
           >
         </Dialog.Footer>
       </div>
