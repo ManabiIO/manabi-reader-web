@@ -119,6 +119,7 @@ class CloudSeriesReceiptReplay(LibraryBase):
             'user': {'id': '42', 'username': 'reader'}, 'csrf_token': 'c' * 64,
             'providers': []
         }
+        StaticHandler.account_requests = []
         super().setUp()
 
     def tearDown(self):
@@ -167,6 +168,27 @@ class CloudSeriesReceiptReplay(LibraryBase):
             self.assertLess(time.monotonic(), deadline, 'Cloud receipt did not appear')
             self.page.wait_for_timeout(25)
 
+    def wait_for_previews(self):
+        # The series tile starts two lazy file reads. Complete those before
+        # closing WebKit's context; otherwise it reports the canceled fetches
+        # as cross-origin page errors during test teardown.
+        deadline = time.monotonic() + 20
+        while True:
+            count = self.page.evaluate('''async () => new Promise((resolve, reject) => {
+              const open = indexedDB.open('manabi-library-previews');
+              open.onerror = () => reject(open.error);
+              open.onsuccess = () => {
+                const db = open.result;
+                const request = db.transaction('previews').objectStore('previews').count();
+                request.onsuccess = () => { db.close(); resolve(request.result); };
+                request.onerror = () => reject(request.error);
+              };
+            })''')
+            if count >= 2:
+                return
+            self.assertLess(time.monotonic(), deadline, 'Visible cloud previews did not finish')
+            self.page.wait_for_timeout(25)
+
     def test_completed_move_receipts_replay_after_reload(self):
         self.import_book('Unrelated browser book')
         catalog_key = 'library-catalog:' + SOURCE_KEY
@@ -208,6 +230,7 @@ class CloudSeriesReceiptReplay(LibraryBase):
         self.assertEqual(after['reading'], again['reading'])
         self.assertEqual(2, len([key for key in again['metadata']
                                  if key.startswith(f'cloud-series-receipt:42:{CONNECTION}:{PLAN}:')]))
+        self.wait_for_previews()
 
     def test_reconcile_action_sends_a_request_and_finishes_the_plan(self):
         SeriesHandler.uncertain_plan = True
@@ -218,6 +241,7 @@ class CloudSeriesReceiptReplay(LibraryBase):
         self.page.get_by_role('button', name='Reconcile Change').click()
         expect(self.page.get_by_text('Series updated. Reading progress, notes and collections were kept.')).to_be_visible()
         self.assertEqual(2, SeriesHandler.execute_requests)
+        self.wait_for_previews()
 
 
 if __name__ == '__main__':
