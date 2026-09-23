@@ -38,14 +38,21 @@ interface SyncStatus {
 }
 export const bookSyncStatus = writable<Record<string, SyncStatus>>({});
 export const linkedBooks = writable<BookLink[]>([]);
+// Keep the ownership map available even when the active account cannot use a link.
+// The Library needs it to distinguish a direct browser import from a book saved
+// through another account's cloud connection.
+export const allLinkedBooks = writable<BookLink[] | null>(null);
 function ensureOwner(link: BookLink) {
   if (link.owner !== null && currentUser()?.id !== link.owner)
     throw new IntegrationError('account_changed');
 }
 export async function refreshLinkedBooks() {
   const books = await (await integrationDB()).getAll('books');
-  const visible = books.filter((book) => book.owner === null || book.owner === currentUser()?.id);
+  allLinkedBooks.set(books);
+  const owner = currentUser()?.id ?? null;
+  const visible = books.filter((book) => book.owner === null || book.owner === owner);
   await stabilizeOrganization(visible);
+  if ((currentUser()?.id ?? null) !== owner) return;
   linkedBooks.set(visible);
 }
 

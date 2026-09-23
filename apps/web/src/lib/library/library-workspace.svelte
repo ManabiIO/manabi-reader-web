@@ -27,7 +27,12 @@
   import type { SortOption } from '$lib/data/sort-types';
   import type { BookCardProps } from '$lib/components/book-card/book-card-props';
   import { account, currentUser, requestSeriesWriteAccess } from '$lib/manabi/client';
-  import { linkedBooks, refreshLinkedBooks, importLibraryBook } from '$lib/manabi/books';
+  import {
+    allLinkedBooks,
+    linkedBooks,
+    refreshLinkedBooks,
+    importLibraryBook
+  } from '$lib/manabi/books';
   import { integrationDB, type LocalLibrary } from '$lib/manabi/persistence';
   import { reconnectLocalLibrary, sha256 } from '$lib/manabi/sources';
   import {
@@ -55,6 +60,7 @@
     type ShelfSeries
   } from './view-model';
   import { isFinished, finishedDay, calendarDay } from './completion';
+  import { visibleLibraryEntries } from './account-visibility';
   import { WANT_TO_READ_ID, wantToReadCollection, collectionContains } from './want-to-read';
   import { setCompletion } from './commands';
   import {
@@ -214,7 +220,16 @@
     });
   }
   $: sort = $booklistSortOptions$[StorageKey.BROWSER];
-  $: tree = buildShelf(bookCards, $linkedBooks, catalogs, sources, $organization, $previews);
+  $: viewerId = $account.session?.user?.id ?? null;
+  $: accountEntries = visibleLibraryEntries(bookCards, $allLinkedBooks, viewerId);
+  $: tree = buildShelf(
+    accountEntries.cards,
+    accountEntries.links,
+    catalogs,
+    sources,
+    $organization,
+    $previews
+  );
   $: books = allBooks(tree);
   $: collectionId = $page.url.searchParams.get('collection') || 'books';
   $: wantToRead = wantToReadCollection($organization);

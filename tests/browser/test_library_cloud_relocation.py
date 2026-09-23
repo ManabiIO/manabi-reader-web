@@ -23,6 +23,10 @@ class CloudRelocationHandler(StaticHandler):
         path = urlsplit(self.path).path
         if path == '/api/reader-web/connections/':
             self.api_request()
+            user = (type(self).account_fixture or {}).get('user', {}).get('id')
+            if user != '42':
+                self.api_response({'items': []}, user=user)
+                return
             self.api_response({'items': [
                 {'id': GOOGLE, 'provider': 'google', 'roots': ['google-root'],
                  'needs_reconnect': False},
@@ -103,6 +107,37 @@ class CloudRelocationBrowser(LibraryBase):
         self.page.get_by_role('menuitem', name='Refresh Connected Folders', exact=True).click()
         expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute(
             'aria-busy', 'false', timeout=30000)
+
+    def test_linked_cloud_book_is_hidden_after_account_switch(self):
+        title = self.page.get_by_role('button', name='Read Traveling volume', exact=True)
+        expect(title).to_be_visible(timeout=30000)
+        title.click()
+        expect(self.page.locator('.book-content')).to_have_attribute(
+            'aria-busy', 'false', timeout=30000)
+        links = self.stores('manabi-reader-integrations', ['books'])['books']
+        self.assertEqual(1, len(links))
+        self.assertEqual('42', links[0]['owner'])
+
+        StaticHandler.account_fixture = {
+            'user': {'id': '43', 'username': 'reader-b'},
+            'csrf_token': 'c' * 64, 'providers': []
+        }
+        self.page.goto(self.origin + '/Reader-Web/connections')
+        expect(self.page.get_by_text('reader-b', exact=True)).to_be_visible()
+        self.page.goto(self.origin + '/Reader-Web/manage')
+        expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute(
+            'aria-busy', 'false', timeout=30000)
+        expect(self.page.get_by_role('button', name='Read Traveling volume', exact=True)).to_have_count(0)
+
+        StaticHandler.account_fixture = {
+            'user': {'id': '42', 'username': 'reader'},
+            'csrf_token': 'c' * 64, 'providers': []
+        }
+        self.page.goto(self.origin + '/Reader-Web/connections')
+        expect(self.page.get_by_text('reader', exact=True)).to_be_visible()
+        self.page.goto(self.origin + '/Reader-Web/manage')
+        expect(self.page.get_by_role('button', name='Read Traveling volume', exact=True)).to_be_visible(
+            timeout=30000)
 
     def test_disk_cloud_disk_keeps_organization_without_storage_sidecars(self):
         if self.engine != 'chromium':
