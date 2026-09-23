@@ -46,6 +46,8 @@ class StaticHandler(SimpleHTTPRequestHandler):
     probes = []
     session_gate = None
     session_started = None
+    connections_gate = None
+    connections_started = None
     account_fixture = None
     account_requests = []
     preference_revision = 0
@@ -104,6 +106,14 @@ class StaticHandler(SimpleHTTPRequestHandler):
                     'settings': type(self).preference_settings
                 }, user=identity)
             elif path.endswith('/connections/'):
+                gate = type(self).connections_gate
+                started = type(self).connections_started
+                if gate is not None:
+                    type(self).connections_gate = None
+                    type(self).connections_started = None
+                    if started is not None:
+                        started.set()
+                    gate.wait(timeout=10)
                 self.api_response({'items': []}, user=identity)
             elif path.endswith('/personal/changes/') and type(self).personal_enabled:
                 cursor = int(parse_qs(urlsplit(self.path).query).get('cursor', ['0'])[0])
@@ -207,6 +217,8 @@ class ReaderBrowser(unittest.TestCase):
         StaticHandler.probes.clear()
         StaticHandler.session_gate = None
         StaticHandler.session_started = None
+        StaticHandler.connections_gate = None
+        StaticHandler.connections_started = None
         StaticHandler.account_fixture = None
         StaticHandler.account_requests = []
         StaticHandler.preference_revision = 0
@@ -224,9 +236,14 @@ class ReaderBrowser(unittest.TestCase):
             gate = StaticHandler.session_gate
             StaticHandler.session_gate = None
             StaticHandler.session_started = None
+            connections_gate = StaticHandler.connections_gate
+            StaticHandler.connections_gate = None
+            StaticHandler.connections_started = None
             StaticHandler.account_fixture = None
             if gate is not None:
                 gate.set()
+            if connections_gate is not None:
+                connections_gate.set()
             # A diagnostic failure must not leak a profile into the next test.
             self.context.close()
             if self.errors:
