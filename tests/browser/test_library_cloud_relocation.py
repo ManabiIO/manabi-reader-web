@@ -128,6 +128,9 @@ class CloudRelocationBrowser(LibraryBase):
         expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute(
             'aria-busy', 'false', timeout=30000)
         expect(self.page.get_by_role('button', name='Read Traveling volume', exact=True)).to_have_count(0)
+        self.page.get_by_role('button', name='Library actions', exact=True).click()
+        expect(self.page.get_by_role('menuitem', name='Resume Reading', exact=True)).to_have_count(0)
+        expect(self.page.get_by_role('menuitem', name='Select Books', exact=True)).to_be_disabled()
 
         StaticHandler.account_fixture = {
             'user': {'id': '42', 'username': 'reader'},
@@ -138,6 +141,8 @@ class CloudRelocationBrowser(LibraryBase):
         self.page.goto(self.origin + '/Reader-Web/manage')
         expect(self.page.get_by_role('button', name='Read Traveling volume', exact=True)).to_be_visible(
             timeout=30000)
+        self.page.get_by_role('button', name='Library actions', exact=True).click()
+        expect(self.page.get_by_role('menuitem', name='Resume Reading', exact=True)).to_be_visible()
 
     def test_disk_cloud_disk_keeps_organization_without_storage_sidecars(self):
         if self.engine != 'chromium':

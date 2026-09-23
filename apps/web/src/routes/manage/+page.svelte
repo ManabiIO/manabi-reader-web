@@ -56,6 +56,9 @@
   } from '$lib/functions/replication/replication-progress';
   import { pluralize } from '$lib/functions/utils';
   import { creatorSortKey } from '$lib/library/book-metadata';
+  import { visibleLibraryEntries } from '$lib/library/account-visibility';
+  import { account } from '$lib/manabi/client';
+  import { allLinkedBooks } from '$lib/manabi/books';
   import type { LibraryMenuModel } from '$lib/library/library-menu';
   import { reduceToEmptyString } from '$lib/functions/rxjs/reduce-to-empty-string';
   import pLimit from 'p-limit';
@@ -122,6 +125,16 @@
   let selectionScopeKey = '';
   let selectableBookIds: number[] = [];
   let libraryMenu: LibraryMenuModel | undefined;
+
+  $: activeLibraryCards = visibleLibraryEntries(
+    $bookCards$ ?? [],
+    $allLinkedBooks,
+    $account.session?.user?.id ?? null
+  ).cards;
+  $: activeLibraryCardIds = new Set(activeLibraryCards.map((card) => card.id));
+  $: currentBookAvailable =
+    !!$currentBookId$ &&
+    ($storageSource$ !== StorageKey.BROWSER || activeLibraryCardIds.has($currentBookId$));
 
   $: {
     if (!selectMode) {
@@ -448,7 +461,7 @@
 
   function backToCurrentBook() {
     const currentBookId = $currentBookId$;
-    if (!currentBookId) return;
+    if (!currentBookId || !currentBookAvailable) return;
     gotoBook(currentBookId);
   }
 
@@ -780,9 +793,11 @@
       title={destinationTitle}
       {libraryMenu}
       collectionsExpanded={collectionsOpen}
-      hasBookOpened={!!$currentBookId$}
+      hasBookOpened={currentBookAvailable}
       selectedCount={selectedBookIds.size}
-      hasBooks={!!$bookCards$?.length}
+      hasBooks={$storageSource$ === StorageKey.BROWSER
+        ? !!activeLibraryCards.length
+        : !!$bookCards$?.length}
       {cancelTooltip}
       {replicationProgress}
       {replicationToProgress}
@@ -829,7 +844,7 @@
       Loading...
     {:else if $storageSource$ === StorageKey.BROWSER}
       <LibraryWorkspace
-        currentBookId={$currentBookId$}
+        currentBookId={currentBookAvailable ? $currentBookId$ : undefined}
         {selectedBookIds}
         {selectMode}
         bind:destinationTitle
