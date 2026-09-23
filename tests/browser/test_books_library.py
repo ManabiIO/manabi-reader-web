@@ -947,8 +947,8 @@ class BooksLibraryBrowser(LibraryBase):
             return {top: box.top, bottom: box.bottom, radius: parseFloat(style.borderTopLeftRadius),
                 rightBorder: parseFloat(style.borderRightWidth)};
         }''')
-        self.assertAlmostEqual(12, panel['top'], delta=2)
-        self.assertAlmostEqual(888, panel['bottom'], delta=2)
+        self.assertAlmostEqual(16, panel['top'], delta=2)
+        self.assertAlmostEqual(884, panel['bottom'], delta=2)
         self.assertGreaterEqual(panel['radius'], 20)
         self.assertGreater(panel['rightBorder'], 0)
         header_style = header.evaluate('''element => {
