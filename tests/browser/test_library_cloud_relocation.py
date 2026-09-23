@@ -176,6 +176,15 @@ class CloudRelocationBrowser(LibraryBase):
         self.menu('Traveling volume', 'Rename…')
         self.dialog().get_by_label('Name', exact=True).fill('Personal original')
         self.dialog().get_by_role('button', name='Save', exact=True).click()
+        with self.page.expect_file_chooser() as chooser:
+            self.menu('Personal original', 'Change Cover…')
+        chooser.value.set_files({
+            'name': 'cover.png', 'mimeType': 'image/png',
+            'buffer': raster(120, 180, (40, 120, 180))
+        })
+        original_cover = self.tile('Personal original').locator('img')
+        expect(original_cover).to_have_attribute('src', re.compile(r'^data:image/(?:png|webp);base64,'))
+        override = original_cover.get_attribute('src')
         CloudRelocationHandler.nodes[DROPBOX] = {
             'd-different': {'name': 'Same title.epub', 'kind': 'file', 'parent': 'dropbox-root',
                             'bytes': book('Traveling volume', color=(30, 170, 90))}
@@ -186,6 +195,7 @@ class CloudRelocationBrowser(LibraryBase):
         expect(dropbox.get_by_role('button', name='Read Traveling volume', exact=True)).to_be_visible(
             timeout=30000)
         expect(dropbox.get_by_role('button', name='Read Personal original', exact=True)).to_have_count(0)
+        self.assertNotEqual(override, dropbox.locator('img').first.get_attribute('src'))
         self.choose_collection('Only original bytes')
         expect(self.page.get_by_role('button', name='Read Personal original', exact=True)).to_be_visible()
         expect(self.page.get_by_role('button', name='Read Traveling volume', exact=True)).to_have_count(0)
@@ -256,6 +266,20 @@ class CloudRelocationBrowser(LibraryBase):
         expect(buttons).to_have_count(1, timeout=30000)
         self.choose_collection('Portable cloud shelf')
         expect(buttons).to_have_count(1, timeout=30000)
+        rail = self.page.get_by_role('complementary', name='Collections', exact=True)
+        count = rail.get_by_role('button', name=re.compile(r'^Portable cloud shelf\b')).locator('span').last
+        expect(count).to_have_text('1')
+        CloudRelocationHandler.nodes[DROPBOX] = {}
+        self.refresh()
+        expect(buttons).to_have_count(0, timeout=30000)
+        expect(count).to_have_text('0')
+        CloudRelocationHandler.nodes[DROPBOX] = {
+            'd-new': {'name': 'Other.epub', 'kind': 'file', 'parent': 'dropbox-root'}
+        }
+        self.refresh()
+        expect(buttons).to_have_count(1, timeout=30000)
+        expect(count).to_have_text('1')
+        expect(self.tile('Personal traveling volume').locator('img')).to_have_attribute('src', override)
         self.menu('Personal traveling volume', 'Add to Collection…')
         expect(self.dialog().get_by_role('checkbox', name='Portable cloud shelf')).to_be_checked()
         self.dialog().get_by_role('button', name='Done').click()
