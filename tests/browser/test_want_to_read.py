@@ -300,7 +300,13 @@ class WantToReadBrowser(LibraryBase):
         focused = self.page.get_by_role('button', name='Actions for Focus first', exact=True)
         focused.focus()
         self.page.keyboard.press('Enter')
-        self.page.get_by_role('menuitem', name='Remove from Want to Read', exact=True).focus()
+        # Let keyboard opening focus the first item before choosing another;
+        # otherwise opening autofocus can replace this programmatic focus.
+        menu = self.page.get_by_role('menu')
+        expect(menu.get_by_role('menuitem').first).to_be_focused()
+        remove = menu.get_by_role('menuitem', name='Remove from Want to Read', exact=True)
+        remove.focus()
+        expect(remove).to_be_focused()
         self.page.keyboard.press('Enter')
         expect(self.page.get_by_role('button', name='Read Focus first', exact=True)).to_have_count(0)
         expect(self.page.get_by_role('button', name='Read Focus last', exact=True)).to_be_visible()
@@ -441,11 +447,15 @@ class WantToReadBrowser(LibraryBase):
                 trigger.focus()
                 self.page.keyboard.press('Enter')
                 sheet = self.page.locator('#library-collections-sheet')
+                # The sheet schedules opening autofocus. Wait for it before
+                # moving focus, or its first button can steal the next Enter.
+                expect(sheet.get_by_role('button', name='Edit', exact=True)).to_be_focused()
                 want = sheet.get_by_role('button', name=re.compile(r'^Want to Read\b'))
             else:
                 want = self.page.get_by_role('complementary', name='Collections').get_by_role(
                     'button', name=re.compile(r'^Want to Read\b'))
             want.focus()
+            expect(want).to_be_focused()
             self.page.keyboard.press('Enter')
             expect(self.page.get_by_role('heading', name='Want to Read', exact=True)).to_be_visible()
             if width < 1024:

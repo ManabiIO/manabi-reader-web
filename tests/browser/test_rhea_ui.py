@@ -31,6 +31,17 @@ def chaptered_epub():
     return output.getvalue()
 
 
+def renamed_epub(title):
+    output = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(epub())) as source, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as target:
+        for item in source.infolist():
+            value = source.read(item)
+            if item.filename in ('content.opf', 'chapter.xhtml'):
+                value = value.replace(TITLE.encode(), title.encode())
+            target.writestr(item.filename, value)
+    return output.getvalue()
+
+
 class RheaReader(previous.RefinedAppearance):
     def open_reading_appearance(self):
         # Reload can finish before the hydrated reader mounts its controls.
@@ -527,6 +538,134 @@ class RheaReader(previous.RefinedAppearance):
         for name in ['Import File(s)','Import Folder(s)','Import Backup','Import from Ttu Ebook Reader']:
             expect(self.page.get_by_role('menuitem', name=name, exact=True)).to_be_visible()
         self.page.keyboard.press('Escape')
+
+    def test_book_details_match_persisted_metadata_in_grid_and_list(self):
+        self.open_book(font='Klee One')
+        book_id = int(self.page.evaluate('new URL(location.href).searchParams.get("id")'))
+        toolbar = self.page.get_by_role('banner', name='Reader toolbar')
+        reveal = self.page.get_by_role('button', name='Show reading controls', exact=True)
+        if reveal.is_visible():
+            reveal.click()
+        toolbar.get_by_role('button', name='Bookmark', exact=True).click()
+
+        # Read the real IndexedDB records after the reader's bookmark transaction
+        # completes; these provide the expected values and the immutability check.
+        def read_records(identifier=book_id):
+            return self.page.evaluate('''async id => {
+              const db = await new Promise((resolve, reject) => {
+                const request = indexedDB.open('books');
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+              });
+              try {
+                const tx = db.transaction(['data', 'bookmark']);
+                const [book, bookmark] = await Promise.all(['data', 'bookmark'].map(name =>
+                  new Promise((resolve, reject) => {
+                    const request = tx.objectStore(name).get(id);
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                  })
+                ));
+                return { book, bookmark };
+              } finally { db.close(); }
+            }''', identifier)
+
+        deadline = time.monotonic() + 20
+        while True:
+            records = read_records()
+            if records['book'] and records['bookmark'] and records['bookmark'].get('lastBookmarkModified', 0):
+                break
+            self.assertLess(time.monotonic(), deadline, 'Imported book bookmark did not persist')
+            self.page.wait_for_timeout(25)
+
+        book = records['book']
+        bookmark = records['bookmark']
+        expected = {
+            'Characters': str(book['characters']),
+            'Last read': self.page.evaluate('value => value ? new Date(value).toLocaleString() : "No data"', book.get('lastBookOpen', 0)),
+            'Bookmarked': self.page.evaluate('value => value ? new Date(value).toLocaleString() : "No data"', bookmark.get('lastBookmarkModified', 0)),
+            'Last update': self.page.evaluate('value => value ? new Date(value).toLocaleString() : "No data"', book.get('lastBookModified', 0))
+        }
+        self.assertGreater(book['characters'], 0)
+        self.assertGreater(book.get('lastBookOpen', 0), 0)
+        self.assertGreater(bookmark.get('lastBookmarkModified', 0), 0)
+
+        screenshot_dir = os.environ.get('BOOK_DETAILS_SCREENSHOT_DIR')
+        self.page.set_viewport_size({'width': 390, 'height': 844})
+        self.page.goto(self.origin + '/Reader-Web/manage')
+        expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute('aria-busy', 'false')
+        for width, height, view in ((390, 844, 'Grid'), (390, 844, 'List'), (1440, 900, 'Grid'), (1440, 900, 'List')):
+            with self.subTest(width=width, view=view):
+                self.page.set_viewport_size({'width': width, 'height': height})
+                is_list = self.page.locator('.shelf-list').count() > 0
+                if is_list != (view == 'List'):
+                    self.page.get_by_role('button', name='Library actions', exact=True).click()
+                    self.page.get_by_role('menuitem', name='View Options', exact=True).hover()
+                    self.page.get_by_role('menuitemradio', name=view, exact=True).click()
+                    expect(self.page.get_by_role('menu')).to_have_count(0)
+
+                action = self.page.get_by_role('button', name='Actions for ' + TITLE, exact=True)
+                action.click()
+                self.page.get_by_role('menuitem', name='Book Details', exact=True).click()
+                dialog = self.page.get_by_role('dialog', name='Book details', exact=True)
+                expect(dialog).to_be_visible()
+                expect(dialog.get_by_text(TITLE, exact=True)).to_be_visible()
+                details = dialog.locator('dl').evaluate('''dl => {
+                  const values = {};
+                  for (const dt of dl.querySelectorAll('dt')) values[dt.textContent.trim()] = dt.nextElementSibling.textContent.trim();
+                  return values;
+                }''')
+                self.assertEqual(expected, details)
+                if screenshot_dir and width == 390 and view == 'Grid':
+                    engine = os.environ.get('APPEARANCE_BROWSER', 'chromium')
+                    self.page.screenshot(path=str(Path(screenshot_dir) / f'book-details-phone-{engine}.png'), full_page=True)
+                if screenshot_dir and width == 1440 and view == 'Grid':
+                    engine = os.environ.get('APPEARANCE_BROWSER', 'chromium')
+                    self.page.screenshot(path=str(Path(screenshot_dir) / f'book-details-desktop-{engine}.png'), full_page=True)
+                self.page.keyboard.press('Escape')
+                expect(dialog).to_have_count(0)
+                expect(action).to_be_focused()
+                after = read_records()
+                self.assertEqual(records, after, 'Opening and dismissing Book Details must not edit book or progress data')
+
+        # A second imported book has no reader history. Its unknown activity
+        # dates must stay explicitly unknown in the details dialog.
+        unstarted_title = 'Unstarted acceptance'
+        self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
+            'name': unstarted_title + '.epub',
+            'mimeType': 'application/epub+zip',
+            'buffer': renamed_epub(unstarted_title)
+        })
+        self.page.get_by_role('button', name='Read ' + unstarted_title, exact=True).wait_for()
+        unstarted_id = self.page.evaluate('''async title => {
+          const db = await new Promise((resolve, reject) => {
+            const request = indexedDB.open('books');
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          try {
+            const rows = await new Promise((resolve, reject) => {
+              const request = db.transaction('data').objectStore('data').getAll();
+              request.onsuccess = () => resolve(request.result);
+              request.onerror = () => reject(request.error);
+            });
+            return rows.find(row => row.title === title)?.id;
+          } finally { db.close(); }
+        }''', unstarted_title)
+        self.assertIsNotNone(unstarted_id)
+        self.page.get_by_role('button', name='Actions for ' + unstarted_title, exact=True).click()
+        self.page.get_by_role('menuitem', name='Book Details', exact=True).click()
+        unstarted_dialog = self.page.get_by_role('dialog', name='Book details', exact=True)
+        expect(unstarted_dialog).to_be_visible()
+        unknown_dates = unstarted_dialog.locator('dl').evaluate('''dl => {
+          const values = {};
+          for (const dt of dl.querySelectorAll('dt')) values[dt.textContent.trim()] = dt.nextElementSibling.textContent.trim();
+          return values;
+        }''')
+        self.assertEqual('No data', unknown_dates['Last read'])
+        self.assertEqual('No data', unknown_dates['Bookmarked'])
+        self.page.keyboard.press('Escape')
+        expect(unstarted_dialog).to_have_count(0)
 
     def test_statistics_filter_is_one_focus_managed_sheet(self):
         self.page.goto(self.origin + '/Reader-Web/statistics')
