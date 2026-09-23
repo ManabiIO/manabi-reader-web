@@ -203,6 +203,7 @@ class CloudSeriesReceiptReplay(LibraryBase):
         catalog_key = 'library-catalog:' + SOURCE_KEY
         before = self.wait_snapshot(lambda value: catalog_key in value['metadata'])
         self.assertEqual('root', before['metadata'][catalog_key]['entries'][0]['parent'])
+        self.wait_for_previews()
 
         # The provider completed both moves while this browser was closed.
         # Its next visit sees the committed plan and must apply the receipts.
@@ -229,6 +230,7 @@ class CloudSeriesReceiptReplay(LibraryBase):
         self.assertFalse(any(request['method'] == 'POST' and '/series/' in request['path']
                              for request in StaticHandler.account_requests))
 
+        self.wait_for_previews()
         self.page.reload()
         expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute(
             'aria-busy', 'false', timeout=30000)
@@ -242,6 +244,7 @@ class CloudSeriesReceiptReplay(LibraryBase):
         self.wait_for_previews()
 
     def test_reconcile_action_sends_a_request_and_finishes_the_plan(self):
+        self.wait_for_previews()
         SeriesHandler.uncertain_plan = True
         self.page.reload()
         expect(self.page.get_by_role('button', name='Review Change')).to_be_visible()
