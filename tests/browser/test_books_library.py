@@ -267,7 +267,7 @@ class BooksLibraryBrowser(LibraryBase):
             return image.decode();
         }))''')
         measurements = {}
-        for width in (320, 390, 430, 768, 1023, 1024, 1200, 1300, 1400, 1728):
+        for width in (320, 390, 430, 768, 1023, 1024, 1200, 1300, 1400, 1440, 1728):
             with self.subTest(width=width):
                 self.page.set_viewport_size({'width': width, 'height': 900})
                 geometry = self.page.locator('.shelf-grid').evaluate('''grid => {
@@ -288,6 +288,10 @@ class BooksLibraryBrowser(LibraryBase):
                 self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), width + 1)
                 if width <= 430:
                     self.assertEqual(2, geometry['columns'])
+                if width == 768:
+                    self.assertEqual(4, geometry['columns'])
+                if width == 1440:
+                    self.assertEqual(6, geometry['columns'])
                 for cover in geometry['covers']:
                     self.assertLessEqual(cover['width'], cover['maxWidth'] + 1)
                     self.assertLessEqual(cover['height'], cover['maxHeight'] + 1)
