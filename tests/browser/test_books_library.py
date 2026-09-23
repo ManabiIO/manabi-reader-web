@@ -184,7 +184,18 @@ class LibraryBase(unittest.TestCase):
         self.menu(title, 'Add to Collection…')
         dialog = self.dialog()
         name_input = dialog.get_by_label('New collection name', exact=True)
+        self.page.evaluate('''() => {
+          const form = document.querySelector('[data-slot="dialog-content"] form');
+          const input = form?.querySelector('input[placeholder="New collection name"]');
+          window.__collectionEvents = [];
+          for (const [target, kind] of [[input,'input'],[input,'invalid'],[form,'submit']]) {
+            target?.addEventListener(kind, () => window.__collectionEvents.push({
+              kind, value: input?.value, time: performance.now()
+            }), {capture:true});
+          }
+        }''')
         name_input.fill(name)
+        expect(name_input).to_have_value(name)
         dialog.get_by_role('button', name='Create', exact=True).click()
         # The create action clears the field only after the IndexedDB
         # transaction publishes the updated organization. Waiting on that
@@ -197,8 +208,9 @@ class LibraryBase(unittest.TestCase):
             saved = next((row for row in rows if row.get('version') == 1 and 'collections' in row), {})
             names = [collection.get('name') for collection in saved.get('collections', [])]
             alerts = dialog.get_by_role('alert').all_text_contents()
+            events = self.page.evaluate('window.__collectionEvents || []')
             raise AssertionError(
-                f'Collection {name!r} was not shown after creation; persisted={names!r}; alerts={alerts!r}'
+                f'Collection {name!r} was not shown after creation; persisted={names!r}; alerts={alerts!r}; events={events!r}'
             ) from failure
         dialog.get_by_role('button', name='Done', exact=True).click()
         # Do not fill the previous dialog's still-mounted exit transition when
