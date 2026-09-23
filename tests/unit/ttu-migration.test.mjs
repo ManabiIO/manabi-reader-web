@@ -48,10 +48,13 @@ test('versioned filenames support all exported parts without interpreting creden
   assert.equal(importFile('audioBook_1_6_100_1.5.json').part, 'audio');
   assert.equal(importFile('subtitles_1_6_100_1.json').part, 'subtitles');
   assert.equal(importFile('ttu-user-goals_1_6_100.json').part, 'goals');
+  assert.equal(importFile('bookdata_1_7_4382_100_200.zip').part, 'book');
+  assert.equal(importFile('bookdata_1_8_4382_100_200.zip').part, 'book');
+  assert.equal(importFile('progress_1_8_100_1e-7.json').part, 'bookmark');
   assert.equal(importFile('storageSource.json'), undefined);
   for (const name of [
     'bookdata_2_6_1_1_0.zip',
-    'bookdata_1_7_1_1_0.zip',
+    'bookdata_1_9_1_1_0.zip',
     'bookdata_1_6_1_1.zip',
     'bookdata_1_6_1_1_0.json',
     'progress_1_6_-1_0.json',

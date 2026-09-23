@@ -15,6 +15,7 @@ import { getCharacterCount } from '$lib/functions/get-character-count';
 import { getParagraphNodes } from '../../../components/book-reader/get-paragraph-nodes';
 import { resolveArchivePath } from '../utils/limited-archive';
 import { sanitizeBookHtml } from '../../book-security/book-content-security';
+import type { PublicationResource } from '$lib/reader-location';
 
 export const prependValue = 'ttu-';
 
@@ -127,6 +128,7 @@ export default function generateEpubHtml(
       throw new Error('EPUB expanded reading content exceeds the size limit');
   }
   const sectionData: Section[] = [];
+  const publicationResources: PublicationResource[] = [];
   const result = document.createElement('div');
 
   let mainChapters: Section[] = [];
@@ -207,7 +209,7 @@ export default function generateEpubHtml(
   let previousCharacterCount = 0;
   let currentCharCount = 0;
 
-  itemRefs.forEach((item) => {
+  itemRefs.forEach((item, spineIndex) => {
     let itemIdRef = item['@_idref'];
     let htmlHref = itemIdToHtmlRef[itemIdRef];
 
@@ -279,6 +281,11 @@ export default function generateEpubHtml(
     childWrapperDiv.appendChild(childHtmlDiv);
 
     result.appendChild(childWrapperDiv);
+    publicationResources.push({
+      href: resolveArchivePath(manifestOwner, htmlHref),
+      spineIndex,
+      sectionId: childWrapperDiv.id
+    });
 
     const elementCharCount = countForElement(childWrapperDiv);
 
@@ -333,6 +340,7 @@ export default function generateEpubHtml(
     element: result,
     styleSheet: embeddedStyles.join('\n'),
     characters: currentCharCount,
+    publicationManifest: { version: 1 as const, resources: publicationResources },
     sections: sectionData.filter((item: Section) => item.reference.startsWith(prependValue))
   };
 }

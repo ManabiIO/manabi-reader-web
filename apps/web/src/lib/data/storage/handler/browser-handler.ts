@@ -19,6 +19,7 @@ import type { MergeMode } from '$lib/data/merge-mode';
 import { ReplicationSaveBehavior } from '$lib/functions/replication/replication-options';
 import { StorageDataType } from '$lib/data/storage/storage-types';
 import { bookKey, contentBookKey, relocatePresentation } from '$lib/library/organization';
+import type { BookCardProps } from '$lib/components/book-card/book-card-props';
 
 export class BrowserStorageHandler extends BaseStorageHandler {
   updateSettings(
@@ -36,40 +37,37 @@ export class BrowserStorageHandler extends BaseStorageHandler {
   }
 
   async getBookList() {
-    if (!this.dataListFetched) {
-      database.listLoading$.next(true);
-
-      try {
-        const db = await database.db;
-        const data = await db.getAll('data');
-
-        for (let index = 0, { length } = data; index < length; index += 1) {
-          const book = data[index];
-
-          this.addBookCard(book.title, {
-            id: book.id,
-            imagePath: book.coverImage || '',
-            creators: book.creators,
-            characters: BaseStorageHandler.getBookCharacters(
-              book.characters || 0,
-              book.sections || []
-            ),
-            lastBookModified: book.lastBookModified || 0,
-            lastBookOpen: book.lastBookOpen || 0,
-            pageDirection: book.pageDirection,
-            contentHash: book.contentHash,
-            isPlaceholder: !book.elementHtml
-          });
-        }
-
-        this.dataListFetched = true;
-      } catch (error) {
-        this.clearData();
-        throw error;
+    database.listLoading$.next(true);
+    try {
+      const db = await database.db;
+      const data = await db.getAll('data');
+      const cards: BookCardProps[] = [];
+      this.titleToBookCard.clear();
+      for (const book of data) {
+        this.addBookCard(book.title, {
+          id: book.id,
+          imagePath: book.coverImage || '',
+          creators: book.creators,
+          characters: BaseStorageHandler.getBookCharacters(
+            book.characters || 0,
+            book.sections || []
+          ),
+          lastBookModified: book.lastBookModified || 0,
+          lastBookOpen: book.lastBookOpen || 0,
+          pageDirection: book.pageDirection,
+          contentHash: book.contentHash,
+          isPlaceholder: !book.elementHtml
+        });
+        // The inherited TTU cache is keyed by title. Retain its legacy lookup
+        // while giving every distinct imported ID its own Library card.
+        cards.push({ ...this.titleToBookCard.get(book.title)! });
       }
+      this.dataListFetched = true;
+      return cards;
+    } catch (error) {
+      this.clearData();
+      throw error;
     }
-
-    return [...this.titleToBookCard.values()];
   }
 
   clearData(clearAll = true) {
@@ -517,6 +515,24 @@ export class BrowserStorageHandler extends BaseStorageHandler {
       database.dataListChanged$.next(this);
     }
 
+    return { error, deleted };
+  }
+
+  /** The personal Library selects books by ID; titles are not unique. */
+  async deleteBookIds(bookIds: number[], cancelSignal: AbortSignal, keepLocalStatistics: boolean) {
+    const db = await database.db;
+    const idToTitle = new Map<number, string>();
+    for (const id of bookIds) {
+      const book = await db.get('data', id);
+      if (book) idToTitle.set(id, book.title);
+    }
+    const { error, deleted } = await database
+      .deleteData([...idToTitle.keys()], idToTitle, cancelSignal, keepLocalStatistics)
+      .catch((caught: Error) => ({ error: caught.message, deleted: [] }));
+    if (deleted.length) {
+      this.clearData();
+      database.dataListChanged$.next(this);
+    }
     return { error, deleted };
   }
 }

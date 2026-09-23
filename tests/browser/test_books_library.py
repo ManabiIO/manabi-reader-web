@@ -55,6 +55,36 @@ def book(title, spine='', style='body{writing-mode:horizontal-tb}', body=None, s
     return output.getvalue()
 
 
+def cross_resource_book():
+    """Two real spine resources with a nonzero origin and an offscreen search hit."""
+    output = io.BytesIO()
+    chapter_one = (
+        '<h1>Origin Chapter</h1>'
+        + ''.join('<p>Opening passage %04d. ここでは猫と本を読みます。</p>' % i for i in range(60))
+        + '<p>ORIGIN_LEAD_IN. The exact passage is ORIGIN_ANCHOR_𠮷猫_終点. Continue reading here.</p>'
+        + ''.join('<p>Later passage %04d. さらに読書を続けています。</p>' % i for i in range(55))
+    )
+    chapter_two = (
+        '<h1>Destination Chapter</h1>'
+        + ''.join('<p>Destination passage %04d. 遠くまで進みます。</p>' % i for i in range(35))
+        + '<p>DESTINATION_UNIQUE_𠮷猫_終端. Search across resources.</p>'
+    )
+    with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr('mimetype', 'application/epub+zip', compress_type=zipfile.ZIP_STORED)
+        archive.writestr('META-INF/container.xml',
+                         '<container><rootfiles><rootfile full-path="OEBPS/content.opf"/></rootfiles></container>')
+        archive.writestr('OEBPS/content.opf',
+                         '<package xmlns="http://www.idpf.org/2007/opf" version="2.0">'
+                         '<metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">Cross Resource Return</dc:title>'
+                         '<dc:language xmlns:dc="http://purl.org/dc/elements/1.1/">ja</dc:language></metadata>'
+                         '<manifest><item id="first" href="chapter-1.xhtml" media-type="application/xhtml+xml"/>'
+                         '<item id="second" href="chapter-2.xhtml" media-type="application/xhtml+xml"/></manifest>'
+                         '<spine><itemref idref="first"/><itemref idref="second"/></spine></package>')
+        archive.writestr('OEBPS/chapter-1.xhtml', '<html><body>' + chapter_one + '</body></html>')
+        archive.writestr('OEBPS/chapter-2.xhtml', '<html><body>' + chapter_two + '</body></html>')
+    return output.getvalue()
+
+
 def macos_browser_package_handoff(title):
     source = zipfile.ZipFile(io.BytesIO(book(title)))
     output = io.BytesIO()
@@ -205,6 +235,149 @@ class LibraryBase(unittest.TestCase):
 
 
 class BooksLibraryBrowser(LibraryBase):
+    def _cross_resource_return(self, viewport):
+        self.page.set_viewport_size(viewport)
+        self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
+            'name': 'cross-resource-return.epub',
+            'mimeType': 'application/epub+zip',
+            'buffer': cross_resource_book()
+        })
+        self.page.get_by_role('button', name='Read Cross Resource Return', exact=True).click(timeout=30000)
+        content = self.page.locator('.book-content').first
+        expect(content).to_be_visible(timeout=30000)
+        expect(content).to_have_attribute('aria-busy', 'false', timeout=30000)
+        origin = content.get_by_text('ORIGIN_ANCHOR_𠮷猫_終点', exact=False)
+        expect(origin).to_be_attached(timeout=30000)
+
+        def passage_geometry(phrase):
+            return content.evaluate('''(host, phrase) => {
+              for (const section of host.children) {
+                const walker = document.createTreeWalker(section, NodeFilter.SHOW_TEXT);
+                let node;
+                while ((node = walker.nextNode())) {
+                  const offset = node.data.indexOf(phrase);
+                  if (offset < 0) continue;
+                  const range = document.createRange();
+                  range.setStart(node, offset);
+                  range.setEnd(node, offset + phrase.length);
+                  const ink = range.getBoundingClientRect();
+                  const port = host.getBoundingClientRect();
+                  return {
+                    spine: Number(section.dataset.manabiSpineIndex),
+                    visible: ink.right > port.left && ink.left < port.right &&
+                      ink.bottom > port.top && ink.top < port.bottom,
+                    scroll: Math.max(Math.abs(host.scrollTop), Math.abs(host.scrollLeft)),
+                    ink: { x: ink.x, y: ink.y, width: ink.width, height: ink.height },
+                    port: { x: port.x, y: port.y, width: port.width, height: port.height },
+                    scrollHeight: host.scrollHeight
+                  };
+                }
+              }
+              return null;
+            }''', phrase)
+
+        content.click(position={'x': 25, 'y': 100}, force=True)
+        for _ in range(20):
+            before = passage_geometry('ORIGIN_ANCHOR_𠮷猫_終点')
+            if before and before['visible'] and before['scroll'] > 0:
+                break
+            self.page.keyboard.press('PageDown')
+        else:
+            self.fail('A nonzero origin passage never entered the reading viewport')
+        visible_samples = content.evaluate('''host => {
+          const port = host.getBoundingClientRect();
+          const walker = document.createTreeWalker(host.firstElementChild, NodeFilter.SHOW_TEXT);
+          const found = [];
+          let node;
+          while ((node = walker.nextNode()) && found.length < 8) {
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            const boxes = [...range.getClientRects()].filter(box => box.width > 0 && box.height > 0 &&
+              box.right > port.left && box.left < port.right && box.bottom > port.top && box.top < port.bottom);
+            if (boxes.length) found.push({ text: node.data.slice(0, 80), x: boxes[0].x, y: boxes[0].y });
+          }
+          return found;
+        }''')
+        self.assertTrue(before and before['visible'])
+        self.assertEqual(0, before['spine'])
+        self.assertGreater(before['scroll'], 0, 'Origin must be beyond the first page')
+        self.assertTrue(visible_samples, 'A visible source run is needed for exact Return')
+        origin_run = visible_samples[0]['text']
+
+        controls = self.page.locator('button[data-reader-controls]')
+
+        def tool(name):
+            if controls.get_attribute('aria-expanded') != 'true':
+                controls.click()
+            self.page.get_by_role('button', name='Reading tools').click()
+            self.page.get_by_role('menuitem', name=name, exact=True).click()
+
+        book_id = self.stores('books', ['data'])['data'][0]['id']
+        previous = self.stores('books', ['bookmark'])['bookmark']
+        previous_modified = previous[0]['lastBookmarkModified'] if previous else 0
+        tool('Save Reading Position')
+        self.wait_bookmark(book_id, lambda row: row['exploredCharCount'] > 0 and
+                           row['lastBookmarkModified'] > previous_modified)
+        baseline = self.stores('books', ['bookmark', 'statistic'])
+        self.assertTrue(baseline['statistic'], 'The preview must preserve real reading statistics')
+
+        tool('Search Book')
+        self.page.get_by_role('searchbox', name='Search within book').fill('DESTINATION_UNIQUE_𠮷猫_終端')
+        result = self.page.get_by_role('button').filter(has_text='DESTINATION_UNIQUE_𠮷猫_終端').first
+        expect(result).to_be_visible(timeout=30000)
+        result.click()
+        return_button = self.page.get_by_role('button', name='Return to where I was')
+        expect(return_button).to_be_visible(timeout=30000)
+        expect(content.locator('[data-manabi-spine-index="1"]')).to_be_attached(timeout=30000)
+        self.assertEqual(baseline, self.stores('books', ['bookmark', 'statistic']))
+
+        controls.click()
+        self.page.get_by_role('button', name='Themes & Settings').click()
+        self.page.get_by_role('button', name='Increase text size').click()
+        self.page.get_by_role('button', name='Close reading appearance').click()
+        expect(content.locator('[data-manabi-spine-index="1"]')).to_be_attached()
+        self.assertEqual(baseline, self.stores('books', ['bookmark', 'statistic']))
+
+        return_button.click()
+        expect(return_button).to_have_count(0)
+        expect(content.locator('[data-manabi-spine-index="0"]')).to_be_attached(timeout=30000)
+        after = passage_geometry(origin_run)
+        self.assertTrue(after and after['visible'],
+                        'Return must reveal the captured source run: before=%r after=%r run=%r' %
+                        (before, after, origin_run))
+        self.assertEqual(0, after['spine'])
+        self.assertGreater(after['scroll'], 0, 'Return must not jump to offset zero')
+        self.assertEqual(baseline, self.stores('books', ['bookmark', 'statistic']))
+
+    def test_cross_resource_return_after_reflow_phone(self):
+        self._cross_resource_return({'width': 390, 'height': 844})
+
+    def test_cross_resource_return_after_reflow_desktop(self):
+        self._cross_resource_return({'width': 1200, 'height': 900})
+
+    def test_search_uses_source_text_not_ruby_readings_or_hidden_blocks(self):
+        body = ('<div>alpha</div><div>beta</div>'
+                '<p><ruby>漢<rt>かん</rt></ruby>字と𠮷。</p>'
+                '<p>か\u3099くしき。</p>'
+                '<p hidden="hidden">HIDDEN_SENTINEL</p>'
+                '<p style="display:none!important">STYLE_HIDDEN_SENTINEL</p>'
+                + '<p>本文を読みます。</p>' * 60)
+        self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
+            'name': 'projection.epub', 'mimeType': 'application/epub+zip',
+            'buffer': book('Projection checks', body=body)
+        })
+        self.page.get_by_role('button', name='Read Projection checks', exact=True).click()
+        expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=35000)
+        self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+        self.page.get_by_role('button', name='Reading tools').click()
+        self.page.get_by_role('menuitem', name='Search Book', exact=True).click()
+        search = self.page.get_by_role('searchbox', name='Search within book')
+        for query, count in [('alpha', 1), ('alphabeta', 0), ('漢', 1),
+                             ('かん', 0), ('が', 1), ('𠮷', 1),
+                             ('HIDDEN_SENTINEL', 0), ('STYLE_HIDDEN_SENTINEL', 0)]:
+            search.fill(query)
+            expect(self.page.get_by_text(f'{count} results', exact=True)).to_be_visible(timeout=15000)
+
     def test_touch_menus_and_dark_reflow_keep_actions_accessible(self):
         profile = tempfile.TemporaryDirectory()
         # WebKit's ephemeral profiles do not support the real Blob-backed book
@@ -895,8 +1068,10 @@ class BooksLibraryBrowser(LibraryBase):
                 import_selected = self.page.get_by_role(
                     'button', name=re.compile(r'^Import selected \('))
                 expect(import_selected).to_be_visible(timeout=60000)
-                import_selected.click()
                 imported = self.page.get_by_role('article', name='Import Portable finished book', exact=True)
+                expect(imported).to_be_visible(timeout=60000)
+                self.assertTrue(import_selected.is_enabled(), imported.inner_text())
+                import_selected.click()
                 expect(imported.get_by_role('status')).to_have_text('Imported Portable finished book.', timeout=30000)
                 migrated = self.stores('books', ['bookmark','statistic','data'])
                 self.assertEqual(before['bookmark'][0]['completion'], migrated['bookmark'][0]['completion'])
@@ -1006,7 +1181,7 @@ class BooksLibraryFilesystem(LibraryBase):
 
     def test_recursive_series_covers_filters_and_readonly_scanning(self):
         self.seed_files({'Wrapper/Volumes/1.epub':book('Volume 1'), 'Wrapper/Volumes/2.epub':book('Volume 2'),
-            'Wrapper/Volumes/.Manabi-Reader.yaml':b'name: "Named series"\n',
+            'Wrapper/Volumes/.manabi-reader.yaml':b'name: "Named series"\n',
             'Wrapper/Volumes/5.epub':book('Volume 5'),'Wrapper/Volumes/Nested/3.epub':book('Volume 3'),'Wrapper/Volumes/Nested/4.epub':book('Volume 4'),
             'Singleton/Deep/Only.epub':book('Single book')})
         before = self.disk()
@@ -1062,7 +1237,7 @@ class BooksLibraryFilesystem(LibraryBase):
         self.assertEqual(before['A/First.epub'],after['Combined/First.epub'])
         self.assertEqual(before['B/Second.epub'],after['Combined/Second.epub'])
         self.assertNotIn('A/First.epub',after);self.assertNotIn('B/Second.epub',after)
-        self.assertIn('Combined/.Manabi-Reader.yaml',after)
+        self.assertIn('Combined/.manabi-reader.yaml',after)
         self.assertFalse(any('operation-' in key for key in after))
         self.assertEqual(old_reading,self.stores('books',['bookmark','statistic']))
         new_links=self.stores('manabi-reader-integrations',['books'])['books']

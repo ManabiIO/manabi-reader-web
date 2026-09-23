@@ -17,7 +17,10 @@
     Gear,
     ChartBar,
     Info,
-    DotsThree
+    DotsThree,
+    TextAlignJustify,
+    MagnifyingGlass,
+    ArrowsLeftRight
   } from 'phosphor-svelte';
   import { readerImageGalleryPictures$ } from '$lib/components/book-reader/book-reader-image-gallery/book-reader-image-gallery';
   import { customReadingPointEnabled$, viewMode$ } from '$lib/data/store';
@@ -30,13 +33,13 @@
   export let autoScrollMultiplier: number;
   export let hasCustomReadingPoint: boolean;
   export let showFullscreenButton: boolean;
-  export let isBookmarkScreen: boolean;
   export let hasBookmarkData: boolean;
 
   const dispatch = createEventDispatcher<{
     appearanceClick: void;
     tocClick: void;
     bookmarkClick: void;
+    annotationsClick: void;
     scrollToBookmarkClick: void;
     jumpClick: void;
     completeBook: void;
@@ -49,6 +52,9 @@
     settingsClick: void;
     domainHintClick: void;
     bookManagerClick: void;
+    lineGuideClick: void;
+    searchBookClick: void;
+    scrubClick: void;
   }>();
   $: oldDomain = browser && isOnOldUrl(window);
 </script>
@@ -77,18 +83,13 @@
       </Button>
     {/if}
     <Button
-      variant={isBookmarkScreen ? 'secondary' : 'ghost'}
-      aria-pressed={isBookmarkScreen}
-      onclick={() => dispatch('bookmarkClick')}
-      title="Create Bookmark"
-      aria-label="Bookmark"
+      variant="ghost"
+      onclick={() => dispatch('annotationsClick')}
+      title="Bookmarks and Notes"
+      aria-label="Bookmarks and Notes"
       class="min-h-11 min-w-11"
     >
-      <Bookmark
-        class="size-5"
-        weight={isBookmarkScreen ? 'fill' : 'regular'}
-        aria-hidden="true"
-      /><span class="hidden sm:inline">Bookmark</span>
+      <Bookmark class="size-5" aria-hidden="true" /><span class="hidden sm:inline">Notes</span>
     </Button>
   </div>
   <p
@@ -122,12 +123,24 @@
         class="max-h-[min(75dvh,36rem)] w-64 max-w-[calc(100vw-1rem)] overflow-y-auto"
       >
         <Menu.Label>Reading</Menu.Label>
+        <Menu.Item onSelect={() => dispatch('bookmarkClick')}
+          ><Bookmark aria-hidden="true" />Save Reading Position</Menu.Item
+        >
         {#if hasBookmarkData}<Menu.Item onSelect={() => dispatch('scrollToBookmarkClick')}
-            ><ArrowUUpLeft aria-hidden="true" />Return to Bookmark</Menu.Item
+            ><ArrowUUpLeft aria-hidden="true" />Return to Reading Position</Menu.Item
           >{/if}
         {#if hasText}<Menu.Item onSelect={() => dispatch('jumpClick')}
             ><Crosshair aria-hidden="true" />Jump to Position</Menu.Item
           >{/if}
+        <Menu.Item onSelect={() => dispatch('scrubClick')}
+          ><ArrowsLeftRight aria-hidden="true" />Browse Book</Menu.Item
+        >
+        {#if hasText}<Menu.Item onSelect={() => dispatch('searchBookClick')}
+            ><MagnifyingGlass aria-hidden="true" />Search Book</Menu.Item
+          >{/if}
+        <Menu.Item onSelect={() => dispatch('lineGuideClick')}
+          ><TextAlignJustify aria-hidden="true" />Line Guide</Menu.Item
+        >
         {#if $readerImageGalleryPictures$.length}<Menu.Item
             onSelect={() => dispatch('readerImageGalleryClick')}
             ><Images aria-hidden="true" />Image Gallery</Menu.Item

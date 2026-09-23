@@ -80,7 +80,10 @@ export function importFile(name: string): ImportFile | undefined {
   const extension = part === 'book' ? '.zip' : '.json';
   if (!name.endsWith(extension)) throw new Error(`Invalid file type: ${name}`);
   const fields = name.slice(0, -extension.length).split('_');
-  if (fields[1] !== '1' || fields[2] !== '6')
+  // Book metadata schema upgrades did not change the filename or exported
+  // payload shape. Accept this application's v7/v8 archives alongside TTU v6,
+  // while future schema versions still require explicit qualification.
+  if (fields[1] !== '1' || !['6', '7', '8'].includes(fields[2]))
     throw new Error('Unsupported export version. Re-export with the current Ttu Ebook Reader.');
   const counts: Record<ImportPart, number[]> = {
     book: [6],

@@ -106,6 +106,26 @@
   import BookCompletionConfetti from '$lib/components/book-reader/book-completion-confetti/book-completion-confetti.svelte';
   import BookReaderHeader from '$lib/components/book-reader/book-reader-header.svelte';
   import ReaderAppearance from '$lib/components/book-reader/reader-appearance.svelte';
+  import ReaderLineGuide from '$lib/components/book-reader/reader-line-guide.svelte';
+  import ReaderSearch from '$lib/components/book-reader/reader-search.svelte';
+  import ReaderScrubber from '$lib/components/book-reader/reader-scrubber.svelte';
+  import ReaderAnnotations from '$lib/components/book-reader/reader-annotations.svelte';
+  import ReaderHighlights from '$lib/components/book-reader/reader-highlights.svelte';
+  import {
+    exportReaderAnnotations,
+    importReaderAnnotations,
+    listAnnotationImportConflicts,
+    listReaderAnnotations,
+    removeReaderAnnotation,
+    resolveAnnotationImportConflict,
+    saveReaderAnnotation
+  } from '$lib/reader-annotations';
+  import type { AnnotationImportConflict } from '$lib/reader-annotations';
+  import { account, currentUser } from '$lib/manabi/client';
+  import type { ReaderAnnotation } from '$lib/data/database/books-db/versions/v7/books-db-v7';
+  import { ReaderNavigation } from '$lib/reader-navigation';
+  import type { ReaderLocator } from '$lib/reader-location';
+  import { readerBookKeyFor } from '$lib/reader-identity';
   import { TextAlignLeft, X } from 'phosphor-svelte';
   import {
     readerImageGalleryPictures$,
@@ -185,7 +205,6 @@
   import { onDestroy, onMount, tick } from 'svelte';
   import AppIcon from '$lib/components/app-icon.svelte';
   import {
-    clearRange,
     getParagraphToPoint,
     getRangeForUserSelection,
     getReferencePoints,
@@ -195,6 +214,63 @@
   let showSpinner = true;
   let showHeader = false;
   let showAppearance = false;
+  let showBookSearch = false;
+  let showScrubber = false;
+  let scrubberPoint: ReaderLocator | undefined;
+  let showAnnotations = false;
+  let annotations: ReaderAnnotation[] = [];
+  let annotationsOwner: string | null | undefined;
+  let annotationImportConflicts: AnnotationImportConflict[] = [];
+  let annotationSelection: ReaderLocator[] = [];
+  let annotationPoint: ReaderLocator | undefined;
+  let annotationError = '';
+  let annotationStatus = '';
+  let annotationBusy = false;
+  let annotationSavedVersion = 0;
+  let activeSearchLocator: ReaderLocator | undefined;
+  let readerContentEpoch = 0;
+  let bookReaderComponent: BookReader | undefined;
+  const readerNavigation = new ReaderNavigation();
+  let navigationPreviewing = false;
+  let searchOrigin: ReaderLocator | undefined;
+  let pendingPreviewAdoption = false;
+  let suppressResumeSave = false;
+  let revealingReaderLocator = false;
+  let previewTrackerWasPaused = false;
+  let readerBookKey = '';
+  $: if (browser && $rawBookData$?.id) {
+    const book = $rawBookData$;
+    void readerBookKeyFor(book.id, book.contentHash).then((key) => {
+      if ($rawBookData$?.id === book.id) readerBookKey = key;
+    });
+  }
+  $: if (browser && readerBookKey && $account.status) {
+    const key = readerBookKey;
+    const owner = $account.session?.user?.id ?? null;
+    if (annotationsOwner !== owner) {
+      annotations = [];
+      annotationImportConflicts = [];
+      annotationsOwner = owner;
+    }
+    void listReaderAnnotations(key)
+      .then((items) => {
+        if (readerBookKey === key && (currentUser()?.id ?? null) === owner) annotations = items;
+      })
+      .catch(() => undefined);
+  }
+  let lineGuideEnabled = browser && localStorage.getItem('manabi-line-guide') === 'true';
+  let lineGuideLines: 1 | 3 =
+    browser && localStorage.getItem('manabi-line-guide-lines') === '3' ? 3 : 1;
+  let lineGuideDimming = browser
+    ? Math.max(
+        0.1,
+        Math.min(0.6, Number(localStorage.getItem('manabi-line-guide-dimming')) || 0.28)
+      )
+    : 0.28;
+  let guideContentEl: HTMLElement | undefined;
+  $: if (browser) localStorage.setItem('manabi-line-guide', String(lineGuideEnabled));
+  $: if (browser) localStorage.setItem('manabi-line-guide-lines', String(lineGuideLines));
+  $: if (browser) localStorage.setItem('manabi-line-guide-dimming', String(lineGuideDimming));
   let isBookmarkScreen = false;
   let showFooter = true;
   let exploredCharCount = 0;
@@ -454,6 +530,15 @@
 
   const sectionData$ = iffBrowser(() => sectionProgress$).pipe(
     map((sectionProgress) => [...sectionProgress.values()])
+  );
+
+  const previewAdoption$ = iffBrowser(() => fromEvent(document, PAGE_CHANGE)).pipe(
+    tap(() => {
+      if (!pendingPreviewAdoption || !readerNavigation.previewing) return;
+      pendingPreviewAdoption = false;
+      void continueAtPreview();
+    }),
+    reduceToEmptyString()
   );
 
   const textSelector$ = iffBrowser(() => fromEvent(document, 'selectionchange')).pipe(
@@ -1150,6 +1235,7 @@
   // Autosave is persistence, not a toolbar action. It must not unmount the
   // trigger of an open menu or steal keyboard focus while somebody uses it.
   async function saveBookmark() {
+    if (readerNavigation.previewing || suppressResumeSave) return;
     const bookId = getBookIdSync();
     if (!bookId || !bookmarkManager) return;
 
@@ -1165,9 +1251,8 @@
 
       data = bookmarkManager.formatBookmarkDataByRange(bookId, bookmarkRange);
 
-      if (userSelectedRange) {
-        clearRange(window);
-      }
+      // A resume save must not dismiss a selection that the reader is using
+      // for a dictionary lookup or a new highlight.
     } else {
       data = bookmarkManager.formatBookmarkData(bookId, customReadingPointScrollOffset);
     }
@@ -1192,6 +1277,252 @@
     }
 
     bookmarkManager.scrollToBookmark(data, customReadingPointScrollOffset);
+  }
+
+  async function previewLocator(
+    locator: ReaderLocator,
+    source: 'search' | 'scrubber' | 'annotations' = 'search'
+  ) {
+    if (!bookReaderComponent || !readerBookKey) return;
+    // Capturing the origin can await layout. Fence resume autosaves before that
+    // first await, so a page-change fired while a sheet closes cannot replace it.
+    suppressResumeSave = true;
+    // Modal sheets can lock or shift the reader scrollport. Keep the source
+    // point captured before opening the sheet instead of sampling covered text.
+    const sheetOrigin =
+      source === 'search' ? searchOrigin : source === 'scrubber' ? scrubberPoint : annotationPoint;
+    const origin =
+      readerNavigation.returnPoint ??
+      sheetOrigin ??
+      (await bookReaderComponent.captureReaderPoint(
+        readerBookKey,
+        $rawBookData$?.publicationManifest
+      ));
+    if (!origin) {
+      suppressResumeSave = false;
+      return;
+    }
+    const wasPaused = $isTrackerPaused$;
+    if (!readerNavigation.previewing) previewTrackerWasPaused = wasPaused;
+    pauseTracker();
+    showBookSearch = false;
+    showScrubber = false;
+    showAnnotations = false;
+    const reopen = () => {
+      if (source === 'search') showBookSearch = true;
+      else if (source === 'scrubber') showScrubber = true;
+      else showAnnotations = true;
+    };
+    let revealed = false;
+    revealingReaderLocator = true;
+    try {
+      await tick();
+      revealed = await bookReaderComponent.revealReaderLocator(locator, readerBookKey);
+    } catch (error) {
+      logger.error(
+        `Could not open reader location: ${error instanceof Error ? error.message : String(error)}`
+      );
+      suppressResumeSave = false;
+      revealingReaderLocator = false;
+      reopen();
+      if (!wasPaused) isTrackerPaused$.next(false);
+      return;
+    }
+    if (!revealed) {
+      suppressResumeSave = false;
+      revealingReaderLocator = false;
+      reopen();
+      if (!wasPaused) isTrackerPaused$.next(false);
+      return;
+    }
+    readerNavigation.preview(origin, locator);
+    activeSearchLocator = source === 'search' ? locator : undefined;
+    navigationPreviewing = true;
+    suppressResumeSave = false;
+    revealingReaderLocator = false;
+  }
+
+  async function openBookSearch() {
+    if (!bookReaderComponent || !readerBookKey) return;
+    searchOrigin =
+      readerNavigation.returnPoint ??
+      (await bookReaderComponent.captureReaderPoint(
+        readerBookKey,
+        $rawBookData$?.publicationManifest
+      ));
+    showHeader = false;
+    showBookSearch = true;
+  }
+
+  async function openScrubber() {
+    if (!bookReaderComponent || !readerBookKey) return;
+    scrubberPoint = await bookReaderComponent.captureReaderPoint(
+      readerBookKey,
+      $rawBookData$?.publicationManifest
+    );
+    showHeader = false;
+    showScrubber = true;
+  }
+
+  async function openAnnotations() {
+    if (!bookReaderComponent || !readerBookKey) return;
+    annotationError = '';
+    annotationStatus = '';
+    const manifest = $rawBookData$?.publicationManifest;
+    try {
+      // Capture before focus moves into the sheet; the DOM selection is ephemeral.
+      annotationSelection = await bookReaderComponent.captureReaderSelection(
+        readerBookKey,
+        manifest,
+        lastSelectedRange
+      );
+      annotationPoint = await bookReaderComponent.captureReaderPoint(readerBookKey, manifest);
+      annotations = await listReaderAnnotations(readerBookKey);
+      annotationImportConflicts = await listAnnotationImportConflicts(readerBookKey);
+      showHeader = false;
+      showAnnotations = true;
+    } catch (error) {
+      annotationError = error instanceof Error ? error.message : String(error);
+      showAnnotations = true;
+    }
+  }
+
+  async function addAnnotation(kind: ReaderAnnotation['kind'], body?: string) {
+    if (annotationBusy || !readerBookKey) return;
+    const targets =
+      kind === 'bookmark' ? (annotationPoint ? [annotationPoint] : []) : annotationSelection;
+    if (!targets.length) {
+      annotationError =
+        kind === 'bookmark'
+          ? 'The current reading position is not ready yet.'
+          : 'Select a passage in this book first.';
+      return;
+    }
+    annotationBusy = true;
+    annotationError = '';
+    try {
+      await saveReaderAnnotation(
+        { bookKey: readerBookKey, kind, targets, body },
+        currentUser()?.id
+      );
+      annotations = await listReaderAnnotations(readerBookKey);
+      if (kind === 'note') annotationSavedVersion += 1;
+    } catch (error) {
+      annotationError = error instanceof Error ? error.message : String(error);
+    } finally {
+      annotationBusy = false;
+    }
+  }
+
+  async function removeAnnotation(id: string) {
+    if (annotationBusy) return;
+    annotationBusy = true;
+    annotationError = '';
+    try {
+      await removeReaderAnnotation(id, currentUser()?.id);
+      annotations = await listReaderAnnotations(readerBookKey);
+    } catch (error) {
+      annotationError = error instanceof Error ? error.message : String(error);
+    } finally {
+      annotationBusy = false;
+    }
+  }
+
+  async function exportAnnotations() {
+    if (annotationBusy) return;
+    annotationBusy = true;
+    annotationError = '';
+    annotationStatus = '';
+    try {
+      const json = await exportReaderAnnotations();
+      const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'manabi-reader-annotations.json';
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+      annotationStatus = 'Notes archive downloaded.';
+    } catch (error) {
+      annotationError = error instanceof Error ? error.message : String(error);
+    } finally {
+      annotationBusy = false;
+    }
+  }
+
+  async function importAnnotations(file: File) {
+    if (annotationBusy) return;
+    annotationBusy = true;
+    annotationError = '';
+    annotationStatus = '';
+    try {
+      if (file.size > 16 * 1024 * 1024) throw new Error('The annotation archive is too large.');
+      const result = await importReaderAnnotations(await file.text(), currentUser()?.id);
+      annotations = await listReaderAnnotations(readerBookKey);
+      annotationImportConflicts = await listAnnotationImportConflicts(readerBookKey);
+      annotationStatus = `${result.imported} imported, ${result.alreadyPresent} already present, ${result.conflicts} kept for conflict review. Archives may include notes for books not currently connected.`;
+    } catch (error) {
+      annotationError = error instanceof Error ? error.message : String(error);
+    } finally {
+      annotationBusy = false;
+    }
+  }
+
+  async function resolveImportConflict(id: string, choice: 'keep-local' | 'restore-archive') {
+    if (annotationBusy) return;
+    annotationBusy = true;
+    annotationError = '';
+    try {
+      await resolveAnnotationImportConflict(id, choice, currentUser()?.id);
+      annotations = await listReaderAnnotations(readerBookKey);
+      annotationImportConflicts = await listAnnotationImportConflicts(readerBookKey);
+      annotationStatus =
+        choice === 'restore-archive' ? 'Archived passage restored.' : 'Current copy kept.';
+    } catch (error) {
+      annotationError = error instanceof Error ? error.message : String(error);
+    } finally {
+      annotationBusy = false;
+    }
+  }
+
+  async function returnToReadingPoint() {
+    const origin = readerNavigation.returnPoint;
+    if (!origin || !bookReaderComponent || !readerBookKey) return;
+    revealingReaderLocator = true;
+    try {
+      if (!(await bookReaderComponent.revealReaderLocator(origin, readerBookKey))) return;
+      readerNavigation.returnToOrigin();
+      pendingPreviewAdoption = false;
+      activeSearchLocator = undefined;
+      navigationPreviewing = false;
+      isTrackerPaused$.next(previewTrackerWasPaused);
+    } finally {
+      revealingReaderLocator = false;
+    }
+  }
+
+  async function continueAtPreview() {
+    if (!readerNavigation.previewing) return;
+    readerNavigation.continueHere();
+    pendingPreviewAdoption = false;
+    activeSearchLocator = undefined;
+    navigationPreviewing = false;
+    await saveBookmark();
+    isTrackerPaused$.next(previewTrackerWasPaused);
+  }
+
+  async function restorePreviewAfterReflow(epoch: number) {
+    const target = readerNavigation.visiblePoint;
+    if (revealingReaderLocator || !target || !bookReaderComponent || !readerBookKey) return;
+    await tick();
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    if (
+      epoch !== readerContentEpoch ||
+      revealingReaderLocator ||
+      !readerNavigation.previewing ||
+      target !== readerNavigation.visiblePoint
+    )
+      return;
+    await bookReaderComponent.revealReaderLocator(target, readerBookKey);
   }
 
   function onFullscreenClick() {
@@ -1566,6 +1897,7 @@
     merge(fromEvent(document, PAGE_CHANGE), timerAmount ? timer(timerAmount) : NEVER)
       .pipe(debounceTime(200), take(1))
       .subscribe(() => {
+        if (readerNavigation.previewing || suppressResumeSave) return;
         wasTrackerPaused = false;
         $isTrackerPaused$ = false;
       });
@@ -1637,7 +1969,6 @@
       showFullscreenButton={fullscreenManager.fullscreenEnabled}
       autoScrollMultiplier={$multiplier$}
       {hasBookmarkData}
-      bind:isBookmarkScreen
       on:tocClick={() => {
         pauseTracker();
 
@@ -1645,6 +1976,14 @@
         tocIsOpen$.next(true);
       }}
       on:jumpClick={handleJump}
+      on:searchBookClick={() => {
+        void openBookSearch();
+      }}
+      on:scrubClick={openScrubber}
+      on:lineGuideClick={() => {
+        showHeader = false;
+        lineGuideEnabled = !lineGuideEnabled;
+      }}
       on:completeBook={completeBook}
       on:setCustomReadingPoint={handleSetCustomReadingPoint}
       on:showCustomReadingPoint={() => {
@@ -1674,6 +2013,7 @@
       }}
       on:fullscreenClick={onFullscreenClick}
       on:bookmarkClick={bookmarkPage}
+      on:annotationsClick={openAnnotations}
       on:scrollToBookmarkClick={() => {
         showHeader = false;
         scrollToBookmark();
@@ -1728,6 +2068,8 @@
   {/if}
   <StyleSheetRenderer styleSheet={$bookData$.styleSheet} />
   <BookReader
+    bind:this={bookReaderComponent}
+    previewNavigationActive={navigationPreviewing || suppressResumeSave}
     htmlContent={$bookData$.htmlContent}
     width={$containerViewportWidth$ ?? 0}
     height={$containerViewportHeight$ ?? 0}
@@ -1776,10 +2118,35 @@
     bind:showCustomReadingPoint
     on:bookmark={saveBookmark}
     on:trackerPause={() => pauseTracker(true)}
+    on:userNavigation={() => {
+      if (readerNavigation.previewing) pendingPreviewAdoption = true;
+    }}
+    on:contentChange={(event) => {
+      guideContentEl = event.detail;
+      readerContentEpoch += 1;
+      if (readerNavigation.previewing && !revealingReaderLocator)
+        void restorePreviewAfterReflow(readerContentEpoch);
+    }}
+  />
+  <ReaderHighlights
+    contentEl={guideContentEl}
+    {annotations}
+    active={activeSearchLocator}
+    bookKey={readerBookKey}
+    epoch={readerContentEpoch}
+  />
+  <ReaderLineGuide
+    bind:enabled={lineGuideEnabled}
+    contentEl={guideContentEl}
+    verticalMode={$verticalMode$}
+    bind:visibleLines={lineGuideLines}
+    bind:dimming={lineGuideDimming}
+    epoch={readerContentEpoch}
   />
   {$setBackgroundColor$ ?? ''}
   {$setWritingMode$ ?? ''}
   {$textSelector$ ?? ''}
+  {$previewAdoption$ ?? ''}
   {$replicator$ ?? ''}
   {$autoStartTracker$ ?? ''}
 {:else}
@@ -1790,6 +2157,63 @@
   bind:open={showAppearance}
   on:settingsClick={() => leaveReader(mergeEntries.SETTINGS.routeId, false)}
 />
+
+<ReaderSearch
+  bind:open={showBookSearch}
+  rawHtml={$rawBookData$?.elementHtml ?? ''}
+  manifest={$rawBookData$?.publicationManifest}
+  bookKey={readerBookKey}
+  bookTitle={$rawBookData$?.title ?? ''}
+  on:select={(event) => previewLocator(event.detail, 'search')}
+/>
+
+<ReaderScrubber
+  bind:open={showScrubber}
+  rawHtml={$rawBookData$?.elementHtml ?? ''}
+  manifest={$rawBookData$?.publicationManifest}
+  bookKey={readerBookKey}
+  current={scrubberPoint}
+  on:select={(event) => previewLocator(event.detail, 'scrubber')}
+/>
+
+<ReaderAnnotations
+  bind:open={showAnnotations}
+  {annotations}
+  importConflicts={annotationImportConflicts}
+  hasSelection={annotationSelection.length > 0}
+  error={annotationError}
+  status={annotationStatus}
+  busy={annotationBusy}
+  savedVersion={annotationSavedVersion}
+  on:bookmark={() => addAnnotation('bookmark')}
+  on:highlight={() => addAnnotation('highlight')}
+  on:note={(event) => addAnnotation('note', event.detail)}
+  on:openAnnotation={(event) => {
+    showAnnotations = false;
+    void previewLocator(event.detail.targets[0], 'annotations');
+  }}
+  on:remove={(event) => removeAnnotation(event.detail)}
+  on:export={exportAnnotations}
+  on:import={(event) => importAnnotations(event.detail)}
+  on:resolveImport={(event) => resolveImportConflict(event.detail.id, event.detail.choice)}
+/>
+
+{#if navigationPreviewing}
+  <div
+    class="writing-horizontal-tb fixed bottom-16 left-4 z-20 flex items-center gap-1 rounded-full border border-border bg-background p-1 shadow-sm"
+  >
+    <button
+      type="button"
+      class="min-h-11 rounded-full px-3 text-sm font-medium"
+      on:click={returnToReadingPoint}>Return to where I was</button
+    >
+    <button
+      type="button"
+      class="min-h-11 rounded-full px-3 text-sm text-muted-foreground"
+      on:click={continueAtPreview}>Continue Here</button
+    >
+  </div>
+{/if}
 
 <Sheet.Root
   open={$tocIsOpen$}

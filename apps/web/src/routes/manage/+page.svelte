@@ -20,6 +20,7 @@
   import { logger } from '$lib/data/logger';
   import { SortDirection, type SortOption } from '$lib/data/sort-types';
   import { ApiStorageHandler } from '$lib/data/storage/handler/api-handler';
+  import { BrowserStorageHandler } from '$lib/data/storage/handler/browser-handler';
   import { getStorageHandler } from '$lib/data/storage/storage-handler-factory';
   import { StorageKey } from '$lib/data/storage/storage-types';
   import { storageSource$ } from '$lib/data/storage/storage-view';
@@ -461,16 +462,17 @@
 
     const currentBookCount = $bookCards$.length;
     const handler = getStorageHandler(window, $storageSource$, '');
-    const { error, deleted } = await handler.deleteBookData(
-      $bookCards$.reduce((toDelete, card) => {
-        if (bookIds.includes(card.id)) {
-          toDelete.push(card.title);
-        }
-        return toDelete;
-      }, [] as string[]),
-      cancelSignal,
-      $keepLocalStatisticsOnDeletion$
-    );
+    const { error, deleted } =
+      handler instanceof BrowserStorageHandler
+        ? await handler.deleteBookIds(bookIds, cancelSignal, $keepLocalStatisticsOnDeletion$)
+        : await handler.deleteBookData(
+            $bookCards$.reduce((toDelete, card) => {
+              if (bookIds.includes(card.id)) toDelete.push(card.title);
+              return toDelete;
+            }, [] as string[]),
+            cancelSignal,
+            $keepLocalStatisticsOnDeletion$
+          );
 
     resetProgress();
 

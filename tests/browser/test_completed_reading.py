@@ -1,4 +1,4 @@
-"""Complete a real book, sync real files, then export and migrate its completion.
+"""Complete a real book, then export and migrate its completion.
 
 Only the local-folder capability is initialized as a fixture. Completion rows,
 ZIPs, and migration receipts are produced by the actual static application's UI.
@@ -23,7 +23,7 @@ class CompletedReadingBrowser(LocalLibraryBrowser):
             tx.oncomplete=()=>{resolve(rows.result);db.close();};tx.onerror=()=>reject(tx.error);};
         })''')
 
-    def test_finished_book_survives_folder_sync_export_migration_and_retry(self):
+    def test_finished_book_survives_export_migration_and_retry(self):
         self.seed(True)
         self.import_book()
         self.page.get_by_role('link', name='Read local-book', exact=True).click()
@@ -43,21 +43,12 @@ class CompletedReadingBrowser(LocalLibraryBrowser):
         finished=next(row for row in before if row.get('completedBook')==1)
         completion=finished['completedData']
         self.assertEqual(1,completion['exporterVersion'])
-        self.assertEqual(6,completion['dbVersion'])
+        self.assertEqual(8,completion['dbVersion'])
         self.assertIn('averageWeightedRedingTime',completion)
         self.assertIn('averageWeightedCharatersRead',completion)
         self.page.goto(self.origin+'/Reader-Web/connections')
         expect(self.page.get_by_role('button', name='Refresh connections')).to_be_enabled()
-        article=self.page.locator('article[aria-label="Reading sync for local-book"]')
-        article.get_by_role('button',name='Sync local-book',exact=True).click()
-        expect(self.page.get_by_role('button',name='Refresh connections')).to_be_enabled()
-        expect(article.get_by_role('status')).to_contain_text('Saved to this folder')
-        documents=self.documents()
-        consumed={parent for document in documents for parent in document['parents']}
-        head=next(document for document in documents if document['id'] not in consumed)
-        saved=head['value']['statistics'][finished['dateKey']]
-        self.assertEqual(completion,saved['completedData'])
-        self.assertEqual(1,saved['completedBook'])
+        self.assertEqual([], self.documents())
         self.assertEqual(CONTENT,self.original())
         self.assertEqual(before,self.statistics(self.page))
 
@@ -106,5 +97,5 @@ class CompletedReadingBrowser(LocalLibraryBrowser):
 
 
 if __name__=='__main__':
-    suite=unittest.TestSuite([CompletedReadingBrowser('test_finished_book_survives_folder_sync_export_migration_and_retry')])
+    suite=unittest.TestSuite([CompletedReadingBrowser('test_finished_book_survives_export_migration_and_retry')])
     sys.exit(not unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful())

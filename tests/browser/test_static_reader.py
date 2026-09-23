@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import threading
 import unittest
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 import zipfile
 from playwright.sync_api import sync_playwright, expect
 
@@ -50,6 +50,8 @@ class StaticHandler(SimpleHTTPRequestHandler):
     account_requests = []
     preference_revision = 0
     preference_settings = {}
+    personal_enabled = False
+    personal_mutations = []
 
     def api_request(self):
         length = int(self.headers.get('Content-Length') or '0')
@@ -103,6 +105,10 @@ class StaticHandler(SimpleHTTPRequestHandler):
                 }, user=identity)
             elif path.endswith('/connections/'):
                 self.api_response({'items': []}, user=identity)
+            elif path.endswith('/personal/changes/') and type(self).personal_enabled:
+                cursor = int(parse_qs(urlsplit(self.path).query).get('cursor', ['0'])[0])
+                self.api_response({'items': [], 'next_cursor': cursor, 'has_more': False},
+                                  user=identity)
             else:
                 self.send_error(404)
             return
@@ -129,6 +135,19 @@ class StaticHandler(SimpleHTTPRequestHandler):
     def do_POST(self):
         fixture = type(self).account_fixture
         path = urlsplit(self.path).path
+        if fixture is not None and type(self).personal_enabled and path.endswith('/personal/mutations/'):
+            self.api_request()
+            value = type(self).account_requests[-1]['body']
+            identity = fixture['user']['id']
+            type(self).personal_mutations.append((identity, value))
+            self.api_response({
+                'accepted': True, 'mutation_id': value['mutation_id'],
+                'record': {'kind': value['kind'], 'entity_id': value['entity_id'],
+                           'book_key': value['book_key'], 'revision': 1,
+                           'payload': value['payload'],
+                           'deleted': value['operation'] == 'delete'}
+            }, user=identity)
+            return
         if fixture is not None and path.endswith('/logout/'):
             admitted = fixture['user']['id']
             self.api_request()

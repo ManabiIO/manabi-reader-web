@@ -34,7 +34,8 @@ export class IntegrationError extends Error {
   constructor(
     public readonly code: string,
     public readonly status = 0,
-    public readonly retryAfter = 0
+    public readonly retryAfter = 0,
+    public readonly current?: unknown
   ) {
     super(
       messages[code] ?? 'The connection could not complete. Your local reading data is unchanged.'
@@ -58,7 +59,11 @@ const messages: Record<string, string> = {
   permission_required: 'Reconnect this local folder to grant access again.',
   unsupported: 'This browser does not support persistent local-folder access.',
   request_too_large: 'This reading or settings record exceeds the supported size limit.',
-  too_large: 'This file or reading-data record exceeds the supported size limit.'
+  too_large: 'This file or reading-data record exceeds the supported size limit.',
+  busy: 'This cloud operation is still in progress. Check its status shortly.',
+  precondition_required: 'Refresh the operation plan before continuing.',
+  ambiguous_statistics:
+    'Reading sync is paused because different books share a title in legacy statistics. Local data is kept.'
 };
 
 export function currentUser(): ManabiUser | null {
@@ -209,7 +214,8 @@ export async function request<T>(
     throw new IntegrationError(
       typeof body.error === 'string' ? body.error : 'unavailable',
       response.status,
-      Math.min(3600, Math.max(0, Number(response.headers.get('Retry-After')) || 0))
+      Math.min(3600, Math.max(0, Number(response.headers.get('Retry-After')) || 0)),
+      body.current
     );
   }
   if (options.binary) {
@@ -235,6 +241,18 @@ export async function connectProvider(provider: string) {
     value: {}
   });
   const url = providerAuthorization(result.authorize_url, provider, location.hostname);
+  if (!url) throw new IntegrationError('invalid_response');
+  location.assign(url.href);
+}
+
+/** Starts an incremental OneDrive grant bound to the existing connection. */
+export async function requestSeriesWriteAccess(connectionId: string) {
+  if (!/^[0-9a-f-]{36}$/i.test(connectionId)) throw new Error('Invalid connection ID');
+  const result = await request<{ authorize_url: string }>('oauth/onedrive/connect/', {
+    method: 'POST',
+    value: { purpose: 'series_edit', connection_id: connectionId }
+  });
+  const url = providerAuthorization(result.authorize_url, 'onedrive', location.hostname);
   if (!url) throw new IntegrationError('invalid_response');
   location.assign(url.href);
 }

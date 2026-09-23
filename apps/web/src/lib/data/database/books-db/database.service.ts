@@ -224,7 +224,16 @@ export class DatabaseService {
 
     const tx = db.transaction('data', 'readwrite');
     const { store } = tx;
-    const oldData = await store.index('title').get(data.title);
+    const titleMatches = await store.index('title').getAll(data.title);
+    // The inherited TTU importer used title as identity. Distinct source bytes
+    // can have the same title, so never replace a verified book with another
+    // file merely because their titles match. Unverified legacy records retain
+    // their local title-based upsert behavior until they gain a real digest.
+    const oldData = data.contentHash
+      ? titleMatches.find(
+          (book) => book.contentHash?.toLowerCase() === data.contentHash?.toLowerCase()
+        )
+      : titleMatches.find((book) => !book.contentHash);
 
     if (oldData) {
       if (removeStorageContext) {
@@ -396,6 +405,11 @@ export class DatabaseService {
       if (!bookTitle) {
         bookTitle = (await tx.objectStore('data').get(dataId))?.title;
       }
+      const titleUsedByAnotherBook = bookTitle
+        ? (await tx.objectStore('data').index('title').getAllKeys(bookTitle)).some(
+            (id) => id !== dataId
+          )
+        : false;
 
       if (shouldDeleteLastItem) {
         await tx.objectStore('lastItem').delete(LAST_ITEM_KEY);
@@ -405,12 +419,12 @@ export class DatabaseService {
         await tx.objectStore('bookmark').delete(dataId);
       }
 
-      if (shouldDeleteStatistics && bookTitle) {
+      if (shouldDeleteStatistics && bookTitle && !titleUsedByAnotherBook) {
         await tx.objectStore('statistic').delete(IDBKeyRange.bound([bookTitle], [bookTitle, []]));
         await tx.objectStore('lastModified').delete([bookTitle, StorageDataType.STATISTICS]);
       }
 
-      if (bookTitle) {
+      if (bookTitle && !titleUsedByAnotherBook) {
         await tx.objectStore('audioBook').delete(bookTitle);
         await tx.objectStore('subtitle').delete(bookTitle);
         await tx.objectStore('handle').delete(IDBKeyRange.bound([bookTitle], [bookTitle, []]));

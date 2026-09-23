@@ -79,7 +79,7 @@ class RheaReader(previous.RefinedAppearance):
                 self.assertLessEqual(content['y'] + content['height'], box['y'])
                 trigger.click()
                 toolbar = self.page.get_by_role('banner', name='Reader toolbar')
-                for name in ['Library', 'Bookmark', 'Themes & Settings', 'Reading tools']:
+                for name in ['Library', 'Bookmarks and Notes', 'Themes & Settings', 'Reading tools']:
                     bounds = toolbar.get_by_role('button', name=name, exact=True).bounding_box()
                     self.assertGreaterEqual(bounds['x'], 0)
                     self.assertLessEqual(bounds['x'] + bounds['width'], width)
@@ -217,7 +217,8 @@ class RheaReader(previous.RefinedAppearance):
             expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
             expect(self.page.locator('.book-content')).to_contain_text('A new morning')
             started = self.page.evaluate('Date.now()')
-            self.page.get_by_role('button', name='Bookmark', exact=True).click()
+            self.page.get_by_role('button', name='Reading tools', exact=True).click()
+            self.page.get_by_role('menuitem', name='Save Reading Position', exact=True).click()
             # Bookmark persistence is asynchronous. Reload only after the real
             # IndexedDB transaction commits the explicit save.
             deadline = time.monotonic() + 20
@@ -414,7 +415,7 @@ class RheaReader(previous.RefinedAppearance):
         self.page.get_by_role('button', name='Show reading controls', exact=True).click()
         toolbar = self.page.get_by_role('banner', name='Reader toolbar')
         expect(toolbar.get_by_role('button', name='Library', exact=True)).to_be_visible()
-        expect(toolbar.get_by_role('button', name='Bookmark', exact=True)).to_be_visible()
+        expect(toolbar.get_by_role('button', name='Bookmarks and Notes', exact=True)).to_be_visible()
         tools = toolbar.get_by_role('button', name='Reading tools', exact=True)
         tools.click()
         menu = self.page.get_by_role('menu')
@@ -546,7 +547,8 @@ class RheaReader(previous.RefinedAppearance):
         reveal = self.page.get_by_role('button', name='Show reading controls', exact=True)
         if reveal.is_visible():
             reveal.click()
-        toolbar.get_by_role('button', name='Bookmark', exact=True).click()
+        toolbar.get_by_role('button', name='Reading tools', exact=True).click()
+        self.page.get_by_role('menuitem', name='Save Reading Position', exact=True).click()
 
         # Read the real IndexedDB records after the reader's bookmark transaction
         # completes; these provide the expected values and the immutability check.

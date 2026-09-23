@@ -4,7 +4,12 @@
  * All rights reserved.
  */
 
-import { decodeSeriesMetadata, seriesMetadataFilename } from '$lib/library/series-metadata';
+import {
+  decodeSeriesMetadata,
+  isSeriesMetadataFilename,
+  legacySeriesMetadataFilename,
+  seriesMetadataFilename
+} from '$lib/library/series-metadata';
 import { IntegrationError, currentUser, request } from './client';
 import { maxManagedStateBytes } from './auth-contract';
 import { integrationDB, exclusive, equal, type LocalLibrary } from './persistence';
@@ -96,7 +101,7 @@ export class CloudLibrary implements LibrarySource {
   async readSeriesName(item: LibraryEntry) {
     if (
       item.kind !== 'file' ||
-      item.name !== seriesMetadataFilename ||
+      !isSeriesMetadataFilename(item.name) ||
       (item.size !== undefined && item.size > 4096)
     )
       throw new Error('Invalid or oversized series metadata.');
@@ -213,13 +218,16 @@ export class LocalLibrarySource implements LibrarySource {
     if (!parent) return undefined;
     await this.permission();
     const directory = await this.directory(parent);
-    let handle: FileSystemFileHandle;
-    try {
-      handle = await directory.getFileHandle(seriesMetadataFilename);
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'NotFoundError') return undefined;
-      throw error;
+    let handle: FileSystemFileHandle | undefined;
+    for (const filename of [seriesMetadataFilename, legacySeriesMetadataFilename]) {
+      try {
+        handle = await directory.getFileHandle(filename);
+        break;
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === 'NotFoundError')) throw error;
+      }
     }
+    if (!handle) return undefined;
     const file = await handle.getFile();
     if (file.size > 4096) throw new Error('Series metadata is too large.');
     return decodeSeriesMetadata(await file.text());

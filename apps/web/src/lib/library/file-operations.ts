@@ -8,6 +8,7 @@ import {
   directoryName,
   encodeSeriesMetadata,
   decodeSeriesMetadata,
+  legacySeriesMetadataFilename,
   seriesMetadataFilename
 } from './series-metadata.ts';
 
@@ -243,6 +244,11 @@ export async function renameSeriesOnDisk(
     if (file.size > 4096) throw new Error('Series metadata is too large.');
     before = await file.text();
     decodeSeriesMetadata(before); // Do not destroy unknown/invalid YAML fields.
+  } else if (!(await absent(() => directory.getFileHandle(legacySeriesMetadataFilename)))) {
+    // A legacy sidecar remains readable. Validate it before the first lowercase write.
+    const file = await (await directory.getFileHandle(legacySeriesMetadataFilename)).getFile();
+    if (file.size > 4096) throw new Error('Series metadata is too large.');
+    decodeSeriesMetadata(await file.text());
   }
   const handle = await directory.getFileHandle(seriesMetadataFilename, { create: true });
   if ((await (await handle.getFile()).text()) !== before)
