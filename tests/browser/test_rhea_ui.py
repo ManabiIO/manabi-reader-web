@@ -861,8 +861,10 @@ class RheaReader(previous.RefinedAppearance):
             return url;
           };
         }''')
-        panel.get_by_role('button', name='Download raw history (JSON)').click()
-        self.page.wait_for_function('window.__statisticsRecoveryDownload?.blob?.size > 0')
+        with self.page.expect_download() as download:
+            panel.get_by_role('button', name='Download raw history (JSON)').click()
+        self.assertTrue(download.value.suggested_filename.startswith('manabi-reader-statistics-recovery-'))
+        self.assertGreater(self.page.evaluate('() => window.__statisticsRecoveryDownload?.blob?.size ?? 0'), 0)
         snapshot = self.page.evaluate('''async () => JSON.parse(
           await window.__statisticsRecoveryDownload.blob.text())''')
         self.assertEqual('manabi-reader-statistics-recovery', snapshot['format'])

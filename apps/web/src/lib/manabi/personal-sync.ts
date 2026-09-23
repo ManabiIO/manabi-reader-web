@@ -785,7 +785,11 @@ export async function syncPersonalState() {
       await publish(
         accountId,
         error instanceof IntegrationError ? error.code : 'unavailable',
-        error instanceof Error ? error.message : 'Sync unavailable; local changes are saved.'
+        error instanceof IntegrationError && error.code === 'invalid_cursor'
+          ? 'Account reading history changed unexpectedly. Local reading data is safe; contact support before syncing again.'
+          : error instanceof Error
+            ? error.message
+            : 'Sync unavailable; local changes are saved.'
       );
     }
   });
