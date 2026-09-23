@@ -893,8 +893,12 @@ class BooksLibraryBrowser(LibraryBase):
         self.assertAlmostEqual(888, panel['bottom'], delta=2)
         self.assertGreaterEqual(panel['radius'], 20)
         self.assertGreater(panel['rightBorder'], 0)
-        header_style = header.evaluate('element => getComputedStyle(element).backgroundColor')
-        self.assertIn(header_style, ('rgba(0, 0, 0, 0)', 'transparent'))
+        header_style = header.evaluate('''element => {
+            const style = getComputedStyle(element);
+            return {background: style.backgroundColor, border: parseFloat(style.borderBottomWidth)};
+        }''')
+        self.assertIn(header_style['background'], ('rgba(0, 0, 0, 0)', 'transparent'))
+        self.assertEqual(0, header_style['border'])
         expect(header.get_by_role('button', name='Main menu', exact=True)).not_to_be_visible()
         expect(header.get_by_role('button', name='Collections', exact=True)).not_to_be_visible()
         expect(self.tile('Rail book')).to_be_visible()
@@ -1075,8 +1079,8 @@ class BooksLibraryBrowser(LibraryBase):
             try:
                 self.page.goto(self.origin + '/Reader-Web/import-ttu')
                 chooser = self.page.get_by_label('Choose Ttu export ZIPs', exact=True)
-                chooser.set_input_files({'name':'library-backup.zip','mimeType':'application/zip','buffer':raw})
                 expect(chooser).to_be_enabled()
+                chooser.set_input_files({'name':'library-backup.zip','mimeType':'application/zip','buffer':raw})
                 import_selected = self.page.get_by_role(
                     'button', name=re.compile(r'^Import selected \('))
                 expect(import_selected).to_be_visible(timeout=60000)
