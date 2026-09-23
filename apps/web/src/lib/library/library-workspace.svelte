@@ -1605,7 +1605,7 @@
     display: grid;
     grid-template-columns: repeat(
       auto-fill,
-      minmax(min(11rem, calc((100% - var(--shelf-gap)) / 2)), 1fr)
+      minmax(min(9.5rem, calc((100% - var(--shelf-gap)) / 2)), 1fr)
     );
     column-gap: var(--shelf-gap);
     row-gap: 1.5rem;

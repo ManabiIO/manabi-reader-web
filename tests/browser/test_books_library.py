@@ -160,7 +160,16 @@ class LibraryBase(unittest.TestCase):
         # transaction publishes the updated organization. Waiting on that
         # state transition avoids racing the collection checkbox render.
         expect(name_input).to_have_value('')
-        expect(dialog.get_by_role('checkbox', name=name, exact=True)).to_be_checked()
+        try:
+            expect(dialog.get_by_role('checkbox', name=name, exact=True)).to_be_checked()
+        except AssertionError as failure:
+            rows = self.stores('manabi-reader-integrations', ['metadata'])['metadata']
+            saved = next((row for row in rows if row.get('version') == 1 and 'collections' in row), {})
+            names = [collection.get('name') for collection in saved.get('collections', [])]
+            alerts = dialog.get_by_role('alert').all_text_contents()
+            raise AssertionError(
+                f'Collection {name!r} was not shown after creation; persisted={names!r}; alerts={alerts!r}'
+            ) from failure
         dialog.get_by_role('button', name='Done', exact=True).click()
         # Do not fill the previous dialog's still-mounted exit transition when
         # the next collection is opened immediately after this one.
@@ -267,7 +276,7 @@ class BooksLibraryBrowser(LibraryBase):
             return image.decode();
         }))''')
         measurements = {}
-        for width in (320, 390, 430, 768, 1023, 1024, 1200, 1300, 1400, 1728):
+        for width in (320, 390, 430, 768, 1023, 1024, 1200, 1300, 1400, 1440, 1728):
             with self.subTest(width=width):
                 self.page.set_viewport_size({'width': width, 'height': 900})
                 geometry = self.page.locator('.shelf-grid').evaluate('''grid => {
@@ -288,6 +297,10 @@ class BooksLibraryBrowser(LibraryBase):
                 self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), width + 1)
                 if width <= 430:
                     self.assertEqual(2, geometry['columns'])
+                if width == 768:
+                    self.assertEqual(4, geometry['columns'])
+                if width == 1440:
+                    self.assertEqual(6, geometry['columns'])
                 for cover in geometry['covers']:
                     self.assertLessEqual(cover['width'], cover['maxWidth'] + 1)
                     self.assertLessEqual(cover['height'], cover['maxHeight'] + 1)

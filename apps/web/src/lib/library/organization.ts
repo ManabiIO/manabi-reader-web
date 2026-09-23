@@ -5,7 +5,7 @@
  */
 
 import { writable } from 'svelte/store';
-import { equal, integrationDB, setMetadata, type BookLink } from '$lib/manabi/persistence';
+import { equal, integrationDB, type BookLink } from '$lib/manabi/persistence';
 import { libraryName } from './series-metadata';
 import {
   applyPortableOrganization,
@@ -35,6 +35,7 @@ export interface Organization {
 const key = 'books-organization-v1';
 export const emptyOrganization = (): Organization => ({ version: 1, collections: [], books: {} });
 let currentOrganization = emptyOrganization();
+let publicationRevision = 0;
 export const organization = writable<Organization>(currentOrganization);
 export const bookKey = (id: number) => `book:${id}`;
 export const contentBookKey = (hash: string) => `content:${hash}`;
@@ -87,6 +88,7 @@ function normalizedOrganization(value: unknown): Organization | undefined {
 }
 function publish(value: Organization) {
   currentOrganization = value;
+  publicationRevision++;
   organization.set(value);
 }
 function notifyOrganizationChange() {
@@ -106,9 +108,11 @@ export const organizationPreference = {
   next(value: unknown) {
     const normalized = normalizedOrganization(value);
     if (!normalized) return;
-    const applied = applyPortableOrganization(currentOrganization, normalized);
-    publish(applied);
-    return setMetadata(key, applied).then(notifyOrganizationChange);
+    return updateOrganization((stored) => {
+      const applied = applyPortableOrganization(stored, normalized);
+      stored.collections = applied.collections;
+      stored.books = applied.books;
+    });
   },
   subscribe(fn: () => void) {
     const unsubscribe = organization.subscribe(() => fn());
@@ -117,7 +121,14 @@ export const organizationPreference = {
 };
 
 export async function reloadOrganization() {
-  const saved = await (await integrationDB()).get('metadata', key);
+  const db = await integrationDB();
+  let saved: unknown;
+  let revision: number;
+  do {
+    revision = publicationRevision;
+    saved = await db.get('metadata', key);
+    // A newer local publication can overtake an older asynchronous read.
+  } while (revision !== publicationRevision);
   const value = normalizedOrganization(saved) ?? emptyOrganization();
   if (!equal(value, currentOrganization)) publish(value);
 }
