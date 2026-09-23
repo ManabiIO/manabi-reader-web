@@ -396,14 +396,13 @@
     {#each localLibraries as library (library.id)}
       <article class="library" aria-label="Local library {library.name}">
         <h3>{library.name}</h3>
-        <p>{library.writable ? 'Folder write-back enabled.' : 'Read-only book access.'}</p>
+        <p>{library.writable ? 'Series editing allowed.' : 'Read-only book access.'}</p>
         <div class="actions">
           <button disabled={busy} on:click={() => action(() => openLocal(library))}
             >Browse {library.name}</button
           >
           <button disabled={busy} on:click={() => grant(library, false)}>Reconnect folder</button>
-          <button disabled={busy} on:click={() => grant(library, true)}
-            >Allow reading-data write-back</button
+          <button disabled={busy} on:click={() => grant(library, true)}>Allow series editing</button
           >
           <button
             disabled={busy}
@@ -421,8 +420,10 @@
       </article>
     {/each}
     <p class="hint">
-      Original books are never modified. Reading data uses a separate .manabi-reader directory. A
-      local save does not confirm that your operating system has finished its cloud upload.
+      Reading does not modify original books. Series edits in a writable folder move selected
+      originals and write .manabi-reader.yaml. Personal reading data stays in IndexedDB and syncs
+      through Manabi when signed in. A local folder save does not confirm that your operating system
+      has finished its cloud upload.
     </p>
   </section>
 
