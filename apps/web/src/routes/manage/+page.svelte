@@ -858,6 +858,9 @@
 </div>
 
 <style>
+  .library-nav-shell {
+    pointer-events: none;
+  }
   .library-nav-shell::before {
     content: '';
     position: absolute;
@@ -879,6 +882,7 @@
   }
   .library-nav-shell :global(header) {
     position: relative;
+    pointer-events: auto;
   }
   @media (min-width: 1024px) {
     .library-nav-shell::before {
