@@ -172,18 +172,27 @@ class CloudSeriesReceiptReplay(LibraryBase):
         # The series tile starts two lazy file reads. Complete those before
         # closing WebKit's context; otherwise it reports the canceled fetches
         # as cross-origin page errors during test teardown.
+        expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute(
+            'aria-busy', 'false', timeout=30000)
+        catalog = self.snapshot()['metadata']['library-catalog:' + SOURCE_KEY]
+        expected = ['source:' + json.dumps(['42', CONNECTION, 'root', item], separators=(',', ':'))
+                    for item in ('first', 'second')]
         deadline = time.monotonic() + 20
         while True:
-            count = self.page.evaluate('''async () => new Promise((resolve, reject) => {
+            count = self.page.evaluate('''async ({expected, scannedAt}) => new Promise((resolve, reject) => {
               const open = indexedDB.open('manabi-library-previews');
               open.onerror = () => reject(open.error);
               open.onsuccess = () => {
                 const db = open.result;
-                const request = db.transaction('previews').objectStore('previews').count();
-                request.onsuccess = () => { db.close(); resolve(request.result); };
+                const request = db.transaction('previews').objectStore('previews').getAll();
+                request.onsuccess = () => {
+                  db.close();
+                  resolve(request.result.filter(value => expected.includes(value.key) &&
+                    value.scannedAt === scannedAt).length);
+                };
                 request.onerror = () => reject(request.error);
               };
-            })''')
+            })''', {'expected': expected, 'scannedAt': catalog['scannedAt']})
             if count >= 2:
                 return
             self.assertLess(time.monotonic(), deadline, 'Visible cloud previews did not finish')
