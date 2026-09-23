@@ -1804,7 +1804,7 @@
     display: grid;
     grid-template-columns: repeat(
       auto-fill,
-      minmax(min(9.5rem, calc((100% - var(--shelf-gap)) / 2)), 1fr)
+      minmax(min(9.25rem, calc((100% - var(--shelf-gap)) / 2)), 1fr)
     );
     column-gap: var(--shelf-gap);
     row-gap: 1.5rem;
@@ -1978,7 +1978,7 @@
   @media (min-width: 1024px) {
     .library-frame {
       display: grid;
-      grid-template-columns: 14.5rem minmax(0, 1fr);
+      grid-template-columns: 16rem minmax(0, 1fr);
       align-items: start;
     }
     .library-workspace {
@@ -1988,12 +1988,15 @@
     .library-rail {
       display: block;
       position: sticky;
-      top: var(--library-header-height, 4rem);
-      height: calc(100dvh - var(--library-header-height, 4rem));
+      top: 0.75rem;
+      height: calc(100dvh - 1.5rem);
+      margin: calc(0.75rem - var(--library-header-height, 4rem)) 0.75rem 0;
       overflow-y: auto;
-      padding: 1.5rem 0.75rem;
-      border-right: 1px solid var(--border);
-      background: color-mix(in oklch, var(--card) 65%, var(--background));
+      padding: 1rem 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 1.5rem;
+      background: color-mix(in oklch, var(--card) 84%, var(--background));
+      box-shadow: 0 8px 30px color-mix(in oklch, var(--foreground) 7%, transparent);
     }
     .library-rail h2,
     .library-rail h3 {

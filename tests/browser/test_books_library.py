@@ -499,8 +499,8 @@ class BooksLibraryBrowser(LibraryBase):
         self.assertGreater(measurements[1400]['columns'], measurements[1300]['columns'])
         self.assertLess(measurements[1400]['width'], measurements[1300]['width'])
         self.assertGreater(measurements[1728]['columns'], measurements[1400]['columns'])
-        # Selection adds a row to the sticky header. The sidebar must remain
-        # below that measured height when the shelf scrolls, then recover on exit.
+        # Selection adds a row to the floating header. The sidebar stays in
+        # its own full-height panel through both header sizes.
         self.page.set_viewport_size({'width': 1440, 'height': 700})
         header = self.page.get_by_role('banner', name='Library toolbar')
         self.page.get_by_role('button', name='Library actions', exact=True).click()
@@ -508,15 +508,16 @@ class BooksLibraryBrowser(LibraryBase):
         self.page.evaluate('window.scrollTo(0, 600)')
         rail = self.page.get_by_role('complementary', name='Collections', exact=True)
         self.page.wait_for_function('''() => {
-            const header = document.querySelector('[aria-label="Library toolbar"]').getBoundingClientRect();
             const rail = document.querySelector('.library-rail').getBoundingClientRect();
-            return Math.abs(rail.top - header.bottom) < 2 && rail.bottom <= innerHeight + 1;
+            const shell = document.querySelector('.library-nav-shell');
+            return Math.abs(rail.top - 12) < 2 && rail.bottom <= innerHeight - 10 &&
+              shell.classList.contains('scrolled') &&
+              getComputedStyle(shell, '::before').backdropFilter !== 'none';
         }''')
         expect(rail.get_by_role('button', name=re.compile('^Books'))).to_be_in_viewport()
         header.get_by_role('button', name='Cancel selection', exact=True).click()
         self.page.wait_for_function('''() => {
-            const header = document.querySelector('[aria-label="Library toolbar"]').getBoundingClientRect();
-            return Math.abs(document.querySelector('.library-rail').getBoundingClientRect().top - header.bottom) < 2;
+            return Math.abs(document.querySelector('.library-rail').getBoundingClientRect().top - 12) < 2;
         }''')
 
     def test_library_responsive_search_geometry_and_touch_targets(self):
@@ -897,6 +898,17 @@ class BooksLibraryBrowser(LibraryBase):
         header = self.page.get_by_role('banner', name='Library toolbar')
         rail = self.page.get_by_role('complementary', name='Collections', exact=True)
         expect(rail).to_be_visible()
+        panel = rail.evaluate('''element => {
+            const box = element.getBoundingClientRect(), style = getComputedStyle(element);
+            return {top: box.top, bottom: box.bottom, radius: parseFloat(style.borderTopLeftRadius),
+                rightBorder: parseFloat(style.borderRightWidth)};
+        }''')
+        self.assertAlmostEqual(12, panel['top'], delta=2)
+        self.assertAlmostEqual(888, panel['bottom'], delta=2)
+        self.assertGreaterEqual(panel['radius'], 20)
+        self.assertGreater(panel['rightBorder'], 0)
+        header_style = header.evaluate('element => getComputedStyle(element).backgroundColor')
+        self.assertIn(header_style, ('rgba(0, 0, 0, 0)', 'transparent'))
         expect(header.get_by_role('button', name='Main menu', exact=True)).not_to_be_visible()
         expect(header.get_by_role('button', name='Collections', exact=True)).not_to_be_visible()
         expect(self.tile('Rail book')).to_be_visible()
