@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import * as Sheet from '$lib/components/ui/sheet';
   import * as Dialog from '$lib/components/ui/dialog';
   import { Button } from '$lib/components/ui/button';
@@ -176,6 +177,17 @@
 <Dialog.Root bind:open={dialogOpen}>
   <Dialog.Content
     class="max-h-[85dvh] overflow-y-auto [&_[data-slot=dialog-close]]:top-3 [&_[data-slot=dialog-close]]:right-3 [&_[data-slot=dialog-close]]:size-11 [&_[data-slot=dialog-footer]_button]:min-h-11"
+    onCloseAutoFocus={(event) => {
+      event.preventDefault();
+      void tick().then(() => {
+        const sheet = document.getElementById('library-collections-sheet');
+        const target =
+          sheet?.querySelector<HTMLButtonElement>('[aria-current="page"]') ??
+          sheet?.querySelector<HTMLButtonElement>('button') ??
+          document.querySelector<HTMLElement>('[aria-label="Library shelves"]');
+        target?.focus();
+      });
+    }}
   >
     <Dialog.Header
       ><Dialog.Title class="pr-8"

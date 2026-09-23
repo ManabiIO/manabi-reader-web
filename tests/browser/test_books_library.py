@@ -720,6 +720,7 @@ class BooksLibraryBrowser(LibraryBase):
                 expect(sheet).to_have_count(0)
                 dialog.get_by_role('button', name='Cancel', exact=True).click()
                 expect(sheet).to_be_visible()
+                expect(sheet.locator(':focus')).to_have_count(1)
                 sheet.get_by_role('button', name='Close collections', exact=True).click()
                 expect(sheet).to_have_count(0)
                 self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), width + 1)
