@@ -100,7 +100,7 @@ async function jsonResponse(response: Response): Promise<any> {
   }
 }
 
-async function performAccountRefresh(): Promise<ManabiSession | null> {
+async function performAccountRefresh(force: boolean): Promise<ManabiSession | null> {
   const serial = ++refreshSerial;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
@@ -109,11 +109,11 @@ async function performAccountRefresh(): Promise<ManabiSession | null> {
       credentials: 'same-origin',
       cache: 'no-store',
       redirect: 'error',
-      // This small, optional session probe may overlap a same-origin navigation.
-      // Let it finish instead of aborting from pagehide: WebKit can surface an
-      // unload-time fetch cancellation as a CORS page error even when the
-      // rejected promise is caught. The timeout still bounds a stalled probe.
-      keepalive: true,
+      // Ordinary probes may overlap navigation. Let them finish rather than
+      // surfacing an unload-time cancellation as a WebKit CORS page error.
+      // A forced online/user refresh must consume the body in the live page;
+      // Chromium can discard a keepalive response body in that path.
+      keepalive: !force,
       signal: controller.signal
     });
     if (response.status === 404 || response.status === 503) {
@@ -150,7 +150,7 @@ export function refreshAccount(force = false): Promise<ManabiSession | null> {
   if (!force && refreshInFlight?.generation === admittedGeneration) return refreshInFlight.promise;
   if (!force && Date.now() - lastRefreshFinished < 5000) return Promise.resolve(lastRefreshResult);
   const attempt = ++refreshAttempt;
-  const promise = performAccountRefresh()
+  const promise = performAccountRefresh(force)
     .then((result) => {
       if (attempt === refreshAttempt) {
         lastRefreshResult = result;
