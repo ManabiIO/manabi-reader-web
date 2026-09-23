@@ -4,7 +4,8 @@
 
 A shared TTU library is `ttu-reader-data/<encoded-title>/`, not simply a folder
 of EPUBs. Its book ZIP, progress JSON and day-statistics JSON use TTU exporter 1 /
-database 6. The Shared TTU libraries page uses the existing TTU storage engine,
+database 6–8 filenames. New browser exports currently use database 8; the
+Shared TTU libraries page uses the existing TTU storage engine,
 not Manabi Web private sidecars. Native app integration is tracked by
 `aehlke/manabi-reader#162`, based on the root app's main branch and Core#129.
 

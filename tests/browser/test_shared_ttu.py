@@ -73,7 +73,7 @@ class SharedTtuBrowser(static.ReaderBrowser):
         files = self.read_shared_files()
         self.assertEqual([static.TITLE], list(files))
         book_name = next(name for name in files[static.TITLE] if name.startswith('bookdata_'))
-        self.assertTrue(book_name.startswith('bookdata_1_6_'))
+        self.assertTrue(book_name.startswith('bookdata_1_8_'))
         with zipfile.ZipFile(io.BytesIO(base64.b64decode(files[static.TITLE][book_name]))) as package:
             data = json.loads(package.read('staticdata.json'))
             self.assertEqual(static.TITLE, data['title'])
