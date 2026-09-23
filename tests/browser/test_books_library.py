@@ -187,6 +187,14 @@ class LibraryBase(unittest.TestCase):
         self.menu(title, 'Add to Collection…')
         dialog = self.dialog()
         name_input = dialog.get_by_label('New collection name', exact=True)
+        expect(dialog).to_be_visible()
+        expect(self.page.get_by_role('menu')).to_have_count(0)
+        # The menu hands focus to the dialog in a portal. Wait for that handoff
+        # to finish before typing into its input; the first mounted node can
+        # be replaced during the transition.
+        self.page.evaluate('''() => new Promise(resolve =>
+          requestAnimationFrame(() => requestAnimationFrame(resolve)))''')
+        expect(name_input).to_be_visible()
         self.page.evaluate('''() => {
           const form = document.querySelector('[data-slot="dialog-content"] form');
           const input = form?.querySelector('input[placeholder="New collection name"]');
@@ -197,8 +205,13 @@ class LibraryBase(unittest.TestCase):
             }), {capture:true});
           }
         }''')
-        name_input.fill(name)
-        expect(name_input).to_have_value(name)
+        # Type through the actual input events after the portal settles.
+        name_input.press_sequentially(name)
+        try:
+            expect(name_input).to_have_value(name)
+        except AssertionError as failure:
+            events = self.page.evaluate('window.__collectionEvents || []')
+            raise AssertionError(f'Collection input changed while typing: {events!r}') from failure
         dialog.get_by_role('button', name='Create', exact=True).click()
         # The create action clears the field only after the IndexedDB
         # transaction publishes the updated organization. Waiting on that

@@ -269,16 +269,6 @@ class CloudRelocationBrowser(LibraryBase):
         rail = self.page.get_by_role('complementary', name='Collections', exact=True)
         count = rail.get_by_role('button', name=re.compile(r'^Portable cloud shelf\b')).locator('span').last
         expect(count).to_have_text('1')
-        CloudRelocationHandler.nodes[DROPBOX] = {}
-        self.refresh()
-        expect(buttons).to_have_count(0, timeout=30000)
-        expect(count).to_have_text('0')
-        CloudRelocationHandler.nodes[DROPBOX] = {
-            'd-new': {'name': 'Other.epub', 'kind': 'file', 'parent': 'dropbox-root'}
-        }
-        self.refresh()
-        expect(buttons).to_have_count(1, timeout=30000)
-        expect(count).to_have_text('1')
         expect(self.tile('Personal traveling volume').locator('img')).to_have_attribute('src', override)
         self.menu('Personal traveling volume', 'Add to Collection…')
         expect(self.dialog().get_by_role('checkbox', name='Portable cloud shelf')).to_be_checked()
@@ -288,6 +278,31 @@ class CloudRelocationBrowser(LibraryBase):
         links = self.stores('manabi-reader-integrations', ['books'])['books']
         self.assertIn('d-new', [link['fileId'] for link in links])
         self.assertEqual({original_book_id}, {link['bookId'] for link in links})
+
+    def test_unavailable_preview_is_hidden_without_dropping_collection_membership(self):
+        expect(self.page.get_by_role('button', name='Read Traveling volume', exact=True)).to_be_visible(
+            timeout=30000)
+        self.add_collection('Traveling volume', 'Preview shelf')
+        self.assertEqual([], self.stores('manabi-reader-integrations', ['books'])['books'])
+        self.choose_collection('Preview shelf')
+        rail = self.page.get_by_role('complementary', name='Collections', exact=True)
+        count = rail.get_by_role('button', name=re.compile(r'^Preview shelf\b')).locator('span').last
+        expect(count).to_have_text('1')
+        CloudRelocationHandler.nodes[GOOGLE] = {}
+        self.refresh()
+        expect(count).to_have_text('0')
+        expect(self.page.get_by_role('button', name='Read Traveling volume', exact=True)).to_have_count(0)
+        CloudRelocationHandler.nodes[GOOGLE] = {
+            'g-returned': {'name': 'Returned.epub', 'kind': 'file', 'parent': 'google-root'}
+        }
+        self.refresh()
+        # A filtered collection does not fetch every newly discovered file.
+        # Visiting Books verifies the returned bytes before membership appears.
+        self.choose_collection('Books')
+        expect(self.page.get_by_role('button', name='Read Traveling volume', exact=True)).to_have_count(1)
+        self.choose_collection('Preview shelf')
+        expect(count).to_have_text('1')
+        expect(self.page.get_by_role('button', name='Read Traveling volume', exact=True)).to_have_count(1)
 
 
 if __name__ == '__main__':
