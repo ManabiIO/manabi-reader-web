@@ -144,7 +144,10 @@ async function performAccountRefresh(): Promise<ManabiSession | null> {
 
 export function refreshAccount(force = false): Promise<ManabiSession | null> {
   const admittedGeneration = generation;
-  if (refreshInFlight?.generation === admittedGeneration) return refreshInFlight.promise;
+  // A forced probe must observe a new cookie/account even when an older probe
+  // is still waiting. The refresh serial prevents that older result from
+  // replacing the newer session when it eventually settles.
+  if (!force && refreshInFlight?.generation === admittedGeneration) return refreshInFlight.promise;
   if (!force && Date.now() - lastRefreshFinished < 5000) return Promise.resolve(lastRefreshResult);
   const attempt = ++refreshAttempt;
   const promise = performAccountRefresh()

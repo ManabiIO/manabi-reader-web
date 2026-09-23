@@ -2434,7 +2434,7 @@
   }
   .reader-controls {
     right: max(1rem, env(safe-area-inset-right));
-    bottom: calc(1rem + env(safe-area-inset-bottom));
+    bottom: calc(5rem + env(safe-area-inset-bottom));
   }
   .reader-controls:focus-visible {
     outline: 2px solid var(--ring);
