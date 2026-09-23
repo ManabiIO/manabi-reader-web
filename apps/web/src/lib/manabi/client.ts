@@ -209,6 +209,9 @@ export async function request<T>(
   const responseUser = response.headers.get('X-Manabi-User');
   if (response.ok && responseUser !== scope.userId) {
     invalidateAccount();
+    // The response may race an in-flight session probe. Start a fresh probe
+    // after invalidation so the current cookie always gets the last word.
+    void refreshAccount(true);
     throw new IntegrationError('account_changed', 409);
   }
   if (!response.ok) {
@@ -217,7 +220,10 @@ export async function request<T>(
     // delayed 401/409 must not clear the newly authenticated account in this tab.
     if (scope.generation !== generation || currentUser()?.id !== scope.userId)
       throw new IntegrationError('account_changed', 409);
-    if (response.status === 401 || body.error === 'account_changed') invalidateAccount();
+    if (response.status === 401 || body.error === 'account_changed') {
+      invalidateAccount();
+      void refreshAccount(true);
+    }
     throw new IntegrationError(
       typeof body.error === 'string' ? body.error : 'unavailable',
       response.status,
