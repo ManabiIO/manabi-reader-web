@@ -880,6 +880,11 @@
   .library-nav-shell :global(header) {
     position: relative;
   }
+  @media (min-width: 1024px) {
+    .library-nav-shell::before {
+      left: 16rem;
+    }
+  }
   @media (prefers-reduced-motion: reduce) {
     .library-nav-shell::before {
       transition: none;
