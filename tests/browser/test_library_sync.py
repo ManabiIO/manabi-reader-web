@@ -20,6 +20,32 @@ class LibraryOrganizationSync(LibraryBase):
             StaticHandler.personal_enabled = False
             StaticHandler.personal_mutations = []
 
+    def test_forced_online_probe_consumes_new_account_session(self):
+        StaticHandler.account_fixture = {
+            'user': {'id': 'alice', 'username': 'reader-alice'},
+            'csrf_token': 'c' * 64, 'providers': []
+        }
+        self.page.goto(self.origin + '/Reader-Web/connections')
+        expect(self.page.get_by_text('reader-alice', exact=True)).to_be_visible()
+        self.page.evaluate('''() => {
+          const original = window.fetch.bind(window);
+          window.__sessionKeepalive = [];
+          window.fetch = (input, options) => {
+            if (String(input).endsWith('/api/reader-web/session/'))
+              window.__sessionKeepalive.push(options?.keepalive);
+            return original(input, options);
+          };
+        }''')
+        StaticHandler.account_fixture = {
+            'user': {'id': 'bob', 'username': 'reader-bob'},
+            'csrf_token': 'c' * 64, 'providers': []
+        }
+        with self.page.expect_response(lambda response: response.url.endswith(
+                '/api/reader-web/session/') and response.status == 200):
+            self.page.evaluate("window.dispatchEvent(new Event('online'))")
+        expect(self.page.get_by_text('reader-bob', exact=True)).to_be_visible()
+        self.assertEqual([False], self.page.evaluate('window.__sessionKeepalive'))
+
     def test_remote_membership_updates_open_library_and_survives_reload(self):
         self.import_book('Before sync')
         self.import_book('After sync')
