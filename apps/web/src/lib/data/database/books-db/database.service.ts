@@ -642,10 +642,18 @@ export class DatabaseService {
           )
         );
       }
-      await tx.objectStore('lastModified').put({
+      const modifiedStore = tx.objectStore('lastModified');
+      const previousModified =
+        statisticsMergeMode === MergeMode.LOCAL
+          ? await modifiedStore.get([bookKey, StorageDataType.STATISTICS])
+          : undefined;
+      await modifiedStore.put({
         title: bookKey,
         dataType: StorageDataType.STATISTICS,
-        lastModifiedValue: updated.newStatisticModified
+        lastModifiedValue: Math.max(
+          updated.newStatisticModified,
+          previousModified?.lastModifiedValue ?? 0
+        )
       });
       await tx.done;
       return;
