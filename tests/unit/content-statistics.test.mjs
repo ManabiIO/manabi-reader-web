@@ -89,6 +89,25 @@ test('conflicting legacy titles for one content hash remain recoverable', async 
   db.close();
 });
 
+test('identical nested completion metadata does not create a false title conflict', async () => {
+  const db = await database();
+  const first = book(1, 'Old completion title', 'd');
+  const second = book(2, 'New completion title', 'd');
+  await db.put('data', first);
+  await db.put('data', second);
+  for (const copy of [first, second])
+    await db.put('statistic', {
+      ...day(copy.title, '2026-09-20', 45),
+      completedBook: 1,
+      completedData: { finishDate: '2026-09-20', totals: [45, 100] }
+    });
+  await migrateLegacyStatistics(db, first);
+  await migrateLegacyStatistics(db, second);
+  assert.equal((await db.get('readerStatisticMigration', second.title)).state, 'assigned');
+  assert.equal((await visibleStatistics(db)).length, 1);
+  db.close();
+});
+
 test('an unhashed book receives a stable local key, never a fabricated content hash', async () => {
   const db = await database();
   const copy = book(1, 'Unhashed');

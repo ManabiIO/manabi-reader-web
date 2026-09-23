@@ -25,11 +25,28 @@ export function statisticRange(bookKey: string): IDBKeyRange {
 }
 
 function sameDay(left: BooksDbStatistic, right: BooksDbStatistic): boolean {
+  const sameValue = (a: unknown, b: unknown): boolean => {
+    if (Object.is(a, b)) return true;
+    if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
+    if (Array.isArray(a) || Array.isArray(b))
+      return (
+        Array.isArray(a) &&
+        Array.isArray(b) &&
+        a.length === b.length &&
+        a.every((value, index) => sameValue(value, b[index]))
+      );
+    const aa = a as Record<string, unknown>,
+      bb = b as Record<string, unknown>;
+    return (
+      Object.keys(aa).length === Object.keys(bb).length &&
+      Object.keys(aa).every((key) => Object.hasOwn(bb, key) && sameValue(aa[key], bb[key]))
+    );
+  };
   const fields = new Set([...Object.keys(left), ...Object.keys(right)]);
   fields.delete('title');
   fields.delete('bookKey');
   return [...fields].every((field) =>
-    Object.is(
+    sameValue(
       (left as unknown as Record<string, unknown>)[field],
       (right as unknown as Record<string, unknown>)[field]
     )
