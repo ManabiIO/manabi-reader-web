@@ -188,7 +188,7 @@
 
 {#if modernLibrary}
   <header
-    class="app-header floating-library-header text-foreground lg:pl-[16rem]"
+    class="app-header floating-library-header text-foreground lg:ml-[16rem]"
     aria-label="Library toolbar"
   >
     <div class="flex min-h-16 items-center justify-between gap-2 px-3 py-2 sm:px-6">
