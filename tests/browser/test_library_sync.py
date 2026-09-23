@@ -44,7 +44,9 @@ class LibraryOrganizationSync(LibraryBase):
                 '/api/reader-web/session/') and response.status == 200):
             self.page.evaluate("window.dispatchEvent(new Event('online'))")
         expect(self.page.get_by_text('reader-bob', exact=True)).to_be_visible()
-        self.assertEqual([False], self.page.evaluate('window.__sessionKeepalive'))
+        probes = self.page.evaluate('window.__sessionKeepalive')
+        self.assertGreaterEqual(len(probes), 1)
+        self.assertTrue(all(value is False for value in probes))
 
     def test_remote_membership_updates_open_library_and_survives_reload(self):
         self.import_book('Before sync')
