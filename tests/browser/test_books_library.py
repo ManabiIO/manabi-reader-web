@@ -249,8 +249,10 @@ class LibraryBase(unittest.TestCase):
 
 
 class BooksLibraryBrowser(LibraryBase):
-    def _cross_resource_return(self, viewport):
+    def _cross_resource_return(self, viewport, writing_mode=None):
         self.page.set_viewport_size(viewport)
+        if writing_mode:
+            self.page.evaluate('(mode) => localStorage.setItem("writingMode", mode)', writing_mode)
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
             'name': 'cross-resource-return.epub',
             'mimeType': 'application/epub+zip',
@@ -368,6 +370,9 @@ class BooksLibraryBrowser(LibraryBase):
 
     def test_cross_resource_return_after_reflow_desktop(self):
         self._cross_resource_return({'width': 1200, 'height': 900})
+
+    def test_cross_resource_return_after_reflow_vertical_webkit(self):
+        self._cross_resource_return({'width': 960, 'height': 700}, 'vertical-rl')
 
     def test_search_uses_source_text_not_ruby_readings_or_hidden_blocks(self):
         body = ('<div>alpha</div><div>beta</div>'
@@ -1100,7 +1105,7 @@ class BooksLibraryBrowser(LibraryBase):
                 expect(import_selected).to_be_visible(timeout=60000)
                 imported = self.page.get_by_role('article', name='Import Portable finished book', exact=True)
                 expect(imported).to_be_visible(timeout=60000)
-                self.assertTrue(import_selected.is_enabled(), imported.inner_text())
+                expect(import_selected).to_be_enabled(timeout=30000)
                 import_selected.click()
                 expect(imported.get_by_role('status')).to_have_text('Imported Portable finished book.', timeout=30000)
                 migrated = self.stores('books', ['bookmark','statistic','data'])

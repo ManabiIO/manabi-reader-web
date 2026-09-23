@@ -77,6 +77,8 @@ class RheaReader(previous.RefinedAppearance):
                 content = self.page.locator('.book-content').bounding_box()
                 self.assertGreaterEqual(content['y'], 64)
                 self.assertLessEqual(content['y'] + content['height'], box['y'])
+                footer = self.page.locator('#ttu-page-footer').bounding_box()
+                self.assertLessEqual(box['y'] + box['height'], footer['y'] + 1)
                 trigger.click()
                 toolbar = self.page.get_by_role('banner', name='Reader toolbar')
                 for name in ['Library', 'Bookmarks and Notes', 'Themes & Settings', 'Reading tools']:
