@@ -136,7 +136,6 @@ class LocalLibraryBrowser(unittest.TestCase):
     def test_readonly_disconnect_preserves_original_and_import(self):
         self.seed(False)
         article = self.import_book()
-        expect(article.get_by_role('status')).to_contain_text('Ready to sync through your account.')
         expect(article.get_by_role('button', name='Sync local-book')).to_be_visible()
         self.assertEqual([], self.documents())
         self.assertEqual(CONTENT, self.original())

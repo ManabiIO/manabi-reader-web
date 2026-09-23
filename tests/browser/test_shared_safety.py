@@ -213,7 +213,10 @@ class SharedStorageRuntime(static.ReaderBrowser):
           for await (const name of directory.keys()) retained.push(name);
           await directory.removeEntry('progress_1_6_200_0.3.json');
           await directory.removeEntry('progress_1_6_300_0.4.json');
-          await directory.removeEntry('bookdata_1_6_100_1_0.zip');
+          const published = [];
+          for await (const name of directory.keys()) if(name.startsWith('bookdata_')) published.push(name);
+          if(published.length !== 1) throw new Error('Expected one published book package');
+          await directory.removeEntry(published[0]);
           const empty = (await handler.getProgress()) ?? null;
           await root.removeEntry(title);
           const missing = (await handler.getProgress()) ?? null;
