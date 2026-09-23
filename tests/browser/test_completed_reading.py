@@ -75,6 +75,7 @@ class CompletedReadingBrowser(LocalLibraryBrowser):
             page.on('pageerror',lambda error:self.errors.append(str(error)))
             page.goto(self.origin+'/Reader-Web/import-ttu')
             chooser=page.get_by_label('Choose Ttu export ZIPs',exact=True)
+            expect(chooser).to_be_enabled()
             chooser.set_input_files({'name':'completed-books.zip','mimeType':'application/zip','buffer':raw})
             expect(chooser).to_be_enabled()
             page.get_by_role('button',name=re.compile(r'^Import selected \(')).click()

@@ -142,7 +142,9 @@ class LibraryBase(unittest.TestCase):
     def go_library(self):
         self.page.goto(self.origin + '/Reader-Web/manage')
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
-        expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute('aria-busy', 'false', timeout=30000)
+        shelf = self.page.get_by_role('region', name='Library shelves')
+        expect(shelf).to_have_attribute('data-hydrated', 'true', timeout=30000)
+        expect(shelf).to_have_attribute('aria-busy', 'false', timeout=30000)
 
     def import_book(self, title='Library test', **options):
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files(
@@ -1075,6 +1077,7 @@ class BooksLibraryBrowser(LibraryBase):
             try:
                 self.page.goto(self.origin + '/Reader-Web/import-ttu')
                 chooser = self.page.get_by_label('Choose Ttu export ZIPs', exact=True)
+                expect(chooser).to_be_enabled()
                 chooser.set_input_files({'name':'library-backup.zip','mimeType':'application/zip','buffer':raw})
                 expect(chooser).to_be_enabled()
                 import_selected = self.page.get_by_role(

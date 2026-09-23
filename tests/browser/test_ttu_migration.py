@@ -146,6 +146,7 @@ class MigrationBrowser(unittest.TestCase):
         StaticHandler.probes.clear()
         self.page.goto(self.origin + '/Reader-Web/import-ttu')
         expect(self.page.get_by_role('heading', name='Import from Ttu Ebook Reader', exact=True)).to_be_visible()
+        expect(self.page.get_by_label('Choose Ttu export ZIPs', exact=True)).to_be_enabled()
 
     def tearDown(self):
         output=Path('test-results'); output.mkdir(exist_ok=True)

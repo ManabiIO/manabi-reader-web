@@ -29,6 +29,7 @@
   let choices: MigratedBookChoice[] = [];
   let parts = Object.keys(importLabels) as ImportPart[];
   let busy = false;
+  let hydrated = false;
   let message = '';
   let controller: AbortController | undefined;
   let stopped = false;
@@ -154,6 +155,7 @@
     else cancel();
   });
   onMount(() => {
+    hydrated = true;
     void migratedBookChoices()
       .then((value) => {
         if (!stopped) choices = value;
@@ -213,7 +215,7 @@
       type="file"
       accept=".zip,application/zip"
       multiple
-      disabled={busy}
+      disabled={busy || !hydrated}
       on:change={(event) => {
         const files = [...(event.currentTarget.files ?? [])];
         event.currentTarget.value = '';

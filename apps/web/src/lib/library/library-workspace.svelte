@@ -985,6 +985,7 @@
     tabindex="-1"
     aria-label="Library shelves"
     aria-busy={busy || scanning}
+    data-hydrated={alive}
   >
     {#if !series && collectionId === 'books'}
       <div class="library-toolbar">
