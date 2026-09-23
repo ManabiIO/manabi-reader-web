@@ -344,9 +344,11 @@ class BooksLibraryBrowser(LibraryBase):
                 if width < 1024:
                     trigger = self.page.get_by_role('button', name='Search library', exact=True)
                     expect(trigger).to_be_visible()
+                    actions = self.page.get_by_role('button', name='Library actions', exact=True).bounding_box()
                     box = trigger.bounding_box()
                     self.assertGreaterEqual(box['width'], 44)
                     self.assertGreaterEqual(box['height'], 44)
+                    self.assertGreater(box['x'], actions['x'])
                     trigger.click()
                     search = self.page.get_by_role('searchbox', name='Search library', exact=True)
                     expect(search).to_be_focused()
@@ -363,8 +365,24 @@ class BooksLibraryBrowser(LibraryBase):
                     self.page.get_by_role('button', name='Cancel', exact=True).click()
                     expect(trigger).to_be_focused()
                 else:
-                    expect(self.page.get_by_role('searchbox', name='Search library', exact=True)).to_be_visible()
+                    search = self.page.get_by_role('searchbox', name='Search library', exact=True)
+                    expect(search).to_be_visible()
                     expect(self.page.get_by_role('button', name='Search library', exact=True)).not_to_be_visible()
+                    self.assertEqual(1, self.page.get_by_role('banner', name='Library toolbar')
+                                     .get_by_role('searchbox', name='Search library').count())
+                    self.assertGreater(search.bounding_box()['x'], self.page.get_by_role(
+                        'button', name='Library actions', exact=True).bounding_box()['x'])
+                    self.assertEqual(0, self.page.get_by_role('region', name='Library shelves')
+                                     .get_by_role('searchbox').count())
+                    rail_text = self.page.get_by_role('complementary', name='Collections')
+                    rail_font = rail_text.get_by_text('Want to Read', exact=True).evaluate('''element => {
+                        const style = getComputedStyle(element);
+                        return {family: style.fontFamily, stretch: style.fontStretch,
+                            spacing: style.letterSpacing};
+                    }''')
+                    self.assertIn('system-ui', rail_font['family'])
+                    self.assertIn(rail_font['stretch'], ('normal', '100%'))
+                    self.assertEqual('normal', rail_font['spacing'])
                 # Measure painted glyph bounds, including intrinsic narrow artwork.
                 for title in ('Responsive search book', 'Standard cover'):
                     tile = self.tile(title)
@@ -492,6 +510,19 @@ class BooksLibraryBrowser(LibraryBase):
             self.page.set_viewport_size({'width': width, 'height': 844})
             expect(self.page.get_by_role('heading', name='Continue', exact=True)).to_be_visible()
             expect(self.page.get_by_role('heading', name='Books', exact=True)).to_be_visible()
+            spacing = self.page.locator('.library-workspace').evaluate('''workspace => {
+                const rect = selector => workspace.querySelector(selector).getBoundingClientRect();
+                return {
+                    continueGap: rect('.continue-card').top - rect('#continue-heading').bottom,
+                    sectionGap: rect('#books-heading').top - rect('.continue-section').bottom,
+                    booksGap: rect('.shelf-grid .book-thumbnail').top - rect('#books-heading').bottom
+                };
+            }''')
+            # The track reserves 4px for focus outlines above the 16px section margin.
+            self.assertAlmostEqual(spacing['continueGap'], 20, delta=2)
+            self.assertAlmostEqual(spacing['sectionGap'], 28, delta=2)
+            self.assertGreaterEqual(spacing['booksGap'], 12)
+            self.assertLessEqual(spacing['booksGap'], 28)
             track = self.page.locator('.continue-track')
             shelves = self.page.get_by_role('region', name='Library shelves').bounding_box()
             track_box = track.bounding_box()

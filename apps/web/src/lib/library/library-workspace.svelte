@@ -18,7 +18,6 @@
     ImageSquareIcon as ImageSquare,
     InfoIcon as Info,
     ListIcon as List,
-    MagnifyingGlassIcon as Search,
     PencilSimpleIcon as PencilSimple,
     PlusIcon as Plus,
     TrashIcon as Trash
@@ -871,24 +870,13 @@
     aria-label="Library shelves"
     aria-busy={busy || scanning}
   >
-    <div class="library-toolbar">
-      {#if !series && collectionId === 'books'}
+    {#if !series && collectionId === 'books'}
+      <div class="library-toolbar">
         <h2 id={recentBooks.length ? 'continue-heading' : 'books-heading'} class="shelf-heading">
           {recentBooks.length ? 'Continue' : 'Books'}
         </h2>
-      {/if}
-      <label
-        class="search-box ml-auto hidden min-h-11 min-w-0 items-center gap-2 rounded-xl bg-muted px-3 lg:flex"
-        ><Search class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /><span
-          class="sr-only">Search library</span
-        ><input
-          class="min-w-0 w-full bg-transparent outline-none"
-          type="search"
-          placeholder="Search library"
-          bind:value={query}
-        /></label
-      >
-    </div>
+      </div>
+    {/if}
     {#if selectMode}<p class="mb-5 text-sm text-muted-foreground">
         Selecting a series includes its matching saved books. Connected previews must be saved
         before they can be exported.
@@ -921,7 +909,7 @@
         >{#each warnings as warning, index (index)}<p class="mt-2 break-words">{warning}</p>{/each}
       </details>{/if}
     {#if recentBooks.length}
-      <section class="continue-section mb-10" aria-labelledby="continue-heading">
+      <section class="continue-section mb-7" aria-labelledby="continue-heading">
         <div class="continue-track" role="list">
           {#each recentBooks as book (book.key)}
             <article class="continue-card" role="listitem">
@@ -994,7 +982,7 @@
             >{/if}
         </div>
       </header>
-    {:else if recentBooks.length}<h2 id="books-heading" class="shelf-heading mb-6">Books</h2>{/if}
+    {:else if recentBooks.length}<h2 id="books-heading" class="shelf-heading mb-4">Books</h2>{/if}
     {#if completedGroups.length && collectionId === 'finished' && !series && currentLayout === 'timeline'}
       <div class="finished-timeline" role="list" aria-label="Finished books">
         {#each completedGroups as group (group.day || 'unknown')}
@@ -1431,9 +1419,7 @@
   .library-toolbar {
     display: flex;
     align-items: center;
-    gap: 1rem;
-    min-height: 2.75rem;
-    margin-bottom: 1.75rem;
+    margin-bottom: 1rem;
   }
   .shelf-heading {
     font-family: var(--font-serif, Georgia, serif);
@@ -1444,14 +1430,6 @@
   }
   .library-rail {
     display: none;
-  }
-  .search-box input {
-    border: 0;
-    border-radius: 0;
-    padding-inline: 0;
-    background: transparent;
-    box-shadow: none;
-    outline: none;
   }
   .series-hero {
     background: linear-gradient(
@@ -1591,14 +1569,6 @@
   }
   .book-author {
     margin-top: 0.25rem;
-  }
-  .search-box {
-    width: clamp(9rem, 46%, 16rem);
-    font-size: 0.875rem;
-  }
-  .search-box:focus-within {
-    outline: 2px solid var(--ring);
-    outline-offset: 2px;
   }
   .shelf-grid {
     --shelf-gap: clamp(1.5rem, 3cqi, 2.5rem);
@@ -1747,15 +1717,6 @@
   }
   .shelf-list .progress-label {
     display: none;
-  }
-  @media (max-width: 1023px) {
-    .library-toolbar:not(:has(.shelf-heading)) {
-      display: none;
-    }
-    .library-toolbar {
-      min-height: 0;
-      margin-bottom: 1.25rem;
-    }
   }
   @media (min-width: 640px) {
     .library-workspace {
