@@ -45,6 +45,14 @@ class RefinedAppearance(previous.AppearanceBrowser):
         self.errors = []
         self.page.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))
         previous.baseline.StaticHandler.probes.clear()
+        previous.baseline.StaticHandler.session_gate = None
+        previous.baseline.StaticHandler.session_started = None
+        previous.baseline.StaticHandler.connections_gate = None
+        previous.baseline.StaticHandler.connections_started = None
+        previous.baseline.StaticHandler.account_fixture = None
+        previous.baseline.StaticHandler.account_requests = []
+        previous.baseline.StaticHandler.preference_revision = 0
+        previous.baseline.StaticHandler.preference_settings = {}
         self.context.on('page', self.watch_page)
         self.record_network()
 
