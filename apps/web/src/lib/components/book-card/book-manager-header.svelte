@@ -242,17 +242,6 @@
         </div>
         <div class="flex shrink-0 items-center gap-1.5">
           <Button
-            bind:ref={searchButton}
-            variant="outline"
-            size="icon"
-            class="size-11 rounded-full lg:hidden"
-            aria-label="Search library"
-            title="Search library"
-            onclick={openSearch}
-            disabled={!!replicationToProgress}
-            ><Search class="size-6" weight="bold" aria-hidden="true" /></Button
-          >
-          <Button
             variant="outline"
             size="icon"
             class="size-11 rounded-full lg:hidden"
@@ -491,6 +480,32 @@
               {/if}
             </Menu.Content>
           </Menu.Root>
+          {#if compactLibrary}
+            <Button
+              bind:ref={searchButton}
+              variant="outline"
+              size="icon"
+              class="size-11 rounded-full lg:hidden"
+              aria-label="Search library"
+              title="Search library"
+              onclick={openSearch}
+              disabled={!!replicationToProgress}
+              ><Search class="size-6" weight="bold" aria-hidden="true" /></Button
+            >
+          {:else}
+            <label
+              class="hidden min-h-11 w-[clamp(12rem,20vw,18rem)] min-w-0 items-center gap-2 rounded-full bg-muted px-3 text-sm focus-within:ring-2 focus-within:ring-ring lg:flex"
+              ><Search class="size-5 shrink-0 text-muted-foreground" aria-hidden="true" /><span
+                class="sr-only">Search library</span
+              ><input
+                class="min-w-0 w-full border-0 bg-transparent p-0 shadow-none outline-none focus:border-transparent focus:shadow-none focus:ring-0"
+                type="search"
+                placeholder="Search library"
+                value={libraryMenu?.search.query || ''}
+                oninput={(event) => libraryMenu?.search.setQuery(event.currentTarget.value)}
+              /></label
+            >
+          {/if}
         </div>
       {/if}
     </div>

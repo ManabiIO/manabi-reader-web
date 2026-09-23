@@ -29,6 +29,15 @@ surfaces, web search, accessible menu behavior, and the requested system-font
 app name. Apple store tabs, purchase states, and glass effects do not belong in
 this personal-library adaptation.
 
+In the iPhone reference, the horizontal gap between covers is about 16% of a
+cover's width. Our 390-pixel shelf uses a 24-pixel gap between 159-pixel covers,
+or 15%, so the grid is already close in proportion. Apple's roughly 61-pixel
+vertical gap lies below its large **Library** destination title; its screenshot
+does not have Continue cards or a separate Books heading. Applying that gap to
+our smaller section headings would exaggerate the whitespace the current
+refinement is intended to remove. The measured web heading-to-Continue-card
+gap is 20 pixels after the adjustment.
+
 ## Implemented
 
 - The desktop collection sidebar is a full-height navigation surface beneath
@@ -37,9 +46,18 @@ this personal-library adaptation.
   Collections sheet, where organization is managed. Its sticky position follows
   the measured toolbar height, including the contextual selection row.
 - The root has a Books heading, or Continue followed by Books when reading
-  history exists. Search shares that row and uses the muted input treatment.
-  The system-font Manabi Reader for Web brand remains in the app toolbar;
-  pushed destinations retain their back action and title.
+  history exists. Search sits at the end of the top navigation bar: an inline
+  field in regular layouts and a magnifying-glass button that opens a focused
+  field in compact layouts. The system-font Manabi Reader for Web brand remains
+  in that bar; pushed destinations retain their back action and title.
+- The section rhythm is measured from element boxes instead of visual guesswork:
+  the Continue heading ends 20 CSS pixels before its cards (a 16-pixel margin
+  plus the scroll track's 4-pixel focus-outline inset). The Books heading has
+  a 16-pixel margin beneath it, and the Continue-to-Books section gap is 28
+  pixels (40 pixels from the visible card bottom, including the track's 12-pixel
+  bottom inset). The older layout reserved a 44-pixel search-height row plus 28
+  pixels below it, which made the content look detached from its heading,
+  especially on desktop.
 - Covers use a fluid grid based on the available shelf width. Two columns fit
   even at 320 CSS pixels. Wider shelves grow covers until another minimum-width
   column fits, then redistribute the space. Spacing is relative to the shelf,
@@ -77,8 +95,9 @@ existing File System Access capability boundary.
 - Compact/desktop transitions in both directions; narrow Collections editing,
   long Unicode names, nested rename dialog, contextual selection/export, and
   sidebar position while scrolling with selection active.
-- Continue, author/title wrapping, list layout, search and Clear Search after
-  resizing, without changes to bookmark or statistics records.
+- Continue, measured section gaps, author/title wrapping, list layout, top-bar
+  search order and Clear Search after resizing, without changes to bookmark or
+  statistics records.
 - Series stack direction and status alignment; hero reflow at the desktop
   sidebar breakpoint and at wider content widths.
 - Touch interaction in dark mode with reduced motion, nested menu bounds, and

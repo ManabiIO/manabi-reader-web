@@ -300,12 +300,12 @@ class WantToReadBrowser(LibraryBase):
         focused = self.page.get_by_role('button', name='Actions for Focus first', exact=True)
         focused.focus()
         self.page.keyboard.press('Enter')
-        # Let keyboard opening focus the first item before choosing another;
-        # otherwise opening autofocus can replace this programmatic focus.
+        # Follow the menu's keyboard navigation instead of racing its opening
+        # autofocus with a programmatic focus on another item.
         menu = self.page.get_by_role('menu')
         expect(menu.get_by_role('menuitem').first).to_be_focused()
         remove = menu.get_by_role('menuitem', name='Remove from Want to Read', exact=True)
-        remove.focus()
+        self.page.keyboard.press('ArrowDown')
         expect(remove).to_be_focused()
         self.page.keyboard.press('Enter')
         expect(self.page.get_by_role('button', name='Read Focus first', exact=True)).to_have_count(0)
