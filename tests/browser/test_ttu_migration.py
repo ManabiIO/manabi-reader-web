@@ -172,10 +172,10 @@ class MigrationBrowser(unittest.TestCase):
     def snapshot(self):
         return self.page.evaluate('''() => new Promise((resolve,reject)=>{
           const open=indexedDB.open('books');open.onerror=()=>reject(open.error);
-          open.onsuccess=()=>{const db=open.result,names=['data','bookmark','statistic','audioBook','subtitle','readingGoal','storageSource'];
+          open.onsuccess=()=>{const db=open.result,names=['data','bookmark','statistic','readerStatistic','audioBook','subtitle','readingGoal','storageSource'];
             const tx=db.transaction(names),out={};for(const name of names){const request=tx.objectStore(name).getAll();
               request.onsuccess=()=>out[name]=name==='data'?request.result.map(({blobs,coverImage,...book})=>({...book,media:Object.keys(blobs)})):request.result;}
-            tx.oncomplete=()=>{db.close();resolve(out);};tx.onerror=()=>reject(tx.error);};
+            tx.oncomplete=()=>{db.close();out.statistic=[...out.statistic,...out.readerStatistic];resolve(out);};tx.onerror=()=>reject(tx.error);};
         })''')
 
     def subset(self, *parts, title=None):
@@ -222,9 +222,9 @@ class MigrationBrowser(unittest.TestCase):
         self.assertEqual(2,len(data['data']))
         self.assertEqual(2,len(data['statistic']))
         self.page.evaluate('''() => new Promise((resolve,reject)=>{const open=indexedDB.open('books');open.onsuccess=()=>{
-          const db=open.result,tx=db.transaction(['bookmark','statistic'],'readwrite');
-          tx.objectStore('bookmark').clear();const all=tx.objectStore('statistic').getAll();all.onsuccess=()=>{
-            for(const row of all.result)tx.objectStore('statistic').put({...row,readingTime:999,lastStatisticModified:row.lastStatisticModified+100});};
+          const db=open.result,tx=db.transaction(['bookmark','readerStatistic'],'readwrite');
+          tx.objectStore('bookmark').clear();const all=tx.objectStore('readerStatistic').getAll();all.onsuccess=()=>{
+            for(const row of all.result)tx.objectStore('readerStatistic').put({...row,readingTime:999,lastStatisticModified:row.lastStatisticModified+100});};
           tx.oncomplete=()=>{db.close();resolve();};tx.onerror=()=>reject(tx.error);};})''')
         before=self.snapshot()
         self.page.reload()
@@ -262,7 +262,7 @@ class MigrationBrowser(unittest.TestCase):
         self.load()
         self.run_import()
         self.page.evaluate('''() => new Promise(resolve=>{const open=indexedDB.open('books');open.onsuccess=()=>{
-          const db=open.result,tx=db.transaction('statistic','readwrite'),store=tx.objectStore('statistic'),all=store.getAll();
+          const db=open.result,tx=db.transaction('readerStatistic','readwrite'),store=tx.objectStore('readerStatistic'),all=store.getAll();
           all.onsuccess=()=>{for(const row of all.result)store.put({...row,readingTime:800,lastStatisticModified:row.lastStatisticModified+10});};
           tx.oncomplete=()=>{db.close();resolve();};};})''')
         before=self.snapshot()

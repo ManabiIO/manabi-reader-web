@@ -67,7 +67,7 @@ class LibraryOrganizationSync(LibraryBase):
         finally:
             library.close()
 
-    def test_same_title_different_files_pause_legacy_statistics_sync(self):
+    def test_same_title_different_files_sync_separate_days_and_preserve_ambiguous_legacy(self):
         self.import_book('Shared title', color=(100, 55, 45))
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
             'name': 'second-copy.epub',
@@ -83,15 +83,56 @@ class LibraryOrganizationSync(LibraryBase):
             self.page.wait_for_timeout(25)
         self.assertEqual(2, len(rows), 'Second import did not produce a distinct book')
         self.assertEqual(2, len({row['contentHash'] for row in rows}))
+        for row in rows:
+            self.page.goto(self.origin + '/Reader-Web/b?id=' + str(row['id']))
+            expect(self.page.locator('.book-content')).to_have_attribute(
+                'aria-busy', 'false', timeout=35000)
+        tracked = self.stores('books', ['readerStatistic'])['readerStatistic']
+        self.assertEqual({'content:' + row['contentHash'] for row in rows},
+                         {row['bookKey'] for row in tracked})
+        self.page.evaluate('''books => new Promise((resolve, reject) => {
+          const open = indexedDB.open('books');
+          open.onerror = () => reject(open.error);
+          open.onsuccess = () => {
+            const db = open.result;
+            const tx = db.transaction(['statistic', 'readerStatistic'], 'readwrite');
+            const fields = {readingTime: 100, minReadingSpeed: 1, altMinReadingSpeed: 1,
+              lastReadingSpeed: 1, maxReadingSpeed: 1, lastStatisticModified: 100};
+            tx.objectStore('statistic').put({title: 'Shared title', dateKey: '2026-09-19',
+              charactersRead: 9, ...fields});
+            books.forEach((book, index) => tx.objectStore('readerStatistic').put({
+              title: book.title, bookKey: 'content:' + book.contentHash,
+              dateKey: '2026-09-20', charactersRead: index + 21, ...fields
+            }));
+            tx.oncomplete = () => {db.close(); resolve();};
+            tx.onerror = () => reject(tx.error);
+          };
+        })''', rows)
+        StaticHandler.personal_enabled = True
+        StaticHandler.personal_mutations = []
         StaticHandler.account_fixture = {
             'user': {'id': '42', 'username': 'reader'}, 'csrf_token': 'c' * 64, 'providers': []
         }
         self.page.goto(self.origin + '/Reader-Web/connections')
         status = self.page.locator('section[aria-labelledby="reading-sync-heading"] [role="status"]')
-        expect(status).to_contain_text('Reading sync is paused because different books share a title',
-                                       timeout=10000)
-        self.assertEqual([], [request for request in StaticHandler.account_requests
-                              if '/personal/' in request['path']])
+        expect(status).to_contain_text('older same-title statistics record', timeout=15000)
+        deadline = time.monotonic() + 15
+        while len([request for _, request in StaticHandler.personal_mutations
+                   if request['kind'] == 'statistics']) < 2:
+            self.assertLess(time.monotonic(), deadline, 'Content-keyed days did not sync')
+            self.page.wait_for_timeout(50)
+        sent = [request for _, request in StaticHandler.personal_mutations
+                if request['kind'] == 'statistics' and request['entity_id'].endswith('/day/2026-09-20')]
+        deadline = time.monotonic() + 15
+        while len(sent) < 2:
+            self.assertLess(time.monotonic(), deadline, 'Seeded content days did not sync')
+            self.page.wait_for_timeout(50)
+            sent = [request for _, request in StaticHandler.personal_mutations
+                    if request['kind'] == 'statistics' and request['entity_id'].endswith('/day/2026-09-20')]
+        self.assertEqual({'content:' + row['contentHash'] for row in rows},
+                         {request['book_key'] for request in sent})
+        self.assertEqual({21, 22}, {request['payload']['charactersRead'] for request in sent})
+        self.assertEqual(9, self.stores('books', ['statistic'])['statistic'][0]['charactersRead'])
         self.assertEqual(2, len(self.stores('books', ['data'])['data']))
         self.page.goto(self.origin + '/Reader-Web/manage')
         first = self.page.locator('[data-book-key="book:%d"]' % rows[0]['id'])

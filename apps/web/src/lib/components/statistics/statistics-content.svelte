@@ -318,25 +318,23 @@
   }
 
   async function handleDeleteRequest({
-    detail: { startDate, endDate, titlesToCheck, takeAsIs }
+    detail: { startDate, endDate, titlesToCheck, bookKey, takeAsIs }
   }: CustomEvent<StatisticsDeleteRequest>) {
-    let titlesToDelete = new Set<string>();
+    const titlesToDelete = new Set<string>();
+    const legacyTitlesToDelete = new Set<string>();
+    const bookKeysToDelete = new Set<string>();
 
     $statisticsActionInProgress$ = true;
 
-    if (takeAsIs) {
-      titlesToDelete = titlesToCheck;
-    } else {
-      for (let index = 0, { length } = statisticsForSelection; index < length; index += 1) {
-        const statistic = statisticsForSelection[index];
-
-        if (
-          statistic.dateKey >= startDate &&
-          statistic.dateKey <= endDate &&
-          (!titlesToCheck.size || titlesToCheck.has(statistic.title))
-        ) {
-          titlesToDelete.add(statistic.title);
-        }
+    for (const statistic of takeAsIs ? statisticsData : statisticsForSelection) {
+      if (
+        (!startDate || (statistic.dateKey >= startDate && statistic.dateKey <= endDate)) &&
+        (!titlesToCheck.size || titlesToCheck.has(statistic.title)) &&
+        (!bookKey || statistic.bookKey === bookKey)
+      ) {
+        titlesToDelete.add(statistic.title);
+        if (statistic.bookKey) bookKeysToDelete.add(statistic.bookKey);
+        else legacyTitlesToDelete.add(statistic.title);
       }
     }
 
@@ -377,7 +375,9 @@
     }
 
     const error = await database
-      .deleteStatisticEntries([...titlesToDelete], false, startDate, endDate)
+      .deleteStatisticEntries([...legacyTitlesToDelete], false, startDate, endDate, [
+        ...bookKeysToDelete
+      ])
       .catch(({ message }) => message);
 
     if (error) {
@@ -402,7 +402,11 @@
       const notDeletedMap = new Map<string, boolean>();
 
       statisticsData = statisticsData.filter((statistic) => {
-        if (titlesToDelete.has(statistic.title)) {
+        if (
+          statistic.bookKey
+            ? bookKeysToDelete.has(statistic.bookKey)
+            : legacyTitlesToDelete.has(statistic.title)
+        ) {
           const returnValue = startDate
             ? !(statistic.dateKey >= startDate && statistic.dateKey <= endDate)
             : false;
@@ -420,6 +424,12 @@
 
         return true;
       });
+
+      for (const title of titlesToDelete)
+        filterMap.set(
+          title,
+          statisticsData.some((statistic) => statistic.title === title)
+        );
 
       const preFilteredTitlesForStatistics = [...$preFilteredTitlesForStatistics$];
 
@@ -466,12 +476,13 @@
   }
 
   async function handleEditRequest({
-    detail: { dateKey, title, newReadingTime, newCharactersRead, resetMinMaxValues }
+    detail: { dateKey, title, bookKey, newReadingTime, newCharactersRead, resetMinMaxValues }
   }: CustomEvent<StatisticsEditRequest>) {
     $statisticsActionInProgress$ = true;
 
     const statisticIndex = statisticsData.findIndex(
-      (statistic) => statistic.dateKey === dateKey && statistic.title === title
+      (statistic) =>
+        statistic.dateKey === dateKey && statistic.title === title && statistic.bookKey === bookKey
     );
     const statistic = statisticsData[statisticIndex];
     const newStatistic: BookStatistic = {
@@ -620,11 +631,10 @@
 
   async function init() {
     try {
-      const db = await database.db;
       const hasPrefilteredTitlesForStatistics = !!$preFilteredTitlesForStatistics$.size;
 
       [statisticsData, readingGoals] = await Promise.all([
-        db.getAllFromIndex('statistic', 'dateKey'),
+        database.getAllStatistics(),
         database.getReadingGoals()
       ]).then(([statistics, readingGoalData]) => [
         statistics.map((statistic) => {
@@ -639,7 +649,7 @@
           return {
             ...statistic,
             ...{
-              id: `${statistic.title}_${statistic.dateKey}`,
+              id: `${'bookKey' in statistic ? statistic.bookKey : statistic.title}_${statistic.dateKey}`,
               averageReadingTime: statistic.readingTime,
               averageWeightedReadingTime: statistic.readingTime,
               averageCharactersRead: statistic.charactersRead,

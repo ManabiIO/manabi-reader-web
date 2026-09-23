@@ -14,6 +14,7 @@ import type {
   BooksDbSubtitleData,
   BooksDbReadingGoal
 } from '$lib/data/database/books-db/versions/books-db';
+import { contentStatisticKey, statisticRange } from '$lib/data/database/books-db/reader-statistics';
 import { getStorageHandler } from '$lib/data/storage/storage-handler-factory';
 import { StorageDataType, StorageKey } from '$lib/data/storage/storage-types';
 import {
@@ -354,7 +355,15 @@ export class TtuMigration {
     return exclusive('import-library-book', async () => {
       const db = await database.db;
       const tx = db.transaction(
-        ['data', 'bookmark', 'statistic', 'lastModified', 'audioBook', 'subtitle'],
+        [
+          'data',
+          'bookmark',
+          'statistic',
+          'readerStatistic',
+          'lastModified',
+          'audioBook',
+          'subtitle'
+        ],
         'readwrite'
       );
       const cancel = () => {
@@ -390,6 +399,34 @@ export class TtuMigration {
         if (!target) {
           if (!content || !options.parts.includes('book'))
             throw new Error('Import Book Data before importing reading data.');
+          let contentToAdd = content;
+          if (content.contentHash) {
+            let copy = await tx.objectStore('data').openCursor();
+            while (copy) {
+              if (
+                copy.value.contentHash === content.contentHash &&
+                (receipt(copy.value)?.content ??
+                  canonical({
+                    html: copy.value.elementHtml,
+                    css: copy.value.styleSheet,
+                    sections: copy.value.sections
+                  })) !==
+                  (receipt(copy.value)
+                    ? fingerprint
+                    : canonical({
+                        html: content.elementHtml,
+                        css: content.styleSheet,
+                        sections: content.sections
+                      }))
+              ) {
+                // The exported hash is a claim about unavailable original
+                // bytes. Conflicting decoded content cannot inherit that ID.
+                contentToAdd = { ...content, contentHash: undefined };
+                break;
+              }
+              copy = await copy.continue();
+            }
+          }
           let title = item.title;
           let suffix = 1;
           // Also preserve orphaned statistics retained after an unrelated book was deleted.
@@ -400,8 +437,10 @@ export class TtuMigration {
             (await tx.objectStore('subtitle').getKey(title))
           )
             title = `${item.title} [Ttu import ${++suffix}]`;
-          const id = await tx.objectStore('data').add({ ...content, title } as BooksDbBookData);
-          target = { ...content, id, title };
+          const id = await tx
+            .objectStore('data')
+            .add({ ...contentToAdd, title } as BooksDbBookData);
+          target = { ...contentToAdd, id, title };
           created = true;
         }
         if (target.storageSource)
@@ -438,6 +477,10 @@ export class TtuMigration {
         };
         const bookId = target.id,
           title = target.title;
+        const statisticKey = contentStatisticKey(target);
+        const statisticStore = statisticKey
+          ? tx.objectStore('readerStatistic')
+          : tx.objectStore('statistic');
         if (imported.bookmark) {
           const value = imported.bookmark;
           if (
@@ -456,9 +499,19 @@ export class TtuMigration {
           await merge(
             `statistics/${day}`,
             value,
-            await tx.objectStore('statistic').get([title, day]),
+            await statisticStore.get(statisticKey ? [statisticKey, day] : [title, day]),
             () =>
-              tx.objectStore('statistic').put({ ...value, title } as unknown as BooksDbStatistic)
+              statisticKey
+                ? tx.objectStore('readerStatistic').put({
+                    ...value,
+                    title,
+                    bookKey: statisticKey
+                  } as BooksDbStatistic & {
+                    bookKey: string;
+                  })
+                : tx
+                    .objectStore('statistic')
+                    .put({ ...value, title } as unknown as BooksDbStatistic)
           );
         }
         if (imported.audio) {
@@ -475,16 +528,18 @@ export class TtuMigration {
         }
         if (imported.statistics && changed) {
           let lastModified = 0;
-          let cursor = await tx
-            .objectStore('statistic')
-            .openCursor(IDBKeyRange.bound([title], [title, []]));
+          let cursor = await statisticStore.openCursor(
+            statisticKey ? statisticRange(statisticKey) : IDBKeyRange.bound([title], [title, []])
+          );
           while (cursor) {
             lastModified = Math.max(lastModified, cursor.value.lastStatisticModified);
             cursor = await cursor.continue();
           }
-          await tx
-            .objectStore('lastModified')
-            .put({ title, dataType: StorageDataType.STATISTICS, lastModifiedValue: lastModified });
+          await tx.objectStore('lastModified').put({
+            title: statisticKey ?? title,
+            dataType: StorageDataType.STATISTICS,
+            lastModifiedValue: lastModified
+          });
         }
         // Receipt and payloads commit together. No cross-database "import succeeded" marker.
         if (created || canonical(prior) !== canonical(nextReceipt))

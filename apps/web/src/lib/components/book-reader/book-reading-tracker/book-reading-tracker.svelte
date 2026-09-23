@@ -56,6 +56,7 @@
   import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
 
   export let bookTitle: string;
+  export let bookId: number;
   export let wasTrackerPaused: boolean;
   export let exploredCharCount: number;
   export let bookCharCount: number;
@@ -188,7 +189,9 @@
         bookTitle,
         itemsToStore,
         ReplicationSaveBehavior.Overwrite,
-        MergeMode.LOCAL
+        MergeMode.LOCAL,
+        Date.now(),
+        bookId
       );
 
       trackingHistory = trackingHistory.map((item) => {
@@ -546,11 +549,12 @@
       todayKey = getDateKey($startDayHoursForTracker$);
       jpdbPopover = document.getElementById('jpdb-popup');
 
-      const statisticsForTitle = await database.getStatisticsForBook(bookTitle);
+      const statisticsForTitle = await database.getStatisticsForBookId(bookId);
       const setFirstBookReadResult = await database.setFirstBookRead(
         bookTitle,
         $startDayHoursForTracker$,
-        statisticsForTitle[0]
+        statisticsForTitle[0],
+        bookId
       );
 
       bookStartDate = setFirstBookReadResult[0] as string;

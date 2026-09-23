@@ -8,7 +8,7 @@
   import { personalSyncStatus } from './personal-sync';
 
   $: needsAttention =
-    $personalSyncStatus.state === 'conflict' ||
+    ['conflict', 'legacy_statistics'].includes($personalSyncStatus.state) ||
     Object.values($bookSyncStatus).some((status) =>
       ['conflict', 'needs_reconnect', 'permission_required', 'unauthorized'].includes(status.state)
     );

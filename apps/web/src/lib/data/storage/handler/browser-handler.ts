@@ -19,6 +19,7 @@ import type { MergeMode } from '$lib/data/merge-mode';
 import { ReplicationSaveBehavior } from '$lib/functions/replication/replication-options';
 import { StorageDataType } from '$lib/data/storage/storage-types';
 import { bookKey, contentBookKey, relocatePresentation } from '$lib/library/organization';
+import { contentStatisticKey } from '$lib/data/database/books-db/reader-statistics';
 import type { BookCardProps } from '$lib/components/book-card/book-card-props';
 
 export class BrowserStorageHandler extends BaseStorageHandler {
@@ -121,7 +122,9 @@ export class BrowserStorageHandler extends BaseStorageHandler {
     let fileName: string | undefined;
 
     if (fileIdentifier === 'bookdata_') {
-      const book = await database.getDataByTitle(this.currentContext.title);
+      const book = this.currentContext.id
+        ? await database.getData(this.currentContext.id)
+        : await database.getDataByTitle(this.currentContext.title);
 
       fileName = book ? BaseStorageHandler.getBookFileName(book) : undefined;
     } else if (fileIdentifier === 'progress_') {
@@ -129,8 +132,11 @@ export class BrowserStorageHandler extends BaseStorageHandler {
 
       fileName = progress ? BaseStorageHandler.getProgressFileName(progress) : undefined;
     } else if (fileIdentifier === 'statistics_') {
+      const selected = this.currentContext.id
+        ? await database.getData(this.currentContext.id)
+        : undefined;
       const lastStatisticModifed = await database.getLastModifiedForType(
-        this.currentContext.title,
+        (selected && contentStatisticKey(selected)) || this.currentContext.title,
         StorageDataType.STATISTICS
       );
 
@@ -161,33 +167,12 @@ export class BrowserStorageHandler extends BaseStorageHandler {
     return fileName;
   }
 
-  async isBookPresentAndUpToDate(referenceFilename: string | undefined) {
-    if (!referenceFilename) {
-      BaseStorageHandler.reportProgress();
-      return false;
-    }
-
-    const book = await database.getDataByTitle(this.currentContext.title);
-
-    BrowserStorageHandler.reportProgress(0.5);
-
-    let isPresentAndUpToDate = false;
-
-    if (book) {
-      const { lastBookModified, lastBookOpen } =
-        BaseStorageHandler.getBookMetadata(referenceFilename);
-      const { lastBookModified: existingBookModified, lastBookOpen: existingBookOpen } = book;
-
-      isPresentAndUpToDate = !!(
-        existingBookModified &&
-        lastBookModified &&
-        existingBookModified >= lastBookModified &&
-        (existingBookOpen || 0) >= (lastBookOpen || 0)
-      );
-    }
-
-    BrowserStorageHandler.reportProgress(0.5);
-    return isPresentAndUpToDate;
+  async isBookPresentAndUpToDate(_referenceFilename: string | undefined) {
+    // The TTU filename carries a title and timestamps, not source-file
+    // identity. A same-titled local copy cannot prove this import is present.
+    // saveBook performs the content-hash-aware no-op decision after decoding.
+    BaseStorageHandler.reportProgress();
+    return false;
   }
 
   async isProgressPresentAndUpToDate(referenceFilename: string | undefined) {
@@ -213,8 +198,11 @@ export class BrowserStorageHandler extends BaseStorageHandler {
       return false;
     }
 
+    const selected = this.currentContext.id
+      ? await database.getData(this.currentContext.id)
+      : undefined;
     const existingLastModified = await database.getLastModifiedForType(
-      this.currentContext.title,
+      (selected && contentStatisticKey(selected)) || this.currentContext.title,
       StorageDataType.STATISTICS
     );
     const fileName = existingLastModified
@@ -291,14 +279,22 @@ export class BrowserStorageHandler extends BaseStorageHandler {
   }
 
   async getStatistics() {
-    const statistics = await database.getStatisticsForBook(this.currentContext.title);
+    // TTU's wire payload predates the local content-keyed store. Keep its
+    // strict schema stable while selecting rows by logical identity here.
+    const statistics = this.currentContext.id
+      ? (await database.getStatisticsForBookId(this.currentContext.id)).map(
+          ({ bookKey: _bookKey, ...row }) => row
+        )
+      : await database.getStatisticsForBook(this.currentContext.title);
 
     BaseStorageHandler.reportProgress(0.5);
 
-    const lastStatisticModified = await database.getLastModifiedForType(
-      this.currentContext.title,
-      StorageDataType.STATISTICS
-    );
+    const lastStatisticModified = this.currentContext.id
+      ? statistics.reduce((latest, row) => Math.max(latest, row.lastStatisticModified), 0)
+      : await database.getLastModifiedForType(
+          this.currentContext.title,
+          StorageDataType.STATISTICS
+        );
 
     if (!lastStatisticModified) {
       return { statistics: undefined, lastStatisticModified: 0 };
@@ -402,7 +398,8 @@ export class BrowserStorageHandler extends BaseStorageHandler {
       data,
       this.saveBehavior,
       this.statisticsMergeMode,
-      lastStatisticModified
+      lastStatisticModified,
+      this.currentContext.id
     );
 
     BaseStorageHandler.reportProgress();

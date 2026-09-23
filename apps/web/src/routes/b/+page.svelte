@@ -373,7 +373,12 @@
 
         if (!$statisticsEnabled$) {
           const wasNew = (
-            await database.setFirstBookRead(currentContext.title, $startDayHoursForTracker$)
+            await database.setFirstBookRead(
+              currentContext.title,
+              $startDayHoursForTracker$,
+              undefined,
+              currentContext.id
+            )
           )[1];
 
           if (wasNew) {
@@ -818,11 +823,15 @@
         }
       }
 
-      const finishedStatistic = await database.getStatisticForCompletedBook($rawBookData$.title);
+      const finishedStatistic = await database.getStatisticForCompletedBook(
+        $rawBookData$.title,
+        $rawBookData$.id
+      );
       const todayKey = getDateKey($startDayHoursForTracker$);
       const statisticsUntilToday = await database.getStatisticsUntilDate(
         $rawBookData$.title,
-        todayKey
+        todayKey,
+        $rawBookData$.id
       );
       const todayStatistic =
         statisticsUntilToday.find((statistic) => statistic.dateKey === todayKey) ||
@@ -865,7 +874,8 @@
           statisticsToStore,
           ReplicationSaveBehavior.Overwrite,
           MergeMode.LOCAL,
-          lastStatisticModified
+          lastStatisticModified,
+          $rawBookData$.id
         );
 
         trackerElm?.updateCompletedBook(
@@ -2040,6 +2050,7 @@
   {#if $statisticsEnabled$}
     <BookReadingTracker
       bookTitle={$rawBookData$.title}
+      bookId={$rawBookData$.id}
       sectionData={$sectionData$}
       {frozenPosition}
       {exploredCharCount}

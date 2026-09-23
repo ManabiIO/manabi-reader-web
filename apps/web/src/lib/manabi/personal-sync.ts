@@ -21,10 +21,10 @@ import type {
   ReaderAnnotationMutation
 } from '$lib/data/database/books-db/versions/v7/books-db-v7';
 import { StorageDataType } from '$lib/data/storage/storage-types';
+import { migrateLegacyStatistics } from '$lib/data/database/books-db/reader-statistics';
 import { validCompletion } from '$lib/library/completion';
 import { validateImportedAnnotation } from '$lib/reader-annotations';
 import { isCompletedStatistics } from './completed-statistics.js';
-import { ambiguousStatisticTitles } from './personal-identity';
 import { account, currentUser, IntegrationError, request } from './client';
 import { equal, exclusive } from './persistence';
 import {
@@ -190,17 +190,28 @@ async function publish(
   if (currentUser()?.id !== accountId) return;
   const db = await database.db;
   const conflicts = await db.getAllFromIndex('readerPersonalConflict', 'accountId', accountId);
+  const ambiguous = (await db.getAll('readerStatisticMigration')).filter(
+    (entry) => entry.state !== 'assigned'
+  ).length;
   const pending =
     (await db.getAllFromIndex('readerPersonalOutbox', 'accountId', accountId)).length +
     (await db.getAllFromIndex('readerAnnotationOutbox', 'accountId', accountId)).length;
   if (currentUser()?.id !== accountId) return;
   personalSyncStatus.set({
-    state: conflicts.length ? 'conflict' : state === 'synced' && pending ? 'pending' : state,
+    state: conflicts.length
+      ? 'conflict'
+      : state === 'synced' && pending
+        ? 'pending'
+        : state === 'synced' && ambiguous
+          ? 'legacy_statistics'
+          : state,
     message: conflicts.length
       ? `${conflicts.length} reading sync conflict(s) need review.`
       : state === 'synced' && pending
         ? `${pending} local change(s) are queued for sync.`
-        : message,
+        : state === 'synced' && ambiguous
+          ? `${ambiguous} older same-title statistics record(s) remain on this device because their book could not be identified.`
+          : message,
     conflicts
   });
 }
@@ -209,12 +220,9 @@ async function localBooks(accountId: string): Promise<Map<string, BooksDbBookDat
   const db = await database.db;
   const map = new Map<string, BooksDbBookData[]>();
   const allBooks = await db.getAll('data');
-  // The TTU statistics store is keyed by title. A row shared by two distinct
-  // files cannot safely be attributed to either content hash during sync.
-  if (ambiguousStatisticTitles(allBooks).length)
-    throw new IntegrationError('ambiguous_statistics', 409);
   for (const book of allBooks) {
     if (!book.contentHash || !/^[a-f0-9]{64}$/i.test(book.contentHash)) continue;
+    await migrateLegacyStatistics(db, book);
     scoped(accountId);
     const scopeTx = db.transaction('readerBookScope', 'readwrite');
     const owner = await scopeTx.store.get(book.id);
@@ -244,12 +252,7 @@ async function readLocal(
   if (kind === 'statistics') {
     const day = dayId.exec(entityId)?.[1];
     if (!day) return null;
-    const statistics = (
-      await Promise.all(copies.map((book) => db.get('statistic', [book.title, day])))
-    ).filter((value): value is BooksDbStatistic => !!value);
-    const statistic = statistics.sort(
-      (a, b) => b.lastStatisticModified - a.lastStatisticModified
-    )[0];
+    const statistic = await db.get('readerStatistic', [bookKey, day]);
     return statistic
       ? payloadOf(statistic as unknown as Record<string, unknown>, statFields)
       : null;
@@ -294,41 +297,46 @@ async function applyLocal(
   }
   const copies = books.get(bookKey) ?? [];
   if (!copies.length) return;
-  const tx = db.transaction(['bookmark', 'statistic', 'lastModified'], 'readwrite');
+  if (kind === 'statistics') {
+    const day = dayId.exec(entityId)?.[1];
+    if (!day) return;
+    const tx = db.transaction(['readerStatistic', 'lastModified'], 'readwrite');
+    if (payload)
+      await tx.objectStore('readerStatistic').put({
+        ...payload,
+        bookKey,
+        title: copies[0].title,
+        dateKey: day
+      } as BooksDbStatistic & { bookKey: string });
+    else await tx.objectStore('readerStatistic').delete([bookKey, day]);
+    await tx.objectStore('lastModified').put({
+      title: bookKey,
+      dataType: StorageDataType.STATISTICS,
+      lastModifiedValue: Date.now()
+    });
+    await tx.done;
+    database.dataListChanged$.next(undefined);
+    return;
+  }
+  const tx = db.transaction('bookmark', 'readwrite');
   for (const book of copies) {
-    if (kind === 'statistics') {
-      const day = dayId.exec(entityId)?.[1];
-      if (!day) continue;
-      if (payload)
-        await tx
-          .objectStore('statistic')
-          .put({ ...payload, title: book.title, dateKey: day } as unknown as BooksDbStatistic);
-      else await tx.objectStore('statistic').delete([book.title, day]);
-      await tx.objectStore('lastModified').put({
-        title: book.title,
-        dataType: StorageDataType.STATISTICS,
-        lastModifiedValue: Date.now()
-      });
+    const old = await tx.store.get(book.id);
+    const next: BooksDbBookmarkData = {
+      ...(old ?? { dataId: book.id, progress: undefined, lastBookmarkModified: 0 }),
+      dataId: book.id
+    };
+    if (kind === 'completion') {
+      if (payload?.completion)
+        next.completion = payload.completion as BooksDbBookmarkData['completion'];
+      else delete next.completion;
     } else {
-      const old = await tx.objectStore('bookmark').get(book.id);
-      const next: BooksDbBookmarkData = {
-        ...(old ?? { dataId: book.id, progress: undefined, lastBookmarkModified: 0 }),
-        dataId: book.id
-      };
-      if (kind === 'completion') {
-        if (payload?.completion)
-          next.completion = payload.completion as BooksDbBookmarkData['completion'];
-        else delete next.completion;
-      } else {
-        for (const field of fields) delete (next as unknown as Record<string, unknown>)[field];
-        Object.assign(next, payload ?? {});
-      }
-      await tx.objectStore('bookmark').put(next);
+      for (const field of fields) delete (next as unknown as Record<string, unknown>)[field];
+      Object.assign(next, payload ?? {});
     }
+    await tx.store.put(next);
   }
   await tx.done;
-  if (kind !== 'statistics') database.bookmarksChanged$.next();
-  else database.dataListChanged$.next(undefined);
+  database.bookmarksChanged$.next();
 }
 
 async function acceptRemote(
@@ -483,14 +491,8 @@ async function bootstrap(accountId: string, books: Map<string, BooksDbBookData[]
 
 async function stageReading(accountId: string, books: Map<string, BooksDbBookData[]>) {
   const db = await database.db;
-  for (const [bookKey, copies] of books) {
-    const stats = (
-      await Promise.all(
-        copies.map((book) =>
-          db.getAll('statistic', IDBKeyRange.bound([book.title], [book.title, []]))
-        )
-      )
-    ).flat();
+  for (const bookKey of books.keys()) {
+    const stats = await db.getAll('readerStatistic', IDBKeyRange.bound([bookKey], [bookKey, []]));
     const known = (await db.getAllFromIndex('readerPersonalRecord', 'bookKey', bookKey)).filter(
       (record) => record.accountId === accountId && record.kind === 'statistics'
     );

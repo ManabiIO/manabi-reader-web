@@ -710,7 +710,7 @@
         handlers[0],
         handlers[1],
         false,
-        books.map((book) => ({ title: book.title, imagePath: book.imagePath })),
+        books.map((book) => ({ id: book.id, title: book.title, imagePath: book.imagePath })),
         $lastExportedTypes$,
         cancelSignal
       ).catch((err) => err.message);

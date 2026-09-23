@@ -311,7 +311,13 @@ export function canonical(value: unknown): string {
 }
 export function withoutIdentity(value: unknown): Plain | undefined {
   if (!value) return undefined;
-  const { title: _title, dataId: _id, manabiTtuReceipt: _receipt, ...rest } = value as Plain;
+  const {
+    title: _title,
+    bookKey: _bookKey,
+    dataId: _id,
+    manabiTtuReceipt: _receipt,
+    ...rest
+  } = value as Plain;
   return rest;
 }
 export class MigrationConflict extends Error {

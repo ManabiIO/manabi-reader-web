@@ -318,8 +318,8 @@ class BooksLibraryBrowser(LibraryBase):
         tool('Save Reading Position')
         self.wait_bookmark(book_id, lambda row: row['exploredCharCount'] > 0 and
                            row['lastBookmarkModified'] > previous_modified)
-        baseline = self.stores('books', ['bookmark', 'statistic'])
-        self.assertTrue(baseline['statistic'], 'The preview must preserve real reading statistics')
+        baseline = self.stores('books', ['bookmark', 'readerStatistic'])
+        self.assertTrue(baseline['readerStatistic'], 'The preview must preserve real reading statistics')
 
         tool('Search Book')
         self.page.get_by_role('searchbox', name='Search within book').fill('DESTINATION_UNIQUE_𠮷猫_終端')
@@ -329,14 +329,14 @@ class BooksLibraryBrowser(LibraryBase):
         return_button = self.page.get_by_role('button', name='Return to where I was')
         expect(return_button).to_be_visible(timeout=30000)
         expect(content.locator('[data-manabi-spine-index="1"]')).to_be_attached(timeout=30000)
-        self.assertEqual(baseline, self.stores('books', ['bookmark', 'statistic']))
+        self.assertEqual(baseline, self.stores('books', ['bookmark', 'readerStatistic']))
 
         controls.click()
         self.page.get_by_role('button', name='Themes & Settings').click()
         self.page.get_by_role('button', name='Increase text size').click()
         self.page.get_by_role('button', name='Close reading appearance').click()
         expect(content.locator('[data-manabi-spine-index="1"]')).to_be_attached()
-        self.assertEqual(baseline, self.stores('books', ['bookmark', 'statistic']))
+        self.assertEqual(baseline, self.stores('books', ['bookmark', 'readerStatistic']))
 
         return_button.click()
         expect(return_button).to_have_count(0)
@@ -347,7 +347,7 @@ class BooksLibraryBrowser(LibraryBase):
                         (before, after, origin_run))
         self.assertEqual(0, after['spine'])
         self.assertGreater(after['scroll'], 0, 'Return must not jump to offset zero')
-        self.assertEqual(baseline, self.stores('books', ['bookmark', 'statistic']))
+        self.assertEqual(baseline, self.stores('books', ['bookmark', 'readerStatistic']))
 
     def test_cross_resource_return_after_reflow_phone(self):
         self._cross_resource_return({'width': 390, 'height': 844})
@@ -1115,10 +1115,10 @@ class BooksLibraryBrowser(LibraryBase):
         self.page.get_by_role('dialog').get_by_role('button', name='Confirm', exact=True).click()
         self.wait_bookmark(before['dataId'],
             lambda row: row.get('completion', {}).get('state') == 'finished')
-        after = self.stores('books', ['bookmark','statistic'])
+        after = self.stores('books', ['bookmark','readerStatistic'])
         self.assertEqual('finished', after['bookmark'][0]['completion']['state'])
         self.assertGreater(after['bookmark'][0]['completion']['modifiedAt'], before['completion']['modifiedAt'])
-        self.assertTrue(any(row.get('completedBook') == 1 for row in after['statistic']))
+        self.assertTrue(any(row.get('completedBook') == 1 for row in after['readerStatistic']))
         self.go_library()
         expect(self.tile('Finish once more').locator('.progress-label')).to_have_text('Finished')
         self.page.reload()

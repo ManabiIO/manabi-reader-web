@@ -152,6 +152,7 @@
       request.startDate = row.dateKey;
       request.endDate = row.dateKey;
       request.titlesToCheck.add(row.title);
+      request.bookKey = row.bookKey;
     } else if (
       $lastPrimaryReadingDataAggregationMode$ === StatisticsReadingDataAggregationMode.DATE
     ) {
@@ -440,6 +441,7 @@
                   dispatch('edit', {
                     dateKey: rowInEdit.dateKey,
                     title: rowInEdit.title,
+                    bookKey: rowInEdit.bookKey,
                     newReadingTime: rowInEditTime,
                     newCharactersRead: rowInEditCharacters,
                     resetMinMaxValues: rowInEditResetMinMaxValues
