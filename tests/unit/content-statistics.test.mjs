@@ -135,3 +135,57 @@ test('verification rekeys a previously local day without duplicating history', a
   assert.equal((await visibleStatistics(db)).length, 1);
   db.close();
 });
+
+test('identity conflict keeps a previously assigned legacy day represented once', async () => {
+  const db = await database();
+  const local = book(1, 'Assigned before verification');
+  await db.put('data', local);
+  await db.put('statistic', day(local.title, '2026-09-20', 12));
+  const localKey = await migrateLegacyStatistics(db, local);
+  const verified = book(1, local.title, 'e');
+  await db.put('data', verified);
+  await db.put('readerStatistic', {
+    ...day(local.title, '2026-09-20', 90),
+    bookKey: contentStatisticKey(verified)
+  });
+  await migrateLegacyStatistics(db, verified);
+  const receipt = await db.get('readerStatisticMigration', local.title);
+  assert.equal(receipt.state, 'identity-conflict');
+  assert.equal(receipt.legacyAssigned, true);
+  assert.equal((await db.get('readerStatistic', [localKey, '2026-09-20'])).charactersRead, 12);
+  assert.deepEqual(
+    (await visibleStatistics(db)).map((row) => row.charactersRead).sort((a, b) => a - b),
+    [12, 90]
+  );
+  db.close();
+});
+
+test('identity conflict never hides a legacy day that was already ambiguous', async () => {
+  const db = await database();
+  const local = book(1, 'Ambiguous before verification');
+  const other = book(2, local.title, 'a');
+  await db.put('data', local);
+  await db.put('data', other);
+  await db.put('statistic', day(local.title, '2026-09-20', 5));
+  const localKey = await migrateLegacyStatistics(db, local);
+  assert.equal((await db.get('readerStatisticMigration', local.title)).state, 'ambiguous');
+  await db.put('readerStatistic', {
+    ...day(local.title, '2026-09-20', 12),
+    bookKey: localKey
+  });
+  const verified = book(1, local.title, 'e');
+  await db.put('data', verified);
+  await db.put('readerStatistic', {
+    ...day(local.title, '2026-09-20', 90),
+    bookKey: contentStatisticKey(verified)
+  });
+  await migrateLegacyStatistics(db, verified);
+  const receipt = await db.get('readerStatisticMigration', local.title);
+  assert.equal(receipt.state, 'identity-conflict');
+  assert.equal(receipt.legacyAssigned, false);
+  assert.deepEqual(
+    (await visibleStatistics(db)).map((row) => row.charactersRead).sort((a, b) => a - b),
+    [5, 12, 90]
+  );
+  db.close();
+});

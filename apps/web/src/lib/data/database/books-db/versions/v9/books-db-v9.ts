@@ -12,6 +12,7 @@ export interface StatisticMigration {
   title: string;
   state: 'assigned' | 'ambiguous' | 'identity-conflict';
   bookKey?: string;
+  legacyAssigned?: boolean;
 }
 
 export default interface BooksDbV9 extends BooksDbV8 {

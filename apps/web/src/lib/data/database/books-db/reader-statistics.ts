@@ -86,7 +86,15 @@ export async function migrateLegacyStatistics(
     const localRows = await content.getAll(statisticRange(localKey));
     const existing = await Promise.all(localRows.map((row) => content.get([bookKey, row.dateKey])));
     if (localRows.some((row, index) => existing[index] && !sameDay(row, existing[index]!))) {
-      await migration.put({ title: book.title, state: 'identity-conflict', bookKey: localKey });
+      const previous = await migration.get(book.title);
+      await migration.put({
+        title: book.title,
+        state: 'identity-conflict',
+        bookKey: localKey,
+        legacyAssigned:
+          previous?.state === 'assigned' ||
+          (previous?.state === 'identity-conflict' && previous.legacyAssigned === true)
+      });
       await tx.done;
       return bookKey;
     }
@@ -139,7 +147,13 @@ export async function visibleStatistics(db: IDBPDatabase<BooksDb>): Promise<Book
     db.getAll('readerStatisticMigration')
   ]);
   const assigned = new Set(
-    migrations.filter((entry) => entry.state !== 'ambiguous').map((entry) => entry.title)
+    migrations
+      .filter(
+        (entry) =>
+          entry.state === 'assigned' ||
+          (entry.state === 'identity-conflict' && entry.legacyAssigned)
+      )
+      .map((entry) => entry.title)
   );
   return [...content, ...legacy.filter((row) => !assigned.has(row.title))];
 }
