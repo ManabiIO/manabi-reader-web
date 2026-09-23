@@ -827,6 +827,51 @@ class RheaReader(previous.RefinedAppearance):
         self.page.keyboard.press('Escape')
         expect(panel).to_have_count(0)
 
+    def test_statistics_raw_recovery_download_preserves_ambiguous_days(self):
+        self.page.goto(self.origin + '/Reader-Web/statistics')
+        expect(self.page.get_by_role('button', name='Statistics options', exact=True)).to_be_visible()
+        self.page.evaluate('''() => new Promise((resolve, reject) => {
+          const open = indexedDB.open('books');
+          open.onerror = () => reject(open.error);
+          open.onsuccess = () => {
+            const db = open.result;
+            const tx = db.transaction(['statistic', 'readerStatistic', 'readerStatisticMigration'], 'readwrite');
+            const title = 'Two copies';
+            const common = {title, readingTime: 60, charactersRead: 25, minReadingSpeed: 1,
+              altMinReadingSpeed: 1, lastReadingSpeed: 1, maxReadingSpeed: 1,
+              lastStatisticModified: 100};
+            tx.objectStore('statistic').put({...common, dateKey: '2026-09-20'});
+            tx.objectStore('readerStatistic').put({...common, dateKey: '2026-09-21',
+              bookKey: 'content:' + 'a'.repeat(64)});
+            tx.objectStore('readerStatisticMigration').put({title, state: 'ambiguous'});
+            tx.oncomplete = () => { db.close(); resolve(); };
+            tx.onerror = () => reject(tx.error);
+          };
+        })''')
+        self.page.reload()
+        self.page.get_by_role('button', name='Statistics options', exact=True).click()
+        self.page.get_by_role('menuitem', name='Statistics Settings', exact=True).click()
+        panel = self.page.locator('[data-slot="sheet-content"]')
+        expect(panel.get_by_role('button', name='Download raw history (JSON)')).to_be_visible()
+        self.page.evaluate('''() => {
+          const original = URL.createObjectURL.bind(URL);
+          URL.createObjectURL = blob => {
+            const url = original(blob);
+            window.__statisticsRecoveryDownload = {url, blob};
+            return url;
+          };
+        }''')
+        panel.get_by_role('button', name='Download raw history (JSON)').click()
+        self.page.wait_for_function('window.__statisticsRecoveryDownload?.blob?.size > 0')
+        snapshot = self.page.evaluate('''async () => JSON.parse(
+          await window.__statisticsRecoveryDownload.blob.text())''')
+        self.assertEqual('manabi-reader-statistics-recovery', snapshot['format'])
+        self.assertEqual('content:' + 'a' * 64, snapshot['contentRows'][0]['bookKey'])
+        self.assertEqual('2026-09-20', snapshot['legacyRows'][0]['dateKey'])
+        self.assertEqual('ambiguous', snapshot['migrationReceipts'][0]['state'])
+        panel.get_by_role('button', name='Export All', exact=True).click()
+        expect(self.page.get_by_text('The TTU ZIP cannot safely identify all days')).to_be_visible()
+
 
 if __name__ == '__main__':
     Path('test-results').mkdir(exist_ok=True)

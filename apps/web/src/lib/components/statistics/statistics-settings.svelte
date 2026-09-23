@@ -15,6 +15,7 @@
     readingSpeedDataSources,
     statisticsDataAggregrationModes,
     exportStatisticsData$,
+    exportRawStatistics$,
     statisticsActionInProgress$,
     deleteStatisticsData$,
     setStatisticsDatesToAllTime$
@@ -68,6 +69,15 @@
   <div class="flex flex-1 flex-wrap justify-end gap-2">
     <button
       class="rounded-lg px-2 py-1 hover:bg-accent"
+      on:click={() => {
+        $statisticsActionInProgress$ = true;
+        exportRawStatistics$.next();
+      }}
+    >
+      Download raw history (JSON)
+    </button>
+    <button
+      class="rounded-lg px-2 py-1 hover:bg-accent"
       on:click={() => exportStatisticsData(false)}
     >
       Export Selection
@@ -87,6 +97,11 @@
     >
   </div>
 </div>
+<p class="px-4 text-sm text-muted-foreground">
+  Raw history preserves book identities, unresolved legacy days, and migration receipts for
+  recovery; it is not a TTU import file. The TTU ZIP exports below use titles and cannot preserve
+  book identities.
+</p>
 <div class="flex-1 p-4 overflow-auto">
   <div class="flex flex-col mb-6">
     <label for="datesTemplate">Template</label>

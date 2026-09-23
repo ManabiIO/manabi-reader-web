@@ -25,6 +25,7 @@
     preFilteredTitlesForStatistics$,
     statisticsDataAggregrationModes,
     exportStatisticsData$,
+    exportRawStatistics$,
     statisticsActionInProgress$,
     deleteStatisticsData$,
     setStatisticsDatesToAllTime$,
@@ -35,6 +36,10 @@
     BooksDbStatistic
   } from '$lib/data/database/books-db/versions/books-db';
   import { dialogManager } from '$lib/data/dialog-manager';
+  import {
+    readStatisticsRecoverySnapshot,
+    titlesWithMultipleStatisticIdentities
+  } from '$lib/data/database/books-db/reader-statistics';
   import { logger } from '$lib/data/logger';
   import { getDateRangeLabel } from '$lib/data/reading-goal';
   import { getStorageHandler } from '$lib/data/storage/storage-handler-factory';
@@ -116,8 +121,30 @@
     tap(async (exportAllData) => {
       try {
         const statisticsDataToExport = new Map<string, BooksDbStatistic[]>();
+        const selectedRows = statisticsData.filter(
+          ({ title, dateKey }) =>
+            exportAllData ||
+            (statisticsTitleFilters.get(title) &&
+              dateKey >= $lastStatisticsStartDate$ &&
+              dateKey <= $lastStatisticsEndDate$)
+        );
+        const ambiguousTitles = titlesWithMultipleStatisticIdentities(selectedRows);
+        const selectedTitles = new Set(selectedRows.map((row) => row.title));
+        const unresolvedTitles = (await (await database.db).getAll('readerStatisticMigration'))
+          .filter(
+            (receipt) =>
+              selectedTitles.has(receipt.title) &&
+              (receipt.state === 'ambiguous' ||
+                (receipt.state === 'identity-conflict' && !receipt.legacyAssigned))
+          )
+          .map((receipt) => receipt.title);
+        if (ambiguousTitles.length || unresolvedTitles.length) {
+          throw new Error(
+            `The TTU ZIP cannot safely identify all days for ${[...new Set([...ambiguousTitles, ...unresolvedTitles])].join(', ')}. Download raw history (JSON) to preserve every book identity and day.`
+          );
+        }
 
-        for (let index = 0; index < statisticsData.length; index += 1) {
+        for (let index = 0; index < selectedRows.length; index += 1) {
           const {
             title,
             dateKey,
@@ -130,32 +157,25 @@
             lastStatisticModified,
             completedBook,
             completedData
-          } = statisticsData[index];
+          } = selectedRows[index];
 
-          if (
-            exportAllData ||
-            (statisticsTitleFilters.get(title) &&
-              dateKey >= $lastStatisticsStartDate$ &&
-              dateKey <= $lastStatisticsEndDate$)
-          ) {
-            const entries = statisticsDataToExport.get(title) || [];
+          const entries = statisticsDataToExport.get(title) || [];
 
-            entries.push({
-              title,
-              dateKey,
-              charactersRead,
-              readingTime,
-              minReadingSpeed,
-              altMinReadingSpeed,
-              lastReadingSpeed,
-              maxReadingSpeed,
-              lastStatisticModified,
-              completedBook,
-              completedData
-            });
+          entries.push({
+            title,
+            dateKey,
+            charactersRead,
+            readingTime,
+            minReadingSpeed,
+            altMinReadingSpeed,
+            lastReadingSpeed,
+            maxReadingSpeed,
+            lastStatisticModified,
+            completedBook,
+            completedData
+          });
 
-            statisticsDataToExport.set(title, entries);
-          }
+          statisticsDataToExport.set(title, entries);
         }
 
         const entriesToExport = [...statisticsDataToExport.entries()];
@@ -197,6 +217,47 @@
         await Promise.all(exportTasks).finally(() => backupHandler.clearData());
       } catch ({ message }: any) {
         logger.error(`Failed to Export Data: ${message}`);
+        dialogManager.dialogs$.next([
+          {
+            component: MessageDialog,
+            props: { title: 'Statistics export unavailable', message }
+          }
+        ]);
+      } finally {
+        $statisticsActionInProgress$ = false;
+      }
+    }),
+    reduceToEmptyString()
+  );
+
+  const exportRawStatisticsHandler$ = exportRawStatistics$.pipe(
+    tap(async () => {
+      try {
+        const snapshot = await readStatisticsRecoverySnapshot(await database.db);
+        const url = URL.createObjectURL(
+          new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' })
+        );
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `manabi-reader-statistics-recovery-${new Date()
+          .toISOString()
+          .slice(0, 10)}.json`;
+        document.body.append(link);
+        try {
+          link.click();
+        } finally {
+          link.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 10_000);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error(`Failed to export raw statistics: ${message}`);
+        dialogManager.dialogs$.next([
+          {
+            component: MessageDialog,
+            props: { title: 'Statistics export failed', message }
+          }
+        ]);
       } finally {
         $statisticsActionInProgress$ = false;
       }
@@ -808,6 +869,7 @@
 
 {$copyStatisticsDataHandler$ ?? ''}
 {$exportStatisticsDataHandler$ ?? ''}
+{$exportRawStatisticsHandler$ ?? ''}
 {$deleteStatisticsDataHandler$ ?? ''}
 {$setStatisticsDatesToAllTimeHandler$ ?? ''}
 <svelte:window on:keyup={onKeyUp} />

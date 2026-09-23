@@ -4,6 +4,8 @@ import test from 'node:test';
 import {
   contentStatisticKey,
   migrateLegacyStatistics,
+  readStatisticsRecoverySnapshot,
+  titlesWithMultipleStatisticIdentities,
   visibleStatistics
 } from '../../apps/web/src/lib/data/database/books-db/reader-statistics.ts';
 
@@ -70,6 +72,50 @@ test('same-title different files preserve legacy day and keep new days separate'
     bookKey: contentStatisticKey(second)
   });
   assert.deepEqual((await visibleStatistics(db)).map((row) => row.charactersRead).sort(), [45, 72]);
+  db.close();
+});
+
+test('raw recovery retains keyed rows, unresolved legacy days, and migration receipts', async () => {
+  const db = await database();
+  const first = book(1, 'Same title', 'a');
+  const second = book(2, 'Same title', 'b');
+  await db.put('data', first);
+  await db.put('data', second);
+  await db.put('statistic', day('Same title', '2026-09-20', 45));
+  await migrateLegacyStatistics(db, first);
+  const keyed = { ...day('Same title', '2026-09-21', 72), bookKey: contentStatisticKey(second) };
+  await db.put('readerStatistic', keyed);
+
+  const snapshot = await readStatisticsRecoverySnapshot(db);
+  const roundTrip = JSON.parse(JSON.stringify(snapshot));
+  assert.equal(roundTrip.format, 'manabi-reader-statistics-recovery');
+  assert.equal(roundTrip.version, 1);
+  assert.deepEqual(roundTrip.books, [
+    { id: 1, title: 'Same title', contentHash: hash('a') },
+    { id: 2, title: 'Same title', contentHash: hash('b') }
+  ]);
+  assert.deepEqual(roundTrip.contentRows, [keyed]);
+  assert.deepEqual(roundTrip.legacyRows, [day('Same title', '2026-09-20', 45)]);
+  assert.deepEqual(roundTrip.migrationReceipts, [{ title: 'Same title', state: 'ambiguous' }]);
+  assert.deepEqual(
+    titlesWithMultipleStatisticIdentities([...roundTrip.contentRows, ...roundTrip.legacyRows]),
+    ['Same title']
+  );
+  assert.deepEqual(titlesWithMultipleStatisticIdentities([keyed]), []);
+  db.close();
+});
+
+test('raw recovery retains assigned legacy source and local identity receipts', async () => {
+  const db = await database();
+  const copy = book(1, 'Unverified');
+  await db.put('data', copy);
+  await db.put('statistic', day(copy.title, '2026-09-20', 12));
+  const bookKey = await migrateLegacyStatistics(db, copy);
+  const snapshot = JSON.parse(JSON.stringify(await readStatisticsRecoverySnapshot(db)));
+  assert.equal(snapshot.contentRows[0].bookKey, bookKey);
+  assert.equal(snapshot.legacyRows[0].charactersRead, 12);
+  assert.deepEqual(snapshot.migrationReceipts, [{ title: copy.title, state: 'assigned', bookKey }]);
+  assert.equal(`local:${snapshot.localIdentities[0].uuid}`, bookKey);
   db.close();
 });
 

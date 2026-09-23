@@ -157,3 +157,42 @@ export async function visibleStatistics(db: IDBPDatabase<BooksDb>): Promise<Book
   );
   return [...content, ...legacy.filter((row) => !assigned.has(row.title))];
 }
+
+/** A TTU statistics ZIP has only title keys, so it cannot represent this case. */
+export function titlesWithMultipleStatisticIdentities(
+  rows: readonly (BooksDbStatistic | BooksDbContentStatistic)[]
+): string[] {
+  const identities = new Map<string, Set<string>>();
+  for (const row of rows) {
+    const keys = identities.get(row.title) ?? new Set<string>();
+    keys.add('bookKey' in row && row.bookKey ? row.bookKey : `legacy:${row.title}`);
+    identities.set(row.title, keys);
+  }
+  return [...identities].filter(([, keys]) => keys.size > 1).map(([title]) => title);
+}
+
+/** Lossless recovery snapshot. This is deliberately separate from TTU's title-keyed ZIP. */
+export async function readStatisticsRecoverySnapshot(db: IDBPDatabase<BooksDb>) {
+  const tx = db.transaction(
+    ['data', 'statistic', 'readerStatistic', 'readerStatisticMigration', 'readerLocalIdentity'],
+    'readonly'
+  );
+  const [books, legacyRows, contentRows, migrationReceipts, localIdentities] = await Promise.all([
+    tx.objectStore('data').getAll(),
+    tx.objectStore('statistic').getAll(),
+    tx.objectStore('readerStatistic').getAll(),
+    tx.objectStore('readerStatisticMigration').getAll(),
+    tx.objectStore('readerLocalIdentity').getAll()
+  ]);
+  await tx.done;
+  return {
+    format: 'manabi-reader-statistics-recovery',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    books: books.map(({ id, title, contentHash }) => ({ id, title, contentHash })),
+    contentRows,
+    legacyRows,
+    migrationReceipts,
+    localIdentities
+  };
+}
