@@ -160,7 +160,16 @@ class LibraryBase(unittest.TestCase):
         # transaction publishes the updated organization. Waiting on that
         # state transition avoids racing the collection checkbox render.
         expect(name_input).to_have_value('')
-        expect(dialog.get_by_role('checkbox', name=name, exact=True)).to_be_checked()
+        try:
+            expect(dialog.get_by_role('checkbox', name=name, exact=True)).to_be_checked()
+        except AssertionError as failure:
+            rows = self.stores('manabi-reader-integrations', ['metadata'])['metadata']
+            saved = next((row for row in rows if row.get('version') == 1 and 'collections' in row), {})
+            names = [collection.get('name') for collection in saved.get('collections', [])]
+            alerts = dialog.get_by_role('alert').all_text_contents()
+            raise AssertionError(
+                f'Collection {name!r} was not shown after creation; persisted={names!r}; alerts={alerts!r}'
+            ) from failure
         dialog.get_by_role('button', name='Done', exact=True).click()
         # Do not fill the previous dialog's still-mounted exit transition when
         # the next collection is opened immediately after this one.
