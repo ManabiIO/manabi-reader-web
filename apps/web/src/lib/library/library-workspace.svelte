@@ -29,7 +29,7 @@
   import { account, currentUser, requestSeriesWriteAccess } from '$lib/manabi/client';
   import { linkedBooks, refreshLinkedBooks, importLibraryBook } from '$lib/manabi/books';
   import { integrationDB, type LocalLibrary } from '$lib/manabi/persistence';
-  import { reconnectLocalLibrary } from '$lib/manabi/sources';
+  import { reconnectLocalLibrary, sha256 } from '$lib/manabi/sources';
   import {
     sourceDescriptors,
     cachedCatalog,
@@ -77,7 +77,7 @@
   }
   import { creatorLine, sharedCreatorLine } from './book-metadata';
   import { coverOverride } from './cover-override';
-  import { sourceKey } from './organization';
+  import { contentBookKey, sourceKey } from './organization';
   import {
     advanceCloudSeries,
     cloudSeriesCapabilities,
@@ -613,7 +613,21 @@
     };
   });
   async function ensureBook(book: ShelfBook): Promise<number> {
-    if (book.bookId && !book.isPlaceholder) return book.bookId;
+    if (
+      book.bookId &&
+      !book.isPlaceholder &&
+      (!book.source ||
+        !book.file ||
+        $linkedBooks.some(
+          (link) =>
+            link.bookId === book.bookId &&
+            link.sourceId === book.source?.id &&
+            link.owner === book.source?.owner &&
+            link.root === book.source?.root &&
+            link.fileId === book.file?.id
+        ))
+    )
+      return book.bookId;
     if (!book.source || !book.file) {
       if (book.bookId) return book.bookId;
       throw new Error('This book has no accessible source.');
@@ -622,6 +636,23 @@
     // Sync remains opt-in on Accounts and libraries; opening a file never enables remote writes.
     const link = await importLibraryBook(await librarySource(book.source), book.file, false);
     return link.bookId;
+  }
+  async function stableOrganizationBook(book: ShelfBook): Promise<ShelfBook> {
+    if (book.bookId && /^content:[a-f0-9]{64}$/.test(book.organizationKey)) return book;
+    if (!book.source || !book.file) {
+      if (/^content:[a-f0-9]{64}$/.test(book.organizationKey)) return book;
+      throw new Error('This book has no accessible source.');
+    }
+    const owner = currentUser()?.id ?? null;
+    const original = await (await librarySource(book.source)).read(book.file);
+    const hash = await sha256(await original.arrayBuffer());
+    if (owner !== (currentUser()?.id ?? null)) throw new Error('The account changed.');
+    const organizationKey = contentBookKey(hash);
+    return {
+      ...book,
+      organizationKey,
+      organizationAliases: [...new Set([...book.organizationAliases, organizationKey])]
+    };
   }
   function openBook(book: ShelfBook) {
     void action(async () => {
@@ -713,7 +744,9 @@
     const focusWasInMenu = !!document.activeElement?.closest('[role="menu"], .shelf-item');
     let changed = false;
     void action(async () => {
-      await setWantToRead(targets, included);
+      const stable: ShelfBook[] = [];
+      for (const book of targets) stable.push(await stableOrganizationBook(book));
+      await setWantToRead(stable, included);
       changed = true;
       notice = included ? 'Added to Want to Read.' : 'Removed from Want to Read.';
     }).then(async () => {
@@ -742,7 +775,9 @@
     void action(async () => {
       await permission;
       if (dialog === 'rename' && targetBook)
-        await presentBook(targetBook.organizationKey, { title: name });
+        await presentBook((await stableOrganizationBook(targetBook)).organizationKey, {
+          title: name
+        });
       else if (dialog === 'date' && targetBook)
         await setCompletion(await ensureBook(targetBook), 'finished', date);
       else if (dialog === 'series-name' && targetSeries && local) {
@@ -1406,7 +1441,6 @@
       </dl>
       <Dialog.Footer><Button onclick={() => (dialogOpen = false)}>Done</Button></Dialog.Footer>
     {:else if dialog === 'membership' && targetBook}
-      {@const targetOrganizationKey = targetBook.organizationKey}
       <div class="grid max-h-[40dvh] gap-3 overflow-y-auto">
         {#each [wantToRead, ...customCollections] as collection (collection.id)}<label
             class="flex min-h-11 items-center gap-3 rounded-xl border border-border px-3"
@@ -1418,14 +1452,17 @@
               disabled={busy}
               onchange={(event) => {
                 const included = event.currentTarget.checked;
-                void action(() =>
-                  setMembership(
+                const selected = targetBook!;
+                void action(async () => {
+                  const stable = await stableOrganizationBook(selected);
+                  targetBook = stable;
+                  await setMembership(
                     collection.id,
-                    targetOrganizationKey,
+                    stable.organizationKey,
                     included,
-                    targetBook!.organizationAliases
-                  )
-                );
+                    stable.organizationAliases
+                  );
+                });
               }}
             />{#if collection.id === WANT_TO_READ_ID}<BookmarkSimple
                 class="size-5"
@@ -1441,7 +1478,9 @@
         onsubmit={(event) => {
           event.preventDefault();
           void action(async () => {
-            await createCollection(newCollectionName, [targetOrganizationKey]);
+            const stable = await stableOrganizationBook(targetBook!);
+            targetBook = stable;
+            await createCollection(newCollectionName, [stable.organizationKey]);
             newCollectionName = '';
           });
         }}

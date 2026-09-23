@@ -4,6 +4,7 @@ No mocked storage, replaced picker, imported substitute UI or request intercepti
 Filesystem cases run on Chromium; the browser-only cases also run on WebKit.
 """
 import base64
+import hashlib
 import io
 import json
 import os
@@ -1161,6 +1162,67 @@ class BooksLibraryBrowser(LibraryBase):
 
 
 class BooksLibraryFilesystem(LibraryBase):
+    def test_external_relocation_rebinds_content_identity_and_presentation(self):
+        original = book('Relocation original')
+        self.seed_files({'Old/Volume.epub': original})
+        expect(self.page.get_by_role('button', name='Read Relocation original', exact=True)).to_be_visible(
+            timeout=30000)
+        # These actions start on a preview-only source book. They must first
+        # establish a content identity, rather than saving a mutable file path.
+        self.add_collection('Relocation original', 'Relocation collection')
+        self.menu('Relocation original', 'Rename…')
+        self.dialog().get_by_label('Name', exact=True).fill('My relocated volume')
+        self.dialog().get_by_role('button', name='Save', exact=True).click()
+        expect(self.page.get_by_role('button', name='Read My relocated volume', exact=True)).to_be_visible()
+        self.assertEqual([], self.stores('manabi-reader-integrations', ['books'])['books'])
+        metadata = self.stores('manabi-reader-integrations', ['metadata'])['metadata']
+        organization = next(row for row in metadata if row.get('version') == 1 and 'collections' in row)
+        member = next(collection['members'][0] for collection in organization['collections']
+                      if collection['name'] == 'Relocation collection')
+        self.assertRegex(member, r'^content:[a-f0-9]{64}$')
+        self.assertEqual('My relocated volume', organization['books'][member]['title'])
+        with self.page.expect_file_chooser() as chooser:
+            self.menu('My relocated volume', 'Change Cover…')
+        chooser.value.set_files({
+            'name': 'replacement.png', 'mimeType': 'image/png',
+            'buffer': raster(120, 180, (40, 120, 180))
+        })
+        cover = self.tile('My relocated volume').locator('img')
+        expect(cover).to_have_attribute('src', re.compile(r'^data:image/(?:png|webp);base64,'))
+        override = cover.get_attribute('src')
+        links_before = self.stores('manabi-reader-integrations', ['books'])['books']
+        self.assertEqual(1, len(links_before))
+        book_id = links_before[0]['bookId']
+        reading_before = self.stores('books', ['bookmark', 'statistic'])
+        self.page.evaluate('''async () => {
+          const root = await (await navigator.storage.getDirectory()).getDirectoryHandle('Library fixture');
+          const old = await root.getDirectoryHandle('Old');
+          const file = await (await old.getFileHandle('Volume.epub')).getFile();
+          const nested = await (await root.getDirectoryHandle('New',{create:true})).getDirectoryHandle('Nested',{create:true});
+          const writer = await (await nested.getFileHandle('Moved.epub',{create:true})).createWritable();
+          await writer.write(file); await writer.close();
+          await old.removeEntry('Volume.epub');
+        }''')
+        self.open_organize_menu()
+        self.page.get_by_role('menuitem', name='Refresh Connected Folders', exact=True).click()
+        expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute(
+            'aria-busy', 'false', timeout=30000)
+        expect(self.page.get_by_role('button', name='Read My relocated volume', exact=True)).to_have_count(
+            1, timeout=30000)
+        expect(self.tile('My relocated volume').locator('img')).to_have_attribute('src', override)
+        self.choose_collection('Relocation collection')
+        expect(self.page.get_by_role('button', name='Read My relocated volume', exact=True)).to_have_count(1)
+        self.menu('My relocated volume', 'Add to Collection…')
+        expect(self.dialog().get_by_role('checkbox', name='Relocation collection')).to_be_checked()
+        self.dialog().get_by_role('button', name='Done').click()
+        self.assertEqual(reading_before, self.stores('books', ['bookmark', 'statistic']))
+        self.page.get_by_role('button', name='Read My relocated volume', exact=True).click()
+        expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=30000)
+        links_after = self.stores('manabi-reader-integrations', ['books'])['books']
+        self.assertIn('New/Nested/Moved.epub', [link['fileId'] for link in links_after])
+        self.assertEqual({book_id}, {link['bookId'] for link in links_after})
+        self.assertEqual(hashlib.sha256(original).hexdigest(), self.disk()['New/Nested/Moved.epub'])
+
     def test_series_geometry_uses_available_column_width_and_keeps_status_baselines(self):
         self.seed_files({
             'Volumes/1.epub': book('First volume'),
@@ -1258,6 +1320,19 @@ class BooksLibraryFilesystem(LibraryBase):
         self.menu('First book','Mark as Finished')
         expect(self.tile('First book').locator('.progress-label')).to_have_text('Finished')
         self.add_collection('First book','Kept collection')
+        self.menu('First book', 'Rename…')
+        self.dialog().get_by_label('Name', exact=True).fill('Personal First')
+        self.dialog().get_by_role('button', name='Save', exact=True).click()
+        expect(self.page.get_by_role('button', name='Read Personal First', exact=True)).to_be_visible()
+        with self.page.expect_file_chooser() as chooser:
+            self.menu('Personal First', 'Change Cover…')
+        chooser.value.set_files({
+            'name': 'replacement.png', 'mimeType': 'image/png',
+            'buffer': raster(120, 180, (40, 120, 180))
+        })
+        cover = self.tile('Personal First').locator('img')
+        expect(cover).to_have_attribute('src', re.compile(r'^data:image/(?:png|webp);base64,'))
+        override = cover.get_attribute('src')
         old_reading=self.stores('books',['bookmark','statistic'])
         old_links=self.stores('manabi-reader-integrations',['books'])['books']
         before=self.disk()
@@ -1280,7 +1355,9 @@ class BooksLibraryFilesystem(LibraryBase):
         self.assertEqual(old_links[0]['bookId'],new_links[0]['bookId'])
         self.assertEqual('Combined/First.epub',new_links[0]['fileId'])
         self.page.get_by_role('button',name='Open series Combined',exact=True).click()
-        self.menu('First book','Add to Collection…')
+        expect(self.page.get_by_role('button', name='Read Personal First', exact=True)).to_be_visible()
+        expect(self.tile('Personal First').locator('img')).to_have_attribute('src', override)
+        self.menu('Personal First','Add to Collection…')
         expect(self.dialog().get_by_role('checkbox',name='Kept collection',exact=True)).to_be_checked()
         self.dialog().get_by_role('button',name='Done',exact=True).click()
         self.page.get_by_role('button',name='Actions for series Combined',exact=True).click()
@@ -1290,6 +1367,8 @@ class BooksLibraryFilesystem(LibraryBase):
         expect(self.page.get_by_role('heading',name='シリーズ',exact=True)).to_be_visible()
         self.page.reload()
         expect(self.page.get_by_role('heading',name='シリーズ',exact=True)).to_be_visible()
+        expect(self.page.get_by_role('button', name='Read Personal First', exact=True)).to_be_visible()
+        expect(self.tile('Personal First').locator('img')).to_have_attribute('src', override)
         self.assertEqual(after['Combined/First.epub'],self.disk()['Combined/First.epub'])
 
     def test_resume_durable_copied_journal_through_actual_library_button(self):

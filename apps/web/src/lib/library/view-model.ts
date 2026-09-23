@@ -54,6 +54,30 @@ export function buildShelf(
     ])
   );
   const result: ShelfNode[] = [];
+  const catalogFiles = new Set(
+    catalogs.flatMap((catalog) =>
+      catalog.entries
+        .filter((entry) => entry.kind === 'file')
+        .map((entry) => sourceBookKey(catalog.source, entry.id))
+    )
+  );
+  const missingLinksByContent = new Map<string, BookLink>();
+  for (const link of links) {
+    const locator = sourceBookKey(
+      { id: link.sourceId, owner: link.owner, root: link.root },
+      link.fileId
+    );
+    if (
+      !catalogFiles.has(locator) &&
+      catalogs.some(
+        (catalog) =>
+          catalog.source.id === link.sourceId &&
+          catalog.source.owner === link.owner &&
+          catalog.source.root === link.root
+      )
+    )
+      missingLinksByContent.set(JSON.stringify([link.owner, link.contentHash]), link);
+  }
   const revisions = new Map(
     catalogs.map((catalog) => [sourceKey(catalog.source), catalog.scannedAt])
   );
@@ -64,10 +88,15 @@ export function buildShelf(
   ): ShelfBook => {
     const key = card ? bookKey(card.id) : sourceBookKey(source!, file!.id);
     const linked = card ? linksByBook.get(card.id) : linksByFile.get(key);
+    const cachedPreview = source && file ? previews[sourceBookKey(source, file.id)] : undefined;
+    const preview =
+      source && cachedPreview?.scannedAt === revisions.get(sourceKey(source))
+        ? cachedPreview
+        : undefined;
     const contentHash =
       card?.contentHash && /^[a-f0-9]{64}$/.test(card.contentHash)
         ? card.contentHash
-        : linked?.contentHash;
+        : linked?.contentHash || preview?.contentHash;
     const organizationKey = contentHash ? contentBookKey(contentHash) : key;
     const organizationAliases = [
       organizationKey,
@@ -79,11 +108,6 @@ export function buildShelf(
       .map((alias) => organization.books[alias])
       .filter((value): value is NonNullable<typeof value> => !!value)
       .sort((left, right) => right.modifiedAt - left.modifiedAt)[0];
-    const cachedPreview = source && file ? previews[sourceBookKey(source, file.id)] : undefined;
-    const preview =
-      source && cachedPreview?.scannedAt === revisions.get(sourceKey(source))
-        ? cachedPreview
-        : undefined;
     const canonicalTitle =
       card?.title ||
       preview?.title ||
@@ -131,7 +155,12 @@ export function buildShelf(
       source.root,
       (file) => {
         const link = matches.get(file.id),
-          card = link ? byId.get(link.bookId) : undefined;
+          preview = previews[sourceBookKey(source, file.id)],
+          moved =
+            !link && preview?.scannedAt === catalog.scannedAt && preview.contentHash
+              ? missingLinksByContent.get(JSON.stringify([source.owner, preview.contentHash]))
+              : undefined,
+          card = link ? byId.get(link.bookId) : moved ? byId.get(moved.bookId) : undefined;
         if (card) represented.add(card.id);
         return decorate(card, source, file);
       },
