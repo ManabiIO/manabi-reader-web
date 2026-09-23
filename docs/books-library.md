@@ -64,6 +64,21 @@ until then; browser IDs and provider locators are never uploaded as book identit
 Identical filenames alone do not establish identity, and adding to Want to Read
 never imports a connected preview or enables account sync.
 
+Visible connected previews verify the original file's SHA-256 without adding the
+book to browser reading storage. A collection, Want to Read, or display-name edit
+on a preview verifies the bytes again before saving under `content:<sha256>`.
+This lets organization follow a file that receives a new provider ID, moves to
+another folder or is copied between local and cloud sources. The browser keeps
+reading records attached to its existing book ID when a same-owner source link
+is reconnected. A cross-account or local/cloud copy may have a separate browser
+book ID while sharing the portable organization key. Two available physical
+copies can appear as separate Books tiles; missing references do not inflate
+collection counts. Files with the same title but different bytes remain
+separate identities.
+Discovery remains lazy: a collection filter does not download every hidden file
+in a large connected library. Open or scroll the Books/series view to preview a
+newly located file, then its verified identity can appear in collections.
+
 Accepted account organization is committed before settings sync reports success.
 Remote changes notify other open Library tabs, and organization changes remain
 observable while account settings are open outside the Library.
@@ -193,7 +208,8 @@ cover. Labeled menus, keyboard focus, reduced motion and forced colors use the
 existing UI primitives.
 
 Visible connected EPUB covers load through a two-worker, bounded preview queue,
-without importing a book or changing reading state. Only selected manifest
+without importing a book or changing reading state. The original bytes are
+hashed before the preview is cached; only selected manifest
 resources are decoded for previews; thumbnail cache entries are capped at 1 MiB
 and 500 entries. Refresh rescans before replacing the last usable catalog and
 invalidates preview generations. Failed scans do not delete books or history.
