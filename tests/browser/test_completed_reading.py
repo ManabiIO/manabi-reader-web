@@ -18,8 +18,8 @@ class CompletedReadingBrowser(LocalLibraryBrowser):
     def statistics(self, page):
         return page.evaluate('''() => new Promise((resolve,reject) => {
           const open=indexedDB.open('books');open.onerror=()=>reject(open.error);
-          open.onsuccess=()=>{const db=open.result,tx=db.transaction('statistic');
-            const rows=tx.objectStore('statistic').getAll();
+          open.onsuccess=()=>{const db=open.result,tx=db.transaction('readerStatistic');
+            const rows=tx.objectStore('readerStatistic').getAll();
             tx.oncomplete=()=>{resolve(rows.result);db.close();};tx.onerror=()=>reject(tx.error);};
         })''')
 
@@ -33,8 +33,8 @@ class CompletedReadingBrowser(LocalLibraryBrowser):
         self.page.get_by_role('menuitem', name='Complete Book', exact=True).click()
         self.page.get_by_role('button', name='Confirm', exact=True).click()
         self.page.wait_for_function('''() => new Promise(resolve => {
-          const open=indexedDB.open('books');open.onsuccess=()=>{const db=open.result,tx=db.transaction('statistic');
-            const all=tx.objectStore('statistic').getAll();tx.oncomplete=()=>{
+          const open=indexedDB.open('books');open.onsuccess=()=>{const db=open.result,tx=db.transaction('readerStatistic');
+            const all=tx.objectStore('readerStatistic').getAll();tx.oncomplete=()=>{
               resolve(all.result.some(row=>row.completedBook===1));db.close();};};
         })''')
         # Let the UI's complete-book transaction finish before navigating away.

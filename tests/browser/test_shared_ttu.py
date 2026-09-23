@@ -101,8 +101,8 @@ class SharedTtuBrowser(static.ReaderBrowser):
         self.page.get_by_role('button', name='Import selected shared books').click()
         expect(self.page.get_by_role('status')).to_contain_text('bookmarks and statistics imported', timeout=30000)
         result = self.page.evaluate('''() => new Promise(resolve => {
-          const open=indexedDB.open('books');open.onsuccess=()=>{const db=open.result,tx=db.transaction(['bookmark','statistic']);
-          const p=tx.objectStore('bookmark').getAll(),s=tx.objectStore('statistic').getAll();
+          const open=indexedDB.open('books');open.onsuccess=()=>{const db=open.result,tx=db.transaction(['bookmark','readerStatistic']);
+          const p=tx.objectStore('bookmark').getAll(),s=tx.objectStore('readerStatistic').getAll();
           tx.oncomplete=()=>{resolve({progress:p.result,statistics:s.result});db.close();};};
         })''')
         self.assertEqual(30, result['progress'][0]['exploredCharCount'])

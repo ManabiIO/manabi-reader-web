@@ -15,14 +15,14 @@ class ReadingRecoveryBrowser(LocalLibraryBrowser):
           const open=indexedDB.open('books');
           open.onerror=()=>reject(open.error);
           open.onsuccess=()=>{
-            const db=open.result, tx=db.transaction(['data','bookmark','statistic'],'readwrite');
+            const db=open.result, tx=db.transaction(['data','bookmark','readerStatistic'],'readwrite');
             const books=tx.objectStore('data').getAll();
             books.onsuccess=()=>{
               const book=books.result.find(item=>item.title==='local-book');
               if(!book){tx.abort();return;}
               tx.objectStore('bookmark').put({dataId:book.id,exploredCharCount:30,
                 progress:0.1,lastBookmarkModified:1789837322544});
-              tx.objectStore('statistic').put({title:book.title,dateKey:'2026-09-19',
+              tx.objectStore('readerStatistic').put({title:book.title,bookKey:'content:'+book.contentHash,dateKey:'2026-09-19',
                 charactersRead:60,readingTime:300,minReadingSpeed:720,altMinReadingSpeed:720,
                 lastReadingSpeed:720,maxReadingSpeed:720,lastStatisticModified:1789837322544});
             };
@@ -34,9 +34,9 @@ class ReadingRecoveryBrowser(LocalLibraryBrowser):
         return self.page.evaluate('''() => new Promise((resolve,reject)=>{
           const open=indexedDB.open('books');open.onerror=()=>reject(open.error);
           open.onsuccess=()=>{
-            const db=open.result,tx=db.transaction(['bookmark','statistic']);
+            const db=open.result,tx=db.transaction(['bookmark','readerStatistic']);
             const bookmarks=tx.objectStore('bookmark').getAll();
-            const statistics=tx.objectStore('statistic').getAll();
+            const statistics=tx.objectStore('readerStatistic').getAll();
             tx.oncomplete=()=>{resolve({bookmarks:bookmarks.result,statistics:statistics.result});db.close();};
             tx.onerror=()=>reject(tx.error);
           };
@@ -63,8 +63,8 @@ class ReadingRecoveryBrowser(LocalLibraryBrowser):
         self.seed_history()
         self.page.evaluate('''() => new Promise((resolve,reject) => {
           const open=indexedDB.open('books');open.onerror=()=>reject(open.error);
-          open.onsuccess=()=>{const db=open.result,tx=db.transaction(['bookmark','statistic'],'readwrite');
-            tx.objectStore('bookmark').clear();tx.objectStore('statistic').clear();
+          open.onsuccess=()=>{const db=open.result,tx=db.transaction(['bookmark','readerStatistic'],'readwrite');
+            tx.objectStore('bookmark').clear();tx.objectStore('readerStatistic').clear();
             tx.oncomplete=()=>{db.close();resolve();};tx.onerror=()=>reject(tx.error);};
         })''')
         self.page.reload()

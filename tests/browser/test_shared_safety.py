@@ -28,10 +28,10 @@ def reading_snapshot(page):
       const open = indexedDB.open('books');
       open.onerror = () => reject(open.error);
       open.onsuccess = () => {
-        const db = open.result, tx = db.transaction(['data', 'bookmark', 'statistic']);
+        const db = open.result, tx = db.transaction(['data', 'bookmark', 'readerStatistic']);
         const data = tx.objectStore('data').getAll();
         const progress = tx.objectStore('bookmark').getAll();
-        const statistics = tx.objectStore('statistic').getAll();
+        const statistics = tx.objectStore('readerStatistic').getAll();
         tx.oncomplete = () => {
           resolve({books: data.result.map(({id, title, storageSource, elementHtml, characters}) =>
             ({id, title, storageSource, elementHtml, characters})),
