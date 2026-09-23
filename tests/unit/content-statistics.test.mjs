@@ -63,6 +63,8 @@ test('a delayed tracker write cannot erase a completed day or its totals', () =>
     completedData: existing.completedData
   });
   assert.deepEqual(preserveCompletedStatistic(existing, laterReading, true), laterReading);
+  const movedAway = { ...stale, charactersRead: 120, lastStatisticModified: 500 };
+  assert.deepEqual(preserveCompletedStatistic(movedAway, existing, true), movedAway);
 });
 
 test('unambiguous legacy days migrate once without double counting', async () => {

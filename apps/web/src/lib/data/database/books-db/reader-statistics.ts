@@ -30,6 +30,9 @@ export function preserveCompletedStatistic(
   incoming: BooksDbContentStatistic,
   movesCompletion: boolean
 ): BooksDbContentStatistic {
+  // This also prevents a captured old completion flag from reappearing after
+  // the user moved the finish date to another day.
+  if (existing && existing.lastStatisticModified > incoming.lastStatisticModified) return existing;
   if (!existing?.completedBook || incoming.completedBook || movesCompletion) return incoming;
   if (existing.lastStatisticModified >= incoming.lastStatisticModified) return existing;
   return {
