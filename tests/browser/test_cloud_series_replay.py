@@ -17,6 +17,24 @@ SOURCE_KEY = json.dumps(['42', CONNECTION, 'root'], separators=(',', ':'))
 class SeriesHandler(StaticHandler):
     moved = False
     completed_plan = False
+    uncertain_plan = False
+    execute_requests = 0
+
+    @classmethod
+    def plan(cls, status):
+        receipts = [{
+            'connection_id': CONNECTION, 'root': 'root', 'item_id': item,
+            'old_parent': 'root', 'new_parent': 'series', 'name': f'{item}.txt'
+        } for item in ('first', 'second')] if status == 'complete' else []
+        return {
+            'id': PLAN, 'root': 'root', 'operation': 'create_series',
+            'revision': 4, 'status': status, 'issue': '',
+            'expires_at': '2026-09-24T00:00:00Z',
+            'preview': {'folder_name': 'Volumes', 'name': 'Volumes',
+                        'book_names': ['first.txt', 'second.txt'],
+                        'parent_id': 'root', 'destination_id': None},
+            'steps': [], 'receipts': receipts
+        }
 
     def do_GET(self):
         path = urlsplit(self.path).path
@@ -41,20 +59,9 @@ class SeriesHandler(StaticHandler):
                 }, user=owner)
                 return
             if operation == 'series/plans/':
-                receipts = [{
-                    'connection_id': CONNECTION, 'root': 'root', 'item_id': item,
-                    'old_parent': 'root', 'new_parent': 'series', 'name': f'{item}.txt'
-                } for item in ('first', 'second')]
-                plan = {
-                    'id': PLAN, 'root': 'root', 'operation': 'create_series',
-                    'revision': 4, 'status': 'complete', 'issue': '',
-                    'expires_at': '2026-09-24T00:00:00Z',
-                    'preview': {'folder_name': 'Volumes', 'name': 'Volumes',
-                                'book_names': ['first.txt', 'second.txt'],
-                                'parent_id': 'root', 'destination_id': None},
-                    'steps': [], 'receipts': receipts
-                }
-                self.api_response({'items': [plan] if type(self).completed_plan else []}, user=owner)
+                status = 'complete' if type(self).completed_plan else 'reconcile'
+                self.api_response({'items': [type(self).plan(status)]
+                                   if type(self).completed_plan or type(self).uncertain_plan else []}, user=owner)
                 return
             if operation == 'files/':
                 parent = parse_qs(urlsplit(self.path).query).get('parent', ['root'])[0]
@@ -79,6 +86,20 @@ class SeriesHandler(StaticHandler):
                 return
         super().do_GET()
 
+    def do_POST(self):
+        if (type(self).uncertain_plan and urlsplit(self.path).path ==
+                f'/api/reader-web/connections/{CONNECTION}/series/plans/{PLAN}/execute/'):
+            self.api_request()
+            type(self).execute_requests += 1
+            status = 'running' if type(self).execute_requests == 1 else 'complete'
+            if status == 'complete':
+                type(self).moved = True
+                type(self).completed_plan = True
+                type(self).uncertain_plan = False
+            self.api_response(type(self).plan(status), user='42')
+            return
+        super().do_POST()
+
 
 class CloudSeriesReceiptReplay(LibraryBase):
     @classmethod
@@ -92,6 +113,8 @@ class CloudSeriesReceiptReplay(LibraryBase):
     def setUp(self):
         SeriesHandler.moved = False
         SeriesHandler.completed_plan = False
+        SeriesHandler.uncertain_plan = False
+        SeriesHandler.execute_requests = 0
         StaticHandler.account_fixture = {
             'user': {'id': '42', 'username': 'reader'}, 'csrf_token': 'c' * 64,
             'providers': []
@@ -105,6 +128,8 @@ class CloudSeriesReceiptReplay(LibraryBase):
             StaticHandler.account_fixture = None
             SeriesHandler.moved = False
             SeriesHandler.completed_plan = False
+            SeriesHandler.uncertain_plan = False
+            SeriesHandler.execute_requests = 0
 
     def snapshot(self):
         return self.page.evaluate('''async () => {
@@ -183,6 +208,16 @@ class CloudSeriesReceiptReplay(LibraryBase):
         self.assertEqual(after['reading'], again['reading'])
         self.assertEqual(2, len([key for key in again['metadata']
                                  if key.startswith(f'cloud-series-receipt:42:{CONNECTION}:{PLAN}:')]))
+
+    def test_reconcile_action_sends_a_request_and_finishes_the_plan(self):
+        SeriesHandler.uncertain_plan = True
+        self.page.reload()
+        expect(self.page.get_by_role('button', name='Review Change')).to_be_visible()
+        self.page.get_by_role('button', name='Review Change').click()
+        expect(self.page.get_by_role('button', name='Reconcile Change')).to_be_visible()
+        self.page.get_by_role('button', name='Reconcile Change').click()
+        expect(self.page.get_by_text('Series updated. Reading progress, notes and collections were kept.')).to_be_visible()
+        self.assertEqual(2, SeriesHandler.execute_requests)
 
 
 if __name__ == '__main__':

@@ -789,9 +789,12 @@
   async function executeCloudPlan(source: SourceDescriptor, prepared: CloudSeriesPlan) {
     let plan = prepared;
     for (let step = 0; step < 256 && plan.status !== 'complete'; step += 1) {
-      if (['paused', 'cancelled', 'reconcile'].includes(plan.status)) break;
+      // An uncertain provider response must get one status/execute round trip.
+      // Otherwise the visible "Reconcile Change" action can never reconcile it.
+      if (plan.status === 'paused' || plan.status === 'cancelled') break;
       plan = await advanceCloudSeries(source, plan);
       cloudPlan = plan;
+      if (plan.status === 'reconcile') break;
     }
     if (plan.status !== 'complete') {
       cloudPlans = [{ source, plan }, ...cloudPlans.filter((entry) => entry.plan.id !== plan.id)];

@@ -192,6 +192,10 @@ export async function request<T>(
       credentials: 'same-origin',
       redirect: 'error',
       cache: 'no-store',
+      // Library source discovery can still be in flight when a document closes.
+      // Keep this small account-scoped GET alive so WebKit does not report its
+      // unload cancellation as an uncaught cross-origin fetch error.
+      keepalive: method === 'GET' && path === 'connections/',
       signal: AbortSignal.timeout(45000)
     });
   } catch {

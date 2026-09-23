@@ -102,6 +102,29 @@ class AppearanceBrowser(baseline.ReaderBrowser):
             baseline.StaticHandler.session_started = None
         self.assertEqual([], errors)
 
+    def test_library_connection_probe_can_outlive_page_close(self):
+        baseline.StaticHandler.account_fixture = {
+            'user': {'id': '42', 'username': 'reader'},
+            'csrf_token': 'c' * 64,
+            'providers': []
+        }
+        gate = threading.Event()
+        started = threading.Event()
+        baseline.StaticHandler.connections_gate = gate
+        baseline.StaticHandler.connections_started = started
+        page = self.context.new_page()
+        errors = []
+        page.on('pageerror', lambda error: errors.append(error.stack or str(error)))
+        try:
+            page.goto(self.origin + '/Reader-Web/manage')
+            self.assertTrue(started.wait(timeout=5), 'connection request did not reach the server')
+            page.close()
+        finally:
+            gate.set()
+            baseline.StaticHandler.connections_gate = None
+            baseline.StaticHandler.connections_started = None
+        self.assertEqual([], errors)
+
     def test_optional_account_auth_syncs_with_csrf_and_one_bootstrap_probe(self):
         gate = threading.Event()
         started = threading.Event()
