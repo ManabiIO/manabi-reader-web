@@ -6,7 +6,8 @@ from urllib.parse import parse_qs, urlsplit
 
 from playwright.sync_api import expect, sync_playwright
 
-from test_books_library import BooksLibraryFilesystem, LibraryBase, book, raster
+import test_books_library
+from test_books_library import LibraryBase, book, raster
 from test_static_reader import StaticHandler, ThreadingHTTPServer
 
 
@@ -108,7 +109,7 @@ class CloudRelocationBrowser(LibraryBase):
             self.skipTest('Writable local-folder fixture requires Chromium')
         CloudRelocationHandler.nodes[GOOGLE] = {}
         self.refresh()
-        BooksLibraryFilesystem.seed_files(self, {'LocalA/Volume.epub': BYTES})
+        test_books_library.BooksLibraryFilesystem.seed_files(self, {'LocalA/Volume.epub': BYTES})
         expect(self.page.get_by_role('button', name='Read Traveling volume', exact=True)).to_be_visible(
             timeout=30000)
         self.add_collection('Traveling volume', 'Across sources')
