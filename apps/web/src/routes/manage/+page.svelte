@@ -741,7 +741,7 @@
       Open EPUB, HTMLZ, or text files. Your books stay on this device unless you choose a connected
       library.
     </p>
-    <Button class="mt-5" size="lg" onclick={() => firstBookFileInput.click()}>
+    <Button class="mt-5" size="lg" variant="secondary" onclick={() => firstBookFileInput.click()}>
       Add your first book
     </Button>
     <input
