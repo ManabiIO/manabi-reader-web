@@ -1439,7 +1439,10 @@
         <dt class="text-muted-foreground">Last update</dt>
         <dd>{dateInfo(targetBook.lastBookModified)}</dd>
       </dl>
-      <Dialog.Footer><Button onclick={() => (dialogOpen = false)}>Done</Button></Dialog.Footer>
+      <Dialog.Footer
+        ><Button variant="secondary" onclick={() => (dialogOpen = false)}>Done</Button
+        ></Dialog.Footer
+      >
     {:else if dialog === 'membership' && targetBook}
       <div class="grid max-h-[40dvh] gap-3 overflow-y-auto">
         {#each [wantToRead, ...customCollections] as collection (collection.id)}<label
@@ -1493,10 +1496,13 @@
             maxlength="240"
             required
           /></label
-        ><Button type="submit" class="min-h-11" disabled={busy}>Create</Button>
+        ><Button type="submit" variant="secondary" class="min-h-11" disabled={busy}>Create</Button>
       </form>
       {#if error}<p role="alert" class="text-sm text-destructive">{error}</p>{/if}
-      <Dialog.Footer><Button onclick={() => (dialogOpen = false)}>Done</Button></Dialog.Footer>
+      <Dialog.Footer
+        ><Button variant="secondary" onclick={() => (dialogOpen = false)}>Done</Button
+        ></Dialog.Footer
+      >
     {:else if cloudPlan && cloudPlanSource}
       <div class="grid gap-4">
         <p class="text-sm">
@@ -2027,15 +2033,15 @@
     .library-rail {
       display: block;
       position: sticky;
-      top: 0.75rem;
-      height: calc(100dvh - 1.5rem);
-      margin: calc(0.75rem - var(--library-header-height, 4rem)) 0.75rem 0;
+      top: 1rem;
+      height: calc(100dvh - 2rem);
+      margin: calc(1rem - var(--library-header-height, 4rem)) 1rem 0;
       overflow-y: auto;
       padding: 1rem 0.75rem;
-      border: 1px solid var(--border);
-      border-radius: 1.5rem;
-      background: color-mix(in oklch, var(--card) 84%, var(--background));
-      box-shadow: 0 8px 30px color-mix(in oklch, var(--foreground) 7%, transparent);
+      border: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
+      border-radius: 1.75rem;
+      background: color-mix(in oklch, var(--sidebar) 55%, var(--card));
+      box-shadow: 0 16px 40px color-mix(in oklch, var(--foreground) 11%, transparent);
     }
     .library-rail h2,
     .library-rail h3 {

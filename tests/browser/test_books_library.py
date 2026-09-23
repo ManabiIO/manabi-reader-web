@@ -529,14 +529,14 @@ class BooksLibraryBrowser(LibraryBase):
         self.page.wait_for_function('''() => {
             const rail = document.querySelector('.library-rail').getBoundingClientRect();
             const shell = document.querySelector('.library-nav-shell');
-            return Math.abs(rail.top - 12) < 2 && rail.bottom <= innerHeight - 10 &&
+            return Math.abs(rail.top - 16) < 2 && rail.bottom <= innerHeight - 14 &&
               shell.classList.contains('scrolled') &&
               getComputedStyle(shell, '::before').backdropFilter !== 'none';
         }''')
         expect(rail.get_by_role('button', name=re.compile('^Books'))).to_be_in_viewport()
         header.get_by_role('button', name='Cancel selection', exact=True).click()
         self.page.wait_for_function('''() => {
-            return Math.abs(document.querySelector('.library-rail').getBoundingClientRect().top - 12) < 2;
+            return Math.abs(document.querySelector('.library-rail').getBoundingClientRect().top - 16) < 2;
         }''')
 
     def test_library_responsive_search_geometry_and_touch_targets(self):
@@ -544,10 +544,14 @@ class BooksLibraryBrowser(LibraryBase):
         self.import_book('Standard cover', size=(240, 360))
         self.page.locator('.shelf-grid img').evaluate_all(
             'images => Promise.all(images.map(image => image.decode()))')
-        for width in (320, 390, 768, 1024, 1440):
+        for width in (320, 390, 768, 1024, 1440, 1920):
             with self.subTest(width=width):
                 self.page.set_viewport_size({'width': width, 'height': 844})
                 self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), width + 1)
+                brand = self.page.get_by_role('banner', name='Library toolbar').get_by_role(
+                    'heading', name='Manabi Reader for Web', exact=True).bounding_box()
+                shelf = self.page.locator('.shelf-heading').first.bounding_box()
+                self.assertAlmostEqual(brand['x'], shelf['x'], delta=1)
                 if width < 1024:
                     trigger = self.page.get_by_role('button', name='Search library', exact=True)
                     expect(trigger).to_be_visible()
@@ -658,6 +662,27 @@ class BooksLibraryBrowser(LibraryBase):
         self.assertGreaterEqual(done.bounding_box()['height'], 44)
         done.click()
         expect(dialog).to_have_count(0)
+
+    def test_collection_buttons_use_neutral_system_gray_in_both_appearances(self):
+        self.import_book('Neutral collection controls')
+        for mode, background, foreground in (
+            ('light', 'rgb(229, 229, 234)', 'rgb(33, 31, 28)'),
+            ('dark', 'rgb(44, 44, 46)', 'rgb(238, 238, 238)'),
+        ):
+            with self.subTest(mode=mode):
+                self.page.evaluate('mode => localStorage.setItem("appearance", mode)', mode)
+                self.go_library()
+                expect(self.page.locator('html')).to_have_attribute('data-appearance', mode)
+                self.menu('Neutral collection controls', 'Add to Collection…')
+                dialog = self.dialog()
+                create = dialog.get_by_role('button', name='Create', exact=True)
+                done = dialog.get_by_role('button', name='Done', exact=True)
+                for button in (create, done):
+                    self.assertEqual(background, button.evaluate('e => getComputedStyle(e).backgroundColor'))
+                    self.assertEqual(foreground, button.evaluate('e => getComputedStyle(e).color'))
+                Path('test-results').mkdir(exist_ok=True)
+                self.page.screenshot(path=f'test-results/{self.engine}-neutral-collection-{mode}.png')
+                done.click()
 
     def test_narrow_collection_editing_and_selection_stay_inside_viewport(self):
         self.import_book('Small screen book')

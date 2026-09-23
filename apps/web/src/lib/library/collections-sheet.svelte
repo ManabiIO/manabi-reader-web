@@ -205,7 +205,7 @@
       <Dialog.Footer
         ><Button variant="outline" onclick={() => (dialogOpen = false)} disabled={busy}
           >Cancel</Button
-        ><Button type="submit" variant={deleting ? 'destructive' : 'default'} disabled={busy}
+        ><Button type="submit" variant={deleting ? 'destructive' : 'secondary'} disabled={busy}
           >{busy ? 'Saving…' : deleting ? 'Delete Collection' : 'Save'}</Button
         ></Dialog.Footer
       >

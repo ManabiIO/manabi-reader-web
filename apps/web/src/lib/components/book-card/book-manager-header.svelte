@@ -191,7 +191,7 @@
     class="floating-library-header text-foreground lg:ml-[16rem]"
     aria-label="Library toolbar"
   >
-    <div class="flex min-h-16 items-center justify-between gap-2 px-3 py-2 sm:px-6">
+    <div class="library-header-inner flex min-h-16 items-center justify-between gap-2 py-2">
       {#if compactLibrary && (searchExpanded || !!libraryMenu?.search.query)}
         <form
           class="flex min-w-0 flex-1 items-center gap-2"
@@ -698,5 +698,15 @@
   .floating-library-header {
     border: 0;
     background: transparent;
+  }
+  .library-header-inner {
+    max-width: 100rem;
+    margin-inline: auto;
+    padding-inline: 1.5rem;
+  }
+  @media (min-width: 1024px) {
+    .library-header-inner {
+      padding-inline: clamp(1.5rem, 3vw, 3.5rem);
+    }
   }
 </style>

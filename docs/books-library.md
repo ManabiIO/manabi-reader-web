@@ -160,7 +160,7 @@ inherited Book Manager command row. In compact horizontal size, the title leads
 the bar and the Collections action opens the grouped collection sheet. There is
 no sidebar or hamburger control. The sheet exposes Books, Want to Read, Finished, custom collections,
 counts and Edit/Done management. At widths of 1024px and above, the Collections
-action disappears and a persistent 232px collection sidebar is shown instead.
+action disappears and a persistent inset, rounded collection sidebar is shown instead.
 Compact search opens from a 44px title-bar action and replaces the title row with
 a focused search field and Cancel; Escape/Cancel clears the query and restores
 focus to that action. Desktop keeps its inline field. Navigation glyphs use bold
@@ -178,7 +178,10 @@ labelled overflow menu. Root navigation identifies Manabi Reader for Web. A
 pushed collection or series replaces that brand with a back action and
 destination title. Selection and replication controls appear contextually only
 while those operations are active. The shelf row pairs Books or Continue with
-search. The desktop rail fills the viewport below the toolbar; shelf geometry
+search. The brand aligns with the shelf headings at compact and desktop widths.
+Routine collection buttons use neutral system-gray fills with dark or light text
+for the active appearance; the Manabi accent remains available for emphasis.
+The desktop rail floats inside the viewport with 16px insets; shelf geometry
 and series-hero reflow use the available content width. See
 [`books-responsive-review.md`](books-responsive-review.md) for the responsive
 qualification matrix and the proposed reader follow-up.
