@@ -80,6 +80,8 @@ class CloudRelocationBrowser(LibraryBase):
             GOOGLE: {'g-old': {'name': 'Old.epub', 'kind': 'file', 'parent': 'google-root'}},
             DROPBOX: {}
         }
+        CloudRelocationHandler.preference_revision = 0
+        CloudRelocationHandler.preference_settings = {}
         StaticHandler.account_fixture = {
             'user': {'id': '42', 'username': 'reader'},
             'csrf_token': 'c' * 64, 'providers': []
@@ -91,6 +93,8 @@ class CloudRelocationBrowser(LibraryBase):
             super().tearDown()
         finally:
             CloudRelocationHandler.nodes = {}
+            CloudRelocationHandler.preference_revision = 0
+            CloudRelocationHandler.preference_settings = {}
             StaticHandler.account_fixture = None
 
     def refresh(self):
@@ -205,6 +209,16 @@ class CloudRelocationBrowser(LibraryBase):
         original_links = self.stores('manabi-reader-integrations', ['books'])['books']
         self.assertEqual('g-old', original_links[0]['fileId'])
         original_book_id = original_links[0]['bookId']
+        portable_key = 'content:' + original_links[0]['contentHash']
+        self.page.goto(self.origin + '/Reader-Web/connections')
+        self.page.get_by_label('Sync reader settings with this Manabi account', exact=True).check()
+        expect(self.page.get_by_role('status', name='Settings sync status')).to_contain_text('synced')
+        shared = CloudRelocationHandler.preference_settings['library_organization']
+        self.assertEqual('Personal traveling volume', shared['books'][portable_key]['title'])
+        self.assertTrue(shared['books'][portable_key]['cover'].startswith('data:image/'))
+        self.assertIn(portable_key, next(collection['members'] for collection in shared['collections']
+                                         if collection['name'] == 'Portable cloud shelf'))
+        self.go_library()
         reading = self.stores('books', ['bookmark', 'statistic'])
 
         # A provider can replace the native ID and add nested directories
