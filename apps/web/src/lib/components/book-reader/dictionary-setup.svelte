@@ -88,14 +88,14 @@
       if (!savedChoice() && !manabitanPresent()) choose('skip');
     }}
   >
-    <div class="flex items-center gap-3 pr-8">
+    <Dialog.Header class="flex-row items-center gap-3">
       <img
         src="https://manabitan.manabi.io/assets/icon/manabitan-icon128.png"
         alt=""
-        class="size-12 rounded-xl"
+        class="size-12 shrink-0 rounded-xl"
       />
       <Dialog.Title class="text-xl">Look up words as you read</Dialog.Title>
-    </div>
+    </Dialog.Header>
     <Dialog.Description class="text-sm text-muted-foreground">
       Manabitan adds dictionary lookups to the book. Jitendex is a recommended Japanese dictionary.
     </Dialog.Description>

@@ -29,8 +29,9 @@
     bind:ref
     onkeydowncapture={containModalTab}
     data-slot="dialog-content"
+    data-modal-close={showCloseButton}
     class={cn(
-      'bg-popover text-popover-foreground data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 ring-foreground/5 dark:ring-foreground/10 grid max-w-[calc(100%_-_2rem)] gap-6 rounded-[min(var(--radius-4xl),24px)] p-6 text-sm shadow-xl ring-1 duration-100 sm:max-w-md fixed top-1/2 left-1/2 z-50 w-full -translate-x-1/2 -translate-y-1/2 outline-none',
+      'bg-popover text-popover-foreground data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 ring-foreground/5 dark:ring-foreground/10 writing-horizontal-tb grid max-h-[calc(100dvh-2rem)] max-w-[calc(100%_-_2rem)] gap-x-3 gap-y-6 overflow-y-auto overscroll-contain rounded-[1.75rem] p-6 text-sm shadow-xl ring-1 duration-100 sm:max-w-md fixed top-1/2 left-1/2 z-50 w-full -translate-x-1/2 -translate-y-1/2 outline-none',
       className
     )}
     {...restProps}
@@ -40,12 +41,12 @@
       <DialogPrimitive.Close data-slot="dialog-close">
         {#snippet child({ props })}
           <Button
-            variant="ghost"
-            class="absolute top-4 right-4 bg-secondary"
-            size="icon-sm"
+            variant="close"
+            class="size-11 rounded-full"
+            size="icon"
             {...props}
           >
-            <XIcon />
+            <XIcon class="size-4" weight="bold" aria-hidden="true" />
             <span class="sr-only">Close</span>
           </Button>
         {/snippet}

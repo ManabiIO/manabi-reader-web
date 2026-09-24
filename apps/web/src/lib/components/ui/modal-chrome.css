@@ -1,0 +1,41 @@
+/* Shared modal layout: dismissal owns a cell, never an overlay over text.
+   A headerless dialog reserves a separate first row for the close control. */
+@layer components {
+  [data-modal-close='true'] {
+    grid-template-columns: minmax(0, 1fr) 2.75rem;
+    column-gap: 0.75rem;
+    align-content: start;
+  }
+
+  [data-modal-close='true'] > * {
+    grid-column: 1 / -1;
+    min-inline-size: 0;
+  }
+
+  [data-modal-close='true'] > :is([data-slot='dialog-header'], [data-slot='sheet-header']) {
+    grid-column: 1;
+    grid-row: 1;
+    align-self: center;
+  }
+
+  [data-modal-close='true'] > :is([data-slot='dialog-close'], [data-slot='sheet-close']) {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: start;
+    justify-self: end;
+  }
+
+  :is([data-slot='dialog-title'], [data-slot='dialog-description'],
+      [data-slot='sheet-title'], [data-slot='sheet-description']) {
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (forced-colors: active) {
+  :is([data-slot='dialog-close'], [data-slot='sheet-close'], [data-modal-dismiss]) {
+    border: 1px solid ButtonText;
+    color: ButtonText;
+    background: ButtonFace;
+  }
+}

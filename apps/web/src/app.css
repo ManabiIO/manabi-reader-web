@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
+@import './lib/components/ui/modal-chrome.css';
 @config '../tailwind.config.cjs';
 @custom-variant dark {
   &:where([data-appearance='dark'], [data-appearance='dark'] *) {
