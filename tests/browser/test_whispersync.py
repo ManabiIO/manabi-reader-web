@@ -91,7 +91,12 @@ class WhispersyncBrowser(unittest.TestCase):
             self.assertEqual([], self.errors)
 
     def open_fixture(self, view_mode='paginated', writing_mode='vertical-rl'):
-        settings = {'viewMode': view_mode, 'writingMode': writing_mode}
+        # Keep the dictionary's first-read prompt out of audiobook acceptance.
+        settings = {
+            'viewMode': view_mode,
+            'writingMode': writing_mode,
+            'manabi-reader-dictionary-setup-v1': 'skip',
+        }
         self.context.add_init_script('if (location.origin === ' + json.dumps(self.origin) + ') { for (const [key,value] of Object.entries(' + json.dumps(settings) + ')) localStorage.setItem(key,value); }')
         self.page.goto(self.origin + '/Reader-Web/manage')
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
