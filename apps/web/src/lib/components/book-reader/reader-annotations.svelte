@@ -1,4 +1,7 @@
 <script lang="ts">
+  import ImportedStudyPanel from './imported-study.svelte';
+  import type { ImportedStudy } from '$lib/manabi/yatsu-study-format';
+  import type { ReaderLocator } from '$lib/reader-location';
   import { createEventDispatcher } from 'svelte';
   import * as Sheet from '$lib/components/ui/sheet';
   import { Button } from '$lib/components/ui/button';
@@ -14,6 +17,8 @@
   import type { AnnotationImportConflict } from '$lib/reader-annotations';
 
   export let open = false;
+  export let importedStudy: ImportedStudy | undefined;
+  export let bookId = 0;
   export let annotations: ReaderAnnotation[] = [];
   export let importConflicts: AnnotationImportConflict[] = [];
   export let hasSelection = false;
@@ -24,6 +29,8 @@
   let note = '';
   $: if (savedVersion > 0) note = '';
   const dispatch = createEventDispatcher<{
+    importedStudyChanged: ImportedStudy;
+    importedNavigate: ReaderLocator;
     bookmark: void;
     highlight: void;
     note: string;
@@ -136,6 +143,12 @@
         {/each}
       </section>
     {/if}
+    {#key bookId}<ImportedStudyPanel
+        study={importedStudy}
+        {bookId}
+        on:changed={(event) => dispatch('importedStudyChanged', event.detail)}
+        on:navigate={(event) => dispatch('importedNavigate', event.detail)}
+      />{/key}
     <div class="mt-6 shrink-0" aria-label="Saved annotations">
       {#if !annotations.length}<p class="text-sm text-muted-foreground">
           No saved bookmarks or notes yet.

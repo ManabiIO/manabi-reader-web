@@ -158,7 +158,22 @@
     await tick();
     searchInput?.focus();
   }
+  let composingSearch = false;
+  function searchKey(event: KeyboardEvent) {
+    if (event.isComposing || composingSearch) return;
+    if (event.key === 'ArrowDown') {
+      const result = document.querySelector<HTMLButtonElement>('[data-library-result]');
+      if (result) {
+        event.preventDefault();
+        result.focus();
+      }
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      void closeSearch();
+    }
+  }
   async function closeSearch() {
+    composingSearch = false;
     libraryMenu?.search.setQuery('');
     searchExpanded = false;
     await tick();
@@ -220,13 +235,18 @@
               class="min-w-0 w-full border-0 bg-transparent p-0 shadow-none outline-none focus:border-transparent focus:shadow-none focus:ring-0"
               placeholder="Search library"
               value={libraryMenu?.search.query || ''}
-              oninput={(event) => libraryMenu?.search.setQuery(event.currentTarget.value)}
-              onkeydown={(event) => {
-                if (event.key === 'Escape') {
-                  event.preventDefault();
-                  void closeSearch();
-                }
+              oninput={(event) => {
+                if (!composingSearch) libraryMenu?.search.setQuery(event.currentTarget.value);
               }}
+              oncompositionstart={() => {
+                composingSearch = true;
+                libraryMenu?.search.setQuery('');
+              }}
+              oncompositionend={(event) => {
+                composingSearch = false;
+                libraryMenu?.search.setQuery(event.currentTarget.value);
+              }}
+              onkeydown={searchKey}
             />
           </label>
           <Button variant="ghost" class="min-h-11" onclick={closeSearch}>Cancel</Button>
@@ -525,7 +545,18 @@
                 type="search"
                 placeholder="Search library"
                 value={libraryMenu?.search.query || ''}
-                oninput={(event) => libraryMenu?.search.setQuery(event.currentTarget.value)}
+                oninput={(event) => {
+                  if (!composingSearch) libraryMenu?.search.setQuery(event.currentTarget.value);
+                }}
+                oncompositionstart={() => {
+                  composingSearch = true;
+                  libraryMenu?.search.setQuery('');
+                }}
+                oncompositionend={(event) => {
+                  composingSearch = false;
+                  libraryMenu?.search.setQuery(event.currentTarget.value);
+                }}
+                onkeydown={searchKey}
               /></label
             >
           {/if}

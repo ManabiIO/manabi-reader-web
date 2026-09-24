@@ -5,6 +5,8 @@ on:
       - 'apps/web/**'
       - 'tests/**'
       - 'test/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
       - '.github/workflows/library-portability.yml'
 permissions:
   contents: read
@@ -12,55 +14,54 @@ concurrency:
   group: library-portability-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  qualification-baseline:
+  qualification:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
       - uses: actions/setup-node@v4
         with:
           node-version: '24.21.0'
-      - name: Observe public Yatsu client format (no accounts or user data)
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - name: Unit and type checks
         run: |
-          mkdir -p /tmp/library-portability
-          cp "$(command -v node)" /tmp/library-portability/node
-          python3 - <<'PY'
-          import json, re, pathlib, urllib.request, urllib.parse, hashlib
-          origin = 'https://app.yatsu.moe'
-          def read(url):
-              with urllib.request.urlopen(urllib.request.Request(url, headers={'User-Agent': 'Manabi-Reader-Compatibility-Verification/1.0'}), timeout=30) as r:
-                  data = r.read(4 * 1024 * 1024 + 1)
-                  if len(data) > 4 * 1024 * 1024: raise ValueError('Oversized public asset')
-                  return data.decode('utf-8')
-          html = read(origin + '/')
-          links = lambda text: re.findall(r'[\"\']([^\"\']+\.js)[\"\']', text)
-          queue = [urllib.parse.urljoin(origin + '/', x) for x in links(html)]
-          seen, assets, errors, total = set(), [], [], 0
-          while queue and len(seen) < 600:
-              url = queue.pop(0)
-              if url in seen or not url.startswith(origin + '/_app/'): continue
-              seen.add(url)
-              try:
-                  text = read(url)
-              except Exception as error:
-                  errors.append({'url': url, 'error': str(error)})
-                  continue
-              total += len(text)
-              if total > 24 * 1024 * 1024: raise ValueError('Public-asset budget exceeded')
-              assets.append({'url': url, 'sha256': hashlib.sha256(text.encode()).hexdigest(), 'content': text})
-              for x in links(text):
-                  queue.append(urllib.parse.urljoin(url, x))
-                  if x.startswith(('nodes/', 'chunks/', 'entry/')):
-                      queue.append(origin + '/_app/immutable/' + x)
-          pathlib.Path('/tmp/library-portability/yatsu-observation.json').write_text(json.dumps({'html': html, 'assets': assets, 'errors': errors}))
-          print('Observed', len(assets), 'public assets;', total, 'characters;', len(errors), 'optional asset misses. No source copied into the application.')
-          if not assets: raise ValueError('No public client assets observed')
-          PY
+          set -o pipefail
+          mkdir -p artifacts/library-portability
+          git rev-parse HEAD > artifacts/library-portability/commit.txt
+          node --experimental-strip-types --test tests/unit/*.test.mjs test/reader/typography.test.mjs | tee artifacts/library-portability/units.log
+          pnpm --dir apps/web check 2>&1 | tee artifacts/library-portability/types.log
+      - name: Build the actual subpath application
+        env:
+          BASE_PATH: /Reader-Web
+          NODE_OPTIONS: --max-old-space-size=1536
+        run: |
+          set -o pipefail
+          pnpm build 2>&1 | tee artifacts/library-portability/build.log
+      - name: Real browsers and HTTPS WebDAV
+        run: |
+          python -m pip install 'playwright==1.63.0'
+          python -m playwright install --with-deps chromium webkit
+          set +e
+          status=0
+          for engine in chromium webkit; do
+            mkdir -p artifacts/library-portability/$engine
+            LIBRARY_BROWSER=$engine PORTABILITY_ARTIFACTS=artifacts/library-portability/$engine python tests/browser/test_library_portability.py 2>&1 | tee artifacts/library-portability/$engine/results.log
+            if [ "${PIPESTATUS[0]}" -ne 0 ]; then status=1; fi
+          done
+          exit "$status"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: library-portability-format-observation
-          path: /tmp/library-portability
-          retention-days: 2
+          name: library-portability-evidence
+          path: artifacts/library-portability
+          retention-days: 7

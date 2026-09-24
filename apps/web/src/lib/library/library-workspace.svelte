@@ -76,6 +76,7 @@
   import CoverStack from './cover-stack.svelte';
   import SourceIcon from './source-icon.svelte';
   import CollectionsSheet from './collections-sheet.svelte';
+  import LibrarySearch from './library-search.svelte';
   let coverWidths: Record<string, number> = {};
   let shelfElement: HTMLElement;
   function rememberCoverWidth(key: string, fraction: number) {
@@ -111,7 +112,7 @@
   export let destinationTitle = 'Library';
   export let menu: LibraryMenuModel | undefined = undefined;
   const dispatch = createEventDispatcher<{
-    bookClick: { id: number };
+    bookClick: { id: number; passage?: boolean };
     selectionManyClick: { ids: number[] };
     selectionScopeChange: { key: string; ids: number[] };
     removeBookClick: { id: number };
@@ -231,6 +232,26 @@
     $previews
   );
   $: books = allBooks(tree);
+  function searchLabels(nodes: ShelfNode[], collections: { name: string; members: string[] }[]) {
+    const result: Record<string, string[]> = {};
+    const visit = (nodes: ShelfNode[], parents: string[]) => {
+      for (const node of nodes) {
+        if (node.kind === 'series') visit(node.children, [...parents, node.name]);
+        else
+          result[node.book.key] = [
+            ...parents,
+            ...collections
+              .filter((collection) =>
+                node.book.organizationAliases.some((alias) => collection.members.includes(alias))
+              )
+              .map((collection) => collection.name)
+          ];
+      }
+    };
+    visit(nodes, []);
+    return result;
+  }
+  $: librarySearchLabels = searchLabels(tree, $organization.collections);
   $: collectionId = $page.url.searchParams.get('collection') || 'books';
   $: wantToRead = wantToReadCollection($organization);
   $: customCollections = $organization.collections.filter(
@@ -669,10 +690,10 @@
       organizationAliases: [...new Set([...book.organizationAliases, organizationKey])]
     };
   }
-  function openBook(book: ShelfBook) {
+  function openBook(book: ShelfBook, passage = false) {
     void action(async () => {
       const id = await ensureBook(book);
-      dispatch('bookClick', { id });
+      dispatch('bookClick', { id, passage });
     });
   }
   function saveBook(book: ShelfBook) {
@@ -975,7 +996,7 @@
       ><Menu.Item onSelect={() => navigate(value.id)}
         ><FolderOpen aria-hidden="true" />Open Series</Menu.Item
       >
-      {#if value.source.owner === null || value.source.provider === 'onedrive'}<Menu.Item
+      {#if value.source.provider === 'local' || value.source.provider === 'onedrive'}<Menu.Item
           onSelect={() => editSeries(value)}
           ><PencilSimple aria-hidden="true" />Rename Series…</Menu.Item
         >
@@ -1037,10 +1058,10 @@
     class="library-workspace"
     tabindex="-1"
     aria-label="Library shelves"
-    aria-busy={busy || scanning}
+    aria-busy={!normalizedQuery && (busy || scanning)}
     data-hydrated={alive}
   >
-    {#if !series && collectionId === 'books'}
+    {#if !normalizedQuery && !series && collectionId === 'books'}
       <div class="library-toolbar">
         <h2 id={recentBooks.length ? 'continue-heading' : 'books-heading'} class="shelf-heading">
           {recentBooks.length ? 'Continue' : 'Books'}
@@ -1092,313 +1113,324 @@
         <summary>Some series names could not be read ({warnings.length})</summary
         >{#each warnings as warning, index (index)}<p class="mt-2 break-words">{warning}</p>{/each}
       </details>{/if}
-    {#if recentBooks.length}
-      <section class="continue-section mb-7" aria-labelledby="continue-heading">
-        <div class="continue-track" role="list">
-          {#each recentBooks as book (book.key)}
-            <article class="continue-card" role="listitem">
-              <button
-                class="continue-open"
-                onclick={() => openBook(book)}
-                aria-label={`Continue ${book.title}`}
-              >
-                <div class="continue-cover">
-                  <BookCover
-                    imagePath={book.imagePath}
-                    title={book.title}
-                    author={creatorLine(book.creators)}
-                    identity={book.key}
-                    direction={book.direction}
-                  />
+    {#if normalizedQuery}
+      <LibrarySearch
+        {books}
+        labels={librarySearchLabels}
+        {query}
+        viewer={viewerId}
+        onopen={openBook}
+      />
+    {:else}
+      {#if recentBooks.length}
+        <section class="continue-section mb-7" aria-labelledby="continue-heading">
+          <div class="continue-track" role="list">
+            {#each recentBooks as book (book.key)}
+              <article class="continue-card" role="listitem">
+                <button
+                  class="continue-open"
+                  onclick={() => openBook(book)}
+                  aria-label={`Continue ${book.title}`}
+                >
+                  <div class="continue-cover">
+                    <BookCover
+                      imagePath={book.imagePath}
+                      title={book.title}
+                      author={creatorLine(book.creators)}
+                      identity={book.key}
+                      direction={book.direction}
+                    />
+                  </div>
+                  <span class="min-w-0 flex-1">
+                    <strong class="continue-title">{book.title}</strong>
+                    {#if creatorLine(book.creators)}<span class="continue-author"
+                        >{creatorLine(book.creators)}</span
+                      >{/if}
+                    <span class="continue-progress">{readingLabel(book)}</span>
+                  </span>
+                </button>
+                <SourceIcon provider={book.source?.provider} name={book.source?.name || ''} />
+                {@render bookMenu(book, ' in Continue')}
+              </article>
+            {/each}
+          </div>
+        </section>
+      {/if}
+      {#if series}
+        <header
+          use:previewVisible={series}
+          class="series-hero mb-10 rounded-3xl px-6 pt-8 pb-7 text-center"
+        >
+          <div class="series-hero-art"><CoverStack books={scopedSeriesBooks} hero /></div>
+          <div class="series-hero-copy">
+            <div class="series-title-row">
+              <p class="min-w-0 break-words font-serif text-3xl font-semibold sm:text-4xl">
+                {series.name}
+              </p>
+              {@render seriesMenu(series)}
+            </div>
+            <p class="mt-2 text-sm text-muted-foreground">
+              Series · {scopedSeriesBooks.length}
+              {scopedSeriesBooks.length === 1 ? 'Book' : 'Books'}{#if collectionId !== 'books'}<span
+                >
+                  in {collectionTitle}</span
+                >{/if}
+            </p>
+            {#if seriesCreators}<p class="mt-1 text-sm text-muted-foreground">
+                {seriesCreators}
+              </p>{/if}
+            {#if resume}<Button
+                class="mt-6 h-auto min-h-14 max-w-lg flex-col whitespace-normal px-6 py-3"
+                onclick={() => openBook(resume!)}
+                disabled={busy}
+                ><span class="font-semibold"
+                  >{hasReadingEvidence(resume) ? 'Continue Reading' : 'Start Reading'}</span
+                ><span class="max-w-full truncate font-normal opacity-80">{resume.title}</span
+                ></Button
+              >{:else}<p class="mt-6 inline-flex items-center gap-2 text-sm">
+                <CircleCheck class="size-4" aria-hidden="true" />All books finished
+              </p>{/if}
+            {#if collectionId !== 'books'}<Button
+                class="mt-3"
+                variant="ghost"
+                onclick={() => navigate(series.id, 'books', false)}>View full series</Button
+              >{/if}
+          </div>
+        </header>
+      {:else if recentBooks.length}<h2 id="books-heading" class="shelf-heading mb-4">Books</h2>{/if}
+      {#if completedGroups.length && collectionId === 'finished' && !series && currentLayout === 'timeline'}
+        <div class="finished-timeline" role="list" aria-label="Finished books">
+          {#each completedGroups as group (group.day || 'unknown')}
+            <section class="finished-group" aria-labelledby={`finished-${group.day || 'unknown'}`}>
+              <h3 id={`finished-${group.day || 'unknown'}`} class="finished-day">
+                {group.day ? formatCalendarDay(group.day) : 'Date not set'}
+              </h3>
+              <div class="finished-group-books">
+                {#each group.books as book (book.key)}
+                  <article class="finished-row" role="listitem">
+                    <button
+                      class="finished-open"
+                      onclick={() => openBook(book)}
+                      aria-label={`Read ${book.title}`}
+                    >
+                      <div class="finished-cover">
+                        <BookCover
+                          imagePath={book.imagePath}
+                          title={book.title}
+                          author={creatorLine(book.creators)}
+                          identity={book.key}
+                          direction={book.direction}
+                        />
+                      </div>
+                      <span class="min-w-0 flex-1">
+                        <strong class="finished-title">{book.title}</strong>
+                        {#if creatorLine(book.creators)}<span class="finished-author"
+                            >{creatorLine(book.creators)}</span
+                          >{/if}
+                        <span class="finished-detail"
+                          >Finished{group.day ? ` · ${formatCalendarDay(group.day)}` : ''}</span
+                        >
+                      </span>
+                    </button>
+                    <SourceIcon provider={book.source?.provider} name={book.source?.name || ''} />
+                    {@render bookMenu(book, '')}
+                  </article>
+                {/each}
+              </div>
+            </section>
+          {/each}
+        </div>
+        <p class="mt-12 text-center text-sm text-muted-foreground">
+          {visibleBooks.length}
+          {visibleBooks.length === 1 ? 'book' : 'books'}
+        </p>
+      {:else if displayed.length}
+        <div
+          class:shelf-grid={currentLayout === 'grid'}
+          class:shelf-list={currentLayout === 'list'}
+          role="list"
+          aria-label={series?.name || collectionTitle}
+        >
+          {#each displayed as node (node.id)}
+            <article
+              role="listitem"
+              class="shelf-item"
+              data-book-key={node.kind === 'book' ? node.book.key : undefined}
+              use:previewVisible={node}
+              class:series-item={node.kind === 'series'}
+            >
+              {#if node.kind === 'series'}
+                {@const seriesBookIds = node.books.flatMap((book) =>
+                  book.bookId ? [book.bookId] : []
+                )}
+                {@const selectedInSeries = seriesBookIds.filter((id) =>
+                  selectedBookIds.has(id)
+                ).length}
+                <button
+                  class="book-open"
+                  class:selected={selectMode && selectedInSeries > 0}
+                  disabled={selectMode && seriesBookIds.length === 0}
+                  title={selectMode && seriesBookIds.length === 0
+                    ? 'Save books in this series to the browser before selecting them'
+                    : undefined}
+                  aria-pressed={selectMode
+                    ? selectedInSeries === 0
+                      ? false
+                      : selectedInSeries === seriesBookIds.length
+                        ? true
+                        : 'mixed'
+                    : undefined}
+                  onclick={() =>
+                    selectMode
+                      ? dispatch('selectionManyClick', {
+                          ids: seriesBookIds
+                        })
+                      : navigate(node.id)}
+                  aria-label={`${selectMode ? 'Select' : 'Open'} series ${node.name}`}
+                >
+                  <div class="book-thumbnail">
+                    <CoverStack books={node.books} />
+                    {#if selectMode && selectedInSeries > 0}<span class="selection-label"
+                        >{selectedInSeries} selected</span
+                      >{/if}
+                  </div>
+                  <div class="book-copy series-copy">
+                    <h3>{node.name}</h3>
+                    <p class="list-detail">Series · {node.books.length} books</p>
+                  </div>
+                </button>
+                <div class="book-status">
+                  <span class="progress-label">{node.books.length} books</span><SourceIcon
+                    provider={node.source.provider}
+                    name={node.source.name}
+                  />{#if !selectMode}{@render seriesMenu(node)}{/if}
                 </div>
-                <span class="min-w-0 flex-1">
-                  <strong class="continue-title">{book.title}</strong>
-                  {#if creatorLine(book.creators)}<span class="continue-author"
-                      >{creatorLine(book.creators)}</span
-                    >{/if}
-                  <span class="continue-progress">{readingLabel(book)}</span>
-                </span>
-              </button>
-              <SourceIcon provider={book.source?.provider} name={book.source?.name || ''} />
-              {@render bookMenu(book, ' in Continue')}
+              {:else}
+                {@const book = node.book}
+                <button
+                  class="book-open"
+                  class:selected={!!book.bookId && selectedBookIds.has(book.bookId)}
+                  aria-pressed={selectMode
+                    ? !!book.bookId && selectedBookIds.has(book.bookId)
+                    : undefined}
+                  aria-label={`${selectMode ? 'Select' : 'Read'} ${book.title}`}
+                  aria-describedby={isFinished(book) && book.bookId
+                    ? `finished-description-${book.bookId}`
+                    : undefined}
+                  disabled={selectMode && !book.bookId}
+                  title={selectMode && !book.bookId
+                    ? 'Save this book to the browser before selecting it'
+                    : undefined}
+                  onclick={() =>
+                    selectMode && book.bookId
+                      ? dispatch('bookClick', { id: book.bookId })
+                      : !selectMode
+                        ? openBook(book)
+                        : undefined}
+                >
+                  <div class="book-thumbnail">
+                    <BookCover
+                      imagePath={book.imagePath}
+                      title={book.title}
+                      author={creatorLine(book.creators)}
+                      identity={book.key}
+                      direction={book.direction}
+                      onWidth={(fraction) => rememberCoverWidth(book.key, fraction)}
+                    />{#if book.bookId && selectedBookIds.has(book.bookId)}<span
+                        class="selection-label">Selected</span
+                      >{/if}
+                  </div>
+                  <div class="book-copy">
+                    <h3>{book.title}</h3>
+                    {#if creatorLine(book.creators)}<p class="book-author">
+                        {creatorLine(book.creators)}
+                      </p>{/if}
+                    <p class="list-detail">
+                      {#if readingLabel(book) === 'Unread'}<span class="new-badge" title="Unread"
+                          >NEW</span
+                        >{:else}{readingLabel(book)}{/if}{#if isFinished(book) && finishedDay(book)}
+                        · {finishedDay(book)}{:else if book.bookId && book.bookId === currentBookId}
+                        · Reading now{/if}
+                    </p>
+                  </div>
+                </button>
+                {#if isFinished(book) && book.bookId}<span
+                    id={`finished-description-${book.bookId}`}
+                    class="sr-only"
+                    >{finishedDay(book)
+                      ? `Finished ${formatCalendarDay(finishedDay(book)!)}.`
+                      : 'Finished. Date not set.'}</span
+                  >{/if}
+                <div
+                  class="book-status"
+                  style:--book-cover-width={`${(coverWidths[book.key] ?? 1) * 100}%`}
+                >
+                  <span
+                    class="progress-label"
+                    class:new-badge={readingLabel(book) === 'Unread'}
+                    title={readingLabel(book) === 'Unread' ? 'Unread' : undefined}
+                    >{readingLabel(book) === 'Unread' ? 'NEW' : readingLabel(book)}</span
+                  ><SourceIcon
+                    provider={book.source?.provider}
+                    name={book.source?.name || ''}
+                  />{#if !selectMode}{@render bookMenu(book, '')}{/if}
+                </div>
+              {/if}
             </article>
           {/each}
         </div>
-      </section>
-    {/if}
-    {#if series}
-      <header
-        use:previewVisible={series}
-        class="series-hero mb-10 rounded-3xl px-6 pt-8 pb-7 text-center"
-      >
-        <div class="series-hero-art"><CoverStack books={scopedSeriesBooks} hero /></div>
-        <div class="series-hero-copy">
-          <div class="series-title-row">
-            <p class="min-w-0 break-words font-serif text-3xl font-semibold sm:text-4xl">
-              {series.name}
-            </p>
-            {@render seriesMenu(series)}
-          </div>
-          <p class="mt-2 text-sm text-muted-foreground">
-            Series · {scopedSeriesBooks.length}
-            {scopedSeriesBooks.length === 1 ? 'Book' : 'Books'}{#if collectionId !== 'books'}<span>
-                in {collectionTitle}</span
-              >{/if}
-          </p>
-          {#if seriesCreators}<p class="mt-1 text-sm text-muted-foreground">
-              {seriesCreators}
-            </p>{/if}
-          {#if resume}<Button
-              class="mt-6 h-auto min-h-14 max-w-lg flex-col whitespace-normal px-6 py-3"
-              onclick={() => openBook(resume!)}
-              disabled={busy}
-              ><span class="font-semibold"
-                >{hasReadingEvidence(resume) ? 'Continue Reading' : 'Start Reading'}</span
-              ><span class="max-w-full truncate font-normal opacity-80">{resume.title}</span
-              ></Button
-            >{:else}<p class="mt-6 inline-flex items-center gap-2 text-sm">
-              <CircleCheck class="size-4" aria-hidden="true" />All books finished
-            </p>{/if}
-          {#if collectionId !== 'books'}<Button
-              class="mt-3"
-              variant="ghost"
-              onclick={() => navigate(series.id, 'books', false)}>View full series</Button
-            >{/if}
-        </div>
-      </header>
-    {:else if recentBooks.length}<h2 id="books-heading" class="shelf-heading mb-4">Books</h2>{/if}
-    {#if completedGroups.length && collectionId === 'finished' && !series && currentLayout === 'timeline'}
-      <div class="finished-timeline" role="list" aria-label="Finished books">
-        {#each completedGroups as group (group.day || 'unknown')}
-          <section class="finished-group" aria-labelledby={`finished-${group.day || 'unknown'}`}>
-            <h3 id={`finished-${group.day || 'unknown'}`} class="finished-day">
-              {group.day ? formatCalendarDay(group.day) : 'Date not set'}
-            </h3>
-            <div class="finished-group-books">
-              {#each group.books as book (book.key)}
-                <article class="finished-row" role="listitem">
-                  <button
-                    class="finished-open"
-                    onclick={() => openBook(book)}
-                    aria-label={`Read ${book.title}`}
-                  >
-                    <div class="finished-cover">
-                      <BookCover
-                        imagePath={book.imagePath}
-                        title={book.title}
-                        author={creatorLine(book.creators)}
-                        identity={book.key}
-                        direction={book.direction}
-                      />
-                    </div>
-                    <span class="min-w-0 flex-1">
-                      <strong class="finished-title">{book.title}</strong>
-                      {#if creatorLine(book.creators)}<span class="finished-author"
-                          >{creatorLine(book.creators)}</span
-                        >{/if}
-                      <span class="finished-detail"
-                        >Finished{group.day ? ` · ${formatCalendarDay(group.day)}` : ''}</span
-                      >
-                    </span>
-                  </button>
-                  <SourceIcon provider={book.source?.provider} name={book.source?.name || ''} />
-                  {@render bookMenu(book, '')}
-                </article>
-              {/each}
-            </div>
-          </section>
-        {/each}
-      </div>
-      <p class="mt-12 text-center text-sm text-muted-foreground">
-        {visibleBooks.length}
-        {visibleBooks.length === 1 ? 'book' : 'books'}
-      </p>
-    {:else if displayed.length}
-      <div
-        class:shelf-grid={currentLayout === 'grid'}
-        class:shelf-list={currentLayout === 'list'}
-        role="list"
-        aria-label={series?.name || collectionTitle}
-      >
-        {#each displayed as node (node.id)}
-          <article
-            role="listitem"
-            class="shelf-item"
-            data-book-key={node.kind === 'book' ? node.book.key : undefined}
-            use:previewVisible={node}
-            class:series-item={node.kind === 'series'}
-          >
-            {#if node.kind === 'series'}
-              {@const seriesBookIds = node.books.flatMap((book) =>
-                book.bookId ? [book.bookId] : []
-              )}
-              {@const selectedInSeries = seriesBookIds.filter((id) =>
-                selectedBookIds.has(id)
-              ).length}
-              <button
-                class="book-open"
-                class:selected={selectMode && selectedInSeries > 0}
-                disabled={selectMode && seriesBookIds.length === 0}
-                title={selectMode && seriesBookIds.length === 0
-                  ? 'Save books in this series to the browser before selecting them'
-                  : undefined}
-                aria-pressed={selectMode
-                  ? selectedInSeries === 0
-                    ? false
-                    : selectedInSeries === seriesBookIds.length
-                      ? true
-                      : 'mixed'
-                  : undefined}
-                onclick={() =>
-                  selectMode
-                    ? dispatch('selectionManyClick', {
-                        ids: seriesBookIds
-                      })
-                    : navigate(node.id)}
-                aria-label={`${selectMode ? 'Select' : 'Open'} series ${node.name}`}
-              >
-                <div class="book-thumbnail">
-                  <CoverStack books={node.books} />
-                  {#if selectMode && selectedInSeries > 0}<span class="selection-label"
-                      >{selectedInSeries} selected</span
-                    >{/if}
-                </div>
-                <div class="book-copy series-copy">
-                  <h3>{node.name}</h3>
-                  <p class="list-detail">Series · {node.books.length} books</p>
-                </div>
-              </button>
-              <div class="book-status">
-                <span class="progress-label">{node.books.length} books</span><SourceIcon
-                  provider={node.source.provider}
-                  name={node.source.name}
-                />{#if !selectMode}{@render seriesMenu(node)}{/if}
-              </div>
-            {:else}
-              {@const book = node.book}
-              <button
-                class="book-open"
-                class:selected={!!book.bookId && selectedBookIds.has(book.bookId)}
-                aria-pressed={selectMode
-                  ? !!book.bookId && selectedBookIds.has(book.bookId)
-                  : undefined}
-                aria-label={`${selectMode ? 'Select' : 'Read'} ${book.title}`}
-                aria-describedby={isFinished(book) && book.bookId
-                  ? `finished-description-${book.bookId}`
-                  : undefined}
-                disabled={selectMode && !book.bookId}
-                title={selectMode && !book.bookId
-                  ? 'Save this book to the browser before selecting it'
-                  : undefined}
-                onclick={() =>
-                  selectMode && book.bookId
-                    ? dispatch('bookClick', { id: book.bookId })
-                    : !selectMode
-                      ? openBook(book)
-                      : undefined}
-              >
-                <div class="book-thumbnail">
-                  <BookCover
-                    imagePath={book.imagePath}
-                    title={book.title}
-                    author={creatorLine(book.creators)}
-                    identity={book.key}
-                    direction={book.direction}
-                    onWidth={(fraction) => rememberCoverWidth(book.key, fraction)}
-                  />{#if book.bookId && selectedBookIds.has(book.bookId)}<span
-                      class="selection-label">Selected</span
-                    >{/if}
-                </div>
-                <div class="book-copy">
-                  <h3>{book.title}</h3>
-                  {#if creatorLine(book.creators)}<p class="book-author">
-                      {creatorLine(book.creators)}
-                    </p>{/if}
-                  <p class="list-detail">
-                    {#if readingLabel(book) === 'Unread'}<span class="new-badge" title="Unread"
-                        >NEW</span
-                      >{:else}{readingLabel(book)}{/if}{#if isFinished(book) && finishedDay(book)}
-                      · {finishedDay(book)}{:else if book.bookId && book.bookId === currentBookId}
-                      · Reading now{/if}
-                  </p>
-                </div>
-              </button>
-              {#if isFinished(book) && book.bookId}<span
-                  id={`finished-description-${book.bookId}`}
-                  class="sr-only"
-                  >{finishedDay(book)
-                    ? `Finished ${formatCalendarDay(finishedDay(book)!)}.`
-                    : 'Finished. Date not set.'}</span
-                >{/if}
-              <div
-                class="book-status"
-                style:--book-cover-width={`${(coverWidths[book.key] ?? 1) * 100}%`}
-              >
-                <span
-                  class="progress-label"
-                  class:new-badge={readingLabel(book) === 'Unread'}
-                  title={readingLabel(book) === 'Unread' ? 'Unread' : undefined}
-                  >{readingLabel(book) === 'Unread' ? 'NEW' : readingLabel(book)}</span
-                ><SourceIcon
-                  provider={book.source?.provider}
-                  name={book.source?.name || ''}
-                />{#if !selectMode}{@render bookMenu(book, '')}{/if}
-              </div>
-            {/if}
-          </article>
-        {/each}
-      </div>
-      <p class="mt-12 text-center text-sm text-muted-foreground">
-        {visibleBooks.length}
-        {visibleBooks.length === 1 ? 'book' : 'books'}
-      </p>
-    {:else if books.length || series || collectionId !== 'books'}
-      <div class="py-16 text-center">
-        {#if collectionId === WANT_TO_READ_ID && !normalizedQuery && !notFinished}
-          <BookmarkSimple class="mx-auto mb-4 size-10 text-muted-foreground" aria-hidden="true" />
-        {/if}
-        <h3 class="text-lg font-medium">
-          {normalizedQuery
-            ? 'No matching books'
-            : collectionId === 'finished'
-              ? 'No finished books'
-              : notFinished
-                ? 'All books here are finished'
-                : collectionId === WANT_TO_READ_ID
-                  ? 'What will you read next?'
-                  : selectedCollection
-                    ? 'No books in this collection'
-                    : 'No books here'}
-        </h3>
-        <p class="mt-2 text-sm text-muted-foreground">
-          {normalizedQuery
-            ? 'Try another search or clear the current search.'
-            : collectionId === 'finished'
-              ? 'Books you finish will appear here.'
-              : notFinished
-                ? 'Show all books to include finished titles.'
-                : collectionId === WANT_TO_READ_ID
-                  ? 'Choose Add to Want to Read from a book’s menu to save it for later.'
-                  : 'Add books to this collection from a book’s menu.'}
+        <p class="mt-12 text-center text-sm text-muted-foreground">
+          {visibleBooks.length}
+          {visibleBooks.length === 1 ? 'book' : 'books'}
         </p>
-        {#if normalizedQuery || notFinished}<Button
-            class="mt-5"
-            variant="outline"
-            onclick={() => {
-              if (normalizedQuery) query = '';
-              else navigate(series?.id, collectionId, false);
-            }}>{normalizedQuery ? 'Clear Search' : 'Show All'}</Button
-          >{/if}
-        {#if collectionId === WANT_TO_READ_ID && !normalizedQuery && !notFinished}
-          <Button
-            class="mt-5 min-h-11 px-5"
-            variant="outline"
-            data-empty-library-action
-            onclick={() => navigate(undefined, 'books', false)}>Browse Library</Button
-          >
-        {/if}
-      </div>
-    {:else}{@render children?.()}{/if}
+      {:else if books.length || series || collectionId !== 'books'}
+        <div class="py-16 text-center">
+          {#if collectionId === WANT_TO_READ_ID && !normalizedQuery && !notFinished}
+            <BookmarkSimple class="mx-auto mb-4 size-10 text-muted-foreground" aria-hidden="true" />
+          {/if}
+          <h3 class="text-lg font-medium">
+            {normalizedQuery
+              ? 'No matching books'
+              : collectionId === 'finished'
+                ? 'No finished books'
+                : notFinished
+                  ? 'All books here are finished'
+                  : collectionId === WANT_TO_READ_ID
+                    ? 'What will you read next?'
+                    : selectedCollection
+                      ? 'No books in this collection'
+                      : 'No books here'}
+          </h3>
+          <p class="mt-2 text-sm text-muted-foreground">
+            {normalizedQuery
+              ? 'Try another search or clear the current search.'
+              : collectionId === 'finished'
+                ? 'Books you finish will appear here.'
+                : notFinished
+                  ? 'Show all books to include finished titles.'
+                  : collectionId === WANT_TO_READ_ID
+                    ? 'Choose Add to Want to Read from a book’s menu to save it for later.'
+                    : 'Add books to this collection from a book’s menu.'}
+          </p>
+          {#if normalizedQuery || notFinished}<Button
+              class="mt-5"
+              variant="outline"
+              onclick={() => {
+                if (normalizedQuery) query = '';
+                else navigate(series?.id, collectionId, false);
+              }}>{normalizedQuery ? 'Clear Search' : 'Show All'}</Button
+            >{/if}
+          {#if collectionId === WANT_TO_READ_ID && !normalizedQuery && !notFinished}
+            <Button
+              class="mt-5 min-h-11 px-5"
+              variant="outline"
+              data-empty-library-action
+              onclick={() => navigate(undefined, 'books', false)}>Browse Library</Button
+            >
+          {/if}
+        </div>
+      {:else}{@render children?.()}{/if}
+    {/if}
   </section>
 </div>
 
@@ -1609,8 +1641,8 @@
               onchange={() => (groupFiles = [])}
               >{#each sources as source (sourceKey(source))}<option
                   value={groupKey(source)}
-                  disabled={source.owner !== null && source.provider !== 'onedrive'}
-                  >{source.name}{source.owner ? ` · ${source.provider}` : ' · local'}</option
+                  disabled={source.provider !== 'local' && source.provider !== 'onedrive'}
+                  >{source.name}{` · ${source.provider}`}</option
                 >{/each}</select
             ></label
           >

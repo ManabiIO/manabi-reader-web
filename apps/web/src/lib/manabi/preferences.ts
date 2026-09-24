@@ -440,3 +440,19 @@ export function startPreferenceSync() {
     stop();
   };
 }
+
+/** Local, explicit migration entry point. No arbitrary storage keys or organization values. */
+export function captureImportPreferences(keys: string[]): Flat {
+  return Object.fromEntries(
+    keys.map((key) => {
+      if (key === 'library_organization' || !Object.hasOwn(bindings, key))
+        throw new Error('Unsupported imported preference.');
+      return [key, bindings[key].read()];
+    })
+  );
+}
+export async function applyImportPreferences(values: Flat): Promise<void> {
+  captureImportPreferences(Object.keys(values));
+  // This is a local edit, not a remote-sync replay. Existing opt-in preference sync remains opt-in.
+  for (const [key, value] of Object.entries(values)) await bindings[key].apply(value);
+}

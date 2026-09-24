@@ -706,19 +706,30 @@
   });
 
   /** Reveal a source range after its virtual section has mounted and measured. */
-  export async function revealLocator(locator: ReaderLocator, bookKey: string): Promise<boolean> {
+  export async function revealLocator(
+    locator: ReaderLocator,
+    bookKey: string,
+    valid: () => boolean = () => true
+  ): Promise<boolean> {
     const targetIndex = locator.resource.spineIndex;
-    if (targetIndex < 0 || targetIndex >= sections.length || disposed) return false;
+    if (targetIndex < 0 || targetIndex >= sections.length || disposed || !valid()) return false;
     if (sectionIndex$.getValue() !== targetIndex) {
-      const ready = new Promise<void>((resolve) => {
-        sectionReady$.pipe(take(1)).subscribe(() => resolve());
+      const ready = new Promise<boolean>((resolve) => {
+        const timeout = setTimeout(() => {
+          subscription.unsubscribe();
+          resolve(false);
+        }, 5000);
+        const subscription = sectionReady$.pipe(take(1)).subscribe(() => {
+          clearTimeout(timeout);
+          resolve(true);
+        });
       });
       sectionIndex$.next(targetIndex);
       // The previous resource's virtual page position survives a direct spine
       // switch. Reset it before measuring the newly mounted resource, or a
       // return can calculate its page from the search result's scroll offset.
       concretePageManager?.scrollTo(0, false);
-      await ready;
+      if (!(await ready) || !valid()) return false;
       // Section readiness is published before Svelte applies its display and
       // bookmark-layout updates. Let those settle before accepting the jump.
       await tick();
@@ -730,6 +741,7 @@
     const position = await resolveLocator(locator, projected, bookKey);
     if (
       !position ||
+      !valid() ||
       disposed ||
       generation !== renderGeneration ||
       sectionIndex$.getValue() !== targetIndex

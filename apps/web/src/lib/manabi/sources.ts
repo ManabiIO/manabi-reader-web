@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 
+import { webdavSource } from '$lib/library/webdav/connection';
 import {
   decodeSeriesMetadata,
   isSeriesMetadataFilename,
@@ -368,6 +369,7 @@ export async function sourceFor(
     if (currentUser()?.id !== owner) throw new IntegrationError('account_changed');
     return new CloudLibrary(sourceId, owner, root);
   }
+  if (sourceId.startsWith('webdav-')) return webdavSource(sourceId);
   const library = await (await integrationDB()).get('localLibraries', sourceId);
   if (!library) throw new IntegrationError('not_found');
   return new LocalLibrarySource(library);

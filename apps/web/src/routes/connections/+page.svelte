@@ -1,4 +1,6 @@
 <script lang="ts">
+  import WebDAVSettings from '$lib/library/webdav/settings.svelte';
+  import { WebDAVSource } from '$lib/library/webdav/connection';
   import AppNav from '$lib/components/navigation/app-nav.svelte';
   import { onMount } from 'svelte';
   import { resolve } from '$app/paths';
@@ -64,7 +66,9 @@
         ? error.message
         : error instanceof DOMException && error.name === 'AbortError'
           ? ''
-          : 'The operation could not complete. Original books and local reading data were kept.';
+          : error instanceof Error
+            ? error.message
+            : 'The operation could not complete. Original books and local reading data were kept.';
   }
   async function action(work: () => Promise<unknown>) {
     if (busy) return;
@@ -109,6 +113,42 @@
     sourceName = library.name;
     trail = [{ id: '', name: library.name }];
     await browse('', false);
+  }
+  async function openWebDAV(value: WebDAVSource) {
+    source = value;
+    sourceName = value.connection.name;
+    trail = [{ id: value.root, name: sourceName }];
+    await browse(value.root, false);
+  }
+  async function uploadWebDAV(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    const files = [...(input.files ?? [])];
+    input.value = '';
+    const active = source;
+    if (!(active instanceof WebDAVSource) || !files.length) return;
+    const parent = trail.at(-1)?.id ?? active.root;
+    await action(async () => {
+      let completed = 0;
+      for (const file of files) {
+        if (stopped || source !== active) return;
+        await active.upload(file, parent);
+        completed++;
+        message = `Uploaded ${completed} of ${files.length} new files. Existing files were not replaced.`;
+      }
+      await browse(parent);
+    });
+  }
+  async function downloadWebDAVBackup(entry: LibraryEntry) {
+    if (!(source instanceof WebDAVSource)) return;
+    const file = await source.downloadBackup(entry);
+    const url = URL.createObjectURL(file),
+      anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = file.name;
+    anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    message =
+      'Backup downloaded unchanged. Use Import from TTU / Yatsu to preview and migrate its records.';
   }
   async function openCloud(connection: CloudConnection, root: string) {
     const owner = currentUser()?.id;
@@ -379,6 +419,17 @@
     {/if}
   </section>
 
+  <WebDAVSettings
+    onbrowse={(value) => action(() => openWebDAV(value))}
+    ondisconnect={(id) => {
+      if (source?.id === id) {
+        source = null;
+        entries = [];
+        navigation++;
+      }
+    }}
+  />
+
   <section aria-labelledby="local-heading">
     <h2 id="local-heading">Local folders</h2>
     <p>
@@ -443,9 +494,21 @@
         {/each}
       </nav>
       <p>
-        Verified books sync personal reading data through your Manabi account. Folder write access
-        is not required.
+        Importing creates an offline copy. Personal reading data stays in this browser, with
+        optional Manabi account sync.
       </p>
+      {#if source instanceof WebDAVSource && source.connection.writable}
+        <label class="block mb-4"
+          >Upload new books or an exported backup
+          <input
+            type="file"
+            multiple
+            accept=".epub,.txt,.htmlz,.zip"
+            disabled={busy}
+            on:change={uploadWebDAV}
+          />
+        </label>
+      {/if}
       {#each entries as entry (entry.id)}
         <div class="file-entry">
           <span
@@ -455,13 +518,21 @@
             <button disabled={busy} on:click={() => action(() => enter(entry))}
               >Open folder {entry.name}</button
             >
+          {:else if source instanceof WebDAVSource && /\.zip$/i.test(entry.name)}
+            <button disabled={busy} on:click={() => action(() => downloadWebDAVBackup(entry))}
+              >Download backup {entry.name}</button
+            >
           {:else if supportedBook(entry.name)}
             <button
               disabled={busy}
               on:click={() =>
                 action(async () => {
                   if (!source) return;
-                  lastImported = await importLibraryBook(source, entry, true);
+                  lastImported = await importLibraryBook(
+                    source,
+                    entry,
+                    !(source instanceof WebDAVSource)
+                  );
                   message = `Imported ${lastImported.title}. It is now available offline.`;
                 })}>Import {entry.name}</button
             >

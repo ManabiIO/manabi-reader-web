@@ -110,6 +110,8 @@
   import ReaderLineGuide from '$lib/components/book-reader/reader-line-guide.svelte';
   import ReaderSearch from '$lib/components/book-reader/reader-search.svelte';
   import ReaderScrubber from '$lib/components/book-reader/reader-scrubber.svelte';
+  import { readImportedStudy, importedHighlights } from '$lib/manabi/yatsu-study';
+  import type { ImportedStudy } from '$lib/manabi/yatsu-study-format';
   import ReaderAnnotations from '$lib/components/book-reader/reader-annotations.svelte';
   import ReaderHighlights from '$lib/components/book-reader/reader-highlights.svelte';
   import {
@@ -126,6 +128,7 @@
   import type { ReaderAnnotation } from '$lib/data/database/books-db/versions/v7/books-db-v7';
   import { ReaderNavigation } from '$lib/reader-navigation';
   import type { ReaderLocator } from '$lib/reader-location';
+  import { takeLibraryPassage } from '$lib/library/search/handoff';
   import { readerBookKeyFor } from '$lib/reader-identity';
   import { TextAlignLeft, X } from 'phosphor-svelte';
   import {
@@ -220,6 +223,8 @@
   let scrubberPoint: ReaderLocator | undefined;
   let showAnnotations = false;
   let annotations: ReaderAnnotation[] = [];
+  let importedStudy: ImportedStudy | undefined;
+  $: studyHighlights = importedHighlights(importedStudy);
   let annotationsOwner: string | null | undefined;
   let annotationImportConflicts: AnnotationImportConflict[] = [];
   let annotationSelection: ReaderLocator[] = [];
@@ -239,8 +244,79 @@
   let revealingReaderLocator = false;
   let previewTrackerWasPaused = false;
   let readerBookKey = '';
+  let readerAlive = true;
+  let libraryPassage: { bookId: number; owner: string | null; locator: ReaderLocator } | undefined;
+  let libraryPassageOpening = false;
+  let libraryPassageError = '';
+  $: if (
+    browser &&
+    libraryPassage &&
+    !libraryPassageOpening &&
+    bookReaderComponent &&
+    guideContentEl &&
+    readerBookKey === libraryPassage.locator.bookKey &&
+    $rawBookData$?.id === libraryPassage.bookId
+  )
+    void openLibraryPassage(libraryPassage);
+
+  async function openLibraryPassage(pending: NonNullable<typeof libraryPassage>) {
+    libraryPassageOpening = true;
+    const component = bookReaderComponent;
+    const current = () =>
+      readerAlive &&
+      libraryPassage === pending &&
+      component === bookReaderComponent &&
+      $rawBookData$?.id === pending.bookId &&
+      (currentUser()?.id ?? null) === pending.owner;
+    try {
+      // contentChange is emitted before initial bookmark restoration. Wait for the
+      // actual display/geometry boundary before capturing the user's return point.
+      const deadline = performance.now() + 5000;
+      await bookmarkData;
+      await document.fonts.ready;
+      do {
+        await tick();
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        if (!current()) return;
+        if (
+          guideContentEl?.isConnected &&
+          !guideContentEl.closest('[aria-busy="true"]') &&
+          guideContentEl.getBoundingClientRect().width > 0
+        )
+          break;
+        if (performance.now() > deadline)
+          throw new Error(
+            'The reader did not become ready. Use Search Book to retry this passage.'
+          );
+      } while (true);
+      await tick();
+      if (!current()) return;
+      if (!(await previewLocator(pending.locator, 'library', current)) && current())
+        throw new Error(
+          'The passage could not be opened safely. Your reading position is unchanged.'
+        );
+    } catch (error) {
+      if (current())
+        libraryPassageError =
+          error instanceof Error ? error.message : 'Could not open the passage.';
+    } finally {
+      if (libraryPassage === pending) {
+        libraryPassage = undefined;
+        libraryPassageOpening = false;
+        suppressResumeSave = false;
+      }
+    }
+  }
   $: if (browser && $rawBookData$?.id) {
     const book = $rawBookData$;
+    importedStudy = undefined;
+    const owner = currentUser()?.id ?? null;
+    void readImportedStudy(book.id)
+      .then((value) => {
+        if (readerAlive && $rawBookData$?.id === book.id && (currentUser()?.id ?? null) === owner)
+          importedStudy = value;
+      })
+      .catch(() => undefined);
     void readerBookKeyFor(book.id, book.contentHash).then((key) => {
       if ($rawBookData$?.id === book.id) readerBookKey = key;
     });
@@ -250,6 +326,7 @@
     const owner = $account.session?.user?.id ?? null;
     if (annotationsOwner !== owner) {
       annotations = [];
+      importedStudy = undefined;
       annotationImportConflicts = [];
       annotationsOwner = owner;
     }
@@ -333,6 +410,16 @@
 
   const rawBookData$ = bookId$.pipe(
     switchMap(async (id) => {
+      const owner = currentUser()?.id ?? null;
+      const passage = takeLibraryPassage(id, owner);
+      libraryPassage = passage ? { bookId: id, owner, locator: passage } : undefined;
+      libraryPassageOpening = false;
+      libraryPassageError = '';
+      readerNavigation.clear();
+      navigationPreviewing = false;
+      activeSearchLocator = undefined;
+      suppressResumeSave = !!passage;
+      if (passage) pauseTracker();
       let bookData: BooksDbBookData | undefined;
 
       try {
@@ -373,7 +460,7 @@
         await localStorageHandler.updateLastRead(bookData);
         await syncDownData(externalStorageHandler, currentContext);
 
-        if (!$statisticsEnabled$) {
+        if (!$statisticsEnabled$ && !passage) {
           const wasNew = (
             await database.setFirstBookRead(
               currentContext.title,
@@ -577,6 +664,7 @@
     debounceTime($trackerAutostartTime$ * 1000),
     take(1),
     tap(() => {
+      if (navigationPreviewing || suppressResumeSave) return;
       wasTrackerPaused = false;
       isTrackerPaused$.next(wasTrackerPaused);
     }),
@@ -669,6 +757,8 @@
   /** Experimental Code - May be removed any time without warning */
 
   onDestroy(() => {
+    readerAlive = false;
+    libraryPassage = undefined;
     if (browser) {
       document.removeEventListener('ttu-action', handleAction, false);
       document.documentElement.lang = 'ja';
@@ -1293,16 +1383,23 @@
 
   async function previewLocator(
     locator: ReaderLocator,
-    source: 'search' | 'scrubber' | 'annotations' = 'search'
+    source: 'search' | 'scrubber' | 'annotations' | 'library' = 'search',
+    valid: () => boolean = () => true
   ) {
-    if (!bookReaderComponent || !readerBookKey) return;
+    if (!bookReaderComponent || !readerBookKey || !valid()) return false;
     // Capturing the origin can await layout. Fence resume autosaves before that
     // first await, so a page-change fired while a sheet closes cannot replace it.
     suppressResumeSave = true;
     // Modal sheets can lock or shift the reader scrollport. Keep the source
     // point captured before opening the sheet instead of sampling covered text.
     const sheetOrigin =
-      source === 'search' ? searchOrigin : source === 'scrubber' ? scrubberPoint : annotationPoint;
+      source === 'search'
+        ? searchOrigin
+        : source === 'scrubber'
+          ? scrubberPoint
+          : source === 'annotations'
+            ? annotationPoint
+            : undefined;
     const origin =
       readerNavigation.returnPoint ??
       sheetOrigin ??
@@ -1310,9 +1407,9 @@
         readerBookKey,
         $rawBookData$?.publicationManifest
       ));
-    if (!origin) {
+    if (!origin || !valid()) {
       suppressResumeSave = false;
-      return;
+      return false;
     }
     const wasPaused = $isTrackerPaused$;
     if (!readerNavigation.previewing) previewTrackerWasPaused = wasPaused;
@@ -1323,13 +1420,13 @@
     const reopen = () => {
       if (source === 'search') showBookSearch = true;
       else if (source === 'scrubber') showScrubber = true;
-      else showAnnotations = true;
+      else if (source === 'annotations') showAnnotations = true;
     };
     let revealed = false;
     revealingReaderLocator = true;
     try {
       await tick();
-      revealed = await bookReaderComponent.revealReaderLocator(locator, readerBookKey);
+      revealed = await bookReaderComponent.revealReaderLocator(locator, readerBookKey, valid);
     } catch (error) {
       logger.error(
         `Could not open reader location: ${error instanceof Error ? error.message : String(error)}`
@@ -1340,7 +1437,7 @@
       if (!wasPaused) isTrackerPaused$.next(false);
       return;
     }
-    if (!revealed) {
+    if (!revealed || !valid()) {
       suppressResumeSave = false;
       revealingReaderLocator = false;
       reopen();
@@ -1348,10 +1445,11 @@
       return;
     }
     readerNavigation.preview(origin, locator);
-    activeSearchLocator = source === 'search' ? locator : undefined;
+    activeSearchLocator = source === 'search' || source === 'library' ? locator : undefined;
     navigationPreviewing = true;
     suppressResumeSave = false;
     revealingReaderLocator = false;
+    return true;
   }
 
   async function openBookSearch() {
@@ -1390,6 +1488,7 @@
       );
       annotationPoint = await bookReaderComponent.captureReaderPoint(readerBookKey, manifest);
       annotations = await listReaderAnnotations(readerBookKey);
+      importedStudy = await readImportedStudy($rawBookData$!.id);
       annotationImportConflicts = await listAnnotationImportConflicts(readerBookKey);
       showHeader = false;
       showAnnotations = true;
@@ -2049,6 +2148,13 @@
   </div>
 {/if}
 
+{#if libraryPassageError}<p
+    role="alert"
+    class="fixed top-20 left-4 right-4 z-50 rounded-xl bg-background p-4 text-sm shadow-lg"
+  >
+    {libraryPassageError}
+  </p>{/if}
+
 {#if $bookData$ && $rawBookData$}
   <DictionarySetup bind:this={dictionarySetup} contentReady={!!guideContentEl} />
   {#if $statisticsEnabled$}
@@ -2060,7 +2166,7 @@
       {exploredCharCount}
       {bookCharCount}
       {autoScroller}
-      {blockDataUpdates}
+      blockDataUpdates={blockDataUpdates || navigationPreviewing || suppressResumeSave}
       bind:wasTrackerPaused
       bind:this={trackerElm}
       on:freezeCurrentLocation={freezeTrackerPosition}
@@ -2145,7 +2251,7 @@
   />
   <ReaderHighlights
     contentEl={guideContentEl}
-    {annotations}
+    annotations={[...annotations, ...studyHighlights]}
     active={activeSearchLocator}
     bookKey={readerBookKey}
     epoch={readerContentEpoch}
@@ -2192,6 +2298,13 @@
 />
 
 <ReaderAnnotations
+  {importedStudy}
+  bookId={$rawBookData$?.id ?? 0}
+  on:importedStudyChanged={(event) => (importedStudy = event.detail)}
+  on:importedNavigate={(event) => {
+    showAnnotations = false;
+    void previewLocator(event.detail, 'annotations');
+  }}
   bind:open={showAnnotations}
   {annotations}
   importConflicts={annotationImportConflicts}

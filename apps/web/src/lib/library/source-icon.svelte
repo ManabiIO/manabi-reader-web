@@ -6,7 +6,8 @@
     google: 'Google Drive',
     dropbox: 'Dropbox',
     onedrive: 'OneDrive',
-    local: 'Local folder'
+    local: 'Local folder',
+    webdav: 'WebDAV'
   };
   $: label = `${labels[provider || ''] || 'Connected library'}${name && provider === 'local' ? `: ${name}` : ''}`;
 </script>

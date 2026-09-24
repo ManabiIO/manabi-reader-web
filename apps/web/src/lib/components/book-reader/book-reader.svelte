@@ -177,15 +177,17 @@
 
   export async function revealReaderLocator(
     locator: ReaderLocator,
-    bookKey: string
+    bookKey: string,
+    valid: () => boolean = () => true
   ): Promise<boolean> {
+    if (!valid()) return false;
     if (viewMode === ViewMode.Paginated)
-      return paginatedReader?.revealLocator(locator, bookKey) ?? false;
+      return paginatedReader?.revealLocator(locator, bookKey, valid) ?? false;
     const section = currentContentEl?.children[locator.resource.spineIndex];
     if (!section) return false;
     const projected = projectResource(section, locator.resource);
     const position = await resolveLocator(locator, projected, bookKey);
-    if (!position) return false;
+    if (!position || !valid()) return false;
     const range = rangeAt(projected, position.start, position.end);
     if (!range) return false;
     const rect = range.getBoundingClientRect();

@@ -972,7 +972,10 @@
         bind:collectionsOpen
         bind:menu={libraryMenu}
         bookCards={$bookCards$}
-        on:bookClick={(ev) => onBookClick(ev.detail.id)}
+        on:bookClick={(ev) => {
+          selectMode = false;
+          openBook(ev.detail.id);
+        }}
         on:selectionManyClick={(ev) => toggleSelectedBooks(ev.detail.ids)}
         on:selectionScopeChange={(ev) => updateSelectionScope(ev.detail.key, ev.detail.ids)}
         on:removeBookClick={(ev) => removeBooks([ev.detail.id])}
@@ -984,7 +987,10 @@
         currentBookId={$currentBookId$}
         {selectedBookIds}
         bookCards={$bookCards$}
-        on:bookClick={(ev) => onBookClick(ev.detail.id)}
+        on:bookClick={(ev) => {
+          selectMode = false;
+          openBook(ev.detail.id);
+        }}
         on:removeBookClick={(ev) => removeBooks([ev.detail.id])}
       />
     {:else}

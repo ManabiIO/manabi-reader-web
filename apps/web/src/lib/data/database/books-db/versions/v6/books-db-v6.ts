@@ -35,6 +35,8 @@ interface SubtitleData {
 }
 
 interface BooksDbV6BookData {
+  /** Local, portable Yatsu study records. Never interpreted as account-sync state. */
+  manabiImportedStudy?: import('$lib/manabi/yatsu-study-format').ImportedStudy;
   id: number;
   title: string;
   language?: string;

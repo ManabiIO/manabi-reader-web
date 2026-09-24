@@ -23,11 +23,13 @@
     status: string;
     message: string;
     bookId?: number;
+    resultDetails?: string;
+    skippedSettings?: string[];
   }
   let rows: Row[] = [];
   let sources: TtuMigration[] = [];
   let choices: MigratedBookChoice[] = [];
-  let parts = Object.keys(importLabels) as ImportPart[];
+  let parts = Object.keys(importLabels).filter((part) => part !== 'settings') as ImportPart[];
   let busy = false;
   let hydrated = false;
   let message = '';
@@ -68,7 +70,7 @@
             ...item,
             source,
             key: `${sourceId}/${item.id}`,
-            selected: !item.error,
+            selected: !item.error && !item.parts.includes('settings'),
             targetId: 0,
             status: item.error ? 'error' : 'ready',
             message: item.error ?? ''
@@ -111,6 +113,8 @@
             : `Imported ${result.title}.`;
         if (result.warning) row.message += ` ${result.warning}`;
         row.bookId = result.bookId;
+        row.resultDetails = result.details;
+        row.skippedSettings = result.skippedSettings;
         row.selected = !!result.warning;
       } catch (error) {
         row.status = error instanceof MigrationConflict ? 'conflict' : 'error';
@@ -133,6 +137,32 @@
       : 'Finished. Your original ZIPs are unchanged.';
     if (refreshError) message += ` ${refreshError}`;
     busy = false;
+  }
+  function exportReport() {
+    const report = {
+      format: 'manabi-library-migration-report',
+      version: 1,
+      createdAt: new Date().toISOString(),
+      items: rows.map((row) => ({
+        source: row.source.source,
+        filename: row.source.file.name,
+        title: row.title,
+        categories: row.parts,
+        counts: row.counts,
+        status: row.status,
+        message: row.message,
+        details: row.resultDetails,
+        skippedSettings: row.skippedSettings
+      }))
+    };
+    const url = URL.createObjectURL(
+      new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' })
+    );
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'manabi-migration-report.json';
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
   }
   function cancel() {
     controller?.abort();
@@ -224,8 +254,16 @@
         In the Library, open More library actions and choose <strong
           >Get complete local backup</strong
         >. Select that ZIP below. Book data, current reading position, collection tags, and
-        statistics can be imported from a version-11 complete local backup. Yatsu highlights, notes,
-        saved bookmarks, and settings are not imported yet; keep your original backup.
+        statistics, saved bookmarks, highlights, book notes, goals, and supported audiobook/subtitle
+        data can be imported from a version-11 complete local backup. Safe settings are a separate,
+        optional selection. Connections, credentials, custom code, and cloud access are never
+        imported. Keep the original ZIP.
+      </p>
+      <p>
+        Imported study records are available under Bookmarks &amp; Notes → Imported from Yatsu.
+        Verified highlights are rendered in the book. Ambiguous locations and book-level notes
+        remain readable and editable without pretending to be passage bookmarks. These records are
+        local; export their archive to preserve edits or move them to another browser.
       </p>
     </section>
   {/if}
@@ -250,7 +288,7 @@
       <summary>Data to import</summary>
       <div class="parts">
         {#each Object.entries(importLabels) as [part, label]}
-          {#if part !== 'metadata' || sources.some((source) => source.source === 'yatsu')}
+          {#if !['metadata', 'savedBookmarks', 'highlights', 'notes', 'settings'].includes(part) || sources.some((source) => source.source === 'yatsu')}
             <label
               ><input
                 type="checkbox"
@@ -267,7 +305,10 @@
       <button
         disabled={busy}
         on:click={() => {
-          rows = rows.map((row) => ({ ...row, selected: !row.error }));
+          rows = rows.map((row) => ({
+            ...row,
+            selected: !row.error && (!row.parts.includes('settings') || parts.includes('settings'))
+          }));
         }}>Select all</button
       >
       <button
@@ -280,6 +321,7 @@
         >Import selected ({selected.length})</button
       >
       <button disabled={busy} on:click={clear}>Clear list</button>
+      <button disabled={busy} on:click={exportReport}>Export Migration Report</button>
     </div>
     {#if ignored}<p>
         {ignored} files are not covered by this importer and will be kept only in the original ZIP. Storage
@@ -316,7 +358,17 @@
             {row.source.source === 'yatsu' ? 'Yatsu Reader' : 'Ttu Ebook Reader'} ·
             {row.source.file.name} · {row.parts.map((part) => importLabels[part]).join(', ')}
           </p>
-          {#if !row.parts.includes('goals') && (!row.parts.includes('book') || row.status === 'conflict')}
+          {#if row.counts}<p class="details">
+              {Object.entries(row.counts)
+                .map(([part, count]) => `${importLabels[part as ImportPart]}: ${count}`)
+                .join(' · ')}
+            </p>{/if}
+          {#if row.details}<p class="details">{row.details}</p>{/if}
+          {#if row.parts.includes('settings')}<p class="details">
+              To apply preferences, select this row and enable Safe Settings under Data to import.
+              Your existing optional preference sync, if already enabled, may sync these edits.
+            </p>{/if}
+          {#if !row.parts.includes('goals') && !row.parts.includes('settings') && (!row.parts.includes('book') || row.status === 'conflict')}
             <label
               >Destination book
               <select
@@ -332,6 +384,11 @@
             </label>
           {/if}
           {#if row.message}<p role="status">{row.message}</p>{/if}
+          {#if row.resultDetails}<p class="details">{row.resultDetails}</p>{/if}
+          {#if row.skippedSettings?.length}<details>
+              <summary>Settings not applied ({row.skippedSettings.length})</summary>
+              <p>{row.skippedSettings.join(', ')}</p>
+            </details>{/if}
           {#if row.status === 'conflict'}
             <p>Using imported data replaces conflicting reading records, not the book itself.</p>
             <button disabled={busy} on:click={() => run([row], true)}
