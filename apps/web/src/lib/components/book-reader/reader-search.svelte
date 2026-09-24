@@ -10,6 +10,7 @@
     type PublicationManifest,
     type ReaderLocator
   } from '$lib/reader-location';
+  import { ReaderPanelSelection } from '$lib/reader-panel-selection';
   import type { ReaderSearchHit } from '$lib/reader-search-worker';
 
   export let open = false;
@@ -35,10 +36,11 @@
   let projectedHtml = '';
   let projectedManifest: PublicationManifest | undefined;
   let projectedBookKey = '';
+  let selectionError = '';
+  const selection = new ReaderPanelSelection();
 
   $: if (
     browser &&
-    rawHtml &&
     (rawHtml !== projectedHtml || manifest !== projectedManifest || bookKey !== projectedBookKey)
   ) {
     projectedHtml = rawHtml;
@@ -46,12 +48,18 @@
     projectedBookKey = bookKey;
     const root = document.createElement('div');
     root.innerHTML = rawHtml;
-    resources = projectPublication(root, manifest);
+    resources = rawHtml ? projectPublication(root, manifest) : [];
     bookGeneration += 1;
     cancel();
     hits = [];
     total = 0;
     if (open && query) schedule();
+  }
+
+  $: if (open) schedule();
+  else {
+    cancel();
+    selection.invalidate();
   }
 
   onMount(() => {
@@ -68,15 +76,18 @@
         truncated = value.truncated;
       }
     };
+    if (open && query) schedule();
     return () => worker?.terminate();
   });
   onDestroy(() => {
-    if (debounce) clearTimeout(debounce);
-    worker?.terminate();
+    cancel();
+    selection.dispose();
   });
 
   function cancel() {
+    selection.invalidate();
     if (debounce) clearTimeout(debounce);
+    debounce = undefined;
     worker?.postMessage({ type: 'cancel', requestId });
     requestId += 1;
     searching = false;
@@ -88,7 +99,8 @@
     total = 0;
     truncated = false;
     visibleCount = 50;
-    if (!query.trim() || composing || !worker) return;
+    selectionError = '';
+    if (!open || !query.trim() || composing || !worker) return;
     const id = requestId;
     searching = true;
     debounce = setTimeout(() => {
@@ -103,13 +115,21 @@
     }, 160);
   }
 
-  async function select(hit: ReaderSearchHit) {
+  function select(hit: ReaderSearchHit) {
     const projected = resources.find(
       ({ resource }) =>
         resource.spineIndex === hit.resource.spineIndex && resource.href === hit.resource.href
     );
-    if (!projected || !bookKey) return;
-    dispatch('select', await makeLocator(bookKey, projected, hit.start, hit.end));
+    if (!projected || !bookKey || !open) return;
+    const key = bookKey;
+    const generation = bookGeneration;
+    selectionError = '';
+    void selection.run(
+      () => makeLocator(key, projected, hit.start, hit.end),
+      () => open && bookKey === key && bookGeneration === generation,
+      (locator) => dispatch('select', locator),
+      () => (selectionError = 'Could not open this result. Please try again.')
+    );
   }
 </script>
 
@@ -117,35 +137,48 @@
   <Sheet.Content
     side="left"
     showCloseButton
-    class="writing-horizontal-tb data-[side=left]:w-full data-[side=left]:sm:max-w-md"
+    class="writing-horizontal-tb p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] data-[side=left]:w-full data-[side=left]:sm:max-w-md"
   >
-    <Sheet.Header>
+    <Sheet.Header class="shrink-0 p-0">
       <Sheet.Title>Search Book</Sheet.Title>
       <Sheet.Description>Find text in {bookTitle || 'this book'}.</Sheet.Description>
     </Sheet.Header>
-    <div class="mt-5 flex items-center gap-3">
+    <div class="mt-5 flex shrink-0 flex-wrap items-center gap-3">
       <input
         class="min-h-11 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
         type="search"
         aria-label="Search within book"
         placeholder="Search this book"
         bind:value={query}
-        on:input={() => !composing && schedule()}
-        on:compositionstart={() => (composing = true)}
+        on:input={(event) => {
+          query = event.currentTarget.value;
+          if (!composing) schedule();
+        }}
+        on:compositionstart={() => {
+          composing = true;
+          cancel();
+        }}
         on:compositionend={() => {
           composing = false;
           schedule();
         }}
       />
       <label class="flex items-center gap-1.5 text-sm"
-        ><input type="checkbox" bind:checked={matchCase} on:change={schedule} />Match case</label
+        ><input type="checkbox" bind:checked={matchCase}
+          on:change={(event) => {
+            matchCase = event.currentTarget.checked;
+            schedule();
+          }} />Match case</label
       >
     </div>
-    <p class="my-4 text-sm text-muted-foreground" aria-live="polite">
+    <p class="my-4 shrink-0 text-sm text-muted-foreground" aria-live="polite">
       {#if searching}Searching…{:else if query.trim()}{truncated ? 'More than ' : ''}{total} results{:else}Enter
         a word or phrase.{/if}
     </p>
-    <div class="max-h-[calc(100dvh-13rem)] overflow-y-auto">
+    {#if selectionError}<p role="alert" class="mb-3 text-sm text-destructive">
+        {selectionError}
+      </p>{/if}
+    <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
       {#each hits.slice(0, visibleCount) as hit, index (`${hit.resource.spineIndex}:${hit.start}:${index}`)}
         <button
           type="button"

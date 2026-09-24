@@ -4,6 +4,13 @@ import { fileURLToPath } from 'node:url';
 import { ESLint } from 'eslint';
 
 const files = [
+  'apps/web/src/lib/components/ui/close-button.svelte',
+  'apps/web/src/lib/components/ui/button/button.svelte',
+  'apps/web/src/lib/components/ui/dialog/dialog-content.svelte',
+  'apps/web/src/lib/components/ui/dialog/dialog-footer.svelte',
+  'apps/web/src/lib/components/book-reader/reader-search.svelte',
+  'apps/web/src/lib/components/book-reader/reader-scrubber.svelte',
+  'apps/web/src/lib/components/book-reader/reader-annotations.svelte',
   'apps/web/src/lib/library/book-cover.svelte',
   'apps/web/src/lib/library/collections-sheet.svelte',
   'apps/web/src/lib/library/cover-stack.svelte',

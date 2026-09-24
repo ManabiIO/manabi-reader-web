@@ -45,9 +45,9 @@
   <Sheet.Content
     side="left"
     showCloseButton
-    class="writing-horizontal-tb data-[side=left]:w-full data-[side=left]:sm:max-w-md"
+    class="writing-horizontal-tb p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] data-[side=left]:w-full data-[side=left]:sm:max-w-md"
   >
-    <Sheet.Header>
+    <Sheet.Header class="shrink-0 p-0">
       <Sheet.Title>Bookmarks & Notes</Sheet.Title>
       <Sheet.Description>Saved places and passages in this book.</Sheet.Description>
     </Sheet.Header>
