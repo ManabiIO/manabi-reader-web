@@ -5,6 +5,7 @@
  */
 
 import assert from 'node:assert/strict';
+import { Buffer } from 'node:buffer';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
@@ -34,16 +35,19 @@ const { outputFiles } = await build({
   format: 'esm',
   conditions: ['svelte'],
   write: false,
-  plugins: [{
-    name: 'svelte-component-contract',
-    setup(builder) {
-      builder.onLoad({ filter: /\.svelte$/ }, async ({ path: filename }) => ({
-        contents: compile(await readFile(filename, 'utf8'), { filename, generate: 'server' }).js.code,
-        loader: 'js',
-        resolveDir: path.dirname(filename)
-      }));
+  plugins: [
+    {
+      name: 'svelte-component-contract',
+      setup(builder) {
+        builder.onLoad({ filter: /\.svelte$/ }, async ({ path: filename }) => ({
+          contents: compile(await readFile(filename, 'utf8'), { filename, generate: 'server' }).js
+            .code,
+          loader: 'js',
+          resolveDir: path.dirname(filename)
+        }));
+      }
     }
-  }]
+  ]
 });
 const { buttonVariants, html } = await import(
   `data:text/javascript;base64,${Buffer.from(outputFiles[0].text).toString('base64')}`
@@ -54,14 +58,22 @@ test('only regular and large bordered variants automatically use capsules', () =
   for (const variant of ['default', 'outline', 'secondary', 'destructive', 'ghost', 'link']) {
     for (const size of ['xs', 'sm', 'default', 'lg', 'icon-xs', 'icon-sm', 'icon', 'icon-lg']) {
       const expected = !['ghost', 'link'].includes(variant) && ['default', 'lg'].includes(size);
-      assert.equal(classes({ variant, size }).includes('rounded-full'), expected, `${variant}/${size}`);
+      assert.equal(
+        classes({ variant, size }).includes('rounded-full'),
+        expected,
+        `${variant}/${size}`
+      );
     }
   }
 });
 
 test('explicit rounded, capsule and circle shapes override automatic style decisions', () => {
-  assert.ok(classes({ variant: 'secondary', size: 'lg', shape: 'rounded' }).includes('rounded-[12px]'));
-  assert.ok(!classes({ variant: 'secondary', size: 'lg', shape: 'rounded' }).includes('rounded-full'));
+  assert.ok(
+    classes({ variant: 'secondary', size: 'lg', shape: 'rounded' }).includes('rounded-[12px]')
+  );
+  assert.ok(
+    !classes({ variant: 'secondary', size: 'lg', shape: 'rounded' }).includes('rounded-full')
+  );
   assert.ok(classes({ variant: 'ghost', size: 'sm', shape: 'capsule' }).includes('rounded-full'));
   const circle = classes({ variant: 'ghost', size: 'icon-lg', shape: 'circle' });
   assert.ok(circle.includes('rounded-full'));

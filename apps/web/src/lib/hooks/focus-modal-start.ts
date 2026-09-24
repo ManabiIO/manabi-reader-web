@@ -10,15 +10,19 @@
  * this using onOpenAutoFocus and preventDefault(). */
 export function focusModalStart(event: Event, modal: HTMLElement) {
   const bounds = modal.getBoundingClientRect();
-  const field = [...modal.querySelectorAll<HTMLElement>(
-    'input:not([type="hidden"]), textarea, select'
-  )].find((element) => {
+  const field = [
+    ...modal.querySelectorAll<HTMLElement>('input:not([type="hidden"]), textarea, select')
+  ].find((element) => {
     const rect = element.getBoundingClientRect();
-    return !element.matches(':disabled') && element.tabIndex >= 0 &&
+    return (
+      !element.matches(':disabled') &&
+      element.tabIndex >= 0 &&
       element.getClientRects().length > 0 &&
       !element.closest('[inert], [hidden], [aria-hidden="true"]') &&
       getComputedStyle(element).visibility === 'visible' &&
-      rect.top >= bounds.top && rect.bottom <= bounds.bottom;
+      rect.top >= bounds.top &&
+      rect.bottom <= bounds.bottom
+    );
   });
   event.preventDefault();
   (field ?? modal).focus({ preventScroll: true });

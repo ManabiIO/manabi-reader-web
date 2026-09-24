@@ -28,6 +28,39 @@ class ControlRefinementBrowser(modal_controls.ModalControlsBrowser):
         panel.get_by_role('button').filter(has_text='Section 1').first.click()
         expect(panel).to_have_count(0)
 
+    def test_async_worker_failure_is_reported_and_retry_uses_a_fresh_worker(self):
+        self.open_reader()
+        # Send one malformed query into the real worker to exercise its async
+        # rejection path, rather than fabricating an error reply in the host.
+        self.page.evaluate('''() => {
+          const NativeWorker = window.Worker;
+          window.Worker = new Proxy(NativeWorker, {
+            construct(target, args) {
+              const worker = Reflect.construct(target, args);
+              if (String(args[0]).includes('reader-search-worker')) {
+                window.Worker = NativeWorker;
+                const send = worker.postMessage.bind(worker);
+                worker.postMessage = message => {
+                  if (message.type === 'search') {
+                    worker.postMessage = send;
+                    return send({...message, query:null});
+                  }
+                  return send(message);
+                };
+              }
+              return worker;
+            }
+          });
+        }''')
+        panel = self.open_tool('Search Book')
+        panel.get_by_role('searchbox').fill('日')
+        expect(panel.get_by_role('alert')).to_have_text('Search could not finish. Please try again.')
+        panel.get_by_role('button', name='Retry Search', exact=True).click()
+        expect(panel.get_by_text('180 results', exact=True)).to_be_visible()
+        expect(panel.get_by_role('alert')).to_have_count(0)
+        panel.get_by_role('button').filter(has_text='Section 1').first.click()
+        expect(panel).to_have_count(0)
+
     def test_closing_during_ime_composition_does_not_disable_the_next_search(self):
         self.open_reader()
         panel = self.search()

@@ -96,6 +96,10 @@
         if (worker !== next || !open) return;
         const value = event.data;
         if (value.requestId !== requestId || value.bookGeneration !== bookGeneration) return;
+        if (value.type === 'error') {
+          failSearch();
+          return;
+        }
         if (value.type === 'batch') hits = [...hits, ...value.hits];
         if (value.type === 'done') {
           searching = false;

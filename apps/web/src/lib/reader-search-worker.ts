@@ -40,7 +40,17 @@ self.onmessage = (event: MessageEvent<SearchRequest | CancelRequest>) => {
     cancelledThrough = Math.max(cancelledThrough, event.data.requestId);
     return;
   }
-  void search(event.data);
+  const request = event.data;
+  void search(request).catch(() => {
+    // Async rejections do not reliably surface as Worker.onerror on the host.
+    // Only the still-current request may report an error to its panel.
+    if (request.requestId > cancelledThrough)
+      self.postMessage({
+        type: 'error',
+        requestId: request.requestId,
+        bookGeneration: request.bookGeneration
+      });
+  });
 };
 
 async function search(request: SearchRequest) {
