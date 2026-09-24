@@ -18,6 +18,8 @@ class PicksHandler(StaticHandler):
     bad_feed = False
     requests = []
     epub_bytes = book('A Pick from Manabi')
+    index_started = None
+    index_gate = None
 
     def serve(self, body, content_type, status=200):
         self.send_response(status)
@@ -31,6 +33,12 @@ class PicksHandler(StaticHandler):
         if path.startswith('/static/reader/books/'):
             type(self).requests.append(path)
             if path.endswith('/opds/index.xml'):
+                started = type(self).index_started
+                gate = type(self).index_gate
+                if started is not None:
+                    started.set()
+                if gate is not None:
+                    gate.wait(timeout=30)
                 self.serve(b'''<?xml version="1.0"?>
                   <feed xmlns="http://www.w3.org/2005/Atom">
                     <entry><title>All Books (6)</title>
@@ -79,6 +87,8 @@ class EditorsPicksBrowser(unittest.TestCase):
         PicksHandler.fail_download = False
         PicksHandler.bad_feed = False
         PicksHandler.requests = []
+        PicksHandler.index_started = None
+        PicksHandler.index_gate = None
         self.profile = tempfile.TemporaryDirectory()
         self.engine = os.environ.get('PICKS_BROWSER', 'chromium')
         self.context = getattr(self.playwright, self.engine).launch_persistent_context(
@@ -90,6 +100,10 @@ class EditorsPicksBrowser(unittest.TestCase):
         self.page.on('pageerror', lambda error: self.errors.append(str(error)))
 
     def tearDown(self):
+        if PicksHandler.index_gate is not None:
+            PicksHandler.index_gate.set()
+        PicksHandler.index_started = None
+        PicksHandler.index_gate = None
         self.context.close()
         self.profile.cleanup()
         self.assertEqual([], self.errors)
@@ -148,6 +162,20 @@ class EditorsPicksBrowser(unittest.TestCase):
         expect(self.page.get_by_text('Could not open book')).to_be_visible()
         self.assertNotIn('/Reader-Web/b', self.page.url)
         self.assertFalse(any('outside.example' in value for value in PicksHandler.requests))
+
+    def test_leaving_empty_library_while_catalog_loads_has_no_page_error(self):
+        PicksHandler.index_started = threading.Event()
+        PicksHandler.index_gate = threading.Event()
+        self.page.goto(self.origin + '/Reader-Web/manage')
+        expect(self.page.get_by_role('heading', name='Make room for a good book')).to_be_visible()
+        self.assertTrue(PicksHandler.index_started.wait(timeout=5))
+        self.page.get_by_role('button', name='Collections', exact=True).click()
+        sheet = self.page.locator('#library-collections-sheet')
+        sheet.get_by_role('button', name=re.compile(r'^Want to Read\b')).click()
+        expect(self.page.get_by_role('heading', name='Want to Read', exact=True)).to_be_visible()
+        with self.page.expect_response(lambda response: response.url.endswith('/opds/index.xml')):
+            PicksHandler.index_gate.set()
+        expect(self.page.get_by_role('heading', name='Want to Read', exact=True)).to_be_visible()
 
     def test_installed_bridge_offers_jitendex_and_remembers_the_choice(self):
         self.context.add_init_script('''

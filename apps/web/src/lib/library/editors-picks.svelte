@@ -10,28 +10,34 @@
   let picks: EditorsPick[] = [];
   let loading = true;
   let error = '';
-  let controller: AbortController | undefined;
+  let mounted = false;
+  let loadVersion = 0;
   const dispatch = createEventDispatcher<{ open: EditorsPick }>();
 
   async function load() {
-    controller?.abort();
-    controller = new AbortController();
+    const version = ++loadVersion;
     loading = true;
     error = '';
     try {
-      picks = await loadEditorsPicks(window.location.origin, controller.signal);
+      const loaded = await loadEditorsPicks(window.location.origin);
+      if (mounted && version === loadVersion) picks = loaded;
     } catch (cause) {
-      if (!controller.signal.aborted) {
+      if (mounted && version === loadVersion) {
         error = cause instanceof Error ? cause.message : 'The catalog could not be loaded.';
       }
     } finally {
-      if (!controller.signal.aborted) loading = false;
+      if (mounted && version === loadVersion) loading = false;
     }
   }
 
   onMount(() => {
+    mounted = true;
     void load();
-    return () => controller?.abort();
+    return () => {
+      // WebKit reports aborting this request during navigation as a page error.
+      mounted = false;
+      loadVersion += 1;
+    };
   });
 </script>
 
