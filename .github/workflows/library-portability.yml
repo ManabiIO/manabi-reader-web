@@ -13,29 +13,19 @@ concurrency:
   cancel-in-progress: true
 jobs:
   qualification-baseline:
-    if: github.event.action == 'opened'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@v6.1.0
-        with:
-          version: '12.3.4'
       - uses: actions/setup-node@v4
         with:
           node-version: '24.21.0'
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Retain exact development inputs
-        run: |
-          mkdir -p /tmp/library-portability
-          git rev-parse HEAD > /tmp/library-portability/commit.txt
-          git archive HEAD | gzip > /tmp/library-portability/source.tar.gz
-          tar -czf /tmp/library-portability/dependencies.tar.gz node_modules apps/web/node_modules
       - name: Observe public Yatsu client format (no accounts or user data)
         run: |
+          mkdir -p /tmp/library-portability
+          cp "$(command -v node)" /tmp/library-portability/node
           python3 - <<'PY'
           import json, re, pathlib, urllib.request, urllib.parse, hashlib
           origin = 'https://app.yatsu.moe'
@@ -45,23 +35,32 @@ jobs:
                   if len(data) > 4 * 1024 * 1024: raise ValueError('Oversized public asset')
                   return data.decode('utf-8')
           html = read(origin + '/')
-          queue = [urllib.parse.urljoin(origin + '/', x) for x in re.findall(r'[\"\']([^\"\']+\.js)[\"\']', html)]
-          seen, assets, total = set(), [], 0
+          links = lambda text: re.findall(r'[\"\']([^\"\']+\.js)[\"\']', text)
+          queue = [urllib.parse.urljoin(origin + '/', x) for x in links(html)]
+          seen, assets, errors, total = set(), [], [], 0
           while queue and len(seen) < 600:
               url = queue.pop(0)
               if url in seen or not url.startswith(origin + '/_app/'): continue
               seen.add(url)
-              text = read(url)
+              try:
+                  text = read(url)
+              except Exception as error:
+                  errors.append({'url': url, 'error': str(error)})
+                  continue
               total += len(text)
               if total > 24 * 1024 * 1024: raise ValueError('Public-asset budget exceeded')
               assets.append({'url': url, 'sha256': hashlib.sha256(text.encode()).hexdigest(), 'content': text})
-              queue.extend(urllib.parse.urljoin(url, x) for x in re.findall(r'[\"\']([^\"\']+\.js)[\"\']', text))
-          pathlib.Path('/tmp/library-portability/yatsu-observation.json').write_text(json.dumps({'html': html, 'assets': assets}))
-          print('Observed', len(assets), 'public assets;', total, 'characters. No source copied into the application.')
+              for x in links(text):
+                  queue.append(urllib.parse.urljoin(url, x))
+                  if x.startswith(('nodes/', 'chunks/', 'entry/')):
+                      queue.append(origin + '/_app/immutable/' + x)
+          pathlib.Path('/tmp/library-portability/yatsu-observation.json').write_text(json.dumps({'html': html, 'assets': assets, 'errors': errors}))
+          print('Observed', len(assets), 'public assets;', total, 'characters;', len(errors), 'optional asset misses. No source copied into the application.')
+          if not assets: raise ValueError('No public client assets observed')
           PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: library-portability-development-inputs
+          name: library-portability-format-observation
           path: /tmp/library-portability
           retention-days: 2
