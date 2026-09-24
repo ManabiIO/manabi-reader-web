@@ -1,0 +1,88 @@
+/* Match the Manabi palette in apps/web/src/lib/appearance/palettes.scss.
+   Keep this small: Zensical owns the layout and accessible controls. */
+:root {
+  --manabi-red: #a33539;
+  --manabi-gold: #d9b141;
+  --manabi-font: system-ui, -apple-system, BlinkMacSystemFont, 'Hiragino Sans',
+    'Yu Gothic', Meiryo, sans-serif;
+}
+
+[data-md-color-scheme='default'] {
+  --md-default-bg-color: #fff;
+  --md-default-fg-color: #211f1c;
+  --md-default-fg-color--light: #5f5e5c;
+  --md-primary-fg-color: #f9f9f9;
+  --md-primary-bg-color: #211f1c;
+  --md-accent-fg-color: var(--manabi-red);
+  --md-typeset-a-color: var(--manabi-red);
+  --manabi-surface: #f9f9f9;
+  --manabi-border: #c1c0bf;
+  --manabi-button: #f1f0f0;
+}
+
+[data-md-color-scheme='slate'] {
+  --md-default-bg-color: #000;
+  --md-default-fg-color: #eee;
+  --md-default-fg-color--light: #ababab;
+  --md-primary-fg-color: #0f0f0f;
+  --md-primary-bg-color: #eee;
+  --md-accent-fg-color: var(--manabi-gold);
+  --md-typeset-a-color: var(--manabi-gold);
+  --manabi-surface: #0f0f0f;
+  --manabi-border: #434343;
+  --manabi-button: #1d1d1d;
+}
+
+html,
+body,
+button,
+input {
+  font-family: var(--manabi-font);
+}
+
+.md-header {
+  background: var(--md-default-bg-color);
+  color: var(--md-default-fg-color);
+  box-shadow: none;
+  border-bottom: 1px solid var(--manabi-border);
+}
+
+.md-header__topic,
+.md-nav__title {
+  font-weight: 600;
+}
+
+.md-typeset h1 {
+  color: var(--md-default-fg-color);
+  font-size: 1.9rem;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+}
+
+.md-typeset .md-button {
+  color: var(--md-default-fg-color);
+  background: var(--manabi-button);
+  border: 0;
+  border-radius: 0.7rem;
+  font-weight: 600;
+}
+
+.md-typeset .md-button:hover,
+.md-typeset .md-button:focus-visible {
+  color: var(--md-default-fg-color);
+  background: var(--manabi-surface);
+  outline: 2px solid var(--md-accent-fg-color);
+}
+
+.md-typeset table:not([class]) th {
+  background: var(--manabi-surface);
+  color: var(--md-default-fg-color);
+}
+
+@media (min-width: 76.25em) {
+  .md-sidebar--primary .md-sidebar__scrollwrap {
+    background: var(--manabi-surface);
+    border-radius: 1rem;
+    padding: 0.55rem;
+  }
+}
