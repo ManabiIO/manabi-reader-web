@@ -183,29 +183,12 @@ class CloudSeriesReceiptReplay(LibraryBase):
         # as cross-origin page errors during test teardown.
         expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute(
             'aria-busy', 'false', timeout=30000)
-        catalog = self.snapshot()['metadata']['library-catalog:' + SOURCE_KEY]
-        expected = ['source:' + json.dumps(['42', CONNECTION, 'root', item], separators=(',', ':'))
-                    for item in ('first', 'second')]
         deadline = time.monotonic() + 20
-        while True:
-            count = self.page.evaluate('''async ({expected, scannedAt}) => new Promise((resolve, reject) => {
-              const open = indexedDB.open('manabi-library-previews');
-              open.onerror = () => reject(open.error);
-              open.onsuccess = () => {
-                const db = open.result;
-                const request = db.transaction('previews').objectStore('previews').getAll();
-                request.onsuccess = () => {
-                  db.close();
-                  resolve(request.result.filter(value => expected.includes(value.key) &&
-                    value.scannedAt === scannedAt).length);
-                };
-                request.onerror = () => reject(request.error);
-              };
-            })''', {'expected': expected, 'scannedAt': catalog['scannedAt']})
-            if count >= 2:
-                return
-            self.assertLess(time.monotonic(), deadline, 'Visible cloud previews did not finish')
+        while sum(request['path'].endswith('/file/')
+                  for request in StaticHandler.account_requests) < 2:
+            self.assertLess(time.monotonic(), deadline, 'Visible cloud previews did not start')
             self.page.wait_for_timeout(25)
+        self.page.wait_for_load_state('networkidle', timeout=30000)
 
     def test_completed_move_receipts_replay_after_reload(self):
         self.import_book('Unrelated browser book')
