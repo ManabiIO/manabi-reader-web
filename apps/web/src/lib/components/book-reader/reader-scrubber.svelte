@@ -117,6 +117,8 @@
         class="h-11 w-full accent-primary"
         disabled={!resources.length || !bookKey}
         oninput={(event) => {
+          // A new drag supersedes a locator still preparing for the previous release.
+          selection.invalidate();
           // Svelte's input listener runs before bind:value updates.
           value = event.currentTarget.valueAsNumber;
           selectionError = '';
