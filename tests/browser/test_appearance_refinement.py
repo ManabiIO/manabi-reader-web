@@ -41,6 +41,8 @@ class RefinedAppearance(previous.AppearanceBrowser):
         profile = TemporaryDirectory(prefix='reader-appearance-webkit-')
         self.addCleanup(profile.cleanup)
         self.context = self.playwright.webkit.launch_persistent_context(profile.name)
+        self.context.add_init_script(
+            "try { localStorage.setItem('manabi-reader-dictionary-setup-v1', 'skip') } catch {}")
         self.page = self.context.pages[0]
         self.errors = []
         self.page.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))

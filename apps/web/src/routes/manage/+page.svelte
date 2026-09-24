@@ -1,5 +1,6 @@
 <script lang="ts">
   import { progressFraction } from '$lib/library/completion';
+  import { resolve } from '$app/paths';
   import { goto } from '$app/navigation';
   import BookCardList from '$lib/components/book-card/book-card-list.svelte';
   import LibraryWorkspace from '$lib/library/library-workspace.svelte';
@@ -7,6 +8,7 @@
   import BookManagerHeader from '$lib/components/book-card/book-manager-header.svelte';
   import BookExportDialog from '$lib/components/book-export/book-export-dialog.svelte';
   import { Button } from '$lib/components/ui/button';
+  import * as Dialog from '$lib/components/ui/dialog';
   import ConfirmDialog from '$lib/components/confirm-dialog.svelte';
   import ExternalReadDialog from '$lib/components/external-read-dialog.svelte';
   import LogReportDialog from '$lib/components/log-report-dialog.svelte';
@@ -42,7 +44,6 @@
   } from '$lib/data/store';
   import { cloneMutateSet } from '$lib/functions/clone-mutate-set';
   import { getDropEventFiles } from '$lib/functions/file-dom/get-drop-event-files';
-  import { inputFile } from '$lib/functions/file-dom/input-file';
   import { prepareBookImportFiles } from '$lib/functions/file-dom/prepare-book-import-files';
   import { formatPageTitle } from '$lib/functions/format-page-title';
   import { keyBy } from '$lib/functions/key-by';
@@ -54,11 +55,14 @@
     executeReplicate$,
     type ReplicationProgress
   } from '$lib/functions/replication/replication-progress';
-  import { pluralize } from '$lib/functions/utils';
+  import { isMobile$, pluralize } from '$lib/functions/utils';
   import { creatorSortKey } from '$lib/library/book-metadata';
   import { visibleLibraryEntries } from '$lib/library/account-visibility';
+  import EditorsPicks from '$lib/library/editors-picks.svelte';
+  import { downloadEditorsPick, type EditorsPick } from '$lib/library/editors-picks';
   import { account } from '$lib/manabi/client';
   import { allLinkedBooks } from '$lib/manabi/books';
+  import { sha256 } from '$lib/manabi/sources';
   import type { LibraryMenuModel } from '$lib/library/library-menu';
   import { reduceToEmptyString } from '$lib/functions/rxjs/reduce-to-empty-string';
   import pLimit from 'p-limit';
@@ -119,7 +123,10 @@
   let replicationDone = new Subject<void>();
   let progressBase = 0;
   let executionStart: number;
-  let firstBookFileInput: HTMLInputElement;
+  let bookManagerHeader: BookManagerHeader | undefined;
+  let editorsPicksOpen = false;
+  let openingPickId = '';
+  let pickDownload: AbortController | undefined;
   let collectionsOpen = false;
   let destinationTitle = 'Library';
   let selectionScopeKey = '';
@@ -142,7 +149,10 @@
     }
   }
 
-  onDestroy(() => dialogManager.dialogs$.next([]));
+  onDestroy(() => {
+    pickDownload?.abort();
+    dialogManager.dialogs$.next([]);
+  });
 
   function bookmarkToProgress(b: BooksDbBookmarkData | undefined) {
     return {
@@ -386,6 +396,66 @@
 
     if (error) {
       showError(errorTitle, error, 'Error(s) occurred during bookimport');
+    }
+  }
+
+  async function openEditorsPick(pick: EditorsPick) {
+    if (openingPickId || replicationToProgress) return;
+    openingPickId = pick.id;
+    pickDownload = new AbortController();
+    try {
+      const file = await downloadEditorsPick(pick, pickDownload.signal);
+      const digest = await sha256(await file.arrayBuffer());
+      const stored = (await (await database.db).getAll('data')).find(
+        (book) =>
+          book.contentHash?.toLowerCase() === digest && !!book.elementHtml && !book.storageSource
+      );
+      if (stored) {
+        storageSource$.next(StorageKey.BROWSER);
+        editorsPicksOpen = false;
+        openBook(stored.id);
+        return;
+      }
+
+      initializeReplicationProgressData();
+      try {
+        const error = await importData(
+          document,
+          getStorageHandler(
+            window,
+            StorageKey.BROWSER,
+            '',
+            true,
+            $cacheStorageData$,
+            $replicationSaveBehavior$,
+            $statisticsMergeMode$,
+            $readingGoalsMergeMode$
+          ),
+          [file],
+          cancelSignal
+        );
+        if (error) throw new Error(error);
+      } finally {
+        resetProgress();
+      }
+      const imported = (await (await database.db).getAll('data')).find(
+        (book) =>
+          book.contentHash?.toLowerCase() === digest && !!book.elementHtml && !book.storageSource
+      );
+      if (!imported) throw new Error('The book could not be added to this browser.');
+      storageSource$.next(StorageKey.BROWSER);
+      editorsPicksOpen = false;
+      openBook(imported.id);
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === 'AbortError'))
+        showError(
+          'Could not open book',
+          error instanceof Error ? error.message : String(error),
+          'The catalog book could not be opened.'
+        );
+    } finally {
+      pickDownload = undefined;
+      openingPickId = '';
     }
   }
 
@@ -747,29 +817,78 @@
 
 {#snippet emptyLibrary()}
   <section
-    class="mx-auto mt-12 max-w-xl rounded-3xl border border-dashed border-border bg-card p-8 text-center"
+    class="mx-auto mt-6 max-w-4xl rounded-3xl border border-border bg-card p-5 text-left shadow-sm sm:mt-10 sm:p-8"
   >
     <h2 class="text-xl font-semibold">Make room for a good book</h2>
     <p class="mt-2 text-sm text-muted-foreground">
-      Open EPUB, HTMLZ, or text files. Your books stay on this device unless you choose a connected
-      library.
+      Add your own books, connect a library, or open one of our picks.
     </p>
-    <Button class="mt-5" size="lg" variant="secondary" onclick={() => firstBookFileInput.click()}>
-      Add your first book
-    </Button>
-    <input
-      id="first-book-file"
-      hidden
-      type="file"
-      accept="application/epub+zip,.epub,.epub.zip,.htmlz,plain/text,.txt"
-      multiple
-      aria-label="Add your first book"
-      use:inputFile={onFilesChange}
-      bind:this={firstBookFileInput}
-    />
-    <p class="mt-4 text-xs text-muted-foreground">
-      You can also drop files here or use Add books for folders, backups, and Ttu imports.
-    </p>
+    <div class="mt-7 grid gap-7 sm:grid-cols-2">
+      <section aria-labelledby="add-books-heading">
+        <h3 id="add-books-heading" class="text-base font-semibold">Add books</h3>
+        <div class="mt-3 grid gap-2">
+          <Button
+            class="min-h-11 w-full justify-start"
+            variant="secondary"
+            onclick={() => bookManagerHeader?.openFilePicker()}>Import File(s)</Button
+          >
+          {#if !$isMobile$}<Button
+              class="min-h-11 w-full justify-start"
+              variant="outline"
+              onclick={() => bookManagerHeader?.openFolderPicker()}>Import Folder(s)</Button
+            >{/if}
+          <Button
+            class="min-h-11 w-full justify-start"
+            variant="outline"
+            onclick={() => bookManagerHeader?.openBackupPicker()}>Import Backup</Button
+          >
+          <Button
+            href={resolve('/import-ttu')}
+            class="min-h-11 w-full justify-start"
+            variant="outline">Import from Ttu Ebook Reader</Button
+          >
+          <Button
+            href={resolve('/import-ttu?source=yatsu')}
+            class="min-h-11 w-full justify-start"
+            variant="outline">Import from Yatsu Reader</Button
+          >
+        </div>
+        <p class="mt-3 text-xs text-muted-foreground">You can also drop ebook files here.</p>
+      </section>
+      <section aria-labelledby="connect-library-heading">
+        <h3 id="connect-library-heading" class="text-base font-semibold">Connect a library</h3>
+        <div class="mt-3 grid gap-2">
+          <Button
+            href={`${resolve('/connections')}#local-heading`}
+            class="min-h-11 w-full justify-start"
+            variant="outline">Local folder</Button
+          >
+          <Button
+            href={`${resolve('/connections')}#cloud-heading`}
+            class="min-h-11 w-full justify-start"
+            variant="outline">Google Drive</Button
+          >
+          <Button
+            href={`${resolve('/connections')}#cloud-heading`}
+            class="min-h-11 w-full justify-start"
+            variant="outline">Dropbox</Button
+          >
+          <Button
+            href={`${resolve('/connections')}#cloud-heading`}
+            class="min-h-11 w-full justify-start"
+            variant="outline">OneDrive</Button
+          >
+        </div>
+      </section>
+    </div>
+    <div class="mt-8">
+      <EditorsPicks
+        embedded
+        headingId="editors-picks-empty-heading"
+        openingId={openingPickId}
+        on:open={(event) => openEditorsPick(event.detail)}
+      />
+    </div>
   </section>
 {/snippet}
 
@@ -789,6 +908,7 @@
     bind:clientHeight={libraryHeaderHeight}
   >
     <BookManagerHeader
+      bind:this={bookManagerHeader}
       modernLibrary={$storageSource$ === StorageKey.BROWSER}
       title={destinationTitle}
       {libraryMenu}
@@ -804,6 +924,7 @@
       {replicationProgressRemaining}
       bind:selectMode
       on:collectionsClick={toggleCollections}
+      on:editorsPicksClick={() => (editorsPicksOpen = true)}
       on:selectAllClick={onSelectAllBooks}
       on:backToBookClick={backToCurrentBook}
       on:removeClick={() => removeBooks(Array.from(selectedBookIds))}
@@ -871,6 +992,20 @@
     {/if}
   </div>
 </div>
+
+<Dialog.Root bind:open={editorsPicksOpen}>
+  <Dialog.Content class="max-h-[85dvh] overflow-y-auto sm:max-w-2xl">
+    <Dialog.Title class="sr-only">Editor's Picks</Dialog.Title>
+    <Dialog.Description class="sr-only">Open a book selected by Manabi.</Dialog.Description>
+    {#if editorsPicksOpen}
+      <EditorsPicks
+        headingId="editors-picks-dialog-heading"
+        openingId={openingPickId}
+        on:open={(event) => openEditorsPick(event.detail)}
+      />
+    {/if}
+  </Dialog.Content>
+</Dialog.Root>
 
 <style>
   .library-nav-shell {

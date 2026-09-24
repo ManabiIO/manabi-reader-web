@@ -15,6 +15,7 @@
     MapPin,
     ArrowsOut,
     Gear,
+    BookOpen,
     ChartBar,
     Info,
     DotsThree,
@@ -50,6 +51,7 @@
     statisticsClick: void;
     readerImageGalleryClick: void;
     settingsClick: void;
+    dictionarySetupClick: void;
     domainHintClick: void;
     bookManagerClick: void;
     lineGuideClick: void;
@@ -170,6 +172,9 @@
           >{/if}
         <Menu.Item onSelect={() => dispatch('settingsClick')}
           ><Gear aria-hidden="true" />Settings</Menu.Item
+        >
+        <Menu.Item onSelect={() => dispatch('dictionarySetupClick')}
+          ><BookOpen aria-hidden="true" />Dictionary Setup</Menu.Item
         >
         <Menu.Item onSelect={() => dispatch('statisticsClick')}
           ><ChartBar aria-hidden="true" />Statistics</Menu.Item
