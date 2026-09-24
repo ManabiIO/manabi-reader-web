@@ -39,6 +39,7 @@ class UpstreamTtuRoundTrip(MigrationBrowser):
 
         try:
             ttu_page.goto(ttu_base_url.rstrip('/') + '/manage')
+            ttu_page.wait_for_load_state('networkidle')
             # The input is server-rendered before Svelte attaches its change
             # action. Wait for TTU's client database/bootstrap before sending
             # the file so a fast CI browser cannot drop the change event.
@@ -50,7 +51,25 @@ class UpstreamTtuRoundTrip(MigrationBrowser):
             ttu_page.locator('input[accept=".zip,application/zip"]').set_input_files(
                 {'name': 'manabi-export.zip', 'mimeType': 'application/zip', 'buffer': self.source}
             )
-            expect(ttu_page.get_by_role('banner')).to_have_count(2, timeout=60000)
+            try:
+                expect(ttu_page.get_by_role('banner')).to_have_count(2, timeout=60000)
+            except AssertionError:
+                state = ttu_page.evaluate('''() => new Promise((resolve, reject) => {
+                  const request = indexedDB.open('books');
+                  request.onerror = () => reject(request.error);
+                  request.onsuccess = () => {
+                    const db = request.result;
+                    const count = db.transaction('data').objectStore('data').count();
+                    count.onsuccess = () => {
+                      db.close();
+                      resolve({books: count.result,
+                        unhandledFile: document.querySelector('input[accept=".zip,application/zip"]')?.files?.length,
+                        body: document.body.innerText.slice(0, 1200)});
+                    };
+                    count.onerror = () => reject(count.error);
+                  };
+                })''')
+                self.fail(f'Upstream TTU did not show imported books: {state}; page errors: {ttu_errors}')
             expect(ttu_page.get_by_text(TITLE, exact=True)).to_be_visible()
             expect(ttu_page.get_by_text(OTHER, exact=True)).to_be_visible()
             expect(ttu_page.locator('[title="Cancel Operation"]')).to_have_count(0, timeout=60000)
