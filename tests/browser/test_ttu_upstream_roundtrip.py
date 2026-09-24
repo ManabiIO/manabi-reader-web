@@ -39,6 +39,12 @@ class UpstreamTtuRoundTrip(MigrationBrowser):
 
         try:
             ttu_page.goto(ttu_base_url.rstrip('/') + '/manage')
+            # The input is server-rendered before Svelte attaches its change
+            # action. Wait for TTU's client database/bootstrap before sending
+            # the file so a fast CI browser cannot drop the change event.
+            ttu_page.wait_for_function('''() => indexedDB.databases().then(databases =>
+              databases.some(database => database.name === 'books' && database.version >= 6))''',
+              timeout=30000)
             # The upstream app receives the ZIP created by Manabi's actual export
             # controls. It imports through its hidden user-facing backup input.
             ttu_page.locator('input[accept=".zip,application/zip"]').set_input_files(
