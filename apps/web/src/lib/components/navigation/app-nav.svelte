@@ -109,6 +109,8 @@
         </a>
       {/each}
       <div class="my-1 border-t border-border" role="separator"></div>
+      <!-- The guide is served outside SvelteKit's /reader-web base. -->
+      <!-- eslint-disable svelte/no-navigation-without-resolve -->
       <a
         aria-label="User guide"
         href={USER_GUIDE_URL}
@@ -124,6 +126,7 @@
           ></span
         >
       </a>
+      <!-- eslint-enable svelte/no-navigation-without-resolve -->
     </nav>
   </Sheet.Content>
 </Sheet.Root>
