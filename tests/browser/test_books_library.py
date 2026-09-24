@@ -121,6 +121,8 @@ class LibraryBase(unittest.TestCase):
         self.engine = os.environ.get('LIBRARY_BROWSER', 'chromium')
         self.context = getattr(self.playwright, self.engine).launch_persistent_context(
             self.profile.name, viewport={'width': 1200, 'height': 900})
+        self.context.add_init_script(
+            "try { localStorage.setItem('manabi-reader-dictionary-setup-v1', 'skip') } catch {}")
         self.page = self.context.pages[0]
         self.page.set_default_timeout(20000)
         self.errors = []

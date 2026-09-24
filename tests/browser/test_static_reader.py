@@ -211,6 +211,8 @@ class ReaderBrowser(unittest.TestCase):
 
     def setUp(self):
         self.context = self.browser.new_context()
+        self.context.add_init_script(
+            "try { localStorage.setItem('manabi-reader-dictionary-setup-v1', 'skip') } catch {}")
         self.page = self.context.new_page()
         self.errors = []
         self.page.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))

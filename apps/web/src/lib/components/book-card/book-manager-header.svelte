@@ -30,6 +30,7 @@
   import {
     ArrowLeftIcon as ArrowLeft,
     BookmarkSimpleIcon as BookmarkSimple,
+    BookOpenIcon as BookOpen,
     BooksIcon as Books,
     BugIcon as Bug,
     CalendarBlankIcon as CalendarBlank,
@@ -85,10 +86,20 @@
     replicateData: void;
     cancelReplication: void;
     collectionsClick: void;
+    editorsPicksClick: void;
   }>();
   let fileImportElm: HTMLInputElement;
   let folderImportElm: HTMLInputElement;
   let backupImportElm: HTMLInputElement;
+  export function openFilePicker() {
+    fileImportElm?.click();
+  }
+  export function openFolderPicker() {
+    folderImportElm?.click();
+  }
+  export function openBackupPicker() {
+    backupImportElm?.click();
+  }
   let countImportElm: HTMLInputElement;
   $: isOldUrl = browser && isOnOldUrl(window);
   $: showLoadCount = browser && new URLSearchParams(window.location.search).has('count');
@@ -323,6 +334,10 @@
                   >
                   <Menu.Item onSelect={() => goto(resolve('/import-ttu?source=yatsu'))}
                     >Import from Yatsu Reader</Menu.Item
+                  >
+                  <Menu.Separator />
+                  <Menu.Item onSelect={() => dispatch('editorsPicksClick')}
+                    ><BookOpen aria-hidden="true" />Editor's Picks</Menu.Item
                   >
                 </Menu.SubContent>
               </Menu.Sub>
@@ -640,6 +655,7 @@
           <Menu.Item onSelect={() => goto(resolve('/import-ttu'))}
             >Import from Ttu Ebook Reader</Menu.Item
           >
+          <Menu.Item onSelect={() => dispatch('editorsPicksClick')}>Editor's Picks</Menu.Item>
         </ActionMenu>
         <ActionMenu
           label={sources.find((source) => source.key === $storageSource$)?.label ?? 'Storage'}

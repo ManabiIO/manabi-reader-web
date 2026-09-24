@@ -105,6 +105,7 @@
   } from '$lib/data/store';
   import BookCompletionConfetti from '$lib/components/book-reader/book-completion-confetti/book-completion-confetti.svelte';
   import BookReaderHeader from '$lib/components/book-reader/book-reader-header.svelte';
+  import DictionarySetup from '$lib/components/book-reader/dictionary-setup.svelte';
   import ReaderAppearance from '$lib/components/book-reader/reader-appearance.svelte';
   import ReaderLineGuide from '$lib/components/book-reader/reader-line-guide.svelte';
   import ReaderSearch from '$lib/components/book-reader/reader-search.svelte';
@@ -268,6 +269,7 @@
       )
     : 0.28;
   let guideContentEl: HTMLElement | undefined;
+  let dictionarySetup: DictionarySetup | undefined;
   $: if (browser) localStorage.setItem('manabi-line-guide', String(lineGuideEnabled));
   $: if (browser) localStorage.setItem('manabi-line-guide-lines', String(lineGuideLines));
   $: if (browser) localStorage.setItem('manabi-line-guide-dimming', String(lineGuideDimming));
@@ -2040,6 +2042,7 @@
         showReaderImageGallery = true;
       }}
       on:settingsClick={() => leaveReader(mergeEntries.SETTINGS.routeId, false)}
+      on:dictionarySetupClick={() => dictionarySetup?.show()}
       on:domainHintClick={onDomainHintClick}
       on:bookManagerClick={() => leaveReader(mergeEntries.MANAGE.routeId)}
     />
@@ -2047,6 +2050,7 @@
 {/if}
 
 {#if $bookData$ && $rawBookData$}
+  <DictionarySetup bind:this={dictionarySetup} contentReady={!!guideContentEl} />
   {#if $statisticsEnabled$}
     <BookReadingTracker
       bookTitle={$rawBookData$.title}
