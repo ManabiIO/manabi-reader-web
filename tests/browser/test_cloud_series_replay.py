@@ -1,4 +1,5 @@
 """A completed cloud move is applied after the browser missed its response."""
+import faulthandler
 import json
 import threading
 import time
@@ -111,6 +112,10 @@ class CloudSeriesReceiptReplay(LibraryBase):
         cls.playwright = sync_playwright().start()
 
     def setUp(self):
+        # A WebKit/IndexedDB stall must leave a useful stack instead of
+        # consuming the entire workflow's 20-minute timeout.
+        faulthandler.dump_traceback_later(90, exit=True)
+        self.addCleanup(faulthandler.cancel_dump_traceback_later)
         SeriesHandler.moved = False
         SeriesHandler.completed_plan = False
         SeriesHandler.uncertain_plan = False
