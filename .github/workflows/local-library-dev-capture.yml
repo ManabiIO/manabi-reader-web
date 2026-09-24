@@ -1,0 +1,97 @@
+name: Local library development capture
+on:
+  push:
+    branches: [codex/local-library-migration-webdav-search-20260924]
+    paths: [.github/workflows/local-library-dev-capture.yml]
+permissions:
+  contents: read
+jobs:
+  capture:
+    if: github.repository == 'ManabiIO/manabi-reader-web'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - name: Capture dependencies without credentials or repository configuration
+        run: |
+          mkdir -p /tmp/library-dev
+          tar -czf /tmp/library-dev/dependencies.tar.gz node_modules apps/web/node_modules apps/web/.svelte-kit
+          git rev-parse HEAD > /tmp/library-dev/commit.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: local-library-development-dependencies
+          path: /tmp/library-dev/
+          retention-days: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: |
+          python -m pip install 'playwright==1.63.0'
+          python -m playwright install --with-deps chromium
+      - name: Observe the public Yatsu app in a fresh signed-out browser
+        run: |
+          mkdir -p /tmp/yatsu-probe
+          python - <<'PY'
+          import hashlib, json, pathlib, time
+          from playwright.sync_api import sync_playwright
+          root = pathlib.Path('/tmp/yatsu-probe')
+          scripts = []
+          with sync_playwright() as p:
+              browser = p.chromium.launch()
+              context = browser.new_context(accept_downloads=True)
+              page = context.new_page()
+              def response(r):
+                  if r.url.startswith('https://app.yatsu.moe/') and '.js' in r.url.split('?')[0]:
+                      try:
+                          body = r.body()
+                          if len(body) < 8000000:
+                              name = hashlib.sha256(r.url.encode()).hexdigest()[:16] + '.js'
+                              (root / name).write_bytes(body)
+                              scripts.append({'url': r.url, 'file': name})
+                      except Exception:
+                          pass
+              page.on('response', response)
+              try:
+                  page.goto('https://app.yatsu.moe/', wait_until='networkidle', timeout=60000)
+                  page.screenshot(path=str(root / 'library.png'))
+                  (root / 'library.html').write_text(page.content())
+                  text = '猫は静かな図書館にいます。\n日本語の本を毎日読みます。\n昨日も友達と図書館に行きました。\n' * 40
+                  inputs = page.locator('input[type=file]')
+                  for i in range(inputs.count()):
+                      accept = inputs.nth(i).get_attribute('accept') or ''
+                      if 'epub' in accept or '.txt' in accept:
+                          inputs.nth(i).set_input_files({'name': 'Manabi migration probe.txt', 'mimeType': 'text/plain', 'buffer': text.encode()})
+                          break
+                  page.get_by_text('Manabi migration probe', exact=True).first.wait_for(timeout=30000)
+                  page.get_by_text('Manabi migration probe', exact=True).first.click()
+                  page.wait_for_timeout(2500)
+                  page.screenshot(path=str(root / 'reader.png'))
+                  (root / 'reader.html').write_text(page.content())
+                  (root / 'reader.txt').write_text(page.locator('body').inner_text())
+                  page.evaluate('''() => { const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT); let n; while(n=w.nextNode()) { if(n.textContent.startsWith('猫は静かな図書館にいます。')) {const r=document.createRange();r.setStart(n,0);r.setEnd(n,12);const s=getSelection();s.removeAllRanges();s.addRange(r);document.dispatchEvent(new Event('selectionchange'));return true;} } return false; }''')
+                  page.wait_for_timeout(700)
+                  (root / 'selection.html').write_text(page.content())
+                  page.screenshot(path=str(root / 'selection.png'))
+              except Exception as e:
+                  (root / 'error.txt').write_text(str(e))
+              finally:
+                  (root / 'scripts.json').write_text(json.dumps(scripts, indent=2))
+                  browser.close()
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: yatsu-public-format-observation
+          path: /tmp/yatsu-probe/
+          retention-days: 1
