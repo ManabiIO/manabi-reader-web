@@ -107,6 +107,7 @@ class WantToReadBrowser(LibraryBase):
 
     def test_builtin_collection_exists_when_empty_and_supports_url_views(self):
         self.page.set_viewport_size({'width': 1200, 'height': 900})
+        expect(self.page.get_by_text("Editor's Picks are unavailable right now.")).to_be_visible()
         rail = self.page.get_by_role('complementary', name='Collections', exact=True)
         expect(rail.get_by_role('button', name=re.compile(r'^Want to Read\b'))).to_be_visible()
         rail.get_by_role('button', name=re.compile(r'^Want to Read\b')).click()
@@ -143,10 +144,12 @@ class WantToReadBrowser(LibraryBase):
         # The URL is a durable destination, including direct load and browser back.
         destination = self.page.url
         self.page.goto(self.origin + '/Reader-Web/manage')
+        expect(self.page.get_by_text("Editor's Picks are unavailable right now.")).to_be_visible()
         self.page.goto(destination)
         expect(self.page.get_by_role('heading', name='Want to Read', exact=True)).to_be_visible()
         self.page.go_back()
         expect(self.page).to_have_url(self.origin + '/Reader-Web/manage')
+        expect(self.page.get_by_text("Editor's Picks are unavailable right now.")).to_be_visible()
         self.page.go_forward()
         expect(self.page.get_by_role('heading', name='Want to Read', exact=True)).to_be_visible()
 

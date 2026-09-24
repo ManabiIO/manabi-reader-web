@@ -117,6 +117,8 @@ class CloudRelocationBrowser(LibraryBase):
         links = self.stores('manabi-reader-integrations', ['books'])['books']
         self.assertEqual(1, len(links))
         self.assertEqual('42', links[0]['owner'])
+        # Account changes and full navigations should follow completed sync reads.
+        self.page.wait_for_load_state('networkidle')
 
         StaticHandler.account_fixture = {
             'user': {'id': '43', 'username': 'reader-b'},
@@ -124,6 +126,7 @@ class CloudRelocationBrowser(LibraryBase):
         }
         self.page.goto(self.origin + '/Reader-Web/connections')
         expect(self.page.get_by_text('reader-b', exact=True)).to_be_visible()
+        self.page.wait_for_load_state('networkidle')
         self.page.goto(self.origin + '/Reader-Web/manage')
         expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute(
             'aria-busy', 'false', timeout=30000)
@@ -131,6 +134,7 @@ class CloudRelocationBrowser(LibraryBase):
         self.page.get_by_role('button', name='Library actions', exact=True).click()
         expect(self.page.get_by_role('menuitem', name='Resume Reading', exact=True)).to_have_count(0)
         expect(self.page.get_by_role('menuitem', name='Select Books', exact=True)).to_be_disabled()
+        self.page.wait_for_load_state('networkidle')
 
         StaticHandler.account_fixture = {
             'user': {'id': '42', 'username': 'reader'},
@@ -138,11 +142,13 @@ class CloudRelocationBrowser(LibraryBase):
         }
         self.page.goto(self.origin + '/Reader-Web/connections')
         expect(self.page.get_by_text('reader', exact=True)).to_be_visible()
+        self.page.wait_for_load_state('networkidle')
         self.page.goto(self.origin + '/Reader-Web/manage')
         expect(self.page.get_by_role('button', name='Read Traveling volume', exact=True)).to_be_visible(
             timeout=30000)
         self.page.get_by_role('button', name='Library actions', exact=True).click()
         expect(self.page.get_by_role('menuitem', name='Resume Reading', exact=True)).to_be_visible()
+        self.page.wait_for_load_state('networkidle')
 
     def test_disk_cloud_disk_keeps_organization_without_storage_sidecars(self):
         if self.engine != 'chromium':

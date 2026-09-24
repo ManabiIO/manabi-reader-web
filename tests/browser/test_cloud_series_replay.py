@@ -125,7 +125,11 @@ class CloudSeriesReceiptReplay(LibraryBase):
             'providers': []
         }
         StaticHandler.account_requests = []
+        if self._testMethodName == 'test_reconcile_action_sends_a_request_and_finishes_the_plan':
+            print('cloud replay: opening second browser', flush=True)
         super().setUp()
+        if self._testMethodName == 'test_reconcile_action_sends_a_request_and_finishes_the_plan':
+            print('cloud replay: second browser ready', flush=True)
 
     def tearDown(self):
         try:
@@ -249,15 +253,20 @@ class CloudSeriesReceiptReplay(LibraryBase):
         self.wait_for_previews()
 
     def test_reconcile_action_sends_a_request_and_finishes_the_plan(self):
+        print('cloud replay: waiting for initial previews', flush=True)
         self.wait_for_previews()
+        print('cloud replay: reloading uncertain plan', flush=True)
         SeriesHandler.uncertain_plan = True
         self.page.reload()
+        print('cloud replay: reviewing plan', flush=True)
         expect(self.page.get_by_role('button', name='Review Change')).to_be_visible()
         self.page.get_by_role('button', name='Review Change').click()
         expect(self.page.get_by_role('button', name='Reconcile Change')).to_be_visible()
         self.page.get_by_role('button', name='Reconcile Change').click()
+        print('cloud replay: waiting for completion', flush=True)
         expect(self.page.get_by_text('Series updated. Reading progress, notes and collections were kept.')).to_be_visible()
         self.assertEqual(2, SeriesHandler.execute_requests)
+        print('cloud replay: waiting for final previews', flush=True)
         self.wait_for_previews()
 
 
