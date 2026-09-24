@@ -1,4 +1,4 @@
-name: Prepare verified Library source objects
+name: Qualify pinned Library source
 on:
   pull_request:
     paths:
@@ -6,86 +6,78 @@ on:
 permissions:
   contents: read
 jobs:
-  prepare:
+  qualification:
     if: github.repository == 'ManabiIO/manabi-reader-web' && github.event.pull_request.number == 42 && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'feat/library-search-webdav-yatsu-20260924'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      contents: write
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
           ref: '2f5ea55b4058b5edee09e3d14cc27d4b31b6c069'
           persist-credentials: false
-      - name: Verify fixed source packet and create immutable objects only
+      - name: Verify fixed source packet
         env:
-          SOURCE_OBJECT_TOKEN: ${{ github.token }}
+          SOURCE_READ_TOKEN: ${{ github.token }}
         run: |
           python3 - <<'PY'
           import base64, hashlib, json, lzma, os, pathlib, subprocess, urllib.request
-          repo = 'ManabiIO/manabi-reader-web'
-          chunks = [
-              ('e23ea6d8a422afcadc5fbb3841ef3c0ee53e7aec', 6144),
-              ('faccf86cfb6e547e2630373313b59d3b3006a851', 6144),
-              ('521f3785c3a8d779dd9b06a251df3dbafb37251b', 6144),
-              ('700b54a817873818500b7cea62bce420f1f60047', 6144),
-              ('1a2a0563a3200072a1ae41f5ae0f53789f916334', 6144),
-              ('70495dcc9fa423ef14e666094f1ea6f73f02e583', 6144),
-              ('1bec0509a3336f63e14c18533837bc5f3daefd2f', 6144),
-              ('0959cc20c67586aafad9eee79697ea0b7c35ee1e', 6144),
-              ('2e4fee6cbb83419ea4365e647b530bea61288e07', 5312)
-          ]
-          def api(path, data=None):
-              assert path.startswith(('git/blobs', 'git/trees'))
-              request = urllib.request.Request('https://api.github.com/repos/' + repo + '/' + path,
-                  data=None if data is None else json.dumps(data).encode(),
-                  headers={'Authorization': 'Bearer ' + os.environ['SOURCE_OBJECT_TOKEN'],
-                           'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json',
-                           'X-GitHub-Api-Version': '2022-11-28'}, method='GET' if data is None else 'POST')
-              with urllib.request.urlopen(request, timeout=60) as response:
-                  return json.load(response)
+          chunks = [('e23ea6d8a422afcadc5fbb3841ef3c0ee53e7aec',6144),('faccf86cfb6e547e2630373313b59d3b3006a851',6144),('521f3785c3a8d779dd9b06a251df3dbafb37251b',6144),('700b54a817873818500b7cea62bce420f1f60047',6144),('1a2a0563a3200072a1ae41f5ae0f53789f916334',6144),('70495dcc9fa423ef14e666094f1ea6f73f02e583',6144),('1bec0509a3336f63e14c18533837bc5f3daefd2f',6144),('0959cc20c67586aafad9eee79697ea0b7c35ee1e',6144),('2e4fee6cbb83419ea4365e647b530bea61288e07',5312)]
           def blobsha(data):
               return hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
           packet = b''
-          for sha, size in chunks:
-              result = api('git/blobs/' + sha)
-              assert result['encoding'] == 'base64'
-              data = base64.b64decode(result['content'])
-              assert len(data) == size and blobsha(data) == sha
-              packet += data
-          assert len(packet) == 54464
-          assert hashlib.sha256(packet).hexdigest() == 'f4b8efccf5a6e55f2d4d2d835563a97fe00f6e9c848e4c56b279c2432a66db8c'
-          decoder = lzma.LZMADecompressor(memlimit=256 * 1024 * 1024)
-          patch = decoder.decompress(packet, max_length=1024 * 1024)
-          assert decoder.eof and not decoder.unused_data and len(patch) == 238855
-          assert hashlib.sha256(patch).hexdigest() == 'cc4ae0a434527fa4d9ebf97b78042f55ea2ef36bed0fed5dddb5f9461b9a12dd'
-          subprocess.run(['git', 'apply', '--check', '--index'], input=patch, check=True)
-          subprocess.run(['git', 'apply', '--index'], input=patch, check=True)
-          paths = sorted(subprocess.check_output(['git', 'diff', '--cached', '--name-only']).decode().splitlines())
-          assert len(paths) == 40
-          assert hashlib.sha256(('\n'.join(paths) + '\n').encode()).hexdigest() == 'c73f2b24a2f401cd31fbbc5356debf6afd56c6be81dfc184df406ccbab6fdc96'
-          elements, manifest = [], []
-          for path in paths:
-              file = pathlib.Path(path)
-              assert file.is_file() and not file.is_symlink()
-              data = file.read_bytes()
-              text = data.decode('utf-8')
-              assert len(data) < 256 * 1024
-              expected = blobsha(data)
-              result = api('git/blobs', {'content': text, 'encoding': 'utf-8'})
-              assert result['sha'] == expected
-              elements.append({'path': path, 'mode': '100644', 'type': 'blob', 'sha': expected})
-              manifest.append({'path': path, 'sha': expected, 'size': len(data)})
-          result = api('git/trees', {'base_tree': 'a022e83c4bfed11045705ebdfba38349e3370ea8', 'tree': elements})
-          expected_tree = subprocess.check_output(['git', 'write-tree']).decode().strip()
-          assert result['sha'] == expected_tree
-          output = pathlib.Path('/tmp/library-source'); output.mkdir()
-          (output / 'manifest.json').write_text(json.dumps(manifest, indent=2))
-          (output / 'tree.txt').write_text(expected_tree + '\n')
-          print('VERIFIED_TREE=' + expected_tree)
-          print('Created immutable objects only; no commits or branch refs were changed.')
+          for sha,size in chunks:
+              request = urllib.request.Request('https://api.github.com/repos/ManabiIO/manabi-reader-web/git/blobs/' + sha,headers={'Authorization':'Bearer '+os.environ['SOURCE_READ_TOKEN'],'Accept':'application/vnd.github+json'})
+              with urllib.request.urlopen(request,timeout=60) as response: result=json.load(response)
+              assert result['encoding']=='base64'
+              data=base64.b64decode(result['content'])
+              assert len(data)==size and blobsha(data)==sha
+              packet+=data
+          assert len(packet)==54464 and hashlib.sha256(packet).hexdigest()=='f4b8efccf5a6e55f2d4d2d835563a97fe00f6e9c848e4c56b279c2432a66db8c'
+          decoder=lzma.LZMADecompressor(memlimit=256*1024*1024)
+          patch=decoder.decompress(packet,max_length=1024*1024)
+          assert decoder.eof and not decoder.unused_data and len(patch)==238855
+          assert hashlib.sha256(patch).hexdigest()=='cc4ae0a434527fa4d9ebf97b78042f55ea2ef36bed0fed5dddb5f9461b9a12dd'
+          subprocess.run(['git','apply','--check','--index'],input=patch,check=True)
+          subprocess.run(['git','apply','--index'],input=patch,check=True)
+          paths=sorted(subprocess.check_output(['git','diff','--cached','--name-only']).decode().splitlines())
+          assert len(paths)==40 and hashlib.sha256(('\n'.join(paths)+'\n').encode()).hexdigest()=='c73f2b24a2f401cd31fbbc5356debf6afd56c6be81dfc184df406ccbab6fdc96'
+          output=pathlib.Path('/tmp/library-source');output.mkdir()
+          manifest=[{'path':p,'sha':blobsha(pathlib.Path(p).read_bytes()),'size':pathlib.Path(p).stat().st_size} for p in paths]
+          (output/'manifest.json').write_text(json.dumps(manifest,indent=2))
+          tree=subprocess.check_output(['git','write-tree']).decode().strip()
+          (output/'tree.txt').write_text(tree+'\n')
+          print('VERIFIED_TREE='+tree)
           PY
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pnpm install --frozen-lockfile
+      - name: Build and unit tests
+        run: |
+          set -o pipefail
+          node --experimental-strip-types --test tests/unit/*.test.mjs 2>&1 | tee /tmp/library-source/unit.log
+          pnpm --dir apps/web check 2>&1 | tee /tmp/library-source/types.log
+          BASE_PATH=/Reader-Web NODE_OPTIONS=--max-old-space-size=1536 pnpm build 2>&1 | tee /tmp/library-source/build.log
+      - run: pip install playwright==1.63.0
+      - run: python -m playwright install --with-deps chromium webkit
+      - name: Chromium and WebKit actual-application regressions
+        run: |
+          set -o pipefail
+          status=0
+          for browser in chromium webkit; do
+            mkdir -p /tmp/library-source/$browser
+            LIBRARY_BROWSER=$browser PORTABILITY_ARTIFACTS=/tmp/library-source/$browser python -m unittest discover -s tests/browser -p test_library_portability.py -v 2>&1 | tee /tmp/library-source/$browser.log || status=1
+          done
+          exit "$status"
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: verified-library-source
           path: /tmp/library-source
