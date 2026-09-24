@@ -101,6 +101,21 @@ class ControlRefinementBrowser(modal_controls.ModalControlsBrowser):
         saved.click()
         expect(panel).to_have_count(0)
 
+    def test_enlarged_onboarding_keeps_a_readable_title_and_full_width_description(self):
+        self.open_reader()
+        self.page.set_viewport_size({'width': 320, 'height': 480})
+        self.page.evaluate('document.documentElement.style.fontSize = "125%"')
+        panel = self.open_tool('Dictionary Setup')
+        self.check_modal(panel)
+        title = panel.locator('[data-slot="dialog-title"]').bounding_box()
+        description = panel.locator('[data-slot="dialog-description"]').bounding_box()
+        self.assertGreaterEqual(title['width'], 150)
+        self.assertGreaterEqual(description['width'] - title['width'], 55)
+        self.assertEqual(description['x'], title['x'])
+        self.capture('onboarding-readable-enlarged-phone')
+        panel.get_by_role('button', name='Not now', exact=True).click()
+        expect(panel).to_have_count(0)
+
     def test_reduced_motion_does_not_translate_pressed_buttons(self):
         self.open_reader()
         self.page.emulate_media(reduced_motion='reduce')

@@ -84,15 +84,18 @@
 }
 
 @layer components {
-  /* Reserve the close control's entire hit target, including for wrapping
-     descriptions. Explicit, in-flow headers (showCloseButton=false) opt out. */
+  /* Reserve the whole dismiss target beside the title, not beside every
+     paragraph. Its minimum height keeps full-width descriptions below the X. */
   [data-modal-close-button]
-    > :is(
-      [data-slot='dialog-header'],
-      [data-slot='sheet-header'],
-      [data-slot='dialog-title']:first-child,
-      [data-slot='sheet-title']:first-child
-    ):not(.sr-only) {
+    > :is([data-slot='dialog-title'], [data-slot='sheet-title']):first-child:not(.sr-only),
+  [data-modal-close-button]
+    > :is([data-slot='dialog-header'], [data-slot='sheet-header'])
+    > :is([data-slot='dialog-title'], [data-slot='sheet-title']):not(.sr-only),
+  /* Arbitrary custom header markup retains a safe fallback reservation. */
+  [data-modal-close-button]
+    > :is([data-slot='dialog-header'], [data-slot='sheet-header']):not(.sr-only):not(
+      :has(> :is([data-slot='dialog-title'], [data-slot='sheet-title']):not(.sr-only))
+    ) {
     min-width: 0;
     min-height: 2.75rem;
     margin-inline-end: 3rem;
