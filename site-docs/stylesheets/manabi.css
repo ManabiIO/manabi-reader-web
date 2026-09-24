@@ -33,6 +33,10 @@
   --manabi-button: #1d1d1d;
 }
 
+body[data-md-color-scheme='slate'][data-md-color-primary] {
+  --md-typeset-a-color: var(--manabi-gold);
+}
+
 html,
 body,
 button,
@@ -53,17 +57,17 @@ input {
   border-bottom: 1px solid var(--manabi-border);
 }
 
-.manabi-open-reader {
+.md-banner .manabi-open-reader {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  color: var(--md-default-fg-color);
+  color: var(--md-accent-fg-color);
   font-weight: 600;
   text-decoration: none;
 }
 
-.manabi-open-reader:hover,
-.manabi-open-reader:focus-visible {
+.md-banner .manabi-open-reader:hover,
+.md-banner .manabi-open-reader:focus-visible {
   color: var(--md-accent-fg-color);
   text-decoration: underline;
 }
