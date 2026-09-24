@@ -2,6 +2,7 @@
   import { tick } from 'svelte';
   import * as Sheet from '$lib/components/ui/sheet';
   import * as Dialog from '$lib/components/ui/dialog';
+  import CloseButton from '$lib/components/ui/close-button.svelte';
   import { Button } from '$lib/components/ui/button';
   import {
     BookOpenIcon as BookOpen,
@@ -11,8 +12,7 @@
     ListIcon as List,
     PencilSimpleIcon as PencilSimple,
     PlusIcon as Plus,
-    TrashIcon as Trash,
-    XIcon
+    TrashIcon as Trash
   } from 'phosphor-svelte';
   import {
     organization,
@@ -89,14 +89,10 @@
             aria-pressed={editing}
             onclick={() => (editing = !editing)}>{editing ? 'Done' : 'Edit'}</Button
           >
-          <Button
-            variant="secondary"
-            size="icon"
-            class="size-11 rounded-full"
+          <CloseButton
             aria-label="Close collections"
-            title="Close"
-            onclick={() => (open = false)}><XIcon class="size-5" aria-hidden="true" /></Button
-          >
+            onclick={() => (open = false)}
+          />
         </div>
         <Sheet.Description class="sr-only"
           >Organize books without moving their files. A book can be in several collections.</Sheet.Description
@@ -176,7 +172,8 @@
   </Sheet.Root>{/if}
 <Dialog.Root bind:open={dialogOpen}>
   <Dialog.Content
-    class="max-h-[85dvh] overflow-y-auto [&_[data-slot=dialog-close]]:top-3 [&_[data-slot=dialog-close]]:right-3 [&_[data-slot=dialog-close]]:size-11 [&_[data-slot=dialog-footer]_button]:min-h-11"
+    closeDisabled={busy}
+    class="[&_[data-slot=dialog-footer]_button]:min-h-11"
     onCloseAutoFocus={(event) => {
       event.preventDefault();
       void tick().then(() => {
@@ -190,7 +187,7 @@
     }}
   >
     <Dialog.Header
-      ><Dialog.Title class="pr-8"
+      ><Dialog.Title
         >{deleting
           ? 'Delete collection?'
           : target
@@ -208,11 +205,13 @@
         submit();
       }}
       class="grid gap-5"
+      aria-busy={busy}
     >
       {#if !deleting}<label class="grid gap-2"
           >Name<input
             class="min-h-11 rounded-xl border border-input bg-background px-3"
             bind:value={name}
+            disabled={busy}
             required
             maxlength="240"
           /></label

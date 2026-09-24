@@ -4,20 +4,23 @@
   import { cn } from '$lib/utils';
 
   let {
+    ref = $bindable(null),
     class: className,
     'aria-label': label = 'Close',
     ...restProps
-  }: Omit<ButtonProps, 'children' | 'variant' | 'size'> = $props();
+  }: Omit<ButtonProps, 'children' | 'variant' | 'size' | 'shape' | 'href'> = $props();
 </script>
 
 <Button
+  bind:ref
   {...restProps}
   variant="secondary"
   size="icon-lg"
+  shape="circle"
   aria-label={label}
   data-modal-dismiss=""
   class={cn(
-    'rounded-full bg-muted text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+    'text-muted-foreground hover:text-foreground',
     className
   )}
 >

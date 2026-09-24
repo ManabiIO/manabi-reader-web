@@ -51,7 +51,7 @@
       <Sheet.Title>Bookmarks & Notes</Sheet.Title>
       <Sheet.Description>Saved places and passages in this book.</Sheet.Description>
     </Sheet.Header>
-    <div class="mt-5 flex flex-wrap gap-2">
+    <div class="mt-5 flex shrink-0 flex-wrap gap-2">
       <Button variant="secondary" disabled={busy} onclick={() => dispatch('bookmark')}
         ><BookmarkSimple aria-hidden="true" />Add Bookmark</Button
       >
@@ -62,12 +62,12 @@
         ><Highlighter aria-hidden="true" />Highlight Selection</Button
       >
     </div>
-    <div class="mt-3 flex flex-wrap items-center gap-2">
+    <div class="mt-3 flex shrink-0 flex-wrap items-center gap-2">
       <Button variant="ghost" disabled={busy} onclick={() => dispatch('export')}
         ><DownloadSimple aria-hidden="true" />Export Notes</Button
       >
       <label
-        class="inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-md px-3 text-sm font-medium hover:bg-muted focus-within:outline-2 focus-within:outline-ring"
+        class="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-md px-3 text-sm font-medium hover:bg-muted focus-within:outline-2 focus-within:outline-ring"
         aria-label="Import notes"
       >
         <UploadSimple aria-hidden="true" />Import Notes
@@ -85,12 +85,13 @@
       </label>
     </div>
     {#if hasSelection}
-      <div class="mt-4 grid gap-2">
+      <div class="mt-4 grid shrink-0 gap-2">
         <label for="reader-note" class="text-sm font-medium">Note on selected passage</label>
         <textarea
           id="reader-note"
-          class="min-h-24 rounded-lg border border-input bg-background p-3 text-foreground"
+          class="min-h-24 rounded-lg border border-input bg-background p-3 text-base text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-sm"
           maxlength="65536"
+          disabled={busy}
           bind:value={note}
           placeholder="Write a note…"></textarea>
         <Button disabled={busy || !note.trim()} onclick={addNote}
@@ -135,7 +136,7 @@
         {/each}
       </section>
     {/if}
-    <div class="mt-6 max-h-[calc(100dvh-22rem)] overflow-y-auto" aria-label="Saved annotations">
+    <div class="mt-6 shrink-0" aria-label="Saved annotations">
       {#if !annotations.length}<p class="text-sm text-muted-foreground">
           No saved bookmarks or notes yet.
         </p>{/if}

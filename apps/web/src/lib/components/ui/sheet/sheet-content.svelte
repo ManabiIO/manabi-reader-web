@@ -17,6 +17,9 @@
     class: className,
     side = 'right',
     showCloseButton = true,
+    closeDisabled = false,
+    onEscapeKeydown,
+    onInteractOutside,
     onkeydowncapture,
     portalProps,
     overlayProps,
@@ -27,6 +30,7 @@
     overlayProps?: ComponentProps<typeof SheetOverlay>;
     side?: Side;
     showCloseButton?: boolean;
+    closeDisabled?: boolean;
     children: Snippet;
   } = $props();
 </script>
@@ -35,6 +39,14 @@
   <SheetOverlay {...overlayProps} />
   <SheetPrimitive.Content
     bind:ref
+    onEscapeKeydown={(event) => {
+      onEscapeKeydown?.(event);
+      if (closeDisabled) event.preventDefault();
+    }}
+    onInteractOutside={(event) => {
+      onInteractOutside?.(event);
+      if (closeDisabled) event.preventDefault();
+    }}
     onkeydowncapture={(event) => {
       onkeydowncapture?.(event);
       containModalTab(event);
@@ -52,7 +64,7 @@
     {#if showCloseButton}
       <SheetPrimitive.Close data-slot="sheet-close">
         {#snippet child({ props })}
-          <CloseButton {...props} class="absolute top-4 end-4" />
+          <CloseButton {...props} disabled={closeDisabled} class="absolute top-4 end-4" />
         {/snippet}
       </SheetPrimitive.Close>
     {/if}
