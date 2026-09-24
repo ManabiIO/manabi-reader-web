@@ -981,6 +981,19 @@ class BooksLibraryBrowser(LibraryBase):
         self.assertAlmostEqual(884, panel['bottom'], delta=2)
         self.assertGreaterEqual(panel['radius'], 20)
         self.assertGreater(panel['rightBorder'], 0)
+        scroll_y = self.page.evaluate('''() => {
+            const spacer = document.createElement('div');
+            spacer.id = 'rail-scroll-fixture';
+            spacer.style.height = '1200px';
+            document.body.append(spacer);
+            window.scrollTo(0, 80);
+            return window.scrollY;
+        }''')
+        self.assertGreater(scroll_y, 0)
+        scrolled = rail.bounding_box()
+        self.assertAlmostEqual(16, scrolled['y'], delta=2)
+        self.assertAlmostEqual(884, scrolled['y'] + scrolled['height'], delta=2)
+        self.page.evaluate("document.getElementById('rail-scroll-fixture').remove(); window.scrollTo(0, 0)")
         header_style = header.evaluate('''element => {
             const style = getComputedStyle(element);
             return {background: style.backgroundColor, border: parseFloat(style.borderBottomWidth)};

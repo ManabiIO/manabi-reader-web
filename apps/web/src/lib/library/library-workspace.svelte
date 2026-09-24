@@ -2042,15 +2042,17 @@
       align-items: start;
     }
     .library-workspace {
+      grid-column: 2;
       --library-gutter: clamp(1.5rem, 3vw, 3.5rem);
       padding-top: 1.75rem;
     }
     .library-rail {
       display: block;
-      position: sticky;
+      position: fixed;
       top: 1rem;
+      left: 1rem;
+      width: 14rem;
       height: calc(100dvh - 2rem);
-      margin: calc(1rem - var(--library-header-height, 4rem)) 1rem 0;
       overflow-y: auto;
       padding: 1rem 0.75rem;
       border: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
