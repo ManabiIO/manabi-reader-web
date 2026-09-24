@@ -1,6 +1,6 @@
 # Manabi Reader for Web versus Ttsu Reader
 
-[ッツ Ebook Reader](https://github.com/ttu-ttu/ebook-reader), often called **Ttsu Reader** or **TTU Reader** (and sometimes written **TTSU**), is the open-source reader from which this web project grew. Both support EPUB, HTMLZ, and text books, flexible reading layouts, bookmarks, statistics, and offline-capable use.
+[ッツ Ebook Reader](https://github.com/ttu-ttu/ebook-reader), often called **Ttsu Reader** or **TTU Reader** (and sometimes written **TTSU**), is the open-source reader from which this project was forked. Both support EPUB, HTMLZ, and text books, flexible reading layouts, bookmarks, statistics, and offline-capable use.
 
 | If you want to…                | Manabi Reader for Web                                | Ttsu Reader                                     |
 | ------------------------------ | ---------------------------------------------------- | ----------------------------------------------- |

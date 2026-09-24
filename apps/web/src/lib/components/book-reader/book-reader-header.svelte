@@ -4,6 +4,7 @@
   import { Button } from '$lib/components/ui/button';
   import * as Menu from '$lib/components/ui/dropdown-menu';
   import ActionMenu from '$lib/components/navigation/action-menu.svelte';
+  import { openUserGuide } from '$lib/components/navigation/docs-link';
   import Bookmark from '@lucide/svelte/icons/bookmark';
   import List from '@lucide/svelte/icons/list';
   import { readerImageGalleryPictures$ } from '$lib/components/book-reader/book-reader-image-gallery/book-reader-image-gallery';
@@ -90,6 +91,7 @@
       >{/if}
     <Menu.Item onSelect={() => dispatch('settingsClick')}>Settings</Menu.Item>
     <Menu.Item onSelect={() => dispatch('statisticsClick')}>Statistics</Menu.Item>
+    <Menu.Item onSelect={openUserGuide}>User guide</Menu.Item>
     {#if oldDomain}<Menu.Item onSelect={() => dispatch('domainHintClick')}
         >Old domain information</Menu.Item
       >{/if}

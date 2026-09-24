@@ -22,6 +22,7 @@ nav = [
     { "Manabi Reader for Web versus Yatsu Reader" = "compare/yatsu.md" },
     { "Manabi Reader for Web versus Manabi Reader for iOS and macOS" = "compare/native.md" },
   ] },
+  { "Credits" = "credits.md" },
   { "Contribute" = "contribute.md" },
 ]
 
@@ -30,6 +31,7 @@ language = "en"
 font = false
 favicon = "images/icon.png"
 logo = "images/icon.png"
+custom_dir = "overrides"
 features = ["navigation.footer", "navigation.indexes", "search.highlight"]
 
 [[project.theme.palette]]

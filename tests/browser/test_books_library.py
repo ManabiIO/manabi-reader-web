@@ -308,7 +308,11 @@ class BooksLibraryBrowser(LibraryBase):
             expect(header.get_by_role('button', name=obsolete, exact=True)).to_have_count(0)
 
         header.get_by_role('button', name='Main menu', exact=True).click()
-        expect(self.page.get_by_role('navigation', name='Main navigation', exact=True)).to_be_visible()
+        navigation = self.page.get_by_role('navigation', name='Main navigation', exact=True)
+        expect(navigation).to_be_visible()
+        guide = navigation.get_by_role('link', name='User guide', exact=True)
+        expect(guide).to_have_attribute('href', '/Manabi-Web/Docs/')
+        expect(guide).to_have_attribute('target', '_blank')
         self.page.keyboard.press('Escape')
 
         header.get_by_role('button', name='Library actions', exact=True).click()

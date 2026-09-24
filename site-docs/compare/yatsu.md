@@ -1,6 +1,6 @@
 # Manabi Reader for Web versus Yatsu Reader
 
-[Yatsu Reader](https://docs.yatsu.moe/) is another open-source reader built from Ttsu. Both projects read EPUB, HTMLZ, and text books, and offer library organization, reading statistics, and sync options. Their emphasis differs.
+[Yatsu Reader](https://docs.yatsu.moe/) is another reader built from Ttsu. Both projects read EPUB, HTMLZ, and text books, and offer library organization, reading statistics, and sync options. Their emphasis differs.
 
 | If you want to…             | Manabi Reader for Web                                         | Yatsu Reader                                                                         |
 | --------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------ |

@@ -13,4 +13,4 @@ bash scripts/build-docs
 
 The site builds into `apps/web/build/docs/` after the web app build. The backend release pipeline packages both in one static artifact; production publication is controlled separately by the backend deployment configuration.
 
-Manabi Reader for Web grew from [ッツ Ebook Reader](https://github.com/ttu-ttu/ebook-reader). Its [original README](docs/ttu-upstream-readme.md) is retained for attribution and historical reference. See [BSD 3-Clause](LICENSE) and [third-party UI licenses](THIRD_PARTY_UI_LICENSES.md).
+Manabi Reader for Web began as a fork of [ッツ Ebook Reader](https://github.com/ttu-ttu/ebook-reader). Its [original README](docs/ttu-upstream-readme.md) is retained for attribution and historical reference. See the guide's [Credits](site-docs/credits.md), [BSD 3-Clause](LICENSE), and [third-party UI licenses](THIRD_PARTY_UI_LICENSES.md).

@@ -8,7 +8,7 @@ To contribute code or documentation, fork the repository, make a focused change,
 
 ```sh
 python3 -m pip install -r requirements-docs.txt
-zensical build --strict
+bash scripts/build-docs
 ```
 
-The project is licensed under [BSD 3-Clause](https://github.com/ManabiIO/manabi-reader-web/blob/main/LICENSE). Its Ttsu lineage and third-party UI licenses are credited in the repository.
+The project is licensed under [BSD 3-Clause](https://github.com/ManabiIO/manabi-reader-web/blob/main/LICENSE). See [Credits](credits.md) for its lineage and third-party work.

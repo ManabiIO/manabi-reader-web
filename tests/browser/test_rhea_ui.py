@@ -71,8 +71,16 @@ class RheaReader(previous.RefinedAppearance):
         trigger.press('Enter')
         menu = self.page.get_by_role('menu')
         expect(menu).to_be_visible()
-        for name in ['Select Books','Add Books','Accounts and Libraries','Statistics','Settings','Shared Libraries','Report an Issue']:
+        for name in ['Select Books','Add Books','Accounts and Libraries','Statistics','Settings','Shared Libraries','User guide','Report an Issue']:
             expect(menu.get_by_role('menuitem', name=name, exact=True)).to_be_visible()
+        with self.page.expect_popup() as guide_popup:
+            menu.get_by_role('menuitem', name='User guide', exact=True).click()
+        guide = guide_popup.value
+        self.assertEqual(self.origin + '/Manabi-Web/Docs/', guide.url)
+        guide.close()
+        trigger.focus()
+        trigger.press('Enter')
+        menu = self.page.get_by_role('menu')
         self.page.keyboard.press('Escape')
         expect(menu).to_have_count(0)
         expect(trigger).to_be_focused()
@@ -147,7 +155,7 @@ class RheaReader(previous.RefinedAppearance):
         tools.click()
         menu = self.page.get_by_role('menu')
         expect(menu).to_be_visible()
-        for name in ['Jump to Position','Complete Book','Set Point','Settings','Statistics']:
+        for name in ['Jump to Position','Complete Book','Set Point','Settings','Statistics','User guide']:
             expect(menu.get_by_role('menuitem', name=name, exact=True)).to_be_visible()
         before = self.page.locator('.book-content').evaluate('e => [e.getBoundingClientRect().x,e.getBoundingClientRect().y,window.scrollX,window.scrollY]')
         for key in ['ArrowDown','ArrowDown','End','Home','ArrowUp']:
