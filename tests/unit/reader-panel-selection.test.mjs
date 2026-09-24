@@ -3,22 +3,32 @@
  * Copyright (c) 2026, ッツ Reader Authors
  * All rights reserved.
  */
+
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ReaderPanelSelection } from '../../apps/web/src/lib/reader-panel-selection.ts';
 
 function deferred() {
-  let resolve, reject;
-  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  let resolve;
+  let reject;
+  const promise = new Promise((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
   return { promise, resolve, reject };
 }
 
 function harness() {
   const selection = new ReaderPanelSelection();
-  const received = [], errors = [];
-  const run = (work, current = () => true) => selection.run(
-    work, current, value => received.push(value), error => errors.push(error)
-  );
+  const received = [];
+  const errors = [];
+  const run = (work, current = () => true) =>
+    selection.run(
+      work,
+      current,
+      (value) => received.push(value),
+      (error) => errors.push(error)
+    );
   return { selection, received, errors, run };
 }
 
@@ -30,8 +40,11 @@ test('a current locator is delivered exactly once', async () => {
 });
 
 test('out-of-order resource digests only deliver the latest choice', async () => {
-  const h = harness(), first = deferred(), last = deferred();
-  const a = h.run(() => first.promise), b = h.run(() => last.promise);
+  const h = harness();
+  const first = deferred();
+  const last = deferred();
+  const a = h.run(() => first.promise);
+  const b = h.run(() => last.promise);
   last.resolve('last');
   await b;
   first.resolve('first');
@@ -40,7 +53,8 @@ test('out-of-order resource digests only deliver the latest choice', async () =>
 });
 
 test('dismissal fences a previous opening even after the panel reopens', async () => {
-  const h = harness(), old = deferred();
+  const h = harness();
+  const old = deferred();
   const pending = h.run(() => old.promise);
   h.selection.invalidate();
   await h.run(async () => 'reopened');
@@ -50,9 +64,13 @@ test('dismissal fences a previous opening even after the panel reopens', async (
 });
 
 test('a replaced book or projection cannot receive an old locator', async () => {
-  const h = harness(), old = deferred();
+  const h = harness();
+  const old = deferred();
   let currentBook = 'first';
-  const pending = h.run(() => old.promise, () => currentBook === 'first');
+  const pending = h.run(
+    () => old.promise,
+    () => currentBook === 'first'
+  );
   currentBook = 'second';
   old.resolve('wrong book');
   await pending;
@@ -61,7 +79,8 @@ test('a replaced book or projection cannot receive an old locator', async () => 
 });
 
 test('a late rejection from a dismissed panel is consumed, not shown on its successor', async () => {
-  const h = harness(), old = deferred();
+  const h = harness();
+  const old = deferred();
   const pending = h.run(() => old.promise);
   h.selection.invalidate();
   old.reject(new Error('old digest'));
@@ -73,7 +92,8 @@ test('a late rejection from a dismissed panel is consumed, not shown on its succ
 });
 
 test('a current failure is reported and a subsequent selection can recover', async () => {
-  const h = harness(), error = new Error('digest unavailable');
+  const h = harness();
+  const error = new Error('digest unavailable');
   await h.run(() => Promise.reject(error));
   assert.deepEqual(h.errors, [error]);
   assert.deepEqual(h.received, []);
@@ -82,19 +102,26 @@ test('a current failure is reported and a subsequent selection can recover', asy
 });
 
 test('a synchronous preparation failure is also contained', async () => {
-  const h = harness(), error = new RangeError('invalid range');
-  await h.run(() => { throw error; });
+  const h = harness();
+  const error = new RangeError('invalid range');
+  await h.run(() => {
+    throw error;
+  });
   assert.deepEqual(h.errors, [error]);
 });
 
 test('destroying the component fences pending and future work', async () => {
-  const h = harness(), pending = deferred();
+  const h = harness();
+  const pending = deferred();
   const task = h.run(() => pending.promise);
   h.selection.dispose();
   pending.resolve('unmounted');
   await task;
   let prepared = false;
-  await h.run(async () => { prepared = true; return 'after disposal'; });
+  await h.run(async () => {
+    prepared = true;
+    return 'after disposal';
+  });
   assert.equal(prepared, false);
   assert.deepEqual(h.received, []);
   assert.deepEqual(h.errors, []);
