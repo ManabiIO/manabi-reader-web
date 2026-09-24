@@ -263,6 +263,28 @@ class LibraryBase(unittest.TestCase):
 
 
 class BooksLibraryBrowser(LibraryBase):
+    def test_yatsu_backup_collection_is_visible_on_phone_and_desktop(self):
+        fixture = Path(__file__).resolve().parents[1] / 'fixtures' / 'yatsu' / 'complete-local-backup-v11.zip'
+        self.page.goto(self.origin + '/Reader-Web/import-ttu?source=yatsu')
+        picker = self.page.get_by_label('Choose Yatsu backup ZIPs', exact=True)
+        picker.set_input_files(str(fixture))
+        self.page.get_by_role('button', name='Import selected (1)', exact=True).click()
+        expect(self.page.get_by_role('article', name='Import Manabi Yatsu Portability Fixture')
+               .get_by_role('status')).to_have_text('Imported Manabi Yatsu Portability Fixture.', timeout=60000)
+        for width in (390, 1200):
+            with self.subTest(width=width):
+                self.page.set_viewport_size({'width': width, 'height': 844})
+                self.go_library()
+                if width < 1024:
+                    self.page.get_by_role('button', name='Collections', exact=True).click()
+                    self.page.locator('#library-collections-sheet').get_by_role(
+                        'button', name=re.compile(r'^Portable Shelf\s+1$')).click()
+                else:
+                    self.page.get_by_role('complementary', name='Collections').get_by_role(
+                        'button', name=re.compile(r'^Portable Shelf\s+1$')).click()
+                expect(self.page.get_by_role('button', name='Read Manabi Yatsu Portability Fixture')).to_be_visible()
+                self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), width + 1)
+
     def _cross_resource_return(self, viewport, writing_mode=None):
         self.page.set_viewport_size(viewport)
         if writing_mode:
@@ -556,10 +578,12 @@ class BooksLibraryBrowser(LibraryBase):
                     trigger = self.page.get_by_role('button', name='Search library', exact=True)
                     expect(trigger).to_be_visible()
                     actions = self.page.get_by_role('button', name='Library actions', exact=True).bounding_box()
+                    collections = self.page.get_by_role('button', name='Collections', exact=True).bounding_box()
                     box = trigger.bounding_box()
                     self.assertGreaterEqual(box['width'], 44)
                     self.assertGreaterEqual(box['height'], 44)
-                    self.assertGreater(box['x'], actions['x'])
+                    self.assertLess(box['x'] + box['width'], collections['x'] + 1)
+                    self.assertLess(collections['x'] + collections['width'], actions['x'] + 1)
                     trigger.click()
                     search = self.page.get_by_role('searchbox', name='Search library', exact=True)
                     expect(search).to_be_focused()

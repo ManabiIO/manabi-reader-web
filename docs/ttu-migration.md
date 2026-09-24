@@ -51,7 +51,8 @@ re-exporting the affected ZIP; a bad item is never called a successful import.
 
 The existing bounded ZIP reader enforces actual output limits, CRC checks,
 relative unambiguous paths, duplicate-entry rejection and cancellation. Import
-only accepts the supported exporter/database version (1/6). Imported HTML/CSS
+accepts qualified TTU exporter/database versions 1/6–1/8, or a Yatsu complete
+local browser backup manifest at exporter/database version 1/11. Imported HTML/CSS
 uses the production book sanitizer with image references restricted to declared
 archive blobs. No active content or provider URL becomes trusted by migration.
 
@@ -79,6 +80,45 @@ The sparse case proves seekable container access beyond the old limit, not a
 multi-gigabyte decompression or memory-usage benchmark. Record actual passing
 workflow revisions in the PR before treating the suite as qualified.
 
+`test_ttu_upstream_roundtrip.py` adds a separate two-application browser run. It
+creates the source archive with Manabi's export UI, imports and re-exports that
+archive through the unmodified upstream TTU app, then imports TTU's downloaded
+ZIP through Manabi's migration UI. The workflow pins upstream source commit
+`301aef4957c3cb22162276b11f4a47b35533faae` and verifies book packages,
+bookmarks, and daily statistics. In this current upstream browser round trip,
+the audiobook position and subtitle payloads present in the Manabi source ZIP
+were absent from TTU's exported ZIP; they remain supported by Manabi's importer,
+but this suite does not claim those two types survive an upstream round trip.
+
 The native Manabi account/cloud bridge and cloud publication of migrated parsed
 books remain separate product work. Migration does not authorize old Ttu cloud
 libraries, change OAuth scopes, or imply native/web cloud interoperability.
+
+## Yatsu Reader portability
+
+Yatsu Reader's signed-out browser Library exports a complete local backup from
+More library actions → Get complete local backup. Manabi recognizes the versioned
+manifest and imports the embedded book package, current reading position, and
+daily statistics through the same bounded, atomic migration path as TTU. Yatsu
+tags become Manabi collections with idempotent membership updates after the
+book transaction; if that separate organization write fails, the import page
+reports the partial result and asks for a retry. It
+validates Yatsu's extra layout hints and dictionary-popup count but does not
+turn those values into unsupported Manabi state. The original book bytes are not
+inside this Yatsu backup, so the imported rendered book does not claim a verified
+content hash from Yatsu's `bookFingerprint` field. Its imported collection tags
+remain attached to that local copy until original bytes establish a portable
+content identity.
+
+This first Yatsu importer does not import saved bookmarks, highlights, notes,
+or settings. The import page identifies these omitted files
+and tells users to retain the original ZIP. Future Yatsu schema versions are
+rejected until they are qualified against a new real-app fixture.
+
+For travel in the other direction, Yatsu's live Import Backup accepted a ZIP
+produced by Manabi's normal TTU-compatible Export flow. A one-off browser check
+on 2026-09-23 imported two synthetic EPUBs into Yatsu, then re-exported a Yatsu
+backup and verified both reading positions and daily statistics survived. The
+small Yatsu-produced fixture and its provenance are in
+`tests/fixtures/yatsu/`. This live-site check is evidence for the observed
+Yatsu version, not an automated promise about future closed-source releases.

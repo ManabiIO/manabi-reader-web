@@ -244,6 +244,19 @@
           {/if}
         </div>
         <div class="flex shrink-0 items-center gap-1.5">
+          {#if compactLibrary}
+            <Button
+              bind:ref={searchButton}
+              variant="outline"
+              size="icon"
+              class="size-11 rounded-full lg:hidden"
+              aria-label="Search library"
+              title="Search library"
+              onclick={openSearch}
+              disabled={!!replicationToProgress}
+              ><Search class="size-6" weight="bold" aria-hidden="true" /></Button
+            >
+          {/if}
           <Button
             variant="outline"
             size="icon"
@@ -307,6 +320,9 @@
                   <Menu.Separator />
                   <Menu.Item onSelect={() => goto(resolve('/import-ttu'))}
                     >Import from Ttu Ebook Reader</Menu.Item
+                  >
+                  <Menu.Item onSelect={() => goto(resolve('/import-ttu?source=yatsu'))}
+                    >Import from Yatsu Reader</Menu.Item
                   >
                 </Menu.SubContent>
               </Menu.Sub>
@@ -484,19 +500,7 @@
               {/if}
             </Menu.Content>
           </Menu.Root>
-          {#if compactLibrary}
-            <Button
-              bind:ref={searchButton}
-              variant="outline"
-              size="icon"
-              class="size-11 rounded-full lg:hidden"
-              aria-label="Search library"
-              title="Search library"
-              onclick={openSearch}
-              disabled={!!replicationToProgress}
-              ><Search class="size-6" weight="bold" aria-hidden="true" /></Button
-            >
-          {:else}
+          {#if !compactLibrary}
             <label
               class="hidden min-h-11 w-[clamp(12rem,20vw,18rem)] min-w-0 items-center gap-2 rounded-full bg-muted px-3 text-sm focus-within:ring-2 focus-within:ring-ring lg:flex"
               ><Search class="size-5 shrink-0 text-muted-foreground" aria-hidden="true" /><span

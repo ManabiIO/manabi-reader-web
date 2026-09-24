@@ -1,0 +1,82 @@
+name: Upstream TTU portability
+on:
+  pull_request:
+    paths:
+      - 'apps/web/**'
+      - 'tests/browser/test_ttu_migration.py'
+      - 'tests/browser/test_ttu_upstream_roundtrip.py'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/ttu-upstream-portability.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/web/**'
+      - 'tests/browser/test_ttu_migration.py'
+      - 'tests/browser/test_ttu_upstream_roundtrip.py'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/ttu-upstream-portability.yml'
+permissions:
+  contents: read
+concurrency:
+  group: ttu-upstream-portability-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  roundtrip:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: ttu-ttu/ebook-reader
+          ref: 301aef4957c3cb22162276b11f4a47b35533faae
+          path: upstream-ttu
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - name: Build Manabi Reader
+        env:
+          BASE_PATH: /Reader-Web
+        run: pnpm build
+      - name: Install pinned upstream TTU
+        run: pnpm --dir upstream-ttu install --frozen-lockfile
+      - name: Run upstream TTU and exercise both importers and exporters
+        env:
+          TTU_BASE_URL: http://127.0.0.1:4174
+        run: |
+          set -o pipefail
+          pnpm --dir upstream-ttu/apps/web exec vite dev --host 127.0.0.1 --port 4174 --strictPort > upstream-ttu.log 2>&1 &
+          ttu_pid=$!
+          trap 'kill "$ttu_pid" 2>/dev/null || true; wait "$ttu_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --silent --fail "$TTU_BASE_URL/manage" > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          python -m pip install 'playwright==1.55.0'
+          python -m playwright install --with-deps chromium
+          python tests/browser/test_ttu_upstream_roundtrip.py 2>&1 | tee upstream-roundtrip.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ttu-upstream-roundtrip-results
+          path: |
+            upstream-ttu.log
+            upstream-roundtrip.log
+            test-results/
+          retention-days: 3
