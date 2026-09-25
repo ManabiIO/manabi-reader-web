@@ -1,7 +1,7 @@
 <script lang="ts">
   import { progressFraction } from '$lib/library/completion';
   import { resolve } from '$app/paths';
-  import { goto } from '$app/navigation';
+  import { beforeNavigate, goto } from '$app/navigation';
   import BookCardList from '$lib/components/book-card/book-card-list.svelte';
   import LibraryWorkspace from '$lib/library/library-workspace.svelte';
   import type { BookCardProps } from '$lib/components/book-card/book-card-props';
@@ -60,7 +60,9 @@
   import { visibleLibraryEntries } from '$lib/library/account-visibility';
   import EditorsPicks from '$lib/library/editors-picks.svelte';
   import { downloadEditorsPick, type EditorsPick } from '$lib/library/editors-picks';
-  import { account } from '$lib/manabi/client';
+  import { account, currentUser } from '$lib/manabi/client';
+  import type { ReaderLocator } from '$lib/reader-location';
+  import { clearLibraryLocation, queueLibraryLocation } from '$lib/library/search-navigation';
   import { allLinkedBooks } from '$lib/manabi/books';
   import { sha256 } from '$lib/manabi/sources';
   import type { LibraryMenuModel } from '$lib/library/library-menu';
@@ -132,6 +134,21 @@
   let selectionScopeKey = '';
   let selectableBookIds: number[] = [];
   let libraryMenu: LibraryMenuModel | undefined;
+  let pageAlive = true;
+  let openGeneration = 0;
+  let openOwner = currentUser()?.id ?? null;
+  const stopOpenAccount = account.subscribe(() => {
+    const owner = currentUser()?.id ?? null;
+    if (owner !== openOwner) {
+      openOwner = owner;
+      openGeneration++;
+      dialogManager.dialogs$.next([]);
+    }
+  });
+  beforeNavigate(() => {
+    openGeneration++;
+    dialogManager.dialogs$.next([]);
+  });
 
   $: activeLibraryCards = visibleLibraryEntries(
     $bookCards$ ?? [],
@@ -150,6 +167,9 @@
   }
 
   onDestroy(() => {
+    pageAlive = false;
+    openGeneration++;
+    stopOpenAccount();
     pickDownload?.abort();
     dialogManager.dialogs$.next([]);
   });
@@ -196,10 +216,23 @@
     return sortDiff;
   }
 
-  async function onBookClick(bookId: number, librarySearch?: string) {
+  async function onBookClick(
+    bookId?: number,
+    prepare?: () => Promise<number>,
+    locator?: ReaderLocator
+  ) {
     if (!operationAllowed()) {
       return;
     }
+
+    const request = ++openGeneration;
+    const owner = currentUser()?.id ?? null;
+    const storage = $storageSource$;
+    const current = () =>
+      pageAlive &&
+      request === openGeneration &&
+      owner === (currentUser()?.id ?? null) &&
+      storage === $storageSource$;
 
     if (!selectMode) {
       dialogManager.dialogs$.next([
@@ -212,10 +245,13 @@
       let idToOpen = bookId;
 
       try {
+        if (prepare) bookId = await prepare();
+        if (!current() || bookId === undefined) return;
         const bookItem =
           $bookCards$.find((book) => book.id === bookId) ??
           ($storageSource$ === StorageKey.BROWSER ? await database.getData(bookId) : undefined);
 
+        if (!current()) return;
         if (!bookItem) {
           throw new Error('Book title not found');
         }
@@ -243,6 +279,7 @@
         });
 
         idToOpen = await handler.prepareBookForReading();
+        if (!current()) return;
 
         if (!$hideExternalReadHint$ && handler instanceof ApiStorageHandler) {
           const nextAction = await new Promise<string>((resolver) => {
@@ -255,24 +292,26 @@
             ]);
           });
 
-          if (nextAction === 'cancel') {
+          if (!current() || nextAction === 'cancel') {
             return;
           }
 
           if (nextAction === 'export') {
+            const preparedId = bookId;
             selectedBookIds = cloneMutateSet(selectedBookIds, (set) => {
-              set.add(bookId);
+              set.add(preparedId);
             });
             selectMode = true;
 
             await tick();
-
+            if (!current()) return;
             return onReplicateData();
           }
         }
 
         dialogManager.dialogs$.next([]);
       } catch (error: any) {
+        if (!current()) return;
         const message = `Error opening book: ${error.message}`;
 
         logger.warn(message);
@@ -290,16 +329,22 @@
         return;
       }
 
-      openBook(idToOpen, idToOpen === bookId ? librarySearch : undefined);
+      if (!current() || idToOpen === undefined) return;
+      clearLibraryLocation();
+      const librarySearch =
+        locator && idToOpen === bookId ? queueLibraryLocation(idToOpen, owner, locator) : undefined;
+      openBook(idToOpen, librarySearch);
       return;
     }
 
+    if (bookId === undefined) return;
+    const selectedId = bookId;
     selectedBookIds = cloneMutateSet(selectedBookIds, (set) => {
-      if (set.has(bookId)) {
-        set.delete(bookId);
+      if (set.has(selectedId)) {
+        set.delete(selectedId);
         return;
       }
-      set.add(bookId);
+      set.add(selectedId);
     });
   }
 
@@ -974,11 +1019,8 @@
         bind:collectionsOpen
         bind:menu={libraryMenu}
         bookCards={$bookCards$}
-        on:bookClick={(ev) =>
-          onBookClick(
-            ev.detail.id,
-            'librarySearch' in ev.detail ? (ev.detail.librarySearch as string) : undefined
-          )}
+        on:prepareBook={(ev) => onBookClick(undefined, ev.detail.prepare, ev.detail.locator)}
+        on:bookClick={(ev) => onBookClick(ev.detail.id)}
         on:selectionManyClick={(ev) => toggleSelectedBooks(ev.detail.ids)}
         on:selectionScopeChange={(ev) => updateSelectionScope(ev.detail.key, ev.detail.ids)}
         on:removeBookClick={(ev) => removeBooks([ev.detail.id])}
@@ -990,11 +1032,7 @@
         currentBookId={$currentBookId$}
         {selectedBookIds}
         bookCards={$bookCards$}
-        on:bookClick={(ev) =>
-          onBookClick(
-            ev.detail.id,
-            'librarySearch' in ev.detail ? (ev.detail.librarySearch as string) : undefined
-          )}
+        on:bookClick={(ev) => onBookClick(ev.detail.id)}
         on:removeBookClick={(ev) => removeBooks([ev.detail.id])}
       />
     {:else}

@@ -76,7 +76,6 @@
   import CoverStack from './cover-stack.svelte';
   import SourceIcon from './source-icon.svelte';
   import CollectionsSheet from './collections-sheet.svelte';
-  import { queueLibraryLocation, clearLibraryLocation } from './search-navigation';
   import type { ReaderLocator } from '../reader-location';
   import LibrarySearch from './library-search.svelte';
   let coverWidths: Record<string, number> = {};
@@ -114,7 +113,8 @@
   export let destinationTitle = 'Library';
   export let menu: LibraryMenuModel | undefined = undefined;
   const dispatch = createEventDispatcher<{
-    bookClick: { id: number; librarySearch?: string };
+    bookClick: { id: number };
+    prepareBook: { prepare: () => Promise<number>; locator?: ReaderLocator };
     selectionManyClick: { ids: number[] };
     selectionScopeChange: { key: string; ids: number[] };
     removeBookClick: { id: number };
@@ -684,14 +684,9 @@
     };
   }
   function openBook(book: ShelfBook, locator?: ReaderLocator) {
-    const owner = currentUser()?.id ?? null;
-    void action(async () => {
-      const id = await ensureBook(book);
-      if (!alive || owner !== (currentUser()?.id ?? null)) return;
-      clearLibraryLocation();
-      const librarySearch = locator ? queueLibraryLocation(id, owner, locator) : undefined;
-      dispatch('bookClick', { id, librarySearch });
-    });
+    // Relinking refreshes the book list and can remount this workspace. The
+    // owning page, not this replaceable projection, fences the async request.
+    dispatch('prepareBook', { prepare: () => ensureBook(book), locator });
   }
   function saveBook(book: ShelfBook) {
     void action(async () => {
