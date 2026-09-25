@@ -1,0 +1,36 @@
+name: Media dependency review
+# Temporary resolution job: produces a candidate artifact, never writes commits.
+# Existing frozen-lockfile release checks are deliberately unchanged.
+on:
+  push:
+    branches: [codex/video-moss-media-v7-20260924]
+    paths:
+      - .github/workflows/media-dependency-review.yml
+permissions:
+  contents: read
+jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: 12.3.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.21.0
+      - name: Generate candidate with the real package manager
+        run: pnpm install --lockfile-only --ignore-scripts --no-frozen-lockfile
+      - uses: actions/upload-artifact@v4
+        with:
+          name: media-candidate-lockfile
+          path: pnpm-lock.yaml
+          if-no-files-found: error
+          retention-days: 3
+      - name: Verify candidate dependency installation
+        run: pnpm install --frozen-lockfile
+      - name: Check the installed application
+        run: pnpm --dir apps/web check
