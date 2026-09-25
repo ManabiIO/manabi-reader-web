@@ -890,7 +890,7 @@
         <h3 id="add-books-heading" class="text-base font-semibold">Add books</h3>
         <div class="mt-3 grid gap-2">
           <Button
-            class="min-h-11 w-full py-2"
+            class="min-h-11 w-full"
             size="lg"
             onclick={() => bookManagerHeader?.openFilePicker()}>Import File(s)</Button
           >
