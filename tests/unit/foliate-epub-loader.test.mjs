@@ -126,3 +126,41 @@ test('resource-relative links preserve query and fragment while loading the owni
     URL.revokeObjectURL = originalRevokeObjectURL;
   }
 });
+
+test('failed parent publication releases child resources loaded during replacement', async () => {
+  const originalCreateObjectURL = URL.createObjectURL;
+  const originalRevokeObjectURL = URL.revokeObjectURL;
+  const created = [];
+  const revoked = [];
+
+  URL.createObjectURL = () => {
+    const value = `blob:dependency-${created.length + 1}`;
+    created.push(value);
+    return value;
+  };
+  URL.revokeObjectURL = (value) => revoked.push(value);
+
+  try {
+    const parent = { href: 'OPS/style.css', mediaType: 'text/css' };
+    const child = { href: 'OPS/image.png', mediaType: 'image/png' };
+    const loader = new Loader({
+      loadText: async (href) =>
+        href === parent.href ? 'body{background:url("image.png")}' : null,
+      loadBlob: async (href) =>
+        href === child.href ? new Blob(['image'], { type: 'image/png' }) : null,
+      resources: { manifest: [parent, child] }
+    });
+    loader.eventTarget.addEventListener('data', (event) => {
+      if (event.detail.name === parent.href)
+        event.detail.data = Promise.reject(new Error('transform failed'));
+    });
+
+    await assert.rejects(loader.loadItem(parent), /transform failed/);
+    assert.equal(created.length, 1);
+    assert.deepEqual(revoked, ['blob:dependency-1']);
+    loader.destroy();
+  } finally {
+    URL.createObjectURL = originalCreateObjectURL;
+    URL.revokeObjectURL = originalRevokeObjectURL;
+  }
+});
