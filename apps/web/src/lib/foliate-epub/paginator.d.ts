@@ -6,10 +6,10 @@ export class Paginator extends HTMLElement {
   open(book: { sections: unknown[]; dir?: string }): void;
   goTo(
     target: Promise<unknown> | { index: number; anchor?: unknown; select?: boolean }
-  ): Promise<unknown>;
+  ): Promise<boolean>;
   prev(distance?: number): Promise<unknown>;
   next(distance?: number): Promise<unknown>;
   setStyles(styles: string | [string, string]): void;
   getContents(): Array<{ index: number; doc: Document; overlayer?: unknown }>;
-  destroy(): void;
+  destroy(): boolean;
 }
