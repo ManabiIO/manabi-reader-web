@@ -1,11 +1,12 @@
 name: Media source review
-# Temporary candidate generation only: no repository write permission or ref writes.
+# Final candidate generation only. No commits, refs, deployment or hosted inference.
 on:
   push:
     branches: [codex/video-moss-media-v7-20260924]
     paths: [.github/workflows/media-source-review.yml]
 permissions:
   contents: read
+  actions: read
 jobs:
   review:
     runs-on: ubuntu-24.04
@@ -13,8 +14,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
           persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: '10846826205'
+          run-id: '36094707607'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: .cache/reviewed-input
+          merge-multiple: true
       - uses: pnpm/action-setup@v6.1.0
         with:
           version: 12.3.4
@@ -23,77 +30,55 @@ jobs:
           node-version: 24.21.0
       - run: pnpm install --frozen-lockfile
       - run: pnpm --dir apps/web exec svelte-kit sync
-      - name: Prepare and check the scoped source candidate
+      - name: Finalize the checksum-reviewed source
         run: |
-          mkdir -p .cache/media-source-review
           node <<'JS'
-          const fs = require('node:fs'), cp = require('node:child_process'), crypto = require('node:crypto');
-          const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
-          (async () => {
-            const { ESLint } = require('eslint');
-            const baseline = 'fc97b74c4a55ec0cfedbd7ba733f08e2a167e017';
-            const paths = cp.execFileSync('git',['diff','--name-only','--diff-filter=ACM',baseline,'HEAD'],{encoding:'utf8'}).trim().split('\n').filter(p=>/\.(?:[cm]?js|ts|svelte|css|py)$/.test(p));
-            paths.push('eslint.config.js');
-            if (!paths.length || paths.length>160 || paths.some(p=>p.startsWith('/')||p.split('/').includes('..'))) throw Error('Invalid scope');
-            const before=Object.fromEntries(paths.map(p=>[p,sha(fs.readFileSync(p))]));
-            function replace(path,from,to) {
-              const text=fs.readFileSync(path,'utf8');
-              if(text.split(from).length!==2)throw Error(`Ambiguous edit in ${path}`);
-              fs.writeFileSync(path,text.replace(from,to));
+          const fs=require('node:fs'),cp=require('node:child_process'),crypto=require('node:crypto');
+          const hash=b=>crypto.createHash('sha256').update(b).digest('hex');
+          (async()=>{
+            const raw=fs.readFileSync('.cache/reviewed-input/candidate.json');
+            if(hash(raw)!=='6d90624868d8f671655b8495b3ecc2770e3078010ab6710dbd93ad6c1d153c0e')throw Error('Candidate checksum mismatch');
+            const candidate=JSON.parse(raw);
+            if(candidate.base!=='5b18d8f1a448c29880e5a2beef3993bbe20c3b7a'||candidate.files.length!==53)throw Error('Candidate identity mismatch');
+            for(const f of candidate.files){
+              if(hash(fs.readFileSync(f.path))!==f.before||hash(Buffer.from(f.content))!==f.sha256)throw Error('Changed source '+f.path);
+              fs.writeFileSync(f.path,f.content);
             }
-            replace('eslint.config.js', "        '**/test-results/**',", "        '**/test-results/**',\n        '**/.cache/**',");
-            const nodeGlobals=['process','Buffer','console','setTimeout','clearTimeout','setInterval','clearInterval','setImmediate','clearImmediate','queueMicrotask','TextEncoder','TextDecoder','structuredClone','AbortController','AbortSignal','DOMException','Blob','File','Response','Request','Headers','fetch','performance','URL','URLSearchParams','crypto','MessageChannel'];
-            const nodeConfig={files:['tests/media/**/*.mjs','tools/media/**/*.mjs'],languageOptions:{ecmaVersion:'latest',parserOptions:{project:false},globals:Object.fromEntries(nodeGlobals.map(name=>[name,'readonly']))}};
-            replace('eslint.config.js', "    {\n      ...eslintPluginSvelte.configs['flat/recommended'],", '    '+JSON.stringify(nodeConfig)+",\n    {\n      ...eslintPluginSvelte.configs['flat/recommended'],");
-            replace('apps/web/src/lib/media/media.css','background: var(--accent, #e6efee);','background: var(--accent, var(--media-muted));');
-            replace('apps/web/src/lib/media/media.css','background: var(--accent, #e0f0ed);','background: var(--accent, var(--media-muted));');
-            replace('tests/media/dom-browser.py','body{margin:0;background:#f5f8f8}','body{margin:0;background:var(--background,#f5f8f8)}');
-            const darkBefore="            screenshot(1280,900,'player-dark.png')\n            page.evaluate(\"document.documentElement.style.cssText=''\")";
-            const darkAfter=`            screenshot(1280,900,'player-dark.png')
-                      assert page.evaluate('''() => {
-                          const row=document.querySelector('.transcript-cue.active');
-                          const color=getComputedStyle(row).color, background=getComputedStyle(row).backgroundColor;
-                          const luminance=text=>{
-                              const values=text.match(/[\\d.]+/g).slice(0,3).map(Number).map(v=>{
-                                  v/=255; return v<=.04045?v/12.92:Math.pow((v+.055)/1.055,2.4);
-                              });
-                              return values[0]*.2126+values[1]*.7152+values[2]*.0722;
-                          };
-                          const a=luminance(color),b=luminance(background);
-                          return (Math.max(a,b)+.05)/(Math.min(a,b)+.05)>=4.5;
-                      }''')
-                      page.evaluate("document.documentElement.style.cssText=''")`.replace(/\n          /g,'\n');
-            replace('tests/media/dom-browser.py',darkBefore,darkAfter);
-            const lintPaths=paths.filter(p=>/\.(?:[cm]?js|ts|svelte)$/.test(p)&&p!=='eslint.config.js');
-            let eslint=new ESLint({fix:true});
-            await ESLint.outputFixes(await eslint.lintFiles(lintPaths));
-            let report=await new ESLint({fix:false}).lintFiles(lintPaths);
-            // Control-regex checks are deliberately used for untrusted text rejection.
-            // Explain just these expressions; retain all validation and other lint rules.
-            for(const file of report){
-              const lines=fs.readFileSync(file.filePath,'utf8').split('\n');
-              const edits=[...new Set(file.messages.filter(m=>m.ruleId==='no-control-regex').map(m=>m.line))].sort((a,b)=>b-a);
-              for(const line of edits){const indent=lines[line-1].match(/^\s*/)[0];lines.splice(line-1,0,indent+'// eslint-disable-next-line no-control-regex -- Reject control characters in untrusted text.');}
-              if(edits.length)fs.writeFileSync(file.filePath,lines.join('\n'));
-            }
-            replace('apps/web/src/lib/media/matroska.ts',"import { LIMITS, language, validateCue, type Cue } from './contracts.js';","import { LIMITS, language, validateCue } from './contracts.js';");
-            replace('apps/web/src/lib/media/moss-client.ts','error ? no(error) : yes(value);','if (error) no(error); else yes(value);');
-            replace('apps/web/src/lib/media/workspace.ts',"} catch (e) {\n        guard();\n        this.notice('Device resume is unavailable; playback remains available.');","} catch {\n        guard();\n        this.notice('Device resume is unavailable; playback remains available.');");
-            await ESLint.outputFixes(await eslint.lintFiles(lintPaths));
-            const prettier=require('prettier');
-            const configuration=await prettier.resolveConfig('eslint.config.js');
+            function replace(path,from,to,count=1){const text=fs.readFileSync(path,'utf8');if(text.split(from).length!==count+1)throw Error('Ambiguous edit '+path);fs.writeFileSync(path,text.split(from).join(to));}
+            replace('eslint.config.js',"          MessageChannel: 'readonly'","          MessageChannel: 'readonly',\n          ReadableStream: 'readonly',\n          EventTarget: 'readonly',\n          MessageEvent: 'readonly',\n          Event: 'readonly',\n          navigator: 'readonly'");
+            replace('tests/media/core.test.mjs','  identify,\n','');
+            replace('tests/media/core.test.mjs','.map(({ id, ...c }) => c)','.map((cue) => { const copy = { ...cue }; delete copy.id; return copy; })',2);
+            replace('tests/media/lifecycle.test.mjs','import { localSource, identify, streamedRange }','import { identify, streamedRange }');
+            replace('tests/media/integration-boundaries.test.mjs','  let latest,\n    reads = 0,\n    writes = 0;','  let latest,\n    writes = 0;');
+            replace('tests/media/integration-boundaries.test.mjs','        reads++;\n','');
+            replace('tests/media/transaction-double.mjs','    const factory = this;','    // eslint-disable-next-line @typescript-eslint/no-this-alias -- Keep the factory distinct from the mock connection receiver.\n    const factory = this;');
+            const path='tests/media/dom-browser.py';
+            let lines=fs.readFileSync(path,'utf8').split('\n'),start=lines.findIndex(s=>s.startsWith('  assert page.evaluate'));
+            const end=lines.findIndex((s,i)=>i>start&&s.startsWith('        case(\'dark appearance'));
+            if(start<0||end<=start)throw Error('Contrast test indentation range missing');
+            for(let i=start;i<end;i++)lines[i]='          '+lines[i];
+            fs.writeFileSync(path,lines.join('\n'));
+            const {ESLint}=require('eslint'),eslint=new ESLint({fix:true});
+            const paths=candidate.files.map(f=>f.path).filter(p=>/\.(?:[cm]?js|ts)$/.test(p)&&p!=='eslint.config.js');
+            await ESLint.outputFixes(await eslint.lintFiles(paths));
+            const prettier=require('prettier'),configuration=await prettier.resolveConfig('eslint.config.js');
             fs.writeFileSync('eslint.config.js',await prettier.format(fs.readFileSync('eslint.config.js','utf8'),{...configuration,filepath:'eslint.config.js'}));
-            report=await new ESLint({fix:false}).lintFiles(lintPaths);
+            const report=await new ESLint({fix:false}).lintFiles(paths);
             const diagnostics=report.flatMap(r=>r.messages.map(m=>({path:r.filePath.replace(process.cwd()+'/',''),...m})));
+            fs.mkdirSync('.cache/media-source-review',{recursive:true});
             fs.writeFileSync('.cache/media-source-review/diagnostics.json',JSON.stringify(diagnostics,null,2));
             const changed=cp.execFileSync('git',['diff','--name-only'],{encoding:'utf8'}).trim().split('\n').filter(Boolean);
-            if(changed.some(p=>!paths.includes(p)))throw Error('Unscoped modification');
-            const files=changed.map(path=>{const bytes=fs.readFileSync(path);return{path,before:before[path],sha256:sha(bytes),gitBlob:crypto.createHash('sha1').update(Buffer.from(`blob ${bytes.length}\0`)).update(bytes).digest('hex'),content:bytes.toString('utf8')};});
-            fs.writeFileSync('.cache/media-source-review/candidate.json',JSON.stringify({base:cp.execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),files}));
+            if(changed.some(p=>!candidate.files.some(f=>f.path===p)))throw Error('Unscoped change');
+            for(const f of candidate.files){const b=fs.readFileSync(f.path);f.content=b.toString('utf8');f.sha256=hash(b);f.gitBlob=crypto.createHash('sha1').update(Buffer.from(`blob ${b.length}\0`)).update(b).digest('hex');}
+            candidate.base=cp.execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+            fs.writeFileSync('.cache/media-source-review/candidate.json',JSON.stringify(candidate));
             fs.writeFileSync('.cache/media-source-review/review.diff',cp.execFileSync('git',['diff','--no-ext-diff'],{encoding:'utf8'}));
-            console.log(JSON.stringify({changed:files.length,remaining:diagnostics.filter(m=>m.severity===2)},null,2));
-          })().catch(error=>{console.error(error);process.exitCode=1;});
+            console.log(JSON.stringify({changed:changed.length,diagnostics},null,2));
+            if(diagnostics.some(m=>m.severity===2))process.exitCode=1;
+          })().catch(e=>{console.error(e);process.exitCode=1;});
           JS
+      - name: Validate Python UI harness syntax
+        run: python -m py_compile tests/media/dom-browser.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -102,11 +87,11 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 3
-      - name: Check installed candidate application
+      - name: Check installed application
         run: pnpm --dir apps/web check
-      - name: Build candidate application
+      - name: Build application
         run: pnpm --dir apps/web build
-      - name: Run core media suite
+      - name: Run core media tests
         run: pnpm exec node tools/media/test.mjs
-      - name: Check candidate against normal repository lint
+      - name: Run normal repository lint
         run: pnpm check
