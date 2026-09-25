@@ -7,6 +7,7 @@
 import { EPUB, type FoliateEpubBook } from './epub.js';
 import {
   LimitedArchive,
+  validateArchivePath,
   type ArchiveOptions
 } from '../functions/file-loaders/utils/limited-archive';
 
@@ -26,17 +27,37 @@ export async function openFoliateEpub(
 ): Promise<FoliateEpubPublication> {
   const archive = await LimitedArchive.open(blob, options);
   let closed = false;
+  const resourceIndex = new Map<string, string>();
+  for (const literal of archive.entries.keys()) {
+    const candidates = new Set([literal]);
+    try {
+      candidates.add(validateArchivePath(decodeURI(literal)));
+    } catch {
+      // The literal path was validated by LimitedArchive. A malformed decoded
+      // spelling simply is not exposed as an alternate resource name.
+    }
+    for (const candidate of candidates) {
+      const existing = resourceIndex.get(candidate);
+      if (existing && existing !== literal) {
+        await archive.close();
+        throw new Error(`Ambiguous EPUB resource path: ${candidate}`);
+      }
+      resourceIndex.set(candidate, literal);
+    }
+  }
+  const literalName = (uri: string) => resourceIndex.get(uri);
   const source = {
     async loadText(uri: string): Promise<string | null> {
-      if (!archive.entries.has(uri)) return null;
-      return archive.readText(uri);
+      const literal = literalName(uri);
+      return literal ? archive.readText(literal) : null;
     },
     async loadBlob(uri: string): Promise<Blob | null> {
-      if (!archive.entries.has(uri)) return null;
-      return archive.readBlob(uri);
+      const literal = literalName(uri);
+      return literal ? archive.readBlob(literal) : null;
     },
     getSize(uri: string): number {
-      return archive.entries.get(uri)?.uncompressedSize ?? 0;
+      const literal = literalName(uri);
+      return literal ? (archive.entries.get(literal)?.uncompressedSize ?? 0) : 0;
     }
   };
 
