@@ -5,6 +5,7 @@
  */
 
 import { codePointLength, type PublicationResource } from './reader-location';
+import { foldSearchCase } from './library/search-normalization';
 
 interface SearchRequest {
   type: 'search';
@@ -151,5 +152,5 @@ async function search(request: SearchRequest) {
 
 function fold(value: string, matchCase: boolean) {
   const normalized = value.normalize('NFC');
-  return matchCase ? normalized : normalized.toLowerCase();
+  return matchCase ? normalized : foldSearchCase(normalized);
 }

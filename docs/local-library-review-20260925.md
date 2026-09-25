@@ -106,6 +106,10 @@ metadata, queries and passage matching. Original text, excerpts and locator
 coordinates remain unchanged. This is the existing NFKC/lowercase search with a
 specific contextual repair, not a promise of exhaustive Unicode case folding.
 The metadata component imports only the small helper, not the HTML parser.
+Wider inspection reproduced the same self-query failure in Search Book. Its worker
+now shares the case-only helper while retaining NFC normalization and the explicit
+Match case option; it does not acquire Library search's broader NFKC matching.
+The actual-worker unit harness and the browser test cover both behaviors.
 
 The unit regression exercises self-matching and original offsets for Greek,
 full-width Latin text, Japanese kana, combining marks, ligatures and astral text.

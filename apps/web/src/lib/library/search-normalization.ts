@@ -10,8 +10,6 @@
  * source-offset mapping and metadata/query matching agree. Never store this
  * normalized text in a book, excerpt, or durable locator.
  */
-export const foldSearch = (value: string) =>
-  value
-    .normalize('NFKC')
-    .toLowerCase()
-    .replace(/\u03c2/g, '\u03c3');
+export const foldSearchCase = (value: string) => value.toLowerCase().replace(/\u03c2/g, '\u03c3');
+
+export const foldSearch = (value: string) => foldSearchCase(value.normalize('NFKC'));
