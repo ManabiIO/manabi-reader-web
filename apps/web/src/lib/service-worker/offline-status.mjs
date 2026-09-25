@@ -12,14 +12,42 @@ export const OFFLINE_STATUS_REQUEST = 'manabi-reader:offline-status:v1';
  */
 
 /**
+ * Installation, diagnostics and cache reads must agree on usability. A 2xx
+ * status alone accepts 204s and HTML fallback pages served in place of code.
+ * Check metadata only; this is not byte-integrity or JavaScript validation.
+ * Extensionless prerendered routes in Reader are HTML documents. JSON/text
+ * endpoints with explicit extensions are not treated as documents.
+ * @param {Response|undefined} response
+ * @param {string} url
+ * @param {boolean} isPage
+ */
+export function isUsableShellResponse(response, url, isPage = false) {
+  if (!response || response.status !== 200 || response.redirected) return false;
+  const path = new URL(url).pathname.toLowerCase();
+  const mime = response.headers.get('Content-Type')?.split(';', 1)[0].trim().toLowerCase();
+  if (/\.m?js$/.test(path)) {
+    // JavaScript MIME essences recognized by HTML, including legacy aliases.
+    return /^(?:application\/(?:x-)?(?:java|ecma)script|text\/(?:(?:x-)?(?:java|ecma)script|javascript1\.[0-5]|jscript|livescript))$/.test(
+      mime ?? ''
+    );
+  }
+  if (path.endsWith('.css')) return mime === 'text/css';
+  if (/\.html?$/.test(path) || (isPage && !/\.[^/]+$/.test(path))) {
+    return mime === 'text/html';
+  }
+  return true;
+}
+
+/**
  * Inspect only this generation's required shell. No fetches, book reads, cache
  * repair, or persisted "ready" flag. Readiness is a snapshot, not a backup.
  * @param {CacheStorage} storage
  * @param {string} name
  * @param {Set<string>} assets
+ * @param {Set<string>} pages
  * @returns {Promise<{state: 'ready'|'incomplete'|'unavailable', required: number, cached: number}>}
  */
-export async function inspectOfflineShell(storage, name, assets) {
+export async function inspectOfflineShell(storage, name, assets, pages = new Set()) {
   const required = assets.size;
   let cached = 0;
   try {
@@ -34,7 +62,7 @@ export async function inspectOfflineShell(storage, name, assets) {
       const present = await Promise.all(
         urls.slice(i, i + 8).map(async (url) => {
           const response = await cache.match(url);
-          return !!response && response.status === 200 && !response.redirected;
+          return isUsableShellResponse(response, url, pages.has(url));
         })
       );
       cached += present.filter(Boolean).length;

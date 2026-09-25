@@ -4,6 +4,7 @@ import { createStorageAccess } from '../../apps/web/src/lib/data/window/navigato
 import {
   getOfflineStatus,
   inspectOfflineShell,
+  isUsableShellResponse,
   OFFLINE_STATUS_REQUEST
 } from '../../apps/web/src/lib/service-worker/offline-status.mjs';
 
@@ -266,11 +267,15 @@ test('bad responses, redirects and missing entries are incomplete', async () => 
         a: new Response('good'),
         b: new Response(null, { status: 404 }),
         c: { status: 200, redirected: true }
-      })[key]
+      })[key.slice(scope.length)]
   };
   const storage = { keys: async () => ['shell'], open: async () => cache };
   assert.deepEqual(
-    await inspectOfflineShell(storage, 'shell', new Set(['a', 'b', 'c', 'missing'])),
+    await inspectOfflineShell(
+      storage,
+      'shell',
+      new Set(['a', 'b', 'c', 'missing'].map((path) => scope + path))
+    ),
     {
       state: 'incomplete',
       required: 4,
@@ -374,4 +379,69 @@ test('failed cache enumeration or entry reads cannot certify offline readiness',
       'unavailable'
     );
   }
+});
+
+test('shell response metadata rejects empty statuses and document fallbacks for code', () => {
+  const response = (mime, status = 200) =>
+    new Response(status === 204 ? null : 'fixture', {
+      status,
+      headers: mime ? { 'Content-Type': mime } : {}
+    });
+  for (const path of ['app.js', 'MODULE.MJS', 'app.css']) {
+    assert.equal(isUsableShellResponse(response('text/html'), scope + path), false);
+    assert.equal(isUsableShellResponse(response('text/plain'), scope + path), false);
+    assert.equal(isUsableShellResponse(response(null), scope + path), false);
+  }
+  for (const mime of [
+    'text/javascript',
+    'application/javascript',
+    'text/javascript1.5',
+    'application/x-javascript',
+    'Text/JavaScript; charset=utf-8'
+  ]) {
+    assert.equal(isUsableShellResponse(response(mime), scope + 'app.js'), true, mime);
+  }
+  assert.equal(isUsableShellResponse(response('text/css; charset=utf-8'), scope + 'app.css'), true);
+  assert.equal(isUsableShellResponse(response('text/html'), scope + 'manage', true), true);
+  assert.equal(isUsableShellResponse(response('text/plain'), scope + 'manage', true), false);
+  assert.equal(isUsableShellResponse(response('text/plain'), scope, true), false);
+  assert.equal(isUsableShellResponse(response('text/plain'), scope + 'index.html'), false);
+  assert.equal(isUsableShellResponse(response('application/json'), scope + 'data.json', true), true);
+  assert.equal(isUsableShellResponse(response('image/png'), scope + 'icon.png'), true);
+  assert.equal(isUsableShellResponse(response('text/javascript', 204), scope + 'app.js'), false);
+  assert.equal(isUsableShellResponse(response('text/javascript', 206), scope + 'app.js'), false);
+});
+
+test('inspection uses the same document/code metadata checks without reading bodies', async () => {
+  const urls = new Set([scope, scope + 'app.js', scope + 'app.css']);
+  const pages = new Set([scope]);
+  let bad = false;
+  const storage = {
+    keys: async () => ['shell'],
+    open: async () => ({
+      match: async (url) => ({
+        status: 200,
+        redirected: false,
+        headers: new Headers({
+          'Content-Type': bad
+            ? 'text/plain'
+            : url === scope
+              ? 'text/html'
+              : url.endsWith('.js')
+                ? 'text/javascript'
+                : 'text/css'
+        }),
+        text() {
+          throw new Error('must not consume bodies');
+        }
+      })
+    })
+  };
+  assert.equal((await inspectOfflineShell(storage, 'shell', urls, pages)).state, 'ready');
+  bad = true;
+  assert.deepEqual(await inspectOfflineShell(storage, 'shell', urls, pages), {
+    state: 'incomplete',
+    required: 3,
+    cached: 0
+  });
 });

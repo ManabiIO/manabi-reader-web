@@ -230,3 +230,63 @@ Additional primary references:
 - [Playwright: browser contexts](https://playwright.dev/python/docs/api/class-browser#browser-new-context)
 - [Playwright: persistent contexts](https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-persistent-context)
 - [idb: transaction lifetime and tx.done](https://github.com/jakearchibald/idb#transaction-lifetime)
+
+## Additional response and restart review
+
+The required cache transaction is atomic, but that does not make every successful
+HTTP response usable. The Cache API accepts successful statuses other than 206,
+including an empty 204, and it does not know whether a host's 200 HTML fallback was
+intended to be a JavaScript or CSS file. Installation now performs the same bounded
+metadata inspection as readiness after `addAll()` and rejects an unusable candidate
+before it can replace the working worker. A failed install retires only a candidate
+cache newly created by that install, not a pre-existing cache, user data, fonts or
+another scope. Cleanup errors do not replace the original installation error.
+
+The shared predicate requires status 200, no redirect, JavaScript MIME for `.js` and
+`.mjs`, CSS MIME for `.css`, and HTML MIME for HTML files and Reader's extensionless
+prerendered document routes. It accepts the standard's legacy JavaScript MIME aliases
+and charset parameters. Explicitly suffixed JSON/text endpoints are not classified
+as HTML documents. As before, changing the routing contract to introduce extensionless
+non-HTML endpoints requires revisiting classification. This is metadata validation,
+not a content hash, syntax check, or proof that same-MIME bytes are from one deployment.
+The unique-version and version-consistent hosting requirements still apply.
+
+Active-shell reads also reject incompatible cached metadata. Online requests may
+fall back to the origin, but do not write new-version bytes into an older cache.
+Inspection remains read-only. A missing or malformed active cache still does not
+trigger a hidden destructive reset or pretend to have repaired itself.
+
+Optional static-font cache names were already versioned, but HTTP cache entries were
+not. The first read after an upgrade could therefore retain old same-URL font bytes.
+Cache misses for these static fonts now use `cache: reload`; exact immutable build
+font URLs still use normal HTTP-cache reuse. Subsequent font reads use their owned
+Cache Storage entries as before. No proactive font download is introduced.
+
+Browser worker tests add real 204, wrong-JavaScript-MIME, wrong-CSS-MIME and wrong-page-
+MIME candidates. Each must reject installation, remove its new candidate, preserve
+the active application, and still reopen that application after the origin stops.
+A separate real-HTTP-cache test warms a one-hour mutable font response, upgrades the
+worker naturally, requires refreshed bytes, then stops the origin and checks the
+newly cached bytes. That fixture tests byte caching, not font decoding.
+
+The compiled-app acceptance origin now sends `Cache-Control: no-store` so its normal
+HTTP cache cannot rescue the browser-restart tests. Explicit service-worker Cache
+Storage remains allowed. The image-bearing EPUB must decode its local image both
+before and after the offline browser restart; its natural dimensions and SHA-256
+must match the image bytes in the original EPUB. A `blob:` URL alone is no longer
+accepted as proof of image availability. Existing import/rollback/retry assertions,
+complete browser shutdown, stopped-origin navigation and zero-page-error checks remain.
+
+Primary references for this review:
+
+- [Cache.addAll algorithm](https://www.w3.org/TR/service-workers/#cache-addAll):
+  successful HTTP statuses and atomic cache batch behavior.
+- [MIME type groups](https://mimesniff.spec.whatwg.org/#javascript-mime-type):
+  JavaScript aliases and HTML MIME essence.
+- [Fetch cache modes](https://fetch.spec.whatwg.org/#concept-request-cache-mode):
+  `reload` bypasses the stored HTTP response on the network leg.
+
+Local regression evidence: four new behavioral tests fail against the retained
+`193966ed` modules; the refined set passes 71/71 focused cases. Full browser/build
+qualification is recorded against the published head in the pull request, not
+inferred from local unit tests or the previous head's CI.

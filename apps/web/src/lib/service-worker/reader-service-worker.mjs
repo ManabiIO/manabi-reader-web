@@ -6,7 +6,11 @@
 
 /// <reference lib="webworker" />
 
-import { inspectOfflineShell, OFFLINE_STATUS_REQUEST } from './offline-status.mjs';
+import {
+  inspectOfflineShell,
+  isUsableShellResponse,
+  OFFLINE_STATUS_REQUEST
+} from './offline-status.mjs';
 
 /**
  * Register Reader's static application-shell worker. Cache ownership includes
@@ -71,7 +75,24 @@ export function registerReaderServiceWorker(worker, config) {
           credentials: 'same-origin'
         })
     );
-    event.waitUntil(storage.open(shellName).then((cache) => cache.addAll(requests)));
+    event.waitUntil(
+      (async () => {
+        // Do not delete an existing cache on a failed reinstallation. Only this
+        // install's newly created candidate is ours to retire on failure.
+        const existed = (await storage.keys()).includes(shellName);
+        try {
+          const cache = await storage.open(shellName);
+          await cache.addAll(requests);
+          const status = await inspectOfflineShell(storage, shellName, shellAssets, pages);
+          if (status.state !== 'ready') {
+            throw new Error('Unable to prepare a usable offline shell');
+          }
+        } catch (error) {
+          if (!existed) await storage.delete(shellName).catch(() => {});
+          throw error;
+        }
+      })()
+    );
   });
 
   /** @type {ReturnType<typeof inspectOfflineShell>|undefined} */
@@ -86,7 +107,7 @@ export function registerReaderServiceWorker(worker, config) {
     } catch {
       return;
     }
-    inspection ??= inspectOfflineShell(storage, shellName, shellAssets).finally(() => {
+    inspection ??= inspectOfflineShell(storage, shellName, shellAssets, pages).finally(() => {
       inspection = undefined;
     });
     event.waitUntil(
@@ -206,7 +227,7 @@ export function registerReaderServiceWorker(worker, config) {
     try {
       const cache = await storage.open(shellName);
       const response = await cache.match(key);
-      if (response) return response;
+      if (response && isUsableShellResponse(response, key, pages.has(key))) return response;
     } catch {
       // A storage failure should not prevent an otherwise usable online shell.
     }
@@ -243,7 +264,11 @@ export function registerReaderServiceWorker(worker, config) {
     }
     let response;
     try {
-      response = await worker.fetch(request);
+      // A new generation's cache name does not invalidate the browser's HTTP
+      // cache. Refresh mutable static-font URLs, but reuse content-hashed fonts.
+      response = await worker.fetch(
+        immutableFontAssets.has(key) ? request : new Request(request, { cache: 'reload' })
+      );
     } catch {
       // A face absent from optional storage must fail as a resource, not as
       // rejected worker work. CSS can use its system fallback. Never cache the

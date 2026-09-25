@@ -6,6 +6,7 @@ compiled-app acceptance test covers EPUB import and offline reopening.
 import argparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import re
 from pathlib import Path
 import threading
 import unittest
@@ -33,11 +34,12 @@ class FixtureHandler(BaseHTTPRequestHandler):
         if path == SCOPE + 'service-worker.js':
             status_source = (ROOT / 'apps/web/src/lib/service-worker/offline-status.mjs').read_text()
             worker_source = (ROOT / 'apps/web/src/lib/service-worker/reader-service-worker.mjs').read_text()
-            worker_source = worker_source.replace(
-                "import { inspectOfflineShell, OFFLINE_STATUS_REQUEST } from './offline-status.mjs';", '')
+            worker_source, imports = re.subn(
+                r"import\s*\{[^}]+\}\s*from './offline-status.mjs';", '', worker_source)
+            assert imports == 1, 'The fixture must inline the real worker dependency exactly once'
             config = {
                 'build': [SCOPE + 'app-' + version + '.js', SCOPE + 'offline-status.mjs'],
-                'files': [SCOPE + 'appearance-init.js'],
+                'files': [SCOPE + 'appearance-init.js', SCOPE + 'app.css', SCOPE + 'font.woff2'],
                 'prerendered': [SCOPE, SCOPE + 'manage', SCOPE + 'b'],
                 'version': version, 'userFontsCacheName': 'fixture-user-fonts'
             }
@@ -51,11 +53,24 @@ class FixtureHandler(BaseHTTPRequestHandler):
         elif path == SCOPE + 'appearance-init.js':
             body = 'window.appearanceVersion = ' + json.dumps(version)
             headers['Cache-Control'] = 'public, max-age=3600'
+        elif path == SCOPE + 'app.css':
+            mime, body = 'text/css', 'body { font-size: 16px; }'
+            if version == 'bad-css':
+                mime, body = 'text/html', '<html>Wrong CSS response</html>'
+            headers['Cache-Control'] = 'public, max-age=3600'
+        elif path == SCOPE + 'font.woff2':
+            # Byte-cache contract only; the app acceptance checks real rendering.
+            mime, body = 'font/woff2', 'font:' + version
+            headers['Cache-Control'] = 'public, max-age=3600'
         elif path.startswith(SCOPE + 'app-') and path.endswith('.js'):
             served = path.rsplit('app-', 1)[1][:-3]
             body = 'document.body.dataset.boot = ' + json.dumps(served)
             if served == 'bad':
                 status, body = 503, 'deliberately missing required asset'
+            if served == 'empty':
+                status, body = 204, ''
+            if served == 'bad-js':
+                mime, body = 'text/html', '<html>Not a JavaScript module</html>'
             if served == 'redirect':
                 status, body = 302, ''
                 headers['Location'] = SCOPE + 'login'
@@ -68,6 +83,8 @@ class FixtureHandler(BaseHTTPRequestHandler):
                     f'<script>navigator.serviceWorker.register("{SCOPE}service-worker.js")'
                     '.catch(() => {});</script></body></html>')
             headers['Cache-Control'] = 'public, max-age=3600'
+            if version == 'bad-page' and path == SCOPE + 'b':
+                mime, body = 'text/plain', 'Not an HTML document'
         elif path == '/observer':
             mime, body = 'text/html', '<!doctype html><title>Outside worker scope</title>'
         else:
@@ -258,6 +275,63 @@ class OfflineWorker(unittest.TestCase):
         response = self.page.reload()
         self.assertTrue(response.from_service_worker)
         self.assertEqual(self.page.locator('body').get_attribute('data-boot'), 'v1')
+
+    def assert_bad_candidate_keeps_old_app(self, version):
+        self.install()
+        self.page.reload()
+        self.update(version, 'redundant')
+        self.assertEqual(self.page.evaluate('''async ({scope, version}) => {
+          const name = `manabi-reader:${encodeURIComponent(location.origin + scope)}:shell:${version}`;
+          return (await caches.keys()).includes(name);
+        }''', {'scope': SCOPE, 'version': version}), False)
+        self.assertEqual(self.status()['state'], 'ready')
+        self.stop_origin()
+        response = self.page.reload()
+        self.assertTrue(response.from_service_worker)
+        self.assertEqual(self.page.locator('body').get_attribute('data-boot'), 'v1')
+
+    def test_empty_successful_response_cannot_replace_the_working_shell(self):
+        self.assert_bad_candidate_keeps_old_app('empty')
+
+    def test_html_instead_of_javascript_cannot_replace_the_working_shell(self):
+        self.assert_bad_candidate_keeps_old_app('bad-js')
+
+    def test_html_instead_of_css_cannot_replace_the_working_shell(self):
+        self.assert_bad_candidate_keeps_old_app('bad-css')
+
+    def test_non_html_page_cannot_replace_the_working_shell(self):
+        self.assert_bad_candidate_keeps_old_app('bad-page')
+
+    def test_mutable_font_refreshes_http_cache_then_survives_offline(self):
+        self.install()
+        self.page.reload()
+        read_font = 'async scope => (await fetch(scope + "font.woff2")).text()'
+        self.assertEqual(self.page.evaluate(read_font, SCOPE), 'font:v1')
+        self.assertEqual(self.server.requests.count(SCOPE + 'font.woff2'), 1)
+        observer = self.context.new_page()
+        observer.goto(self.origin + '/observer')
+        observer.evaluate('''async scope => {
+          window.oldActive = (await navigator.serviceWorker.getRegistration(scope)).active;
+        }''', SCOPE)
+        self.update('v2', 'installed')
+        self.page.close()
+        observer.evaluate('''async scope => {
+          const deadline = Date.now() + 10000;
+          while (Date.now() < deadline) {
+            const r = await navigator.serviceWorker.getRegistration(scope);
+            if (r?.active !== window.oldActive && r?.active?.state === 'activated') return;
+            await new Promise(resolve => setTimeout(resolve, 25));
+          }
+          throw new Error('New worker did not activate');
+        }''', SCOPE)
+        self.page = self.context.new_page()
+        self.page.on('pageerror', lambda error: self.errors.append(str(error)))
+        self.page.goto(self.origin + SCOPE + 'manage')
+        self.assertEqual(self.page.evaluate(read_font, SCOPE), 'font:v2')
+        self.assertEqual(self.server.requests.count(SCOPE + 'font.woff2'), 2)
+        self.stop_origin()
+        self.assertEqual(self.page.evaluate(read_font, SCOPE), 'font:v2')
+        observer.close()
 
     def test_redirect_is_not_an_accepted_shell_asset(self):
         self.install()

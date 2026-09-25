@@ -1,17 +1,42 @@
 """Compiled Reader offline acceptance with a durable profile and a stopped origin."""
 import argparse
+import hashlib
+import io
 import json
 import re
 from pathlib import Path
 import tempfile
 import threading
 import unittest
+import zipfile
 from urllib.parse import urljoin
 from playwright.sync_api import sync_playwright, expect
 from test_static_reader import ThreadingHTTPServer, StaticHandler, ROOT, TITLE, epub
 
 OPTIONS = None
 SCOPE = '/Reader-Web/'
+
+
+class OfflineStaticHandler(StaticHandler):
+    def end_headers(self):
+        # A browser restart must not be rescued by its ordinary HTTP cache.
+        # Explicit Cache Storage writes by the real service worker remain allowed.
+        self.send_header('Cache-Control', 'no-store')
+        super().end_headers()
+
+
+def decoded_local_image(page):
+    return page.locator('.book-content #safe-image').evaluate('''async image => {
+      const url = image.currentSrc || image.src;
+      if (!url.startsWith('blob:')) throw new Error('Expected an imported local image');
+      await image.decode();
+      const bytes = await (await fetch(url)).arrayBuffer();
+      const digest = await crypto.subtle.digest('SHA-256', bytes);
+      return {
+        width: image.naturalWidth, height: image.naturalHeight,
+        sha256: [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('')
+      };
+    }''')
 
 
 class OfflineReader(unittest.TestCase):
@@ -27,12 +52,21 @@ class OfflineReader(unittest.TestCase):
     def run_offline_case(self, *, import_book, abort_once=False):
         self.assertTrue((ROOT / 'service-worker.js').is_file(), 'Build the actual Reader first')
         manifest = json.loads((ROOT / 'manifest.webmanifest').read_text())
-        server = ThreadingHTTPServer(('127.0.0.1', 0), StaticHandler)
+        server = ThreadingHTTPServer(('127.0.0.1', 0), OfflineStaticHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         origin = 'http://127.0.0.1:' + str(server.server_port)
         launch_url = urljoin(origin + SCOPE + 'manifest.webmanifest', manifest['start_url'])
         self.assertTrue(launch_url.startswith(origin + SCOPE))
+        book_bytes = epub() if import_book else None
+        expected_image = None
+        decoded_image = None
+        if book_bytes:
+            with zipfile.ZipFile(io.BytesIO(book_bytes)) as archive:
+                expected_image = {
+                    'width': 1, 'height': 1,
+                    'sha256': hashlib.sha256(archive.read('絵.png')).hexdigest()
+                }
         errors = []
         console = []
         failed_requests = []
@@ -77,13 +111,14 @@ class OfflineReader(unittest.TestCase):
                         })();""")
                     page = context.pages[0] if context.pages else context.new_page()
                     observe(page)
-                    page.goto(origin + SCOPE + 'manage')
+                    initial = page.goto(origin + SCOPE + 'manage')
+                    self.assertEqual(initial.headers.get('cache-control'), 'no-store')
                     expect(page.locator('input[type=file][webkitdirectory]')).to_be_attached()
                     reader_url = None
                     if import_book:
                         stage = 'EPUB import'
                         page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
-                            'name': 'offline.epub', 'mimeType': 'application/epub+zip', 'buffer': epub()
+                            'name': 'offline.epub', 'mimeType': 'application/epub+zip', 'buffer': book_bytes
                         })
                         if abort_once:
                             stage = 'failed import rollback and retry'
@@ -103,11 +138,13 @@ class OfflineReader(unittest.TestCase):
                             expect(page.get_by_role('button', name='Read ' + TITLE, exact=True)).to_have_count(0)
                             page.get_by_role('dialog').get_by_role('button', name='Close', exact=True).first.click()
                             page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
-                                'name': 'offline.epub', 'mimeType': 'application/epub+zip', 'buffer': epub()
+                                'name': 'offline.epub', 'mimeType': 'application/epub+zip', 'buffer': book_bytes
                             })
                         page.get_by_role('button', name='Read ' + TITLE, exact=True).click(timeout=30000)
                         expect(page.locator('.book-content')).to_be_visible(timeout=30000)
                         reader_url = page.url
+                        stage = 'online image decoding'
+                        self.assertEqual(decoded_local_image(page), expected_image)
                     stage = 'automatic preparation'
                     page.evaluate('''async scope => {
                       const deadline = Date.now() + 15000;
@@ -155,9 +192,8 @@ class OfflineReader(unittest.TestCase):
                         expect(fixture_ruby.locator('rt')).to_have_text('ほん')
                         # The same image-bearing EPUB that exposed the WebKit
                         # failure must still contain its real local image.
-                        expect(page.locator('.book-content #safe-image')).to_have_attribute(
-                            'src', re.compile(r'^blob:')
-                        )
+                        decoded_image = decoded_local_image(page)
+                        self.assertEqual(decoded_image, expected_image)
                     else:
                         expect(page).to_have_url(origin + SCOPE + 'manage')
                         expect(page.locator('input[type=file][webkitdirectory]')).to_be_attached()
@@ -176,7 +212,8 @@ class OfflineReader(unittest.TestCase):
                     diagnostics.mkdir(parents=True, exist_ok=True)
                     report = {
                         'stage': stage, 'url': page.url if page else None, 'page_errors': errors,
-                        'console': console[-80:], 'failed_requests': failed_requests[-80:]
+                        'console': console[-80:], 'failed_requests': failed_requests[-80:],
+                        'decoded_local_image': decoded_image
                     }
                     try:
                         if page and not page.is_closed():

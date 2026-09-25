@@ -18,6 +18,16 @@ function makeHarness({ scope = url('/'), version = 'new', ...overrides } = {}) {
   const precached = [];
   const precacheRequests = [];
   let fetchImpl = async (request) => new Response(`network:${request.url ?? request}`);
+  let precacheResponse = (key) =>
+    new Response(`shell:${key}`, {
+      headers: {
+        'Content-Type': /\.m?js$/.test(key)
+          ? 'text/javascript'
+          : /\.css$/.test(key)
+            ? 'text/css'
+            : 'text/html'
+      }
+    });
   let failWrite = false;
   let failOpen = false;
   class MemoryCache {
@@ -43,7 +53,7 @@ function makeHarness({ scope = url('/'), version = 'new', ...overrides } = {}) {
       for (const request of keys) {
         const key = this.key(request);
         precached.push(key);
-        await this.put(request, new Response(`shell:${key}`));
+        await this.put(request, precacheResponse(key));
       }
     }
   }
@@ -107,6 +117,9 @@ function makeHarness({ scope = url('/'), version = 'new', ...overrides } = {}) {
     fonts: `${prefix}remote-fonts:${version}`,
     packagedFonts: `${prefix}packaged-fonts:v1`,
     staticFonts: `${prefix}static-fonts:${version}`,
+    setPrecacheResponse(fn) {
+      precacheResponse = fn;
+    },
     setFetch(fn) {
       fetchImpl = fn;
     },
@@ -509,4 +522,88 @@ test('status cannot report readiness when the cache API is denied', async () => 
     ]
   });
   assert.equal(reply.state, 'unavailable');
+});
+
+test('a 204 required response rejects installation and removes only its new candidate', async () => {
+  const h = makeHarness();
+  const old = `${h.prefix}shell:old`;
+  const previous = await h.storage.open(old);
+  await previous.put(url('/app.js'), new Response('previous'));
+  const imported = await h.storage.open('userFonts');
+  await imported.put(url('/userfonts/saved'), new Response('saved'));
+  h.setPrecacheResponse(() => new Response(null, { status: 204 }));
+  await assert.rejects(h.event('install'), /usable offline shell/i);
+  assert.equal(h.caches.has(h.shell), false);
+  assert.equal(await body(await previous.match(url('/app.js'))), 'previous');
+  assert.equal(await body(await imported.match(url('/userfonts/saved'))), 'saved');
+});
+
+test('HTML fallbacks for required JavaScript and CSS reject the candidate', async () => {
+  for (const asset of ['/app.js', '/app.css']) {
+    const h = makeHarness({ build: [asset] });
+    const fallback = new Response('<html>Fallback</html>', {
+      headers: { 'Content-Type': 'text/html' }
+    });
+    h.setPrecacheResponse(() => fallback.clone());
+    await assert.rejects(h.event('install'), /usable offline shell/i);
+    assert.equal(h.caches.has(h.shell), false);
+  }
+});
+
+test('a malformed cached page or script is neither ready nor returned as a usable shell', async () => {
+  const h = makeHarness();
+  await h.event('install');
+  const cache = await h.storage.open(h.shell);
+  const fallback = new Response('not JavaScript', {
+    headers: { 'Content-Type': 'text/html' }
+  });
+  await cache.put(url('/app.js'), fallback);
+  let state;
+  await h.event('message', {
+    data: { type: 'manabi-reader:offline-status:v1' },
+    source: { url: url('/') },
+    ports: [
+      {
+        postMessage: (reply) => {
+          state = reply.state;
+        },
+        close() {}
+      }
+    ]
+  });
+  assert.equal(state, 'incomplete');
+  assert.equal(await body(await h.request('/app.js')), `network:${url('/app.js')}`);
+  assert.equal(await body(await cache.match(url('/app.js'))), 'not JavaScript');
+});
+
+test('failed installation cleanup retains an existing cache and preserves the original error', async () => {
+  const h = makeHarness();
+  const cache = await h.storage.open(h.shell);
+  const failure = new Error('original failure');
+  cache.addAll = async () => {
+    throw failure;
+  };
+  await assert.rejects(h.event('install'), (error) => error === failure);
+  assert.equal(h.caches.has(h.shell), true);
+  assert.deepEqual(h.removed, []);
+  const second = makeHarness();
+  second.setFailWrite(true);
+  second.storage.delete = async () => {
+    throw new Error('cleanup also failed');
+  };
+  await assert.rejects(second.event('install'), /Quota/);
+});
+
+test('static fonts bypass stale HTTP cache on cache miss; hashed fonts still reuse it', async () => {
+  const h = makeHarness({ build: ['/app.js', '/_app/immutable/assets/face.hash.woff2'] });
+  const cacheModes = [];
+  h.setFetch(async (request) => {
+    cacheModes.push(request.cache);
+    return new Response('font');
+  });
+  await h.request('/fonts/default.woff2');
+  await h.request('/_app/immutable/assets/face.hash.woff2');
+  assert.deepEqual(cacheModes, ['reload', 'default']);
+  await h.request('/fonts/default.woff2');
+  assert.equal(cacheModes.length, 2, 'a saved font needs no further network request');
 });
