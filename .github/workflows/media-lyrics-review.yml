@@ -33,7 +33,7 @@ jobs:
           python3 - <<'PY'
           import hashlib,json,pathlib
           raw=pathlib.Path('reviewed/lyrics-candidate.json').read_bytes()
-          assert hashlib.sha256(raw).hexdigest()=='07f75d76617e3908fef3111130289b5686b6f4f27efb44bd950d289254843897'
+          assert hashlib.sha256(raw).hexdigest()=='7df9fd7ec4250b1f973c17f0b2679cfa4b4d88051c56f27a349e42ed73c1e81f'
           entries=json.loads(raw)
           assert len(entries)==18 and len({e['path'] for e in entries})==18
           for entry in entries:
@@ -50,7 +50,6 @@ jobs:
           text=text.replace("select_option('serif')", "select_option('Serif')")
           text=text.replace("== 'serif'", "== 'Serif'")
           text=text.replace('.fontFamily.startsWith("serif")', '.fontFamily.toLowerCase().startsWith("serif")')
-          # Keep Playwright alive while failure diagnostics are collected.
           first=text.index('    try:\n        with sync_playwright() as p:\n')
           last=text.index('    except Exception:', first)
           body=text[first:last].splitlines(keepends=True)[2:]
@@ -116,6 +115,7 @@ jobs:
           python -m pip install playwright==1.63.0
           python -m playwright install --with-deps chromium
       - name: Generate fixture and run core regressions
+        id: fixture
         run: |
           set -o pipefail
           mkdir -p lyrics-evidence
@@ -125,7 +125,7 @@ jobs:
       - name: Real application, IndexedDB and shared display settings
         run: python tests/media/app-browser.py --fixture "$(cat fixture-path.txt)" --output lyrics-evidence/app
       - name: Player, workspace and Web Audio regressions
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.fixture.outcome == 'success' }}
         run: |
           export CHROMIUM="$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
           python tests/media/dom-browser.py --fixture "$(cat fixture-path.txt)" --output lyrics-evidence/player
