@@ -128,6 +128,7 @@
   import { ReaderNavigation } from '$lib/reader-navigation';
   import type { ReaderLocator } from '$lib/reader-location';
   import { readerBookKeyFor } from '$lib/reader-identity';
+  import { readerSourceFormat } from '$lib/reader-source-format';
   import { TextAlignLeft, X } from 'phosphor-svelte';
   import {
     readerImageGalleryPictures$,
@@ -2146,6 +2147,9 @@
     bind:this={bookReaderComponent}
     previewNavigationActive={navigationPreviewing || suppressResumeSave}
     htmlContent={$bookData$.htmlContent}
+    styleSheet={$bookData$.styleSheet}
+    publicationManifest={$rawBookData$.publicationManifest}
+    sourceFormat={readerSourceFormat($rawBookData$)}
     width={$containerViewportWidth$ ?? 0}
     height={$containerViewportHeight$ ?? 0}
     {fontFeatureSettings}
