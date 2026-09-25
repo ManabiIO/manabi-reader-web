@@ -964,10 +964,7 @@ export async function resolvePersonalConflict(id: string, choice: 'local' | 'rem
       throw new IntegrationError('conflict', 409);
     }
     const acceptedRemote = accepted.deleted ? null : (accepted.payload ?? null);
-    if (
-      accepted.revision !== conflict.remoteRevision ||
-      !equal(acceptedRemote, conflict.remote)
-    ) {
+    if (accepted.revision !== conflict.remoteRevision || !equal(acceptedRemote, conflict.remote)) {
       const merged =
         conflict.kind === 'annotation'
           ? mergeAnnotationPayload(
