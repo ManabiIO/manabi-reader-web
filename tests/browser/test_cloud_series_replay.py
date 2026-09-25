@@ -234,6 +234,8 @@ class CloudSeriesReceiptReplay(LibraryBase):
                              for request in StaticHandler.account_requests))
 
         self.wait_for_previews()
+        scans_after_replay = sum(request['path'].endswith('/files/')
+                                 for request in StaticHandler.account_requests)
         self.page.reload()
         expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute(
             'aria-busy', 'false', timeout=30000)
@@ -245,6 +247,10 @@ class CloudSeriesReceiptReplay(LibraryBase):
         self.assertEqual(2, len([key for key in again['metadata']
                                  if key.startswith(f'cloud-series-receipt:42:{CONNECTION}:{PLAN}:')]))
         self.wait_for_previews()
+        self.assertEqual(scans_after_replay,
+                         sum(request['path'].endswith('/files/')
+                             for request in StaticHandler.account_requests),
+                         'Already-applied receipts must not rescan OneDrive on every visit')
 
     def open_reconciling_plan(self):
         self.wait_for_previews()

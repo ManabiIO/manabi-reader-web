@@ -534,7 +534,8 @@
           return {
             source,
             capability: capability.status === 'fulfilled' ? capability.value : undefined,
-            plans: plans.status === 'fulfilled' ? plans.value : []
+            plans: plans.status === 'fulfilled' ? plans.value.items : [],
+            receiptsChanged: plans.status === 'fulfilled' && plans.value.receiptsChanged
           };
         })
       );
@@ -551,7 +552,7 @@
       );
       const cloudWithReceipts = new Set(
         cloudState
-          .filter(({ plans }) => plans.some((plan) => plan.receipts.length))
+          .filter(({ receiptsChanged }) => receiptsChanged)
           .map(({ source }) => sourceKey(source))
       );
       for (const source of nextSources) {

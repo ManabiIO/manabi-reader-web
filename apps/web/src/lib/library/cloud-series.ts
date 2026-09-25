@@ -114,8 +114,10 @@ export async function recentCloudSeries(source: SourceDescriptor) {
     `${base(source)}plans/?${new URLSearchParams({ root: source.root })}`,
     { userId: owner }
   );
-  for (const plan of result.items) await applyCloudSeriesReceipts(source, plan);
-  return result.items;
+  let receiptsChanged = false;
+  for (const plan of result.items)
+    if (await applyCloudSeriesReceipts(source, plan)) receiptsChanged = true;
+  return { items: result.items, receiptsChanged };
 }
 export async function cloudSeriesStatus(source: SourceDescriptor, id: string) {
   const plan = await request<CloudSeriesPlan>(`${base(source)}plans/${planId(id)}/`, {
@@ -173,6 +175,7 @@ export async function applyCloudSeriesReceipts(source: SourceDescriptor, plan: C
     }
     if (changed) await tx.store.delete(`library-catalog:${sourceKey(source)}`);
     await tx.done;
+    return changed;
   } catch (error) {
     try {
       tx.abort();
