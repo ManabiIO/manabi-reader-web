@@ -28,6 +28,7 @@
   export let books: ShelfBook[] = [];
   export let active = 'books';
   export let onchoose: (id: string) => void;
+  let editButton: HTMLElement | null = null;
   let editing = false,
     dialogOpen = false,
     target: Collection | undefined,
@@ -79,11 +80,20 @@
       side="bottom"
       class="mx-auto max-h-[90dvh] max-w-xl overflow-y-auto rounded-t-3xl p-5 pb-10 sm:p-6"
       showCloseButton={false}
+      onOpenAutoFocus={(event) => {
+        // This action sheet starts at its visible Edit control, unlike an
+        // information/search sheet with potentially offscreen editable fields.
+        if (editButton?.isConnected) {
+          event.preventDefault();
+          editButton.focus({ preventScroll: true });
+        }
+      }}
     >
       <Sheet.Header class="mb-6 flex flex-row items-center justify-between gap-3 p-0">
         <Sheet.Title class="font-serif text-2xl">Collections</Sheet.Title>
         <div class="flex shrink-0 gap-2">
           <Button
+            bind:ref={editButton}
             variant="secondary"
             class="min-h-11 rounded-full px-4"
             aria-pressed={editing}
@@ -222,8 +232,8 @@
           >Cancel</Button
         ><Button type="submit" variant={deleting ? 'destructive' : 'secondary'} disabled={busy}
           >{busy ? 'Saving…' : deleting ? 'Delete Collection' : 'Save'}</Button
-        ></Dialog.Footer
-      >
+        >
+      </Dialog.Footer>
     </form>
   </Dialog.Content>
 </Dialog.Root>
