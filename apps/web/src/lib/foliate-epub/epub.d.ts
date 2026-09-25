@@ -28,12 +28,10 @@ export interface FoliateEpubBook {
   metadata?: Record<string, unknown>;
   rendition?: Record<string, unknown>;
   dir?: string;
-  resolveHref(href: string):
-    | {
-        index: number;
-        anchor: (doc: Document) => Element | Range | number | null;
-      }
-    | null;
+  resolveHref(href: string): {
+    index: number;
+    anchor: (doc: Document) => Element | Range | number | null;
+  } | null;
   resolveCFI(cfi: string): { index: number; anchor: (doc: Document) => Range };
   isExternal(uri: string): boolean;
   destroy(): unknown;
@@ -57,10 +55,7 @@ export class Loader {
     resources: { manifest: Array<{ href: string; mediaType: string }> };
   });
   eventTarget: EventTarget;
-  loadItem(
-    item: { href: string; mediaType: string },
-    parents?: string[]
-  ): Promise<string | null>;
+  loadItem(item: { href: string; mediaType: string }, parents?: string[]): Promise<string | null>;
   unloadItem(item: { href: string }): void;
   destroy(): boolean;
 }
