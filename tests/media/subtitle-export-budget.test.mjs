@@ -42,8 +42,8 @@ test('export includes entity expansion in its bounded byte budget', () => {
   assert.ok(value.cues.length * value.cues[0].text.length < LIMITS.subtitleBytes);
   assert.throws(() => serializeSubtitles(value), /exceeds 5 MiB/);
   const small = track(2, '<日本語> & text');
-  assert.deepEqual(parseSubtitles(serializeSubtitles(small)).map((cue) => cue.text), [
-    '<日本語> & text',
-    '<日本語> & text'
-  ]);
+  assert.deepEqual(
+    parseSubtitles(serializeSubtitles(small)).map((cue) => cue.text),
+    ['<日本語> & text', '<日本語> & text']
+  );
 });

@@ -71,7 +71,10 @@ test('equal-start A/B/A turns retain order; reordered turns invalidate the timel
     speaker
   }));
   catalog.replace([a]);
-  assert.deepEqual(catalog.timeline(a.id).cues.map((cue) => cue.speaker), ['A', 'B', 'A']);
+  assert.deepEqual(
+    catalog.timeline(a.id).cues.map((cue) => cue.speaker),
+    ['A', 'B', 'A']
+  );
   assert.equal(catalog.replace([{ ...a, cues: [a.cues[1], a.cues[0], a.cues[2]] }]), true);
 });
 
