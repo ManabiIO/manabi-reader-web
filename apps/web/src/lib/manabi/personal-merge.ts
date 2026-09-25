@@ -107,14 +107,15 @@ export function mergeAnnotationPayload(
         .map((field) => [field, source![field]])
     );
   const merged = mergePayload(subset(base), subset(local), subset(remote));
-  return {
-    value: {
-      ...remote,
-      ...local,
-      ...(merged.value ?? {}),
-      revision: Math.max(Number(local.revision) || 0, Number(remote.revision) || 0) + 1,
-      modifiedAt: now
-    },
-    fields: merged.fields
-  };
+  // Mergeable optional fields must be rebuilt, not spread over an older entity.
+  // Otherwise an omitted field (for example a remotely deleted note body) is
+  // immediately resurrected by `...local`/`...remote`. Preserve immutable
+  // identity/timestamps from the entities, remove the mergeable surface, then
+  // apply only the fields selected by the three-way merge.
+  const value: Record<string, unknown> = { ...remote, ...local };
+  for (const field of portable) delete value[field];
+  Object.assign(value, merged.value ?? {});
+  value.revision = Math.max(Number(local.revision) || 0, Number(remote.revision) || 0) + 1;
+  value.modifiedAt = now;
+  return { value, fields: merged.fields };
 }
