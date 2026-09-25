@@ -265,16 +265,25 @@
     pageManager = makePageManager();
     bookmarkManager = makeBookmarkManager();
 
-    tocSubscription = nextChapter$.subscribe((chapterId) => {
-      const index = sourceSections.findIndex(
-        (section) => section.id === chapterId || section.querySelector(`#${CSS.escape(chapterId)}`)
-      );
-      if (index < 0 || !paginator) return;
+    tocSubscription = nextChapter$.subscribe((target) => {
+      const index =
+        typeof target === 'string'
+          ? sourceSections.findIndex(
+              (section) =>
+                section.id === target || section.querySelector(`#${CSS.escape(target)}`)
+            )
+          : target.spineIndex;
+      if (index < 0 || index >= sourceSections.length || !paginator) return;
+      const fragment = typeof target === 'string' ? target : target.fragment;
       void withSuppressedRelocate(() =>
         paginator!.goTo({
           index,
-          anchor: (doc: Document) =>
-            doc.getElementById(chapterId) ?? doc.querySelector(`#${CSS.escape(chapterId)}`) ?? 0
+          anchor: fragment
+            ? (doc: Document) =>
+                doc.getElementById(fragment) ??
+                doc.querySelector(`#${CSS.escape(fragment)}`) ??
+                0
+            : 0
         })
       );
     });
