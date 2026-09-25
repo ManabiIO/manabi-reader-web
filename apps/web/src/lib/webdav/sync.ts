@@ -26,7 +26,7 @@ import {
   type BookLink
 } from '$lib/manabi/persistence';
 import { documentFor, validateDavDocument, wireCopy } from './sync-codec';
-import { davSource } from './source';
+import { davSource, withDavSourceLock } from './source';
 import { withWebDavApplyLease } from './reader-lock';
 import { DavError } from './client';
 
@@ -206,51 +206,63 @@ async function apply(
   }
 }
 export async function setDavBookSync(id: string, enabled: boolean) {
+  const scope = currentScope();
   const db = await integrationDB(),
     link = await db.get('books', id);
   if (!link || !link.sourceId.startsWith('webdav-')) throw new Error('WebDAV book not found.');
-  const scope = currentScope();
-  const source = await davSource(link.sourceId);
-  const bookScope = await (await database.db).get('readerBookScope', link.bookId);
-  if (enabled && bookScope && bookScope.accountId !== scope)
-    throw new Error('This book belongs to another account.');
-  if (enabled && !source.configuration.writable)
-    throw new Error('Allow reading-data write-back in the WebDAV connection first.');
-  if (scope !== currentScope()) throw new Error('Account changed.');
-  // Consent cannot resurrect a disconnected or replaced link after a picker/account await.
-  const tx = db.transaction(['books', 'metadata'], 'readwrite');
-  try {
-    const latest = await tx.objectStore('books').get(id);
-    const configuration = await tx.objectStore('metadata').get(`webdav-source:${link.sourceId}`);
-    if (
-      scope !== currentScope() ||
-      !equal(latest, link) ||
-      !equal(configuration, source.configuration)
-    )
-      throw new Error('The account or WebDAV book changed. Review its sync choice again.');
-    await tx.objectStore('books').put({ ...link, syncEnabled: enabled, davAccountId: scope });
-    await tx.done;
-  } catch (error) {
+  return withDavSourceLock(link.sourceId, async () => {
+    const source = await davSource(link.sourceId);
+    const bookScope = await (await database.db).get('readerBookScope', link.bookId);
+    if (enabled && bookScope && bookScope.accountId !== scope)
+      throw new Error('This book belongs to another account.');
+    if (enabled && !source.configuration.writable)
+      throw new Error('Allow reading-data write-back in the WebDAV connection first.');
+    if (scope !== currentScope()) throw new Error('Account changed.');
+    // Consent cannot resurrect a disconnected or replaced link after a picker/account await.
+    const tx = db.transaction(['books', 'metadata'], 'readwrite');
     try {
-      tx.abort();
-    } catch {
-      /* The transaction may already have failed. */
+      const latest = await tx.objectStore('books').get(id);
+      const configuration = await tx.objectStore('metadata').get(`webdav-source:${link.sourceId}`);
+      if (
+        scope !== currentScope() ||
+        !equal(latest, link) ||
+        !equal(configuration, source.configuration)
+      )
+        throw new Error('The account or WebDAV book changed. Review its sync choice again.');
+      await tx.objectStore('books').put({ ...link, syncEnabled: enabled, davAccountId: scope });
+      await tx.done;
+    } catch (error) {
+      try {
+        tx.abort();
+      } catch {
+        /* The transaction may already have failed. */
+      }
+      await tx.done.catch(() => undefined);
+      throw error;
     }
-    await tx.done.catch(() => undefined);
-    throw error;
-  }
-  status(id, {
-    state: enabled ? 'idle' : 'off',
-    message: enabled
-      ? 'WebDAV reading sync enabled for this account session.'
-      : 'WebDAV reading sync is off.'
+    status(id, {
+      state: enabled ? 'idle' : 'off',
+      message: enabled
+        ? 'WebDAV reading sync enabled for this account session.'
+        : 'WebDAV reading sync is off.'
+    });
   });
 }
 /** Three-way field merge. A remote acceptance and local edits are reconciled in one local transaction. */
 export async function syncDavBook(id: string, choice?: 'local' | 'remote') {
+  const scope = currentScope();
   return exclusive(`webdav-sync:${id}`, async () => {
     try {
-      return await withWebDavApplyLease(() => performDavSync(id, choice));
+      const link = await (await integrationDB()).get('books', id);
+      if (!link) {
+        status(id, { state: 'off', message: 'This WebDAV source is disconnected.' });
+        return;
+      }
+      return await withDavSourceLock(link.sourceId, () => {
+        if (scope !== currentScope() || link.davAccountId !== scope)
+          throw new Error('Account changed while WebDAV sync was waiting. Review its sync choice.');
+        return withWebDavApplyLease(() => performDavSync(id, choice));
+      });
     } catch (error) {
       status(id, {
         state: 'error',

@@ -173,3 +173,12 @@ Closing a reader tab waits for the browser's actual lock release before retrying
 sync; the test still first proves that a live reader prevents the write entirely.
 These are browser-fixture boundaries, not changes to the production permission,
 conflict, transaction, or reading-lifetime rules.
+
+Connection edits, disconnect, and per-book consent now share a per-source lock
+with the entire sync operation, not just its network calls. This orders changes
+across the separate integration and books databases: after disconnect/disable is
+reported complete, a previous sync cannot commit a late local acknowledgement.
+A change in another tab may wait for an already-dispatched, bounded request to
+finish; a request already accepted by a server cannot be unsent. Queued consent
+and sync actions retain their originating account scope. Two gated HTTP write
+regressions verify that changes wait for existing work and prevent later uploads.

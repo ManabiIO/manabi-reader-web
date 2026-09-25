@@ -684,6 +684,65 @@ class LocalFeatureBrowser(LibraryBase):
         self.assertEqual(1, len(self.stores('books', ['data'])['data']))
         self.assertEqual([], self.errors)
 
+    def start_held_dav_sync(self):
+        self.establish_dav_state()
+        self.seed_resume(7, STAMP + 1)
+        gate = threading.Event()
+        self.dav.state.update(put_gate=gate, put_started=threading.Event())
+        self.page.get_by_role('button', name='Sync WebDAV offline book', exact=True).click()
+        deadline = time.monotonic() + 10
+        while not self.dav.state['put_started'].is_set():
+            self.assertLess(time.monotonic(), deadline, 'WebDAV write did not begin')
+            self.page.wait_for_timeout(20)
+        return gate
+
+    def wait_source_operation_queued(self):
+        deadline = time.monotonic() + 10
+        while not any(lock['name'].startswith('manabi-reader:webdav-source:')
+                      for lock in self.page.evaluate('navigator.locks.query()')['pending']):
+            self.assertLess(time.monotonic(), deadline, 'Source change bypassed the active sync')
+            self.page.wait_for_timeout(20)
+
+    def test_disconnect_waits_for_inflight_sync_and_cannot_finish_before_its_commit(self):
+        gate = self.start_held_dav_sync()
+        other = self.context.new_page()
+        try:
+            other.goto(self.origin + '/Reader-Web/connections')
+            other.get_by_role('button', name='Disconnect Test DAV', exact=True).click()
+            self.wait_source_operation_queued()
+            self.assertEqual(1, len(self.stores('manabi-reader-integrations', ['books'])['books']))
+            gate.set()
+            expect(other.get_by_role('button', name='Browse Test DAV', exact=True)).to_have_count(0)
+            self.assertEqual([], self.stores('manabi-reader-integrations', ['books'])['books'])
+            self.assertEqual(7, self.stores('books', ['bookmark'])['bookmark'][0]['exploredCharCount'])
+            # The previous operation finished before disconnect completion; a new
+            # manual sync from the stale tab must neither reconnect nor upload.
+            puts = self.dav.state['puts']
+            self.page.get_by_role('button', name='Sync WebDAV offline book', exact=True).click()
+            expect(self.page.get_by_role('button', name='Sync WebDAV offline book', exact=True)).to_be_enabled()
+            self.assertEqual(puts, self.dav.state['puts'])
+        finally:
+            gate.set(); other.close()
+
+    def test_disable_sync_waits_for_active_operation_and_blocks_the_next_write(self):
+        gate = self.start_held_dav_sync()
+        other = self.context.new_page()
+        try:
+            other.goto(self.origin + '/Reader-Web/connections')
+            other.get_by_label('Sync this book’s reading data with WebDAV', exact=True).uncheck()
+            self.wait_source_operation_queued()
+            gate.set()
+            expect(other.get_by_text('WebDAV reading sync is off.', exact=True)).to_be_visible()
+            links = self.stores('manabi-reader-integrations', ['books'])['books']
+            self.assertFalse(links[0]['syncEnabled'])
+            puts = self.dav.state['puts']
+            self.seed_resume(9, STAMP + 2)
+            self.page.get_by_role('button', name='Sync WebDAV offline book', exact=True).click()
+            expect(self.page.get_by_text('Enable WebDAV reading sync for this book first.', exact=True)).to_be_visible()
+            self.assertEqual(puts, self.dav.state['puts'])
+        finally:
+            gate.set(); other.close()
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

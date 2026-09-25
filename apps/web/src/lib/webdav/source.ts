@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { integrationDB, equal, type BookLink } from '$lib/manabi/persistence';
+import { integrationDB, exclusive, equal, type BookLink } from '$lib/manabi/persistence';
 import type { LibrarySource, LibraryEntry, StateCopy } from '$lib/manabi/sources';
 import { WebDavClient, davRoot, DavError, strongEtag } from './client';
 
@@ -19,6 +19,12 @@ export interface DavConfiguration {
 const prefix = 'webdav-source:';
 const sessions = new Map<string, string>();
 const lifetimes = new Map<string, AbortController>();
+/** Order connection/consent changes with the whole sync, including its final
+ * books-DB commit. Checking the integration DB alone cannot fence another DB's
+ * subsequent transaction. Completion of a disconnect now means no sync remains. */
+export function withDavSourceLock<T>(id: string, work: () => Promise<T>): Promise<T> {
+  return exclusive(`webdav-source:${id}`, work);
+}
 export async function davSources(): Promise<DavConfiguration[]> {
   const db = await integrationDB();
   const keys = (await db.getAllKeys('metadata')).filter((key) => key.startsWith(prefix));
@@ -37,20 +43,24 @@ export async function configureDav(config: DavConfiguration, password: string, r
   new WebDavClient(value.url, value.username, password);
   lifetimes.get(config.id)?.abort();
   lifetimes.delete(config.id);
-  await (await integrationDB()).put('metadata', value, prefix + config.id);
-  sessions.set(config.id, password);
+  await withDavSourceLock(config.id, async () => {
+    await (await integrationDB()).put('metadata', value, prefix + config.id);
+    sessions.set(config.id, password);
+  });
 }
 export async function disconnectDav(id: string) {
   lifetimes.get(id)?.abort();
   lifetimes.delete(id);
   sessions.delete(id);
-  const db = await integrationDB();
-  const tx = db.transaction(['metadata', 'books'], 'readwrite');
-  await tx.objectStore('metadata').delete(prefix + id);
-  // Other metadata and imported books are not erased by disconnecting a source.
-  for (const link of await tx.objectStore('books').getAll())
-    if (link.sourceId === id) await tx.objectStore('books').delete(link.id);
-  await tx.done;
+  await withDavSourceLock(id, async () => {
+    const db = await integrationDB();
+    const tx = db.transaction(['metadata', 'books'], 'readwrite');
+    await tx.objectStore('metadata').delete(prefix + id);
+    // Other metadata and imported books are not erased by disconnecting a source.
+    for (const link of await tx.objectStore('books').getAll())
+      if (link.sourceId === id) await tx.objectStore('books').delete(link.id);
+    await tx.done;
+  });
 }
 export class WebDavSource implements LibrarySource {
   readonly owner = null;
