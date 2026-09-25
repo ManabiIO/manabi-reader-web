@@ -21,7 +21,8 @@ export class DavError extends Error {
   }
 }
 export const strongEtag = (value: string | null | undefined): value is string =>
-  !!value && /^"[^"\r\n]*"$/.test(value);
+  // RFC 9110 section 8.8.3: opaque tag octets, not arbitrary quoted text.
+  !!value && /^"[\x21\x23-\x7e\x80-\xff]*"$/.test(value);
 function segments(path: string): string[] {
   const parts = path.split('/').filter(Boolean);
   for (const part of parts) {
@@ -211,7 +212,7 @@ export class WebDavClient {
     body?: BodyInit,
     headers: Record<string, string> = {},
     limit = 4 * 1024 * 1024,
-    allowed: number[] = []
+    accepted: number[] = [200]
   ) {
     const url = davChild(this.root, path);
     this.signal?.throwIfAborted();
@@ -234,14 +235,14 @@ export class WebDavClient {
         referrerPolicy: 'no-referrer',
         signal: controller.signal
       });
-      if (!response.ok && !allowed.includes(response.status)) {
+      if (!accepted.includes(response.status)) {
         await response.body?.cancel();
         const message =
           response.status === 401 || response.status === 403
             ? 'WebDAV authentication or folder access was denied.'
             : response.status === 412
               ? 'The WebDAV copy changed. Refresh and review before writing again.'
-              : `WebDAV returned HTTP ${response.status}.`;
+              : `Unexpected WebDAV ${method} response: HTTP ${response.status}. No complete result was accepted.`;
         throw new DavError(response.status === 412 ? 'conflict' : 'http', message);
       }
       const bytes = await limitedBytes(response, limit);
@@ -269,7 +270,9 @@ export class WebDavClient {
       url.href,
       'PROPFIND',
       '<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/><d:getcontentlength/><d:getetag/></d:prop></d:propfind>',
-      { Depth: String(depth), 'Content-Type': 'application/xml; charset=utf-8' }
+      { Depth: String(depth), 'Content-Type': 'application/xml; charset=utf-8' },
+      4 * 1024 * 1024,
+      [207]
     );
     if (response.status !== 207)
       throw new DavError('xml', 'The server did not return a WebDAV multistatus response.');
@@ -282,11 +285,11 @@ export class WebDavClient {
       undefined,
       etag && strongEtag(etag) ? { 'If-Match': etag } : {},
       limit,
-      [404]
+      [200, 404]
     );
   }
   async mkdir(path: string) {
-    const response = await this.request(path, 'MKCOL', undefined, {}, 65536, [405]);
+    const response = await this.request(path, 'MKCOL', undefined, {}, 65536, [201, 405]);
     if (response.status === 405) {
       const entries = await this.list(path, 0);
       if (entries.length !== 1 || entries[0].kind !== 'folder')
@@ -309,7 +312,8 @@ export class WebDavClient {
         [revision === 'missing' ? 'If-None-Match' : 'If-Match']:
           revision === 'missing' ? '*' : revision
       },
-      65536
+      65536,
+      [200, 201, 204]
     );
   }
 }

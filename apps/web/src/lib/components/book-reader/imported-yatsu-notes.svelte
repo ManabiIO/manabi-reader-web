@@ -104,6 +104,14 @@
         <Button
           variant="ghost"
           disabled={busy}
+          onclick={() =>
+            action(async () => {
+              editing = '';
+            })}>Reload latest notes</Button
+        >
+        <Button
+          variant="ghost"
+          disabled={busy}
           onclick={() => action(async () => download(await exportImportedNotes(bookId, bookKey)))}
           >Download imported notes</Button
         >
@@ -141,7 +149,7 @@
                 disabled={busy}
                 onclick={() =>
                   action(async () => {
-                    await editImportedNote(row.id, body, label);
+                    await editImportedNote(row, body, label);
                     editing = '';
                   })}>Save imported note</Button
               >
@@ -171,7 +179,7 @@
                 disabled={busy}
                 onclick={() =>
                   action(async () => {
-                    await editImportedNote(row.id, row.body, row.label, true);
+                    await editImportedNote(row, row.body, row.label, true);
                   })}>Remove imported note</Button
               >
             </div>

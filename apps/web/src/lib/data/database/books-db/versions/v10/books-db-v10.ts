@@ -42,7 +42,7 @@ export interface ReaderImportRecord {
 export default interface BooksDbV10 extends BooksDbV9 {
   readerSearchProjection: {
     key: number;
-    value: { bookId: number; source: string; resources: SearchResource[] };
+    value: { bookId: number; source: string; digest?: string; resources: SearchResource[] };
   };
   readerExternalSync: { key: string; value: ExternalSyncState };
   readerImportRecord: {

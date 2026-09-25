@@ -65,16 +65,25 @@ export async function listImportedNotes(bookKey: string) {
   checkOwner(owner);
   return rows.filter((row) => row.accountId === null || row.accountId === owner);
 }
-export async function editImportedNote(id: string, body: string, label: string, deleted = false) {
+export async function editImportedNote(
+  expected: ReaderImportRecord,
+  body: string,
+  label: string,
+  deleted = false
+) {
   const owner = currentUser()?.id ?? null;
   if (body.length > 65536 || label.length > 512) throw new Error('The note is too large.');
   const db = await database.db;
   const tx = db.transaction('readerImportRecord', 'readwrite');
   try {
-    const value = await tx.store.get(id);
+    const value = await tx.store.get(expected.id);
     checkOwner(owner);
     if (!value || (value.accountId !== null && value.accountId !== owner))
       throw new Error('The imported note is not available in this account.');
+    if (canonical(value) !== canonical(expected))
+      throw new MigrationConflict(
+        'This imported note changed since it was opened. Copy your draft, then reload the latest notes before editing or removing it.'
+      );
     if (value.status === 'anchored')
       throw new Error('Edit the linked saved passage instead of its original import evidence.');
     const modifiedAt = new Date().toISOString();

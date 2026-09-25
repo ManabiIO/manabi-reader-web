@@ -99,3 +99,55 @@ test('v9 upgrade adds local feature stores without replacing existing reading re
   db.close();
   await deleteDB(name);
 });
+
+test('strong ETags accept only the HTTP opaque-tag grammar', () => {
+  for (const value of ['""', '"abc"', '"!#~"', '"\x80\xff"'])
+    assert.equal(client.strongEtag(value), true, value);
+  for (const value of [
+    '"a b"',
+    '"a\tb"',
+    '"\x00"',
+    '"\x1f"',
+    '"\x7f"',
+    '"本"',
+    'W/"x"',
+    '"a", "b"'
+  ])
+    assert.equal(client.strongEtag(value), false, value);
+});
+
+test('whole-file GET and completed PUT reject partial or merely accepted success statuses', async (t) => {
+  let code = 206;
+  let cancelled = false;
+  const requests = [];
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    requests.push({ url: String(url), ...options });
+    const body = [204, 205, 304].includes(code)
+      ? null
+      : new ReadableStream({
+          start(c) {
+            c.enqueue(new TextEncoder().encode('incomplete'));
+          },
+          cancel() {
+            cancelled = true;
+          }
+        });
+    return new Response(body, { status: code });
+  });
+  const source = new client.WebDavClient('https://example.test/Books/');
+  for (code of [202, 206, 207]) {
+    cancelled = false;
+    await assert.rejects(source.get('novel.txt', 1024), /Unexpected WebDAV GET/);
+    assert.equal(cancelled, true);
+  }
+  code = 202;
+  await assert.rejects(source.put('state.json', '{}', '"old"'), /Unexpected WebDAV PUT/);
+  code = 204;
+  await source.put('state.json', '{}', 'missing');
+  assert.equal(requests.at(-1).headers['If-None-Match'], '*');
+  await source.put('state.json', '{}', '"old"');
+  assert.equal(requests.at(-1).headers['If-Match'], '"old"');
+  const count = requests.length;
+  await assert.rejects(source.put('state.json', '{}', '"bad etag"'), /strong ETag/);
+  assert.equal(requests.length, count);
+});

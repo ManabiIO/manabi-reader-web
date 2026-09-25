@@ -92,12 +92,21 @@ async function search(request: SearchRequest) {
         let resources: SearchResource[] | undefined;
         try {
           const stored = await db.get('readerSearchProjection', key);
-          if (stored?.source === source) resources = stored.resources;
+          // A source fingerprint alone cannot detect damage to its cached projection.
+          // Old cache rows without this checksum are rebuilt in place, without a DB upgrade.
+          if (
+            stored?.source === source &&
+            Array.isArray(stored.resources) &&
+            typeof stored.digest === 'string' &&
+            stored.digest === (await searchDigest(JSON.stringify(stored.resources)))
+          )
+            resources = stored.resources;
         } catch {
           /* Rebuild a damaged/evicted cache. */
         }
         if (!resources) {
           resources = projectSearchBook(book.elementHtml, book.publicationManifest);
+          const digest = await searchDigest(JSON.stringify(resources));
           if (cancelled()) return;
           try {
             // Cache lifetime is atomic with source deletion, including a
@@ -118,7 +127,7 @@ async function search(request: SearchRequest) {
             ) {
               await save
                 .objectStore('readerSearchProjection')
-                .put({ bookId: key, source, resources });
+                .put({ bookId: key, source, digest, resources });
             }
             await save.done;
           } catch {

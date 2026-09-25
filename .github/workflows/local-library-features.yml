@@ -40,7 +40,7 @@ jobs:
         env:
           PYTHONPATH: tests/browser
           LIBRARY_BROWSER: chromium
-        run: python -m unittest test_local_library_features -v
+        run: python -m unittest test_local_library_features test_local_library_review -v
       - name: Library open lifetime regression
         env:
           PYTHONPATH: tests/browser
@@ -53,7 +53,7 @@ jobs:
         env:
           PYTHONPATH: tests/browser
           LIBRARY_BROWSER: webkit
-        run: python -m unittest test_local_library_features -v
+        run: python -m unittest test_local_library_features test_local_library_review -v
       - name: Record exact tested composition
         if: always()
         run: |
