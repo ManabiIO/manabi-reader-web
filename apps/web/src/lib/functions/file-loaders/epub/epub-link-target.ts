@@ -15,7 +15,8 @@ export interface EpubLinkTarget {
 export function resolveEpubLinkTarget(
   ownerHref: string,
   rawHref: string,
-  resources: readonly PublicationResource[]
+  resources: readonly PublicationResource[],
+  ownerSpineIndex?: number
 ): EpubLinkTarget | undefined {
   if (!ownerHref || !rawHref) return undefined;
   const hashIndex = rawHref.indexOf('#');
@@ -36,8 +37,19 @@ export function resolveEpubLinkTarget(
   } catch {
     return undefined;
   }
-  const resource = resources.find((candidate) => candidate.href === href);
-  if (!resource) return undefined;
+  const candidates = resources.filter((candidate) => candidate.href === href);
+  if (!candidates.length) return undefined;
+  const resource =
+    href === ownerHref && Number.isSafeInteger(ownerSpineIndex)
+      ? (candidates.find((candidate) => candidate.spineIndex === ownerSpineIndex) ?? candidates[0])
+      : Number.isSafeInteger(ownerSpineIndex)
+        ? candidates.reduce((nearest, candidate) =>
+            Math.abs(candidate.spineIndex - ownerSpineIndex!) <
+            Math.abs(nearest.spineIndex - ownerSpineIndex!)
+              ? candidate
+              : nearest
+          )
+        : candidates[0];
   return {
     spineIndex: resource.spineIndex,
     ...(fragment ? { fragment } : {})
