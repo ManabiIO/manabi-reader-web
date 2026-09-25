@@ -4,6 +4,7 @@ on:
     paths:
       - 'apps/web/**'
       - 'tests/**'
+      - 'pnpm-lock.yaml'
       - '.github/workflows/local-library-features.yml'
 permissions:
   contents: read
@@ -13,7 +14,7 @@ concurrency:
 jobs:
   qualification:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
@@ -24,20 +25,36 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24.21.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
       - run: pnpm install --frozen-lockfile
       - run: pnpm --dir apps/web exec svelte-kit sync
-      - name: Package isolated qualification workspace
-        run: |
-          git rev-parse HEAD > qualification-commit.txt
-          git ls-tree -r HEAD > qualification-tree.txt
-          mkdir -p /tmp/reader-qualification
-          cp "$(command -v node)" /tmp/reader-qualification/node
-          tar --exclude=.git --exclude=apps/web/build -czf /tmp/reader-qualification/workspace.tar.gz .
-      - uses: actions/upload-artifact@v4
-        with:
-          name: local-library-qualification-workspace
-          path: /tmp/reader-qualification
-          retention-days: 1
       - run: node --experimental-strip-types --test tests/unit/*.test.mjs
       - run: pnpm --dir apps/web check
       - run: pnpm build
+      - run: |
+          python -m pip install 'playwright==1.63.0'
+          python -m playwright install --with-deps chromium webkit
+      - name: Chromium local-library acceptance
+        env:
+          PYTHONPATH: tests/browser
+          LIBRARY_BROWSER: chromium
+        run: python -m unittest test_local_library_features -v
+      - name: WebKit local-library acceptance
+        env:
+          PYTHONPATH: tests/browser
+          LIBRARY_BROWSER: webkit
+        run: python -m unittest test_local_library_features -v
+      - name: Record exact tested composition
+        if: always()
+        run: |
+          mkdir -p test-results
+          git rev-parse HEAD > test-results/commit.txt
+          git ls-tree -r HEAD > test-results/tree.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: local-library-evidence
+          path: test-results
+          retention-days: 7
