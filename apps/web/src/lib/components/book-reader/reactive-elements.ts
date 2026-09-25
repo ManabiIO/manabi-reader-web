@@ -30,11 +30,13 @@ export function reactiveElements(
   isExtendedMode: boolean
 ) {
   const anchorTagDocumentListener = anchorTagListener(document);
+  const spoilerImageDocumentListener = spoilerImageListener(document);
+
   return (contentEl: HTMLElement) =>
     merge(
       anchorTagDocumentListener(contentEl),
       rubyTagListener(contentEl, furiganaStyle),
-      spoilerImageListener(contentEl),
+      spoilerImageDocumentListener(contentEl),
       openImageInNewTab(contentEl, hideSpoilerImage, isExtendedMode)
     );
 }
@@ -42,19 +44,25 @@ export function reactiveElements(
 function anchorTagListener(document: Document) {
   return (contentEl: HTMLElement) => {
     const anchorTags = Array.from(contentEl.getElementsByTagName('a'));
-    const isTopDocument = contentEl.ownerDocument === document;
-    if (isTopDocument) {
-      anchorTags.forEach((el) => {
+    anchorTags.forEach((el) => {
+      if (!el.dataset.manabiTargetSpineIndex) {
         el.href = document.location.pathname + el.hash;
-      });
-    }
+      }
+    });
 
     const obs$ = anchorTags.map((el) =>
       fromClickEvent(el).pipe(
         tap(() => {
-          // Framed EPUB resources stay inside the Reader. The migration bridge
-          // still has legacy hash-only links; route them through the existing
-          // chapter coordinator rather than navigating the child browsing context.
+          const spineIndex = Number(el.dataset.manabiTargetSpineIndex);
+          if (Number.isSafeInteger(spineIndex) && spineIndex >= 0) {
+            nextChapter$.next({
+              spineIndex,
+              ...(el.dataset.manabiTargetFragment
+                ? { fragment: el.dataset.manabiTargetFragment }
+                : {})
+            });
+            return;
+          }
           nextChapter$.next(el.hash.substring(1));
         })
       )
@@ -87,37 +95,38 @@ function rubyTagListener(contentEl: HTMLElement, furiganaStyle: FuriganaStyle) {
   return merge(...obs$);
 }
 
-function spoilerImageListener(contentEl: HTMLElement) {
-  const document = contentEl.ownerDocument;
-  const elements = Array.from(contentEl.querySelectorAll('[data-ttu-spoiler-img]'));
-  const obs$ = elements.map((el) => {
-    // Rebinding the same content after a font reflow must not append a
-    // second label. The previous stream's listeners have been unsubscribed.
-    const spoilerLabelEl =
-      el.querySelector<HTMLElement>(':scope > .spoiler-label') ?? document.createElement('span');
-    spoilerLabelEl.title = 'Show Image';
-    spoilerLabelEl.classList.add('spoiler-label');
-    spoilerLabelEl.setAttribute('aria-hidden', 'true');
-    spoilerLabelEl.innerText = 'ネタバレ';
-    if (!spoilerLabelEl.parentNode) el.appendChild(spoilerLabelEl);
+function spoilerImageListener(document: Document) {
+  return (contentEl: HTMLElement) => {
+    const elements = Array.from(contentEl.querySelectorAll('[data-ttu-spoiler-img]'));
+    const obs$ = elements.map((el) => {
+      // Rebinding the same content after a font reflow must not append a
+      // second label. The previous stream's listeners have been unsubscribed.
+      const spoilerLabelEl =
+        el.querySelector<HTMLElement>(':scope > .spoiler-label') ?? document.createElement('span');
+      spoilerLabelEl.title = 'Show Image';
+      spoilerLabelEl.classList.add('spoiler-label');
+      spoilerLabelEl.setAttribute('aria-hidden', 'true');
+      spoilerLabelEl.innerText = 'ネタバレ';
+      if (!spoilerLabelEl.parentNode) el.appendChild(spoilerLabelEl);
 
-    const imageElement = el.querySelector('img,image');
+      const imageElement = el.querySelector('img,image');
 
-    toggleImageGalleryPictureSpoiler(imageElement, false);
+      toggleImageGalleryPictureSpoiler(imageElement, false);
 
-    return fromClickEvent(el).pipe(
-      take(1),
-      tap(() => {
-        spoilerLabelEl.remove();
-        el.removeAttribute('data-ttu-spoiler-img');
+      return fromClickEvent(el).pipe(
+        take(1),
+        tap(() => {
+          spoilerLabelEl.remove();
+          el.removeAttribute('data-ttu-spoiler-img');
 
-        imageElement?.classList.add('ttu-unspoilered');
+          imageElement?.classList.add('ttu-unspoilered');
 
-        toggleImageGalleryPictureSpoiler(imageElement, true);
-      })
-    );
-  });
-  return merge(...obs$);
+          toggleImageGalleryPictureSpoiler(imageElement, true);
+        })
+      );
+    });
+    return merge(...obs$);
+  };
 }
 
 function openImageInNewTab(
@@ -181,7 +190,7 @@ function openImageInNewTab(
                   const src = elm.getAttribute('src') || elm.getAttribute('href');
 
                   if (src) {
-                    contentEl.ownerDocument.defaultView?.open(src, '_blank');
+                    window.open(src, '_blank');
                   }
                 })
               );
@@ -194,11 +203,8 @@ function openImageInNewTab(
 }
 
 function toggleImageGalleryPictureSpoiler(imageElement: Element | null, unspoilered: boolean) {
-  if (imageElement?.localName?.toLowerCase() === 'img' && 'src' in imageElement) {
-    toggleImageGalleryPictureSpoiler$.next({
-      url: String((imageElement as HTMLImageElement).src),
-      unspoilered
-    });
+  if (imageElement instanceof HTMLImageElement) {
+    toggleImageGalleryPictureSpoiler$.next({ url: imageElement.src, unspoilered });
   } else if (imageElement && 'href' in imageElement) {
     toggleImageGalleryPictureSpoiler$.next({
       url: (imageElement.href as SVGAnimatedString).baseVal,
