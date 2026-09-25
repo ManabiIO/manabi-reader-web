@@ -9,7 +9,7 @@ import test from 'node:test';
 import {
   exploredCountAtParagraph,
   sectionIndexForCharacterCount
-} from '../../apps/web/src/lib/foliate-epub/foliate-character-progress.ts';
+} from '../../apps/web/src/lib/foliate-epub/foliate-character-progress-core.ts';
 
 test('Foliate progress preserves global TTU section boundaries', () => {
   const ends = [100, 240, 300];
