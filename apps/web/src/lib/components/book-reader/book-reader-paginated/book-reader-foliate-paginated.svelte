@@ -25,6 +25,8 @@
   export let enableTextWrapPretty: boolean;
   export let fontColor: string;
   export let backgroundColor: string;
+  export let hintFuriganaFontColor: string;
+  export let hintFuriganaShadowColor: string;
   export let fontFamilyGroupOne: string;
   export let fontFamilyGroupTwo: string;
   export let fontWeight: number | null;
@@ -33,8 +35,10 @@
   export let textIndentation: number;
   export let textMarginMode: TextMarginMode;
   export let textMarginValue: number;
+  export let hideSpoilerImage: boolean;
   export let hideFurigana: boolean;
   export let furiganaStyle: FuriganaStyle;
+  export let loadingState: boolean;
   export let avoidPageBreak: boolean;
   export let pageColumns: number;
   export let firstDimensionMargin: number;
@@ -147,7 +151,63 @@
     const primary = resolveReaderFont(fontFamilyGroupOne, verticalMode);
     const secondary = resolveReaderFont(fontFamilyGroupTwo, verticalMode, true);
     const writing = verticalMode ? 'vertical-rl' : 'horizontal-tb';
-    const hideRuby = hideFurigana || String(furiganaStyle).toLowerCase() === 'hide';
+    const furiganaMode = String(furiganaStyle).toLowerCase();
+    const furiganaRules = !hideFurigana
+      ? ''
+      : furiganaMode === 'hide'
+        ? '.book-content rt, .book-content rp { display: none !important; }'
+        : furiganaMode === 'partial'
+          ? `
+            .book-content ruby rt { color: ${hintFuriganaFontColor}; }
+            .book-content ruby.reveal-rt rt { color: inherit; }
+            @media (hover: hover) { .book-content ruby:hover rt { color: inherit; } }
+          `
+          : `
+            .book-content ruby {
+              cursor: pointer;
+              text-shadow: ${hintFuriganaShadowColor} 1px 0 10px;
+            }
+            .book-content ruby rt { visibility: hidden; }
+            .book-content ruby.reveal-rt { text-shadow: none; }
+            .book-content ruby.reveal-rt rt { visibility: visible; }
+            ${
+              furiganaMode === 'toggle'
+                ? '@media (hover: hover) { .book-content ruby:not(.reveal-rt):hover rt { visibility: hidden; } }'
+                : '@media (hover: hover) { .book-content ruby:hover rt { visibility: visible; } }'
+            }
+          `;
+    const spoilerRules = hideSpoilerImage
+      ? `
+        .book-content [data-ttu-spoiler-img] {
+          display: inline-block;
+          width: 100%;
+          height: 100%;
+          vertical-align: middle;
+          overflow: hidden;
+          position: relative;
+          cursor: pointer;
+        }
+        .book-content [data-ttu-spoiler-img] img,
+        .book-content [data-ttu-spoiler-img] svg { filter: blur(44px); }
+        .book-content [data-ttu-spoiler-img] .ttu-unspoilered { filter: none !important; }
+        .book-content [data-ttu-spoiler-img] .spoiler-label {
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          color: #dcddde;
+          background-color: rgba(0, 0, 0, 0.6);
+          display: inline-block;
+          padding: 12px 8px;
+          border-radius: 20px;
+          font-size: 15px;
+          font-family: system-ui, sans-serif;
+          text-transform: uppercase;
+          font-weight: 700;
+          z-index: 1;
+        }
+      `
+      : '';
     return `
       :root {
         --font-family-serif: ${primary};
@@ -168,7 +228,8 @@
       ${enableTextJustification ? `.book-content p { text-align: justify${important}; }` : ''}
       ${enableTextWrapPretty ? '.book-content { text-wrap: pretty; }' : ''}
       ${avoidPageBreak ? '.book-content p { break-inside: avoid; }' : ''}
-      ${hideRuby ? '.book-content rt, .book-content rp { display: none !important; }' : ''}
+      ${furiganaRules}
+      ${spoilerRules}
     `;
   }
 
@@ -314,6 +375,7 @@
   style:width={width ? `${width}px` : '100%'}
   style:height={height ? `${height}px` : '100%'}
   aria-label="EPUB reader"
+  aria-busy={loadingState}
 ></div>
 
 <style>
