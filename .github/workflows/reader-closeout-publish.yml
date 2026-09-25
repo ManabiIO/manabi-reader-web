@@ -1,0 +1,62 @@
+name: Publish reviewed Reader closeout candidate
+on:
+  push:
+    branches: [codex/reader-closeout-publish-20260925]
+    paths: [.github/workflows/reader-closeout-publish.yml]
+permissions:
+  contents: write
+jobs:
+  publish:
+    if: github.repository == 'ManabiIO/manabi-reader-web'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify prepared patch before any source or branch mutation
+        run: |
+          python - <<'PY'
+          import base64, gzip, hashlib, pathlib
+          parts = [pathlib.Path('closeout/reader.patch.b64.' + str(i)).read_text().strip() for i in range(4)]
+          # Correct two transport transcription omissions; the final digest is authoritative.
+          parts[0] = parts[0].replace('k2gEfAL4', 'k2g69kEfAL4').replace('gs55NSilDOW', 'gs55NSilulDOW')
+          raw = gzip.decompress(base64.b64decode(''.join(parts), validate=True))
+          assert hashlib.sha256(raw).hexdigest() == 'c2a938a24a8a3fe23bd35eef57cc96c02ee5775fc360f23f2015a2cd878c0a78'
+          pathlib.Path('/tmp/reader-closeout.patch').write_bytes(raw)
+          print('Verified prepared patch:', len(raw), 'bytes')
+          PY
+      - name: Construct exact two-parent integration without changing main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: |
+          set -euo pipefail
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c "http.extraheader=AUTHORIZATION: basic $auth" fetch --no-tags origin 90c6c6271164dcdc880171fba85b40d579667bd2 044ad6a87e66686dd5c629ef82ccf765798b52c1
+          git checkout --detach 90c6c6271164dcdc880171fba85b40d579667bd2
+          python - <<'PY'
+          import subprocess
+          paths = ['.github/workflows/manabi-reader-ci.yml', '.github/workflows/notify-production-publication.yml', '.github/workflows/reader-recovery.yml', '.github/workflows/ttu-migration.yml', '.github/workflows/ttu-shared-qualification.yml', '.gitignore', 'README.md', 'apps/web/src/lib/components/navigation/app-nav.svelte', 'apps/web/src/lib/components/navigation/docs-link.ts', 'apps/web/svelte.config.js', 'docs/appearance.md', 'docs/manabi-integrations.md', 'docs/rhea-ui.md', 'docs/ttu-upstream-readme.md', 'docs/whispersync.md', 'overrides/main.html', 'requirements-docs.txt', 'scripts/build-docs', 'site-docs/compare/index.md', 'site-docs/compare/native.md', 'site-docs/compare/ttsu.md', 'site-docs/compare/yatsu.md', 'site-docs/contribute.md', 'site-docs/credits.md', 'site-docs/get-started.md', 'site-docs/images/icon.png', 'site-docs/index.md', 'site-docs/library.md', 'site-docs/move-from-ttsu.md', 'site-docs/reading.md', 'site-docs/stylesheets/manabi.css', 'test/reader/e2e/run.mjs', 'tests/browser/test_appearance.py', 'tests/browser/test_appearance_refinement.py', 'tests/browser/test_shared_safety.py', 'tests/browser/test_shared_ttu.py', 'tests/browser/test_whispersync.py', 'zensical.toml']
+          subprocess.run(['git', 'restore', '--source=044ad6a87e66686dd5c629ef82ccf765798b52c1', '--staged', '--worktree', '--', *paths], check=True)
+          PY
+          git apply --check --index /tmp/reader-closeout.patch
+          git apply --index /tmp/reader-closeout.patch
+          git diff --check --cached
+          test ! -e .github/workflows/reader-closeout-publish.yml
+          test ! -d closeout
+          tree=$(git write-tree)
+          commit=$(printf '%s\n' 'Integrate Reader publication, guide and parity with bounded sync recovery and asynchronous series jobs' | git commit-tree "$tree" -p 90c6c6271164dcdc880171fba85b40d579667bd2 -p 044ad6a87e66686dd5c629ef82ccf765798b52c1)
+          git diff --stat 90c6c6271164dcdc880171fba85b40d579667bd2 "$commit"
+          printf 'Candidate commit: %s\nCandidate tree: %s\n' "$commit" "$tree"
+          git -c "http.extraheader=AUTHORIZATION: basic $auth" push origin "$commit:refs/heads/codex/reader-closeout-integration-20260925"
+          printf '%s\n' "$commit" > /tmp/reader-candidate.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reader-closeout-candidate
+          path: /tmp/reader-candidate.txt
+          retention-days: 3
+          if-no-files-found: error
