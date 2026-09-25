@@ -44,22 +44,36 @@ export interface ProjectedResource {
   runs: TextRun[];
 }
 
-const excludedTags = new Set(['RT', 'RP', 'RTC', 'SCRIPT', 'STYLE', 'TEMPLATE', 'NOSCRIPT']);
+const ELEMENT_NODE = 1;
+const TEXT_NODE = 3;
+const excludedTags = new Set(['rt', 'rp', 'rtc', 'script', 'style', 'template', 'noscript']);
 const blockTags = new Set([
-  'P',
-  'H1',
-  'H2',
-  'H3',
-  'H4',
-  'H5',
-  'H6',
-  'LI',
-  'BLOCKQUOTE',
-  'PRE',
-  'DIV',
-  'TR',
-  'FIGCAPTION'
+  'p',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'li',
+  'blockquote',
+  'pre',
+  'div',
+  'tr',
+  'figcaption'
 ]);
+
+/**
+ * EPUB resources may be parsed as XHTML and may live in a child browsing
+ * context. Avoid realm-specific `instanceof Element` checks and HTML-only
+ * upper-case tag-name assumptions so canonical coordinates are identical in
+ * the legacy same-document reader and the Foliate-style framed renderer.
+ */
+function elementLocalName(node: Node): string | undefined {
+  if (node.nodeType !== ELEMENT_NODE) return undefined;
+  const element = node as Element;
+  return (element.localName || element.tagName || '').toLowerCase() || undefined;
+}
 
 /** One Unicode code point is one coordinate, even when the DOM uses two UTF-16 code units. */
 export function codePointLength(text: string): number {
@@ -96,7 +110,7 @@ export function projectResource(
     }
   };
   const visit = (node: Node) => {
-    if (node.nodeType === Node.TEXT_NODE) {
+    if (node.nodeType === TEXT_NODE) {
       const value = node.textContent ?? '';
       if (!value) return;
       const length = codePointLength(value);
@@ -105,21 +119,23 @@ export function projectResource(
       count += length;
       return;
     }
-    if (!(node instanceof Element)) return;
+    const localName = elementLocalName(node);
+    if (!localName) return;
+    const element = node as Element;
     if (
-      excludedTags.has(node.tagName) ||
-      node.hasAttribute('hidden') ||
-      node.getAttribute('aria-hidden') === 'true' ||
+      excludedTags.has(localName) ||
+      element.hasAttribute('hidden') ||
+      element.getAttribute('aria-hidden') === 'true' ||
       /(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden|content-visibility\s*:\s*hidden)\s*(?:!important\s*)?(?:;|$)/i.test(
-        node.getAttribute('style') ?? ''
+        element.getAttribute('style') ?? ''
       )
     )
       return;
-    if (node.tagName === 'BR') {
+    if (localName === 'br') {
       separator();
       return;
     }
-    const block = blockTags.has(node.tagName);
+    const block = blockTags.has(localName);
     if (block) separator();
     for (const child of node.childNodes) visit(child);
     if (block) separator();

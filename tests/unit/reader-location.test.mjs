@@ -9,6 +9,7 @@ import test from 'node:test';
 import {
   codePointLength,
   makeLocator,
+  projectResource,
   resolveLocator,
   utf16OffsetAtCodePoint
 } from '../../apps/web/src/lib/reader-location.ts';
@@ -56,4 +57,54 @@ test('an older zero-length point remains resolvable when projected text is uncha
     start: 9,
     end: 9
   });
+});
+
+
+function projectedText(value) {
+  return { nodeType: 3, data: value, textContent: value, childNodes: [] };
+}
+
+function projectedElement(localName, childNodes = [], attributes = {}) {
+  return {
+    nodeType: 1,
+    localName,
+    tagName: localName,
+    childNodes,
+    hasAttribute(name) {
+      return Object.hasOwn(attributes, name);
+    },
+    getAttribute(name) {
+      return attributes[name] ?? null;
+    }
+  };
+}
+
+test('canonical projection is stable for framed/XHTML-style lowercase DOM nodes', () => {
+  // Deliberately use structural nodes rather than this realm's Element
+  // constructor. Foliate renders EPUB resources in child documents, and XHTML
+  // parsers expose lowercase local names.
+  const root = projectedElement('body', [
+    projectedElement('p', [
+      projectedElement('ruby', [
+        projectedText('漢'),
+        projectedElement('rt', [projectedText('かん')])
+      ]),
+      projectedText('字')
+    ]),
+    projectedElement('p', [projectedText('次')])
+  ]);
+
+  const projected = projectResource(root, resource);
+  assert.equal(projected.text, '漢字\n次');
+  assert.equal(projected.runs.length, 3);
+});
+
+test('canonical projection still excludes hidden content without realm-specific Elements', () => {
+  const root = projectedElement('body', [
+    projectedElement('p', [projectedText('visible')]),
+    projectedElement('span', [projectedText('hidden')], { 'aria-hidden': 'true' }),
+    projectedElement('div', [projectedText('also hidden')], { style: 'display:none!important' })
+  ]);
+
+  assert.equal(projectResource(root, resource).text, 'visible');
 });
