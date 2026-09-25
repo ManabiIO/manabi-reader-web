@@ -3,6 +3,11 @@
 Apple announced the refreshed **Analytics** experience on March 25, 2026:
 https://developer.apple.com/news/?id=hh6v4b55
 
+Apple's App Store Connect release notes also record a May 28, 2026 homepage
+update: sign-in now lands directly in Apps, with other major sections available
+from a navigation bar at the top of the page:
+https://developer.apple.com/help/app-store-connect/release-notes/
+
 First-party interface references:
 - https://developer.apple.com/app-store-connect/analytics/
 - https://developer.apple.com/app-store-connect/analytics/images/screen-hero-large_2x.png
@@ -51,3 +56,9 @@ sticky in the single sheet scroll container. Bulk selection now means the curren
 matching set (search/date/selected-title filters), never hidden titles. Heatmap,
 summary-row, and tracker-history utilities use the shared button primitives for
 focus, pointer targets, disabled state, and destructive treatment.
+
+
+The top-level Manabi workspace now reflects that May homepage change on wide
+screens: Library, Statistics, and Settings are directly visible in the header.
+The existing full navigation sheet remains available for secondary destinations
+and remains the compact navigation on phones.

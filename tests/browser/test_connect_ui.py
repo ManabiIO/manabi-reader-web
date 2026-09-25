@@ -41,6 +41,13 @@ class ConnectControlsBrowser(previous.AppleControlsBrowser):
                 header = self.page.locator('header').first.bounding_box()
                 self.assertGreaterEqual(self.page.locator('[data-settings-content]').bounding_box()['y'], header['y'] + header['height'] - 1)
                 self.assertAlmostEqual(search.evaluate('e => parseFloat(getComputedStyle(e).borderTopLeftRadius)'), 10, delta=0.1)
+                if width >= 1280:
+                    primary = self.page.get_by_role('navigation', name='Primary navigation')
+                    for destination in ('Library', 'Statistics', 'Settings'):
+                        expect(primary.get_by_role('link', name=destination, exact=True)).to_be_visible()
+                    expect(primary.get_by_role('link', name='Settings', exact=True)).to_have_attribute(
+                        'aria-current', 'page'
+                    )
                 nav = self.page.get_by_role('navigation', name='Settings categories')
                 typography = nav.get_by_role('button', name='Fonts & text', exact=True)
                 typography.click()
