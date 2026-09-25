@@ -58,6 +58,31 @@ class ConnectControlsBrowser(previous.AppleControlsBrowser):
                 search.fill('')
                 expect(self.page.locator('#settings-content').get_by_role('heading', name='Fonts & text', exact=True)).to_be_visible()
 
+    def test_connections_workspace_uses_shared_action_hierarchy(self):
+        for mode in ('light', 'dark'):
+            self.page.evaluate('v => localStorage.setItem("appearance", v)', mode)
+            for width, scale in ((390, '100%'), (320, '200%')):
+                self.page.set_viewport_size({'width': width, 'height': 844})
+                self.page.goto(self.origin + '/Reader-Web/connections')
+                self.page.evaluate('v => document.documentElement.style.fontSize = v', scale)
+                expect(self.page.get_by_role('heading', name='Accounts and libraries', exact=True)).to_be_visible()
+                sign_in = self.page.get_by_role('link', name='Sign in to Manabi', exact=True)
+                create = self.page.get_by_role('link', name='Create a Manabi account', exact=True)
+                expect(sign_in).to_have_attribute('data-variant', 'default')
+                expect(sign_in).to_have_attribute('data-size', 'lg')
+                expect(create).to_have_attribute('data-variant', 'outline')
+                expect(self.page.get_by_role('button', name='Refresh connections', exact=True)).to_have_attribute(
+                    'data-variant', 'ghost'
+                )
+                self.assert_no_horizontal_overflow(self.page.locator('html'))
+                first_section = self.page.locator('.connections-page > section').first
+                self.assertAlmostEqual(
+                    first_section.evaluate('e => parseFloat(getComputedStyle(e).borderTopLeftRadius)'),
+                    16,
+                    delta=0.1
+                )
+                self.capture(f'connect-connections-{mode}-{width}')
+
     def test_statistics_toolbar_and_options_reflow_and_keep_unique_form_labels(self):
         self.page.goto(self.origin + '/Reader-Web/statistics')
         for width, scale in ((1200, '100%'), (390, '100%'), (320, '200%')):
