@@ -14,23 +14,44 @@ class ResumeControlsBrowser(deep.DeepControlRefinementBrowser):
         # replace the menu independently of its opening keyboard focus.
         self.go_library()
         trigger = self.page.get_by_role('button', name='Actions for Immediate keyboard menu', exact=True)
-        for _ in range(12):
-            trigger.focus()
-            self.page.keyboard.press('Enter')
-            menu = self.page.get_by_role('menu')
-            first = menu.get_by_role('menuitem').first
-            expect(first).to_be_focused()
-            first.press('ArrowDown')
-            second = menu.get_by_role('menuitem', name='Add to Want to Read', exact=True)
-            expect(second).to_be_focused()
-            # Check again after deferred opening work has had time to run.
-            self.frames()
-            expect(second).to_be_focused()
-            self.page.keyboard.press('ArrowUp')
-            expect(first).to_be_focused()
-            self.page.keyboard.press('Escape')
-            expect(menu).to_have_count(0)
-            expect(trigger).to_be_focused()
+        self.page.evaluate('''() => {
+          const trace = window.__menuFocusTrace = [];
+          const record = value => {
+            trace.push(value);
+            if (trace.length > 40) trace.shift();
+          };
+          document.addEventListener('keydown', event => {
+            record({key:event.key, time:performance.now()});
+          }, true);
+          document.addEventListener('focusin', event => {
+            const node = event.target;
+            if (!(node instanceof HTMLElement)) return;
+            if (!node.closest('[role=menu]') && !node.matches('[aria-haspopup=menu]')) return;
+            record({focus:node.textContent?.trim().slice(0, 80), id:node.id,
+              time:performance.now(), stack:new Error().stack});
+          }, true);
+        }''')
+        try:
+            for _ in range(24):
+                trigger.focus()
+                self.page.keyboard.press('Enter')
+                menu = self.page.get_by_role('menu')
+                first = menu.get_by_role('menuitem').first
+                expect(first).to_be_focused()
+                first.press('ArrowDown')
+                second = menu.get_by_role('menuitem', name='Add to Want to Read', exact=True)
+                expect(second).to_be_focused()
+                # Check again after deferred opening work has had time to run.
+                self.frames()
+                expect(second).to_be_focused()
+                self.page.keyboard.press('ArrowUp')
+                expect(first).to_be_focused()
+                self.page.keyboard.press('Escape')
+                expect(menu).to_have_count(0)
+                expect(trigger).to_be_focused()
+        except Exception:
+            print('Menu focus trace:', self.page.evaluate('window.__menuFocusTrace'))
+            raise
 
     def test_empty_library_preserves_readable_controls_at_double_text_size(self):
         self.page.set_viewport_size({'width': 320, 'height': 640})
@@ -46,8 +67,8 @@ class ResumeControlsBrowser(deep.DeepControlRefinementBrowser):
             self.assertLessEqual(box['x'] + box['width'], 320)
         empty = self.page.locator('[data-slot="library-empty-state"]')
         primary = empty.get_by_role('button', name='Import File(s)', exact=True)
-        self.assertGreaterEqual(primary.bounding_box()['width'], 225)
         self.assertGreaterEqual(primary.evaluate('e => parseFloat(getComputedStyle(e).fontSize)'), 28)
+        self.assertGreaterEqual(primary.bounding_box()['width'], 225)
         self.assertLessEqual(primary.bounding_box()['height'], 2 * primary.evaluate('e => parseFloat(getComputedStyle(e).lineHeight)') + 36)
         self.capture('empty-library-double-text')
         toolbar.get_by_role('button', name='Collections', exact=True).click()
