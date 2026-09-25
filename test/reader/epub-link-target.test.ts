@@ -39,3 +39,28 @@ test('resource-aware EPUB links refuse traversal outside the archive', () => {
     undefined
   );
 });
+
+
+test('same-resource EPUB links stay on the current repeated spine occurrence', () => {
+  const repeated = [
+    { href: 'OPS/chapter.xhtml', spineIndex: 0, sectionId: 'first' },
+    { href: 'OPS/chapter.xhtml', spineIndex: 4, sectionId: 'repeat' }
+  ];
+  assert.deepEqual(resolveEpubLinkTarget('OPS/chapter.xhtml', '#note', repeated, 4), {
+    spineIndex: 4,
+    fragment: 'note'
+  });
+});
+
+test('cross-resource EPUB links choose the nearest repeated target occurrence', () => {
+  const repeated = [
+    { href: 'OPS/a.xhtml', spineIndex: 0, sectionId: 'a' },
+    { href: 'OPS/notes.xhtml', spineIndex: 1, sectionId: 'notes-early' },
+    { href: 'OPS/chapter.xhtml', spineIndex: 2, sectionId: 'chapter' },
+    { href: 'OPS/notes.xhtml', spineIndex: 3, sectionId: 'notes-late' }
+  ];
+  assert.deepEqual(resolveEpubLinkTarget('OPS/chapter.xhtml', 'notes.xhtml#note', repeated, 2), {
+    spineIndex: 1,
+    fragment: 'note'
+  });
+});
