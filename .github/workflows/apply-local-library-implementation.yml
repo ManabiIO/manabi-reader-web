@@ -10,7 +10,8 @@ concurrency:
   cancel-in-progress: false
 jobs:
   apply:
-    if: github.repository == 'ManabiIO/manabi-reader-web' && github.event.head_commit.message == 'chore: publish verified local-library implementation'
+    if: >-
+      github.repository == 'ManabiIO/manabi-reader-web' && github.event.head_commit.message == 'chore: publish verified local-library implementation'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
