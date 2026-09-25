@@ -120,14 +120,19 @@ test('labels wrap without a fixed height and activation does not displace the co
   assert.ok(result.includes('font-normal'));
 });
 
-
 test('filled, outlined, neutral and text actions have distinct treatments', () => {
   const filled = classes({ variant: 'default' });
   assert.ok(filled.includes('bg-primary'));
   assert.ok(filled.includes('text-primary-foreground'));
   assert.ok(!filled.includes('hover:bg-primary/80'));
   const outlined = classes({ variant: 'outline' });
-  for (const value of ['border-primary', 'bg-transparent', 'text-primary', 'hover:bg-primary', 'hover:text-primary-foreground']) {
+  for (const value of [
+    'border-primary',
+    'bg-transparent',
+    'text-primary',
+    'hover:bg-primary',
+    'hover:text-primary-foreground'
+  ]) {
     assert.ok(outlined.includes(value), value);
   }
   const neutral = classes({ variant: 'secondary' });
