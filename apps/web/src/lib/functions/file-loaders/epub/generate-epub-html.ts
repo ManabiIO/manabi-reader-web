@@ -283,6 +283,7 @@ export default function generateEpubHtml(
 
     const resourceHref = resolveArchivePath(manifestOwner, htmlHref);
     childWrapperDiv.dataset.manabiEpubResourceHref = resourceHref;
+    childWrapperDiv.dataset.manabiEpubSpineIndex = String(spineIndex);
     result.appendChild(childWrapperDiv);
     publicationResources.push({
       href: resourceHref,
@@ -368,7 +369,15 @@ function flattenAnchorHref(el: HTMLElement, resources: PublicationResource[]) {
 
     const owner = tag.closest<HTMLElement>('[data-manabi-epub-resource-href]');
     const ownerHref = owner?.dataset.manabiEpubResourceHref;
-    const target = ownerHref ? resolveEpubLinkTarget(ownerHref, oldHref, resources) : undefined;
+    const ownerSpineIndex = Number(owner?.dataset.manabiEpubSpineIndex);
+    const target = ownerHref
+      ? resolveEpubLinkTarget(
+          ownerHref,
+          oldHref,
+          resources,
+          Number.isSafeInteger(ownerSpineIndex) ? ownerSpineIndex : undefined
+        )
+      : undefined;
     if (target) {
       tag.dataset.manabiTargetSpineIndex = String(target.spineIndex);
       if (target.fragment) tag.dataset.manabiTargetFragment = target.fragment;
