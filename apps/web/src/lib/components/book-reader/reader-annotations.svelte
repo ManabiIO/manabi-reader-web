@@ -45,6 +45,8 @@
   <Sheet.Content
     side="left"
     showCloseButton
+    closeDisabled={busy}
+    aria-busy={busy}
     class="writing-horizontal-tb p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] data-[side=left]:w-full data-[side=left]:sm:max-w-md"
   >
     <Sheet.Header class="shrink-0 p-0">
@@ -144,8 +146,11 @@
         <div class="flex items-start gap-1 border-b border-border py-2">
           <button
             type="button"
-            class="min-h-11 min-w-0 flex-1 rounded-lg px-2 py-2 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"
-            onclick={() => dispatch('openAnnotation', annotation)}
+            class="min-h-11 min-w-0 flex-1 rounded-lg px-2 py-2 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50"
+            disabled={busy}
+            onclick={() => {
+              if (!busy) dispatch('openAnnotation', annotation);
+            }}
           >
             <span class="block text-xs font-medium text-muted-foreground"
               >{annotation.kind === 'bookmark'

@@ -89,9 +89,9 @@
         }
       }}
     >
-      <Sheet.Header class="mb-6 flex flex-row items-center justify-between gap-3 p-0">
-        <Sheet.Title class="font-serif text-2xl">Collections</Sheet.Title>
-        <div class="flex shrink-0 gap-2">
+      <Sheet.Header class="mb-6 flex flex-row flex-wrap items-center justify-between gap-3 p-0">
+        <Sheet.Title class="min-w-0 font-serif text-2xl">Collections</Sheet.Title>
+        <div class="ms-auto flex shrink-0 gap-2">
           <Button
             bind:ref={editButton}
             variant="secondary"
@@ -142,7 +142,7 @@
               class="collection-row"
               aria-current={active === collection.id ? 'page' : undefined}
               onclick={() => choose(collection.id)}
-              ><List aria-hidden="true" /><span class="min-w-0 break-words">{collection.name}</span
+              ><List aria-hidden="true" /><span class="min-w-0 [overflow-wrap:anywhere]">{collection.name}</span
               ><span class="count"
                 >{books.filter((book) => collectionContains(collection, book)).length}</span
               >{#if !editing}<CaretRight
@@ -217,9 +217,9 @@
       class="grid gap-5"
       aria-busy={busy}
     >
-      {#if !deleting}<label class="grid gap-2"
+      {#if !deleting}<label class="grid min-w-0 gap-2"
           >Name<input
-            class="min-h-11 rounded-xl border border-input bg-background px-3"
+            class="min-h-11 min-w-0 w-full rounded-xl border border-input bg-background px-3 text-base sm:text-sm"
             bind:value={name}
             disabled={busy}
             required
@@ -241,18 +241,18 @@
 <style>
   .collection-row {
     display: grid;
-    grid-template-columns: 1.5rem minmax(0, 1fr) auto auto;
+    grid-template-columns: min(1.5rem, 24px) minmax(0, 1fr) auto auto;
     align-items: center;
-    gap: 0.75rem;
+    gap: min(0.75rem, 12px);
     width: 100%;
-    padding: 0.875rem 1rem;
+    padding: 0.875rem min(1rem, 16px);
     text-align: left;
     font-size: 1.1rem;
     min-height: 60px;
   }
   .collection-row :global(svg) {
-    width: 1.5rem;
-    height: 1.5rem;
+    width: min(1.5rem, 24px);
+    height: min(1.5rem, 24px);
     flex-shrink: 0;
   }
   .collection-row:hover,
@@ -268,13 +268,19 @@
     font-variant-numeric: tabular-nums;
   }
   .collection-entry {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    display: flex;
+    flex-wrap: wrap;
     align-items: center;
+  }
+  .collection-entry > .collection-row {
+    flex: 1 1 14rem;
+    min-width: 0;
   }
   .collection-actions {
     display: flex;
     gap: 0.15rem;
-    padding-right: 0.5rem;
+    margin-inline-start: auto;
+    padding-inline: 0.5rem;
+    padding-block-end: 0.25rem;
   }
 </style>

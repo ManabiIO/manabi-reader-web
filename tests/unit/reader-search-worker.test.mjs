@@ -122,3 +122,35 @@ test('cancellation interrupts a chunked scan while newer work still completes', 
   assert.equal(done.total, 1);
   assert.ok(worker.messages.every((message) => message.requestId === 9));
 });
+
+
+test('case-insensitive excerpts retain the original spelling and normalization', async () => {
+  const worker = harness();
+  const original = 'Original É e\u0301 𠮷 👩‍💻 End';
+  const done = await worker.search(10, [original], 'é');
+  assert.equal(done.total, 2);
+  for (const hit of hits(worker)) assert.equal(hit.excerpt, original);
+});
+
+test('excerpt context never splits an astral or joined grapheme at its boundary', async () => {
+  const worker = harness();
+  // The normalized context starts inside this joined emoji in UTF-16 units.
+  const original = 'Prefix 👩‍💻' + 'a'.repeat(63) + 'needle' + 'z'.repeat(63) + '👩‍💻 Suffix';
+  const done = await worker.search(11, [original], 'needle');
+  assert.equal(done.total, 1);
+  const [hit] = hits(worker);
+  assert.ok(hit.excerpt.startsWith('👩‍💻'));
+  assert.ok(hit.excerpt.endsWith('👩‍💻'));
+  assert.equal(Array.from(original).slice(hit.start, hit.end).join(''), 'needle');
+});
+
+test('many short spine resources yield to cancellation before scanning the whole book', async () => {
+  const worker = harness();
+  void worker.search(12, [...Array(100).fill('x'.repeat(1024)), 'needle'], 'needle');
+  assert.equal(worker.messages.length, 0, 'the scan must yield before its final resource');
+  worker.send({ type: 'cancel', requestId: 12 });
+  const done = await worker.search(13, ['needle'], 'needle');
+  await delay(10);
+  assert.equal(done.total, 1);
+  assert.ok(worker.messages.every((message) => message.requestId === 13));
+});
