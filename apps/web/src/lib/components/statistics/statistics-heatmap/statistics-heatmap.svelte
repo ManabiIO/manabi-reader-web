@@ -1202,11 +1202,11 @@
         style:border-width={`${isSelected || isToday ? '3' : '1'}px`}
         title={`${heatmapDay.isCurrentYear ? `${heatmapDay.dayDetails.join('\n')}` : ''}`}
         data-date={heatmapDay.dateString}
-        onclick={(event) => {
+        on:click={(event) => {
           if (event.currentTarget instanceof HTMLElement)
             openHeatmapDay(event.currentTarget, heatmapDay);
         }}
-        onkeydown={(event) => handleHeatmapDayKeydown(event, heatmapDay)}
+        on:keydown={(event) => handleHeatmapDayKeydown(event, heatmapDay)}
       ></div>
     {/each}
     {#if popoverDetails.length}
