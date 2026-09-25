@@ -443,7 +443,7 @@ async function acceptRemote(
     // The absence of downloaded bytes is not a personal-state deletion. Keep the
     // accepted account baseline warm until a verified local copy is materialized.
     if (!materialized) return baseline?.payload ?? remote;
-    return readLocal(item.kind, item.entity_id, item.book_key!, books);
+    return readLocal(item.kind as PersonalKind, item.entity_id, item.book_key!, books);
   };
   let local = await readCurrent();
   const readingPending =
@@ -960,9 +960,13 @@ export async function resolvePersonalConflict(id: string, choice: 'local' | 'rem
       throw new IntegrationError('conflict', 409);
     }
     const accepted = await db.get('readerPersonalRecord', id);
-    const acceptedRemote = accepted?.deleted ? null : accepted?.payload ?? null;
+    if (!accepted) {
+      await db.delete('readerPersonalConflict', id);
+      await publish(accountId);
+      throw new IntegrationError('conflict', 409);
+    }
+    const acceptedRemote = accepted.deleted ? null : (accepted.payload ?? null);
     if (
-      !accepted ||
       accepted.revision !== conflict.remoteRevision ||
       !equal(acceptedRemote, conflict.remote)
     ) {
