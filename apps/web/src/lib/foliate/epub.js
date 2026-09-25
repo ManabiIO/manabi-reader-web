@@ -703,125 +703,199 @@ class Resources {
     }
 }
 
-class Loader {
+export class Loader {
     #cache = new Map()
     #children = new Map()
     #refCount = new Map()
+    #pendingLoads = new Map()
+    #loadDependencies = new Map()
+    #destroyed = false
     eventTarget = new EventTarget()
     constructor({ loadText, loadBlob, resources }) {
         this.loadText = loadText
         this.loadBlob = loadBlob
         this.manifest = resources.manifest
         this.assets = resources.manifest
-        // needed only when replacing in (X)HTML w/o parsing (see below)
-        //.filter(({ mediaType }) => ![MIME.XHTML, MIME.HTML].includes(mediaType))
     }
-    async createURL(href, data, type, parent) {
-        if (!data) return ''
+    async createURL(href, data, type, parent, cacheKey = href) {
+        if (this.#destroyed || data == null) return ''
         const detail = { data, type }
-        Object.defineProperty(detail, 'name', { value: href }) // readonly
+        Object.defineProperty(detail, 'name', { value: href })
         const event = new CustomEvent('data', { detail })
         this.eventTarget.dispatchEvent(event)
         const newData = await event.detail.data
         const newType = await event.detail.type
+        if (this.#destroyed || newData == null) return ''
         const url = URL.createObjectURL(new Blob([newData], { type: newType }))
-        this.#cache.set(href, url)
-        this.#refCount.set(href, 1)
+        if (this.#destroyed) {
+            URL.revokeObjectURL(url)
+            return ''
+        }
+        this.#cache.set(cacheKey, url)
+        this.#refCount.set(cacheKey, 1)
         if (parent) {
             const childList = this.#children.get(parent)
-            if (childList) childList.push(href)
-            else this.#children.set(parent, [href])
+            if (childList) childList.push(cacheKey)
+            else this.#children.set(parent, [cacheKey])
         }
         return url
     }
-    ref(href, parent) {
-        const childList = this.#children.get(parent)
-        if (!childList?.includes(href)) {
-            this.#refCount.set(href, this.#refCount.get(href) + 1)
-            //console.log(`referencing ${href}, now ${this.#refCount.get(href)}`)
-            if (childList) childList.push(href)
-            else this.#children.set(parent, [href])
+    ref(key, parent) {
+        if (this.#destroyed || !this.#cache.has(key)) return null
+        if (!parent) {
+            this.#refCount.set(key, (this.#refCount.get(key) ?? 0) + 1)
+            return this.#cache.get(key)
         }
-        return this.#cache.get(href)
+        const childList = this.#children.get(parent)
+        if (!childList?.includes(key)) {
+            this.#refCount.set(key, (this.#refCount.get(key) ?? 0) + 1)
+            if (childList) childList.push(key)
+            else this.#children.set(parent, [key])
+        }
+        return this.#cache.get(key)
     }
-    unref(href) {
-        if (!this.#refCount.has(href)) return
-        const count = this.#refCount.get(href) - 1
-        //console.log(`unreferencing ${href}, now ${count}`)
+    unref(key) {
+        if (!this.#refCount.has(key)) return
+        const count = this.#refCount.get(key) - 1
         if (count < 1) {
-            //console.log(`unloading ${href}`)
-            URL.revokeObjectURL(this.#cache.get(href))
-            this.#cache.delete(href)
-            this.#refCount.delete(href)
-            // unref children
-            const childList = this.#children.get(href)
+            const url = this.#cache.get(key)
+            if (typeof url === 'string' && url.startsWith('blob:'))
+                URL.revokeObjectURL(url)
+            this.#cache.delete(key)
+            this.#refCount.delete(key)
+            const childList = this.#children.get(key)
             if (childList) while (childList.length) this.unref(childList.pop())
-            this.#children.delete(href)
-        } else this.#refCount.set(href, count)
+            this.#children.delete(key)
+        } else this.#refCount.set(key, count)
     }
-    // load manifest item, recursively loading all resources as needed
+    #dependsOn(from, target, visited = new Set()) {
+        if (from === target) return true
+        if (visited.has(from)) return false
+        visited.add(from)
+        for (const child of this.#loadDependencies.get(from)?.keys() ?? []) {
+            if (this.#dependsOn(child, target, visited)) return true
+        }
+        return false
+    }
+    #rollbackUncommittedChildren(parent, retainedChildren) {
+        const childList = this.#children.get(parent)
+        if (!childList?.length) return
+        const retained = []
+        for (const child of childList) {
+            if (retainedChildren.has(child)) retained.push(child)
+            else this.unref(child)
+        }
+        if (retained.length) this.#children.set(parent, retained)
+        else this.#children.delete(parent)
+    }
     async loadItem(item, parents = []) {
-        if (!item) return null
+        if (this.#destroyed || !item) return null
         const { href, mediaType } = item
-
-        const isScript = MIME.JS.test(item.mediaType)
-        const detail = { type: mediaType, isScript, allow: true}
+        const isScript = MIME.JS.test(mediaType)
+        const detail = { type: mediaType, isScript, allow: true }
         const event = new CustomEvent('load', { detail })
         this.eventTarget.dispatchEvent(event)
         const allow = await event.detail.allow
-        if (!allow) return null
+        if (this.#destroyed || !allow) return null
 
         const parent = parents.at(-1)
         if (this.#cache.has(href)) return this.ref(href, parent)
 
+        if (parent && this.#dependsOn(href, parent))
+            return this.#loadItemUncoalesced(item, parents, true)
+
+        let dependencies
+        if (parent) {
+            dependencies = this.#loadDependencies.get(parent)
+            if (!dependencies)
+                this.#loadDependencies.set(parent, dependencies = new Map())
+            dependencies.set(href, (dependencies.get(href) ?? 0) + 1)
+        }
+        try {
+            const recursive = parents.some(candidate => candidate === href)
+            if (recursive) return this.#loadItemUncoalesced(item, parents, true)
+
+            const pending = this.#pendingLoads.get(href)
+            if (pending) {
+                const url = await pending
+                if (this.#destroyed || !url) return null
+                return this.ref(href, parent)
+            }
+
+            const retainedChildren = new Set(this.#children.get(href) ?? [])
+            const load = (async () => {
+                try {
+                    const value = await this.#loadItemUncoalesced(item, parents)
+                    if (!value || !this.#cache.has(href))
+                        this.#rollbackUncommittedChildren(href, retainedChildren)
+                    return value
+                } catch (error) {
+                    this.#rollbackUncommittedChildren(href, retainedChildren)
+                    throw error
+                }
+            })()
+            this.#pendingLoads.set(href, load)
+            try {
+                return await load
+            } finally {
+                if (this.#pendingLoads.get(href) === load)
+                    this.#pendingLoads.delete(href)
+            }
+        } finally {
+            if (parent && dependencies) {
+                const count = (dependencies.get(href) ?? 1) - 1
+                if (count) dependencies.set(href, count)
+                else dependencies.delete(href)
+                if (!dependencies.size) this.#loadDependencies.delete(parent)
+            }
+        }
+    }
+    async #loadItemUncoalesced(item, parents = [], forceRaw = false) {
+        if (this.#destroyed || !item) return null
+        const { href, mediaType } = item
+        const isScript = MIME.JS.test(mediaType)
+        const parent = parents.at(-1)
+        if (this.#cache.has(href)) return this.ref(href, parent)
+
+        const recursive = forceRaw || parents.some(candidate => candidate === href)
         const shouldReplace =
             (isScript || [MIME.XHTML, MIME.HTML, MIME.CSS, MIME.SVG].includes(mediaType))
-            // prevent circular references
-            && parents.every(p => p !== href)
+            && !recursive
         if (shouldReplace) return this.loadReplaced(item, parents)
-        // NOTE: this can be replaced with `Promise.try()`
-        const tryLoadBlob = Promise.resolve().then(() => this.loadBlob(href))
-        return this.createURL(href, tryLoadBlob, mediaType, parent)
+
+        const blob = await this.loadBlob(href)
+        if (this.#destroyed || blob == null) return null
+        const cacheKey = recursive ? Symbol(`recursive:${href}`) : href
+        return this.createURL(href, blob, mediaType, parent, cacheKey)
     }
     async loadHref(href, base, parents = []) {
-        if (isExternal(href)) return href
+        if (this.#destroyed || isExternal(href)) return href
         const path = resolveURL(href, base)
         const item = this.manifest.find(item => item.href === path)
         if (!item) return href
         return this.loadItem(item, parents.concat(base))
     }
     async loadReplaced(item, parents = []) {
+        if (this.#destroyed) return null
         const { href, mediaType } = item
         const parent = parents.at(-1)
         let str = ''
         try {
             str = await this.loadText(href)
         } catch (e) {
+            if (this.#destroyed) return null
             return this.createURL(href, Promise.reject(e), mediaType, parent)
         }
-        if (!str) return null
+        if (this.#destroyed || !str) return null
 
-        // note that one can also just use `replaceString` for everything:
-        // ```
-        // const replaced = await this.replaceString(str, href, parents)
-        // return this.createURL(href, replaced, mediaType, parent)
-        // ```
-        // which is basically what Epub.js does, which is simpler, but will
-        // break things like iframes (because you don't want to replace links)
-        // or text that just happen to be paths
-
-        // parse and replace in HTML
         if ([MIME.XHTML, MIME.HTML, MIME.SVG].includes(mediaType)) {
             let doc = new DOMParser().parseFromString(str, mediaType)
-            // change to HTML if it's not valid XHTML
             if (mediaType === MIME.XHTML && (doc.querySelector('parsererror')
             || !doc.documentElement?.namespaceURI)) {
                 console.warn(doc.querySelector('parsererror')?.innerText ?? 'Invalid XHTML')
                 item.mediaType = MIME.HTML
                 doc = new DOMParser().parseFromString(str, item.mediaType)
             }
-            // replace hrefs in XML processing instructions
-            // this is mainly for SVGs that use xml-stylesheet
             if ([MIME.XHTML, MIME.SVG].includes(item.mediaType)) {
                 let child = doc.firstChild
                 while (child instanceof ProcessingInstruction) {
@@ -830,35 +904,53 @@ class Loader {
                             /(?:^|\s*)(href\s*=\s*['"])([^'"]*)(['"])/i,
                             (_, p1, p2, p3) => this.loadHref(p2, href, parents)
                                 .then(p2 => `${p1}${p2}${p3}`))
+                        if (this.#destroyed) return null
                         child.replaceWith(doc.createProcessingInstruction(
                             child.target, replacedData))
                     }
                     child = child.nextSibling
                 }
             }
-            // replace hrefs (excluding anchors)
             const replace = async (el, attr) => el.setAttribute(attr,
                 await this.loadHref(el.getAttribute(attr), href, parents))
-            for (const el of doc.querySelectorAll('link[href]')) await replace(el, 'href')
-            for (const el of doc.querySelectorAll('[src]')) await replace(el, 'src')
-            for (const el of doc.querySelectorAll('[poster]')) await replace(el, 'poster')
-            for (const el of doc.querySelectorAll('object[data]')) await replace(el, 'data')
-            for (const el of doc.querySelectorAll('[*|href]:not([href])'))
+            for (const el of doc.querySelectorAll('link[href]')) {
+                await replace(el, 'href')
+                if (this.#destroyed) return null
+            }
+            for (const el of doc.querySelectorAll('[src]')) {
+                await replace(el, 'src')
+                if (this.#destroyed) return null
+            }
+            for (const el of doc.querySelectorAll('[poster]')) {
+                await replace(el, 'poster')
+                if (this.#destroyed) return null
+            }
+            for (const el of doc.querySelectorAll('object[data]')) {
+                await replace(el, 'data')
+                if (this.#destroyed) return null
+            }
+            for (const el of doc.querySelectorAll('[*|href]:not([href])')) {
                 el.setAttributeNS(NS.XLINK, 'href', await this.loadHref(
                     el.getAttributeNS(NS.XLINK, 'href'), href, parents))
-            for (const el of doc.querySelectorAll('[srcset]'))
+                if (this.#destroyed) return null
+            }
+            for (const el of doc.querySelectorAll('[srcset]')) {
                 el.setAttribute('srcset', await replaceSeries(el.getAttribute('srcset'),
                     /(\s*)(.+?)\s*((?:\s[\d.]+[wx])+\s*(?:,|$)|,\s+|$)/g,
                     (_, p1, p2, p3) => this.loadHref(p2, href, parents)
                         .then(p2 => `${p1}${p2}${p3}`)))
-            // replace inline styles
+                if (this.#destroyed) return null
+            }
             for (const el of doc.querySelectorAll('style'))
-                if (el.textContent) el.textContent =
-                    await this.replaceCSS(el.textContent, href, parents)
-            for (const el of doc.querySelectorAll('[style]'))
+                if (el.textContent) {
+                    el.textContent = await this.replaceCSS(el.textContent, href, parents)
+                    if (this.#destroyed) return null
+                }
+            for (const el of doc.querySelectorAll('[style]')) {
                 el.setAttribute('style',
                     await this.replaceCSS(el.getAttribute('style'), href, parents))
-            // TODO: replace inline scripts? probably not worth the trouble
+                if (this.#destroyed) return null
+            }
             const result = new XMLSerializer().serializeToString(doc)
             return this.createURL(href, result, item.mediaType, parent)
         }
@@ -866,26 +958,26 @@ class Loader {
         const result = mediaType === MIME.CSS
             ? await this.replaceCSS(str, href, parents)
             : await this.replaceString(str, href, parents)
+        if (this.#destroyed) return null
         return this.createURL(href, result, mediaType, parent)
     }
     async replaceCSS(str, href, parents = []) {
+        if (this.#destroyed) return ''
         const replacedUrls = await replaceSeries(str,
             /url\(\s*["']?([^'"\n]*?)\s*["']?\s*\)/gi,
             (_, url) => this.loadHref(url, href, parents)
                 .then(url => `url("${url}")`))
-        // apart from `url()`, strings can be used for `@import` (but why?!)
+        if (this.#destroyed) return ''
         return replaceSeries(replacedUrls,
             /@import\s*["']([^"'\n]*?)["']/gi,
             (_, url) => this.loadHref(url, href, parents)
                 .then(url => `@import "${url}"`))
     }
-    // find & replace all possible relative paths for all assets without parsing
     replaceString(str, href, parents = []) {
+        if (this.#destroyed) return ''
         const assetMap = new Map()
         const urls = this.assets.map(asset => {
-            // do not replace references to the file itself
             if (asset.href === href) return
-            // href was decoded and resolved when parsing the manifest
             const relative = pathRelative(pathDirname(href), asset.href)
             const relativeEnc = encodeURI(relative)
             const rootRelative = '/' + asset.href
@@ -904,10 +996,23 @@ class Loader {
         this.unref(item?.href)
     }
     destroy() {
-        for (const url of this.#cache.values()) URL.revokeObjectURL(url)
+        if (this.#destroyed) return false
+        this.#destroyed = true
+        for (const url of this.#cache.values()) {
+            if (typeof url === 'string' && url.startsWith('blob:')) {
+                try { URL.revokeObjectURL(url) } catch (_) {}
+            }
+        }
+        this.#cache.clear()
+        this.#children.clear()
+        this.#refCount.clear()
+        this.#pendingLoads.clear()
+        this.#loadDependencies.clear()
+        this.manifest = []
+        this.assets = []
+        return true
     }
 }
-
 const getHTMLFragment = (doc, id) => doc.getElementById(id)
     ?? doc.querySelector(`[name="${CSS.escape(id)}"]`)
 
