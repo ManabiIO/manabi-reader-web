@@ -451,6 +451,9 @@ export class Paginator extends HTMLElement {
     #touchState
     #touchScrolled
     #lastVisibleRange
+    #navigationGeneration = 0
+    #navigationChain = Promise.resolve()
+    #destroyed = false
     constructor() {
         super()
         this.#root.innerHTML = `<style>
@@ -1004,6 +1007,7 @@ export class Paginator extends HTMLElement {
         return index >= 0 && index <= this.sections.length - 1
     }
     async #goTo({ index, anchor, select}) {
+        if (this.#destroyed) return false
         if (index === this.#index) await this.#display({ index, anchor, select })
         else {
             const oldIndex = this.#index
@@ -1020,11 +1024,21 @@ export class Paginator extends HTMLElement {
                     return {}
                 }))
         }
+        return !this.#destroyed && this.#index === index
     }
     async goTo(target) {
-        if (this.#locked) return
+        if (this.#locked || this.#destroyed) return false
+        const generation = ++this.#navigationGeneration
         const resolved = await target
-        if (this.#canGoToIndex(resolved.index)) return this.#goTo(resolved)
+        if (!this.#canGoToIndex(resolved?.index)) return false
+        const operation = this.#navigationChain
+            .catch(() => false)
+            .then(() => {
+                if (this.#destroyed || generation !== this.#navigationGeneration) return false
+                return this.#goTo(resolved)
+            })
+        this.#navigationChain = operation
+        return operation
     }
     #scrollPrev(distance) {
         if (!this.#view) return true
@@ -1121,11 +1135,15 @@ export class Paginator extends HTMLElement {
         this.#view.document.defaultView.focus()
     }
     destroy() {
+        if (this.#destroyed) return false
+        this.#destroyed = true
+        this.#navigationGeneration += 1
         this.#observer.unobserve(this)
-        this.#view.destroy()
+        this.#view?.destroy()
         this.#view = null
         this.sections[this.#index]?.unload?.()
         this.#mediaQuery.removeEventListener('change', this.#mediaQueryListener)
+        return true
     }
 }
 
