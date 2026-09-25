@@ -135,8 +135,12 @@
           isStartDate: true, dateString: selectedStatisticsEndDate
         })}
       ><AppIcon icon={faLeftLong} />Use end date for both</Button>
-      <Button variant="link" onclick={() => setStatisticsDatesToAllTime$.next()}
-        >Use all available dates for selected books</Button>
+      <Button
+        variant="ghost"
+        shape="rounded"
+        onclick={() => setStatisticsDatesToAllTime$.next()}
+        >Use all available dates for selected books</Button
+      >
     </div>
   </fieldset>
   <fieldset disabled={$statisticsActionInProgress$} class="options-group">

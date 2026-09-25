@@ -46,7 +46,7 @@
     getPreviousDayKey,
     secondsToMinutes
   } from '$lib/functions/statistic-util';
-  import { caluclatePercentage, dummyFn, limitToRange, pluralize } from '$lib/functions/utils';
+  import { caluclatePercentage, limitToRange, pluralize } from '$lib/functions/utils';
   import { debounceTime, fromEvent, tap } from 'rxjs';
   import { onMount, tick } from 'svelte';
   import AppIcon from '$lib/components/app-icon.svelte';
@@ -146,6 +146,23 @@
     tick().then(() => {
       heatmapElement.scrollTo({ top: 0, left: 0, behavior: 'auto' });
     });
+  }
+
+  function openHeatmapDay(target: HTMLElement, heatmapDay: StatisticsHeatmapDayData) {
+    if (!heatmapDay.isCurrentYear) return;
+    popoverDetails = heatmapDay.dayDetails;
+    void tick().then(() => {
+      if (target.isConnected) heatmapDetailDataPopover.toggleOpen(target);
+    });
+  }
+
+  function handleHeatmapDayKeydown(
+    event: KeyboardEvent,
+    heatmapDay: StatisticsHeatmapDayData
+  ) {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    if (event.currentTarget instanceof HTMLElement) openHeatmapDay(event.currentTarget, heatmapDay);
   }
 
   async function highlightStreaks(streaks: HeatmapStreak[], streakToSelect: HeatmapStreakType) {
@@ -1165,8 +1182,10 @@
         (heatmapDay.dateString === $lastStatisticsStartDate$ ||
           heatmapDay.dateString === $lastStatisticsEndDate$)}
       <div
-        tabindex="0"
-        role="cell"
+        tabindex={heatmapDay.isCurrentYear ? 0 : -1}
+        role="button"
+        aria-disabled={!heatmapDay.isCurrentYear}
+        aria-label={heatmapDay.isCurrentYear ? heatmapDay.dayDetails.join('. ') : undefined}
         class="justify-self-center fadeIn"
         class:cursor-pointer={heatmapDay.isCurrentYear}
         class:bg-heatmap-empty={heatmapDay.isCurrentYear}
@@ -1183,20 +1202,11 @@
         style:border-width={`${isSelected || isToday ? '3' : '1'}px`}
         title={`${heatmapDay.isCurrentYear ? `${heatmapDay.dayDetails.join('\n')}` : ''}`}
         data-date={heatmapDay.dateString}
-        on:click={(event) => {
-          if (!heatmapDay.isCurrentYear) {
-            return;
-          }
-
-          popoverDetails = heatmapDay.dayDetails;
-
-          tick().then(() => {
-            if (event.target instanceof HTMLElement) {
-              heatmapDetailDataPopover.toggleOpen(event.target);
-            }
-          });
+        onclick={(event) => {
+          if (event.currentTarget instanceof HTMLElement)
+            openHeatmapDay(event.currentTarget, heatmapDay);
         }}
-        on:keyup={dummyFn}
+        onkeydown={(event) => handleHeatmapDayKeydown(event, heatmapDay)}
       ></div>
     {/each}
     {#if popoverDetails.length}

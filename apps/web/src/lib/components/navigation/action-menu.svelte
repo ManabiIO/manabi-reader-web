@@ -1,11 +1,12 @@
 <script lang="ts">
   import * as Menu from '$lib/components/ui/dropdown-menu';
-  import { Button } from '$lib/components/ui/button';
+  import { Button, type ButtonVariant } from '$lib/components/ui/button';
   import { CaretDownIcon as ChevronDown } from 'phosphor-svelte';
   export let label: string;
   export let title = '';
   export let disabled = false;
   export let open = false;
+  export let variant: ButtonVariant = 'outline';
 </script>
 
 <Menu.Root bind:open>
@@ -14,7 +15,7 @@
       <Button
         {...props}
         {disabled}
-        variant="outline"
+        {variant}
         class="min-h-9"
         aria-label={title || label}
         title={title || label}

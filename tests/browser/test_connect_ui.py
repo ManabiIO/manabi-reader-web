@@ -71,7 +71,10 @@ class ConnectControlsBrowser(previous.AppleControlsBrowser):
             heatmap.click()
             expect(heatmap).to_have_attribute('aria-pressed', 'true')
             self.assertEqual('2px', heatmap.evaluate('e => getComputedStyle(e).borderBottomWidth'))
+            filter_books = toolbar.get_by_role('button', name='Filter books', exact=True)
+            expect(filter_books).to_have_attribute('data-variant', 'secondary')
             trigger = toolbar.get_by_role('button', name='Statistics options', exact=True)
+            expect(trigger).to_have_attribute('data-variant', 'secondary')
             trigger.click()
             self.page.get_by_role('menuitem', name='Statistics Settings', exact=True).click()
             panel = self.page.get_by_role('dialog', name='Statistics options', exact=True)
@@ -117,6 +120,23 @@ class ConnectControlsBrowser(previous.AppleControlsBrowser):
             });
           } finally { db.close(); }
         }''')
+
+    def test_heatmap_days_are_real_keyboard_actions(self):
+        self.seed_statistics()
+        self.page.goto(self.origin + '/Reader-Web/statistics')
+        self.page.get_by_role('button', name='Heatmap', exact=True).click()
+        day = self.page.locator('[data-date="2026-09-25"]')
+        expect(day).to_have_attribute('role', 'button')
+        expect(day).to_have_attribute('tabindex', '0')
+        expect(day).to_have_attribute('aria-disabled', 'false')
+        day.focus()
+        day.press('Enter')
+        close = self.page.get_by_role('button', name='Close heatmap details', exact=True)
+        expect(close).to_be_visible()
+        close.click()
+        day.focus()
+        day.press(' ')
+        expect(self.page.get_by_role('button', name='Close heatmap details', exact=True)).to_be_visible()
 
     def test_title_filter_pages_survive_empty_queries_resize_and_private_drafts(self):
         self.seed_statistics()
