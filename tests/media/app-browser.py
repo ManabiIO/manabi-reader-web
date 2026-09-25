@@ -183,7 +183,31 @@ def main():
         upload()
         expect(page.locator('.transcript-cue')).to_have_count(2)
         assert not page.locator('.transcript-setup').is_visible()
-        assert float(page.locator('.transcript-text').first.evaluate('e=>parseFloat(getComputedStyle(e).fontSize)'))==before+1
+        # Caption records and shared ebook preferences restore independently.
+        # Wait for the exact rendered typography, not only for cue-row existence.
+        # Keep the persistent store assertions: this cannot pass on a temporary
+        # style whose saved preference was actually lost.
+        page.wait_for_function("""expected => {
+            const node=document.querySelector('.transcript-text');
+            if (!node) return false;
+            const style=getComputedStyle(node);
+            return Number(localStorage.getItem('fontSize'))===expected &&
+                localStorage.getItem('fontFamilyGroupOne')==='Serif' &&
+                Number(localStorage.getItem('lineHeight'))===1.9 &&
+                parseFloat(style.fontSize)===expected &&
+                style.fontFamily.toLowerCase().startsWith('serif') &&
+                Math.abs(parseFloat(style.lineHeight)/parseFloat(style.fontSize)-1.9)<.03;
+        }""",arg=before+1)
+        (args.output/'restored-typography.json').write_text(json.dumps(page.locator(
+            '.transcript-text').first.evaluate("""node => {
+                const style=getComputedStyle(node);
+                return {
+                    fontSize:style.fontSize,fontFamily:style.fontFamily,lineHeight:style.lineHeight,
+                    savedSize:localStorage.getItem('fontSize'),
+                    savedFont:localStorage.getItem('fontFamilyGroupOne'),
+                    savedLineHeight:localStorage.getItem('lineHeight')
+                };
+            }"""),indent=2))
         results.append('real IndexedDB primary selection and shared reading settings survive reload/reselect')
         page.locator('.video-player-heading').click()
         page.screenshot(path=str(args.output/'app-desktop.png'))
