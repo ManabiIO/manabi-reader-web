@@ -26,15 +26,20 @@ class ConnectControlsBrowser(previous.AppleControlsBrowser):
                 typography = nav.get_by_role('button', name='Fonts & text', exact=True)
                 typography.click()
                 expect(typography).to_have_attribute('aria-pressed', 'true')
-                expect(self.page.locator('#settings-content h1')).to_have_text('Fonts & text')
+                expect(self.page.locator('#settings-content').get_by_role('heading', name='Fonts & text', exact=True)).to_be_visible()
                 self.assert_no_horizontal_overflow(self.page.locator('html'))
                 typography.focus()
+                # A pointer click is not keyboard focus. Traverse out and back
+                # with real keys before asserting the focus-visible treatment.
+                self.page.keyboard.press('Shift+Tab')
+                self.page.keyboard.press('Tab')
+                expect(typography).to_be_focused()
                 self.assertNotEqual('none', typography.evaluate('e => getComputedStyle(e).outlineStyle'))
                 self.capture(f'connect-settings-{mode}-{width}')
                 search.fill('NoSuchSettingForThisRegression')
                 expect(self.page.locator('#settings-content [role="status"]')).to_contain_text('No matching settings')
                 search.fill('')
-                expect(self.page.locator('#settings-content h1')).to_have_text('Fonts & text')
+                expect(self.page.locator('#settings-content').get_by_role('heading', name='Fonts & text', exact=True)).to_be_visible()
 
     def test_statistics_toolbar_and_options_reflow_and_keep_unique_form_labels(self):
         self.page.goto(self.origin + '/Reader-Web/statistics')

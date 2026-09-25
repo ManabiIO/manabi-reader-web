@@ -77,21 +77,24 @@
   <fieldset disabled={$statisticsActionInProgress$} class="options-group">
     <legend>Date range</legend>
     <div class="fields">
-      <label for="datesTemplate">Template
+      <div class="option-field">
+        <label for="datesTemplate">Template</label>
         <select id="datesTemplate" bind:value={$lastStatisticsRangeTemplate$}>
           {#each statisticsRangeTemplates as template (template)}
             <option value={template}>{template}</option>
           {/each}
         </select>
-      </label>
-      <label for="weekDay">Start of Week
+      </div>
+      <div class="option-field">
+        <label for="weekDay">Start of Week</label>
         <select id="weekDay" bind:value={$lastStartDayOfWeek$}>
           {#each weekDays as weekDay (weekDay.day)}
             <option value={weekDay.index}>{weekDay.day}</option>
           {/each}
         </select>
-      </label>
-      <label for="fromDate">From
+      </div>
+      <div class="option-field">
+        <label for="fromDate">From</label>
         <input
           id="fromDate"
           type="date"
@@ -102,8 +105,9 @@
               dateString: event.currentTarget.value
             })}
         />
-      </label>
-      <label for="toDate">To
+      </div>
+      <div class="option-field">
+        <label for="toDate">To</label>
         <input
           id="toDate"
           type="date"
@@ -114,7 +118,7 @@
               dateString: event.currentTarget.value
             })}
         />
-      </label>
+      </div>
     </div>
     <div class="actions">
       <Button
@@ -141,26 +145,30 @@
       Choose which values appear in the summary and how the reading data is grouped.
     </p>
     <div class="fields">
-      <label for="timeDataSource">Time Data Source
+      <div class="option-field">
+        <label for="timeDataSource">Time Data Source</label>
         <select id="timeDataSource" aria-describedby="statistics-measurement-help" bind:value={$lastReadingTimeDataSource$}>
           {#each readingTimeDataSources as source (source.key)}<option value={source.key}>{source.label}</option>{/each}
         </select>
-      </label>
-      <label for="charactersSource">Characters Data Source
+      </div>
+      <div class="option-field">
+        <label for="charactersSource">Characters Data Source</label>
         <select id="charactersSource" aria-describedby="statistics-measurement-help" bind:value={$lastCharactersDataSource$}>
           {#each charactersDataSources as source (source.key)}<option value={source.key}>{source.label}</option>{/each}
         </select>
-      </label>
-      <label for="speedSource">Speed Data Source
+      </div>
+      <div class="option-field">
+        <label for="speedSource">Speed Data Source</label>
         <select id="speedSource" aria-describedby="statistics-measurement-help" bind:value={$lastReadingSpeedDataSource$}>
           {#each readingSpeedDataSources as source (source.key)}<option value={source.key}>{source.label}</option>{/each}
         </select>
-      </label>
-      <label for="primaryAggregration">Primary Aggregation
+      </div>
+      <div class="option-field">
+        <label for="primaryAggregration">Primary Aggregation</label>
         <select id="primaryAggregration" aria-describedby="statistics-measurement-help" bind:value={$lastPrimaryReadingDataAggregationMode$}>
           {#each statisticsDataAggregrationModes as mode (mode)}<option value={mode}>{mode}</option>{/each}
         </select>
-      </label>
+      </div>
     </div>
   </fieldset>
   <fieldset disabled={$statisticsActionInProgress$} class="options-group">
@@ -221,10 +229,12 @@
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
     gap: 16px;
   }
-  label {
+  .option-field {
     display: grid;
     min-width: 0;
     gap: 6px;
+  }
+  label {
     font-size: 0.875rem;
   }
   input,
