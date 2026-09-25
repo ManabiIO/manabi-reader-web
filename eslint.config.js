@@ -28,7 +28,8 @@ module.exports = (async () => {
         '**/tailwind.config.cjs',
         // Pinned third-party sources keep upstream formatting and license text.
         'apps/web/src/lib/foliate-epub/epub.js',
-        'apps/web/src/lib/foliate-epub/epubcfi.js'
+        'apps/web/src/lib/foliate-epub/epubcfi.js',
+        'apps/web/src/lib/foliate-epub/paginator.js'
       ]
     },
     {
