@@ -1,0 +1,82 @@
+name: Verify reviewed media transfer
+# Temporary: stage exact reviewed text objects, never move branches or deploy.
+on:
+  push:
+    branches: [codex/video-moss-media-v7-20260924]
+    paths: [.github/workflows/media-reviewed-transfer.yml]
+permissions:
+  contents: write
+jobs:
+  stage:
+    if: github.repository == 'ManabiIO/manabi-reader-web'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 245000bd2f73b28e11208dfbdecc34df8362d602
+          persist-credentials: false
+      - name: Verify original and corrected transport before any object write
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import base64, hashlib, json, os, pathlib, re, urllib.request, zlib
+          source = pathlib.Path('.github/workflows/media-reviewed-objects.yml').read_bytes()
+          assert hashlib.sha256(source).hexdigest() == '431f81812ed63ceeca451c70872489c60a9d517d1f335e217c70602d8090ccba'
+          encoded = ''.join(re.findall("'([A-Za-z0-9+/=]{100,})'", source.decode()))
+          repairs = [
+              ('e7PuRfYzUVoXJyHe+OrvYTD3', 'e7PuRfYzUVoX/LEvJyHe+OrvYTD3'),
+              ('8YnJ3ss/7eIFNHWXbHHWRbHoYSxn', '8YnJ3ss/7eIFnPGX3OXRbHHWRbHoYSxn'),
+              ('OSebrBPP2VpxTjepKadjwgTceM', 'OSebrBPP2VpxhepKadjwgTceM'),
+              ('213WcrtsHibP7uCfQpdu27UGbt', '213WcrtsHibP9jCfQpdu27UGbt'),
+              ('yR12+7nVbb4tXWwOkO+zCqNRx', 'yR12+7nVbb4t3WwOkO+zCqNRx'),
+              ('Mz1iauJPXYKrpD9siLIzvWXcUc', 'Mz1iauJPXYKrJJk9siLIzvWXcUc')
+          ]
+          for old, new in repairs:
+              assert encoded.count(old) == 1
+              encoded = encoded.replace(old, new, 1)
+          raw = zlib.decompress(base64.b64decode(encoded, validate=True))
+          assert hashlib.sha256(raw).hexdigest() == 'de2db5a14417130a921944d411e9a0cbbb2bfd3ac620ed60043fb916db59afdc'
+          files = json.loads(raw)
+          def digest(data):
+              return hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+          for path, spec in files.items():
+              target = pathlib.Path(path)
+              assert not target.is_absolute() and '..' not in target.parts and not target.is_symlink()
+              assert all(not parent.is_symlink() for parent in target.parents)
+              if spec['before'] is None:
+                  assert not target.exists()
+              else:
+                  assert digest(target.read_bytes()) == spec['before'], path
+              if 'content' in spec:
+                  result = spec['content']
+              else:
+                  result = target.read_text()
+                  for old, new in spec['replacements']:
+                      assert old and result.count(old) == 1, path
+                      result = result.replace(old, new, 1)
+              content = result.encode()
+              assert digest(content) == spec['after'], path
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_bytes(content)
+          staged = []
+          for path, spec in files.items():
+              request = urllib.request.Request(
+                  'https://api.github.com/repos/ManabiIO/manabi-reader-web/git/blobs',
+                  data=json.dumps({'content':base64.b64encode(pathlib.Path(path).read_bytes()).decode(),'encoding':'base64'}).encode(),
+                  headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','Content-Type':'application/json'},
+                  method='POST')
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  sha = json.load(response)['sha']
+              assert sha == spec['after'], path
+              staged.append({'path':path,'mode':'100644','type':'blob','sha':sha})
+              print(path, sha)
+          pathlib.Path('media-staged-objects.json').write_text(json.dumps(staged,indent=2)+'\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: media-staged-objects
+          path: media-staged-objects.json
+          if-no-files-found: error
+          retention-days: 3
