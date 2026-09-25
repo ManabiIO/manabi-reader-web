@@ -64,6 +64,14 @@ try {
     format: 'esm',
     outfile: epubLinkTarget
   });
+  const foliateLoader = join(temp, 'foliate-loader.test.mjs');
+  await build({
+    entryPoints: [fileURLToPath(new URL('./foliate-loader.test.ts', import.meta.url))],
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    outfile: foliateLoader
+  });
   const result = spawnSync(
     process.execPath,
     [
@@ -75,7 +83,8 @@ try {
       typography,
       readerLocation,
       foliatePublication,
-      epubLinkTarget
+      epubLinkTarget,
+      foliateLoader
     ],
     { stdio: 'inherit' }
   );
