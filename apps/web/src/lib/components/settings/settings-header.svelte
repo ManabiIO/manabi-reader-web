@@ -7,7 +7,7 @@
 <header
   class="app-header flex min-h-12 flex-wrap items-center justify-between gap-2 border-b border-border bg-card px-3 py-2 text-foreground sm:px-6"
 >
-  <div class="flex items-center gap-3">
+  <div class="flex min-w-0 max-w-full flex-wrap items-center gap-3">
     <Button href={leavePageLink} variant="ghost">Back</Button><span class="font-semibold"
       >Settings</span
     >
