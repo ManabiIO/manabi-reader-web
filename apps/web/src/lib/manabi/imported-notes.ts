@@ -56,6 +56,16 @@ export function validateImportRecord(value: unknown): ReaderImportRecord {
     deletedAt: v.deletedAt
   };
 }
+/** Missing links preserve a visible, editable notebook record, never a guessed anchor. */
+export function unlocatedImportRecord(value: ReaderImportRecord): ReaderImportRecord {
+  return {
+    ...value,
+    status: 'unresolved',
+    reason: 'The saved passage location is unavailable. Original text is retained here.',
+    annotationId: undefined,
+    appliedAnnotation: undefined
+  };
+}
 function checkOwner(owner: string | null) {
   if ((currentUser()?.id ?? null) !== owner) throw new Error('Account changed.');
 }
@@ -172,7 +182,7 @@ export async function restoreImportedNotes(
       throw new Error('This notebook belongs to a different book.');
     for (const row of records) {
       const current = await tx.objectStore('readerImportRecord').get(row.id);
-      const value = { ...row, bookId, bookKey, accountId: owner };
+      let value = { ...row, bookId, bookKey, accountId: owner };
       const annotation = value.annotationId
         ? await tx.objectStore('readerAnnotation').get(value.annotationId)
         : undefined;
@@ -186,11 +196,7 @@ export async function restoreImportedNotes(
           annotation.bookKey !== bookKey ||
           (annotationScope && annotationScope.accountId !== owner))
       ) {
-        value.status = 'unresolved';
-        value.reason =
-          'The saved passage archive has not been restored. Original text is retained here.';
-        value.annotationId = undefined;
-        value.appliedAnnotation = undefined;
+        value = unlocatedImportRecord(value);
       }
       if (current) {
         if (

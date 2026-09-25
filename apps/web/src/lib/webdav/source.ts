@@ -22,8 +22,12 @@ const lifetimes = new Map<string, AbortController>();
 /** Order connection/consent changes with the whole sync, including its final
  * books-DB commit. Checking the integration DB alone cannot fence another DB's
  * subsequent transaction. Completion of a disconnect now means no sync remains. */
-export function withDavSourceLock<T>(id: string, work: () => Promise<T>): Promise<T> {
-  return exclusive(`webdav-source:${id}`, work);
+export function withDavSourceLock<T>(
+  id: string,
+  work: () => Promise<T>,
+  signal?: AbortSignal
+): Promise<T> {
+  return exclusive(`webdav-source:${id}`, work, signal);
 }
 export async function davSources(): Promise<DavConfiguration[]> {
   const db = await integrationDB();
@@ -32,7 +36,13 @@ export async function davSources(): Promise<DavConfiguration[]> {
     IDBKeyRange.bound(prefix, prefix + '\uffff')
   )) as DavConfiguration[];
 }
-export async function configureDav(config: DavConfiguration, password: string, remember = false) {
+export async function configureDav(
+  config: DavConfiguration,
+  password: string,
+  options: { remember: boolean; expected: DavConfiguration | null; signal?: AbortSignal }
+) {
+  const { remember, expected, signal } = options;
+  signal?.throwIfAborted();
   if (!/^webdav-[0-9a-f-]{36}$/.test(config.id)) throw new Error('Invalid WebDAV source ID.');
   const value = {
     ...config,
@@ -42,26 +52,76 @@ export async function configureDav(config: DavConfiguration, password: string, r
   if (!config.name.trim() || config.name.length > 240)
     throw new Error('Enter a source name of 1–240 characters.');
   new WebDavClient(value.url, value.username, password);
-  lifetimes.get(config.id)?.abort();
-  lifetimes.delete(config.id);
-  await withDavSourceLock(config.id, async () => {
+  await withDavSourceLock(
+    config.id,
+    async () => {
+      signal?.throwIfAborted();
+      const db = await integrationDB();
+      signal?.throwIfAborted();
+      const tx = db.transaction(['metadata', 'books'], 'readwrite');
+      const cancel = () => {
+        try {
+          tx.abort();
+        } catch {
+          /* Already settled. */
+        }
+      };
+      signal?.addEventListener('abort', cancel, { once: true });
+      try {
+        const previous = (await tx.objectStore('metadata').get(prefix + config.id)) as
+          | DavConfiguration
+          | undefined;
+        // Compare the editor's original snapshot, not a fresh read taken after its
+        // network test. A stale editor must not recreate or reauthorize a source.
+        if (!equal(previous ?? null, expected))
+          throw new DavError(
+            'conflict',
+            'This WebDAV connection changed or was disconnected. Reload WebDAV connections before saving again.'
+          );
+        if (previous && (previous.url !== value.url || previous.username !== value.username))
+          throw new DavError(
+            'reconnect',
+            'Add a new WebDAV connection to change the folder or username. Existing books and sync settings were kept.'
+          );
+        await tx.objectStore('metadata').put(value, prefix + config.id);
+        if (!value.writable) {
+          for (const link of await tx.objectStore('books').getAll())
+            if (link.sourceId === config.id && link.syncEnabled)
+              await tx.objectStore('books').put({ ...link, syncEnabled: false });
+        }
+        signal?.throwIfAborted();
+        await tx.done;
+      } catch (error) {
+        try {
+          tx.abort();
+        } catch {
+          /* Already settled. */
+        }
+        await tx.done.catch(() => undefined);
+        throw error;
+      } finally {
+        signal?.removeEventListener('abort', cancel);
+      }
+      // Publish memory-only credentials only after the configuration committed.
+      lifetimes.get(config.id)?.abort();
+      lifetimes.delete(config.id);
+      sessions.set(config.id, password);
+    },
+    signal
+  );
+}
+export async function disconnectDav(id: string) {
+  lifetimes.get(id)?.abort();
+  lifetimes.delete(id);
+  sessions.delete(id);
+  await withDavSourceLock(id, async () => {
     const db = await integrationDB();
     const tx = db.transaction(['metadata', 'books'], 'readwrite');
     try {
-      const previous = (await tx.objectStore('metadata').get(prefix + config.id)) as
-        | DavConfiguration
-        | undefined;
-      if (previous && (previous.url !== value.url || previous.username !== value.username))
-        throw new DavError(
-          'reconnect',
-          'Add a new WebDAV connection to change the folder or username. Existing books and sync settings were kept.'
-        );
-      await tx.objectStore('metadata').put(value, prefix + config.id);
-      if (!value.writable) {
-        for (const link of await tx.objectStore('books').getAll())
-          if (link.sourceId === config.id && link.syncEnabled)
-            await tx.objectStore('books').put({ ...link, syncEnabled: false });
-      }
+      await tx.objectStore('metadata').delete(prefix + id);
+      // Other metadata and imported books are not erased by disconnecting a source.
+      for (const link of await tx.objectStore('books').getAll())
+        if (link.sourceId === id) await tx.objectStore('books').delete(link.id);
       await tx.done;
     } catch (error) {
       try {
@@ -72,21 +132,11 @@ export async function configureDav(config: DavConfiguration, password: string, r
       await tx.done.catch(() => undefined);
       throw error;
     }
-    sessions.set(config.id, password);
-  });
-}
-export async function disconnectDav(id: string) {
-  lifetimes.get(id)?.abort();
-  lifetimes.delete(id);
-  sessions.delete(id);
-  await withDavSourceLock(id, async () => {
-    const db = await integrationDB();
-    const tx = db.transaction(['metadata', 'books'], 'readwrite');
-    await tx.objectStore('metadata').delete(prefix + id);
-    // Other metadata and imported books are not erased by disconnecting a source.
-    for (const link of await tx.objectStore('books').getAll())
-      if (link.sourceId === id) await tx.objectStore('books').delete(link.id);
-    await tx.done;
+    // A preceding queued configuration may have installed new session state
+    // while this disconnect waited. Clear it under the same source lock too.
+    lifetimes.get(id)?.abort();
+    lifetimes.delete(id);
+    sessions.delete(id);
   });
 }
 export class WebDavSource implements LibrarySource {

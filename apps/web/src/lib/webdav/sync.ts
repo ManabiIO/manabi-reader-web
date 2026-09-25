@@ -18,6 +18,7 @@ import {
   statisticRange
 } from '$lib/data/database/books-db/reader-statistics';
 import { currentUser } from '$lib/manabi/client';
+import { unlocatedImportRecord } from '$lib/manabi/imported-notes';
 import {
   integrationDB,
   exclusive,
@@ -210,6 +211,28 @@ async function apply(
           .objectStore('readerImportRecord')
           .put({ ...previous, modifiedAt: time, deletedAt: time });
     }
+  }
+  // Imported evidence and its annotation can arrive in either JSON key order.
+  // Resolve links only after applying the complete merged document, in the
+  // same transaction. This also repairs previously received orphan evidence.
+  for (const row of await tx.objectStore('readerImportRecord').index('bookKey').getAll(bookKey)) {
+    if (
+      row.status !== 'anchored' ||
+      (row.accountId !== null && row.accountId !== link.davAccountId)
+    )
+      continue;
+    const annotation = row.annotationId
+      ? await tx.objectStore('readerAnnotation').get(row.annotationId)
+      : undefined;
+    const owner = row.annotationId
+      ? await tx.objectStore('readerAnnotationScope').get(row.annotationId)
+      : undefined;
+    if (
+      !annotation ||
+      annotation.bookKey !== bookKey ||
+      (owner && owner.accountId !== link.davAccountId)
+    )
+      await tx.objectStore('readerImportRecord').put(unlocatedImportRecord(row));
   }
 }
 export async function setDavBookSync(id: string, enabled: boolean) {

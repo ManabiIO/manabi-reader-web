@@ -15,6 +15,7 @@
   export let onchange: (id: string) => Promise<void>;
   let sources: DavConfiguration[] = [];
   let editing: string | null = null;
+  let expectedConfiguration: DavConfiguration | null = null;
   let name = '',
     url = '',
     username = '',
@@ -28,6 +29,7 @@
   $: existing = sources.some((source) => source.id === editing);
   function edit(source?: DavConfiguration) {
     controller?.abort();
+    expectedConfiguration = source ? { ...source } : null;
     editing = source?.id ?? `webdav-${crypto.randomUUID()}`;
     name = source?.name ?? '';
     url = source?.url ?? '';
@@ -55,14 +57,15 @@
     if (!editing) return;
     const config = { id: editing, name: name.trim(), url: url.trim(), username, writable };
     const secret = password,
-      persist = remember;
+      persist = remember,
+      expected = expectedConfiguration;
     controller?.abort();
     const active = (controller = new AbortController());
     // A connection test is read-only; saving never creates a folder or uploads data.
     await new WebDavClient(config.url, config.username, secret, active.signal).list();
     active.signal.throwIfAborted();
     if (!mounted) return;
-    await configureDav(config, secret, persist);
+    await configureDav(config, secret, { remember: persist, expected, signal: active.signal });
     await onchange(config.id);
     if (!mounted) return;
     sources = await davSources();
@@ -91,9 +94,25 @@
     and expose a strong ETag header for reading-data sync. A successful read test does not verify
     write permission.
   </p>
-  <Button variant="secondary" disabled={!mounted || busy} onclick={() => edit()}
-    >Add WebDAV folder</Button
-  >
+  <div class="flex flex-wrap gap-2">
+    <Button variant="secondary" disabled={!mounted || busy} onclick={() => edit()}
+      >Add WebDAV folder</Button
+    >
+    <Button
+      variant="ghost"
+      disabled={!mounted || busy}
+      onclick={() =>
+        run(async () => {
+          const latest = await davSources();
+          if (!mounted) return;
+          controller?.abort();
+          sources = latest;
+          editing = null;
+          expectedConfiguration = null;
+          password = '';
+        })}>Reload WebDAV connections</Button
+    >
+  </div>
   {#if message}<p role="status">{message}</p>{/if}
   {#if editing}
     <form
