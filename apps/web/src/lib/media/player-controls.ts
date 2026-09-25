@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { menuViewport, placeTranscriptMenu } from './menu-placement.js';
+
 export const element = <K extends keyof HTMLElementTagNameMap>(
   tag: K,
   text?: string
@@ -66,6 +68,7 @@ export class TranscriptMenu {
   private native = typeof this.panel.showPopover === 'function';
   private alive = new AbortController();
   private observer = new ResizeObserver(() => this.position());
+  private viewport = window.visualViewport;
   constructor() {
     this.panel.className = 'transcript-options';
     this.panel.id = `transcript-options-${++menuSequence}`;
@@ -121,20 +124,38 @@ export class TranscriptMenu {
       },
       { signal }
     );
-    window.addEventListener('resize', () => this.position(), { signal });
+    window.addEventListener('resize', () => this.position(true), { signal });
+    this.viewport?.addEventListener('resize', () => this.position(true), { signal });
+    this.viewport?.addEventListener('scroll', () => this.position(), { signal });
     window.addEventListener('scroll', () => this.position(), { signal, capture: true });
   }
-  private position() {
-    if (!this.open) return;
+  private position(keepFocusVisible = false) {
+    if (!this.open || this.alive.signal.aborted) return;
     const rect = this.trigger.getBoundingClientRect();
-    const width = Math.min(320, window.innerWidth - 24);
-    this.panel.style.width = `${width}px`;
-    this.panel.style.maxHeight = `${Math.max(120, window.innerHeight - 24)}px`;
-    const height = this.panel.getBoundingClientRect().height;
-    this.panel.style.left = `${Math.max(12, Math.min(rect.right - width, window.innerWidth - width - 12))}px`;
-    this.panel.style.top = `${Math.max(12, Math.min(rect.bottom + 8, window.innerHeight - height - 12))}px`;
+    const viewport = menuViewport(window.innerWidth, window.innerHeight, this.viewport);
+    const bounds = placeTranscriptMenu(rect, viewport, 0);
+    this.panel.style.width = `${bounds.width}px`;
+    this.panel.style.maxHeight = `${bounds.maxHeight}px`;
+    const placement = placeTranscriptMenu(
+      rect,
+      viewport,
+      this.panel.getBoundingClientRect().height
+    );
+    this.panel.style.left = `${placement.left}px`;
+    this.panel.style.top = `${placement.top}px`;
+    // Keep a focused timing field above an opening keyboard without scrolling the
+    // video/page or fighting ordinary manual scrolling inside the options panel.
+    const focused = document.activeElement;
+    if (keepFocusVisible && focused instanceof HTMLElement && this.panel.contains(focused)) {
+      const field = focused.getBoundingClientRect();
+      const panel = this.panel.getBoundingClientRect();
+      if (field.top < panel.top + 8) this.panel.scrollTop += field.top - panel.top - 8;
+      else if (field.bottom > panel.bottom - 8)
+        this.panel.scrollTop += field.bottom - panel.bottom + 8;
+    }
   }
   toggle() {
+    if (this.alive.signal.aborted || !this.panel.isConnected || !this.trigger.isConnected) return;
     if (this.open) return this.close();
     this.open = true;
     if (this.native) this.panel.showPopover();
