@@ -1,5 +1,6 @@
 # One-shot recovery of the separately prepared preprocessing source.
 # Remove this write-enabled workflow after its narrowly scoped formatting commit.
+# Runtime modules with companion declarations use syntax lint, not declaration shadowing.
 name: Preprocessing publication qualification
 on:
   push:
@@ -48,7 +49,7 @@ jobs:
                   value = re.sub(r'(?<![.\w])setImmediate(?=\()', 'globalThis.setImmediate', value)
                   value = re.sub(r'(?<![.\w])Buffer(?=\.)', 'globalThis.Buffer', value)
                   value = value.replace('new Promise(r=>resolve=r)', 'new Promise(r=>{resolve=r;})')
-                  if path.name == 'host.test.mjs':
+                  if path.name == 'host.test.mjs' and 'const delay=' in value:
                       start = value.index('const delay=')
                       end = value.index('const deferred=', start)
                       value = value[:start] + value[end:]

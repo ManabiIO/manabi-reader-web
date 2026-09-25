@@ -80,6 +80,16 @@ module.exports = (async () => {
       }
     },
     {
+      // TypeScript resolves these modules through their companion .d.mts files,
+      // so the implementations are not roots of the typed application program.
+      // Keep all syntax/style rules on runtime JS; declarations remain typed.
+      files: [
+        'apps/web/src/lib/preprocessing/*.mjs',
+        'apps/web/src/lib/dictionary-setup/*.mjs'
+      ],
+      languageOptions: { parserOptions: { project: false } }
+    },
+    {
       files: ['test/reader/**/*.{mjs,ts}'],
       languageOptions: {
         globals: {
