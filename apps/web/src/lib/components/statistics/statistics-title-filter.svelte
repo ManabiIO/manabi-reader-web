@@ -1,32 +1,19 @@
 <script lang="ts">
+  import { createEventDispatcher, onMount, tick } from 'svelte';
   import * as Sheet from '$lib/components/ui/sheet';
-  import faCalendar from '@lucide/svelte/icons/calendar';
-  import faCalendarXmark from '@lucide/svelte/icons/calendar-x';
-  import faChevronLeft from '@lucide/svelte/icons/chevron-left';
-  import faChevronRight from '@lucide/svelte/icons/chevron-right';
-  import faCircleCheck from '@lucide/svelte/icons/circle-check';
-  import faEye from '@lucide/svelte/icons/eye';
-  import faEyeSlash from '@lucide/svelte/icons/eye-off';
-  import faList from '@lucide/svelte/icons/list';
-  import faListCheck from '@lucide/svelte/icons/list-check';
-  import faTrash from '@lucide/svelte/icons/trash-2';
   import { Button } from '$lib/components/ui/button';
   import CloseButton from '$lib/components/ui/close-button.svelte';
   import { Input } from '$lib/components/ui/input';
   import {
     preFilteredTitlesForStatistics$,
     type StatisticsTitleFilterItem
-  } from '$lib/components/statistics/statistics-types';
+  } from './statistics-types';
   import {
     lastStatisticsFilterDateRangeOnly$,
     lastStatisticsFilterShowSelectedTitlesOnly$,
     skipKeyDownListener$
   } from '$lib/data/store';
-  import { reduceToEmptyString } from '$lib/functions/rxjs/reduce-to-empty-string';
-  import { convertRemToPixels, getFullHeight, limitToRange } from '$lib/functions/utils';
-  import { debounceTime, fromEvent, tap } from 'rxjs';
-  import { createEventDispatcher, onMount, tick } from 'svelte';
-  import AppIcon from '$lib/components/app-icon.svelte';
+  import { filterStatisticsTitles, statisticsTitlePage } from './title-filter-model';
 
   export let statisticsTitleFilters: Map<string, boolean>;
   export let titlesInStatisticsDateRange: Set<string>;
@@ -36,260 +23,186 @@
     clearPrefilter: void;
     close: void;
   }>();
-
-  const resizeHandler$ = fromEvent(window, 'resize').pipe(
-    debounceTime(250),
-    tap(() => updateStatisticsTitleFilterRowsPerPage),
-    reduceToEmptyString()
-  );
-
-  const statisticsTitleFilterBaseRowRem = 4;
-  const statisticsTitleFilterBaseRowGap = 2;
-
-  let statisticsTitleFilterTableContainerElm: HTMLElement;
-  let statisticsTitleFilterButtonContainer: HTMLElement;
   let titleFilter = '';
-  let titleFilterTimer: number | undefined;
+  let page = 1;
+  let titleList: HTMLDivElement | undefined;
   let titlesToFilter: StatisticsTitleFilterItem[] = [];
-  let filteredTitles: StatisticsTitleFilterItem[] = [];
-  let currentTitlesToFilterRows: StatisticsTitleFilterItem[] = [];
-  let statisticsTitleFilterMaxPages = 0;
-  let currentStatisticsTitleFilterPage = 1;
-  let statisticsTitleFilterRowsPerPage = 0;
-
-  $: statisticsTitleFilterPageLabel = `PAGE ${currentStatisticsTitleFilterPage} / ${statisticsTitleFilterMaxPages}`;
-
-  $: setTitlesToFilter(statisticsTitleFilters);
-
-  $: applyTitleFilters(
+  // Draft selection is private to this opening. Close/Escape never applies it.
+  $: titlesToFilter = [...statisticsTitleFilters].map(([title, isSelected]) => ({
+    title,
+    isSelected
+  }));
+  $: filteredTitles = filterStatisticsTitles(
+    titlesToFilter,
+    titleFilter,
+    titlesInStatisticsDateRange,
     $lastStatisticsFilterDateRangeOnly$,
     $lastStatisticsFilterShowSelectedTitlesOnly$
   );
-
-  $: updateStatisticsTitleFilterTableData(currentStatisticsTitleFilterPage);
+  $: current = statisticsTitlePage(filteredTitles, page);
 
   onMount(() => {
     $skipKeyDownListener$ = true;
-
-    updateStatisticsTitleFilterRowsPerPage();
-
     return () => {
       $skipKeyDownListener$ = false;
     };
   });
 
-  function handleTitleFilterChange() {
-    clearTimeout(titleFilterTimer);
-    titleFilterTimer = window.setTimeout(() => {
-      applyTitleFilters();
-    }, 500);
+  async function changePage(nextPage: number) {
+    const query = titleFilter;
+    page = nextPage;
+    await tick();
+    if (page !== nextPage || titleFilter !== query) return;
+    const first = titleList?.querySelector<HTMLInputElement>('input[type=checkbox]');
+    if (!first?.isConnected) return;
+    // A page can be taller than the sheet. Do not leave the user at its
+    // last row after Next; move keyboard focus into the new page too.
+    first.focus({ preventScroll: true });
+    first.scrollIntoView({ block: 'nearest' });
   }
 
-  function handleSelectAll(valueToSet: boolean) {
-    for (let index = 0, { length } = titlesToFilter; index < length; index += 1) {
-      titlesToFilter[index].isSelected = valueToSet;
-    }
-
-    if ($lastStatisticsFilterShowSelectedTitlesOnly$) {
-      applyTitleFilters();
-    } else {
-      updateStatisticsTitleFilterTableData(currentStatisticsTitleFilterPage);
-    }
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  function setTitlesToFilter(_: any) {
-    const entries = [...statisticsTitleFilters.entries()];
-
-    titlesToFilter = entries.map(([title, isSelected]) => ({ title, isSelected }));
-
-    applyTitleFilters();
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  function applyTitleFilters(..._: any) {
-    tick().then(() => {
-      filteredTitles = titlesToFilter.filter(
-        (filterItem) =>
-          (!titleFilter || filterItem.title.includes(titleFilter)) &&
-          (!$lastStatisticsFilterDateRangeOnly$ ||
-            titlesInStatisticsDateRange.has(filterItem.title)) &&
-          (!$lastStatisticsFilterShowSelectedTitlesOnly$ || filterItem.isSelected)
-      );
-
-      updateStatisticsTitleFilterRowsPerPage(currentStatisticsTitleFilterPage);
-    });
-  }
-
-  function updateStatisticsTitleFilterRowsPerPage(newPage?: number) {
-    tick().then(() => {
-      if (
-        !statisticsTitleFilterTableContainerElm?.isConnected ||
-        !statisticsTitleFilterButtonContainer?.isConnected
-      )
-        return;
-      statisticsTitleFilterRowsPerPage = Math.max(
-        1,
-        Math.ceil(
-          (getFullHeight(window, statisticsTitleFilterTableContainerElm) -
-            getFullHeight(window, statisticsTitleFilterButtonContainer, true)) /
-            convertRemToPixels(
-              window,
-              statisticsTitleFilterBaseRowRem + statisticsTitleFilterBaseRowGap + 0.4
-            )
-        )
-      );
-
-      updateStatisticsTitleFilterPageData(newPage);
-    });
-  }
-
-  function updateStatisticsTitleFilterPageData(newPage?: number) {
-    statisticsTitleFilterMaxPages = Math.ceil(
-      filteredTitles.length / statisticsTitleFilterRowsPerPage
+  function selectTitle(title: string, isSelected: boolean) {
+    titlesToFilter = titlesToFilter.map((item) =>
+      item.title === title ? { ...item, isSelected } : item
     );
-
-    currentStatisticsTitleFilterPage = newPage
-      ? limitToRange(1, statisticsTitleFilterMaxPages, newPage)
-      : limitToRange(1, statisticsTitleFilterMaxPages, currentStatisticsTitleFilterPage);
-
-    updateStatisticsTitleFilterTableData(currentStatisticsTitleFilterPage);
+    page = current.page;
   }
 
-  function updateStatisticsTitleFilterTableData(pageNumber: number) {
-    if (!pageNumber) {
-      return;
-    }
-
-    const currenPageStart = (pageNumber - 1) * statisticsTitleFilterRowsPerPage;
-
-    currentTitlesToFilterRows = filteredTitles.slice(
-      currenPageStart,
-      currenPageStart + statisticsTitleFilterRowsPerPage
-    );
+  function selectAll(isSelected: boolean) {
+    titlesToFilter = titlesToFilter.map((item) => ({ ...item, isSelected }));
+    page = 1;
   }
 </script>
 
-{$resizeHandler$ ?? ''}
-<div class="flex min-h-16 items-center justify-between gap-3 px-4 pt-4">
-  <Sheet.Title class="min-w-0 text-xl font-semibold">Filter books</Sheet.Title>
-  <CloseButton aria-label="Close title filter" onclick={() => dispatch('close')} />
-</div>
-<div class="flex min-h-0 flex-1 flex-col px-4">
+<div class="filter-panel">
+  <div class="flex items-start justify-between gap-3">
+    <Sheet.Title class="min-w-0 text-xl font-semibold">Filter books</Sheet.Title>
+    <CloseButton aria-label="Close title filter" onclick={() => dispatch('close')} />
+  </div>
   <Input
     type="search"
-    placeholder="Filter Title"
+    placeholder="Filter titles"
     aria-label="Filter book titles"
-    class="min-h-11 text-base"
-    bind:value={titleFilter}
-    oninput={handleTitleFilterChange}
+    value={titleFilter}
+    oninput={(event) => {
+      titleFilter = event.currentTarget.value;
+      page = 1;
+    }}
   />
-  <div class="mt-5 flex flex-wrap gap-2 text-sm">
+  <div class="flex flex-wrap gap-2" role="group" aria-label="Title visibility">
+    <Button
+      variant={$lastStatisticsFilterDateRangeOnly$ ? 'secondary' : 'ghost'}
+      shape="rounded"
+      aria-pressed={$lastStatisticsFilterDateRangeOnly$}
+      onclick={() => {
+        $lastStatisticsFilterDateRangeOnly$ = !$lastStatisticsFilterDateRangeOnly$;
+        page = 1;
+      }}>Selected dates only</Button
+    >
+    <Button
+      variant={$lastStatisticsFilterShowSelectedTitlesOnly$ ? 'secondary' : 'ghost'}
+      shape="rounded"
+      aria-pressed={$lastStatisticsFilterShowSelectedTitlesOnly$}
+      onclick={() => {
+        $lastStatisticsFilterShowSelectedTitlesOnly$ =
+          !$lastStatisticsFilterShowSelectedTitlesOnly$;
+        page = 1;
+      }}>Selected titles only</Button
+    >
+  </div>
+  <div class="flex flex-wrap items-center gap-2">
+    <Button variant="ghost" onclick={() => selectAll(true)}>Select All</Button>
+    <Button variant="ghost" onclick={() => selectAll(false)}>Remove All</Button>
+    {#if $preFilteredTitlesForStatistics$.size}
+      <Button variant="outline" onclick={() => dispatch('clearPrefilter')}>Remove Prefilter</Button>
+    {/if}
+  </div>
+  <p role="status" class="text-sm text-muted-foreground">
+    {filteredTitles.length} matching titles · {titlesToFilter.filter((item) => item.isSelected).length} selected
+  </p>
+  {#if current.rows.length}
+    <div bind:this={titleList} class="title-list" role="group" aria-label="Book title selection">
+      {#each current.rows as item (item.title)}
+        <label class="title-row">
+          <input
+            type="checkbox"
+            aria-label={item.title}
+            checked={item.isSelected}
+            onchange={(event) => selectTitle(item.title, event.currentTarget.checked)}
+          />
+          <span class:text-muted-foreground={!titlesInStatisticsDateRange.has(item.title)}
+            >{item.title}</span
+          >
+        </label>
+      {/each}
+    </div>
+  {:else}
+    <p class="rounded-xl bg-muted p-5 text-center">No Titles to filter</p>
+  {/if}
+  {#if current.pages > 1}
+    <div class="flex flex-wrap items-center justify-between gap-2" aria-label="Title pages">
+      <Button
+        variant="ghost"
+        disabled={current.page === 1}
+        onclick={() => changePage(current.page - 1)}>Previous</Button
+      >
+      <span class="text-sm text-muted-foreground">Page {current.page} / {current.pages}</span>
+      <Button
+        variant="ghost"
+        disabled={current.page === current.pages}
+        onclick={() => changePage(current.page + 1)}>Next</Button
+      >
+    </div>
+  {/if}
+  <div class="flex flex-wrap justify-end gap-2 border-t border-border pt-4">
+    <Button variant="ghost" onclick={() => dispatch('close')}>Cancel</Button>
     <Button
       variant="secondary"
-      title="Apply Filter"
       onclick={() => {
         dispatch('applyFilter', titlesToFilter);
         dispatch('close');
-      }}
+      }}>Apply Filter</Button
     >
-      <AppIcon icon={faCircleCheck} /> <span>Apply Filter</span>
-    </Button>
-    <Button variant="ghost" title="Select All" onclick={() => handleSelectAll(true)}>
-      <AppIcon icon={faListCheck} /> <span>Select All</span>
-    </Button>
-    <Button variant="ghost" title="Remove All" onclick={() => handleSelectAll(false)}>
-      <AppIcon icon={faList} /> <span>Remove All</span>
-    </Button>
-    <Button
-      variant="ghost"
-      title={$lastStatisticsFilterDateRangeOnly$
-        ? 'Display Titles across all Time'
-        : 'Display Titles in selected Date Range only'}
-      aria-pressed={$lastStatisticsFilterDateRangeOnly$}
-      onclick={() => ($lastStatisticsFilterDateRangeOnly$ = !$lastStatisticsFilterDateRangeOnly$)}
-    >
-      <AppIcon icon={$lastStatisticsFilterDateRangeOnly$ ? faCalendarXmark : faCalendar} />
-      <span>{$lastStatisticsFilterDateRangeOnly$ ? 'All dates' : 'Selected dates only'}</span>
-    </Button>
-    <Button
-      variant="ghost"
-      title={$lastStatisticsFilterShowSelectedTitlesOnly$
-        ? 'Display all Titles'
-        : 'Display selected Titles only'}
-      aria-pressed={$lastStatisticsFilterShowSelectedTitlesOnly$}
-      onclick={() =>
-        ($lastStatisticsFilterShowSelectedTitlesOnly$ =
-          !$lastStatisticsFilterShowSelectedTitlesOnly$)}
-    >
-      <AppIcon icon={$lastStatisticsFilterShowSelectedTitlesOnly$ ? faEyeSlash : faEye} />
-      <span
-        >{$lastStatisticsFilterShowSelectedTitlesOnly$
-          ? 'All titles'
-          : 'Selected titles only'}</span
-      >
-    </Button>
-    {#if $preFilteredTitlesForStatistics$.size}
-      <Button
-        variant="destructive"
-        title="Remove Prefilter"
-        onclick={() => dispatch('clearPrefilter')}
-      >
-        <AppIcon icon={faTrash} /> <span>Remove Prefilter</span>
-      </Button>
-    {/if}
-  </div>
-  <div class="grow mt-8 pl-1 overflow-auto" bind:this={statisticsTitleFilterTableContainerElm}>
-    {#if filteredTitles.length}
-      <div
-        class="grid grid-cols-[max-content_auto] gap-x-8 items-center"
-        style:grid-auto-rows={`${statisticsTitleFilterBaseRowRem}rem`}
-        style:row-gap={`${statisticsTitleFilterBaseRowGap}rem`}
-      >
-        {#each currentTitlesToFilterRows as currentTitlesToFilterRow (currentTitlesToFilterRow.title)}
-          <input
-            aria-label={currentTitlesToFilterRow.title}
-            type="checkbox"
-            class="size-5 accent-primary"
-            bind:checked={currentTitlesToFilterRow.isSelected}
-            on:change={() => {
-              if ($lastStatisticsFilterShowSelectedTitlesOnly$) {
-                applyTitleFilters();
-              }
-            }}
-          />
-          <div
-            class="line-clamp-3"
-            class:opacity-50={!titlesInStatisticsDateRange.has(currentTitlesToFilterRow.title)}
-            title={currentTitlesToFilterRow.title}
-          >
-            {currentTitlesToFilterRow.title}
-          </div>
-        {/each}
-      </div>
-    {:else}
-      <div class="mt-6 text-2xl text-center">No Titles to filter</div>
-    {/if}
-  </div>
-  <div
-    class="my-6 grid grid-cols-[minmax(0,auto)_minmax(0,1fr)_minmax(0,auto)] items-center gap-2"
-    class:invisible={statisticsTitleFilterMaxPages < 2}
-    bind:this={statisticsTitleFilterButtonContainer}
-  >
-    <Button
-      variant="ghost"
-      disabled={currentStatisticsTitleFilterPage === 1}
-      onclick={() => (currentStatisticsTitleFilterPage -= 1)}
-    >
-      <AppIcon icon={faChevronLeft} />Previous
-    </Button>
-    <div class="min-w-0 text-center text-sm">{statisticsTitleFilterPageLabel}</div>
-    <Button
-      variant="ghost"
-      disabled={currentStatisticsTitleFilterPage === statisticsTitleFilterMaxPages}
-      onclick={() => (currentStatisticsTitleFilterPage += 1)}
-    >
-      Next<AppIcon icon={faChevronRight} />
-    </Button>
   </div>
 </div>
+
+<style>
+  .filter-panel {
+    display: grid;
+    flex-shrink: 0;
+    min-width: 0;
+    gap: 16px;
+    padding: 20px;
+    padding-bottom: max(20px, env(safe-area-inset-bottom));
+  }
+  .title-list {
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+  .title-row {
+    display: flex;
+    min-height: 52px;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    cursor: pointer;
+  }
+  .title-row + .title-row {
+    border-top: 1px solid var(--border);
+  }
+  .title-row:hover,
+  .title-row:focus-within {
+    background: var(--muted);
+  }
+  .title-row input {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    accent-color: var(--primary);
+  }
+  .title-row span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+</style>

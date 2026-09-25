@@ -125,7 +125,7 @@
 
 <StatisticsHeader currentBookId={$currentBookId$} bind:showStatisticsSettings />
 
-<div class="{pxScreen} flex h-full flex-col pt-28">
+<div data-statistics-content class="{pxScreen} flex min-w-0 flex-col py-6">
   <StatisticsContent />
 </div>
 
@@ -133,7 +133,11 @@
   <Sheet.Content
     side="right"
     showCloseButton={false}
-    class="w-full overflow-y-auto sm:max-w-xl"
+    class="data-[side=right]:w-full data-[side=right]:sm:max-w-xl"
+    onCloseAutoFocus={(event) => {
+      event.preventDefault();
+      document.querySelector<HTMLButtonElement>('[aria-label="Statistics options"]')?.focus();
+    }}
     onInteractOutside={(event) => {
       if ($statisticsActionInProgress$) event.preventDefault();
     }}
@@ -141,10 +145,6 @@
       if ($statisticsActionInProgress$) event.preventDefault();
     }}
   >
-    <Sheet.Title class="sr-only">Statistics options</Sheet.Title>
-    <Sheet.Description class="sr-only"
-      >Date range, aggregation, export, and statistics management.</Sheet.Description
-    >
     <StatisticsSettings
       on:statisticsDateChange={handleSelectedStatisticsDateChange}
       on:close={() => (showStatisticsSettings = false)}

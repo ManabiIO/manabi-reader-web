@@ -22,10 +22,12 @@ const { outputFiles } = await build({
       import Button, { buttonVariants } from './components/ui/button/button.svelte';
       import Close from './components/ui/close-button.svelte';
       import InputGroupButton from './components/ui/input-group/input-group-button.svelte';
+      import Input from './components/ui/input/input.svelte';
+      import InputGroupInput from './components/ui/input-group/input-group-input.svelte';
       import { render } from 'svelte/server';
       export { buttonVariants };
       export function html(kind, props) {
-        return render({ Button, Close, InputGroupButton }[kind], { props }).body;
+        return render({ Button, Close, InputGroupButton, Input, InputGroupInput }[kind], { props }).body;
       }`,
     resolveDir: lib
   },
@@ -143,4 +145,15 @@ test('filled, outlined, neutral and text actions have distinct treatments', () =
     assert.ok(text.includes(value), value);
   }
   assert.ok(classes({ size: 'lg' }).includes('text-[1.0625rem]'));
+});
+
+test('standalone fields are touch sized while embedded inputs fit their owning group', () => {
+  const field = html('Input', { type: 'search' });
+  assert.match(field, /min-h-\[44px\]/);
+  assert.match(field, /rounded-\[10px\]/);
+  const embedded = html('InputGroupInput', { type: 'search' });
+  assert.match(embedded, /data-slot="input-group-control"/);
+  assert.match(embedded, /h-full/);
+  assert.match(embedded, /min-h-0/);
+  assert.doesNotMatch(embedded, /min-h-\[44px\]/);
 });

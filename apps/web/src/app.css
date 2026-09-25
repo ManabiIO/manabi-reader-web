@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
+@import './lib/components/ui/section-navigation.css';
 @config '../tailwind.config.cjs';
 @custom-variant dark {
   &:where([data-appearance='dark'], [data-appearance='dark'] *) {
@@ -144,8 +145,10 @@
   }
 }
 
-/* Reading-size preferences should not multiply decorative empty-shelf gutters. */
-[data-slot='library-empty-state'] [data-slot='button'] {
+/* Reading-size preferences should not multiply decorative empty-shelf gutters.
+   Large actions already use fixed insets; text links must remain unboxed. */
+[data-slot='library-empty-state']
+  [data-slot='button']:not([data-variant='link']):not([data-size='lg']) {
   padding-inline: 16px;
 }
 
