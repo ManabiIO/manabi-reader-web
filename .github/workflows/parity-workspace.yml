@@ -1,4 +1,4 @@
-name: Parity development workspace
+name: Parity native reference
 on:
   push:
     branches: [feat/library-selection-metadata-reader-chrome-20260925]
@@ -6,32 +6,22 @@ on:
 permissions:
   contents: read
 jobs:
-  snapshot:
+  reference:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
+          repository: lake-of-fire/LakeOfFire
+          ref: 10fdf15c8ce4550b4e7900830843c1c8f2ac9f98
           persist-credentials: false
-      - uses: pnpm/action-setup@v6.1.0
-        with:
-          version: '12.3.4'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.21.0'
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Capture reproducible source and installed tools
-        run: |
-          mkdir -p /tmp/parity-workspace
-          git archive --format=tar HEAD | gzip > /tmp/parity-workspace/source.tar.gz
-          tar -czf /tmp/parity-workspace/dependencies.tar.gz node_modules apps/web/node_modules
-          cp "$(command -v node)" /tmp/parity-workspace/node
-          git rev-parse HEAD > /tmp/parity-workspace/commit.txt
-          sha256sum /tmp/parity-workspace/* > /tmp/parity-workspace/SHA256SUMS
+          sparse-checkout: Sources/LakeOfFireReader/Resources/Resources/foliate-js
       - uses: actions/upload-artifact@v4
         with:
-          name: parity-development-workspace
-          path: /tmp/parity-workspace
+          name: native-navigation-reference
+          path: |
+            Sources/LakeOfFireReader/Resources/Resources/foliate-js/ebook-viewer.js
+            Sources/LakeOfFireReader/Resources/Resources/foliate-js/ebook-viewer-nav.js
+            Sources/LakeOfFireReader/Resources/Resources/foliate-js/ebook-viewer.html
           retention-days: 1
           if-no-files-found: error
