@@ -30,13 +30,11 @@ export function reactiveElements(
   isExtendedMode: boolean
 ) {
   const anchorTagDocumentListener = anchorTagListener(document);
-  const spoilerImageDocumentListener = spoilerImageListener(document);
-
   return (contentEl: HTMLElement) =>
     merge(
       anchorTagDocumentListener(contentEl),
       rubyTagListener(contentEl, furiganaStyle),
-      spoilerImageDocumentListener(contentEl),
+      spoilerImageListener(contentEl),
       openImageInNewTab(contentEl, hideSpoilerImage, isExtendedMode)
     );
 }
@@ -52,7 +50,6 @@ function anchorTagListener(document: Document) {
       fromClickEvent(el).pipe(tap(() => nextChapter$.next(el.hash.substring(1))))
     );
     return merge(...obs$);
-  };
 }
 
 function rubyTagListener(contentEl: HTMLElement, furiganaStyle: FuriganaStyle) {
@@ -79,8 +76,8 @@ function rubyTagListener(contentEl: HTMLElement, furiganaStyle: FuriganaStyle) {
   return merge(...obs$);
 }
 
-function spoilerImageListener(document: Document) {
-  return (contentEl: HTMLElement) => {
+function spoilerImageListener(contentEl: HTMLElement) {
+    const document = contentEl.ownerDocument;
     const elements = Array.from(contentEl.querySelectorAll('[data-ttu-spoiler-img]'));
     const obs$ = elements.map((el) => {
       // Rebinding the same content after a font reflow must not append a
@@ -174,7 +171,7 @@ function openImageInNewTab(
                   const src = elm.getAttribute('src') || elm.getAttribute('href');
 
                   if (src) {
-                    window.open(src, '_blank');
+                    contentEl.ownerDocument.defaultView?.open(src, '_blank');
                   }
                 })
               );
@@ -187,8 +184,11 @@ function openImageInNewTab(
 }
 
 function toggleImageGalleryPictureSpoiler(imageElement: Element | null, unspoilered: boolean) {
-  if (imageElement instanceof HTMLImageElement) {
-    toggleImageGalleryPictureSpoiler$.next({ url: imageElement.src, unspoilered });
+  if (imageElement?.localName?.toLowerCase() === 'img' && 'src' in imageElement) {
+    toggleImageGalleryPictureSpoiler$.next({
+      url: String((imageElement as HTMLImageElement).src),
+      unspoilered
+    });
   } else if (imageElement && 'href' in imageElement) {
     toggleImageGalleryPictureSpoiler$.next({
       url: (imageElement.href as SVGAnimatedString).baseVal,
