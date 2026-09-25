@@ -9,21 +9,20 @@ import test from 'node:test';
 import { Loader } from '../../apps/web/src/lib/foliate-epub/epub.js';
 
 test('Foliate resource loader coalesces concurrent loads and releases each retained reference', async () => {
-  const originalURL = globalThis.URL;
+  const originalCreateObjectURL = URL.createObjectURL;
+  const originalRevokeObjectURL = URL.revokeObjectURL;
   const created = [];
   const revoked = [];
   let loadCount = 0;
   let release;
 
-  globalThis.URL = {
-    createObjectURL() {
-      const value = `blob:test-${created.length + 1}`;
-      created.push(value);
-      return value;
-    },
-    revokeObjectURL(value) {
-      revoked.push(value);
-    }
+  URL.createObjectURL = () => {
+    const value = `blob:test-${created.length + 1}`;
+    created.push(value);
+    return value;
+  };
+  URL.revokeObjectURL = (value) => {
+    revoked.push(value);
   };
 
   try {
@@ -56,22 +55,22 @@ test('Foliate resource loader coalesces concurrent loads and releases each retai
     assert.equal(loader.destroy(), true);
     assert.equal(loader.destroy(), false);
   } finally {
-    globalThis.URL = originalURL;
+    URL.createObjectURL = originalCreateObjectURL;
+    URL.revokeObjectURL = originalRevokeObjectURL;
   }
 });
 
 test('destroyed Foliate loader cannot publish a late resource', async () => {
-  const originalURL = globalThis.URL;
+  const originalCreateObjectURL = URL.createObjectURL;
+  const originalRevokeObjectURL = URL.revokeObjectURL;
   let createCount = 0;
   let release;
 
-  globalThis.URL = {
-    createObjectURL() {
-      createCount += 1;
-      return `blob:late-${createCount}`;
-    },
-    revokeObjectURL() {}
+  URL.createObjectURL = () => {
+    createCount += 1;
+    return `blob:late-${createCount}`;
   };
+  URL.revokeObjectURL = () => {};
 
   try {
     const item = { href: 'images/late.png', mediaType: 'image/png' };
@@ -93,18 +92,16 @@ test('destroyed Foliate loader cannot publish a late resource', async () => {
     assert.equal(createCount, 0);
     assert.equal(await loader.loadItem(item), null);
   } finally {
-    globalThis.URL = originalURL;
+    URL.createObjectURL = originalCreateObjectURL;
+    URL.revokeObjectURL = originalRevokeObjectURL;
   }
 });
 
 test('resource-relative links preserve query and fragment while loading the owning resource once', async () => {
-  const originalURL = globalThis.URL;
-  globalThis.URL = {
-    createObjectURL() {
-      return 'blob:chapter-two';
-    },
-    revokeObjectURL() {}
-  };
+  const originalCreateObjectURL = URL.createObjectURL;
+  const originalRevokeObjectURL = URL.revokeObjectURL;
+  URL.createObjectURL = () => 'blob:chapter-two';
+  URL.revokeObjectURL = () => {};
 
   try {
     const item = { href: 'OPS/chapter-2.xhtml', mediaType: 'application/xhtml+xml' };
@@ -122,6 +119,7 @@ test('resource-relative links preserve query and fragment while loading the owni
     assert.equal(url, 'blob:chapter-two?mode=1#note');
     loader.destroy();
   } finally {
-    globalThis.URL = originalURL;
+    URL.createObjectURL = originalCreateObjectURL;
+    URL.revokeObjectURL = originalRevokeObjectURL;
   }
 });
