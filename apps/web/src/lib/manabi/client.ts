@@ -60,6 +60,8 @@ const messages: Record<string, string> = {
   unsupported: 'This browser does not support persistent local-folder access.',
   request_too_large: 'This reading or settings record exceeds the supported size limit.',
   too_large: 'This file or reading-data record exceeds the supported size limit.',
+  plan_limit:
+    'You have too many unfinished series operations. Finish or abandon one before starting another.',
   busy: 'This cloud operation is still in progress. Check its status shortly.',
   precondition_required: 'Refresh the operation plan before continuing.',
   ambiguous_statistics:
