@@ -575,6 +575,8 @@
       {enableTextWrapPretty}
       {fontColor}
       {backgroundColor}
+      {hintFuriganaFontColor}
+      {hintFuriganaShadowColor}
       {fontFamilyGroupOne}
       {fontFamilyGroupTwo}
       {fontWeight}
@@ -583,8 +585,10 @@
       {textIndentation}
       {textMarginMode}
       {textMarginValue}
+      {hideSpoilerImage}
       {hideFurigana}
       {furiganaStyle}
+      loadingState={$imageLoadingState$ ?? true}
       {avoidPageBreak}
       {pageColumns}
       {autoBookmark}
