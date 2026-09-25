@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button';
+  import CloseButton from '$lib/components/ui/close-button.svelte';
   import faChevronLeft from '@lucide/svelte/icons/chevron-left';
   import faChevronRight from '@lucide/svelte/icons/chevron-right';
   import faClockRotateLeft from '@lucide/svelte/icons/history';
@@ -9,7 +10,6 @@
   import faRepeat from '@lucide/svelte/icons/repeat';
   import faSpinner from '@lucide/svelte/icons/loader-circle';
   import faTrash from '@lucide/svelte/icons/trash-2';
-  import faXmark from '@lucide/svelte/icons/x';
   import type { IconDefinition } from '$lib/components/icon-types';
   import type { TrackingHistory } from '$lib/components/book-reader/book-reading-tracker/book-reading-tracker';
   import {
@@ -168,21 +168,16 @@
   }
 </script>
 
-<div class="flex items-center justify-between min-h-[60px] px-4">
-  <div class="mr-4">
-    {#if hadError}
-      Last Update failed
-    {/if}
+<div class="flex min-h-16 items-center justify-between gap-3 px-4 pt-4">
+  <div class="min-w-0">
+    <h2 class="text-xl font-semibold">Reading tracker</h2>
+    {#if hadError}<p role="status" class="mt-1 text-sm text-destructive">Last update failed</p>{/if}
   </div>
-  <button
-    type="button"
-    title="Close Tracker Menu"
-    class="flex items-center hover:text-red-500 md:items-center gap-2 rounded-xl px-2 py-1.5 text-sm"
-    on:click={() => dispatch('trackerMenuClosed')}
-  >
-    <AppIcon icon={faXmark} />
-    <span>Close Tracker Menu</span></button
-  >
+  <CloseButton
+    aria-label="Close reading tracker"
+    disabled={actionInProgress}
+    onclick={() => dispatch('trackerMenuClosed')}
+  />
 </div>
 <div class="flex flex-1 flex-col overflow-auto p-4">
   {#if currentReadingGoal}
