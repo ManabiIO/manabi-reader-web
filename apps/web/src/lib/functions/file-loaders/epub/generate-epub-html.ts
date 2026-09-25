@@ -230,8 +230,8 @@ export default function generateEpubHtml(
       contentToParse = contentToParse
         .replace(controlCharactersRegex, '')
         .replace(selfClosingTagsRegex, '>')
-        .replace(htmlHexEntitiesRegex, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
-        .replace(htmlDecEntitiesRegex, (_, dec) => String.fromCharCode(parseInt(dec, 10)))
+        .replace(htmlHexEntitiesRegex, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+        .replace(htmlDecEntitiesRegex, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
         .replace('<!DOCTYPE html []>', '<!DOCTYPE html>')
         .trim();
     }
@@ -361,6 +361,7 @@ function flattenAnchorHref(el: HTMLElement) {
   Array.from(el.getElementsByTagName('a')).forEach((tag) => {
     const oldHref = tag.getAttribute('href');
     if (!oldHref) return;
+    tag.dataset.manabiEpubHref = oldHref;
     tag.setAttribute('href', `#${oldHref.replace(/.+#/, '')}`);
   });
 }

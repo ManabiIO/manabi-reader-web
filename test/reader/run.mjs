@@ -40,6 +40,22 @@ try {
     format: 'esm',
     outfile: typography
   });
+  const readerLocation = join(temp, 'reader-location.test.mjs');
+  await build({
+    entryPoints: [fileURLToPath(new URL('./reader-location.test.ts', import.meta.url))],
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    outfile: readerLocation
+  });
+  const foliatePublication = join(temp, 'foliate-publication.test.mjs');
+  await build({
+    entryPoints: [fileURLToPath(new URL('./foliate-publication.test.ts', import.meta.url))],
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    outfile: foliatePublication
+  });
   const result = spawnSync(
     process.execPath,
     [
@@ -48,7 +64,9 @@ try {
       archive,
       restored,
       localMedia,
-      typography
+      typography,
+      readerLocation,
+      foliatePublication
     ],
     { stdio: 'inherit' }
   );
