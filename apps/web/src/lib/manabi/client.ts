@@ -165,8 +165,10 @@ async function performAccountRefresh(force: boolean): Promise<ManabiSession | nu
     if (serial !== refreshSerial) return null;
     if (currentUser()?.id !== session.user?.id) generation += 1;
     // Authentication controls network authority; this persisted profile only
-    // identifies which local IndexedDB replica remains visible while offline.
-    rememberLocalProfile(session.user);
+    // identifies which local IndexedDB replica remains visible while offline or
+    // signed out. A later authenticated account replaces it; sign-out does not
+    // delete or hide the previous account's local reading replica.
+    if (session.user) rememberLocalProfile(session.user);
     account.set({ status: 'available', session });
     return session;
   } catch {
