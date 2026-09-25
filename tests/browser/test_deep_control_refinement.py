@@ -107,7 +107,7 @@ class DeepControlRefinementBrowser(control_refinement.ControlRefinementBrowser):
         self.assertAlmostEqual(close.bounding_box()['width'], 44, delta=0.5)
         heading = panel.locator('[data-slot="dialog-title"]')
         self.assertGreaterEqual(heading.bounding_box()['width'], 180)
-        self.assertLessEqual(heading.bounding_box()['height'], 3 * heading.evaluate('e => parseFloat(getComputedStyle(e).lineHeight)') + 1)
+        self.assertLessEqual(heading.bounding_box()['height'], 2 * heading.evaluate('e => parseFloat(getComputedStyle(e).lineHeight)') + 1)
         field = panel.get_by_label('Name', exact=True)
         expect(field).to_have_value(name)
         field.fill('Renamed at large text')

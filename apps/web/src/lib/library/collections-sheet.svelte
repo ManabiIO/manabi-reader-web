@@ -183,7 +183,7 @@
 <Dialog.Root bind:open={dialogOpen}>
   <Dialog.Content
     closeDisabled={busy}
-    class="[&_[data-slot=dialog-footer]_button]:min-h-11"
+    class="px-[16px] sm:px-[24px] [&_[data-slot=dialog-footer]_button]:min-h-11"
     onCloseAutoFocus={(event) => {
       event.preventDefault();
       void tick().then(() => {
