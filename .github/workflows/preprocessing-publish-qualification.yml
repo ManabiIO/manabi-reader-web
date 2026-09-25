@@ -1,0 +1,88 @@
+# One-shot recovery of the separately prepared preprocessing source.
+# Remove this write-enabled workflow after its narrowly scoped formatting commit.
+name: Preprocessing publication qualification
+on:
+  push:
+    branches: [codex/manabi-web-preprocessing-r3]
+    paths: [.github/workflows/preprocessing-publish-qualification.yml]
+permissions: {}
+concurrency:
+  group: preprocessing-publication-recovery
+  cancel-in-progress: false
+jobs:
+  normalize:
+    if: github.repository == 'ManabiIO/manabi-reader-web' && github.ref == 'refs/heads/codex/manabi-web-preprocessing-r3'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: true
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+        with:
+          version: 12.3.4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24.21.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm svelte-kit sync
+        working-directory: apps/web
+      - name: Normalize only the recovered modules
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          roots = [Path('apps/web/src/lib/preprocessing'), Path('apps/web/src/lib/dictionary-setup'), Path('test/preprocessing')]
+          for root in roots:
+              for path in root.glob('*.mjs'):
+                  value = path.read_text()
+                  import re
+                  value = re.sub(r'catch\s*\{\s*\}', 'catch { /* Cleanup and diagnostic callbacks must not replace the original failure. */ }', value)
+                  value = re.sub(r'(?<![.\w])fetch(?=\s*[,}])', 'globalThis.fetch', value)
+                  value = re.sub(r'(?<![.\w])crypto(?=\.)', 'globalThis.crypto', value)
+                  value = re.sub(r'(?<![.\w])setTimeout(?=\()', 'globalThis.setTimeout', value)
+                  value = re.sub(r'(?<![.\w])setImmediate(?=\()', 'globalThis.setImmediate', value)
+                  value = re.sub(r'(?<![.\w])Buffer(?=\.)', 'globalThis.Buffer', value)
+                  value = value.replace('new Promise(r=>resolve=r)', 'new Promise(r=>{resolve=r;})')
+                  if path.name == 'host.test.mjs':
+                      start = value.index('const delay=')
+                      end = value.index('const deferred=', start)
+                      value = value[:start] + value[end:]
+                  path.write_text(value)
+          path = Path('apps/web/src/lib/preprocessing/sanitizer.ts')
+          value = path.read_text().replace('/** @license BSD-3-Clause */', '/**\n * @license BSD-3-Clause\n * Copyright (c) 2026, ッツ Reader Authors\n * All rights reserved.\n */\n')
+          path.write_text(value)
+          PY
+          pnpm prettier --write apps/web/src/lib/preprocessing apps/web/src/lib/dictionary-setup test/preprocessing apps/web/src/lib/functions/book-security/book-content-security.ts apps/web/tsconfig.eslint.json
+          pnpm eslint --fix apps/web/src/lib/preprocessing apps/web/src/lib/dictionary-setup test/preprocessing apps/web/src/lib/functions/book-security/book-content-security.ts
+      - name: Run restored regression tests and full lint
+        run: |
+          node --test test/preprocessing/*.test.mjs
+          pnpm eslint .
+          git diff --check
+      - name: Publish only the qualified formatting changes
+        shell: bash
+        env:
+          HUSKY: '0'
+        run: |
+          python3 - <<'PY'
+          import subprocess
+          allowed = ('apps/web/src/lib/preprocessing/', 'apps/web/src/lib/dictionary-setup/', 'test/preprocessing/')
+          exact = {'apps/web/src/lib/functions/book-security/book-content-security.ts', 'apps/web/tsconfig.eslint.json'}
+          paths = subprocess.check_output(['git', 'diff', '--name-only', '-z']).decode().split('\0')
+          for path in filter(None, paths):
+              if path not in exact and not path.startswith(allowed):
+                  raise SystemExit('Refusing unrelated write: ' + path)
+          PY
+          git add apps/web/src/lib/preprocessing apps/web/src/lib/dictionary-setup test/preprocessing apps/web/src/lib/functions/book-security/book-content-security.ts apps/web/tsconfig.eslint.json
+          if git diff --cached --quiet; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'style: normalize recovered preprocessing sources with repository tooling'
+          git fetch origin refs/heads/codex/manabi-web-preprocessing-r3
+          test "$(git rev-parse FETCH_HEAD)" = "$GITHUB_SHA"
+          git push origin HEAD:refs/heads/codex/manabi-web-preprocessing-r3
