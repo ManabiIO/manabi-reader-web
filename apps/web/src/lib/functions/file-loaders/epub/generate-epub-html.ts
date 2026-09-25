@@ -16,6 +16,7 @@ import { getParagraphNodes } from '../../../components/book-reader/get-paragraph
 import { resolveArchivePath } from '../utils/limited-archive';
 import { sanitizeBookHtml } from '../../book-security/book-content-security';
 import type { PublicationResource } from '$lib/reader-location';
+import { resolveEpubLinkTarget } from './epub-link-target';
 
 export const prependValue = 'ttu-';
 
@@ -367,34 +368,12 @@ function flattenAnchorHref(el: HTMLElement, resources: PublicationResource[]) {
 
     const owner = tag.closest<HTMLElement>('[data-manabi-epub-resource-href]');
     const ownerHref = owner?.dataset.manabiEpubResourceHref;
-    const hashIndex = oldHref.indexOf('#');
-    const resourceReference = (hashIndex >= 0 ? oldHref.slice(0, hashIndex) : oldHref).split('?', 1)[0];
-    let fragment = hashIndex >= 0 ? oldHref.slice(hashIndex + 1) : '';
-    try {
-      fragment = decodeURIComponent(fragment);
-    } catch {
-      // Preserve malformed-but-inert fragment text for the legacy hash fallback.
+    const target = ownerHref ? resolveEpubLinkTarget(ownerHref, oldHref, resources) : undefined;
+    if (target) {
+      tag.dataset.manabiTargetSpineIndex = String(target.spineIndex);
+      if (target.fragment) tag.dataset.manabiTargetFragment = target.fragment;
     }
 
-    try {
-      const resourceHref =
-        !resourceReference && ownerHref
-          ? ownerHref
-          : ownerHref
-            ? resolveArchivePath(ownerHref, resourceReference)
-            : undefined;
-      const target = resourceHref
-        ? resources.find((resource) => resource.href === resourceHref)
-        : undefined;
-      if (target) {
-        tag.dataset.manabiTargetSpineIndex = String(target.spineIndex);
-        if (fragment) tag.dataset.manabiTargetFragment = fragment;
-      }
-    } catch {
-      // Sanitization already restricted links to local relative references.
-      // A malformed target remains on the legacy inert hash path.
-    }
-
-    tag.setAttribute('href', `#${fragment}`);
+    tag.setAttribute('href', `#${target?.fragment ?? oldHref.replace(/.+#/, '')}`);
   });
 }
