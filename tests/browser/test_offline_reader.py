@@ -87,7 +87,10 @@ class OfflineReader(unittest.TestCase):
                         })
                         if abort_once:
                             stage = 'failed import rollback and retry'
-                            expect(page.get_by_role('button', name='OK', exact=True)).to_be_visible(timeout=15000)
+                            expect(page.get_by_text('Bookimport failed', exact=True)).to_be_visible(timeout=15000)
+                            expect(page.get_by_text(re.compile(
+                                r'The book could not be saved because its local storage transaction was aborted'
+                            ))).to_be_visible()
                             self.assertEqual(page.evaluate('window.__readerAbortedWrites'), 1)
                             self.assertEqual(page.evaluate("""() => new Promise((resolve, reject) => {
                               const tx = window.__readerAbortedDatabase.transaction('data');
@@ -98,7 +101,7 @@ class OfflineReader(unittest.TestCase):
                             })"""), 0)
                             self.assertEqual(errors, [])
                             expect(page.get_by_role('button', name='Read ' + TITLE, exact=True)).to_have_count(0)
-                            page.get_by_role('button', name='OK', exact=True).click()
+                            page.get_by_role('dialog').get_by_role('button', name='Close', exact=True).first.click()
                             page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
                                 'name': 'offline.epub', 'mimeType': 'application/epub+zip', 'buffer': epub()
                             })

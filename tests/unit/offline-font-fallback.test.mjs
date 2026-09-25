@@ -47,9 +47,15 @@ function harness({ cacheDenied = false, immutable = true } = {}) {
     });
     return response;
   }
-  return { request, entries, scope, fetches: () => fetches, online: () => {
-    network = async () => new Response('font bytes');
-  } };
+  return {
+    request,
+    entries,
+    scope,
+    fetches: () => fetches,
+    online: () => {
+      network = async () => new Response('font bytes');
+    }
+  };
 }
 
 for (const immutable of [true, false]) {

@@ -57,15 +57,14 @@ test('a synchronous request failure aborts and waits for rollback before rejecti
   let aborted = false;
   let settled = false;
   const failure = new DOMException('Cannot clone this value', 'DataCloneError');
-  const result = commitTransaction(
-    { done: done.promise, abort: () => (aborted = true) },
-    () => {
-      throw failure;
-    }
-  );
-  const rejected = assert.rejects(result, (error) => error === failure).then(() => {
-    settled = true;
+  const result = commitTransaction({ done: done.promise, abort: () => (aborted = true) }, () => {
+    throw failure;
   });
+  const rejected = assert
+    .rejects(result, (error) => error === failure)
+    .then(() => {
+      settled = true;
+    });
   await setImmediate();
   assert.equal(aborted, true);
   assert.equal(settled, false);
@@ -96,9 +95,7 @@ test('falsy rejection reasons are still failures', async () => {
 
 test('a failed save does not poison later transactions', async () => {
   const failure = new DOMException('Aborted', 'AbortError');
-  await assert.rejects(
-    commitTransaction({ done: Promise.reject(failure), abort() {} }, () => 7)
-  );
+  await assert.rejects(commitTransaction({ done: Promise.reject(failure), abort() {} }, () => 7));
   assert.equal(
     await commitTransaction({ done: Promise.resolve(), abort: assert.fail }, () => 8),
     8
@@ -118,11 +115,19 @@ test('binary refusals have actionable context while unrelated errors keep their 
   for (const failure of [
     new DOMException('No space', 'QuotaExceededError'),
     new DOMException('Cannot clone', 'DataCloneError'),
-    new DOMException('Aborted', 'AbortError'),
     new DOMException('Unrelated engine error', 'UnknownError'),
     undefined,
     'failure'
   ]) {
     assert.equal(explainBookStorageError(failure), failure);
   }
+});
+
+test('a native book-write abort is not silently treated as user cancellation', () => {
+  const failure = new DOMException('', 'AbortError');
+  const explained = explainBookStorageError(failure);
+  assert.equal(explained.name, 'Error');
+  assert.equal(explained.cause, failure);
+  assert.match(explained.message, /local storage transaction was aborted/);
+  assert.match(explained.message, /Try importing it again/);
 });

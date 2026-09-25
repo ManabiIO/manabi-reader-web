@@ -37,13 +37,23 @@ export async function commitTransaction(transaction, operation) {
 }
 
 /**
- * Explain a known binary-storage refusal without UA sniffing, private-mode
- * detection, silently dropping images, or changing the persisted book format.
- * Other errors (including quota/abort) retain their original identity.
+ * Explain failures at the book-write boundary, which does not take a user
+ * AbortSignal. Its native transaction abort is not an import cancellation.
+ * Do not UA-sniff, detect private mode, drop images, or change the book format.
+ * Other errors (including quota failures) retain their original identity.
  * @param {unknown} error
  * @returns {unknown}
  */
 export function explainBookStorageError(error) {
+  if (error && typeof error === 'object' && 'name' in error && error.name === 'AbortError') {
+    // Replication treats AbortError as deliberate user cancellation. A native
+    // write abort must instead reach the existing failure UI and allow retry.
+    return new Error(
+      'The book could not be saved because its local storage transaction was aborted. ' +
+        'Try importing it again. Your original book file has not been changed.',
+      { cause: error }
+    );
+  }
   if (
     error &&
     typeof error === 'object' &&
