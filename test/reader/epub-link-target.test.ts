@@ -1,3 +1,9 @@
+/**
+ * @license BSD-3-Clause
+ * Copyright (c) 2026, ッツ Reader Authors
+ * All rights reserved.
+ */
+
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
@@ -14,10 +20,10 @@ test('resource-aware EPUB links distinguish duplicate fragment IDs in different 
     resolveEpubLinkTarget('OPS/a/chapter.xhtml', '../b/chapter.xhtml#note', resources),
     { spineIndex: 1, fragment: 'note' }
   );
-  assert.deepEqual(
-    resolveEpubLinkTarget('OPS/a/chapter.xhtml', '#note', resources),
-    { spineIndex: 0, fragment: 'note' }
-  );
+  assert.deepEqual(resolveEpubLinkTarget('OPS/a/chapter.xhtml', '#note', resources), {
+    spineIndex: 0,
+    fragment: 'note'
+  });
 });
 
 test('resource-aware EPUB links ignore query strings for archive identity and decode fragments', () => {
