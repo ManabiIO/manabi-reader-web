@@ -175,7 +175,10 @@ class RheaReader(previous.RefinedAppearance):
             expect(self.page.get_by_role('button', name='Show reading controls', exact=True)).to_be_focused()
             self.page.get_by_role('button', name='Show reading controls', exact=True).tap()
             self.page.get_by_role('button', name='Themes & Settings', exact=True).tap()
-            panel.get_by_role('button', name='Close reading appearance', exact=True).tap()
+            close = panel.get_by_role('button', name='Close reading appearance', exact=True)
+            expect(close).to_have_attribute('data-modal-dismiss', '')
+            expect(close).to_have_attribute('data-shape', 'circle')
+            close.tap()
             expect(panel).to_have_count(0)
             expect(self.page.get_by_role('button', name='Themes & Settings', exact=True)).to_be_focused()
         finally:
@@ -207,6 +210,9 @@ class RheaReader(previous.RefinedAppearance):
                 self.assertGreaterEqual(bounds['x'], 0)
                 self.assertLessEqual(bounds['x'] + bounds['width'], width)
                 self.assertGreaterEqual(bounds['height'], 43.99)
+            close = panel.get_by_role('button', name='Close Table of Contents', exact=True)
+            expect(close).to_have_attribute('data-modal-dismiss', '')
+            expect(close).to_have_attribute('data-shape', 'circle')
             chapters = panel.get_by_role('navigation', name='Chapters')
             expect(chapters.get_by_role('button', name='A new morning', exact=True)).to_be_visible()
             chapters.get_by_role('button', name='A new morning', exact=True).click()
@@ -401,6 +407,14 @@ class RheaReader(previous.RefinedAppearance):
     def test_dialog_traps_focus_and_escape_preserves_custom_theme(self):
         self.settings()
         trigger = self.page.get_by_role('button', name='Add custom theme', exact=True)
+        expect(trigger).to_have_attribute('data-variant', 'outline')
+        expect(trigger).to_have_attribute('data-size', 'lg')
+        geometry = trigger.evaluate('''e => {
+          const rect = e.getBoundingClientRect();
+          return {height: rect.height, radius: parseFloat(getComputedStyle(e).borderTopLeftRadius)};
+        }''')
+        self.assertGreaterEqual(geometry['height'], 43.99)
+        self.assertGreaterEqual(geometry['radius'], geometry['height'] / 2)
         trigger.click()
         dialog = self.page.locator('[data-slot="dialog-content"]')
         expect(dialog).to_be_visible()
