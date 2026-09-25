@@ -6,14 +6,18 @@
 
 import { isNodeGaiji } from '$lib/functions/is-node-gaiji';
 
+const TEXT_NODE = 3;
+
 export function getParagraphNodes(node: Node) {
   return getTextNodeOrGaijiNodes(node, (n) => {
-    if (n.nodeName === 'RT') {
+    const localName = (n as Element).localName?.toLowerCase?.();
+    if (localName === 'rt') {
       return false;
     }
+    const element = n.nodeType === 1 ? (n as Element) : undefined;
     const isHidden =
-      n instanceof HTMLElement &&
-      (n.attributes.getNamedItem('aria-hidden') || n.attributes.getNamedItem('hidden'));
+      !!element &&
+      (element.hasAttribute('aria-hidden') || element.hasAttribute('hidden'));
     if (isHidden) {
       return false;
     }
@@ -36,7 +40,7 @@ function getTextNodeOrGaijiNodes(node: Node, filterFn: (n: Node) => boolean): No
 
   return Array.from(node.childNodes)
     .flatMap((n) => {
-      if (n.nodeType === Node.TEXT_NODE) {
+      if (n.nodeType === TEXT_NODE) {
         return [n];
       }
       if (isNodeGaiji(n)) {
