@@ -84,6 +84,11 @@ class DeepControlRefinementBrowser(control_refinement.ControlRefinementBrowser):
         sheet.get_by_role('button', name='Edit', exact=True).click()
         sheet.evaluate('e => e.scrollTop = 0')
         self.check_modal(sheet)
+        # Rounded groups must not flex-shrink and clip their actual controls.
+        groups = sheet.locator(':scope > div.overflow-hidden')
+        expect(groups).to_have_count(2)
+        for group in groups.all():
+            self.assertLessEqual(group.evaluate('e => e.scrollHeight - e.clientHeight'), 1)
         self.capture('collections-double-text')
         rename = sheet.get_by_role('button', name='Rename collection ' + name, exact=True)
         rename.scroll_into_view_if_needed()

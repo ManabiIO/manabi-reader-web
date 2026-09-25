@@ -89,7 +89,7 @@
         }
       }}
     >
-      <Sheet.Header class="mb-6 flex flex-row flex-wrap items-center justify-between gap-3 p-0">
+      <Sheet.Header class="mb-6 flex shrink-0 flex-row flex-wrap items-center justify-between gap-3 p-0">
         <Sheet.Title class="min-w-0 font-serif text-2xl">Collections</Sheet.Title>
         <div class="ms-auto flex shrink-0 gap-2">
           <Button
@@ -108,7 +108,7 @@
           >Organize books without moving their files. A book can be in several collections.</Sheet.Description
         >
       </Sheet.Header>
-      <div class="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card">
+      <div class="shrink-0 divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card">
         <button
           class="collection-row"
           aria-current={active === 'books' ? 'page' : undefined}
@@ -134,7 +134,7 @@
         >
       </div>
       <div
-        class="mt-6 divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card"
+        class="mt-6 shrink-0 divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card"
       >
         {#each customCollections as collection (collection.id)}
           <div class="collection-entry">
@@ -173,7 +173,7 @@
           ><Plus aria-hidden="true" /><span>New Collection…</span></button
         >
       </div>
-      <p class="mt-4 text-xs text-muted-foreground">
+      <p class="mt-4 shrink-0 text-xs text-muted-foreground">
         Collections and book overrides sync with your Manabi Reader settings when account sync is
         on. Unavailable books stay in their collections and reappear when their library is
         connected.
