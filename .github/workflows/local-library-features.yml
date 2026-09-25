@@ -41,6 +41,14 @@ jobs:
           PYTHONPATH: tests/browser
           LIBRARY_BROWSER: chromium
         run: python -m unittest test_local_library_features -v
+      - name: Library open lifetime regression
+        env:
+          PYTHONPATH: tests/browser
+          LIBRARY_BROWSER: chromium
+        run: |
+          python -m unittest \
+            test_books_library.BooksLibraryFilesystem.test_external_relocation_rebinds_content_identity_and_presentation \
+            test_books_library.BooksLibraryFilesystem.test_relocated_book_read_cannot_navigate_after_browser_back -v
       - name: WebKit local-library acceptance
         env:
           PYTHONPATH: tests/browser
@@ -52,6 +60,7 @@ jobs:
           mkdir -p test-results
           git rev-parse HEAD > test-results/commit.txt
           git ls-tree -r HEAD > test-results/tree.txt
+          git diff --check
       - uses: actions/upload-artifact@v4
         if: always()
         with:
