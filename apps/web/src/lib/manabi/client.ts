@@ -174,6 +174,7 @@ export async function request<T>(
     userId?: string;
     binary?: boolean;
     maximumBytes?: number;
+    syncEpoch?: { generation: string; incarnation: string };
   } = {}
 ): Promise<T> {
   if (!validInternalPath(path)) throw new Error('Invalid internal API path');
@@ -186,6 +187,10 @@ export async function request<T>(
   if (method !== 'GET') headers.set('X-CSRFToken', session.csrf_token);
   if (options.value !== undefined) headers.set('Content-Type', 'application/json');
   if (options.revision) headers.set('If-Match', options.revision);
+  if (options.syncEpoch) {
+    headers.set('X-Manabi-Sync-Generation', options.syncEpoch.generation);
+    headers.set('X-Manabi-Sync-Incarnation', options.syncEpoch.incarnation);
+  }
   let response: Response;
   try {
     response = await fetch(ROOT + path, {

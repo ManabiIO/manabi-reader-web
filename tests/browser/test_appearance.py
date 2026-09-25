@@ -29,7 +29,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
             if reload:
                 self.page.reload()
             else:
-                self.page.goto(self.origin + '/Reader-Web/settings')
+                self.page.goto(self.origin + '/reader-web/settings')
         response = probe.value.response()
         self.assertIsNotNone(response)
         self.assertEqual(404, response.status)
@@ -79,11 +79,11 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         with page.expect_request_finished(
             predicate=lambda r: r.url == self.origin + '/api/reader-web/session/'
         ):
-            page.goto(self.origin + '/Reader-Web/manage')
+            page.goto(self.origin + '/reader-web/manage')
         with page.expect_request_finished(
             predicate=lambda r: r.url == self.origin + '/api/reader-web/session/'
         ):
-            page.goto(self.origin + '/Reader-Web/settings')
+            page.goto(self.origin + '/reader-web/settings')
 
         # Hold a forced refresh in the real HTTP handler, then destroy its page.
         # This deterministically covers the WebKit teardown path without request
@@ -135,7 +135,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
             'csrf_token': 'c' * 64,
             'providers': []
         }
-        self.page.goto(self.origin + '/Reader-Web/connections')
+        self.page.goto(self.origin + '/reader-web/connections')
         try:
             self.assertTrue(started.wait(timeout=5), 'account bootstrap did not reach the server')
         finally:
@@ -169,7 +169,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         sign_in = self.page.get_by_role('link', name='Sign in to Manabi', exact=True)
         expect(sign_in).to_be_visible()
         self.assertEqual(
-            '/accounts/login/?next=%2FReader-Web%2Fconnections',
+            '/accounts/login/?next=%2Freader-web%2Fconnections',
             sign_in.get_attribute('href')
         )
         logout = next(
@@ -223,7 +223,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
                     expect(field).to_have_css('background-color', palette['background'])
                     expect(field).to_have_css('color', palette['foreground'])
             self.page.screenshot(path='test-results/palette-' + theme + '.png', full_page=True)
-        self.page.goto(self.origin + '/Reader-Web/statistics')
+        self.page.goto(self.origin + '/reader-web/statistics')
         self.assertEqual('dark', self.scheme())
         self.page.screenshot(path='test-results/appearance-statistics-dark.png', full_page=True)
 
@@ -274,7 +274,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         for _ in range(25):
             self.page.keyboard.press('ArrowRight')
 
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         background = self.page.locator('[data-background="library"]')
         expect(background).to_have_attribute('data-background-mode', 'dark')
         style = background.evaluate(
@@ -336,11 +336,11 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         ).to_be_visible()
 
         self.mode('Dark')
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         expect(self.page.locator('[data-background="library"]')).to_have_count(0)
         self.settings()
         self.mode('Light')
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         expect(self.page.locator('[data-background="library"]')).to_have_attribute(
             'data-background-mode', 'light'
         )
@@ -377,7 +377,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
             'fieldset:has(#background-library-light)'
         ).get_by_role('switch').uncheck()
         self.mode('Light')
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         self.assertEqual(
             'rgba(255, 255, 255, 0)',
             self.page.locator('.page-background').evaluate(
@@ -428,7 +428,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         self.upload('library', [100, 60, 150], 'light')
         self.mode('Light')
         self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), 390)
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         self.page.evaluate('navigator.serviceWorker.ready')
         # An activated worker takes control on the next navigation; the page
         # that registered it may remain deliberately uncontrolled.

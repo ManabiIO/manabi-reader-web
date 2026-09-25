@@ -1,0 +1,37 @@
+name: Notify production publication
+
+on:
+  workflow_run:
+    workflows: ['Manabi Reader static build']
+    types: [completed]
+    branches: [main]
+
+permissions: {}
+
+# Each successful completion gets its own brief notification. Workflow-level
+# cancellation also sees failed completions and could cancel a successful
+# notification before its request reaches Manabi. Publication is serialized there.
+jobs:
+  notify:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    env:
+      GH_TOKEN: ${{ secrets.MANABI_PUBLICATION_DISPATCH_TOKEN }}
+    steps:
+      # workflow_run can access secrets. Never check out or execute source or
+      # download artifacts here. Manabi resolves and qualifies its source again.
+      - name: Wake the publication planner after frontend qualification
+        run: |
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo '::error::Set MANABI_PUBLICATION_DISPATCH_TOKEN (Manabi repository Actions: write) to enable automatic publication. There is no polling fallback; run Reader Web static publication manually in lake-of-fire/manabi to recover.'
+            exit 1
+          fi
+          gh api \
+            --method POST \
+            repos/lake-of-fire/manabi/actions/workflows/deploy-reader-web.yml/dispatches \
+            -f ref=master

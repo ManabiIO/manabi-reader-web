@@ -260,6 +260,9 @@ async function readLocal(
   const bookmarks = (await Promise.all(copies.map((book) => db.get('bookmark', book.id)))).filter(
     (value): value is BooksDbBookmarkData => !!value
   );
+  return bookmarkPayload(bookmarks, kind);
+}
+function bookmarkPayload(bookmarks: BooksDbBookmarkData[], kind: PersonalKind): Payload {
   const bookmark = bookmarks.sort((a, b) =>
     kind === 'completion'
       ? (b.completion?.modifiedAt ?? 0) - (a.completion?.modifiedAt ?? 0)
@@ -272,19 +275,30 @@ async function readLocal(
       : null
     : payloadOf(bookmark as unknown as Record<string, unknown>, fields);
 }
+
 async function applyLocal(
   kind: PersonalKind,
   entityId: string,
   bookKey: string,
   payload: Payload,
   books: Map<string, BooksDbBookData[]>,
-  accountId: string
+  accountId: string,
+  expected: Payload
 ) {
   scoped(accountId);
   const db = await database.db;
   if (kind === 'annotation') {
     const tx = db.transaction('readerAnnotation', 'readwrite');
     const before = await tx.store.get(entityId);
+    const current =
+      before && !before.deletedAt
+        ? wirePayload(before as unknown as Record<string, unknown>)
+        : null;
+    if (!equal(current, expected)) {
+      await tx.done;
+      throw new IntegrationError('conflict', 409);
+    }
+    scoped(accountId);
     if (payload) await tx.store.put(payload as unknown as ReaderAnnotation);
     else if (before)
       await tx.store.put({
@@ -301,6 +315,15 @@ async function applyLocal(
     const day = dayId.exec(entityId)?.[1];
     if (!day) return;
     const tx = db.transaction(['readerStatistic', 'lastModified'], 'readwrite');
+    const before = await tx.objectStore('readerStatistic').get([bookKey, day]);
+    const current = before
+      ? payloadOf(before as unknown as Record<string, unknown>, statFields)
+      : null;
+    if (!equal(current, expected)) {
+      await tx.done;
+      throw new IntegrationError('conflict', 409);
+    }
+    scoped(accountId);
     if (payload)
       await tx.objectStore('readerStatistic').put({
         ...payload,
@@ -319,6 +342,14 @@ async function applyLocal(
     return;
   }
   const tx = db.transaction('bookmark', 'readwrite');
+  const observed = (await Promise.all(copies.map((book) => tx.store.get(book.id)))).filter(
+    (value): value is BooksDbBookmarkData => !!value
+  );
+  if (!equal(bookmarkPayload(observed, kind), expected)) {
+    await tx.done;
+    throw new IntegrationError('conflict', 409);
+  }
+  scoped(accountId);
   for (const book of copies) {
     const old = await tx.store.get(book.id);
     const next: BooksDbBookmarkData = {
@@ -343,9 +374,18 @@ async function acceptRemote(
   accountId: string,
   item: RemoteRecord,
   books: Map<string, BooksDbBookData[]>,
-  cursor: number
+  cursor: number,
+  generation?: string,
+  absent = false,
+  preserveMissing = false
 ) {
-  if (!validRemote(item) || !item.book_key || !supported(item.kind))
+  if (
+    !(absent && item.revision === 0 && item.deleted && item.payload === null
+      ? validRemote({ ...item, revision: 1 })
+      : validRemote(item)) ||
+    !item.book_key ||
+    !supported(item.kind)
+  )
     throw new IntegrationError('invalid_response');
   scoped(accountId);
   const db = await database.db;
@@ -353,9 +393,10 @@ async function acceptRemote(
   const baseline = await db.get('readerPersonalRecord', id);
   // A 412 response may have supplied a newer record before its feed rows arrive.
   // Older rows advance the cursor without rolling the local baseline backward.
-  if (baseline && item.revision <= baseline.revision) {
+  if (baseline && baseline.generation === generation && item.revision <= baseline.revision) {
     scoped(accountId);
     await db.put('readerSyncState', {
+      ...(await db.get('readerSyncState', accountId)),
       accountId,
       cursor: String(cursor),
       modifiedAt: new Date().toISOString()
@@ -390,13 +431,21 @@ async function acceptRemote(
     item.kind === 'annotation' &&
     !foreign &&
     !!(await db.get('readerAnnotation', item.entity_id))?.deletedAt;
-  const result = acknowledged
-    ? { value: local, fields: [] as string[] }
-    : localTombstone && remote
-      ? { value: local, fields: ['deleted'] }
-      : item.kind === 'annotation'
-        ? mergeAnnotationPayload(baseline?.payload ?? null, local, remote, new Date().toISOString())
-        : mergePayload(baseline?.payload ?? null, local, remote);
+  const result =
+    absent && preserveMissing && local !== null
+      ? { value: local, fields: ['remote_missing'] }
+      : acknowledged
+        ? { value: local, fields: [] as string[] }
+        : localTombstone && remote
+          ? { value: local, fields: ['deleted'] }
+          : item.kind === 'annotation'
+            ? mergeAnnotationPayload(
+                baseline?.payload ?? null,
+                local,
+                remote,
+                new Date().toISOString()
+              )
+            : mergePayload(baseline?.payload ?? null, local, remote);
   const conflict: PersonalConflict | undefined = result.fields.length
     ? {
         id,
@@ -413,7 +462,15 @@ async function acceptRemote(
   // Never apply a remote annotation over a pending local edit. Merge only after its
   // exact local revision is checked during the subsequent flush.
   if (!foreign && !conflict && !equal(local, result.value))
-    await applyLocal(item.kind, item.entity_id, item.book_key, result.value, books, accountId);
+    await applyLocal(
+      item.kind,
+      item.entity_id,
+      item.book_key,
+      result.value,
+      books,
+      accountId,
+      local
+    );
   scoped(accountId);
   const tx = db.transaction(
     [
@@ -435,6 +492,7 @@ async function acceptRemote(
     entityId: item.entity_id,
     bookKey: item.book_key,
     revision: item.revision,
+    generation,
     payload: remote,
     deleted: item.deleted
   });
@@ -442,30 +500,174 @@ async function acceptRemote(
   if (matchingReading) await tx.objectStore('readerPersonalOutbox').delete(matchingReading.id);
   if (matchingAnnotation)
     await tx.objectStore('readerAnnotationOutbox').delete(matchingAnnotation.id);
-  await tx
-    .objectStore('readerSyncState')
-    .put({ accountId, cursor: String(cursor), modifiedAt: new Date().toISOString() });
+  await tx.objectStore('readerSyncState').put({
+    ...(await tx.objectStore('readerSyncState').get(accountId)),
+    accountId,
+    cursor: String(cursor),
+    modifiedAt: new Date().toISOString()
+  });
+  await tx.done;
+}
+
+type SyncEpoch = { generation: string; incarnation: string };
+type SnapshotPage = SyncEpoch & {
+  items: (RemoteRecord & { snapshot_id: number })[];
+  high_water: number;
+  has_more: boolean;
+  next_cursor: string | null;
+};
+const uuidText = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+function validEpoch(value: Partial<SyncEpoch>): value is SyncEpoch {
+  return (
+    typeof value.generation === 'string' &&
+    uuidText.test(value.generation) &&
+    typeof value.incarnation === 'string' &&
+    uuidText.test(value.incarnation)
+  );
+}
+
+async function recoverSnapshot(accountId: string, books: Map<string, BooksDbBookData[]>) {
+  const db = await database.db;
+  const previous = await db.get('readerSyncState', accountId);
+  scoped(accountId);
+  await db.put('readerSyncState', {
+    ...previous,
+    accountId,
+    cursor: previous?.cursor ?? '0',
+    resyncing: true,
+    modifiedAt: new Date().toISOString()
+  });
+  let token = '',
+    after = 0,
+    highWater: number | undefined,
+    epoch: SyncEpoch | undefined;
+  // Current state is quota-bounded on the server. Pages are applied incrementally
+  // rather than retaining every note body in memory. No upload is allowed until
+  // the complete snapshot and the feed after its high-water mark are applied.
+  for (let pages = 0; ; pages += 1) {
+    if (pages >= 25000) throw new IntegrationError('invalid_response');
+    scoped(accountId);
+    const page = await request<SnapshotPage>(
+      `personal/snapshot/?limit=100${token ? `&cursor=${encodeURIComponent(token)}` : ''}`,
+      { userId: accountId }
+    );
+    if (
+      !validEpoch(page) ||
+      !Array.isArray(page.items) ||
+      !Number.isSafeInteger(page.high_water) ||
+      page.high_water < 0 ||
+      typeof page.has_more !== 'boolean' ||
+      (page.has_more &&
+        (typeof page.next_cursor !== 'string' ||
+          !page.next_cursor ||
+          page.next_cursor.length > 2048 ||
+          page.next_cursor === token)) ||
+      (!page.has_more && page.next_cursor !== null) ||
+      (epoch && (epoch.generation !== page.generation || epoch.incarnation !== page.incarnation)) ||
+      (highWater !== undefined && highWater !== page.high_water)
+    )
+      throw new IntegrationError('invalid_response');
+    if (previous?.incarnation && previous.incarnation !== page.incarnation)
+      throw new IntegrationError('invalid_cursor'); // Account clock loss is not compaction.
+    epoch = { generation: page.generation, incarnation: page.incarnation };
+    highWater = page.high_water;
+    for (const item of page.items) {
+      if (!Number.isSafeInteger(item.snapshot_id) || item.snapshot_id <= after)
+        throw new IntegrationError('invalid_response');
+      if (supported(item.kind))
+        await acceptRemote(accountId, item, books, Number(previous?.cursor ?? 0), epoch.generation);
+      after = item.snapshot_id;
+    }
+    if (page.has_more && !page.items.length) throw new IntegrationError('invalid_response');
+    if (!page.has_more) break;
+    token = page.next_cursor!;
+  }
+  // A missing old baseline represents a compacted tombstone. Never silently
+  // erase legacy data when this client has not yet learned a stable incarnation.
+  for (const base of await db.getAllFromIndex('readerPersonalRecord', 'accountId', accountId)) {
+    if (base.generation === epoch!.generation) continue;
+    await acceptRemote(
+      accountId,
+      {
+        kind: base.kind,
+        entity_id: base.entityId,
+        book_key: base.bookKey,
+        revision: 0,
+        payload: null,
+        deleted: true
+      },
+      books,
+      Number(previous?.cursor ?? 0),
+      epoch!.generation,
+      true,
+      !previous?.incarnation
+    );
+  }
+  scoped(accountId);
+  const tx = db.transaction(
+    ['readerPersonalOutbox', 'readerAnnotationOutbox', 'readerSyncState'],
+    'readwrite'
+  );
+  // The actual local reading/annotation rows (including local tombstones) remain
+  // authoritative intent. Obsolete immutable requests must never simply acquire
+  // a new epoch: restaging uses the newly reconciled baseline and a new UUID.
+  for (const storeName of ['readerPersonalOutbox', 'readerAnnotationOutbox'] as const) {
+    const store = tx.objectStore(storeName);
+    for (const entry of await store.index('accountId').getAll(accountId)) {
+      if (entry.request?.sync?.generation !== epoch!.generation) await store.delete(entry.id);
+    }
+  }
+  await tx.objectStore('readerSyncState').put({
+    accountId,
+    cursor: String(highWater),
+    ...epoch!,
+    resyncing: false,
+    modifiedAt: new Date().toISOString()
+  });
   await tx.done;
 }
 
 async function bootstrap(accountId: string, books: Map<string, BooksDbBookData[]>) {
   const db = await database.db;
-  let cursor = Number((await db.get('readerSyncState', accountId))?.cursor ?? '0');
+  let state = await db.get('readerSyncState', accountId);
+  let recovered = false;
+  if (state?.resyncing) {
+    await recoverSnapshot(accountId, books);
+    state = await db.get('readerSyncState', accountId);
+    recovered = true;
+  }
+  let cursor = Number(state?.cursor ?? '0');
   if (!Number.isSafeInteger(cursor) || cursor < 0) throw new IntegrationError('invalid_cursor');
   for (;;) {
     scoped(accountId);
-    // The shared client caps JSON responses at 4 MiB; escaped Unicode can make
-    // a legal 320 KiB payload much larger on the wire.
-    const feed = await request<Feed>(`personal/changes/?cursor=${cursor}&limit=3`, {
-      userId: accountId
-    });
+    const epoch = state && validEpoch(state) ? state : undefined;
+    const scope = epoch ? `&generation=${epoch.generation}&incarnation=${epoch.incarnation}` : '';
+    let feed: Feed & Partial<SyncEpoch> & { maximum_page_bytes?: number };
+    try {
+      // Old servers did not have a byte budget; keep their small count limit.
+      feed = await request(`personal/changes/?cursor=${cursor}&limit=3${scope}`, {
+        userId: accountId
+      });
+    } catch (error) {
+      if (!recovered && error instanceof IntegrationError && error.code === 'resync_required') {
+        await recoverSnapshot(accountId, books);
+        state = await db.get('readerSyncState', accountId);
+        cursor = Number(state!.cursor);
+        recovered = true;
+        continue;
+      }
+      throw error;
+    }
     if (
       !Array.isArray(feed.items) ||
       !Number.isSafeInteger(feed.next_cursor) ||
       feed.next_cursor < cursor ||
-      typeof feed.has_more !== 'boolean'
+      typeof feed.has_more !== 'boolean' ||
+      ((feed.generation !== undefined || feed.incarnation !== undefined) && !validEpoch(feed))
     )
       throw new IntegrationError('invalid_response');
+    if (epoch && (feed.incarnation !== epoch.incarnation || feed.generation !== epoch.generation))
+      throw new IntegrationError('invalid_cursor');
     for (const item of feed.items) {
       if (
         !Number.isSafeInteger(item.sequence) ||
@@ -473,18 +675,20 @@ async function bootstrap(accountId: string, books: Map<string, BooksDbBookData[]
         item.sequence! > feed.next_cursor
       )
         throw new IntegrationError('invalid_response');
-      if (supported(item.kind)) await acceptRemote(accountId, item, books, item.sequence!);
-      else {
-        scoped(accountId);
-        await db.put('readerSyncState', {
-          accountId,
-          cursor: String(item.sequence),
-          modifiedAt: new Date().toISOString()
-        });
-      }
+      if (supported(item.kind))
+        await acceptRemote(accountId, item, books, item.sequence!, feed.generation);
       cursor = item.sequence!;
     }
     if (!feed.items.length && feed.has_more) throw new IntegrationError('invalid_response');
+    scoped(accountId);
+    state = {
+      ...(await db.get('readerSyncState', accountId)),
+      accountId,
+      cursor: String(cursor),
+      ...(validEpoch(feed) ? { generation: feed.generation, incarnation: feed.incarnation } : {}),
+      modifiedAt: new Date().toISOString()
+    };
+    await db.put('readerSyncState', state);
     if (!feed.has_more) break;
   }
 }
@@ -558,7 +762,8 @@ async function hydrateReading(accountId: string, books: Map<string, BooksDbBookD
         record.bookKey,
         record.payload,
         books,
-        accountId
+        accountId,
+        local
       );
   }
   scoped(accountId);
@@ -572,12 +777,29 @@ async function hydrateReading(accountId: string, books: Map<string, BooksDbBookD
   await tx.done;
 }
 
+async function bindMutation(accountId: string, mutation: WireMutation): Promise<WireMutation> {
+  const db = await database.db;
+  const state = await db.get('readerSyncState', accountId);
+  return state && validEpoch(state)
+    ? { ...mutation, sync: { generation: state.generation, incarnation: state.incarnation } }
+    : mutation;
+}
+
 async function sendMutation(accountId: string, mutation: WireMutation): Promise<RemoteRecord> {
-  const reply = await request<{ accepted: boolean; mutation_id: string; record: RemoteRecord }>(
-    'personal/mutations/',
-    { method: 'POST', value: mutation, userId: accountId }
-  );
-  if (!reply.accepted || reply.mutation_id !== mutation.mutation_id || !validRemote(reply.record))
+  const { sync, ...value } = mutation;
+  const reply = await request<{
+    accepted: boolean;
+    mutation_id: string;
+    record: RemoteRecord;
+    generation?: string;
+    incarnation?: string;
+  }>('personal/mutations/', { method: 'POST', value, userId: accountId, syncEpoch: sync });
+  if (
+    !reply.accepted ||
+    reply.mutation_id !== mutation.mutation_id ||
+    !validRemote(reply.record) ||
+    (sync && (reply.generation !== sync.generation || reply.incarnation !== sync.incarnation))
+  )
     throw new IntegrationError('invalid_response');
   return reply.record;
 }
@@ -597,14 +819,17 @@ async function flushReading(accountId: string, books: Map<string, BooksDbBookDat
     );
     const prepared =
       current.request ??
-      wire(
-        current.id,
-        current.kind,
-        current.entityId,
-        current.bookKey,
-        baseline?.revision ?? 0,
-        current.localValue
-      );
+      (await bindMutation(
+        accountId,
+        wire(
+          current.id,
+          current.kind,
+          current.entityId,
+          current.bookKey,
+          baseline?.revision ?? 0,
+          current.localValue
+        )
+      ));
     if (!current.request) await db.put('readerPersonalOutbox', { ...current, request: prepared });
     let accepted: RemoteRecord;
     try {
@@ -620,7 +845,8 @@ async function flushReading(accountId: string, books: Map<string, BooksDbBookDat
           accountId,
           error.current as RemoteRecord,
           books,
-          Number((await db.get('readerSyncState', accountId))?.cursor ?? 0)
+          Number((await db.get('readerSyncState', accountId))?.cursor ?? 0),
+          prepared.sync?.generation
         );
         // The exact request is no longer valid; a fresh mutation needs a new ID.
         const latest = await db.get('readerPersonalOutbox', current.id);
@@ -642,6 +868,7 @@ async function flushReading(accountId: string, books: Map<string, BooksDbBookDat
       entityId: current.entityId,
       bookKey: current.bookKey,
       revision: accepted.revision,
+      generation: prepared.sync?.generation,
       payload: accepted.deleted ? null : accepted.payload,
       deleted: accepted.deleted
     });
@@ -706,14 +933,17 @@ async function flushAnnotations(accountId: string, books: Map<string, BooksDbBoo
     }
     const baseline = await db.get('readerPersonalRecord', id);
     const prepared = current.request ?? {
-      ...wire(
-        current.id,
-        'annotation',
-        current.annotationId,
-        current.bookKey,
-        baseline?.revision ?? 0,
-        current.value.deletedAt ? null : (current.value as unknown as Payload)
-      ),
+      ...(await bindMutation(
+        accountId,
+        wire(
+          current.id,
+          'annotation',
+          current.annotationId,
+          current.bookKey,
+          baseline?.revision ?? 0,
+          current.value.deletedAt ? null : (current.value as unknown as Payload)
+        )
+      )),
       kind: 'annotation' as const
     };
     if (!current.request) await db.put('readerAnnotationOutbox', { ...current, request: prepared });
@@ -731,7 +961,8 @@ async function flushAnnotations(accountId: string, books: Map<string, BooksDbBoo
           accountId,
           error.current as RemoteRecord,
           books,
-          Number((await db.get('readerSyncState', accountId))?.cursor ?? 0)
+          Number((await db.get('readerSyncState', accountId))?.cursor ?? 0),
+          prepared.sync?.generation
         );
         const latest = await db.get('readerAnnotationOutbox', current.id);
         if (latest && (latest as typeof current).request?.mutation_id === prepared.mutation_id)
@@ -752,6 +983,7 @@ async function flushAnnotations(accountId: string, books: Map<string, BooksDbBoo
       entityId: current.annotationId,
       bookKey: current.bookKey,
       revision: accepted.revision,
+      generation: prepared.sync?.generation,
       payload: accepted.deleted ? null : accepted.payload,
       deleted: accepted.deleted
     });
@@ -787,9 +1019,11 @@ export async function syncPersonalState() {
         error instanceof IntegrationError ? error.code : 'unavailable',
         error instanceof IntegrationError && error.code === 'invalid_cursor'
           ? 'Account reading history changed unexpectedly. Local reading data is safe; contact support before syncing again.'
-          : error instanceof Error
-            ? error.message
-            : 'Sync unavailable; local changes are saved.'
+          : error instanceof IntegrationError && error.code === 'storage_full'
+            ? 'Account personal-data storage is full. Local edits are saved; delete synced data to free space before retrying.'
+            : error instanceof Error
+              ? error.message
+              : 'Sync unavailable; local changes are saved.'
       );
     }
   });
@@ -817,7 +1051,8 @@ export async function resolvePersonalConflict(id: string, choice: 'local' | 'rem
         conflict.bookKey,
         conflict.remote,
         books,
-        accountId
+        accountId,
+        latestLocal
       );
     scoped(accountId);
     const tx = db.transaction(

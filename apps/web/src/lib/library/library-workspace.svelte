@@ -86,6 +86,8 @@
   import { contentBookKey, sourceKey } from './organization';
   import {
     advanceCloudSeries,
+    cancelCloudSeries,
+    cloudSeriesStatus,
     cloudSeriesCapabilities,
     prepareCloudSeries,
     recentCloudSeries,
@@ -605,10 +607,16 @@
       if (alive) error = e instanceof Error ? e.message : 'Could not load collections.';
     });
     let previousOwner: string | null | undefined;
+    const seriesPoll = setInterval(() => void pollCloudPlan(), 1000);
     const stopAccount = account.subscribe(() => {
       const owner = currentUser()?.id ?? null;
       if (owner === previousOwner) return;
       previousOwner = owner;
+      if (cloudPlanSource && cloudPlanSource.owner !== owner) {
+        cloudPlan = undefined;
+        cloudPlanSource = undefined;
+        dialogOpen = false;
+      }
       previewQueue?.stop();
       previewQueue = new PreviewQueue(() => {
         if (alive) previewFailures++;
@@ -620,6 +628,7 @@
     });
     return () => {
       alive = false;
+      clearInterval(seriesPoll);
       ++generation;
       controller?.abort();
       previewQueue?.stop();
@@ -836,33 +845,85 @@
       dialogOpen = false;
     });
   }
-  async function executeCloudPlan(source: SourceDescriptor, prepared: CloudSeriesPlan) {
-    let plan = prepared;
-    for (let step = 0; step < 256 && plan.status !== 'complete'; step += 1) {
-      // An uncertain provider response must get one status/execute round trip.
-      // Otherwise the visible "Reconcile Change" action can never reconcile it.
-      if (plan.status === 'paused' || plan.status === 'cancelled') break;
-      plan = await advanceCloudSeries(source, plan);
-      cloudPlan = plan;
-      if (plan.status === 'reconcile') break;
+  let cloudPollBusy = false;
+  let cloudPollAfter = 0;
+  function cloudPlanCurrent(source: SourceDescriptor, plan: CloudSeriesPlan) {
+    return (
+      alive &&
+      dialogOpen &&
+      cloudPlan?.id === plan.id &&
+      cloudPlanSource &&
+      sourceKey(cloudPlanSource) === sourceKey(source) &&
+      currentUser()?.id === source.owner
+    );
+  }
+  async function showCloudPlan(source: SourceDescriptor, plan: CloudSeriesPlan) {
+    if (!cloudPlanCurrent(source, plan)) return;
+    cloudPlan = plan;
+    cloudPlans = [{ source, plan }, ...cloudPlans.filter((entry) => entry.plan.id !== plan.id)];
+    if (plan.status === 'complete') {
+      cloudPlan = undefined;
+      cloudPlanSource = undefined;
+      dialogOpen = false;
+      await load(true);
+      if (alive && currentUser()?.id === source.owner)
+        notice = 'Series updated. Reading progress, notes and collections were kept.';
     }
-    if (plan.status !== 'complete') {
-      cloudPlans = [{ source, plan }, ...cloudPlans.filter((entry) => entry.plan.id !== plan.id)];
-      throw new Error(
-        `Series change ${plan.status === 'reconcile' ? 'needs reconciliation' : 'paused'} at ${plan.steps.filter((step) => step.state === 'done').length} of ${plan.steps.length} steps. Review its status before resuming.`
-      );
+  }
+  async function pollCloudPlan() {
+    const plan = cloudPlan,
+      source = cloudPlanSource;
+    if (
+      cloudPollBusy ||
+      busy ||
+      !plan ||
+      !source ||
+      !cloudPlanCurrent(source, plan) ||
+      !['preparing', 'queued', 'running', 'reconcile'].includes(plan.status) ||
+      Date.now() < cloudPollAfter
+    )
+      return;
+    cloudPollBusy = true;
+    try {
+      const next = await cloudSeriesStatus(source, plan.id);
+      await showCloudPlan(source, next);
+    } catch (failure) {
+      // A status outage does not justify repeating admission or provider writes.
+      // Keep the durable plan available and back off bounded, read-only polling.
+      cloudPollAfter = Date.now() + 5000;
+      if (cloudPlanCurrent(source, plan))
+        error =
+          failure instanceof Error
+            ? failure.message
+            : 'Could not refresh this change. Its saved status will be checked again.';
+    } finally {
+      cloudPollBusy = false;
     }
-    cloudPlan = undefined;
-    cloudPlanSource = undefined;
-    dialogOpen = false;
-    await load(true);
-    notice = 'Series updated. Reading progress, notes and collections were kept.';
   }
   function confirmCloudPlan() {
+    if (!cloudPlan || !cloudPlanSource || cloudPlan.status !== 'prepared') return;
+    const source = cloudPlanSource,
+      plan = cloudPlan;
+    void action(async () => {
+      const next = await advanceCloudSeries(source, plan);
+      await showCloudPlan(source, next);
+    });
+  }
+  function abandonCloudPlan() {
     if (!cloudPlan || !cloudPlanSource) return;
     const source = cloudPlanSource,
       plan = cloudPlan;
-    void action(() => executeCloudPlan(source, plan));
+    void action(async () => {
+      const next = await cancelCloudSeries(source, plan.id);
+      if (!cloudPlanCurrent(source, plan)) return;
+      cloudPlan = next;
+      cloudPlans = [
+        { source, plan: next },
+        ...cloudPlans.filter((entry) => entry.plan.id !== plan.id)
+      ];
+      dialogOpen = false;
+      await load(true);
+    });
   }
   function resumeCloudPlan(source: SourceDescriptor, plan: CloudSeriesPlan) {
     if (busy) return;
@@ -1521,7 +1582,11 @@
     {:else if cloudPlan && cloudPlanSource}
       <div class="grid gap-4">
         <p class="text-sm">
-          Review this change to {cloudPlanSource.name} before writing to OneDrive.
+          {cloudPlan.status === 'preparing'
+            ? `Checking the selected books in ${cloudPlanSource.name}. No files have been changed.`
+            : cloudPlan.status === 'prepared'
+              ? `Review this change to ${cloudPlanSource.name} before writing to OneDrive.`
+              : 'Confirmed changes continue on the server even when this dialog is closed.'}
         </p>
         <dl
           class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 rounded-xl border border-border p-4 text-sm"
@@ -1537,7 +1602,11 @@
           <dt class="text-muted-foreground">Series</dt>
           <dd>{cloudPlan.preview.name || cloudPlan.preview.folder_name || 'Existing series'}</dd>
           <dt class="text-muted-foreground">Books</dt>
-          <dd>{cloudPlan.preview.book_names.length}</dd>
+          <dd>
+            {cloudPlan.status === 'preparing' && cloudPlan.preparation
+              ? `${cloudPlan.preparation.completed_books} of ${cloudPlan.preparation.total_books} checked`
+              : cloudPlan.preview.book_names.length}
+          </dd>
           <dt class="text-muted-foreground">Steps</dt>
           <dd>
             {cloudPlan.steps.filter((step) => step.state === 'done').length} of {cloudPlan.steps
@@ -1549,31 +1618,36 @@
           </p>{/if}
         {#if cloudPlan.status === 'paused'}<p role="alert" class="text-sm text-destructive">
             This change is paused ({cloudPlan.issue}). No further files will move. The completed
-            steps remain visible in OneDrive.
+            steps remain visible in OneDrive. Abandoning this change does not undo those steps.
           </p>{/if}
         {#if cloudPlan.status === 'reconcile'}<p
             role="status"
             class="text-sm text-muted-foreground"
           >
-            OneDrive may have completed the last step, but its response was uncertain. Wait briefly,
-            then reconcile this change before moving another book.
+            OneDrive may have completed the last step, but its response was uncertain. The server
+            will reconcile it before moving another book. You can close this dialog safely.
           </p>{/if}
         {#if error}<p role="alert" class="text-sm text-destructive">{error}</p>{/if}
         <Dialog.Footer>
           <Button variant="outline" disabled={busy} onclick={() => (dialogOpen = false)}
             >Close</Button
           >
-          <Button
-            disabled={busy || cloudPlan.status === 'paused' || cloudPlan.status === 'cancelled'}
-            onclick={confirmCloudPlan}
-            >{busy
-              ? 'Updating…'
-              : cloudPlan.status === 'prepared'
+          {#if ['preparing', 'prepared', 'paused'].includes(cloudPlan.status)}
+            <Button variant="outline" disabled={busy} onclick={abandonCloudPlan}
+              >{cloudPlan.status === 'paused'
+                ? 'Abandon unfinished change'
+                : 'Cancel change'}</Button
+            >
+          {/if}
+          {#if cloudPlan.status !== 'paused' && cloudPlan.status !== 'cancelled'}
+            <Button disabled={busy || cloudPlan.status !== 'prepared'} onclick={confirmCloudPlan}
+              >{cloudPlan.status === 'prepared'
                 ? 'Confirm Change'
-                : cloudPlan.status === 'reconcile'
-                  ? 'Reconcile Change'
-                  : 'Continue Change'}</Button
-          >
+                : cloudPlan.status === 'preparing'
+                  ? 'Checking books…'
+                  : 'Updating…'}</Button
+            >
+          {/if}
         </Dialog.Footer>
       </div>
     {:else}

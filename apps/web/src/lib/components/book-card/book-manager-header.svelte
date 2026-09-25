@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { openUserGuide } from '$lib/components/navigation/docs-link';
   import { browser } from '$app/environment';
   import { resolve } from '$app/paths';
   import { goto } from '$app/navigation';
@@ -463,6 +464,7 @@
               {/if}
               <Menu.Separator />
               <Menu.Label>Manabi Reader</Menu.Label>
+              <Menu.Item onSelect={openUserGuide}>User guide</Menu.Item>
               <Menu.Item onSelect={() => goto(resolve('/connections'))}
                 ><UserCircle aria-hidden="true" />Accounts and Libraries</Menu.Item
               >

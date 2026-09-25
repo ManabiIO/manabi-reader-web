@@ -151,7 +151,7 @@ class RefinedAppearance(previous.AppearanceBrowser):
     def test_rapid_tab_edits_converge_without_writing_back_stale_events(self):
         self.settings()
         other = self.context.new_page()
-        other.goto(self.origin + '/Reader-Web/settings')
+        other.goto(self.origin + '/reader-web/settings')
         expect(other.get_by_role('heading', name='Appearance', exact=True)).to_be_visible()
         for label in ['Light', 'Dark', 'System', 'Dark', 'Light']:
             self.page.get_by_role('group', name='Appearance mode').get_by_role('button', name=label, exact=True).click()
@@ -208,7 +208,7 @@ class RefinedAppearance(previous.AppearanceBrowser):
         expect(self.page.get_by_role('alert')).to_have_count(0)
         self.upload('library', [170, 60, 90], 'light')
         self.mode('Light')
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         expect(self.page.locator('[data-background="library"]')).to_have_attribute(
             'data-background-mode', 'light'
         )
@@ -216,7 +216,7 @@ class RefinedAppearance(previous.AppearanceBrowser):
         self.settings()
         self.page.get_by_text('Background images', exact=True).click()
         other = self.context.new_page()
-        other.goto(self.origin + '/Reader-Web/settings')
+        other.goto(self.origin + '/reader-web/settings')
         other.get_by_text('Background images', exact=True).click()
         self.page.locator('#background-library-light').set_input_files({
             'name':'simultaneous-light.png', 'mimeType':'image/png',
@@ -279,7 +279,7 @@ class RefinedAppearance(previous.AppearanceBrowser):
             expect(light.get_by_role('alert')).to_have_count(0)
         self.mode('Light')
         other = self.context.new_page()
-        other.goto(self.origin + '/Reader-Web/manage')
+        other.goto(self.origin + '/reader-web/manage')
         expect(other.locator('[data-background="library"]')).to_have_attribute(
             'data-background-mode', 'light'
         )
@@ -356,7 +356,7 @@ class RefinedAppearance(previous.AppearanceBrowser):
         self.page.get_by_text('Background images', exact=True).click()
         self.upload('library', [90, 30, 160], 'light')
         self.mode('Light')
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         background = self.page.locator('[data-background="library"]')
         expect(background).to_be_visible()
         self.page.emulate_media(media='print')

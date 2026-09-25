@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { openUserGuide } from '$lib/components/navigation/docs-link';
   import { browser } from '$app/environment';
   import { createEventDispatcher } from 'svelte';
   import { Button } from '$lib/components/ui/button';
@@ -179,6 +180,7 @@
         <Menu.Item onSelect={() => dispatch('statisticsClick')}
           ><ChartBar aria-hidden="true" />Statistics</Menu.Item
         >
+        <Menu.Item onSelect={openUserGuide}><BookOpen aria-hidden="true" />User guide</Menu.Item>
         {#if oldDomain}<Menu.Item onSelect={() => dispatch('domainHintClick')}
             ><Info aria-hidden="true" />Old domain information</Menu.Item
           >{/if}

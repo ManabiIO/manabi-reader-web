@@ -48,7 +48,7 @@ jobs:
           node --experimental-strip-types --test tests/unit/library*.test.mjs 2>&1 | tee artifacts/library/units.log
       - name: Build static application
         env:
-          BASE_PATH: /Reader-Web
+          BASE_PATH: /reader-web
         run: |
           set -o pipefail
           pnpm build 2>&1 | tee artifacts/library/build.log

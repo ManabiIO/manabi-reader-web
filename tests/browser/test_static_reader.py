@@ -170,9 +170,9 @@ class StaticHandler(SimpleHTTPRequestHandler):
         path = unquote(urlsplit(path).path)
         if 'attack-probe' in path:
             self.probes.append(path)
-        if not path.startswith('/Reader-Web/'):
+        if not path.startswith('/reader-web/'):
             return str(ROOT / '__not_an_application_route__')
-        relative = path[len('/Reader-Web/'):]
+        relative = path[len('/reader-web/'):]
         if '..' in Path(relative).parts:
             return str(ROOT / '__not_an_application_route__')
         target = ROOT / relative
@@ -266,7 +266,7 @@ class ReaderBrowser(unittest.TestCase):
                 ' && location.pathname.endsWith("/manage")) localStorage.setItem("fontFamilyGroupOne", ' +
                 json.dumps(font) + ');'
             )
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         # This attribute is installed by a Svelte action, not prerendered HTML.
         # Wait for real input handlers before assigning files to hidden SSR inputs.
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
@@ -287,7 +287,7 @@ class ReaderBrowser(unittest.TestCase):
         return self.page.locator('.book-content').evaluate('e => getComputedStyle(e).fontFamily.split(",")[0].trim().replace(/^"|"$/g, "")')
 
     def test_anonymous_navigation_without_backend(self):
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         self.page.get_by_role('button', name='Library actions', exact=True).click()
         self.page.get_by_role('menuitem', name='Accounts and Libraries', exact=True).click()
         expect(self.page.get_by_role('heading', name='Accounts and libraries', exact=True)).to_be_visible()
@@ -295,7 +295,7 @@ class ReaderBrowser(unittest.TestCase):
         self.assertTrue(self.page.get_by_role('link', name='Sign in to Manabi').get_attribute('href').startswith('/accounts/login/'))
 
     def test_yukyokasho_default_is_device_local_and_requires_both_faces(self):
-        self.page.goto(self.origin + '/Reader-Web/settings#typography')
+        self.page.goto(self.origin + '/reader-web/settings#typography')
         primary = self.page.get_by_role('textbox', name='Primary / Serif font', exact=True)
         expect(primary).to_be_visible()
         available = self.page.evaluate('''async () => {
@@ -366,8 +366,9 @@ class ReaderBrowser(unittest.TestCase):
         expect(self.page.locator('.book-content')).to_contain_text('日本語')
 
     def test_offline_reload_preserves_book_and_never_caches_account_requests(self):
-        self.page.goto(self.origin + '/Reader-Web/manage')
-        self.page.evaluate('navigator.serviceWorker.ready')
+        self.page.goto(self.origin + '/reader-web/manage')
+        scope = self.page.evaluate('navigator.serviceWorker.ready.then(registration => registration.scope)')
+        self.assertEqual(self.origin + '/reader-web/', scope)
         # The worker intentionally does not claim a tab that loaded under the
         # previous shell. A normal online navigation hands the next document to
         # the activated worker without mixing application generations.

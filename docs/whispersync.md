@@ -235,7 +235,7 @@ pnpm --dir apps/web exec svelte-kit sync
 node test/whispersync/run.mjs --coverage --svelte --browser-bundle=test-results/whispersync-bundle.js
 pnpm test:reader
 pnpm --dir apps/web check
-BASE_PATH=/Reader-Web pnpm build
+BASE_PATH=/reader-web pnpm build
 python test/whispersync/browser.py test-results/whispersync-bundle.js
 python tests/browser/test_whispersync.py
 ```
