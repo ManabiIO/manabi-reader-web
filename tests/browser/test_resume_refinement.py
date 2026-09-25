@@ -17,7 +17,7 @@ class ResumeControlsBrowser(deep.DeepControlRefinementBrowser):
         for label in ('Search library', 'Collections', 'Library actions'):
             control = toolbar.get_by_role('button', name=label, exact=True)
             box = control.bounding_box()
-            self.assertAlmostEqual(box['width'], 44, delta=0.5)
+            self.assertAlmostEqual(box['width'], 44, delta=0.5, msg=label)
             self.assertGreaterEqual(box['x'], 0)
             self.assertLessEqual(box['x'] + box['width'], 320)
         empty = self.page.locator('[data-slot="library-empty-state"]')
@@ -31,6 +31,28 @@ class ResumeControlsBrowser(deep.DeepControlRefinementBrowser):
 
 
 class CatalogLifetimeBrowser(picks.EditorsPicksBrowser):
+    def test_catalog_cards_reflow_at_double_text_size_without_clipping_open(self):
+        self.library()
+        self.page.set_viewport_size({'width': 320, 'height': 640})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        region = self.page.get_by_role('region', name="Editor's Picks books")
+        card = region.locator('article').first
+        card.scroll_into_view_if_needed()
+        self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth - innerWidth'), 1)
+        title = card.locator('h4')
+        self.assertGreaterEqual(title.bounding_box()['width'], 140)
+        self.assertGreaterEqual(title.evaluate('e => parseFloat(getComputedStyle(e).fontSize)'), 28)
+        open_book = card.get_by_role('button', name='Open', exact=True)
+        open_book.scroll_into_view_if_needed()
+        expect(open_book).to_be_in_viewport()
+        bounds = open_book.bounding_box()
+        self.assertLessEqual(bounds['x'] + bounds['width'], 320)
+        from pathlib import Path
+        Path('test-results').mkdir(exist_ok=True)
+        self.page.screenshot(path='test-results/' + self.engine + '-catalog-double-text.png')
+        open_book.click()
+        expect(self.page).to_have_url(re.compile('/Reader-Web/b\\?id='))
+
     def test_hard_navigation_during_catalog_load_has_no_page_error_and_can_retry(self):
         picks.PicksHandler.index_started = threading.Event()
         picks.PicksHandler.index_gate = threading.Event()
@@ -56,7 +78,7 @@ class CatalogLifetimeBrowser(picks.EditorsPicksBrowser):
           };
         }''')
         self.page.get_by_role('region', name="Editor's Picks books").get_by_role('button', name='Open').first.click()
-        self.page.wait_for_function('typeof window.__releaseCatalogDigest === "function"')
+        self.page.wait_for_function('() => typeof window.__releaseCatalogDigest === "function"')
         # A normal in-app navigation preserves the JS realm so the delayed
         # production digest can complete after its Library component is gone.
         self.page.get_by_role('button', name='Library actions', exact=True).click()

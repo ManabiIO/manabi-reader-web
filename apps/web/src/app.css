@@ -163,13 +163,13 @@
     margin-inline-start: auto;
     gap: 6px;
   }
-  :root .floating-library-header [data-slot='button'][data-size='icon'] {
+  :root .floating-library-header button[data-size='icon'] {
     width: 44px;
     height: 44px;
     min-width: 44px;
     min-height: 44px;
   }
-  :root .floating-library-header [data-slot='button'][data-size='icon'] svg {
+  :root .floating-library-header button[data-size='icon'] svg {
     width: 24px;
     height: 24px;
   }
