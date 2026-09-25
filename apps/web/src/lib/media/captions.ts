@@ -1,5 +1,6 @@
 /** @license BSD-3-Clause — Manabi media integration. */
 import { LIMITS, language, validateCue, type Cue, type Track } from './contracts.js';
+import { subtitleEvents } from './dialogue.js';
 import { canonical, digestText } from './hash.js';
 export function plainCaption(text: string): string {
     return text.replace(/<(rt|rp)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '')
@@ -105,12 +106,13 @@ export function matchSidecar(video: string, name: string): {
 const timeString = (value: number, vtt: boolean) => { const n = Math.max(0, Math.round(value * 1000)); return `${String(Math.floor(n / 3600000)).padStart(2, '0')}:${String(Math.floor(n / 60000) % 60).padStart(2, '0')}:${String(Math.floor(n / 1000) % 60).padStart(2, '0')}${vtt ? '.' : ','}${String(n % 1000).padStart(3, '0')}`; };
 export function serializeSubtitles(track: Track, format: 'srt' | 'vtt' = 'srt'): string {
     const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n\s*\n/g, '\n');
-    return (format === 'vtt' ? 'WEBVTT\n\n' : '') + track.cues.map((c, i) => {
-        // Sub-millisecond container cues still need a positive exported interval.
-        const start = Math.round(c.start * 1000) / 1000;
-        const end = Math.max(Math.round(c.end * 1000), Math.round(c.start * 1000) + 1) / 1000;
-        return `${i + 1}\n${timeString(start, format === 'vtt')} --> ${timeString(end, format === 'vtt')}\n${escape(c.text)}`;
-    }).join('\n\n') + '\n';
+    const events = subtitleEvents(track.cues);
+    const result = (format === 'vtt' ? 'WEBVTT\n\n' : '') + events.map((cue, i) =>
+        `${i + 1}\n${timeString(cue.start, format === 'vtt')} --> ${timeString(cue.end, format === 'vtt')}\n${escape(cue.text)}`
+    ).join('\n\n') + '\n';
+    if (new TextEncoder().encode(result).length > LIMITS.subtitleBytes)
+        throw new Error('Subtitle export exceeds 5 MiB');
+    return result;
 }
 export const cueDigest = (cues: readonly Cue[]) => digestText(canonical(cues));
 export const exportName = (name: string, track: Track, format = 'srt') => `${name.replace(/\.[^.]+$/, '').replace(/[\\/\u0000-\u001f]/g, '_').slice(0, 160) || 'Video'}.${track.language}${track.forced ? '.forced' : ''}.${format}`;

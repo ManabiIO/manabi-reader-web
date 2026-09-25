@@ -1,6 +1,8 @@
 /** @license BSD-3-Clause — Manabi media integration. */
 import { formatMediaTime } from './time.js';
-import { type Track, type Playback, type ContentKey, type CaptionStyle, DEFAULT_STYLE, validatePlayback, validateStyle } from './contracts.js';
+import { type Cue, type Track, type Playback, type ContentKey, type CaptionStyle, DEFAULT_STYLE, validatePlayback, validateStyle } from './contracts.js';
+import { dialogueText, speakerLabel } from './dialogue.js';
+import { studySpans, seekSpan, LinePause, type StudySpan } from './study.js';
 import { CueTimeline, chooseLayout } from './captions.js';
 import { type ByteSource } from './sources.js';
 import { MediaStore } from './store.js';
@@ -28,6 +30,25 @@ export class VideoPlayer {
     private pane = element('section');
     private transcript = element('div');
     private toolbar = element('div');
+    private studyBar = element('div');
+    private cuePrevious = button('Previous line', () => this.seekLine(-1));
+    private cueReplay = button('Replay line', () => this.seekLine(0));
+    private cueNext = button('Next line', () => this.seekLine(1));
+    private autoPause = element('input');
+    private linePause = new LinePause();
+    private studyTimeline?: CueTimeline;
+    private studyDelay = 0;
+    private spans: StudySpan[] = [];
+    private transcriptCount = element('span');
+    private trackSummary = element('p');
+    private revealTranslation = button('Hide translation', () => {
+        this.translationVisible = !this.translationVisible;
+        this.revealTranslation.textContent = this.translationVisible ? 'Hide translation' : 'Reveal translation';
+        this.revealTranslation.setAttribute('aria-pressed', String(!this.translationVisible));
+        this.root.classList.toggle('translation-hidden', !this.translationVisible);
+        this.activeSignature = ''; this.transcriptSignature = ''; this.render();
+    });
+    private translationVisible = true;
     private primary = element('select');
     private secondary = element('select');
     private generate: HTMLButtonElement;
@@ -94,7 +115,32 @@ export class VideoPlayer {
         this.primary.setAttribute('aria-label', 'Primary captions');
         this.secondary.setAttribute('aria-label', 'Secondary captions');
         this.generate = button('Generate transcript', options.onGenerate);
-        this.toolbar.append(this.generate, button('Add subtitles', options.onImport), this.theaterButton, this.fullscreenButton, this.exportButton);
+        this.toolbar.setAttribute('role', 'group');
+        this.toolbar.setAttribute('aria-label', 'Viewing mode');
+        this.theaterButton.setAttribute('aria-pressed', 'false');
+        this.toolbar.append(this.theaterButton, this.fullscreenButton);
+        const heading = element('header'), title = element('div');
+        heading.className = 'video-player-heading';
+        title.className = 'video-player-title';
+        title.append(element('h2', options.source.name));
+        this.trackSummary.className = 'video-track-summary';
+        title.append(this.trackSummary);
+        heading.append(title, this.toolbar);
+        this.generate.className = 'media-primary-action';
+        this.studyBar.className = 'video-study-controls';
+        const navigation = element('div');
+        navigation.className = 'cue-navigation';
+        navigation.setAttribute('role', 'group');
+        navigation.setAttribute('aria-label', 'Practice a line');
+        for (const [control, shortcut] of [[this.cuePrevious, 'A'], [this.cueReplay, 'S'], [this.cueNext, 'D']] as const) {
+            control.title = `${control.textContent} (${shortcut})`;
+            control.setAttribute('aria-keyshortcuts', shortcut);
+        }
+        navigation.append(this.cuePrevious, this.cueReplay, this.cueNext);
+        this.autoPause.type = 'checkbox';
+        this.autoPause.addEventListener('change', () => { this.linePause.reset(); this.render(); });
+        this.revealTranslation.setAttribute('aria-pressed', 'false');
+        this.studyBar.append(navigation, this.label('Pause after each line', this.autoPause), this.revealTranslation);
         const picks = element('div');
         picks.className = 'caption-controls';
         picks.append(this.label('Captions', this.primary), this.label('Translation / second track', this.secondary));
@@ -108,9 +154,10 @@ export class VideoPlayer {
             input.max = '3600';
             input.step = '.1';
             input.value = '0';
-            input.addEventListener('change', () => { const id = secondary ? this.secondary.value : this.primary.value, n = Number(input.value); if (id && Number.isFinite(n) && Math.abs(n) <= 3600) {
+            input.addEventListener('change', () => { const id = secondary ? this.secondary.value : this.primary.value, n = Number(input.value); if (id && input.value.trim() && Number.isFinite(n) && Math.abs(n) <= 3600) {
                 this.selectionTouched = true;
                 this.delays[id] = n;
+                this.linePause.reset();
                 this.activeSignature = '';
                 this.transcriptSignature = '';
                 this.render();
@@ -120,7 +167,9 @@ export class VideoPlayer {
                 input.value = String(this.delays[id] ?? 0); });
         }
         const settings = element('details'), summary = element('summary', 'Caption settings');
+        settings.className = 'video-caption-settings';
         settings.append(summary);
+        settings.addEventListener('toggle', () => this.resize());
         const setting = (name: string, values: readonly (string | number)[], selected: string, change: (v: string) => void) => { const select = element('select'); for (const v of values) {
             const o = element('option', String(v));
             o.value = String(v);
@@ -135,13 +184,27 @@ export class VideoPlayer {
         header.className = 'transcript-header';
         this.follow.type = 'checkbox';
         this.follow.checked = true;
-        header.append(this.label('Follow playback', this.follow), this.previous, this.next);
-        this.pane.append(header, this.transcript);
+        const transcriptTitle = element('div');
+        transcriptTitle.className = 'transcript-title';
+        this.transcriptCount.className = 'transcript-count';
+        transcriptTitle.append(element('h3', 'Transcript'), this.transcriptCount);
+        header.append(transcriptTitle, this.label('Follow playback', this.follow));
+        const footer = element('div');
+        footer.className = 'transcript-footer';
+        footer.append(this.previous, this.next);
+        this.pane.append(header, this.transcript, footer);
         this.stage.append(this.video, this.overlay);
         const viewing = element('div');
         viewing.className = 'video-viewing';
         viewing.append(this.stage, this.pane);
-        this.root.append(this.toolbar, picks, settings, viewing);
+        const captionActions = element('div');
+        captionActions.className = 'video-caption-actions';
+        captionActions.append(this.generate, button('Add subtitles', options.onImport), this.exportButton);
+        const hint = element('p', 'A / S / D: previous, replay, next · Space: play / pause. Shortcuts work inside the player, outside form controls.');
+        hint.className = 'video-shortcut-hint';
+        settings.append(hint);
+        this.root.append(heading, viewing, this.studyBar, picks, captionActions, settings);
+        this.root.tabIndex = 0;
         this.follow.addEventListener('change', () => { this.activeSignature = ''; this.transcriptSignature = ''; this.render(); });
         this.transcript.addEventListener('wheel', () => { this.follow.checked = false; }, { passive: true });
         this.transcript.addEventListener('touchmove', () => { this.follow.checked = false; }, { passive: true });
@@ -150,15 +213,29 @@ export class VideoPlayer {
         this.video.src = resource.url;
         const signal = this.alive.signal;
         this.video.addEventListener('loadedmetadata', () => void this.loaded(), { signal });
-        this.video.addEventListener('play', () => { this.touched = true; this.loop(); }, { signal });
+        this.video.addEventListener('play', () => { this.linePause.reset(); this.touched = true; this.loop(); }, { signal });
         this.video.addEventListener('pause', () => { cancelAnimationFrame(this.frame); this.render(); this.scheduleSave(true); }, { signal });
-        this.video.addEventListener('seeking', () => { if (this.restoringSeek === undefined || Math.abs(this.video.currentTime - this.restoringSeek) > .01) this.touched = true; }, { signal });
+        this.video.addEventListener('seeking', () => { this.linePause.reset(); if (this.restoringSeek === undefined || Math.abs(this.video.currentTime - this.restoringSeek) > .01) this.touched = true; }, { signal });
         this.video.addEventListener('seeked', () => { this.restoringSeek = undefined; this.render(); this.scheduleSave(true); }, { signal });
         this.video.addEventListener('ratechange', () => { if (this.restoringRate !== this.video.playbackRate) this.touched = true; this.restoringRate = undefined; this.scheduleSave(true); }, { signal });
         this.video.addEventListener('timeupdate', () => { this.render(); this.scheduleSave(false); }, { signal });
         this.video.addEventListener('ended', () => { this.touched = true; this.scheduleSave(true, true); }, { signal });
         this.video.addEventListener('error', () => options.onError('This browser cannot play this container or codec. The original file was not changed.'), { signal });
         window.addEventListener('resize', () => this.resize(), { signal });
+        this.root.addEventListener('keydown', event => {
+            if (event.defaultPrevented || event.isComposing || event.repeat || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+            const target = event.target as Element | null;
+            if (target?.closest('input, select, textarea, button, summary, a, video, [contenteditable], [role=button]')) return;
+            const key = event.key.toLowerCase();
+            if (key === 'a' || key === 's' || key === 'd') {
+                const direction = key === 'a' ? -1 : key === 'd' ? 1 : 0;
+                if (!seekSpan(this.spans, this.video.currentTime, direction)) return;
+                event.preventDefault(); this.seekLine(direction);
+            } else if (key === ' ' && this.ready) {
+                event.preventDefault();
+                if (this.video.paused) void this.video.play().catch(e => this.error(e)); else this.video.pause();
+            }
+        }, { signal });
         document.addEventListener('fullscreenchange', () => {
             this.fullscreenButton.textContent = document.fullscreenElement === this.root ? 'Exit full screen' : 'Full screen';
             this.resize();
@@ -265,6 +342,7 @@ export class VideoPlayer {
         const selected = [this.primary.value, this.secondary.value];
         this.tracks = tracks;
         this.timelines = new Map(tracks.map(t => [t.id, new CueTimeline(t.cues)]));
+        this.linePause.reset();
         for (const [index, picker] of [this.primary, this.secondary].entries()) {
             picker.replaceChildren();
             const off = element('option', 'Off');
@@ -299,55 +377,114 @@ export class VideoPlayer {
             this.tracks.find(t => t.id === this.secondary.value);
     }
     private offsetControls() { this.exportButton.disabled = !this.exportTrack(); this.primaryDelay.value = String(this.delays[this.primary.value] ?? 0); this.secondaryDelay.value = String(this.delays[this.secondary.value] ?? 0); this.primaryDelay.disabled = !this.primary.value; this.secondaryDelay.disabled = !this.secondary.value; }
-    private trackChanged() { this.pageIndex = 0; this.offsetControls(); this.activeSignature = ''; this.transcriptSignature = ''; this.render(); this.scheduleSave(true); }
+    private trackChanged() { this.linePause.reset(); this.pageIndex = 0; this.offsetControls(); this.activeSignature = ''; this.transcriptSignature = ''; this.render(); this.scheduleSave(true); }
     private setStyle(style: CaptionStyle) { this.styleTouched = true; this.style = validateStyle(style); this.applyStyle(); void this.options.store.putLocal(this.options.scope, 'settings', 'captions', this.style).catch(e => this.error(e)); }
     private applyStyle() { this.overlay.style.setProperty('--caption-scale', String(this.style.size)); this.overlay.style.setProperty('--caption-color', this.style.color); this.overlay.style.setProperty('--caption-background', `rgb(0 0 0 / ${this.style.background})`); this.overlay.dataset.edge = this.style.edge; }
+    private seekLine(direction: -1 | 0 | 1) {
+        const span = seekSpan(this.spans, this.video.currentTime, direction);
+        if (!span || !this.ready || span.start >= this.video.duration) return;
+        this.linePause.reset();
+        this.follow.checked = true;
+        this.touched = true;
+        this.video.currentTime = Math.max(0, span.start);
+        void this.video.play().catch(e => this.error(e));
+    }
     private render() {
-        if (this.closed)
-            return;
-        const t = this.video.currentTime, first = this.timelines.get(this.primary.value), second = this.timelines.get(this.secondary.value), a = first?.active(t, this.delays[this.primary.value] ?? 0) ?? [], b = second?.active(t, this.delays[this.secondary.value] ?? 0) ?? [];
-        const signature = JSON.stringify([this.primary.value, this.secondary.value, a.map(c => c.id), b.map(c => c.id)]);
+        if (this.closed) return;
+        const t = this.video.currentTime, first = this.timelines.get(this.primary.value), second = this.timelines.get(this.secondary.value);
+        // A saved primary selection may be waiting for pages. In that case the
+        // available second track owns navigation and uses its OWN delay.
+        const timeline = first ?? second;
+        const trackId = first ? this.primary.value : this.secondary.value;
+        const delay = this.delays[trackId] ?? 0;
+        if (timeline !== this.studyTimeline || delay !== this.studyDelay) {
+            this.studyTimeline = timeline; this.studyDelay = delay;
+            this.spans = studySpans(timeline?.cues ?? [], delay);
+            this.linePause.reset();
+        }
+        if (this.autoPause.checked && !this.video.seeking &&
+            this.linePause.sample(t, !this.video.paused, this.spans)) this.video.pause();
+        const held = this.video.paused ? this.linePause.held?.cues : undefined;
+        const a = first?.active(t, this.delays[this.primary.value] ?? 0) ?? [];
+        const b = second?.active(t, this.delays[this.secondary.value] ?? 0) ?? [];
+        const active = held ?? (first ? a : b);
+        for (const [control, direction] of [[this.cuePrevious, -1], [this.cueReplay, 0], [this.cueNext, 1]] as const) {
+            const span = seekSpan(this.spans, t, direction);
+            control.disabled = !this.ready || !span || span.start >= this.video.duration;
+        }
+        this.autoPause.disabled = !this.spans.length;
+        this.revealTranslation.disabled = !first || !second;
+        const selectedTracks = [this.primary.value, this.secondary.value].filter(Boolean)
+            .map(id => this.tracks.find(track => track.id === id)?.label ?? 'Saved captions loading');
+        this.trackSummary.textContent = selectedTracks.length ? selectedTracks.join(' · ') : 'Your video. Your pace. Add captions to follow along.';
+        const signature = JSON.stringify([this.primary.value, this.secondary.value, a.map(c => c.id), b.map(c => c.id), held?.map(c => c.id), this.translationVisible]);
         if (signature !== this.activeSignature) {
             this.activeSignature = signature;
             this.overlay.replaceChildren();
-            for (const [cues, secondary] of [[a, false], [b, true]] as const) {
-                if (!cues.length)
-                    continue;
-                const line = element('div', cues.map(c => c.text).join('\n'));
+            // After auto-pause, retain the line just heard, without seeking back
+            // into its audio or changing the archived cue timing.
+            const shownA = held && first ? held : a;
+            const shownB = held && !first ? held : (held && second ?
+                second.overlaps(this.linePause.held!.start, this.linePause.held!.end, this.delays[this.secondary.value] ?? 0) : b);
+            for (const [cues, secondary] of [[shownA, false], [shownB, true]] as const) {
+                if (!cues.length || (secondary && first && !this.translationVisible)) continue;
+                const line = element('div', dialogueText(cues));
                 line.className = secondary ? 'caption-line translation' : 'caption-line';
+                const track = this.tracks.find(track => track.id === (secondary ? this.secondary.value : this.primary.value));
+                if (track) line.lang = track.language;
                 this.overlay.append(line);
             }
-            this.renderTranscript(first ?? second, first ? second : undefined, first ? a : b);
+            this.renderTranscript(timeline, first ? second : undefined, active, trackId);
         }
     }
-    private renderTranscript(timeline: CueTimeline | undefined, translation: CueTimeline | undefined, active: readonly {
-        id: string;
-    }[]) {
+    private renderTranscript(timeline: CueTimeline | undefined, translation: CueTimeline | undefined, active: readonly Pick<Cue, 'id'>[], trackId: string) {
         if (!timeline) {
             this.transcriptSignature = '';
             this.previous.disabled = this.next.disabled = true;
-            this.transcript.replaceChildren(element('p', 'No transcript selected. Add a subtitle file, or generate a private, on-device transcript.'));
+            this.transcriptCount.textContent = '';
+            const empty = element('div'); empty.className = 'transcript-empty';
+            empty.append(element('h4', 'Follow every word'), element('p', 'No transcript selected. Add subtitles you already have, or create captions privately on this device.'),
+                button('Create captions for this video', this.options.onGenerate));
+            this.transcript.replaceChildren(empty);
             return;
         }
         this.pageIndex = Math.max(0, Math.min(this.pageIndex, Math.ceil(timeline.cues.length / 60) - 1));
-        const index = active.length ? timeline.cues.findIndex(c => c.id === active[0].id) : -1;
-        if (this.follow.checked && index >= 0)
-            this.pageIndex = Math.floor(index / 60);
-        const signature = `${this.primary.value}:${this.secondary.value}:${this.pageIndex}:${this.delays[this.primary.value] ?? 0}:${this.delays[this.secondary.value] ?? 0}`;
+        const index = active.length ? timeline.cues.findIndex(cue => cue.id === active[0].id) : -1;
+        if (this.follow.checked && index >= 0) this.pageIndex = Math.floor(index / 60);
+        const offset = this.delays[trackId] ?? 0;
+        const signature = `${trackId}:${this.secondary.value}:${this.pageIndex}:${offset}:${this.delays[this.secondary.value] ?? 0}:${this.translationVisible}`;
+        this.transcriptCount.textContent = timeline.cues.length ?
+            `${this.pageIndex * 60 + 1}–${Math.min((this.pageIndex + 1) * 60, timeline.cues.length)} of ${timeline.cues.length}` : 'No spoken lines';
         if (signature !== this.transcriptSignature) {
             this.transcriptSignature = signature;
             this.transcript.replaceChildren();
-            const offset = this.delays[this.primary.value || this.secondary.value] ?? 0;
-            for (const cue of timeline.cues.slice(this.pageIndex * 60, this.pageIndex * 60 + 60)) {
-                const row = button('', () => { this.video.currentTime = Math.max(0, cue.start + offset); void this.video.play().catch(e => this.error(e)); });
-                row.className = 'transcript-cue';
-                row.dataset.cue = cue.id;
-                const time = element('time', formatMediaTime(cue.start + offset));
-                row.append(time, element('span', cue.text));
-                const translated = translation?.overlaps(cue.start + offset, cue.end + offset, this.delays[this.secondary.value] ?? 0) ?? [];
+            const track = this.tracks.find(track => track.id === trackId);
+            for (const [localIndex, cue] of timeline.cues.slice(this.pageIndex * 60, this.pageIndex * 60 + 60).entries()) {
+                const row = button('', () => {
+                    if (!this.ready || cue.start + offset >= this.video.duration) return;
+                    this.linePause.reset(); this.touched = true;
+                    this.video.currentTime = Math.max(0, cue.start + offset);
+                    void this.video.play().catch(e => this.error(e));
+                });
+                row.className = 'transcript-cue'; row.dataset.cue = cue.id;
+                const time = element('time', formatMediaTime(Math.max(0, cue.start + offset)));
+                const text = element('span'); text.className = 'transcript-text';
+                if (track) text.lang = track.language;
+                const previousCue = timeline.cues[this.pageIndex * 60 + localIndex - 1];
+                if (cue.speaker && (localIndex === 0 || previousCue?.speaker !== cue.speaker)) {
+                    const speaker = element('span', speakerLabel(cue.speaker));
+                    speaker.className = 'transcript-speaker';
+                    speaker.title = 'Anonymous voice label. Window labels are not linked across the whole video.';
+                    text.append(speaker);
+                }
+                text.append(document.createTextNode(cue.text));
+                row.append(time, text);
+                const translated = this.translationVisible ? translation?.overlaps(cue.start + offset, cue.end + offset, this.delays[this.secondary.value] ?? 0) ?? [] : [];
                 if (translated.length) {
-                    const line = element('span', translated.map(c => c.text).join('\n'));
+                    const line = element('span', dialogueText(translated));
                     line.className = 'transcript-translation';
+                    const secondaryTrack = this.tracks.find(track => track.id === this.secondary.value);
+                    if (secondaryTrack) line.lang = secondaryTrack.language;
                     row.append(line);
                 }
                 this.transcript.append(row);
@@ -355,17 +492,13 @@ export class VideoPlayer {
         }
         this.previous.disabled = this.pageIndex === 0;
         this.next.disabled = (this.pageIndex + 1) * 60 >= timeline.cues.length;
-        const ids = new Set(active.map(c => c.id));
+        const ids = new Set(active.map(cue => cue.id));
         let current: HTMLElement | undefined;
         for (const row of this.transcript.querySelectorAll<HTMLElement>('[data-cue]')) {
             const selected = ids.has(row.dataset.cue!);
             row.classList.toggle('active', selected);
-            if (selected) {
-                row.setAttribute('aria-current', 'true');
-                current ??= row;
-            }
-            else
-                row.removeAttribute('aria-current');
+            if (selected) { row.setAttribute('aria-current', 'true'); current ??= row; }
+            else row.removeAttribute('aria-current');
         }
         if (this.follow.checked && current) {
             const rect = current.getBoundingClientRect(), pane = this.transcript.getBoundingClientRect();
@@ -376,8 +509,8 @@ export class VideoPlayer {
     private page(direction: number) { this.follow.checked = false; this.pageIndex = Math.max(0, this.pageIndex + direction); this.activeSignature = ''; this.render(); }
     private loop() { cancelAnimationFrame(this.frame); if (this.closed || this.video.paused)
         return; this.render(); this.frame = requestAnimationFrame(() => this.loop()); }
-    private resize() { const viewing = this.stage.parentElement!, width = viewing.clientWidth, height = Math.max(360, window.innerHeight - viewing.getBoundingClientRect().top - 24), ratio = (this.video.videoWidth || 16) / (this.video.videoHeight || 9); this.layout = chooseLayout(width, height, ratio, this.layout); viewing.dataset.layout = this.layout; viewing.style.setProperty('--view-height', `${height}px`); const fitWidth = Math.min(this.stage.clientWidth, this.stage.clientHeight * ratio), fitHeight = fitWidth / ratio; this.overlay.style.maxWidth = `${fitWidth * .92}px`; this.overlay.style.bottom = `${Math.max(56, (this.stage.clientHeight - fitHeight) / 2 + 18)}px`; }
-    private toggleTheater() { this.theater = !this.theater; this.root.classList.toggle('theater', this.theater); this.overlay.hidden = !this.theater; this.pane.hidden = this.theater; this.theaterButton.textContent = this.theater ? 'Exit theater' : 'Theater mode'; this.resize(); }
+    private resize() { const viewing = this.stage.parentElement!, width = viewing.clientWidth, height = Math.max(this.theater ? 240 : 370, window.innerHeight - Math.max(0, viewing.getBoundingClientRect().top) - (this.theater ? 100 : 190)), ratio = (this.video.videoWidth || 16) / (this.video.videoHeight || 9); this.layout = chooseLayout(width, height, ratio, this.layout); viewing.dataset.layout = this.layout; viewing.style.setProperty('--view-height', `${height}px`); const fitWidth = Math.min(this.stage.clientWidth, this.stage.clientHeight * ratio), fitHeight = fitWidth / ratio; this.overlay.style.maxWidth = `${fitWidth * .92}px`; this.overlay.style.bottom = `${Math.max(56, (this.stage.clientHeight - fitHeight) / 2 + 18)}px`; }
+    private toggleTheater() { this.theater = !this.theater; this.root.classList.toggle('theater', this.theater); this.overlay.hidden = !this.theater; this.pane.hidden = this.theater; this.theaterButton.textContent = this.theater ? 'Exit theater' : 'Theater mode'; this.theaterButton.setAttribute('aria-pressed', String(this.theater)); this.resize(); }
     private async fullscreen() { try {
         if (!this.root.requestFullscreen)
             throw new Error('Full screen is unavailable in this browser. Theater mode still works.');

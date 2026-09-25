@@ -143,7 +143,20 @@ def main():
             page.evaluate('player.dispose()');assert page.evaluate('writes.at(-1).position')==8
         case('late account progress restore preserves a seek made during loading',remote_race)
         def screenshot(width,height,name):
-            page.set_viewport_size({'width':width,'height':height});page.evaluate('createPlayer()');page.evaluate('captions(); player.setTracks([track(trackId,\"ja\",[{id:\"ja1\",start:0,end:6,text:\"こんにちは。今日は本を読みます。\"}]),track(trackId2,\"en\",[{id:\"en1\",start:0,end:6,text:\"Hello. Today we are reading a book.\"}])])')
+            page.set_viewport_size({'width':width,'height':height});page.evaluate('createPlayer()');page.evaluate("""() => {
+                document.querySelector('.video-player-title h2').textContent='A conversation at the bookshop';
+                player.setTracks([track(trackId,'ja',[
+                    {id:'ja1',start:0,end:3,text:'こんにちは。何かお探しですか。',speaker:'w0/S01'},
+                    {id:'ja2',start:3,end:6,text:'はい。日本語の小説を探しています。',speaker:'w0/S02'},
+                    {id:'ja3',start:7,end:10,text:'こちらの本はいかがですか。',speaker:'w0/S01'},
+                    {id:'ja4',start:10,end:13,text:'おもしろそうですね。',speaker:'w0/S02'}]),
+                    track(trackId2,'en',[
+                    {id:'en1',start:0,end:3,text:'Hello. Are you looking for something?'},
+                    {id:'en2',start:3,end:6,text:'Yes, I’m looking for a Japanese novel.'},
+                    {id:'en3',start:7,end:10,text:'How about this book?'},
+                    {id:'en4',start:10,end:13,text:'That looks interesting.'}])]);
+                select('Secondary captions',trackId2);
+            }""")
             page.wait_for_function('player.video.readyState >= 2')
             page.evaluate('player.video.currentTime=1')
             page.wait_for_function('!player.video.seeking')
@@ -244,6 +257,129 @@ def main():
             page.evaluate("select('Primary captions','');select('Secondary captions','')")
             assert page.get_by_role('button',name='Export subtitles',exact=True).is_disabled()
         case('subtitle export is disabled for Off or tracks whose pages have not arrived',unavailable_export)
+        def diarized_overlay():
+            ready();page.evaluate("""() => {
+                player.setTracks([track(trackId,'ja',[
+                    {id:'a',start:0,end:3,text:'こんにちは。',speaker:'w0/S01'},
+                    {id:'b',start:0,end:3,text:'どうも。',speaker:'w0/S02'}]),
+                    track(trackId2,'en',[{id:'e',start:0,end:3,text:'Hello. Nice to see you.'}])]);
+                select('Secondary captions',trackId2);
+            }""")
+            page.get_by_role('button',name='Theater mode',exact=True).click()
+            assert page.locator('.caption-line').first.inner_text()=='-こんにちは。\n-どうも。'
+            assert page.locator('.caption-line').nth(1).inner_text()=='Hello. Nice to see you.'
+            assert page.locator('.transcript-speaker').all_text_contents()==['Speaker 1 · window 1','Speaker 2 · window 1']
+        case('diarized voices get distinct dialogue lines while the translation stays one independent track',diarized_overlay)
+        def translation_reveal():
+            page.get_by_role('button',name='Hide translation',exact=True).click()
+            assert page.locator('.caption-line').count()==1
+            assert page.locator('.transcript-cue .transcript-translation').count()==0
+            assert page.evaluate('player.video.currentTime')<.01
+            page.get_by_role('button',name='Reveal translation',exact=True).click()
+            assert page.locator('.caption-line').count()==2
+            assert page.locator('.transcript-cue .transcript-translation').count()==2
+            page.get_by_role('button',name='Hide translation',exact=True).click()
+            page.evaluate("select('Primary captions','')")
+            assert page.locator('.caption-line').count()==1
+            assert page.locator('.caption-line').first.inner_text()=='Hello. Nice to see you.'
+            assert page.get_by_role('button',name='Reveal translation',exact=True).is_disabled()
+        case('translation reveal hides both study surfaces without hiding a secondary-only transcript',translation_reveal)
+        def navigation():
+            ready();page.evaluate("""() => {player.video.muted=true;
+                player.setTracks([track(trackId,'ja',[
+                {id:'a',start:1,end:2,text:'First'},
+                {id:'b',start:3,end:4,text:'Second'},
+                {id:'c',start:5,end:6,text:'Third'}])]);}
+            """)
+            page.get_by_role('button',name='Next line',exact=True).click()
+            page.wait_for_function('player.video.currentTime>=1 && !player.video.seeking')
+            page.evaluate('player.video.pause()');assert page.evaluate('player.video.currentTime')<1.7
+            page.get_by_role('button',name='Next line',exact=True).click()
+            page.wait_for_function('player.video.currentTime>=3 && !player.video.seeking')
+            page.evaluate('player.video.pause()');assert page.evaluate('player.video.currentTime')<3.7
+            page.get_by_role('button',name='Replay line',exact=True).click()
+            page.wait_for_function('!player.video.paused && !player.video.seeking')
+            page.evaluate('player.video.pause()');assert 3<=page.evaluate('player.video.currentTime')<3.7
+            page.get_by_role('button',name='Previous line',exact=True).click()
+            page.wait_for_function('!player.video.seeking && player.video.currentTime<2')
+            page.evaluate('player.video.pause()')
+        case('line controls seek and replay real media instead of paging the transcript',navigation)
+        def pause_line():
+            ready();page.evaluate("""() => {player.video.muted=true;
+                player.setTracks([track(trackId,'ja',[
+                  {id:'a',start:0,end:.35,text:'First voice',speaker:'w0/S01'},
+                  {id:'b',start:.15,end:.8,text:'Second voice',speaker:'w0/S02'},
+                  {id:'c',start:1.5,end:2,text:'Next line',speaker:'w0/S01'}])]);}
+            """)
+            assert not page.get_by_label('Pause after each line',exact=True).is_checked()
+            page.get_by_label('Pause after each line',exact=True).check()
+            page.evaluate('player.video.play()')
+            page.wait_for_function('player.video.currentTime>=.8 && player.video.paused')
+            assert page.evaluate('player.video.currentTime')<1.4
+            assert page.evaluate('player.linePause.held.cues.length')==2
+            page.evaluate('player.video.play()')
+            page.wait_for_function('player.video.currentTime>=2 && player.video.paused')
+            assert page.evaluate('player.video.currentTime')<2.6
+            assert page.evaluate('player.linePause.held.cues[0].id')=='c'
+        case('pause-after-line waits for overlapping speakers and resumes without immediately pausing again',pause_line)
+        def seeking_pause():
+            page.evaluate('player.video.currentTime=1.6')
+            page.wait_for_function('!player.video.seeking')
+            page.evaluate('player.video.play()')
+            page.wait_for_function('player.video.currentTime>=2 && player.video.paused')
+            assert page.evaluate('player.linePause.held.cues[0].id')=='c'
+        case('a seek resets automatic pause ownership to the new line',seeking_pause)
+        def shortcut_scope():
+            navigation()
+            page.evaluate("player.root.focus(); player.video.currentTime=3.3")
+            page.wait_for_function('!player.video.seeking')
+            page.keyboard.press('s')
+            page.wait_for_function('!player.video.paused && !player.video.seeking')
+            page.evaluate('player.video.pause()');assert 3<=page.evaluate('player.video.currentTime')<3.3
+            prevented=page.evaluate("""() => {let result=[];
+              for(const target of [player.primary,player.video,document.body]){
+                const event=new KeyboardEvent('keydown',{key:'d',bubbles:true,cancelable:true});
+                target.dispatchEvent(event);result.push(event.defaultPrevented);
+              }
+              for(const extra of [{repeat:true},{isComposing:true},{ctrlKey:true},{shiftKey:true}]){
+                const event=new KeyboardEvent('keydown',{key:'d',bubbles:true,cancelable:true,...extra});
+                player.root.dispatchEvent(event);result.push(event.defaultPrevented);
+              }return result;}""")
+            assert prevented==[False]*7
+        case('learning shortcuts are scoped to the player and never hijack forms, native media or composition',shortcut_scope)
+        def secondary_delay():
+            page.evaluate("createPlayer({remote:{...playback(0,20),delays:{[trackId]:10,[trackId2]:2}}})")
+            page.evaluate('player.bindIdentity(mediaKey)')
+            page.evaluate("player.setTracks([track(trackId2,'en',[{id:'e',start:1,end:3,text:'Only available track'}])])")
+            assert page.locator('.transcript-cue').first.locator('time').inner_text()=='0:03'
+            page.get_by_role('button',name='Replay line',exact=True).click()
+            page.wait_for_function('!player.video.seeking && player.video.currentTime>=3')
+            page.evaluate('player.video.pause()');assert page.evaluate('player.video.currentTime')<3.7
+        case('a pending primary track cannot lend its offset to the available second transcript',secondary_delay)
+        def empty_offset():
+            ready();page.evaluate('captions()');page.locator('summary',has_text='Caption settings').click()
+            offset=page.get_by_label('Primary offset (seconds)',exact=True)
+            offset.fill('2.5');offset.dispatch_event('change')
+            offset.fill('');offset.dispatch_event('change')
+            assert offset.input_value()=='2.5'
+            assert page.evaluate('player.delays[trackId]')==2.5
+        case('clearing an offset field does not silently overwrite its saved value with zero',empty_offset)
+        def small_landscape():
+            screenshot(667,375,'player-landscape.png')
+            page.evaluate("document.querySelector('#root').style.fontSize='150%'")
+            page.wait_for_timeout(60)
+            assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+1')
+            for name in ['Replay line','Theater mode','Full screen']:
+                assert page.get_by_role('button',name=name,exact=True).bounding_box()['height']>=44
+            page.evaluate("document.querySelector('#root').style.fontSize=''")
+        case('short landscape and larger text retain controls without horizontal overflow',small_landscape)
+        def dark_layout():
+            page.evaluate("document.documentElement.style.cssText='--background:#151719;--foreground:#f4f4f4;--muted:#25292c;--muted-foreground:#b3b7bc;--border:#43484d;--card:#1c2024;--primary:#8ab4f8;--primary-foreground:#10151d'")
+            screenshot(1280,900,'player-dark.png')
+            page.evaluate("document.documentElement.style.cssText=''")
+        case('dark appearance inherits Reader tokens without unreadable transcript controls',dark_layout)
+        case('final desktop learning layout',lambda:screenshot(1280,900,'player-desktop.png'))
+        case('final phone learning layout',lambda:screenshot(390,844,'player-phone.png'))
         def csp_policy(allow_wasm):
             csp_page=browser.new_page()
             policy="script-src 'nonce-media-test'" + (" 'wasm-unsafe-eval'" if allow_wasm else "")
