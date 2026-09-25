@@ -1,5 +1,6 @@
 """Automatic offline acceptance against the actual compiled Reader, with origin stopped."""
 import argparse
+import re
 from pathlib import Path
 import threading
 import unittest
@@ -62,7 +63,13 @@ class OfflineReader(unittest.TestCase):
                 response = page.goto(reader_url)
                 self.assertTrue(response.from_service_worker)
                 expect(page.locator('.book-content')).to_be_visible(timeout=30000)
-                expect(page.locator('.book-content ruby rt').first).to_have_text('ほん')
+                # Match the imported fixture's ruby, not whichever runtime
+                # measurement/annotation node happens to precede it.
+                fixture_ruby = page.locator('.book-content ruby').filter(
+                    has_text=re.compile(r'^本ほん$')
+                )
+                expect(fixture_ruby).to_have_count(1)
+                expect(fixture_ruby.locator('rt')).to_have_text('ほん')
                 response = page.goto(origin + '/Reader-Web/manage')
                 self.assertTrue(response.from_service_worker)
                 expect(page.get_by_role('button', name='Read ' + TITLE, exact=True)).to_be_visible()
