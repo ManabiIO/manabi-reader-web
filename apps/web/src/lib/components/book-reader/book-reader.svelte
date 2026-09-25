@@ -93,11 +93,13 @@
     // Text clipped by the reader's own scrollport can still have a DOM rect
     // inside the window. Capture only ink that the reader is actually showing.
     const scrollport = contentEl.getBoundingClientRect();
+    const view = contentEl.ownerDocument.defaultView;
+    if (!view) return undefined;
     const viewport = {
       left: Math.max(0, scrollport.left),
       top: Math.max(0, scrollport.top),
-      right: Math.min(innerWidth, scrollport.right),
-      bottom: Math.min(innerHeight, scrollport.bottom)
+      right: Math.min(view.innerWidth, scrollport.right),
+      bottom: Math.min(view.innerHeight, scrollport.bottom)
     };
     const sections =
       viewMode === ViewMode.Paginated
@@ -143,7 +145,10 @@
     manifest?: PublicationManifest,
     savedRange?: Range
   ): Promise<ReaderLocator[]> {
-    const selection = window.getSelection();
+    const selection =
+      viewMode === ViewMode.Paginated
+        ? (paginatedReader?.getDocumentSelection() ?? window.getSelection())
+        : window.getSelection();
     const range =
       savedRange?.cloneRange() ??
       (selection?.rangeCount ? selection.getRangeAt(0).cloneRange() : undefined);
