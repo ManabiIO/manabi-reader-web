@@ -41,6 +41,10 @@ class ControlRefinementBrowser(modal_controls.ModalControlsBrowser):
         trigger.click()
         panel = self.page.get_by_role('dialog', name='Manabi Reader', exact=True)
         close = self.check_modal(panel)
+        # A plain w-* loses to the sheet's data-side width; the intended
+        # one-rem gutter must not silently become a cramped 75%-width panel.
+        width = panel.evaluate('e => ({actual:e.getBoundingClientRect().width, expected:innerWidth-parseFloat(getComputedStyle(document.documentElement).fontSize)})')
+        self.assertAlmostEqual(width['actual'], width['expected'], delta=1)
         self.capture('navigation-shared-close-enlarged-phone')
         close.click()
         expect(panel).to_have_count(0)

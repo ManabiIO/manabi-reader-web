@@ -74,7 +74,7 @@
   </Sheet.Trigger>
   <Sheet.Content
     side={iconOnly ? 'left' : 'right'}
-    class="w-[min(24rem,calc(100vw-1rem))] overflow-y-auto"
+    class="data-[side=left]:w-[min(24rem,calc(100vw-1rem))] data-[side=right]:w-[min(24rem,calc(100vw-1rem))] overflow-y-auto"
   >
     <Sheet.Header>
       <Sheet.Title>Manabi Reader</Sheet.Title>
