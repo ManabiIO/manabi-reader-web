@@ -45,11 +45,27 @@ function anchorTagListener(document: Document) {
   return (contentEl: HTMLElement) => {
     const anchorTags = Array.from(contentEl.getElementsByTagName('a'));
     anchorTags.forEach((el) => {
-      el.href = document.location.pathname + el.hash;
+      if (!el.dataset.manabiTargetSpineIndex) {
+        el.href = document.location.pathname + el.hash;
+      }
     });
 
     const obs$ = anchorTags.map((el) =>
-      fromClickEvent(el).pipe(tap(() => nextChapter$.next(el.hash.substring(1))))
+      fromClickEvent(el).pipe(
+        tap(() => {
+          const spineIndex = Number(el.dataset.manabiTargetSpineIndex);
+          if (Number.isSafeInteger(spineIndex) && spineIndex >= 0) {
+            nextChapter$.next({
+              spineIndex,
+              ...(el.dataset.manabiTargetFragment
+                ? { fragment: el.dataset.manabiTargetFragment }
+                : {})
+            });
+            return;
+          }
+          nextChapter$.next(el.hash.substring(1));
+        })
+      )
     );
     return merge(...obs$);
   };
