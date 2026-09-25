@@ -59,7 +59,6 @@ test('an older zero-length point remains resolvable when projected text is uncha
   });
 });
 
-
 function projectedText(value) {
   return { nodeType: 3, data: value, textContent: value, childNodes: [] };
 }
