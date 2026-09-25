@@ -180,8 +180,9 @@ export async function restoreImportedNotes(
         ? await tx.objectStore('readerAnnotationScope').get(value.annotationId)
         : undefined;
       if (
-        value.annotationId &&
-        (!annotation ||
+        value.status === 'anchored' &&
+        (!value.annotationId ||
+          !annotation ||
           annotation.bookKey !== bookKey ||
           (annotationScope && annotationScope.accountId !== owner))
       ) {

@@ -298,3 +298,23 @@ test('Yatsu quote-free bookmarks require a matching whole-book counter witness',
   );
   assert.equal(bad.record.status, 'unresolved');
 });
+
+test('metadata/query and grapheme-based passage folding agree for sigma and normalization expansions', async () => {
+  const { foldSearch } = await import('../../apps/web/src/lib/library/search-normalization.ts');
+  const segmenter = new Intl.Segmenter('ja', { granularity: 'grapheme' });
+  for (const value of ['ΟΣ', 'ος', 'οσ', 'ＡＢＣ', 'ｶﾞ', 'ガ', 'ﬃ', 'İ', '𠮟']) {
+    assert.equal(
+      [...segmenter.segment(value)].map(({ segment }) => foldSearch(segment)).join(''),
+      foldSearch(value)
+    );
+    const { hits } = await findContent(
+      projectSearchBook(`<section><p>${value}</p></section>`),
+      value,
+      { id: 1, key }
+    );
+    assert.equal(hits.length, 1, value);
+    assert.equal(hits[0].locator.quote, value);
+  }
+  assert.equal(foldSearch('ΟΣ'), foldSearch('οσ'));
+  assert.equal(foldSearch('ΟΣ'), foldSearch('ος'));
+});

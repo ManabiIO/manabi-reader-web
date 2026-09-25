@@ -151,3 +151,61 @@ test('whole-file GET and completed PUT reject partial or merely accepted success
   await assert.rejects(source.put('state.json', '{}', '"bad etag"'), /strong ETag/);
   assert.equal(requests.length, count);
 });
+
+test('WebDAV UTF-8 decoding rejects corrupted bytes rather than manufacturing replacement text', () => {
+  assert.equal(
+    client.decodeDavText(new TextEncoder().encode('猫の本'), 'WebDAV reading data'),
+    '猫の本'
+  );
+  for (const invalid of [[0xff], [0xc0, 0xaf], [0xed, 0xa0, 0x80], [0xe3, 0x81]]) {
+    assert.throws(
+      () => client.decodeDavText(new Uint8Array(invalid), 'WebDAV reading data'),
+      (error) =>
+        error.code === 'encoding' && error.message === 'WebDAV reading data is not valid UTF-8.'
+    );
+  }
+  // A genuine U+FFFD in a user's note is valid text; it must not be deleted or rejected.
+  assert.equal(client.decodeDavText(new Uint8Array([0xef, 0xbf, 0xbd]), 'note'), '�');
+});
+
+test('WebDAV source listing reads one scoped snapshot rather than detached keys', async (t) => {
+  const sourcePath = new URL('../../apps/web/src/lib/webdav/source.ts', import.meta.url).pathname;
+  const persistencePath = new URL('../../apps/web/src/lib/manabi/persistence.ts', import.meta.url)
+    .pathname;
+  const result = await build({
+    stdin: {
+      contents: `export {davSources} from ${JSON.stringify(sourcePath)}; export {integrationDB} from ${JSON.stringify(persistencePath)};`,
+      resolveDir: new URL('../../apps/web', import.meta.url).pathname
+    },
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    write: false,
+    tsconfig: new URL('../../apps/web/tsconfig.json', import.meta.url).pathname
+  });
+  const { davSources, integrationDB } = await import(
+    'data:text/javascript;base64,' + Buffer.from(result.outputFiles[0].text).toString('base64')
+  );
+  const db = await integrationDB();
+  try {
+    const config = {
+      id: 'webdav-one',
+      name: 'One',
+      url: 'https://example.test/Books/',
+      username: '',
+      writable: false
+    };
+    await db.put('metadata', config, 'webdav-source:webdav-one');
+    await db.put('metadata', { unrelated: true }, 'webdav-other');
+    await db.put('metadata', { unrelated: true }, 'webdav-sourcez');
+    t.mock.method(globalThis.IDBObjectStore.prototype, 'getAllKeys', () => {
+      throw new Error('Detached source keys are not a coherent snapshot.');
+    });
+    assert.deepEqual(await davSources(), [config]);
+    await db.delete('metadata', 'webdav-source:webdav-one');
+    assert.deepEqual(await davSources(), []);
+  } finally {
+    db.close();
+    await deleteDB('manabi-reader-integrations');
+  }
+});

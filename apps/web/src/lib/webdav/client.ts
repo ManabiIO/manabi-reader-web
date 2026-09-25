@@ -122,6 +122,13 @@ export async function limitedBytes(response: Response, limit: number): Promise<U
   }
   return output;
 }
+export function decodeDavText(bytes: Uint8Array, label: string): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    throw new DavError('encoding', `${label} is not valid UTF-8.`);
+  }
+}
 const child = (element: Element, name: string) =>
   [...element.children].find((item) => item.namespaceURI === 'DAV:' && item.localName === name);
 export function parseListing(xml: string, root: URL, parent: URL, depth: 0 | 1): DavEntry[] {
@@ -276,7 +283,12 @@ export class WebDavClient {
     );
     if (response.status !== 207)
       throw new DavError('xml', 'The server did not return a WebDAV multistatus response.');
-    return parseListing(new TextDecoder().decode(response.bytes), this.root, url, depth);
+    return parseListing(
+      decodeDavText(response.bytes, 'WebDAV directory listing'),
+      this.root,
+      url,
+      depth
+    );
   }
   get(path: string, limit: number, etag?: string) {
     return this.request(

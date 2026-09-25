@@ -6,7 +6,7 @@
 
 import { integrationDB, exclusive, equal, type BookLink } from '$lib/manabi/persistence';
 import type { LibrarySource, LibraryEntry, StateCopy } from '$lib/manabi/sources';
-import { WebDavClient, davRoot, DavError, strongEtag } from './client';
+import { WebDavClient, davRoot, DavError, strongEtag, decodeDavText } from './client';
 
 export interface DavConfiguration {
   id: string;
@@ -27,9 +27,10 @@ export function withDavSourceLock<T>(id: string, work: () => Promise<T>): Promis
 }
 export async function davSources(): Promise<DavConfiguration[]> {
   const db = await integrationDB();
-  const keys = (await db.getAllKeys('metadata')).filter((key) => key.startsWith(prefix));
-  const values = await Promise.all(keys.map((key) => db.get('metadata', key)));
-  return values as DavConfiguration[];
+  return (await db.getAll(
+    'metadata',
+    IDBKeyRange.bound(prefix, prefix + '\uffff')
+  )) as DavConfiguration[];
 }
 export async function configureDav(config: DavConfiguration, password: string, remember = false) {
   if (!/^webdav-[0-9a-f-]{36}$/.test(config.id)) throw new Error('Invalid WebDAV source ID.');
@@ -132,6 +133,19 @@ export class WebDavSource implements LibrarySource {
       await this.client()
     ).get(item.id, 128 * 1024 * 1024, (item as { etag?: string }).etag);
     if (result.status === 404) throw new Error('This WebDAV book no longer exists.');
+    // A TXT prefix is a perfectly parseable file. Do not import a short HTTP 200
+    // response as a whole book when the listing supplied the selected size.
+    if (item.size !== undefined && result.bytes.byteLength !== item.size)
+      throw new DavError(
+        'size',
+        'The WebDAV book download does not match the selected file size. Refresh the folder and try again.'
+      );
+    const selectedEtag = (item as { etag?: string }).etag;
+    if (strongEtag(selectedEtag) && result.etag && result.etag !== selectedEtag)
+      throw new DavError(
+        'conflict',
+        'The WebDAV book changed during download. Refresh the folder and try again.'
+      );
     return new File([new Uint8Array(result.bytes).buffer], item.name, {
       type: item.name.endsWith('.epub') ? 'application/epub+zip' : 'application/octet-stream'
     });
@@ -186,7 +200,7 @@ export class WebDavSource implements LibrarySource {
         'etag',
         'Expose a strong ETag response header in the WebDAV server’s CORS configuration.'
       );
-    const value: unknown = JSON.parse(new TextDecoder().decode(response.bytes));
+    const value: unknown = JSON.parse(decodeDavText(response.bytes, 'WebDAV reading data'));
     if (!value || typeof value !== 'object' || Array.isArray(value))
       throw new Error('Invalid WebDAV reading data.');
     return { value: value as Record<string, unknown>, revision: response.etag };

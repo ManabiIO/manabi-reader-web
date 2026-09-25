@@ -90,3 +90,87 @@ fixture HTTP response; the two-tab editor test uses ordinary application actions
 No new backend, account requirement, permissions, runtime dependency or original
 EPUB write was introduced. The parent stack's physical Safari/locator gates and
 live WebDAV-provider qualification are not replaced by desktop browser fixtures.
+
+## Follow-on review of `4a42131ae321fe373feb0f38600d8c1a64084e64`
+
+This round keeps the three-feature scope and examines malformed inputs, optional
+cache failure, and agreement between metadata and passage search.
+
+### Search normalization must agree before original offsets can be recovered
+
+An exact self-query for `ΟΣ` reproduced a false negative in Content while Books
+matched normally. Whole-string lowercasing produces the context-sensitive final
+sigma; the worker's grapheme-by-grapheme lowercasing could not see that context.
+A shared lightweight normalization helper now equates the two sigma forms for
+metadata, queries and passage matching. Original text, excerpts and locator
+coordinates remain unchanged. This is the existing NFKC/lowercase search with a
+specific contextual repair, not a promise of exhaustive Unicode case folding.
+The metadata component imports only the small helper, not the HTML parser.
+
+The unit regression exercises self-matching and original offsets for Greek,
+full-width Latin text, Japanese kana, combining marks, ligatures and astral text.
+The browser test requires both sections to match the original Greek text and
+retains Japanese lookup. Books never waits for the Content worker.
+
+### Valid HTTP status does not prove intact text or a complete selected book
+
+Default TextDecoder recovery substituted U+FFFD for malformed WebDAV JSON/XML.
+The resulting JSON could still parse, allowing corrupted reading state to be
+applied or sent back. UTF-8 decoding of protocol text is now fatal: invalid bytes
+fail before listing admission or state application. The regression serves actual
+HTTP responses, requires unchanged local progress and acknowledgement, and then
+repairs the remote data and exercises retry. Correctly encoded U+FFFD remains
+valid. Ebook bytes themselves are not passed through this protocol-text decoder.
+
+A second real-HTTP test returned a shortened TXT file with HTTP 200 and a truthful
+Content-Length for those shortened bytes. Since such a prefix is still valid
+plain text, the importer formerly accepted it. Downloads now check the size from
+the selected WebDAV listing when supplied, and reject a contradictory response
+ETag when a strong selected ETag is available. Requests still send If-Match;
+response checking is an additional guard, not a replacement for preconditions.
+Tests cover empty destination stores after rejection and successful retry. A
+separate gzip-transfer test proves the file-size check uses decoded file bytes,
+not compressed transfer Content-Length. Servers that omit both size and strong
+validators cannot supply the same independent completeness/revision evidence.
+
+### Optional cache errors must not become unhandled worker rejections
+
+A failed cache request and its transaction-completion promise are separate
+failures in the installed idb wrapper. The cache-write failure path now aborts
+and drains the real transaction before continuing without the optional cache.
+Initial per-book read completion also has a rejection observer before requests
+can fail. A narrowly instrumented real worker aborts actual projection writes:
+passage results must still arrive, no worker unhandled rejection is emitted, and
+a later uninstrumented query rebuilds the cache. A cache remains disposable; no
+reading records are reset to recover it.
+
+### Restoring a notebook must not hide an orphaned passage
+
+An archive could describe a row as anchored while omitting its annotation ID.
+The earlier restore fallback only ran when that ID was present; such a restored
+row was consequently excluded from the unlocated-notes UI. Any anchored row
+without an available, correctly scoped annotation now becomes visibly unlocated.
+The browser regression retains its original source record and editable note.
+It does not invent a location or silently recreate an absent annotation.
+
+WebDAV connection enumeration also reads one prefix-scoped IndexedDB snapshot
+instead of fetching keys and later fetching their values in separate transactions.
+This removes the intervening-disconnect window for missing list entries. The
+scoped-list unit test rejects the former detached-key path, excludes unrelated
+metadata and checks enumeration after a deletion.
+
+### Additional primary sources
+
+- [Unicode case-mapping FAQ](https://unicode.org/faq/casemap_charprop.html): contextual casing versus caseless matching.
+- [TextDecoder fatal mode](https://developer.mozilla.org/en-US/docs/Web/API/TextDecoder/fatal): default replacement versus decoding failure.
+- [JSON, RFC 8259](https://www.rfc-editor.org/rfc/rfc8259.html): interoperable UTF-8 network text.
+- [HTTP Semantics, RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html): representation metadata, content codings and strong preconditions.
+- [IndexedDB transaction lifecycle](https://www.w3.org/TR/IndexedDB/): independent requests and transaction completion/abort.
+
+`test_local_library_refinement.py` adds eight real-application browser cases to
+the permanent Chromium/WebKit workflow. Unit changes exercise normalization,
+strict decoding and connection snapshots. Fault injection is explicit: malformed
+HTTP response bodies/validators and the named cache-write-abort worker wrapper.
+Exact-head CI results belong in the PR. Local WebKit could not launch in this
+review container because its Ubuntu 24.04 runtime requires unavailable ICU 74
+libraries; the existing Ubuntu CI job remains the WebKit execution environment.

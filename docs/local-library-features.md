@@ -30,7 +30,9 @@ locations and original Japanese excerpts. Search is bounded to 32 × 1024² mark
 8 × 1024² readable UTF-16 units per book, 500,000 nodes, depth 512, 5,000 resources,
 512-character queries, 24 passages per book, and 300 passages overall. Limits and
 partial failures are visible. Rebuildable indexing is not a second authoritative
-copy of the user's reading state.
+copy of the user's reading state. Metadata and passage matching share a lightweight
+normalizer; their case handling agrees without changing original excerpts. A failed
+cache-write transaction is drained before searching without the optional cache.
 
 Selecting a content hit uses the shared durable locator and the reader's existing
 preview/Return behavior. Merely inspecting a hit does not replace resume or add
@@ -94,6 +96,8 @@ HTTPS WebDAV root. HTTP is restricted to loopback development. The server must
 allow the reader's origin and the necessary `OPTIONS`, `PROPFIND`, `GET`, `PUT`,
 and `MKCOL` methods and request headers. Reading-data writes require a strong
 `ETag` exposed through CORS, and correct `If-Match` / `If-None-Match` handling.
+Protocol JSON/XML must be valid UTF-8. Downloads must agree with the selected
+listing size when supplied and must not return a contradictory exposed ETag.
 There is no CORS bypass or Manabi proxy. The connection test proves readable
 listing, not write permission; write-back has separate source and per-book opt-ins.
 

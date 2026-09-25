@@ -71,12 +71,16 @@ async function search(request: SearchRequest) {
       ids.add(descriptor.id);
       try {
         const tx = db.transaction(['data', 'readerBookScope', 'readerLocalIdentity'], 'readonly');
+        const done = tx.done;
+        // Attach before the first request can reject. A failed book is reported
+        // below, while the remaining library can still be searched.
+        void done.catch(() => undefined);
         const [book, scope, identity] = await Promise.all([
           tx.objectStore('data').get(descriptor.id),
           tx.objectStore('readerBookScope').get(descriptor.id),
           tx.objectStore('readerLocalIdentity').get(descriptor.id)
         ]);
-        await tx.done;
+        await done;
         if (!book || (scope && scope.accountId !== request.owner)) continue;
         const actualKey = book.contentHash
           ? `content:${book.contentHash.toLowerCase()}`
@@ -115,21 +119,31 @@ async function search(request: SearchRequest) {
               ['data', 'readerBookScope', 'readerSearchProjection'],
               'readwrite'
             );
-            const [present, presentScope] = await Promise.all([
-              save.objectStore('data').get(key),
-              save.objectStore('readerBookScope').get(key)
-            ]);
-            if (
-              present?.elementHtml === book.elementHtml &&
-              JSON.stringify(present.publicationManifest ?? null) ===
-                JSON.stringify(book.publicationManifest ?? null) &&
-              (!presentScope || presentScope.accountId === request.owner)
-            ) {
-              await save
-                .objectStore('readerSearchProjection')
-                .put({ bookId: key, source, digest, resources });
+            try {
+              const [present, presentScope] = await Promise.all([
+                save.objectStore('data').get(key),
+                save.objectStore('readerBookScope').get(key)
+              ]);
+              if (
+                present?.elementHtml === book.elementHtml &&
+                JSON.stringify(present.publicationManifest ?? null) ===
+                  JSON.stringify(book.publicationManifest ?? null) &&
+                (!presentScope || presentScope.accountId === request.owner)
+              ) {
+                await save
+                  .objectStore('readerSearchProjection')
+                  .put({ bookId: key, source, digest, resources });
+              }
+              await save.done;
+            } catch (error) {
+              try {
+                save.abort();
+              } catch {
+                /* Already committed or aborted. */
+              }
+              await save.done.catch(() => undefined);
+              throw error;
             }
-            await save.done;
           } catch {
             /* Optional cache only. */
           }

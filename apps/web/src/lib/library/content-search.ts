@@ -5,6 +5,8 @@
  */
 
 import { parseFragment } from 'parse5';
+import { foldSearch } from './search-normalization.ts';
+export { foldSearch } from './search-normalization.ts';
 import type { PublicationManifest, PublicationResource, ReaderLocator } from '../reader-location';
 
 export const indexVersion = 1;
@@ -120,7 +122,6 @@ export function projectSearchBook(
     return { resource, text: parts.join(''), ...(includeLegacy ? { legacy } : {}) };
   });
 }
-export const foldSearch = (value: string) => value.normalize('NFKC').toLowerCase();
 export async function searchDigest(value: string): Promise<string> {
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)))]
     .map((b) => b.toString(16).padStart(2, '0'))

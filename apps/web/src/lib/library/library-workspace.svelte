@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { foldSearch } from './search-normalization';
   import { onMount, createEventDispatcher, tick, type Snippet } from 'svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
@@ -170,7 +171,7 @@
     let matches: string[] = [];
     for (const node of nodes) {
       if (node.kind !== 'series') continue;
-      if (node.name.normalize('NFKC').toLocaleLowerCase().includes(search))
+      if (foldSearch(node.name).includes(search))
         matches = [...matches, ...node.books.map((book) => book.key)];
       matches = [...matches, ...booksInMatchingSeries(node.children, search)];
     }
@@ -184,7 +185,7 @@
         book.title,
         book.canonicalTitle,
         ...(book.creators || []).map((creator) => creator.name)
-      ].some((value) => value.normalize('NFKC').toLocaleLowerCase().includes(search))
+      ].some((value) => foldSearch(value).includes(search))
     );
   }
   function includesBook(
@@ -251,10 +252,10 @@
   $: series = trail.at(-1);
   $: notFinished = $page.url.searchParams.get('unfinished') === '1';
   $: destinationTitle = series?.name || (collectionId === 'books' ? 'Library' : collectionTitle);
-  $: normalizedQuery = query.trim().normalize('NFKC').toLocaleLowerCase();
+  $: normalizedQuery = foldSearch(query.trim());
   $: metadataSeries = normalizedQuery ? booksInMatchingSeries(tree, normalizedQuery) : [];
   $: metadataCollections = $organization.collections.filter((c) =>
-    c.name.normalize('NFKC').toLocaleLowerCase().includes(normalizedQuery)
+    foldSearch(c.name).includes(normalizedQuery)
   );
   $: metadataMatches = books.filter(
     (book) =>
