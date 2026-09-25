@@ -220,16 +220,45 @@ async function localBooks(accountId: string): Promise<Map<string, BooksDbBookDat
   const db = await database.db;
   const map = new Map<string, BooksDbBookData[]>();
   const allBooks = await db.getAll('data');
+  const scopes = new Map<number, { bookId: number; accountId: string; hydrated?: boolean }>();
+  for (const book of allBooks) {
+    const scope = await db.get('readerBookScope', book.id);
+    if (scope) scopes.set(book.id, scope);
+  }
+  const ownersByBook = new Map<string, Set<string>>();
   for (const book of allBooks) {
     if (!book.contentHash || !/^[a-f0-9]{64}$/i.test(book.contentHash)) continue;
-    await migrateLegacyStatistics(db, book);
-    scoped(accountId);
-    const scopeTx = db.transaction('readerBookScope', 'readwrite');
-    const owner = await scopeTx.store.get(book.id);
-    if (!owner) await scopeTx.store.put({ bookId: book.id, accountId });
-    await scopeTx.done;
-    if (owner && owner.accountId !== accountId) continue;
+    const scope = scopes.get(book.id);
+    if (!scope) continue;
     const bookKey = `content:${book.contentHash.toLowerCase()}`;
+    const owners = ownersByBook.get(bookKey) ?? new Set<string>();
+    owners.add(scope.accountId);
+    ownersByBook.set(bookKey, owners);
+  }
+  for (const book of allBooks) {
+    if (!book.contentHash || !/^[a-f0-9]{64}$/i.test(book.contentHash)) continue;
+    scoped(accountId);
+    const bookKey = `content:${book.contentHash.toLowerCase()}`;
+    const explicitOwners = ownersByBook.get(bookKey) ?? new Set<string>();
+    // Resume/statistics still use a content key, not an account key. Two
+    // explicitly owned copies of the same bytes cannot safely sync either row.
+    if (explicitOwners.size > 1) continue;
+    let owner = scopes.get(book.id);
+    if (!owner) {
+      if (explicitOwners.size && !explicitOwners.has(accountId)) continue;
+      const scopeTx = db.transaction('readerBookScope', 'readwrite');
+      owner = await scopeTx.store.get(book.id);
+      if (!owner) {
+        owner = { bookId: book.id, accountId };
+        await scopeTx.store.put(owner);
+        scopes.set(book.id, owner);
+        explicitOwners.add(accountId);
+        ownersByBook.set(bookKey, explicitOwners);
+      }
+      await scopeTx.done;
+    }
+    if (owner.accountId !== accountId) continue;
+    await migrateLegacyStatistics(db, book);
     map.set(bookKey, [...(map.get(bookKey) ?? []), book]);
   }
   return map;
@@ -406,8 +435,15 @@ async function acceptRemote(
   const owner =
     item.kind === 'annotation' ? await annotationOwner(item.entity_id, item.book_key) : undefined;
   const foreign = owner && owner !== accountId;
-  const local = foreign ? null : await readLocal(item.kind, item.entity_id, item.book_key, books);
   const remote = item.deleted ? null : item.payload;
+  const materialized = item.kind === 'annotation' || (books.get(item.book_key)?.length ?? 0) > 0;
+  // A book that has not been downloaded has no local reading row to compare.
+  // Its absence must not be interpreted as a personal-state deletion.
+  const local = foreign
+    ? null
+    : materialized
+      ? await readLocal(item.kind, item.entity_id, item.book_key, books)
+      : (baseline?.payload ?? remote);
   const readingPending =
     item.kind === 'annotation'
       ? []
@@ -461,7 +497,7 @@ async function acceptRemote(
     : undefined;
   // Never apply a remote annotation over a pending local edit. Merge only after its
   // exact local revision is checked during the subsequent flush.
-  if (!foreign && !conflict && !equal(local, result.value))
+  if (!foreign && materialized && !conflict && !equal(local, result.value))
     await applyLocal(
       item.kind,
       item.entity_id,
@@ -497,6 +533,7 @@ async function acceptRemote(
     deleted: item.deleted
   });
   if (conflict) await tx.objectStore('readerPersonalConflict').put(conflict);
+  else await tx.objectStore('readerPersonalConflict').delete(id);
   if (matchingReading) await tx.objectStore('readerPersonalOutbox').delete(matchingReading.id);
   if (matchingAnnotation)
     await tx.objectStore('readerAnnotationOutbox').delete(matchingAnnotation.id);
@@ -714,13 +751,21 @@ async function stageReading(accountId: string, books: Map<string, BooksDbBookDat
       const id = key(accountId, entity.kind, entity.entityId);
       const base = await db.get('readerPersonalRecord', id);
       const local = await readLocal(entity.kind, entity.entityId, bookKey, books);
-      if (equal(local, base?.payload ?? null) || (!local && !base)) continue;
       const tx = db.transaction(['readerPersonalOutbox', 'readerPersonalConflict'], 'readwrite');
-      if (!(await tx.objectStore('readerPersonalConflict').get(id))) {
-        const pending = (
-          await tx.objectStore('readerPersonalOutbox').index('accountId').getAll(accountId)
-        ).find((value) => value.kind === entity.kind && value.entityId === entity.entityId);
-        if (!pending || !equal(pending.localValue, local)) {
+      if (await tx.objectStore('readerPersonalConflict').get(id)) {
+        await tx.done;
+        continue;
+      }
+      const matches = (
+        await tx.objectStore('readerPersonalOutbox').index('accountId').getAll(accountId)
+      ).filter((value) => value.kind === entity.kind && value.entityId === entity.entityId);
+      const prepared = matches.filter((value) => !!value.request);
+      // Unsent snapshots may be coalesced. Once prepared, the request and its
+      // mutation ID remain immutable until the server outcome is known.
+      for (const value of matches)
+        if (!value.request) await tx.objectStore('readerPersonalOutbox').delete(value.id);
+      if (!equal(local, base?.payload ?? null) && (local || base)) {
+        if (!prepared.some((value) => equal(value.localValue, local))) {
           const mutation: PersonalMutation = {
             id: crypto.randomUUID(),
             accountId,
@@ -807,8 +852,24 @@ async function sendMutation(accountId: string, mutation: WireMutation): Promise<
 async function flushReading(accountId: string, books: Map<string, BooksDbBookData[]>) {
   const db = await database.db;
   const outbox = await db.getAllFromIndex('readerPersonalOutbox', 'accountId', accountId);
+  outbox.sort((left, right) => {
+    const a = `${left.kind}\u0000${left.entityId}`;
+    const b = `${right.kind}\u0000${right.entityId}`;
+    if (a !== b) return a < b ? -1 : 1;
+    if (!!left.request !== !!right.request) return left.request ? -1 : 1;
+    return (
+      (left.request?.base_revision ?? left.baseRevision) -
+        (right.request?.base_revision ?? right.baseRevision) || left.id.localeCompare(right.id)
+    );
+  });
+  const processed = new Set<string>();
   for (const pending of outbox) {
+    const entityKey = `${pending.kind}\u0000${pending.entityId}`;
+    if (processed.has(entityKey)) continue;
+    processed.add(entityKey);
     scoped(accountId);
+    // A previously queued request cannot bypass a later ownership ambiguity.
+    if (!books.has(pending.bookKey)) continue;
     if (await db.get('readerPersonalConflict', key(accountId, pending.kind, pending.entityId)))
       continue;
     const current = await db.get('readerPersonalOutbox', pending.id);
@@ -1058,6 +1119,37 @@ export async function resolvePersonalConflict(id: string, choice: 'local' | 'rem
     if (!equal(latestLocal, conflict.local)) {
       scoped(accountId);
       await db.put('readerPersonalConflict', { ...conflict, local: latestLocal });
+      await publish(accountId);
+      throw new IntegrationError('conflict', 409);
+    }
+    const accepted = await db.get('readerPersonalRecord', id);
+    const acceptedRemote = accepted?.deleted ? null : (accepted?.payload ?? null);
+    if (
+      !accepted ||
+      accepted.revision !== conflict.remoteRevision ||
+      !equal(acceptedRemote, conflict.remote)
+    ) {
+      if (accepted) {
+        const merged =
+          conflict.kind === 'annotation'
+            ? mergeAnnotationPayload(
+                conflict.remote,
+                latestLocal,
+                acceptedRemote,
+                new Date().toISOString()
+              )
+            : mergePayload(conflict.remote, latestLocal, acceptedRemote);
+        scoped(accountId);
+        if (merged.fields.length)
+          await db.put('readerPersonalConflict', {
+            ...conflict,
+            local: latestLocal,
+            remote: acceptedRemote,
+            remoteRevision: accepted.revision,
+            fields: merged.fields
+          });
+        else await db.delete('readerPersonalConflict', id);
+      }
       await publish(accountId);
       throw new IntegrationError('conflict', 409);
     }

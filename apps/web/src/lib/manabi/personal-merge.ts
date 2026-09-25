@@ -107,14 +107,12 @@ export function mergeAnnotationPayload(
         .map((field) => [field, source![field]])
     );
   const merged = mergePayload(subset(base), subset(local), subset(remote));
-  return {
-    value: {
-      ...remote,
-      ...local,
-      ...(merged.value ?? {}),
-      revision: Math.max(Number(local.revision) || 0, Number(remote.revision) || 0) + 1,
-      modifiedAt: now
-    },
-    fields: merged.fields
-  };
+  // An omitted portable field is a deletion, not a value to resurrect from
+  // an older envelope while combining independent edits.
+  const value: Record<string, unknown> = { ...remote, ...local };
+  for (const field of portable) delete value[field];
+  Object.assign(value, merged.value ?? {});
+  value.revision = Math.max(Number(local.revision) || 0, Number(remote.revision) || 0) + 1;
+  value.modifiedAt = now;
+  return { value, fields: merged.fields };
 }

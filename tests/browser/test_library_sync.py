@@ -227,6 +227,117 @@ class LibraryOrganizationSync(LibraryBase):
             self.page.wait_for_timeout(50)
         expect(status).to_contain_text('synced', timeout=15000)
 
+    def test_prepared_reading_request_precedes_a_newer_local_snapshot(self):
+        self.import_book('Queued reading edit')
+        book_row = self.stores('books', ['data'])['data'][0]
+        book_key = 'content:' + book_row['contentHash']
+        StaticHandler.personal_enabled = True
+        StaticHandler.account_fixture = {
+            'user': {'id': '42', 'username': 'reader'}, 'csrf_token': 'c' * 64,
+            'providers': []
+        }
+        self.page.goto(self.origin + '/reader-web/connections')
+        status = self.page.locator('section[aria-labelledby="reading-sync-heading"] [role="status"]')
+        expect(status).to_contain_text('synced', timeout=15000)
+        baseline = next((row for row in self.stores('books', ['readerPersonalRecord'])['readerPersonalRecord']
+                         if row['kind'] == 'resume' and row['entityId'] == book_key), None)
+        revision = baseline['revision'] if baseline else 0
+        StaticHandler.personal_mutations = []
+        self.page.evaluate('''async ({bookId, bookKey, revision}) => {
+          const opened = indexedDB.open('books');
+          const db = await new Promise((resolve, reject) => {
+            opened.onsuccess = () => resolve(opened.result);
+            opened.onerror = () => reject(opened.error);
+          });
+          const preparedId = crypto.randomUUID();
+          const tx = db.transaction(['bookmark', 'readerPersonalOutbox'], 'readwrite');
+          tx.objectStore('bookmark').put({dataId: bookId, progress: 0.8,
+            lastBookmarkModified: 3});
+          tx.objectStore('readerPersonalOutbox').put({id: preparedId, accountId: '42',
+            kind: 'resume', entityId: bookKey, bookKey, baseRevision: revision,
+            localValue: {progress: 0.2, lastBookmarkModified: 1},
+            request: {mutation_id: preparedId, kind: 'resume', entity_id: bookKey,
+              book_key: bookKey, base_revision: revision, operation: 'put',
+              payload: {progress: 0.2, lastBookmarkModified: 1}}});
+          tx.objectStore('readerPersonalOutbox').put({id: crypto.randomUUID(), accountId: '42',
+            kind: 'resume', entityId: bookKey, bookKey, baseRevision: revision,
+            localValue: {progress: 0.5, lastBookmarkModified: 2}});
+          await new Promise((resolve, reject) => {
+            tx.oncomplete = resolve; tx.onabort = () => reject(tx.error);
+            tx.onerror = () => reject(tx.error);
+          });
+          db.close();
+        }''', {'bookId': book_row['id'], 'bookKey': book_key, 'revision': revision})
+
+        button = self.page.get_by_role('button', name='Sync personal reading data now')
+        button.click()
+        expect(button).to_be_enabled()
+        sent = [request for _, request in StaticHandler.personal_mutations
+                if request['kind'] == 'resume' and request['entity_id'] == book_key]
+        self.assertEqual([0.2], [request['payload']['progress'] for request in sent])
+        pending = [row for row in self.stores('books', ['readerPersonalOutbox'])['readerPersonalOutbox']
+                   if row['kind'] == 'resume' and row['entityId'] == book_key]
+        self.assertEqual([0.8], [row['localValue']['progress'] for row in pending])
+        button.click()
+        expect(button).to_be_enabled()
+        sent = [request for _, request in StaticHandler.personal_mutations
+                if request['kind'] == 'resume' and request['entity_id'] == book_key]
+        self.assertEqual([0.2, 0.8], [request['payload']['progress'] for request in sent])
+        self.assertEqual(revision + 1, sent[-1]['base_revision'])
+
+    def test_same_content_explicitly_owned_by_two_accounts_is_not_uploaded(self):
+        self.import_book('Shared content ownership')
+        book_row = self.stores('books', ['data'])['data'][0]
+        book_key = 'content:' + book_row['contentHash']
+        self.page.evaluate('''async bookId => {
+          const opened = indexedDB.open('books');
+          const db = await new Promise((resolve, reject) => {
+            opened.onsuccess = () => resolve(opened.result);
+            opened.onerror = () => reject(opened.error);
+          });
+          const otherId = bookId + 1000000;
+          const tx = db.transaction(['data', 'bookmark', 'readerBookScope',
+            'readerPersonalOutbox'], 'readwrite');
+          const book = await new Promise((resolve, reject) => {
+            const request = tx.objectStore('data').get(bookId);
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          tx.objectStore('data').put({...book, id: otherId, title: 'Other account copy'});
+          tx.objectStore('bookmark').put({dataId: bookId, progress: 0.6,
+            lastBookmarkModified: 5});
+          tx.objectStore('readerBookScope').put({bookId, accountId: '42'});
+          tx.objectStore('readerBookScope').put({bookId: otherId, accountId: '43'});
+          const mutationId = crypto.randomUUID(), bookKey = 'content:' + book.contentHash;
+          tx.objectStore('readerPersonalOutbox').put({id: mutationId, accountId: '42',
+            kind: 'resume', entityId: bookKey, bookKey, baseRevision: 0,
+            localValue: {progress: 0.6, lastBookmarkModified: 5},
+            request: {mutation_id: mutationId, kind: 'resume', entity_id: bookKey,
+              book_key: bookKey, base_revision: 0, operation: 'put',
+              payload: {progress: 0.6, lastBookmarkModified: 5}}});
+          await new Promise((resolve, reject) => {
+            tx.oncomplete = resolve; tx.onabort = () => reject(tx.error);
+            tx.onerror = () => reject(tx.error);
+          });
+          db.close();
+        }''', book_row['id'])
+        StaticHandler.personal_enabled = True
+        StaticHandler.personal_mutations = []
+        StaticHandler.account_fixture = {
+            'user': {'id': '42', 'username': 'reader-a'}, 'csrf_token': 'c' * 64,
+            'providers': []
+        }
+        self.page.goto(self.origin + '/reader-web/connections')
+        status = self.page.locator('section[aria-labelledby="reading-sync-heading"] [role="status"]')
+        expect(status).to_contain_text('queued', timeout=15000)
+        button = self.page.get_by_role('button', name='Sync personal reading data now')
+        button.click()
+        expect(button).to_be_enabled()
+        self.assertFalse(any(request['book_key'] == book_key
+                             for _, request in StaticHandler.personal_mutations))
+        self.assertTrue(any(row['bookKey'] == book_key
+                            for row in self.stores('books', ['readerPersonalOutbox'])['readerPersonalOutbox']))
+
     def test_offline_bookmark_survives_reload_and_syncs_on_reconnect(self):
         self.import_book('Offline annotation')
         book_id = self.stores('books', ['data'])['data'][0]['id']
