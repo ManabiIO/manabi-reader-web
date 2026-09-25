@@ -6,7 +6,7 @@
 
 import { database } from '$lib/data/store';
 import { get } from 'svelte/store';
-import { account, currentUser } from '$lib/manabi/client';
+import { account, currentUser, localProfileUser } from '$lib/manabi/client';
 import type {
   ReaderAnnotation,
   ReaderAnnotationMutation
@@ -22,12 +22,13 @@ const maxImportRecords = 10_000;
 const portableId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function assertCurrentAccount(accountId: string | null) {
-  if ((currentUser()?.id ?? null) !== accountId) throw new Error('The account changed.');
+  if ((currentUser()?.id ?? localProfileUser()?.id ?? null) !== accountId)
+    throw new Error('The account changed.');
 }
 
 async function visibleAnnotations(records: ReaderAnnotation[]): Promise<ReaderAnnotation[]> {
   if (get(account).status === 'loading') return [];
-  const accountId = currentUser()?.id ?? null;
+  const accountId = currentUser()?.id ?? localProfileUser()?.id ?? null;
   if (!accountId) return records;
   const db = await database.db;
   const owners = await Promise.all(
@@ -192,7 +193,7 @@ export async function exportReaderAnnotations(): Promise<string> {
 /** Validate the entire file before writing; conflicting IDs preserve the local copy. */
 export async function importReaderAnnotations(
   json: string,
-  accountId: string | null = currentUser()?.id ?? null
+  accountId: string | null = currentUser()?.id ?? localProfileUser()?.id ?? null
 ): Promise<AnnotationImportResult> {
   assertCurrentAccount(accountId);
   if (new TextEncoder().encode(json).byteLength > maxImportBytes)
@@ -297,7 +298,7 @@ export async function listAnnotationImportConflicts(
 export async function resolveAnnotationImportConflict(
   id: string,
   choice: 'keep-local' | 'restore-archive',
-  accountId: string | null = currentUser()?.id ?? null
+  accountId: string | null = currentUser()?.id ?? localProfileUser()?.id ?? null
 ): Promise<void> {
   assertCurrentAccount(accountId);
   if (!id.startsWith('import:')) throw new Error('Invalid archive conflict.');
@@ -369,7 +370,7 @@ function validate(draft: AnnotationDraft) {
 /** Local write and optional account-bound mutation are one IndexedDB transaction. */
 export async function saveReaderAnnotation(
   draft: AnnotationDraft,
-  accountId: string | null = currentUser()?.id ?? null
+  accountId: string | null = currentUser()?.id ?? localProfileUser()?.id ?? null
 ): Promise<ReaderAnnotation> {
   assertCurrentAccount(accountId);
   validate(draft);
@@ -448,7 +449,7 @@ export async function listReaderAnnotations(bookKey: string): Promise<ReaderAnno
 
 export async function removeReaderAnnotation(
   id: string,
-  accountId: string | null = currentUser()?.id ?? null
+  accountId: string | null = currentUser()?.id ?? localProfileUser()?.id ?? null
 ) {
   assertCurrentAccount(accountId);
   const db = await database.db;

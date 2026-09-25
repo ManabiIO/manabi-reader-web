@@ -30,6 +30,20 @@ import {
 } from '$lib/functions/book-security/book-content-security';
 import buildDummyBookImage from '$lib/functions/file-loaders/utils/build-dummy-book-image';
 import { exclusive } from './persistence';
+import { currentUser, localProfileUser } from './client';
+import { projectPublication } from '$lib/reader-location';
+import {
+  studyEntries,
+  locateStudy,
+  studyComparable,
+  safeStudyJSON,
+  validImportedStudy,
+  type ImportedStudy,
+  type ImportedStudyEntry,
+  type StudyKind
+} from './yatsu-study-format';
+import { previewYatsuSettings } from './yatsu-settings-format';
+import { importYatsuSettings } from './yatsu-settings';
 import {
   importFile,
   decodeTitle,
@@ -76,6 +90,8 @@ export interface MigrationItem {
   title: string;
   parts: ImportPart[];
   error?: string;
+  counts?: Partial<Record<ImportPart, number>>;
+  details?: string;
 }
 interface IndexedItem extends MigrationItem {
   files: Partial<Record<ImportPart, { path: string; metadata: ImportFile }>>;
@@ -91,6 +107,8 @@ export interface MigrationResult {
   bookId?: number;
   records: number;
   warning?: string;
+  details?: string;
+  skippedSettings?: string[];
 }
 function receipt(book: MigratedBook): Receipt | undefined {
   const value = book.manabiTtuImport;
@@ -214,9 +232,25 @@ export class TtuMigration {
           : entry.filename;
         const pieces = path.split('/');
         const name = pieces[pieces.length - 1];
+        if (source === 'yatsu' && name === 'yatsu-backup-manifest.json' && pieces.length === 1)
+          continue;
+        if (source === 'yatsu' && name === 'yatsu-local-settings.json' && pieces.length === 1) {
+          const preview = previewYatsuSettings(JSON.parse(await archive.readText(entry.filename)));
+          grouped.set('@settings', {
+            id: String(grouped.size),
+            title: 'Yatsu Settings',
+            parts: ['settings'],
+            files: {
+              settings: { path: entry.filename, metadata: { part: 'settings', modified: 0 } }
+            },
+            counts: { settings: Object.keys(preview.values).length },
+            details: `${Object.keys(preview.values).length} supported preferences. ${preview.skipped.length} source-only or security-sensitive settings are not applied.`
+          });
+          continue;
+        }
         if (
           (name.startsWith('bookmeta_') && source !== 'yatsu') ||
-          !/^(?:bookdata|bookmeta|progress|statistics|audioBook|subtitles|ttu-user-goals)_/.test(
+          !/^(?:bookdata|bookmeta|progress|bookmarks|highlights|notes|statistics|audioBook|subtitles|ttu-user-goals)_/.test(
             name
           )
         ) {
@@ -245,13 +279,27 @@ export class TtuMigration {
           }
         }
         try {
-          const meta = importFile(name, source)!;
+          const meta = importFile(name, source);
+          if (!meta) {
+            ignored++;
+            continue;
+          }
           if (item.files[meta.part])
             throw new Error(
               `Multiple ${meta.part} files for this item. Export a clean copy before importing.`
             );
           item.files[meta.part] = { path: entry.filename, metadata: meta };
           item.parts.push(meta.part);
+          if (['savedBookmarks', 'highlights', 'notes'].includes(meta.part)) {
+            const entries = await studyEntries(
+              JSON.parse(await archive.readText(entry.filename)),
+              meta.part as StudyKind,
+              item.title,
+              meta.modified
+            );
+            item.counts ??= {};
+            item.counts[meta.part] = entries.length;
+          }
         } catch (error) {
           item.error = (error as Error).message;
         }
@@ -263,7 +311,7 @@ export class TtuMigration {
       }
       const titles = new Map<string, IndexedItem>();
       for (const item of index) {
-        if (item.parts.includes('goals')) continue;
+        if (item.parts.includes('goals') || item.parts.includes('settings')) continue;
         const previous = titles.get(item.title);
         if (previous)
           previous.error = item.error =
@@ -307,6 +355,11 @@ export class TtuMigration {
     signal?: AbortSignal
   ): Promise<MigrationResult> {
     signal?.throwIfAborted();
+    const owner = currentUser()?.id ?? localProfileUser()?.id ?? null;
+    const assertAccount = () => {
+      if ((currentUser()?.id ?? localProfileUser()?.id ?? null) !== owner)
+        throw new Error('The account changed. Retry this import.');
+    };
     const item = this.index.find((entry) => entry.id === id);
     if (!item || item.error) throw new Error(item?.error ?? 'Import item not found.');
     if (!item.parts.some((part) => options.parts.includes(part)))
@@ -323,6 +376,8 @@ export class TtuMigration {
       if (!file || !options.parts.includes(part)) return undefined;
       return JSON.parse(await archive.readText(file.path));
     };
+    if (item.parts.includes('settings'))
+      return importYatsuSettings(await readJSON('settings'), !!options.replace, signal);
     if (item.parts.includes('goals')) {
       const rows = goals(await readJSON('goals'));
       return this.commitGoals(rows, !!options.replace, signal);
@@ -401,6 +456,35 @@ export class TtuMigration {
       Number(imported.bookmark.exploredCharCount) > content.characters
     )
       throw new Error('The bookmark is beyond the end of this book.');
+    const incomingStudy: ImportedStudyEntry[] = [];
+    for (const part of ['savedBookmarks', 'highlights', 'notes'] as const) {
+      const value = await readJSON(part);
+      if (value !== undefined)
+        incomingStudy.push(
+          ...(await studyEntries(value, part, item.title, item.files[part]!.metadata.modified))
+        );
+    }
+    if (incomingStudy.length > 10_000 || JSON.stringify(incomingStudy).length > 16 * 1024 * 1024)
+      throw new Error('This book has too much study data for one import.');
+    const studyBook =
+      content ??
+      (incomingStudy.length && options.targetId
+        ? await (await database.db).get('data', options.targetId)
+        : undefined);
+    let studyWitness: string | undefined;
+    if (incomingStudy.length) {
+      if (!studyBook || studyBook.elementHtml.length > 32 * 1024 * 1024)
+        throw new Error('Choose Book Data or a matching local book to migrate saved notes.');
+      studyWitness = studyBook.elementHtml;
+      const template = document.createElement('template');
+      template.innerHTML = studyBook.elementHtml;
+      const resources = projectPublication(template.content, studyBook.publicationManifest);
+      for (let i = 0; i < incomingStudy.length; i++) {
+        signal?.throwIfAborted();
+        incomingStudy[i] = await locateStudy(incomingStudy[i], resources);
+        if (i % 16 === 0) await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+    }
     signal?.throwIfAborted();
     const core = await exclusive<MigrationResult>('import-library-book', async () => {
       const db = await database.db;
@@ -412,7 +496,9 @@ export class TtuMigration {
           'readerStatistic',
           'lastModified',
           'audioBook',
-          'subtitle'
+          'subtitle',
+          'readerLocalIdentity',
+          'readerBookScope'
         ],
         'readwrite'
       );
@@ -426,6 +512,7 @@ export class TtuMigration {
       signal?.addEventListener('abort', cancel, { once: true });
       try {
         signal?.throwIfAborted();
+        assertAccount();
         let target: MigratedBook | undefined;
         if (options.targetId) {
           const found = await tx.objectStore('data').get(options.targetId);
@@ -493,6 +580,9 @@ export class TtuMigration {
           target = { ...contentToAdd, id, title };
           created = true;
         }
+        const targetScope = await tx.objectStore('readerBookScope').get(target.id);
+        if (targetScope && targetScope.accountId !== owner)
+          throw new Error('This migrated book belongs to another account.');
         if (target.storageSource)
           throw new MigrationConflict(
             'This book is linked to external storage. Import into an unlinked local copy instead.'
@@ -527,6 +617,72 @@ export class TtuMigration {
         };
         const bookId = target.id,
           title = target.title;
+        if (incomingStudy.length || metadata !== undefined) {
+          if (studyWitness !== undefined && target.elementHtml !== studyWitness)
+            throw new MigrationConflict(
+              'Book content changed while its notes were being prepared. Retry the import.'
+            );
+          let identity = await tx.objectStore('readerLocalIdentity').get(bookId);
+          if (!target.contentHash && !identity) {
+            identity = { bookId, uuid: crypto.randomUUID() };
+            await tx.objectStore('readerLocalIdentity').put(identity);
+          }
+          const studyKey = target.contentHash
+            ? `content:${target.contentHash.toLowerCase()}`
+            : `local:${identity!.uuid}`;
+          const priorStudy = validImportedStudy(target.manabiImportedStudy)
+            ? target.manabiImportedStudy
+            : undefined;
+          const nextStudy: ImportedStudy = priorStudy
+            ? structuredClone(priorStudy)
+            : {
+                version: 1,
+                sourceTitle: item.title,
+                fingerprint: prior.content,
+                entries: [],
+                receipts: {}
+              };
+          for (const incoming of incomingStudy) {
+            signal?.throwIfAborted();
+            const signature = studyComparable(incoming);
+            const before = nextStudy.receipts[incoming.id];
+            const index = nextStudy.entries.findIndex((entry) => entry.id === incoming.id);
+            const current = nextStudy.entries[index];
+            if (signature === before) continue; // Do not undo edits or tombstones on repeated import.
+            if (
+              current &&
+              studyComparable(current) !== before &&
+              studyComparable(current) !== signature &&
+              !options.replace
+            )
+              throw new MigrationConflict(
+                'An imported bookmark or note was edited in Manabi. Keep it or explicitly use imported data.'
+              );
+            if (current && incoming.modifiedAt < current.modifiedAt && !options.replace) continue;
+            const entry = {
+              ...incoming,
+              locator: incoming.locator ? { ...incoming.locator, bookKey: studyKey } : undefined
+            };
+            if (index === -1) nextStudy.entries.push(entry);
+            else nextStudy.entries[index] = entry;
+            nextStudy.receipts[incoming.id] = signature;
+            changed++;
+          }
+          if (metadata !== undefined) {
+            const sourceMetadata = safeStudyJSON(metadata);
+            if (canonical(nextStudy.metadata) !== canonical(sourceMetadata)) {
+              nextStudy.metadata = sourceMetadata;
+              changed++;
+            }
+          }
+          if (
+            nextStudy.entries.length > 10_000 ||
+            JSON.stringify(nextStudy).length > 32 * 1024 * 1024
+          )
+            throw new Error('Imported notes exceed this book’s local storage bound.');
+          target = { ...target, manabiImportedStudy: nextStudy };
+          await tx.objectStore('data').put(target);
+        }
         const statisticKey = contentStatisticKey(target);
         const statisticStore = statisticKey
           ? tx.objectStore('readerStatistic')
@@ -591,6 +747,7 @@ export class TtuMigration {
             lastModifiedValue: lastModified
           });
         }
+        assertAccount();
         // Receipt and payloads commit together. No cross-database "import succeeded" marker.
         if (created || canonical(prior) !== canonical(nextReceipt))
           await tx
@@ -605,7 +762,10 @@ export class TtuMigration {
           status: created || changed ? 'imported' : 'unchanged',
           title,
           bookId,
-          records: changed
+          records: changed,
+          details: incomingStudy.length
+            ? `${incomingStudy.length} study records retained; ${incomingStudy.filter((entry) => entry.locator).length} verified passage locations. Book notes and unresolved positions are available in Bookmarks & Notes → Imported from Yatsu. Export that section to back up edits.`
+            : undefined
         };
       } catch (error) {
         cancel();

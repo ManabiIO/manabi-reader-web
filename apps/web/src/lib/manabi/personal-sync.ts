@@ -35,6 +35,7 @@ import {
 } from './personal-merge';
 
 type Payload = Record<string, unknown> | null;
+class LocalChangedError extends Error {}
 interface RemoteRecord {
   kind: string;
   entity_id: string;
@@ -220,20 +221,51 @@ async function localBooks(accountId: string): Promise<Map<string, BooksDbBookDat
   const db = await database.db;
   const map = new Map<string, BooksDbBookData[]>();
   const allBooks = await db.getAll('data');
+  const scopes = new Map<number, { bookId: number; accountId: string; hydrated?: boolean }>();
+  for (const book of allBooks) {
+    const scope = await db.get('readerBookScope', book.id);
+    if (scope) scopes.set(book.id, scope);
+  }
+  const ownersByBook = new Map<string, Set<string>>();
+  for (const book of allBooks) {
+    if (!book.contentHash || !/^[a-f0-9]{64}$/i.test(book.contentHash)) continue;
+    const scope = scopes.get(book.id);
+    if (!scope) continue;
+    const bookKey = `content:${book.contentHash.toLowerCase()}`;
+    const owners = ownersByBook.get(bookKey) ?? new Set<string>();
+    owners.add(scope.accountId);
+    ownersByBook.set(bookKey, owners);
+  }
   for (const book of allBooks) {
     if (!book.contentHash || !/^[a-f0-9]{64}$/i.test(book.contentHash)) continue;
     await migrateLegacyStatistics(db, book);
     scoped(accountId);
-    const scopeTx = db.transaction('readerBookScope', 'readwrite');
-    const owner = await scopeTx.store.get(book.id);
-    if (!owner) await scopeTx.store.put({ bookId: book.id, accountId });
-    await scopeTx.done;
-    if (owner && owner.accountId !== accountId) continue;
     const bookKey = `content:${book.contentHash.toLowerCase()}`;
+    const explicitOwners = ownersByBook.get(bookKey) ?? new Set<string>();
+    // The current schema still stores resume/statistics outside a profile key.
+    // Fail closed if two accounts have copies of the same bytes in this browser;
+    // synchronizing that shared row to either account would leak the other's data.
+    if (explicitOwners.size > 1) continue;
+    let owner = scopes.get(book.id);
+    if (!owner) {
+      if (explicitOwners.size && !explicitOwners.has(accountId)) continue;
+      const scopeTx = db.transaction('readerBookScope', 'readwrite');
+      owner = await scopeTx.store.get(book.id);
+      if (!owner) {
+        owner = { bookId: book.id, accountId };
+        await scopeTx.store.put(owner);
+        scopes.set(book.id, owner);
+        explicitOwners.add(accountId);
+        ownersByBook.set(bookKey, explicitOwners);
+      }
+      await scopeTx.done;
+    }
+    if (owner.accountId !== accountId) continue;
     map.set(bookKey, [...(map.get(bookKey) ?? []), book]);
   }
   return map;
 }
+
 async function readLocal(
   kind: PersonalKind,
   entityId: string,
@@ -278,13 +310,23 @@ async function applyLocal(
   bookKey: string,
   payload: Payload,
   books: Map<string, BooksDbBookData[]>,
-  accountId: string
+  accountId: string,
+  expected?: Payload
 ) {
   scoped(accountId);
   const db = await database.db;
   if (kind === 'annotation') {
     const tx = db.transaction('readerAnnotation', 'readwrite');
     const before = await tx.store.get(entityId);
+    const current =
+      before && !before.deletedAt
+        ? wirePayload(before as unknown as Record<string, unknown>)
+        : null;
+    if (expected !== undefined && !equal(current, expected)) {
+      tx.abort();
+      await tx.done.catch(() => undefined);
+      throw new LocalChangedError();
+    }
     if (payload) await tx.store.put(payload as unknown as ReaderAnnotation);
     else if (before)
       await tx.store.put({
@@ -301,6 +343,15 @@ async function applyLocal(
     const day = dayId.exec(entityId)?.[1];
     if (!day) return;
     const tx = db.transaction(['readerStatistic', 'lastModified'], 'readwrite');
+    const before = await tx.objectStore('readerStatistic').get([bookKey, day]);
+    const current = before
+      ? payloadOf(before as unknown as Record<string, unknown>, statFields)
+      : null;
+    if (expected !== undefined && !equal(current, expected)) {
+      tx.abort();
+      await tx.done.catch(() => undefined);
+      throw new LocalChangedError();
+    }
     if (payload)
       await tx.objectStore('readerStatistic').put({
         ...payload,
@@ -319,6 +370,26 @@ async function applyLocal(
     return;
   }
   const tx = db.transaction('bookmark', 'readwrite');
+  const before = (await Promise.all(copies.map((book) => tx.store.get(book.id)))).filter(
+    (value): value is BooksDbBookmarkData => !!value
+  );
+  const selected = before.sort((a, b) =>
+    kind === 'completion'
+      ? (b.completion?.modifiedAt ?? 0) - (a.completion?.modifiedAt ?? 0)
+      : b.lastBookmarkModified - a.lastBookmarkModified
+  )[0];
+  const current = !selected
+    ? null
+    : kind === 'completion'
+      ? selected.completion
+        ? { completion: selected.completion }
+        : null
+      : payloadOf(selected as unknown as Record<string, unknown>, fields);
+  if (expected !== undefined && !equal(current, expected)) {
+    tx.abort();
+    await tx.done.catch(() => undefined);
+    throw new LocalChangedError();
+  }
   for (const book of copies) {
     const old = await tx.store.get(book.id);
     const next: BooksDbBookmarkData = {
@@ -365,8 +436,16 @@ async function acceptRemote(
   const owner =
     item.kind === 'annotation' ? await annotationOwner(item.entity_id, item.book_key) : undefined;
   const foreign = owner && owner !== accountId;
-  const local = foreign ? null : await readLocal(item.kind, item.entity_id, item.book_key, books);
+  const materialized = item.kind === 'annotation' || (books.get(item.book_key)?.length ?? 0) > 0;
   const remote = item.deleted ? null : item.payload;
+  const readCurrent = async (): Promise<Payload> => {
+    if (foreign) return null;
+    // The absence of downloaded bytes is not a personal-state deletion. Keep the
+    // accepted account baseline warm until a verified local copy is materialized.
+    if (!materialized) return baseline?.payload ?? remote;
+    return readLocal(item.kind as PersonalKind, item.entity_id, item.book_key!, books);
+  };
+  let local = await readCurrent();
   const readingPending =
     item.kind === 'annotation'
       ? []
@@ -386,34 +465,75 @@ async function acceptRemote(
     matchesAcknowledgedFeed(entry.request, item)
   );
   const acknowledged = !!matchingReading || !!matchingAnnotation;
-  const localTombstone =
-    item.kind === 'annotation' &&
-    !foreign &&
-    !!(await db.get('readerAnnotation', item.entity_id))?.deletedAt;
-  const result = acknowledged
-    ? { value: local, fields: [] as string[] }
-    : localTombstone && remote
-      ? { value: local, fields: ['deleted'] }
-      : item.kind === 'annotation'
-        ? mergeAnnotationPayload(baseline?.payload ?? null, local, remote, new Date().toISOString())
-        : mergePayload(baseline?.payload ?? null, local, remote);
-  const conflict: PersonalConflict | undefined = result.fields.length
-    ? {
-        id,
+  const merge = async (value: Payload) => {
+    const localTombstone =
+      item.kind === 'annotation' &&
+      !foreign &&
+      !!(await db.get('readerAnnotation', item.entity_id))?.deletedAt;
+    return acknowledged
+      ? { value, fields: [] as string[] }
+      : localTombstone && remote
+        ? { value, fields: ['deleted'] }
+        : item.kind === 'annotation'
+          ? mergeAnnotationPayload(
+              baseline?.payload ?? null,
+              value,
+              remote,
+              new Date().toISOString()
+            )
+          : mergePayload(baseline?.payload ?? null, value, remote);
+  };
+  let result = await merge(local);
+  let conflict: PersonalConflict | undefined;
+  const makeConflict = (value: Payload, fields: string[]): PersonalConflict => ({
+    id,
+    accountId,
+    kind: item.kind as PersonalKind,
+    entityId: item.entity_id,
+    bookKey: item.book_key!,
+    local: value,
+    remote,
+    remoteRevision: item.revision,
+    fields
+  });
+  if (result.fields.length) conflict = makeConflict(local, result.fields);
+  // Compare-and-set the working entity. A user edit that lands after our merge
+  // read must never be overwritten by an incoming account snapshot.
+  if (!foreign && materialized && !conflict && !equal(local, result.value)) {
+    try {
+      await applyLocal(
+        item.kind,
+        item.entity_id,
+        item.book_key,
+        result.value,
+        books,
         accountId,
-        kind: item.kind,
-        entityId: item.entity_id,
-        bookKey: item.book_key,
-        local,
-        remote,
-        remoteRevision: item.revision,
-        fields: result.fields
+        local
+      );
+    } catch (error) {
+      if (!(error instanceof LocalChangedError)) throw error;
+      local = await readCurrent();
+      result = await merge(local);
+      if (result.fields.length) conflict = makeConflict(local, result.fields);
+      else if (!equal(local, result.value)) {
+        try {
+          await applyLocal(
+            item.kind,
+            item.entity_id,
+            item.book_key,
+            result.value,
+            books,
+            accountId,
+            local
+          );
+        } catch (retryError) {
+          if (!(retryError instanceof LocalChangedError)) throw retryError;
+          local = await readCurrent();
+          conflict = makeConflict(local, ['local_changed']);
+        }
       }
-    : undefined;
-  // Never apply a remote annotation over a pending local edit. Merge only after its
-  // exact local revision is checked during the subsequent flush.
-  if (!foreign && !conflict && !equal(local, result.value))
-    await applyLocal(item.kind, item.entity_id, item.book_key, result.value, books, accountId);
+    }
+  }
   scoped(accountId);
   const tx = db.transaction(
     [
@@ -439,6 +559,7 @@ async function acceptRemote(
     deleted: item.deleted
   });
   if (conflict) await tx.objectStore('readerPersonalConflict').put(conflict);
+  else await tx.objectStore('readerPersonalConflict').delete(id);
   if (matchingReading) await tx.objectStore('readerPersonalOutbox').delete(matchingReading.id);
   if (matchingAnnotation)
     await tx.objectStore('readerAnnotationOutbox').delete(matchingAnnotation.id);
@@ -510,24 +631,34 @@ async function stageReading(accountId: string, books: Map<string, BooksDbBookDat
       const id = key(accountId, entity.kind, entity.entityId);
       const base = await db.get('readerPersonalRecord', id);
       const local = await readLocal(entity.kind, entity.entityId, bookKey, books);
-      if (equal(local, base?.payload ?? null) || (!local && !base)) continue;
       const tx = db.transaction(['readerPersonalOutbox', 'readerPersonalConflict'], 'readwrite');
-      if (!(await tx.objectStore('readerPersonalConflict').get(id))) {
-        const pending = (
-          await tx.objectStore('readerPersonalOutbox').index('accountId').getAll(accountId)
-        ).find((value) => value.kind === entity.kind && value.entityId === entity.entityId);
-        if (!pending || !equal(pending.localValue, local)) {
-          const mutation: PersonalMutation = {
-            id: crypto.randomUUID(),
-            accountId,
-            kind: entity.kind as PersonalMutation['kind'],
-            entityId: entity.entityId,
-            bookKey,
-            baseRevision: base?.revision ?? 0,
-            localValue: local
-          };
-          await tx.objectStore('readerPersonalOutbox').put(mutation);
-        }
+      if (await tx.objectStore('readerPersonalConflict').get(id)) {
+        await tx.done;
+        continue;
+      }
+      const matches = (
+        await tx.objectStore('readerPersonalOutbox').index('accountId').getAll(accountId)
+      ).filter((value) => value.kind === entity.kind && value.entityId === entity.entityId);
+      const prepared = matches.filter((value) => !!value.request);
+      const staged = matches.filter((value) => !value.request);
+      // A not-yet-submitted snapshot is freely coalescible. Once a request is
+      // prepared its mutation ID/payload are immutable until its outcome is known.
+      for (const value of staged) await tx.objectStore('readerPersonalOutbox').delete(value.id);
+      if (equal(local, base?.payload ?? null) || (!local && !base)) {
+        await tx.done;
+        continue;
+      }
+      if (!prepared.some((value) => equal(value.localValue, local))) {
+        const mutation: PersonalMutation = {
+          id: crypto.randomUUID(),
+          accountId,
+          kind: entity.kind as PersonalMutation['kind'],
+          entityId: entity.entityId,
+          bookKey,
+          baseRevision: base?.revision ?? 0,
+          localValue: local
+        };
+        await tx.objectStore('readerPersonalOutbox').put(mutation);
       }
       await tx.done;
     }
@@ -585,7 +716,24 @@ async function sendMutation(accountId: string, mutation: WireMutation): Promise<
 async function flushReading(accountId: string, books: Map<string, BooksDbBookData[]>) {
   const db = await database.db;
   const outbox = await db.getAllFromIndex('readerPersonalOutbox', 'accountId', accountId);
+  // Send at most one immutable request per logical entity in a pass. A newer
+  // local snapshot remains staged and is prepared only after the predecessor's
+  // acknowledgement establishes the next base revision.
+  outbox.sort((left, right) => {
+    const entity = `${left.kind}\u0000${left.entityId}`.localeCompare(
+      `${right.kind}\u0000${right.entityId}`
+    );
+    if (entity) return entity;
+    if (!!left.request !== !!right.request) return left.request ? -1 : 1;
+    const leftRevision = left.request?.base_revision ?? left.baseRevision;
+    const rightRevision = right.request?.base_revision ?? right.baseRevision;
+    return leftRevision - rightRevision || left.id.localeCompare(right.id);
+  });
+  const processed = new Set<string>();
   for (const pending of outbox) {
+    const entityKey = `${pending.kind}\u0000${pending.entityId}`;
+    if (processed.has(entityKey)) continue;
+    processed.add(entityKey);
     scoped(accountId);
     if (await db.get('readerPersonalConflict', key(accountId, pending.kind, pending.entityId)))
       continue;
@@ -646,7 +794,6 @@ async function flushReading(accountId: string, books: Map<string, BooksDbBookDat
       deleted: accepted.deleted
     });
     await tx.done;
-    // A later local edit remains in IndexedDB and is staged on the next pass.
   }
 }
 
@@ -810,6 +957,36 @@ export async function resolvePersonalConflict(id: string, choice: 'local' | 'rem
       await publish(accountId);
       throw new IntegrationError('conflict', 409);
     }
+    const accepted = await db.get('readerPersonalRecord', id);
+    if (!accepted) {
+      await db.delete('readerPersonalConflict', id);
+      await publish(accountId);
+      throw new IntegrationError('conflict', 409);
+    }
+    const acceptedRemote = accepted.deleted ? null : (accepted.payload ?? null);
+    if (accepted.revision !== conflict.remoteRevision || !equal(acceptedRemote, conflict.remote)) {
+      const merged =
+        conflict.kind === 'annotation'
+          ? mergeAnnotationPayload(
+              conflict.remote,
+              latestLocal,
+              acceptedRemote,
+              new Date().toISOString()
+            )
+          : mergePayload(conflict.remote, latestLocal, acceptedRemote);
+      scoped(accountId);
+      if (merged.fields.length)
+        await db.put('readerPersonalConflict', {
+          ...conflict,
+          local: latestLocal,
+          remote: acceptedRemote,
+          remoteRevision: accepted.revision,
+          fields: merged.fields
+        });
+      else await db.delete('readerPersonalConflict', id);
+      await publish(accountId);
+      throw new IntegrationError('conflict', 409);
+    }
     if (choice === 'remote')
       await applyLocal(
         conflict.kind,
@@ -817,7 +994,8 @@ export async function resolvePersonalConflict(id: string, choice: 'local' | 'rem
         conflict.bookKey,
         conflict.remote,
         books,
-        accountId
+        accountId,
+        latestLocal
       );
     scoped(accountId);
     const tx = db.transaction(

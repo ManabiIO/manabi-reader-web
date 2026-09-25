@@ -20,7 +20,7 @@ import { ReplicationSaveBehavior } from '$lib/functions/replication/replication-
 import loadEpub from '$lib/functions/file-loaders/epub/load-epub';
 import loadTxt from '$lib/functions/file-loaders/txt/load-txt';
 import loadHtmlz from '$lib/functions/file-loaders/htmlz/load-htmlz';
-import { account, currentUser, IntegrationError } from './client';
+import { account, currentUser, localProfileUser, IntegrationError } from './client';
 import { integrationDB, exclusive, type BookLink } from './persistence';
 import { sha256, type LibraryEntry, type LibrarySource } from './sources';
 import {
@@ -49,10 +49,10 @@ function ensureOwner(link: BookLink) {
 export async function refreshLinkedBooks() {
   const books = await (await integrationDB()).getAll('books');
   allLinkedBooks.set(books);
-  const owner = currentUser()?.id ?? null;
+  const owner = currentUser()?.id ?? localProfileUser()?.id ?? null;
   const visible = books.filter((book) => book.owner === null || book.owner === owner);
   await stabilizeOrganization(visible);
-  if ((currentUser()?.id ?? null) !== owner) return;
+  if ((currentUser()?.id ?? localProfileUser()?.id ?? null) !== owner) return;
   linkedBooks.set(visible);
 }
 

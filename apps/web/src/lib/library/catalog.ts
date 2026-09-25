@@ -4,7 +4,8 @@
  * All rights reserved.
  */
 
-import { currentUser, request } from '$lib/manabi/client';
+import { webdavConnections, webdavSource } from './webdav/connection';
+import { currentUser, localProfileUser, request } from '$lib/manabi/client';
 import { integrationDB, metadata, setMetadata } from '$lib/manabi/persistence';
 import {
   CloudLibrary,
@@ -41,16 +42,25 @@ export async function sourceDescriptors(): Promise<SourceDescriptor[]> {
     name: l.name,
     provider: 'local'
   }));
-  const owner = currentUser()?.id;
+  const webdav = (await webdavConnections()).map((c) => ({
+    id: c.id,
+    owner: null,
+    root: c.url,
+    name: c.name,
+    provider: 'webdav'
+  }));
+  local.push(...webdav);
+  const owner = currentUser()?.id ?? localProfileUser()?.id;
   if (!owner) return local;
   const cloudKey = `library-sources:${owner}`;
   let cloud = (await metadata<SourceDescriptor[]>(cloudKey)) ?? [];
   try {
+    if (currentUser()?.id !== owner) return [...local, ...cloud];
     const result = await request<{ items: CloudConnection[] }>('connections/', { userId: owner });
     cloud = result.items.flatMap((c) =>
       c.roots.map((root) => ({ id: c.id, owner, root, name: root, provider: c.provider }))
     );
-    if (currentUser()?.id !== owner) return local;
+    if (currentUser()?.id !== owner) return [...local, ...cloud];
     await setMetadata(cloudKey, cloud);
   } catch {
     /* Keep an offline catalog; the explicit Refresh action surfaces access errors. */
@@ -63,6 +73,7 @@ export async function librarySource(source: SourceDescriptor): Promise<LibrarySo
       throw new Error('Reconnect this library with its original account.');
     return new CloudLibrary(source.id, source.owner, source.root);
   }
+  if (source.provider === 'webdav') return webdavSource(source.id);
   const local = await (await integrationDB()).get('localLibraries', source.id);
   if (!local) throw new Error('This folder is no longer connected.');
   return new LocalLibrarySource(local);

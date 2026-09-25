@@ -22,6 +22,42 @@ export const account = writable<{ status: AccountStatus; session: ManabiSession 
   session: null
 });
 
+const LOCAL_PROFILE_KEY = 'manabi-reader-local-profile-v1';
+function storedLocalProfile(): ManabiUser | null {
+  if (typeof localStorage === 'undefined') return null;
+  try {
+    const value = JSON.parse(localStorage.getItem(LOCAL_PROFILE_KEY) ?? 'null') as unknown;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const profile = value as Record<string, unknown>;
+    if (
+      typeof profile.id !== 'string' ||
+      !profile.id ||
+      profile.id.length > 128 ||
+      typeof profile.username !== 'string' ||
+      !profile.username ||
+      profile.username.length > 256
+    )
+      return null;
+    return { id: profile.id, username: profile.username };
+  } catch {
+    return null;
+  }
+}
+export const localProfile = writable<ManabiUser | null>(storedLocalProfile());
+export function localProfileUser(): ManabiUser | null {
+  return get(localProfile);
+}
+function rememberLocalProfile(user: ManabiUser | null) {
+  localProfile.set(user);
+  if (typeof localStorage === 'undefined') return;
+  try {
+    if (user) localStorage.setItem(LOCAL_PROFILE_KEY, JSON.stringify(user));
+    else localStorage.removeItem(LOCAL_PROFILE_KEY);
+  } catch {
+    // Storage denial must not turn an authenticated session into a failure.
+  }
+}
+
 const ROOT = '/api/reader-web/';
 let generation = 0;
 let refreshSerial = 0;
@@ -128,6 +164,11 @@ async function performAccountRefresh(force: boolean): Promise<ManabiSession | nu
       throw new IntegrationError('invalid_response');
     if (serial !== refreshSerial) return null;
     if (currentUser()?.id !== session.user?.id) generation += 1;
+    // Authentication controls network authority; this persisted profile only
+    // identifies which local IndexedDB replica remains visible while offline or
+    // signed out. A later authenticated account replaces it; sign-out does not
+    // delete or hide the previous account's local reading replica.
+    if (session.user) rememberLocalProfile(session.user);
     account.set({ status: 'available', session });
     return session;
   } catch {

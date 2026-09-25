@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { projectionBlockTags, projectionExcluded } from './reader-projection.ts';
+
 // v2 treats block-level divs and !important-hidden inline content explicitly.
 export const readerProjectionVersion = 2;
 
@@ -43,23 +45,6 @@ export interface ProjectedResource {
   text: string;
   runs: TextRun[];
 }
-
-const excludedTags = new Set(['RT', 'RP', 'RTC', 'SCRIPT', 'STYLE', 'TEMPLATE', 'NOSCRIPT']);
-const blockTags = new Set([
-  'P',
-  'H1',
-  'H2',
-  'H3',
-  'H4',
-  'H5',
-  'H6',
-  'LI',
-  'BLOCKQUOTE',
-  'PRE',
-  'DIV',
-  'TR',
-  'FIGCAPTION'
-]);
 
 /** One Unicode code point is one coordinate, even when the DOM uses two UTF-16 code units. */
 export function codePointLength(text: string): number {
@@ -107,11 +92,11 @@ export function projectResource(
     }
     if (!(node instanceof Element)) return;
     if (
-      excludedTags.has(node.tagName) ||
-      node.hasAttribute('hidden') ||
-      node.getAttribute('aria-hidden') === 'true' ||
-      /(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden|content-visibility\s*:\s*hidden)\s*(?:!important\s*)?(?:;|$)/i.test(
-        node.getAttribute('style') ?? ''
+      projectionExcluded(
+        node.tagName,
+        Object.fromEntries(
+          Array.from(node.attributes, (attribute) => [attribute.name, attribute.value])
+        )
       )
     )
       return;
@@ -119,7 +104,7 @@ export function projectResource(
       separator();
       return;
     }
-    const block = blockTags.has(node.tagName);
+    const block = projectionBlockTags.has(node.tagName);
     if (block) separator();
     for (const child of node.childNodes) visit(child);
     if (block) separator();
@@ -129,7 +114,7 @@ export function projectResource(
   return { resource, element, text: parts.join(''), runs };
 }
 
-export function defaultManifest(html: HTMLElement): PublicationManifest {
+export function defaultManifest(html: Pick<HTMLElement, 'children'>): PublicationManifest {
   return {
     version: 1,
     resources: Array.from(html.children, (section, spineIndex) => ({
@@ -141,7 +126,7 @@ export function defaultManifest(html: HTMLElement): PublicationManifest {
 }
 
 export function projectPublication(
-  html: HTMLElement,
+  html: Pick<HTMLElement, 'children'>,
   manifest: PublicationManifest = defaultManifest(html)
 ): ProjectedResource[] {
   if (manifest.resources.length !== html.children.length)

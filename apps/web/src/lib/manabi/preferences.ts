@@ -8,7 +8,7 @@ import { get, writable } from 'svelte/store';
 import * as reader from '$lib/data/store';
 import { appearance$ } from '$lib/appearance/state';
 import { availableThemes, portableThemeName } from '$lib/data/theme-option';
-import { account, currentUser, IntegrationError, request } from './client';
+import { account, currentUser, localProfileUser, IntegrationError, request } from './client';
 import { equal, exclusive, mergeRecords, metadata, setMetadata } from './persistence';
 import {
   organizationPreference,
@@ -354,7 +354,7 @@ export async function enablePreferenceSync(enabled: boolean, choice?: 'local' | 
 function startPreferenceSyncReady() {
   let stopped = false;
   async function switchUser() {
-    const user = currentUser()?.id ?? null;
+    const user = localProfileUser()?.id ?? null;
     if (user === activeUser) return;
     activation += 1;
     activeUser = user;
@@ -439,4 +439,20 @@ export function startPreferenceSync() {
     stopWatching();
     stop();
   };
+}
+
+/** Local, explicit migration entry point. No arbitrary storage keys or organization values. */
+export function captureImportPreferences(keys: string[]): Flat {
+  return Object.fromEntries(
+    keys.map((key) => {
+      if (key === 'library_organization' || !Object.hasOwn(bindings, key))
+        throw new Error('Unsupported imported preference.');
+      return [key, bindings[key].read()];
+    })
+  );
+}
+export async function applyImportPreferences(values: Flat): Promise<void> {
+  captureImportPreferences(Object.keys(values));
+  // This is a local edit, not a remote-sync replay. Existing opt-in preference sync remains opt-in.
+  for (const [key, value] of Object.entries(values)) await bindings[key].apply(value);
 }
