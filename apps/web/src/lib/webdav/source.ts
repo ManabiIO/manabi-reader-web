@@ -44,7 +44,33 @@ export async function configureDav(config: DavConfiguration, password: string, r
   lifetimes.get(config.id)?.abort();
   lifetimes.delete(config.id);
   await withDavSourceLock(config.id, async () => {
-    await (await integrationDB()).put('metadata', value, prefix + config.id);
+    const db = await integrationDB();
+    const tx = db.transaction(['metadata', 'books'], 'readwrite');
+    try {
+      const previous = (await tx.objectStore('metadata').get(prefix + config.id)) as
+        | DavConfiguration
+        | undefined;
+      if (previous && (previous.url !== value.url || previous.username !== value.username))
+        throw new DavError(
+          'reconnect',
+          'Add a new WebDAV connection to change the folder or username. Existing books and sync settings were kept.'
+        );
+      await tx.objectStore('metadata').put(value, prefix + config.id);
+      if (!value.writable) {
+        for (const link of await tx.objectStore('books').getAll())
+          if (link.sourceId === config.id && link.syncEnabled)
+            await tx.objectStore('books').put({ ...link, syncEnabled: false });
+      }
+      await tx.done;
+    } catch (error) {
+      try {
+        tx.abort();
+      } catch {
+        /* Already settled. */
+      }
+      await tx.done.catch(() => undefined);
+      throw error;
+    }
     sessions.set(config.id, password);
   });
 }

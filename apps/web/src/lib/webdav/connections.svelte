@@ -12,7 +12,7 @@
     type WebDavSource
   } from './source';
   export let onbrowse: (source: WebDavSource) => Promise<void>;
-  export let ondisconnect: (id: string) => Promise<void>;
+  export let onchange: (id: string) => Promise<void>;
   let sources: DavConfiguration[] = [];
   let editing: string | null = null;
   let name = '',
@@ -25,6 +25,7 @@
     message = '',
     mounted = false;
   let controller: AbortController | undefined;
+  $: existing = sources.some((source) => source.id === editing);
   function edit(source?: DavConfiguration) {
     controller?.abort();
     editing = source?.id ?? `webdav-${crypto.randomUUID()}`;
@@ -62,6 +63,7 @@
     active.signal.throwIfAborted();
     if (!mounted) return;
     await configureDav(config, secret, persist);
+    await onchange(config.id);
     if (!mounted) return;
     sources = await davSources();
     editing = null;
@@ -107,11 +109,21 @@
           required
           type="url"
           bind:value={url}
-          disabled={busy}
+          disabled={busy || existing}
           placeholder="https://cloud.example/remote.php/dav/files/name/Books/"
         /></label
       >
-      <label>Username<Input autocomplete="username" bind:value={username} disabled={busy} /></label>
+      <label
+        >Username<Input
+          autocomplete="username"
+          bind:value={username}
+          disabled={busy || existing}
+        /></label
+      >
+      {#if existing}<p class="text-sm text-muted-foreground">
+          Folder and username identify this connection. Add a new connection to change either;
+          importing the same book can reuse its existing local copy and reading history.
+        </p>{/if}
       <label
         >Password or app password<Input
           type="password"
@@ -171,7 +183,7 @@
           onclick={() =>
             run(async () => {
               await disconnectDav(item.id);
-              await ondisconnect(item.id);
+              await onchange(item.id);
               sources = await davSources();
             })}>Disconnect {item.name}</Button
         >

@@ -182,3 +182,12 @@ A change in another tab may wait for an already-dispatched, bounded request to
 finish; a request already accepted by a server cannot be unsent. Queued consent
 and sync actions retain their originating account scope. Two gated HTTP write
 regressions verify that changes wait for existing work and prevent later uploads.
+
+Folder URL and username are immutable connection identity. Name, credentials and
+write permission remain editable; add a new connection to use another folder or
+username, then import/reuse the original book by verified content identity. Saved
+reading data is never silently redirected to another folder by a configuration
+edit, and a mismatched legacy/corrupt root fails before any network request.
+Removing source write permission atomically disables its existing per-book sync
+consents. Saving settings refreshes the linked-book controls and discards stale
+browsing handles, so their displayed choices agree with the persisted permission.

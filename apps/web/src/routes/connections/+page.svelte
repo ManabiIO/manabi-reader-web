@@ -393,7 +393,7 @@
 
   <DavConnections
     onbrowse={openDav}
-    ondisconnect={async (id) => {
+    onchange={async (id) => {
       if (source?.id === id) {
         source = null;
         entries = [];

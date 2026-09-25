@@ -68,6 +68,13 @@ function guard(link: BookLink) {
     );
 }
 const stateId = (link: BookLink) => JSON.stringify([link.id, link.davAccountId]);
+function checkSourceRoot(link: BookLink, root: string) {
+  if (link.root !== root)
+    throw new DavError(
+      'reconnect',
+      'This book belongs to a different WebDAV folder. Reimport it from the selected folder before enabling sync.'
+    );
+}
 async function active(link: BookLink) {
   guard(link);
   const now = await (await integrationDB()).get('books', link.id);
@@ -212,6 +219,7 @@ export async function setDavBookSync(id: string, enabled: boolean) {
   if (!link || !link.sourceId.startsWith('webdav-')) throw new Error('WebDAV book not found.');
   return withDavSourceLock(link.sourceId, async () => {
     const source = await davSource(link.sourceId);
+    checkSourceRoot(link, source.root);
     const bookScope = await (await database.db).get('readerBookScope', link.bookId);
     if (enabled && bookScope && bookScope.accountId !== scope)
       throw new Error('This book belongs to another account.');
@@ -284,6 +292,7 @@ async function performDavSync(id: string, choice?: 'local' | 'remote') {
     const source = await davSource(link.sourceId),
       db = await database.db,
       bookKey = `content:${link.contentHash}`;
+    checkSourceRoot(link, source.root);
     const book = await db.get('data', link.bookId);
     if (!book) throw new Error('Book no longer exists.');
     const scope = await db.get('readerBookScope', link.bookId);

@@ -744,5 +744,41 @@ class LocalFeatureBrowser(LibraryBase):
             gate.set(); other.close()
 
 
+    def test_removing_write_permission_disables_book_consent_atomically(self):
+        self.establish_dav_state()
+        self.page.get_by_role('button', name='Unlock or edit Test DAV', exact=True).click()
+        expect(self.page.get_by_label('WebDAV folder URL', exact=True)).to_be_disabled()
+        expect(self.page.get_by_label('Username', exact=True)).to_be_disabled()
+        self.page.get_by_label('Allow reading-data write-back in .manabi-reader', exact=True).uncheck()
+        self.page.get_by_role('button', name='Test and save WebDAV', exact=True).click()
+        expect(self.page.get_by_label('Sync this book’s reading data with WebDAV', exact=True)).not_to_be_checked()
+        links = self.stores('manabi-reader-integrations', ['books'])['books']
+        self.assertFalse(links[0]['syncEnabled'])
+        self.assertEqual(1, self.dav.state['puts'])
+
+    def test_mismatched_webdav_root_cannot_retarget_saved_reading_data(self):
+        self.establish_dav_state()
+        self.page.evaluate("""() => new Promise((resolve, reject) => {
+          const request = indexedDB.open('manabi-reader-integrations');
+          request.onsuccess = () => {
+            const db = request.result, tx = db.transaction('metadata', 'readwrite'), store = tx.objectStore('metadata');
+            store.openCursor().onsuccess = event => {
+              const cursor = event.target.result;
+              if (!cursor) return;
+              if (String(cursor.key).startsWith('webdav-source:'))
+                cursor.update({...cursor.value, url: cursor.value.url.replace('/Books/', '/Other/')});
+              cursor.continue();
+            };
+            tx.oncomplete = () => { db.close(); resolve(); };
+            tx.onabort = () => reject(tx.error);
+          };
+        })""")
+        self.page.reload()
+        self.page.get_by_role('button', name='Sync WebDAV offline book', exact=True).click()
+        expect(self.page.get_by_text('This book belongs to a different WebDAV folder. Reimport it from the selected folder before enabling sync.', exact=True)).to_be_visible()
+        self.assertEqual(1, self.dav.state['puts'])
+        self.assertFalse(any(path.startswith('/Other/') for _, path, _ in self.dav.state['requests']))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
