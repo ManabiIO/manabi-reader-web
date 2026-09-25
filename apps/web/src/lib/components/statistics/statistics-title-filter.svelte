@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { createEventDispatcher, onMount } from 'svelte';
+  import { createEventDispatcher, onMount, tick } from 'svelte';
   import * as Sheet from '$lib/components/ui/sheet';
   import { Button } from '$lib/components/ui/button';
   import CloseButton from '$lib/components/ui/close-button.svelte';
@@ -25,6 +25,7 @@
   }>();
   let titleFilter = '';
   let page = 1;
+  let titleList: HTMLDivElement | undefined;
   let titlesToFilter: StatisticsTitleFilterItem[] = [];
   // Draft selection is private to this opening. Close/Escape never applies it.
   $: titlesToFilter = [...statisticsTitleFilters].map(([title, isSelected]) => ({
@@ -46,6 +47,19 @@
       $skipKeyDownListener$ = false;
     };
   });
+
+  async function changePage(nextPage: number) {
+    const query = titleFilter;
+    page = nextPage;
+    await tick();
+    if (page !== nextPage || titleFilter !== query) return;
+    const first = titleList?.querySelector<HTMLInputElement>('input[type=checkbox]');
+    if (!first?.isConnected) return;
+    // A page can be taller than the sheet. Do not leave the user at its
+    // last row after Next; move keyboard focus into the new page too.
+    first.focus({ preventScroll: true });
+    first.scrollIntoView({ block: 'nearest' });
+  }
 
   function selectTitle(title: string, isSelected: boolean) {
     titlesToFilter = titlesToFilter.map((item) =>
@@ -107,7 +121,7 @@
     {filteredTitles.length} matching titles · {titlesToFilter.filter((item) => item.isSelected).length} selected
   </p>
   {#if current.rows.length}
-    <div class="title-list" role="group" aria-label="Book title selection">
+    <div bind:this={titleList} class="title-list" role="group" aria-label="Book title selection">
       {#each current.rows as item (item.title)}
         <label class="title-row">
           <input
@@ -130,13 +144,13 @@
       <Button
         variant="ghost"
         disabled={current.page === 1}
-        onclick={() => (page = current.page - 1)}>Previous</Button
+        onclick={() => changePage(current.page - 1)}>Previous</Button
       >
       <span class="text-sm text-muted-foreground">Page {current.page} / {current.pages}</span>
       <Button
         variant="ghost"
         disabled={current.page === current.pages}
-        onclick={() => (page = current.page + 1)}>Next</Button
+        onclick={() => changePage(current.page + 1)}>Next</Button
       >
     </div>
   {/if}

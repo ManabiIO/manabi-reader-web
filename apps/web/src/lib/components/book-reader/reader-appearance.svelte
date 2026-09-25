@@ -50,7 +50,7 @@
     side="bottom"
     overlayProps={{ onclick: () => (open = false) }}
     showCloseButton={false}
-    class="reader-appearance writing-horizontal-tb mx-auto max-h-[min(90dvh,48rem)] max-w-md gap-5 overflow-y-auto rounded-t-3xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:mb-5 sm:mr-5 sm:rounded-3xl"
+    class="reader-appearance writing-horizontal-tb mx-auto max-h-[min(90dvh,48rem)] max-w-md gap-[20px] overflow-y-auto rounded-t-[24px] p-[20px] pb-[max(20px,env(safe-area-inset-bottom))] sm:mb-5 sm:mr-5 sm:rounded-[24px]"
     onCloseAutoFocus={(event) => {
       event.preventDefault();
       const controls = document.querySelector<HTMLButtonElement>('button[data-reader-controls]');
@@ -61,7 +61,7 @@
       trigger?.focus();
     }}
   >
-    <Sheet.Header class="flex flex-row items-center justify-between gap-3 p-0">
+    <Sheet.Header class="flex flex-row items-center justify-between gap-[12px] p-0">
       <Sheet.Title class="text-lg font-semibold">Themes &amp; Settings</Sheet.Title>
       <CloseButton
         aria-label="Close reading appearance"
