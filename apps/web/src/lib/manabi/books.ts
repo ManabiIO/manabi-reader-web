@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 
+import { WebDavSource } from '$lib/webdav/source';
 import { davSyncStatus, syncDavBook, syncEnabledDavBooks } from '$lib/webdav/sync';
 import { get, writable } from 'svelte/store';
 import { database } from '$lib/data/store';
@@ -128,15 +129,18 @@ export async function importLibraryBook(
       title: stored.title,
       syncEnabled
     };
-    await integration.put('books', link);
+    const savedLink =
+      source instanceof WebDavSource
+        ? await source.persistLink(link)
+        : (await integration.put('books', link), link);
     await relocatePresentation(sourceBookKey(source, item.id), contentBookKey(contentHash));
     await relocatePresentation(bookKey(stored.id), contentBookKey(contentHash));
     getStorageHandler(window, StorageKey.BROWSER).clearData();
     storageSource$.next(StorageKey.BROWSER);
     database.dataListChanged$.next(undefined);
     await refreshLinkedBooks();
-    if (syncEnabled) await syncBook(link.id);
-    return link;
+    if (syncEnabled) await syncBook(savedLink.id);
+    return savedLink;
   });
 }
 

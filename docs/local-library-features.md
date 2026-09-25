@@ -144,3 +144,32 @@ includes the new UI components. Existing migration, appearance, reader, library 
 static-build workflows remain in place. A test fixture is not a live NAS/provider,
 and desktop WebKit is not physical iPhone Safari qualification. Exact head results
 belong in the PR; remaining parent-stack/device gates are not waived here.
+
+### Closeout regressions
+
+Book insertion now aborts and drains the IndexedDB transaction on a failed request,
+so storage failure neither publishes a partial book nor leaks the transaction's
+secondary unhandled rejection. A browser test aborts the actual data transaction,
+verifies that neither a book nor a link was saved, and then retries successfully.
+WebDAV link publication validates the unchanged connection in the same transaction
+that saves the link. Disconnecting in another tab during a held book download
+retains the local book without recreating a deleted connection or credentials.
+
+The offline-reload case stops the real origin HTTP listener, verifies connection
+refusal, and requires a fresh document supplied by the actual service worker before
+searching the imported book. This runs identically in Chromium and WebKit. It avoids
+Playwright 1.63's documented WebKit offline-emulation failure even for literal
+service-worker responses (microsoft/playwright#42775); it does not bypass the worker
+or intercept requests. A separate negative CORS case denies the real WebDAV response
+and verifies that no connection is saved and no promise rejection escapes. Chromium
+also asserts observed OPTIONS preflights. WebKit does not emit those preflights in
+this loopback fixture and reports the caught access-control denial through its
+native inspector event; only that exact expected event is admitted in this test.
+
+Two-device convergence uses two independent persistent browser profiles. A bare
+WebKit 2359 ephemeral-context Blob transaction fails in the diagnostic runtime even
+without Manabi, so that context is not substituted for a durable second device.
+Closing a reader tab waits for the browser's actual lock release before retrying
+sync; the test still first proves that a live reader prevents the write entirely.
+These are browser-fixture boundaries, not changes to the production permission,
+conflict, transaction, or reading-lifetime rules.

@@ -1,10 +1,13 @@
 """Local feature qualification against the real static build and IndexedDB.
 
-WebDAV is an independently running HTTP fixture with real CORS preflights,
-Basic authentication and conditional writes. Worker fault injection is limited
+WebDAV is an independently running HTTP fixture with browser-enforced CORS,
+Basic authentication and conditional writes. Chromium also checks actual OPTIONS
+preflights; WebKit does not emit them in this loopback fixture. Worker fault injection is limited
 to the explicit responsiveness case; all other searches execute the built worker.
 """
 import base64
+from contextlib import contextmanager
+import socket
 import hashlib
 import io
 import json
@@ -12,6 +15,7 @@ import os
 from pathlib import Path
 import re
 import threading
+import tempfile
 import time
 import unittest
 from urllib.parse import quote, unquote, urlsplit
@@ -130,6 +134,10 @@ class DavHandler(BaseHTTPRequestHandler):
         body = self.state['files'].get(path)
         if body is None:
             self.send(404); return
+        gate = self.state.get('book_get_gate') if path.endswith('.epub') else None
+        if gate:
+            self.state['get_started'].set()
+            gate.wait(15)
         etag = '"'+hashlib.sha256(body).hexdigest()+'"'
         if self.headers.get('If-Match') not in (None,etag):
             self.send(412); return
@@ -187,6 +195,23 @@ class LocalFeatureBrowser(LibraryBase):
             self.assertLess(time.monotonic(),deadline,repr(rows))
             self.page.wait_for_timeout(50)
 
+    @contextmanager
+    def origin_unavailable(self):
+        # WebKit 2359 rejects even a literal SW Response with set_offline(True)
+        # (microsoft/playwright#42775). Stop the real HTTP listener instead, for
+        # both engines; no request interception, synthetic cache, or skipped case.
+        cls = type(self)
+        address = cls.server.server_address
+        cls.server.shutdown(); cls.server.server_close(); cls.thread.join()
+        try:
+            with self.assertRaises(OSError):
+                socket.create_connection(address, timeout=1)
+            yield
+        finally:
+            cls.server = ThreadingHTTPServer(address, StaticHandler)
+            cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
+            cls.thread.start()
+
     def search(self, text):
         field=self.page.get_by_role('searchbox',name='Search library',exact=True)
         if not field.count() or not field.is_visible():
@@ -205,7 +230,7 @@ class LocalFeatureBrowser(LibraryBase):
         self.page.get_by_role('button',name=re.compile(r'^Import selected \(')).click()
         expect(self.page.get_by_label('Choose Yatsu backup ZIPs',exact=True)).to_be_enabled(timeout=60000)
 
-    def connect_dav(self, writable=False):
+    def configure_dav(self, writable=False):
         self.page.goto(self.origin+'/Reader-Web/connections')
         self.page.get_by_role('button',name='Add WebDAV folder',exact=True).click()
         self.page.get_by_label('Name',exact=True).fill('Test DAV')
@@ -216,11 +241,15 @@ class LocalFeatureBrowser(LibraryBase):
         self.page.get_by_label('Remember password on this device',exact=True).check()
         if writable: self.page.get_by_label('Allow reading-data write-back in .manabi-reader',exact=True).check()
         self.page.get_by_role('button',name='Test and save WebDAV',exact=True).click()
+
+    def connect_dav(self, writable=False, import_book=True):
+        self.configure_dav(writable)
         expect(self.page.get_by_role('button',name='Browse Test DAV',exact=True)).to_be_visible()
         self.page.get_by_role('button',name='Browse Test DAV',exact=True).click()
         expect(self.page.get_by_role('button',name='Import Offline.epub',exact=True)).to_be_visible()
-        self.page.get_by_role('button',name='Import Offline.epub',exact=True).click()
-        expect(self.page.get_by_role('link',name='Read WebDAV offline book',exact=True)).to_be_visible()
+        if import_book:
+            self.page.get_by_role('button',name='Import Offline.epub',exact=True).click()
+            expect(self.page.get_by_role('link',name='Read WebDAV offline book',exact=True)).to_be_visible()
 
     def seed_resume(self, char=4, stamp=STAMP):
         self.page.evaluate('''({char,stamp})=>new Promise((resolve,reject)=>{
@@ -296,12 +325,20 @@ class LocalFeatureBrowser(LibraryBase):
     def test_direct_webdav_import_is_read_only_and_offline_searchable(self):
         original=self.dav.state['files']['/Books/Offline.epub']
         self.connect_dav()
-        self.assertGreater(self.dav.state['preflights'],0)
+        if self.engine == 'chromium':
+            self.assertGreater(self.dav.state['preflights'], 0)
         self.assertEqual(0,self.dav.state['puts'])
         self.assertFalse(any(r[0]=='MKCOL' for r in self.dav.state['requests']))
         self.go_library()
-        self.search('WEBDAV_SEARCH_NEEDLE')
-        expect(self.page.get_by_role('button',name='Open passage in WebDAV offline book: WEBDAV_SEARCH_NEEDLE',exact=True)).to_be_visible()
+        self.page.evaluate('() => navigator.serviceWorker.ready.then(() => true)')
+        self.assertTrue(self.page.evaluate('!!navigator.serviceWorker.controller'))
+        self.page.evaluate('window.__beforeOfflineReload = true')
+        with self.origin_unavailable():
+            response = self.page.reload()
+            self.assertTrue(response.from_service_worker)
+            self.assertTrue(self.page.evaluate('window.__beforeOfflineReload === undefined'))
+            self.search('WEBDAV_SEARCH_NEEDLE')
+            expect(self.page.get_by_role('button',name='Open passage in WebDAV offline book: WEBDAV_SEARCH_NEEDLE',exact=True)).to_be_visible()
         self.assertEqual(original,self.dav.state['files']['/Books/Offline.epub'])
 
     def test_webdav_opt_in_conditional_write_and_missing_remote(self):
@@ -465,6 +502,13 @@ class LocalFeatureBrowser(LibraryBase):
         expect(self.page.get_by_text('A book is open in another tab. Return all reader tabs to the Library before syncing reading data.',exact=True)).to_be_visible()
         self.assertEqual(0,self.dav.state['puts'])
         other.close()
+        # Closing a Playwright page acknowledges its UI closure, not the browser
+        # process releasing its locks. Poll actual ownership, never a settling sleep.
+        deadline = time.monotonic() + 10
+        while any(lock['name'] == 'manabi-webdav-reader-lifetime-v1'
+                  for lock in self.page.evaluate('navigator.locks.query()')['held']):
+            self.assertLess(time.monotonic(), deadline, 'Closed reader retained its lease')
+            self.page.wait_for_timeout(20)
         self.sync_dav();self.assertEqual(1,self.dav.state['puts'])
 
     def test_webdav_etag_conflict_does_not_advance_acknowledgement(self):
@@ -532,7 +576,12 @@ class LocalFeatureBrowser(LibraryBase):
         self.wait_rows('readerAnnotation',lambda rows:len(rows)==1)
         self.page.goto(self.origin+'/Reader-Web/connections');self.sync_dav()
         page_a=self.page
-        device_b=self.context.browser.new_context(viewport=dict(width=1200,height=900))
+        # Use two durable device profiles, as for device A. WebKit's ephemeral
+        # context cannot store Blob values in this runtime (even in a bare IDB
+        # transaction); that capability failure has a separate rollback regression.
+        profile_b = tempfile.TemporaryDirectory()
+        device_b = getattr(self.playwright, self.engine).launch_persistent_context(
+            profile_b.name, viewport=dict(width=1200,height=900))
         device_b.add_init_script("localStorage.setItem('manabi-reader-dictionary-setup-v1','skip')")
         try:
             self.page=device_b.new_page()
@@ -553,7 +602,7 @@ class LocalFeatureBrowser(LibraryBase):
             self.sync_dav();self.page=page_b;self.sync_dav()
             self.assertEqual(puts,self.dav.state['puts'],'Unchanged local revision numbers must not cause reuploads')
         finally:
-            self.page=page_a;device_b.close()
+            self.page=page_a;device_b.close();profile_b.cleanup()
 
     def test_webdav_rejects_directory_escape_without_sending_credentials_to_it(self):
         self.connect_dav();self.dav.state['evil']=True
@@ -571,6 +620,69 @@ class LocalFeatureBrowser(LibraryBase):
         rows=self.stores('manabi-reader-integrations',['metadata'])['metadata']
         org=next(r for r in rows if isinstance(r,dict) and 'collections' in r)
         self.assertTrue(all(not c['members'] for c in org['collections']))
+
+    def test_webdav_requires_real_cors_permission(self):
+        self.dav.state['cors'] = False
+        self.context.add_init_script("window.corsUnhandled = []; addEventListener('unhandledrejection', e => window.corsUnhandled.push(String(e.reason)))")
+        self.configure_dav()
+        expect(self.page.get_by_text(re.compile(r'^Cannot reach WebDAV\.'))).to_be_visible()
+        if self.engine == 'chromium':
+            self.assertGreater(self.dav.state['preflights'], 0)
+        self.assertEqual([], self.stores('manabi-reader-integrations', ['books'])['books'])
+        expect(self.page.get_by_role('button', name='Browse Test DAV', exact=True)).to_have_count(0)
+        self.assertEqual([], self.page.evaluate('window.corsUnhandled'))
+        # WebKit reports its native network access-control diagnostic as a
+        # pageerror even when fetch rejection was handled. Admit only this
+        # request's exact denial; all JS/unrelated errors still fail teardown.
+        if self.engine == 'webkit':
+            denial = '/' + urlsplit(self.dav_url).netloc + '/Books/ due to access control checks.'
+            self.errors[:] = [message for message in self.errors if message != denial]
+
+    def test_webdav_disconnect_during_import_never_restores_source_link(self):
+        self.connect_dav(import_book=False)
+        gate = threading.Event()
+        self.dav.state.update(book_get_gate=gate, get_started=threading.Event())
+        other = self.context.new_page()
+        try:
+            self.page.get_by_role('button', name='Import Offline.epub', exact=True).click()
+            deadline = time.monotonic() + 10
+            while not self.dav.state['get_started'].is_set():
+                self.assertLess(time.monotonic(), deadline)
+                self.page.wait_for_timeout(20)
+            other.goto(self.origin + '/Reader-Web/connections')
+            other.get_by_role('button', name='Disconnect Test DAV', exact=True).click()
+            expect(other.get_by_role('button', name='Browse Test DAV', exact=True)).to_have_count(0)
+            gate.set()
+            expect(self.page.get_by_text('This WebDAV connection changed during import. The book was kept locally, but not reconnected.', exact=True)).to_be_visible()
+            self.assertEqual([], self.stores('manabi-reader-integrations', ['books'])['books'])
+            self.assertEqual(1, len(self.stores('books', ['data'])['data']))
+        finally:
+            gate.set()
+            other.close()
+
+    def test_webdav_book_storage_abort_is_reported_without_unhandled_rejection(self):
+        self.connect_dav(import_book=False)
+        # Fault only the real IDB transaction. No alternative persistence path.
+        self.page.evaluate("""() => {
+          const add = IDBObjectStore.prototype.add;
+          IDBObjectStore.prototype.add = function(...args) {
+            const request = add.apply(this, args);
+            if (this.name === 'data') {
+              IDBObjectStore.prototype.add = add;
+              this.transaction.abort();
+            }
+            return request;
+          };
+        }""")
+        self.page.get_by_role('button', name='Import Offline.epub', exact=True).click()
+        expect(self.page.get_by_role('button', name='Import Offline.epub', exact=True)).to_be_enabled()
+        expect(self.page.get_by_role('link', name='Read WebDAV offline book', exact=True)).to_have_count(0)
+        self.assertEqual([], self.stores('books', ['data'])['data'])
+        self.assertEqual([], self.stores('manabi-reader-integrations', ['books'])['books'])
+        self.page.get_by_role('button', name='Import Offline.epub', exact=True).click()
+        expect(self.page.get_by_role('link', name='Read WebDAV offline book', exact=True)).to_be_visible()
+        self.assertEqual(1, len(self.stores('books', ['data'])['data']))
+        self.assertEqual([], self.errors)
 
 
 if __name__ == "__main__":

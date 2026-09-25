@@ -249,53 +249,65 @@ export class DatabaseService {
     let bookData: BooksDbBookData;
 
     const tx = db.transaction('data', 'readwrite');
-    const { store } = tx;
-    const titleMatches = await store.index('title').getAll(data.title);
-    // The inherited TTU importer used title as identity. Distinct source bytes
-    // can have the same title, so never replace a verified book with another
-    // file merely because their titles match. Unverified legacy records retain
-    // their local title-based upsert behavior until they gain a real digest.
-    const oldData = data.contentHash
-      ? titleMatches.find(
-          (book) => book.contentHash?.toLowerCase() === data.contentHash?.toLowerCase()
-        )
-      : titleMatches.find((book) => !book.contentHash);
+    try {
+      const { store } = tx;
+      const titleMatches = await store.index('title').getAll(data.title);
+      // The inherited TTU importer used title as identity. Distinct source bytes
+      // can have the same title, so never replace a verified book with another
+      // file merely because their titles match. Unverified legacy records retain
+      // their local title-based upsert behavior until they gain a real digest.
+      const oldData = data.contentHash
+        ? titleMatches.find(
+            (book) => book.contentHash?.toLowerCase() === data.contentHash?.toLowerCase()
+          )
+        : titleMatches.find((book) => !book.contentHash);
 
-    if (oldData) {
-      if (removeStorageContext) {
-        oldData.storageSource = undefined;
-      }
+      if (oldData) {
+        if (removeStorageContext) {
+          oldData.storageSource = undefined;
+        }
 
-      if (
-        saveBehavior === ReplicationSaveBehavior.NewOnly &&
-        oldData.lastBookModified &&
-        data.lastBookModified &&
-        oldData.lastBookModified >= data.lastBookModified &&
-        (oldData.lastBookOpen || 0) >= (data.lastBookOpen || 0)
-      ) {
-        bookData = oldData;
-        dataId = oldData.id;
+        if (
+          saveBehavior === ReplicationSaveBehavior.NewOnly &&
+          oldData.lastBookModified &&
+          data.lastBookModified &&
+          oldData.lastBookModified >= data.lastBookModified &&
+          (oldData.lastBookOpen || 0) >= (data.lastBookOpen || 0)
+        ) {
+          bookData = oldData;
+          dataId = oldData.id;
+        } else {
+          bookData = {
+            ...data,
+            id: oldData.id,
+            ...(skipTimestampFallback
+              ? { lastBookModified: data.lastBookModified, lastBookOpen: data.lastBookOpen }
+              : {
+                  lastBookModified: data.lastBookModified || oldData.lastBookModified,
+                  lastBookOpen: data.lastBookOpen || oldData.lastBookOpen
+                }),
+            ...(removeStorageContext ? { storageSource: undefined } : {})
+          };
+          dataId = await store.put(bookData);
+        }
       } else {
-        bookData = {
-          ...data,
-          id: oldData.id,
-          ...(skipTimestampFallback
-            ? { lastBookModified: data.lastBookModified, lastBookOpen: data.lastBookOpen }
-            : {
-                lastBookModified: data.lastBookModified || oldData.lastBookModified,
-                lastBookOpen: data.lastBookOpen || oldData.lastBookOpen
-              }),
-          ...(removeStorageContext ? { storageSource: undefined } : {})
-        };
-        dataId = await store.put(bookData);
+        // Until https://github.com/jakearchibald/idb/issues/150 resolves
+        const bookDataWithoutKey: Omit<BooksDbBookData, 'id'> = data;
+        dataId = await store.add(bookDataWithoutKey as BooksDbBookData);
+        bookData = { ...data, id: dataId };
       }
-    } else {
-      // Until https://github.com/jakearchibald/idb/issues/150 resolves
-      const bookDataWithoutKey: Omit<BooksDbBookData, 'id'> = data;
-      dataId = await store.add(bookDataWithoutKey as BooksDbBookData);
-      bookData = { ...data, id: dataId };
+      await tx.done;
+    } catch (error) {
+      // A failed IDB request also rejects tx.done. Drain both paths, and roll
+      // back a still-active transaction instead of publishing a partial book.
+      try {
+        tx.abort();
+      } catch {
+        /* Already committed or aborted. */
+      }
+      await tx.done.catch(() => undefined);
+      throw error;
     }
-    await tx.done;
 
     return bookData;
   }

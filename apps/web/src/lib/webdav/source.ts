@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { integrationDB, equal } from '$lib/manabi/persistence';
+import { integrationDB, equal, type BookLink } from '$lib/manabi/persistence';
 import type { LibrarySource, LibraryEntry, StateCopy } from '$lib/manabi/sources';
 import { WebDavClient, davRoot, DavError, strongEtag } from './client';
 
@@ -99,6 +99,44 @@ export class WebDavSource implements LibrarySource {
     return new File([new Uint8Array(result.bytes).buffer], item.name, {
       type: item.name.endsWith('.epub') ? 'application/epub+zip' : 'application/octet-stream'
     });
+  }
+  /** Publish a source link only while the same connection still exists. The
+   * metadata read and link write share a transaction with disconnectDav, so a
+   * late download or parse cannot resurrect a removed/changed connection. */
+  async persistLink(link: BookLink): Promise<BookLink> {
+    if (link.sourceId !== this.id || link.root !== this.root || link.owner !== null)
+      throw new DavError('reconnect', 'This book belongs to a different WebDAV connection.');
+    const db = await integrationDB();
+    const tx = db.transaction(['metadata', 'books'], 'readwrite');
+    try {
+      const latest = await tx.objectStore('metadata').get(prefix + this.id);
+      if (!equal(latest, this.configuration))
+        throw new DavError(
+          'reconnect',
+          'This WebDAV connection changed during import. The book was kept locally, but not reconnected.'
+        );
+      // Do not replace a concurrent per-book sync choice with the import default.
+      const existing = await tx.objectStore('books').get(link.id);
+      if (
+        existing &&
+        (existing.bookId !== link.bookId || existing.contentHash !== link.contentHash)
+      )
+        throw new DavError(
+          'conflict',
+          'The WebDAV book link changed during import. Refresh before retrying.'
+        );
+      if (!existing) await tx.objectStore('books').put(link);
+      await tx.done;
+      return existing ?? link;
+    } catch (error) {
+      try {
+        tx.abort();
+      } catch {
+        /* Already committed or aborted. */
+      }
+      await tx.done.catch(() => undefined);
+      throw error;
+    }
   }
   private statePath(key: string) {
     if (!/^book_[a-f0-9]{64}$/.test(key)) throw new Error('Invalid WebDAV reading-data identity.');
