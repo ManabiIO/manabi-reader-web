@@ -30,6 +30,8 @@ class AppleControlsBrowser(previous.ResumeControlsBrowser):
             border:rgba(s.borderTopColor), borderWidth:parseFloat(s.borderTopWidth),
             radius:parseFloat(s.borderTopLeftRadius), font:parseFloat(s.fontSize),
             weight:s.fontWeight, decoration:s.textDecorationLine, translate:s.translate,
+            insets:[parseFloat(s.paddingInlineStart),parseFloat(s.paddingInlineEnd)],
+            blockInset:parseFloat(s.paddingBlockStart), alignment:s.textAlign,
             box:[r.x,r.y,r.width,r.height]};
         }''')
 
@@ -64,6 +66,8 @@ class AppleControlsBrowser(previous.ResumeControlsBrowser):
                 self.assertEqual('none', style['translate'])
                 self.assertEqual('400', style['weight'])
             self.assertGreaterEqual(p['font'], 17)
+            self.assertEqual([22, 22], p['insets'])
+            self.assertEqual(10, p['blockInset'])
             self.assertEqual(255, p['fill'][3])
             self.assertGreaterEqual(self.contrast(p['ink'], p['fill']), 4.5)
             self.assertEqual(0, o['fill'][3])
@@ -75,6 +79,8 @@ class AppleControlsBrowser(previous.ResumeControlsBrowser):
             self.assertEqual(0, t['fill'][3])
             self.assertEqual(0, t['borderWidth'])
             self.assertEqual(0, t['radius'])
+            self.assertEqual([0, 0], t['insets'])
+            self.assertEqual('start', t['alignment'])
             self.assertEqual(p['fill'], t['ink'])
             expect(text.locator('svg')).to_have_attribute('aria-hidden', 'true')
             canvas = self.style(area)['fill']

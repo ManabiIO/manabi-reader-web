@@ -34,7 +34,7 @@
           'min-h-10 rounded-[10px] gap-2 px-4 py-2 has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3',
         xs: "min-h-7 rounded-[6px] gap-1 px-2.5 py-1 text-xs has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3",
         sm: 'min-h-8 rounded-[8px] gap-1 px-3 py-1 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2',
-        lg: 'min-h-11 rounded-[12px] gap-2 px-[22px] py-2.5 text-[1.0625rem] leading-[1.2] has-data-[icon=inline-end]:pr-4 has-data-[icon=inline-start]:pl-4',
+        lg: 'min-h-11 rounded-[12px] gap-2 px-[22px] py-[10px] text-[1.0625rem] leading-[1.2] has-data-[icon=inline-end]:pr-4 has-data-[icon=inline-start]:pl-4',
         icon: 'size-10 rounded-[10px] p-0',
         'icon-xs': "size-7 rounded-[6px] p-0 [&_svg:not([class*='size-'])]:size-3",
         'icon-sm': 'size-8 rounded-[8px] p-0',
@@ -50,7 +50,7 @@
       },
       // A text action is not an empty capsule. Keep its usable hit height,
       // but remove box styling unless a caller explicitly requests a shape.
-      { variant: 'link', shape: 'auto', class: 'rounded-none border-0 px-0 shadow-none' },
+      { variant: 'link', shape: 'auto', class: 'rounded-none border-0 px-0 text-start shadow-none' },
       // Keep explicit shapes authoritative over the size's default radius.
       { shape: ['capsule', 'circle'], class: 'rounded-full' }
     ],
