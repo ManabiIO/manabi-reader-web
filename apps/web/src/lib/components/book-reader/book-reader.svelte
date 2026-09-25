@@ -15,6 +15,8 @@
     tap
   } from 'rxjs';
   import BookReaderContinuous from '$lib/components/book-reader/book-reader-continuous/book-reader-continuous.svelte';
+  import BookReaderFoliatePaginated from '$lib/components/book-reader/book-reader-paginated/book-reader-foliate-paginated.svelte';
+  import { browser } from '$app/environment';
   import type { BooksDbBookmarkData } from '$lib/data/database/books-db/versions/books-db';
   import type { FuriganaStyle } from '$lib/data/furigana-style';
   import type { TextMarginMode } from '$lib/data/text-margin-mode';
@@ -44,10 +46,18 @@
   const dispatch = createEventDispatcher<{ contentChange: HTMLElement; userNavigation: void }>();
   let currentContentEl: HTMLElement | undefined;
   let paginatedReader: BookReaderPaginated | undefined;
+  let foliatePaginatedReader: BookReaderFoliatePaginated | undefined;
+
+  const foliatePreviewEnabled =
+    browser && localStorage.getItem('manabi-dev-foliate-epub') === 'true';
+  $: useFoliatePaginator =
+    foliatePreviewEnabled && sourceFormat === 'epub' && !!publicationManifest;
 
   function activeContentElement(): HTMLElement | undefined {
     return viewMode === ViewMode.Paginated
-      ? (paginatedReader?.getContentElement() ?? currentContentEl)
+      ? ((useFoliatePaginator
+          ? foliatePaginatedReader?.getContentElement()
+          : paginatedReader?.getContentElement()) ?? currentContentEl)
       : currentContentEl;
   }
 
@@ -147,7 +157,9 @@
   ): Promise<ReaderLocator[]> {
     const selection =
       viewMode === ViewMode.Paginated
-        ? (paginatedReader?.getDocumentSelection() ?? window.getSelection())
+        ? ((useFoliatePaginator
+            ? foliatePaginatedReader?.getDocumentSelection()
+            : paginatedReader?.getDocumentSelection()) ?? window.getSelection())
         : window.getSelection();
     const range =
       savedRange?.cloneRange() ??
@@ -185,7 +197,9 @@
     bookKey: string
   ): Promise<boolean> {
     if (viewMode === ViewMode.Paginated)
-      return paginatedReader?.revealLocator(locator, bookKey) ?? false;
+      return useFoliatePaginator
+        ? (foliatePaginatedReader?.revealLocator(locator, bookKey) ?? false)
+        : (paginatedReader?.revealLocator(locator, bookKey) ?? false);
     const section = currentContentEl?.children[locator.resource.spineIndex];
     if (!section) return false;
     const projected = projectResource(section, locator.resource);
@@ -209,6 +223,12 @@
   }
 
   export let htmlContent: string;
+
+  export let styleSheet = '';
+
+  export let publicationManifest: PublicationManifest | undefined;
+
+  export let sourceFormat: 'epub' | 'htmlz' | 'txt' | 'unknown' = 'unknown';
 
   export let previewNavigationActive = false;
 
@@ -505,6 +525,54 @@
       bind:customReadingPointTop
       bind:customReadingPointLeft
       bind:customReadingPointScrollOffset
+      on:contentChange={(ev) => {
+        currentContentEl = ev.detail;
+        contentEl$.next(ev.detail);
+        dispatch('contentChange', ev.detail);
+      }}
+      on:bookmark
+      on:trackerPause
+      on:userNavigation={() => dispatch('userNavigation')}
+    />
+  {:else if useFoliatePaginator && publicationManifest}
+    <BookReaderFoliatePaginated
+      bind:this={foliatePaginatedReader}
+      {htmlContent}
+      {styleSheet}
+      {publicationManifest}
+      width={$contentViewportWidth$ ?? 0}
+      height={$contentViewportHeight$ ?? 0}
+      {verticalMode}
+      {fontFeatureSettings}
+      {verticalTextOrientation}
+      {prioritizeReaderStyles}
+      {enableTextJustification}
+      {enableTextWrapPretty}
+      {fontColor}
+      {backgroundColor}
+      {fontFamilyGroupOne}
+      {fontFamilyGroupTwo}
+      {fontWeight}
+      {fontSize}
+      {lineHeight}
+      {textIndentation}
+      {textMarginMode}
+      {textMarginValue}
+      {hideFurigana}
+      {furiganaStyle}
+      {avoidPageBreak}
+      {pageColumns}
+      {autoBookmark}
+      {autoBookmarkTime}
+      {firstDimensionMargin}
+      bind:exploredCharCount
+      bind:bookCharCount
+      bind:isBookmarkScreen
+      bind:bookmarkData
+      bind:bookmarkManager
+      bind:pageManager
+      bind:customReadingPointRange
+      bind:showCustomReadingPoint
       on:contentChange={(ev) => {
         currentContentEl = ev.detail;
         contentEl$.next(ev.detail);
