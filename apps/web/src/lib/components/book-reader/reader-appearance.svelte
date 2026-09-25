@@ -17,6 +17,9 @@
   import { ViewMode } from '$lib/data/view-mode';
 
   export let open = false;
+  export let showLayout = true;
+  export let returnFocus: HTMLElement | undefined = undefined;
+  export let description = 'Adjust text and appearance without leaving your book.';
   const dispatch = createEventDispatcher<{ settingsClick: void }>();
   const modes: AppearanceMode[] = ['system', 'light', 'dark'];
   const themes = [
@@ -52,6 +55,10 @@
     class="reader-appearance writing-horizontal-tb mx-auto max-h-[min(90dvh,48rem)] max-w-md gap-5 overflow-y-auto rounded-t-3xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:mb-5 sm:mr-5 sm:rounded-3xl"
     onCloseAutoFocus={(event) => {
       event.preventDefault();
+      if (returnFocus?.isConnected) {
+        returnFocus.focus({ preventScroll: true });
+        return;
+      }
       const controls = document.querySelector<HTMLButtonElement>('button[data-reader-controls]');
       const trigger =
         controls?.getAttribute('aria-expanded') === 'true'
@@ -70,9 +77,7 @@
         onclick={() => (open = false)}><X aria-hidden="true" /></Button
       >
     </Sheet.Header>
-    <Sheet.Description class="sr-only"
-      >Adjust text and appearance without leaving your book.</Sheet.Description
-    >
+    <Sheet.Description class="sr-only">{description}</Sheet.Description>
     <div class="size-controls" role="group" aria-label="Text size">
       <Button
         variant="ghost"
@@ -141,20 +146,22 @@
           >{/each}
       </select></label
     >
-    <div class="modes" role="group" aria-label="Reading layout">
-      <Button
-        variant={$viewMode$ === ViewMode.Paginated ? 'secondary' : 'ghost'}
-        class="min-h-11"
-        aria-pressed={$viewMode$ === ViewMode.Paginated}
-        onclick={() => viewMode$.next(ViewMode.Paginated)}>Pages</Button
-      >
-      <Button
-        variant={$viewMode$ === ViewMode.Continuous ? 'secondary' : 'ghost'}
-        class="min-h-11"
-        aria-pressed={$viewMode$ === ViewMode.Continuous}
-        onclick={() => viewMode$.next(ViewMode.Continuous)}>Scroll</Button
-      >
-    </div>
+    {#if showLayout}
+      <div class="modes" role="group" aria-label="Reading layout">
+        <Button
+          variant={$viewMode$ === ViewMode.Paginated ? 'secondary' : 'ghost'}
+          class="min-h-11"
+          aria-pressed={$viewMode$ === ViewMode.Paginated}
+          onclick={() => viewMode$.next(ViewMode.Paginated)}>Pages</Button
+        >
+        <Button
+          variant={$viewMode$ === ViewMode.Continuous ? 'secondary' : 'ghost'}
+          class="min-h-11"
+          aria-pressed={$viewMode$ === ViewMode.Continuous}
+          onclick={() => viewMode$.next(ViewMode.Continuous)}>Scroll</Button
+        >
+      </div>
+    {/if}
     <Button
       variant="outline"
       class="min-h-11"

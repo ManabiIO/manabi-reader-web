@@ -41,6 +41,7 @@ export function chooseTranscriptionAudio(
 ): AudioChoice | undefined {
   const wanted = language(target),
     available = tracks.filter((t) => t.decodable);
+  if (wanted === 'und') return automatic(available);
   const exact = available.filter((t) => audioLanguage(t.language) === wanted);
   if (exact.length) return automatic(exact);
   const family = available.filter(

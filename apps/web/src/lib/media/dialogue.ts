@@ -15,13 +15,14 @@ export function dialogueText(cues: readonly Pick<Cue, 'text' | 'speaker'>[]): st
   const dual =
     cues.every((cue) => !!cue.speaker) && new Set(cues.map((cue) => cue.speaker)).size > 1;
   if (!dual) return cues.map((cue) => cue.text).join('\n');
-  const speakers = new Map<string, string[]>();
+  const runs: { speaker: string; text: string }[] = [];
   for (const cue of cues) {
-    const turns = speakers.get(cue.speaker!) ?? [];
-    turns.push(cue.text.replace(/\s*\n\s*/g, ' '));
-    speakers.set(cue.speaker!, turns);
+    const text = cue.text.replace(/\s*\n\s*/g, ' ');
+    const last = runs[runs.length - 1];
+    if (last?.speaker === cue.speaker) last.text += ` ${text}`;
+    else runs.push({ speaker: cue.speaker!, text });
   }
-  return [...speakers.values()].map((turns) => `-${turns.join(' ')}`).join('\n');
+  return runs.map((run) => `-${run.text}`).join('\n');
 }
 
 /** Anonymous model labels restart per window. Do not imply whole-film identity. */

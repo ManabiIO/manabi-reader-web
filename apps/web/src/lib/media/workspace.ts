@@ -4,7 +4,9 @@
  * All rights reserved.
  */
 
+import { downloadSubtitles } from './subtitle-download.js';
 import { formatMediaTime } from './time.js';
+import { trackLanguage } from './track-selection.js';
 import { audioLanguage, chooseTranscriptionAudio, type AudioChoice } from './audio-selection.js';
 import { validateJob } from './jobs.js';
 import { deviceKey } from './device-checkpoint.js';
@@ -20,13 +22,7 @@ import { MediaStore } from './store.js';
 import { type ByteSource, localSource, supportedVideo, identify } from './sources.js';
 import { type Bunny, MediaPipeline } from './pipeline.js';
 import { VideoPlayer } from './player.js';
-import {
-  matchSidecar,
-  parseSubtitles,
-  serializeSubtitles,
-  exportName,
-  cueDigest
-} from './captions.js';
+import { matchSidecar, parseSubtitles, cueDigest } from './captions.js';
 import { discoverEmbedded } from './embedded.js';
 import { missingTranscriptDecision } from './discovery-policy.js';
 import { cloudInfoPath, type CloudLocator } from './cloud-locator.js';
@@ -64,6 +60,7 @@ export interface WorkspaceOptions {
   scope: Scope;
   booksURL: string;
   runtimeBase: string;
+  onAppearance?: (trigger: HTMLElement) => void;
   store?: MediaStore;
   engine?: Engine;
   loadBunny: () => Promise<Bunny>;
@@ -196,7 +193,7 @@ export class VideoWorkspace {
       void this.refresh();
     });
     tools.append(this.search, this.sort, this.filter);
-    this.lang.value = 'ja';
+    this.lang.value = 'und';
     this.lang.setAttribute('aria-label', 'Caption language');
     this.lang.maxLength = 64;
     this.lang.addEventListener('change', () => {
@@ -214,7 +211,7 @@ export class VideoWorkspace {
     const labels = make('div');
     labels.className = 'caption-controls';
     labels.append(
-      this.label('Caption language (for labels and missing-track checks)', this.lang),
+      this.label('Language override (und = automatic)', this.lang),
       this.label('Audio track for transcription', this.audio)
     );
     this.syncEnabled.type = 'checkbox';
@@ -302,7 +299,10 @@ export class VideoWorkspace {
         this.progress.hidden = false;
         this.progress.max = Math.max(1, p.total);
         this.progress.value = p.loaded;
-        this.notice(`${p.stage}: ${p.job.language} transcript (${p.loaded} / ${p.total})`);
+        this.notice(
+          `${p.stage === 'downloading' ? 'Downloading speech model' : p.stage === 'loading' || p.stage === 'checking' ? 'Preparing speech model' : p.stage === 'verifying' ? 'Verifying speech model' : p.stage === 'complete' ? 'Transcript ready' : p.stage === 'paused' ? 'Transcription paused' : p.stage === 'failed' ? 'Transcription failed' : 'Generating transcript'}${p.total > 0 ? ` · ${Math.min(100, Math.round((p.loaded / p.total) * 100))}%` : ''}`
+        );
+        this.player?.generationStatus(p.job.id, p.stage);
         if (['complete', 'paused', 'failed'].includes(p.stage)) {
           this.progress.hidden = true;
           void this.refreshTracks().catch((e) => this.error(e));
@@ -421,12 +421,11 @@ export class VideoWorkspace {
       onError: (m) => {
         if (active()) this.notice(m);
       },
-      onGenerate: () => {
-        if (active())
-          void this.generate().catch((e) => {
-            if (active()) this.error(e);
-          });
+      onGenerate: async () => {
+        if (active()) return await this.generate();
+        return undefined;
       },
+      onAppearance: this.options.onAppearance,
       onImport: () => {
         if (active()) this.pickSubtitle();
       },
@@ -515,10 +514,15 @@ export class VideoWorkspace {
       await this.saveEmbedded(key, result.tracks, signal);
       if (this.closed || generation !== this.generation || signal.aborted) return;
       await this.refreshTracks();
+      if (generation === this.generation)
+        this.player?.setDiscovery(result.state === 'complete' ? 'complete' : 'limited');
       if (generation === this.generation && result.warnings.length)
         this.notice(result.warnings.join(' '));
     } catch (e) {
-      if (!signal.aborted && generation === this.generation) this.error(e);
+      if (!signal.aborted && generation === this.generation) {
+        this.player?.setDiscovery('limited');
+        this.error(e);
+      }
     }
   }
   private async saveEmbedded(
@@ -590,6 +594,7 @@ export class VideoWorkspace {
       }
       this.audio.disabled = !descriptions.some((t) => t.decodable);
       this.audio.value = String(chooseTranscriptionAudio(descriptions, this.lang.value)?.id ?? '');
+      this.player?.setGenerationAvailable(descriptions.some((t) => t.decodable));
       if (!descriptions.length) this.notice('This video has no audio track to transcribe.');
     } catch (e) {
       if (!signal.aborted && generation === this.generation)
@@ -607,13 +612,11 @@ export class VideoWorkspace {
   }
   private async saveSubtitle(key: ContentKey, name: string, file: File) {
     if (file.size > 5 * 1024 * 1024) throw new Error('Subtitles must be at most 5 MiB');
-    const targetLanguage = language(this.lang.value);
     const found = matchSidecar(name, file.name),
       cues = parseSubtitles(await file.text()),
-      lang = found?.language === 'und' || !found ? targetLanguage : found.language;
+      lang = trackLanguage({ language: found?.language ?? 'und', cues });
     const existing = await this.store.tracks(this.options.scope, key);
-    const kind =
-      lang.split('-')[0] === targetLanguage.split('-')[0] ? 'transcription' : 'translation';
+    const kind = 'transcription'; // Role is the viewer's selection, not a language-based guess.
     const forced = found?.forced ?? false,
       digest = cueDigest(cues);
     // The timing/text alone do not identify a track's role. A forced or
@@ -668,14 +671,10 @@ export class VideoWorkspace {
     input.click();
   }
   private export(name: string, track: Track) {
-    const url = URL.createObjectURL(
-        new Blob([serializeSubtitles(track)], { type: 'application/x-subrip;charset=utf-8' })
-      ),
-      a = make('a');
-    a.href = url;
-    a.download = exportName(name, track);
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    downloadSubtitles(name, track);
+  }
+  refreshDisplay() {
+    this.player?.reflow();
   }
   async generate() {
     const current = this.current,
@@ -684,15 +683,31 @@ export class VideoWorkspace {
     const selected = this.audioChoices.find(
       (t) => String(t.id) === this.audio.value && t.decodable
     );
-    if (!selected) throw new Error('Select a decodable audio track first');
-    if (selected.language !== 'und' && selected.language.split('-')[0] !== lang.split('-')[0])
+    if (!selected) {
+      const panel = this.audio.closest('details');
+      if (panel) panel.open = true;
+      this.audio.focus();
+      this.audio.scrollIntoView({ block: 'nearest' });
+      throw new Error('Choose which audio track to transcribe, then press Generate transcript.');
+    }
+    if (
+      lang !== 'und' &&
+      selected.language !== 'und' &&
+      selected.language.split('-')[0] !== lang.split('-')[0]
+    )
       throw new Error(
         `The selected audio is ${selected.language}. Change the caption language or select a matching audio track.`
       );
     const duration = this.player?.video.duration;
     if (!duration || !Number.isFinite(duration)) throw new Error('Video duration is unavailable');
-    await this.queue.enqueue(current.key, lang, String(selected.id), duration);
+    const job = await this.queue.enqueue(
+      current.key,
+      lang === 'und' ? selected.language : lang,
+      String(selected.id),
+      duration
+    );
     await this.refreshJobs();
+    return job.id;
   }
   private async bulk() {
     const lang = language(this.lang.value),
@@ -733,7 +748,12 @@ export class VideoWorkspace {
           continue;
         }
         this.lifetime.signal.throwIfAborted();
-        await this.queue.enqueue(key, lang, String(selected.id), meta.duration);
+        await this.queue.enqueue(
+          key,
+          lang === 'und' ? selected.language : lang,
+          String(selected.id),
+          meta.duration
+        );
       } finally {
         pipeline.dispose();
       }
@@ -998,10 +1018,7 @@ export class VideoWorkspace {
       const row = make('div');
       row.className = 'job-row';
       row.append(
-        make(
-          'span',
-          `${job.language} · ${job.status} · ${job.nextWindow} completed windows${job.error ? ` — ${job.error}` : ''}`
-        )
+        make('span', `${job.language} · ${job.status}${job.error ? ` — ${job.error}` : ''}`)
       );
       if (['running', 'queued'].includes(job.status))
         row.append(

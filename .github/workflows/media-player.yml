@@ -1,0 +1,85 @@
+name: Video player and transcript
+# Real app and inexpensive generated fixtures; never downloads ASR models.
+on:
+  pull_request:
+    paths:
+      - 'apps/web/src/lib/media/**'
+      - 'apps/web/src/lib/manabi/media-*.ts'
+      - 'apps/web/src/routes/videos/**'
+      - 'apps/web/src/lib/components/book-reader/reader-appearance.svelte'
+      - 'apps/web/src/lib/appearance/**'
+      - 'apps/web/src/lib/data/*font*'
+      - 'apps/web/src/lib/data/reader-typography.ts'
+      - 'apps/web/src/lib/data/store.ts'
+      - 'apps/web/src/lib/functions/reader-font-layout.ts'
+      - 'tests/media/**'
+      - 'tests/browser/test_static_reader.py'
+      - 'tools/media/**'
+      - 'apps/web/package.json'
+      - 'apps/web/svelte.config.js'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/media-player.yml'
+permissions:
+  contents: read
+concurrency:
+  group: media-player-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: 12.3.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.21.0
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - run: pnpm --dir apps/web check
+      - name: Build the actual application
+        env:
+          BASE_PATH: /Reader-Web
+        run: pnpm --dir apps/web build
+      - name: Install generated-fixture and browser tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg espeak
+          python -m pip install playwright==1.63.0
+          python -m playwright install --with-deps chromium
+      - name: Generate short fixture and run media regressions
+        id: fixture
+        run: |
+          set -o pipefail
+          mkdir -p test-results/media
+          python tools/media/generate-fixtures.py --language en > fixture-path.txt
+          export MEDIA_FIXTURE="$(cat fixture-path.txt)"
+          pnpm exec node tools/media/test.mjs | tee test-results/media/core.log
+      - name: Actual Svelte application and native IndexedDB
+        run: python tests/media/app-browser.py --fixture "$(cat fixture-path.txt)" --output test-results/media/app
+      - name: Player, workspace and real Web Audio
+        if: ${{ !cancelled() && steps.fixture.outcome == 'success' }}
+        run: |
+          export CHROMIUM="$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
+          python tests/media/dom-browser.py --fixture "$(cat fixture-path.txt)" --output test-results/media/player
+          python tests/media/workspace-dom.py --fixture "$(cat fixture-path.txt)" --output test-results/media/workspace
+          python tests/media/audio-browser.py --output test-results/media/audio
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: video-player-evidence
+          path: test-results/media/
+          if-no-files-found: warn
+          retention-days: 7

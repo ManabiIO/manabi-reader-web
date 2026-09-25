@@ -97,10 +97,11 @@ def main():
             page.wait_for_function("document.querySelector('[aria-label=\"Audio track for transcription\"]').value==='2'")
             assert page.get_by_label('Audio track for transcription',exact=True).input_value()=='2'
             assert page.evaluate('prepares')==0
-        case('opening selects the Japanese stream, not the first English dub, without starting inference',audio)
+        case('automatic language uses the tagged original stream rather than the first dub, without inference',audio)
         def wrong_audio():
             page.locator('summary',has_text='Transcription and sync').click()
             page.get_by_label('Audio track for transcription',exact=True).select_option('1')
+            page.get_by_label('Caption language',exact=True).fill('ja')
             error=page.evaluate('workspace.generate().then(()=>null,e=>e.message)')
             assert 'selected audio is en' in error
             assert page.evaluate('prepares')==0
@@ -167,7 +168,7 @@ def main():
                 await store.saveTrack('guest',externalTrack);return externalTrack.id;
             }""")
             page.wait_for_function('workspace.player.tracks.some(t=>t.id===externalTrack.id)')
-            assert page.get_by_label('Secondary captions',exact=True).locator(f'option[value="{result}"]').count()==1
+            assert page.get_by_label('Translation track',exact=True).locator(f'option[value="{result}"]').count()==1
         case('a store caption publication refreshes the active player without reopening or an account poll',external_caption)
         def unrelated_checkpoint():
             page.evaluate('workspace.refreshTracks()')

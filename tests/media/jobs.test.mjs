@@ -260,26 +260,28 @@ test('a cancellation requested by another queue reaches the active worker and pr
     assert.equal((await store.tracks(scope, key)).length, 0);
   }));
 test('resume refuses a live lease; recovery only releases stale owners without Web Locks', () =>
-  harness(async ({ queue, store }) => {
-    const q = queue({ dispose() {} });
-    await store.putLocal(scope, 'jobs', id, {
-      ...job(),
-      status: 'running',
-      ownerId: owner,
-      leaseUntil: Date.now() + 90000
-    });
-    await assert.rejects(q.resume(id), /still active/);
-    await q.recover();
-    assert.equal((await store.local(scope, 'jobs', id)).status, 'running');
-    await store.putLocal(scope, 'jobs', id, {
-      ...job(),
-      status: 'running',
-      ownerId: owner,
-      leaseUntil: 1
-    });
-    await q.recover();
-    assert.equal((await store.local(scope, 'jobs', id)).status, 'paused');
-  }));
+  withLocks(undefined, () =>
+    harness(async ({ queue, store }) => {
+      const q = queue({ dispose() {} });
+      await store.putLocal(scope, 'jobs', id, {
+        ...job(),
+        status: 'running',
+        ownerId: owner,
+        leaseUntil: Date.now() + 90000
+      });
+      await assert.rejects(q.resume(id), /still active/);
+      await q.recover();
+      assert.equal((await store.local(scope, 'jobs', id)).status, 'running');
+      await store.putLocal(scope, 'jobs', id, {
+        ...job(),
+        status: 'running',
+        ownerId: owner,
+        leaseUntil: 1
+      });
+      await q.recover();
+      assert.equal((await store.local(scope, 'jobs', id)).status, 'paused');
+    })
+  ));
 test('non-finite PCM never reaches MOSS or publishes a silent transcript', () =>
   harness(async ({ queue, store }) => {
     let calls = 0;
@@ -373,3 +375,42 @@ test('published track and completed job must carry the same text and language', 
       );
     assert.equal((await store.records(scope)).length, 0);
   }));
+
+// Node may expose navigator.locks; each capability scenario owns its mock.
+async function withLocks(locks, body) {
+  const previous = Object.getOwnPropertyDescriptor(navigator, 'locks');
+  Object.defineProperty(navigator, 'locks', { configurable: true, value: locks });
+  try {
+    return await body();
+  } finally {
+    if (previous) Object.defineProperty(navigator, 'locks', previous);
+    else delete navigator.locks;
+  }
+}
+for (const available of [false, true]) {
+  test(`recovery ${available ? 'releases an orphan under exclusive lock' : 'leaves a held inference lock untouched'}`, () =>
+    withLocks(
+      {
+        async request(name, options, callback) {
+          assert.equal(name, 'manabi-moss-inference');
+          assert.deepEqual(options, { ifAvailable: true });
+          return callback(available ? { name } : null);
+        }
+      },
+      () =>
+        harness(async ({ queue, store }) => {
+          const q = queue({ dispose() {} });
+          await store.putLocal(scope, 'jobs', id, {
+            ...job(),
+            status: 'running',
+            ownerId: owner,
+            leaseUntil: Date.now() + 90000
+          });
+          await q.recover();
+          assert.equal(
+            (await store.local(scope, 'jobs', id)).status,
+            available ? 'paused' : 'running'
+          );
+        })
+    ));
+}

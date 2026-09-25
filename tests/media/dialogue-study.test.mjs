@@ -57,14 +57,14 @@ test('partial overlap is split only at real turn boundaries without changing can
   ]);
   assert.deepEqual(cues, before);
 });
-test('overlapping segments for one of two speakers share that speaker’s line', () => {
+test('alternating speakers retain their turn order, including a returning speaker', () => {
   assert.equal(
     dialogueText([
       cue('a', 0, 2, 'One\nturn'),
       cue('b', 0, 2, 'Response', 'S02'),
       cue('c', 0, 2, 'continues')
     ]),
-    '-One turn continues\n-Response'
+    '-One turn\n-Response\n-continues'
   );
 });
 test('same-speaker overlap does not fabricate another speaker', () => {

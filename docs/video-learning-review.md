@@ -1,34 +1,33 @@
-# Video learning interface and dialogue review
+# Video transcript interface
 
-This refinement belongs to Reader PR #46 and backend companion lake-of-fire/manabi#80. It does not enable server inference, merge either PR, or assert that the MOSS runtime has been qualified.
+Reader PR #46; backend companion lake-of-fire/manabi#80. This document describes the interface, not approval to ship an unqualified MOSS runtime.
 
-## Interface references
+## Visual direction and shared settings
 
-Reviewed official product documentation and illustrations, not copied source or assets:
+References: [Apple Music time-synced lyrics](https://support.apple.com/en-us/105076) and [Spotify lyrics](https://support.spotify.com/us/article/lyrics/). Use text-led layout, generous spacing and tonal emphasis for the active line. No colored left rail, decorative speaker badges, window IDs, timestamps, cue counts or pagination controls. Do not copy lyrics, album art or product assets.
 
-- Trancy: https://www.trancy.org/ — theater/reading presentation and bilingual video learning.
-- asbplayer: https://docs.asbplayer.dev/docs/intro/ — navigable subtitle list, pause at subtitle boundaries, keyboard-driven study.
-- Migaku: https://migaku.com/blog/japanese/best-horror-anime — illustrated video-first transcript-sidebar workflow.
+The transcript subscribes to the ebook's existing font family/fallback, size, weight and line-spacing stores. Reading colors and per-mode background images also come from the existing Reader appearance system. Themes & Settings mounts the actual ReaderAppearance sheet; only ebook pagination controls are omitted. Changing these preferences affects ebooks too. Video-overlay appearance remains separate because moving pictures require different contrast treatment.
 
-The player puts the picture and transcript before setup/export/appearance. Primary actions are grouped separately from Previous line / Replay line / Next line. Optional pause-after-line and translation reveal are off/on choices for the current session, not new synced preference fields. The caption settings disclosure retains the existing bounded style controls. Mobile controls have 44px targets; the transcript has a distinct title/count, current-line treatment and less prominent translations. Styles inherit the Reader appearance tokens.
+The transcript scrolls continuously through a bounded overlapping window of rows. Manual scroll stops Follow playback; Previous line, Replay line and Next line resume following intentionally. Keyboard actions stay local to the player and do not intercept typing, composition, modified/repeated keystrokes or native video controls.
 
-A/S/D and Space are local player shortcuts, ignored inside native media controls, inputs, selectors, editable text, buttons, and during composition or modified/repeated key presses. The player never intercepts these keys globally. Seeking and track changes reset the listening boundary. Overlapping speakers form one listening unit so automatic pause does not cut off the other speaker. Boundary detection follows browser media time, not sample-accurate scheduling.
+## Setup and translation
 
-## Speaker convention and SRT policy
+First opening does not assume that Japanese, the first subtitle, or the browser language is the desired main transcript. Setup offers existing subtitle tracks and an explicit primary Generate transcript alternative. Selecting an existing track never starts MOSS. A requested generated track is selected when complete, unless the user has made a newer selection. Setup and Generate are hidden once a main track is chosen.
 
-Reference: Netflix English (USA) timed-text guide, section I.6:
-https://partnerhelp.netflixstudios.com/hc/en-us/articles/217350977-English-USA-Timed-Text-Style-Guide
+Only after choosing a main track may a unique complete, non-forced different-language track matching the browser's preferred languages be suggested as translation. Regional matches precede language-family matches. Ties and unknown languages remain unselected. Manual choices, including Off, win over later discovery and restoration. Language metadata takes priority; bounded kana/Hangul hints help with untagged Japanese/Korean text. Han, Latin, short or mixed samples are not assigned invented languages. This is not a general-purpose spoken-language detector or translation engine.
 
-That delivery guide uses a hyphen-minus without a following space, one speaker per line when two speakers share a subtitle. It is a style convention, not an SRT syntax requirement or a universal Japanese typography rule. This app adopts the dialogue distinction; it does not claim full Netflix delivery compliance.
+The ellipsis owns main/translation selectors, Show/Hide translation, Follow playback, Pause after each line, shared Themes & Settings, Add subtitles, Download subtitles, overlay timing/style and Close transcript. Download subtitles is an actual SRT browser download, not a source-folder write or a second export wizard. Closing the transcript preserves playback and selected tracks; its reopen icon appears to the left of the theater toggle below the video's bottom-right corner. Native video fullscreen remains; there is no second custom fullscreen control.
 
-Canonical cues retain verbatim text, independent start/end times and speaker IDs. Sequential turns remain separately timed. During true overlaps the overlay formats each identified speaker on a separate hyphen-prefixed line. Export splits at actual cue boundaries into non-overlapping display intervals with the active speakers' text. No word timestamps are invented; a long utterance can therefore remain visible across adjacent display intervals. Same-speaker segments do not become different voices; unknown/authored speaker identity is not guessed. A translation remains a separately timed track, never a second speaker. More than two simultaneous voices are retained rather than silently discarded, subject to explicit export size limits.
+## Dialogue
 
-MOSS window labels remain explicitly window-scoped. Speaker 1 in window 2 is not claimed to be Speaker 1 in window 1. The transcript shows a compact label at speaker changes; exported dialogue markers do not imply a character's name.
+Canonical cues retain independent timings, original text and speaker IDs internally. Speaker/window labels never appear in the transcript. Sequential turns stay separately timed and in their original order: A/B/A must not be regrouped as A/A/B. Identified overlapping speech receives separate dialogue lines. A translated subtitle is not treated as another speaker.
 
-## Regression boundaries
+The [Netflix English timed-text guide](https://partnerhelp.netflixstudios.com/hc/en-us/articles/217350977-English-USA-Timed-Text-Style-Guide) uses a hyphen-minus without a following space for multiple speakers sharing a subtitle. This is a style convention, not an SRT syntax rule, universal Japanese typography, or a claim of full Netflix delivery compliance. Export splits overlaps at real cue boundaries without inventing word times. Unknown speaker identity is not guessed; extra simultaneous voices are not silently discarded. MOSS IDs remain window-scoped internally, not asserted as whole-film identities.
 
-Local strict media TypeScript/Node suite: 332 passed with the generated English fixture, including 21 dialogue/navigation cases and deterministic overlap-reference comparisons. Chromium production-player suite: 35 passed, with actual MP4 seeking/playback/fullscreen and explicit persistence/provider doubles. Workspace suite: 17 passed. Real Web Audio suite: 8 passed. These tests do not exercise real MOSS recognition, native IndexedDB, live providers or the entire Svelte shell.
+[Trancy](https://www.trancy.org/) and [asbplayer](https://docs.asbplayer.dev/docs/intro/) informed the video/reading split and subtitle navigation. Optional pause-after-line waits for the complete overlapping-speaker unit. Seeking or switching tracks resets that boundary. Browser media time is not sample-accurate scheduling.
 
-Backend media tombstones now pass the same identity validator as puts; their absent payload is not permission to insert a malformed identity into the personal feed. The regression harness executes the current book validators as well as media admission so newer upstream protections remain intact.
+## Verification boundaries
 
-The previously absent Mediabunny lock entry was generated by pnpm 12.3.4 on Node 24.21.0, then installed with frozen-lockfile successfully. The reviewed artifact changed only Mediabunny and its two Web API type dependencies. Temporary candidate/staging workflows were removed from the branch after publication. Normal release checks remain frozen; their individual results, not this document, determine installed-app qualification.
+Tests distinguish the actual Svelte application, native IndexedDB, browser SRT downloads and Web Audio from isolated controller tests with explicit persistence/provider/recognition doubles. Reload acceptance first establishes that the selected track and view preference have actually committed to IndexedDB; displaying a row alone is not a persistence acknowledgement.
+
+The read-only Video player and transcript PR workflow exercises inexpensive generated English fixtures, installed-app checks/build and browser regressions. It never downloads a speech model or deploys anything. Actual MOSS single/threaded builds, Japanese recognition and diarization/window-seam accuracy, live providers/account composition, native cross-tab/suspension and physical Safari/iOS performance remain separate qualification gates. Native fullscreen/PiP composition is also a device-level boundary.

@@ -15,7 +15,10 @@ export function missingTranscriptDecision(
 ): 'present' | 'missing' | 'inspect-manually' {
   if (
     tracks.some(
-      (t) => t.complete && !t.forced && t.language.split('-')[0] === language.split('-')[0]
+      (t) =>
+        t.complete &&
+        !t.forced &&
+        (language === 'und' || t.language.split('-')[0] === language.split('-')[0])
     )
   )
     return 'present';
