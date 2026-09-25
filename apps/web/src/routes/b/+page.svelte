@@ -555,19 +555,26 @@
     reduceToEmptyString()
   );
 
+  function noteReaderSelection(range: Range | undefined) {
+    if (!range && lastSelectedRangeWasEmpty) {
+      lastSelectedRange = undefined;
+    } else if (range) {
+      lastSelectedRange = range;
+      lastSelectedRangeWasEmpty = false;
+    } else {
+      lastSelectedRangeWasEmpty = true;
+    }
+  }
+
   const textSelector$ = iffBrowser(() => fromEvent(document, 'selectionchange')).pipe(
     debounceTime(200),
     tap(() => {
-      const currentSelected = window.getSelection()?.toString() || '';
-
-      if (!currentSelected && lastSelectedRangeWasEmpty) {
-        lastSelectedRange = undefined;
-      } else if (currentSelected) {
-        lastSelectedRange = window.getSelection()?.getRangeAt(0);
-        lastSelectedRangeWasEmpty = false;
-      } else {
-        lastSelectedRangeWasEmpty = true;
-      }
+      const selection = window.getSelection();
+      noteReaderSelection(
+        selection?.toString()
+          ? selection.getRangeAt(0).cloneRange()
+          : undefined
+      );
     }),
     reduceToEmptyString()
   );
@@ -2197,6 +2204,7 @@
     bind:showCustomReadingPoint
     on:bookmark={saveBookmark}
     on:trackerPause={() => pauseTracker(true)}
+    on:selectionChange={(ev) => noteReaderSelection(ev.detail)}
     on:userNavigation={() => {
       if (readerNavigation.previewing) pendingPreviewAdoption = true;
     }}
