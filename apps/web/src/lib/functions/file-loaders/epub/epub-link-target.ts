@@ -19,7 +19,10 @@ export function resolveEpubLinkTarget(
 ): EpubLinkTarget | undefined {
   if (!ownerHref || !rawHref) return undefined;
   const hashIndex = rawHref.indexOf('#');
-  const resourceReference = (hashIndex >= 0 ? rawHref.slice(0, hashIndex) : rawHref).split('?', 1)[0];
+  const resourceReference = (hashIndex >= 0 ? rawHref.slice(0, hashIndex) : rawHref).split(
+    '?',
+    1
+  )[0];
   let fragment = hashIndex >= 0 ? rawHref.slice(hashIndex + 1) : '';
   try {
     fragment = decodeURIComponent(fragment);
