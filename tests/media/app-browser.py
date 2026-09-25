@@ -11,6 +11,63 @@ sys.path.insert(0, str(ROOT / 'tests/browser'))
 from test_static_reader import StaticHandler, ThreadingHTTPServer
 
 
+APPEARANCE_AUDIT = """
+async (sheet) => {
+    // Let Svelte commit this frame, but do not wait out or cancel color transitions.
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 1;
+    const context = canvas.getContext('2d', {willReadFrequently:true});
+    const rgba = css => {
+        context.clearRect(0,0,1,1);
+        context.fillStyle = css;
+        context.fillRect(0,0,1,1);
+        const [r,g,b,a] = context.getImageData(0,0,1,1).data;
+        return [r,g,b,a/255];
+    };
+    const over = (foreground, background) => foreground.slice(0,3).map(
+        (v,i) => v*foreground[3] + background[i]*(1-foreground[3])
+    ).concat(1);
+    const background = node => {
+        const ancestors=[];
+        for(let n=node;n;n=n.parentElement) ancestors.push(n);
+        return ancestors.reverse().reduce(
+            (value,n) => over(rgba(getComputedStyle(n).backgroundColor),value),
+            [255,255,255,1]
+        );
+    };
+    const luminance = color => color.slice(0,3).map(v=>{
+        const c=v/255;
+        return c<=.04045 ? c/12.92 : ((c+.055)/1.055)**2.4;
+    }).reduce((sum,v,i)=>sum+v*[.2126,.7152,.0722][i],0);
+    const nodes=sheet.querySelectorAll(
+        '[data-slot="sheet-title"], output, .setting-row > span, p:not(.sr-only), select, button'
+    );
+    const measurements = Array.from(nodes).filter(node =>
+        !node.disabled && node.getBoundingClientRect().height>0 &&
+        (node.textContent.trim() || node.tagName==='SELECT')
+    ).map(node=>{
+        const style=getComputedStyle(node);
+        const surface=background(node);
+        const ink=over(rgba(style.color),surface);
+        const a=luminance(ink), b=luminance(surface);
+        return {
+            label:node.getAttribute('aria-label') || node.textContent.trim().slice(0,80),
+            ratio:(Math.max(a,b)+.05)/(Math.min(a,b)+.05),
+            color:style.color, background:surface,
+            transition:style.transitionProperty
+        };
+    });
+    const colorTransitions=Array.from(sheet.querySelectorAll('button')).concat(sheet).filter(node=>
+        getComputedStyle(node).transitionProperty.split(',').some(
+            value=>['all','color','background-color','border-color'].includes(value.trim())
+        )
+    ).map(node=>node.getAttribute('aria-label') || node.getAttribute('data-slot'));
+    return {measurements,colorTransitions};
+}
+"""
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--fixture', type=pathlib.Path, required=True)
@@ -66,8 +123,26 @@ def main():
         assert page.evaluate('localStorage.getItem("fontFamilyGroupOne")') == 'Serif'
         assert float(page.evaluate('localStorage.getItem("lineHeight")')) == 1.9
         page.wait_for_function('() => { const s=getComputedStyle(document.querySelector(".transcript-text")); return Math.abs(parseFloat(s.lineHeight)/parseFloat(s.fontSize)-1.9)<.03; }')
-        sheet.get_by_role('group', name='Reading appearance mode').get_by_role('button',name='dark',exact=True).click()
-        expect(page.locator('html')).to_have_attribute('data-appearance','dark')
+        # Finish the opening animation only. Theme switches are then audited on
+        # their first rendered frames; independent foreground/background fades
+        # must not temporarily erase headings or controls.
+        sheet.evaluate("""async sheet => {
+            await Promise.all(sheet.getAnimations({subtree:true}).filter(
+                animation=>animation.effect.getComputedTiming().iterations!==Infinity
+            ).map(animation=>animation.finished.catch(()=>{})));
+        }""")
+        contrast = {}
+        for mode in ('light', 'dark'):
+            sheet.get_by_role('group', name='Reading appearance mode').get_by_role('button',name=mode,exact=True).click()
+            expect(page.locator('html')).to_have_attribute('data-appearance',mode)
+            audit = sheet.evaluate(APPEARANCE_AUDIT)
+            contrast[mode] = audit
+            (args.output/'shared-reading-contrast.json').write_text(json.dumps(contrast,indent=2))
+            assert not audit['colorTransitions'], audit
+            assert len(audit['measurements']) >= 12, audit
+            failures = [item for item in audit['measurements'] if item['ratio'] < 4.5]
+            assert not failures, (mode,failures)
+        results.append('shared appearance has readable light/dark controls without mismatched color fades')
         page.screenshot(path=str(args.output/'shared-reading-settings.png'))
         sheet.get_by_role('button', name='Close reading appearance',exact=True).click()
         expect(sheet).to_have_count(0)

@@ -174,6 +174,14 @@
 </Sheet.Root>
 
 <style>
+  /* A theme switch must update text and surfaces together. Color interpolation
+     on the portal can otherwise briefly put dark-mode text on a light sheet.
+     Keep opening/closing motion and press feedback, not independent color fades. */
+  :global(.reader-appearance),
+  :global(.reader-appearance [data-slot]),
+  :global(.reader-appearance button) {
+    transition-property: transform, translate, opacity, box-shadow;
+  }
   .size-controls {
     display: grid;
     grid-template-columns: 1fr auto 1fr;
