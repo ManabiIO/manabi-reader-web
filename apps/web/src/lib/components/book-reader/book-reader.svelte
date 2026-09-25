@@ -136,11 +136,12 @@
       right: Math.min(view.innerWidth, scrollport.right),
       bottom: Math.min(view.innerHeight, scrollport.bottom)
     };
+    const paginatedSection = contentEl.matches('[data-manabi-spine-index]')
+      ? contentEl
+      : contentEl.querySelector<HTMLElement>('[data-manabi-spine-index]');
     const sections =
       viewMode === ViewMode.Paginated
-        ? [contentEl.querySelector<HTMLElement>('[data-manabi-spine-index]')].filter(
-            (value): value is HTMLElement => !!value
-          )
+        ? [paginatedSection].filter((value): value is HTMLElement => !!value)
         : (Array.from(contentEl.children) as HTMLElement[]);
     for (const section of sections) {
       const rect = section.getBoundingClientRect();
@@ -192,11 +193,12 @@
     const contentEl = activeContentElement();
     if (!range || range.collapsed || !contentEl) return [];
     if (!contentEl.contains(range.commonAncestorContainer)) return [];
+    const paginatedSection = contentEl.matches('[data-manabi-spine-index]')
+      ? contentEl
+      : contentEl.querySelector<HTMLElement>('[data-manabi-spine-index]');
     const sections =
       viewMode === ViewMode.Paginated
-        ? [contentEl.querySelector<HTMLElement>('[data-manabi-spine-index]')].filter(
-            (value): value is HTMLElement => !!value
-          )
+        ? [paginatedSection].filter((value): value is HTMLElement => !!value)
         : (Array.from(contentEl.children) as HTMLElement[]);
     const targets: ReaderLocator[] = [];
     for (const section of sections) {
@@ -461,12 +463,12 @@
   }
 
   function handleMutation([mutation]: MutationRecord[]) {
-    if (!(mutation.target instanceof HTMLElement)) {
+    if (mutation.target.nodeType !== 1) {
       showBlurMessage = false;
       return;
     }
 
-    showBlurMessage = mutation.target.style.filter.includes('blur');
+    showBlurMessage = (mutation.target as HTMLElement).style.filter.includes('blur');
   }
 
   async function requestWakeLock() {
