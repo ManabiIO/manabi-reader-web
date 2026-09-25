@@ -2,7 +2,7 @@
   import { onMount, onDestroy, tick } from 'svelte';
   import { Button } from '$lib/components/ui/button';
   import { database } from '$lib/data/store';
-  import { currentUser } from '$lib/manabi/client';
+  import { currentUser, localProfileUser } from '$lib/manabi/client';
   import { creatorLine } from './book-metadata';
   import { makeLocator, projectPublication } from '$lib/reader-location';
   import { readerBookKeyFor } from '$lib/reader-identity';
@@ -121,7 +121,7 @@
   }
   function openBook(book: ShelfBook) {
     ++selection;
-    if ((currentUser()?.id ?? null) !== viewer) {
+    if ((currentUser()?.id ?? localProfileUser()?.id ?? null) !== viewer) {
       navigationError = 'The account changed. Search again.';
       return;
     }
@@ -140,7 +140,7 @@
       token === selection &&
       epoch === generation &&
       owner === viewer &&
-      (currentUser()?.id ?? null) === owner &&
+      (currentUser()?.id ?? localProfileUser()?.id ?? null) === owner &&
       byId.has(hit.bookId);
     try {
       // A worker/cache match is evidence, not navigation authority. Resolve against fresh canonical DOM.

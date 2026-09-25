@@ -5,7 +5,7 @@
  */
 
 import { database } from '$lib/data/store';
-import { currentUser } from './client';
+import { currentUser, localProfileUser } from './client';
 import { exclusive } from './persistence';
 import { canonical, MigrationConflict, record } from './ttu-migration-format';
 import {
@@ -21,10 +21,11 @@ import { projectPublication } from '$lib/reader-location';
 import type { ReaderAnnotation } from '$lib/data/database/books-db/versions/v7/books-db-v7';
 
 function assertOwner(owner: string | null) {
-  if ((currentUser()?.id ?? null) !== owner) throw new Error('The account changed.');
+  if ((currentUser()?.id ?? localProfileUser()?.id ?? null) !== owner)
+    throw new Error('The account changed.');
 }
 export async function readImportedStudy(bookId: number): Promise<ImportedStudy | undefined> {
-  const owner = currentUser()?.id ?? null;
+  const owner = currentUser()?.id ?? localProfileUser()?.id ?? null;
   const db = await database.db;
   const tx = db.transaction(['data', 'readerBookScope']);
   const book = await tx.objectStore('data').get(bookId);
@@ -52,7 +53,7 @@ export async function editImportedStudy(
   expected: string,
   changes: Partial<ImportedStudyEntry>
 ): Promise<ImportedStudy> {
-  const owner = currentUser()?.id ?? null;
+  const owner = currentUser()?.id ?? localProfileUser()?.id ?? null;
   return exclusive('import-library-book', async () => {
     const db = await database.db;
     const tx = db.transaction(['data', 'readerBookScope'], 'readwrite');
@@ -126,7 +127,7 @@ export async function restoreImportedStudy(
     current.sourceTitle !== incoming.sourceTitle
   )
     throw new Error('This archive belongs to another book or edition.');
-  const owner = currentUser()?.id ?? null;
+  const owner = currentUser()?.id ?? localProfileUser()?.id ?? null;
   const db = await database.db;
   const book = await db.get('data', bookId);
   if (!book || book.elementHtml.length > 32 * 1024 * 1024)

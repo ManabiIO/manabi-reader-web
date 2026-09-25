@@ -272,8 +272,9 @@ class LibraryPortability(unittest.TestCase):
         note=panel.locator('article').filter(has=self.page.get_by_text('Whole-book thoughts',exact=True))
         expect(note.get_by_role('button',name='Show in Book',exact=True)).to_have_count(0)
         note.get_by_role('button',name='Edit',exact=True).click()
-        note.get_by_label('Book note',exact=True).fill('Edited in Manabi.')
-        note.get_by_role('button',name='Save',exact=True).click()
+        panel.get_by_label('Book note',exact=True).fill('Edited in Manabi.')
+        panel.get_by_role('button',name='Save',exact=True).click()
+        note=panel.locator('article').filter(has=self.page.get_by_text('Whole-book thoughts',exact=True))
         expect(note).to_contain_text('Edited in Manabi.')
         with self.page.expect_download() as download:
             panel.get_by_role('button',name='Export Imported Notes',exact=True).click()

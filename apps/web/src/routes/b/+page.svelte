@@ -124,7 +124,7 @@
     saveReaderAnnotation
   } from '$lib/reader-annotations';
   import type { AnnotationImportConflict } from '$lib/reader-annotations';
-  import { account, currentUser } from '$lib/manabi/client';
+  import { account, currentUser, localProfileUser } from '$lib/manabi/client';
   import type { ReaderAnnotation } from '$lib/data/database/books-db/versions/v7/books-db-v7';
   import { ReaderNavigation } from '$lib/reader-navigation';
   import type { ReaderLocator } from '$lib/reader-location';
@@ -267,7 +267,7 @@
       libraryPassage === pending &&
       component === bookReaderComponent &&
       $rawBookData$?.id === pending.bookId &&
-      (currentUser()?.id ?? null) === pending.owner;
+      (currentUser()?.id ?? localProfileUser()?.id ?? null) === pending.owner;
     try {
       // contentChange is emitted before initial bookmark restoration. Wait for the
       // actual display/geometry boundary before capturing the user's return point.
@@ -310,10 +310,10 @@
   $: if (browser && $rawBookData$?.id) {
     const book = $rawBookData$;
     importedStudy = undefined;
-    const owner = currentUser()?.id ?? null;
+    const owner = currentUser()?.id ?? localProfileUser()?.id ?? null;
     void readImportedStudy(book.id)
       .then((value) => {
-        if (readerAlive && $rawBookData$?.id === book.id && (currentUser()?.id ?? null) === owner)
+        if (readerAlive && $rawBookData$?.id === book.id && (currentUser()?.id ?? localProfileUser()?.id ?? null) === owner)
           importedStudy = value;
       })
       .catch(() => undefined);
@@ -332,7 +332,7 @@
     }
     void listReaderAnnotations(key)
       .then((items) => {
-        if (readerBookKey === key && (currentUser()?.id ?? null) === owner) annotations = items;
+        if (readerBookKey === key && (currentUser()?.id ?? localProfileUser()?.id ?? null) === owner) annotations = items;
       })
       .catch(() => undefined);
   }
@@ -410,7 +410,7 @@
 
   const rawBookData$ = bookId$.pipe(
     switchMap(async (id) => {
-      const owner = currentUser()?.id ?? null;
+      const owner = currentUser()?.id ?? localProfileUser()?.id ?? null;
       const passage = takeLibraryPassage(id, owner);
       libraryPassage = passage ? { bookId: id, owner, locator: passage } : undefined;
       libraryPassageOpening = false;
@@ -1272,13 +1272,19 @@
         localStorageHandler,
         false,
         [context],
-        [
-          StorageDataType.PROGRESS,
-          StorageDataType.STATISTICS,
-          StorageDataType.READING_GOALS,
-          StorageDataType.AUDIOBOOK,
-          StorageDataType.SUBTITLE
-        ]
+        localProfileUser()
+          ? [
+              StorageDataType.READING_GOALS,
+              StorageDataType.AUDIOBOOK,
+              StorageDataType.SUBTITLE
+            ]
+          : [
+              StorageDataType.PROGRESS,
+              StorageDataType.STATISTICS,
+              StorageDataType.READING_GOALS,
+              StorageDataType.AUDIOBOOK,
+              StorageDataType.SUBTITLE
+            ]
       );
 
       if (error) {
@@ -1514,7 +1520,7 @@
     try {
       await saveReaderAnnotation(
         { bookKey: readerBookKey, kind, targets, body },
-        currentUser()?.id
+        currentUser()?.id ?? localProfileUser()?.id ?? null
       );
       annotations = await listReaderAnnotations(readerBookKey);
       if (kind === 'note') annotationSavedVersion += 1;
@@ -1530,7 +1536,7 @@
     annotationBusy = true;
     annotationError = '';
     try {
-      await removeReaderAnnotation(id, currentUser()?.id);
+      await removeReaderAnnotation(id, currentUser()?.id ?? localProfileUser()?.id ?? null);
       annotations = await listReaderAnnotations(readerBookKey);
     } catch (error) {
       annotationError = error instanceof Error ? error.message : String(error);
@@ -1567,7 +1573,7 @@
     annotationStatus = '';
     try {
       if (file.size > 16 * 1024 * 1024) throw new Error('The annotation archive is too large.');
-      const result = await importReaderAnnotations(await file.text(), currentUser()?.id);
+      const result = await importReaderAnnotations(await file.text(), currentUser()?.id ?? localProfileUser()?.id ?? null);
       annotations = await listReaderAnnotations(readerBookKey);
       annotationImportConflicts = await listAnnotationImportConflicts(readerBookKey);
       annotationStatus = `${result.imported} imported, ${result.alreadyPresent} already present, ${result.conflicts} kept for conflict review. Archives may include notes for books not currently connected.`;
@@ -1583,7 +1589,7 @@
     annotationBusy = true;
     annotationError = '';
     try {
-      await resolveAnnotationImportConflict(id, choice, currentUser()?.id);
+      await resolveAnnotationImportConflict(id, choice, currentUser()?.id ?? localProfileUser()?.id ?? null);
       annotations = await listReaderAnnotations(readerBookKey);
       annotationImportConflicts = await listAnnotationImportConflicts(readerBookKey);
       annotationStatus =
@@ -2015,6 +2021,15 @@
   }
 
   function scheduleReplication(dataType: StorageDataType) {
+    // Once a Manabi local profile exists, progress/completion/statistics belong
+    // to IndexedDB ⇄ Manabi personal sync. Legacy storage replication remains
+    // available for media/goals and for anonymous users, but must not become a
+    // second live authority for the same personal reading state.
+    if (
+      localProfileUser() &&
+      (dataType === StorageDataType.PROGRESS || dataType === StorageDataType.STATISTICS)
+    )
+      return;
     if (upSyncEnabled) {
       const toReplicate = isReplicating ? dataToReplicateQueue : dataToReplicate;
 

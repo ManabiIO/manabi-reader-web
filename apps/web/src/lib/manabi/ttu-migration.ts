@@ -30,7 +30,7 @@ import {
 } from '$lib/functions/book-security/book-content-security';
 import buildDummyBookImage from '$lib/functions/file-loaders/utils/build-dummy-book-image';
 import { exclusive } from './persistence';
-import { currentUser } from './client';
+import { currentUser, localProfileUser } from './client';
 import { projectPublication } from '$lib/reader-location';
 import {
   studyEntries,
@@ -355,9 +355,9 @@ export class TtuMigration {
     signal?: AbortSignal
   ): Promise<MigrationResult> {
     signal?.throwIfAborted();
-    const owner = currentUser()?.id ?? null;
+    const owner = currentUser()?.id ?? localProfileUser()?.id ?? null;
     const assertAccount = () => {
-      if ((currentUser()?.id ?? null) !== owner)
+      if ((currentUser()?.id ?? localProfileUser()?.id ?? null) !== owner)
         throw new Error('The account changed. Retry this import.');
     };
     const item = this.index.find((entry) => entry.id === id);

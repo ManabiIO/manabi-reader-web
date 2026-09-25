@@ -8,13 +8,13 @@ import { canonical, MigrationConflict } from './ttu-migration-format';
 import { previewYatsuSettings } from './yatsu-settings-format';
 import { exclusive, metadata, setMetadata } from './persistence';
 import { captureImportPreferences, applyImportPreferences } from './preferences';
-import { currentUser } from './client';
+import { currentUser, localProfileUser } from './client';
 
 export async function importYatsuSettings(value: unknown, replace: boolean, signal?: AbortSignal) {
   const preview = previewYatsuSettings(value);
   return exclusive('yatsu-settings-import', async () => {
     signal?.throwIfAborted();
-    const owner = currentUser()?.id ?? null;
+    const owner = currentUser()?.id ?? localProfileUser()?.id ?? null;
     const receiptKey = `yatsu-settings-v1/${owner ?? 'local'}`;
     const previous = (await metadata<Record<string, string>>(receiptKey)) ?? {};
     const before = captureImportPreferences(Object.keys(preview.values));
@@ -36,7 +36,7 @@ export async function importYatsuSettings(value: unknown, replace: boolean, sign
       next[key] = serialized;
     }
     signal?.throwIfAborted();
-    if ((currentUser()?.id ?? null) !== owner)
+    if ((currentUser()?.id ?? localProfileUser()?.id ?? null) !== owner)
       throw new Error('The account changed. Retry the settings import.');
     try {
       await applyImportPreferences(updates);
