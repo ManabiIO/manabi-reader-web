@@ -199,6 +199,11 @@
     return scrollEl;
   }
 
+  /** Selection belongs to the rendered resource document, which may be framed. */
+  export function getDocumentSelection(): Selection | null {
+    return scrollEl?.ownerDocument.defaultView?.getSelection() ?? null;
+  }
+
   $: bookmarkData.then((data) => {
     useExploredCharCount = false;
     updateBookmarkScreen(data);
