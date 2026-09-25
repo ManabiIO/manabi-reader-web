@@ -42,6 +42,36 @@ def epub():
     return output.getvalue()
 
 
+def linked_epub():
+    output = io.BytesIO()
+    title = 'Reader linked EPUB acceptance'
+    chapter_one = (
+        '<h1>第一章</h1><p id="note">第一章の注</p>'
+        '<p><a id="to-second" href="chapter2.xhtml#note">第二章の注へ</a></p>'
+    )
+    chapter_two = (
+        '<h1>第二章</h1><p id="note">第二章の注</p>'
+        '<p><a id="to-first" href="chapter1.xhtml#note">第一章の注へ</a></p>'
+    )
+    with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr('mimetype', 'application/epub+zip')
+        archive.writestr(
+            'META-INF/container.xml',
+            '<container><rootfiles><rootfile full-path="content.opf"/></rootfiles></container>'
+        )
+        archive.writestr(
+            'content.opf',
+            '<package><metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">'
+            + title
+            + '</dc:title></metadata><manifest>'
+            '<item id="one" href="chapter1.xhtml" media-type="application/xhtml+xml"/>'
+            '<item id="two" href="chapter2.xhtml" media-type="application/xhtml+xml"/>'
+            '</manifest><spine><itemref idref="one"/><itemref idref="two"/></spine></package>'
+        )
+        archive.writestr('chapter1.xhtml', '<html><body>' + chapter_one + '</body></html>')
+        archive.writestr('chapter2.xhtml', '<html><body>' + chapter_two + '</body></html>')
+    return title, output.getvalue()
+
 class StaticHandler(SimpleHTTPRequestHandler):
     probes = []
     session_gate = None
@@ -381,6 +411,28 @@ class ReaderBrowser(unittest.TestCase):
             "document.querySelector('foliate-paginator')?.getContents?.()[0]?.index")
         self.assertEqual(before, after)
         expect(self.page.locator('foliate-paginator')).to_be_visible()
+
+
+    def test_foliate_cross_resource_links_keep_duplicate_fragment_identity(self):
+        title, data = linked_epub()
+        self.context.add_init_script(
+            "try { localStorage.setItem('manabi-dev-foliate-epub', 'true') } catch {}")
+        self.page.goto(self.origin + '/reader-web/manage')
+        expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
+        self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files(
+            {'name': 'linked.epub', 'mimeType': 'application/epub+zip', 'buffer': data})
+        self.page.get_by_role('button', name='Read ' + title, exact=True).click(timeout=30000)
+        self.page.wait_for_function(
+            "() => document.querySelector('foliate-paginator')?.getContents?.()[0]?.index === 0")
+        self.page.evaluate(
+            "() => document.querySelector('foliate-paginator').getContents()[0].doc"
+            ".querySelector('#to-second').click()")
+        self.page.wait_for_function(
+            "() => document.querySelector('foliate-paginator')?.getContents?.()[0]?.index === 1")
+        note = self.page.evaluate(
+            "() => document.querySelector('foliate-paginator').getContents()[0].doc"
+            ".querySelector('#note')?.textContent")
+        self.assertEqual('第二章の注', note)
 
     def test_continuous_horizontal_saved_explicit_font(self):
         self.open_book('continuous', 'horizontal-tb', font='Klee One')
