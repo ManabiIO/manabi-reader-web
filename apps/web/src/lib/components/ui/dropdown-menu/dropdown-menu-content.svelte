@@ -18,7 +18,11 @@
   } = $props();
 
   let focusGeneration = 0;
-  onDestroy(() => { focusGeneration += 1; });
+  let lastNode: HTMLElement | null = null;
+  onDestroy(() => {
+    focusGeneration += 1;
+    lastNode = null;
+  });
 </script>
 
 <DropdownMenuPortal {...portalProps}>
@@ -26,6 +30,7 @@
     bind:ref
     onOpenAutoFocus={(event) => {
       const generation = ++focusGeneration;
+      if (ref) lastNode = ref;
       onOpenAutoFocus?.(event);
       if (event.defaultPrevented) return;
       // Cancel the deferred default even before the forwarded ref is ready.
@@ -34,13 +39,27 @@
       event.preventDefault();
       void tick().then(() => {
         const node = ref;
-        if (generation !== focusGeneration || !node?.isConnected || node.dataset.state !== 'open') return;
+        if (
+          generation !== focusGeneration ||
+          !node?.isConnected ||
+          node.dataset.state !== 'open'
+        )
+          return;
+        lastNode = node;
         if (!node.contains(node.ownerDocument.activeElement)) node.focus({ preventScroll: true });
       });
     }}
     onCloseAutoFocus={(event) => {
       focusGeneration += 1;
+      const node = ref ?? lastNode;
       onCloseAutoFocus?.(event);
+      if (event.defaultPrevented) return;
+      // FocusScope can briefly unmount and remount while an open menu
+      // repositions. That is not a menu close, so do not restore focus to the
+      // trigger and erase a keyboard choice made in the still-open menu.
+      // Genuine Escape/outside/selection closes expose data-state="closed"
+      // before close autofocus and retain Bits UI's normal focus restoration.
+      if (node?.isConnected && node.dataset.state === 'open') event.preventDefault();
     }}
     data-slot="dropdown-menu-content"
     {sideOffset}
