@@ -1,0 +1,36 @@
+name: Browser test runtime
+on:
+  pull_request:
+    paths: ['.github/workflows/browser-test-runtime.yml']
+permissions:
+  contents: read
+concurrency:
+  group: browser-runtime-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: |
+          python -m pip install 'playwright==1.63.0'
+          python -m playwright install --with-deps chromium webkit
+      - name: Package isolated browser tools
+        run: |
+          mkdir -p /tmp/browser-runtime/python
+          python - <<'PY'
+          import playwright, shutil
+          from pathlib import Path
+          shutil.copytree(Path(playwright.__file__).parent, '/tmp/browser-runtime/python/playwright')
+          PY
+          tar -czf /tmp/browser-runtime/browsers.tar.gz -C "$HOME/.cache" ms-playwright
+          tar -czf /tmp/browser-runtime/playwright.tar.gz -C /tmp/browser-runtime/python playwright
+          rm -rf /tmp/browser-runtime/python
+      - uses: actions/upload-artifact@v4
+        with:
+          name: browser-test-runtime
+          path: /tmp/browser-runtime
+          retention-days: 1
