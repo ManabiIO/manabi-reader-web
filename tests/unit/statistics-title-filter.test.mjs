@@ -37,7 +37,7 @@ test('date and selection filters compose without modifying private draft choices
     { title: 'B', isSelected: false },
     { title: 'C', isSelected: true }
   ];
-  const before = structuredClone(rows);
+  const before = rows.map((item) => ({ ...item }));
   assert.deepEqual(filterStatisticsTitles(rows, '', new Set(['A', 'B']), true, true), [rows[0]]);
   assert.deepEqual(
     filterStatisticsTitles(rows, '', new Set(['A', 'B']), true, false),

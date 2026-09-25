@@ -95,7 +95,7 @@
         <input
           id="fromDate"
           type="date"
-          bind:value={selectedStatisticsStartDate}
+          value={selectedStatisticsStartDate}
           on:change={(event) =>
             dispatch('statisticsDateChange', {
               isStartDate: true,
@@ -107,7 +107,7 @@
         <input
           id="toDate"
           type="date"
-          bind:value={selectedStatisticsEndDate}
+          value={selectedStatisticsEndDate}
           on:change={(event) =>
             dispatch('statisticsDateChange', {
               isStartDate: false,
