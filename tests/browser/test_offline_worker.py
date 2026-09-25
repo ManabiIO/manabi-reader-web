@@ -123,10 +123,17 @@ class OfflineWorker(unittest.TestCase):
 
     def install(self):
         self.page.goto(self.origin + SCOPE + 'manage')
-        self.page.wait_for_function('''async () => {
-          const r = await navigator.serviceWorker.getRegistration();
-          return r?.active?.state === 'activated';
-        }''')
+        # wait_for_function treats a Promise as truthy before its resolved
+        # boolean is known. Await real registration/activation, with a deadline.
+        self.page.evaluate('''async scope => {
+          const deadline = Date.now() + 10000;
+          while (Date.now() < deadline) {
+            const r = await navigator.serviceWorker.getRegistration(scope);
+            if (r?.active?.state === 'activated') return;
+            await new Promise(resolve => setTimeout(resolve, 25));
+          }
+          throw new Error('Automatic worker activation timed out');
+        }''', SCOPE)
         self.assertEqual(self.status()['state'], 'ready')
 
     def status(self):
@@ -197,10 +204,15 @@ class OfflineWorker(unittest.TestCase):
         self.assertEqual(second.locator('body').get_attribute('data-boot'), 'v1')
         second.close()
         self.page.close()
-        observer.wait_for_function('''async scope => {
-          const r = await navigator.serviceWorker.getRegistration(scope);
-          return r.active !== window.oldActive && r.active.state === 'activated';
-        }''', arg=SCOPE)
+        observer.evaluate('''async scope => {
+          const deadline = Date.now() + 10000;
+          while (Date.now() < deadline) {
+            const r = await navigator.serviceWorker.getRegistration(scope);
+            if (r?.active !== window.oldActive && r?.active?.state === 'activated') return;
+            await new Promise(resolve => setTimeout(resolve, 25));
+          }
+          throw new Error('Waiting worker did not activate after old clients closed');
+        }''', SCOPE)
         third = self.context.new_page()
         response = third.goto(self.origin + SCOPE + 'b?id=44')
         self.assertTrue(response.from_service_worker)

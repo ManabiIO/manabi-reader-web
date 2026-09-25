@@ -31,9 +31,14 @@ class OfflineReader(unittest.TestCase):
                 page.get_by_role('button', name='Read ' + TITLE, exact=True).click(timeout=30000)
                 expect(page.locator('.book-content')).to_be_visible(timeout=30000)
                 reader_url = page.url
-                page.wait_for_function('''async () => {
-                  const r = await navigator.serviceWorker.getRegistration('/Reader-Web/');
-                  return r?.active?.state === 'activated';
+                page.evaluate('''async () => {
+                  const deadline = Date.now() + 15000;
+                  while (Date.now() < deadline) {
+                    const r = await navigator.serviceWorker.getRegistration('/Reader-Web/');
+                    if (r?.active?.state === 'activated') return;
+                    await new Promise(resolve => setTimeout(resolve, 25));
+                  }
+                  throw new Error('Automatic Reader worker activation timed out');
                 }''')
                 # Visit status only AFTER automatic preparation and a real book import.
                 # Viewing Settings must not be what installs the offline shell.
