@@ -1,5 +1,6 @@
 """Automatic offline acceptance against the actual compiled Reader, with origin stopped."""
 import argparse
+import json
 import re
 from pathlib import Path
 import threading
@@ -18,20 +19,35 @@ class OfflineReader(unittest.TestCase):
         thread.start()
         origin = 'http://127.0.0.1:' + str(server.server_port)
         errors = []
+        console = []
+        failed_requests = []
+        stage = 'initial navigation'
         with sync_playwright() as playwright:
             browser = getattr(playwright, OPTIONS.browser).launch()
             context = browser.new_context()
             page = context.new_page()
-            page.on('pageerror', lambda error: errors.append(str(error)))
+
+            def observe(document):
+                document.on('pageerror', lambda error: errors.append(str(error)))
+                document.on('console', lambda message: console.append({
+                    'type': message.type, 'text': message.text
+                }))
+                document.on('requestfailed', lambda request: failed_requests.append({
+                    'url': request.url, 'failure': request.failure
+                }))
+
+            observe(page)
             try:
                 page.goto(origin + '/Reader-Web/manage')
                 expect(page.locator('input[type=file][webkitdirectory]')).to_be_attached()
+                stage = 'EPUB import'
                 page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
                     'name': 'offline.epub', 'mimeType': 'application/epub+zip', 'buffer': epub()
                 })
                 page.get_by_role('button', name='Read ' + TITLE, exact=True).click(timeout=30000)
                 expect(page.locator('.book-content')).to_be_visible(timeout=30000)
                 reader_url = page.url
+                stage = 'automatic preparation'
                 page.evaluate('''async () => {
                   const deadline = Date.now() + 15000;
                   while (Date.now() < deadline) {
@@ -55,35 +71,46 @@ class OfflineReader(unittest.TestCase):
                 server.server_close()
                 thread.join()
                 server = None
+                stage = 'fresh offline reader'
                 # No set_offline(), network routing mocks, or still-open document.
                 # A new navigation must load the app and local EPUB without HTTP.
                 page.close()
                 page = context.new_page()
-                page.on('pageerror', lambda error: errors.append(str(error)))
+                observe(page)
                 response = page.goto(reader_url)
                 self.assertTrue(response.from_service_worker)
                 expect(page.locator('.book-content')).to_be_visible(timeout=30000)
-                # Match the imported fixture's ruby, not whichever runtime
-                # measurement/annotation node happens to precede it.
                 fixture_ruby = page.locator('.book-content ruby').filter(
                     has_text=re.compile(r'^本ほん$')
                 )
                 expect(fixture_ruby).to_have_count(1)
                 expect(fixture_ruby.locator('rt')).to_have_text('ほん')
+                stage = 'offline library and settings'
                 response = page.goto(origin + '/Reader-Web/manage')
                 self.assertTrue(response.from_service_worker)
                 expect(page.get_by_role('button', name='Read ' + TITLE, exact=True)).to_be_visible()
                 page.goto(origin + '/Reader-Web/settings#library')
                 expect(page.get_by_text('App ready for offline reopening', exact=True)).to_be_visible(timeout=15000)
                 self.assertEqual(errors, [])
+                stage = 'complete'
             finally:
                 diagnostics = Path('test-results') / ('offline-' + OPTIONS.browser)
                 diagnostics.mkdir(parents=True, exist_ok=True)
+                report = {
+                    'stage': stage, 'url': page.url, 'page_errors': errors,
+                    'console': console[-80:], 'failed_requests': failed_requests[-80:]
+                }
                 try:
                     if not page.is_closed():
+                        report['visible_text'] = page.locator('body').inner_text(timeout=3000)
                         (diagnostics / 'page.html').write_text(page.content())
-                        page.screenshot(path=str(diagnostics / 'page.png'), full_page=True)
+                        page.screenshot(path=str(diagnostics / 'page.png'), full_page=True, timeout=5000)
+                except Exception as error:
+                    report['diagnostics_error'] = str(error)
                 finally:
+                    (diagnostics / 'report.json').write_text(json.dumps(report, ensure_ascii=False, indent=2))
+                    if stage != 'complete':
+                        print('OFFLINE FAILURE DIAGNOSTICS: ' + json.dumps(report, ensure_ascii=False), flush=True)
                     context.close()
                     browser.close()
                     if server:
