@@ -264,8 +264,30 @@ export async function resolveLocator(
     locator.end <= codePointLength(projected.text)
   )
     return { start: locator.start, end: locator.end };
-  if (!locator.quote) return undefined;
   const candidates: number[] = [];
+  if (!locator.quote) {
+    if (!locator.prefix && !locator.suffix)
+      return projected.text.length === 0 ? { start: 0, end: 0 } : undefined;
+    if (locator.suffix) {
+      let index = -1;
+      while ((index = projected.text.indexOf(locator.suffix, index + 1)) >= 0) {
+        if (
+          projected.text.slice(Math.max(0, index - locator.prefix.length), index) === locator.prefix
+        )
+          candidates.push(index);
+        if (candidates.length > 1) return undefined;
+      }
+    } else {
+      let index = -1;
+      while ((index = projected.text.indexOf(locator.prefix, index + 1)) >= 0) {
+        candidates.push(index + locator.prefix.length);
+        if (candidates.length > 1) return undefined;
+      }
+    }
+    if (candidates.length !== 1) return undefined;
+    const point = codePointLength(projected.text.slice(0, candidates[0]));
+    return { start: point, end: point };
+  }
   let index = -1;
   while ((index = projected.text.indexOf(locator.quote, index + 1)) >= 0) {
     if (
