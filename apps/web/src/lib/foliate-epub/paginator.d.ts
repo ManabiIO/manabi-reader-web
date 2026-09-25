@@ -4,7 +4,9 @@ export class Paginator extends HTMLElement {
   sections: Array<{ linear?: string }>;
   currentIndex?: number;
   open(book: { sections: unknown[]; dir?: string }): void;
-  goTo(target: Promise<unknown> | { index: number; anchor?: unknown; select?: boolean }): Promise<unknown>;
+  goTo(
+    target: Promise<unknown> | { index: number; anchor?: unknown; select?: boolean }
+  ): Promise<unknown>;
   prev(distance?: number): Promise<unknown>;
   next(distance?: number): Promise<unknown>;
   setStyles(styles: string | [string, string]): void;
