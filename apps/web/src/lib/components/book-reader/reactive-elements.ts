@@ -60,6 +60,7 @@ function anchorTagListener(document: Document) {
       )
     );
     return merge(...obs$);
+  };
 }
 
 function rubyTagListener(contentEl: HTMLElement, furiganaStyle: FuriganaStyle) {
@@ -90,31 +91,31 @@ function spoilerImageListener(contentEl: HTMLElement) {
   const document = contentEl.ownerDocument;
   const elements = Array.from(contentEl.querySelectorAll('[data-ttu-spoiler-img]'));
   const obs$ = elements.map((el) => {
-      // Rebinding the same content after a font reflow must not append a
-      // second label. The previous stream's listeners have been unsubscribed.
-      const spoilerLabelEl =
-        el.querySelector<HTMLElement>(':scope > .spoiler-label') ?? document.createElement('span');
-      spoilerLabelEl.title = 'Show Image';
-      spoilerLabelEl.classList.add('spoiler-label');
-      spoilerLabelEl.setAttribute('aria-hidden', 'true');
-      spoilerLabelEl.innerText = 'ネタバレ';
-      if (!spoilerLabelEl.parentNode) el.appendChild(spoilerLabelEl);
+    // Rebinding the same content after a font reflow must not append a
+    // second label. The previous stream's listeners have been unsubscribed.
+    const spoilerLabelEl =
+      el.querySelector<HTMLElement>(':scope > .spoiler-label') ?? document.createElement('span');
+    spoilerLabelEl.title = 'Show Image';
+    spoilerLabelEl.classList.add('spoiler-label');
+    spoilerLabelEl.setAttribute('aria-hidden', 'true');
+    spoilerLabelEl.innerText = 'ネタバレ';
+    if (!spoilerLabelEl.parentNode) el.appendChild(spoilerLabelEl);
 
-      const imageElement = el.querySelector('img,image');
+    const imageElement = el.querySelector('img,image');
 
-      toggleImageGalleryPictureSpoiler(imageElement, false);
+    toggleImageGalleryPictureSpoiler(imageElement, false);
 
-      return fromClickEvent(el).pipe(
-        take(1),
-        tap(() => {
-          spoilerLabelEl.remove();
-          el.removeAttribute('data-ttu-spoiler-img');
+    return fromClickEvent(el).pipe(
+      take(1),
+      tap(() => {
+        spoilerLabelEl.remove();
+        el.removeAttribute('data-ttu-spoiler-img');
 
-          imageElement?.classList.add('ttu-unspoilered');
+        imageElement?.classList.add('ttu-unspoilered');
 
-          toggleImageGalleryPictureSpoiler(imageElement, true);
-        })
-      );
+        toggleImageGalleryPictureSpoiler(imageElement, true);
+      })
+    );
   });
   return merge(...obs$);
 }
