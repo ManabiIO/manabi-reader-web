@@ -1,6 +1,6 @@
 # One-shot recovery of the separately prepared preprocessing source.
 # Remove this write-enabled workflow after its narrowly scoped formatting commit.
-# Runtime modules with companion declarations use syntax lint, not declaration shadowing.
+# Browser APIs are qualified explicitly in the standalone runtime modules.
 name: Preprocessing publication qualification
 on:
   push:
@@ -37,17 +37,15 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
           roots = [Path('apps/web/src/lib/preprocessing'), Path('apps/web/src/lib/dictionary-setup'), Path('test/preprocessing')]
           for root in roots:
               for path in root.glob('*.mjs'):
                   value = path.read_text()
-                  import re
                   value = re.sub(r'catch\s*\{\s*\}', 'catch { /* Cleanup and diagnostic callbacks must not replace the original failure. */ }', value)
                   value = re.sub(r'(?<![.\w])fetch(?=\s*[,}])', 'globalThis.fetch', value)
-                  value = re.sub(r'(?<![.\w])crypto(?=\.)', 'globalThis.crypto', value)
-                  value = re.sub(r'(?<![.\w])setTimeout(?=\()', 'globalThis.setTimeout', value)
-                  value = re.sub(r'(?<![.\w])setImmediate(?=\()', 'globalThis.setImmediate', value)
-                  value = re.sub(r'(?<![.\w])Buffer(?=\.)', 'globalThis.Buffer', value)
+                  for name in ['crypto', 'setTimeout', 'setImmediate', 'Buffer', 'DecompressionStream', 'URL', 'Blob', 'TextEncoder', 'TextDecoder', 'DOMException', 'AbortController']:
+                      value = re.sub(r'(?<![.\w])' + name + r'(?=[.(])', 'globalThis.' + name, value)
                   value = value.replace('new Promise(r=>resolve=r)', 'new Promise(r=>{resolve=r;})')
                   if path.name == 'host.test.mjs' and 'const delay=' in value:
                       start = value.index('const delay=')
