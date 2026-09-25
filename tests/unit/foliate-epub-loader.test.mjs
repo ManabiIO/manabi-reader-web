@@ -115,7 +115,10 @@ test('resource-relative links preserve query and fragment while loading the owni
     // replacing the XHTML item with a binary fixture after path resolution.
     item.mediaType = 'image/png';
     loader.loadBlob = async () => new Blob(['x'], { type: 'image/png' });
-    const url = await loader.loadHref?.('../OPS/chapter-2.xhtml?mode=1#note', 'OPS/chapter-1.xhtml');
+    const url = await loader.loadHref?.(
+      '../OPS/chapter-2.xhtml?mode=1#note',
+      'OPS/chapter-1.xhtml'
+    );
     assert.equal(url, 'blob:chapter-two?mode=1#note');
     loader.destroy();
   } finally {
