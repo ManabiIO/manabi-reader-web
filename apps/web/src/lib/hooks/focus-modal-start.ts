@@ -11,7 +11,9 @@
 export function focusModalStart(event: Event, modal: HTMLElement) {
   const bounds = modal.getBoundingClientRect();
   const field = [
-    ...modal.querySelectorAll<HTMLElement>('input:not([type="hidden"]):not([type="file"]), textarea, select')
+    ...modal.querySelectorAll<HTMLElement>(
+      'input:not([type="hidden"]):not([type="file"]), textarea, select'
+    )
   ].find((element) => {
     const rect = element.getBoundingClientRect();
     return (

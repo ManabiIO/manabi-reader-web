@@ -123,7 +123,6 @@ test('cancellation interrupts a chunked scan while newer work still completes', 
   assert.ok(worker.messages.every((message) => message.requestId === 9));
 });
 
-
 test('case-insensitive excerpts retain the original spelling and normalization', async () => {
   const worker = harness();
   const original = 'Original É e\u0301 𠮷 👩‍💻 End';
