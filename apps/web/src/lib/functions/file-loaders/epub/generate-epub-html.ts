@@ -280,9 +280,11 @@ export default function generateEpubHtml(
     childWrapperDiv.id = `${prependValue}${itemIdRef}`;
     childWrapperDiv.appendChild(childHtmlDiv);
 
+    const resourceHref = resolveArchivePath(manifestOwner, htmlHref);
+    childWrapperDiv.dataset.manabiEpubResourceHref = resourceHref;
     result.appendChild(childWrapperDiv);
     publicationResources.push({
-      href: resolveArchivePath(manifestOwner, htmlHref),
+      href: resourceHref,
       spineIndex,
       sectionId: childWrapperDiv.id
     });
@@ -334,7 +336,7 @@ export default function generateEpubHtml(
 
   clearAllBadImageRef(result);
   fixXHtmlHref(result);
-  flattenAnchorHref(result);
+  flattenAnchorHref(result, publicationResources);
 
   return {
     element: result,
@@ -357,11 +359,42 @@ function countForElement(containerEl: Node) {
   return characterCount;
 }
 
-function flattenAnchorHref(el: HTMLElement) {
+function flattenAnchorHref(el: HTMLElement, resources: PublicationResource[]) {
   Array.from(el.getElementsByTagName('a')).forEach((tag) => {
     const oldHref = tag.getAttribute('href');
     if (!oldHref) return;
     tag.dataset.manabiEpubHref = oldHref;
-    tag.setAttribute('href', `#${oldHref.replace(/.+#/, '')}`);
+
+    const owner = tag.closest<HTMLElement>('[data-manabi-epub-resource-href]');
+    const ownerHref = owner?.dataset.manabiEpubResourceHref;
+    const hashIndex = oldHref.indexOf('#');
+    const resourceReference = (hashIndex >= 0 ? oldHref.slice(0, hashIndex) : oldHref).split('?', 1)[0];
+    let fragment = hashIndex >= 0 ? oldHref.slice(hashIndex + 1) : '';
+    try {
+      fragment = decodeURIComponent(fragment);
+    } catch {
+      // Preserve malformed-but-inert fragment text for the legacy hash fallback.
+    }
+
+    try {
+      const resourceHref =
+        !resourceReference && ownerHref
+          ? ownerHref
+          : ownerHref
+            ? resolveArchivePath(ownerHref, resourceReference)
+            : undefined;
+      const target = resourceHref
+        ? resources.find((resource) => resource.href === resourceHref)
+        : undefined;
+      if (target) {
+        tag.dataset.manabiTargetSpineIndex = String(target.spineIndex);
+        if (fragment) tag.dataset.manabiTargetFragment = fragment;
+      }
+    } catch {
+      // Sanitization already restricted links to local relative references.
+      // A malformed target remains on the legacy inert hash path.
+    }
+
+    tag.setAttribute('href', `#${fragment}`);
   });
 }
