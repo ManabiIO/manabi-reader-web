@@ -319,13 +319,12 @@
   code {
     overflow-wrap: anywhere;
   }
+  @media (max-width: 36rem) {
+    main {
+      padding: 16px 12px;
+    }
+    section {
+      padding: 16px;
+    }
+  }
 </style>
-
-@media (max-width: 36rem) {
-  main {
-    padding: 16px 12px;
-  }
-  section {
-    padding: 16px;
-  }
-}
