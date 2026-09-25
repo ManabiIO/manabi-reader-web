@@ -694,16 +694,41 @@
     }
   }
 
-  nextChapter$.pipe(takeUntil(destroy$)).subscribe((chapterId) => {
-    const nextSectionIndex = sections.findIndex(
-      (section) => section.id === chapterId || section.querySelector(`[id="${chapterId}"]`)
-    );
+  nextChapter$.pipe(takeUntil(destroy$)).subscribe((target) => {
+    void navigateToChapterTarget(target);
+  });
 
-    if (nextSectionIndex > -1) {
+  async function navigateToChapterTarget(target: string | { spineIndex: number; fragment?: string }) {
+    const nextSectionIndex =
+      typeof target === 'string'
+        ? sections.findIndex(
+            (section) =>
+              section.id === target || section.querySelector(`[id="${CSS.escape(target)}"]`)
+          )
+        : target.spineIndex;
+
+    if (nextSectionIndex < 0 || nextSectionIndex >= sections.length || disposed) return;
+
+    if (sectionIndex$.getValue() !== nextSectionIndex) {
+      const ready = new Promise<void>((resolve) => {
+        sectionReady$.pipe(take(1)).subscribe(() => resolve());
+      });
       sectionIndex$.next(nextSectionIndex);
       concretePageManager?.scrollTo(0, true);
+      await ready;
+      if (disposed || sectionIndex$.getValue() !== nextSectionIndex) return;
     }
-  });
+
+    const fragment = typeof target === 'string' ? target : target.fragment;
+    if (!fragment || !scrollEl || !calculator || !concretePageManager) return;
+
+    const targetElement = scrollEl.querySelector<HTMLElement>(`#${CSS.escape(fragment)}`);
+    if (!targetElement) return;
+    const range = document.createRange();
+    range.selectNodeContents(targetElement);
+    const scrollPos = calculator.getScrollPosByCharCount(calculator.calcExploredCharCount(range));
+    if (scrollPos >= 0) concretePageManager.scrollTo(scrollPos, true);
+  }
 
   /** Reveal a source range after its virtual section has mounted and measured. */
   export async function revealLocator(locator: ReaderLocator, bookKey: string): Promise<boolean> {
