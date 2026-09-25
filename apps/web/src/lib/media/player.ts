@@ -484,7 +484,15 @@ export class VideoPlayer {
   }
   /** Workspace calls these only for the current file lifetime. */
   setDiscovery(state: 'loading' | 'complete' | 'limited') {
+    if (this.closed) return;
     this.discovery = state;
+    if (this.chooseTranslation()) {
+      this.offsetControls();
+      this.activeSignature = '';
+      this.transcriptSignature = '';
+      this.render();
+      this.scheduleSave(true);
+    }
     this.updateSetup();
   }
   setGenerationAvailable(available: boolean) {
@@ -513,6 +521,9 @@ export class VideoPlayer {
   private updateSetup() {
     if (this.closed) return;
     const choosing = !this.primary.value && !this.secondary.value;
+    // Main transcript selection owns setup. Preserve an existing secondary-only
+    // selection, but do not offer translation as a way to bypass first-use setup.
+    this.secondary.disabled = choosing;
     this.setup.hidden = !choosing;
     this.transcript.hidden = choosing;
     this.generate.disabled =
@@ -562,16 +573,26 @@ export class VideoPlayer {
     this.updateSetup();
     if (id) this.transcript.focus({ preventScroll: true });
   }
-  private chooseTranslation() {
-    if (!this.translationAutomatic || this.secondary.value) return;
+  private chooseTranslation(): boolean {
+    // Sidecars, embedded tracks and replicated pages arrive independently. An
+    // automatic choice must not privilege arrival order over the complete set.
+    // Manual selection/Off and restored choices never enter this path.
+    if (!this.translationAutomatic || this.discovery === 'loading') return false;
     const primary = this.tracks.find((track) => track.id === this.primary.value);
-    if (!primary) return;
-    const chosen = translationCandidate(
-      primary,
-      this.tracks,
-      this.options.preferredLanguages ?? navigator.languages ?? [navigator.language]
-    );
-    if (chosen) this.secondary.value = chosen.id;
+    const chosen = primary
+      ? translationCandidate(
+          primary,
+          this.tracks,
+          this.options.preferredLanguages ?? navigator.languages ?? [navigator.language]
+        )
+      : undefined;
+    const next = chosen?.id ?? '';
+    if (this.secondary.value === next) return false;
+    // A later competing track makes the suggestion ambiguous; a unique exact
+    // locale match can supersede a provisional family match. Neither is a new
+    // user intent, so the next discovery pass may reconsider it as well.
+    this.secondary.value = next;
+    return true;
   }
   private saveView() {
     this.viewTouched = true;

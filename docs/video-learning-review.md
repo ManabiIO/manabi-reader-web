@@ -26,6 +26,10 @@ wins.
 After main selection, a unique complete, non-forced, different-language track
 matching browser language preferences can be suggested as translation. Regional
 matches take precedence over language-family matches; ties stay unselected.
+Automatic translation waits for the initial discovery pass and is re-evaluated
+when additional tracks arrive: ties clear only the automatic suggestion, and a
+unique exact locale match can supersede a family match. Initial setup does not
+offer a translation before the main transcript is chosen.
 Manual choices and Off survive later discovery and restoration. Metadata wins;
 bounded kana/Hangul hints can help identify untagged text. Ambiguous Han, Latin,
 mixed or short samples remain unknown. This is not spoken-language detection or

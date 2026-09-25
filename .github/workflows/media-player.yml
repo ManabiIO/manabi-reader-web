@@ -77,6 +77,7 @@ jobs:
           python tests/media/workspace-dom.py --fixture "$(cat fixture-path.txt)" --output test-results/media/workspace
           python tests/media/audio-browser.py --output test-results/media/audio
           python tests/media/menu-browser.py --output test-results/media/menu
+          python tests/media/transcript-interactions.py --fixture "$(cat fixture-path.txt)" --output test-results/media/transcript-interactions
       - uses: actions/upload-artifact@v4
         if: always()
         with:
