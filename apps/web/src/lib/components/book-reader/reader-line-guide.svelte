@@ -61,17 +61,22 @@
     const candidates: { rect: DOMRect; vertical: boolean }[] = [];
     const modes = new WeakMap<Element, boolean>();
     const viewport = { width: window.innerWidth, height: window.innerHeight };
+    const ownerDocument = contentEl.ownerDocument;
+    const ownerWindow = ownerDocument.defaultView;
+    if (!ownerWindow) return;
+    const frameRect = ownerWindow.frameElement?.getBoundingClientRect();
+    const offsetLeft = frameRect?.left ?? 0;
+    const offsetTop = frameRect?.top ?? 0;
     const roots = Array.from(contentEl.children).filter((element) => {
       const rect = element.getBoundingClientRect();
-      return (
-        rect.right > 0 &&
-        rect.left < viewport.width &&
-        rect.bottom > 0 &&
-        rect.top < viewport.height
-      );
+      const left = rect.left + offsetLeft;
+      const right = rect.right + offsetLeft;
+      const top = rect.top + offsetTop;
+      const bottom = rect.bottom + offsetTop;
+      return right > 0 && left < viewport.width && bottom > 0 && top < viewport.height;
     });
     for (const root of roots) {
-      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      const walker = ownerDocument.createTreeWalker(root, 4);
       let node: Node | null;
       let inspected = 0;
       while ((node = walker.nextNode()) && inspected++ < 4000) {
@@ -84,22 +89,24 @@
           continue;
         let vertical = modes.get(parent);
         if (vertical === undefined) {
-          const writingMode = getComputedStyle(parent).writingMode;
+          const writingMode = ownerWindow.getComputedStyle(parent).writingMode;
           vertical = writingMode.startsWith('vertical') || writingMode.startsWith('sideways');
           modes.set(parent, vertical);
         }
-        const range = document.createRange();
+        const range = ownerDocument.createRange();
         range.selectNodeContents(node);
         for (const rect of range.getClientRects()) {
           if (rect.width < 1 || rect.height < 1) continue;
-          if (
-            rect.right <= 0 ||
-            rect.left >= viewport.width ||
-            rect.bottom <= 0 ||
-            rect.top >= viewport.height
-          )
+          const left = rect.left + offsetLeft;
+          const top = rect.top + offsetTop;
+          const right = rect.right + offsetLeft;
+          const bottom = rect.bottom + offsetTop;
+          if (right <= 0 || left >= viewport.width || bottom <= 0 || top >= viewport.height)
             continue;
-          candidates.push({ rect, vertical });
+          candidates.push({
+            rect: new DOMRect(left, top, rect.width, rect.height),
+            vertical
+          });
           if (candidates.length >= 600) break;
         }
         if (candidates.length >= 600) break;
