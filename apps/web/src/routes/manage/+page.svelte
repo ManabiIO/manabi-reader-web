@@ -1029,17 +1029,18 @@
   .library-nav-shell::before {
     content: '';
     position: absolute;
-    inset: 0 0 -1.25rem;
+    inset: 0 0 -20px;
     pointer-events: none;
     opacity: 0;
     background: linear-gradient(
       to bottom,
-      color-mix(in oklch, var(--background) 78%, transparent),
-      color-mix(in oklch, var(--background) 52%, transparent) 55%,
+      color-mix(in oklch, var(--background) 94%, transparent),
+      color-mix(in oklch, var(--background) 94%, transparent) calc(100% - 20px),
       transparent
     );
     backdrop-filter: blur(14px);
-    mask-image: linear-gradient(to bottom, #000 0%, #000 55%, transparent 100%);
+    /* Keep the entire wrapped toolbar legible; only fade below its edge. */
+    mask-image: linear-gradient(to bottom, #000 0%, #000 calc(100% - 20px), transparent 100%);
     transition: opacity 180ms ease;
   }
   .library-nav-shell.scrolled::before {
