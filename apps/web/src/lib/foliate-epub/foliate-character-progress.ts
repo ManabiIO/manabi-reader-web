@@ -8,8 +8,14 @@ import { binarySearchNodeInRange } from '$lib/functions/binary-search';
 import { getCharacterCount } from '$lib/functions/get-character-count';
 import { getParagraphNodes } from '$lib/components/book-reader/get-paragraph-nodes';
 
-export { exploredCountAtParagraph, sectionIndexForCharacterCount } from './foliate-character-progress-core';
-import { exploredCountAtParagraph, sectionIndexForCharacterCount } from './foliate-character-progress-core';
+export {
+  exploredCountAtParagraph,
+  sectionIndexForCharacterCount
+} from './foliate-character-progress-core';
+import {
+  exploredCountAtParagraph,
+  sectionIndexForCharacterCount
+} from './foliate-character-progress-core';
 
 /**
  * Preserve the existing TTU paragraph-character progress contract while a
