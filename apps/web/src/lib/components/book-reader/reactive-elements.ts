@@ -42,12 +42,22 @@ export function reactiveElements(
 function anchorTagListener(document: Document) {
   return (contentEl: HTMLElement) => {
     const anchorTags = Array.from(contentEl.getElementsByTagName('a'));
-    anchorTags.forEach((el) => {
-      el.href = document.location.pathname + el.hash;
-    });
+    const isTopDocument = contentEl.ownerDocument === document;
+    if (isTopDocument) {
+      anchorTags.forEach((el) => {
+        el.href = document.location.pathname + el.hash;
+      });
+    }
 
     const obs$ = anchorTags.map((el) =>
-      fromClickEvent(el).pipe(tap(() => nextChapter$.next(el.hash.substring(1))))
+      fromClickEvent(el).pipe(
+        tap(() => {
+          // Framed EPUB resources stay inside the Reader. The migration bridge
+          // still has legacy hash-only links; route them through the existing
+          // chapter coordinator rather than navigating the child browsing context.
+          nextChapter$.next(el.hash.substring(1));
+        })
+      )
     );
     return merge(...obs$);
 }
