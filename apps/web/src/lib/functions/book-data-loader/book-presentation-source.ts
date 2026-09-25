@@ -45,6 +45,7 @@ export function createBookPresentationSource(
       sourceHtml,
       prepare: (options?: { signal?: AbortSignal }) => resources.prepare(options),
       render(html: string, blurMode: BlurMode, annotations = false) {
+        resources.assertReady();
         const element = document.createElement('div');
         // Reuse our already sanitized immutable source on the identity path.
         // Transformed/cache HTML must cross the same security boundary again.

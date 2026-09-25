@@ -95,15 +95,20 @@ export class BookResourceLease {
     return this.#sourceImages.get(source);
   }
 
-  /** Does not trust a saved or foreign blob URL. */
-  resolveRenderImage(source) {
+  /** Admission is separate from a sanitizer callback, which may swallow errors. */
+  assertReady() {
     this.#assertLive();
     if (!this.#ready) throw new Error('Book image resources are not ready');
+  }
+
+  /** Does not trust a saved or foreign blob URL. */
+  resolveRenderImage(source) {
+    this.assertReady();
     return this.#renderImages.get(source);
   }
 
   imageUrls() {
-    this.#assertLive();
+    this.assertReady();
     return new Set(this.#urls);
   }
 
@@ -172,8 +177,7 @@ export class BookResourceLease {
 
   /** First occurrence in canonical DOM order, including escaped resource names. */
   pictures(sourceImages, isPaginated) {
-    this.#assertLive();
-    if (!this.#ready) throw new Error('Book image resources are not ready');
+    this.assertReady();
     const seen = new Set();
     const pictures = [];
     for (const source of sourceImages) {

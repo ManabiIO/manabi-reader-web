@@ -11,6 +11,7 @@ export interface BookResourceOptions {
 export class BookResourceLease {
   constructor(options: BookResourceOptions);
   resolveSourceImage(source: string): string | undefined;
+  assertReady(): void;
   resolveRenderImage(source: string): string | undefined;
   imageUrls(): ReadonlySet<string>;
   prepare(options?: { signal?: AbortSignal }): Promise<void>;

@@ -63,6 +63,12 @@ try {
     const make = () => createBookPresentationSource(book, document, () => 'image/png');
     const first = make();
     const canonical = first.sourceHtml;
+    let prematureRenderRejected = false;
+    try {
+      first.render(canonical, BlurMode.AFTER_TOC);
+    } catch {
+      prematureRenderRejected = true;
+    }
     const beforeResources = !canonical.includes('blob:');
     const forgedStripped = !canonical.includes('<m-m') && !canonical.includes('data-reader-lookup');
     const networkStripped =
@@ -95,6 +101,12 @@ try {
     secondDom.innerHTML = second.render(second.sourceHtml, BlurMode.AFTER_TOC);
     const secondURL = secondDom.querySelector('img').getAttribute('src');
     first.dispose();
+    let disposedRenderRejected = false;
+    try {
+      first.render(canonical, BlurMode.AFTER_TOC);
+    } catch {
+      disposedRenderRejected = true;
+    }
     let oldRevoked = false;
     try {
       await globalThis.fetch(firstURL);
@@ -104,6 +116,8 @@ try {
     const successorStillOwned = (await globalThis.fetch(secondURL)).ok;
     second.dispose();
     return {
+      prematureRenderRejected,
+      disposedRenderRejected,
       beforeResources,
       forgedStripped,
       networkStripped,
