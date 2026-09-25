@@ -250,7 +250,12 @@ class ReaderBrowser(unittest.TestCase):
 
     def test_anonymous_navigation_without_backend(self):
         self.page.goto(self.origin + '/Reader-Web/manage')
-        self.page.get_by_role('button', name='Library actions', exact=True).click()
+        # Like open_book(), wait for the real Svelte action before interacting
+        # with prerendered controls. A visible SSR button may not have listeners.
+        expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
+        actions = self.page.get_by_role('button', name='Library actions', exact=True)
+        actions.click()
+        expect(actions).to_have_attribute('aria-expanded', 'true')
         self.page.get_by_role('menuitem', name='Accounts and Libraries', exact=True).click()
         expect(self.page.get_by_role('heading', name='Accounts and libraries', exact=True)).to_be_visible()
         expect(self.page.get_by_text('Manabi account services are not available on this deployment. Local libraries still work.')).to_be_visible()
