@@ -86,6 +86,8 @@ test('dismiss controls remain explicitly circular and disabled-aware', () => {
   assert.match(markup, /aria-label="Close collections"/);
   assert.match(markup, /<button[^>]* disabled(?:[\s>]|="")/);
   assert.match(markup, /data-modal-dismiss/);
+  assert.match(markup, /bg-secondary/);
+  assert.match(markup, /text-muted-foreground/);
 });
 
 test('embedded controls forward compact size rather than inheriting regular button height', () => {

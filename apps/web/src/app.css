@@ -133,3 +133,11 @@
   white-space: normal;
   overflow-wrap: anywhere;
 }
+
+@media (forced-colors: active) {
+  [data-modal-dismiss] {
+    border: 1px solid ButtonText;
+    color: ButtonText;
+    background: ButtonFace;
+  }
+}

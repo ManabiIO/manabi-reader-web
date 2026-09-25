@@ -75,14 +75,10 @@
   <Sheet.Content
     side={iconOnly ? 'left' : 'right'}
     class="w-[min(24rem,calc(100vw-1rem))] overflow-y-auto"
-    showCloseButton={false}
   >
     <Sheet.Header>
       <Sheet.Title>Manabi Reader</Sheet.Title>
       <Sheet.Description>Your books. Your reading space.</Sheet.Description>
-      <Button variant="ghost" class="absolute right-3 top-3" onclick={() => (open = false)}
-        >Close</Button
-      >
     </Sheet.Header>
     <nav aria-label="Main navigation" class="grid gap-1 p-3">
       {#each destinations as destination (destination.path)}

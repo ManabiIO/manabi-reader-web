@@ -122,6 +122,9 @@ async function search(request: SearchRequest) {
     if (truncated) break;
     process(true);
     emit();
+    // The cap can be reached in the final (short) chunk too. Do not scan
+    // subsequent resources and emit an extra hit at their next chunk boundary.
+    if (truncated) break;
   }
   emit();
   if (requestId > cancelledThrough)

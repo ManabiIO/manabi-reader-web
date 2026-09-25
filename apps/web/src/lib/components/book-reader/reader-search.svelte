@@ -236,7 +236,9 @@
     {#if selectionError}<p role="alert" class="mb-3 text-sm text-destructive">
         {selectionError}
       </p>{/if}
-    <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+    <!-- The sheet owns scrolling. A nested flex scroller can collapse to zero
+         when a long title or enlarged text fills a short viewport. -->
+    <div class="shrink-0" aria-label="Search results">
       {#each hits.slice(0, visibleCount) as hit, index (`${hit.resource.spineIndex}:${hit.start}:${index}`)}
         <button
           type="button"

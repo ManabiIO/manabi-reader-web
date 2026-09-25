@@ -47,3 +47,26 @@ including the 48 style/size combinations and explicit shape overrides.
 and adds worker recovery, interrupted IME, distinct button shapes, landscape notes,
 reduced-motion press behavior and a real queued IndexedDB collection write.
 The Appearance workflow runs this combined suite in Chromium and WebKit.
+
+## Follow-up reassessment of #41
+
+- Navigation now uses the same circular dismissal primitive instead of its
+  remaining absolute-positioned text Close control.
+- The visible-field / modal-start autofocus policy also applies to sheets,
+  preserving caller overrides. A long book title must not open Search Book
+  already scrolled past its heading and close button.
+- Search results share the sheet's outer scroll area. The previous nested flex
+  scroller could collapse to zero height in short viewports with large headers;
+  its buttons could exist in the DOM but be impossible to click.
+- Forced-colors dismissal has an explicit system-color border. Contrast tests
+  preserve the useful palette coverage from overlapping #40, without restoring
+  its blanket capsule rule or adding a second modal layout implementation.
+- The real search worker now stops at its 10,000-result cap when that limit is
+  reached in a short final chunk as well as a large intermediate chunk. Direct
+  bundled-worker tests cover the cap, Unicode coordinates, cancellation and
+  request-scoped error recovery.
+
+Additional actual-app browser cases cover enlarged landscape search, navigation
+header geometry/focus return, pending selection versus a new query, and forced
+colors where the engine supports emulation. These are part of the combined
+Appearance suite, not a substituted UI scaffold.
