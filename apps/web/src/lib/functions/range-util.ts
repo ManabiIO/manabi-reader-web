@@ -34,9 +34,7 @@ export function getRangeForUserSelection(window: Window, preSelection: Range | u
   const selectionWindow =
     preSelection?.commonAncestorContainer.ownerDocument?.defaultView ?? window;
   const selection = selectionWindow.getSelection();
-  const currentSelection = selection?.toString().trim()
-    ? selection.getRangeAt(0)
-    : undefined;
+  const currentSelection = selection?.toString().trim() ? selection.getRangeAt(0) : undefined;
 
   let userSelection: Range | undefined;
 
