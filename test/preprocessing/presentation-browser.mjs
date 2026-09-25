@@ -65,7 +65,8 @@ try {
     const canonical = first.sourceHtml;
     const beforeResources = !canonical.includes('blob:');
     const forgedStripped = !canonical.includes('<m-m') && !canonical.includes('data-reader-lookup');
-    const networkStripped = !canonical.includes('forbidden.invalid') && !canonical.includes('<script');
+    const networkStripped =
+      !canonical.includes('forbidden.invalid') && !canonical.includes('<script');
     const canonicalImage = document.createElement('template');
     canonicalImage.innerHTML = canonical;
     const stableImage = canonicalImage.content.querySelector('img').getAttribute('src');
