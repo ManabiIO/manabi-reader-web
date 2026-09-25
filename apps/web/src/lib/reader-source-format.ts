@@ -18,7 +18,8 @@ export function readerSourceFormat(book: BooksDbBookData): ReaderSourceFormat {
   if (!hrefs.length) return 'unknown';
   if (hrefs.length === 1 && hrefs[0] === 'htmlz:body') return 'htmlz';
   if (hrefs.every((href) => /^legacy-section-\d+$/.test(href))) return 'txt';
-  if (hrefs.every((href) => !href.includes(':') && !href.startsWith('legacy-section-'))) return 'epub';
+  if (hrefs.every((href) => !href.includes(':') && !href.startsWith('legacy-section-')))
+    return 'epub';
   return 'unknown';
 }
 
