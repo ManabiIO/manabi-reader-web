@@ -9,7 +9,11 @@ CatalogLifetimeBrowser = previous.CatalogLifetimeBrowser
 
 class ConnectControlsBrowser(previous.AppleControlsBrowser):
     def assert_no_horizontal_overflow(self, root):
-        self.assertLessEqual(root.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
+        # On Linux a classic vertical scrollbar reduces html.clientWidth by
+        # about 13px even when the page has no horizontal overflow. The root
+        # scroll width should be compared with the viewport's full width.
+        self.assertLessEqual(root.evaluate('''e => e.scrollWidth -
+            (e === document.documentElement ? window.innerWidth : e.clientWidth)'''), 1)
 
     def test_settings_navigation_and_fields_distinguish_selection_from_actions(self):
         for mode in ('light', 'dark'):
