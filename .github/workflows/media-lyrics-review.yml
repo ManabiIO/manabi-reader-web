@@ -25,17 +25,17 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: lyrics-reviewed-source
-          run-id: 36131653443
+          run-id: 36132578872
           github-token: ${{ github.token }}
           path: reviewed
-      - name: Apply verified candidate and regression corrections
+      - name: Apply verified source and correct the actual font selection test
         run: |
           python3 - <<'PY'
           import hashlib,json,pathlib
           raw=pathlib.Path('reviewed/lyrics-candidate.json').read_bytes()
-          assert hashlib.sha256(raw).hexdigest()=='e0e61207c4d0cf9639a6377bb65f1b524cf7200c6f1bbd7c8a1bce104cd41fb1'
+          assert hashlib.sha256(raw).hexdigest()=='07f75d76617e3908fef3111130289b5686b6f4f27efb44bd950d289254843897'
           entries=json.loads(raw)
-          assert len(entries)==17 and len({e['path'] for e in entries})==17
+          assert len(entries)==18 and len({e['path'] for e in entries})==18
           for entry in entries:
               path=pathlib.Path(entry['path'])
               assert not path.is_absolute() and '..' not in path.parts and '.git' not in path.parts
@@ -44,55 +44,21 @@ jobs:
               assert hashlib.sha256(data).hexdigest()==entry['sha256']
               path.parent.mkdir(parents=True,exist_ok=True)
               path.write_bytes(data)
-          path=pathlib.Path('apps/web/src/lib/media/workspace.ts')
-          text=path.read_text();old='if (active()) return await this.generate();'
-          assert text.count(old)==1
-          path.write_text(text.replace(old,old+'\n        return undefined;'))
           path=pathlib.Path('tests/media/app-browser.py')
-          text=path.read_text();old="str(args.fixture / 'video.mp4'),"
-          assert text.count(old)==1
-          text=text.replace(old,"{'name':'video.mp4','mimeType':'video/mp4','buffer':(args.fixture / 'video.mp4').read_bytes()},")
-          # Retain a screenshot and DOM snapshot when the real application fails.
-          text=text.replace('    finally:\n        server.shutdown()', '    except Exception:\n        try:\n            page.screenshot(path=str(args.output/"failure.png"))\n            (args.output/"failure.html").write_text(page.content())\n        except Exception:\n            pass\n        raise\n    finally:\n        server.shutdown()')
+          text=path.read_text()
+          assert text.count("select_option('serif')")==1
+          text=text.replace("select_option('serif')", "select_option('Serif')")
+          text=text.replace("== 'serif'", "== 'Serif'")
+          text=text.replace('.fontFamily.startsWith("serif")', '.fontFamily.toLowerCase().startsWith("serif")')
+          # Keep Playwright alive while failure diagnostics are collected.
+          first=text.index('    try:\n        with sync_playwright() as p:\n')
+          last=text.index('    except Exception:', first)
+          body=text[first:last].splitlines(keepends=True)[2:]
+          assert all(not line.strip() or line.startswith('            ') for line in body)
+          text=text[:first]+'    p = sync_playwright().start()\n    try:\n'+''.join(line[4:] if line.strip() else line for line in body)+text[last:]
+          text=text.replace('    finally:\n        server.shutdown()', '    finally:\n        p.stop()\n        server.shutdown()')
           path.write_text(text)
-          path=pathlib.Path('tests/media/jobs.test.mjs');text=path.read_text()
-          first=text.index("test('resume refuses a live lease; recovery only releases stale owners without Web Locks'")
-          last=text.index("test('non-finite PCM",first)
-          section=text[first:last]
-          assert section.count('harness(async')==1 and section.endswith('  }));\n')
-          section=section.replace('harness(async','withLocks(undefined, () => harness(async',1)
-          section=section[:-len('  }));\n')]+'  })));\n'
-          text=text[:first]+section+text[last:]
-          text += '''
-          // Node may expose navigator.locks; each capability scenario owns its mock.
-          async function withLocks(locks, body) {
-            const previous = Object.getOwnPropertyDescriptor(navigator, 'locks');
-            Object.defineProperty(navigator, 'locks', { configurable: true, value: locks });
-            try { return await body(); }
-            finally {
-              if (previous) Object.defineProperty(navigator, 'locks', previous);
-              else delete navigator.locks;
-            }
-          }
-          for (const available of [false, true]) {
-            test(`recovery ${available ? 'releases an orphan under exclusive lock' : 'leaves a held inference lock untouched'}`, () =>
-              withLocks({ async request(name, options, callback) {
-                assert.equal(name, 'manabi-moss-inference');
-                assert.deepEqual(options, { ifAvailable: true });
-                return callback(available ? { name } : null);
-              } }, () => harness(async ({ queue, store }) => {
-                const q = queue({ dispose() {} });
-                await store.putLocal(scope, 'jobs', id, {
-                  ...job(), status: 'running', ownerId: owner, leaseUntil: Date.now() + 90000
-                });
-                await q.recover();
-                assert.equal((await store.local(scope, 'jobs', id)).status, available ? 'paused' : 'running');
-              })));
-          }
-          '''
-          path.write_text(text)
-          paths=[e['path'] for e in entries]+['tests/media/jobs.test.mjs']
-          pathlib.Path('lyrics-paths.json').write_text(json.dumps(paths))
+          pathlib.Path('lyrics-paths.json').write_text(json.dumps([e['path'] for e in entries]))
           PY
       - uses: pnpm/action-setup@v6.1.0
         with:
@@ -115,6 +81,7 @@ jobs:
           subprocess.run(['pnpm','exec','prettier','--write',*formatted],check=True)
           linted=[p for p in paths if pathlib.Path(p).suffix in ('.ts','.mjs')]
           subprocess.run(['pnpm','exec','eslint','--fix',*linted],check=True)
+          subprocess.run(['python3','-m','py_compile','tests/media/app-browser.py'],check=True)
           PY
       - name: Capture candidate source
         if: always()
