@@ -125,6 +125,8 @@
   import { account, currentUser } from '$lib/manabi/client';
   import type { ReaderAnnotation } from '$lib/data/database/books-db/versions/v7/books-db-v7';
   import { ReaderNavigation } from '$lib/reader-navigation';
+  import { acquireReaderLease } from '$lib/webdav/reader-lock';
+  import { takeLibraryLocation } from '$lib/library/search-navigation';
   import type { ReaderLocator } from '$lib/reader-location';
   import { readerBookKeyFor } from '$lib/reader-identity';
   import { TextAlignLeft, X } from 'phosphor-svelte';
@@ -239,6 +241,19 @@
   let revealingReaderLocator = false;
   let previewTrackerWasPaused = false;
   let readerBookKey = '';
+  let libraryTarget: ReaderLocator | undefined;
+  let libraryNavigationTask = false;
+  let libraryNavigationEpoch = 0;
+  let librarySearchMessage = '';
+  $: if (
+    browser &&
+    libraryTarget &&
+    bookReaderComponent &&
+    readerBookKey &&
+    guideContentEl &&
+    !libraryNavigationTask
+  )
+    void openLibraryTarget();
   $: if (browser && $rawBookData$?.id) {
     const book = $rawBookData$;
     void readerBookKeyFor(book.id, book.contentHash).then((key) => {
@@ -331,11 +346,16 @@
     shareReplay({ refCount: true, bufferSize: 1 })
   );
 
+  const readerLeaseLifetime = new AbortController();
+  let readerLease: Promise<void> | undefined;
   const rawBookData$ = bookId$.pipe(
     switchMap(async (id) => {
       let bookData: BooksDbBookData | undefined;
 
       try {
+        readerLease ??= acquireReaderLease(readerLeaseLifetime.signal);
+        await readerLease;
+        if (readerLeaseLifetime.signal.aborted) return undefined;
         localStorageHandler = getStorageHandler(
           window,
           StorageKey.BROWSER,
@@ -394,6 +414,7 @@
           document.documentElement.lang = bookData.language;
         }
       } catch (error: any) {
+        if (readerLeaseLifetime.signal.aborted) return undefined;
         const message = `Error loading book: ${error.message}`;
 
         logger.warn(message);
@@ -434,7 +455,7 @@
 
   const leaveIfBookMissing$ = rawBookData$.pipe(
     tap((data) => {
-      if (!data) {
+      if (!data && !readerLeaseLifetime.signal.aborted) {
         goto(`${pagePath}${mergeEntries.MANAGE.routeId}`);
       }
     }),
@@ -449,6 +470,16 @@
       // template subscription to the non-replayed raw stream can miss its only
       // emission when Svelte mounts the conditional Reader subtree lazily.
       bookmarkData = database.getBookmark(rawBookData.id);
+      const incomingLocation = takeLibraryLocation(
+        rawBookData.id,
+        currentUser()?.id ?? null,
+        $page.url.searchParams.get('library-search')
+      );
+      if (incomingLocation) {
+        libraryTarget = incomingLocation;
+        suppressResumeSave = true;
+        pauseTracker();
+      }
       sectionList$.next(rawBookData.sections || []);
 
       return loadBookData(
@@ -669,6 +700,8 @@
   /** Experimental Code - May be removed any time without warning */
 
   onDestroy(() => {
+    readerLeaseLifetime.abort();
+    libraryNavigationEpoch++;
     if (browser) {
       document.removeEventListener('ttu-action', handleAction, false);
       document.documentElement.lang = 'ja';
@@ -1352,6 +1385,56 @@
     navigationPreviewing = true;
     suppressResumeSave = false;
     revealingReaderLocator = false;
+  }
+
+  async function openLibraryTarget() {
+    const target = libraryTarget;
+    if (!target || libraryNavigationTask) return;
+    libraryTarget = undefined;
+    libraryNavigationTask = true;
+    const epoch = ++libraryNavigationEpoch;
+    const id = $rawBookData$?.id;
+    const owner = currentUser()?.id ?? null;
+    const current = () =>
+      epoch === libraryNavigationEpoch &&
+      id === $rawBookData$?.id &&
+      owner === (currentUser()?.id ?? null);
+    try {
+      const deadline = Date.now() + 10000;
+      await bookmarkData;
+      while (current() && Date.now() < deadline) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 32));
+        if (
+          bookReaderComponent &&
+          readerBookKey === target.bookKey &&
+          guideContentEl?.isConnected &&
+          !guideContentEl.closest('[aria-busy="true"]') &&
+          bookmarkManager?.formatBookmarkData(id!, customReadingPointScrollOffset)
+        ) {
+          // Let the initial resume/reflow callbacks finish before capturing Return.
+          await tick();
+          await new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+          );
+          if (!current()) return;
+          await previewLocator(target, 'search');
+          if (!readerNavigation.previewing)
+            throw new Error('The saved passage no longer resolves in this book.');
+          return;
+        }
+      }
+      if (current())
+        throw new Error('The reader could not open this passage. Search the book to try again.');
+    } catch (error) {
+      if (current())
+        librarySearchMessage =
+          error instanceof Error ? error.message : 'Could not open the passage.';
+    } finally {
+      if (current()) {
+        libraryNavigationTask = false;
+        suppressResumeSave = false;
+      }
+    }
   }
 
   async function openBookSearch() {
@@ -2143,6 +2226,12 @@
         void restorePreviewAfterReflow(readerContentEpoch);
     }}
   />
+  {#if librarySearchMessage}<p
+      role="alert"
+      class="fixed inset-x-4 top-16 z-50 rounded-xl bg-card p-4 text-foreground"
+    >
+      {librarySearchMessage}
+    </p>{/if}
   <ReaderHighlights
     contentEl={guideContentEl}
     {annotations}
@@ -2192,6 +2281,8 @@
 />
 
 <ReaderAnnotations
+  bookId={$rawBookData$?.id ?? 0}
+  bookKey={readerBookKey}
   bind:open={showAnnotations}
   {annotations}
   importConflicts={annotationImportConflicts}

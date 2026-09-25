@@ -406,7 +406,8 @@ export class DatabaseService {
       | 'audioBook'
       | 'subtitle'
       | 'handle'
-    )[] = ['data', 'audioBook', 'subtitle', 'handle'];
+      | 'readerSearchProjection'
+    )[] = ['data', 'audioBook', 'subtitle', 'handle', 'readerSearchProjection'];
     const shouldDeleteLastItem = cachedData.lastItem === dataId;
     const shouldDeleteBookmark = cachedData.bookmarkIds.has(dataId);
 
@@ -456,6 +457,7 @@ export class DatabaseService {
         await tx.objectStore('handle').delete(IDBKeyRange.bound([bookTitle], [bookTitle, []]));
       }
 
+      await tx.objectStore('readerSearchProjection').delete(dataId);
       await tx.objectStore('data').delete(dataId);
       await tx.done;
 

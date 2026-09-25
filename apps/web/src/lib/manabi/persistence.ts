@@ -23,6 +23,8 @@ export interface BookLink {
   bookId: number;
   title: string;
   syncEnabled: boolean;
+  /** Explicit consent is bound to the active local/account scope. */
+  davAccountId?: string | null;
   base?: Record<string, unknown>;
 }
 interface IntegrationDB extends DBSchema {

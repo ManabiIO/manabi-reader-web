@@ -196,7 +196,7 @@
     return sortDiff;
   }
 
-  async function onBookClick(bookId: number) {
+  async function onBookClick(bookId: number, librarySearch?: string) {
     if (!operationAllowed()) {
       return;
     }
@@ -290,7 +290,7 @@
         return;
       }
 
-      openBook(idToOpen);
+      openBook(idToOpen, idToOpen === bookId ? librarySearch : undefined);
       return;
     }
 
@@ -328,17 +328,19 @@
     return !replicationToProgress && connectivityPass;
   }
 
-  function openBook(bookId: number) {
+  function openBook(bookId: number, librarySearch?: string) {
     if (!bookId) {
       return;
     }
 
     database.putLastItem(bookId);
-    gotoBook(bookId);
+    gotoBook(bookId, librarySearch);
   }
 
-  async function gotoBook(id: number) {
-    await goto(`${pagePath}/b?id=${id}`);
+  async function gotoBook(id: number, librarySearch?: string) {
+    await goto(
+      `${pagePath}/b?id=${id}${librarySearch ? `&library-search=${encodeURIComponent(librarySearch)}` : ''}`
+    );
   }
 
   async function onFilesChange(fileList: FileList | File[]) {
@@ -972,7 +974,11 @@
         bind:collectionsOpen
         bind:menu={libraryMenu}
         bookCards={$bookCards$}
-        on:bookClick={(ev) => onBookClick(ev.detail.id)}
+        on:bookClick={(ev) =>
+          onBookClick(
+            ev.detail.id,
+            'librarySearch' in ev.detail ? (ev.detail.librarySearch as string) : undefined
+          )}
         on:selectionManyClick={(ev) => toggleSelectedBooks(ev.detail.ids)}
         on:selectionScopeChange={(ev) => updateSelectionScope(ev.detail.key, ev.detail.ids)}
         on:removeBookClick={(ev) => removeBooks([ev.detail.id])}
@@ -984,7 +990,11 @@
         currentBookId={$currentBookId$}
         {selectedBookIds}
         bookCards={$bookCards$}
-        on:bookClick={(ev) => onBookClick(ev.detail.id)}
+        on:bookClick={(ev) =>
+          onBookClick(
+            ev.detail.id,
+            'librarySearch' in ev.detail ? (ev.detail.librarySearch as string) : undefined
+          )}
         on:removeBookClick={(ev) => removeBooks([ev.detail.id])}
       />
     {:else}

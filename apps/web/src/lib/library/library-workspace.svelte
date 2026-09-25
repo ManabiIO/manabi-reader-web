@@ -76,6 +76,9 @@
   import CoverStack from './cover-stack.svelte';
   import SourceIcon from './source-icon.svelte';
   import CollectionsSheet from './collections-sheet.svelte';
+  import { queueLibraryLocation, clearLibraryLocation } from './search-navigation';
+  import type { ReaderLocator } from '../reader-location';
+  import LibrarySearch from './library-search.svelte';
   let coverWidths: Record<string, number> = {};
   let shelfElement: HTMLElement;
   function rememberCoverWidth(key: string, fraction: number) {
@@ -111,7 +114,7 @@
   export let destinationTitle = 'Library';
   export let menu: LibraryMenuModel | undefined = undefined;
   const dispatch = createEventDispatcher<{
-    bookClick: { id: number };
+    bookClick: { id: number; librarySearch?: string };
     selectionManyClick: { ids: number[] };
     selectionScopeChange: { key: string; ids: number[] };
     removeBookClick: { id: number };
@@ -249,6 +252,17 @@
   $: notFinished = $page.url.searchParams.get('unfinished') === '1';
   $: destinationTitle = series?.name || (collectionId === 'books' ? 'Library' : collectionTitle);
   $: normalizedQuery = query.trim().normalize('NFKC').toLocaleLowerCase();
+  $: metadataSeries = normalizedQuery ? booksInMatchingSeries(tree, normalizedQuery) : [];
+  $: metadataCollections = $organization.collections.filter((c) =>
+    c.name.normalize('NFKC').toLocaleLowerCase().includes(normalizedQuery)
+  );
+  $: metadataMatches = books.filter(
+    (book) =>
+      matchesBookQuery(book, normalizedQuery, metadataSeries) ||
+      metadataCollections.some((c) =>
+        book.organizationAliases.some((key) => c.members.includes(key))
+      )
+  );
   $: flatDestination = !series && (collectionId === 'finished' || !!selectedCollection);
   $: seriesMatchedKeys =
     normalizedQuery && !flatDestination
@@ -669,10 +683,14 @@
       organizationAliases: [...new Set([...book.organizationAliases, organizationKey])]
     };
   }
-  function openBook(book: ShelfBook) {
+  function openBook(book: ShelfBook, locator?: ReaderLocator) {
+    const owner = currentUser()?.id ?? null;
     void action(async () => {
       const id = await ensureBook(book);
-      dispatch('bookClick', { id });
+      if (!alive || owner !== (currentUser()?.id ?? null)) return;
+      clearLibraryLocation();
+      const librarySearch = locator ? queueLibraryLocation(id, owner, locator) : undefined;
+      dispatch('bookClick', { id, librarySearch });
     });
   }
   function saveBook(book: ShelfBook) {
@@ -1040,7 +1058,7 @@
     aria-busy={busy || scanning}
     data-hydrated={alive}
   >
-    {#if !series && collectionId === 'books'}
+    {#if !series && collectionId === 'books' && !normalizedQuery}
       <div class="library-toolbar">
         <h2 id={recentBooks.length ? 'continue-heading' : 'books-heading'} class="shelf-heading">
           {recentBooks.length ? 'Continue' : 'Books'}
@@ -1126,7 +1144,7 @@
         </div>
       </section>
     {/if}
-    {#if series}
+    {#if series && !normalizedQuery}
       <header
         use:previewVisible={series}
         class="series-hero mb-10 rounded-3xl px-6 pt-8 pb-7 text-center"
@@ -1166,8 +1184,15 @@
             >{/if}
         </div>
       </header>
-    {:else if recentBooks.length}<h2 id="books-heading" class="shelf-heading mb-4">Books</h2>{/if}
-    {#if completedGroups.length && collectionId === 'finished' && !series && currentLayout === 'timeline'}
+    {:else if recentBooks.length && !normalizedQuery}<h2
+        id="books-heading"
+        class="shelf-heading mb-4"
+      >
+        Books
+      </h2>{/if}
+    {#if normalizedQuery && !selectMode}
+      <LibrarySearch {query} {books} matches={metadataMatches} {openBook} />
+    {:else if completedGroups.length && collectionId === 'finished' && !series && currentLayout === 'timeline'}
       <div class="finished-timeline" role="list" aria-label="Finished books">
         {#each completedGroups as group (group.day || 'unknown')}
           <section class="finished-group" aria-labelledby={`finished-${group.day || 'unknown'}`}>

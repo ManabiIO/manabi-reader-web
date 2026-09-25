@@ -272,7 +272,7 @@ class BooksLibraryBrowser(LibraryBase):
         picker.set_input_files(str(fixture))
         self.page.get_by_role('button', name='Import selected (1)', exact=True).click()
         expect(self.page.get_by_role('article', name='Import Manabi Yatsu Portability Fixture')
-               .get_by_role('status')).to_have_text('Imported Manabi Yatsu Portability Fixture.', timeout=60000)
+               .get_by_role('status')).to_contain_text('Imported Manabi Yatsu Portability Fixture.', timeout=60000)
         for width in (390, 1200):
             with self.subTest(width=width):
                 self.page.set_viewport_size({'width': width, 'height': 844})
@@ -598,7 +598,8 @@ class BooksLibraryBrowser(LibraryBase):
                     expect(self.page.get_by_role('button', name='Read Standard cover', exact=True)).to_be_visible()
                     trigger.click()
                     self.page.get_by_role('searchbox', name='Search library', exact=True).fill('No matching title')
-                    expect(self.page.get_by_role('heading', name='No matching books', exact=True)).to_be_visible()
+                    expect(self.page.get_by_text('No matching book metadata.', exact=True)).to_be_visible()
+                    expect(self.page.get_by_text('No content matches.', exact=True)).to_be_visible()
                     self.page.get_by_role('button', name='Cancel', exact=True).click()
                     expect(trigger).to_be_focused()
                 else:
@@ -820,8 +821,9 @@ class BooksLibraryBrowser(LibraryBase):
             expect(self.tile(title).get_by_role('heading', name=title, exact=True)).to_be_visible()
         search = self.page.get_by_role('searchbox', name='Search library', exact=True)
         search.fill('missing book')
-        expect(self.page.get_by_role('heading', name='No matching books', exact=True)).to_be_visible()
-        self.page.get_by_role('button', name='Clear Search', exact=True).click()
+        expect(self.page.get_by_text('No matching book metadata.', exact=True)).to_be_visible()
+        expect(self.page.get_by_text('No content matches.', exact=True)).to_be_visible()
+        search.fill('')
         expect(self.page.get_by_role('heading', name='Continue', exact=True)).to_be_visible()
         self.assertEqual(before, self.stores('books', ['bookmark', 'statistic']))
 

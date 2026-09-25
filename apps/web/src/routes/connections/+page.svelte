@@ -1,4 +1,8 @@
 <script lang="ts">
+  import { davSyncStatus, setDavBookSync } from '$lib/webdav/sync';
+  import DavConnections from '$lib/webdav/connections.svelte';
+  import { WebDavSource } from '$lib/webdav/source';
+  import { DavError } from '$lib/webdav/client';
   import AppNav from '$lib/components/navigation/app-nav.svelte';
   import { onMount } from 'svelte';
   import { resolve } from '$app/paths';
@@ -60,7 +64,7 @@
 
   function report(error: unknown) {
     message =
-      error instanceof IntegrationError
+      error instanceof IntegrationError || error instanceof DavError
         ? error.message
         : error instanceof DOMException && error.name === 'AbortError'
           ? ''
@@ -102,6 +106,14 @@
       await pending;
       await reload();
       await openLocal(library);
+    });
+  }
+  async function openDav(value: WebDavSource) {
+    await action(async () => {
+      source = value;
+      sourceName = value.configuration.name;
+      trail = [{ id: value.root, name: sourceName }];
+      await browse(value.root, false);
     });
   }
   async function openLocal(library: LocalLibrary) {
@@ -379,6 +391,18 @@
     {/if}
   </section>
 
+  <DavConnections
+    onbrowse={openDav}
+    ondisconnect={async (id) => {
+      if (source?.id === id) {
+        source = null;
+        entries = [];
+        navigation++;
+      }
+      await refreshLinkedBooks();
+    }}
+  />
+
   <section aria-labelledby="local-heading">
     <h2 id="local-heading">Local folders</h2>
     <p>
@@ -443,8 +467,9 @@
         {/each}
       </nav>
       <p>
-        Verified books sync personal reading data through your Manabi account. Folder write access
-        is not required.
+        {source instanceof WebDavSource
+          ? 'Import books for offline reading. WebDAV reading-data sync is a separate opt-in action below; original book files are never changed.'
+          : 'Verified books sync personal reading data through your Manabi account. Folder write access is not required.'}
       </p>
       {#each entries as entry (entry.id)}
         <div class="file-entry">
@@ -461,7 +486,11 @@
               on:click={() =>
                 action(async () => {
                   if (!source) return;
-                  lastImported = await importLibraryBook(source, entry, true);
+                  lastImported = await importLibraryBook(
+                    source,
+                    entry,
+                    !(source instanceof WebDavSource)
+                  );
                   message = `Imported ${lastImported.title}. It is now available offline.`;
                 })}>Import {entry.name}</button
             >
@@ -518,6 +547,37 @@
       </p>{/if}
     {#each $linkedBooks as link (link.id)}
       <article class="library" aria-label="Reading sync for {link.title}">
+        {#if link.sourceId.startsWith('webdav-')}
+          <label
+            ><input
+              type="checkbox"
+              checked={link.syncEnabled}
+              disabled={busy}
+              on:change={(event) =>
+                action(async () => {
+                  await setDavBookSync(link.id, event.currentTarget.checked);
+                  await refreshLinkedBooks();
+                })}
+            /> Sync this book’s reading data with WebDAV</label
+          >
+          <p class="hint">
+            No Manabi server is used. Sync runs while the Library is visible, not while reading or
+            after closing the app. Same-field conflicts require a choice.
+          </p>
+          {#if $davSyncStatus[link.id]?.state === 'conflict'}
+            <p>{$davSyncStatus[link.id]?.conflicts?.join(', ')}</p>
+            <button disabled={busy} on:click={() => action(() => syncBook(link.id, 'local'))}
+              >{$davSyncStatus[link.id]?.missing
+                ? 'Restore WebDAV file from this device'
+                : 'Keep device conflicts'}</button
+            >
+            {#if !$davSyncStatus[link.id]?.missing}<button
+                disabled={busy}
+                on:click={() => action(() => syncBook(link.id, 'remote'))}
+                >Use WebDAV conflicts</button
+              >{/if}
+          {/if}
+        {/if}
         <h3><a href={resolve(`/b?id=${link.bookId}`)}>{link.title}</a></h3>
         <p role="status">
           {$bookSyncStatus[link.id]?.message ?? 'Ready to sync through your account.'}

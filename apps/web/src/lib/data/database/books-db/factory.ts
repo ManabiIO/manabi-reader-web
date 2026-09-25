@@ -9,7 +9,7 @@ import { openDB } from 'idb';
 import upgradeBooksDbFromV2 from './versions/v2/upgrade';
 
 export function createBooksDb(name = 'books') {
-  return openDB<BooksDb>(name, 9, {
+  return openDB<BooksDb>(name, 10, {
     async upgrade(oldDb, oldVersion, newVersion, transaction) {
       switch (oldVersion) {
         case 0: {
@@ -123,6 +123,12 @@ export function createBooksDb(name = 'books') {
         });
         personalConflicts.createIndex('accountId', 'accountId');
         personalConflicts.createIndex('bookKey', 'bookKey');
+      }
+      if (oldVersion < 10) {
+        oldDb.createObjectStore('readerSearchProjection', { keyPath: 'bookId' });
+        oldDb.createObjectStore('readerExternalSync', { keyPath: 'id' });
+        const imports = oldDb.createObjectStore('readerImportRecord', { keyPath: 'id' });
+        imports.createIndex('bookKey', 'bookKey');
       }
       if (oldVersion < 9) {
         const statistics = oldDb.createObjectStore('readerStatistic', {
