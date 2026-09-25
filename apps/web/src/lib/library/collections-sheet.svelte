@@ -28,6 +28,7 @@
   export let books: ShelfBook[] = [];
   export let active = 'books';
   export let onchoose: (id: string) => void;
+  let editButton: HTMLElement | null = null;
   let editing = false,
     dialogOpen = false,
     target: Collection | undefined,
@@ -77,13 +78,22 @@
     <Sheet.Content
       id="library-collections-sheet"
       side="bottom"
-      class="mx-auto max-h-[90dvh] max-w-xl overflow-y-auto rounded-t-3xl p-5 pb-10 sm:p-6"
+      class="mx-auto max-h-[90dvh] max-w-xl overflow-y-auto rounded-t-3xl p-[20px] px-[16px] pb-[40px] sm:p-[24px]"
       showCloseButton={false}
+      onOpenAutoFocus={(event) => {
+        // This action sheet starts at its visible Edit control, unlike an
+        // information/search sheet with potentially offscreen editable fields.
+        if (editButton?.isConnected) {
+          event.preventDefault();
+          editButton.focus({ preventScroll: true });
+        }
+      }}
     >
-      <Sheet.Header class="mb-6 flex flex-row items-center justify-between gap-3 p-0">
-        <Sheet.Title class="font-serif text-2xl">Collections</Sheet.Title>
-        <div class="flex shrink-0 gap-2">
+      <Sheet.Header class="mb-6 flex shrink-0 flex-row flex-wrap items-center justify-between gap-3 p-0">
+        <Sheet.Title class="min-w-0 font-serif text-xl sm:text-2xl">Collections</Sheet.Title>
+        <div class="ms-auto flex shrink-0 items-center gap-2">
           <Button
+            bind:ref={editButton}
             variant="secondary"
             class="min-h-11 rounded-full px-4"
             aria-pressed={editing}
@@ -98,7 +108,7 @@
           >Organize books without moving their files. A book can be in several collections.</Sheet.Description
         >
       </Sheet.Header>
-      <div class="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card">
+      <div class="shrink-0 divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card">
         <button
           class="collection-row"
           aria-current={active === 'books' ? 'page' : undefined}
@@ -124,7 +134,7 @@
         >
       </div>
       <div
-        class="mt-6 divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card"
+        class="mt-6 shrink-0 divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card"
       >
         {#each customCollections as collection (collection.id)}
           <div class="collection-entry">
@@ -132,7 +142,7 @@
               class="collection-row"
               aria-current={active === collection.id ? 'page' : undefined}
               onclick={() => choose(collection.id)}
-              ><List aria-hidden="true" /><span class="min-w-0 break-words">{collection.name}</span
+              ><List aria-hidden="true" /><span class="min-w-0 [overflow-wrap:anywhere]">{collection.name}</span
               ><span class="count"
                 >{books.filter((book) => collectionContains(collection, book)).length}</span
               >{#if !editing}<CaretRight
@@ -163,7 +173,7 @@
           ><Plus aria-hidden="true" /><span>New Collection…</span></button
         >
       </div>
-      <p class="mt-4 text-xs text-muted-foreground">
+      <p class="mt-4 shrink-0 text-xs text-muted-foreground">
         Collections and book overrides sync with your Manabi Reader settings when account sync is
         on. Unavailable books stay in their collections and reappear when their library is
         connected.
@@ -173,7 +183,7 @@
 <Dialog.Root bind:open={dialogOpen}>
   <Dialog.Content
     closeDisabled={busy}
-    class="[&_[data-slot=dialog-footer]_button]:min-h-11"
+    class="px-[16px] sm:px-[24px] [&_[data-slot=dialog-footer]_button]:min-h-11"
     onCloseAutoFocus={(event) => {
       event.preventDefault();
       void tick().then(() => {
@@ -207,9 +217,9 @@
       class="grid gap-5"
       aria-busy={busy}
     >
-      {#if !deleting}<label class="grid gap-2"
+      {#if !deleting}<label class="grid min-w-0 gap-2"
           >Name<input
-            class="min-h-11 rounded-xl border border-input bg-background px-3"
+            class="min-h-11 min-w-0 w-full rounded-xl border border-input bg-background px-3 text-base sm:text-sm"
             bind:value={name}
             disabled={busy}
             required
@@ -222,8 +232,8 @@
           >Cancel</Button
         ><Button type="submit" variant={deleting ? 'destructive' : 'secondary'} disabled={busy}
           >{busy ? 'Saving…' : deleting ? 'Delete Collection' : 'Save'}</Button
-        ></Dialog.Footer
-      >
+        >
+      </Dialog.Footer>
     </form>
   </Dialog.Content>
 </Dialog.Root>
@@ -231,18 +241,18 @@
 <style>
   .collection-row {
     display: grid;
-    grid-template-columns: 1.5rem minmax(0, 1fr) auto auto;
+    grid-template-columns: min(1.5rem, 24px) minmax(0, 1fr) auto auto;
     align-items: center;
-    gap: 0.75rem;
+    gap: min(0.75rem, 12px);
     width: 100%;
-    padding: 0.875rem 1rem;
+    padding: 0.875rem min(1rem, 16px);
     text-align: left;
     font-size: 1.1rem;
     min-height: 60px;
   }
   .collection-row :global(svg) {
-    width: 1.5rem;
-    height: 1.5rem;
+    width: min(1.5rem, 24px);
+    height: min(1.5rem, 24px);
     flex-shrink: 0;
   }
   .collection-row:hover,
@@ -258,13 +268,19 @@
     font-variant-numeric: tabular-nums;
   }
   .collection-entry {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    display: flex;
+    flex-wrap: wrap;
     align-items: center;
+  }
+  .collection-entry > .collection-row {
+    flex: 1 1 14rem;
+    min-width: 0;
   }
   .collection-actions {
     display: flex;
     gap: 0.15rem;
-    padding-right: 0.5rem;
+    margin-inline-start: auto;
+    padding-inline: 0.5rem;
+    padding-block-end: 0.25rem;
   }
 </style>

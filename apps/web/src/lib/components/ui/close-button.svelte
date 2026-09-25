@@ -20,7 +20,7 @@
   aria-label={label}
   data-modal-dismiss=""
   class={cn(
-    'text-muted-foreground hover:text-foreground',
+    'size-[44px] min-h-[44px] min-w-[44px] pointer-coarse:min-h-[44px] pointer-coarse:min-w-[44px] text-muted-foreground hover:text-foreground',
     className
   )}
 >

@@ -11,17 +11,27 @@
 export function focusModalStart(event: Event, modal: HTMLElement) {
   const bounds = modal.getBoundingClientRect();
   const field = [
-    ...modal.querySelectorAll<HTMLElement>('input:not([type="hidden"]), textarea, select')
+    ...modal.querySelectorAll<HTMLElement>(
+      'input:not([type="hidden"]):not([type="file"]), textarea, select'
+    )
   ].find((element) => {
     const rect = element.getBoundingClientRect();
     return (
-      !element.matches(':disabled') &&
+      !element.matches(':disabled, [readonly], [aria-disabled="true"]') &&
+      // Visually hidden file/checkbox controls can have a 1px client rect.
+      // They stay keyboard-accessible via their labels, but are not a visible
+      // starting point for a newly opened modal.
+      !element.closest('.sr-only') &&
       element.tabIndex >= 0 &&
       element.getClientRects().length > 0 &&
       !element.closest('[inert], [hidden], [aria-hidden="true"]') &&
       getComputedStyle(element).visibility === 'visible' &&
-      rect.top >= bounds.top &&
-      rect.bottom <= bounds.bottom
+      rect.width > 0 &&
+      rect.height > 0 &&
+      rect.left >= Math.max(0, bounds.left) &&
+      rect.right <= Math.min(modal.ownerDocument.documentElement.clientWidth, bounds.right) &&
+      rect.top >= Math.max(0, bounds.top) &&
+      rect.bottom <= Math.min(modal.ownerDocument.documentElement.clientHeight, bounds.bottom)
     );
   });
   event.preventDefault();

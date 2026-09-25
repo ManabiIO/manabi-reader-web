@@ -175,7 +175,10 @@ class RheaReader(previous.RefinedAppearance):
             expect(self.page.get_by_role('button', name='Show reading controls', exact=True)).to_be_focused()
             self.page.get_by_role('button', name='Show reading controls', exact=True).tap()
             self.page.get_by_role('button', name='Themes & Settings', exact=True).tap()
-            panel.get_by_role('button', name='Close reading appearance', exact=True).tap()
+            close = panel.get_by_role('button', name='Close reading appearance', exact=True)
+            expect(close).to_have_attribute('data-modal-dismiss', '')
+            expect(close).to_have_attribute('data-shape', 'circle')
+            close.tap()
             expect(panel).to_have_count(0)
             expect(self.page.get_by_role('button', name='Themes & Settings', exact=True)).to_be_focused()
         finally:
@@ -207,6 +210,9 @@ class RheaReader(previous.RefinedAppearance):
                 self.assertGreaterEqual(bounds['x'], 0)
                 self.assertLessEqual(bounds['x'] + bounds['width'], width)
                 self.assertGreaterEqual(bounds['height'], 43.99)
+            close = panel.get_by_role('button', name='Close Table of Contents', exact=True)
+            expect(close).to_have_attribute('data-modal-dismiss', '')
+            expect(close).to_have_attribute('data-shape', 'circle')
             chapters = panel.get_by_role('navigation', name='Chapters')
             expect(chapters.get_by_role('button', name='A new morning', exact=True)).to_be_visible()
             chapters.get_by_role('button', name='A new morning', exact=True).click()
@@ -401,10 +407,39 @@ class RheaReader(previous.RefinedAppearance):
     def test_dialog_traps_focus_and_escape_preserves_custom_theme(self):
         self.settings()
         trigger = self.page.get_by_role('button', name='Add custom theme', exact=True)
+        expect(trigger).to_have_attribute('data-variant', 'outline')
+        expect(trigger).to_have_attribute('data-size', 'lg')
+        geometry = trigger.evaluate('''e => {
+          const rect = e.getBoundingClientRect();
+          return {height: rect.height, radius: parseFloat(getComputedStyle(e).borderTopLeftRadius)};
+        }''')
+        self.assertGreaterEqual(geometry['height'], 43.99)
+        self.assertGreaterEqual(geometry['radius'], geometry['height'] / 2)
         trigger.click()
         dialog = self.page.locator('[data-slot="dialog-content"]')
         expect(dialog).to_be_visible()
-        self.page.get_by_label('Theme name', exact=True).fill('Not saved')
+        expect(dialog.locator('[data-theme-preview]')).to_have_count(1)
+        expect(dialog.locator('[data-theme-preview]')).to_have_attribute('aria-hidden', 'true')
+        self.assertEqual(
+            0,
+            dialog.locator('[data-theme-preview] button, button[data-theme-preview]').count(),
+            'The visual theme sample must not be a focusable no-op button'
+        )
+        expect(dialog.get_by_role('button', name='Copy', exact=True)).to_have_attribute(
+            'data-variant', 'outline'
+        )
+        expect(dialog.get_by_role('button', name='Cancel', exact=True)).to_have_attribute(
+            'data-variant', 'ghost'
+        )
+        expect(dialog.get_by_role('button', name='Save', exact=True)).to_have_attribute(
+            'data-variant', 'secondary'
+        )
+        name = self.page.get_by_label('Theme name', exact=True)
+        self.assertGreaterEqual(name.bounding_box()['height'], 43.99)
+        for field in dialog.locator('input[type="color"]').all():
+            self.assertGreaterEqual(field.bounding_box()['height'], 43.99)
+            self.assertGreaterEqual(field.bounding_box()['width'], 43.99)
+        name.fill('Not saved')
         for _ in range(18):
             self.page.keyboard.press('Tab')
             expect(dialog.locator(':focus')).to_have_count(1)
@@ -674,13 +709,23 @@ class RheaReader(previous.RefinedAppearance):
         expect(unstarted_dialog).to_have_count(0)
 
     def test_statistics_filter_is_one_focus_managed_sheet(self):
+        self.page.set_viewport_size({'width': 390, 'height': 844})
         self.page.goto(self.origin + '/Reader-Web/statistics')
         trigger = self.page.get_by_role('button', name='Filter books', exact=True)
         trigger.click()
         sheet = self.page.get_by_role('dialog', name='Filter books', exact=True)
         expect(sheet).to_be_visible()
         expect(self.page.get_by_role('dialog')).to_have_count(1)
+        expect(sheet.get_by_text('Filter books', exact=True)).to_be_visible()
+        close = sheet.get_by_role('button', name='Close title filter', exact=True)
+        expect(close).to_have_attribute('data-modal-dismiss', '')
+        expect(close).to_have_attribute('data-shape', 'circle')
+        self.assertGreaterEqual(close.bounding_box()['height'], 43.99)
+        apply = sheet.get_by_role('button', name='Apply Filter', exact=True)
+        expect(apply).to_have_attribute('data-variant', 'secondary')
+        self.assertLessEqual(sheet.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
         field = sheet.get_by_role('searchbox', name='Filter book titles', exact=True)
+        self.assertGreaterEqual(field.bounding_box()['height'], 43.99)
         field.fill('A title that is not present')
         expect(sheet.get_by_text('No Titles to filter', exact=True)).to_be_visible()
         for _ in range(8):
@@ -712,6 +757,7 @@ class RheaReader(previous.RefinedAppearance):
         self.category('Tracking & goals')
         self.page.get_by_role('switch', name='Enable Statistics', exact=True).check()
         self.assertEqual('1', self.page.evaluate('localStorage.getItem("statisticsEnabled")'))
+        self.page.set_viewport_size({'width': 390, 'height': 844})
         self.open_book(font='Klee One')
         trigger = self.page.get_by_role('button', name='Open reading tracker', exact=True)
         expect(trigger).to_be_visible(timeout=30000)
@@ -719,6 +765,12 @@ class RheaReader(previous.RefinedAppearance):
         sheet = self.page.get_by_role('dialog', name='Reading tracker', exact=True)
         expect(sheet).to_be_visible()
         expect(self.page.get_by_role('dialog')).to_have_count(1)
+        expect(sheet.get_by_text('Reading tracker', exact=True)).to_be_visible()
+        close = sheet.get_by_role('button', name='Close reading tracker', exact=True)
+        expect(close).to_have_attribute('data-modal-dismiss', '')
+        expect(close).to_have_attribute('data-shape', 'circle')
+        self.assertGreaterEqual(close.bounding_box()['height'], 43.99)
+        self.assertLessEqual(sheet.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
         for label in ['Toggle Tracker', 'Update Position', 'Toggle Freeze Position', 'Save']:
             expect(sheet.get_by_role('button', name=label, exact=True)).to_be_visible()
         expect(sheet.get_by_role('button', name='Save', exact=True)).to_be_disabled()

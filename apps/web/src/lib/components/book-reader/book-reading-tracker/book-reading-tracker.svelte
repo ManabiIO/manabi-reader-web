@@ -788,7 +788,6 @@
       document.querySelector<HTMLButtonElement>('[aria-label="Open reading tracker"]')?.focus();
     }}
   >
-    <Sheet.Title class="sr-only">Reading tracker</Sheet.Title>
     <Sheet.Description class="sr-only"
       >Session statistics, reading goals, saved progress, and tracking history.</Sheet.Description
     >

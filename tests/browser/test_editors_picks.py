@@ -171,10 +171,11 @@ class EditorsPicksBrowser(unittest.TestCase):
         self.assertTrue(PicksHandler.index_started.wait(timeout=5))
         self.page.get_by_role('button', name='Collections', exact=True).click()
         sheet = self.page.locator('#library-collections-sheet')
-        sheet.get_by_role('button', name=re.compile(r'^Want to Read\b')).click()
+        with self.page.expect_event('requestfailed', predicate=lambda request: request.url.endswith('/opds/index.xml')):
+            sheet.get_by_role('button', name=re.compile(r'^Want to Read\b')).click()
         expect(self.page.get_by_role('heading', name='Want to Read', exact=True)).to_be_visible()
-        with self.page.expect_response(lambda response: response.url.endswith('/opds/index.xml')):
-            PicksHandler.index_gate.set()
+        PicksHandler.index_gate.set()
+        self.assertFalse(any(path.endswith('/opds/feeds/all.xml') for path in PicksHandler.requests))
         expect(self.page.get_by_role('heading', name='Want to Read', exact=True)).to_be_visible()
 
     def test_installed_bridge_offers_jitendex_and_remembers_the_choice(self):

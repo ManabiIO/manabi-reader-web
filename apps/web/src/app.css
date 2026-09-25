@@ -84,8 +84,10 @@
 }
 
 @layer components {
-  /* Reserve the whole dismiss target beside the title, not beside every
-     paragraph. Its minimum height keeps full-width descriptions below the X. */
+  /* Text-only scaling must grow the words, not consume their column with
+     oversized dismissal chrome. The 44px control and its 48px reservation
+     remain stable CSS-pixel sizes; full-page browser zoom still scales both.
+     Descriptions use the full width below the title and dismiss target. */
   [data-modal-close-button]
     > :is([data-slot='dialog-title'], [data-slot='sheet-title']):first-child:not(.sr-only),
   [data-modal-close-button]
@@ -97,8 +99,8 @@
       :has(> :is([data-slot='dialog-title'], [data-slot='sheet-title']):not(.sr-only))
     ) {
     min-width: 0;
-    min-height: 2.75rem;
-    margin-inline-end: 3rem;
+    min-height: 44px;
+    margin-inline-end: 48px;
   }
   :is(
     [data-slot='dialog-title'],
@@ -121,7 +123,7 @@
     [data-slot='sheet-title']:first-child
   ):not(.sr-only))
 ) {
-  padding-block-start: 4.75rem;
+  padding-block-start: 76px;
 }
 
 :is([data-slot='dialog-footer'], [data-slot='sheet-footer'])
@@ -132,4 +134,46 @@
   padding-block: 0.625rem;
   white-space: normal;
   overflow-wrap: anywhere;
+}
+
+@media (forced-colors: active) {
+  [data-modal-dismiss] {
+    border: 1px solid ButtonText;
+    color: ButtonText;
+    background: ButtonFace;
+  }
+}
+
+/* Reading-size preferences should not multiply decorative empty-shelf gutters. */
+[data-slot='library-empty-state'] [data-slot='button'] {
+  padding-inline: 16px;
+}
+
+/* Compact Library chrome keeps decorative geometry independent of text size.
+   Full-page browser zoom still scales these CSS pixels. Labels grow and wrap. */
+@media (max-width: 1023px) {
+  :root .floating-library-header .library-header-inner {
+    flex-wrap: wrap;
+    padding-inline: 24px;
+  }
+  :root .floating-library-header .library-header-inner > div:first-child {
+    flex: 1 1 min-content;
+  }
+  :root .floating-library-header .library-header-inner > div:last-child {
+    margin-inline-start: auto;
+    gap: 6px;
+  }
+  :root .floating-library-header button[data-size='icon'] {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+  }
+  :root .floating-library-header button[data-size='icon'] svg {
+    width: 24px;
+    height: 24px;
+  }
+  :root .library-frame .library-workspace {
+    --library-gutter: 24px;
+  }
 }

@@ -8,6 +8,7 @@
   import BookManagerHeader from '$lib/components/book-card/book-manager-header.svelte';
   import BookExportDialog from '$lib/components/book-export/book-export-dialog.svelte';
   import { Button } from '$lib/components/ui/button';
+  import { CaretRightIcon } from 'phosphor-svelte';
   import * as Dialog from '$lib/components/ui/dialog';
   import ConfirmDialog from '$lib/components/confirm-dialog.svelte';
   import ExternalReadDialog from '$lib/components/external-read-dialog.svelte';
@@ -449,14 +450,19 @@
   async function openEditorsPick(pick: EditorsPick) {
     if (openingPickId || replicationToProgress) return;
     openingPickId = pick.id;
-    pickDownload = new AbortController();
+    const operation = new AbortController();
+    pickDownload = operation;
+    const signal = operation.signal;
     try {
-      const file = await downloadEditorsPick(pick, pickDownload.signal);
+      const file = await downloadEditorsPick(pick, signal);
+      throwIfAborted(signal);
       const digest = await sha256(await file.arrayBuffer());
+      throwIfAborted(signal);
       const stored = (await (await database.db).getAll('data')).find(
         (book) =>
           book.contentHash?.toLowerCase() === digest && !!book.elementHtml && !book.storageSource
       );
+      throwIfAborted(signal);
       if (stored) {
         storageSource$.next(StorageKey.BROWSER);
         editorsPicksOpen = false;
@@ -465,6 +471,9 @@
       }
 
       initializeReplicationProgressData();
+      const importCancellation = cancelToken;
+      const abortImport = () => importCancellation.abort();
+      signal.addEventListener('abort', abortImport, { once: true });
       try {
         const error = await importData(
           document,
@@ -481,28 +490,33 @@
           [file],
           cancelSignal
         );
+        throwIfAborted(signal);
         if (error) throw new Error(error);
       } finally {
+        signal.removeEventListener('abort', abortImport);
         resetProgress();
       }
       const imported = (await (await database.db).getAll('data')).find(
         (book) =>
           book.contentHash?.toLowerCase() === digest && !!book.elementHtml && !book.storageSource
       );
+      throwIfAborted(signal);
       if (!imported) throw new Error('The book could not be added to this browser.');
       storageSource$.next(StorageKey.BROWSER);
       editorsPicksOpen = false;
       openBook(imported.id);
     } catch (error) {
-      if (!(error instanceof DOMException && error.name === 'AbortError'))
+      if (!signal.aborted && !(error instanceof DOMException && error.name === 'AbortError'))
         showError(
           'Could not open book',
           error instanceof Error ? error.message : String(error),
           'The catalog book could not be opened.'
         );
     } finally {
-      pickDownload = undefined;
-      openingPickId = '';
+      if (pickDownload === operation) {
+        pickDownload = undefined;
+        openingPickId = '';
+      }
     }
   }
 
@@ -864,19 +878,20 @@
 
 {#snippet emptyLibrary()}
   <section
-    class="mx-auto mt-6 max-w-4xl rounded-3xl border border-border bg-card p-5 text-left shadow-sm sm:mt-10 sm:p-8"
+    data-slot="library-empty-state"
+    class="mx-auto mt-6 min-w-0 max-w-4xl rounded-3xl border border-border bg-card p-[20px] text-left shadow-sm sm:mt-10 sm:p-8"
   >
     <h2 class="text-xl font-semibold">Make room for a good book</h2>
     <p class="mt-2 text-sm text-muted-foreground">
       Add your own books, connect a library, or open one of our picks.
     </p>
-    <div class="mt-7 grid gap-7 sm:grid-cols-2">
+    <div class="mt-7 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-7 sm:grid-cols-2">
       <section aria-labelledby="add-books-heading">
         <h3 id="add-books-heading" class="text-base font-semibold">Add books</h3>
         <div class="mt-3 grid gap-2">
           <Button
-            class="min-h-11 w-full justify-start"
-            variant="secondary"
+            class="min-h-11 w-full"
+            size="lg"
             onclick={() => bookManagerHeader?.openFilePicker()}>Import File(s)</Button
           >
           {#if !$isMobile$}<Button
@@ -892,12 +907,12 @@
           <Button
             href={resolve('/import-ttu')}
             class="min-h-11 w-full justify-start"
-            variant="outline">Import from Ttu Ebook Reader</Button
+            variant="link"><span>Import from Ttu Ebook Reader</span><CaretRightIcon class="size-4 rtl:rotate-180" aria-hidden="true" /></Button
           >
           <Button
             href={resolve('/import-ttu?source=yatsu')}
             class="min-h-11 w-full justify-start"
-            variant="outline">Import from Yatsu Reader</Button
+            variant="link"><span>Import from Yatsu Reader</span><CaretRightIcon class="size-4 rtl:rotate-180" aria-hidden="true" /></Button
           >
         </div>
         <p class="mt-3 text-xs text-muted-foreground">You can also drop ebook files here.</p>
@@ -908,22 +923,22 @@
           <Button
             href={`${resolve('/connections')}#local-heading`}
             class="min-h-11 w-full justify-start"
-            variant="outline">Local folder</Button
+            variant="secondary">Local folder</Button
           >
           <Button
             href={`${resolve('/connections')}#cloud-heading`}
             class="min-h-11 w-full justify-start"
-            variant="outline">Google Drive</Button
+            variant="secondary">Google Drive</Button
           >
           <Button
             href={`${resolve('/connections')}#cloud-heading`}
             class="min-h-11 w-full justify-start"
-            variant="outline">Dropbox</Button
+            variant="secondary">Dropbox</Button
           >
           <Button
             href={`${resolve('/connections')}#cloud-heading`}
             class="min-h-11 w-full justify-start"
-            variant="outline">OneDrive</Button
+            variant="secondary">OneDrive</Button
           >
         </div>
       </section>
@@ -981,6 +996,7 @@
       on:cancelReplication={() => {
         if (!cancelSignal.aborted) {
           cancelToken.abort();
+          pickDownload?.abort();
           replicationProgressRemaining = 'Canceling ...';
         }
       }}
@@ -1062,17 +1078,18 @@
   .library-nav-shell::before {
     content: '';
     position: absolute;
-    inset: 0 0 -1.25rem;
+    inset: 0 0 -20px;
     pointer-events: none;
     opacity: 0;
     background: linear-gradient(
       to bottom,
-      color-mix(in oklch, var(--background) 78%, transparent),
-      color-mix(in oklch, var(--background) 52%, transparent) 55%,
+      color-mix(in oklch, var(--background) 94%, transparent),
+      color-mix(in oklch, var(--background) 94%, transparent) calc(100% - 20px),
       transparent
     );
     backdrop-filter: blur(14px);
-    mask-image: linear-gradient(to bottom, #000 0%, #000 55%, transparent 100%);
+    /* Keep the entire wrapped toolbar legible; only fade below its edge. */
+    mask-image: linear-gradient(to bottom, #000 0%, #000 calc(100% - 20px), transparent 100%);
     transition: opacity 180ms ease;
   }
   .library-nav-shell.scrolled::before {

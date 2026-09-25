@@ -1,4 +1,5 @@
 <script lang="ts">
+  import * as Sheet from '$lib/components/ui/sheet';
   import faCalendar from '@lucide/svelte/icons/calendar';
   import faCalendarXmark from '@lucide/svelte/icons/calendar-x';
   import faChevronLeft from '@lucide/svelte/icons/chevron-left';
@@ -9,7 +10,9 @@
   import faList from '@lucide/svelte/icons/list';
   import faListCheck from '@lucide/svelte/icons/list-check';
   import faTrash from '@lucide/svelte/icons/trash-2';
-  import faXmark from '@lucide/svelte/icons/x';
+  import { Button } from '$lib/components/ui/button';
+  import CloseButton from '$lib/components/ui/close-button.svelte';
+  import { Input } from '$lib/components/ui/input';
   import {
     preFilteredTitlesForStatistics$,
     type StatisticsTitleFilterItem
@@ -168,57 +171,54 @@
 </script>
 
 {$resizeHandler$ ?? ''}
-<div class="flex items-center p-4">
-  <button
-    title="Close Title Filter"
-    class="flex items-end md:items-center"
-    on:click={() => dispatch('close')}
-  >
-    <AppIcon icon={faXmark} /> <span>Close Title Filter</span>
-  </button>
+<div class="flex min-h-16 items-center justify-between gap-3 px-4 pt-4">
+  <Sheet.Title class="min-w-0 text-xl font-semibold">Filter books</Sheet.Title>
+  <CloseButton aria-label="Close title filter" onclick={() => dispatch('close')} />
 </div>
-<div class="flex flex-col flex-1 px-4">
-  <input
+<div class="flex min-h-0 flex-1 flex-col px-4">
+  <Input
     type="search"
     placeholder="Filter Title"
     aria-label="Filter book titles"
-    class="w-full text-foreground"
+    class="min-h-11 text-base"
     bind:value={titleFilter}
-    on:input={handleTitleFilterChange}
+    oninput={handleTitleFilterChange}
   />
-  <div class="flex flex-wrap justify-between gap-3 mt-6 text-sm">
-    <button
+  <div class="mt-5 flex flex-wrap gap-2 text-sm">
+    <Button
+      variant="secondary"
       title="Apply Filter"
-      class="hover:text-red-500"
-      on:click={() => {
+      onclick={() => {
         dispatch('applyFilter', titlesToFilter);
         dispatch('close');
       }}
     >
       <AppIcon icon={faCircleCheck} /> <span>Apply Filter</span>
-    </button>
-    <button title="Select All" class="hover:text-red-500" on:click={() => handleSelectAll(true)}>
+    </Button>
+    <Button variant="ghost" title="Select All" onclick={() => handleSelectAll(true)}>
       <AppIcon icon={faListCheck} /> <span>Select All</span>
-    </button>
-    <button title="Remove All" class="hover:text-red-500" on:click={() => handleSelectAll(false)}>
+    </Button>
+    <Button variant="ghost" title="Remove All" onclick={() => handleSelectAll(false)}>
       <AppIcon icon={faList} /> <span>Remove All</span>
-    </button>
-    <button
+    </Button>
+    <Button
+      variant="ghost"
       title={$lastStatisticsFilterDateRangeOnly$
         ? 'Display Titles across all Time'
         : 'Display Titles in selected Date Range only'}
-      class="hover:text-red-500"
-      on:click={() => ($lastStatisticsFilterDateRangeOnly$ = !$lastStatisticsFilterDateRangeOnly$)}
+      aria-pressed={$lastStatisticsFilterDateRangeOnly$}
+      onclick={() => ($lastStatisticsFilterDateRangeOnly$ = !$lastStatisticsFilterDateRangeOnly$)}
     >
       <AppIcon icon={$lastStatisticsFilterDateRangeOnly$ ? faCalendarXmark : faCalendar} />
       <span>{$lastStatisticsFilterDateRangeOnly$ ? 'All dates' : 'Selected dates only'}</span>
-    </button>
-    <button
+    </Button>
+    <Button
+      variant="ghost"
       title={$lastStatisticsFilterShowSelectedTitlesOnly$
         ? 'Display all Titles'
         : 'Display selected Titles only'}
-      class="hover:text-red-500"
-      on:click={() =>
+      aria-pressed={$lastStatisticsFilterShowSelectedTitlesOnly$}
+      onclick={() =>
         ($lastStatisticsFilterShowSelectedTitlesOnly$ =
           !$lastStatisticsFilterShowSelectedTitlesOnly$)}
     >
@@ -228,15 +228,15 @@
           ? 'All titles'
           : 'Selected titles only'}</span
       >
-    </button>
+    </Button>
     {#if $preFilteredTitlesForStatistics$.size}
-      <button
+      <Button
+        variant="destructive"
         title="Remove Prefilter"
-        class="hover:text-red-500"
-        on:click={() => dispatch('clearPrefilter')}
+        onclick={() => dispatch('clearPrefilter')}
       >
         <AppIcon icon={faTrash} /> <span>Remove Prefilter</span>
-      </button>
+      </Button>
     {/if}
   </div>
   <div class="grow mt-8 pl-1 overflow-auto" bind:this={statisticsTitleFilterTableContainerElm}>
@@ -250,6 +250,7 @@
           <input
             aria-label={currentTitlesToFilterRow.title}
             type="checkbox"
+            class="size-5 accent-primary"
             bind:checked={currentTitlesToFilterRow.isSelected}
             on:change={() => {
               if ($lastStatisticsFilterShowSelectedTitlesOnly$) {
@@ -271,26 +272,24 @@
     {/if}
   </div>
   <div
-    class="my-6 flex justify-between"
+    class="my-6 grid grid-cols-[minmax(0,auto)_minmax(0,1fr)_minmax(0,auto)] items-center gap-2"
     class:invisible={statisticsTitleFilterMaxPages < 2}
     bind:this={statisticsTitleFilterButtonContainer}
   >
-    <button
+    <Button
+      variant="ghost"
       disabled={currentStatisticsTitleFilterPage === 1}
-      class:opacity-25={currentStatisticsTitleFilterPage === 1}
-      class:cursor-not-allowed={currentStatisticsTitleFilterPage === 1}
-      on:click={() => (currentStatisticsTitleFilterPage -= 1)}
+      onclick={() => (currentStatisticsTitleFilterPage -= 1)}
     >
       <AppIcon icon={faChevronLeft} />Previous
-    </button>
-    <div class="mx-6">{statisticsTitleFilterPageLabel}</div>
-    <button
+    </Button>
+    <div class="min-w-0 text-center text-sm">{statisticsTitleFilterPageLabel}</div>
+    <Button
+      variant="ghost"
       disabled={currentStatisticsTitleFilterPage === statisticsTitleFilterMaxPages}
-      class:opacity-25={currentStatisticsTitleFilterPage === statisticsTitleFilterMaxPages}
-      class:cursor-not-allowed={currentStatisticsTitleFilterPage === statisticsTitleFilterMaxPages}
-      on:click={() => (currentStatisticsTitleFilterPage += 1)}
+      onclick={() => (currentStatisticsTitleFilterPage += 1)}
     >
-      <AppIcon icon={faChevronRight} />Next
-    </button>
+      Next<AppIcon icon={faChevronRight} />
+    </Button>
   </div>
 </div>

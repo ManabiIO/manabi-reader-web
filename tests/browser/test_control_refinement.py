@@ -5,6 +5,80 @@ import unittest
 
 
 class ControlRefinementBrowser(modal_controls.ModalControlsBrowser):
+    def test_long_search_in_enlarged_landscape_keeps_dismissal_and_results_reachable(self):
+        title = ('A long descriptive book title ' * 16).strip()
+        self.import_book(title)
+        self.page.get_by_role('button', name='Read ' + title, exact=True).click()
+        expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
+        saved = self.stores('books', ['bookmark'])
+        self.page.set_viewport_size({'width': 568, 'height': 320})
+        self.page.evaluate('document.documentElement.style.fontSize = "125%"')
+        panel = self.open_tool('Search Book')
+        self.check_modal(panel)
+        self.assertLessEqual(panel.evaluate('p => p.scrollTop'), 1)
+        self.capture('long-search-opening-landscape')
+        panel.get_by_role('searchbox').fill('日')
+        expect(panel.get_by_text('180 results', exact=True)).to_be_visible()
+        first = panel.get_by_role('button').filter(has_text='Section 1').first
+        first.scroll_into_view_if_needed()
+        self.frames()
+        self.assertGreater(first.evaluate('e => e.parentElement.clientHeight'), 0)
+        bounds, row = panel.bounding_box(), first.bounding_box()
+        self.assertGreaterEqual(row['y'], bounds['y'] - 1)
+        self.assertLessEqual(row['y'] + row['height'], bounds['y'] + bounds['height'] + 1)
+        self.capture('long-search-results-landscape')
+        # A normal click must work. Visibility alone misses a zero-height parent.
+        first.click()
+        expect(panel).to_have_count(0)
+        expect(self.page.get_by_role('button', name='Return to where I was', exact=True)).to_be_visible()
+        self.assertEqual(saved, self.stores('books', ['bookmark']))
+
+    def test_navigation_uses_shared_close_without_overlapping_enlarged_headers(self):
+        self.page.set_viewport_size({'width': 320, 'height': 568})
+        self.page.goto(self.origin + '/Reader-Web/settings')
+        self.page.evaluate('document.documentElement.style.fontSize = "125%"')
+        trigger = self.page.get_by_role('button', name='Navigate', exact=True)
+        trigger.click()
+        panel = self.page.get_by_role('dialog', name='Manabi Reader', exact=True)
+        close = self.check_modal(panel)
+        # A plain w-* loses to the sheet's data-side width; the intended
+        # one-rem gutter must not silently become a cramped 75%-width panel.
+        width = panel.evaluate('e => ({actual:e.getBoundingClientRect().width, expected:innerWidth-parseFloat(getComputedStyle(document.documentElement).fontSize)})')
+        self.assertAlmostEqual(width['actual'], width['expected'], delta=1)
+        self.capture('navigation-shared-close-enlarged-phone')
+        close.click()
+        expect(panel).to_have_count(0)
+        expect(trigger).to_be_focused()
+
+    def test_changing_query_fences_a_pending_result_selection(self):
+        self.open_reader()
+        panel = self.search()
+        self.hold_digest()
+        panel.get_by_role('button').filter(has_text='Section 1').first.click()
+        self.page.wait_for_function('typeof window.__releasePanelDigest === "function"')
+        panel.get_by_role('searchbox').fill('文章')
+        expect(panel.get_by_text('180 results', exact=True)).to_be_visible()
+        self.release_digest()
+        expect(panel).to_be_visible()
+        expect(self.page.get_by_role('button', name='Return to where I was', exact=True)).to_have_count(0)
+        panel.get_by_role('button').filter(has_text='Section 1').first.click()
+        expect(panel).to_have_count(0)
+
+    def test_forced_colors_preserves_the_dismiss_control_outline(self):
+        self.open_reader()
+        self.page.emulate_media(forced_colors='active')
+        if not self.page.evaluate('matchMedia("(forced-colors: active)").matches'):
+            self.skipTest('This engine does not emulate forced colors')
+        panel = self.open_tool('Dictionary Setup')
+        close = self.check_modal(panel)
+        style = close.evaluate("e => { const s=getComputedStyle(e); return {width:s.borderTopWidth, style:s.borderTopStyle, color:s.color, background:s.backgroundColor}; }")
+        self.assertEqual('1px', style['width'])
+        self.assertEqual('solid', style['style'])
+        self.assertNotEqual(style['color'], style['background'])
+        self.capture('forced-colors-dismissal')
+        close.click()
+        expect(panel).to_have_count(0)
+
     def test_search_constructor_failure_has_a_working_retry(self):
         self.open_reader()
         self.page.evaluate('''() => {
@@ -106,11 +180,11 @@ class ControlRefinementBrowser(modal_controls.ModalControlsBrowser):
         self.page.set_viewport_size({'width': 320, 'height': 480})
         self.page.evaluate('document.documentElement.style.fontSize = "125%"')
         panel = self.open_tool('Dictionary Setup')
-        self.check_modal(panel)
+        close = self.check_modal(panel)
         title = panel.locator('[data-slot="dialog-title"]').bounding_box()
         description = panel.locator('[data-slot="dialog-description"]').bounding_box()
         self.assertGreaterEqual(title['width'], 150)
-        self.assertGreaterEqual(description['width'] - title['width'], 55)
+        self.assertGreaterEqual(description['width'] - title['width'], close.bounding_box()['width'])
         self.assertEqual(description['x'], title['x'])
         self.capture('onboarding-readable-enlarged-phone')
         panel.get_by_role('button', name='Not now', exact=True).click()

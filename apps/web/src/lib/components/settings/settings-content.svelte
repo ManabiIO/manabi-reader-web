@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Input } from '$lib/components/ui/input';
+  import { Button } from '$lib/components/ui/button';
   import { browser } from '$app/environment';
   import AppearanceSettings from '$lib/appearance/settings.svelte';
   import { resolvedMode$ } from '$lib/appearance/state';
@@ -14,7 +15,6 @@
     type ToggleOption
   } from '$lib/components/button-toggle-group/toggle-option';
   import MessageDialog from '$lib/components/message-dialog.svelte';
-  import Ripple from '$lib/components/ripple.svelte';
   import SettingsCustomTheme from '$lib/components/settings/settings-custom-theme.svelte';
   import SettingsDimensionPopover from '$lib/components/settings/settings-dimension-popover.svelte';
   import SettingsFontSelector from '$lib/components/settings/settings-font-selector.svelte';
@@ -583,10 +583,12 @@
         }}
       >
         {#if browser}
-          <button
+          <Button
             aria-label="Add custom theme"
-            class="m-1 rounded-md border-2 border-border p-2 text-lg"
-            on:click={() =>
+            variant="outline"
+            size="lg"
+            class="m-1 text-lg"
+            onclick={() =>
               dialogManager.dialogs$.next([
                 {
                   component: SettingsCustomTheme,
@@ -595,8 +597,7 @@
               ])}
           >
             Add custom theme
-            <Ripple />
-          </button>
+          </Button>
         {/if}
       </ButtonToggleGroup>
     </SettingsItemGroup>

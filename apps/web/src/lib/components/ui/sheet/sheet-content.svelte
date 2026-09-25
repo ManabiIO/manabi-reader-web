@@ -10,6 +10,7 @@
   import SheetPortal from './sheet-portal.svelte';
   import type { Snippet } from 'svelte';
   import type { ComponentProps } from 'svelte';
+  import { focusModalStart } from '$lib/hooks/focus-modal-start';
   import { containModalTab } from '$lib/hooks/focus-trap-fallback.js';
 
   let {
@@ -21,6 +22,7 @@
     onEscapeKeydown,
     onInteractOutside,
     onkeydowncapture,
+    onOpenAutoFocus,
     portalProps,
     overlayProps,
     children,
@@ -51,6 +53,10 @@
       onkeydowncapture?.(event);
       containModalTab(event);
     }}
+    onOpenAutoFocus={(event) => {
+      onOpenAutoFocus?.(event);
+      if (!event.defaultPrevented && ref) focusModalStart(event, ref);
+    }}
     data-modal-close-button={showCloseButton ? '' : undefined}
     data-slot="sheet-content"
     data-side={side}
@@ -64,7 +70,7 @@
     {#if showCloseButton}
       <SheetPrimitive.Close data-slot="sheet-close">
         {#snippet child({ props })}
-          <CloseButton {...props} disabled={closeDisabled} class="absolute top-4 end-4" />
+          <CloseButton {...props} disabled={closeDisabled} class="absolute top-[16px] end-[16px]" />
         {/snippet}
       </SheetPrimitive.Close>
     {/if}

@@ -2,7 +2,8 @@
   import { createEventDispatcher } from 'svelte';
   import * as Sheet from '$lib/components/ui/sheet';
   import { Button } from '$lib/components/ui/button';
-  import { Check, TextAa, X } from 'phosphor-svelte';
+  import CloseButton from '$lib/components/ui/close-button.svelte';
+  import { Check, TextAa } from 'phosphor-svelte';
   import { appearance$, resolvedMode$, theme$ } from '$lib/appearance/state';
   import { themeNames, themeForMode, type AppearanceMode } from '$lib/data/theme-option';
   import { LocalFont } from '$lib/data/fonts';
@@ -62,13 +63,10 @@
   >
     <Sheet.Header class="flex flex-row items-center justify-between gap-3 p-0">
       <Sheet.Title class="text-lg font-semibold">Themes &amp; Settings</Sheet.Title>
-      <Button
-        size="icon"
-        variant="secondary"
-        class="min-h-11 min-w-11 rounded-full"
+      <CloseButton
         aria-label="Close reading appearance"
-        onclick={() => (open = false)}><X aria-hidden="true" /></Button
-      >
+        onclick={() => (open = false)}
+      />
     </Sheet.Header>
     <Sheet.Description class="sr-only"
       >Adjust text and appearance without leaving your book.</Sheet.Description
