@@ -95,6 +95,7 @@ export default async function loadEpub(
 
   return {
     ...displayData,
+    sourceFormat: 'epub',
     pageDirection: epubDirection(contents, data, document),
     elementHtml: result.element.innerHTML,
     blobs: blobData,
