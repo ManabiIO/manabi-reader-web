@@ -64,7 +64,9 @@
     observer?.disconnect();
     observer = new ResizeObserver(schedule);
     observer.observe(host);
-    const visible = host.querySelector<HTMLElement>('[data-manabi-spine-index]');
+    const visible = host.matches('[data-manabi-spine-index]')
+      ? host
+      : host.querySelector<HTMLElement>('[data-manabi-spine-index]');
     const sections = visible ? [visible] : (Array.from(host.children) as HTMLElement[]);
     const resolved: PaintedRange[] = [];
     for (const section of sections) {
@@ -104,19 +106,27 @@
   function paint() {
     const next: Box[] = [];
     for (const item of ranges) {
+      const frameElement = item.range.startContainer.ownerDocument.defaultView?.frameElement;
+      const frameRect = frameElement?.getBoundingClientRect();
+      const offsetLeft = frameRect?.left ?? 0;
+      const offsetTop = frameRect?.top ?? 0;
       for (const rect of item.range.getClientRects()) {
+        const left = rect.left + offsetLeft;
+        const top = rect.top + offsetTop;
+        const right = rect.right + offsetLeft;
+        const bottom = rect.bottom + offsetTop;
         if (
           rect.width < 1 ||
           rect.height < 1 ||
-          rect.right <= 0 ||
-          rect.bottom <= 0 ||
-          rect.left >= innerWidth ||
-          rect.top >= innerHeight
+          right <= 0 ||
+          bottom <= 0 ||
+          left >= innerWidth ||
+          top >= innerHeight
         )
           continue;
         next.push({
-          left: rect.left,
-          top: rect.top,
+          left,
+          top,
           width: rect.width,
           height: rect.height,
           kind: item.kind,
