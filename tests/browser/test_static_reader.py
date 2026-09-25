@@ -5,9 +5,11 @@ import io
 import json
 from pathlib import Path
 import threading
+import struct
 import unittest
 from urllib.parse import unquote, urlsplit
 import zipfile
+import zlib
 from playwright.sync_api import sync_playwright, expect
 
 class ThreadingHTTPServer(BaseThreadingHTTPServer):
@@ -23,7 +25,8 @@ TITLE = 'Reader browser acceptance'
 
 def epub():
     output = io.BytesIO()
-    png = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a/ZkAAAAASUVORK5CYII=')
+    # One white grayscale+alpha pixel; every PNG chunk has a valid CRC.
+    png = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=')
     body = '<h1>Reader browser acceptance</h1><p><ruby>本<rt>ほん</rt></ruby>を読む。</p>'
     body += '<img id="safe-image" src="絵.png" alt="Archive illustration"/>'
     body += '<img src="/attack-probe" onerror="window.bookAttack=true"/>'
@@ -40,6 +43,34 @@ def epub():
         archive.writestr('style.css', '.tcy{-webkit-text-combine:horizontal;-epub-text-combine:horizontal}')
         archive.writestr('絵.png', png)
     return output.getvalue()
+
+
+class EpubFixture(unittest.TestCase):
+    def test_embedded_png_checksums_and_pixel_data_are_valid(self):
+        # Validate the input fixture independently of any browser's tolerance
+        # for corrupt PNG checksums; strict image.decode() assertions stay enabled.
+        with zipfile.ZipFile(io.BytesIO(epub())) as archive:
+            image = archive.read('絵.png')
+        self.assertEqual(image[:8], b'\x89PNG\r\n\x1a\n')
+        offset = 8
+        chunks = []
+        compressed = b''
+        while offset < len(image):
+            self.assertGreaterEqual(len(image) - offset, 12)
+            length = struct.unpack('!I', image[offset:offset + 4])[0]
+            self.assertGreaterEqual(len(image) - offset, length + 12)
+            kind = image[offset + 4:offset + 8]
+            data = image[offset + 8:offset + 8 + length]
+            checksum = struct.unpack('!I', image[offset + 8 + length:offset + 12 + length])[0]
+            self.assertEqual(checksum, zlib.crc32(kind + data) & 0xffffffff, kind.decode())
+            chunks.append(kind)
+            if kind == b'IHDR':
+                self.assertEqual(struct.unpack('!IIBBBBB', data), (1, 1, 8, 4, 0, 0, 0))
+            elif kind == b'IDAT':
+                compressed += data
+            offset += length + 12
+        self.assertEqual(chunks, [b'IHDR', b'IDAT', b'IEND'])
+        self.assertEqual(zlib.decompress(compressed), b'\x01\xff\xff')
 
 
 class StaticHandler(SimpleHTTPRequestHandler):
