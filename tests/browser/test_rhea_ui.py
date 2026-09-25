@@ -418,7 +418,28 @@ class RheaReader(previous.RefinedAppearance):
         trigger.click()
         dialog = self.page.locator('[data-slot="dialog-content"]')
         expect(dialog).to_be_visible()
-        self.page.get_by_label('Theme name', exact=True).fill('Not saved')
+        expect(dialog.locator('[data-theme-preview]')).to_have_count(1)
+        expect(dialog.locator('[data-theme-preview]')).to_have_attribute('aria-hidden', 'true')
+        self.assertEqual(
+            0,
+            dialog.locator('[data-theme-preview] button, button[data-theme-preview]').count(),
+            'The visual theme sample must not be a focusable no-op button'
+        )
+        expect(dialog.get_by_role('button', name='Copy', exact=True)).to_have_attribute(
+            'data-variant', 'outline'
+        )
+        expect(dialog.get_by_role('button', name='Cancel', exact=True)).to_have_attribute(
+            'data-variant', 'ghost'
+        )
+        expect(dialog.get_by_role('button', name='Save', exact=True)).to_have_attribute(
+            'data-variant', 'secondary'
+        )
+        name = self.page.get_by_label('Theme name', exact=True)
+        self.assertGreaterEqual(name.bounding_box()['height'], 43.99)
+        for field in dialog.locator('input[type="color"]').all():
+            self.assertGreaterEqual(field.bounding_box()['height'], 43.99)
+            self.assertGreaterEqual(field.bounding_box()['width'], 43.99)
+        name.fill('Not saved')
         for _ in range(18):
             self.page.keyboard.press('Tab')
             expect(dialog.locator(':focus')).to_have_count(1)
