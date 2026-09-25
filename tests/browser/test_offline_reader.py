@@ -29,7 +29,25 @@ def decoded_local_image(page):
     return page.locator('.book-content #safe-image').evaluate('''async image => {
       const url = image.currentSrc || image.src;
       if (!url.startsWith('blob:')) throw new Error('Expected an imported local image');
-      await image.decode();
+      try {
+        await image.decode();
+      } catch (error) {
+        const diagnostics = {
+          message: String(error), url, current: image.currentSrc || image.src,
+          connected: image.isConnected, complete: image.complete,
+          width: image.naturalWidth, height: image.naturalHeight,
+          objectURLs: window.__readerObjectURLs || []
+        };
+        try {
+          const response = await fetch(url);
+          const data = await response.arrayBuffer();
+          diagnostics.resource = {status: response.status, bytes: data.byteLength};
+        } catch (failure) {
+          diagnostics.resourceError = String(failure);
+        }
+        window.__readerImageFailure = diagnostics;
+        throw new Error('Imported image decoding failed: ' + JSON.stringify(diagnostics));
+      }
       const bytes = await (await fetch(url)).arrayBuffer();
       const digest = await crypto.subtle.digest('SHA-256', bytes);
       return {
@@ -81,6 +99,20 @@ class OfflineReader(unittest.TestCase):
                 engine = getattr(playwright, OPTIONS.browser)
 
                 def observe(document):
+                    document.add_init_script("""(() => {
+                      const events = [];
+                      window.__readerObjectURLs = events;
+                      for (const method of ['createObjectURL', 'revokeObjectURL']) {
+                        const original = URL[method];
+                        URL[method] = function(value) {
+                          const result = original.call(this, value);
+                          events.push({method, url: method === 'createObjectURL' ? result : value,
+                            size: value?.size, type: value?.type, stack: new Error().stack});
+                          if (events.length > 100) events.shift();
+                          return result;
+                        };
+                      }
+                    })();""")
                     document.on('pageerror', lambda error: errors.append({
                         'message': str(error), 'stack': getattr(error, 'stack', None)
                     }))
@@ -218,6 +250,7 @@ class OfflineReader(unittest.TestCase):
                     try:
                         if page and not page.is_closed():
                             report['visible_text'] = page.locator('body').inner_text(timeout=3000)
+                            report['image_failure'] = page.evaluate('window.__readerImageFailure || null')
                             (diagnostics / 'page.html').write_text(page.content())
                             page.screenshot(path=str(diagnostics / 'page.png'), full_page=True, timeout=5000)
                     except Exception as error:
