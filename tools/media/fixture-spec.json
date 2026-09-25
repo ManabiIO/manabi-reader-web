@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "sampleRate": 16000,
+  "leadingSilence": 0.5,
+  "sentenceGap": 0.5,
+  "sentences": {
+    "en": ["Hello. This is a short video for our reading app.", "Today we are reading a book together.", "Tomorrow we will walk to the park."],
+    "ja": ["こんにちは。これは短い動画です。", "今日は一緒に本を読みます。", "明日は公園へ歩いて行きます。"]
+  }
+}

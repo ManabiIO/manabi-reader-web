@@ -2,3 +2,12 @@
 node_modules
 /test-results/
 __pycache__/
+
+# Generated media fixtures and MOSS runtime cache.
+.cache/
+
+# Built CPU runtimes are release/build artifacts, not source-controlled weights.
+/apps/web/static/moss/single/
+/apps/web/static/moss/threaded/
+/apps/web/static/.moss-runtime-*/
+/apps/web/static/.moss-publication-lock/

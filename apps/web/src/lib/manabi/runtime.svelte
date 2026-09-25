@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { startMediaProfileWatcher } from './media-profile';
   import { page } from '$app/stores';
   import { base } from '$app/paths';
   import { refreshAccount } from './client';
@@ -13,6 +14,7 @@
       ['conflict', 'needs_reconnect', 'permission_required', 'unauthorized'].includes(status.state)
     );
   onMount(() => {
+    const stopMediaProfile = startMediaProfileWatcher();
     const stopPreferences = startPreferenceSync();
     const stopBooks = startBookSync();
     let lastRefreshStarted = 0;
@@ -30,6 +32,7 @@
     window.addEventListener('online', refreshOnline);
     window.addEventListener('focus', refreshFocus);
     return () => {
+      stopMediaProfile();
       stopPreferences();
       stopBooks();
       window.removeEventListener('online', refreshOnline);

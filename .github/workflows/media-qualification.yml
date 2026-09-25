@@ -1,0 +1,145 @@
+name: Media qualification (explicit)
+# This expensive real-model gate is operator-started, never a pull_request_target job.
+# Preparing this file does not dispatch it or grant the feature release approval.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: media-qualification-${{ github.ref }}
+  cancel-in-progress: true
+defaults:
+  run:
+    shell: bash
+jobs:
+  application:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: pnpm
+      - name: Require the real dependency lockfile
+        # Do not auto-repair an absent Mediabunny lock entry on a qualification run.
+        run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - name: Typecheck the actual application and installed media adapter
+        run: |
+          mkdir -p .cache/media-qualification
+          pnpm --dir apps/web check 2>&1 | tee .cache/media-qualification/app-check.log
+      - name: Build the actual subpath application
+        env:
+          BASE_PATH: /Reader-Web
+        run: pnpm build 2>&1 | tee .cache/media-qualification/app-build.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: media-application-evidence
+          path: .cache/media-qualification/*.log
+          if-no-files-found: warn
+          retention-days: 7
+  real-cpu:
+    # Independent of the application job: an unresolved app lockfile must not
+    # prevent discovering whether the C++ browser port actually compiles.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/checkout@v4
+        with:
+          repository: emscripten-core/emsdk
+          ref: c0bb220cb6e6f4e0fabb6f6db9efd53390ef5e56 # emsdk 4.0.23
+          path: .cache/emsdk
+          persist-credentials: false
+      - name: Provision compiler, browser and actual local speech engines
+        run: |
+          mkdir -p .cache/media-qualification
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg espeak-ng open-jtalk open-jtalk-mecab-naist-jdic hts-voice-nitech-jp-atr503-m001
+          .cache/emsdk/emsdk install 4.0.23
+          .cache/emsdk/emsdk activate 4.0.23
+          python -m pip install 'playwright==1.63.0'
+          python -m playwright install --with-deps chromium
+          npm install --prefix "$RUNNER_TEMP/media-typescript" --ignore-scripts --no-audit --no-fund typescript@6.0.3
+          echo "$RUNNER_TEMP/media-typescript/node_modules/.bin" >> "$GITHUB_PATH"
+          python - <<'PY' >> "$GITHUB_ENV"
+          from playwright.sync_api import sync_playwright
+          with sync_playwright() as p:
+              print('CHROMIUM=' + p.chromium.executable_path)
+          PY
+      - name: Verify fixture tooling and sanitized native model-transfer helper
+        run: python -m unittest discover -s tests/media -p 'test_*.py' -v 2>&1 | tee .cache/media-qualification/python-native.log
+      - name: Build both real CPU runtimes
+        run: |
+          source .cache/emsdk/emsdk_env.sh
+          python tools/media/build-moss.py 2>&1 | tee .cache/media-qualification/build-moss.log
+      - name: Generate English and Japanese speech/video fixtures
+        # Missing Japanese assets are a failure, never an English substitute/skip.
+        run: |
+          EN_FIXTURE="$(python tools/media/generate-fixtures.py --language en 2>.cache/media-qualification/voice-en.log)"
+          JA_FIXTURE="$(python tools/media/generate-fixtures.py --language ja 2>.cache/media-qualification/voice-ja.log)"
+          echo "EN_FIXTURE=$EN_FIXTURE" >> "$GITHUB_ENV"
+          echo "JA_FIXTURE=$JA_FIXTURE" >> "$GITHUB_ENV"
+          cp "$EN_FIXTURE/manifest.json" .cache/media-qualification/fixture-en.json
+          cp "$JA_FIXTURE/manifest.json" .cache/media-qualification/fixture-ja.json
+      - name: Compile production media modules and run core regressions
+        run: MEDIA_FIXTURE="$EN_FIXTURE" node tools/media/test.mjs 2>&1 | tee .cache/media-qualification/core.log
+      - name: Isolated production DOM and real Web Audio regressions
+        # These runners explicitly identify storage/recognition doubles; native IDB
+        # and real speech inference are separate gates below.
+        run: |
+          python tests/media/dom-browser.py --fixture "$EN_FIXTURE" --output .cache/media-qualification/player-dom 2>&1 | tee .cache/media-qualification/player-dom.log
+          python tests/media/workspace-dom.py --fixture "$EN_FIXTURE" --output .cache/media-qualification/workspace-dom 2>&1 | tee .cache/media-qualification/workspace-dom.log
+          python tests/media/audio-browser.py --output .cache/media-qualification/audio-dom 2>&1 | tee .cache/media-qualification/audio-dom.log
+      - name: Real browser and native IndexedDB regressions
+        run: python tests/media/browser.py --fixture "$EN_FIXTURE" --output .cache/media-qualification/native-browser 2>&1 | tee .cache/media-qualification/native-browser.log
+      - name: Real MOSS recognition in both languages and CPU variants
+        # These tests consume verified generated PCM, not a mocked recognizer.
+        # The browser media-decoder -> MOSS end-to-end path is a separate gate.
+        run: |
+          status=0
+          for language in en ja; do
+            fixture="$EN_FIXTURE"
+            if [ "$language" = ja ]; then fixture="$JA_FIXTURE"; fi
+            for mode in single threaded; do
+              flags=()
+              if [ "$mode" = threaded ]; then flags+=(--threaded); fi
+              python tests/media/asr.py --fixture "$fixture" --language "$language" "${flags[@]}" \
+                --output ".cache/media-qualification/asr-$language-$mode.json" \
+                2>&1 | tee ".cache/media-qualification/asr-$language-$mode.log" || status=1
+            done
+          done
+          exit "$status"
+      - name: Collect runtime build identities only
+        if: always()
+        run: |
+          mkdir -p .cache/media-qualification
+          for mode in single threaded; do
+            if [ -f "apps/web/static/moss/$mode/build.json" ]; then
+              cp "apps/web/static/moss/$mode/build.json" ".cache/media-qualification/runtime-$mode.json"
+            fi
+          done
+          git rev-parse HEAD > .cache/media-qualification/source-commit.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: media-real-cpu-evidence
+          # No speech/video binaries, voice assets, fonts, browser profiles or weights.
+          path: .cache/media-qualification/
+          if-no-files-found: warn
+          retention-days: 7

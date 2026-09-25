@@ -1,0 +1,23 @@
+<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Production media module regression harness</title>
+<link rel="stylesheet" href="../../.cache/media-test-build/media.css">
+<style>body{margin:0;background:#fafafa;color:#171717;font-family:system-ui}#host{max-width:1500px;margin:auto}</style>
+<div id="host"></div>
+<script type="module">
+import {MediaStore} from '../../.cache/media-test-build/store.js';
+import {VideoPlayer} from '../../.cache/media-test-build/player.js';
+import {TranscriptionQueue} from '../../.cache/media-test-build/queue.js';
+import {VideoWorkspace} from '../../.cache/media-test-build/workspace.js';
+import {localSource} from '../../.cache/media-test-build/sources.js';
+import {syncMedia} from '../../.cache/media-test-build/sync.js';
+window.modules={MediaStore,VideoPlayer,TranscriptionQueue,VideoWorkspace,localSource,syncMedia};
+window.key='content:'+'a'.repeat(64);window.id='11111111-1111-4111-8111-111111111111';window.id2='22222222-2222-4222-8222-222222222222';
+window.errors=[];window.generated=0;
+const fixture=new URL(location.href).searchParams.get('fixture');
+window.file=new File([await(await fetch(fixture)).blob()],'video.mp4',{type:'video/mp4'});
+window.store=new MediaStore(indexedDB,'media-browser-tests-'+crypto.randomUUID());
+window.tracks=[{version:1,id,mediaKey:key,label:'Japanese · Existing',language:'ja',kind:'transcription',origin:'sidecar',complete:true,forced:false,createdAt:1,cues:[{id:'a',start:0,end:2,text:'日本語の一行目です。'},{id:'b',start:2,end:4,text:'次の行です。<img src=x onerror=alert(1)>'},{id:'c',start:4,end:6,text:'最後の行です。'}]},
+{version:1,id:id2,mediaKey:key,label:'English · Translation',language:'en',kind:'translation',origin:'sidecar',complete:true,forced:false,createdAt:1,cues:[{id:'x',start:0,end:3,text:'First translated sentence.'},{id:'y',start:3,end:6,text:'Second translated sentence.'}]}];
+window.mount=async()=>{if(window.player)await player.dispose();window.player=new VideoPlayer({scope:'guest',source:localSource(file),store,onError:message=>errors.push(message),onGenerate:()=>generated++,onImport:()=>{},onExport:()=>{}});document.querySelector('#host').replaceChildren(player.root);player.setTracks(tracks);await new Promise(resolve=>{if(player.video.readyState>=1)resolve();else player.video.addEventListener('loadedmetadata',resolve,{once:true});});await player.bindIdentity(key);};
+await window.mount();window.ready=true;
+</script>
