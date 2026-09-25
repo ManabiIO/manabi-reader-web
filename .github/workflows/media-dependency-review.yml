@@ -1,36 +1,48 @@
-name: Media dependency review
-# Temporary resolution job: produces a candidate artifact, never writes commits.
-# Existing frozen-lockfile release checks are deliberately unchanged.
+name: Stage reviewed media lock object
+# One-shot artifact transport. No checkout, package scripts, commits or ref writes.
+# The final source commit will remove this helper; release checks remain frozen.
 on:
   push:
     branches: [codex/video-moss-media-v7-20260924]
-    paths:
-      - .github/workflows/media-dependency-review.yml
+    paths: [.github/workflows/media-dependency-review.yml]
 permissions:
   contents: read
 jobs:
-  resolve:
+  stage:
+    if: github.repository == 'ManabiIO/manabi-reader-web'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
-          persist-credentials: false
-      - uses: pnpm/action-setup@v6.1.0
-        with:
-          version: 12.3.4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24.21.0
-      - name: Generate candidate with the real package manager
-        run: pnpm install --lockfile-only --ignore-scripts --no-frozen-lockfile
-      - uses: actions/upload-artifact@v4
-        with:
-          name: media-candidate-lockfile
-          path: pnpm-lock.yaml
-          if-no-files-found: error
-          retention-days: 3
-      - name: Verify candidate dependency installation
-        run: pnpm install --frozen-lockfile
-      - name: Check the installed application
-        run: pnpm --dir apps/web check
+          artifact-ids: '10845919833'
+          run-id: '36092768895'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: candidate
+          merge-multiple: true
+      - name: Stage the verified immutable Git blob only
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node <<'JS'
+          const fs = require('node:fs');
+          const crypto = require('node:crypto');
+          (async () => {
+            const bytes = fs.readFileSync('candidate/pnpm-lock.yaml');
+            const hash = crypto.createHash('sha256').update(bytes).digest('hex');
+            if (bytes.length !== 176849 || hash !== '8fd83a49bba0ee4439c1d1998ed29beb7746f4fb9e71e3dfc6649e0c72d8237a') {
+              throw new Error('Reviewed lockfile artifact mismatch');
+            }
+            const response = await fetch('https://api.github.com/repos/ManabiIO/manabi-reader-web/git/blobs', {
+              method: 'POST', headers: {Authorization: `Bearer ${process.env.GH_TOKEN}`, 'Content-Type': 'application/json', 'X-GitHub-Api-Version': '2022-11-28'},
+              body: JSON.stringify({content: bytes.toString('base64'), encoding: 'base64'})
+            });
+            if (!response.ok) throw new Error(`Git object upload failed (${response.status})`);
+            const value = await response.json();
+            if (value.sha !== 'a53d86b0fd0c5dfe77b2a15ecb43bc17db3c6d37') throw new Error('Git object hash mismatch');
+            console.log(`Verified lock object: ${value.sha}`);
+          })().catch(error => { console.error(error.message); process.exitCode = 1; });
+          JS
