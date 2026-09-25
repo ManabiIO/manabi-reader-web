@@ -5,7 +5,10 @@
  */
 
 import { EPUB, type FoliateEpubBook } from './epub.js';
-import { LimitedArchive, type ArchiveOptions } from '../functions/file-loaders/utils/limited-archive';
+import {
+  LimitedArchive,
+  type ArchiveOptions
+} from '../functions/file-loaders/utils/limited-archive';
 
 export interface FoliateEpubPublication {
   book: FoliateEpubBook;
