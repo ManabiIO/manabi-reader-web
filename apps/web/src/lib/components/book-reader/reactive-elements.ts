@@ -203,9 +203,12 @@ function openImageInNewTab(
 }
 
 function toggleImageGalleryPictureSpoiler(imageElement: Element | null, unspoilered: boolean) {
-  if (imageElement instanceof HTMLImageElement) {
-    toggleImageGalleryPictureSpoiler$.next({ url: imageElement.src, unspoilered });
-  } else if (imageElement && 'href' in imageElement) {
+  const localName = imageElement?.localName?.toLowerCase();
+  if (localName === 'img') {
+    const url =
+      (imageElement as HTMLImageElement).src || imageElement?.getAttribute('src') || undefined;
+    if (url) toggleImageGalleryPictureSpoiler$.next({ url, unspoilered });
+  } else if (localName === 'image' && imageElement && 'href' in imageElement) {
     toggleImageGalleryPictureSpoiler$.next({
       url: (imageElement.href as SVGAnimatedString).baseVal,
       unspoilered
