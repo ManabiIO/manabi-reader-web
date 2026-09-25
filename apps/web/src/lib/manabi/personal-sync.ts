@@ -725,11 +725,9 @@ async function flushReading(accountId: string, books: Map<string, BooksDbBookDat
     );
     if (entity) return entity;
     if (!!left.request !== !!right.request) return left.request ? -1 : 1;
-    return (
-      (left.request?.base_revision ?? left.baseRevision) -
-        (right.request?.base_revision ?? right.baseRevision) ||
-      left.id.localeCompare(right.id)
-    );
+    const leftRevision = left.request?.base_revision ?? left.baseRevision;
+    const rightRevision = right.request?.base_revision ?? right.baseRevision;
+    return leftRevision - rightRevision || left.id.localeCompare(right.id);
   });
   const processed = new Set<string>();
   for (const pending of outbox) {
