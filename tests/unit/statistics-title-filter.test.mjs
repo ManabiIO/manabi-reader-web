@@ -48,7 +48,6 @@ test('date and selection filters compose without modifying private draft choices
   assert.deepEqual(filterStatisticsTitles(rows, '', new Set(['C']), true, true), [rows[2]]);
 });
 
-
 test('bulk title selection changes only the current matching set', () => {
   const rows = [
     { title: 'A', isSelected: true },
@@ -56,11 +55,7 @@ test('bulk title selection changes only the current matching set', () => {
     { title: 'C', isSelected: false }
   ];
   const updated = setMatchingStatisticsTitleSelection(rows, [rows[1]], false);
-  assert.deepEqual(updated, [
-    rows[0],
-    { title: 'B', isSelected: false },
-    rows[2]
-  ]);
+  assert.deepEqual(updated, [rows[0], { title: 'B', isSelected: false }, rows[2]]);
   assert.equal(updated[0], rows[0]);
   assert.equal(updated[2], rows[2]);
   assert.deepEqual(setMatchingStatisticsTitleSelection(updated, [], true), updated);

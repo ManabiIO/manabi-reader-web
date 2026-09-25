@@ -36,7 +36,6 @@ export function statisticsTitlePage<T>(items: readonly T[], requestedPage: numbe
   return { page, pages, rows: items.slice(start, start + TITLE_FILTER_PAGE_SIZE) };
 }
 
-
 /** Change only the titles represented by the current filter result.
  * Hidden titles keep their draft selection, matching workspace filter semantics. */
 export function setMatchingStatisticsTitleSelection(
@@ -45,7 +44,5 @@ export function setMatchingStatisticsTitleSelection(
   isSelected: boolean
 ): StatisticsTitleFilterItem[] {
   const matchingTitles = new Set(matchingItems.map((item) => item.title));
-  return items.map((item) =>
-    matchingTitles.has(item.title) ? { ...item, isSelected } : item
-  );
+  return items.map((item) => (matchingTitles.has(item.title) ? { ...item, isSelected } : item));
 }
