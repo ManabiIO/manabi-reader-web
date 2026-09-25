@@ -16,35 +16,10 @@ export interface FoliateEpubPublication {
   close(): Promise<void>;
 }
 
-/**
- * Adapt Reader Web's bounded/cancellable ZIP implementation to Foliate's EPUB
- * source interface. Missing optional EPUB entries are represented as null;
- * unsafe paths, corrupt entries and quota failures remain hard errors.
- */
-export async function openFoliateEpub(
-  blob: Blob,
-  options: ArchiveOptions = {}
-): Promise<FoliateEpubPublication> {
-  const archive = await LimitedArchive.open(blob, options);
-  let closed = false;
-  const resourceIndex = new Map<string, string>();
-  for (const literal of archive.entries.keys()) {
-    const candidates = new Set([literal]);
-    try {
-      candidates.add(validateArchivePath(decodeURI(literal)));
-    } catch {
-      // The literal path was validated by LimitedArchive. A malformed decoded
-      // spelling simply is not exposed as an alternate resource name.
-    }
-    for (const candidate of candidates) {
-      const existing = resourceIndex.get(candidate);
-      if (existing && existing !== literal) {
-        await archive.close();
-        throw new Error(`Ambiguous EPUB resource path: ${candidate}`);
-      }
-      resourceIndex.set(candidate, literal);
-    }
-  }
+export function foliateArchiveEntryIndex(
+  entries: ReadonlyMap<string, unknown>
+): ReadonlyMap<string, string> {
+  const resourceIndex = foliateArchiveEntryIndex(archive.entries);
   const literalName = (uri: string) => resourceIndex.get(uri);
   const source = {
     async loadText(uri: string): Promise<string | null> {
