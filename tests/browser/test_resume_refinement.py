@@ -10,7 +10,9 @@ import test_editors_picks as picks
 class ResumeControlsBrowser(deep.DeepControlRefinementBrowser):
     def test_immediate_menu_arrow_navigation_survives_opening_autofocus(self):
         self.import_book('Immediate keyboard menu')
-        self.menu('Immediate keyboard menu', 'Add to Want to Read')
+        # Use a settled persisted book: a concurrent membership write may
+        # replace the menu independently of its opening keyboard focus.
+        self.go_library()
         trigger = self.page.get_by_role('button', name='Actions for Immediate keyboard menu', exact=True)
         for _ in range(12):
             trigger.focus()
@@ -19,7 +21,7 @@ class ResumeControlsBrowser(deep.DeepControlRefinementBrowser):
             first = menu.get_by_role('menuitem').first
             expect(first).to_be_focused()
             first.press('ArrowDown')
-            second = menu.get_by_role('menuitem', name='Remove from Want to Read', exact=True)
+            second = menu.get_by_role('menuitem', name='Add to Want to Read', exact=True)
             expect(second).to_be_focused()
             # Check again after deferred opening work has had time to run.
             self.frames()
