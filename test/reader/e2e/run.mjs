@@ -667,6 +667,38 @@ try {
         assert.ok((await books()).length);
       });
     }
+    await check('reader: cross-resource EPUB links target the exact spine in paginated mode', async () => {
+      await page.evaluate(() => localStorage.setItem('viewMode', 'paginated'));
+      await page.goto(origin + '/manage');
+      await importBook('linked.epub', 'E2E Linked EPUB');
+      await openBook('E2E Linked EPUB');
+      await expect(page.locator('.book-content h1')).toHaveText('リンク第一章');
+      await page.getByText('第二章の注へ', { exact: true }).click();
+      await expect(page.locator('.book-content h1')).toHaveText('リンク第二章');
+      await expect(page.locator('.book-content aside#note')).toHaveText('第二章の注');
+    });
+    await check('reader: cross-resource EPUB links remain scoped in continuous mode', async () => {
+      await page.evaluate(() => localStorage.setItem('viewMode', 'continuous'));
+      await page.reload();
+      const second = page.locator(
+        '.book-content [data-manabi-epub-resource-href="OEBPS/chapter2.xhtml"]'
+      );
+      await expect(second).toContainText('第二章の注');
+      await second.getByText('第一章の注へ', { exact: true }).click();
+      const firstNote = page.locator(
+        '.book-content [data-manabi-epub-resource-href="OEBPS/chapter1.xhtml"] #note'
+      );
+      await expect
+        .poll(() =>
+          firstNote.evaluate((el) => {
+            const rect = el.getBoundingClientRect();
+            return rect.bottom > 0 && rect.top < innerHeight;
+          })
+        )
+        .toBe(true);
+      await page.evaluate(() => localStorage.setItem('viewMode', 'paginated'));
+    });
+
     await check('reader: HTMLZ import uses production archive workers and renderer', async () => {
       await importBook('htmlbook.htmlz', 'E2E HTMLZ');
       await openBook('E2E HTMLZ');
