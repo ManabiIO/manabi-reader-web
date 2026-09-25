@@ -9,11 +9,24 @@ CatalogLifetimeBrowser = previous.CatalogLifetimeBrowser
 
 class ConnectControlsBrowser(previous.AppleControlsBrowser):
     def assert_no_horizontal_overflow(self, root):
-        # On Linux a classic vertical scrollbar reduces html.clientWidth by
-        # about 13px even when the page has no horizontal overflow. The root
-        # scroll width should be compared with the viewport's full width.
-        self.assertLessEqual(root.evaluate('''e => e.scrollWidth -
-            (e === document.documentElement ? window.innerWidth : e.clientWidth)'''), 1)
+        # The root's clientWidth excludes a native vertical scrollbar. Compare
+        # it with the full viewport, but keep real horizontal overflow visible.
+        result = root.evaluate('''e => {
+          const rootPage = e === document.documentElement;
+          const delta = e.scrollWidth - (rootPage ? window.innerWidth : e.clientWidth);
+          if (delta <= 1 || !rootPage) return {delta};
+          const clippedByAncestor = node => {
+            for (let parent = node.parentElement; parent && parent !== e; parent = parent.parentElement)
+              if (/^(auto|scroll|hidden|clip)$/.test(getComputedStyle(parent).overflowX)) return true;
+            return false;
+          };
+          const offenders = [...document.querySelectorAll('*')]
+            .filter(node => node.getBoundingClientRect().right > window.innerWidth + 1 && !clippedByAncestor(node))
+            .slice(0, 12)
+            .map(node => ({tag: node.tagName, className: typeof node.className === 'string' ? node.className.slice(0, 90) : '', text: node.textContent?.trim().slice(0, 35), right: Math.round(node.getBoundingClientRect().right)}));
+          return {delta, viewport: window.innerWidth, client: e.clientWidth, scroll: e.scrollWidth, offenders};
+        }''')
+        self.assertLessEqual(result['delta'], 1, result)
 
     def test_settings_navigation_and_fields_distinguish_selection_from_actions(self):
         for mode in ('light', 'dark'):
