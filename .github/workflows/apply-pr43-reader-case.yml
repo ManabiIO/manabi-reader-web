@@ -1,0 +1,44 @@
+name: Publish reviewed Search Book consistency fix
+on:
+  push:
+    branches: [feat/local-library-migration-webdav-search-20260924]
+    paths: ['.github/pr43-reader-case.patch.xz.b64', '.github/workflows/apply-pr43-reader-case.yml']
+permissions:
+  contents: read
+jobs:
+  apply:
+    if: >-
+      github.repository == 'ManabiIO/manabi-reader-web' && github.event.head_commit.message == 'chore: publish reviewed Search Book consistency fix'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - name: Apply verified source and test changes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import base64, hashlib, lzma
+          patch = lzma.decompress(base64.b64decode(Path('.github/pr43-reader-case.patch.xz.b64').read_text(), validate=True))
+          assert len(patch) == 6090
+          assert hashlib.sha256(patch).hexdigest() == '58c1b810666b4f65797d2f711e5a4579591a31da2168b9231e770f5045c81256'
+          Path('/tmp/pr43-reader-case.patch').write_bytes(patch)
+          PY
+          git apply --check --index /tmp/pr43-reader-case.patch
+          git apply --index /tmp/pr43-reader-case.patch
+          git rm .github/pr43-reader-case.patch.xz.b64
+          git diff --cached --check
+      - name: Publish without overwriting concurrent work
+        env:
+          EXPECTED_HEAD: ${{ github.sha }}
+        run: |
+          branch=feat/local-library-migration-webdav-search-20260924
+          test "$(git ls-remote origin "refs/heads/$branch" | cut -f1)" = "$EXPECTED_HEAD"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: share contextual case matching with Search Book without changing case-sensitive search'
+          git push origin "HEAD:refs/heads/$branch"
