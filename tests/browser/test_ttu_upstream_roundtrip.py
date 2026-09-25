@@ -99,7 +99,7 @@ class UpstreamTtuRoundTrip(MigrationBrowser):
 
             # Feed the bytes exported by actual upstream TTU into Manabi's actual
             # migration form, then verify records and rendered book content.
-            self.page.goto(self.origin + '/Reader-Web/import-ttu')
+            self.page.goto(self.origin + '/reader-web/import-ttu')
             expect(
                 self.page.get_by_role('heading', name='Import from Ttu Ebook Reader', exact=True)
             ).to_be_visible(timeout=30000)

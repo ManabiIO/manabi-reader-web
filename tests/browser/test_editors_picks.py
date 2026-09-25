@@ -109,7 +109,7 @@ class EditorsPicksBrowser(unittest.TestCase):
         self.assertEqual([], self.errors)
 
     def library(self):
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         expect(self.page.get_by_role('region', name="Editor's Picks books")).to_be_visible()
         expect(self.page.get_by_role('button', name='Open').first).to_be_visible()
 
@@ -126,7 +126,7 @@ class EditorsPicksBrowser(unittest.TestCase):
         self.assertTrue(region.evaluate('(node) => node.scrollHeight > node.clientHeight'))
         self.assertEqual(390, self.page.evaluate('document.documentElement.scrollWidth'))
         region.get_by_role('button', name='Open').first.click()
-        expect(self.page).to_have_url(re.compile('/Reader-Web/b\\?id='))
+        expect(self.page).to_have_url(re.compile('/reader-web/b\\?id='))
         setup = self.page.get_by_role('dialog').filter(has_text='Look up words as you read')
         expect(setup).to_be_visible()
         expect(setup).to_contain_text('Jitendex')
@@ -140,7 +140,7 @@ class EditorsPicksBrowser(unittest.TestCase):
         self.page.get_by_role('menuitem', name='Dictionary Setup').click()
         expect(setup).to_be_visible()
         setup.get_by_role('button', name='Not now').click()
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         expect(self.page.get_by_role('button', name='Read A Pick from Manabi')).to_have_count(1)
         self.page.get_by_role('button', name='Library actions').click()
         self.page.get_by_role('menuitem', name='Add Books').click()
@@ -148,8 +148,8 @@ class EditorsPicksBrowser(unittest.TestCase):
         dialog = self.page.get_by_role('dialog').filter(has_text="Editor's Picks")
         expect(dialog.get_by_role('region', name="Editor's Picks books")).to_be_visible()
         dialog.get_by_role('button', name='Open').first.click()
-        expect(self.page).to_have_url(re.compile('/Reader-Web/b\\?id='))
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        expect(self.page).to_have_url(re.compile('/reader-web/b\\?id='))
+        self.page.goto(self.origin + '/reader-web/manage')
         expect(self.page.get_by_role('button', name='Read A Pick from Manabi')).to_have_count(1)
 
     def test_bad_catalog_url_and_download_failure(self):
@@ -160,13 +160,13 @@ class EditorsPicksBrowser(unittest.TestCase):
         self.assertNotIn('Second Pick', region.locator('h4').all_text_contents())
         region.get_by_role('button', name='Open').first.click()
         expect(self.page.get_by_text('Could not open book')).to_be_visible()
-        self.assertNotIn('/Reader-Web/b', self.page.url)
+        self.assertNotIn('/reader-web/b', self.page.url)
         self.assertFalse(any('outside.example' in value for value in PicksHandler.requests))
 
     def test_leaving_empty_library_while_catalog_loads_has_no_page_error(self):
         PicksHandler.index_started = threading.Event()
         PicksHandler.index_gate = threading.Event()
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         expect(self.page.get_by_role('heading', name='Make room for a good book')).to_be_visible()
         self.assertTrue(PicksHandler.index_started.wait(timeout=5))
         self.page.get_by_role('button', name='Collections', exact=True).click()

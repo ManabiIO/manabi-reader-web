@@ -25,7 +25,7 @@ class LibraryOrganizationSync(LibraryBase):
             'user': {'id': 'alice', 'username': 'reader-alice'},
             'csrf_token': 'c' * 64, 'providers': []
         }
-        self.page.goto(self.origin + '/Reader-Web/connections')
+        self.page.goto(self.origin + '/reader-web/connections')
         expect(self.page.get_by_text('reader-alice', exact=True)).to_be_visible()
         self.page.evaluate('''() => {
           const original = window.fetch.bind(window);
@@ -61,7 +61,7 @@ class LibraryOrganizationSync(LibraryBase):
         }
         StaticHandler.preference_revision = 0
         StaticHandler.preference_settings = {}
-        self.page.goto(self.origin + '/Reader-Web/connections')
+        self.page.goto(self.origin + '/reader-web/connections')
         self.page.get_by_label('Sync reader settings with this Manabi account', exact=True).check()
         status = self.page.get_by_role('status', name='Settings sync status')
         expect(status).to_contain_text('synced')
@@ -69,7 +69,7 @@ class LibraryOrganizationSync(LibraryBase):
         library = self.context.new_page()
         library.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))
         try:
-            library.goto(self.origin + '/Reader-Web/manage?collection=want-to-read')
+            library.goto(self.origin + '/reader-web/manage?collection=want-to-read')
             expect(library.get_by_role('region', name='Library shelves')).to_have_attribute('aria-busy', 'false')
             expect(library.get_by_role('button', name='Read Before sync', exact=True)).to_be_visible()
             # Another device has replaced the shared membership. Sync it from
@@ -112,7 +112,7 @@ class LibraryOrganizationSync(LibraryBase):
         self.assertEqual(2, len(rows), 'Second import did not produce a distinct book')
         self.assertEqual(2, len({row['contentHash'] for row in rows}))
         for row in rows:
-            self.page.goto(self.origin + '/Reader-Web/b?id=' + str(row['id']))
+            self.page.goto(self.origin + '/reader-web/b?id=' + str(row['id']))
             expect(self.page.locator('.book-content')).to_have_attribute(
                 'aria-busy', 'false', timeout=35000)
         tracked = self.stores('books', ['readerStatistic'])['readerStatistic']
@@ -141,7 +141,7 @@ class LibraryOrganizationSync(LibraryBase):
         StaticHandler.account_fixture = {
             'user': {'id': '42', 'username': 'reader'}, 'csrf_token': 'c' * 64, 'providers': []
         }
-        self.page.goto(self.origin + '/Reader-Web/connections')
+        self.page.goto(self.origin + '/reader-web/connections')
         status = self.page.locator('section[aria-labelledby="reading-sync-heading"] [role="status"]')
         expect(status).to_contain_text('older same-title statistics record', timeout=15000)
         deadline = time.monotonic() + 15
@@ -162,7 +162,7 @@ class LibraryOrganizationSync(LibraryBase):
         self.assertEqual({21, 22}, {request['payload']['charactersRead'] for request in sent})
         self.assertEqual(9, self.stores('books', ['statistic'])['statistic'][0]['charactersRead'])
         self.assertEqual(2, len(self.stores('books', ['data'])['data']))
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         first = self.page.locator('[data-book-key="book:%d"]' % rows[0]['id'])
         second = self.page.locator('[data-book-key="book:%d"]' % rows[1]['id'])
         expect(first).to_be_visible()
@@ -182,7 +182,7 @@ class LibraryOrganizationSync(LibraryBase):
             'user': {'id': '42', 'username': 'reader-a'}, 'csrf_token': 'c' * 64,
             'providers': []
         }
-        self.page.goto(self.origin + '/Reader-Web/connections')
+        self.page.goto(self.origin + '/reader-web/connections')
         status = self.page.locator('section[aria-labelledby="reading-sync-heading"] [role="status"]')
         expect(status).to_contain_text('synced', timeout=15000)
 
@@ -236,10 +236,10 @@ class LibraryOrganizationSync(LibraryBase):
             'user': {'id': '42', 'username': 'reader'}, 'csrf_token': 'c' * 64,
             'providers': []
         }
-        self.page.goto(self.origin + '/Reader-Web/connections')
+        self.page.goto(self.origin + '/reader-web/connections')
         status = self.page.locator('section[aria-labelledby="reading-sync-heading"] [role="status"]')
         expect(status).to_contain_text('synced', timeout=15000)
-        self.page.goto(self.origin + '/Reader-Web/b?id=' + str(book_id))
+        self.page.goto(self.origin + '/reader-web/b?id=' + str(book_id))
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=35000)
         self.page.evaluate('''async () => {await navigator.serviceWorker.ready;
           if (!navigator.serviceWorker.controller) await new Promise(resolve =>

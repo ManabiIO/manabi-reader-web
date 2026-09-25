@@ -143,7 +143,7 @@ class LibraryBase(unittest.TestCase):
         self.assertEqual([], StaticHandler.probes)
 
     def go_library(self):
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
         shelf = self.page.get_by_role('region', name='Library shelves')
         expect(shelf).to_have_attribute('data-hydrated', 'true', timeout=30000)
@@ -267,7 +267,7 @@ class LibraryBase(unittest.TestCase):
 class BooksLibraryBrowser(LibraryBase):
     def test_yatsu_backup_collection_is_visible_on_phone_and_desktop(self):
         fixture = Path(__file__).resolve().parents[1] / 'fixtures' / 'yatsu' / 'complete-local-backup-v11.zip'
-        self.page.goto(self.origin + '/Reader-Web/import-ttu?source=yatsu')
+        self.page.goto(self.origin + '/reader-web/import-ttu?source=yatsu')
         picker = self.page.get_by_label('Choose Yatsu backup ZIPs', exact=True)
         picker.set_input_files(str(fixture))
         self.page.get_by_role('button', name='Import selected (1)', exact=True).click()
@@ -1178,7 +1178,7 @@ class BooksLibraryBrowser(LibraryBase):
             self.page = destination.pages[0]
             self.page.on('pageerror', lambda e: self.errors.append(str(e)))
             try:
-                self.page.goto(self.origin + '/Reader-Web/import-ttu')
+                self.page.goto(self.origin + '/reader-web/import-ttu')
                 chooser = self.page.get_by_label('Choose Ttu export ZIPs', exact=True)
                 expect(chooser).to_be_enabled()
                 chooser.set_input_files({'name':'library-backup.zip','mimeType':'application/zip','buffer':raw})
@@ -1339,7 +1339,7 @@ class BooksLibraryFilesystem(LibraryBase):
                 expect(hero.get_by_role('button', name=re.compile('^Start Reading'))).to_be_visible()
 
     def seed_files(self, files):
-        self.page.goto(self.origin + '/Reader-Web/connections')
+        self.page.goto(self.origin + '/reader-web/connections')
         expect(self.page.get_by_role('button', name='Refresh connections')).to_be_enabled()
         self.source_id = self.page.evaluate('''async files => {
           const handle=await (await navigator.storage.getDirectory()).getDirectoryHandle('Library fixture',{create:true});

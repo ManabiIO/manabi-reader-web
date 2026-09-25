@@ -188,7 +188,7 @@ class RheaReader(previous.RefinedAppearance):
 
     def test_contents_navigation_reflows_and_returns_focus_at_phone_and_desktop(self):
         self.context.add_init_script("if (location.pathname.endsWith('/manage')) { localStorage.setItem('fontFamilyGroupOne', 'Klee One'); localStorage.setItem('viewMode', 'paginated'); }")
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
             'name': 'chapters.epub', 'mimeType': 'application/epub+zip', 'buffer': chaptered_epub()})
@@ -294,7 +294,7 @@ class RheaReader(previous.RefinedAppearance):
             'button', name=name, exact=True).click()
 
     def test_empty_library_has_keyboard_import_action(self):
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         action = self.page.get_by_role('button', name='Import File(s)', exact=True)
         expect(action).to_be_visible()
         expect(self.page.locator('input[type=file][accept*=".epub"]')).to_be_hidden()
@@ -304,7 +304,7 @@ class RheaReader(previous.RefinedAppearance):
             action.press('Enter')
 
     def test_library_workspace_import_collection_search_and_completion(self):
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         self.page.locator('input[type=file][accept*=".epub"]').set_input_files({
             'name': 'acceptance.epub',
             'mimeType': 'application/epub+zip',
@@ -348,7 +348,7 @@ class RheaReader(previous.RefinedAppearance):
 
     def test_library_overflow_is_labeled_keyboard_operable_and_mobile_sized(self):
         self.page.set_viewport_size({'width':390, 'height':844})
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         trigger = self.page.get_by_role('button', name='Library actions', exact=True)
         trigger.focus()
         trigger.press('Enter')
@@ -542,7 +542,7 @@ class RheaReader(previous.RefinedAppearance):
 
     def test_library_sort_and_export_preserve_all_export_parts(self):
         self.open_book(font='Klee One')
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         self.page.get_by_role('button', name='Library actions', exact=True).click()
         self.page.get_by_role('menuitem', name='View Options', exact=True).hover()
         self.page.get_by_role('menuitem', name='Sort by…', exact=True).hover()
@@ -633,7 +633,7 @@ class RheaReader(previous.RefinedAppearance):
 
         screenshot_dir = os.environ.get('BOOK_DETAILS_SCREENSHOT_DIR')
         self.page.set_viewport_size({'width': 390, 'height': 844})
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute('aria-busy', 'false')
         for width, height, view in ((390, 844, 'Grid'), (390, 844, 'List'), (1440, 900, 'Grid'), (1440, 900, 'List')):
             with self.subTest(width=width, view=view):
@@ -710,7 +710,7 @@ class RheaReader(previous.RefinedAppearance):
 
     def test_statistics_filter_is_one_focus_managed_sheet(self):
         self.page.set_viewport_size({'width': 390, 'height': 844})
-        self.page.goto(self.origin + '/Reader-Web/statistics')
+        self.page.goto(self.origin + '/reader-web/statistics')
         trigger = self.page.get_by_role('button', name='Filter books', exact=True)
         trigger.click()
         sheet = self.page.get_by_role('dialog', name='Filter books', exact=True)
@@ -798,7 +798,7 @@ class RheaReader(previous.RefinedAppearance):
             target.writestr('second.png', png([24,100,146], 500, 700))
         values = {'fontFamilyGroupOne':'Klee One', 'hideSpoilerImage': '1' if hide_spoilers else '0'}
         self.context.add_init_script('for (const [key, value] of Object.entries(' + json.dumps(values) + ')) localStorage.setItem(key, value);')
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
             'name':'gallery.epub', 'mimeType':'application/epub+zip', 'buffer':output.getvalue()
@@ -872,7 +872,7 @@ class RheaReader(previous.RefinedAppearance):
         self.page.keyboard.press('Escape')
 
     def test_statistics_navigation_and_options_sheet(self):
-        self.page.goto(self.origin + '/Reader-Web/statistics')
+        self.page.goto(self.origin + '/reader-web/statistics')
         self.page.get_by_role('button', name='Heatmap', exact=True).click()
         expect(self.page.get_by_role('button', name='Heatmap', exact=True)).to_have_attribute('aria-pressed','true')
         self.page.get_by_role('button', name='Summary', exact=True).click()
@@ -884,7 +884,7 @@ class RheaReader(previous.RefinedAppearance):
         expect(panel).to_have_count(0)
 
     def test_statistics_raw_recovery_download_preserves_ambiguous_days(self):
-        self.page.goto(self.origin + '/Reader-Web/statistics')
+        self.page.goto(self.origin + '/reader-web/statistics')
         expect(self.page.get_by_role('button', name='Statistics options', exact=True)).to_be_visible()
         self.page.evaluate('''() => new Promise((resolve, reject) => {
           const open = indexedDB.open('books');

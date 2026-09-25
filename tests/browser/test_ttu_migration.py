@@ -88,7 +88,7 @@ class MigrationBrowser(unittest.TestCase):
         errors = []
         page.on('pageerror', lambda error: errors.append(str(error)))
         try:
-            page.goto(cls.origin + '/Reader-Web/manage')
+            page.goto(cls.origin + '/reader-web/manage')
             page.wait_for_function('''() => indexedDB.databases().then(databases =>
               databases.some(database => database.name === 'books' && database.version >= 6))''',
               timeout=30000)
@@ -149,7 +149,7 @@ class MigrationBrowser(unittest.TestCase):
         self.errors = []
         self.page.on('pageerror', lambda error: self.errors.append(str(error)))
         StaticHandler.probes.clear()
-        self.page.goto(self.origin + '/Reader-Web/import-ttu')
+        self.page.goto(self.origin + '/reader-web/import-ttu')
         expect(self.page.get_by_role('heading', name='Import from Ttu Ebook Reader', exact=True)).to_be_visible(timeout=30000)
         expect(self.page.get_by_label('Choose Ttu export ZIPs', exact=True)).to_be_enabled()
 
@@ -394,24 +394,24 @@ class MigrationBrowser(unittest.TestCase):
         self.clear();self.load(zip_bytes(files),'repeat-long-history.zip');self.run_import();self.assertEqual(data,self.snapshot())
 
     def test_migration_entrypoint_and_google_drive_labels_use_official_names(self):
-        self.page.goto(self.origin+'/Reader-Web/manage')
+        self.page.goto(self.origin+'/reader-web/manage')
         self.page.get_by_role('button',name='Library actions',exact=True).click()
         self.page.get_by_role('menuitem',name='Add Books',exact=True).click()
         self.page.get_by_role('menuitem',name='Import from Ttu Ebook Reader',exact=True).click()
         expect(self.page.get_by_role('heading',name='Import from Ttu Ebook Reader',exact=True)).to_be_visible()
         self.assertNotRegex(self.page.locator('body').inner_text(),r'\b(?:TTU|GDrive)\b')
-        self.page.goto(self.origin+'/Reader-Web/manage')
+        self.page.goto(self.origin+'/reader-web/manage')
         self.page.get_by_role('button',name='Library actions',exact=True).click()
         self.page.get_by_role('menuitem',name='Add Books',exact=True).click()
         self.page.get_by_role('menuitem',name='Import from Yatsu Reader',exact=True).click()
         expect(self.page.get_by_role('heading',name='Import from Yatsu Reader',exact=True)).to_be_visible()
-        self.page.goto(self.origin+'/Reader-Web/settings')
+        self.page.goto(self.origin+'/reader-web/settings')
         self.assertNotRegex(self.page.locator('body').inner_text(),r'\b(?:TTU|GDrive)\b')
 
     def test_real_yatsu_v11_backup_imports_book_position_and_statistics_idempotently(self):
         fixture = Path(__file__).resolve().parents[1] / 'fixtures' / 'yatsu' / 'complete-local-backup-v11.zip'
         title = 'Manabi Yatsu Portability Fixture'
-        self.page.goto(self.origin + '/Reader-Web/import-ttu?source=yatsu')
+        self.page.goto(self.origin + '/reader-web/import-ttu?source=yatsu')
         expect(self.page.get_by_role('heading', name='Import from Yatsu Reader', exact=True)).to_be_visible()
         picker = self.page.get_by_label('Choose Yatsu backup ZIPs', exact=True)
         picker.set_input_files(str(fixture))
@@ -437,7 +437,7 @@ class MigrationBrowser(unittest.TestCase):
         expect(self.row(title).get_by_role('status')).to_have_text('Already imported; existing data kept.', timeout=60000)
         self.assertEqual(snapshot, self.snapshot())
         self.assertEqual(organization, self.organization())
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         collection = self.page.get_by_role('complementary', name='Collections').get_by_role(
             'button', name=re.compile(r'^Portable Shelf\b'))
         expect(collection).to_be_visible()
@@ -450,7 +450,7 @@ class MigrationBrowser(unittest.TestCase):
         manifest = json.loads(files['yatsu-backup-manifest.json'])
         manifest['bookCount'] += 1
         files['yatsu-backup-manifest.json'] = json.dumps(manifest)
-        self.page.goto(self.origin + '/Reader-Web/import-ttu?source=yatsu')
+        self.page.goto(self.origin + '/reader-web/import-ttu?source=yatsu')
         self.page.get_by_label('Choose Yatsu backup ZIPs', exact=True).set_input_files({
             'name': 'corrupt-yatsu.zip', 'mimeType': 'application/zip', 'buffer': zip_bytes(files)
         })

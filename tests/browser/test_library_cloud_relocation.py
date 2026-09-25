@@ -124,10 +124,10 @@ class CloudRelocationBrowser(LibraryBase):
             'user': {'id': '43', 'username': 'reader-b'},
             'csrf_token': 'c' * 64, 'providers': []
         }
-        self.page.goto(self.origin + '/Reader-Web/connections')
+        self.page.goto(self.origin + '/reader-web/connections')
         expect(self.page.get_by_text('reader-b', exact=True)).to_be_visible()
         self.page.wait_for_load_state('networkidle')
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute(
             'aria-busy', 'false', timeout=30000)
         expect(self.page.get_by_role('button', name='Read Traveling volume', exact=True)).to_have_count(0)
@@ -140,10 +140,10 @@ class CloudRelocationBrowser(LibraryBase):
             'user': {'id': '42', 'username': 'reader'},
             'csrf_token': 'c' * 64, 'providers': []
         }
-        self.page.goto(self.origin + '/Reader-Web/connections')
+        self.page.goto(self.origin + '/reader-web/connections')
         expect(self.page.get_by_text('reader', exact=True)).to_be_visible()
         self.page.wait_for_load_state('networkidle')
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         expect(self.page.get_by_role('button', name='Read Traveling volume', exact=True)).to_be_visible(
             timeout=30000)
         self.page.get_by_role('button', name='Library actions', exact=True).click()
@@ -267,7 +267,7 @@ class CloudRelocationBrowser(LibraryBase):
         self.assertEqual('g-old', original_links[0]['fileId'])
         original_book_id = original_links[0]['bookId']
         portable_key = 'content:' + original_links[0]['contentHash']
-        self.page.goto(self.origin + '/Reader-Web/connections')
+        self.page.goto(self.origin + '/reader-web/connections')
         self.page.get_by_label('Sync reader settings with this Manabi account', exact=True).check()
         expect(self.page.get_by_role('status', name='Settings sync status')).to_contain_text('synced')
         shared = CloudRelocationHandler.preference_settings['library_organization']

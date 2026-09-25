@@ -116,7 +116,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         errors = []
         page.on('pageerror', lambda error: errors.append(error.stack or str(error)))
         try:
-            page.goto(self.origin + '/Reader-Web/manage')
+            page.goto(self.origin + '/reader-web/manage')
             self.assertTrue(started.wait(timeout=5), 'connection request did not reach the server')
             page.close()
         finally:

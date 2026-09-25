@@ -98,7 +98,7 @@ test('embedded controls forward compact size rather than inheriting regular butt
 });
 
 test('disabled link buttons cannot retain href or an overridden tab stop', () => {
-  const markup = html('Button', { href: '/Reader-Web/manage', disabled: true, tabindex: 0 });
+  const markup = html('Button', { href: '/reader-web/manage', disabled: true, tabindex: 0 });
   assert.match(markup, /<a\s/);
   assert.doesNotMatch(markup, /\shref=/);
   assert.match(markup, /tabindex="-1"/);
@@ -106,7 +106,7 @@ test('disabled link buttons cannot retain href or an overridden tab stop', () =>
 });
 
 test('enabled links preserve already-resolved internal and external destinations', () => {
-  for (const href of ['/Reader-Web/manage', 'https://example.com/guide']) {
+  for (const href of ['/reader-web/manage', 'https://example.com/guide']) {
     assert.ok(html('Button', { href }).includes(`href="${href}"`));
   }
 });
