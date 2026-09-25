@@ -23,6 +23,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm svelte-kit sync
+        working-directory: apps/web
       - name: Verify the published baseline
         run: |
           set -o pipefail
