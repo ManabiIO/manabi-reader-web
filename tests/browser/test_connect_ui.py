@@ -83,6 +83,32 @@ class ConnectControlsBrowser(previous.AppleControlsBrowser):
                 )
                 self.capture(f'connect-connections-{mode}-{width}')
 
+    def test_shared_library_workspace_reflows_like_other_management_pages(self):
+        for mode in ('light', 'dark'):
+            self.page.evaluate('v => localStorage.setItem("appearance", v)', mode)
+            self.page.set_viewport_size({'width': 320, 'height': 844})
+            self.page.goto(self.origin + '/Reader-Web/shared-library')
+            self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+            expect(
+                self.page.get_by_role('heading', name='Shared Ttu Ebook Reader libraries', exact=True)
+            ).to_be_visible()
+            self.assert_no_horizontal_overflow(self.page.locator('html'))
+            first_section = self.page.locator('main > section').first
+            self.assertAlmostEqual(
+                first_section.evaluate('e => parseFloat(getComputedStyle(e).borderTopLeftRadius)'),
+                16,
+                delta=0.1
+            )
+            add = self.page.get_by_role('button', name='Add existing shared folder', exact=True)
+            if add.count():
+                expect(add).to_have_attribute('data-variant', 'default')
+                expect(
+                    self.page.get_by_role(
+                        'button', name='Create shared library in a folder', exact=True
+                    )
+                ).to_have_attribute('data-variant', 'outline')
+            self.capture(f'connect-shared-library-{mode}-320')
+
     def test_statistics_toolbar_and_options_reflow_and_keep_unique_form_labels(self):
         self.page.goto(self.origin + '/Reader-Web/statistics')
         for width, scale in ((1200, '100%'), (390, '100%'), (320, '200%')):

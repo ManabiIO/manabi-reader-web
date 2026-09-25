@@ -1,5 +1,6 @@
 <script lang="ts">
   import AppNav from '$lib/components/navigation/app-nav.svelte';
+  import { Button } from '$lib/components/ui/button';
   import { onMount } from 'svelte';
   import { resolve } from '$app/paths';
   import { goto } from '$app/navigation';
@@ -103,10 +104,12 @@
 <svelte:head><title>Shared Ttu Ebook Reader libraries · Manabi Reader</title></svelte:head>
 
 <main>
-  <nav aria-label="Reader navigation">
-    <a href={resolve('/manage')}>Books</a><a href={resolve('/connections')}
-      >Accounts and local book folders</a
-    ><a href={resolve('/settings')}>Storage settings</a>
+  <nav aria-label="Reader navigation" class="page-navigation">
+    <Button href={resolve('/manage')} variant="link" size="sm">Books</Button>
+    <Button href={resolve('/connections')} variant="link" size="sm"
+      >Accounts and local book folders</Button
+    >
+    <Button href={resolve('/settings')} variant="link" size="sm">Storage settings</Button>
   </nav>
   <h1>Shared Ttu Ebook Reader libraries</h1>
   <p>
@@ -120,9 +123,11 @@
       nested library. Books already downloaded locally remain readable without an account.
     </p>
     {#if supported}
-      <button disabled={busy} on:click={() => choose(false)}>Add existing shared folder</button>
-      <button disabled={busy} on:click={() => choose(true)}
-        >Create shared library in a folder</button
+      <Button variant="default" disabled={busy} onclick={() => choose(false)}
+        >Add existing shared folder</Button
+      >
+      <Button variant="outline" disabled={busy} onclick={() => choose(true)}
+        >Create shared library in a folder</Button
       >
     {:else}
       <p>
@@ -147,17 +152,24 @@
       >
       {#if source}
         <p>{filesystemData(source).fsPath}</p>
-        <button disabled={busy} on:click={reconnect}>Reconnect folder permission</button>
-        <button
-          disabled={busy}
-          on:click={() =>
-            run(async () => {
-              if (!source) return;
-              await openSharedFolder(source);
-              await goto(resolve('/manage'));
-            })}>Open shared library</button
-        >
-        <button disabled={busy} on:click={() => run(refresh)}>Refresh shared library</button>
+        <div class="actions">
+          <Button variant="outline" disabled={busy} onclick={reconnect}
+            >Reconnect folder permission</Button
+          >
+          <Button
+            variant="default"
+            disabled={busy}
+            onclick={() =>
+              run(async () => {
+                if (!source) return;
+                await openSharedFolder(source);
+                await goto(resolve('/manage'));
+              })}>Open shared library</Button
+          >
+          <Button variant="ghost" disabled={busy} onclick={() => run(refresh)}
+            >Refresh shared library</Button
+          >
+        </div>
         <label
           ><input
             type="checkbox"
@@ -183,15 +195,16 @@
           No Ttu Ebook Reader book packages are present yet. A folder of EPUBs alone is not a Ttu
           Ebook Reader library; publish selected books below.
         </p>{/if}
-      <button
+      <Button
+        variant="secondary"
         disabled={busy || !source || !imports.length}
-        on:click={() =>
+        onclick={() =>
           run(async () => {
             if (!source) return;
             await transferSharedBooks(source, 'import', imports);
             await refresh();
             message = 'Selected books, bookmarks and statistics imported.';
-          })}>Import selected shared books</button
+          })}>Import selected shared books</Button
       >
     </section>
     <section aria-labelledby="publish-books">
@@ -204,16 +217,17 @@
       {#each localTitles.filter((title) => !remoteTitles.includes(title)) as title (title)}<label
           ><input type="checkbox" bind:group={exports} value={title} />{title}</label
         >{/each}
-      <button
+      <Button
+        variant="secondary"
         disabled={busy || !source || !exports.length}
-        on:click={() =>
+        onclick={() =>
           run(async () => {
             if (!source) return;
             await transferSharedBooks(source, 'publish', exports);
             await refresh();
             message =
               'Selected books published in Ttu Ebook Reader format. Your cloud client manages remote upload.';
-          })}>Publish selected browser books</button
+          })}>Publish selected browser books</Button
       >
     </section>
   {/if}
@@ -238,14 +252,20 @@
   main {
     max-width: 64rem;
     margin: auto;
-    padding: 1.25rem;
+    padding: 24px 16px;
     writing-mode: horizontal-tb;
     line-height: 1.6;
   }
-  nav {
+  nav,
+  .actions {
     display: flex;
-    gap: 1rem;
+    gap: 12px;
     flex-wrap: wrap;
+    align-items: center;
+  }
+  .page-navigation {
+    margin-inline: -8px;
+    gap: 2px;
   }
   h1 {
     font-size: 2rem;
@@ -258,10 +278,11 @@
   }
   section {
     border: 1px solid var(--border);
-    background: var(--muted);
-    border-radius: 0.6rem;
-    padding: 1rem;
-    margin: 1rem 0;
+    background: var(--card);
+    border-radius: 16px;
+    padding: 20px;
+    margin: 16px 0;
+    color: var(--card-foreground);
   }
   p {
     margin: 0.75rem 0;
@@ -272,20 +293,25 @@
   }
   label {
     display: flex;
-    gap: 0.6rem;
+    gap: 10px;
     align-items: center;
-    margin: 0.6rem 0;
+    margin: 10px 0;
+    flex-wrap: wrap;
   }
-  button,
+  label > input[type='checkbox'] {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    accent-color: var(--primary);
+  }
   select {
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: 0.35rem;
-    padding: 0.45rem 0.75rem;
-    margin: 0.25rem;
-  }
-  button:disabled {
-    opacity: 0.5;
+    min-height: 44px;
+    max-width: 100%;
+    background: var(--background);
+    border: 1px solid var(--input);
+    border-radius: 10px;
+    padding: 8px 10px;
+    color: var(--foreground);
   }
   .note {
     font-size: 0.9rem;
@@ -294,3 +320,12 @@
     overflow-wrap: anywhere;
   }
 </style>
+
+@media (max-width: 36rem) {
+  main {
+    padding: 16px 12px;
+  }
+  section {
+    padding: 16px;
+  }
+}
