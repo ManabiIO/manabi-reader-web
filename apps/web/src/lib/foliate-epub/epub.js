@@ -722,6 +722,7 @@ export class Loader {
     #children = new Map()
     #refCount = new Map()
     #pendingLoads = new Map()
+    #loadDependencies = new Map()
     #destroyed = false
     eventTarget = new EventTarget()
     constructor({ loadText, loadBlob, resources }) {
@@ -780,6 +781,26 @@ export class Loader {
             this.#children.delete(href)
         } else this.#refCount.set(href, count)
     }
+    #dependsOn(from, target, visited = new Set()) {
+        if (from === target) return true
+        if (visited.has(from)) return false
+        visited.add(from)
+        for (const child of this.#loadDependencies.get(from)?.keys() ?? []) {
+            if (this.#dependsOn(child, target, visited)) return true
+        }
+        return false
+    }
+    #rollbackUncommittedChildren(parent, retainedChildren) {
+        const childList = this.#children.get(parent)
+        if (!childList?.length) return
+        const retained = []
+        for (const child of childList) {
+            if (retainedChildren.has(child)) retained.push(child)
+            else this.unref(child)
+        }
+        if (retained.length) this.#children.set(parent, retained)
+        else this.#children.delete(parent)
+    }
     async loadItem(item, parents = []) {
         if (this.#destroyed || !item) return null
         const { href, mediaType } = item
@@ -792,23 +813,53 @@ export class Loader {
 
         const parent = parents.at(-1)
         if (this.#cache.has(href)) return this.ref(href, parent)
+        if (parent && this.#dependsOn(href, parent))
+            return this.#loadItemUncoalesced(item, parents, true)
 
-        const recursive = parents.includes(href)
-        if (recursive) return this.#loadItemUncoalesced(item, parents, true)
-
-        const pending = this.#pendingLoads.get(href)
-        if (pending) {
-            const url = await pending
-            if (this.#destroyed || !url) return null
-            return this.ref(href, parent)
+        let dependencies
+        if (parent) {
+            dependencies = this.#loadDependencies.get(parent)
+            if (!dependencies)
+                this.#loadDependencies.set(parent, dependencies = new Map())
+            dependencies.set(href, (dependencies.get(href) ?? 0) + 1)
         }
 
-        const load = this.#loadItemUncoalesced(item, parents)
-        this.#pendingLoads.set(href, load)
         try {
-            return await load
+            const recursive = parents.includes(href)
+            if (recursive) return this.#loadItemUncoalesced(item, parents, true)
+
+            const pending = this.#pendingLoads.get(href)
+            if (pending) {
+                const url = await pending
+                if (this.#destroyed || !url) return null
+                return this.ref(href, parent)
+            }
+
+            const retainedChildren = new Set(this.#children.get(href) ?? [])
+            const load = (async () => {
+                try {
+                    const value = await this.#loadItemUncoalesced(item, parents)
+                    if (!value || !this.#cache.has(href))
+                        this.#rollbackUncommittedChildren(href, retainedChildren)
+                    return value
+                } catch (error) {
+                    this.#rollbackUncommittedChildren(href, retainedChildren)
+                    throw error
+                }
+            })()
+            this.#pendingLoads.set(href, load)
+            try {
+                return await load
+            } finally {
+                if (this.#pendingLoads.get(href) === load) this.#pendingLoads.delete(href)
+            }
         } finally {
-            if (this.#pendingLoads.get(href) === load) this.#pendingLoads.delete(href)
+            if (parent && dependencies) {
+                const count = (dependencies.get(href) ?? 1) - 1
+                if (count) dependencies.set(href, count)
+                else dependencies.delete(href)
+                if (!dependencies.size) this.#loadDependencies.delete(parent)
+            }
         }
     }
     async #loadItemUncoalesced(item, parents = [], forceRaw = false) {
@@ -951,6 +1002,7 @@ export class Loader {
         if (this.#destroyed) return false
         this.#destroyed = true
         this.#pendingLoads.clear()
+        this.#loadDependencies.clear()
         for (const url of this.#cache.values())
             if (typeof url === 'string' && url.startsWith('blob:')) URL.revokeObjectURL(url)
         this.#cache.clear()
