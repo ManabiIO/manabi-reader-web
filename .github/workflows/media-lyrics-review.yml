@@ -1,5 +1,5 @@
 name: Lyrics transcript qualification
-# Isolated source qualification; only the final object job may create Git blobs.
+# Isolated candidate validation. The object job creates immutable blobs only.
 # No ref, commit, PR, release or deployment writes.
 on:
   push:
@@ -15,6 +15,9 @@ jobs:
   review:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
         with:
@@ -25,7 +28,7 @@ jobs:
           run-id: 36131653443
           github-token: ${{ github.token }}
           path: reviewed
-      - name: Apply verified candidate and explicit inactive return
+      - name: Apply verified candidate and regression corrections
         run: |
           python3 - <<'PY'
           import hashlib,json,pathlib
@@ -45,7 +48,51 @@ jobs:
           text=path.read_text();old='if (active()) return await this.generate();'
           assert text.count(old)==1
           path.write_text(text.replace(old,old+'\n        return undefined;'))
-          pathlib.Path('lyrics-paths.json').write_text(json.dumps([e['path'] for e in entries]))
+          path=pathlib.Path('tests/media/app-browser.py')
+          text=path.read_text();old="str(args.fixture / 'video.mp4'),"
+          assert text.count(old)==1
+          text=text.replace(old,"{'name':'video.mp4','mimeType':'video/mp4','buffer':(args.fixture / 'video.mp4').read_bytes()},")
+          # Retain a screenshot and DOM snapshot when the real application fails.
+          text=text.replace('    finally:\n        server.shutdown()', '    except Exception:\n        try:\n            page.screenshot(path=str(args.output/"failure.png"))\n            (args.output/"failure.html").write_text(page.content())\n        except Exception:\n            pass\n        raise\n    finally:\n        server.shutdown()')
+          path.write_text(text)
+          path=pathlib.Path('tests/media/jobs.test.mjs');text=path.read_text()
+          first=text.index("test('resume refuses a live lease; recovery only releases stale owners without Web Locks'")
+          last=text.index("test('non-finite PCM",first)
+          section=text[first:last]
+          assert section.count('harness(async')==1 and section.endswith('  }));\n')
+          section=section.replace('harness(async','withLocks(undefined, () => harness(async',1)
+          section=section[:-len('  }));\n')]+'  })));\n'
+          text=text[:first]+section+text[last:]
+          text += '''
+          // Node may expose navigator.locks; each capability scenario owns its mock.
+          async function withLocks(locks, body) {
+            const previous = Object.getOwnPropertyDescriptor(navigator, 'locks');
+            Object.defineProperty(navigator, 'locks', { configurable: true, value: locks });
+            try { return await body(); }
+            finally {
+              if (previous) Object.defineProperty(navigator, 'locks', previous);
+              else delete navigator.locks;
+            }
+          }
+          for (const available of [false, true]) {
+            test(`recovery ${available ? 'releases an orphan under exclusive lock' : 'leaves a held inference lock untouched'}`, () =>
+              withLocks({ async request(name, options, callback) {
+                assert.equal(name, 'manabi-moss-inference');
+                assert.deepEqual(options, { ifAvailable: true });
+                return callback(available ? { name } : null);
+              } }, () => harness(async ({ queue, store }) => {
+                const q = queue({ dispose() {} });
+                await store.putLocal(scope, 'jobs', id, {
+                  ...job(), status: 'running', ownerId: owner, leaseUntil: Date.now() + 90000
+                });
+                await q.recover();
+                assert.equal((await store.local(scope, 'jobs', id)).status, available ? 'paused' : 'running');
+              })));
+          }
+          '''
+          path.write_text(text)
+          paths=[e['path'] for e in entries]+['tests/media/jobs.test.mjs']
+          pathlib.Path('lyrics-paths.json').write_text(json.dumps(paths))
           PY
       - uses: pnpm/action-setup@v6.1.0
         with:
@@ -59,7 +106,7 @@ jobs:
           python-version: '3.13'
       - run: pnpm install --frozen-lockfile
       - run: pnpm --dir apps/web exec svelte-kit sync
-      - name: Format reviewed source and check configured lint rules
+      - name: Format reviewed source and enforce lint
         run: |
           python3 - <<'PY'
           import json,pathlib,subprocess
@@ -95,14 +142,15 @@ jobs:
         env:
           BASE_PATH: /Reader-Web
         run: pnpm --dir apps/web build
-      - name: Provision generated-fixture and browser tools
+      - name: Provision fixture and browser tools
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg espeak
           python -m pip install playwright==1.63.0
           python -m playwright install --with-deps chromium
-      - name: Generate cached English fixture and run core regressions
+      - name: Generate fixture and run core regressions
         run: |
+          set -o pipefail
           mkdir -p lyrics-evidence
           python tools/media/generate-fixtures.py --language en > fixture-path.txt
           export MEDIA_FIXTURE="$(cat fixture-path.txt)"
@@ -110,6 +158,7 @@ jobs:
       - name: Real application, IndexedDB and shared display settings
         run: python tests/media/app-browser.py --fixture "$(cat fixture-path.txt)" --output lyrics-evidence/app
       - name: Player, workspace and Web Audio regressions
+        if: ${{ !cancelled() }}
         run: |
           export CHROMIUM="$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
           python tests/media/dom-browser.py --fixture "$(cat fixture-path.txt)" --output lyrics-evidence/player
