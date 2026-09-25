@@ -34,3 +34,20 @@ titles; selection remains private until Apply Filter. No history rows are change
 workspace geometry, unique labels/date edits, 61-title pagination/private draft,
 and enlarged reader appearance coverage. The pure title-filter model has direct
 unit tests; the complete existing Rhea and Library suites remain separate gates.
+
+
+## Follow-up visual audit
+
+The refreshed Analytics screenshots also reinforce two workspace details that are
+easy to miss when copying only the high-level look:
+
+- side-panel filters keep their context and commit/cancel actions reachable while
+  long result sets scroll;
+- small chart/navigation tools read as quiet utility controls, while destructive
+  row operations are visually distinct.
+
+The Statistics title picker therefore keeps its header and Apply/Cancel footer
+sticky in the single sheet scroll container. Bulk selection now means the current
+matching set (search/date/selected-title filters), never hidden titles. Heatmap,
+summary-row, and tracker-history utilities use the shared button primitives for
+focus, pointer targets, disabled state, and destructive treatment.

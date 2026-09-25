@@ -355,13 +355,15 @@
                 {trackingHistoryItem.characterDiff}
               </div>
               <div class="flex">
-                <button
+                <Button
+                  variant="destructive"
+                  size="xs"
+                  aria-label="Revert history item"
                   title="Revert Item"
-                  class="hover:text-red-500"
-                  on:click={() => dispatch('revertStatistic', trackingHistoryItem)}
+                  onclick={() => dispatch('revertStatistic', trackingHistoryItem)}
                 >
                   <AppIcon icon={faTrash} /> <span>Revert Item</span>
-                </button>
+                </Button>
                 <div
                   title="Item saved to Database"
                   class="ml-4 cursor-not-allowed"
@@ -372,25 +374,29 @@
               </div>
             {/each}
           </div>
-          <div class="flex justify-between mt-3">
-            <button
-              title={currentTrackingHistoryIndex === 0 ? '' : 'Previous Page'}
+          <div class="mt-3 flex justify-between">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              shape="circle"
+              aria-label="Previous history page"
+              title="Previous Page"
               disabled={currentTrackingHistoryIndex === 0}
-              class:opacity-50={currentTrackingHistoryIndex === 0}
-              class:cursor-not-allowed={currentTrackingHistoryIndex === 0}
-              on:click={() => (trackingHistoryIndex -= 1)}
+              onclick={() => (trackingHistoryIndex -= 1)}
             >
               <AppIcon icon={faChevronLeft} />
-            </button>
-            <button
-              title={hasNextPage ? 'Next Page' : ''}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              shape="circle"
+              aria-label="Next history page"
+              title="Next Page"
               disabled={!hasNextPage}
-              class:opacity-50={!hasNextPage}
-              class:cursor-not-allowed={!hasNextPage}
-              on:click={() => (trackingHistoryIndex += 1)}
+              onclick={() => (trackingHistoryIndex += 1)}
             >
               <AppIcon icon={faChevronRight} />
-            </button>
+            </Button>
           </div>
         </details>
       {/if}

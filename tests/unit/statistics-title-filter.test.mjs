@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   filterStatisticsTitles,
+  setMatchingStatisticsTitleSelection,
   statisticsTitlePage,
   TITLE_FILTER_PAGE_SIZE
 } from '../../apps/web/src/lib/components/statistics/title-filter-model.ts';
@@ -45,4 +46,22 @@ test('date and selection filters compose without modifying private draft choices
   );
   assert.deepEqual(rows, before);
   assert.deepEqual(filterStatisticsTitles(rows, '', new Set(['C']), true, true), [rows[2]]);
+});
+
+
+test('bulk title selection changes only the current matching set', () => {
+  const rows = [
+    { title: 'A', isSelected: true },
+    { title: 'B', isSelected: true },
+    { title: 'C', isSelected: false }
+  ];
+  const updated = setMatchingStatisticsTitleSelection(rows, [rows[1]], false);
+  assert.deepEqual(updated, [
+    rows[0],
+    { title: 'B', isSelected: false },
+    rows[2]
+  ]);
+  assert.equal(updated[0], rows[0]);
+  assert.equal(updated[2], rows[2]);
+  assert.deepEqual(setMatchingStatisticsTitleSelection(updated, [], true), updated);
 });
