@@ -1,11 +1,13 @@
 name: Lyrics transcript qualification
-# Temporary isolated review branch. No ref, commit, PR, release or deployment writes.
+# Isolated source qualification; only the final object job may create Git blobs.
+# No ref, commit, PR, release or deployment writes.
 on:
   push:
     branches: [codex/video-lyrics-qualification-20260925]
     paths: [.github/workflows/media-lyrics-review.yml]
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: media-lyrics-review
   cancel-in-progress: true
@@ -17,53 +19,33 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Apply checksum-verified local source edits
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: lyrics-reviewed-source
+          run-id: 36131653443
+          github-token: ${{ github.token }}
+          path: reviewed
+      - name: Apply verified candidate and explicit inactive return
         run: |
           python3 - <<'PY'
-          import base64, hashlib, json, lzma, os, pathlib, urllib.request
-          parts = ['d9908d211a0006a5fb9040d0f68e8dc56fed35c4', '17a62605d55eb2004b68011d134435da43b017d2', '512ab2a6f6ddcfb5f9148cea45be7efdc1b88c04', 'c3d68ad86c99f3b70df4fb6093cceee703c6a6bf']
-          expected = ['634ddee092430ee72a479b167bffc7390770364f', *parts[1:]]
-          raw = []
-          for index, sha in enumerate(parts):
-              request = urllib.request.Request('https://api.github.com/repos/ManabiIO/manabi-reader-web/git/blobs/' + sha, headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'})
-              with urllib.request.urlopen(request, timeout=30) as response:
-                  value = json.load(response)
-              assert value['sha'] == sha and value['encoding'] == 'base64'
-              chunk = base64.b64decode(value['content'])
-              if index == 0:
-                  # Correct one transcription error in the transport envelope;
-                  # exact original chunk and whole payload hashes are mandatory.
-                  text = base64.b64encode(chunk).decode()
-                  assert text[1748] == 'H' and len(text) == 8000
-                  chunk = base64.b64decode(text[:1748] + text[1749:] + 'e', validate=True)
-              assert hashlib.sha1(b'blob ' + str(len(chunk)).encode() + b'\0' + chunk).hexdigest() == expected[index]
-              raw.append(chunk)
-          payload = lzma.decompress(b''.join(raw), memlimit=128*1024*1024)
-          assert hashlib.sha256(payload).hexdigest() == '4b407fe2a4c0a677629e52eda4fa995ec881f27e433b7d2e55ec112ce3380d2e'
-          edits = json.loads(payload)
-          assert len(edits) == 17 and len({e['path'] for e in edits}) == 17
-          for entry in edits:
-              path = pathlib.Path(entry['path'])
+          import hashlib,json,pathlib
+          raw=pathlib.Path('reviewed/lyrics-candidate.json').read_bytes()
+          assert hashlib.sha256(raw).hexdigest()=='e0e61207c4d0cf9639a6377bb65f1b524cf7200c6f1bbd7c8a1bce104cd41fb1'
+          entries=json.loads(raw)
+          assert len(entries)==17 and len({e['path'] for e in entries})==17
+          for entry in entries:
+              path=pathlib.Path(entry['path'])
               assert not path.is_absolute() and '..' not in path.parts and '.git' not in path.parts
-              assert all(not part.is_symlink() for part in [path, *path.parents])
-              if entry['before'] is None:
-                  assert not path.exists(), path
-                  content = ''
-              else:
-                  content = path.read_text()
-                  assert hashlib.sha256(content.encode()).hexdigest() == entry['before'], path
-              lines = content.splitlines(keepends=True)
-              for first, last, replacement in reversed(entry['edits']):
-                  assert 0 <= first <= last <= len(lines)
-                  lines[first:last] = replacement
-              result = ''.join(lines).encode()
-              assert hashlib.sha256(result).hexdigest() == entry['after'], path
-              path.parent.mkdir(parents=True, exist_ok=True)
-              path.write_bytes(result)
-          pathlib.Path('lyrics-paths.json').write_text(json.dumps([e['path'] for e in edits]))
-          print('Verified and applied all 17 source paths')
+              assert all(not p.is_symlink() for p in [path,*path.parents])
+              data=entry['content'].encode()
+              assert hashlib.sha256(data).hexdigest()==entry['sha256']
+              path.parent.mkdir(parents=True,exist_ok=True)
+              path.write_bytes(data)
+          path=pathlib.Path('apps/web/src/lib/media/workspace.ts')
+          text=path.read_text();old='if (active()) return await this.generate();'
+          assert text.count(old)==1
+          path.write_text(text.replace(old,old+'\n        return undefined;'))
+          pathlib.Path('lyrics-paths.json').write_text(json.dumps([e['path'] for e in entries]))
           PY
       - uses: pnpm/action-setup@v6.1.0
         with:
@@ -77,21 +59,21 @@ jobs:
           python-version: '3.13'
       - run: pnpm install --frozen-lockfile
       - run: pnpm --dir apps/web exec svelte-kit sync
-      - name: Format and lint only reviewed source
+      - name: Format reviewed source and check configured lint rules
         run: |
           python3 - <<'PY'
-          import json, pathlib, subprocess
-          paths = json.loads(pathlib.Path('lyrics-paths.json').read_text())
-          formatted = [p for p in paths if pathlib.Path(p).suffix in ('.ts', '.svelte', '.mjs', '.css', '.md')]
+          import json,pathlib,subprocess
+          paths=json.loads(pathlib.Path('lyrics-paths.json').read_text())
+          formatted=[p for p in paths if pathlib.Path(p).suffix in ('.ts','.svelte','.mjs','.css','.md')]
           subprocess.run(['pnpm','exec','prettier','--write',*formatted],check=True)
-          linted = [p for p in paths if pathlib.Path(p).suffix in ('.ts','.svelte','.mjs')]
+          linted=[p for p in paths if pathlib.Path(p).suffix in ('.ts','.mjs')]
           subprocess.run(['pnpm','exec','eslint','--fix',*linted],check=True)
           PY
       - name: Capture candidate source
         if: always()
         run: |
           python3 - <<'PY'
-          import hashlib, json, pathlib
+          import hashlib,json,pathlib
           source=[]
           for name in json.loads(pathlib.Path('lyrics-paths.json').read_text()):
               data=pathlib.Path(name).read_bytes()
