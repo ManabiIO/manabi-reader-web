@@ -28,6 +28,22 @@ def epub(name, title, content, extra=None):
             z.writestr(key, value)
 
 epub('japanese.epub', 'E2E Japanese EPUB', body)
+
+def linked_epub():
+    title = 'E2E Linked EPUB'
+    opf = f'''<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="uid"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>{title}</dc:title><dc:language>ja</dc:language><dc:identifier id="uid">urn:uuid:e2e-linked</dc:identifier></metadata><manifest><item id="one" href="chapter1.xhtml" media-type="application/xhtml+xml"/><item id="two" href="chapter2.xhtml" media-type="application/xhtml+xml"/><item id="ncx" href="toc-linked.ncx" media-type="application/x-dtbncx+xml"/></manifest><spine toc="ncx"><itemref idref="one"/><itemref idref="two"/></spine></package>'''
+    ncx = f'''<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"><head/><docTitle><text>{title}</text></docTitle><navMap><navPoint id="one" playOrder="1"><navLabel><text>第一章</text></navLabel><content src="chapter1.xhtml"/></navPoint><navPoint id="two" playOrder="2"><navLabel><text>第二章</text></navLabel><content src="chapter2.xhtml"/></navPoint></navMap></ncx>'''
+    chapter1 = '<h1>リンク第一章</h1><p><a id="to-two" href="chapter2.xhtml#note">第二章の注へ</a></p><aside id="note">第一章の注</aside>' + ''.join(f'<p>第一章 filler {i:03d}</p>' for i in range(80))
+    chapter2 = '<h1>リンク第二章</h1><p><a id="to-one" href="chapter1.xhtml#note">第一章の注へ</a></p><aside id="note">第二章の注</aside>' + ''.join(f'<p>第二章 filler {i:03d}</p>' for i in range(80))
+    with zipfile.ZipFile(root / 'linked.epub', 'w', zipfile.ZIP_DEFLATED) as z:
+        z.writestr('mimetype', 'application/epub+zip', compress_type=zipfile.ZIP_STORED)
+        z.writestr('META-INF/container.xml', container)
+        z.writestr('OEBPS/content.opf', opf)
+        z.writestr('OEBPS/chapter1.xhtml', '<html xmlns="http://www.w3.org/1999/xhtml"><body>' + chapter1 + '</body></html>')
+        z.writestr('OEBPS/chapter2.xhtml', '<html xmlns="http://www.w3.org/1999/xhtml"><body>' + chapter2 + '</body></html>')
+        z.writestr('OEBPS/toc-linked.ncx', ncx)
+
+linked_epub()
 epub('malicious.epub', 'E2E Hostile EPUB', '<h1>安全な本文</h1><script>window.__epubExecuted=true</script><img src="http://127.0.0.1:4173/probe-image" onerror="window.__epubExecuted=true"/><iframe src="http://127.0.0.1:4173/probe-frame"></iframe><a href="javascript:alert(1)">危険なリンク</a><p style="background-image:url(http://127.0.0.1:4173/probe-css)">残る文章</p><style>@import "http://127.0.0.1:4173/probe-import";</style>')
 epub('traversal.epub', 'E2E Reject Traversal', '<p>禁止</p>', {'../escape.txt': 'not allowed'})
 (root / 'truncated.epub').write_bytes((root / 'japanese.epub').read_bytes()[:100])
