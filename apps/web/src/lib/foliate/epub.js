@@ -1090,6 +1090,7 @@ ${doc.querySelector('parsererror').innerText}`)
             }
             return {
                 id: item.href,
+                spineIndex: index,
                 load: () => this.#loader.loadItem(item),
                 unload: () => this.#loader.unloadItem(item),
                 createDocument: () => this.loadDocument(item),
