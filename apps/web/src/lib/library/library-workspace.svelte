@@ -26,7 +26,7 @@
   import { StorageKey } from '$lib/data/storage/storage-types';
   import type { SortOption } from '$lib/data/sort-types';
   import type { BookCardProps } from '$lib/components/book-card/book-card-props';
-  import { account, currentUser, requestSeriesWriteAccess } from '$lib/manabi/client';
+  import { account, currentUser, localProfile, requestSeriesWriteAccess } from '$lib/manabi/client';
   import {
     allLinkedBooks,
     linkedBooks,
@@ -221,7 +221,7 @@
     });
   }
   $: sort = $booklistSortOptions$[StorageKey.BROWSER];
-  $: viewerId = $account.session?.user?.id ?? null;
+  $: viewerId = $account.session?.user?.id ?? $localProfile?.id ?? null;
   $: accountEntries = visibleLibraryEntries(bookCards, $allLinkedBooks, viewerId);
   $: tree = buildShelf(
     accountEntries.cards,

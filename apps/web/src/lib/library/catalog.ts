@@ -5,7 +5,7 @@
  */
 
 import { webdavConnections, webdavSource } from './webdav/connection';
-import { currentUser, request } from '$lib/manabi/client';
+import { currentUser, localProfileUser, request } from '$lib/manabi/client';
 import { integrationDB, metadata, setMetadata } from '$lib/manabi/persistence';
 import {
   CloudLibrary,
@@ -50,16 +50,17 @@ export async function sourceDescriptors(): Promise<SourceDescriptor[]> {
     provider: 'webdav'
   }));
   local.push(...webdav);
-  const owner = currentUser()?.id;
+  const owner = currentUser()?.id ?? localProfileUser()?.id;
   if (!owner) return local;
   const cloudKey = `library-sources:${owner}`;
   let cloud = (await metadata<SourceDescriptor[]>(cloudKey)) ?? [];
   try {
+    if (currentUser()?.id !== owner) return [...local, ...cloud];
     const result = await request<{ items: CloudConnection[] }>('connections/', { userId: owner });
     cloud = result.items.flatMap((c) =>
       c.roots.map((root) => ({ id: c.id, owner, root, name: root, provider: c.provider }))
     );
-    if (currentUser()?.id !== owner) return local;
+    if (currentUser()?.id !== owner) return [...local, ...cloud];
     await setMetadata(cloudKey, cloud);
   } catch {
     /* Keep an offline catalog; the explicit Refresh action surfaces access errors. */

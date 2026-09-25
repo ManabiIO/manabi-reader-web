@@ -60,7 +60,7 @@
   import { visibleLibraryEntries } from '$lib/library/account-visibility';
   import EditorsPicks from '$lib/library/editors-picks.svelte';
   import { downloadEditorsPick, type EditorsPick } from '$lib/library/editors-picks';
-  import { account } from '$lib/manabi/client';
+  import { account, localProfile } from '$lib/manabi/client';
   import { allLinkedBooks } from '$lib/manabi/books';
   import { sha256 } from '$lib/manabi/sources';
   import type { LibraryMenuModel } from '$lib/library/library-menu';
@@ -136,7 +136,7 @@
   $: activeLibraryCards = visibleLibraryEntries(
     $bookCards$ ?? [],
     $allLinkedBooks,
-    $account.session?.user?.id ?? null
+    $account.session?.user?.id ?? $localProfile?.id ?? null
   ).cards;
   $: activeLibraryCardIds = new Set(activeLibraryCards.map((card) => card.id));
   $: currentBookAvailable =
