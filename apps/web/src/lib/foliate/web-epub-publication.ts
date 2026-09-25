@@ -76,7 +76,8 @@ export async function readFoliatePublicationSnapshot(
     getSize: (name: string) => {
       const literal = literalName(name);
       return literal ? archive.entries.get(literal)?.uncompressedSize ?? 0 : 0;
-    }
+    },
+    sha1: undefined
   };
 
   const publication = new EPUB(loader);
@@ -84,7 +85,7 @@ export async function readFoliatePublicationSnapshot(
     await publication.init();
     signal?.throwIfAborted();
     return {
-      sections: publication.sections.map((section: any, spineIndex: number) => ({
+      sections: (publication.sections ?? []).map((section: any, spineIndex: number) => ({
         href: String(section.id ?? ''),
         spineIndex,
         ...(section.linear ? { linear: String(section.linear) } : {}),
@@ -94,8 +95,8 @@ export async function readFoliatePublicationSnapshot(
       toc: publication.toc ?? [],
       pageList: publication.pageList ?? [],
       landmarks: publication.landmarks ?? [],
-      metadata: publication.metadata ?? {},
-      rendition: publication.rendition ?? {},
+      metadata: (publication.metadata ?? {}) as Record<string, unknown>,
+      rendition: (publication.rendition ?? {}) as Record<string, unknown>,
       dir: publication.dir ?? undefined
     };
   } finally {
