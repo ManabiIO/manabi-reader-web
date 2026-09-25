@@ -85,9 +85,9 @@ export async function readFoliatePublicationSnapshot(
     await publication.init();
     signal?.throwIfAborted();
     return {
-      sections: (publication.sections ?? []).map((section: any, spineIndex: number) => ({
+      sections: (publication.sections ?? []).map((section: any, fallbackIndex: number) => ({
         href: String(section.id ?? ''),
-        spineIndex,
+        spineIndex: Number.isSafeInteger(section.spineIndex) ? section.spineIndex : fallbackIndex,
         ...(section.linear ? { linear: String(section.linear) } : {}),
         ...(section.cfi ? { cfi: String(section.cfi) } : {}),
         ...(section.pageSpread ? { pageSpread: String(section.pageSpread) } : {})
