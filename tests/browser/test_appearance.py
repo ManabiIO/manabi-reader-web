@@ -19,6 +19,12 @@ def png(rgb, width=80, height=60):
 class AppearanceBrowser(baseline.ReaderBrowser):
     # The inherited baseline suite also exercises actual EPUB/ruby/illustration,
     # writing modes and offline restoration under the new default theme.
+    def wait_for_optional_catalog(self, page):
+        # These tests fence account requests, not the unrelated OPDS request.
+        # Let that optional request settle before navigating or closing WebKit.
+        expect(page.get_by_role('heading', name="Editor's Picks", exact=True)).to_be_visible()
+        expect(page.get_by_text('Loading books…', exact=True)).to_have_count(0)
+
     def settings(self, *, reload=False):
         # Observe the actual optional session probe, including its completed 404
         # body, before a subsequent deliberate navigation. Do not intercept or
@@ -80,6 +86,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
             predicate=lambda r: r.url == self.origin + '/api/reader-web/session/'
         ):
             page.goto(self.origin + '/reader-web/manage')
+        self.wait_for_optional_catalog(page)
         with page.expect_request_finished(
             predicate=lambda r: r.url == self.origin + '/api/reader-web/session/'
         ):
@@ -118,6 +125,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         try:
             page.goto(self.origin + '/reader-web/manage')
             self.assertTrue(started.wait(timeout=5), 'connection request did not reach the server')
+            self.wait_for_optional_catalog(page)
             page.close()
         finally:
             gate.set()

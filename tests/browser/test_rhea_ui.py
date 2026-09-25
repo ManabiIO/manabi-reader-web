@@ -716,7 +716,7 @@ class RheaReader(previous.RefinedAppearance):
         sheet = self.page.get_by_role('dialog', name='Filter books', exact=True)
         expect(sheet).to_be_visible()
         expect(self.page.get_by_role('dialog')).to_have_count(1)
-        expect(sheet.locator('h2').filter(has_text='Filter books')).to_be_visible()
+        expect(sheet.get_by_role('heading', name='Filter books', level=2)).to_be_visible()
         close = sheet.get_by_role('button', name='Close title filter', exact=True)
         expect(close).to_have_attribute('data-modal-dismiss', '')
         expect(close).to_have_attribute('data-shape', 'circle')
@@ -765,7 +765,7 @@ class RheaReader(previous.RefinedAppearance):
         sheet = self.page.get_by_role('dialog', name='Reading tracker', exact=True)
         expect(sheet).to_be_visible()
         expect(self.page.get_by_role('dialog')).to_have_count(1)
-        expect(sheet.locator('h2').filter(has_text='Reading tracker')).to_be_visible()
+        expect(sheet.get_by_role('heading', name='Reading tracker', level=2)).to_be_visible()
         close = sheet.get_by_role('button', name='Close reading tracker', exact=True)
         expect(close).to_have_attribute('data-modal-dismiss', '')
         expect(close).to_have_attribute('data-shape', 'circle')
@@ -887,8 +887,9 @@ class RheaReader(previous.RefinedAppearance):
         self.page.goto(self.origin + '/reader-web/statistics')
         expect(self.page.get_by_role('button', name='Statistics options', exact=True)).to_be_visible()
         self.page.evaluate('''() => new Promise((resolve, reject) => {
+          const deadline = setTimeout(() => reject(new Error('Statistics seed transaction stalled')), 15000);
           const open = indexedDB.open('books');
-          open.onerror = () => reject(open.error);
+          open.onerror = () => { clearTimeout(deadline); reject(open.error); };
           open.onsuccess = () => {
             const db = open.result;
             const tx = db.transaction(['statistic', 'readerStatistic', 'readerStatisticMigration'], 'readwrite');
@@ -900,8 +901,9 @@ class RheaReader(previous.RefinedAppearance):
             tx.objectStore('readerStatistic').put({...common, dateKey: '2026-09-21',
               bookKey: 'content:' + 'a'.repeat(64)});
             tx.objectStore('readerStatisticMigration').put({title, state: 'ambiguous'});
-            tx.oncomplete = () => { db.close(); resolve(); };
-            tx.onerror = () => reject(tx.error);
+            tx.oncomplete = () => { clearTimeout(deadline); db.close(); resolve(); };
+            tx.onerror = () => { clearTimeout(deadline); db.close(); reject(tx.error); };
+            tx.onabort = () => { clearTimeout(deadline); db.close(); reject(tx.error); };
           };
         })''')
         self.page.reload()

@@ -123,6 +123,7 @@
   } from '$lib/reader-annotations';
   import type { AnnotationImportConflict } from '$lib/reader-annotations';
   import { account, currentUser } from '$lib/manabi/client';
+  import { legacyReplicationTypes } from '$lib/manabi/legacy-replication';
   import type { ReaderAnnotation } from '$lib/data/database/books-db/versions/v7/books-db-v7';
   import { ReaderNavigation } from '$lib/reader-navigation';
   import type { ReaderLocator } from '$lib/reader-location';
@@ -296,6 +297,8 @@
   let dataToReplicate: StorageDataType[] = [];
   let dataToReplicateQueue: StorageDataType[] = [];
   let externalStorageHandler: BaseStorageHandler | undefined;
+  let personalManagedBookId: number | undefined;
+  const personalReplicationTypes = [StorageDataType.PROGRESS, StorageDataType.STATISTICS];
   let externalStorageErrors = 0;
   let isReplicating = false;
   let storedExploredCharacter = 0;
@@ -354,6 +357,9 @@
           return bookData;
         }
 
+        const personalReadingAuthority = await hasPersonalReadingAuthority(bookData);
+        personalManagedBookId = personalReadingAuthority ? bookData.id : undefined;
+
         const currentContext = {
           id: bookData.id,
           title: bookData.title,
@@ -371,7 +377,7 @@
         bookData.lastBookOpen = new Date().getTime();
 
         await localStorageHandler.updateLastRead(bookData);
-        await syncDownData(externalStorageHandler, currentContext);
+        await syncDownData(externalStorageHandler, currentContext, bookData);
 
         if (!$statisticsEnabled$) {
           const wasNew = (
@@ -1163,9 +1169,22 @@
     return dataToReturn;
   }
 
+  async function hasPersonalReadingAuthority(book: BooksDbBookData): Promise<boolean> {
+    if (currentUser() && book.contentHash && /^[a-f0-9]{64}$/i.test(book.contentHash)) return true;
+    try {
+      const db = await database.db;
+      return !!(await db.get('readerBookScope', book.id));
+    } catch {
+      // If ownership cannot be checked, do not let legacy replication become a
+      // second writer for personal reading data.
+      return true;
+    }
+  }
+
   async function syncDownData(
     storageHandler: BaseStorageHandler | undefined,
-    context: ReplicationContext
+    context: ReplicationContext,
+    book: BooksDbBookData
   ) {
     if (localStorageHandler && storageHandler) {
       storageHandler.startContext(context);
@@ -1182,13 +1201,17 @@
         localStorageHandler,
         false,
         [context],
-        [
-          StorageDataType.PROGRESS,
-          StorageDataType.STATISTICS,
-          StorageDataType.READING_GOALS,
-          StorageDataType.AUDIOBOOK,
-          StorageDataType.SUBTITLE
-        ]
+        legacyReplicationTypes(
+          [
+            StorageDataType.PROGRESS,
+            StorageDataType.STATISTICS,
+            StorageDataType.READING_GOALS,
+            StorageDataType.AUDIOBOOK,
+            StorageDataType.SUBTITLE
+          ],
+          await hasPersonalReadingAuthority(book),
+          personalReplicationTypes
+        )
       );
 
       if (error) {
@@ -1593,7 +1616,36 @@
       return;
     }
 
+    const bookForReplication = $rawBookData$;
+    const handlerForReplication = externalStorageHandler;
     isReplicating = true;
+    const personalReadingAuthority = await hasPersonalReadingAuthority(bookForReplication);
+    if (
+      $rawBookData$?.id !== bookForReplication.id ||
+      externalStorageHandler !== handlerForReplication
+    ) {
+      dataToReplicate = [];
+      dataToReplicateQueue = [];
+      isReplicating = false;
+      return;
+    }
+    dataToReplicate = legacyReplicationTypes(
+      dataToReplicate,
+      personalReadingAuthority,
+      personalReplicationTypes
+    );
+    dataToReplicateQueue = legacyReplicationTypes(
+      dataToReplicateQueue,
+      personalReadingAuthority,
+      personalReplicationTypes
+    );
+    if (!dataToReplicate.length) {
+      dataToReplicate = dataToReplicateQueue;
+      dataToReplicateQueue = [];
+      isReplicating = false;
+      if (dataToReplicate.length) executeReplicate$.next();
+      return;
+    }
 
     if (!isSilent) {
       skipKeyDownListener$.next(true);
@@ -1916,6 +1968,14 @@
   }
 
   function scheduleReplication(dataType: StorageDataType) {
+    if (
+      personalReplicationTypes.includes(dataType) &&
+      ((personalManagedBookId !== undefined && personalManagedBookId === getBookIdSync()) ||
+        (!!currentUser() &&
+          !!$rawBookData$?.contentHash &&
+          /^[a-f0-9]{64}$/i.test($rawBookData$.contentHash)))
+    )
+      return;
     if (upSyncEnabled) {
       const toReplicate = isReplicating ? dataToReplicateQueue : dataToReplicate;
 
