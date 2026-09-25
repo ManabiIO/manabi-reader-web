@@ -27,7 +27,7 @@ export function readVint(bytes: Uint8Array, at = 0, id = false): Vint {
     return { length, value: unknown ? 0 : Number(value), unknown };
 }
 class Reader {
-    private cache = new Uint8Array();
+    private cache: Uint8Array = new Uint8Array();
     private cacheStart = 0;
     private count = 0;
     constructor(readonly source: ByteSource, readonly signal: AbortSignal) {}
