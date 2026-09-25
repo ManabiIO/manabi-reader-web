@@ -700,6 +700,41 @@
     void navigateToChapterTarget(target);
   });
 
+  function waitForSectionRender(sectionIndex: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (ready: boolean) => {
+        if (settled) return;
+        settled = true;
+        renderSubscription.unsubscribe();
+        destroySubscription.unsubscribe();
+        resolve(ready);
+      };
+      const renderSubscription = sectionRenderComplete$
+        .pipe(
+          filter((index) => index === sectionIndex),
+          take(1)
+        )
+        .subscribe(() => finish(true));
+      const destroySubscription = destroy$.pipe(take(1)).subscribe(() => finish(false));
+    });
+  }
+
+  function waitForSectionReady(): Promise<boolean> {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (ready: boolean) => {
+        if (settled) return;
+        settled = true;
+        readySubscription.unsubscribe();
+        destroySubscription.unsubscribe();
+        resolve(ready);
+      };
+      const readySubscription = sectionReady$.pipe(take(1)).subscribe(() => finish(true));
+      const destroySubscription = destroy$.pipe(take(1)).subscribe(() => finish(false));
+    });
+  }
+
   async function navigateToChapterTarget(target: string | { spineIndex: number; fragment?: string }) {
     const generation = ++chapterNavigationGeneration;
     const nextSectionIndex =
@@ -713,17 +748,10 @@
     if (nextSectionIndex < 0 || nextSectionIndex >= sections.length || disposed) return;
 
     if (sectionIndex$.getValue() !== nextSectionIndex) {
-      const ready = new Promise<void>((resolve) => {
-        sectionRenderComplete$
-          .pipe(
-            filter((index) => index === nextSectionIndex),
-            take(1)
-          )
-          .subscribe(() => resolve());
-      });
+      const ready = waitForSectionRender(nextSectionIndex);
       sectionIndex$.next(nextSectionIndex);
       concretePageManager?.scrollTo(0, true);
-      await ready;
+      if (!(await ready)) return;
       if (
         disposed ||
         generation !== chapterNavigationGeneration ||
@@ -748,15 +776,13 @@
     const targetIndex = locator.resource.spineIndex;
     if (targetIndex < 0 || targetIndex >= sections.length || disposed) return false;
     if (sectionIndex$.getValue() !== targetIndex) {
-      const ready = new Promise<void>((resolve) => {
-        sectionReady$.pipe(take(1)).subscribe(() => resolve());
-      });
+      const ready = waitForSectionReady();
       sectionIndex$.next(targetIndex);
       // The previous resource's virtual page position survives a direct spine
       // switch. Reset it before measuring the newly mounted resource, or a
       // return can calculate its page from the search result's scroll offset.
       concretePageManager?.scrollTo(0, false);
-      await ready;
+      if (!(await ready)) return false;
       // Section readiness is published before Svelte applies its display and
       // bookmark-layout updates. Let those settle before accepting the jump.
       await tick();
