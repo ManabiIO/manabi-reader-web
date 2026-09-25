@@ -1003,15 +1003,32 @@ export async function syncPersonalState() {
         conflicts: get(personalSyncStatus).conflicts
       });
       const books = await localBooks(accountId);
-      await bootstrap(accountId, books); // Sign-in never uploads until every remote page was applied.
-      await hydrateReading(accountId, books);
-      await stageReading(accountId, books);
-      await stageAnnotations(accountId);
-      await flushReading(accountId, books);
-      await flushAnnotations(accountId, books);
-      await stageReading(accountId, books);
-      await stageAnnotations(accountId);
-      await publish(accountId);
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          await bootstrap(accountId, books); // Never upload before every remote page is applied.
+          await hydrateReading(accountId, books);
+          await stageReading(accountId, books);
+          await stageAnnotations(accountId);
+          await flushReading(accountId, books);
+          await flushAnnotations(accountId, books);
+          await stageReading(accountId, books);
+          await stageAnnotations(accountId);
+          await publish(accountId);
+          return;
+        } catch (error) {
+          // A compaction can race a mutation after bootstrap. Refresh the
+          // baseline and restage immutable requests under the new epoch once.
+          if (
+            attempt === 0 &&
+            error instanceof IntegrationError &&
+            error.code === 'resync_required'
+          ) {
+            await recoverSnapshot(accountId, books);
+            continue;
+          }
+          throw error;
+        }
+      }
     } catch (error) {
       if (currentUser()?.id !== accountId) return;
       await publish(
@@ -1020,7 +1037,7 @@ export async function syncPersonalState() {
         error instanceof IntegrationError && error.code === 'invalid_cursor'
           ? 'Account reading history changed unexpectedly. Local reading data is safe; contact support before syncing again.'
           : error instanceof IntegrationError && error.code === 'storage_full'
-            ? 'Account personal-data storage is full. Local edits are saved; delete synced data to free space before retrying.'
+            ? 'Account personal-data storage is full. Local edits are saved; contact support before retrying.'
             : error instanceof Error
               ? error.message
               : 'Sync unavailable; local changes are saved.'
