@@ -65,7 +65,7 @@ export function getOfflineStatus(container, scope, { signal, timeoutMs = 3000 } 
     const finish = (state) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      globalThis.clearTimeout(timer);
       signal?.removeEventListener('abort', abort);
       channel?.port1.close();
       channel?.port2.close();
@@ -73,7 +73,7 @@ export function getOfflineStatus(container, scope, { signal, timeoutMs = 3000 } 
     };
     const abort = () => finish('unknown');
     // Bound discovery as well as the MessageChannel reply.
-    const timer = setTimeout(
+    const timer = globalThis.setTimeout(
       () => finish('unknown'),
       Number.isFinite(timeoutMs) ? Math.max(1, Math.min(10000, timeoutMs)) : 3000
     );

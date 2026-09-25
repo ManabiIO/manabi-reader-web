@@ -64,11 +64,12 @@ export function registerReaderServiceWorker(worker, config) {
     // not be seeded from a fresh but older HTTP-cache response. Redirected login
     // or error pages are not a valid offline shell.
     const requests = [...shellAssets].map(
-      (url) => new Request(url, {
-        cache: immutableAssets.has(url) ? 'default' : 'reload',
-        redirect: 'error',
-        credentials: 'same-origin'
-      })
+      (url) =>
+        new Request(url, {
+          cache: immutableAssets.has(url) ? 'default' : 'reload',
+          redirect: 'error',
+          credentials: 'same-origin'
+        })
     );
     event.waitUntil(storage.open(shellName).then((cache) => cache.addAll(requests)));
   });
@@ -89,17 +90,22 @@ export function registerReaderServiceWorker(worker, config) {
       inspection = undefined;
     });
     event.waitUntil(
-      inspection.then((status) => {
-        try {
-          event.ports[0].postMessage({
-            type: OFFLINE_STATUS_REQUEST, scope: scope.href, version: config.version, ...status
-          });
-        } finally {
-          event.ports[0].close();
-        }
-      }).catch(() => {
-        // The requesting page may already have closed or timed out.
-      })
+      inspection
+        .then((status) => {
+          try {
+            event.ports[0].postMessage({
+              type: OFFLINE_STATUS_REQUEST,
+              scope: scope.href,
+              version: config.version,
+              ...status
+            });
+          } finally {
+            event.ports[0].close();
+          }
+        })
+        .catch(() => {
+          // The requesting page may already have closed or timed out.
+        })
     );
   });
 

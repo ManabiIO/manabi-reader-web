@@ -430,7 +430,6 @@ test('same-path static fonts are versioned so an upgrade cannot reuse old bytes'
   assert.equal(await body(await h.request('/fonts/default.woff2')), 'new static font');
 });
 
-
 test('mutable shell paths bypass stale HTTP cache; immutable builds remain reusable', async () => {
   const h = makeHarness({ files: ['/appearance-init.js'] });
   await h.event('install');
@@ -446,11 +445,12 @@ test('status inspects this shell and detects missing entries without repairing t
   const h = makeHarness({ scope: url('/reader/') });
   const replies = [];
   let closed = 0;
-  const query = () => h.event('message', {
-    data: { type: 'manabi-reader:offline-status:v1' },
-    source: { url: url('/reader/settings') },
-    ports: [{ postMessage: (value) => replies.push(value), close: () => closed++ }]
-  });
+  const query = () =>
+    h.event('message', {
+      data: { type: 'manabi-reader:offline-status:v1' },
+      source: { url: url('/reader/settings') },
+      ports: [{ postMessage: (value) => replies.push(value), close: () => closed++ }]
+    });
   await query();
   assert.equal(replies.at(-1).state, 'incomplete');
   assert.equal(h.caches.has(h.shell), false);
@@ -473,10 +473,19 @@ test('status rejects unrelated sources, protocol names and missing message ports
   let replies = 0;
   const data = { type: 'manabi-reader:offline-status:v1' };
   const ports = [{ postMessage: () => replies++, close() {} }];
-  for (const source of [null, {}, { url: url('/reader-other/') }, { url: 'https://other/reader/' }]) {
+  for (const source of [
+    null,
+    {},
+    { url: url('/reader-other/') },
+    { url: 'https://other/reader/' }
+  ]) {
     await h.event('message', { data, source, ports });
   }
-  await h.event('message', { data: { type: 'SKIP_WAITING' }, source: { url: url('/reader/') }, ports });
+  await h.event('message', {
+    data: { type: 'SKIP_WAITING' },
+    source: { url: url('/reader/') },
+    ports
+  });
   await h.event('message', { data, source: { url: url('/reader/') }, ports: [] });
   assert.equal(replies, 0);
   assert.equal(h.caches.size, 0);
@@ -488,8 +497,16 @@ test('status cannot report readiness when the cache API is denied', async () => 
   h.setFailOpen(true);
   let reply;
   await h.event('message', {
-    data: { type: 'manabi-reader:offline-status:v1' }, source: { url: url('/') },
-    ports: [{ postMessage: (value) => { reply = value; }, close() {} }]
+    data: { type: 'manabi-reader:offline-status:v1' },
+    source: { url: url('/') },
+    ports: [
+      {
+        postMessage: (value) => {
+          reply = value;
+        },
+        close() {}
+      }
+    ]
   });
   assert.equal(reply.state, 'unavailable');
 });

@@ -44,8 +44,12 @@ export function createStorageAccess(readStorage) {
       const value = await manager?.estimate?.();
       if (
         value &&
-        typeof value.usage === 'number' && Number.isFinite(value.usage) && value.usage >= 0 &&
-        typeof value.quota === 'number' && Number.isFinite(value.quota) && value.quota > 0
+        typeof value.usage === 'number' &&
+        Number.isFinite(value.usage) &&
+        value.usage >= 0 &&
+        typeof value.quota === 'number' &&
+        Number.isFinite(value.quota) &&
+        value.quota > 0
       ) {
         return { usage: value.usage, quota: value.quota };
       }
