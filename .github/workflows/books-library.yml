@@ -9,12 +9,7 @@ on:
       - '.github/workflows/books-library.yml'
   push:
     branches: [main]
-    paths:
-      - 'apps/web/**'
-      - 'tests/browser/**'
-      - 'tests/unit/**'
-      - 'pnpm-lock.yaml'
-      - '.github/workflows/books-library.yml'
+    # Every exact main SHA needs a release qualification, even build-config-only changes.
 permissions:
   contents: read
 concurrency:
