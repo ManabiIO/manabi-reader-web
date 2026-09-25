@@ -43,8 +43,13 @@
     type ReaderLocator
   } from '$lib/reader-location';
 
-  const dispatch = createEventDispatcher<{ contentChange: HTMLElement; userNavigation: void }>();
+  const dispatch = createEventDispatcher<{
+    contentChange: HTMLElement;
+    userNavigation: void;
+    selectionChange: Range | undefined;
+  }>();
   let currentContentEl: HTMLElement | undefined;
+  let selectionDocument: Document | undefined;
   let paginatedReader: BookReaderPaginated | undefined;
   let foliatePaginatedReader: BookReaderFoliatePaginated | undefined;
 
@@ -52,6 +57,26 @@
     browser && localStorage.getItem('manabi-dev-foliate-epub') === 'true';
   $: useFoliatePaginator =
     foliatePreviewEnabled && sourceFormat === 'epub' && !!publicationManifest;
+
+  function handleReaderSelectionChange() {
+    const selection = selectionDocument?.defaultView?.getSelection();
+    const range =
+      selection?.rangeCount && selection.toString().trim()
+        ? selection.getRangeAt(0).cloneRange()
+        : undefined;
+    dispatch('selectionChange', range);
+  }
+
+  function handleReaderContentChange(content: HTMLElement) {
+    if (selectionDocument !== content.ownerDocument) {
+      selectionDocument?.removeEventListener('selectionchange', handleReaderSelectionChange);
+      selectionDocument = content.ownerDocument;
+      selectionDocument.addEventListener('selectionchange', handleReaderSelectionChange);
+    }
+    currentContentEl = content;
+    contentEl$.next(content);
+    dispatch('contentChange', content);
+  }
 
   function activeContentElement(): HTMLElement | undefined {
     return viewMode === ViewMode.Paginated
@@ -346,6 +371,8 @@
   }
 
   onDestroy(() => {
+    selectionDocument?.removeEventListener('selectionchange', handleReaderSelectionChange);
+    selectionDocument = undefined;
     mutationObserver.disconnect();
 
     releaseWakeLock();
@@ -525,11 +552,7 @@
       bind:customReadingPointTop
       bind:customReadingPointLeft
       bind:customReadingPointScrollOffset
-      on:contentChange={(ev) => {
-        currentContentEl = ev.detail;
-        contentEl$.next(ev.detail);
-        dispatch('contentChange', ev.detail);
-      }}
+      on:contentChange={(ev) => handleReaderContentChange(ev.detail)}
       on:bookmark
       on:trackerPause
       on:userNavigation={() => dispatch('userNavigation')}
@@ -573,11 +596,7 @@
       bind:pageManager
       bind:customReadingPointRange
       bind:showCustomReadingPoint
-      on:contentChange={(ev) => {
-        currentContentEl = ev.detail;
-        contentEl$.next(ev.detail);
-        dispatch('contentChange', ev.detail);
-      }}
+      on:contentChange={(ev) => handleReaderContentChange(ev.detail)}
       on:bookmark
       on:trackerPause
       on:userNavigation={() => dispatch('userNavigation')}
@@ -623,11 +642,7 @@
       bind:pageManager
       bind:customReadingPointRange
       bind:showCustomReadingPoint
-      on:contentChange={(ev) => {
-        currentContentEl = ev.detail;
-        contentEl$.next(ev.detail);
-        dispatch('contentChange', ev.detail);
-      }}
+      on:contentChange={(ev) => handleReaderContentChange(ev.detail)}
       on:bookmark
       on:trackerPause
       on:userNavigation={() => dispatch('userNavigation')}
