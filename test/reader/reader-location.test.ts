@@ -10,7 +10,9 @@ import test from 'node:test';
 import {
   codePointLength,
   projectResource,
-  type PublicationResource
+  resolveLocator,
+  type PublicationResource,
+  type ReaderLocator
 } from '../../apps/web/src/lib/reader-location';
 
 type FakeNode = {
@@ -77,4 +79,49 @@ test('source projection does not depend on the parent realm Element constructor'
 
 test('source coordinates count supplementary characters as Unicode code points', () => {
   assert.equal(codePointLength('𠀀字'), 2);
+});
+
+
+test('collapsed reader locations recover from unique prefix and suffix context', async () => {
+  const projected = {
+    resource,
+    element: element('div', []) as unknown as Element,
+    text: '甲乙丙丁',
+    runs: []
+  };
+  const locator: ReaderLocator = {
+    version: 1,
+    bookKey: 'book',
+    resource,
+    projectionVersion: 2,
+    resourceDigest: 'stale',
+    start: 0,
+    end: 0,
+    quote: '',
+    prefix: '甲乙',
+    suffix: '丙丁'
+  };
+  assert.deepEqual(await resolveLocator(locator, projected, 'book'), { start: 2, end: 2 });
+});
+
+test('collapsed reader locations refuse ambiguous context after reimport', async () => {
+  const projected = {
+    resource,
+    element: element('div', []) as unknown as Element,
+    text: '甲乙丙甲乙丙',
+    runs: []
+  };
+  const locator: ReaderLocator = {
+    version: 1,
+    bookKey: 'book',
+    resource,
+    projectionVersion: 2,
+    resourceDigest: 'stale',
+    start: 0,
+    end: 0,
+    quote: '',
+    prefix: '甲',
+    suffix: '乙'
+  };
+  assert.equal(await resolveLocator(locator, projected, 'book'), undefined);
 });
