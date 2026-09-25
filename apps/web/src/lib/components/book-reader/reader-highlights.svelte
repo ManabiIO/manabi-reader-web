@@ -106,7 +106,7 @@
   function paint() {
     const next: Box[] = [];
     for (const item of ranges) {
-      const frameElement = item.range.startContainer.ownerDocument.defaultView?.frameElement;
+      const frameElement = item.range.startContainer.ownerDocument?.defaultView?.frameElement;
       const frameRect = frameElement?.getBoundingClientRect();
       const offsetLeft = frameRect?.left ?? 0;
       const offsetTop = frameRect?.top ?? 0;
