@@ -216,7 +216,7 @@
     flex-wrap: wrap;
     justify-content: flex-end;
     gap: 8px;
-    margin-bottom: calc(-1 * max(20px, env(safe-area-inset-bottom)));
+    margin-bottom: -20px;
     padding-top: 12px;
     padding-bottom: max(20px, env(safe-area-inset-bottom));
     border-top: 1px solid var(--border);
