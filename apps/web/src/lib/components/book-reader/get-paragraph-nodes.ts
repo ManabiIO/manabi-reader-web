@@ -15,9 +15,7 @@ export function getParagraphNodes(node: Node) {
       return false;
     }
     const element = n.nodeType === 1 ? (n as Element) : undefined;
-    const isHidden =
-      !!element &&
-      (element.hasAttribute('aria-hidden') || element.hasAttribute('hidden'));
+    const isHidden = !!element && (element.hasAttribute('aria-hidden') || element.hasAttribute('hidden'));
     if (isHidden) {
       return false;
     }
