@@ -23,38 +23,79 @@ jobs:
           node-version: 24.21.0
       - run: pnpm install --frozen-lockfile
       - run: pnpm --dir apps/web exec svelte-kit sync
-      - name: Prepare scoped source candidate and diagnostics
+      - name: Prepare and check the scoped source candidate
         run: |
           mkdir -p .cache/media-source-review
           node <<'JS'
-          const fs = require('node:fs');
-          const cp = require('node:child_process');
-          const crypto = require('node:crypto');
+          const fs = require('node:fs'), cp = require('node:child_process'), crypto = require('node:crypto');
+          const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
           (async () => {
             const { ESLint } = require('eslint');
             const baseline = 'fc97b74c4a55ec0cfedbd7ba733f08e2a167e017';
-            const paths = cp.execFileSync('git', ['diff', '--name-only', '--diff-filter=ACM', baseline, 'HEAD'], {encoding:'utf8'}).trim().split('\n').filter(p => /\.(?:[cm]?js|ts|svelte)$/.test(p));
-            if (!paths.length || paths.length > 150 || paths.some(p => p.startsWith('/') || p.split('/').includes('..'))) throw new Error('Invalid source scope');
-            const before = Object.fromEntries(paths.map(p => [p, crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex')]));
-            const eslint = new ESLint({fix:true});
-            const results = await eslint.lintFiles(paths);
-            await ESLint.outputFixes(results);
-            const remaining = await new ESLint({fix:false}).lintFiles(paths);
-            const diagnostics = remaining.flatMap(r => r.messages.map(m => ({path:r.filePath.replace(process.cwd()+'/', ''), ...m})));
-            fs.writeFileSync('.cache/media-source-review/diagnostics.json', JSON.stringify(diagnostics,null,2));
-            const changed = cp.execFileSync('git',['diff','--name-only'],{encoding:'utf8'}).trim().split('\n').filter(Boolean);
-            if (changed.some(p => !paths.includes(p))) throw new Error('Unscoped modification');
-            const files = changed.map(path => {
-              const bytes=fs.readFileSync(path);
-              return {path,before:before[path],sha256:crypto.createHash('sha256').update(bytes).digest('hex'),gitBlob:crypto.createHash('sha1').update(Buffer.from(`blob ${bytes.length}\0`)).update(bytes).digest('hex'),content:bytes.toString('utf8')};
-            });
-            const candidate = {base:cp.execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),files};
-            fs.writeFileSync('.cache/media-source-review/candidate.json',JSON.stringify(candidate));
+            const paths = cp.execFileSync('git',['diff','--name-only','--diff-filter=ACM',baseline,'HEAD'],{encoding:'utf8'}).trim().split('\n').filter(p=>/\.(?:[cm]?js|ts|svelte|css|py)$/.test(p));
+            paths.push('eslint.config.js');
+            if (!paths.length || paths.length>160 || paths.some(p=>p.startsWith('/')||p.split('/').includes('..'))) throw Error('Invalid scope');
+            const before=Object.fromEntries(paths.map(p=>[p,sha(fs.readFileSync(p))]));
+            function replace(path,from,to) {
+              const text=fs.readFileSync(path,'utf8');
+              if(text.split(from).length!==2)throw Error(`Ambiguous edit in ${path}`);
+              fs.writeFileSync(path,text.replace(from,to));
+            }
+            replace('eslint.config.js', "        '**/test-results/**',", "        '**/test-results/**',\n        '**/.cache/**',");
+            const nodeGlobals=['process','Buffer','console','setTimeout','clearTimeout','setInterval','clearInterval','setImmediate','clearImmediate','queueMicrotask','TextEncoder','TextDecoder','structuredClone','AbortController','AbortSignal','DOMException','Blob','File','Response','Request','Headers','fetch','performance','URL','URLSearchParams','crypto','MessageChannel'];
+            const nodeConfig={files:['tests/media/**/*.mjs','tools/media/**/*.mjs'],languageOptions:{ecmaVersion:'latest',parserOptions:{project:false},globals:Object.fromEntries(nodeGlobals.map(name=>[name,'readonly']))}};
+            replace('eslint.config.js', "    {\n      ...eslintPluginSvelte.configs['flat/recommended'],", '    '+JSON.stringify(nodeConfig)+",\n    {\n      ...eslintPluginSvelte.configs['flat/recommended'],");
+            replace('apps/web/src/lib/media/media.css','background: var(--accent, #e6efee);','background: var(--accent, var(--media-muted));');
+            replace('apps/web/src/lib/media/media.css','background: var(--accent, #e0f0ed);','background: var(--accent, var(--media-muted));');
+            replace('tests/media/dom-browser.py','body{margin:0;background:#f5f8f8}','body{margin:0;background:var(--background,#f5f8f8)}');
+            const darkBefore="            screenshot(1280,900,'player-dark.png')\n            page.evaluate(\"document.documentElement.style.cssText=''\")";
+            const darkAfter=`            screenshot(1280,900,'player-dark.png')
+                      assert page.evaluate('''() => {
+                          const row=document.querySelector('.transcript-cue.active');
+                          const color=getComputedStyle(row).color, background=getComputedStyle(row).backgroundColor;
+                          const luminance=text=>{
+                              const values=text.match(/[\\d.]+/g).slice(0,3).map(Number).map(v=>{
+                                  v/=255; return v<=.04045?v/12.92:Math.pow((v+.055)/1.055,2.4);
+                              });
+                              return values[0]*.2126+values[1]*.7152+values[2]*.0722;
+                          };
+                          const a=luminance(color),b=luminance(background);
+                          return (Math.max(a,b)+.05)/(Math.min(a,b)+.05)>=4.5;
+                      }''')
+                      page.evaluate("document.documentElement.style.cssText=''")`.replace(/\n          /g,'\n');
+            replace('tests/media/dom-browser.py',darkBefore,darkAfter);
+            const lintPaths=paths.filter(p=>/\.(?:[cm]?js|ts|svelte)$/.test(p)&&p!=='eslint.config.js');
+            let eslint=new ESLint({fix:true});
+            await ESLint.outputFixes(await eslint.lintFiles(lintPaths));
+            let report=await new ESLint({fix:false}).lintFiles(lintPaths);
+            // Control-regex checks are deliberately used for untrusted text rejection.
+            // Explain just these expressions; retain all validation and other lint rules.
+            for(const file of report){
+              const lines=fs.readFileSync(file.filePath,'utf8').split('\n');
+              const edits=[...new Set(file.messages.filter(m=>m.ruleId==='no-control-regex').map(m=>m.line))].sort((a,b)=>b-a);
+              for(const line of edits){const indent=lines[line-1].match(/^\s*/)[0];lines.splice(line-1,0,indent+'// eslint-disable-next-line no-control-regex -- Reject control characters in untrusted text.');}
+              if(edits.length)fs.writeFileSync(file.filePath,lines.join('\n'));
+            }
+            replace('apps/web/src/lib/media/matroska.ts',"import { LIMITS, language, validateCue, type Cue } from './contracts.js';","import { LIMITS, language, validateCue } from './contracts.js';");
+            replace('apps/web/src/lib/media/moss-client.ts','error ? no(error) : yes(value);','if (error) no(error); else yes(value);');
+            replace('apps/web/src/lib/media/workspace.ts',"} catch (e) {\n        guard();\n        this.notice('Device resume is unavailable; playback remains available.');","} catch {\n        guard();\n        this.notice('Device resume is unavailable; playback remains available.');");
+            await ESLint.outputFixes(await eslint.lintFiles(lintPaths));
+            const prettier=require('prettier');
+            const configuration=await prettier.resolveConfig('eslint.config.js');
+            fs.writeFileSync('eslint.config.js',await prettier.format(fs.readFileSync('eslint.config.js','utf8'),{...configuration,filepath:'eslint.config.js'}));
+            report=await new ESLint({fix:false}).lintFiles(lintPaths);
+            const diagnostics=report.flatMap(r=>r.messages.map(m=>({path:r.filePath.replace(process.cwd()+'/',''),...m})));
+            fs.writeFileSync('.cache/media-source-review/diagnostics.json',JSON.stringify(diagnostics,null,2));
+            const changed=cp.execFileSync('git',['diff','--name-only'],{encoding:'utf8'}).trim().split('\n').filter(Boolean);
+            if(changed.some(p=>!paths.includes(p)))throw Error('Unscoped modification');
+            const files=changed.map(path=>{const bytes=fs.readFileSync(path);return{path,before:before[path],sha256:sha(bytes),gitBlob:crypto.createHash('sha1').update(Buffer.from(`blob ${bytes.length}\0`)).update(bytes).digest('hex'),content:bytes.toString('utf8')};});
+            fs.writeFileSync('.cache/media-source-review/candidate.json',JSON.stringify({base:cp.execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),files}));
             fs.writeFileSync('.cache/media-source-review/review.diff',cp.execFileSync('git',['diff','--no-ext-diff'],{encoding:'utf8'}));
             console.log(JSON.stringify({changed:files.length,remaining:diagnostics.filter(m=>m.severity===2)},null,2));
           })().catch(error=>{console.error(error);process.exitCode=1;});
           JS
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: media-reviewed-source-candidate
           path: .cache/media-source-review/
@@ -65,3 +106,7 @@ jobs:
         run: pnpm --dir apps/web check
       - name: Build candidate application
         run: pnpm --dir apps/web build
+      - name: Run core media suite
+        run: pnpm exec node tools/media/test.mjs
+      - name: Check candidate against normal repository lint
+        run: pnpm check
