@@ -255,9 +255,12 @@ class ReaderBrowser(unittest.TestCase):
     def go_offline(self):
         self.context.set_offline(True)
 
-    def open_book(self, view='paginated', writing='vertical-rl', font=None):
+    def open_book(self, view='paginated', writing='vertical-rl', font=None, foliate=False):
         settings = {'viewMode': view, 'writingMode': writing, 'hideFurigana': 'false', 'hideSpoilerImage': 'false'}
         self.context.add_init_script('if (location.origin === ' + json.dumps(self.origin) + ') { for (const [key,value] of Object.entries(' + json.dumps(settings) + ')) localStorage.setItem(key,value); }')
+        if foliate:
+            self.context.add_init_script(
+                "try { localStorage.setItem('manabi-dev-foliate-epub', 'true') } catch {}")
         if font:
             # Seed the fixture font on the import page only. Reapplying it on every
             # document would overwrite a later explicit user choice during reload.
@@ -274,9 +277,18 @@ class ReaderBrowser(unittest.TestCase):
             {'name': 'acceptance.epub', 'mimeType': 'application/epub+zip', 'buffer': epub()})
         self.page.get_by_role('button', name='Read ' + TITLE, exact=True).click(timeout=30000)
         expect(self.page.locator('.book-content')).to_be_visible(timeout=30000)
-        self.page.wait_for_function(
-            '() => document.querySelector(".book-content ruby rt")?.textContent === "ほん"'
-        )
+        if foliate:
+            self.page.wait_for_function(
+                '''() => {
+                  const paginator = document.querySelector('foliate-paginator');
+                  const doc = paginator?.getContents?.()[0]?.doc;
+                  return doc?.querySelector('.book-content ruby rt')?.textContent === 'ほん';
+                }'''
+            )
+        else:
+            self.page.wait_for_function(
+                '() => document.querySelector(".book-content ruby rt")?.textContent === "ほん"'
+            )
 
     def wait_for_fonts(self):
         # Bounded assertion, not a sleep, screenshot bypass or synthetic face.
@@ -333,6 +345,42 @@ class ReaderBrowser(unittest.TestCase):
         self.assertEqual('Klee One', self.first_font())
         self.page.keyboard.press('ArrowLeft')
         expect(self.page.locator('.book-content')).to_be_visible()
+
+    def test_foliate_paginated_epub_preserves_reader_security_and_japanese_content(self):
+        self.open_book(font='Klee One', foliate=True)
+        child = '''() => {
+          const paginator = document.querySelector('foliate-paginator');
+          const doc = paginator?.getContents?.()[0]?.doc;
+          if (!doc) return null;
+          return {
+            ruby: doc.querySelector('ruby rt')?.textContent,
+            textCombine: getComputedStyle(doc.querySelector('#legacy-tcy')).textCombineUpright,
+            imageWidth: doc.querySelector('#safe-image')?.naturalWidth ?? 0,
+            unsafeCount: doc.querySelectorAll('script, iframe, [onerror]').length,
+            font: getComputedStyle(doc.body).fontFamily.split(',')[0].trim().replace(/^"|"$/g, '')
+          };
+        }'''
+        self.page.wait_for_function(
+            '''() => document.querySelector('foliate-paginator')?.getContents?.()[0]?.doc
+              ?.querySelector('#safe-image')?.naturalWidth > 0'''
+        )
+        state = self.page.evaluate(child)
+        self.assertEqual('ほん', state['ruby'])
+        self.assertEqual('all', state['textCombine'])
+        self.assertGreater(state['imageWidth'], 0)
+        self.assertEqual(0, state['unsafeCount'])
+        self.assertFalse(self.page.evaluate('Boolean(window.bookAttack)'))
+        self.assertEqual([], StaticHandler.probes)
+        self.assertEqual('Klee One', state['font'])
+
+        before = self.page.evaluate(
+            "document.querySelector('foliate-paginator')?.getContents?.()[0]?.index")
+        self.page.keyboard.press('ArrowLeft')
+        self.page.wait_for_timeout(150)
+        after = self.page.evaluate(
+            "document.querySelector('foliate-paginator')?.getContents?.()[0]?.index")
+        self.assertEqual(before, after)
+        expect(self.page.locator('foliate-paginator')).to_be_visible()
 
     def test_continuous_horizontal_saved_explicit_font(self):
         self.open_book('continuous', 'horizontal-tb', font='Klee One')
