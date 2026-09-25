@@ -699,15 +699,18 @@
     }
   }
 
-  nextChapter$.pipe(takeUntil(destroy$)).subscribe((chapterId) => {
-    const nextSectionIndex = sections.findIndex(
-      (section) => section.id === chapterId || section.querySelector(`[id="${chapterId}"]`)
-    );
+  nextChapter$.pipe(takeUntil(destroy$)).subscribe((target) => {
+    const nextSectionIndex =
+      typeof target === 'string'
+        ? sections.findIndex(
+            (section) =>
+              section.id === target || section.querySelector(`[id="${CSS.escape(target)}"]`)
+          )
+        : target.spineIndex;
 
-    if (nextSectionIndex > -1) {
-      sectionIndex$.next(nextSectionIndex);
-      concretePageManager?.scrollTo(0, true);
-    }
+    if (nextSectionIndex < 0 || nextSectionIndex >= sections.length) return;
+    sectionIndex$.next(nextSectionIndex);
+    concretePageManager?.scrollTo(0, true);
   });
 
   /** Reveal a source range after its virtual section has mounted and measured. */
