@@ -71,6 +71,12 @@ class CatalogLifetimeBrowser(picks.EditorsPicksBrowser):
         expect(open_book).to_be_in_viewport()
         bounds = open_book.bounding_box()
         self.assertLessEqual(bounds['x'] + bounds['width'], 320)
+        # Capture the settled scrolling toolbar, not the start of its fade.
+        self.page.wait_for_function('''() => {
+          const shell = document.querySelector('.library-nav-shell');
+          return scrollY > 8 && shell?.classList.contains('scrolled') &&
+            getComputedStyle(shell, '::before').opacity === '1';
+        }''')
         from pathlib import Path
         Path('test-results').mkdir(exist_ok=True)
         self.page.screenshot(path='test-results/' + self.engine + '-catalog-double-text.png')
