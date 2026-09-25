@@ -301,6 +301,8 @@ export interface BookHtmlPolicy {
   wholeDocument?: boolean;
   allowRelativeLinks?: boolean;
   svgOnly?: boolean;
+  /** Application-owned processed output only; never inferred from ebook markup. */
+  allowReaderAnnotations?: boolean;
   /** Only this trusted resolver may introduce an image URL. */
   resolveImage?: (source: string) => string | undefined;
   /** URLs made by this read/import lifetime; arbitrary saved blob URLs are not trusted. */
@@ -360,6 +362,11 @@ export function sanitizeBookHtml(html: string, policy: BookHtmlPolicy): string {
       }
     } else if (['fill', 'stroke'].includes(name)) {
       data.keepAttr = safeCssValue(data.attrValue);
+    } else if (name === 'sid' || name === 'pid') {
+      data.keepAttr =
+        policy.allowReaderAnnotations === true &&
+        ((tag === 'm-s' && name === 'sid') || (tag === 'm-c' && name === 'pid')) &&
+        data.attrValue.length > 0 && data.attrValue.length <= 512;
     } else if (name === 'id') {
       data.keepAttr = data.attrValue.length <= 512;
     } else if (name === 'class') {
@@ -371,8 +378,10 @@ export function sanitizeBookHtml(html: string, policy: BookHtmlPolicy): string {
     }
   });
   return purifier.sanitize(html, {
-    ALLOWED_TAGS: policy.svgOnly ? SVG_TAGS : [...HTML_TAGS, ...SVG_TAGS],
-    ALLOWED_ATTR: ATTRIBUTES,
+    ALLOWED_TAGS: policy.svgOnly
+      ? SVG_TAGS
+      : [...HTML_TAGS, ...SVG_TAGS, ...(policy.allowReaderAnnotations === true ? ['m-m', 'm-t', 'm-s', 'm-c'] : [])],
+    ALLOWED_ATTR: policy.allowReaderAnnotations === true ? [...ATTRIBUTES, 'sid', 'pid'] : ATTRIBUTES,
     ALLOW_DATA_ATTR: false,
     ALLOW_ARIA_ATTR: false,
     FORBID_TAGS: [
