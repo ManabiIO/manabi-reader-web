@@ -53,6 +53,34 @@ class CatalogLifetimeBrowser(picks.EditorsPicksBrowser):
         open_book.click()
         expect(self.page).to_have_url(re.compile('/Reader-Web/b\\?id='))
 
+    def test_cancel_operation_also_cancels_the_catalog_open_and_allows_retry(self):
+        self.library()
+        self.page.evaluate('''() => {
+          const digest = crypto.subtle.digest.bind(crypto.subtle);
+          let calls = 0;
+          crypto.subtle.digest = (...args) => {
+            // The first digest deduplicates; the second belongs to importData.
+            if (++calls !== 2) return digest(...args);
+            crypto.subtle.digest = digest;
+            return new Promise((resolve, reject) => {
+              window.__releaseImportDigest = async () => {
+                try { resolve(await digest(...args)); } catch (error) { reject(error); }
+              };
+            });
+          };
+        }''')
+        region = self.page.get_by_role('region', name="Editor's Picks books")
+        region.get_by_role('button', name='Open').first.click()
+        self.page.wait_for_function('() => typeof window.__releaseImportDigest === "function"')
+        self.page.get_by_role('button', name='Cancel Operation', exact=True).click()
+        self.page.evaluate('window.__releaseImportDigest()')
+        expect(region.get_by_role('button', name='Open').first).to_be_enabled()
+        expect(self.page.get_by_role('dialog')).to_have_count(0)
+        expect(self.page).to_have_url(re.compile('/Reader-Web/manage'))
+        expect(self.page.get_by_role('button', name='Read A Pick from Manabi')).to_have_count(0)
+        region.get_by_role('button', name='Open').first.click()
+        expect(self.page).to_have_url(re.compile('/Reader-Web/b\\?id='))
+
     def test_hard_navigation_during_catalog_load_has_no_page_error_and_can_retry(self):
         picks.PicksHandler.index_started = threading.Event()
         picks.PicksHandler.index_gate = threading.Event()

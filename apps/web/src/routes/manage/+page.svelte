@@ -948,6 +948,7 @@
       on:cancelReplication={() => {
         if (!cancelSignal.aborted) {
           cancelToken.abort();
+          pickDownload?.abort();
           replicationProgressRemaining = 'Canceling ...';
         }
       }}
