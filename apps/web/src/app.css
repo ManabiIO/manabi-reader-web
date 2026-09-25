@@ -143,3 +143,37 @@
     background: ButtonFace;
   }
 }
+
+/* Reading-size preferences should not multiply decorative empty-shelf gutters. */
+[data-slot='library-empty-state'] [data-slot='button'] {
+  padding-inline: 16px;
+}
+
+/* Compact Library chrome keeps decorative geometry independent of text size.
+   Full-page browser zoom still scales these CSS pixels. Labels grow and wrap. */
+@media (max-width: 1023px) {
+  :root .floating-library-header .library-header-inner {
+    flex-wrap: wrap;
+    padding-inline: 24px;
+  }
+  :root .floating-library-header .library-header-inner > div:first-child {
+    flex: 1 1 min-content;
+  }
+  :root .floating-library-header .library-header-inner > div:last-child {
+    margin-inline-start: auto;
+    gap: 6px;
+  }
+  :root .floating-library-header [data-slot='button'][data-size='icon'] {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+  }
+  :root .floating-library-header [data-slot='button'][data-size='icon'] svg {
+    width: 24px;
+    height: 24px;
+  }
+  :root .library-frame .library-workspace {
+    --library-gutter: 24px;
+  }
+}

@@ -402,14 +402,19 @@
   async function openEditorsPick(pick: EditorsPick) {
     if (openingPickId || replicationToProgress) return;
     openingPickId = pick.id;
-    pickDownload = new AbortController();
+    const operation = new AbortController();
+    pickDownload = operation;
+    const signal = operation.signal;
     try {
-      const file = await downloadEditorsPick(pick, pickDownload.signal);
+      const file = await downloadEditorsPick(pick, signal);
+      throwIfAborted(signal);
       const digest = await sha256(await file.arrayBuffer());
+      throwIfAborted(signal);
       const stored = (await (await database.db).getAll('data')).find(
         (book) =>
           book.contentHash?.toLowerCase() === digest && !!book.elementHtml && !book.storageSource
       );
+      throwIfAborted(signal);
       if (stored) {
         storageSource$.next(StorageKey.BROWSER);
         editorsPicksOpen = false;
@@ -418,6 +423,9 @@
       }
 
       initializeReplicationProgressData();
+      const importCancellation = cancelToken;
+      const abortImport = () => importCancellation.abort();
+      signal.addEventListener('abort', abortImport, { once: true });
       try {
         const error = await importData(
           document,
@@ -434,28 +442,33 @@
           [file],
           cancelSignal
         );
+        throwIfAborted(signal);
         if (error) throw new Error(error);
       } finally {
+        signal.removeEventListener('abort', abortImport);
         resetProgress();
       }
       const imported = (await (await database.db).getAll('data')).find(
         (book) =>
           book.contentHash?.toLowerCase() === digest && !!book.elementHtml && !book.storageSource
       );
+      throwIfAborted(signal);
       if (!imported) throw new Error('The book could not be added to this browser.');
       storageSource$.next(StorageKey.BROWSER);
       editorsPicksOpen = false;
       openBook(imported.id);
     } catch (error) {
-      if (!(error instanceof DOMException && error.name === 'AbortError'))
+      if (!signal.aborted && !(error instanceof DOMException && error.name === 'AbortError'))
         showError(
           'Could not open book',
           error instanceof Error ? error.message : String(error),
           'The catalog book could not be opened.'
         );
     } finally {
-      pickDownload = undefined;
-      openingPickId = '';
+      if (pickDownload === operation) {
+        pickDownload = undefined;
+        openingPickId = '';
+      }
     }
   }
 
@@ -817,13 +830,14 @@
 
 {#snippet emptyLibrary()}
   <section
-    class="mx-auto mt-6 max-w-4xl rounded-3xl border border-border bg-card p-5 text-left shadow-sm sm:mt-10 sm:p-8"
+    data-slot="library-empty-state"
+    class="mx-auto mt-6 min-w-0 max-w-4xl rounded-3xl border border-border bg-card p-[20px] text-left shadow-sm sm:mt-10 sm:p-8"
   >
     <h2 class="text-xl font-semibold">Make room for a good book</h2>
     <p class="mt-2 text-sm text-muted-foreground">
       Add your own books, connect a library, or open one of our picks.
     </p>
-    <div class="mt-7 grid gap-7 sm:grid-cols-2">
+    <div class="mt-7 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-7 sm:grid-cols-2">
       <section aria-labelledby="add-books-heading">
         <h3 id="add-books-heading" class="text-base font-semibold">Add books</h3>
         <div class="mt-3 grid gap-2">

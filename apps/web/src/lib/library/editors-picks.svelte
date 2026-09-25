@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
+  import { beforeNavigate } from '$app/navigation';
   import { Button } from '$lib/components/ui/button';
   import { BookOpenIcon as BookOpen } from 'phosphor-svelte';
   import { loadEditorsPicks, type EditorsPick } from './editors-picks';
@@ -12,20 +13,30 @@
   let error = '';
   let mounted = false;
   let loadVersion = 0;
+  let request: AbortController | undefined;
+
+  function cancelLoad() {
+    request?.abort();
+  }
+  beforeNavigate(cancelLoad);
   const dispatch = createEventDispatcher<{ open: EditorsPick }>();
 
   async function load() {
     const version = ++loadVersion;
+    request?.abort();
+    const current = new AbortController();
+    request = current;
     loading = true;
     error = '';
     try {
-      const loaded = await loadEditorsPicks(window.location.origin);
-      if (mounted && version === loadVersion) picks = loaded;
+      const loaded = await loadEditorsPicks(window.location.origin, current.signal);
+      if (mounted && version === loadVersion && !current.signal.aborted) picks = loaded;
     } catch (cause) {
       if (mounted && version === loadVersion) {
         error = cause instanceof Error ? cause.message : 'The catalog could not be loaded.';
       }
     } finally {
+      if (request === current) request = undefined;
       if (mounted && version === loadVersion) loading = false;
     }
   }
@@ -34,17 +45,19 @@
     mounted = true;
     void load();
     return () => {
-      // WebKit reports aborting this request during navigation as a page error.
       mounted = false;
       loadVersion += 1;
+      cancelLoad();
     };
   });
 </script>
 
+<svelte:window onpagehide={cancelLoad} />
+
 <section
   aria-labelledby={headingId}
   class={embedded
-    ? 'rounded-2xl border border-border/70 bg-muted/30 p-4 text-left sm:p-5'
+    ? 'rounded-2xl border border-border/70 bg-muted/30 p-[16px] text-left sm:p-5'
     : 'text-left'}
 >
   <div class="mb-3">

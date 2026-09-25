@@ -1,0 +1,77 @@
+"""Continuation regressions: text reflow and late catalog operations."""
+import re
+import threading
+import unittest
+from playwright.sync_api import expect
+import test_deep_control_refinement as deep
+import test_editors_picks as picks
+
+
+class ResumeControlsBrowser(deep.DeepControlRefinementBrowser):
+    def test_empty_library_preserves_readable_controls_at_double_text_size(self):
+        self.page.set_viewport_size({'width': 320, 'height': 640})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        self.frames()
+        self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth - innerWidth'), 1)
+        toolbar = self.page.get_by_role('banner', name='Library toolbar')
+        for label in ('Search library', 'Collections', 'Library actions'):
+            control = toolbar.get_by_role('button', name=label, exact=True)
+            box = control.bounding_box()
+            self.assertAlmostEqual(box['width'], 44, delta=0.5)
+            self.assertGreaterEqual(box['x'], 0)
+            self.assertLessEqual(box['x'] + box['width'], 320)
+        empty = self.page.locator('[data-slot="library-empty-state"]')
+        primary = empty.get_by_role('button', name='Import File(s)', exact=True)
+        self.assertGreaterEqual(primary.bounding_box()['width'], 225)
+        self.assertGreaterEqual(primary.evaluate('e => parseFloat(getComputedStyle(e).fontSize)'), 28)
+        self.assertLessEqual(primary.bounding_box()['height'], 2 * primary.evaluate('e => parseFloat(getComputedStyle(e).lineHeight)') + 36)
+        self.capture('empty-library-double-text')
+        toolbar.get_by_role('button', name='Collections', exact=True).click()
+        self.check_modal(self.page.locator('#library-collections-sheet'))
+
+
+class CatalogLifetimeBrowser(picks.EditorsPicksBrowser):
+    def test_hard_navigation_during_catalog_load_has_no_page_error_and_can_retry(self):
+        picks.PicksHandler.index_started = threading.Event()
+        picks.PicksHandler.index_gate = threading.Event()
+        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.assertTrue(picks.PicksHandler.index_started.wait(timeout=5))
+        self.page.goto(self.origin + '/Reader-Web/settings')
+        expect(self.page.get_by_role('heading', name='Appearance', exact=True)).to_be_visible()
+        picks.PicksHandler.index_gate.set()
+        self.library()
+        expect(self.page.get_by_role('region', name="Editor's Picks books")).to_be_visible()
+
+    def test_leaving_while_book_digest_is_pending_cannot_import_or_navigate_late(self):
+        self.library()
+        self.page.evaluate('''() => {
+          const digest = crypto.subtle.digest.bind(crypto.subtle);
+          crypto.subtle.digest = (...args) => {
+            crypto.subtle.digest = digest;
+            return new Promise((resolve, reject) => {
+              window.__releaseCatalogDigest = async () => {
+                try { resolve(await digest(...args)); } catch (error) { reject(error); }
+              };
+            });
+          };
+        }''')
+        self.page.get_by_role('region', name="Editor's Picks books").get_by_role('button', name='Open').first.click()
+        self.page.wait_for_function('typeof window.__releaseCatalogDigest === "function"')
+        # A normal in-app navigation preserves the JS realm so the delayed
+        # production digest can complete after its Library component is gone.
+        self.page.get_by_role('button', name='Library actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Settings', exact=True).click()
+        expect(self.page).to_have_url(re.compile('/Reader-Web/settings'))
+        self.page.evaluate('window.__releaseCatalogDigest()')
+        self.page.evaluate('() => new Promise(r => setTimeout(r, 200))')
+        expect(self.page).to_have_url(re.compile('/Reader-Web/settings'))
+        expect(self.page.get_by_role('dialog')).to_have_count(0)
+        self.library()
+        expect(self.page.get_by_role('button', name='Read A Pick from Manabi')).to_have_count(0)
+        # Genuinely new work after the canceled attempt still imports normally.
+        self.page.get_by_role('region', name="Editor's Picks books").get_by_role('button', name='Open').first.click()
+        expect(self.page).to_have_url(re.compile('/Reader-Web/b\\?id='))
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

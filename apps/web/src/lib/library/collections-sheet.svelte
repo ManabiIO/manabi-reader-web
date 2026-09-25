@@ -90,7 +90,7 @@
       }}
     >
       <Sheet.Header class="mb-6 flex shrink-0 flex-row flex-wrap items-center justify-between gap-3 p-0">
-        <Sheet.Title class="min-w-0 font-serif text-2xl">Collections</Sheet.Title>
+        <Sheet.Title class="min-w-0 font-serif text-xl sm:text-2xl">Collections</Sheet.Title>
         <div class="ms-auto flex shrink-0 items-center gap-2">
           <Button
             bind:ref={editButton}
