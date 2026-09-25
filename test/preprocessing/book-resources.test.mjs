@@ -116,7 +116,10 @@ test('SVG is sanitized and fallback MIME is normalized before URL creation', asy
     'no.html': new globalThis.Blob(['<script/>'], { type: 'text/html' })
   });
   await lease.prepare();
-  assert.deepEqual(created.map((blob) => blob.type), ['image/png', 'image/svg+xml']);
+  assert.deepEqual(
+    created.map((blob) => blob.type),
+    ['image/png', 'image/svg+xml']
+  );
   assert.equal(await created[1].text(), '<svg></svg>');
   assert.equal(lease.resolveSourceImage('ttu:no.html'), undefined);
   lease.dispose();

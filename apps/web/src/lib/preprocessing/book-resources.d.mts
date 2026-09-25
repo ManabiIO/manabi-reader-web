@@ -14,6 +14,9 @@ export class BookResourceLease {
   resolveRenderImage(source: string): string | undefined;
   imageUrls(): ReadonlySet<string>;
   prepare(options?: { signal?: AbortSignal }): Promise<void>;
-  pictures(sourceImages: readonly string[], isPaginated: boolean): { url: string; unspoilered: boolean }[];
+  pictures(
+    sourceImages: readonly string[],
+    isPaginated: boolean
+  ): { url: string; unspoilered: boolean }[];
   dispose(reason?: unknown): void;
 }
