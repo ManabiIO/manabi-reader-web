@@ -33,7 +33,7 @@
     'reading-goals',
     'font-defaults'
   ].includes(settingId)}
-  class="settings-field rounded-2xl border border-border bg-card p-4 text-card-foreground sm:p-5"
+  class="settings-field rounded-2xl bg-card p-4 text-card-foreground ring-1 ring-border/60 sm:p-5"
   aria-labelledby={showHeading ? headingId : undefined}
 >
   <Field.Field>

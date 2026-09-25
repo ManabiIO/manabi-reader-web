@@ -4,6 +4,9 @@ import { fileURLToPath } from 'node:url';
 import { ESLint } from 'eslint';
 
 const files = [
+  'apps/web/src/lib/components/statistics/statistics-title-filter.svelte',
+  'apps/web/src/lib/components/statistics/statistics-settings.svelte',
+  'apps/web/src/lib/components/ui/input/input.svelte',
   'apps/web/src/lib/components/ui/command/command-dialog.svelte',
   'apps/web/src/lib/components/ui/input-group/input-group-button.svelte',
   'apps/web/src/lib/components/ui/close-button.svelte',
