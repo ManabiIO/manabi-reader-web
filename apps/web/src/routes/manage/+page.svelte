@@ -890,7 +890,7 @@
         <h3 id="add-books-heading" class="text-base font-semibold">Add books</h3>
         <div class="mt-3 grid gap-2">
           <Button
-            class="min-h-11 w-full"
+            class="min-h-11 w-full py-2"
             size="lg"
             onclick={() => bookManagerHeader?.openFilePicker()}>Import File(s)</Button
           >
@@ -904,15 +904,20 @@
             variant="outline"
             onclick={() => bookManagerHeader?.openBackupPicker()}>Import Backup</Button
           >
-          <Button
-            href={resolve('/import-ttu')}
-            class="min-h-11 w-full justify-start"
-            variant="link"><span>Import from Ttu Ebook Reader</span><CaretRightIcon class="size-4 rtl:rotate-180" aria-hidden="true" /></Button
+          <Button href={resolve('/import-ttu')} class="min-h-11 w-full justify-start" variant="link"
+            ><span>Import from Ttu Ebook Reader</span><CaretRightIcon
+              class="size-4 rtl:rotate-180"
+              aria-hidden="true"
+            /></Button
           >
           <Button
             href={resolve('/import-ttu?source=yatsu')}
             class="min-h-11 w-full justify-start"
-            variant="link"><span>Import from Yatsu Reader</span><CaretRightIcon class="size-4 rtl:rotate-180" aria-hidden="true" /></Button
+            variant="link"
+            ><span>Import from Yatsu Reader</span><CaretRightIcon
+              class="size-4 rtl:rotate-180"
+              aria-hidden="true"
+            /></Button
           >
         </div>
         <p class="mt-3 text-xs text-muted-foreground">You can also drop ebook files here.</p>

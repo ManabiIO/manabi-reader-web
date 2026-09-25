@@ -22,13 +22,15 @@
     busy = false,
     mounted = false,
     serial = 0,
-    signature = '';
+    signature = '',
+    restorePickerOpen = false;
   let pendingArchive: string | undefined;
   $: nextSignature = JSON.stringify([open, bookKey, $account.session?.user?.id]);
   $: if (mounted && signature !== nextSignature) {
     signature = nextSignature;
     editing = '';
     pendingArchive = undefined;
+    restorePickerOpen = false;
     records = [];
     // Schedule after this identity transition; the loader owns its request generation.
     void Promise.resolve().then(load);
@@ -185,28 +187,40 @@
         </p>
       </details>
     {/if}
-    <label class="my-2 block text-sm"
-      >Restore imported notes<input
-        class="mt-2 block max-w-full text-sm"
-        type="file"
-        accept=".json,application/json"
+    <div class="my-2">
+      <Button
+        variant="outline"
         disabled={busy}
-        onchange={(event) => {
-          const file = event.currentTarget.files?.[0];
-          const identity = signature,
-            owner = currentUser()?.id ?? null;
-          event.currentTarget.value = '';
-          if (file)
-            void action(async () => {
-              if (file.size > 16 * 1024 * 1024) throw new Error('Notebook archive is too large.');
-              const json = await file.text();
-              if (!mounted || identity !== signature || owner !== (currentUser()?.id ?? null))
-                return;
-              await restore(json);
-            });
-        }}
-      /></label
-    >
+        aria-expanded={restorePickerOpen}
+        onclick={() => (restorePickerOpen = !restorePickerOpen)}>Restore imported notes</Button
+      >
+      {#if restorePickerOpen}
+        <label class="mt-2 block text-sm"
+          >Notebook archive<input
+            class="mt-2 block max-w-full text-sm"
+            aria-label="Choose imported notes archive"
+            type="file"
+            accept=".json,application/json"
+            disabled={busy}
+            onchange={(event) => {
+              const file = event.currentTarget.files?.[0];
+              const identity = signature,
+                owner = currentUser()?.id ?? null;
+              event.currentTarget.value = '';
+              if (file)
+                void action(async () => {
+                  if (file.size > 16 * 1024 * 1024)
+                    throw new Error('Notebook archive is too large.');
+                  const json = await file.text();
+                  if (!mounted || identity !== signature || owner !== (currentUser()?.id ?? null))
+                    return;
+                  await restore(json);
+                });
+            }}
+          /></label
+        >
+      {/if}
+    </div>
     {#if pendingArchive}<div class="my-2 flex flex-wrap gap-2">
         <Button
           variant="outline"
