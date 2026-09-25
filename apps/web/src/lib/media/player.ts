@@ -18,7 +18,8 @@ import { dialogueText } from './dialogue.js';
 import { element, button, iconButton, TranscriptMenu } from './player-controls.js';
 import { trackLanguage, languageName, translationCandidate } from './track-selection.js';
 import { studySpans, seekSpan, LinePause, type StudySpan } from './study.js';
-import { CueTimeline, chooseLayout } from './captions.js';
+import { type CueTimeline, chooseLayout } from './captions.js';
+import { TrackCatalog } from './track-catalog.js';
 import { type ByteSource } from './sources.js';
 import { MediaStore } from './store.js';
 import { DeviceCheckpoints, type DeviceKey, type DevicePlayback } from './device-checkpoint.js';
@@ -88,15 +89,21 @@ export class VideoPlayer {
     this.setTranscriptOpen(true)
   );
   private exportButton = button('Download subtitles', () => {
-    const track = this.exportTrack();
-    if (track) this.options.onExport(track);
-    this.menu.close();
+    if (this.closed) return;
+    try {
+      const track = this.exportTrack();
+      if (track) this.options.onExport(track);
+    } catch (error) {
+      this.error(error);
+    } finally {
+      this.menu.close();
+    }
   });
   private follow = element('input');
   private primaryDelay = element('input');
   private secondaryDelay = element('input');
   private tracks: Track[] = [];
-  private timelines = new Map<string, CueTimeline>();
+  private catalog = new TrackCatalog();
   private style: CaptionStyle = { ...DEFAULT_STYLE };
   private closed = false;
   private ready = false;
@@ -496,6 +503,7 @@ export class VideoPlayer {
     this.updateSetup();
   }
   setGenerationAvailable(available: boolean) {
+    if (this.closed) return;
     this.generationAvailable = available;
     this.updateSetup();
   }
@@ -595,6 +603,7 @@ export class VideoPlayer {
     return true;
   }
   private saveView() {
+    if (this.closed) return;
     this.viewTouched = true;
     void this.options.store
       .putLocal(this.options.scope, 'settings', 'transcript-view', {
@@ -606,6 +615,7 @@ export class VideoPlayer {
       .catch((error) => this.error(error));
   }
   private setTranscriptOpen(open: boolean) {
+    if (this.closed) return;
     this.transcriptOpen = open;
     this.saveView();
     this.applyViewingMode();
@@ -727,9 +737,16 @@ export class VideoPlayer {
   setTracks(tracks: Track[]) {
     if (this.closed) return;
     const selected = [this.primary.value, this.secondary.value];
+    const changed = this.catalog.replace(tracks);
     this.tracks = tracks;
-    this.timelines = new Map(tracks.map((t) => [t.id, new CueTimeline(t.cues)]));
-    this.linePause.reset();
+    const desired =
+      this.selectionTouched || !this.position
+        ? selected
+        : [this.position.primary ?? '', this.position.secondary ?? ''];
+    if (!changed && !this.pendingGenerated && desired.every((id, i) => id === selected[i])) {
+      this.updateSetup();
+      return;
+    }
     for (const [index, picker] of [this.primary, this.secondary].entries()) {
       picker.replaceChildren();
       const off = element('option', index === 0 ? 'Choose transcript…' : 'Off');
@@ -805,7 +822,7 @@ export class VideoPlayer {
   }
   private trackChanged() {
     this.updateSetup();
-    this.linePause.reset();
+    // render() resets listening state only when its actual timeline/delay changes.
     this.pageIndex = 0;
     this.offsetControls();
     this.activeSignature = '';
@@ -814,6 +831,7 @@ export class VideoPlayer {
     this.scheduleSave(true);
   }
   private setStyle(style: CaptionStyle) {
+    if (this.closed) return;
     this.styleTouched = true;
     this.style = validateStyle(style);
     this.applyStyle();
@@ -828,6 +846,7 @@ export class VideoPlayer {
     this.overlay.dataset.edge = this.style.edge;
   }
   private seekLine(direction: -1 | 0 | 1) {
+    if (this.closed) return;
     const span = seekSpan(this.spans, this.video.currentTime, direction);
     if (!span || !this.ready || span.start >= this.video.duration) return;
     this.linePause.reset();
@@ -842,8 +861,8 @@ export class VideoPlayer {
   private render() {
     if (this.closed) return;
     const t = this.video.currentTime,
-      first = this.timelines.get(this.primary.value),
-      second = this.timelines.get(this.secondary.value);
+      first = this.catalog.timeline(this.primary.value),
+      second = this.catalog.timeline(this.secondary.value);
     // A saved primary selection may be waiting for pages. In that case the
     // available second track owns navigation and uses its OWN delay.
     const timeline = first ?? second;
@@ -1073,6 +1092,7 @@ export class VideoPlayer {
     this.overlay.style.bottom = `${Math.max(56, (this.stage.clientHeight - fitHeight) / 2 + 18)}px`;
   }
   private toggleTheater() {
+    if (this.closed) return;
     this.theater = !this.theater;
     this.applyViewingMode();
   }

@@ -69,6 +69,11 @@ jobs:
           pnpm exec node tools/media/test.mjs | tee test-results/media/core.log
       - name: Actual Svelte application and native IndexedDB
         run: python tests/media/app-browser.py --fixture "$(cat fixture-path.txt)" --output test-results/media/app
+      - name: Native media IndexedDB contracts
+        if: ${{ !cancelled() && steps.fixture.outcome == 'success' }}
+        run: |
+          export CHROMIUM="$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
+          python tests/media/browser.py --fixture "$(cat fixture-path.txt)" --output test-results/media/native-browser
       - name: Player, workspace and real Web Audio
         if: ${{ !cancelled() && steps.fixture.outcome == 'success' }}
         run: |

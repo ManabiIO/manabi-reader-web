@@ -475,8 +475,13 @@ class BooksLibraryBrowser(LibraryBase):
             menu = self.page.get_by_role('menu')
             expect(menu).to_be_visible()
             sizes = menu.get_by_role('menuitem').evaluate_all(
-                'items => items.map(item => item.getBoundingClientRect().height)')
-            self.assertTrue(all(height >= 44 for height in sizes), sizes)
+                'items => items.map(item => ({height: item.getBoundingClientRect().height, '
+                'minimum: parseFloat(getComputedStyle(item).minHeight), layout: item.offsetHeight}))')
+            # DOMRect subtracts floating layout coordinates: a real 44px target
+            # can measure 43.999969px. Keep the CSS/layout 44px checks exact and
+            # permit only 0.0001px arithmetic error in the coordinate subtraction.
+            self.assertTrue(all(size['minimum'] >= 44 and size['layout'] >= 44 and
+                                size['height'] >= 44 - 0.0001 for size in sizes), sizes)
             self.page.get_by_role('menuitem', name='Mark as Finished', exact=True).tap()
             expect(self.tile('Touch layout').locator('.list-detail')).to_contain_text('Finished')
             # A 1280px desktop zoomed to 200% has a 640 CSS-pixel layout viewport.

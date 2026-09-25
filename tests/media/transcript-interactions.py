@@ -119,6 +119,30 @@ def main():
             page.wait_for_function('player.follow.checked && document.querySelector(".transcript-rows").scrollTop<100')
             page.evaluate('player.video.pause()')
         case('Replay restores follow position even when replaying the already active line', replay)
+        def unchanged_refresh():
+            page.evaluate('make()')
+            page.evaluate("player.setTracks([ja,en]);player.setDiscovery('complete');select('Transcript track',ja.id)")
+            page.evaluate("window.firstRow=document.querySelector('[data-cue]');const selection=getSelection();const range=document.createRange();range.selectNodeContents(firstRow.querySelector('.transcript-text'));selection.removeAllRanges();selection.addRange(range);player.setTracks(structuredClone([ja,en]));")
+            assert page.evaluate("firstRow===document.querySelector('[data-cue]') && getSelection().toString().includes('本')"), 'An identical storage refresh replaced selected transcript text'
+        case('unchanged subtitle refresh preserves DOM identity and selected text', unchanged_refresh)
+
+        def held_refresh():
+            page.evaluate('make()')
+            page.evaluate("ja={...ja,cues:[{id:'held',start:0,end:.35,text:'本を探しています。'},{id:'next',start:.8,end:2,text:'次の行です。'}]};player.setTracks([ja]);player.setDiscovery('complete');select('Transcript track',ja.id);player.autoPause.checked=true;player.video.muted=true;player.video.play();")
+            page.wait_for_function('player.video.paused && !!player.linePause.held')
+            page.evaluate('window.held=player.linePause.held;player.setTracks(structuredClone([ja,en]));')
+            assert page.evaluate("player.linePause.held===held && document.querySelector('[data-cue=held]').getAttribute('aria-current')==='true'"), 'An unrelated translation arrival erased the paused line'
+        case('translation arrival preserves the actual auto-paused listening unit', held_refresh)
+
+        def export_failure():
+            page.evaluate('make()')
+            page.evaluate("player.setTracks([ja]);player.setDiscovery('complete');select('Transcript track',ja.id);player.options.onExport=()=>{throw Error('Subtitle export exceeds 5 MiB');};window.exportPageErrors=[];window.addEventListener('error',e=>exportPageErrors.push(e.message),{once:true});")
+            page.get_by_role('button', name='Transcript options', exact=True).click()
+            page.get_by_role('button', name='Download subtitles', exact=True).click()
+            assert page.evaluate("errors.length===1 && errors[0]==='Subtitle export exceeds 5 MiB' && exportPageErrors.length===0")
+            assert page.get_by_role('button', name='Transcript options', exact=True).get_attribute('aria-expanded') == 'false'
+            page.evaluate('errors=[]')
+        case('a bounded export failure is visible without an uncaught exception', export_failure)
         browser.close()
     report = {'environment': 'Chromium real MP4 / production controller / explicit persistence double',
               'notCovered': ['Svelte application', 'native IndexedDB', 'live accounts/providers', 'MOSS inference'],

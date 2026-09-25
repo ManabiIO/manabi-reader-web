@@ -2,7 +2,7 @@
 <title>Production media module regression harness</title>
 <link rel="stylesheet" href="../../.cache/media-test-build/media.css">
 <style>body{margin:0;background:#fafafa;color:#171717;font-family:system-ui}#host{max-width:1500px;margin:auto}</style>
-<div id="host"></div>
+<div id="host" class="manabi-media"></div>
 <script type="module">
 import {MediaStore} from '../../.cache/media-test-build/store.js';
 import {VideoPlayer} from '../../.cache/media-test-build/player.js';
@@ -18,6 +18,6 @@ window.file=new File([await(await fetch(fixture)).blob()],'video.mp4',{type:'vid
 window.store=new MediaStore(indexedDB,'media-browser-tests-'+crypto.randomUUID());
 window.tracks=[{version:1,id,mediaKey:key,label:'Japanese · Existing',language:'ja',kind:'transcription',origin:'sidecar',complete:true,forced:false,createdAt:1,cues:[{id:'a',start:0,end:2,text:'日本語の一行目です。'},{id:'b',start:2,end:4,text:'次の行です。<img src=x onerror=alert(1)>'},{id:'c',start:4,end:6,text:'最後の行です。'}]},
 {version:1,id:id2,mediaKey:key,label:'English · Translation',language:'en',kind:'translation',origin:'sidecar',complete:true,forced:false,createdAt:1,cues:[{id:'x',start:0,end:3,text:'First translated sentence.'},{id:'y',start:3,end:6,text:'Second translated sentence.'}]}];
-window.mount=async()=>{if(window.player)await player.dispose();window.player=new VideoPlayer({scope:'guest',source:localSource(file),store,onError:message=>errors.push(message),onGenerate:()=>generated++,onImport:()=>{},onExport:()=>{}});document.querySelector('#host').replaceChildren(player.root);player.setTracks(tracks);await new Promise(resolve=>{if(player.video.readyState>=1)resolve();else player.video.addEventListener('loadedmetadata',resolve,{once:true});});await player.bindIdentity(key);};
+window.mount=async()=>{if(window.player)await player.dispose();window.player=new VideoPlayer({scope:'guest',source:localSource(file),store,onError:message=>errors.push(message),onGenerate:()=>{generated++;},onImport:()=>{},onExport:()=>{}});document.querySelector('#host').replaceChildren(player.root);player.setTracks(tracks);player.setDiscovery("complete");await new Promise(resolve=>{if(player.video.readyState>=1)resolve();else player.video.addEventListener('loadedmetadata',resolve,{once:true});});await player.bindIdentity(key);};
 await window.mount();window.ready=true;
 </script>

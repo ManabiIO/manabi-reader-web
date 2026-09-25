@@ -142,19 +142,20 @@ export function serializeSubtitles(track: Track, format: 'srt' | 'vtt' = 'srt'):
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/\n\s*\n/g, '\n');
-  const events = subtitleEvents(track.cues);
-  const result =
-    (format === 'vtt' ? 'WEBVTT\n\n' : '') +
-    events
-      .map(
-        (cue, i) =>
-          `${i + 1}\n${timeString(cue.start, format === 'vtt')} --> ${timeString(cue.end, format === 'vtt')}\n${escape(cue.text)}`
-      )
-      .join('\n\n') +
-    '\n';
-  if (new TextEncoder().encode(result).length > LIMITS.subtitleBytes)
-    throw new Error('Subtitle export exceeds 5 MiB');
-  return result;
+  const parts = format === 'vtt' ? ['WEBVTT\n\n'] : [];
+  const encoder = new TextEncoder();
+  // Count encoded/escaped bytes before retaining the next cue. Synced tracks can
+  // be larger than a sidecar, and entity escaping can expand text several times.
+  let bytes = format === 'vtt' ? 9 : 1;
+  for (const [i, cue] of subtitleEvents(track.cues).entries()) {
+    const part = `${i + 1}\n${timeString(cue.start, format === 'vtt')} --> ${timeString(cue.end, format === 'vtt')}\n${escape(cue.text)}`;
+    bytes += encoder.encode(part).length + (i ? 2 : 0);
+    if (bytes > LIMITS.subtitleBytes) throw new Error('Subtitle export exceeds 5 MiB');
+    if (i) parts.push('\n\n');
+    parts.push(part);
+  }
+  parts.push('\n');
+  return parts.join('');
 }
 export const cueDigest = (cues: readonly Cue[]) => digestText(canonical(cues));
 export const exportName = (name: string, track: Track, format = 'srt') =>
