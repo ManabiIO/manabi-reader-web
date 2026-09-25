@@ -15,14 +15,16 @@ jobs:
       - name: Obtain Ubuntu WebKit runtime dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y libicu74 libjpeg-turbo8 libjxl0.8 libmanette-0.2-0
+          sudo apt-get install -y libicu74 libjpeg-turbo8 libmanette-0.2-0
           mkdir -p /tmp/webkit-dependencies/lib
           python3 - <<'PY'
           from pathlib import Path
           import shutil
           root = Path('/usr/lib/x86_64-linux-gnu')
-          for pattern in ['libicu*.so.74*', 'libjpeg.so.8*', 'libjxl*.so.0.8*', 'libhwy*.so.1*', 'libmanette-0.2.so.*']:
-              for path in root.glob(pattern):
+          for pattern in ['libicu*.so.74*', 'libjpeg.so.8*', 'libmanette-0.2.so.*']:
+              paths = list(root.glob(pattern))
+              assert paths, pattern
+              for path in paths:
                   shutil.copyfile(path, Path('/tmp/webkit-dependencies/lib') / path.name)
           PY
           tar -czf /tmp/webkit-dependencies/runtime-libraries.tar.gz -C /tmp/webkit-dependencies lib
