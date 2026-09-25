@@ -1,6 +1,5 @@
 name: Lyrics transcript qualification
-# Isolated candidate validation. The object job creates immutable blobs only.
-# No ref, commit, PR, release or deployment writes.
+# Isolated candidate validation. Objects job writes immutable blobs only, never refs.
 on:
   push:
     branches: [codex/video-lyrics-qualification-20260925]
@@ -25,15 +24,15 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: lyrics-reviewed-source
-          run-id: 36132578872
+          run-id: 36133470830
           github-token: ${{ github.token }}
           path: reviewed
-      - name: Apply verified source and correct the actual font selection test
+      - name: Apply checksum-verified candidate and reload boundary assertions
         run: |
           python3 - <<'PY'
           import hashlib,json,pathlib
           raw=pathlib.Path('reviewed/lyrics-candidate.json').read_bytes()
-          assert hashlib.sha256(raw).hexdigest()=='7df9fd7ec4250b1f973c17f0b2679cfa4b4d88051c56f27a349e42ed73c1e81f'
+          assert hashlib.sha256(raw).hexdigest()=='f74deb0dfba3922fd50386ebea8b415a07ff0bb4e4d32b27e7ab125233e515ec'
           entries=json.loads(raw)
           assert len(entries)==18 and len({e['path'] for e in entries})==18
           for entry in entries:
@@ -44,18 +43,42 @@ jobs:
               assert hashlib.sha256(data).hexdigest()==entry['sha256']
               path.parent.mkdir(parents=True,exist_ok=True)
               path.write_bytes(data)
-          path=pathlib.Path('tests/media/app-browser.py')
-          text=path.read_text()
-          assert text.count("select_option('serif')")==1
-          text=text.replace("select_option('serif')", "select_option('Serif')")
-          text=text.replace("== 'serif'", "== 'Serif'")
-          text=text.replace('.fontFamily.startsWith("serif")', '.fontFamily.toLowerCase().startsWith("serif")')
-          first=text.index('    try:\n        with sync_playwright() as p:\n')
-          last=text.index('    except Exception:', first)
-          body=text[first:last].splitlines(keepends=True)[2:]
-          assert all(not line.strip() or line.startswith('            ') for line in body)
-          text=text[:first]+'    p = sync_playwright().start()\n    try:\n'+''.join(line[4:] if line.strip() else line for line in body)+text[last:]
-          text=text.replace('    finally:\n        server.shutdown()', '    finally:\n        p.stop()\n        server.shutdown()')
+          path=pathlib.Path('tests/media/app-browser.py'); text=path.read_text()
+          old="        results.append('close/reopen retains selected tracks')"
+          assert text.count(old)==1
+          text=text.replace(old,'''        expect(page.locator('.transcript-pane')).to_be_visible()
+                  # A rendered row is not a durable write acknowledgement. Establish the
+                  # actual committed IDB state before testing reload, without sleep timers.
+                  page.wait_for_function("""async (primary) => {
+                      const db = await new Promise((yes,no) => {
+                          const r=indexedDB.open('manabi-media-v1');
+                          r.onsuccess=()=>yes(r.result);r.onerror=()=>no(r.error);
+                      });
+                      try {
+                          const tx=db.transaction(['local','records'],'readonly');
+                          const read=name=>new Promise((yes,no)=>{
+                              const r=tx.objectStore(name).getAll();
+                              r.onsuccess=()=>yes(r.result);r.onerror=()=>no(r.error);
+                          });
+                          const [local,records]=await Promise.all([read('local'),read('records')]);
+                          return local.some(v=>v?.open===true) && records.some(v=>v?.payload?.primary===primary);
+                      } finally {db.close();}
+                  }""",arg=chosen)
+                  results.append('close/reopen retains selected tracks and commits native storage')'''.replace('\n                  ','\n        '))
+          text=text.replace("        assert download.value.suggested_filename=='video.ja.srt'", "        assert download.value.suggested_filename=='video.ja.srt'\n        assert 'こんにちは。' in pathlib.Path(download.value.path()).read_text()")
+          text=text.replace("        assert float(page.evaluate('localStorage.getItem(\"lineHeight\")')) == 1.9", "        assert float(page.evaluate('localStorage.getItem(\"lineHeight\")')) == 1.9\n        page.wait_for_function('() => { const s=getComputedStyle(document.querySelector(\".transcript-text\")); return Math.abs(parseFloat(s.lineHeight)/parseFloat(s.fontSize)-1.9)<.03; }')")
+          old='            page.screenshot(path=str(args.output/"failure.png"))'
+          assert text.count(old)==1
+          text=text.replace(old,'''            page.screenshot(path=str(args.output/"failure.png"))
+                      state=page.evaluate("""async()=>{
+                          const r=indexedDB.open('manabi-media-v1');
+                          const db=await new Promise((yes,no)=>{r.onsuccess=()=>yes(r.result);r.onerror=()=>no(r.error)});
+                          const tx=db.transaction(['local','records'],'readonly');
+                          const read=n=>new Promise(yes=>{const q=tx.objectStore(n).getAll();q.onsuccess=()=>yes(q.result)});
+                          const data=await Promise.all([read('local'),read('records')]);db.close();
+                          return {data,primary:document.querySelector('[aria-label="Transcript track"]')?.value,secondary:document.querySelector('[aria-label="Translation track"]')?.value};
+                      }""")
+                      (args.output/'storage-diagnostics.json').write_text(json.dumps(state,ensure_ascii=False))'''.replace('\n                      ','\n            '))
           path.write_text(text)
           pathlib.Path('lyrics-paths.json').write_text(json.dumps([e['path'] for e in entries]))
           PY
@@ -100,10 +123,8 @@ jobs:
           path: lyrics-candidate.json
           if-no-files-found: error
           retention-days: 7
-      - name: Installed application typecheck
-        run: pnpm --dir apps/web check
-      - name: Normal repository lint
-        run: pnpm exec eslint .
+      - run: pnpm --dir apps/web check
+      - run: pnpm exec eslint .
       - name: Build actual application
         env:
           BASE_PATH: /Reader-Web
@@ -153,19 +174,16 @@ jobs:
         run: |
           python3 - <<'PY'
           import hashlib,json,os,pathlib,urllib.request
-          entries=json.loads(pathlib.Path('lyrics-candidate.json').read_text())
-          staged=[]
+          entries=json.loads(pathlib.Path('lyrics-candidate.json').read_text());staged=[]
           for entry in entries:
               data=entry['content'].encode()
               assert hashlib.sha256(data).hexdigest()==entry['sha256']
               assert hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()==entry['sha']
               request=urllib.request.Request('https://api.github.com/repos/ManabiIO/manabi-reader-web/git/blobs',method='POST',data=json.dumps({'content':entry['content'],'encoding':'utf-8'}).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Content-Type':'application/json','Accept':'application/vnd.github+json'})
-              with urllib.request.urlopen(request,timeout=30) as response:
-                  result=json.load(response)
+              with urllib.request.urlopen(request,timeout=30) as response: result=json.load(response)
               assert result['sha']==entry['sha']
               staged.append({k:entry[k] for k in ('path','sha','sha256')})
           pathlib.Path('lyrics-staged.json').write_text(json.dumps(staged,indent=2))
-          print('Staged',len(staged),'immutable source objects; no refs or commits changed')
           PY
       - uses: actions/upload-artifact@v4
         with:
