@@ -45,6 +45,44 @@ def decoded_local_image(page):
         } catch (failure) {
           diagnostics.resourceError = String(failure);
         }
+        // Read this generated fixture again without changing the database. This
+        // distinguishes unavailable object-URL backing from missing persisted bytes.
+        try {
+          const record = await new Promise((resolve, reject) => {
+            const open = indexedDB.open('books');
+            open.onupgradeneeded = () => open.transaction.abort();
+            open.onerror = () => reject(open.error);
+            open.onsuccess = () => {
+              const db = open.result;
+              const tx = db.transaction('data');
+              const get = tx.objectStore('data').get(Number(new URL(location.href).searchParams.get('id')));
+              tx.onabort = () => { db.close(); reject(tx.error); };
+              tx.oncomplete = () => { db.close(); resolve(get.result); };
+            };
+          });
+          const resources = [];
+          for (const [key, value] of Object.entries(record?.blobs || {})) {
+            const info = {key, size: value.size, type: value.type};
+            resources.push(info);
+            if (value.size > 1024) continue; // Only the tiny generated fixture.
+            try {
+              const data = await value.arrayBuffer();
+              const digest = await crypto.subtle.digest('SHA-256', data);
+              info.sha256 = [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
+              for (const [kind, blob] of [['reread', value], ['copied', new Blob([data], {type: value.type})]]) {
+                const resource = URL.createObjectURL(blob);
+                try {
+                  const probe = new Image();
+                  probe.src = resource;
+                  await probe.decode();
+                  info[kind] = {width: probe.naturalWidth, height: probe.naturalHeight};
+                } catch (failure) { info[kind] = String(failure); }
+                finally { URL.revokeObjectURL(resource); }
+              }
+            } catch (failure) { info.readError = String(failure); }
+          }
+          diagnostics.storedImages = resources;
+        } catch (failure) { diagnostics.databaseReadError = String(failure); }
         window.__readerImageFailure = diagnostics;
         throw new Error('Imported image decoding failed: ' + JSON.stringify(diagnostics));
       }
