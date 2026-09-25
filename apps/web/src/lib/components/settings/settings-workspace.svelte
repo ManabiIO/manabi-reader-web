@@ -5,6 +5,7 @@
   import { Input } from '$lib/components/ui/input';
   import { Button } from '$lib/components/ui/button';
   import { SETTINGS_FILTER } from './settings-context';
+  import SettingsOfflineStatus from './settings-offline-status.svelte';
   const categories = [
     {
       id: 'appearance',
@@ -122,6 +123,13 @@
             : 'No matching settings. Try a different search.'}
         </p>{/if}
     </div>
+    <SettingsOfflineStatus />
     <slot />
   </main>
 </div>
+
+<style>
+  :global([data-setting="offline-reading"]:not([hidden])) {
+    margin-bottom: 1.25rem;
+  }
+</style>

@@ -6,6 +6,8 @@
 
 /// <reference lib="webworker" />
 
+import { inspectOfflineShell, OFFLINE_STATUS_REQUEST } from './offline-status.mjs';
+
 /**
  * Register Reader's static application-shell worker. Cache ownership includes
  * the registration scope, not just the product name: two deployments can share
@@ -54,10 +56,51 @@ export function registerReaderServiceWorker(worker, config) {
       .map((url) => url.href)
   );
   const pages = new Set(config.prerendered.map((path) => new URL(path, scope).href));
+  const immutableAssets = new Set(config.build.map((path) => new URL(path, scope).href));
 
   worker.addEventListener('install', (event) => {
     // Do not skipWaiting: an old tab must keep its own shell and worker version.
-    event.waitUntil(storage.open(shellName).then((cache) => cache.addAll([...shellAssets])));
+    // Required resources still commit atomically. Mutable HTML/static paths must
+    // not be seeded from a fresh but older HTTP-cache response. Redirected login
+    // or error pages are not a valid offline shell.
+    const requests = [...shellAssets].map(
+      (url) => new Request(url, {
+        cache: immutableAssets.has(url) ? 'default' : 'reload',
+        redirect: 'error',
+        credentials: 'same-origin'
+      })
+    );
+    event.waitUntil(storage.open(shellName).then((cache) => cache.addAll(requests)));
+  });
+
+  /** @type {ReturnType<typeof inspectOfflineShell>|undefined} */
+  let inspection;
+  worker.addEventListener('message', (event) => {
+    if (event.data?.type !== OFFLINE_STATUS_REQUEST || !event.ports[0]) return;
+    // Only an in-scope page may ask. The response contains shell counts only,
+    // never book data, account state, URLs from caches, or permission changes.
+    const source = event.source;
+    try {
+      if (!source || !('url' in source) || !inScope(new URL(source.url))) return;
+    } catch {
+      return;
+    }
+    inspection ??= inspectOfflineShell(storage, shellName, shellAssets).finally(() => {
+      inspection = undefined;
+    });
+    event.waitUntil(
+      inspection.then((status) => {
+        try {
+          event.ports[0].postMessage({
+            type: OFFLINE_STATUS_REQUEST, scope: scope.href, version: config.version, ...status
+          });
+        } finally {
+          event.ports[0].close();
+        }
+      }).catch(() => {
+        // The requesting page may already have closed or timed out.
+      })
+    );
   });
 
   worker.addEventListener('activate', (event) => {
