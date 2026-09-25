@@ -70,3 +70,13 @@ Additional actual-app browser cases cover enlarged landscape search, navigation
 header geometry/focus return, pending selection versus a new query, and forced
 colors where the engine supports emulation. These are part of the combined
 Appearance suite, not a substituted UI scaffold.
+
+## Text-only scaling
+
+The shared dismissal stays 44 CSS px with a fixed inset/reservation. Dialog
+padding and viewport gutters likewise stay bounded so 200% text does not reduce
+headings to one or two characters per line. Full-page browser zoom still scales
+the CSS pixels; this does not cap text sizes or the generic text-button size
+matrix. Collections retain full-height groups in the outer sheet scroller, and
+the 320px/200% regression checks readable headings as well as normal Rename/Save
+clicks. The notes import label also reflects its disabled input during writes.

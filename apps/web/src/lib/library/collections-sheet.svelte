@@ -78,7 +78,7 @@
     <Sheet.Content
       id="library-collections-sheet"
       side="bottom"
-      class="mx-auto max-h-[90dvh] max-w-xl overflow-y-auto rounded-t-3xl p-5 pb-10 sm:p-6"
+      class="mx-auto max-h-[90dvh] max-w-xl overflow-y-auto rounded-t-3xl p-[20px] px-[16px] pb-[40px] sm:p-[24px]"
       showCloseButton={false}
       onOpenAutoFocus={(event) => {
         // This action sheet starts at its visible Edit control, unlike an
@@ -91,7 +91,7 @@
     >
       <Sheet.Header class="mb-6 flex shrink-0 flex-row flex-wrap items-center justify-between gap-3 p-0">
         <Sheet.Title class="min-w-0 font-serif text-2xl">Collections</Sheet.Title>
-        <div class="ms-auto flex shrink-0 gap-2">
+        <div class="ms-auto flex shrink-0 items-center gap-2">
           <Button
             bind:ref={editButton}
             variant="secondary"

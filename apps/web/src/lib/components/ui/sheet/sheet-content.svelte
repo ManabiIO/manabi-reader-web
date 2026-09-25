@@ -70,7 +70,7 @@
     {#if showCloseButton}
       <SheetPrimitive.Close data-slot="sheet-close">
         {#snippet child({ props })}
-          <CloseButton {...props} disabled={closeDisabled} class="absolute top-4 end-4" />
+          <CloseButton {...props} disabled={closeDisabled} class="absolute top-[16px] end-[16px]" />
         {/snippet}
       </SheetPrimitive.Close>
     {/if}

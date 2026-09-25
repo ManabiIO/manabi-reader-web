@@ -84,8 +84,10 @@
 }
 
 @layer components {
-  /* Reserve the whole dismiss target beside the title, not beside every
-     paragraph. Its minimum height keeps full-width descriptions below the X. */
+  /* Text-only scaling must grow the words, not consume their column with
+     oversized dismissal chrome. The 44px control and its 48px reservation
+     remain stable CSS-pixel sizes; full-page browser zoom still scales both.
+     Descriptions use the full width below the title and dismiss target. */
   [data-modal-close-button]
     > :is([data-slot='dialog-title'], [data-slot='sheet-title']):first-child:not(.sr-only),
   [data-modal-close-button]
@@ -97,8 +99,8 @@
       :has(> :is([data-slot='dialog-title'], [data-slot='sheet-title']):not(.sr-only))
     ) {
     min-width: 0;
-    min-height: 2.75rem;
-    margin-inline-end: 3rem;
+    min-height: 44px;
+    margin-inline-end: 48px;
   }
   :is(
     [data-slot='dialog-title'],
@@ -121,7 +123,7 @@
     [data-slot='sheet-title']:first-child
   ):not(.sr-only))
 ) {
-  padding-block-start: 4.75rem;
+  padding-block-start: 76px;
 }
 
 :is([data-slot='dialog-footer'], [data-slot='sheet-footer'])
