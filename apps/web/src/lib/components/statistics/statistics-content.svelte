@@ -923,7 +923,6 @@
       document.querySelector<HTMLButtonElement>('[title="Open Title Filter Menu"]')?.focus();
     }}
   >
-    <Sheet.Title class="sr-only">Filter books</Sheet.Title>
     <Sheet.Description class="sr-only"
       >Choose the books included in reading statistics.</Sheet.Description
     >

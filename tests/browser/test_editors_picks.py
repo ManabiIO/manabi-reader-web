@@ -133,7 +133,9 @@ class EditorsPicksBrowser(unittest.TestCase):
         setup.get_by_role('button', name='Use another extension').click()
         expect(setup).not_to_be_visible()
         self.page.reload()
-        expect(self.page.locator('.book-content').first).to_be_visible()
+        # Visibility can come from the prerendered shell before the reader's
+        # click handlers hydrate. Wait for the ready reading document.
+        expect(self.page.locator('.book-content').first).to_have_attribute('aria-busy', 'false')
         expect(setup).not_to_be_visible()
         self.page.get_by_role('button', name='Show reading controls').click()
         self.page.get_by_role('button', name='Reading tools').click()

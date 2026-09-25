@@ -8,6 +8,7 @@
   import BookManagerHeader from '$lib/components/book-card/book-manager-header.svelte';
   import BookExportDialog from '$lib/components/book-export/book-export-dialog.svelte';
   import { Button } from '$lib/components/ui/button';
+  import { CaretRightIcon } from 'phosphor-svelte';
   import * as Dialog from '$lib/components/ui/dialog';
   import ConfirmDialog from '$lib/components/confirm-dialog.svelte';
   import ExternalReadDialog from '$lib/components/external-read-dialog.svelte';
@@ -842,8 +843,8 @@
         <h3 id="add-books-heading" class="text-base font-semibold">Add books</h3>
         <div class="mt-3 grid gap-2">
           <Button
-            class="min-h-11 w-full justify-start"
-            variant="secondary"
+            class="min-h-11 w-full"
+            size="lg"
             onclick={() => bookManagerHeader?.openFilePicker()}>Import File(s)</Button
           >
           {#if !$isMobile$}<Button
@@ -859,12 +860,12 @@
           <Button
             href={resolve('/import-ttu')}
             class="min-h-11 w-full justify-start"
-            variant="outline">Import from Ttu Ebook Reader</Button
+            variant="link"><span>Import from Ttu Ebook Reader</span><CaretRightIcon class="size-4 rtl:rotate-180" aria-hidden="true" /></Button
           >
           <Button
             href={resolve('/import-ttu?source=yatsu')}
             class="min-h-11 w-full justify-start"
-            variant="outline">Import from Yatsu Reader</Button
+            variant="link"><span>Import from Yatsu Reader</span><CaretRightIcon class="size-4 rtl:rotate-180" aria-hidden="true" /></Button
           >
         </div>
         <p class="mt-3 text-xs text-muted-foreground">You can also drop ebook files here.</p>
@@ -875,22 +876,22 @@
           <Button
             href={`${resolve('/connections')}#local-heading`}
             class="min-h-11 w-full justify-start"
-            variant="outline">Local folder</Button
+            variant="secondary">Local folder</Button
           >
           <Button
             href={`${resolve('/connections')}#cloud-heading`}
             class="min-h-11 w-full justify-start"
-            variant="outline">Google Drive</Button
+            variant="secondary">Google Drive</Button
           >
           <Button
             href={`${resolve('/connections')}#cloud-heading`}
             class="min-h-11 w-full justify-start"
-            variant="outline">Dropbox</Button
+            variant="secondary">Dropbox</Button
           >
           <Button
             href={`${resolve('/connections')}#cloud-heading`}
             class="min-h-11 w-full justify-start"
-            variant="outline">OneDrive</Button
+            variant="secondary">OneDrive</Button
           >
         </div>
       </section>

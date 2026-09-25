@@ -1,4 +1,5 @@
 <script lang="ts">
+  import * as Sheet from '$lib/components/ui/sheet';
   import { Button } from '$lib/components/ui/button';
   import CloseButton from '$lib/components/ui/close-button.svelte';
   import faChevronLeft from '@lucide/svelte/icons/chevron-left';
@@ -170,7 +171,7 @@
 
 <div class="flex min-h-16 items-center justify-between gap-3 px-4 pt-4">
   <div class="min-w-0">
-    <h2 class="text-xl font-semibold">Reading tracker</h2>
+    <Sheet.Title class="min-w-0 text-xl font-semibold">Reading tracker</Sheet.Title>
     {#if hadError}<p role="status" class="mt-1 text-sm text-destructive">Last update failed</p>{/if}
   </div>
   <CloseButton

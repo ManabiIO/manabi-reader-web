@@ -50,7 +50,7 @@
     side="bottom"
     overlayProps={{ onclick: () => (open = false) }}
     showCloseButton={false}
-    class="reader-appearance writing-horizontal-tb mx-auto max-h-[min(90dvh,48rem)] max-w-md gap-5 overflow-y-auto rounded-t-3xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:mb-5 sm:mr-5 sm:rounded-3xl"
+    class="reader-appearance writing-horizontal-tb mx-auto max-h-[min(90dvh,48rem)] max-w-md gap-[20px] overflow-y-auto rounded-t-[24px] p-[20px] pb-[max(20px,env(safe-area-inset-bottom))] sm:mb-5 sm:mr-5 sm:rounded-[24px]"
     onCloseAutoFocus={(event) => {
       event.preventDefault();
       const controls = document.querySelector<HTMLButtonElement>('button[data-reader-controls]');
@@ -61,7 +61,7 @@
       trigger?.focus();
     }}
   >
-    <Sheet.Header class="flex flex-row items-center justify-between gap-3 p-0">
+    <Sheet.Header class="flex flex-row items-center justify-between gap-[12px] p-0">
       <Sheet.Title class="text-lg font-semibold">Themes &amp; Settings</Sheet.Title>
       <CloseButton
         aria-label="Close reading appearance"
@@ -91,6 +91,7 @@
     <div class="modes" role="group" aria-label="Reading appearance mode">
       {#each modes as mode (mode)}<Button
           variant={$appearance$ === mode ? 'secondary' : 'ghost'}
+          shape="rounded"
           class="min-h-11 capitalize"
           aria-pressed={$appearance$ === mode}
           onclick={() => appearance$.next(mode)}>{mode}</Button
@@ -142,12 +143,14 @@
     <div class="modes" role="group" aria-label="Reading layout">
       <Button
         variant={$viewMode$ === ViewMode.Paginated ? 'secondary' : 'ghost'}
+        shape="rounded"
         class="min-h-11"
         aria-pressed={$viewMode$ === ViewMode.Paginated}
         onclick={() => viewMode$.next(ViewMode.Paginated)}>Pages</Button
       >
       <Button
         variant={$viewMode$ === ViewMode.Continuous ? 'secondary' : 'ghost'}
+        shape="rounded"
         class="min-h-11"
         aria-pressed={$viewMode$ === ViewMode.Continuous}
         onclick={() => viewMode$.next(ViewMode.Continuous)}>Scroll</Button
@@ -165,6 +168,10 @@
 </Sheet.Root>
 
 <style>
+  :global(.reader-appearance > *) {
+    flex-shrink: 0;
+    min-width: 0;
+  }
   .size-controls {
     display: grid;
     grid-template-columns: 1fr auto 1fr;
@@ -176,16 +183,18 @@
   }
   .modes {
     display: flex;
-    padding: 0.2rem;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 4px;
     border-radius: 1rem;
     background: var(--muted);
   }
   .modes :global(button) {
-    flex: 1;
+    flex: 1 1 auto;
   }
   .theme-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 6rem), 1fr));
     gap: 0.65rem;
   }
   .theme-tile {
@@ -210,6 +219,7 @@
   }
   .setting-row {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 1rem;
     justify-content: space-between;
