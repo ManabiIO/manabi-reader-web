@@ -406,7 +406,10 @@ test('shell response metadata rejects empty statuses and document fallbacks for 
   assert.equal(isUsableShellResponse(response('text/plain'), scope + 'manage', true), false);
   assert.equal(isUsableShellResponse(response('text/plain'), scope, true), false);
   assert.equal(isUsableShellResponse(response('text/plain'), scope + 'index.html'), false);
-  assert.equal(isUsableShellResponse(response('application/json'), scope + 'data.json', true), true);
+  assert.equal(
+    isUsableShellResponse(response('application/json'), scope + 'data.json', true),
+    true
+  );
   assert.equal(isUsableShellResponse(response('image/png'), scope + 'icon.png'), true);
   assert.equal(isUsableShellResponse(response('text/javascript', 204), scope + 'app.js'), false);
   assert.equal(isUsableShellResponse(response('text/javascript', 206), scope + 'app.js'), false);
