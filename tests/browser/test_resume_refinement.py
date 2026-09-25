@@ -8,6 +8,28 @@ import test_editors_picks as picks
 
 
 class ResumeControlsBrowser(deep.DeepControlRefinementBrowser):
+    def test_immediate_menu_arrow_navigation_survives_opening_autofocus(self):
+        self.import_book('Immediate keyboard menu')
+        self.menu('Immediate keyboard menu', 'Add to Want to Read')
+        trigger = self.page.get_by_role('button', name='Actions for Immediate keyboard menu', exact=True)
+        for _ in range(12):
+            trigger.focus()
+            self.page.keyboard.press('Enter')
+            menu = self.page.get_by_role('menu')
+            first = menu.get_by_role('menuitem').first
+            expect(first).to_be_focused()
+            first.press('ArrowDown')
+            second = menu.get_by_role('menuitem', name='Remove from Want to Read', exact=True)
+            expect(second).to_be_focused()
+            # Check again after deferred opening work has had time to run.
+            self.frames()
+            expect(second).to_be_focused()
+            self.page.keyboard.press('ArrowUp')
+            expect(first).to_be_focused()
+            self.page.keyboard.press('Escape')
+            expect(menu).to_have_count(0)
+            expect(trigger).to_be_focused()
+
     def test_empty_library_preserves_readable_controls_at_double_text_size(self):
         self.page.set_viewport_size({'width': 320, 'height': 640})
         self.page.evaluate('document.documentElement.style.fontSize = "200%"')

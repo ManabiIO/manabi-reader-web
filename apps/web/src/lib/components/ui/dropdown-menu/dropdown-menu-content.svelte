@@ -10,6 +10,7 @@
     align = 'start',
     portalProps,
     class: className,
+    onOpenAutoFocus,
     ...restProps
   }: DropdownMenuPrimitive.ContentProps & {
     portalProps?: WithoutChildrenOrChild<ComponentProps<typeof DropdownMenuPortal>>;
@@ -19,6 +20,14 @@
 <DropdownMenuPortal {...portalProps}>
   <DropdownMenuPrimitive.Content
     bind:ref
+    onOpenAutoFocus={(event) => {
+      onOpenAutoFocus?.(event);
+      if (event.defaultPrevented || !ref) return;
+      // The menu owns keyboard entry focus. A later FocusScope animation
+      // frame must not reset an ArrowDown choice made just after opening.
+      event.preventDefault();
+      ref.focus({ preventScroll: true });
+    }}
     data-slot="dropdown-menu-content"
     {sideOffset}
     {align}
