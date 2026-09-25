@@ -104,3 +104,10 @@ jobs:
       - name: Automatic offline reopening in the actual WebKit app
         if: matrix.browser == 'webkit'
         run: python tests/browser/test_offline_reader.py --browser webkit
+      - name: Retain engine diagnostics even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reader-${{ matrix.browser }}-results
+          path: test-results/
+          retention-days: 3

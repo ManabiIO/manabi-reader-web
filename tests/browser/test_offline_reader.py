@@ -1,122 +1,161 @@
-"""Automatic offline acceptance against the actual compiled Reader, with origin stopped."""
+"""Compiled Reader offline acceptance with a durable profile and a stopped origin."""
 import argparse
 import json
 import re
 from pathlib import Path
+import tempfile
 import threading
 import unittest
+from urllib.parse import urljoin
 from playwright.sync_api import sync_playwright, expect
 from test_static_reader import ThreadingHTTPServer, StaticHandler, ROOT, TITLE, epub
 
 OPTIONS = None
+SCOPE = '/Reader-Web/'
 
 
 class OfflineReader(unittest.TestCase):
-    def test_import_then_reopen_without_origin_or_pwa_install(self):
+    def test_import_then_restart_browser_without_origin_or_pwa_install(self):
+        self.run_offline_case(import_book=True)
+
+    def test_manifest_launch_without_a_recent_book_reopens_library_offline(self):
+        self.run_offline_case(import_book=False)
+
+    def run_offline_case(self, *, import_book):
         self.assertTrue((ROOT / 'service-worker.js').is_file(), 'Build the actual Reader first')
+        manifest = json.loads((ROOT / 'manifest.webmanifest').read_text())
         server = ThreadingHTTPServer(('127.0.0.1', 0), StaticHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         origin = 'http://127.0.0.1:' + str(server.server_port)
+        launch_url = urljoin(origin + SCOPE + 'manifest.webmanifest', manifest['start_url'])
+        self.assertTrue(launch_url.startswith(origin + SCOPE))
         errors = []
         console = []
         failed_requests = []
         stage = 'initial navigation'
-        with sync_playwright() as playwright:
-            browser = getattr(playwright, OPTIONS.browser).launch()
-            context = browser.new_context()
-            page = context.new_page()
+        context = None
+        page = None
+        # browser.new_context() is deliberately non-persistent. WebKit's private
+        # storage can reject image Blobs even when plain-text IndexedDB works.
+        # Durable offline qualification needs a real profile, including restart.
+        with tempfile.TemporaryDirectory(prefix='reader-offline-profile-') as profile:
+            with sync_playwright() as playwright:
+                engine = getattr(playwright, OPTIONS.browser)
 
-            def observe(document):
-                document.on('pageerror', lambda error: errors.append(str(error)))
-                document.on('console', lambda message: console.append({
-                    'type': message.type, 'text': message.text
-                }))
-                document.on('requestfailed', lambda request: failed_requests.append({
-                    'url': request.url, 'failure': request.failure
-                }))
+                def observe(document):
+                    document.on('pageerror', lambda error: errors.append(str(error)))
+                    document.on('console', lambda message: console.append({
+                        'type': message.type, 'text': message.text
+                    }))
+                    document.on('requestfailed', lambda request: failed_requests.append({
+                        'url': request.url, 'failure': request.failure
+                    }))
 
-            observe(page)
-            try:
-                page.goto(origin + '/Reader-Web/manage')
-                expect(page.locator('input[type=file][webkitdirectory]')).to_be_attached()
-                stage = 'EPUB import'
-                page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
-                    'name': 'offline.epub', 'mimeType': 'application/epub+zip', 'buffer': epub()
-                })
-                page.get_by_role('button', name='Read ' + TITLE, exact=True).click(timeout=30000)
-                expect(page.locator('.book-content')).to_be_visible(timeout=30000)
-                reader_url = page.url
-                stage = 'automatic preparation'
-                page.evaluate('''async () => {
-                  const deadline = Date.now() + 15000;
-                  while (Date.now() < deadline) {
-                    const r = await navigator.serviceWorker.getRegistration('/Reader-Web/');
-                    if (r?.active?.state === 'activated') return;
-                    await new Promise(resolve => setTimeout(resolve, 25));
-                  }
-                  throw new Error('Automatic Reader worker activation timed out');
-                }''')
-                # Visit status only AFTER automatic preparation and a real book import.
-                # Viewing Settings must not be what installs the offline shell.
-                page.goto(origin + '/Reader-Web/settings#library')
-                expect(page.get_by_text('App ready for offline reopening', exact=True)).to_be_visible(timeout=15000)
-                cache_urls = page.evaluate('''async () => {
-                  const names = await caches.keys();
-                  return (await Promise.all(names.map(async name =>
-                    (await (await caches.open(name)).keys()).map(request => request.url)))).flat();
-                }''')
-                self.assertFalse(any('/api/' in url or '/accounts/' in url for url in cache_urls))
-                server.shutdown()
-                server.server_close()
-                thread.join()
-                server = None
-                stage = 'fresh offline reader'
-                # No set_offline(), network routing mocks, or still-open document.
-                # A new navigation must load the app and local EPUB without HTTP.
-                page.close()
-                page = context.new_page()
-                observe(page)
-                response = page.goto(reader_url)
-                self.assertTrue(response.from_service_worker)
-                expect(page.locator('.book-content')).to_be_visible(timeout=30000)
-                fixture_ruby = page.locator('.book-content ruby').filter(
-                    has_text=re.compile(r'^本ほん$')
-                )
-                expect(fixture_ruby).to_have_count(1)
-                expect(fixture_ruby.locator('rt')).to_have_text('ほん')
-                stage = 'offline library and settings'
-                response = page.goto(origin + '/Reader-Web/manage')
-                self.assertTrue(response.from_service_worker)
-                expect(page.get_by_role('button', name='Read ' + TITLE, exact=True)).to_be_visible()
-                page.goto(origin + '/Reader-Web/settings#library')
-                expect(page.get_by_text('App ready for offline reopening', exact=True)).to_be_visible(timeout=15000)
-                self.assertEqual(errors, [])
-                stage = 'complete'
-            finally:
-                diagnostics = Path('test-results') / ('offline-' + OPTIONS.browser)
-                diagnostics.mkdir(parents=True, exist_ok=True)
-                report = {
-                    'stage': stage, 'url': page.url, 'page_errors': errors,
-                    'console': console[-80:], 'failed_requests': failed_requests[-80:]
-                }
                 try:
-                    if not page.is_closed():
-                        report['visible_text'] = page.locator('body').inner_text(timeout=3000)
-                        (diagnostics / 'page.html').write_text(page.content())
-                        page.screenshot(path=str(diagnostics / 'page.png'), full_page=True, timeout=5000)
-                except Exception as error:
-                    report['diagnostics_error'] = str(error)
-                finally:
-                    (diagnostics / 'report.json').write_text(json.dumps(report, ensure_ascii=False, indent=2))
-                    if stage != 'complete':
-                        print('OFFLINE FAILURE DIAGNOSTICS: ' + json.dumps(report, ensure_ascii=False), flush=True)
+                    context = engine.launch_persistent_context(profile)
+                    page = context.pages[0] if context.pages else context.new_page()
+                    observe(page)
+                    page.goto(origin + SCOPE + 'manage')
+                    expect(page.locator('input[type=file][webkitdirectory]')).to_be_attached()
+                    reader_url = None
+                    if import_book:
+                        stage = 'EPUB import'
+                        page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
+                            'name': 'offline.epub', 'mimeType': 'application/epub+zip', 'buffer': epub()
+                        })
+                        page.get_by_role('button', name='Read ' + TITLE, exact=True).click(timeout=30000)
+                        expect(page.locator('.book-content')).to_be_visible(timeout=30000)
+                        reader_url = page.url
+                    stage = 'automatic preparation'
+                    page.evaluate('''async scope => {
+                      const deadline = Date.now() + 15000;
+                      while (Date.now() < deadline) {
+                        const r = await navigator.serviceWorker.getRegistration(scope);
+                        if (r?.active?.state === 'activated') return;
+                        await new Promise(resolve => setTimeout(resolve, 25));
+                      }
+                      throw new Error('Automatic Reader worker activation timed out');
+                    }''', SCOPE)
+                    # Viewing Settings must not be what installs the shell.
+                    page.goto(origin + SCOPE + 'settings#library')
+                    expect(page.get_by_text('App ready for offline reopening', exact=True)).to_be_visible(timeout=15000)
+                    cache_urls = page.evaluate('''async () => {
+                      const names = await caches.keys();
+                      return (await Promise.all(names.map(async name =>
+                        (await (await caches.open(name)).keys()).map(request => request.url)))).flat();
+                    }''')
+                    self.assertFalse(any('/api/' in url or '/accounts/' in url for url in cache_urls))
+                    # A complete shell must include the actual manifest launch
+                    # URL, not only deep links to Library and individual books.
+                    self.assertIn(launch_url, cache_urls)
+                    stage = 'browser shutdown'
                     context.close()
-                    browser.close()
-                    if server:
-                        server.shutdown()
-                        server.server_close()
-                        thread.join()
+                    context = None
+                    server.shutdown()
+                    server.server_close()
+                    thread.join()
+                    server = None
+                    stage = 'offline manifest launch after browser restart'
+                    # Neither set_offline(), request interception, nor a live
+                    # old browser process may supply the offline content.
+                    context = engine.launch_persistent_context(profile)
+                    page = context.pages[0] if context.pages else context.new_page()
+                    observe(page)
+                    response = page.goto(launch_url, wait_until='commit')
+                    self.assertTrue(response.from_service_worker)
+                    if import_book:
+                        expect(page.locator('.book-content')).to_be_visible(timeout=30000)
+                        self.assertEqual(page.url, reader_url)
+                        fixture_ruby = page.locator('.book-content ruby').filter(
+                            has_text=re.compile(r'^本ほん$')
+                        )
+                        expect(fixture_ruby).to_have_count(1)
+                        expect(fixture_ruby.locator('rt')).to_have_text('ほん')
+                        # The same image-bearing EPUB that exposed the WebKit
+                        # failure must still contain its real local image.
+                        expect(page.locator('.book-content #safe-image')).to_have_attribute(
+                            'src', re.compile(r'^blob:')
+                        )
+                    else:
+                        expect(page).to_have_url(origin + SCOPE + 'manage')
+                        expect(page.locator('input[type=file][webkitdirectory]')).to_be_attached()
+                    stage = 'offline library and settings'
+                    response = page.goto(origin + SCOPE + 'manage')
+                    self.assertTrue(response.from_service_worker)
+                    if import_book:
+                        expect(page.get_by_role('button', name='Read ' + TITLE, exact=True)).to_be_visible()
+                    page.goto(origin + SCOPE + 'settings#library')
+                    expect(page.get_by_text('App ready for offline reopening', exact=True)).to_be_visible(timeout=15000)
+                    self.assertEqual(errors, [])
+                    stage = 'complete'
+                finally:
+                    variant = 'book' if import_book else 'empty-library'
+                    diagnostics = Path('test-results') / ('offline-' + OPTIONS.browser) / variant
+                    diagnostics.mkdir(parents=True, exist_ok=True)
+                    report = {
+                        'stage': stage, 'url': page.url if page else None, 'page_errors': errors,
+                        'console': console[-80:], 'failed_requests': failed_requests[-80:]
+                    }
+                    try:
+                        if page and not page.is_closed():
+                            report['visible_text'] = page.locator('body').inner_text(timeout=3000)
+                            (diagnostics / 'page.html').write_text(page.content())
+                            page.screenshot(path=str(diagnostics / 'page.png'), full_page=True, timeout=5000)
+                    except Exception as error:
+                        report['diagnostics_error'] = str(error)
+                    finally:
+                        (diagnostics / 'report.json').write_text(json.dumps(report, ensure_ascii=False, indent=2))
+                        if stage != 'complete':
+                            print('OFFLINE FAILURE DIAGNOSTICS: ' + json.dumps(report, ensure_ascii=False), flush=True)
+                        try:
+                            if context:
+                                context.close()
+                        finally:
+                            if server:
+                                server.shutdown()
+                                server.server_close()
+                                thread.join()
 
 
 if __name__ == '__main__':
