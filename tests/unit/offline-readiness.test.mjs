@@ -154,7 +154,7 @@ test('waiting updates do not replace the active version in the readiness check',
 
 test('unsupported, absent, and activating workers are not reported ready', async () => {
   assert.equal((await getOfflineStatus(undefined, scope)).state, 'unsupported');
-  assert.equal((await getOfflineStatus(containerFor(undefined), scope)).state, 'preparing');
+  assert.equal((await getOfflineStatus(containerFor(undefined), scope)).state, 'unknown');
   const reg = registration();
   reg.active.state = 'activating';
   assert.equal((await getOfflineStatus(containerFor(reg), scope)).state, 'preparing');
@@ -277,4 +277,101 @@ test('bad responses, redirects and missing entries are incomplete', async () => 
       cached: 1
     }
   );
+});
+
+test('an idle or failed registration must not promise preparation', async () => {
+  const reg = registration();
+  reg.active = null;
+  assert.equal((await getOfflineStatus(containerFor(reg), scope)).state, 'unknown');
+  reg.installing = { state: 'redundant' };
+  assert.equal((await getOfflineStatus(containerFor(reg), scope)).state, 'unknown');
+  for (const state of ['parsed', 'installing', 'installed']) {
+    reg.installing = { state };
+    assert.equal((await getOfflineStatus(containerFor(reg), scope)).state, 'preparing');
+  }
+  reg.installing = null;
+  reg.waiting = { state: 'installed' };
+  assert.deepEqual(await getOfflineStatus(containerFor(reg), scope), {
+    state: 'preparing',
+    updateWaiting: true
+  });
+});
+
+test('waiting-update information is sampled again when the shell scan completes', async () => {
+  const reg = registration();
+  const post = reg.active.postMessage;
+  reg.active.postMessage = (...args) => {
+    reg.waiting = { state: 'installed' };
+    post(...args);
+  };
+  assert.deepEqual(await getOfflineStatus(containerFor(reg), scope), {
+    state: 'ready',
+    updateWaiting: true
+  });
+});
+
+test('aborted registration discovery never starts a late worker query', async () => {
+  const controller = new AbortController();
+  let discover;
+  let posts = 0;
+  const reg = registration();
+  reg.active.postMessage = () => posts++;
+  const pending = getOfflineStatus(
+    {
+      getRegistration: () =>
+        new Promise((resolve) => {
+          discover = resolve;
+        })
+    },
+    scope,
+    { signal: controller.signal }
+  );
+  controller.abort();
+  assert.equal((await pending).state, 'unknown');
+  discover(reg);
+  await Promise.resolve();
+  assert.equal(posts, 0);
+});
+
+test('inspection bounds response handles and counts the full required manifest', async () => {
+  let inFlight = 0;
+  let maximum = 0;
+  let matches = 0;
+  const storage = {
+    keys: async () => ['shell'],
+    open: async () => ({
+      async match() {
+        inFlight++;
+        maximum = Math.max(maximum, inFlight);
+        await Promise.resolve();
+        matches++;
+        inFlight--;
+        return new Response('app');
+      }
+    })
+  };
+  const urls = new Set(Array.from({ length: 25 }, (_, index) => scope + index));
+  assert.deepEqual(await inspectOfflineShell(storage, 'shell', urls), {
+    state: 'ready',
+    required: 25,
+    cached: 25
+  });
+  assert.equal(matches, 25);
+  assert.ok(maximum <= 8);
+});
+
+test('failed cache enumeration or entry reads cannot certify offline readiness', async () => {
+  const denied = async () => {
+    throw new Error('SecurityError');
+  };
+  for (const storage of [
+    { keys: denied },
+    { keys: async () => ['shell'], open: denied },
+    { keys: async () => ['shell'], open: async () => ({ match: denied }) }
+  ]) {
+    assert.equal(
+      (await inspectOfflineShell(storage, 'shell', new Set([scope]))).state,
+      'unavailable'
+    );
+  }
 });

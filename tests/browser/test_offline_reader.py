@@ -21,7 +21,10 @@ class OfflineReader(unittest.TestCase):
     def test_manifest_launch_without_a_recent_book_reopens_library_offline(self):
         self.run_offline_case(import_book=False)
 
-    def run_offline_case(self, *, import_book):
+    def test_aborted_import_rolls_back_and_a_retry_survives_offline_restart(self):
+        self.run_offline_case(import_book=True, abort_once=True)
+
+    def run_offline_case(self, *, import_book, abort_once=False):
         self.assertTrue((ROOT / 'service-worker.js').is_file(), 'Build the actual Reader first')
         manifest = json.loads((ROOT / 'manifest.webmanifest').read_text())
         server = ThreadingHTTPServer(('127.0.0.1', 0), StaticHandler)
@@ -44,7 +47,9 @@ class OfflineReader(unittest.TestCase):
                 engine = getattr(playwright, OPTIONS.browser)
 
                 def observe(document):
-                    document.on('pageerror', lambda error: errors.append(str(error)))
+                    document.on('pageerror', lambda error: errors.append({
+                        'message': str(error), 'stack': getattr(error, 'stack', None)
+                    }))
                     document.on('console', lambda message: console.append({
                         'type': message.type, 'text': message.text
                     }))
@@ -54,6 +59,22 @@ class OfflineReader(unittest.TestCase):
 
                 try:
                     context = engine.launch_persistent_context(profile)
+                    if abort_once:
+                        # Fault injection at the real native IndexedDB request,
+                        # not a replacement database or mocked network response.
+                        context.add_init_script("""(() => {
+                          const add = IDBObjectStore.prototype.add;
+                          IDBObjectStore.prototype.add = function(...args) {
+                            const request = add.apply(this, args);
+                            if (this.name === 'data' && args[0]?.title === 'Reader browser acceptance') {
+                              IDBObjectStore.prototype.add = add;
+                              window.__readerAbortedDatabase = this.transaction.db;
+                              window.__readerAbortedWrites = 1;
+                              this.transaction.abort();
+                            }
+                            return request;
+                          };
+                        })();""")
                     page = context.pages[0] if context.pages else context.new_page()
                     observe(page)
                     page.goto(origin + SCOPE + 'manage')
@@ -64,6 +85,23 @@ class OfflineReader(unittest.TestCase):
                         page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
                             'name': 'offline.epub', 'mimeType': 'application/epub+zip', 'buffer': epub()
                         })
+                        if abort_once:
+                            stage = 'failed import rollback and retry'
+                            expect(page.get_by_role('button', name='OK', exact=True)).to_be_visible(timeout=15000)
+                            self.assertEqual(page.evaluate('window.__readerAbortedWrites'), 1)
+                            self.assertEqual(page.evaluate("""() => new Promise((resolve, reject) => {
+                              const tx = window.__readerAbortedDatabase.transaction('data');
+                              const count = tx.objectStore('data').count();
+                              count.onerror = () => reject(count.error);
+                              tx.onabort = () => reject(tx.error);
+                              tx.oncomplete = () => resolve(count.result);
+                            })"""), 0)
+                            self.assertEqual(errors, [])
+                            expect(page.get_by_role('button', name='Read ' + TITLE, exact=True)).to_have_count(0)
+                            page.get_by_role('button', name='OK', exact=True).click()
+                            page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
+                                'name': 'offline.epub', 'mimeType': 'application/epub+zip', 'buffer': epub()
+                            })
                         page.get_by_role('button', name='Read ' + TITLE, exact=True).click(timeout=30000)
                         expect(page.locator('.book-content')).to_be_visible(timeout=30000)
                         reader_url = page.url
@@ -130,7 +168,7 @@ class OfflineReader(unittest.TestCase):
                     self.assertEqual(errors, [])
                     stage = 'complete'
                 finally:
-                    variant = 'book' if import_book else 'empty-library'
+                    variant = 'recovered-import' if abort_once else ('book' if import_book else 'empty-library')
                     diagnostics = Path('test-results') / ('offline-' + OPTIONS.browser) / variant
                     diagnostics.mkdir(parents=True, exist_ok=True)
                     report = {

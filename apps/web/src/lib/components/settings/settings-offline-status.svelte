@@ -70,7 +70,8 @@
   </p>
   <p class="mt-2 text-sm text-muted-foreground">
     Offline support is automatic; installing a Home Screen app is optional. Books saved in this
-    browser can be read offline. Remote-only books still need a connection to download.
+    browser can be read offline when their local content is available. Remote-only books still need
+    a connection to download. Browser restrictions can also prevent a book from being saved.
   </p>
   {#if status.updateWaiting}
     <p class="mt-2 text-sm text-muted-foreground">
@@ -86,6 +87,6 @@
   {/if}
   <p class="mt-2 text-xs text-muted-foreground">
     This checks app files, not every book, font, dictionary, or audio file. Browser storage can be
-    cleared; keep backups of important local data.
+    cleared or unavailable in private browsing; keep backups of important local data.
   </p>
 </SettingsItemGroup>

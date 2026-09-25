@@ -17,6 +17,10 @@ SCOPE = '/Reader-Web/'
 OPTIONS = None
 
 
+class FixtureServer(ThreadingHTTPServer):
+    request_queue_size = 128
+
+
 class FixtureHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         server = self.server
@@ -97,8 +101,7 @@ class OfflineWorker(unittest.TestCase):
         cls.playwright.stop()
 
     def setUp(self):
-        self.server = ThreadingHTTPServer(('127.0.0.1', 0), FixtureHandler)
-        self.server.request_queue_size = 128
+        self.server = FixtureServer(('127.0.0.1', 0), FixtureHandler)
         self.server.version = 'v1'
         self.server.requests = []
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -123,8 +126,8 @@ class OfflineWorker(unittest.TestCase):
 
     def install(self):
         self.page.goto(self.origin + SCOPE + 'manage')
-        # wait_for_function treats a Promise as truthy before its resolved
-        # boolean is known. Await real registration/activation, with a deadline.
+        # Await real registration/activation with a bounded polling deadline,
+        # independently of animation frames or document rendering.
         self.page.evaluate('''async scope => {
           const deadline = Date.now() + 10000;
           while (Date.now() < deadline) {
@@ -222,10 +225,34 @@ class OfflineWorker(unittest.TestCase):
         third.close()
         observer.close()
 
+    def test_partial_cache_clear_is_detected_without_repair_or_unrelated_deletion(self):
+        self.install()
+        self.page.evaluate('''async scope => {
+          const sentinel = await caches.open('fixture-user-fonts');
+          await sentinel.put('/userfonts/keep', new Response('keep-local-data'));
+          const name = `manabi-reader:${encodeURIComponent(location.origin + scope)}:shell:v1`;
+          await (await caches.open(name)).delete(location.origin + scope + 'b');
+        }''', SCOPE)
+        requests = len(self.server.requests)
+        self.assertEqual(self.status()['state'], 'incomplete')
+        self.assertEqual(len(self.server.requests), requests, 'Status must not fetch repairs')
+        self.assertEqual(self.page.evaluate('''async scope => {
+          const name = `manabi-reader:${encodeURIComponent(location.origin + scope)}:shell:v1`;
+          return !!await (await caches.open(name)).match(location.origin + scope + 'b');
+        }''', SCOPE), False)
+        self.assertEqual(self.page.evaluate('''async () =>
+          (await (await caches.open('fixture-user-fonts')).match('/userfonts/keep')).text()
+        '''), 'keep-local-data')
+
     def test_failed_required_asset_preserves_old_shell(self):
         self.install()
         self.page.reload()
         self.update('bad', 'redundant')
+        # A failed addAll batch must not leave a partially usable candidate.
+        self.assertEqual(self.page.evaluate('''async scope => {
+          const name = `manabi-reader:${encodeURIComponent(location.origin + scope)}:shell:bad`;
+          return (await (await caches.open(name)).keys()).length;
+        }''', SCOPE), 0)
         self.assertEqual(self.status()['state'], 'ready')
         self.stop_origin()
         response = self.page.reload()

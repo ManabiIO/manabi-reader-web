@@ -241,7 +241,15 @@ export function registerReaderServiceWorker(worker, config) {
     } catch {
       /* Reading online still works when browser storage is unavailable. */
     }
-    const response = await worker.fetch(request);
+    let response;
+    try {
+      response = await worker.fetch(request);
+    } catch {
+      // A face absent from optional storage must fail as a resource, not as
+      // rejected worker work. CSS can use its system fallback. Never cache the
+      // failure or pretend another font is this face; online retries stay valid.
+      return new Response(null, { status: 404, headers: { 'Cache-Control': 'no-store' } });
+    }
     if (cache && response.status === 200 && response.type !== 'opaque' && !response.redirected) {
       try {
         await cache.put(key, response.clone());

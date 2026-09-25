@@ -94,7 +94,8 @@ export function getOfflineStatus(container, scope, { signal, timeoutMs = 3000 } 
         const registration = await container.getRegistration(expectedScope.href);
         if (settled) return;
         if (!registration) {
-          finish('preparing');
+          // Absence can mean a failed/blocked install, not ongoing work.
+          finish('unknown');
           return;
         }
         if (registration.scope !== expectedScope.href) {
@@ -104,7 +105,12 @@ export function getOfflineStatus(container, scope, { signal, timeoutMs = 3000 } 
         updateWaiting = !!registration.waiting;
         const worker = registration.active;
         if (!worker || worker.state !== 'activated') {
-          finish('preparing');
+          const installing = registration.installing?.state;
+          const preparing =
+            worker?.state === 'activating' ||
+            ['parsed', 'installing', 'installed'].includes(installing ?? '') ||
+            registration.waiting?.state === 'installed';
+          finish(preparing ? 'preparing' : 'unknown');
           return;
         }
         if (worker.scriptURL !== new URL('service-worker.js', expectedScope).href) {
@@ -134,6 +140,8 @@ export function getOfflineStatus(container, scope, { signal, timeoutMs = 3000 } 
             finish('unknown');
             return;
           }
+          // Installation may complete during the cache scan.
+          updateWaiting = !!registration.waiting;
           finish(data.state);
         };
         worker.postMessage({ type: OFFLINE_STATUS_REQUEST }, [channel.port2]);

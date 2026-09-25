@@ -5,6 +5,7 @@
  */
 
 import { mergeCompletion } from '$lib/library/completion';
+import { commitTransaction, explainBookStorageError } from './commit-transaction.mjs';
 import type {
   BooksDbAudioBook,
   BooksDbBookData,
@@ -219,50 +220,53 @@ export class DatabaseService {
   ) {
     const db = await this.db;
 
-    let dataId: number;
-    let bookData: BooksDbBookData;
-
     const tx = db.transaction('data', 'readwrite');
-    const { store } = tx;
-    const oldData = await store.index('title').get(data.title);
+    return commitTransaction(tx, async () => {
+      let dataId: number;
+      let bookData: BooksDbBookData;
 
-    if (oldData) {
-      if (removeStorageContext) {
-        oldData.storageSource = undefined;
-      }
+      const { store } = tx;
+      const oldData = await store.index('title').get(data.title);
 
-      if (
-        saveBehavior === ReplicationSaveBehavior.NewOnly &&
-        oldData.lastBookModified &&
-        data.lastBookModified &&
-        oldData.lastBookModified >= data.lastBookModified &&
-        (oldData.lastBookOpen || 0) >= (data.lastBookOpen || 0)
-      ) {
-        bookData = oldData;
-        dataId = oldData.id;
+      if (oldData) {
+        if (removeStorageContext) {
+          oldData.storageSource = undefined;
+        }
+
+        if (
+          saveBehavior === ReplicationSaveBehavior.NewOnly &&
+          oldData.lastBookModified &&
+          data.lastBookModified &&
+          oldData.lastBookModified >= data.lastBookModified &&
+          (oldData.lastBookOpen || 0) >= (data.lastBookOpen || 0)
+        ) {
+          bookData = oldData;
+          dataId = oldData.id;
+        } else {
+          bookData = {
+            ...data,
+            id: oldData.id,
+            ...(skipTimestampFallback
+              ? { lastBookModified: data.lastBookModified, lastBookOpen: data.lastBookOpen }
+              : {
+                  lastBookModified: data.lastBookModified || oldData.lastBookModified,
+                  lastBookOpen: data.lastBookOpen || oldData.lastBookOpen
+                }),
+            ...(removeStorageContext ? { storageSource: undefined } : {})
+          };
+          dataId = await store.put(bookData);
+        }
       } else {
-        bookData = {
-          ...data,
-          id: oldData.id,
-          ...(skipTimestampFallback
-            ? { lastBookModified: data.lastBookModified, lastBookOpen: data.lastBookOpen }
-            : {
-                lastBookModified: data.lastBookModified || oldData.lastBookModified,
-                lastBookOpen: data.lastBookOpen || oldData.lastBookOpen
-              }),
-          ...(removeStorageContext ? { storageSource: undefined } : {})
-        };
-        dataId = await store.put(bookData);
+        // Until https://github.com/jakearchibald/idb/issues/150 resolves
+        const bookDataWithoutKey: Omit<BooksDbBookData, 'id'> = data;
+        dataId = await store.add(bookDataWithoutKey as BooksDbBookData);
+        bookData = { ...data, id: dataId };
       }
-    } else {
-      // Until https://github.com/jakearchibald/idb/issues/150 resolves
-      const bookDataWithoutKey: Omit<BooksDbBookData, 'id'> = data;
-      dataId = await store.add(bookDataWithoutKey as BooksDbBookData);
-      bookData = { ...data, id: dataId };
-    }
-    await tx.done;
 
-    return bookData;
+      return bookData;
+    }).catch((error) => {
+      throw explainBookStorageError(error);
+    });
   }
 
   async deleteData(
@@ -324,10 +328,10 @@ export class DatabaseService {
     const db = await this.db;
 
     const tx = db.transaction('bookmark', 'readwrite');
-    const before = await tx.store.get(bookmarkData.dataId);
-    const key = await tx.store.put(mergeCompletion(before, bookmarkData));
-    await tx.done;
-    return key;
+    return commitTransaction(tx, async () => {
+      const before = await tx.store.get(bookmarkData.dataId);
+      return tx.store.put(mergeCompletion(before, bookmarkData));
+    });
   }
 
   async putAudioBook(audioBook: BooksDbAudioBook) {
