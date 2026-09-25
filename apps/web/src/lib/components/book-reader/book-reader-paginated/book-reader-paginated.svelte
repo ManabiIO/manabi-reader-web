@@ -172,6 +172,7 @@
 
   let disposed = false;
   let renderGeneration = 0;
+  let chapterNavigationGeneration = 0;
 
   const width$ = new Subject<number>();
 
@@ -390,6 +391,7 @@
   onDestroy(() => {
     disposed = true;
     renderGeneration += 1;
+    chapterNavigationGeneration += 1;
     stopFontLayout?.();
     sectionReady$.complete();
     sectionRenderComplete$.complete();
@@ -699,6 +701,7 @@
   });
 
   async function navigateToChapterTarget(target: string | { spineIndex: number; fragment?: string }) {
+    const generation = ++chapterNavigationGeneration;
     const nextSectionIndex =
       typeof target === 'string'
         ? sections.findIndex(
@@ -711,12 +714,22 @@
 
     if (sectionIndex$.getValue() !== nextSectionIndex) {
       const ready = new Promise<void>((resolve) => {
-        sectionReady$.pipe(take(1)).subscribe(() => resolve());
+        sectionRenderComplete$
+          .pipe(
+            filter((index) => index === nextSectionIndex),
+            take(1)
+          )
+          .subscribe(() => resolve());
       });
       sectionIndex$.next(nextSectionIndex);
       concretePageManager?.scrollTo(0, true);
       await ready;
-      if (disposed || sectionIndex$.getValue() !== nextSectionIndex) return;
+      if (
+        disposed ||
+        generation !== chapterNavigationGeneration ||
+        sectionIndex$.getValue() !== nextSectionIndex
+      )
+        return;
     }
 
     const fragment = typeof target === 'string' ? target : target.fragment;
