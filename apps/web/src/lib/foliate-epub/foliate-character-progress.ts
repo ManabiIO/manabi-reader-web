@@ -8,24 +8,8 @@ import { binarySearchNodeInRange } from '$lib/functions/binary-search';
 import { getCharacterCount } from '$lib/functions/get-character-count';
 import { getParagraphNodes } from '$lib/components/book-reader/get-paragraph-nodes';
 
-export function sectionIndexForCharacterCount(
-  sectionEnds: readonly number[],
-  characterCount: number
-): number {
-  if (!sectionEnds.length) return -1;
-  const target = Math.max(0, characterCount);
-  const index = sectionEnds.findIndex((end) => target < end);
-  return index < 0 ? sectionEnds.length - 1 : index;
-}
-
-export function exploredCountAtParagraph(
-  sectionStart: number,
-  accumulatedParagraphCounts: readonly number[],
-  paragraphIndex: number
-): number {
-  if (paragraphIndex <= 0) return sectionStart;
-  return sectionStart + (accumulatedParagraphCounts[paragraphIndex - 1] ?? 0);
-}
+export { exploredCountAtParagraph, sectionIndexForCharacterCount } from './foliate-character-progress-core';
+import { exploredCountAtParagraph, sectionIndexForCharacterCount } from './foliate-character-progress-core';
 
 /**
  * Preserve the existing TTU paragraph-character progress contract while a
