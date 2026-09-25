@@ -1,3 +1,6 @@
 pnpm-lock.yaml
 build/
 .svelte-kit/
+
+# Keep vendored Foliate.js source byte-reviewable against upstream.
+apps/web/src/lib/foliate/*.js
