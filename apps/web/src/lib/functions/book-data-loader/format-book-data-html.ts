@@ -11,11 +11,71 @@ import { Observable } from 'rxjs';
 import { BaseStorageHandler } from '$lib/data/storage/handler/base-handler';
 import buildDummyBookImage from '$lib/functions/file-loaders/utils/build-dummy-book-image';
 import { isElementGaiji } from '$lib/functions/is-element-gaiji';
-import { map } from 'rxjs/operators';
 import {
-  readerImageGalleryPictures$,
-  type ReaderImageGalleryPicture
+  readerImageGalleryPictures$
 } from '$lib/components/book-reader/book-reader-image-gallery/book-reader-image-gallery';
+import { BookResourceLease } from '$lib/preprocessing/book-resources.mjs';
+
+let galleryOwner: object | undefined;
+
+/**
+ * The stable source and its disposable presentation are separate operations.
+ * Preprocessors consume sourceHtml, never HTML returned by render(). Source
+ * sanitization cannot opt itself into application-owned annotation markup.
+ */
+export function createBookPresentationSource(bookData: BooksDbBookData, document: Document) {
+  const resources = new BookResourceLease({
+    blobs: bookData.blobs,
+    placeholderFor: buildDummyBookImage,
+    inferMimeType: (key) => BaseStorageHandler.getImageMimeTypeFromExtension(key),
+    sanitizeSvg: (source) => sanitizeBookHtml(source, { document, svgOnly: true })
+  });
+  try {
+    const sourceHtml = sanitizeBookHtml(bookData.elementHtml, {
+      document,
+      resolveImage: (source) => resources.resolveSourceImage(source)
+    });
+    const template = document.createElement('template');
+    template.innerHTML = sourceHtml;
+    const sourceImages = Array.from(template.content.querySelectorAll('img, image'))
+      .map((image) =>
+        image.tagName.toLowerCase() === 'img'
+          ? image.getAttribute('src')
+          : (image.getAttribute('href') ?? image.getAttribute('xlink:href'))
+      )
+      .filter((source): source is string => source !== null);
+    return Object.freeze({
+      sourceHtml,
+      prepare: (options?: { signal?: AbortSignal }) => resources.prepare(options),
+      render(html: string, blurMode: BlurMode, annotations = false) {
+        const element = document.createElement('div');
+        // Reuse our already sanitized immutable source on the identity path.
+        // Transformed/cache HTML must cross the same security boundary again.
+        element.innerHTML =
+          html === sourceHtml && !annotations
+            ? sourceHtml
+            : sanitizeBookHtml(html, {
+                document,
+                allowReaderAnnotations: annotations,
+                resolveImage: (source) => resources.resolveSourceImage(source)
+              });
+        formatBookPresentation(element, document, blurMode);
+        return sanitizeBookHtml(element.innerHTML, {
+          document,
+          allowReaderAnnotations: annotations,
+          resolveImage: (source) => resources.resolveRenderImage(source)
+        });
+      },
+      pictures: (isPaginated: boolean) => resources.pictures(sourceImages, isPaginated),
+      dispose: () => resources.dispose()
+    });
+  } catch (error) {
+    resources.dispose();
+    throw error;
+  }
+}
+
+export type BookPresentationSource = ReturnType<typeof createBookPresentationSource>;
 
 export default function formatBookDataHtml(
   bookData: BooksDbBookData,
@@ -23,249 +83,67 @@ export default function formatBookDataHtml(
   isPaginated: boolean,
   blurMode: BlurMode
 ) {
-  return getHtmlWithImageSource(bookData, document, isPaginated).pipe(
-    map(({ html, imageUrls }) => {
-      const element = document.createElement('div');
-      element.innerHTML = html;
-
-      addImageContainerClass(element);
-      // combineImagePairs(element);
-      removeSvgDimensions(element);
-      addSpoilerTags(element, document, blurMode);
-      removeOldBrTagSolution(element);
-
-      return sanitizeBookHtml(element.innerHTML, { document, imageUrls });
-    })
-  );
-}
-
-function getHtmlWithImageSource(
-  bookData: BooksDbBookData,
-  document: Document,
-  isPaginated: boolean
-) {
-  return new Observable<{ html: string; imageUrls: ReadonlySet<string> }>((subscriber) => {
-    const objectUrls: string[] = [];
-    let cancelled = false;
-    void (async () => {
-      const replacements = new Map<string, string>();
-      const pictures: Array<ReaderImageGalleryPicture & { index: number }> = [];
-      for (const [key, original] of Object.entries(bookData.blobs)) {
-        if (cancelled) return;
-        if (!(original instanceof Blob) || original.size > 64 * 1024 * 1024)
-          throw new Error('Book image exceeds the size limit');
-        const mime = (original.type || BaseStorageHandler.getImageMimeTypeFromExtension(key) || '')
-          .split(';', 1)[0]
-          .toLowerCase();
-        let value = original;
-        if (mime === 'image/svg+xml') {
-          if (value.size > 16 * 1024 * 1024) throw new Error('Book SVG exceeds the size limit');
-          value = new Blob([sanitizeBookHtml(await value.text(), { document, svgOnly: true })], {
-            type: mime
-          });
-        } else if (
-          ![
-            'image/png',
-            'image/jpeg',
-            'image/gif',
-            'image/webp',
-            'image/bmp',
-            'image/avif'
-          ].includes(mime)
-        ) {
-          continue;
-        } else if (!original.type || original.type !== mime) {
-          value = new Blob([original], { type: mime });
-        }
-        if (cancelled) return;
-        const url = URL.createObjectURL(value);
-        objectUrls.push(url);
-        const placeholder = buildDummyBookImage(key);
-        replacements.set(placeholder, url);
-        replacements.set(`ttu:${key}`, url);
-        pictures.push({
-          url,
-          unspoilered: !isPaginated,
-          index: bookData.elementHtml.indexOf(placeholder)
-        });
-      }
-      if (cancelled) return;
-      const imageUrls = new Set(objectUrls);
-      const html = sanitizeBookHtml(bookData.elementHtml, {
-        document,
-        resolveImage: (source) => replacements.get(source)
+  return new Observable<string>((subscriber) => {
+    const source = createBookPresentationSource(bookData, document);
+    const controller = new AbortController();
+    const owner = {};
+    void source
+      .prepare({ signal: controller.signal })
+      .then(() => {
+        controller.signal.throwIfAborted();
+        const html = source.render(source.sourceHtml, blurMode);
+        subscriber.next(html);
+        // next() may synchronously replace this subscription/book. Never publish
+        // the old gallery into its successor, even when preparation just finished.
+        if (subscriber.closed || controller.signal.aborted) return;
+        galleryOwner = owner;
+        readerImageGalleryPictures$.next(source.pictures(isPaginated));
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted && !subscriber.closed) subscriber.error(error);
       });
-      subscriber.next({ html, imageUrls });
-      if (!cancelled && !subscriber.closed) {
-        readerImageGalleryPictures$.next(
-          pictures
-            .sort((a, b) => a.index - b.index)
-            .map(({ url, unspoilered }) => ({ url, unspoilered }))
-        );
-      }
-    })().catch((error) => {
-      if (!cancelled) subscriber.error(error);
-    });
     return () => {
-      cancelled = true;
-      objectUrls.forEach((url) => URL.revokeObjectURL(url));
+      controller.abort();
+      source.dispose();
+      if (galleryOwner === owner) {
+        galleryOwner = undefined;
+        readerImageGalleryPictures$.next([]);
+      }
     };
   });
 }
 
-function addImageContainerClass(el: HTMLElement) {
-  Array.from(el.getElementsByTagName('img'))
-    .map((imgEl) => ({ parentEl: imgEl.parentElement, isGaiji: isElementGaiji(imgEl) }))
-    .forEach(({ parentEl, isGaiji }) => {
-      parentEl?.classList.add('ttu-img-container');
-
-      if (!isGaiji) {
-        parentEl?.classList.add('ttu-illustration-container');
-      }
-    });
-}
-
-function removeSvgDimensions(el: HTMLElement) {
-  Array.from(el.getElementsByTagName('svg')).forEach((tag) => {
-    tag.removeAttribute('width');
-    tag.removeAttribute('height');
-  });
-}
-
-function addSpoilerTags(el: HTMLElement, document: Document, blurMode: BlurMode) {
-  const getChildNodesAfterTableOfContents = () => {
-    let childNodes = [...el.children];
-    const afterContentsDivIndex =
-      childNodes.findIndex((childNode) => childNode.getElementsByTagName('a').length > 1) + 1;
-    if (afterContentsDivIndex > 0 && afterContentsDivIndex < childNodes.length) {
-      childNodes = childNodes.slice(afterContentsDivIndex);
-    }
-    return childNodes;
-  };
-
-  const createWrapper = (tag: Element, childNode: Element) => {
-    const imgWrapper = document.createElement('span');
-    const parentElement = tag.parentElement || childNode;
-
-    imgWrapper.classList.add('ttu-img-parent');
-    imgWrapper.toggleAttribute('data-ttu-spoiler-img');
-
-    parentElement.insertBefore(imgWrapper, tag);
-    imgWrapper.appendChild(tag);
-  };
-
-  (blurMode === BlurMode.AFTER_TOC
-    ? getChildNodesAfterTableOfContents()
-    : [...el.children]
-  ).forEach((childNode) => {
-    Array.from(childNode.getElementsByTagName('img'))
-      .filter((tag) => !isElementGaiji(tag))
-      .forEach((tag) => createWrapper(tag, childNode));
-
-    Array.from(childNode.getElementsByTagName('svg'))
-      .filter((tag) => tag.getElementsByTagName('image').length)
-      .forEach((tag) => createWrapper(tag, childNode));
-  });
-}
-
-function removeOldBrTagSolution(el: HTMLElement) {
-  el.querySelectorAll('.placeholder-br').forEach((placeholderEl) => {
-    placeholderEl.parentElement!.removeChild(placeholderEl);
-  });
-}
-
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function combineImagePairs(el: HTMLElement) {
-  const imagePairs: [Element, Element][] = [];
-
-  let startingIndex = 1;
-
-  if (el.children.item(0)?.id.startsWith('ttu-')) {
-    // Skip first page (index 0) as it's probably cover
-    startingIndex = 2;
+/** Presentation-only transforms; never part of a semantic chapter cache. */
+function formatBookPresentation(el: HTMLElement, document: Document, blurMode: BlurMode) {
+  for (const img of Array.from(el.getElementsByTagName('img'))) {
+    img.parentElement?.classList.add('ttu-img-container');
+    if (!isElementGaiji(img)) img.parentElement?.classList.add('ttu-illustration-container');
   }
-
-  for (let i = startingIndex; i < el.children.length; i += 2) {
-    const leftChild = el.children.item(i - 1)!;
-    const rightChild = el.children.item(i)!;
-
-    if (
-      hasNoText(leftChild) &&
-      hasNoText(rightChild) &&
-      hasSingleImage(leftChild) &&
-      hasSingleImage(rightChild)
-    ) {
-      imagePairs.push([leftChild, rightChild]);
+  for (const svg of Array.from(el.getElementsByTagName('svg'))) {
+    svg.removeAttribute('width');
+    svg.removeAttribute('height');
+  }
+  let children = [...el.children];
+  if (blurMode === BlurMode.AFTER_TOC) {
+    const start = children.findIndex((child) => child.getElementsByTagName('a').length > 1) + 1;
+    if (start > 0 && start < children.length) children = children.slice(start);
+  }
+  for (const child of children) {
+    const images = [
+      ...Array.from(child.getElementsByTagName('img')).filter((img) => !isElementGaiji(img)),
+      ...Array.from(child.getElementsByTagName('svg')).filter(
+        (svg) => svg.getElementsByTagName('image').length > 0
+      )
+    ];
+    for (const image of images) {
+      const wrapper = document.createElement('span');
+      wrapper.classList.add('ttu-img-parent');
+      wrapper.toggleAttribute('data-ttu-spoiler-img');
+      (image.parentElement ?? child).insertBefore(wrapper, image);
+      wrapper.appendChild(image);
     }
   }
-
-  if (
-    imagePairs.some(([leftPair, rightPair]) => {
-      const leftImages = leftPair.querySelectorAll('image');
-      const rightImages = rightPair.querySelectorAll('image');
-
-      if (leftImages.length !== 1 || rightImages.length !== 1) {
-        // Not supported
-        return true;
-      }
-
-      if (!isImagePortrait(leftImages[0]) || !isImagePortrait(rightImages[0])) {
-        return true;
-      }
-
-      return false;
-    })
-  ) {
-    return;
+  for (const placeholder of Array.from(el.querySelectorAll('.placeholder-br'))) {
+    placeholder.remove();
   }
-
-  imagePairs.forEach(([leftPair, rightPair]) => {
-    el.removeChild(rightPair);
-
-    leftPair.classList.add('grouped-image');
-
-    const images = extractImageChildren(leftPair).concat(extractImageChildren(rightPair));
-
-    clearChildren(leftPair);
-
-    images.forEach((image) => leftPair.appendChild(image));
-  });
-}
-
-function hasNoText(el: Element) {
-  return typeof el.textContent === 'string' ? el.textContent.trim().length === 0 : !el.textContent;
-}
-
-function getImageChildren(el: Element) {
-  const imageChilds = el.querySelectorAll('svg');
-  return imageChilds;
-}
-
-function hasSingleImage(el: Element) {
-  return getImageChildren(el).length === 1;
-}
-
-function extractImageChildren(el: Element) {
-  const imageChildren = getImageChildren(el);
-  const result: Element[] = [];
-  imageChildren.forEach((child) => {
-    if (child.parentNode) {
-      child.parentNode.removeChild(child);
-      result.push(child);
-    }
-  });
-  return result;
-}
-
-function clearChildren(el: Element) {
-  Array.from(el.children).forEach((child) => {
-    if (child.parentNode) {
-      child.parentNode.removeChild(child);
-    }
-  });
-  return el;
-}
-
-function isImagePortrait(el: SVGImageElement) {
-  return el.height.baseVal.value > el.width.baseVal.value;
 }
