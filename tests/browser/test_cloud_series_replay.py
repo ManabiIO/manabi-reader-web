@@ -288,7 +288,8 @@ class CloudSeriesReceiptReplay(LibraryBase):
 
     def test_closed_dialog_stops_polling_and_reopens_completed_worker_state(self):
         dialog, before = self.open_reconciling_plan()
-        dialog.get_by_role('button', name='Close', exact=True).click()
+        dialog.locator('[data-slot="dialog-footer"]').get_by_role(
+            'button', name='Close', exact=True).click()
         expect(dialog).not_to_be_visible()
         # Drain the already admitted status response; crossing more than two
         # actual timer intervals must not admit further GETs while closed.
