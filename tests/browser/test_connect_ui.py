@@ -147,6 +147,18 @@ class ConnectControlsBrowser(previous.AppleControlsBrowser):
         expect(panel).to_have_count(0)
         expect(trigger).to_be_focused()
 
+    def settle_reader_appearance(self, panel):
+        # Capture the resulting palette, not the light/dark transition halfway
+        # through. Keep real animations enabled and await their actual completion.
+        panel.evaluate('''async panel => {
+          await new Promise(resolve => requestAnimationFrame(resolve));
+          await Promise.all(panel.getAnimations({subtree:true})
+            .filter(animation => animation.effect?.getComputedTiming().iterations !== Infinity)
+            .map(animation => animation.finished.catch(() => {})));
+          panel.scrollTop = 0;
+        }''')
+        self.frames()
+
     def test_reader_appearance_state_controls_and_themes_remain_reachable_when_enlarged(self):
         self.open_reader()
         reveal = self.page.get_by_role('button', name='Show reading controls', exact=True)
@@ -156,6 +168,7 @@ class ConnectControlsBrowser(previous.AppleControlsBrowser):
         panel = self.page.get_by_role('dialog', name='Themes & Settings', exact=True)
         self.page.set_viewport_size({'width': 320, 'height': 568})
         self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        self.settle_reader_appearance(panel)
         self.assert_no_horizontal_overflow(panel)
         for label in ('system', 'light', 'dark'):
             control = panel.get_by_role('button', name=label, exact=True)
@@ -165,6 +178,13 @@ class ConnectControlsBrowser(previous.AppleControlsBrowser):
         expect(self.page.locator('html')).to_have_attribute('data-appearance', 'dark')
         expect(self.page.locator('html')).to_have_attribute('data-theme', 'ecru-theme')
         panel.get_by_label('Reading line spacing', exact=True).select_option('1.9')
+        self.settle_reader_appearance(panel)
+        self.assert_no_horizontal_overflow(panel)
+        bounds = panel.bounding_box()
+        self.assertGreaterEqual(bounds['x'], -1)
+        self.assertLessEqual(bounds['x'] + bounds['width'], 321)
+        self.assertGreaterEqual(bounds['y'], -1)
+        self.assertLessEqual(bounds['y'] + bounds['height'], 569)
         self.capture('connect-reader-appearance-enlarged')
         panel.get_by_role('button', name='Close reading appearance', exact=True).click()
         expect(panel).to_have_count(0)
