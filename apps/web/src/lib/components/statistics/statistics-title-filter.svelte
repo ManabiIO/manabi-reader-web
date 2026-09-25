@@ -1,4 +1,5 @@
 <script lang="ts">
+  import * as Sheet from '$lib/components/ui/sheet';
   import faCalendar from '@lucide/svelte/icons/calendar';
   import faCalendarXmark from '@lucide/svelte/icons/calendar-x';
   import faChevronLeft from '@lucide/svelte/icons/chevron-left';
@@ -171,7 +172,7 @@
 
 {$resizeHandler$ ?? ''}
 <div class="flex min-h-16 items-center justify-between gap-3 px-4 pt-4">
-  <h2 class="min-w-0 text-xl font-semibold">Filter books</h2>
+  <Sheet.Title class="min-w-0 text-xl font-semibold">Filter books</Sheet.Title>
   <CloseButton aria-label="Close title filter" onclick={() => dispatch('close')} />
 </div>
 <div class="flex min-h-0 flex-1 flex-col px-4">

@@ -103,7 +103,7 @@ jobs:
             APPEARANCE_BROWSER=$engine python tests/browser/test_rhea_ui.py 2>&1 | tee artifacts/appearance/$engine/results.log
             result=${PIPESTATUS[0]}
             if [ "$result" -ne 0 ]; then status=1; fi
-            LIBRARY_BROWSER=$engine PICKS_BROWSER=$engine python tests/browser/test_resume_refinement.py 2>&1 | tee artifacts/appearance/$engine/modal-controls.log
+            LIBRARY_BROWSER=$engine PICKS_BROWSER=$engine python tests/browser/test_apple_controls.py 2>&1 | tee artifacts/appearance/$engine/modal-controls.log
             result=${PIPESTATUS[0]}
             if [ "$result" -ne 0 ]; then status=1; fi
             if [ -d test-results ]; then mv test-results artifacts/appearance/$engine/screenshots; fi

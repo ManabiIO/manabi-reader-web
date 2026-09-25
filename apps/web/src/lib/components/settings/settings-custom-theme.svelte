@@ -28,7 +28,7 @@
   );
   let themeName = '';
   let nameError = '';
-  let themeNameElm: HTMLInputElement;
+  let themeNameElm: HTMLInputElement | null = null;
 
   $: themeStyle = `color: ${customTheme.fontColor.rgbaExpression}; background-color: ${customTheme.backgroundColor.rgbaExpression}`;
 
@@ -85,13 +85,13 @@
 
   function clearNameError() {
     nameError = '';
-    themeNameElm.setCustomValidity('');
+    themeNameElm?.setCustomValidity('');
   }
 
   function invalidName(message: string) {
     nameError = message;
-    themeNameElm.setCustomValidity(message);
-    themeNameElm.focus();
+    themeNameElm?.setCustomValidity(message);
+    themeNameElm?.focus();
   }
 
   function handleSave() {
