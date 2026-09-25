@@ -1,4 +1,9 @@
-/** @license BSD-3-Clause — Manabi media integration. */
+/**
+ * @license BSD-3-Clause
+ * Copyright (c) 2026, ッツ Reader Authors
+ * All rights reserved.
+ */
+
 import type { Scope } from './contracts.js';
 
 export interface ProfileEvent<Connection> {
@@ -31,27 +36,31 @@ export class ProfileLifetime<Connection> {
     // Revoke network authority immediately, before any asynchronous profile reads.
     this.workspace?.setConnection(undefined);
     if (event.status === 'loading') return this.chain;
-    this.chain = this.chain.then(async () => {
-      if (this.stopped || epoch !== this.epoch) return;
-      const userId = event.userId ?? (event.status === 'offline' ? await this.offlineProfile() : null);
-      if (this.stopped || epoch !== this.epoch) return;
-      const scope: Scope = userId ? `account:${userId}` : 'guest';
-      // Offline display identity is never used to create an authenticated connection.
-      const connection = event.status === 'available' && event.userId ? event.connection : undefined;
-      if (scope === this.scope && this.workspace) {
-        this.workspace.setConnection(connection);
-        return;
-      }
-      const retired = this.workspace;
-      this.workspace = undefined;
-      this.scope = undefined;
-      await retired?.dispose();
-      if (this.stopped || epoch !== this.epoch) return;
-      this.workspace = this.mount(scope, connection);
-      this.scope = scope;
-    }).catch(error => {
-      if (!this.stopped && epoch === this.epoch) this.onError(error);
-    });
+    this.chain = this.chain
+      .then(async () => {
+        if (this.stopped || epoch !== this.epoch) return;
+        const userId =
+          event.userId ?? (event.status === 'offline' ? await this.offlineProfile() : null);
+        if (this.stopped || epoch !== this.epoch) return;
+        const scope: Scope = userId ? `account:${userId}` : 'guest';
+        // Offline display identity is never used to create an authenticated connection.
+        const connection =
+          event.status === 'available' && event.userId ? event.connection : undefined;
+        if (scope === this.scope && this.workspace) {
+          this.workspace.setConnection(connection);
+          return;
+        }
+        const retired = this.workspace;
+        this.workspace = undefined;
+        this.scope = undefined;
+        await retired?.dispose();
+        if (this.stopped || epoch !== this.epoch) return;
+        this.workspace = this.mount(scope, connection);
+        this.scope = scope;
+      })
+      .catch((error) => {
+        if (!this.stopped && epoch === this.epoch) this.onError(error);
+      });
     return this.chain;
   }
 

@@ -1,4 +1,9 @@
-/** @license BSD-3-Clause — Manabi media integration. */
+/**
+ * @license BSD-3-Clause
+ * Copyright (c) 2026, ッツ Reader Authors
+ * All rights reserved.
+ */
+
 import { ALL_FORMATS, Input, BlobSource, CustomSource, AudioBufferSink } from 'mediabunny';
 import type { Bunny, TrackDisposition } from '../media/pipeline';
 import { streamedRange } from '../media/sources';
@@ -31,13 +36,15 @@ export const mediaRuntime: Bunny = {
             // Mediabunny otherwise reports prefetch failures as unhandled rejections.
             // Keep the first latent source failure and surface it through the next
             // foreground operation owned by this pipeline.
-            handleUnhandledError: error => { if (backgroundError === undefined) backgroundError = error; }
+            handleUnhandledError: (error) => {
+              if (backgroundError === undefined) backgroundError = error;
+            }
           })
     });
     return {
       async getAudioTracks() {
         const tracks = await guarded(() => input.getAudioTracks());
-        return tracks.map(track => ({
+        return tracks.map((track) => ({
           id: track.id,
           getName: () => guarded(() => track.getName()),
           getLanguageCode: () => guarded(() => track.getLanguageCode()),

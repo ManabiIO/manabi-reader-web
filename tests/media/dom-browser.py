@@ -28,7 +28,7 @@ def main():
         browser=p.chromium.launch(executable_path=args.chromium,headless=True,args=['--no-sandbox'])
         page=browser.new_page(viewport={'width':1280,'height':900})
         page.set_default_timeout(5000)
-        page.set_content('<!doctype html><meta charset="utf-8"><style>body{margin:0;background:#f5f8f8}'+(build/'media.css').read_text()+'</style><main class="manabi-media" id="root"></main>')
+        page.set_content('<!doctype html><meta charset="utf-8"><style>body{margin:0;background:var(--background,#f5f8f8)}'+(build/'media.css').read_text()+'</style><main class="manabi-media" id="root"></main>')
         page.evaluate('''async ({playerURL,sourceURL,fixture}) => {
             const {VideoPlayer}=await import(playerURL), {localSource}=await import(sourceURL);
             const bytes=Uint8Array.from(atob(fixture),c=>c.charCodeAt(0));
@@ -376,6 +376,18 @@ def main():
         def dark_layout():
             page.evaluate("document.documentElement.style.cssText='--background:#151719;--foreground:#f4f4f4;--muted:#25292c;--muted-foreground:#b3b7bc;--border:#43484d;--card:#1c2024;--primary:#8ab4f8;--primary-foreground:#10151d'")
             screenshot(1280,900,'player-dark.png')
+            assert page.evaluate('''() => {
+                const row=document.querySelector('.transcript-cue.active');
+                const color=getComputedStyle(row).color, background=getComputedStyle(row).backgroundColor;
+                const luminance=text=>{
+                    const values=text.match(/[\d.]+/g).slice(0,3).map(Number).map(v=>{
+                        v/=255; return v<=.04045?v/12.92:Math.pow((v+.055)/1.055,2.4);
+                    });
+                    return values[0]*.2126+values[1]*.7152+values[2]*.0722;
+                };
+                const a=luminance(color),b=luminance(background);
+                return (Math.max(a,b)+.05)/(Math.min(a,b)+.05)>=4.5;
+            }''')
             page.evaluate("document.documentElement.style.cssText=''")
         case('dark appearance inherits Reader tokens without unreadable transcript controls',dark_layout)
         case('final desktop learning layout',lambda:screenshot(1280,900,'player-desktop.png'))

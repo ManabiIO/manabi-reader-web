@@ -29,7 +29,7 @@
 }
 .manabi-media button { cursor: pointer; white-space: normal; overflow-wrap: anywhere; }
 .manabi-media button:disabled { opacity: .48; cursor: default; }
-.manabi-media button:hover:not(:disabled) { background: var(--accent, #e6efee); }
+.manabi-media button:hover:not(:disabled) { background: var(--accent, var(--media-muted)); }
 .manabi-media .media-primary-action { border-radius: 999px; background: var(--media-accent); border-color: transparent; color: var(--primary-foreground, #fff); font-weight: 650; }
 .manabi-media .media-primary-action:hover:not(:disabled) { background: var(--media-accent); filter: brightness(.95); }
 .manabi-media :focus-visible { outline: 3px solid var(--ring, #147d90); outline-offset: 3px; }
@@ -91,7 +91,7 @@
 .transcript-text { min-width: 0; overflow-wrap: anywhere; }
 .transcript-speaker { display: block; margin-bottom: 4px; font-size: 11px; font-weight: 600; color: var(--media-secondary); line-height: 1.5; }
 .transcript-cue .transcript-translation { grid-column: 2; font-size: .9em; color: var(--media-secondary); }
-.manabi-media .transcript-cue.active { background: var(--accent, #e0f0ed); box-shadow: inset 3px 0 var(--media-accent); }
+.manabi-media .transcript-cue.active { background: var(--accent, var(--media-muted)); box-shadow: inset 3px 0 var(--media-accent); }
 .video-study-controls { display: flex; align-items: center; gap: 10px 18px; flex-wrap: wrap; margin-top: 12px; }
 .cue-navigation { display: inline-flex; padding: 3px; gap: 2px; border: 1px solid var(--media-border); border-radius: 14px; background: var(--media-muted); }
 .cue-navigation button { background: transparent; border: none; font-size: 13px; padding: 8px 12px; border-radius: 10px; }
