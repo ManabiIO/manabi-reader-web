@@ -77,9 +77,9 @@ function rubyTagListener(contentEl: HTMLElement, furiganaStyle: FuriganaStyle) {
 }
 
 function spoilerImageListener(contentEl: HTMLElement) {
-    const document = contentEl.ownerDocument;
-    const elements = Array.from(contentEl.querySelectorAll('[data-ttu-spoiler-img]'));
-    const obs$ = elements.map((el) => {
+  const document = contentEl.ownerDocument;
+  const elements = Array.from(contentEl.querySelectorAll('[data-ttu-spoiler-img]'));
+  const obs$ = elements.map((el) => {
       // Rebinding the same content after a font reflow must not append a
       // second label. The previous stream's listeners have been unsubscribed.
       const spoilerLabelEl =
@@ -105,9 +105,8 @@ function spoilerImageListener(contentEl: HTMLElement) {
           toggleImageGalleryPictureSpoiler(imageElement, true);
         })
       );
-    });
-    return merge(...obs$);
-  };
+  });
+  return merge(...obs$);
 }
 
 function openImageInNewTab(
