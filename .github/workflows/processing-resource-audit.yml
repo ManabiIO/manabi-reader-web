@@ -1,0 +1,88 @@
+name: Hosted processing resource audit
+# Temporary, read-only data inspection for this integration branch. No private
+# engine source, tokens or dictionary data are uploaded or linked into this repo.
+on:
+  push:
+    branches: [codex/manabi-web-preprocessing-r3]
+    paths: ['.github/workflows/processing-resource-audit.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    if: github.repository == 'ManabiIO/manabi-reader-web'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24.21.0
+      - name: Retrieve bounded public archive without credentials
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import {writeFileSync} from 'node:fs';
+          import {brotliDecompressSync} from 'node:zlib';
+          import {createHash} from 'node:crypto';
+          const url = 'https://manabi.io/media/dictionaries/yomitan/JMdict_skeleton.zip.br';
+          const response = await fetch(url, {redirect:'error', signal:AbortSignal.timeout(120000)});
+          console.log(JSON.stringify({source:url,status:response.status,encoding:response.headers.get('content-encoding'),etag:response.headers.get('etag'),lastModified:response.headers.get('last-modified')}));
+          if (!response.ok || !response.body) throw new Error('Hosted skeleton is unavailable');
+          const chunks=[]; let total=0;
+          for await (const chunk of response.body) {
+            total+=chunk.byteLength;
+            if(total>128*1024*1024) throw new Error('Transfer budget exceeded');
+            chunks.push(Buffer.from(chunk));
+          }
+          const transferred=Buffer.concat(chunks);
+          const isZip=transferred.subarray(0,4).equals(Buffer.from([0x50,0x4b,3,4]));
+          const zip=isZip?transferred:brotliDecompressSync(transferred,{maxOutputLength:256*1024*1024});
+          if(zip.length>256*1024*1024 || !zip.subarray(0,4).equals(Buffer.from([0x50,0x4b,3,4]))) throw new Error('Invalid decoded ZIP');
+          const metadata={decodedZipBytes:zip.length,transferBytes:total,httpDecodedZip:isZip,decodedZipSha256:createHash('sha256').update(zip).digest('hex')};
+          writeFileSync(process.env.RUNNER_TEMP+'/skeleton.zip',zip);
+          writeFileSync(process.env.RUNNER_TEMP+'/skeleton-metadata.json',JSON.stringify(metadata));
+          console.log(JSON.stringify(metadata));
+          JS
+      - name: Inspect real index and term banks without publishing dictionary contents
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os,re,zipfile
+          root=os.environ['RUNNER_TEMP']
+          summary=json.load(open(root+'/skeleton-metadata.json'))
+          with zipfile.ZipFile(root+'/skeleton.zip') as archive:
+              entries=archive.infolist()
+              names=[entry.filename for entry in entries]
+              if len(names)!=len(set(names)) or len(names)>100000: raise ValueError('Duplicate/excessive entries')
+              if sum(e.file_size for e in entries)>1024*1024*1024: raise ValueError('Archive expansion budget exceeded')
+              index_info=archive.getinfo('index.json')
+              if index_info.file_size>1024*1024: raise ValueError('Oversized dictionary index')
+              index=json.loads(archive.read('index.json'))
+              summary['index']={k:index.get(k) for k in ['title','revision','format','sequenced']}
+              print(json.dumps(summary,ensure_ascii=False))
+              if index.get('title')!='JMdict Skeleton' or index.get('format')!=3: raise ValueError('Unexpected analysis dictionary identity')
+              banks=sorted((int(m.group(1)),n) for n in names if (m:=re.fullmatch(r'term_bank_([1-9][0-9]*)\.json',n)))
+              if not banks or [n for n,_ in banks]!=list(range(1,len(banks)+1)): raise ValueError('Non-contiguous term banks')
+              rows=empty_glossaries=invalid_sequences=0
+              sequence_min=sequence_max=None
+              lengths={}
+              for _,name in banks:
+                  info=archive.getinfo(name)
+                  if info.file_size>32*1024*1024: raise ValueError('Term bank exceeds per-bank budget')
+                  bank=json.loads(archive.read(name))
+                  if not isinstance(bank,list): raise ValueError('Invalid term bank')
+                  for row in bank:
+                      if not isinstance(row,list): raise ValueError('Invalid term record')
+                      lengths[str(len(row))]=lengths.get(str(len(row)),0)+1
+                      rows+=1
+                      if len(row)!=8: raise ValueError('Unexpected term tuple shape')
+                      if row[5]==[]: empty_glossaries+=1
+                      seq=row[6]
+                      if isinstance(seq,bool) or not isinstance(seq,int) or seq<1 or seq>9007199254740991:
+                          invalid_sequences+=1
+                      else:
+                          sequence_min=seq if sequence_min is None else min(sequence_min,seq)
+                          sequence_max=seq if sequence_max is None else max(sequence_max,seq)
+              summary.update(entries=len(entries),termBanks=len(banks),termRows=rows,emptyGlossaries=empty_glossaries,invalidSequences=invalid_sequences,sequenceMin=sequence_min,sequenceMax=sequence_max,tupleLengths=lengths)
+              print('RESOURCE_AUDIT_RESULT='+json.dumps(summary,ensure_ascii=False,sort_keys=True))
+              if invalid_sequences: raise ValueError('Invalid JMdict lexical sequence identity')
+          PY
