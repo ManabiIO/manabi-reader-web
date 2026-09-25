@@ -75,7 +75,7 @@ export async function readFoliatePublicationSnapshot(
     },
     getSize: (name: string) => {
       const literal = literalName(name);
-      return literal ? archive.entries.get(literal)?.uncompressedSize ?? 0 : 0;
+      return literal ? (archive.entries.get(literal)?.uncompressedSize ?? 0) : 0;
     },
     sha1: undefined
   };
