@@ -25,7 +25,7 @@ jobs:
         run: |
           mkdir -p /tmp/parity-workspace
           git archive --format=tar HEAD | gzip > /tmp/parity-workspace/source.tar.gz
-          tar -czf /tmp/parity-workspace/dependencies.tar.gz node_modules apps/web/node_modules packages/*/node_modules
+          tar -czf /tmp/parity-workspace/dependencies.tar.gz node_modules apps/web/node_modules
           cp "$(command -v node)" /tmp/parity-workspace/node
           git rev-parse HEAD > /tmp/parity-workspace/commit.txt
           sha256sum /tmp/parity-workspace/* > /tmp/parity-workspace/SHA256SUMS
