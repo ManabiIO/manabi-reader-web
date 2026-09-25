@@ -1,0 +1,106 @@
+name: Prepare Reader publication-path correction
+on:
+  push:
+    branches: [codex/reader-closeout-publish-20260925]
+    paths: [.github/workflows/reader-closeout-continue-publish.yml]
+permissions:
+  contents: write
+jobs:
+  candidate:
+    if: github.repository == 'ManabiIO/manabi-reader-web'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dee56fb4d5b2f5bc7d1f69f04542fe7442f0e401
+          persist-credentials: false
+      - name: Repair drifted fixture paths without changing assertions
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          for filename in subprocess.check_output(['git', 'ls-files'], text=True).splitlines():
+              p = Path(filename)
+              if p.suffix in ('.py', '.mjs', '.yml'):
+                  source = p.read_text()
+                  if '/Reader-Web' in source:
+                      p.write_text(source.replace('/Reader-Web', '/reader-web'))
+          PY
+          cat > tests/unit/publication-paths.test.mjs <<'JS'
+          import assert from 'node:assert/strict';
+          import { readdirSync, readFileSync } from 'node:fs';
+          import { fileURLToPath } from 'node:url';
+          import path from 'node:path';
+          import test from 'node:test';
+
+          const root = fileURLToPath(new URL('../..', import.meta.url));
+          const publicationBase = '/reader-web';
+
+          function sourceFiles(directory) {
+            return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+              const filename = path.join(directory, entry.name);
+              if (entry.isDirectory()) return entry.name === '__pycache__' ? [] : sourceFiles(filename);
+              return /\.(?:py|mjs|[cm]?ts|ya?ml)$/.test(entry.name) ? [filename] : [];
+            });
+          }
+
+          function noncanonicalPaths(source) {
+            return [...source.matchAll(/\/reader-web\b/gi)]
+              .map(([value]) => value)
+              .filter((value) => value !== publicationBase);
+          }
+
+          test('publication path checker rejects case variants without rejecting the canonical app path', () => {
+            assert.deepEqual(noncanonicalPaths(publicationBase + '/manage'), []);
+            const obsolete = '/' + 'Reader-Web';
+            assert.deepEqual(noncanonicalPaths(`page.goto(origin + '${obsolete}/connections')`), [obsolete]);
+          });
+
+          test('all composed browser fixtures and build workflows use the deployed case-sensitive app path', () => {
+            const config = readFileSync(path.join(root, 'apps/web/svelte.config.js'), 'utf8');
+            assert.match(config, /process\.env\.BASE_PATH\s*\?\?\s*['"]\/reader-web['"]/);
+            const failures = ['tests/browser', 'test/reader', '.github/workflows'].flatMap((directory) =>
+              sourceFiles(path.join(root, directory)).flatMap((filename) => {
+                const invalid = noncanonicalPaths(readFileSync(filename, 'utf8'));
+                return invalid.length ? [`${path.relative(root, filename)}: ${invalid.join(', ')}`] : [];
+              })
+            );
+            assert.deepEqual(
+              failures,
+              [],
+              'A fixture or build has drifted from the production publication path'
+            );
+          });
+          JS
+          python - <<'PY'
+          import hashlib, pathlib, subprocess
+          expected = {'.github/workflows/ttu-upstream-portability.yml': 'd3a90a37b922ecab96916280860d3e7d238b40576f7d04e612fcf16eb34bef3f', 'tests/browser/test_appearance.py': '24e3709582d6ed518c9f2ecf363180ae622d5a6108221599514dbd75068276ee', 'tests/browser/test_books_library.py': 'eab8b23306ca6baaf44de96e3de2fcc2f7d35f79492a39c055eb5ca1caa918c8', 'tests/browser/test_control_refinement.py': '8aa695bfb668f07657538c3cc0b49a92e8f86e770442b495d26a381d8c583587', 'tests/browser/test_editors_picks.py': 'e7af2795f02fcd0c3d7ebc5325de64118f6ef1a9887a8c9a995951475eb4f7bc', 'tests/browser/test_library_cloud_relocation.py': 'de6f05d50c1f5dff9af1592b392796e97eddc252219402691bc15353570aac26', 'tests/browser/test_library_sync.py': '5d76ff7b1974a23b630f4f3cfffd6968dbd726ad0b89ef18c4ee435277eb11b4', 'tests/browser/test_local_library.py': '151a0c66a34beb829daab367e7c54a740e84e6f9ef7b9df413846f398cb47097', 'tests/browser/test_modal_controls.py': 'a22849ab79ef5c50ad8088c0339e111c710aaf6e93a2188811ddd28fdee60cd2', 'tests/browser/test_reading_recovery.py': '45aab33024e2c4b43bd763b39444a26df6c6cd2b1ccc1f2314cc383ddce03c1f', 'tests/browser/test_resume_refinement.py': '42cf0497e76fadb7992048c85a9b7bbbce47b2d10d46b02c9f684fbac657edd2', 'tests/browser/test_rhea_ui.py': '57e626095bd06614726d17688f01fe4e4601f524fa8edf14c0d7734e5934ff41', 'tests/browser/test_ttu_migration.py': '2f9f6755f80c0f6d52afa087907904e96c8fdb5895d8904d3aa6f0084de43d07', 'tests/browser/test_ttu_upstream_roundtrip.py': 'ff6b1357f7bc24e0903078744fb24e0de278d46215a4500952b3f41152952590', 'tests/browser/test_want_to_read.py': 'e9ac277ee609b71524f28626b778e3ec00ac7ea450c26f8daaddb15488dc3fed', 'tests/unit/button-render.test.mjs': 'd620fa836540aee1c9ca42a62fbaf28799688fd9a7ecadafd26a7eea36c4118e', 'tests/unit/publication-paths.test.mjs': 'e098c24248c0a8091840a0da13427c2b97b37843ccb5664b26bbc0a4e82b4e71'}
+          subprocess.run(['git', 'add', '--', *expected], check=True)
+          changed = subprocess.check_output(['git', 'diff', '--cached', '--name-only'], text=True).splitlines()
+          assert set(changed) == set(expected)
+          for name, digest in expected.items():
+              assert hashlib.sha256(pathlib.Path(name).read_bytes()).hexdigest() == digest, name
+          PY
+          node --test tests/unit/publication-paths.test.mjs
+          git diff --cached --check
+          git diff --cached --stat
+      - name: Publish candidate only, leaving main and the integration PR untouched
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: |
+          set -euo pipefail
+          tree=$(git write-tree)
+          commit=$(printf '%s\n' 'Keep integrated browser and portability qualification on canonical publication paths' | git commit-tree "$tree" -p dee56fb4d5b2f5bc7d1f69f04542fe7442f0e401)
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c "http.extraheader=AUTHORIZATION: basic $auth" push origin "$commit:refs/heads/codex/reader-closeout-path-candidate-20260925"
+          printf 'commit=%s\ntree=%s\n' "$commit" "$tree" | tee /tmp/candidate.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reader-closeout-path-candidate
+          path: /tmp/candidate.txt
+          retention-days: 1
