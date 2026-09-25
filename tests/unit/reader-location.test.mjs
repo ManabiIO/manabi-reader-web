@@ -108,3 +108,29 @@ test('canonical projection still excludes hidden content without realm-specific 
 
   assert.equal(projectResource(root, resource).text, 'visible');
 });
+
+test('collapsed locators recover only from unique surrounding context', async () => {
+  const projected = { resource, text: '甲乙丙丁' };
+  const locator = {
+    version: 1,
+    bookKey,
+    resource,
+    projectionVersion: 2,
+    resourceDigest: 'stale',
+    start: 0,
+    end: 0,
+    quote: '',
+    prefix: '甲乙',
+    suffix: '丙丁'
+  };
+  assert.deepEqual(await resolveLocator(locator, projected, bookKey), { start: 2, end: 2 });
+
+  assert.equal(
+    await resolveLocator(
+      { ...locator, prefix: '甲', suffix: '乙' },
+      { resource, text: '甲乙丙甲乙丙' },
+      bookKey
+    ),
+    undefined
+  );
+});
