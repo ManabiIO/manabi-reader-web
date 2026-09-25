@@ -1,0 +1,30 @@
+name: Preprocessing contracts
+on:
+  pull_request:
+    paths:
+      - 'apps/web/src/lib/preprocessing/**'
+      - 'apps/web/src/lib/dictionary-setup/**'
+      - 'test/preprocessing/**'
+      - '.github/workflows/preprocessing-contracts.yml'
+  push:
+    branches: [main, codex/manabi-web-preprocessing-r3]
+    paths:
+      - 'apps/web/src/lib/preprocessing/**'
+      - 'apps/web/src/lib/dictionary-setup/**'
+      - 'test/preprocessing/**'
+      - '.github/workflows/preprocessing-contracts.yml'
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24.21.0
+      - name: Generation, cancellation, cache and dictionary installation contracts
+        run: node --test test/preprocessing/*.test.mjs
