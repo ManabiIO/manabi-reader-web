@@ -8,6 +8,8 @@ import {
   validateWordAlignmentJob
 } from '../../.cache/media-test-build/word-alignment.js';
 
+import { WordAlignmentStore } from '../../.cache/media-test-build/word-alignment-store.js';
+
 const cue = (id, start, end, text = id) => ({
   id,
   start,
@@ -176,6 +178,20 @@ test('durable job validation fences transcript/model identity and duplicate resu
     ]
   };
   assert.equal(validateWordAlignmentJob(base).language, 'ja');
+  for (const status of ['running', 'complete']) {
+    assert.throws(
+      () => validateWordAlignmentJob({ ...base, status, results: [] }),
+      /must match durable results/
+    );
+    assert.throws(
+      () => validateWordAlignmentJob({ ...base, status, completedBatchIds: [] }),
+      /must match durable results/
+    );
+    assert.throws(
+      () => validateWordAlignmentJob({ ...base, status, completedBatchIds: ['other'] }),
+      /must match durable results/
+    );
+  }
   assert.throws(
     () =>
       validateWordAlignmentJob({
@@ -215,4 +231,62 @@ test('overlapping cue padding cannot exceed the packed inference duration limit'
     );
     assert.equal(batch.segments.at(-1).packedEnd, batch.packedDuration);
   }
+});
+
+test('durable alignment checkpoints reject stopped jobs and preserve completion', async () => {
+  const result = { batchId: 'a', words: [{ text: '日本', start: 1, end: 2 }], completedAt: 2 };
+  const base = {
+    version: 1,
+    id: '00000000-0000-4000-8000-000000000001',
+    mediaKey: `content:${'a'.repeat(64)}`,
+    trackId: '00000000-0000-4000-8000-000000000002',
+    trackDigest: 'b'.repeat(64),
+    audioTrack: 'audio:ja',
+    language: 'ja',
+    engine: 'qwen3-forced-aligner',
+    engineRevision: 'qwen3-packed-v1',
+    model: 'Qwen/Qwen3-ForcedAligner-0.6B',
+    modelRevision: 'test-revision',
+    modelSha256: 'c'.repeat(64),
+    status: 'running',
+    createdAt: 1,
+    updatedAt: 2,
+    completedBatchIds: [],
+    results: []
+  };
+  // Transaction double exercises the wrapper's admission rules, not native IDB.
+  let durable = structuredClone(base);
+  const store = new WordAlignmentStore(
+    {
+      async updateLocal(_scope, _kind, _id, change) {
+        const next = change(structuredClone(durable));
+        durable = next;
+        return next;
+      }
+    },
+    'device'
+  );
+  for (const status of ['paused', 'failed']) {
+    durable = { ...base, status };
+    await assert.rejects(store.checkpoint(base.id, result), /Inactive/);
+    assert.equal(durable.status, status);
+    assert.deepEqual(durable.results, []);
+  }
+  durable = structuredClone(base);
+  await store.checkpoint(base.id, result);
+  await assert.rejects(store.complete(base.id, ['a', 'a']), /Duplicate expected/);
+  await store.complete(base.id, ['a']);
+  await store.checkpoint(base.id, result);
+  assert.equal(durable.status, 'complete');
+  await assert.rejects(store.checkpoint(base.id, { ...result, batchId: 'b' }), /new checkpoint/);
+  await assert.rejects(
+    store.checkpoint(base.id, { ...result, words: [] }),
+    /different durable output/
+  );
+  await assert.rejects(
+    store.update(base.id, (job) => ({ ...job, id: base.trackId })),
+    /identity cannot change/
+  );
+  assert.equal(durable.id, base.id);
+  assert.deepEqual(durable.results, [result]);
 });

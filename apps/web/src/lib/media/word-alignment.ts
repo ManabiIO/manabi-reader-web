@@ -235,6 +235,9 @@ export function validateWordAlignmentJob(value: unknown): WordAlignmentJob {
   });
   if (new Set(results.map((item) => item.batchId)).size !== results.length)
     throw new Error('Duplicate alignment result');
+  const completed = new Set(completedBatchIds);
+  if (results.length !== completed.size || results.some((item) => !completed.has(item.batchId)))
+    throw new Error('Completed alignment batches must match durable results');
   return {
     version: 1,
     id: job.id as string,

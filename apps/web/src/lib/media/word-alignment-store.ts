@@ -48,20 +48,26 @@ export class WordAlignmentStore {
     return this.store.updateLocal<unknown>(this.scope, KIND, id, (old) => {
       const current = old === undefined ? undefined : validateWordAlignmentJob(old);
       const next = change(current);
-      return next === undefined ? undefined : validateWordAlignmentJob(next);
+      if (next === undefined) return undefined;
+      const validated = validateWordAlignmentJob(next);
+      if (validated.id !== id) throw new Error('Alignment job identity cannot change');
+      return validated;
     }) as Promise<WordAlignmentJob | undefined>;
   }
 
   checkpoint(id: string, result: AlignmentBatchResult): Promise<WordAlignmentJob | undefined> {
     return this.update(id, (job) => {
       if (!job) throw new Error('Missing alignment job');
-      if (job.status === 'complete') return job;
+      if (job.status === 'paused' || job.status === 'failed')
+        throw new Error('Inactive alignment job cannot accept a checkpoint');
       const existing = job.results.find((item) => item.batchId === result.batchId);
       if (existing) {
         if (JSON.stringify(existing) !== JSON.stringify(result))
           throw new Error('Alignment batch already has different durable output');
         return job;
       }
+      if (job.status === 'complete')
+        throw new Error('Completed alignment job cannot accept a new checkpoint');
       return {
         ...job,
         status: 'running',
@@ -73,6 +79,8 @@ export class WordAlignmentStore {
   }
 
   async complete(id: string, expectedBatchIds: readonly string[]): Promise<WordAlignmentJob> {
+    if (new Set(expectedBatchIds).size !== expectedBatchIds.length)
+      throw new Error('Duplicate expected alignment batch');
     const updated = await this.update(id, (job) => {
       if (!job) throw new Error('Missing alignment job');
       const actual = new Set(job.completedBatchIds);

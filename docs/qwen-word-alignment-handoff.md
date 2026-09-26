@@ -103,3 +103,23 @@ Before calling this complete:
 - seek far ahead and verify scheduler priority changes without discarding prior work;
 - physical Safari/iOS memory and background/suspension behavior;
 - full app build and native IndexedDB/cross-tab tests.
+
+## Durable checkpoint review (2026-09-26)
+
+The job validator now requires completed batch IDs to match the durable result
+IDs exactly, so a checkpoint cannot declare work complete without saved timing.
+Updates cannot change the job ID under an existing storage key. Checkpoints reject
+paused/failed jobs, and a completed job accepts only identical existing output;
+a late new or conflicting result cannot be silently acknowledged. Completion also
+rejects duplicate expected batch IDs. The added transaction-double regression
+checks these admission rules; it does not qualify cross-tab worker ownership.
+
+The browser runtime remains an actual dependency, not a missing UI toggle.
+The inspected community export
+`valoomba/Qwen3-ForcedAligner-0.6B-ONNX` at
+`261c9ed100c1b18a4a1fbc488e05625dc9a4ae5c` publishes FP32 synthetic-logit
+comparison metadata and q4 smoke comparisons on English strings. Its q4 maximum
+absolute logit difference is 7.7992; this number is not a word-timing error metric
+or proof of a defective model. No reviewed Japanese audio/timestamp comparison
+is supplied by that metadata. It is therefore a candidate for qualification,
+not an accepted artifact for automatically downloading and timing user videos.
