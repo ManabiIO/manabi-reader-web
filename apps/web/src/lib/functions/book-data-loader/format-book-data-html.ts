@@ -34,7 +34,11 @@ export default function formatBookDataHtml(
       addSpoilerTags(element, document, blurMode);
       removeOldBrTagSolution(element);
 
-      return sanitizeBookHtml(element.innerHTML, { document, imageUrls });
+      return sanitizeBookHtml(element.innerHTML, {
+        document,
+        imageUrls,
+        preserveReaderLinks: true
+      });
     })
   );
 }
@@ -93,6 +97,7 @@ function getHtmlWithImageSource(
       const imageUrls = new Set(objectUrls);
       const html = sanitizeBookHtml(bookData.elementHtml, {
         document,
+        preserveReaderLinks: true,
         resolveImage: (source) => replacements.get(source)
       });
       subscriber.next({ html, imageUrls });
