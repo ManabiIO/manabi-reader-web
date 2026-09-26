@@ -1,0 +1,46 @@
+name: Snippets qualification workspace
+on:
+  push:
+    branches: [feat/cloud-backed-snippets]
+permissions:
+  contents: read
+concurrency:
+  group: snippets-workspace-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  workspace:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+      - name: Resolve editor dependency set for qualification
+        run: |
+          pnpm --dir apps/web add --save-exact @tiptap/core@3.31.3 @tiptap/pm@3.31.3 @tiptap/starter-kit@3.31.3 @tiptap/extension-ruby-text@3.31.3 @tiptap/extension-unique-id@3.31.3 @tiptap/markdown@3.31.3
+          pnpm --dir apps/web exec svelte-kit sync
+      - name: Package reproducible review workspace without credentials
+        run: |
+          git archive HEAD | tar -x -C /tmp --one-top-level=snippet-review
+          cp pnpm-lock.yaml /tmp/snippet-review/pnpm-lock.yaml
+          cp apps/web/package.json /tmp/snippet-review/apps/web/package.json
+          cp -a node_modules /tmp/snippet-review/node_modules
+          cp -a apps/web/node_modules /tmp/snippet-review/apps/web/node_modules
+          cp -a apps/web/.svelte-kit /tmp/snippet-review/apps/web/.svelte-kit
+          mkdir -p /tmp/snippet-review/.review-tools
+          cp "$(command -v node)" /tmp/snippet-review/.review-tools/node
+          tar -czf /tmp/snippets-workspace.tar.gz -C /tmp snippet-review
+          git diff -- pnpm-lock.yaml apps/web/package.json > /tmp/snippets-dependencies.patch
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snippets-review-workspace
+          path: |
+            /tmp/snippets-workspace.tar.gz
+            /tmp/snippets-dependencies.patch
+          retention-days: 1
