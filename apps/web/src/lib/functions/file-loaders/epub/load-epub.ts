@@ -55,11 +55,9 @@ export default async function loadEpub(
 
   if (packageMetadata) {
     if (packageMetadata.title) displayData.title = packageMetadata.title;
-    displayData.creators = packageMetadata.creators.map((creator) => ({
-      name: creator['#text'],
-      ...(creator['@_file-as'] ? { sortAs: creator['@_file-as'] } : {}),
-      ...(creator['@_role'] ? { role: creator['@_role'] } : {})
-    }));
+    displayData.creators = extractCreators({
+      'dc:creator': packageMetadata.creators
+    });
     try {
       displayData.language = Intl.getCanonicalLocales(packageMetadata.language.trim())[0] ?? '';
     } catch (_) {
