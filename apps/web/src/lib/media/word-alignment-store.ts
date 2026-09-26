@@ -26,9 +26,9 @@ export class WordAlignmentStore {
   ) {}
 
   get(id: string): Promise<WordAlignmentJob | undefined> {
-    return this.store.local<unknown>(this.scope, KIND, id).then((value) =>
-      value === undefined ? undefined : validateWordAlignmentJob(value)
-    );
+    return this.store
+      .local<unknown>(this.scope, KIND, id)
+      .then((value) => (value === undefined ? undefined : validateWordAlignmentJob(value)));
   }
 
   list(): Promise<WordAlignmentJob[]> {
@@ -38,64 +38,41 @@ export class WordAlignmentStore {
   }
 
   put(job: WordAlignmentJob): Promise<void> {
-    return this.store.putLocal(
-      this.scope,
-      KIND,
-      job.id,
-      validateWordAlignmentJob(job)
-    );
+    return this.store.putLocal(this.scope, KIND, job.id, validateWordAlignmentJob(job));
   }
 
   update(
     id: string,
-    change: (
-      job: WordAlignmentJob | undefined
-    ) => WordAlignmentJob | undefined
+    change: (job: WordAlignmentJob | undefined) => WordAlignmentJob | undefined
   ): Promise<WordAlignmentJob | undefined> {
     return this.store.updateLocal<unknown>(this.scope, KIND, id, (old) => {
-      const current =
-        old === undefined ? undefined : validateWordAlignmentJob(old);
+      const current = old === undefined ? undefined : validateWordAlignmentJob(old);
       const next = change(current);
-      return next === undefined
-        ? undefined
-        : validateWordAlignmentJob(next);
+      return next === undefined ? undefined : validateWordAlignmentJob(next);
     }) as Promise<WordAlignmentJob | undefined>;
   }
 
-  checkpoint(
-    id: string,
-    result: AlignmentBatchResult
-  ): Promise<WordAlignmentJob | undefined> {
+  checkpoint(id: string, result: AlignmentBatchResult): Promise<WordAlignmentJob | undefined> {
     return this.update(id, (job) => {
       if (!job) throw new Error('Missing alignment job');
       if (job.status === 'complete') return job;
-      const existing = job.results.find(
-        (item) => item.batchId === result.batchId
-      );
+      const existing = job.results.find((item) => item.batchId === result.batchId);
       if (existing) {
         if (JSON.stringify(existing) !== JSON.stringify(result))
-          throw new Error(
-            'Alignment batch already has different durable output'
-          );
+          throw new Error('Alignment batch already has different durable output');
         return job;
       }
       return {
         ...job,
         status: 'running',
         updatedAt: Date.now(),
-        completedBatchIds: [
-          ...job.completedBatchIds,
-          result.batchId
-        ],
+        completedBatchIds: [...job.completedBatchIds, result.batchId],
         results: [...job.results, structuredClone(result)]
       };
     });
   }
 
-  async complete(
-    id: string,
-    expectedBatchIds: readonly string[]
-  ): Promise<WordAlignmentJob> {
+  async complete(id: string, expectedBatchIds: readonly string[]): Promise<WordAlignmentJob> {
     const updated = await this.update(id, (job) => {
       if (!job) throw new Error('Missing alignment job');
       const actual = new Set(job.completedBatchIds);
@@ -103,9 +80,7 @@ export class WordAlignmentStore {
         expectedBatchIds.some((batch) => !actual.has(batch)) ||
         actual.size !== expectedBatchIds.length
       )
-        throw new Error(
-          'Alignment cannot complete with missing or extra batches'
-        );
+        throw new Error('Alignment cannot complete with missing or extra batches');
       return {
         ...job,
         status: 'complete',

@@ -100,28 +100,15 @@ export function planWordAlignmentBatches(
   cues: readonly Cue[],
   options: PlanOptions = {}
 ): AlignmentBatchPlan[] {
-  const padding = finite(
-    options.paddingSeconds ?? DEFAULT_ALIGNMENT_PADDING_SECONDS,
-    0,
-    5
-  );
-  const bridge = finite(
-    options.bridgeSeconds ?? DEFAULT_ALIGNMENT_BRIDGE_SECONDS,
-    0,
-    30
-  );
+  const padding = finite(options.paddingSeconds ?? DEFAULT_ALIGNMENT_PADDING_SECONDS, 0, 5);
+  const bridge = finite(options.bridgeSeconds ?? DEFAULT_ALIGNMENT_BRIDGE_SECONDS, 0, 30);
   const maximum = finite(
     options.maximumBatchSeconds ?? DEFAULT_ALIGNMENT_MAX_BATCH_SECONDS,
     1,
     600
   );
-  const maximumCues =
-    options.maximumBatchCues ?? DEFAULT_ALIGNMENT_MAX_BATCH_CUES;
-  if (
-    !Number.isSafeInteger(maximumCues) ||
-    maximumCues < 1 ||
-    maximumCues > 5000
-  )
+  const maximumCues = options.maximumBatchCues ?? DEFAULT_ALIGNMENT_MAX_BATCH_CUES;
+  if (!Number.isSafeInteger(maximumCues) || maximumCues < 1 || maximumCues > 5000)
     throw new Error('Invalid alignment cue limit');
 
   const ordered = [...cues]
@@ -136,7 +123,7 @@ export function planWordAlignmentBatches(
   const batches: AlignmentBatchPlan[] = [];
 
   let current:
-    | { mediaStart: number; mediaEnd: number; cues: Cue[] }
+    | { mediaStart: number; mediaEnd: number; packedDuration: number; cues: Cue[] }
     | undefined;
   const flush = () => {
     if (!current) return;
@@ -154,8 +141,7 @@ export function planWordAlignmentBatches(
       });
       packed += length;
     }
-    const id =
-      `${current.cues[0].id}..${current.cues[current.cues.length - 1].id}`;
+    const id = `${current.cues[0].id}..${current.cues[current.cues.length - 1].id}`;
     batches.push({
       id,
       mediaStart: current.mediaStart,
@@ -170,8 +156,7 @@ export function planWordAlignmentBatches(
   for (const entry of ordered) {
     if (seen.has(entry.cue.id)) throw new Error('Duplicate cue identity');
     seen.add(entry.cue.id);
-    if (!(entry.window.end > entry.window.start))
-      throw new Error('Invalid alignment cue window');
+    if (!(entry.window.end > entry.window.start)) throw new Error('Invalid alignment cue window');
     if (entry.window.end - entry.window.start > maximum)
       throw new Error('One alignment cue exceeds the batch limit');
 
@@ -179,25 +164,33 @@ export function planWordAlignmentBatches(
       current = {
         mediaStart: entry.window.start,
         mediaEnd: entry.window.end,
+        packedDuration: entry.window.end - entry.window.start,
         cues: [entry.cue]
       };
       continue;
     }
     const candidateEnd = Math.max(current.mediaEnd, entry.window.end);
+    // Overlapping padded windows are packed separately and consume inference
+    // time even when the source-media envelope does not grow.
+    const candidatePackedDuration =
+      current.packedDuration + (entry.window.end - entry.window.start);
     const closeEnough = entry.window.start <= current.mediaEnd + bridge;
     if (
       !closeEnough ||
       candidateEnd - current.mediaStart > maximum ||
+      candidatePackedDuration > maximum ||
       current.cues.length >= maximumCues
     ) {
       flush();
       current = {
         mediaStart: entry.window.start,
         mediaEnd: entry.window.end,
+        packedDuration: entry.window.end - entry.window.start,
         cues: [entry.cue]
       };
     } else {
       current.mediaEnd = candidateEnd;
+      current.packedDuration = candidatePackedDuration;
       current.cues.push(entry.cue);
     }
   }
@@ -223,9 +216,7 @@ export function validateWordAlignmentJob(value: unknown): WordAlignmentJob {
     !isDigest(job.trackDigest) ||
     !isDigest(job.modelSha256) ||
     job.engine !== 'qwen3-forced-aligner' ||
-    !['queued', 'running', 'paused', 'complete', 'failed'].includes(
-      String(job.status)
-    ) ||
+    !['queued', 'running', 'paused', 'complete', 'failed'].includes(String(job.status)) ||
     !Array.isArray(job.completedBatchIds) ||
     !Array.isArray(job.results)
   )
@@ -235,8 +226,7 @@ export function validateWordAlignmentJob(value: unknown): WordAlignmentJob {
     throw new Error('Duplicate completed alignment batch');
   const results = job.results.map((item) => {
     const result = record(item);
-    if (!Array.isArray(result.words))
-      throw new Error('Invalid aligned words');
+    if (!Array.isArray(result.words)) throw new Error('Invalid aligned words');
     return {
       batchId: string(result.batchId, 320),
       words: result.words.map(validateWordTiming),
@@ -263,9 +253,7 @@ export function validateWordAlignmentJob(value: unknown): WordAlignmentJob {
     updatedAt: finite(job.updatedAt, 0, Number.MAX_SAFE_INTEGER),
     completedBatchIds,
     results,
-    ...(job.error === undefined
-      ? {}
-      : { error: string(job.error, 2048) })
+    ...(job.error === undefined ? {} : { error: string(job.error, 2048) })
   };
 }
 
@@ -282,19 +270,12 @@ export function mapPackedWordsToMedia(
   for (const raw of words) {
     const word = validateWordTiming(raw);
     const owner = segments.find(
-      (segment) =>
-        word.start >= segment.packedStart - 1e-6 &&
-        word.end <= segment.packedEnd + 1e-6
+      (segment) => word.start >= segment.packedStart - 1e-6 && word.end <= segment.packedEnd + 1e-6
     );
-    if (!owner)
-      throw new Error('Alignment word crosses a packed-audio splice');
+    if (!owner) throw new Error('Alignment word crosses a packed-audio splice');
     const start = owner.mediaStart + (word.start - owner.packedStart);
     const end = owner.mediaStart + (word.end - owner.packedStart);
-    if (
-      start < owner.mediaStart - 1e-6 ||
-      end > owner.mediaEnd + 1e-6 ||
-      end <= start
-    )
+    if (start < owner.mediaStart - 1e-6 || end > owner.mediaEnd + 1e-6 || end <= start)
       throw new Error('Mapped word falls outside its source interval');
     mapped.push({ text: word.text, start, end });
   }
@@ -302,10 +283,7 @@ export function mapPackedWordsToMedia(
 }
 
 /** Smooth visual fill inside an acoustically measured word interval. */
-export function karaokeWordProgress(
-  word: WordTiming,
-  mediaTime: number
-): number {
+export function karaokeWordProgress(word: WordTiming, mediaTime: number): number {
   if (!Number.isFinite(mediaTime)) return 0;
   if (mediaTime <= word.start) return 0;
   if (mediaTime >= word.end) return 1;
@@ -335,10 +313,6 @@ export function prioritizeAlignmentBatches(
     .sort((a, b) => {
       const sa = score(a);
       const sb = score(b);
-      return (
-        sa[0] - sb[0] ||
-        sa[1] - sb[1] ||
-        a.mediaStart - b.mediaStart
-      );
+      return sa[0] - sb[0] || sa[1] - sb[1] || a.mediaStart - b.mediaStart;
     });
 }

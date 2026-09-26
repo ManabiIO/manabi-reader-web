@@ -17,11 +17,7 @@ const cue = (id, start, end, text = id) => ({
 
 test('speech-island planning skips long silence but merges nearby cues', () => {
   const batches = planWordAlignmentBatches(
-    [
-      cue('a', 10, 11),
-      cue('b', 12, 13),
-      cue('c', 100, 101)
-    ],
+    [cue('a', 10, 11), cue('b', 12, 13), cue('c', 100, 101)],
     { paddingSeconds: 1, bridgeSeconds: 1.5 }
   );
   assert.equal(batches.length, 2);
@@ -36,9 +32,7 @@ test('speech-island planning skips long silence but merges nearby cues', () => {
 });
 
 test('planner enforces cue-count and duration bounds', () => {
-  const cues = Array.from({ length: 6 }, (_, i) =>
-    cue(String(i), i * 2, i * 2 + 1)
-  );
+  const cues = Array.from({ length: 6 }, (_, i) => cue(String(i), i * 2, i * 2 + 1));
   const batches = planWordAlignmentBatches(cues, {
     maximumBatchCues: 2,
     paddingSeconds: 0,
@@ -105,11 +99,7 @@ test('packed words crossing a synthetic splice fail closed', () => {
     }
   ];
   assert.throws(
-    () =>
-      mapPackedWordsToMedia(
-        [{ text: 'bad', start: 1.9, end: 2.1 }],
-        segments
-      ),
+    () => mapPackedWordsToMedia([{ text: 'bad', start: 1.9, end: 2.1 }], segments),
     /splice/
   );
 });
@@ -142,21 +132,11 @@ test('playhead scheduling prioritizes near future without discarding earlier wor
     }
   ];
   assert.deepEqual(
-    prioritizeAlignmentBatches(
-      batches,
-      new Set(),
-      90,
-      120
-    ).map((x) => x.id),
+    prioritizeAlignmentBatches(batches, new Set(), 90, 120).map((x) => x.id),
     ['near', 'past', 'future']
   );
   assert.deepEqual(
-    prioritizeAlignmentBatches(
-      batches,
-      new Set(['near']),
-      90,
-      120
-    ).map((x) => x.id),
+    prioritizeAlignmentBatches(batches, new Set(['near']), 90, 120).map((x) => x.id),
     ['past', 'future']
   );
 });
@@ -212,4 +192,27 @@ test('durable job validation fences transcript/model identity and duplicate resu
       }),
     /Duplicate alignment result/
   );
+});
+
+test('overlapping cue padding cannot exceed the packed inference duration limit', () => {
+  const cues = Array.from({ length: 8 }, (_, i) => cue(String(i), 10, 11));
+  const batches = planWordAlignmentBatches(cues, {
+    paddingSeconds: 1,
+    maximumBatchSeconds: 10
+  });
+  assert.deepEqual(
+    batches.map((batch) => batch.cues.length),
+    [3, 3, 2]
+  );
+  assert.deepEqual(
+    batches.flatMap((batch) => batch.cues.map((item) => item.id)),
+    cues.map((item) => item.id)
+  );
+  for (const batch of batches) {
+    assert.ok(
+      batch.packedDuration <= 10,
+      `Packed audio exceeds the bound: ${batch.packedDuration}`
+    );
+    assert.equal(batch.segments.at(-1).packedEnd, batch.packedDuration);
+  }
 });
