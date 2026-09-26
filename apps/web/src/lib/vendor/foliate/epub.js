@@ -640,7 +640,7 @@ class Resources {
         const $$itemref = $$($spine, 'itemref')
 
         this.manifest = $$($manifest, 'item')
-            .map(getAttributes('href', 'id', 'media-type', 'properties', 'media-overlay'))
+            .map(getAttributes('href', 'id', 'media-type', 'properties', 'media-overlay', 'fallback'))
             .map(item => {
                 item.href = resolveHref(item.href)
                 item.properties = item.properties?.split(/\s/)
