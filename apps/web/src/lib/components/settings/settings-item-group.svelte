@@ -33,7 +33,7 @@
     'reading-goals',
     'font-defaults'
   ].includes(settingId)}
-  class="settings-field rounded-2xl bg-card p-4 text-card-foreground ring-1 ring-border/60 sm:p-5"
+  class="settings-field rounded-2xl bg-card p-[16px] text-card-foreground ring-1 ring-border/60 sm:p-[20px]"
   aria-labelledby={showHeading ? headingId : undefined}
 >
   <Field.Field>
@@ -54,6 +54,12 @@
   }
   .settings-field {
     min-width: 0;
+  }
+  .settings-field :global([slot='header']) {
+    min-width: 0;
+    max-width: 100%;
+    flex-wrap: wrap;
+    gap: 8px;
   }
   .wide {
     grid-column: 1 / -1;

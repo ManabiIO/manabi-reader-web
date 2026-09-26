@@ -69,7 +69,7 @@
         ><DownloadSimple aria-hidden="true" />Export Notes</Button
       >
       <label
-        class="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-md px-3 text-sm font-medium hover:bg-muted focus-within:outline-2 focus-within:outline-ring"
+        class="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-[10px] px-3 text-sm font-medium hover:bg-muted focus-within:outline-2 focus-within:outline-ring"
         class:opacity-50={busy}
         class:pointer-events-none={busy}
         aria-label="Import notes"

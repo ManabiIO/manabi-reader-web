@@ -9,7 +9,24 @@ CatalogLifetimeBrowser = previous.CatalogLifetimeBrowser
 
 class ConnectControlsBrowser(previous.AppleControlsBrowser):
     def assert_no_horizontal_overflow(self, root):
-        self.assertLessEqual(root.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
+        # The root's clientWidth excludes a native vertical scrollbar. Compare
+        # it with the full viewport, but keep real horizontal overflow visible.
+        result = root.evaluate('''e => {
+          const rootPage = e === document.documentElement;
+          const delta = e.scrollWidth - (rootPage ? window.innerWidth : e.clientWidth);
+          if (delta <= 1 || !rootPage) return {delta};
+          const clippedByAncestor = node => {
+            for (let parent = node.parentElement; parent && parent !== e; parent = parent.parentElement)
+              if (/^(auto|scroll|hidden|clip)$/.test(getComputedStyle(parent).overflowX)) return true;
+            return false;
+          };
+          const offenders = [...document.querySelectorAll('*')]
+            .filter(node => node.getBoundingClientRect().right > window.innerWidth + 1 && !clippedByAncestor(node))
+            .slice(0, 12)
+            .map(node => ({tag: node.tagName, className: typeof node.className === 'string' ? node.className.slice(0, 90) : '', text: node.textContent?.trim().slice(0, 35), right: Math.round(node.getBoundingClientRect().right)}));
+          return {delta, viewport: window.innerWidth, client: e.clientWidth, scroll: e.scrollWidth, offenders};
+        }''')
+        self.assertLessEqual(result['delta'], 1, result)
 
     def test_settings_navigation_and_fields_distinguish_selection_from_actions(self):
         for mode in ('light', 'dark'):
@@ -21,18 +38,25 @@ class ConnectControlsBrowser(previous.AppleControlsBrowser):
                 search = self.page.get_by_role('searchbox', name='Search settings', exact=True)
                 expect(search).to_be_visible()
                 self.assertGreaterEqual(search.bounding_box()['height'], 43.99)
+                header = self.page.locator('header').first.bounding_box()
+                self.assertGreaterEqual(self.page.locator('[data-settings-content]').bounding_box()['y'], header['y'] + header['height'] - 1)
                 self.assertAlmostEqual(search.evaluate('e => parseFloat(getComputedStyle(e).borderTopLeftRadius)'), 10, delta=0.1)
+                if width >= 1280:
+                    primary = self.page.get_by_role('navigation', name='Primary navigation')
+                    for destination in ('Library', 'Statistics', 'Settings'):
+                        expect(primary.get_by_role('link', name=destination, exact=True)).to_be_visible()
+                    expect(primary.get_by_role('link', name='Settings', exact=True)).to_have_attribute(
+                        'aria-current', 'page'
+                    )
                 nav = self.page.get_by_role('navigation', name='Settings categories')
                 typography = nav.get_by_role('button', name='Fonts & text', exact=True)
                 typography.click()
                 expect(typography).to_have_attribute('aria-pressed', 'true')
                 expect(self.page.locator('#settings-content').get_by_role('heading', name='Fonts & text', exact=True)).to_be_visible()
                 self.assert_no_horizontal_overflow(self.page.locator('html'))
-                typography.focus()
-                # A pointer click is not keyboard focus. Traverse out and back
-                # with real keys before asserting the focus-visible treatment.
-                self.page.keyboard.press('Shift+Tab')
-                self.page.keyboard.press('Tab')
+                # Activate with the keyboard before checking its focus ring.
+                # Do not assume Safari is configured to Tab through buttons.
+                typography.press('Enter')
                 expect(typography).to_be_focused()
                 self.assertNotEqual('none', typography.evaluate('e => getComputedStyle(e).outlineStyle'))
                 self.capture(f'connect-settings-{mode}-{width}')
@@ -40,6 +64,57 @@ class ConnectControlsBrowser(previous.AppleControlsBrowser):
                 expect(self.page.locator('#settings-content [role="status"]')).to_contain_text('No matching settings')
                 search.fill('')
                 expect(self.page.locator('#settings-content').get_by_role('heading', name='Fonts & text', exact=True)).to_be_visible()
+
+    def test_connections_workspace_uses_shared_action_hierarchy(self):
+        for mode in ('light', 'dark'):
+            self.page.evaluate('v => localStorage.setItem("appearance", v)', mode)
+            for width, scale in ((390, '100%'), (320, '200%')):
+                self.page.set_viewport_size({'width': width, 'height': 844})
+                self.page.goto(self.origin + '/Reader-Web/connections')
+                self.page.evaluate('v => document.documentElement.style.fontSize = v', scale)
+                expect(self.page.get_by_role('heading', name='Accounts and libraries', exact=True)).to_be_visible()
+                sign_in = self.page.get_by_role('link', name='Sign in to Manabi', exact=True)
+                create = self.page.get_by_role('link', name='Create a Manabi account', exact=True)
+                expect(sign_in).to_have_attribute('data-variant', 'default')
+                expect(sign_in).to_have_attribute('data-size', 'lg')
+                expect(create).to_have_attribute('data-variant', 'outline')
+                expect(self.page.get_by_role('button', name='Refresh connections', exact=True)).to_have_attribute(
+                    'data-variant', 'ghost'
+                )
+                self.assert_no_horizontal_overflow(self.page.locator('html'))
+                first_section = self.page.locator('.connections-page > section').first
+                self.assertAlmostEqual(
+                    first_section.evaluate('e => parseFloat(getComputedStyle(e).borderTopLeftRadius)'),
+                    16,
+                    delta=0.1
+                )
+                self.capture(f'connect-connections-{mode}-{width}')
+
+    def test_shared_library_workspace_reflows_like_other_management_pages(self):
+        for mode in ('light', 'dark'):
+            self.page.evaluate('v => localStorage.setItem("appearance", v)', mode)
+            self.page.set_viewport_size({'width': 320, 'height': 844})
+            self.page.goto(self.origin + '/Reader-Web/shared-library')
+            self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+            expect(
+                self.page.get_by_role('heading', name='Shared Ttu Ebook Reader libraries', exact=True)
+            ).to_be_visible()
+            self.assert_no_horizontal_overflow(self.page.locator('html'))
+            first_section = self.page.locator('main > section').first
+            self.assertAlmostEqual(
+                first_section.evaluate('e => parseFloat(getComputedStyle(e).borderTopLeftRadius)'),
+                16,
+                delta=0.1
+            )
+            add = self.page.get_by_role('button', name='Add existing shared folder', exact=True)
+            if add.count():
+                expect(add).to_have_attribute('data-variant', 'default')
+                expect(
+                    self.page.get_by_role(
+                        'button', name='Create shared library in a folder', exact=True
+                    )
+                ).to_have_attribute('data-variant', 'outline')
+            self.capture(f'connect-shared-library-{mode}-320')
 
     def test_statistics_toolbar_and_options_reflow_and_keep_unique_form_labels(self):
         self.page.goto(self.origin + '/Reader-Web/statistics')
@@ -54,7 +129,10 @@ class ConnectControlsBrowser(previous.AppleControlsBrowser):
             heatmap.click()
             expect(heatmap).to_have_attribute('aria-pressed', 'true')
             self.assertEqual('2px', heatmap.evaluate('e => getComputedStyle(e).borderBottomWidth'))
+            filter_books = toolbar.get_by_role('button', name='Filter books', exact=True)
+            expect(filter_books).to_have_attribute('data-variant', 'secondary')
             trigger = toolbar.get_by_role('button', name='Statistics options', exact=True)
+            expect(trigger).to_have_attribute('data-variant', 'secondary')
             trigger.click()
             self.page.get_by_role('menuitem', name='Statistics Settings', exact=True).click()
             panel = self.page.get_by_role('dialog', name='Statistics options', exact=True)
@@ -101,6 +179,23 @@ class ConnectControlsBrowser(previous.AppleControlsBrowser):
           } finally { db.close(); }
         }''')
 
+    def test_heatmap_days_are_real_keyboard_actions(self):
+        self.seed_statistics()
+        self.page.goto(self.origin + '/Reader-Web/statistics')
+        self.page.get_by_role('button', name='Heatmap', exact=True).click()
+        day = self.page.locator('[data-date="2026-09-25"]')
+        expect(day).to_have_attribute('role', 'button')
+        expect(day).to_have_attribute('tabindex', '0')
+        expect(day).to_have_attribute('aria-disabled', 'false')
+        day.focus()
+        day.press('Enter')
+        close = self.page.get_by_role('button', name='Close heatmap details', exact=True)
+        expect(close).to_be_visible()
+        close.click()
+        day.focus()
+        day.press(' ')
+        expect(self.page.get_by_role('button', name='Close heatmap details', exact=True)).to_be_visible()
+
     def test_title_filter_pages_survive_empty_queries_resize_and_private_drafts(self):
         self.seed_statistics()
         history = self.stores('books', ['statistic'])
@@ -111,8 +206,14 @@ class ConnectControlsBrowser(previous.AppleControlsBrowser):
         expect(panel.get_by_role('checkbox')).to_have_count(25)
         panel.get_by_role('button', name='Next', exact=True).click()
         expect(panel.get_by_text('Page 2 / 3', exact=True)).to_be_visible()
+        expect(panel.get_by_role('checkbox').first).to_be_focused()
+        expect(panel.get_by_role('checkbox').first).to_be_in_viewport()
         panel.get_by_role('button', name='Next', exact=True).click()
         expect(panel.get_by_role('checkbox')).to_have_count(11)
+        expect(panel.get_by_role('checkbox').first).to_be_focused()
+        expect(panel.get_by_role('checkbox').first).to_be_in_viewport()
+        expect(panel.get_by_role('button', name='Close title filter', exact=True)).to_be_in_viewport()
+        expect(panel.get_by_role('button', name='Apply Filter', exact=True)).to_be_in_viewport()
         self.page.set_viewport_size({'width': 320, 'height': 568})
         self.page.evaluate('document.documentElement.style.fontSize = "200%"')
         search = panel.get_by_role('searchbox', name='Filter book titles', exact=True)
@@ -122,7 +223,12 @@ class ConnectControlsBrowser(previous.AppleControlsBrowser):
         search.fill('CAFÉ')
         expect(panel.get_by_role('checkbox')).to_have_count(1)
         row = panel.get_by_role('checkbox', name='Filter title 060 Café 日本語', exact=True)
-        row.uncheck()
+        panel.get_by_role('button', name='Remove matching', exact=True).click()
+        expect(row).not_to_be_checked()
+        expect(panel.get_by_role('status')).to_contain_text('60 selected')
+        search.fill('')
+        expect(panel.get_by_role('checkbox', name='Filter title 000', exact=True)).to_be_checked()
+        search.fill('CAFÉ')
         self.capture('connect-title-filter-enlarged')
         self.assert_no_horizontal_overflow(panel)
         panel.get_by_role('button', name='Cancel', exact=True).click()
@@ -185,6 +291,9 @@ class ConnectControlsBrowser(previous.AppleControlsBrowser):
         self.assertLessEqual(bounds['x'] + bounds['width'], 321)
         self.assertGreaterEqual(bounds['y'], -1)
         self.assertLessEqual(bounds['y'] + bounds['height'], 569)
+        title = panel.locator('[data-slot=sheet-title]')
+        line_height = title.evaluate('e => parseFloat(getComputedStyle(e).lineHeight)')
+        self.assertLessEqual(title.bounding_box()['height'], line_height * 2 + 1)
         self.capture('connect-reader-appearance-enlarged')
         panel.get_by_role('button', name='Close reading appearance', exact=True).click()
         expect(panel).to_have_count(0)

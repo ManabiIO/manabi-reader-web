@@ -51,12 +51,12 @@
       >
     </div>
     <Button
-      variant="outline"
+      variant="secondary"
       disabled={!$statisticsTitleFilterEnabled$}
       onclick={() => ($statisticsTitleFilterIsOpen$ = true)}
       title="Open Title Filter Menu">Filter books</Button
     >
-    <ActionMenu label="Options" title="Statistics options">
+    <ActionMenu label="Options" title="Statistics options" variant="secondary">
       <Menu.Item onSelect={() => (showStatisticsSettings = true)}>Statistics Settings</Menu.Item>
       <Menu.Separator /><Menu.Label>Copy TMW log data</Menu.Label>
       {#each copyItems as item (item.key)}<Menu.Item
