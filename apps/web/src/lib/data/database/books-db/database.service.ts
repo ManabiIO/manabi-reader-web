@@ -21,7 +21,8 @@ import type {
   BooksDbReadingGoal,
   BooksDbStatistic,
   BooksDbStorageSource,
-  BooksDbSubtitleData
+  BooksDbSubtitleData,
+  StoredBookData
 } from '$lib/data/database/books-db/versions/books-db';
 import { Observable, Subject, from } from 'rxjs';
 import { StorageDataType, StorageKey } from '$lib/data/storage/storage-types';
@@ -250,9 +251,12 @@ export class DatabaseService {
     signal?: AbortSignal
   ) {
     throwIfAborted(signal);
-    const db = await this.db;
-
-    const stored = await encodeBook(data);
+    // encodeBook takes its owned snapshot synchronously, before either the
+    // database promise or image reads can let the caller mutate the payload.
+    const encoding = encodeBook(data);
+    // Observe both failures immediately. A rejected database promise must not
+    // escape unhandled while an earlier image read is still pending.
+    const [stored, db] = await Promise.all([encoding, this.db]);
     throwIfAborted(signal);
     const tx = db.transaction('data', 'readwrite');
     const abort = () => {
@@ -265,57 +269,62 @@ export class DatabaseService {
     signal?.addEventListener('abort', abort, { once: true });
     return commitTransaction(tx, async () => {
       throwIfAborted(signal);
-      let dataId: number;
-      let bookData: BooksDbBookData;
-
       const { store } = tx;
-      const titleMatches = await store.index('title').getAll(data.title);
-      // Verified source identity must survive imports of different books sharing a title.
-      const oldData = data.contentHash
-        ? titleMatches.find(
-            (book) => book.contentHash?.toLowerCase() === data.contentHash?.toLowerCase()
-          )
-        : titleMatches.find((book) => !book.contentHash);
+      // Keep only the matching record rather than materializing every same-title
+      // book's images. More than one match is ambiguous, even with equal hashes.
+      let oldData: StoredBookData | undefined;
+      for (
+        let cursor = await store.index('title').openCursor(stored.title);
+        cursor;
+        cursor = await cursor.continue()
+      ) {
+        throwIfAborted(signal);
+        const candidate = cursor.value;
+        const matches = stored.contentHash
+          ? candidate.contentHash?.toLowerCase() === stored.contentHash.toLowerCase()
+          : !candidate.contentHash;
+        if (!matches) continue;
+        if (oldData)
+          throw new Error(
+            'This import matches multiple local copies. Resolve the copies in the Library ' +
+              'before importing again. No book was changed.'
+          );
+        oldData = candidate;
+      }
 
       if (oldData) {
-        if (removeStorageContext) {
-          oldData.storageSource = undefined;
-        }
-
         if (
           saveBehavior === ReplicationSaveBehavior.NewOnly &&
           oldData.lastBookModified &&
-          data.lastBookModified &&
-          oldData.lastBookModified >= data.lastBookModified &&
-          (oldData.lastBookOpen || 0) >= (data.lastBookOpen || 0)
+          stored.lastBookModified &&
+          oldData.lastBookModified >= stored.lastBookModified &&
+          (oldData.lastBookOpen || 0) >= (stored.lastBookOpen || 0)
         ) {
-          bookData = decodeBook(oldData);
-          dataId = oldData.id;
-        } else {
-          bookData = {
-            ...data,
-            id: oldData.id,
-            ...(skipTimestampFallback
-              ? { lastBookModified: data.lastBookModified, lastBookOpen: data.lastBookOpen }
-              : {
-                  lastBookModified: data.lastBookModified || oldData.lastBookModified,
-                  lastBookOpen: data.lastBookOpen || oldData.lastBookOpen
-                }),
-            ...(removeStorageContext ? { storageSource: undefined } : {})
-          };
-          dataId = await store.put({
-            ...bookData,
-            blobs: stored.blobs,
-            coverImage: stored.coverImage
-          });
+          // No write means no source-context change, including in the reply.
+          return decodeBook(oldData);
         }
-      } else {
-        // Until https://github.com/jakearchibald/idb/issues/150 resolves
-        dataId = await store.add(stored as typeof stored & { id: number });
-        bookData = { ...data, id: dataId };
+        const replacement = {
+          ...stored,
+          id: oldData.id,
+          ...(skipTimestampFallback
+            ? { lastBookModified: stored.lastBookModified, lastBookOpen: stored.lastBookOpen }
+            : {
+                lastBookModified: stored.lastBookModified || oldData.lastBookModified,
+                lastBookOpen: stored.lastBookOpen || oldData.lastBookOpen
+              }),
+          ...(removeStorageContext ? { storageSource: undefined } : {})
+        };
+        await store.put(replacement);
+        return decodeBook(replacement);
       }
 
-      return bookData;
+      const created = {
+        ...stored,
+        ...(removeStorageContext ? { storageSource: undefined } : {})
+      };
+      // Until https://github.com/jakearchibald/idb/issues/150 resolves
+      const id = await store.add(created as typeof created & { id: number });
+      return decodeBook({ ...created, id });
     })
       .catch((error) => {
         throwIfAborted(signal);

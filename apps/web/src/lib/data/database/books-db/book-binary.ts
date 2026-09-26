@@ -32,13 +32,15 @@ function validateStoredBinary(value: unknown): asserts value is StoredBinary {
     throw new Error('The saved book contains an unsupported image format.');
 }
 
+function snapshotBinary(value: Binary): Binary {
+  if (value instanceof Blob) return value; // Blob data is immutable; read it only once below.
+  validateStoredBinary(value);
+  return { format: 'reader-bytes-v1', type: value.type, bytes: value.bytes.slice(0) };
+}
+
+/** Non-Blob values have already been validated and copied synchronously. */
 async function encodeBinary(value: Binary): Promise<StoredBinary> {
-  if (!(value instanceof Blob)) {
-    validateStoredBinary(value);
-    // Own the mutable bytes and retain only the declared storage fields. A
-    // restored record must not smuggle another native Blob into the database.
-    return { format: 'reader-bytes-v1', type: value.type, bytes: value.bytes.slice(0) };
-  }
+  if (!(value instanceof Blob)) return value;
   try {
     return { format: 'reader-bytes-v1', type: value.type, bytes: await value.arrayBuffer() };
   } catch (cause) {
@@ -66,9 +68,27 @@ export async function encodeBook<T extends BinaryBook>(
     coverImage?: string | StoredBinary;
   }
 > {
-  // Capture top-level fields and resource membership before asynchronous reads.
-  const snapshot = { ...book };
-  const entries = Object.entries(snapshot.blobs);
+  // Freeze metadata, resource membership and mutable byte records before the
+  // first asynchronous Blob read. A later resource must not change while an
+  // earlier one is being read; nested locators/receipts are part of this snapshot.
+  const { blobs: sourceBlobs, coverImage: sourceCover, ...metadata } = book;
+  const snapshot = structuredClone(metadata);
+  const prepared = new Map<Binary, Binary>();
+  const prepare = (value: Binary) => {
+    let owned = prepared.get(value);
+    if (!owned) {
+      owned = snapshotBinary(value);
+      prepared.set(value, owned);
+    }
+    return owned;
+  };
+  const entries = Object.entries(sourceBlobs).map(
+    ([name, value]) => [name, prepare(value)] as const
+  );
+  const preparedCover =
+    typeof sourceCover === 'string' || sourceCover === undefined
+      ? sourceCover
+      : prepare(sourceCover);
   const binaries = new Map<Binary, Promise<StoredBinary>>();
   const encode = (value: Binary) => {
     let pending = binaries.get(value);
@@ -89,9 +109,9 @@ export async function encodeBook<T extends BinaryBook>(
       writable: true
     });
   const coverImage =
-    typeof snapshot.coverImage === 'string' || snapshot.coverImage === undefined
-      ? snapshot.coverImage
-      : await encode(snapshot.coverImage);
+    typeof preparedCover === 'string' || preparedCover === undefined
+      ? preparedCover
+      : await encode(preparedCover);
   return { ...snapshot, blobs, coverImage };
 }
 

@@ -191,6 +191,143 @@ class BookSaveCancellation(SharedStorageRuntime):
         self.assertEqual(['Same title']*2,[card['title'] for card in result['cards']])
 
 
+    def test_save_uses_one_snapshot_even_when_input_changes_during_an_image_read(self):
+        self.open_runtime()
+        result=self.page.evaluate("""async()=>{
+          const {database}=await import('/reader-web/src/lib/data/store.ts');
+          const {BrowserStorageHandler}=await import('/reader-web/src/lib/data/storage/handler/browser-handler.ts');
+          const {StorageKey}=await import('/reader-web/src/lib/data/storage/storage-types.ts');
+          const {ReplicationSaveBehavior}=await import('/reader-web/src/lib/functions/replication/replication-options.ts');
+          const {MergeMode}=await import('/reader-web/src/lib/data/merge-mode.ts');
+          const db=await database.db,original={title:'Snapshot original',contentHash:'a'.repeat(64),
+            elementHtml:'<p>Original</p>',styleSheet:'',blobs:{},sections:[],lastBookModified:1};
+          const id=await db.add('data',original);
+          const otherId=await db.add('data',{...original,title:'Other book',contentHash:'b'.repeat(64)});
+          const otherBefore=await db.get('data',otherId);
+          let release,entered;
+          const started=new Promise(resolve=>entered=resolve),gate=new Promise(resolve=>release=resolve);
+          class HeldBlob extends Blob { async arrayBuffer(){entered();await gate;return super.arrayBuffer();} }
+          const incoming={...original,elementHtml:'<p>Intended update</p>',lastBookModified:2,
+            blobs:{image:new HeldBlob(['original image'],{type:'image/png'})},
+            sections:[{characters:12}],publicationManifest:{spine:[{href:'original.xhtml'}]}};
+          const handler=new BrowserStorageHandler(window,StorageKey.BROWSER);
+          handler.updateSettings(window,true,ReplicationSaveBehavior.Overwrite,MergeMode.MERGE,MergeMode.MERGE);
+          handler.startContext({id,title:original.title},new AbortController().signal);
+          const pending=handler.saveBook(incoming);
+          await started;
+          incoming.title='Other book';incoming.contentHash='b'.repeat(64);
+          incoming.elementHtml='<p>Wrong text</p>';incoming.lastBookModified=999;
+          incoming.sections[0].characters=999;incoming.publicationManifest.spine[0].href='wrong.xhtml';
+          incoming.blobs.image=new Blob(['wrong image']);
+          release();const savedId=await pending;
+          const saved=await database.getData(savedId);
+          return {id,savedId,otherBefore,otherAfter:await db.get('data',otherId),saved:{title:saved.title,
+            hash:saved.contentHash,html:saved.elementHtml,modified:saved.lastBookModified,
+            section:saved.sections[0].characters,href:saved.publicationManifest.spine[0].href,
+            image:await saved.blobs.image.text()},card:handler.titleToBookCard.get(original.title)?.id};
+        }""")
+        self.assertEqual(result['id'],result['savedId'])
+        self.assertEqual(result['otherBefore'],result['otherAfter'])
+        self.assertEqual({'title':'Snapshot original','hash':'a'*64,'html':'<p>Intended update</p>',
+                          'modified':2,'section':12,'href':'original.xhtml','image':'original image'},result['saved'])
+        self.assertEqual(result['id'],result['card'])
+
+    def test_save_snapshots_input_before_waiting_for_the_database(self):
+        self.open_runtime()
+        result=self.page.evaluate("""async()=>{
+          const {database}=await import('/reader-web/src/lib/data/store.ts');
+          const {DatabaseService}=await import('/reader-web/src/lib/data/database/books-db/database.service.ts');
+          const {ReplicationSaveBehavior}=await import('/reader-web/src/lib/functions/replication/replication-options.ts');
+          const db=await database.db;let ready;
+          const delayed=new DatabaseService(new Promise(resolve=>ready=resolve));
+          const incoming={title:'Before ready',elementHtml:'<p>Admitted text</p>',styleSheet:'',blobs:{},sections:[]};
+          const pending=delayed.upsertData(incoming,ReplicationSaveBehavior.Overwrite);
+          incoming.title='After ready';incoming.elementHtml='<p>Later text</p>';
+          ready(db);const saved=await pending,stored=await db.get('data',saved.id);
+          return {saved:{title:saved.title,html:saved.elementHtml},stored:{title:stored.title,html:stored.elementHtml}};
+        }""")
+        expected={'title':'Before ready','html':'<p>Admitted text</p>'}
+        self.assertEqual(expected,result['saved'])
+        self.assertEqual(expected,result['stored'])
+
+    def test_save_source_policy_and_noop_return_match_the_committed_record(self):
+        self.open_runtime()
+        result=self.page.evaluate("""async()=>{
+          const {database}=await import('/reader-web/src/lib/data/store.ts');
+          const {ReplicationSaveBehavior:behavior}=await import('/reader-web/src/lib/functions/replication/replication-options.ts');
+          const db=await database.db,book={title:'Source policy',elementHtml:'<p>Source</p>',styleSheet:'',
+            blobs:{},sections:[],lastBookModified:10,lastBookOpen:10,storageSource:'Connected library'};
+          const inserted=await database.upsertData(book,behavior.Overwrite,true,true);
+          const insertedStored=await db.get('data',inserted.id);
+          await db.put('data',{...insertedStored,storageSource:'Connected library'});
+          const retained=await database.upsertData({...book,lastBookModified:1,lastBookOpen:1},behavior.NewOnly,true,true);
+          const retainedStored=await db.get('data',inserted.id);
+          const updated=await database.upsertData({...book,lastBookModified:20},behavior.Overwrite,true,true);
+          const updatedStored=await db.get('data',inserted.id);
+          const linked=await database.upsertData({...book,title:'Explicit source'},behavior.Overwrite,true,false);
+          return {inserted:inserted.storageSource??null,insertedStored:insertedStored.storageSource??null,
+            retained:retained.storageSource??null,retainedStored:retainedStored.storageSource??null,
+            updated:updated.storageSource??null,updatedStored:updatedStored.storageSource??null,
+            linked:linked.storageSource??null,linkedStored:(await db.get('data',linked.id)).storageSource??null};
+        }""")
+        self.assertEqual({'inserted':None,'insertedStored':None,'retained':'Connected library',
+                          'retainedStored':'Connected library','updated':None,'updatedStored':None,
+                          'linked':'Connected library','linkedStored':'Connected library'},result)
+
+    def test_save_rejects_ambiguous_same_identity_without_replacing_either_copy(self):
+        self.open_runtime()
+        result=self.page.evaluate("""async()=>{
+          const {database}=await import('/reader-web/src/lib/data/store.ts');
+          const {ReplicationSaveBehavior}=await import('/reader-web/src/lib/functions/replication/replication-options.ts');
+          const db=await database.db,book={title:'Ambiguous save',contentHash:'c'.repeat(64),
+            elementHtml:'<p>First</p>',styleSheet:'',blobs:{},sections:[]};
+          const first=await db.add('data',book);
+          const second=await db.add('data',{...book,elementHtml:'<p>Second</p>',storageSource:'Other library'});
+          const before=await db.getAll('data');
+          const outcome=await database.upsertData({...book,elementHtml:'<p>Replacement</p>'},ReplicationSaveBehavior.Overwrite)
+            .then(()=>({ok:true}),error=>({message:error.message}));
+          const after=await db.getAll('data');
+          await db.delete('data',second);
+          const retry=await database.upsertData({...book,elementHtml:'<p>Replacement</p>'},ReplicationSaveBehavior.Overwrite);
+          return {first,before,after,outcome,retry:retry.id,html:(await db.get('data',first)).elementHtml};
+        }""")
+        self.assertIn('multiple local copies',result['outcome'].get('message',''))
+        self.assertEqual(result['before'],result['after'])
+        self.assertEqual(result['first'],result['retry'])
+        self.assertEqual('<p>Replacement</p>',result['html'])
+
+
+    def test_database_failure_is_observed_while_binary_preparation_is_pending(self):
+        self.open_runtime()
+        result=self.page.evaluate("""async()=>{
+          const {database}=await import('/reader-web/src/lib/data/store.ts');
+          const {DatabaseService}=await import('/reader-web/src/lib/data/database/books-db/database.service.ts');
+          const {ReplicationSaveBehavior}=await import('/reader-web/src/lib/functions/replication/replication-options.ts');
+          const db=await database.db;
+          let rejectDatabase,release,started;
+          const connection=new Promise((_resolve,reject)=>rejectDatabase=reject);
+          const gate=new Promise(resolve=>release=resolve),entered=new Promise(resolve=>started=resolve);
+          class HeldBlob extends Blob {
+            async arrayBuffer(){started();await gate;return super.arrayBuffer();}
+          }
+          const service=new DatabaseService(connection),cause=new Error('Native database opening failed');
+          const pending=service.upsertData({title:'Failed open',elementHtml:'<p>Never committed</p>',
+            styleSheet:'',sections:[],blobs:{image:new HeldBlob(['bytes'],{type:'image/png'})}},
+            ReplicationSaveBehavior.Overwrite).then(()=>({saved:true}),error=>({sameCause:error===cause}));
+          await entered;
+          try {
+            rejectDatabase(cause);
+            // Cross task boundaries so a temporarily unobserved database rejection
+            // reaches the ordinary page-error listener before releasing the image.
+            await new Promise(resolve=>setTimeout(resolve,0));
+            await new Promise(resolve=>setTimeout(resolve,0));
+          } finally { release(); }
+          return {outcome:await pending,rows:await db.getAllKeys('data')};
+        }""")
+        self.assertEqual({'sameCause':True},result['outcome'])
+        self.assertEqual([],result['rows'])
+
+
 def load_tests(_loader, _tests, _pattern):
     # The shared base also owns provider and static/offline cases. Keep those in
     # their own suites, not duplicated against this module's development server.

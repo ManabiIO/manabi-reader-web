@@ -225,11 +225,17 @@ class LibraryOpenCommitStatic(LibraryBase):
         self.import_book('Queued book')
         self.import_book('Retained book')
         ids={row['title']:row['id'] for row in self.stores('books',['data'])['data']}
-        self.page.goto(self.origin+'/reader-web/settings')
+        # Establish the Back destination through completed app navigation. Do
+        # not tear down a just-created document while its entry imports load.
+        self.page.get_by_role('button',name='Library actions',exact=True).click()
+        self.page.get_by_role('menuitem',name='Settings',exact=True).click()
+        expect(self.page.get_by_role('heading',name='Appearance',exact=True)).to_be_visible()
         self.go_library()
         holder=self.context.new_page()
         try:
-            holder.goto(self.origin+'/reader-web/settings')
+            # A same-origin image document has IndexedDB but no application
+            # module graph to interrupt when this storage-only actor closes.
+            holder.goto(self.origin+'/reader-web/favicon.png')
             holder.evaluate("""id=>new Promise((resolve,reject)=>{
               const open=indexedDB.open('books');open.onerror=()=>reject(open.error);
               open.onsuccess=()=>{const db=open.result,tx=db.transaction('lastItem','readwrite');
@@ -247,16 +253,17 @@ class LibraryOpenCommitStatic(LibraryBase):
             })""")
             self.page.evaluate("""()=>{
               const original=IDBDatabase.prototype.transaction;
-              window.resumeTargetTransactionStarted=false;
+              delete document.documentElement.dataset.resumeTargetTransactionStarted;
               IDBDatabase.prototype.transaction=function(names,mode,...args){
                 const tx=original.call(this,names,mode,...args);
                 if(this.name==='books'&&mode==='readwrite'&&Array.from(tx.objectStoreNames).includes('lastItem'))
-                  window.resumeTargetTransactionStarted=true;
+                  document.documentElement.dataset.resumeTargetTransactionStarted='true';
                 return tx;
               };
             }""")
             self.page.get_by_role('button',name='Read Queued book',exact=True).click()
-            self.page.wait_for_function('window.resumeTargetTransactionStarted===true')
+            # Locator assertions do not compile a predicate in the page's CSP realm.
+            expect(self.page.locator('html')).to_have_attribute('data-resume-target-transaction-started','true')
             self.page.go_back()
             expect(self.page).to_have_url(re.compile('/reader-web/settings$'))
             holder.evaluate('async()=>{window.releaseResumeBlocker();await window.resumeBlockerDone;}')
