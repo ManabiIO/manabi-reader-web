@@ -41,6 +41,7 @@ class LocalLibraryReview(LocalFeatureBrowser):
 
 
     def open_notebook(self, page):
+        expect(page.locator('.book-content').first).to_have_attribute('aria-busy', 'false')
         page.get_by_role('button', name='Show reading controls', exact=True).click()
         page.get_by_role('button', name='Bookmarks and Notes', exact=True).click()
         notebook = page.get_by_role('region', name='Imported Yatsu notes', exact=True)
