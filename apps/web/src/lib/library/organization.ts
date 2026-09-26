@@ -33,6 +33,12 @@ export interface Organization {
   books: Record<string, BookPresentation>;
 }
 const key = 'books-organization-v1';
+// A local write already publishes to this document's Svelte store. Tag
+// BroadcastChannel messages so duplicate watchers in the same document do not
+// immediately re-read IndexedDB and race that publication. Other tabs have
+// their own module instance/source token and still reload normally. String
+// messages from older deployed tabs remain compatible.
+const broadcastSource = globalThis.crypto?.randomUUID?.() ?? String(Math.random());
 export const emptyOrganization = (): Organization => ({ version: 1, collections: [], books: {} });
 let currentOrganization = emptyOrganization();
 let publicationRevision = 0;
@@ -95,7 +101,7 @@ function notifyOrganizationChange() {
   if (typeof BroadcastChannel === 'undefined') return;
   try {
     const channel = new BroadcastChannel(key);
-    channel.postMessage('changed');
+    channel.postMessage({ type: 'changed', source: broadcastSource });
     channel.close();
   } catch {
     /* Other tabs refresh on their next visit. */
@@ -162,7 +168,15 @@ export function watchOrganization(onError: (error: unknown) => void = () => unde
   void reloadOrganization().catch(onError);
   const channel = typeof BroadcastChannel === 'undefined' ? undefined : new BroadcastChannel(key);
   if (channel)
-    channel.onmessage = () => {
+    channel.onmessage = (event) => {
+      const message = event.data;
+      if (
+        message &&
+        typeof message === 'object' &&
+        message.type === 'changed' &&
+        message.source === broadcastSource
+      )
+        return;
       void reloadOrganization().catch(onError);
     };
   return () => channel?.close();
