@@ -61,7 +61,7 @@ class ConnectControlsBrowser(previous.AppleControlsBrowser):
                 self.assertNotEqual('none', typography.evaluate('e => getComputedStyle(e).outlineStyle'))
                 self.capture(f'connect-settings-{mode}-{width}')
                 search.fill('NoSuchSettingForThisRegression')
-                expect(self.page.locator('#settings-content [role="status"]')).to_contain_text('No matching settings')
+                expect(self.page.get_by_role('status', name='Settings search results', exact=True)).to_contain_text('No matching settings')
                 search.fill('')
                 expect(self.page.locator('#settings-content').get_by_role('heading', name='Fonts & text', exact=True)).to_be_visible()
 

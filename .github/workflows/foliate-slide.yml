@@ -8,6 +8,7 @@ on:
       - 'tests/browser/test_epub_publication.py'
       - 'tests/browser/test_epub_navigation.py'
       - 'tests/browser/test_epub_resource_compatibility.py'
+      - 'tests/browser/test_epub_read_lifetime.py'
       - 'tests/unit/foliate-*.test.mjs'
       - '.github/workflows/foliate-slide.yml'
   push:
@@ -19,6 +20,7 @@ on:
       - 'tests/browser/test_epub_publication.py'
       - 'tests/browser/test_epub_navigation.py'
       - 'tests/browser/test_epub_resource_compatibility.py'
+      - 'tests/browser/test_epub_read_lifetime.py'
       - 'tests/unit/foliate-*.test.mjs'
       - '.github/workflows/foliate-slide.yml'
 permissions:
@@ -51,7 +53,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --dir apps/web exec svelte-kit sync
       - run: pnpm --dir apps/web check
-      - run: node --test tests/unit/foliate-*.test.mjs
+      - run: node --test tests/unit/foliate-*.test.mjs tests/unit/epub-last-read.test.mjs
       - name: Build the real reader
         env:
           BASE_PATH: /reader-web
@@ -72,6 +74,7 @@ jobs:
           python tests/browser/test_epub_publication.py 2>&1 | tee epub-publication.log
           python tests/browser/test_epub_navigation.py 2>&1 | tee epub-navigation.log
           python tests/browser/test_epub_resource_compatibility.py 2>&1 | tee epub-compatibility.log
+          python tests/browser/test_epub_read_lifetime.py 2>&1 | tee epub-read-lifetime.log
       - name: Preserve image, Japanese-content and chapter-link coverage
         if: matrix.browser == 'chromium'
         run: |
@@ -90,5 +93,6 @@ jobs:
             epub-publication.log
             epub-navigation.log
             epub-compatibility.log
+            epub-read-lifetime.log
             test-results/
           retention-days: 7
