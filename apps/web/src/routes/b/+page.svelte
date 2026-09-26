@@ -2087,6 +2087,7 @@
     previewNavigationActive={navigationPreviewing || suppressResumeSave}
     htmlContent={$bookData$.htmlContent}
     publicationManifest={$rawBookData$.publicationManifest}
+    epubPublication={$rawBookData$.epubPublication}
     width={$containerViewportWidth$ ?? 0}
     height={$containerViewportHeight$ ?? 0}
     {fontFeatureSettings}
