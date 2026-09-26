@@ -36,7 +36,7 @@ const result = await build({
           resolveDir: root,
           contents:
             path === 'account'
-              ? 'export const currentUser = () => null;'
+              ? 'export const localProfileUser = () => null;'
               : `
         import { writableStorageSubject } from './src/lib/data/internal/writable-storage-subject';
         const number = writableStorageSubject(globalThis.localStorage, Number, String);

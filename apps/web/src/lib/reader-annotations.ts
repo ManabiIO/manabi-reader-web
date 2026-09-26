@@ -6,7 +6,7 @@
 
 import { database } from '$lib/data/store';
 import { get } from 'svelte/store';
-import { account, currentUser } from '$lib/manabi/client';
+import { account, localProfileUser } from '$lib/manabi/client';
 import type {
   ReaderAnnotation,
   ReaderAnnotationMutation
@@ -22,22 +22,38 @@ const maxImportRecords = 10_000;
 const portableId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function assertCurrentAccount(accountId: string | null) {
-  if ((currentUser()?.id ?? null) !== accountId) throw new Error('The account changed.');
+  if ((localProfileUser()?.id ?? null) !== accountId) throw new Error('The account changed.');
 }
 
 async function visibleAnnotations(records: ReaderAnnotation[]): Promise<ReaderAnnotation[]> {
   if (get(account).status === 'loading') return [];
-  const accountId = currentUser()?.id ?? null;
-  if (!accountId) return records;
+  const accountId = localProfileUser()?.id ?? null;
   const db = await database.db;
   const owners = await Promise.all(
     records.map((record) => db.get('readerAnnotationScope', record.id))
   );
+  const bookOwners = new Map<string, Promise<string | null | undefined>>();
+  const effectiveOwners = await Promise.all(
+    records.map((record, index) => {
+      if (owners[index]) return owners[index].accountId;
+      let owner = bookOwners.get(record.bookKey);
+      if (!owner) {
+        owner = bookAccount(record.bookKey);
+        bookOwners.set(record.bookKey, owner);
+      }
+      return owner;
+    })
+  );
   assertCurrentAccount(accountId);
-  return records.filter((_, index) => !owners[index] || owners[index]?.accountId === accountId);
+  return records.filter(
+    (_, index) =>
+      effectiveOwners[index] !== undefined &&
+      (!effectiveOwners[index] || effectiveOwners[index] === accountId)
+  );
 }
 
-async function bookAccount(bookKey: string): Promise<string | null> {
+/** Undefined means copies belong to multiple accounts, so access is ambiguous. */
+async function bookAccount(bookKey: string): Promise<string | null | undefined> {
   if (!bookKey.startsWith('content:')) return null;
   const db = await database.db;
   const owners = new Set<string>();
@@ -46,7 +62,7 @@ async function bookAccount(bookKey: string): Promise<string | null> {
     const scope = await db.get('readerBookScope', book.id);
     if (scope) owners.add(scope.accountId);
   }
-  return owners.size === 1 ? [...owners][0] : null;
+  return owners.size === 1 ? [...owners][0] : owners.size === 0 ? null : undefined;
 }
 
 export interface ReaderAnnotationArchive {
@@ -192,7 +208,7 @@ export async function exportReaderAnnotations(): Promise<string> {
 /** Validate the entire file before writing; conflicting IDs preserve the local copy. */
 export async function importReaderAnnotations(
   json: string,
-  accountId: string | null = currentUser()?.id ?? null
+  accountId: string | null = localProfileUser()?.id ?? null
 ): Promise<AnnotationImportResult> {
   assertCurrentAccount(accountId);
   if (new TextEncoder().encode(json).byteLength > maxImportBytes)
@@ -221,12 +237,16 @@ export async function importReaderAnnotations(
   try {
     for (const [index, annotation] of incoming.entries()) {
       assertCurrentAccount(accountId);
-      const boundAccount = accountId ?? boundAccounts[index];
+      if (boundAccounts[index] === undefined)
+        throw new Error('This annotation has ambiguous account ownership.');
+      const boundAccount = boundAccounts[index] ?? accountId;
+      if (boundAccount && boundAccount !== accountId)
+        throw new Error('This annotation belongs to another account.');
       const existing = await tx.objectStore('readerAnnotation').get(annotation.id);
       const owner = existing
         ? await tx.objectStore('readerAnnotationScope').get(annotation.id)
         : undefined;
-      if (accountId && owner && owner.accountId !== accountId)
+      if (owner && owner.accountId !== accountId)
         throw new Error('This annotation belongs to another account.');
       if (existing) {
         if (
@@ -297,7 +317,7 @@ export async function listAnnotationImportConflicts(
 export async function resolveAnnotationImportConflict(
   id: string,
   choice: 'keep-local' | 'restore-archive',
-  accountId: string | null = currentUser()?.id ?? null
+  accountId: string | null = localProfileUser()?.id ?? null
 ): Promise<void> {
   assertCurrentAccount(accountId);
   if (!id.startsWith('import:')) throw new Error('Invalid archive conflict.');
@@ -309,7 +329,7 @@ export async function resolveAnnotationImportConflict(
   const conflict = await tx.objectStore('readerConflict').get(id);
   if (!conflict) return;
   const existingOwner = await tx.objectStore('readerAnnotationScope').get(conflict.local.id);
-  if (accountId && existingOwner && existingOwner.accountId !== accountId)
+  if (existingOwner && existingOwner.accountId !== accountId)
     throw new Error('This annotation belongs to another account.');
   const current = await tx.objectStore('readerAnnotation').get(conflict.local.id);
   if (
@@ -369,7 +389,7 @@ function validate(draft: AnnotationDraft) {
 /** Local write and optional account-bound mutation are one IndexedDB transaction. */
 export async function saveReaderAnnotation(
   draft: AnnotationDraft,
-  accountId: string | null = currentUser()?.id ?? null
+  accountId: string | null = localProfileUser()?.id ?? null
 ): Promise<ReaderAnnotation> {
   assertCurrentAccount(accountId);
   validate(draft);
@@ -377,9 +397,13 @@ export async function saveReaderAnnotation(
   const savedOwner = draft.id
     ? (await db.get('readerAnnotationScope', draft.id))?.accountId
     : undefined;
-  if (accountId && savedOwner && savedOwner !== accountId)
+  if (savedOwner && savedOwner !== accountId)
     throw new Error('This annotation belongs to another account.');
-  const boundAccount = savedOwner ?? accountId ?? (await bookAccount(draft.bookKey));
+  const bookOwner = await bookAccount(draft.bookKey);
+  if (bookOwner === undefined) throw new Error('This annotation has ambiguous account ownership.');
+  const boundAccount = savedOwner ?? bookOwner ?? accountId;
+  if (boundAccount && boundAccount !== accountId)
+    throw new Error('This annotation belongs to another account.');
   assertCurrentAccount(accountId);
   const tx = db.transaction(
     ['readerAnnotation', 'readerAnnotationOutbox', 'readerAnnotationScope'],
@@ -389,7 +413,7 @@ export async function saveReaderAnnotation(
   const previous = await tx.objectStore('readerAnnotation').get(id);
   const owner = await tx.objectStore('readerAnnotationScope').get(id);
   assertCurrentAccount(accountId);
-  if (accountId && owner && owner.accountId !== accountId)
+  if (owner && owner.accountId !== accountId)
     throw new Error('This annotation belongs to another account.');
   if (previous && previous.bookKey !== draft.bookKey)
     throw new Error('An annotation cannot move to another book.');
@@ -448,7 +472,7 @@ export async function listReaderAnnotations(bookKey: string): Promise<ReaderAnno
 
 export async function removeReaderAnnotation(
   id: string,
-  accountId: string | null = currentUser()?.id ?? null
+  accountId: string | null = localProfileUser()?.id ?? null
 ) {
   assertCurrentAccount(accountId);
   const db = await database.db;
@@ -460,7 +484,7 @@ export async function removeReaderAnnotation(
   if (!current || current.deletedAt) return;
   const owner = await tx.objectStore('readerAnnotationScope').get(id);
   assertCurrentAccount(accountId);
-  if (accountId && owner && owner.accountId !== accountId)
+  if (owner && owner.accountId !== accountId)
     throw new Error('This annotation belongs to another account.');
   const boundAccount = owner?.accountId ?? accountId;
   const modifiedAt = new Date().toISOString();

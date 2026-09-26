@@ -1,6 +1,7 @@
 /** @license BSD-3-Clause */
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { setTimeout, clearTimeout } from 'node:timers';
 import vm from 'node:vm';
 import { build } from 'esbuild';
 

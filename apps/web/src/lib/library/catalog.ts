@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { currentUser, request } from '$lib/manabi/client';
+import { currentUser, localProfileUser, request } from '$lib/manabi/client';
 import { integrationDB, metadata, setMetadata } from '$lib/manabi/persistence';
 import {
   CloudLibrary,
@@ -51,10 +51,11 @@ export async function sourceDescriptors(): Promise<SourceDescriptor[]> {
       provider: 'webdav'
     }))
   );
-  const owner = currentUser()?.id;
+  const owner = localProfileUser()?.id;
   if (!owner) return local;
   const cloudKey = `library-sources:${owner}`;
   let cloud = (await metadata<SourceDescriptor[]>(cloudKey)) ?? [];
+  if (currentUser()?.id !== owner) return [...local, ...cloud];
   try {
     const result = await request<{ items: CloudConnection[] }>('connections/', { userId: owner });
     cloud = result.items.flatMap((c) =>
