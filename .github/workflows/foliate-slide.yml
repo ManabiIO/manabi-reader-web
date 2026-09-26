@@ -12,6 +12,7 @@ on:
       - 'tests/browser/test_epub_navigation.py'
       - 'tests/browser/test_epub_resource_compatibility.py'
       - 'tests/browser/test_epub_read_lifetime.py'
+      - 'tests/browser/test_catalog_lifetime.py'
       - 'tests/unit/foliate-*.test.mjs'
       - '.github/workflows/foliate-slide.yml'
   push:
@@ -27,6 +28,7 @@ on:
       - 'tests/browser/test_epub_navigation.py'
       - 'tests/browser/test_epub_resource_compatibility.py'
       - 'tests/browser/test_epub_read_lifetime.py'
+      - 'tests/browser/test_catalog_lifetime.py'
       - 'tests/unit/foliate-*.test.mjs'
       - '.github/workflows/foliate-slide.yml'
 permissions:
@@ -67,6 +69,7 @@ jobs:
       - name: Exercise gestures and capture keyframes
         env:
           SLIDE_BROWSER: ${{ matrix.browser }}
+          PICKS_BROWSER: ${{ matrix.browser }}
         run: |
           python -m pip install 'playwright==1.55.0'
           python -m playwright install --with-deps ${{ matrix.browser }}
@@ -76,12 +79,14 @@ jobs:
       - name: Qualify resource imports, continuous reading and legacy records
         env:
           SLIDE_BROWSER: ${{ matrix.browser }}
+          PICKS_BROWSER: ${{ matrix.browser }}
         run: |
           set -o pipefail
           python tests/browser/test_epub_publication.py 2>&1 | tee epub-publication.log
           python tests/browser/test_epub_navigation.py 2>&1 | tee epub-navigation.log
           python tests/browser/test_epub_resource_compatibility.py 2>&1 | tee epub-compatibility.log
           python tests/browser/test_epub_read_lifetime.py 2>&1 | tee epub-read-lifetime.log
+          python tests/browser/test_catalog_lifetime.py 2>&1 | tee catalog-lifetime.log
       - name: Preserve image, Japanese-content and chapter-link coverage
         if: matrix.browser == 'chromium'
         run: |
@@ -124,5 +129,6 @@ jobs:
             foliate-fast-turns.log
             slide-demo.log
             demos/apple-books-slide-poc/index.html
+            catalog-lifetime.log
             test-results/
           retention-days: 7
