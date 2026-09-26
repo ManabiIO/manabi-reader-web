@@ -4,6 +4,8 @@ Native failure injection changes only the requested transaction; normal Reader,
 Library, catalog, IndexedDB and navigation code execute unchanged.
 """
 import os
+import json
+from pathlib import Path
 import re
 import unittest
 from unittest.mock import patch
@@ -197,6 +199,29 @@ class LibraryOpenCommitRuntime(BookSaveCancellation):
 
 
 class LibraryOpenCommitStatic(LibraryBase):
+    def setUp(self):
+        self.phase = 'setup'
+        self.diagnostics = []
+        super().setUp()
+        self.page.on('pageerror', lambda error: self.diagnostics.append({
+            'kind':'pageerror', 'phase':self.phase, 'url':self.page.url,
+            'name':error.name, 'message':error.message, 'stack':error.stack}))
+        self.page.on('requestfailed', lambda request: self.diagnostics.append({
+            'kind':'requestfailed', 'phase':self.phase, 'url':request.url,
+            'resourceType':request.resource_type, 'failure':request.failure}))
+        self.page.on('framenavigated', lambda frame: self.diagnostics.append({
+            'kind':'navigation', 'phase':self.phase, 'url':frame.url}))
+
+    def tearDown(self):
+        self.phase = 'teardown'
+        try:
+            super().tearDown()
+        finally:
+            output = Path('test-results')
+            output.mkdir(exist_ok=True)
+            (output / f'{self.engine}-{self._testMethodName}-lifecycle.json').write_text(
+                json.dumps({'events':self.diagnostics, 'pageErrors':self.errors}, indent=2))
+
     def test_failed_resume_commit_stays_in_library_and_retry_opens_the_selected_book(self):
         self.import_book('Retained resume')
         self.import_book('Selected book')
@@ -222,14 +247,22 @@ class LibraryOpenCommitStatic(LibraryBase):
         self.assertEqual(2,len(self.stores('books',['data'])['data']))
 
     def test_queued_open_cannot_change_resume_or_navigate_after_back(self):
+        self.phase = 'import'
         self.import_book('Queued book')
         self.import_book('Retained book')
         ids={row['title']:row['id'] for row in self.stores('books',['data'])['data']}
-        self.page.goto(self.origin+'/reader-web/settings')
+        self.phase = 'establish Back destination'
+        # Establish the Back destination through completed app navigation. Do
+        # not tear down a just-created document while its entry imports load.
+        self.page.get_by_role('button',name='Library actions',exact=True).click()
+        self.page.get_by_role('menuitem',name='Settings',exact=True).click()
+        expect(self.page.get_by_role('heading',name='Appearance',exact=True)).to_be_visible()
         self.go_library()
         holder=self.context.new_page()
         try:
-            holder.goto(self.origin+'/reader-web/settings')
+            # A same-origin image document has IndexedDB but no application
+            # module graph to interrupt when this storage-only actor closes.
+            holder.goto(self.origin+'/reader-web/favicon.png')
             holder.evaluate("""id=>new Promise((resolve,reject)=>{
               const open=indexedDB.open('books');open.onerror=()=>reject(open.error);
               open.onsuccess=()=>{const db=open.result,tx=db.transaction('lastItem','readwrite');
@@ -247,28 +280,36 @@ class LibraryOpenCommitStatic(LibraryBase):
             })""")
             self.page.evaluate("""()=>{
               const original=IDBDatabase.prototype.transaction;
-              document.documentElement.removeAttribute('data-resume-target-transaction-started');
+              delete document.documentElement.dataset.resumeTargetTransactionStarted;
               IDBDatabase.prototype.transaction=function(names,mode,...args){
                 const tx=original.call(this,names,mode,...args);
                 if(this.name==='books'&&mode==='readwrite'&&Array.from(tx.objectStoreNames).includes('lastItem'))
-                  document.documentElement.setAttribute('data-resume-target-transaction-started', 'true');
+                  document.documentElement.dataset.resumeTargetTransactionStarted='true';
                 return tx;
               };
             }""")
             self.page.get_by_role('button',name='Read Queued book',exact=True).click()
-            # Locator polling stays in Playwright's utility world. Page-world
-            # wait_for_function calls eval and fails under this app's CSP in WebKit.
-            expect(self.page.locator('html')).to_have_attribute('data-resume-target-transaction-started', 'true')
+            # Locator assertions do not compile a predicate in the page's CSP realm.
+            expect(self.page.locator('html')).to_have_attribute('data-resume-target-transaction-started','true')
+            self.phase = 'cancel queued resume via Back'
             self.page.go_back()
             expect(self.page).to_have_url(re.compile('/reader-web/settings$'))
+            # A history URL and SSR heading do not certify SvelteKit startup.
+            expect(self.page.locator('#svelte-announcer')).to_be_attached()
             holder.evaluate('async()=>{window.releaseResumeBlocker();await window.resumeBlockerDone;}')
             self.assertEqual([{'dataId':ids['Retained book']}],self.stores('books',['lastItem'])['lastItem'])
             self.assertTrue(self.page.url.endswith('/settings'))
+            self.phase = 'fresh explicit retry'
             self.go_library()
             self.page.get_by_role('button',name='Read Queued book',exact=True).click()
             expect(self.page).to_have_url(re.compile(r'/reader-web/b\?id='+str(ids['Queued book'])+r'$'))
-            expect(self.page.locator('.book-content').first).to_have_attribute('aria-busy', 'false')
             self.assertEqual([{'dataId':ids['Queued book']}],self.stores('books',['lastItem'])['lastItem'])
+            # Navigation commits the URL before the Reader's lazy modules and
+            # publication finish loading. A successful retry must render the
+            # reader, not close its document during those pending imports.
+            self.phase = 'wait for actual reader retry'
+            expect(self.page.locator('.book-content').first).to_have_attribute('aria-busy','false')
+            self.phase = 'reader retry ready'
         finally:
             if not holder.is_closed():
                 holder.evaluate('window.releaseResumeBlocker?.()')

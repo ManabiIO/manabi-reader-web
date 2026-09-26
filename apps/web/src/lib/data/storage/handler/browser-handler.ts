@@ -351,7 +351,7 @@ export class BrowserStorageHandler extends BaseStorageHandler {
           contentBookKey(storedBookData.contentHash)
         );
       }
-      this.addBookCard(data.title, {
+      this.addBookCard(storedBookData.title, {
         id: storedBookData.id,
         characters: BaseStorageHandler.getBookCharacters(
           storedBookData.characters || 0,
