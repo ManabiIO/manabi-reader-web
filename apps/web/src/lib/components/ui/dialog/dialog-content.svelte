@@ -8,6 +8,7 @@
   import type { Snippet } from 'svelte';
   import type { ComponentProps } from 'svelte';
   import { containModalTab } from '$lib/hooks/focus-trap-fallback.js';
+  import { preserveModalFocus } from '$lib/hooks/preserve-modal-focus.js';
 
   let {
     ref = $bindable(null),
@@ -15,6 +16,7 @@
     portalProps,
     children,
     showCloseButton = true,
+    onOpenAutoFocus,
     ...restProps
   }: WithoutChildrenOrChild<DialogPrimitive.ContentProps> & {
     portalProps?: WithoutChildrenOrChild<ComponentProps<typeof DialogPortal>>;
@@ -28,6 +30,7 @@
   <DialogPrimitive.Content
     bind:ref
     onkeydowncapture={containModalTab}
+    onOpenAutoFocus={(event) => preserveModalFocus(event, ref, onOpenAutoFocus)}
     data-slot="dialog-content"
     class={cn(
       'bg-popover text-popover-foreground data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 ring-foreground/5 dark:ring-foreground/10 grid max-w-[calc(100%_-_2rem)] gap-6 rounded-[min(var(--radius-4xl),24px)] p-6 text-sm shadow-xl ring-1 duration-100 sm:max-w-md fixed top-1/2 left-1/2 z-50 w-full -translate-x-1/2 -translate-y-1/2 outline-none',

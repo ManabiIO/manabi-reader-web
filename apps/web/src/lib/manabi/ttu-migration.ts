@@ -4,10 +4,13 @@
  * All rights reserved.
  */
 
+import { encodeBook } from '$lib/data/database/books-db/book-binary';
+
 import { database, lastReadingGoalsModified$, readingGoal$ } from '$lib/data/store';
 import { getCurrentReadingGoal } from '$lib/data/reading-goal';
 import type {
   BooksDbBookData,
+  StoredBookData,
   BooksDbBookmarkData,
   BooksDbStatistic,
   BooksDbAudioBook,
@@ -61,7 +64,7 @@ interface Receipt {
   content: string;
   records: Record<string, string>;
 }
-type MigratedBook = BooksDbBookData & { manabiTtuImport?: Receipt };
+type MigratedBook = StoredBookData & { manabiTtuImport?: Receipt };
 export interface MigratedBookChoice {
   id: number;
   title: string;
@@ -350,6 +353,7 @@ export class TtuMigration {
       Number(imported.bookmark.exploredCharCount) > content.characters
     )
       throw new Error('The bookmark is beyond the end of this book.');
+    const storedContent = content ? await encodeBook(content) : undefined;
     signal?.throwIfAborted();
     return exclusive('import-library-book', async () => {
       const db = await database.db;
@@ -388,7 +392,7 @@ export class TtuMigration {
         } else throw new Error('Choose the previously imported book for this data-only export.');
         let created = false;
         if (!target) {
-          if (!content || !options.parts.includes('book'))
+          if (!storedContent || !options.parts.includes('book'))
             throw new Error('Import Book Data before importing reading data.');
           let title = item.title;
           let suffix = 1;
@@ -400,8 +404,10 @@ export class TtuMigration {
             (await tx.objectStore('subtitle').getKey(title))
           )
             title = `${item.title} [Ttu import ${++suffix}]`;
-          const id = await tx.objectStore('data').add({ ...content, title } as BooksDbBookData);
-          target = { ...content, id, title };
+          const id = await tx
+            .objectStore('data')
+            .add({ ...storedContent, title } as StoredBookData);
+          target = { ...storedContent, id, title };
           created = true;
         }
         if (target.storageSource)

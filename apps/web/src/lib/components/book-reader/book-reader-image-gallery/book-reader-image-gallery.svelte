@@ -2,7 +2,11 @@
   import { onKeyDownReaderImageGallery } from '../../../../routes/b/on-keydown-reader';
   import ChevronLeft from '@lucide/svelte/icons/chevron-left';
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
-  import { readerImageGalleryPictures$ } from './book-reader-image-gallery';
+  import {
+    readerImageGalleryPictures$,
+    toggleImageGalleryPictureSpoiler$
+  } from './book-reader-image-gallery';
+  import { revealGalleryPicture } from './reveal-gallery-picture';
   import {
     hideSpoilerImage$,
     readerImageGalleryKeybindMap$,
@@ -63,8 +67,10 @@
   }
 
   function reveal(url: string) {
-    $readerImageGalleryPictures$ = $readerImageGalleryPictures$.map((picture) =>
-      picture.url === url ? { ...picture, unspoilered: true } : picture
+    $readerImageGalleryPictures$ = revealGalleryPicture(
+      $readerImageGalleryPictures$,
+      url,
+      (picture) => toggleImageGalleryPictureSpoiler$.next(picture)
     );
   }
 

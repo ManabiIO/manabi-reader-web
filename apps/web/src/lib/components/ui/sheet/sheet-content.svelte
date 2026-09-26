@@ -12,12 +12,14 @@
   import type { Snippet } from 'svelte';
   import type { ComponentProps } from 'svelte';
   import { containModalTab } from '$lib/hooks/focus-trap-fallback.js';
+  import { preserveModalFocus } from '$lib/hooks/preserve-modal-focus.js';
 
   let {
     ref = $bindable(null),
     class: className,
     side = 'right',
     showCloseButton = true,
+    onOpenAutoFocus,
     portalProps,
     overlayProps,
     children,
@@ -36,6 +38,7 @@
   <SheetPrimitive.Content
     bind:ref
     onkeydowncapture={containModalTab}
+    onOpenAutoFocus={(event) => preserveModalFocus(event, ref, onOpenAutoFocus)}
     data-slot="sheet-content"
     data-side={side}
     class={cn(
