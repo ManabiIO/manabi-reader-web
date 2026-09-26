@@ -63,16 +63,18 @@
 </script>
 
 <header
-  class="app-header reader-toolbar flex min-h-16 items-center justify-between gap-1 bg-background px-3 text-foreground sm:gap-3 sm:px-6"
+  class="app-header reader-toolbar flex min-h-16 items-center justify-between gap-0 bg-background px-2 text-foreground sm:gap-3 sm:px-6"
   aria-label="Reader toolbar"
 >
-  <div class="flex items-center gap-1">
+  <div class="flex shrink-0 items-center gap-0 sm:gap-1">
     <Button
       variant="ghost"
-      class="min-h-11"
+      class="min-h-11 min-w-11 px-2 sm:px-4"
+      aria-label="Library"
       onclick={() => dispatch('bookManagerClick')}
       title="Return to Library"
-      ><ArrowLeft class="size-4" aria-hidden="true" /><span>Library</span></Button
+      ><ArrowLeft class="size-4" aria-hidden="true" /><span class="hidden sm:inline">Library</span
+      ></Button
     >
     {#if hasChapterData}
       <Button
@@ -80,7 +82,8 @@
         onclick={() => dispatch('tocClick')}
         title="Open Table of Contents"
         aria-label="Contents"
-        class="min-h-11 min-w-11"
+        size="icon"
+        class="min-h-11 min-w-11 sm:w-auto sm:px-3"
       >
         <List class="size-5" aria-hidden="true" /><span class="hidden sm:inline">Contents</span>
       </Button>
@@ -90,7 +93,8 @@
       onclick={() => dispatch('annotationsClick')}
       title="Bookmarks and Notes"
       aria-label="Bookmarks and Notes"
-      class="min-h-11 min-w-11"
+      size="icon"
+      class="min-h-11 min-w-11 sm:w-auto sm:px-3"
     >
       <Bookmark class="size-5" aria-hidden="true" /><span class="hidden sm:inline">Notes</span>
     </Button>
@@ -101,10 +105,11 @@
   >
     {bookTitle}
   </p>
-  <div class="flex items-center gap-1">
+  <div class="flex shrink-0 items-center gap-0 sm:gap-1">
     <Button
       variant="ghost"
-      class="min-h-11 min-w-11"
+      size="icon"
+      class="min-h-11 min-w-11 md:w-auto md:px-3"
       aria-label="Themes & Settings"
       onclick={() => dispatch('appearanceClick')}
       ><TextAa class="size-5" aria-hidden="true" /><span class="hidden md:inline">Appearance</span
@@ -195,5 +200,21 @@
   }
   .reader-toolbar :global([aria-label='Reading tools']) {
     min-height: 44px;
+  }
+  @media (max-width: 639px) {
+    /* Five icon actions must remain reachable with enlarged reader text. Keep
+       their 44px hit targets rather than letting rem-sized padding push Tools
+       outside the viewport (the page itself intentionally cannot pan sideways). */
+    .reader-toolbar :global([data-slot='button']) {
+      inline-size: 44px;
+      min-inline-size: 44px;
+      block-size: 44px;
+      min-block-size: 44px;
+      padding: 0;
+    }
+    .reader-toolbar :global([data-slot='button'] svg) {
+      max-inline-size: 100%;
+      max-block-size: 100%;
+    }
   }
 </style>
