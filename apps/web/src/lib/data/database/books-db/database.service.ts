@@ -7,6 +7,7 @@
 import { encodeBook, decodeBook } from './book-binary';
 import { mergeCompletion } from '$lib/library/completion';
 import {
+  contentStatisticKey,
   migrateLegacyStatistics,
   preserveCompletedStatistic,
   statisticRange,
@@ -20,7 +21,8 @@ import type {
   BooksDbReadingGoal,
   BooksDbStatistic,
   BooksDbStorageSource,
-  BooksDbSubtitleData
+  BooksDbSubtitleData,
+  StoredBookData
 } from '$lib/data/database/books-db/versions/books-db';
 import { Observable, Subject, from } from 'rxjs';
 import { StorageDataType, StorageKey } from '$lib/data/storage/storage-types';
@@ -245,103 +247,116 @@ export class DatabaseService {
     data: Omit<BooksDbBookData, 'id'>,
     saveBehavior: ReplicationSaveBehavior,
     skipTimestampFallback = true,
-    removeStorageContext = true
+    removeStorageContext = true,
+    signal?: AbortSignal
   ) {
-    const db = await this.db;
-
-    const stored = await encodeBook(data);
+    throwIfAborted(signal);
+    // encodeBook takes its owned snapshot synchronously, before either the
+    // database promise or image reads can let the caller mutate the payload.
+    const encoding = encodeBook(data);
+    // Observe both failures immediately. A rejected database promise must not
+    // escape unhandled while an earlier image read is still pending.
+    const [stored, db] = await Promise.all([encoding, this.db]);
+    throwIfAborted(signal);
     const tx = db.transaction('data', 'readwrite');
+    const abort = () => {
+      try {
+        tx.abort();
+      } catch {
+        /* A committed transaction cannot be undone. */
+      }
+    };
+    signal?.addEventListener('abort', abort, { once: true });
     return commitTransaction(tx, async () => {
-      let dataId: number;
-      let bookData: BooksDbBookData;
-
+      throwIfAborted(signal);
       const { store } = tx;
-      const titleMatches = await store.index('title').getAll(data.title);
-      // Verified source identity must survive imports of different books sharing a title.
-      const oldData = data.contentHash
-        ? titleMatches.find(
-            (book) => book.contentHash?.toLowerCase() === data.contentHash?.toLowerCase()
-          )
-        : titleMatches.find((book) => !book.contentHash);
+      // Keep only the matching record rather than materializing every same-title
+      // book's images. More than one match is ambiguous, even with equal hashes.
+      let oldData: StoredBookData | undefined;
+      for (
+        let cursor = await store.index('title').openCursor(stored.title);
+        cursor;
+        cursor = await cursor.continue()
+      ) {
+        throwIfAborted(signal);
+        const candidate = cursor.value;
+        const matches = stored.contentHash
+          ? candidate.contentHash?.toLowerCase() === stored.contentHash.toLowerCase()
+          : !candidate.contentHash;
+        if (!matches) continue;
+        if (oldData)
+          throw new Error(
+            'This import matches multiple local copies. Resolve the copies in the Library ' +
+              'before importing again. No book was changed.'
+          );
+        oldData = candidate;
+      }
 
       if (oldData) {
-        if (removeStorageContext) {
-          oldData.storageSource = undefined;
-        }
-
         if (
           saveBehavior === ReplicationSaveBehavior.NewOnly &&
           oldData.lastBookModified &&
-          data.lastBookModified &&
-          oldData.lastBookModified >= data.lastBookModified &&
-          (oldData.lastBookOpen || 0) >= (data.lastBookOpen || 0)
+          stored.lastBookModified &&
+          oldData.lastBookModified >= stored.lastBookModified &&
+          (oldData.lastBookOpen || 0) >= (stored.lastBookOpen || 0)
         ) {
-          bookData = decodeBook(oldData);
-          dataId = oldData.id;
-        } else {
-          bookData = {
-            ...data,
-            id: oldData.id,
-            ...(skipTimestampFallback
-              ? { lastBookModified: data.lastBookModified, lastBookOpen: data.lastBookOpen }
-              : {
-                  lastBookModified: data.lastBookModified || oldData.lastBookModified,
-                  lastBookOpen: data.lastBookOpen || oldData.lastBookOpen
-                }),
-            ...(removeStorageContext ? { storageSource: undefined } : {})
-          };
-          dataId = await store.put({
-            ...bookData,
-            blobs: stored.blobs,
-            coverImage: stored.coverImage
-          });
+          // No write means no source-context change, including in the reply.
+          return decodeBook(oldData);
         }
-      } else {
-        // Until https://github.com/jakearchibald/idb/issues/150 resolves
-        dataId = await store.add(stored as typeof stored & { id: number });
-        bookData = { ...data, id: dataId };
+        const replacement = {
+          ...stored,
+          id: oldData.id,
+          ...(skipTimestampFallback
+            ? { lastBookModified: stored.lastBookModified, lastBookOpen: stored.lastBookOpen }
+            : {
+                lastBookModified: stored.lastBookModified || oldData.lastBookModified,
+                lastBookOpen: stored.lastBookOpen || oldData.lastBookOpen
+              }),
+          ...(removeStorageContext ? { storageSource: undefined } : {})
+        };
+        await store.put(replacement);
+        return decodeBook(replacement);
       }
 
-      return bookData;
-    }).catch((error) => {
-      throw explainBookStorageError(error);
-    });
+      const created = {
+        ...stored,
+        ...(removeStorageContext ? { storageSource: undefined } : {})
+      };
+      // Until https://github.com/jakearchibald/idb/issues/150 resolves
+      const id = await store.add(created as typeof created & { id: number });
+      return decodeBook({ ...created, id });
+    })
+      .catch((error) => {
+        throwIfAborted(signal);
+        throw explainBookStorageError(error);
+      })
+      .finally(() => signal?.removeEventListener('abort', abort));
   }
 
   async deleteData(
     dataIds: number[],
-    idsToTitles: Map<number, string>,
+    _idsToTitles: Map<number, string>,
     cancelSignal: AbortSignal,
     keepLocalStatistics: boolean
   ) {
+    // Snapshot the selected IDs, not their mutable title/resume metadata.
+    const selectedIds = [...new Set(dataIds)];
     const db = await this.db;
-    const lastItemObj = await db.get('lastItem', LAST_ITEM_KEY);
-    const bookmarkIdData = await db.getAllKeys('bookmark');
-    const lastItem = lastItemObj?.dataId;
-    const bookmarkIds = new Set(bookmarkIdData);
     const deleted: number[] = [];
     const limiter = pLimit(1);
     const tasks: Promise<void>[] = [];
 
     let errorMessage = '';
 
-    replicationProgress$.next({ progressBase: 1, maxProgress: dataIds.length });
+    replicationProgress$.next({ progressBase: 1, maxProgress: selectedIds.length });
 
-    dataIds.forEach((id) =>
+    selectedIds.forEach((id) =>
       tasks.push(
         limiter(async () => {
           try {
             throwIfAborted(cancelSignal);
 
-            deleted.push(
-              await this.deleteSingleData(
-                db,
-                id,
-                idsToTitles.get(id),
-                { lastItem, bookmarkIds },
-                !keepLocalStatistics
-              )
-            );
+            deleted.push(await this.deleteSingleData(db, id, !keepLocalStatistics));
           } catch (error) {
             errorMessage = handleErrorDuringReplication(
               error,
@@ -385,11 +400,36 @@ export class DatabaseService {
     return db.put('subtitle', subtitleData);
   }
 
-  async putLastItem(dataId: number) {
+  async putLastItem(dataId: number, signal?: AbortSignal) {
+    throwIfAborted(signal);
+    if (!Number.isSafeInteger(dataId) || dataId <= 0)
+      throw new Error('The selected book is not a valid local book.');
     const db = await this.db;
-    const result = await db.put('lastItem', { dataId }, LAST_ITEM_KEY);
-    this.lastItemChanged$.next();
-    return result;
+    throwIfAborted(signal);
+    // Keep the existence check and resume target in one transaction, serialized
+    // with deletion. getKey avoids cloning the book's image payloads.
+    const tx = db.transaction(['data', 'lastItem'], 'readwrite');
+    const abort = () => {
+      try {
+        tx.abort();
+      } catch {
+        // A committed transaction cannot be undone by a later departure.
+      }
+    };
+    signal?.addEventListener('abort', abort, { once: true });
+    try {
+      const result = await commitTransaction(tx, async () => {
+        throwIfAborted(signal);
+        if ((await tx.objectStore('data').getKey(dataId)) === undefined)
+          throw new Error('The selected book was removed. Refresh the Library and try again.');
+        throwIfAborted(signal);
+        return tx.objectStore('lastItem').put({ dataId }, LAST_ITEM_KEY);
+      });
+      this.lastItemChanged$.next();
+      return result;
+    } finally {
+      signal?.removeEventListener('abort', abort);
+    }
   }
 
   async deleteLastItem() {
@@ -401,8 +441,6 @@ export class DatabaseService {
   private async deleteSingleData(
     db: IDBPDatabase<BooksDb>,
     dataId: number,
-    title: string | undefined,
-    cachedData: { bookmarkIds: Set<number>; lastItem: number | undefined },
     shouldDeleteStatistics: boolean
   ) {
     const storeNames: (
@@ -415,76 +453,96 @@ export class DatabaseService {
       | 'subtitle'
       | 'handle'
       | 'readerSearchProjection'
-    )[] = ['data', 'audioBook', 'subtitle', 'handle', 'readerSearchProjection'];
-    const shouldDeleteLastItem = cachedData.lastItem === dataId;
-    const shouldDeleteBookmark = cachedData.bookmarkIds.has(dataId);
-
-    let bookTitle = title;
-
-    if (shouldDeleteLastItem) {
-      storeNames.push('lastItem');
-    }
-
-    if (shouldDeleteBookmark) {
-      storeNames.push('bookmark');
-    }
-
-    if (shouldDeleteStatistics) {
-      storeNames.push('statistic');
-      storeNames.push('lastModified');
-    }
+      | 'readerStatistic'
+      | 'readerLocalIdentity'
+    )[] = [
+      'data',
+      'audioBook',
+      'subtitle',
+      'handle',
+      'readerSearchProjection',
+      'bookmark',
+      'lastItem'
+    ];
+    if (shouldDeleteStatistics)
+      storeNames.push('statistic', 'lastModified', 'readerStatistic', 'readerLocalIdentity');
 
     const tx = db.transaction(storeNames, 'readwrite');
-
+    let removedLastItem = false;
     try {
-      if (!bookTitle) {
-        bookTitle = (await tx.objectStore('data').get(dataId))?.title;
-      }
-      const titleUsedByAnotherBook = bookTitle
-        ? (await tx.objectStore('data').index('title').getAllKeys(bookTitle)).some(
-            (id) => id !== dataId
-          )
-        : false;
-
-      if (shouldDeleteLastItem) {
-        await tx.objectStore('lastItem').delete(LAST_ITEM_KEY);
-      }
-
-      if (shouldDeleteBookmark) {
+      await commitTransaction(tx, async () => {
+        // A batch may span reader writes, renames and other tabs. Decisions must
+        // use the current record in the same transaction as its deletion.
+        const book = await tx.objectStore('data').get(dataId);
+        const bookTitle = book?.title;
+        const titleUsedByAnotherBook = bookTitle
+          ? (await tx.objectStore('data').index('title').getAllKeys(bookTitle)).some(
+              (id) => id !== dataId
+            )
+          : false;
+        const lastItem = await tx.objectStore('lastItem').get(LAST_ITEM_KEY);
+        if (lastItem?.dataId === dataId) {
+          await tx.objectStore('lastItem').delete(LAST_ITEM_KEY);
+          removedLastItem = true;
+        }
         await tx.objectStore('bookmark').delete(dataId);
-      }
 
-      if (shouldDeleteStatistics && bookTitle && !titleUsedByAnotherBook) {
-        await tx.objectStore('statistic').delete(IDBKeyRange.bound([bookTitle], [bookTitle, []]));
-        await tx.objectStore('lastModified').delete([bookTitle, StorageDataType.STATISTICS]);
-      }
-
-      if (bookTitle && !titleUsedByAnotherBook) {
-        await tx.objectStore('audioBook').delete(bookTitle);
-        await tx.objectStore('subtitle').delete(bookTitle);
-        await tx.objectStore('handle').delete(IDBKeyRange.bound([bookTitle], [bookTitle, []]));
-      }
-
-      await tx.objectStore('readerSearchProjection').delete(dataId);
-      await tx.objectStore('data').delete(dataId);
-      await tx.done;
-
-      if (shouldDeleteLastItem) {
-        this.lastItemChanged$.next();
-      }
-    } catch (error: any) {
-      try {
-        tx.abort();
-        await tx.done;
-      } catch (_) {
-        // no-op
-      }
-
+        if (shouldDeleteStatistics && book) {
+          const keys = new Set<string>();
+          const contentKey = contentStatisticKey(book);
+          const local = await tx.objectStore('readerLocalIdentity').get(dataId);
+          if (local) keys.add(`local:${local.uuid}`);
+          if (contentKey) {
+            // Renamed copies can share one content identity. Do not remove their
+            // history while another copy remains, and do not retain all payloads
+            // at once just to inspect identity metadata.
+            let hasOtherCopy = false;
+            for (
+              let cursor = await tx.objectStore('data').openCursor();
+              cursor;
+              cursor = await cursor.continue()
+            ) {
+              if (
+                cursor.primaryKey !== dataId &&
+                contentStatisticKey(cursor.value) === contentKey
+              ) {
+                hasOtherCopy = true;
+                break;
+              }
+            }
+            if (!hasOtherCopy) keys.add(contentKey);
+          }
+          for (const key of keys) {
+            await tx.objectStore('readerStatistic').delete(statisticRange(key));
+            await tx.objectStore('lastModified').delete([key, StorageDataType.STATISTICS]);
+          }
+        }
+        if (shouldDeleteStatistics && bookTitle && !titleUsedByAnotherBook) {
+          await tx.objectStore('statistic').delete(IDBKeyRange.bound([bookTitle], [bookTitle, []]));
+          await tx.objectStore('lastModified').delete([bookTitle, StorageDataType.STATISTICS]);
+        }
+        if (bookTitle && !titleUsedByAnotherBook) {
+          await tx.objectStore('audioBook').delete(bookTitle);
+          await tx.objectStore('subtitle').delete(bookTitle);
+          await tx.objectStore('handle').delete(IDBKeyRange.bound([bookTitle], [bookTitle, []]));
+        }
+        await tx.objectStore('readerSearchProjection').delete(dataId);
+        await tx.objectStore('data').delete(dataId);
+      });
+    } catch (error) {
+      // This transaction has no user-cancellation signal. A native abort is a
+      // storage failure, not the deliberate cancellation checked between books.
+      if (error && typeof error === 'object' && 'name' in error && error.name === 'AbortError')
+        throw new Error(
+          'The book could not be deleted because its local storage transaction was aborted. ' +
+            'Its stored data was preserved. Try deleting it again.',
+          { cause: error }
+        );
       throw error;
     }
-
+    if (removedLastItem) this.lastItemChanged$.next();
+    this.bookmarksChanged$.next();
     replicationProgress$.next({ progressToAdd: 1 });
-
     return dataId;
   }
 

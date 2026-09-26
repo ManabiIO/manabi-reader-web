@@ -62,6 +62,11 @@
   import { visibleLibraryEntries } from '$lib/library/account-visibility';
   import EditorsPicks from '$lib/library/editors-picks.svelte';
   import { downloadEditorsPick, type EditorsPick } from '$lib/library/editors-picks';
+  import {
+    EditorsPickStorageHandler,
+    findEditorsPickCopy,
+    validateEditorsPickCopy
+  } from '$lib/library/editors-pick-storage';
   import { account, currentUser } from '$lib/manabi/client';
   import type { ReaderLocator } from '$lib/reader-location';
   import { clearLibraryLocation, queueLibraryLocation } from '$lib/library/search-navigation';
@@ -70,7 +75,16 @@
   import type { LibraryMenuModel } from '$lib/library/library-menu';
   import { reduceToEmptyString } from '$lib/functions/rxjs/reduce-to-empty-string';
   import pLimit from 'p-limit';
-  import { combineLatest, map, Observable, share, Subject, switchMap, takeUntil } from 'rxjs';
+  import {
+    combineLatest,
+    distinctUntilChanged,
+    map,
+    Observable,
+    share,
+    Subject,
+    switchMap,
+    takeUntil
+  } from 'rxjs';
   import { onDestroy, tick } from 'svelte';
 
   const booksAreLoading$ = database.listLoading$.pipe(map((isLoading) => isLoading));
@@ -138,17 +152,25 @@
   let libraryMenu: LibraryMenuModel | undefined;
   let pageAlive = true;
   let openGeneration = 0;
+  let bookOpenAbort: AbortController | undefined;
   let openOwner = currentUser()?.id ?? null;
   const stopOpenAccount = account.subscribe(() => {
     const owner = currentUser()?.id ?? null;
     if (owner !== openOwner) {
       openOwner = owner;
       openGeneration++;
+      bookOpenAbort?.abort();
+      pickDownload?.abort();
       dialogManager.dialogs$.next([]);
     }
   });
+  const openStorageSubscription = storageSource$
+    .pipe(distinctUntilChanged())
+    .subscribe(() => bookOpenAbort?.abort());
   beforeNavigate(() => {
     openGeneration++;
+    bookOpenAbort?.abort();
+    pickDownload?.abort();
     dialogManager.dialogs$.next([]);
   });
 
@@ -172,6 +194,8 @@
     pageAlive = false;
     openGeneration++;
     stopOpenAccount();
+    openStorageSubscription.unsubscribe();
+    bookOpenAbort?.abort();
     pickDownload?.abort();
     dialogManager.dialogs$.next([]);
   });
@@ -227,11 +251,17 @@
       return;
     }
 
+    bookOpenAbort?.abort();
+    pickDownload?.abort();
+    const operation = new AbortController();
+    bookOpenAbort = operation;
+    const signal = operation.signal;
     const request = ++openGeneration;
     const owner = currentUser()?.id ?? null;
     const storage = $storageSource$;
     const current = () =>
       pageAlive &&
+      !signal.aborted &&
       request === openGeneration &&
       owner === (currentUser()?.id ?? null) &&
       storage === $storageSource$;
@@ -270,15 +300,18 @@
           $readingGoalsMergeMode$
         );
 
-        if (!cacheStorageData$) {
+        if (!$cacheStorageData$) {
           handler.clearData(false);
         }
 
-        handler.startContext({
-          id: isForBrowser ? bookItem.id : 0,
-          title: bookItem.title,
-          imagePath: 'imagePath' in bookItem ? bookItem.imagePath : ''
-        });
+        handler.startContext(
+          {
+            id: isForBrowser ? bookItem.id : 0,
+            title: bookItem.title,
+            imagePath: 'imagePath' in bookItem ? bookItem.imagePath : ''
+          },
+          signal
+        );
 
         idToOpen = await handler.prepareBookForReading();
         if (!current()) return;
@@ -311,7 +344,8 @@
           }
         }
 
-        dialogManager.dialogs$.next([]);
+        if (!current() || idToOpen === undefined) return;
+        await openBook(idToOpen, owner, signal, current, idToOpen === bookId ? locator : undefined);
       } catch (error: any) {
         if (!current()) return;
         const message = `Error opening book: ${error.message}`;
@@ -331,11 +365,6 @@
         return;
       }
 
-      if (!current() || idToOpen === undefined) return;
-      clearLibraryLocation();
-      const librarySearch =
-        locator && idToOpen === bookId ? queueLibraryLocation(idToOpen, owner, locator) : undefined;
-      openBook(idToOpen, librarySearch);
       return;
     }
 
@@ -375,13 +404,28 @@
     return !replicationToProgress && connectivityPass;
   }
 
-  function openBook(bookId: number, librarySearch?: string) {
-    if (!bookId) {
-      return;
+  async function openBook(
+    bookId: number,
+    owner: string | null,
+    signal: AbortSignal,
+    current = () => pageAlive && !signal.aborted && owner === (currentUser()?.id ?? null),
+    locator?: ReaderLocator
+  ) {
+    if (!current()) return;
+    // A failed or canceled resume write is not a successful opening. The saved
+    // book remains available for an explicit retry; no preview token is issued.
+    await database.putLastItem(bookId, signal);
+    if (!current()) return;
+    clearLibraryLocation();
+    const librarySearch = locator ? queueLibraryLocation(bookId, owner, locator) : undefined;
+    dialogManager.dialogs$.next([]);
+    try {
+      await gotoBook(bookId, librarySearch);
+    } catch (error) {
+      // A rejected older navigation must not discard a newer passage handoff.
+      if (librarySearch) clearLibraryLocation(librarySearch);
+      throw error;
     }
-
-    database.putLastItem(bookId);
-    gotoBook(bookId, librarySearch);
   }
 
   async function gotoBook(id: number, librarySearch?: string) {
@@ -450,64 +494,57 @@
 
   async function openEditorsPick(pick: EditorsPick) {
     if (openingPickId || replicationToProgress) return;
+    bookOpenAbort?.abort();
+    openGeneration++;
     openingPickId = pick.id;
     const operation = new AbortController();
     pickDownload = operation;
     const signal = operation.signal;
+    const owner = currentUser()?.id ?? null;
     try {
       const file = await downloadEditorsPick(pick, signal);
       throwIfAborted(signal);
       const digest = await sha256(await file.arrayBuffer());
       throwIfAborted(signal);
-      const stored = (await (await database.db).getAll('data')).find(
-        (book) =>
-          book.contentHash?.toLowerCase() === digest && !!book.elementHtml && !book.storageSource
-      );
+      const storedId = await findEditorsPickCopy(digest, owner, signal);
       throwIfAborted(signal);
-      if (stored) {
+      if (storedId !== undefined) {
+        await validateEditorsPickCopy(storedId, digest, owner, signal);
         storageSource$.next(StorageKey.BROWSER);
         editorsPicksOpen = false;
-        openBook(stored.id);
+        await openBook(storedId, owner, signal);
         return;
       }
 
       initializeReplicationProgressData();
+      const handler = new EditorsPickStorageHandler(window, digest, owner, signal);
+      handler.updateSettings(
+        window,
+        true,
+        $replicationSaveBehavior$,
+        $statisticsMergeMode$,
+        $readingGoalsMergeMode$
+      );
       const importCancellation = cancelToken;
       const abortImport = () => importCancellation.abort();
       signal.addEventListener('abort', abortImport, { once: true });
       try {
-        const error = await importData(
-          document,
-          getStorageHandler(
-            window,
-            StorageKey.BROWSER,
-            '',
-            true,
-            $cacheStorageData$,
-            $replicationSaveBehavior$,
-            $statisticsMergeMode$,
-            $readingGoalsMergeMode$
-          ),
-          [file],
-          cancelSignal
-        );
+        const error = await importData(document, handler, [file], cancelSignal);
         throwIfAborted(signal);
         if (error) throw new Error(error);
       } finally {
         signal.removeEventListener('abort', abortImport);
         resetProgress();
       }
-      const imported = (await (await database.db).getAll('data')).find(
-        (book) =>
-          book.contentHash?.toLowerCase() === digest && !!book.elementHtml && !book.storageSource
-      );
       throwIfAborted(signal);
-      if (!imported) throw new Error('The book could not be added to this browser.');
+      if (handler.savedId === undefined)
+        throw new Error('The book could not be added to this browser.');
+      await validateEditorsPickCopy(handler.savedId, digest, owner, signal);
       storageSource$.next(StorageKey.BROWSER);
       editorsPicksOpen = false;
-      openBook(imported.id);
+      await openBook(handler.savedId, owner, signal);
     } catch (error) {
-      if (!signal.aborted && !(error instanceof DOMException && error.name === 'AbortError'))
+      if (!signal.aborted)
         showError(
           'Could not open book',
           error instanceof Error ? error.message : String(error),
@@ -949,14 +986,18 @@
         </div>
       </section>
     </div>
-    <div class="mt-8">
-      <EditorsPicks
-        embedded
-        headingId="editors-picks-empty-heading"
-        openingId={openingPickId}
-        on:open={(event) => openEditorsPick(event.detail)}
-      />
-    </div>
+    <!-- Unknown ownership is not an empty Library. Do not start an optional
+         catalog request just to cancel it as soon as saved cards become visible. -->
+    {#if $storageSource$ !== StorageKey.BROWSER || ($allLinkedBooks !== null && $account.status !== 'loading' && !activeLibraryCards.length)}
+      <div class="mt-8">
+        <EditorsPicks
+          embedded
+          headingId="editors-picks-empty-heading"
+          openingId={openingPickId}
+          on:open={(event) => openEditorsPick(event.detail)}
+        />
+      </div>
+    {/if}
   </section>
 {/snippet}
 
@@ -964,7 +1005,7 @@
   <title>{formatPageTitle('Library')}</title>
 </svelte:head>
 
-<svelte:window bind:scrollY={libraryScrollY} />
+<svelte:window onpagehide={() => pickDownload?.abort()} bind:scrollY={libraryScrollY} />
 
 {$replicator$ ?? ''}
 

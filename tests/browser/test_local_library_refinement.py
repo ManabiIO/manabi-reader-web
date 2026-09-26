@@ -20,6 +20,7 @@ class LocalLibraryRefinement(LocalFeatureBrowser):
         expect(self.page.get_by_role('button', name='Open passage in ΟΣ handbook: ｶﾞ', exact=True)).to_be_visible()
         self.search('ΟΣ')
         self.page.get_by_role('button', name='Read ΟΣ handbook', exact=True).click()
+        expect(self.page.locator('.book-content').first).to_have_attribute('aria-busy', 'false')
         self.page.get_by_role('button', name='Show reading controls', exact=True).click()
         self.page.get_by_role('button', name='Reading tools', exact=True).click()
         self.page.get_by_role('menuitem', name='Search Book', exact=True).click()

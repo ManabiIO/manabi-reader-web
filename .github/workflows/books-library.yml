@@ -18,7 +18,7 @@ concurrency:
 jobs:
   library:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
         with:
@@ -39,6 +39,8 @@ jobs:
         run: |
           mkdir -p artifacts/library
           git rev-parse HEAD > artifacts/library/commit.txt
+          python tests/unit/test_library_release_gate.py
+          python tests/unit/test_library_release_diagnostics.py
           set -o pipefail
           node --experimental-strip-types --test tests/unit/library*.test.mjs 2>&1 | tee artifacts/library/units.log
       - name: Build static application
@@ -91,10 +93,14 @@ jobs:
           result=$?
           if [ "$result" -ne 0 ]; then status=1; fi
           exit "$status"
+      - name: Required shared and local data safety
+        run: python tests/browser/qualify_library_data_safety.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: books-library-evidence
-          path: artifacts/library
+          path: |
+            artifacts/library
+            test-results/
           retention-days: 7
           if-no-files-found: error

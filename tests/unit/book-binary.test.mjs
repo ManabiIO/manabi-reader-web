@@ -117,3 +117,55 @@ test('shared cover and image Blob is read once per encoding operation', async ()
   assert.equal(result.blobs.a, result.blobs.b);
   assert.equal(result.blobs.a, result.coverImage);
 });
+
+test('binary preparation snapshots nested metadata and queued byte records before its first await', async () => {
+  let entered, release;
+  const started = new Promise((resolve) => (entered = resolve));
+  const gate = new Promise((resolve) => (release = resolve));
+  const image = new Blob(['first']);
+  const read = image.arrayBuffer.bind(image);
+  image.arrayBuffer = async () => {
+    entered();
+    await gate;
+    return read();
+  };
+  const queuedBytes = new Uint8Array([1, 2, 3]);
+  const later = { format: 'reader-bytes-v1', type: 'image/png', bytes: queuedBytes.buffer };
+  const book = {
+    title: 'Original',
+    sections: [{ title: 'Original section', nested: { offset: 5 } }],
+    publicationManifest: { spine: [{ href: 'original.xhtml' }] },
+    manabiTtuImport: { entries: ['original receipt'] },
+    blobs: { first: image, later },
+    coverImage: later
+  };
+  const pending = encodeBook(book);
+  await started;
+  book.sections[0].nested.offset = 999;
+  book.publicationManifest.spine[0].href = 'wrong.xhtml';
+  book.manabiTtuImport.entries.push('later receipt');
+  queuedBytes[0] = 9;
+  later.type = 'text/plain';
+  release();
+  const result = await pending;
+  assert.equal(result.sections[0].nested.offset, 5);
+  assert.equal(result.publicationManifest.spine[0].href, 'original.xhtml');
+  assert.deepEqual(result.manabiTtuImport.entries, ['original receipt']);
+  assert.deepEqual([...new Uint8Array(result.blobs.later.bytes)], [1, 2, 3]);
+  assert.equal(result.blobs.later.type, 'image/png');
+  assert.equal(result.blobs.later, result.coverImage);
+});
+
+test('invalid queued byte records fail before an earlier image starts asynchronous work', async () => {
+  const image = new Blob(['first']);
+  let reads = 0;
+  image.arrayBuffer = async () => {
+    reads++;
+    return new ArrayBuffer(1);
+  };
+  await assert.rejects(
+    encodeBook({ blobs: { first: image, later: { format: 'invalid' } } }),
+    /unsupported image format/
+  );
+  assert.equal(reads, 0);
+});

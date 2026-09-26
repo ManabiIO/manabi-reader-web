@@ -34,7 +34,7 @@ import { replicationProgress$ } from '$lib/functions/replication/replication-pro
 import { mergeStatistics, updateStatisticToStore } from '$lib/functions/statistic-util';
 import pLimit from 'p-limit';
 import { selectTtuFile } from '$lib/manabi/ttu-folder-contract';
-import { assertExternalBookSource } from '$lib/manabi/external-book-source';
+import { getExternalBookData } from '$lib/manabi/external-book-data';
 
 interface RequestOptions {
   method?: string;
@@ -123,15 +123,13 @@ export abstract class ApiStorageHandler extends BaseStorageHandler {
   }
 
   async hasLocalBookData(): Promise<boolean> {
-    const data = await database.getDataByTitle(this.currentContext.title);
-    assertExternalBookSource(data, this.storageSourceName);
+    const data = await getExternalBookData(this.currentContext.title, this.storageSourceName);
 
     return !!data?.elementHtml;
   }
 
   async prepareBookForReading(): Promise<number> {
-    const data = await database.getDataByTitle(this.currentContext.title);
-    assertExternalBookSource(data, this.storageSourceName);
+    const data = await getExternalBookData(this.currentContext.title, this.storageSourceName);
 
     let idToReturn = 0;
     let bookData: Omit<BooksDbBookData, 'id'> | undefined = data;
