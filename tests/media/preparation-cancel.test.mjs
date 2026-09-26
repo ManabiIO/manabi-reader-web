@@ -113,8 +113,13 @@ test('retired preparation messages cannot make its replacement model ready', () 
     const rejected = assert.rejects(first, { name: 'AbortError' });
     previous.reply('error', 'Cancelled');
     await rejected;
-    const second = client.prepare(signal(), () => {}),
-      current = WorkerDouble.current;
+    const second = client.prepare(signal(), () => {});
+    const disposal = previous.calls.find((message) => message.type === 'dispose');
+    previous.dispatchEvent(new MessageEvent('message', {
+      data: { id: disposal.id, type: 'disposed', value: null }
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const current = WorkerDouble.current;
     previous.reply('ready', null);
     await assert.rejects(client.transcribe(new Float32Array(10), signal()), /Prepare/);
     assert.notEqual(previous, current);

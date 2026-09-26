@@ -57,41 +57,58 @@ export interface DeviceStore {
   local<T>(scope: Scope, kind: string, id: string): Promise<T | undefined>;
   putLocal(scope: Scope, kind: string, id: string, value: unknown): Promise<void>;
 }
-/** Serialize snapshots behind the initial read; a failed read cannot erase the unread record. */
+/** One active and one latest pending snapshot, both behind the initial read.
+ * A failed read cannot erase the unread record; later writes stop after failure.
+ */
 export class DeviceCheckpoints {
-  private tail: Promise<void> = Promise.resolve();
+  private draining?: Promise<void>;
+  private pending?: DevicePlayback;
   private opened?: Promise<DevicePlayback | undefined>;
   private writable = false;
-  private closing = false;
-  constructor(
-    private store: DeviceStore,
-    private scope: Scope,
-    private key: DeviceKey
-  ) {}
+  private closing?: Promise<void>;
+  constructor(private store: DeviceStore, private scope: Scope, private key: DeviceKey) {}
   load(): Promise<DevicePlayback | undefined> {
-    return (this.opened ??= this.store
-      .local<unknown>(this.scope, 'device-playback', this.key)
-      .then((raw) => {
-        const value = raw === undefined ? undefined : validateDevicePlayback(raw);
-        this.writable = true;
-        return value;
-      }));
+    return this.opened ??= this.store.local<unknown>(this.scope, 'device-playback', this.key).then(raw => {
+      const value = raw === undefined ? undefined : validateDevicePlayback(raw);
+      this.writable = true;
+      return value;
+    });
   }
-  async save(value: DevicePlayback): Promise<void> {
+  save(value: DevicePlayback): Promise<void> {
     if (this.closing) return Promise.reject(new Error('Device playback storage is closed'));
-    const snapshot = validateDevicePlayback(value);
-    const result = this.tail.then(async () => {
-      await this.load();
-      if (!this.writable) throw new Error('Device playback saving is paused');
-      await this.store.putLocal(this.scope, 'device-playback', this.key, snapshot);
+    try { this.pending = validateDevicePlayback(value); }
+    catch (error) { return Promise.reject(error); }
+    if (this.draining) return this.draining;
+    // Claim the first snapshot now, but defer work until ownership is set.
+    const first = this.pending;
+    this.pending = undefined;
+    const drain = Promise.resolve().then(async () => {
+      let next: DevicePlayback | undefined = first;
+      try {
+        while (next) {
+          const snapshot = next;
+          await this.load();
+          if (!this.writable) throw new Error('Device playback saving is paused');
+          await this.store.putLocal(this.scope, 'device-playback', this.key, snapshot);
+          next = this.pending;
+          this.pending = undefined;
+        }
+      } catch (error) {
+        this.writable = false;
+        this.pending = undefined;
+        throw error;
+      } finally {
+        // Clear synchronously with the last pending check, not in a later
+        // promise reaction that can strand a newly admitted snapshot.
+        this.draining = undefined;
+      }
     });
-    this.tail = result.catch(() => {
-      this.writable = false;
-    });
-    return result;
+    this.draining = drain;
+    return drain;
   }
-  async close() {
-    this.closing = true;
-    await this.tail;
+  close(): Promise<void> {
+    // Save callers own error delivery. Close drains even a failed save so the
+    // enclosing player can always retire its resources and database safely.
+    return this.closing ??= (this.draining ?? Promise.resolve()).then(() => {}, () => {});
   }
 }
