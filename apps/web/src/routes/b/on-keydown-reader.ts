@@ -34,6 +34,14 @@ export function onKeydownReader(
 ) {
   const action = bookReaderKeybindMap[ev.code || ev.key?.toLowerCase()];
 
+  // Repeated page commands feed the burst sequence; toggles retain one-shot behavior.
+  if (
+    ev.repeat &&
+    action !== BookReaderAvailableKeybind.NEXT_PAGE &&
+    action !== BookReaderAvailableKeybind.PREV_PAGE
+  )
+    return false;
+
   switch (action) {
     case BookReaderAvailableKeybind.BOOKMARK: {
       bookmarkPage();
@@ -52,10 +60,10 @@ export function onKeydownReader(
       multiplierOffsetFn(-1);
       return true;
     case BookReaderAvailableKeybind.NEXT_PAGE:
-      pageManager?.nextPage();
+      pageManager?.nextPage({ repeat: ev.repeat, key: ev.code || ev.key });
       return true;
     case BookReaderAvailableKeybind.PREV_PAGE:
-      pageManager?.prevPage();
+      pageManager?.prevPage({ repeat: ev.repeat, key: ev.code || ev.key });
       return true;
     case BookReaderAvailableKeybind.PREV_CHAPTER:
       changeChapter(isVertical ? 1 : -1);

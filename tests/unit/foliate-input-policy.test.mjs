@@ -36,8 +36,10 @@ async function withController(options, run) {
   paginator.nodeType = 1;
   paginator.ownerDocument = document;
   paginator.pageTurnDirection = 'ltr';
-  paginator.setAttribute = () => {};
-  paginator.removeAttribute = () => {};
+  const attributes = new Map();
+  paginator.setAttribute = (name, value = '') => attributes.set(name, String(value));
+  paginator.getAttribute = (name) => attributes.get(name) ?? null;
+  paginator.removeAttribute = (name) => attributes.delete(name);
   paginator.getContents = () => [{ doc: content, index: 0 }];
   paginator.isPageNumberControlAt = () => false;
   paginator.getBoundingClientRect = () => ({ width: 400 });
@@ -121,14 +123,23 @@ test('unmapped PageDown is untouched; unhandled arrows retain page navigation', 
   });
 });
 
-test('composition and repeated fallback keys do not turn the page', async () => {
+test('composition and modified fallback keys stay native; repeated arrows feed the burst', async () => {
   await withController({}, async ({ content, send, state, flush }) => {
-    for (const properties of [{ isComposing: true }, { repeat: true }, { ctrlKey: true }]) {
+    for (const properties of [{ isComposing: true }, { ctrlKey: true }]) {
       const event = send(content, 'keydown', { key: 'ArrowRight', ...properties });
       assert.equal(event.defaultPrevented, false);
     }
-    await flush();
     assert.deepEqual(state.prepared, []);
+
+    const repeated = send(content, 'keydown', {
+      key: 'ArrowRight',
+      code: 'ArrowRight',
+      repeat: true
+    });
+    assert.equal(repeated.defaultPrevented, true);
+    await flush();
+    assert.deepEqual(state.prepared, [1]);
+    assert.equal(state.committed, 1);
   });
 });
 

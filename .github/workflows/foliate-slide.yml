@@ -3,7 +3,10 @@ on:
   pull_request:
     paths:
       - 'apps/web/**'
-      - 'tests/browser/test_foliate_slide.py'
+      - 'tests/browser/test_foliate*.py'
+      - 'tests/browser/test_slide_demo.py'
+      - 'demos/apple-books-slide-poc/**'
+      - 'scripts/build-slide-demo.mjs'
       - 'tests/browser/test_static_reader.py'
       - 'tests/browser/test_epub_publication.py'
       - 'tests/browser/test_epub_navigation.py'
@@ -16,7 +19,10 @@ on:
     branches: [main]
     paths:
       - 'apps/web/**'
-      - 'tests/browser/test_foliate_slide.py'
+      - 'tests/browser/test_foliate*.py'
+      - 'tests/browser/test_slide_demo.py'
+      - 'demos/apple-books-slide-poc/**'
+      - 'scripts/build-slide-demo.mjs'
       - 'tests/browser/test_static_reader.py'
       - 'tests/browser/test_epub_publication.py'
       - 'tests/browser/test_epub_navigation.py'
@@ -69,6 +75,7 @@ jobs:
           python -m playwright install --with-deps ${{ matrix.browser }}
           set -o pipefail
           python tests/browser/test_foliate_slide.py 2>&1 | tee foliate-slide.log
+          python tests/browser/test_foliate_fast_turns.py 2>&1 | tee foliate-fast-turns.log
       - name: Qualify resource imports, continuous reading and legacy records
         env:
           SLIDE_BROWSER: ${{ matrix.browser }}
@@ -88,6 +95,26 @@ jobs:
             ReaderBrowser.test_foliate_paginated_epub_preserves_reader_security_and_japanese_content \
             ReaderBrowser.test_foliate_cross_resource_links_keep_duplicate_fragment_identity \
             2>&1 | tee foliate-regressions.log
+      - name: Verify the standalone uses the same reader modules
+        if: matrix.browser == 'chromium'
+        run: |
+          node scripts/build-slide-demo.mjs
+          python -m http.server 8765 --bind 127.0.0.1 --directory demos/apple-books-slide-poc &
+          server_pid=$!
+          trap 'kill "$server_pid"' EXIT
+          python - <<'PYREADY'
+          import time, urllib.request
+          for attempt in range(50):
+              try:
+                  urllib.request.urlopen('http://127.0.0.1:8765/', timeout=1).close()
+                  break
+              except OSError:
+                  time.sleep(0.1)
+          else:
+              raise RuntimeError('Demo server did not start')
+          PYREADY
+          set -o pipefail
+          SLIDE_DEMO_URL=http://127.0.0.1:8765/ python tests/browser/test_slide_demo.py 2>&1 | tee slide-demo.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -95,6 +122,9 @@ jobs:
           path: |
             foliate-slide.log
             foliate-regressions.log
+            foliate-fast-turns.log
+            slide-demo.log
+            demos/apple-books-slide-poc/index.html
             epub-publication.log
             epub-navigation.log
             epub-compatibility.log
