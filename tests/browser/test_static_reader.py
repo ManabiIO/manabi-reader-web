@@ -377,6 +377,11 @@ class ReaderBrowser(unittest.TestCase):
         link = self.page.locator('#cross-note')
         self.assertEqual('chapter2.xhtml#note', link.get_attribute('data-manabi-epub-href'))
         self.assertEqual('#note', link.get_attribute('href'))
+        link.evaluate('element => element.click()')
+        self.page.wait_for_function(
+            """() => document.querySelector('.book-content [data-manabi-spine-index="1"]') &&
+                     document.querySelector('.book-content #note')?.textContent.includes('脚注の内容')"""
+        )
         self.assertEqual(
             'all',
             self.page.locator('#legacy-tcy').evaluate('element => getComputedStyle(element).textCombineUpright'))
