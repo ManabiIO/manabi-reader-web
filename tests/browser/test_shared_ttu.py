@@ -65,7 +65,7 @@ class SharedTtuBrowser(static.ReaderBrowser):
         self.open_book()
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
         self.seed_shared_source()
-        self.page.goto(self.origin + '/Reader-Web/shared-library')
+        self.page.goto(self.origin + '/reader-web/shared-library')
         self.page.get_by_role('heading', name='Publish browser books').wait_for()
         self.page.get_by_label(static.TITLE, exact=True).check()
         self.page.get_by_role('button', name='Publish selected browser books').click()
@@ -117,7 +117,7 @@ class SharedTtuBrowser(static.ReaderBrowser):
         (output/'shared-ttu-wire-fixture.json').write_text(json.dumps({'files':self.read_shared_files(),'progress':progress,'statistics':[day]},ensure_ascii=False))
 
     def test_shared_duplicate_progress_is_a_repair_case_not_last_file_wins(self):
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         self.seed_shared_source()
         self.page.evaluate('''async () => {
           const root=await (await navigator.storage.getDirectory()).getDirectoryHandle('ttu-reader-data');
@@ -126,7 +126,7 @@ class SharedTtuBrowser(static.ReaderBrowser):
             const writer=await (await dir.getFileHandle(name,{create:true})).createWritable();await writer.write('{}');await writer.close();
           }
         }''')
-        self.page.goto(self.origin + '/Reader-Web/shared-library')
+        self.page.goto(self.origin + '/reader-web/shared-library')
         expect(self.page.get_by_role('status')).to_contain_text('Conflicting progress_', timeout=15000)
         self.assertEqual(3, len(self.read_shared_files()['Conflicted book']))
 

@@ -48,7 +48,7 @@ class SharedSafetyStatic(SharedTtuBrowser):
         self.open_book()
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
         self.seed_shared_source()
-        self.page.goto(self.origin + '/Reader-Web/shared-library')
+        self.page.goto(self.origin + '/reader-web/shared-library')
         self.page.get_by_label(static.TITLE, exact=True).check()
         self.page.get_by_role('button', name='Publish selected browser books').click()
         expect(self.page.get_by_role('status')).to_contain_text('published in Ttu Ebook Reader format', timeout=30000)
@@ -96,7 +96,7 @@ class SharedStorageRuntime(static.ReaderBrowser):
         output = REPOSITORY / 'test-results'
         output.mkdir(exist_ok=True)
         cls.log = (output / 'shared-runtime-vite.log').open('w')
-        environment = dict(os.environ, BASE_PATH='/Reader-Web')
+        environment = dict(os.environ, BASE_PATH='/reader-web')
         cls.process = subprocess.Popen(
             ['pnpm', '--dir', 'apps/web', 'exec', 'vite', '--host', '127.0.0.1', '--port', str(port), '--strictPort'],
             cwd=REPOSITORY, env=environment, stdout=cls.log, stderr=subprocess.STDOUT, start_new_session=True)
@@ -106,7 +106,7 @@ class SharedStorageRuntime(static.ReaderBrowser):
                 if cls.process.poll() is not None:
                     raise RuntimeError('Vite exited; see shared-runtime-vite.log')
                 try:
-                    with urlopen(cls.origin + '/Reader-Web/manage', timeout=2) as response:
+                    with urlopen(cls.origin + '/reader-web/manage', timeout=2) as response:
                         if response.status == 200:
                             break
                 except (URLError, TimeoutError):
@@ -140,10 +140,10 @@ class SharedStorageRuntime(static.ReaderBrowser):
             cls.stop_server()
 
     def test_directory_selection_does_not_create_a_nested_library_in_a_book_folder(self):
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         self.page.get_by_role('button', name='Library actions', exact=True).wait_for()
         result = self.page.evaluate('''async () => {
-          const {resolveTtuRoot} = await import('/Reader-Web/src/lib/manabi/ttu-folder-contract.ts');
+          const {resolveTtuRoot} = await import('/reader-web/src/lib/manabi/ttu-folder-contract.ts');
           const disk = await navigator.storage.getDirectory();
           const parent = await disk.getDirectoryHandle('library-parent', {create:true});
           let missingError = '';
@@ -172,14 +172,14 @@ class SharedStorageRuntime(static.ReaderBrowser):
         self.assertEqual('original reading data', result['text'])
 
     def test_uncached_provider_observes_replacement_and_disappearance_without_losing_local_data(self):
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         self.page.get_by_role('button', name='Library actions', exact=True).wait_for()
         result = self.page.evaluate('''async () => {
-          const {FilesystemStorageHandler} = await import('/Reader-Web/src/lib/data/storage/handler/filesystem-handler.ts');
-          const {database} = await import('/Reader-Web/src/lib/data/store.ts');
-          const {StorageKey} = await import('/Reader-Web/src/lib/data/storage/storage-types.ts');
-          const {MergeMode} = await import('/Reader-Web/src/lib/data/merge-mode.ts');
-          const {ReplicationSaveBehavior} = await import('/Reader-Web/src/lib/functions/replication/replication-options.ts');
+          const {FilesystemStorageHandler} = await import('/reader-web/src/lib/data/storage/handler/filesystem-handler.ts');
+          const {database} = await import('/reader-web/src/lib/data/store.ts');
+          const {StorageKey} = await import('/reader-web/src/lib/data/storage/storage-types.ts');
+          const {MergeMode} = await import('/reader-web/src/lib/data/merge-mode.ts');
+          const {ReplicationSaveBehavior} = await import('/reader-web/src/lib/functions/replication/replication-options.ts');
           const disk = await navigator.storage.getDirectory();
           const root = await disk.getDirectoryHandle('ttu-reader-data', {create:true});
           const title = 'Native shared book';
@@ -231,14 +231,14 @@ class SharedStorageRuntime(static.ReaderBrowser):
         self.assertEqual('<p>Keep the local copy</p>', result['localBook']['elementHtml'])
 
     def test_google_and_onedrive_open_paths_reject_unrelated_local_title_before_authorization(self):
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         self.page.get_by_role('button', name='Library actions', exact=True).wait_for()
         result = self.page.evaluate('''async () => {
-          const {getStorageHandler} = await import('/Reader-Web/src/lib/data/storage/storage-handler-factory.ts');
-          const {StorageKey} = await import('/Reader-Web/src/lib/data/storage/storage-types.ts');
-          const {database} = await import('/Reader-Web/src/lib/data/store.ts');
-          const {MergeMode} = await import('/Reader-Web/src/lib/data/merge-mode.ts');
-          const {ReplicationSaveBehavior} = await import('/Reader-Web/src/lib/functions/replication/replication-options.ts');
+          const {getStorageHandler} = await import('/reader-web/src/lib/data/storage/storage-handler-factory.ts');
+          const {StorageKey} = await import('/reader-web/src/lib/data/storage/storage-types.ts');
+          const {database} = await import('/reader-web/src/lib/data/store.ts');
+          const {MergeMode} = await import('/reader-web/src/lib/data/merge-mode.ts');
+          const {ReplicationSaveBehavior} = await import('/reader-web/src/lib/functions/replication/replication-options.ts');
           const db = await database.db;
           const title = 'Same title, different source';
           const id = await db.put('data', {title, storageSource:'local-original', elementHtml:'<p>Original</p>',

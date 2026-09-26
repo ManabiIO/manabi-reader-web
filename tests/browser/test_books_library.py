@@ -110,7 +110,7 @@ class LibraryBase(unittest.TestCase):
         self.assertEqual([], StaticHandler.probes)
 
     def go_library(self):
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
         expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute('aria-busy', 'false', timeout=30000)
 
@@ -689,6 +689,7 @@ class BooksLibraryBrowser(LibraryBase):
         expect(self.page.get_by_role('menuitem', name='Select Books', exact=True)).to_be_visible()
         expect(self.page.get_by_role('menuitem', name='Add Books', exact=True)).to_be_visible()
         expect(self.page.get_by_role('menuitem', name='Accounts and Libraries', exact=True)).to_be_visible()
+        expect(self.page.get_by_role('menuitem', name='User guide', exact=True)).to_be_visible()
         expect(self.page.get_by_role('menuitem', name='Statistics', exact=True)).to_be_visible()
         expect(self.page.get_by_role('menuitem', name='Settings', exact=True)).to_be_visible()
         self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
@@ -888,7 +889,7 @@ class BooksLibraryBrowser(LibraryBase):
             self.page = destination.pages[0]
             self.page.on('pageerror', lambda e: self.errors.append(str(e)))
             try:
-                self.page.goto(self.origin + '/Reader-Web/import-ttu')
+                self.page.goto(self.origin + '/reader-web/import-ttu')
                 chooser = self.page.get_by_label('Choose Ttu export ZIPs', exact=True)
                 chooser.set_input_files({'name':'library-backup.zip','mimeType':'application/zip','buffer':raw})
                 expect(chooser).to_be_enabled()
@@ -986,7 +987,7 @@ class BooksLibraryFilesystem(LibraryBase):
                 expect(hero.get_by_role('button', name=re.compile('^Start Reading'))).to_be_visible()
 
     def seed_files(self, files):
-        self.page.goto(self.origin + '/Reader-Web/connections')
+        self.page.goto(self.origin + '/reader-web/connections')
         expect(self.page.get_by_role('button', name='Refresh connections')).to_be_enabled()
         self.source_id = self.page.evaluate('''async files => {
           const handle=await (await navigator.storage.getDirectory()).getDirectoryHandle('Library fixture',{create:true});

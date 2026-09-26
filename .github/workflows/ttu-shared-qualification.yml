@@ -38,7 +38,7 @@ jobs:
       - run: pnpm --dir apps/web check
       - name: Build the actual static app
         env:
-          BASE_PATH: /Reader-Web
+          BASE_PATH: /reader-web
         run: pnpm build
       - name: Actual TTU package and native-format reading-data round trip
         run: |

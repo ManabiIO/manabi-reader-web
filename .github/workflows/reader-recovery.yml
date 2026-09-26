@@ -39,7 +39,7 @@ jobs:
       - run: pnpm --dir apps/web check
       - name: Build the actual static Reader
         env:
-          BASE_PATH: /Reader-Web
+          BASE_PATH: /reader-web
         run: pnpm build
       - name: Real storage loss and recovery through the application UI
         run: |
