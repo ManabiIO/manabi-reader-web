@@ -833,6 +833,9 @@
 <div
   bind:this={scrollEl}
   data-manabi-resource-count={sections.length}
+  data-manabi-page-engine={epubPublication?.engine === 'foliate-epub-v1'
+    ? 'foliate-inline'
+    : 'legacy'}
   style:color={fontColor}
   style:font-size="{fontSize}px"
   style:line-height={lineHeight}
