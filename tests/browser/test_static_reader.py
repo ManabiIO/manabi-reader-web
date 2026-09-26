@@ -25,6 +25,7 @@ def epub():
     output = io.BytesIO()
     png = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a/ZkAAAAASUVORK5CYII=')
     body = '<h1>Reader browser acceptance</h1><p><ruby>本<rt>ほん</rt></ruby>を読む。</p>'
+    body += '<p><a id="cross-note" href="chapter2.xhtml#note">脚注へ</a></p>'
     body += '<img id="safe-image" src="絵.png" alt="Archive illustration"/>'
     body += '<img src="/attack-probe" onerror="window.bookAttack=true"/>'
     body += '<img src="missing/../../attack-probe"/><img src="#attack-probe"/>'
@@ -32,15 +33,48 @@ def epub():
     body += '<p style="background-image:url(/attack-probe);color:rgb(20,30,40)">安全な文章</p>'
     body += '<p><span id="legacy-tcy" class="tcy">!?</span></p>'
     body += ''.join('<p>日本語の本を読みます。文章を丁寧に読んで、次のページに進みます。</p>' for _ in range(150))
+    container = '''<?xml version="1.0"?>
+<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">
+  <rootfiles><rootfile full-path="content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>'''
+    package = '''<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="book-id">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="book-id">urn:uuid:reader-browser-acceptance</dc:identifier>
+    <dc:title>''' + TITLE + '''</dc:title>
+    <dc:language>ja</dc:language>
+  </metadata>
+  <manifest>
+    <item id="chapter1" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+    <item id="chapter2" href="chapter2.xhtml" media-type="application/xhtml+xml"/>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+    <item id="style" href="style.css" media-type="text/css"/>
+    <item id="image" href="絵.png" media-type="image/png"/>
+  </manifest>
+  <spine page-progression-direction="rtl">
+    <itemref idref="chapter1"/>
+    <itemref idref="chapter2"/>
+  </spine>
+</package>'''
+    nav = '''<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="ja">
+<head><title>Navigation</title></head><body>
+<nav epub:type="toc"><ol><li><a href="chapter.xhtml">本文</a></li><li><a href="chapter2.xhtml">脚注</a></li></ol></nav>
+<nav epub:type="page-list"><ol><li><a href="chapter.xhtml#page-1">1</a></li></ol></nav>
+<nav epub:type="landmarks"><ol><li><a epub:type="bodymatter" href="chapter.xhtml">本文</a></li></ol></nav>
+</body></html>'''
+    chapter1 = '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="ja"><head><link rel="stylesheet" href="style.css"/></head><body><span id="page-1"></span>' + body + '</body></html>'
+    chapter2 = '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="ja"><head><title>Notes</title></head><body><aside id="note" epub:type="footnote"><p>脚注の内容</p></aside></body></html>'
     with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
         archive.writestr('mimetype', 'application/epub+zip')
-        archive.writestr('META-INF/container.xml', '<container><rootfiles><rootfile full-path="content.opf"/></rootfiles></container>')
-        archive.writestr('content.opf', '<package><metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">' + TITLE + '</dc:title></metadata><manifest><item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/><item id="style" href="style.css" media-type="text/css"/><item id="image" href="絵.png" media-type="image/png"/></manifest><spine><itemref idref="chapter"/></spine></package>')
-        archive.writestr('chapter.xhtml', '<html><head><link rel="stylesheet" href="style.css"/></head><body>' + body + '</body></html>')
+        archive.writestr('META-INF/container.xml', container)
+        archive.writestr('content.opf', package)
+        archive.writestr('chapter.xhtml', chapter1)
+        archive.writestr('chapter2.xhtml', chapter2)
+        archive.writestr('nav.xhtml', nav)
         archive.writestr('style.css', '.tcy{-webkit-text-combine:horizontal;-epub-text-combine:horizontal}')
         archive.writestr('絵.png', png)
     return output.getvalue()
-
 
 class StaticHandler(SimpleHTTPRequestHandler):
     probes = []
@@ -321,6 +355,28 @@ class ReaderBrowser(unittest.TestCase):
     def test_paginated_ruby_images_and_untrusted_resources(self):
         self.open_book(font='Klee One')
         self.assertEqual('ほん', self.page.locator('.book-content ruby rt').first.text_content())
+        row = self.page.evaluate("""() => new Promise((resolve, reject) => {
+          const open = indexedDB.open('books');
+          open.onerror = () => reject(open.error);
+          open.onsuccess = () => {
+            const db = open.result;
+            const req = db.transaction('data').objectStore('data').getAll();
+            req.onerror = () => reject(req.error);
+            req.onsuccess = () => {
+              const value = req.result.find((book) => book.title === 'Reader browser acceptance');
+              db.close();
+              resolve(value?.epubPublication ?? null);
+            };
+          };
+        })""")
+        self.assertEqual('foliate-epub-v1', row['engine'])
+        self.assertEqual('foliate', row['parser'])
+        self.assertGreaterEqual(len(row['toc']), 2)
+        self.assertGreaterEqual(len(row['pageList']), 1)
+        self.assertGreaterEqual(len(row['landmarks']), 1)
+        link = self.page.locator('#cross-note')
+        self.assertEqual('chapter2.xhtml#note', link.get_attribute('data-manabi-epub-href'))
+        self.assertEqual('#note', link.get_attribute('href'))
         self.assertEqual(
             'all',
             self.page.locator('#legacy-tcy').evaluate('element => getComputedStyle(element).textCombineUpright'))
