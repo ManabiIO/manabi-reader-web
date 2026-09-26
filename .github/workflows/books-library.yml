@@ -71,6 +71,9 @@ jobs:
             LIBRARY_BROWSER=$engine python tests/browser/test_library_sync.py 2>&1 | tee artifacts/library/$engine/organization-sync.log
             result=${PIPESTATUS[0]}
             if [ "$result" -ne 0 ]; then status=1; fi
+            LIBRARY_BROWSER=$engine python tests/browser/test_collection_commit.py 2>&1 | tee artifacts/library/$engine/collection-commit.log
+            result=${PIPESTATUS[0]}
+            if [ "$result" -ne 0 ]; then status=1; fi
             if [ -d test-results ]; then mv test-results artifacts/library/$engine/screenshots; fi
           done
           LIBRARY_BROWSER=chromium python tests/browser/test_library_preview_cache.py 2>&1 | tee artifacts/library/preview-cache.log
