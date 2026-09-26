@@ -8,6 +8,7 @@ import io
 import json
 from pathlib import Path
 import sys
+import tempfile
 import time
 import unittest
 import zipfile
@@ -16,6 +17,13 @@ import test_static_reader as static
 
 
 class SharedTtuBrowser(static.ReaderBrowser):
+    def new_context(self):
+        # Persist actual directory capabilities across documents, as in a normal
+        # browser profile. Each test owns and removes its own isolated directory.
+        profile = tempfile.TemporaryDirectory(prefix='reader-shared-ttu-')
+        self.addCleanup(profile.cleanup)
+        return self.playwright.chromium.launch_persistent_context(profile.name)
+
     def seed_shared_source(self):
         # Opening an absent IndexedDB database from a fixture creates a version-1
         # empty DB and races the real app's initial migrations. Observe readiness

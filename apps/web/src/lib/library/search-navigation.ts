@@ -36,6 +36,6 @@ export function takeLibraryLocation(
     return value.locator;
   return undefined;
 }
-export function clearLibraryLocation() {
-  pending = undefined;
+export function clearLibraryLocation(token?: string) {
+  if (token === undefined || pending?.token === token) pending = undefined;
 }
