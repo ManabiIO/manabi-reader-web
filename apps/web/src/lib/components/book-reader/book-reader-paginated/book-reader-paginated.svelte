@@ -50,15 +50,19 @@
     type EpubNavigationRequest
   } from '$lib/functions/file-loaders/epub/epub-navigation';
   import { swipe } from 'svelte-gestures';
-  import type { BookmarkManager, PageManager } from '../types';
+  import type { BookmarkManager, PageManager, PaginatedPageManager } from '../types';
   import { BookmarkManagerPaginated } from './bookmark-manager-paginated';
   import { PageManagerPaginated } from './page-manager-paginated';
+  import { FoliatePageManagerPaginated } from './foliate-page-manager-paginated';
+  import type { EpubPublicationDescriptor } from '$lib/functions/file-loaders/epub/epub-publication';
   import { SectionCharacterStatsCalculator } from './section-character-stats-calculator';
   import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
 
   export let htmlContent: string;
 
   export let publicationManifest: PublicationManifest | undefined = undefined;
+
+  export let epubPublication: EpubPublicationDescriptor | undefined = undefined;
 
   export let width: number;
 
@@ -149,7 +153,7 @@
 
   let sections: Element[] = [];
 
-  let concretePageManager: PageManagerPaginated | undefined;
+  let concretePageManager: PaginatedPageManager | undefined;
 
   let concreteBookmarkManager: BookmarkManagerPaginated | undefined;
 
@@ -235,7 +239,11 @@
 
   $: {
     if (contentEl && scrollEl && sections) {
-      concretePageManager = new PageManagerPaginated(
+      const Manager =
+        epubPublication?.engine === 'foliate-epub-v1'
+          ? FoliatePageManagerPaginated
+          : PageManagerPaginated;
+      concretePageManager = new Manager(
         contentEl,
         scrollEl,
         sections,
