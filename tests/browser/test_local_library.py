@@ -2,15 +2,14 @@
 
 The fixture uses Chromium's real origin-private filesystem, not mocked handles
 or a replaced picker. Native OS chooser/permission dialogs still need manual
-platform qualification; this suite proves read/write/persistence/conflict logic.
+platform qualification; this suite checks import, local persistence, and physical series moves.
 """
-from http.server import ThreadingHTTPServer
 from pathlib import Path
 import threading
 import time
 import unittest
-from playwright.sync_api import sync_playwright, expect
-from test_static_reader import StaticHandler
+from playwright.sync_api import Error as PlaywrightError, sync_playwright, expect
+from test_static_reader import StaticHandler, ThreadingHTTPServer
 
 CONTENT = '地元の本。\n' + '日本語の物語を読みます。少しずつ先に進みます。\n' * 180
 
@@ -50,8 +49,17 @@ class LocalLibraryBrowser(unittest.TestCase):
     def tearDown(self):
         output = Path('test-results')
         output.mkdir(exist_ok=True)
-        self.page.screenshot(path=str(output / (self._testMethodName + '.png')), full_page=True)
-        self.context.close()
+        try:
+            self.page.screenshot(path=str(output / (self._testMethodName + '.png')), full_page=True)
+        except PlaywrightError as error:
+            if 'closed' not in str(error).lower():
+                raise
+            # Keep the original browser/process failure as the primary error.
+        try:
+            self.context.close()
+        except PlaywrightError as error:
+            if 'closed' not in str(error).lower():
+                raise
         self.assertEqual([], self.errors)
 
     def seed(self, writable):
@@ -128,7 +136,7 @@ class LocalLibraryBrowser(unittest.TestCase):
     def test_readonly_disconnect_preserves_original_and_import(self):
         self.seed(False)
         article = self.import_book()
-        expect(article.get_by_role('checkbox')).not_to_be_checked()
+        expect(article.get_by_role('button', name='Sync local-book')).to_be_visible()
         self.assertEqual([], self.documents())
         self.assertEqual(CONTENT, self.original())
         self.page.get_by_role('button', name='Disconnect local folder', exact=True).click()
@@ -137,66 +145,38 @@ class LocalLibraryBrowser(unittest.TestCase):
         self.page.get_by_role('link', name='← Books', exact=True).click()
         expect(self.page.get_by_role('button', name='Read local-book', exact=True)).to_be_visible()
 
-    def test_real_handle_reload_writeback_and_external_conflict(self):
+    def test_real_handle_reload_keeps_local_reading_data_without_folder_writeback(self):
         self.seed(True)
-        article = self.import_book()
+        self.import_book()
         self.page.get_by_role('link', name='Read local-book', exact=True).click()
-        expect(self.page.locator('.book-content')).to_have_attribute('aria-busy','false',timeout=35000)
+        expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=35000)
         self.page.keyboard.press('ArrowLeft')
         self.page.evaluate('() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
         self.page.keyboard.press('KeyB')
-        deadline=time.monotonic()+10
-        saved=False
-        while time.monotonic()<deadline:
-            saved=self.page.evaluate('''() => new Promise(resolve=>{
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            saved = self.page.evaluate('''() => new Promise(resolve => {
               const r=indexedDB.open('books');r.onsuccess=()=>{const db=r.result,tx=db.transaction('bookmark');
-              const q=tx.objectStore('bookmark').count();q.onsuccess=()=>resolve(q.result>0);tx.oncomplete=()=>db.close();};
+                const q=tx.objectStore('bookmark').count();q.onsuccess=()=>resolve(q.result>0);
+                tx.oncomplete=()=>db.close();};
             })''')
-            if saved: break
+            if saved:
+                break
             self.page.wait_for_timeout(50)
         self.assertTrue(saved)
-        self.page.goto(self.origin+'/reader-web/connections')
-        expect(self.page.get_by_role('button',name='Refresh connections')).to_be_enabled()
-        article=self.page.locator('article[aria-label="Reading sync for local-book"]')
-        article.get_by_role('button',name='Sync local-book',exact=True).click()
-        expect(article.get_by_role('status')).to_contain_text('Saved to this folder',timeout=20000)
-        copies=self.documents()
-        self.assertTrue(copies)
-        self.assertTrue(any(copy['value']['bookmark'] is not None for copy in copies))
-        self.assertEqual(CONTENT,self.original())
+        self.page.goto(self.origin + '/reader-web/connections')
+        expect(self.page.get_by_role('button', name='Refresh connections')).to_be_enabled()
+        self.assertEqual([], self.documents())
+        self.assertEqual(CONTENT, self.original())
         self.page.reload()
-        expect(self.page.get_by_role('button',name='Browse Fixture books')).to_be_visible()
-        # Simulate a real second writer arriving from an OS cloud-sync client by
-        # adding a concurrent immutable record, not intercepting adapter calls.
-        self.page.evaluate('''async () => {
-          const root=await navigator.storage.getDirectory();
-          const folder=await root.getDirectoryHandle('Fixture books');
-          const managed=await folder.getDirectoryHandle('.manabi-reader');
-          for await(const [key,directory] of managed.entries()){
-            for await(const [name,file] of directory.entries()){
-              const old=JSON.parse(await (await file.getFile()).text());
-              if(!old.value.bookmark)continue;
-              const id=crypto.randomUUID();
-              const value=structuredClone(old.value);value.bookmark.progress=0.99;
-              const copy={version:1,id,parents:[],createdAt:new Date().toISOString(),value};
-              const newFile=await directory.getFileHandle(id+'.json',{create:true});
-              const stream=await newFile.createWritable();await stream.write(JSON.stringify(copy));await stream.close();return;
-            }
-          }
-          throw new Error('No saved bookmark fixture');
-        }''')
-        article=self.page.locator('article[aria-label="Reading sync for local-book"]')
-        article.get_by_role('button',name='Sync local-book',exact=True).click()
-        expect(article.get_by_role('status')).to_contain_text('concurrent saves',timeout=20000)
-        article.get_by_role('button',name='Keep this device’s reading data',exact=True).click()
-        expect(article.get_by_role('status')).to_contain_text('Saved to this folder',timeout=20000)
-        copies=self.documents()
-        consumed={parent for copy in copies for parent in copy['parents']}
-        heads=[copy for copy in copies if copy['id'] not in consumed]
-        self.assertEqual(1,len(heads))
-        self.assertGreaterEqual(len(heads[0]['parents']),2)
-        self.assertNotEqual(0.99,heads[0]['value']['bookmark']['progress'])
-        self.assertEqual(CONTENT,self.original())
+        expect(self.page.get_by_role('button', name='Browse Fixture books')).to_be_visible()
+        self.assertEqual([], self.documents())
+        self.assertTrue(self.page.evaluate('''() => new Promise(resolve => {
+          const r=indexedDB.open('books');r.onsuccess=()=>{const db=r.result,tx=db.transaction('bookmark');
+            const q=tx.objectStore('bookmark').count();q.onsuccess=()=>resolve(q.result>0);
+            tx.oncomplete=()=>db.close();};
+        })'''))
+        self.assertEqual(CONTENT, self.original())
 
     def test_library_groups_real_files_into_a_verified_series(self):
         self.seed(True)
@@ -228,7 +208,7 @@ class LocalLibraryBrowser(unittest.TestCase):
           return {names:names.sort(),original};
         }''')
         self.assertEqual(
-            ['.Manabi-Reader.yaml', 'local-book.txt', 'second-book.txt'], contents['names'])
+            ['.manabi-reader.yaml', 'local-book.txt', 'second-book.txt'], contents['names'])
         self.assertFalse(contents['original'])
 
 

@@ -1,0 +1,58 @@
+/* Section navigation is not a call to action. Keep a stable underline on
+   narrow screens and quiet, rounded sidebar rows where there is room. */
+.section-navigation {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  gap: 4px;
+  overflow-x: auto;
+  padding-block: 4px;
+  scrollbar-width: thin;
+}
+.section-navigation [data-section-link] {
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-weight: 500;
+}
+.section-navigation [data-section-link]:hover {
+  color: var(--foreground);
+  background: var(--muted);
+}
+.section-navigation [data-section-link][aria-pressed='true'] {
+  color: var(--primary);
+  border-bottom-color: currentColor;
+}
+.section-navigation [data-section-link]:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+  box-shadow: none;
+}
+@media (min-width: 64rem) {
+  .section-navigation-sidebar {
+    display: grid;
+    overflow: visible;
+    gap: 2px;
+  }
+  .section-navigation-sidebar [data-section-link] {
+    justify-content: flex-start;
+    text-align: start;
+    border-bottom: 0;
+    border-radius: 8px;
+  }
+  .section-navigation-sidebar [data-section-link][aria-pressed='true'] {
+    color: var(--foreground);
+    background: var(--secondary);
+  }
+}
+@media (forced-colors: active) {
+  .section-navigation [data-section-link][aria-pressed='true'] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+    color: Highlight;
+  }
+}

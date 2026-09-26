@@ -10,7 +10,14 @@ import type { Section } from '$lib/data/database/books-db/versions/v3/books-db-v
 
 export const sectionList$ = new BehaviorSubject<Section[]>([]);
 export const sectionProgress$ = new Subject<Map<string, SectionWithProgress>>();
-export const nextChapter$ = new Subject<string>();
+export interface ReaderSectionTarget {
+  spineIndex: number;
+  fragment?: string;
+}
+
+export type ReaderChapterTarget = string | ReaderSectionTarget;
+
+export const nextChapter$ = new Subject<ReaderChapterTarget>();
 export const tocIsOpen$ = new Subject<boolean>();
 
 export type SectionWithProgress = Section & {

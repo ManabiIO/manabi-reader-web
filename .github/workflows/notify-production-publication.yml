@@ -2,15 +2,17 @@ name: Notify production publication
 
 on:
   workflow_run:
-    workflows: ['Manabi Reader static build']
+    workflows: ['Manabi Reader static build', 'Appearance', 'Books library']
     types: [completed]
     branches: [main]
 
-permissions: {}
+permissions:
+  actions: read
+  contents: read
 
-# Each successful completion gets its own brief notification. Workflow-level
-# cancellation also sees failed completions and could cancel a successful
-# notification before its request reaches Manabi. Publication is serialized there.
+# Wake on every required suite: the static build may finish before the browser
+# suites. Do not cancel a successful notification on another suite's completion.
+# Manabi independently rechecks all three exact-main runs before publication.
 jobs:
   notify:
     if: >-
@@ -20,12 +22,38 @@ jobs:
       github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 2
-    env:
-      GH_TOKEN: ${{ secrets.MANABI_PUBLICATION_DISPATCH_TOKEN }}
     steps:
       # workflow_run can access secrets. Never check out or execute source or
-      # download artifacts here. Manabi resolves and qualifies its source again.
+      # download artifacts here. Run only this trusted, inline readiness gate.
+      - name: Require the complete exact-main qualification
+        id: qualify
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            core.setOutput('qualified', 'false');
+            const { owner, repo } = context.repo;
+            const sha = context.payload.workflow_run.head_sha;
+            const { data: main } = await github.rest.repos.getCommit({ owner, repo, ref: 'main' });
+            if (main.sha !== sha) return;
+            const workflows = ['manabi-reader-ci.yml', 'appearance.yml', 'books-library.yml'];
+            for (const workflow_id of workflows) {
+              const { data } = await github.rest.actions.listWorkflowRuns({
+                owner, repo, workflow_id, event: 'push', branch: 'main', head_sha: sha, per_page: 1
+              });
+              const run = data.workflow_runs?.[0];
+              if (!run || run.head_sha !== sha || run.event !== 'push' || run.head_branch !== 'main' ||
+                  run.head_repository?.full_name !== `${owner}/${repo}` ||
+                  run.status !== 'completed' || run.conclusion !== 'success') {
+                core.info(`Publication is waiting for ${workflow_id} on ${sha}.`);
+                return;
+              }
+            }
+            core.setOutput('qualified', 'true');
       - name: Wake the publication planner after frontend qualification
+        if: steps.qualify.outputs.qualified == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.MANABI_PUBLICATION_DISPATCH_TOKEN }}
         run: |
           if [[ -z "$GH_TOKEN" ]]; then
             echo '::error::Set MANABI_PUBLICATION_DISPATCH_TOKEN (Manabi repository Actions: write) to enable automatic publication. There is no polling fallback; run Reader Web static publication manually in lake-of-fire/manabi to recover.'

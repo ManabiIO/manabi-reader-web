@@ -107,6 +107,7 @@ class WantToReadBrowser(LibraryBase):
 
     def test_builtin_collection_exists_when_empty_and_supports_url_views(self):
         self.page.set_viewport_size({'width': 1200, 'height': 900})
+        expect(self.page.get_by_text("Editor's Picks are unavailable right now.")).to_be_visible()
         rail = self.page.get_by_role('complementary', name='Collections', exact=True)
         expect(rail.get_by_role('button', name=re.compile(r'^Want to Read\b'))).to_be_visible()
         rail.get_by_role('button', name=re.compile(r'^Want to Read\b')).click()
@@ -143,10 +144,12 @@ class WantToReadBrowser(LibraryBase):
         # The URL is a durable destination, including direct load and browser back.
         destination = self.page.url
         self.page.goto(self.origin + '/reader-web/manage')
+        expect(self.page.get_by_text("Editor's Picks are unavailable right now.")).to_be_visible()
         self.page.goto(destination)
         expect(self.page.get_by_role('heading', name='Want to Read', exact=True)).to_be_visible()
         self.page.go_back()
         expect(self.page).to_have_url(self.origin + '/reader-web/manage')
+        expect(self.page.get_by_text("Editor's Picks are unavailable right now.")).to_be_visible()
         self.page.go_forward()
         expect(self.page.get_by_role('heading', name='Want to Read', exact=True)).to_be_visible()
 
@@ -226,7 +229,7 @@ class WantToReadBrowser(LibraryBase):
             self.assertNotIn('book:' + str(legacy_id), str(shared))
             self.assertTrue(all(member.startswith('content:') for collection in shared['collections'] for member in collection['members']))
 
-    def test_real_export_backup_restore_promotes_legacy_aliases_and_reading_state(self):
+    def test_backup_keeps_unverified_same_title_copy_separate_from_verified_restore(self):
         contents = book('Legacy backup book')
         self.import_bytes('Legacy backup book', contents)
         original = next(item for item in self.stores('books', ['data'])['data'] if item['title'] == 'Legacy backup book')
@@ -245,7 +248,8 @@ class WantToReadBrowser(LibraryBase):
         })''', 'Legacy backup book')
         seeded_statistics = self.stores('books', ['statistic'])['statistic']
         self.menu('Legacy backup book', 'Mark as Finished')
-        self.wait_bookmark(original['id'], lambda row: row.get('completion', {}).get('state') == 'finished')
+        original_bookmark = self.wait_bookmark(
+            original['id'], lambda row: row.get('completion', {}).get('state') == 'finished')
 
         self.page.get_by_role('button', name='Library actions', exact=True).click()
         self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
@@ -258,10 +262,9 @@ class WantToReadBrowser(LibraryBase):
         with self.page.expect_download(timeout=60000) as pending:
             self.page.get_by_role('button', name='Start', exact=True).click()
         raw = Path(pending.value.path()).read_bytes()
-        # The exported ZIP carries the original content identity. Make the
-        # existing local record legacy only after export, so restore must
-        # promote the identity supplied by the backup into its retained ID.
-        self.seed_legacy_identity('Legacy backup book')
+        # The old copy no longer has a verifiable original-file digest. A
+        # backup with the same title cannot safely claim its ID or history.
+        legacy_id = self.seed_legacy_identity('Legacy backup book')
         self.page.reload()
 
         self.page.get_by_role('button', name='Library actions', exact=True).click()
@@ -271,22 +274,28 @@ class WantToReadBrowser(LibraryBase):
         chooser.set_input_files({'name': 'legacy-backup.zip', 'mimeType': 'application/zip', 'buffer': raw})
         deadline = time.monotonic() + 60
         while True:
-            restored = next(item for item in self.stores('books', ['data'])['data']
-                            if item['title'] == 'Legacy backup book')
+            books = [item for item in self.stores('books', ['data'])['data']
+                     if item['title'] == 'Legacy backup book']
+            restored = next((item for item in books if item.get('contentHash') == expected_hash), None)
             organization = next(value for value in self.stores('manabi-reader-integrations', ['metadata'])['metadata']
                                 if value.get('version') == 1 and 'collections' in value)
             aliases = [member for collection in organization['collections'] for member in collection['members']]
-            if restored.get('contentHash') == expected_hash and 'content:' + expected_hash in aliases:
+            bookmarks = self.stores('books', ['bookmark'])['bookmark']
+            if restored and len(books) == 2 and any(row['dataId'] == restored['id'] for row in bookmarks):
                 break
             self.assertLess(time.monotonic(), deadline, 'backup import was not committed')
             self.page.wait_for_timeout(50)
-        self.assertEqual(expected_hash, restored.get('contentHash'))
-        self.assertEqual(original['id'], restored['id'])
-        self.assertIn('content:' + expected_hash, aliases)
-        self.assertNotIn('book:' + str(original['id']), aliases)
+        self.assertNotEqual(original['id'], restored['id'])
+        self.assertEqual(legacy_id, original['id'])
+        self.assertNotIn('contentHash', next(item for item in books if item['id'] == legacy_id))
+        self.assertIn('book:' + str(legacy_id), aliases)
+        self.assertNotIn('content:' + expected_hash, aliases)
         self.assertIn('Legacy override', [value.get('title') for value in organization['books'].values()])
         self.assertTrue(any(value.get('cover') for value in organization['books'].values()))
-        self.assertEqual(1, len(self.stores('books', ['bookmark'])['bookmark']))
+        self.assertEqual({legacy_id, restored['id']}, {row['dataId'] for row in bookmarks})
+        restored_bookmark = next(row for row in bookmarks if row['dataId'] == restored['id'])
+        self.assertEqual(original_bookmark['completion'], restored_bookmark['completion'])
+        self.assertEqual(original_bookmark['progress'], restored_bookmark['progress'])
         self.assertEqual(seeded_statistics, self.stores('books', ['statistic'])['statistic'])
         self.screenshot('desktop-backup-restored')
 
@@ -305,9 +314,9 @@ class WantToReadBrowser(LibraryBase):
         menu = self.page.get_by_role('menu')
         expect(menu.get_by_role('menuitem').first).to_be_focused()
         remove = menu.get_by_role('menuitem', name='Remove from Want to Read', exact=True)
-        self.page.keyboard.press('ArrowDown')
+        menu.get_by_role('menuitem').first.press('ArrowDown')
         expect(remove).to_be_focused()
-        self.page.keyboard.press('Enter')
+        remove.press('Enter')
         expect(self.page.get_by_role('button', name='Read Focus first', exact=True)).to_have_count(0)
         expect(self.page.get_by_role('button', name='Read Focus last', exact=True)).to_be_visible()
         expect(self.page.get_by_role('button', name='Actions for Focus last', exact=True)).to_be_focused()

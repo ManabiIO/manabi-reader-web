@@ -28,10 +28,10 @@ def reading_snapshot(page):
       const open = indexedDB.open('books');
       open.onerror = () => reject(open.error);
       open.onsuccess = () => {
-        const db = open.result, tx = db.transaction(['data', 'bookmark', 'statistic']);
+        const db = open.result, tx = db.transaction(['data', 'bookmark', 'readerStatistic']);
         const data = tx.objectStore('data').getAll();
         const progress = tx.objectStore('bookmark').getAll();
-        const statistics = tx.objectStore('statistic').getAll();
+        const statistics = tx.objectStore('readerStatistic').getAll();
         tx.oncomplete = () => {
           resolve({books: data.result.map(({id, title, storageSource, elementHtml, characters}) =>
             ({id, title, storageSource, elementHtml, characters})),
@@ -213,7 +213,10 @@ class SharedStorageRuntime(static.ReaderBrowser):
           for await (const name of directory.keys()) retained.push(name);
           await directory.removeEntry('progress_1_6_200_0.3.json');
           await directory.removeEntry('progress_1_6_300_0.4.json');
-          await directory.removeEntry('bookdata_1_6_100_1_0.zip');
+          const published = [];
+          for await (const name of directory.keys()) if(name.startsWith('bookdata_')) published.push(name);
+          if(published.length !== 1) throw new Error('Expected one published book package');
+          await directory.removeEntry(published[0]);
           const empty = (await handler.getProgress()) ?? null;
           await root.removeEntry(title);
           const missing = (await handler.getProgress()) ?? null;

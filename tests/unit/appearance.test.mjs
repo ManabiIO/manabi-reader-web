@@ -72,6 +72,12 @@ test('all 14 preset variants have readable UI surfaces and independent reading p
     }
   assert.equal(themeForMode('manabi-theme', 'light').backgroundColor, 'rgba(255, 255, 255, 1)');
   assert.equal(themeForMode('manabi-theme', 'dark').backgroundColor, 'rgba(0, 0, 0, 1)');
+  assert.equal(themeProperties('manabi-theme', 'light').secondary, '#e5e5ea');
+  assert.equal(themeProperties('manabi-theme', 'dark').secondary, '#2c2c2e');
+  for (const mode of ['light', 'dark']) {
+    const colors = themeProperties('manabi-theme', mode);
+    assert.ok(contrast(colors['secondary-foreground'], colors.secondary) >= 4.5);
+  }
 });
 
 test('custom themes retain all authored fields and never save the synthesized counterpart', () => {

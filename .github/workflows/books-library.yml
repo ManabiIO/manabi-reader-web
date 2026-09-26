@@ -9,12 +9,7 @@ on:
       - '.github/workflows/books-library.yml'
   push:
     branches: [main]
-    paths:
-      - 'apps/web/**'
-      - 'tests/browser/**'
-      - 'tests/unit/**'
-      - 'pnpm-lock.yaml'
-      - '.github/workflows/books-library.yml'
+    # Every exact main SHA needs a release qualification, even build-config-only changes.
 permissions:
   contents: read
 concurrency:
@@ -68,7 +63,16 @@ jobs:
             LIBRARY_BROWSER=$engine python tests/browser/test_want_to_read.py 2>&1 | tee artifacts/library/$engine/want-to-read.log
             result=${PIPESTATUS[0]}
             if [ "$result" -ne 0 ]; then status=1; fi
+            PICKS_BROWSER=$engine python tests/browser/test_editors_picks.py 2>&1 | tee artifacts/library/$engine/editors-picks.log
+            result=${PIPESTATUS[0]}
+            if [ "$result" -ne 0 ]; then status=1; fi
             LIBRARY_BROWSER=$engine python tests/browser/test_library_sync.py 2>&1 | tee artifacts/library/$engine/organization-sync.log
+            result=${PIPESTATUS[0]}
+            if [ "$result" -ne 0 ]; then status=1; fi
+            LIBRARY_BROWSER=$engine python tests/browser/test_cloud_series_replay.py 2>&1 | tee artifacts/library/$engine/cloud-series-replay.log
+            result=${PIPESTATUS[0]}
+            if [ "$result" -ne 0 ]; then status=1; fi
+            LIBRARY_BROWSER=$engine python tests/browser/test_library_cloud_relocation.py 2>&1 | tee artifacts/library/$engine/cloud-relocation.log
             result=${PIPESTATUS[0]}
             if [ "$result" -ne 0 ]; then status=1; fi
             LIBRARY_BROWSER=$engine python tests/browser/test_collection_commit.py 2>&1 | tee artifacts/library/$engine/collection-commit.log

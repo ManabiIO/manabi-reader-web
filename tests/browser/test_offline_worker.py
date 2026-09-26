@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[2]
-SCOPE = '/Reader-Web/'
+SCOPE = '/reader-web/'
 OPTIONS = None
 
 

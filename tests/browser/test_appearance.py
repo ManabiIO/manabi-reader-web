@@ -19,6 +19,12 @@ def png(rgb, width=80, height=60):
 class AppearanceBrowser(baseline.ReaderBrowser):
     # The inherited baseline suite also exercises actual EPUB/ruby/illustration,
     # writing modes and offline restoration under the new default theme.
+    def wait_for_optional_catalog(self, page):
+        # These tests fence account requests, not the unrelated OPDS request.
+        # Let that optional request settle before navigating or closing WebKit.
+        expect(page.get_by_role('heading', name="Editor's Picks", exact=True)).to_be_visible()
+        expect(page.get_by_text('Loading books…', exact=True)).to_have_count(0)
+
     def settings(self, *, reload=False):
         # Observe the actual optional session probe, including its completed 404
         # body, before a subsequent deliberate navigation. Do not intercept or
@@ -80,6 +86,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
             predicate=lambda r: r.url == self.origin + '/api/reader-web/session/'
         ):
             page.goto(self.origin + '/reader-web/manage')
+        self.wait_for_optional_catalog(page)
         with page.expect_request_finished(
             predicate=lambda r: r.url == self.origin + '/api/reader-web/session/'
         ):
@@ -100,6 +107,30 @@ class AppearanceBrowser(baseline.ReaderBrowser):
             gate.set()
             baseline.StaticHandler.session_gate = None
             baseline.StaticHandler.session_started = None
+        self.assertEqual([], errors)
+
+    def test_library_connection_probe_can_outlive_page_close(self):
+        baseline.StaticHandler.account_fixture = {
+            'user': {'id': '42', 'username': 'reader'},
+            'csrf_token': 'c' * 64,
+            'providers': []
+        }
+        gate = threading.Event()
+        started = threading.Event()
+        baseline.StaticHandler.connections_gate = gate
+        baseline.StaticHandler.connections_started = started
+        page = self.context.new_page()
+        errors = []
+        page.on('pageerror', lambda error: errors.append(error.stack or str(error)))
+        try:
+            page.goto(self.origin + '/reader-web/manage')
+            self.assertTrue(started.wait(timeout=5), 'connection request did not reach the server')
+            self.wait_for_optional_catalog(page)
+            page.close()
+        finally:
+            gate.set()
+            baseline.StaticHandler.connections_gate = None
+            baseline.StaticHandler.connections_started = None
         self.assertEqual([], errors)
 
     def test_optional_account_auth_syncs_with_csrf_and_one_bootstrap_probe(self):
@@ -407,6 +438,10 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), 390)
         self.page.goto(self.origin + '/reader-web/manage')
         self.page.evaluate('navigator.serviceWorker.ready')
+        # An activated worker takes control on the next navigation; the page
+        # that registered it may remain deliberately uncontrolled.
+        if not self.page.evaluate('Boolean(navigator.serviceWorker.controller)'):
+            self.page.reload()
         self.page.wait_for_function('() => navigator.serviceWorker.controller !== null')
         self.go_offline()
         self.page.reload()

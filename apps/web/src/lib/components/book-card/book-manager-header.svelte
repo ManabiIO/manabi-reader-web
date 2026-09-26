@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { openUserGuide } from '$lib/components/navigation/docs-link';
   import { browser } from '$app/environment';
   import { resolve } from '$app/paths';
   import { goto } from '$app/navigation';
@@ -8,7 +9,6 @@
   import * as Menu from '$lib/components/ui/dropdown-menu';
   import AppNav from '$lib/components/navigation/app-nav.svelte';
   import ActionMenu from '$lib/components/navigation/action-menu.svelte';
-  import { openUserGuide } from '$lib/components/navigation/docs-link';
   import type { SortOption } from '$lib/data/sort-types';
   import { SortDirection } from '$lib/data/sort-types';
   import { FilesystemStorageHandler } from '$lib/data/storage/handler/filesystem-handler';
@@ -31,8 +31,8 @@
   import {
     ArrowLeftIcon as ArrowLeft,
     BookmarkSimpleIcon as BookmarkSimple,
+    BookOpenIcon as BookOpen,
     BooksIcon as Books,
-    BookOpenTextIcon as BookOpenText,
     BugIcon as Bug,
     CalendarBlankIcon as CalendarBlank,
     ChartBarIcon as ChartBar,
@@ -87,10 +87,20 @@
     replicateData: void;
     cancelReplication: void;
     collectionsClick: void;
+    editorsPicksClick: void;
   }>();
   let fileImportElm: HTMLInputElement;
   let folderImportElm: HTMLInputElement;
   let backupImportElm: HTMLInputElement;
+  export function openFilePicker() {
+    fileImportElm?.click();
+  }
+  export function openFolderPicker() {
+    folderImportElm?.click();
+  }
+  export function openBackupPicker() {
+    backupImportElm?.click();
+  }
   let countImportElm: HTMLInputElement;
   $: isOldUrl = browser && isOnOldUrl(window);
   $: showLoadCount = browser && new URLSearchParams(window.location.search).has('count');
@@ -189,8 +199,11 @@
 />
 
 {#if modernLibrary}
-  <header class="app-header bg-background text-foreground" aria-label="Library toolbar">
-    <div class="flex min-h-16 items-center justify-between gap-2 px-3 py-2 sm:px-6">
+  <header
+    class="floating-library-header text-foreground lg:ml-[16rem]"
+    aria-label="Library toolbar"
+  >
+    <div class="library-header-inner flex min-h-16 items-center justify-between gap-2 py-2">
       {#if compactLibrary && (searchExpanded || !!libraryMenu?.search.query)}
         <form
           class="flex min-w-0 flex-1 items-center gap-2"
@@ -208,7 +221,11 @@
               class="min-w-0 w-full border-0 bg-transparent p-0 shadow-none outline-none focus:border-transparent focus:shadow-none focus:ring-0"
               placeholder="Search library"
               value={libraryMenu?.search.query || ''}
-              oninput={(event) => libraryMenu?.search.setQuery(event.currentTarget.value)}
+              oninput={(event) => {
+                if (!('isComposing' in event && event.isComposing))
+                  libraryMenu?.search.setQuery(event.currentTarget.value);
+              }}
+              oncompositionend={(event) => libraryMenu?.search.setQuery(event.currentTarget.value)}
               onkeydown={(event) => {
                 if (event.key === 'Escape') {
                   event.preventDefault();
@@ -243,6 +260,19 @@
           {/if}
         </div>
         <div class="flex shrink-0 items-center gap-1.5">
+          {#if compactLibrary}
+            <Button
+              bind:ref={searchButton}
+              variant="outline"
+              size="icon"
+              class="size-11 rounded-full lg:hidden"
+              aria-label="Search library"
+              title="Search library"
+              onclick={openSearch}
+              disabled={!!replicationToProgress}
+              ><Search class="size-6" weight="bold" aria-hidden="true" /></Button
+            >
+          {/if}
           <Button
             variant="outline"
             size="icon"
@@ -306,6 +336,13 @@
                   <Menu.Separator />
                   <Menu.Item onSelect={() => goto(resolve('/import-ttu'))}
                     >Import from Ttu Ebook Reader</Menu.Item
+                  >
+                  <Menu.Item onSelect={() => goto(resolve('/import-ttu?source=yatsu'))}
+                    >Import from Yatsu Reader</Menu.Item
+                  >
+                  <Menu.Separator />
+                  <Menu.Item onSelect={() => dispatch('editorsPicksClick')}
+                    ><BookOpen aria-hidden="true" />Editor's Picks</Menu.Item
                   >
                 </Menu.SubContent>
               </Menu.Sub>
@@ -430,6 +467,8 @@
                 </Menu.Sub>
               {/if}
               <Menu.Separator />
+              <Menu.Label>Manabi Reader</Menu.Label>
+              <Menu.Item onSelect={openUserGuide}>User guide</Menu.Item>
               <Menu.Item onSelect={() => goto(resolve('/connections'))}
                 ><UserCircle aria-hidden="true" />Accounts and Libraries</Menu.Item
               >
@@ -467,9 +506,6 @@
                 </Menu.Sub>
               {/if}
               <Menu.Separator />
-              <Menu.Item onSelect={openUserGuide}
-                ><BookOpenText aria-hidden="true" />User guide</Menu.Item
-              >
               <Menu.Item onSelect={() => dispatch('bugReportClick')}
                 ><Bug aria-hidden="true" />Report an Issue</Menu.Item
               >
@@ -485,19 +521,7 @@
               {/if}
             </Menu.Content>
           </Menu.Root>
-          {#if compactLibrary}
-            <Button
-              bind:ref={searchButton}
-              variant="outline"
-              size="icon"
-              class="size-11 rounded-full lg:hidden"
-              aria-label="Search library"
-              title="Search library"
-              onclick={openSearch}
-              disabled={!!replicationToProgress}
-              ><Search class="size-6" weight="bold" aria-hidden="true" /></Button
-            >
-          {:else}
+          {#if !compactLibrary}
             <label
               class="hidden min-h-11 w-[clamp(12rem,20vw,18rem)] min-w-0 items-center gap-2 rounded-full bg-muted px-3 text-sm focus-within:ring-2 focus-within:ring-ring lg:flex"
               ><Search class="size-5 shrink-0 text-muted-foreground" aria-hidden="true" /><span
@@ -507,7 +531,12 @@
                 type="search"
                 placeholder="Search library"
                 value={libraryMenu?.search.query || ''}
-                oninput={(event) => libraryMenu?.search.setQuery(event.currentTarget.value)}
+                oninput={(event) => {
+                  if (!('isComposing' in event && event.isComposing))
+                    libraryMenu?.search.setQuery(event.currentTarget.value);
+                }}
+                oncompositionend={(event) =>
+                  libraryMenu?.search.setQuery(event.currentTarget.value)}
               /></label
             >
           {/if}
@@ -637,6 +666,7 @@
           <Menu.Item onSelect={() => goto(resolve('/import-ttu'))}
             >Import from Ttu Ebook Reader</Menu.Item
           >
+          <Menu.Item onSelect={() => dispatch('editorsPicksClick')}>Editor's Picks</Menu.Item>
         </ActionMenu>
         <ActionMenu
           label={sources.find((source) => source.key === $storageSource$)?.label ?? 'Storage'}
@@ -683,7 +713,6 @@
           >Select books</Button
         >
         <ActionMenu label="Help">
-          <Menu.Item onSelect={openUserGuide}>User guide</Menu.Item>
           <Menu.Item onSelect={() => dispatch('bugReportClick')}>Report an Issue</Menu.Item>
           {#if isOldUrl}<Menu.Item onSelect={() => dispatch('domainHintClick')}
               >Old domain information</Menu.Item
@@ -696,3 +725,20 @@
     </div>
   </header>
 {/if}
+
+<style>
+  .floating-library-header {
+    border: 0;
+    background: transparent;
+  }
+  .library-header-inner {
+    max-width: 100rem;
+    margin-inline: auto;
+    padding-inline: 1.5rem;
+  }
+  @media (min-width: 1024px) {
+    .library-header-inner {
+      padding-inline: clamp(1.5rem, 3vw, 3.5rem);
+    }
+  }
+</style>

@@ -24,6 +24,7 @@ export interface StatisticsTitleFilterItem {
 }
 
 export interface BookStatistic extends BooksDbStatistic {
+  bookKey?: string;
   id: string;
   averageReadingTime: number;
   averageWeightedReadingTime: number;
@@ -86,6 +87,8 @@ export const titleDataSources: StatisticsDataSource[] = [{ key: 'title', label: 
 export const copyStatisticsData$ = new Subject<keyof BookStatistic>();
 
 export const exportStatisticsData$ = new Subject<boolean>();
+
+export const exportRawStatistics$ = new Subject<void>();
 
 export const deleteStatisticsData$ = new Subject<boolean>();
 

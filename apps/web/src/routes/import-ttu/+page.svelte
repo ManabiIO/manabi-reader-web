@@ -2,7 +2,7 @@
   import AppNav from '$lib/components/navigation/app-nav.svelte';
   import { onDestroy, onMount } from 'svelte';
   import { beforeNavigate } from '$app/navigation';
-  import { base } from '$app/paths';
+  import { resolve } from '$app/paths';
   import {
     TtuMigration,
     migratedBookChoices,
@@ -28,7 +28,7 @@
   let rows: Row[] = [];
   let sources: TtuMigration[] = [];
   let choices: MigratedBookChoice[] = [];
-  let parts = Object.keys(importLabels) as ImportPart[];
+  let parts = Object.keys(importLabels).filter((part) => part !== 'settings') as ImportPart[];
   let busy = false;
   let message = '';
   let controller: AbortController | undefined;
@@ -36,6 +36,7 @@
   let completed = 0;
   let total = 0;
   let page = 0;
+  let yatsu = false;
   const pageSize = 50;
   $: visibleRows = rows.slice(page * pageSize, (page + 1) * pageSize);
   $: selected = rows.filter((row) => row.selected && !row.error);
@@ -76,7 +77,7 @@
             ...item,
             source,
             key: `${sourceId}/${item.id}`,
-            selected: !item.error,
+            selected: !item.error && !item.parts.includes('settings'),
             targetId: 0,
             status: item.error ? 'error' : 'ready',
             message: item.error ?? ''
@@ -117,6 +118,7 @@
           result.status === 'unchanged'
             ? 'Already imported; existing data kept.'
             : `Imported ${result.title}.`;
+        if (result.warning) row.message += ` ${result.warning}`;
         row.bookId = result.bookId;
         row.selected = false;
       } catch (error) {
@@ -164,6 +166,7 @@
     else cancel();
   });
   onMount(() => {
+    yatsu = new URLSearchParams(window.location.search).get('source') === 'yatsu';
     consumeSelection(filePicker);
     void migratedBookChoices()
       .then((value) => {
@@ -186,40 +189,61 @@
   <AppNav />
 </header>
 
-<svelte:head><title>Import from Ttu Ebook Reader · Manabi Reader</title></svelte:head>
+<svelte:head
+  ><title>Import from {yatsu ? 'Yatsu Reader' : 'Ttu Ebook Reader'} · Manabi Reader</title
+  ></svelte:head
+>
 
 <main class="migration-page">
   <nav aria-label="Reader navigation">
-    <a href="{base}/manage">Books</a><a href="{base}/connections">Accounts and libraries</a>
+    <a href={resolve('/manage')}>Books</a><a href={resolve('/connections')}
+      >Accounts and libraries</a
+    >
   </nav>
-  <h1>Import from Ttu Ebook Reader</h1>
-  <section aria-labelledby="export-instructions">
-    <h2 id="export-instructions">Export in Ttu Ebook Reader</h2>
-    <ol>
-      <li>
-        In Book Manager, enter selection mode and select books or <strong>Select All Books</strong>.
-      </li>
-      <li>Choose <strong>Export → ZIP File</strong>.</li>
-      <li>
-        Include <strong>Book Data</strong>, <strong>Bookmark</strong> and
-        <strong>Statistics</strong>, then choose <strong>Start</strong>.
-      </li>
-    </ol>
-    <p>Choose the ZIPs below. A few books at a time is fine.</p>
-    <details>
-      <summary>Other exported data</summary>
+  <h1>Import from {yatsu ? 'Yatsu Reader' : 'Ttu Ebook Reader'}</h1>
+  {#if !yatsu}
+    <section aria-labelledby="export-instructions">
+      <h2 id="export-instructions">Export in Ttu Ebook Reader</h2>
+      <ol>
+        <li>
+          In Book Manager, enter selection mode and select books or <strong>Select All Books</strong
+          >.
+        </li>
+        <li>Choose <strong>Export → ZIP File</strong>.</li>
+        <li>
+          Include <strong>Book Data</strong>, <strong>Bookmark</strong> and
+          <strong>Statistics</strong>, then choose <strong>Start</strong>.
+        </li>
+      </ol>
+      <p>Choose the ZIPs below. A few books at a time is fine.</p>
+      <details>
+        <summary>Other exported data</summary>
+        <p>
+          Audiobook position and subtitles are supported. Export Reading Goals separately from
+          Statistics → Reading Goals.
+        </p>
+        <p>
+          Data-only ZIPs need Book Data imported first. Choose the matching imported book below.
+          Audio files and the original EPUB are not included in Ttu exports.
+        </p>
+      </details>
+    </section>
+  {:else}
+    <section aria-labelledby="yatsu-export-instructions">
+      <h2 id="yatsu-export-instructions">Export in Yatsu Reader</h2>
       <p>
-        Audiobook position and subtitles are supported. Export Reading Goals separately from
-        Statistics → Reading Goals.
+        In the Library, open More library actions and choose <strong
+          >Get complete local backup</strong
+        >. Select that ZIP below. Version-11 backups include book data, current reading position,
+        collection tags, statistics, saved bookmarks, highlights, passage notes and book notes. Safe
+        reader settings are optional and unchecked by default. Original note records are retained;
+        an ambiguous passage stays available in Imported Yatsu notes rather than jumping to a
+        guessed location. Keep your original ZIP for unsupported settings and external audio files.
       </p>
-      <p>
-        Data-only ZIPs need Book Data imported first. Choose the matching imported book below. Audio
-        files and the original EPUB are not included in Ttu exports.
-      </p>
-    </details>
-  </section>
+    </section>
+  {/if}
   <label class="file-picker"
-    >Choose Ttu export ZIPs
+    >Choose {yatsu ? 'Yatsu backup' : 'Ttu export'} ZIPs
     <input
       type="file"
       accept=".zip,application/zip"
@@ -235,11 +259,22 @@
     <details>
       <summary>Data to import</summary>
       <div class="parts">
-        {#each Object.entries(importLabels) as [part, label]}
-          <label
-            ><input type="checkbox" bind:group={parts} value={part} disabled={busy} />{label}</label
-          >
+        {#each Object.entries(importLabels) as [part, label] (part)}
+          {#if !['metadata', 'savedBookmarks', 'highlights', 'notes', 'settings'].includes(part) || sources.some((source) => source.source === 'yatsu')}
+            <label
+              ><input
+                type="checkbox"
+                bind:group={parts}
+                value={part}
+                disabled={busy}
+              />{label}</label
+            >
+          {/if}
         {/each}
+        <p>
+          Settings require selecting both the settings row and its data-type checkbox. Existing
+          Manabi sync choices and credentials are never imported.
+        </p>
       </div>
     </details>
     <div class="actions">
@@ -261,8 +296,8 @@
       <button disabled={busy} on:click={clear}>Clear list</button>
     </div>
     {#if ignored}<p>
-        {ignored} unrelated export files will not be imported. Storage connections and credentials are
-        never imported.
+        {ignored} files are not covered by this importer and will be kept only in the original ZIP. Storage
+        connections and credentials are never imported.
       </p>{/if}
     {#if busy}
       <div class="actions">
@@ -292,9 +327,15 @@
             />{row.title}</label
           >
           <p class="details">
-            {row.source.file.name} · {row.parts.map((part) => importLabels[part]).join(', ')}
+            {row.source.source === 'yatsu' ? 'Yatsu Reader' : 'Ttu Ebook Reader'} ·
+            {row.source.file.name} · {row.parts
+              .map(
+                (part) =>
+                  `${importLabels[part]}${row.counts?.[part] !== undefined ? ` (${row.counts[part]})` : ''}`
+              )
+              .join(', ')}
           </p>
-          {#if !row.parts.includes('goals') && (!row.parts.includes('book') || row.status === 'conflict')}
+          {#if !row.parts.includes('goals') && !row.parts.includes('settings') && (!row.parts.includes('book') || row.status === 'conflict')}
             <label
               >Destination book
               <select
@@ -303,7 +344,7 @@
                 aria-label="Destination for {row.title}"
               >
                 <option value={0}>Choose a previously imported book</option>
-                {#each choices.filter((book) => book.sourceTitle === row.title) as book}
+                {#each choices.filter((book) => book.sourceTitle === row.title) as book (book.id)}
                   <option value={book.id}>{book.title}</option>
                 {/each}
               </select>
@@ -316,7 +357,7 @@
               >Use imported data for {row.title}</button
             >
           {/if}
-          {#if row.bookId}<a href="{base}/b?id={row.bookId}">Read {row.title}</a>{/if}
+          {#if row.bookId}<a href={resolve(`/b?id=${row.bookId}`)}>Read {row.title}</a>{/if}
         </article>
       {/each}
     </div>

@@ -95,10 +95,12 @@
       oninput={(event) =>
         filter.update((value) => ({ ...value, query: event.currentTarget.value }))}
     />
-    <nav aria-label="Settings categories" class="mt-3 flex gap-1 overflow-x-auto pb-2 lg:grid">
+    <nav aria-label="Settings categories" class="section-navigation section-navigation-sidebar mt-3">
       {#each categories as category (category.id)}
         <Button
-          variant={$filter.category === category.id && !$filter.query ? 'secondary' : 'ghost'}
+          variant="ghost"
+          shape="rounded"
+          data-section-link
           class="justify-start"
           aria-pressed={$filter.category === category.id && !$filter.query}
           onclick={() => choose(category.id)}>{category.label}</Button

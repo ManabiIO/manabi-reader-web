@@ -4,6 +4,23 @@ import { fileURLToPath } from 'node:url';
 import { ESLint } from 'eslint';
 
 const files = [
+  'apps/web/src/lib/library/library-search.svelte',
+  'apps/web/src/lib/components/book-reader/imported-yatsu-notes.svelte',
+  'apps/web/src/lib/webdav/connections.svelte',
+  'apps/web/src/routes/import-ttu/+page.svelte',
+  'apps/web/src/lib/components/ui/input-group/input-group-input.svelte',
+  'apps/web/src/lib/components/statistics/statistics-title-filter.svelte',
+  'apps/web/src/lib/components/statistics/statistics-settings.svelte',
+  'apps/web/src/lib/components/ui/input/input.svelte',
+  'apps/web/src/lib/components/ui/command/command-dialog.svelte',
+  'apps/web/src/lib/components/ui/input-group/input-group-button.svelte',
+  'apps/web/src/lib/components/ui/close-button.svelte',
+  'apps/web/src/lib/components/ui/button/button.svelte',
+  'apps/web/src/lib/components/ui/dialog/dialog-content.svelte',
+  'apps/web/src/lib/components/ui/dialog/dialog-footer.svelte',
+  'apps/web/src/lib/components/book-reader/reader-search.svelte',
+  'apps/web/src/lib/components/book-reader/reader-scrubber.svelte',
+  'apps/web/src/lib/components/book-reader/reader-annotations.svelte',
   'apps/web/src/lib/library/book-cover.svelte',
   'apps/web/src/lib/library/collections-sheet.svelte',
   'apps/web/src/lib/library/cover-stack.svelte',

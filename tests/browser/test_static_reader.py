@@ -7,7 +7,7 @@ from pathlib import Path
 import threading
 import struct
 import unittest
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 import zipfile
 import zlib
 from playwright.sync_api import sync_playwright, expect
@@ -23,12 +23,13 @@ ROOT = Path(__file__).resolve().parents[2] / 'apps/web/build'
 TITLE = 'Reader browser acceptance'
 
 
-def epub():
+def epub(include_images=True):
     output = io.BytesIO()
     # One white grayscale+alpha pixel; every PNG chunk has a valid CRC.
     png = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=')
     body = '<h1>Reader browser acceptance</h1><p><ruby>本<rt>ほん</rt></ruby>を読む。</p>'
-    body += '<img id="safe-image" src="絵.png" alt="Archive illustration"/>'
+    if include_images:
+        body += '<img id="safe-image" src="絵.png" alt="Archive illustration"/>'
     body += '<img src="/attack-probe" onerror="window.bookAttack=true"/>'
     body += '<img src="missing/../../attack-probe"/><img src="#attack-probe"/>'
     body += '<iframe src="/attack-probe"></iframe><script>window.bookAttack=true</script>'
@@ -38,12 +39,45 @@ def epub():
     with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
         archive.writestr('mimetype', 'application/epub+zip')
         archive.writestr('META-INF/container.xml', '<container><rootfiles><rootfile full-path="content.opf"/></rootfiles></container>')
-        archive.writestr('content.opf', '<package><metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">' + TITLE + '</dc:title></metadata><manifest><item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/><item id="style" href="style.css" media-type="text/css"/><item id="image" href="絵.png" media-type="image/png"/></manifest><spine><itemref idref="chapter"/></spine></package>')
+        image_item = '<item id="image" href="絵.png" media-type="image/png"/>' if include_images else ''
+        archive.writestr('content.opf', '<package><metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">' + TITLE + '</dc:title></metadata><manifest><item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/><item id="style" href="style.css" media-type="text/css"/>' + image_item + '</manifest><spine><itemref idref="chapter"/></spine></package>')
         archive.writestr('chapter.xhtml', '<html><head><link rel="stylesheet" href="style.css"/></head><body>' + body + '</body></html>')
         archive.writestr('style.css', '.tcy{-webkit-text-combine:horizontal;-epub-text-combine:horizontal}')
-        archive.writestr('絵.png', png)
+        if include_images:
+            archive.writestr('絵.png', png)
     return output.getvalue()
 
+
+def linked_epub():
+    output = io.BytesIO()
+    title = 'Reader linked EPUB acceptance'
+    chapter_one = (
+        '<h1>第一章</h1><p id="note">第一章の注</p>'
+        '<p><a id="to-second" href="chapter2.xhtml#note">第二章の注へ</a></p>'
+        '<p><a id="empty-link" href="#">空のリンク</a></p>'
+    )
+    chapter_two = (
+        '<h1>第二章</h1><p id="note">第二章の注</p>'
+        '<p><a id="to-first" href="chapter1.xhtml#note">第一章の注へ</a></p>'
+    )
+    with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr('mimetype', 'application/epub+zip')
+        archive.writestr(
+            'META-INF/container.xml',
+            '<container><rootfiles><rootfile full-path="content.opf"/></rootfiles></container>'
+        )
+        archive.writestr(
+            'content.opf',
+            '<package><metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">'
+            + title
+            + '</dc:title></metadata><manifest>'
+            '<item id="one" href="chapter1.xhtml" media-type="application/xhtml+xml"/>'
+            '<item id="two" href="chapter2.xhtml" media-type="application/xhtml+xml"/>'
+            '</manifest><spine><itemref idref="one"/><itemref idref="two"/></spine></package>'
+        )
+        archive.writestr('chapter1.xhtml', '<html><body>' + chapter_one + '</body></html>')
+        archive.writestr('chapter2.xhtml', '<html><body>' + chapter_two + '</body></html>')
+    return title, output.getvalue()
 
 class EpubFixture(unittest.TestCase):
     def test_embedded_png_checksums_and_pixel_data_are_valid(self):
@@ -77,10 +111,14 @@ class StaticHandler(SimpleHTTPRequestHandler):
     probes = []
     session_gate = None
     session_started = None
+    connections_gate = None
+    connections_started = None
     account_fixture = None
     account_requests = []
     preference_revision = 0
     preference_settings = {}
+    personal_enabled = False
+    personal_mutations = []
 
     def api_request(self):
         length = int(self.headers.get('Content-Length') or '0')
@@ -133,7 +171,19 @@ class StaticHandler(SimpleHTTPRequestHandler):
                     'settings': type(self).preference_settings
                 }, user=identity)
             elif path.endswith('/connections/'):
+                gate = type(self).connections_gate
+                started = type(self).connections_started
+                if gate is not None:
+                    type(self).connections_gate = None
+                    type(self).connections_started = None
+                    if started is not None:
+                        started.set()
+                    gate.wait(timeout=10)
                 self.api_response({'items': []}, user=identity)
+            elif path.endswith('/personal/changes/') and type(self).personal_enabled:
+                cursor = int(parse_qs(urlsplit(self.path).query).get('cursor', ['0'])[0])
+                self.api_response({'items': [], 'next_cursor': cursor, 'has_more': False},
+                                  user=identity)
             else:
                 self.send_error(404)
             return
@@ -160,6 +210,19 @@ class StaticHandler(SimpleHTTPRequestHandler):
     def do_POST(self):
         fixture = type(self).account_fixture
         path = urlsplit(self.path).path
+        if fixture is not None and type(self).personal_enabled and path.endswith('/personal/mutations/'):
+            self.api_request()
+            value = type(self).account_requests[-1]['body']
+            identity = fixture['user']['id']
+            type(self).personal_mutations.append((identity, value))
+            self.api_response({
+                'accepted': True, 'mutation_id': value['mutation_id'],
+                'record': {'kind': value['kind'], 'entity_id': value['entity_id'],
+                           'book_key': value['book_key'], 'revision': 1,
+                           'payload': value['payload'],
+                           'deleted': value['operation'] == 'delete'}
+            }, user=identity)
+            return
         if fixture is not None and path.endswith('/logout/'):
             admitted = fixture['user']['id']
             self.api_request()
@@ -213,12 +276,16 @@ class ReaderBrowser(unittest.TestCase):
 
     def setUp(self):
         self.context = self.browser.new_context()
+        self.context.add_init_script(
+            "try { localStorage.setItem('manabi-reader-dictionary-setup-v1', 'skip') } catch {}")
         self.page = self.context.new_page()
         self.errors = []
         self.page.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))
         StaticHandler.probes.clear()
         StaticHandler.session_gate = None
         StaticHandler.session_started = None
+        StaticHandler.connections_gate = None
+        StaticHandler.connections_started = None
         StaticHandler.account_fixture = None
         StaticHandler.account_requests = []
         StaticHandler.preference_revision = 0
@@ -236,9 +303,14 @@ class ReaderBrowser(unittest.TestCase):
             gate = StaticHandler.session_gate
             StaticHandler.session_gate = None
             StaticHandler.session_started = None
+            connections_gate = StaticHandler.connections_gate
+            StaticHandler.connections_gate = None
+            StaticHandler.connections_started = None
             StaticHandler.account_fixture = None
             if gate is not None:
                 gate.set()
+            if connections_gate is not None:
+                connections_gate.set()
             # A diagnostic failure must not leak a profile into the next test.
             self.context.close()
             if self.errors:
@@ -248,9 +320,12 @@ class ReaderBrowser(unittest.TestCase):
     def go_offline(self):
         self.context.set_offline(True)
 
-    def open_book(self, view='paginated', writing='vertical-rl', font=None):
+    def open_book(self, view='paginated', writing='vertical-rl', font=None, foliate=False, include_images=True):
         settings = {'viewMode': view, 'writingMode': writing, 'hideFurigana': 'false', 'hideSpoilerImage': 'false'}
         self.context.add_init_script('if (location.origin === ' + json.dumps(self.origin) + ') { for (const [key,value] of Object.entries(' + json.dumps(settings) + ')) localStorage.setItem(key,value); }')
+        if foliate:
+            self.context.add_init_script(
+                "try { localStorage.setItem('manabi-dev-foliate-epub', 'true') } catch {}")
         if font:
             # Seed the fixture font on the import page only. Reapplying it on every
             # document would overwrite a later explicit user choice during reload.
@@ -264,12 +339,21 @@ class ReaderBrowser(unittest.TestCase):
         # Wait for real input handlers before assigning files to hidden SSR inputs.
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files(
-            {'name': 'acceptance.epub', 'mimeType': 'application/epub+zip', 'buffer': epub()})
+            {'name': 'acceptance.epub', 'mimeType': 'application/epub+zip', 'buffer': epub(include_images)})
         self.page.get_by_role('button', name='Read ' + TITLE, exact=True).click(timeout=30000)
         expect(self.page.locator('.book-content')).to_be_visible(timeout=30000)
-        self.page.wait_for_function(
-            '() => document.querySelector(".book-content ruby rt")?.textContent === "ほん"'
-        )
+        if foliate:
+            self.page.wait_for_function(
+                '''() => {
+                  const paginator = document.querySelector('foliate-paginator');
+                  const doc = paginator?.getContents?.()[0]?.doc;
+                  return doc?.querySelector('.book-content ruby rt')?.textContent === 'ほん';
+                }'''
+            )
+        else:
+            self.page.wait_for_function(
+                '() => document.querySelector(".book-content ruby rt")?.textContent === "ほん"'
+            )
 
     def wait_for_fonts(self):
         # Bounded assertion, not a sleep, screenshot bypass or synthetic face.
@@ -331,6 +415,88 @@ class ReaderBrowser(unittest.TestCase):
         self.assertEqual('Klee One', self.first_font())
         self.page.keyboard.press('ArrowLeft')
         expect(self.page.locator('.book-content')).to_be_visible()
+
+    def test_foliate_paginated_epub_preserves_reader_security_and_japanese_content(self):
+        self.open_book(font='Klee One', foliate=True)
+        child = '''() => {
+          const paginator = document.querySelector('foliate-paginator');
+          const doc = paginator?.getContents?.()[0]?.doc;
+          if (!doc) return null;
+          return {
+            ruby: doc.querySelector('ruby rt')?.textContent,
+            textCombine: getComputedStyle(doc.querySelector('#legacy-tcy')).textCombineUpright,
+            imageWidth: doc.querySelector('#safe-image')?.naturalWidth ?? 0,
+            unsafeCount: doc.querySelectorAll('script, iframe, [onerror]').length,
+            font: getComputedStyle(doc.body).fontFamily.split(',')[0].trim().replace(/^"|"$/g, '')
+          };
+        }'''
+        self.page.wait_for_function(
+            '''() => document.querySelector('foliate-paginator')?.getContents?.()[0]?.doc
+              ?.querySelector('#safe-image')?.naturalWidth > 0'''
+        )
+        state = self.page.evaluate(child)
+        self.assertEqual('ほん', state['ruby'])
+        self.assertEqual('all', state['textCombine'])
+        self.assertGreater(state['imageWidth'], 0)
+        self.assertEqual(0, state['unsafeCount'])
+        self.assertFalse(self.page.evaluate('Boolean(window.bookAttack)'))
+        self.assertEqual([], StaticHandler.probes)
+        self.assertEqual('Klee One', state['font'])
+
+        before = self.page.evaluate(
+            "document.querySelector('foliate-paginator')?.getContents?.()[0]?.index")
+        self.page.keyboard.press('ArrowLeft')
+        self.page.wait_for_timeout(150)
+        after = self.page.evaluate(
+            "document.querySelector('foliate-paginator')?.getContents?.()[0]?.index")
+        self.assertEqual(before, after)
+        expect(self.page.locator('foliate-paginator')).to_be_visible()
+
+
+    def test_foliate_cross_resource_links_keep_duplicate_fragment_identity(self):
+        title, data = linked_epub()
+        self.context.add_init_script(
+            "try { localStorage.setItem('manabi-dev-foliate-epub', 'true') } catch {}")
+        self.page.goto(self.origin + '/reader-web/manage')
+        expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
+        self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files(
+            {'name': 'linked.epub', 'mimeType': 'application/epub+zip', 'buffer': data})
+        self.page.get_by_role('button', name='Read ' + title, exact=True).click(timeout=30000)
+        self.page.wait_for_function(
+            "() => document.querySelector('foliate-paginator')?.getContents?.()[0]?.index === 0")
+        self.page.wait_for_function(
+            "() => document.querySelector('foliate-paginator')?.getContents?.()[0]?.doc?.querySelector('#to-second')")
+        self.page.evaluate(
+            "() => document.querySelector('foliate-paginator').getContents()[0].doc"
+            ".querySelector('#to-second').click()")
+        self.page.wait_for_function(
+            "() => document.querySelector('foliate-paginator')?.getContents?.()[0]?.index === 1")
+        self.page.wait_for_function(
+            "() => document.querySelector('foliate-paginator')?.getContents?.()[0]?.doc?.querySelector('#to-first')")
+        note = self.page.evaluate(
+            "() => document.querySelector('foliate-paginator').getContents()[0].doc"
+            ".querySelector('#note')?.textContent")
+        self.assertEqual('第二章の注', note)
+        self.page.evaluate(
+            "() => document.querySelector('foliate-paginator').getContents()[0].doc"
+            ".querySelector('#to-first').click()")
+        self.page.wait_for_function(
+            "() => document.querySelector('foliate-paginator')?.getContents?.()[0]?.index === 0")
+        self.page.wait_for_function(
+            "() => document.querySelector('foliate-paginator')?.getContents?.()[0]?.doc?.querySelector('#empty-link')")
+        self.page.evaluate(
+            "() => document.querySelector('foliate-paginator').getContents()[0].doc"
+            ".querySelector('#empty-link').click()")
+        self.page.reload()
+        self.page.wait_for_function(
+            "() => document.querySelector('foliate-paginator')?.getContents?.()[0]?.index === 0")
+        self.page.wait_for_function(
+            "() => document.querySelector('foliate-paginator')?.getContents?.()[0]?.doc?.querySelector('#to-second')")
+        self.page.evaluate(
+            "() => document.querySelector('foliate-paginator').getContents()[0].doc"
+            ".querySelector('#to-second').click()")
+        self.page.wait_for_function(
+            "() => document.querySelector('foliate-paginator')?.getContents?.()[0]?.index === 1")
 
     def test_continuous_horizontal_saved_explicit_font(self):
         self.open_book('continuous', 'horizontal-tb', font='Klee One')

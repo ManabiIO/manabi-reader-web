@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
+@import './lib/components/ui/section-navigation.css';
 @config '../tailwind.config.cjs';
 @custom-variant dark {
   &:where([data-appearance='dark'], [data-appearance='dark'] *) {
@@ -80,5 +81,102 @@
   [data-slot] {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+@layer components {
+  /* Text-only scaling must grow the words, not consume their column with
+     oversized dismissal chrome. The 44px control and its 48px reservation
+     remain stable CSS-pixel sizes; full-page browser zoom still scales both.
+     Descriptions use the full width below the title and dismiss target. */
+  [data-modal-close-button]
+    > :is([data-slot='dialog-title'], [data-slot='sheet-title']):first-child:not(.sr-only),
+  [data-modal-close-button]
+    > :is([data-slot='dialog-header'], [data-slot='sheet-header'])
+    > :is([data-slot='dialog-title'], [data-slot='sheet-title']):not(.sr-only),
+  /* Arbitrary custom header markup retains a safe fallback reservation. */
+  [data-modal-close-button]
+    > :is([data-slot='dialog-header'], [data-slot='sheet-header']):not(.sr-only):not(
+      :has(> :is([data-slot='dialog-title'], [data-slot='sheet-title']):not(.sr-only))
+    ) {
+    min-width: 0;
+    min-height: 44px;
+    margin-inline-end: 48px;
+  }
+  :is(
+    [data-slot='dialog-title'],
+    [data-slot='dialog-description'],
+    [data-slot='sheet-title'],
+    [data-slot='sheet-description']
+  ) {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}
+
+/* Headerless dialogs still need a toolbar row. Keep arbitrary content out
+   from under the dismiss button instead of relying on its first text line. */
+[data-modal-close-button]:not(
+  :has(> :is(
+    [data-slot='dialog-header'],
+    [data-slot='sheet-header'],
+    [data-slot='dialog-title']:first-child,
+    [data-slot='sheet-title']:first-child
+  ):not(.sr-only))
+) {
+  padding-block-start: 76px;
+}
+
+:is([data-slot='dialog-footer'], [data-slot='sheet-footer'])
+  :is(button, a[data-slot='button']) {
+  height: auto;
+  min-height: 2.75rem;
+  max-width: 100%;
+  padding-block: 0.625rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+@media (forced-colors: active) {
+  [data-modal-dismiss] {
+    border: 1px solid ButtonText;
+    color: ButtonText;
+    background: ButtonFace;
+  }
+}
+
+/* Reading-size preferences should not multiply decorative empty-shelf gutters.
+   Large actions already use fixed insets; text links must remain unboxed. */
+[data-slot='library-empty-state']
+  [data-slot='button']:not([data-variant='link']):not([data-size='lg']) {
+  padding-inline: 16px;
+}
+
+/* Compact Library chrome keeps decorative geometry independent of text size.
+   Full-page browser zoom still scales these CSS pixels. Labels grow and wrap. */
+@media (max-width: 1023px) {
+  :root .floating-library-header .library-header-inner {
+    flex-wrap: wrap;
+    padding-inline: 24px;
+  }
+  :root .floating-library-header .library-header-inner > div:first-child {
+    flex: 1 1 min-content;
+  }
+  :root .floating-library-header .library-header-inner > div:last-child {
+    margin-inline-start: auto;
+    gap: 6px;
+  }
+  :root .floating-library-header button[data-size='icon'] {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+  }
+  :root .floating-library-header button[data-size='icon'] svg {
+    width: 24px;
+    height: 24px;
+  }
+  :root .library-frame .library-workspace {
+    --library-gutter: 24px;
   }
 }

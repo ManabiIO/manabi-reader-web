@@ -95,12 +95,14 @@ export default async function loadEpub(
 
   return {
     ...displayData,
+    sourceFormat: 'epub',
     pageDirection: epubDirection(contents, data, document),
     elementHtml: result.element.innerHTML,
     blobs: blobData,
     coverImage,
     characters: result.characters,
     sections: result.sections,
+    publicationManifest: result.publicationManifest,
     lastBookModified,
     lastBookOpen: 0
   };

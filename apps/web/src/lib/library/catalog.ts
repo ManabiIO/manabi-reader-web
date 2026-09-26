@@ -13,8 +13,9 @@ import {
   type CloudConnection,
   type LibrarySource
 } from '$lib/manabi/sources';
+import { davSources, davSource } from '$lib/webdav/source';
 import { sourceKey } from './organization';
-import { seriesMetadataFilename } from './series-metadata';
+import { isSeriesMetadataFilename, seriesMetadataFilename } from './series-metadata';
 import type { LibraryEntry } from '$lib/manabi/sources';
 import type { DirectoryEntry } from './tree';
 
@@ -41,6 +42,15 @@ export async function sourceDescriptors(): Promise<SourceDescriptor[]> {
     name: l.name,
     provider: 'local'
   }));
+  local.push(
+    ...(await davSources()).map((source) => ({
+      id: source.id,
+      owner: null,
+      root: source.url,
+      name: source.name,
+      provider: 'webdav'
+    }))
+  );
   const owner = currentUser()?.id;
   if (!owner) return local;
   const cloudKey = `library-sources:${owner}`;
@@ -63,6 +73,7 @@ export async function librarySource(source: SourceDescriptor): Promise<LibrarySo
       throw new Error('Reconnect this library with its original account.');
     return new CloudLibrary(source.id, source.owner, source.root);
   }
+  if (source.provider === 'webdav') return davSource(source.id);
   const local = await (await integrationDB()).get('localLibraries', source.id);
   if (!local) throw new Error('This folder is no longer connected.');
   return new LocalLibrarySource(local);
@@ -110,7 +121,7 @@ export async function scanCatalog(
       for (const entry of page.items) {
         if (
           entry.kind === 'file' &&
-          entry.name === seriesMetadataFilename &&
+          isSeriesMetadataFilename(entry.name) &&
           folder.id !== source.root
         ) {
           if (sidecars.length < 2) sidecars.push(entry);
@@ -130,8 +141,14 @@ export async function scanCatalog(
     } while (cursor);
     if (source instanceof CloudLibrary && sidecars.length) {
       try {
-        if (sidecars.length > 1) throw new Error('More than one series metadata file exists.');
-        names[folder.id] = await source.readSeriesName(sidecars[0]);
+        const canonical = sidecars.find((item) => item.name === seriesMetadataFilename);
+        if (sidecars.length > 1 && !canonical)
+          throw new Error('More than one series metadata file exists.');
+        if (sidecars.length > 1)
+          warnings.push(
+            `${folder.id}: Both series metadata spellings exist; using .manabi-reader.yaml.`
+          );
+        names[folder.id] = await source.readSeriesName(canonical ?? sidecars[0]);
       } catch (error) {
         warnings.push(
           `${folder.id}: ${error instanceof Error ? error.message : 'Cannot read series name.'}`

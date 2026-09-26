@@ -25,6 +25,7 @@
     preFilteredTitlesForStatistics$,
     statisticsDataAggregrationModes,
     exportStatisticsData$,
+    exportRawStatistics$,
     statisticsActionInProgress$,
     deleteStatisticsData$,
     setStatisticsDatesToAllTime$,
@@ -35,6 +36,10 @@
     BooksDbStatistic
   } from '$lib/data/database/books-db/versions/books-db';
   import { dialogManager } from '$lib/data/dialog-manager';
+  import {
+    readStatisticsRecoverySnapshot,
+    titlesWithMultipleStatisticIdentities
+  } from '$lib/data/database/books-db/reader-statistics';
   import { logger } from '$lib/data/logger';
   import { getDateRangeLabel } from '$lib/data/reading-goal';
   import { getStorageHandler } from '$lib/data/storage/storage-handler-factory';
@@ -116,8 +121,30 @@
     tap(async (exportAllData) => {
       try {
         const statisticsDataToExport = new Map<string, BooksDbStatistic[]>();
+        const selectedRows = statisticsData.filter(
+          ({ title, dateKey }) =>
+            exportAllData ||
+            (statisticsTitleFilters.get(title) &&
+              dateKey >= $lastStatisticsStartDate$ &&
+              dateKey <= $lastStatisticsEndDate$)
+        );
+        const ambiguousTitles = titlesWithMultipleStatisticIdentities(selectedRows);
+        const selectedTitles = new Set(selectedRows.map((row) => row.title));
+        const unresolvedTitles = (await (await database.db).getAll('readerStatisticMigration'))
+          .filter(
+            (receipt) =>
+              selectedTitles.has(receipt.title) &&
+              (receipt.state === 'ambiguous' ||
+                (receipt.state === 'identity-conflict' && !receipt.legacyAssigned))
+          )
+          .map((receipt) => receipt.title);
+        if (ambiguousTitles.length || unresolvedTitles.length) {
+          throw new Error(
+            `The TTU ZIP cannot safely identify all days for ${[...new Set([...ambiguousTitles, ...unresolvedTitles])].join(', ')}. Download raw history (JSON) to preserve every book identity and day.`
+          );
+        }
 
-        for (let index = 0; index < statisticsData.length; index += 1) {
+        for (let index = 0; index < selectedRows.length; index += 1) {
           const {
             title,
             dateKey,
@@ -130,32 +157,25 @@
             lastStatisticModified,
             completedBook,
             completedData
-          } = statisticsData[index];
+          } = selectedRows[index];
 
-          if (
-            exportAllData ||
-            (statisticsTitleFilters.get(title) &&
-              dateKey >= $lastStatisticsStartDate$ &&
-              dateKey <= $lastStatisticsEndDate$)
-          ) {
-            const entries = statisticsDataToExport.get(title) || [];
+          const entries = statisticsDataToExport.get(title) || [];
 
-            entries.push({
-              title,
-              dateKey,
-              charactersRead,
-              readingTime,
-              minReadingSpeed,
-              altMinReadingSpeed,
-              lastReadingSpeed,
-              maxReadingSpeed,
-              lastStatisticModified,
-              completedBook,
-              completedData
-            });
+          entries.push({
+            title,
+            dateKey,
+            charactersRead,
+            readingTime,
+            minReadingSpeed,
+            altMinReadingSpeed,
+            lastReadingSpeed,
+            maxReadingSpeed,
+            lastStatisticModified,
+            completedBook,
+            completedData
+          });
 
-            statisticsDataToExport.set(title, entries);
-          }
+          statisticsDataToExport.set(title, entries);
         }
 
         const entriesToExport = [...statisticsDataToExport.entries()];
@@ -197,6 +217,47 @@
         await Promise.all(exportTasks).finally(() => backupHandler.clearData());
       } catch ({ message }: any) {
         logger.error(`Failed to Export Data: ${message}`);
+        dialogManager.dialogs$.next([
+          {
+            component: MessageDialog,
+            props: { title: 'Statistics export unavailable', message }
+          }
+        ]);
+      } finally {
+        $statisticsActionInProgress$ = false;
+      }
+    }),
+    reduceToEmptyString()
+  );
+
+  const exportRawStatisticsHandler$ = exportRawStatistics$.pipe(
+    tap(async () => {
+      try {
+        const snapshot = await readStatisticsRecoverySnapshot(await database.db);
+        const url = URL.createObjectURL(
+          new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' })
+        );
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `manabi-reader-statistics-recovery-${new Date()
+          .toISOString()
+          .slice(0, 10)}.json`;
+        document.body.append(link);
+        try {
+          link.click();
+        } finally {
+          link.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 10_000);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error(`Failed to export raw statistics: ${message}`);
+        dialogManager.dialogs$.next([
+          {
+            component: MessageDialog,
+            props: { title: 'Statistics export failed', message }
+          }
+        ]);
       } finally {
         $statisticsActionInProgress$ = false;
       }
@@ -318,25 +379,23 @@
   }
 
   async function handleDeleteRequest({
-    detail: { startDate, endDate, titlesToCheck, takeAsIs }
+    detail: { startDate, endDate, titlesToCheck, bookKey, takeAsIs }
   }: CustomEvent<StatisticsDeleteRequest>) {
-    let titlesToDelete = new Set<string>();
+    const titlesToDelete = new Set<string>();
+    const legacyTitlesToDelete = new Set<string>();
+    const bookKeysToDelete = new Set<string>();
 
     $statisticsActionInProgress$ = true;
 
-    if (takeAsIs) {
-      titlesToDelete = titlesToCheck;
-    } else {
-      for (let index = 0, { length } = statisticsForSelection; index < length; index += 1) {
-        const statistic = statisticsForSelection[index];
-
-        if (
-          statistic.dateKey >= startDate &&
-          statistic.dateKey <= endDate &&
-          (!titlesToCheck.size || titlesToCheck.has(statistic.title))
-        ) {
-          titlesToDelete.add(statistic.title);
-        }
+    for (const statistic of takeAsIs ? statisticsData : statisticsForSelection) {
+      if (
+        (!startDate || (statistic.dateKey >= startDate && statistic.dateKey <= endDate)) &&
+        (!titlesToCheck.size || titlesToCheck.has(statistic.title)) &&
+        (!bookKey || statistic.bookKey === bookKey)
+      ) {
+        titlesToDelete.add(statistic.title);
+        if (statistic.bookKey) bookKeysToDelete.add(statistic.bookKey);
+        else legacyTitlesToDelete.add(statistic.title);
       }
     }
 
@@ -377,7 +436,9 @@
     }
 
     const error = await database
-      .deleteStatisticEntries([...titlesToDelete], false, startDate, endDate)
+      .deleteStatisticEntries([...legacyTitlesToDelete], false, startDate, endDate, [
+        ...bookKeysToDelete
+      ])
       .catch(({ message }) => message);
 
     if (error) {
@@ -402,7 +463,11 @@
       const notDeletedMap = new Map<string, boolean>();
 
       statisticsData = statisticsData.filter((statistic) => {
-        if (titlesToDelete.has(statistic.title)) {
+        if (
+          statistic.bookKey
+            ? bookKeysToDelete.has(statistic.bookKey)
+            : legacyTitlesToDelete.has(statistic.title)
+        ) {
           const returnValue = startDate
             ? !(statistic.dateKey >= startDate && statistic.dateKey <= endDate)
             : false;
@@ -420,6 +485,12 @@
 
         return true;
       });
+
+      for (const title of titlesToDelete)
+        filterMap.set(
+          title,
+          statisticsData.some((statistic) => statistic.title === title)
+        );
 
       const preFilteredTitlesForStatistics = [...$preFilteredTitlesForStatistics$];
 
@@ -466,12 +537,13 @@
   }
 
   async function handleEditRequest({
-    detail: { dateKey, title, newReadingTime, newCharactersRead, resetMinMaxValues }
+    detail: { dateKey, title, bookKey, newReadingTime, newCharactersRead, resetMinMaxValues }
   }: CustomEvent<StatisticsEditRequest>) {
     $statisticsActionInProgress$ = true;
 
     const statisticIndex = statisticsData.findIndex(
-      (statistic) => statistic.dateKey === dateKey && statistic.title === title
+      (statistic) =>
+        statistic.dateKey === dateKey && statistic.title === title && statistic.bookKey === bookKey
     );
     const statistic = statisticsData[statisticIndex];
     const newStatistic: BookStatistic = {
@@ -620,11 +692,10 @@
 
   async function init() {
     try {
-      const db = await database.db;
       const hasPrefilteredTitlesForStatistics = !!$preFilteredTitlesForStatistics$.size;
 
       [statisticsData, readingGoals] = await Promise.all([
-        db.getAllFromIndex('statistic', 'dateKey'),
+        database.getAllStatistics(),
         database.getReadingGoals()
       ]).then(([statistics, readingGoalData]) => [
         statistics.map((statistic) => {
@@ -639,7 +710,7 @@
           return {
             ...statistic,
             ...{
-              id: `${statistic.title}_${statistic.dateKey}`,
+              id: `${'bookKey' in statistic ? statistic.bookKey : statistic.title}_${statistic.dateKey}`,
               averageReadingTime: statistic.readingTime,
               averageWeightedReadingTime: statistic.readingTime,
               averageCharactersRead: statistic.charactersRead,
@@ -798,6 +869,7 @@
 
 {$copyStatisticsDataHandler$ ?? ''}
 {$exportStatisticsDataHandler$ ?? ''}
+{$exportRawStatisticsHandler$ ?? ''}
 {$deleteStatisticsDataHandler$ ?? ''}
 {$setStatisticsDatesToAllTimeHandler$ ?? ''}
 <svelte:window on:keyup={onKeyUp} />
@@ -851,7 +923,6 @@
       document.querySelector<HTMLButtonElement>('[title="Open Title Filter Menu"]')?.focus();
     }}
   >
-    <Sheet.Title class="sr-only">Filter books</Sheet.Title>
     <Sheet.Description class="sr-only"
       >Choose the books included in reading statistics.</Sheet.Description
     >

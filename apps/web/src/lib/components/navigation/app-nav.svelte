@@ -54,8 +54,26 @@
       detail: 'Bring books, bookmarks, and reading data'
     }
   ] as const;
+  const primaryDestinations = destinations.slice(0, 3);
 </script>
 
+<div class="flex items-center gap-1">
+  {#if !iconOnly}
+    <nav aria-label="Primary navigation" class="hidden items-center gap-1 xl:flex">
+      {#each primaryDestinations as destination (destination.path)}
+        <Button
+          href={resolve(destination.path)}
+          variant="ghost"
+          size="sm"
+          shape="rounded"
+          class={$page.url.pathname === base + destination.path ? 'bg-muted text-foreground' : ''}
+          aria-current={$page.url.pathname === base + destination.path ? 'page' : undefined}
+        >
+          {destination.label}
+        </Button>
+      {/each}
+    </nav>
+  {/if}
 <Sheet.Root bind:open>
   <Sheet.Trigger>
     {#snippet child({ props })}
@@ -76,15 +94,11 @@
   </Sheet.Trigger>
   <Sheet.Content
     side={iconOnly ? 'left' : 'right'}
-    class="w-[min(24rem,calc(100vw-1rem))] overflow-y-auto"
-    showCloseButton={false}
+    class="data-[side=left]:w-[min(24rem,calc(100vw-1rem))] data-[side=right]:w-[min(24rem,calc(100vw-1rem))] overflow-y-auto"
   >
     <Sheet.Header>
       <Sheet.Title>Manabi Reader</Sheet.Title>
       <Sheet.Description>Your books. Your reading space.</Sheet.Description>
-      <Button variant="ghost" class="absolute right-3 top-3" onclick={() => (open = false)}
-        >Close</Button
-      >
     </Sheet.Header>
     <nav aria-label="Main navigation" class="grid gap-1 p-3">
       {#each destinations as destination (destination.path)}
@@ -130,3 +144,4 @@
     </nav>
   </Sheet.Content>
 </Sheet.Root>
+</div>

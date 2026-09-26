@@ -65,7 +65,7 @@ export function isCompletedStatistics(value, day) {
   if (!metadata.every((key) => data[key] === undefined || finite(data[key]))) return false;
   if (data.completedBook !== undefined && data.completedBook !== 1) return false;
   if (data.exporterVersion !== undefined && data.exporterVersion !== 1) return false;
-  // Version-5 completion rows survive the upgrade that adds version-6 audio stores.
-  if (data.dbVersion !== undefined && data.dbVersion !== 5 && data.dbVersion !== 6) return false;
+  // Completion snapshots retain the database version written at the time.
+  if (data.dbVersion !== undefined && ![5, 6, 7, 8].includes(data.dbVersion)) return false;
   return data.finishDate === undefined || data.finishDate === 'na' || calendarDate(data.finishDate);
 }

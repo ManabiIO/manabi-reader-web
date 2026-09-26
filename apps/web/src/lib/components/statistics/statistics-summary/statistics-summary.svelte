@@ -7,6 +7,7 @@
   import faTrash from '@lucide/svelte/icons/trash-2';
   import faXmark from '@lucide/svelte/icons/x';
   import Popover from '$lib/components/popover/popover.svelte';
+  import { Button } from '$lib/components/ui/button';
   import {
     StatisticsSummaryKey,
     type StatisticsDataSourceChange,
@@ -152,6 +153,7 @@
       request.startDate = row.dateKey;
       request.endDate = row.dateKey;
       request.titlesToCheck.add(row.title);
+      request.bookKey = row.bookKey;
     } else if (
       $lastPrimaryReadingDataAggregationMode$ === StatisticsReadingDataAggregationMode.DATE
     ) {
@@ -414,12 +416,16 @@
         {@const currentRowInEdit = rowInEdit && rowInEdit.id === currentStatisticsSummaryRow.id}
         {@const otherRowInEdit = rowInEdit && !currentRowInEdit}
         <div class="col-span-2 md:col-span-1">
-          <button
-            class="hover:text-red-500"
-            class:cursor-not-allowed={otherRowInEdit}
-            title={otherRowInEdit ? '' : `${rowInEdit ? 'Cancel Edit' : 'Delete Row'}`}
+          <Button
+            variant={currentRowInEdit ? 'ghost' : 'destructive'}
+            size="icon-sm"
+            shape="circle"
+            aria-label={currentRowInEdit
+              ? 'Cancel edit'
+              : `Delete row ${currentStatisticsSummaryRow.title}`}
+            title={otherRowInEdit ? '' : currentRowInEdit ? 'Cancel Edit' : 'Delete Row'}
             disabled={otherRowInEdit}
-            on:click={() => {
+            onclick={() => {
               if (rowInEdit) {
                 setRowInEditMode();
               } else {
@@ -428,18 +434,24 @@
             }}
           >
             <AppIcon icon={currentRowInEdit ? faXmark : faTrash} />
-          </button>
+          </Button>
           {#if isNoneAggregation}
-            <button
-              class="ml-2 hover:text-red-500"
-              class:cursor-not-allowed={otherRowInEdit}
-              title={otherRowInEdit ? '' : `${rowInEdit ? 'Save Changes' : 'Edit Row'}`}
+            <Button
+              variant={currentRowInEdit ? 'secondary' : 'ghost'}
+              size="icon-sm"
+              shape="circle"
+              class="ml-1"
+              aria-label={currentRowInEdit
+                ? 'Save changes'
+                : `Edit row ${currentStatisticsSummaryRow.title}`}
+              title={otherRowInEdit ? '' : currentRowInEdit ? 'Save Changes' : 'Edit Row'}
               disabled={otherRowInEdit}
-              on:click={() => {
+              onclick={() => {
                 if (rowInEdit) {
                   dispatch('edit', {
                     dateKey: rowInEdit.dateKey,
                     title: rowInEdit.title,
+                    bookKey: rowInEdit.bookKey,
                     newReadingTime: rowInEditTime,
                     newCharactersRead: rowInEditCharacters,
                     resetMinMaxValues: rowInEditResetMinMaxValues
@@ -451,7 +463,7 @@
               }}
             >
               <AppIcon icon={currentRowInEdit ? faFloppyDisk : faPen} />
-            </button>
+            </Button>
           {/if}
         </div>
         <div class:hidden={isTitleAggregation}>

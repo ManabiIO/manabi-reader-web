@@ -40,6 +40,7 @@
       data-sidebar="sidebar"
       data-slot="sidebar"
       data-mobile="true"
+      showCloseButton={false}
       class={cn(
         'w-(--sidebar-width) bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden',
         className

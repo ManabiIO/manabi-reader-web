@@ -1,5 +1,11 @@
 <script lang="ts">
   import { readerUIOwnsEvent } from '$lib/functions/reader-ui-events';
+  import {
+    projectResource,
+    rangeAt,
+    resolveLocator,
+    type ReaderLocator
+  } from '$lib/reader-location';
   import { browser } from '$app/environment';
   import { nextChapter$ } from '$lib/components/book-reader/book-toc/book-toc';
   import HtmlRenderer from '$lib/components/html-renderer.svelte';
@@ -42,7 +48,7 @@
   import { BookmarkManagerPaginated } from './bookmark-manager-paginated';
   import { PageManagerPaginated } from './page-manager-paginated';
   import { SectionCharacterStatsCalculator } from './section-character-stats-calculator';
-  import { createEventDispatcher, onDestroy, onMount } from 'svelte';
+  import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
 
   export let htmlContent: string;
 
@@ -124,6 +130,7 @@
     bookmark: void;
     contentChange: HTMLElement;
     trackerPause: void;
+    userNavigation: void;
   }>();
 
   let scrollEl: HTMLElement | undefined;
@@ -161,6 +168,7 @@
   let stopFontLayout: (() => void) | undefined;
 
   let currentSectionId = '';
+  let currentSpineIndex = 0;
 
   let disposed = false;
   let renderGeneration = 0;
@@ -186,6 +194,15 @@
   const gap = 40;
 
   const destroy$ = new Subject<void>();
+
+  export function getContentElement(): HTMLElement | undefined {
+    return scrollEl;
+  }
+
+  /** Selection belongs to the rendered resource document, which may be framed. */
+  export function getDocumentSelection(): Selection | null {
+    return scrollEl?.ownerDocument.defaultView?.getSelection() ?? null;
+  }
 
   $: bookmarkData.then((data) => {
     useExploredCharCount = false;
@@ -247,6 +264,7 @@
       const section = sections[sectionIndex];
 
       currentSectionId = section?.id.startsWith('ttu-') ? section.id : '';
+      currentSpineIndex = sectionIndex;
 
       sectionRenderComplete$.next(sectionIndex);
     }
@@ -422,6 +440,7 @@
     exploredCharCount = calculator.calcExploredCharCount(customReadingPointRange);
 
     if (isUser) {
+      dispatch('userNavigation');
       previousIntendedCount = exploredCharCount;
 
       if ($selectionToBookmarkEnabled$) {
@@ -553,6 +572,10 @@
     _calculator.updateParagraphPos();
     exploredCharCount = _calculator.calcExploredCharCount(customReadingPointRange);
     sectionReady$.next(_calculator);
+    // The parent captures source locations through this element. Publish it on
+    // the first completed layout as well as on later font-layout changes; a
+    // reader can open Search before the observer has emitted its first change.
+    if (scrollEl) dispatch('contentChange', scrollEl);
 
     if (scrollWhenReady) {
       const generation = renderGeneration;
@@ -676,20 +699,74 @@
     }
   }
 
-  nextChapter$.pipe(takeUntil(destroy$)).subscribe((chapterId) => {
-    const nextSectionIndex = sections.findIndex(
-      (section) => section.id === chapterId || section.querySelector(`[id="${chapterId}"]`)
-    );
+  nextChapter$.pipe(takeUntil(destroy$)).subscribe((target) => {
+    const nextSectionIndex =
+      typeof target === 'string'
+        ? sections.findIndex(
+            (section) =>
+              section.id === target || section.querySelector(`[id="${CSS.escape(target)}"]`)
+          )
+        : target.spineIndex;
 
-    if (nextSectionIndex > -1) {
-      sectionIndex$.next(nextSectionIndex);
-      concretePageManager?.scrollTo(0, true);
-    }
+    if (nextSectionIndex < 0 || nextSectionIndex >= sections.length) return;
+    sectionIndex$.next(nextSectionIndex);
+    concretePageManager?.scrollTo(0, true);
   });
+
+  /** Reveal a source range after its virtual section has mounted and measured. */
+  export async function revealLocator(locator: ReaderLocator, bookKey: string): Promise<boolean> {
+    const targetIndex = locator.resource.spineIndex;
+    if (targetIndex < 0 || targetIndex >= sections.length || disposed) return false;
+    if (sectionIndex$.getValue() !== targetIndex) {
+      const ready = new Promise<void>((resolve) => {
+        sectionReady$.pipe(take(1)).subscribe(() => resolve());
+      });
+      sectionIndex$.next(targetIndex);
+      // The previous resource's virtual page position survives a direct spine
+      // switch. Reset it before measuring the newly mounted resource, or a
+      // return can calculate its page from the search result's scroll offset.
+      concretePageManager?.scrollTo(0, false);
+      await ready;
+      // Section readiness is published before Svelte applies its display and
+      // bookmark-layout updates. Let those settle before accepting the jump.
+      await tick();
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    }
+    if (!scrollEl || !contentEl || !concretePageManager || disposed) return false;
+    const generation = renderGeneration;
+    const projected = projectResource(contentEl, locator.resource);
+    const position = await resolveLocator(locator, projected, bookKey);
+    if (
+      !position ||
+      disposed ||
+      generation !== renderGeneration ||
+      sectionIndex$.getValue() !== targetIndex
+    )
+      return false;
+    const range = rangeAt(projected, position.start, position.end);
+    if (!range) return false;
+    const rect = range.getBoundingClientRect();
+    const host = scrollEl.getBoundingClientRect();
+    const pageSize = (verticalMode ? height : width) + gap;
+    const relative = verticalMode ? rect.top - host.top : rect.left - host.left;
+    const target = Math.max(
+      0,
+      Math.floor((virtualScrollPos$.getValue() + relative) / pageSize) * pageSize
+    );
+    concretePageManager.scrollTo(target, false);
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    return (
+      !disposed &&
+      generation === renderGeneration &&
+      sectionIndex$.getValue() === targetIndex &&
+      (!verticalMode || Math.abs(scrollEl.scrollTop - target) <= 2)
+    );
+  }
 </script>
 
 <div
   bind:this={scrollEl}
+  data-manabi-resource-count={sections.length}
   style:color={fontColor}
   style:font-size="{fontSize}px"
   style:line-height={lineHeight}
@@ -742,7 +819,12 @@
   use:swipe={{ timeframe: 500, minSwipeDistance: $swipeThreshold$, touchAction: 'pan-y' }}
   on:swipe={onSwipe}
 >
-  <div class="book-content-container" id={currentSectionId || null} bind:this={contentEl}>
+  <div
+    class="book-content-container"
+    id={currentSectionId || null}
+    data-manabi-spine-index={currentSpineIndex}
+    bind:this={contentEl}
+  >
     <HtmlRenderer html={displayedHtml} on:load={onHtmlLoad} />
   </div>
 </div>

@@ -2,6 +2,7 @@
 import io
 import json
 from pathlib import Path
+import re
 import struct
 import sys
 import tempfile
@@ -79,7 +80,9 @@ class MigrationEdges(MigrationBrowser):
     def test_unsupported_and_duplicate_parts_are_not_arbitrarily_selected(self):
         files = dict(self.source_entries)
         name = next(name for name in files if name.startswith(TITLE+'/progress_'))
-        files[name.replace('_1_6_', '_2_6_')] = files[name]
+        unsupported_name = re.sub(r'_1_([678])_', r'_2_\1_', name, count=1)
+        self.assertNotEqual(name, unsupported_name)
+        files[unsupported_name] = files[name]
         self.load(zip_bytes(files), 'unsupported.zip')
         expect(self.row().get_by_role('checkbox')).to_be_disabled()
         expect(self.row().get_by_role('status')).to_contain_text('Unsupported export version')
