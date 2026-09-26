@@ -20,7 +20,20 @@ export interface FoliateNavigationItem {
   subitems?: FoliateNavigationItem[];
 }
 
+export interface FoliateManifestItem {
+  id: string;
+  href: string;
+  mediaType: string;
+  properties?: string[];
+  fallback?: string;
+}
+
 export interface FoliateEpubBook {
+  resources: {
+    manifest: FoliateManifestItem[];
+    spine: Array<{ idref: string; linear?: string }>;
+    cover?: FoliateManifestItem;
+  };
   sections: FoliateSection[];
   toc?: FoliateNavigationItem[];
   pageList?: FoliateNavigationItem[];
@@ -39,9 +52,11 @@ export interface FoliateEpubBook {
 
 export class EPUB {
   constructor(source: {
-    loadText(uri: string): Promise<string | null>;
+    loadText(uri: string, maximum?: number): Promise<string | null>;
     loadBlob(uri: string): Promise<Blob | null>;
     getSize(uri: string): number;
+    resolveHref?: (href: string, owner: string) => string;
+    resolveNavigationHref?: (href: string, owner: string) => string;
     sha1?: (value: string) => Promise<Uint8Array>;
   });
   init(): Promise<FoliateEpubBook>;
@@ -50,7 +65,7 @@ export class EPUB {
 
 export class Loader {
   constructor(source: {
-    loadText(uri: string): Promise<string | null>;
+    loadText(uri: string, maximum?: number): Promise<string | null>;
     loadBlob(uri: string): Promise<Blob | null>;
     resources: { manifest: Array<{ href: string; mediaType: string }> };
   });

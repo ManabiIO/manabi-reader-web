@@ -17,6 +17,7 @@ import { resolveArchivePath } from '../utils/limited-archive';
 import { sanitizeBookHtml } from '../../book-security/book-content-security';
 import type { PublicationResource } from '$lib/reader-location';
 import { resolveEpubLinkTarget } from './epub-link-target';
+import { epubNumericReference } from '$lib/foliate-epub/numeric-reference';
 
 export const prependValue = 'ttu-';
 
@@ -231,8 +232,8 @@ export default function generateEpubHtml(
       contentToParse = contentToParse
         .replace(controlCharactersRegex, '')
         .replace(selfClosingTagsRegex, '>')
-        .replace(htmlHexEntitiesRegex, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
-        .replace(htmlDecEntitiesRegex, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
+        .replace(htmlHexEntitiesRegex, (_, hex) => epubNumericReference(hex, 16))
+        .replace(htmlDecEntitiesRegex, (_, dec) => epubNumericReference(dec, 10))
         .replace('<!DOCTYPE html []>', '<!DOCTYPE html>')
         .trim();
     }

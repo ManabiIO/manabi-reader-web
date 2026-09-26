@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { EpubResourceData } from '$lib/foliate-epub/publication-data';
   import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
   import {
     nextChapter$,
@@ -23,6 +24,10 @@
     createStoredFoliateBook,
     type StoredFoliateBook
   } from '$lib/foliate-epub/stored-foliate-book';
+  import { VisibleReaderLocation } from '$lib/foliate-epub/visible-reader-location';
+  import { relayReaderKeydown } from '$lib/foliate-epub/reader-keyboard';
+  import { readerUIOwnsEvent } from '$lib/functions/reader-ui-events';
+  import { disableWheelNavigation$, skipKeyDownListener$ } from '$lib/data/store';
   import { FoliateCharacterProgress } from '$lib/foliate-epub/foliate-character-progress';
   import { PageTurnController } from '$lib/foliate-epub/page-turn-controller';
   import {
@@ -34,6 +39,7 @@
 
   export let htmlContent: string;
   export let styleSheet = '';
+  export let epubResources: EpubResourceData[] | undefined;
   export let publicationManifest: PublicationManifest;
   export let width: number;
   export let height: number;
@@ -93,12 +99,17 @@
   let contentEl: HTMLElement | undefined;
   let destroyed = false;
   const navigation = new ReaderNavigationCoordinator();
+  const visibleLocation = new VisibleReaderLocation();
   let bookmarkTimer: ReturnType<typeof setTimeout> | undefined;
   let themeObserver: MutationObserver | undefined;
   let tocSubscription: { unsubscribe(): void } | undefined;
 
   export function getContentElement(): HTMLElement | undefined {
     return contentEl;
+  }
+
+  export function capturePoint(bookKey: string): Promise<ReaderLocator | undefined> {
+    return visibleLocation.capture(bookKey);
   }
 
   export function getDocumentSelection(): Selection | null {
@@ -334,6 +345,7 @@
     const detail = (event as CustomEvent<{ doc: Document; index: number }>).detail;
     const current = detail.doc.querySelector<HTMLElement>('.book-content');
     if (!current || destroyed) return;
+    visibleLocation.clear();
     contentEl = current;
     dispatch('contentChange', current);
   }
@@ -351,6 +363,9 @@
     ).detail;
     const current = contentForPaginator();
     if (!current || !progress || destroyed || detail.index !== currentIndex()) return;
+    const resource = publicationManifest.resources[detail.index];
+    if (!resource || resource.spineIndex !== detail.index) return;
+    visibleLocation.update(current, resource, detail.range);
     const fraction = Number.isFinite(detail.fraction) ? detail.fraction! : 0;
     exploredCharCount = progress.exploredCharacterCount(detail.index, current, detail.range);
     updateSectionProgress(detail.index, fraction);
@@ -419,7 +434,7 @@
       styleSheet,
       publicationManifest,
       document,
-      { writingMode: verticalMode ? 'vertical-rl' : 'horizontal-tb' }
+      { writingMode: verticalMode ? 'vertical-rl' : 'horizontal-tb', resources: epubResources }
     );
     book = publication.book;
     sourceSections = publication.sourceSections;
@@ -437,7 +452,13 @@
     paginator.addEventListener('relocate', handleRelocate);
     paginator.addEventListener('pageturnstart', handlePageTurnStart);
     paginator.addEventListener('togglecontrols', () => dispatch('toggleControls'));
-    pageTurns = new PageTurnController(paginator);
+    pageTurns = new PageTurnController(paginator, {
+      keydown: (event) => relayReaderKeydown(event, window),
+      canTurn: (event) =>
+        !$skipKeyDownListener$ &&
+        !readerUIOwnsEvent(event) &&
+        !(event?.type === 'wheel' && $disableWheelNavigation$)
+    });
     host.append(paginator);
     paginator.open(book);
     paginator.setStyles(readerStyles());
@@ -491,6 +512,7 @@
 
   onDestroy(() => {
     destroyed = true;
+    visibleLocation.clear();
     navigation.destroy();
     clearTimeout(bookmarkTimer);
     tocSubscription?.unsubscribe();
