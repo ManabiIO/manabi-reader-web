@@ -22,6 +22,11 @@ import { FuriganaStyle } from '../../data/furigana-style';
 import { nextChapter$ } from '$lib/components/book-reader/book-toc/book-toc';
 import { pulseElement } from '$lib/functions/range-util';
 import { toggleImageGalleryPictureSpoiler$ } from '$lib/components/book-reader/book-reader-image-gallery/book-reader-image-gallery';
+import { EPUB_SOURCE_HREF_ATTRIBUTE } from '$lib/functions/file-loaders/epub/epub-source-link';
+import {
+  EPUB_NAVIGATION_EVENT,
+  type EpubNavigationRequest
+} from '$lib/functions/file-loaders/epub/epub-navigation';
 
 export function reactiveElements(
   document: Document,
@@ -45,11 +50,27 @@ function anchorTagListener(document: Document) {
   return (contentEl: HTMLElement) => {
     const anchorTags = Array.from(contentEl.getElementsByTagName('a'));
     anchorTags.forEach((el) => {
-      el.href = document.location.pathname + el.hash;
+      if (!el.hasAttribute(EPUB_SOURCE_HREF_ATTRIBUTE))
+        el.href = document.location.pathname + el.hash;
     });
 
     const obs$ = anchorTags.map((el) =>
-      fromClickEvent(el).pipe(tap(() => nextChapter$.next(el.hash.substring(1))))
+      fromClickEvent(el).pipe(
+        tap(() => {
+          const sourceHref = el.getAttribute(EPUB_SOURCE_HREF_ATTRIBUTE);
+          const owner = el.closest<HTMLElement>('[data-manabi-spine-index]');
+          const sourceSpineIndex = Number(owner?.dataset.manabiSpineIndex);
+          if (sourceHref && Number.isSafeInteger(sourceSpineIndex) && sourceSpineIndex >= 0) {
+            document.dispatchEvent(
+              new CustomEvent<EpubNavigationRequest>(EPUB_NAVIGATION_EVENT, {
+                detail: { sourceSpineIndex, href: sourceHref }
+              })
+            );
+            return;
+          }
+          nextChapter$.next(el.hash.substring(1));
+        })
+      )
     );
     return merge(...obs$);
   };
