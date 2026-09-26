@@ -163,12 +163,28 @@ class LibraryBase(unittest.TestCase):
         try:
             expect(dialog.get_by_role('checkbox', name=name, exact=True)).to_be_checked()
         except AssertionError as failure:
-            rows = self.stores('manabi-reader-integrations', ['metadata'])['metadata']
-            saved = next((row for row in rows if row.get('version') == 1 and 'collections' in row), {})
-            names = [collection.get('name') for collection in saved.get('collections', [])]
-            alerts = dialog.get_by_role('alert').all_text_contents()
+            # Failure-only evidence: distinguish a genuinely lost organization
+            # write from WebKit exposing the previous committed value briefly
+            # after tx.done. This never retries the user action or turns a
+            # failure into a pass.
+            samples = []
+            for delay in (0, 25, 100, 500, 1500):
+                if delay:
+                    self.page.wait_for_timeout(delay)
+                rows = self.stores('manabi-reader-integrations', ['metadata'])['metadata']
+                saved = next(
+                    (row for row in rows if row.get('version') == 1 and 'collections' in row), {}
+                )
+                samples.append({
+                    'delay': delay,
+                    'names': [
+                        collection.get('name') for collection in saved.get('collections', [])
+                    ],
+                    'checkboxes': dialog.get_by_role('checkbox').all_text_contents(),
+                    'alerts': dialog.get_by_role('alert').all_text_contents()
+                })
             raise AssertionError(
-                f'Collection {name!r} was not shown after creation; persisted={names!r}; alerts={alerts!r}'
+                f'Collection {name!r} was not shown after creation; samples={samples!r}'
             ) from failure
         dialog.get_by_role('button', name='Done', exact=True).click()
         # Do not fill the previous dialog's still-mounted exit transition when
