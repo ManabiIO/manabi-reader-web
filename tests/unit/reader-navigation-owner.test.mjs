@@ -152,7 +152,10 @@ test('locator lookup uses publication identity and rejects mismatched resources'
     { href: 'a.xhtml', spineIndex: 0, sectionId: 'a' },
     { href: 'b.xhtml', spineIndex: 1, sectionId: 'b' }
   ];
-  assert.equal(resourceForReaderLocator(resources, { resource: { ...resources[1] } }), resources[1]);
+  assert.equal(
+    resourceForReaderLocator(resources, { resource: { ...resources[1] } }),
+    resources[1]
+  );
   assert.equal(
     resourceForReaderLocator(resources, { resource: { href: 'a.xhtml', spineIndex: 1 } }),
     undefined

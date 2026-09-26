@@ -5,6 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { setImmediate } from 'node:timers';
 import { PageCountCache } from '../../apps/web/src/lib/foliate-epub/page-counts.ts';
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
@@ -29,7 +30,11 @@ test('foreground count wins over an already-running background measurement', asy
 
 test('invalid section indices cannot publish phantom counts', () => {
   let changes = 0;
-  const cache = new PageCountCache(1, async () => 3, () => changes++);
+  const cache = new PageCountCache(
+    1,
+    async () => 3,
+    () => changes++
+  );
   cache.useLayout('phone', 0, 3);
   const before = changes;
   for (const index of [NaN, 0.5, -1, 1, Infinity]) cache.record(index, 7);
