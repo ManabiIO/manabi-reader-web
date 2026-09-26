@@ -371,6 +371,10 @@ class ReaderBrowser(unittest.TestCase):
         })""")
         self.assertEqual('foliate-epub-v1', row['engine'])
         self.assertEqual('foliate', row['parser'])
+        self.assertEqual(
+            'foliate-inline',
+            self.page.locator('.book-content').first.get_attribute('data-manabi-page-engine')
+        )
         self.assertGreaterEqual(len(row['toc']), 2)
         self.assertGreaterEqual(len(row['pageList']), 1)
         self.assertGreaterEqual(len(row['landmarks']), 1)
