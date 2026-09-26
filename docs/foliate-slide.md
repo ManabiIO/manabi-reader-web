@@ -1,6 +1,6 @@
 # Layered page turns on the Foliate EPUB reader
 
-This change is stacked on Foliate migration PR #49 (`8ced19ee`), which is stacked
+This change is stacked on Foliate migration PR #49 (`8699d92a`), which is stacked
 on reader integration PR #47. It retains that migration's activation gate:
 `localStorage.setItem('manabi-dev-foliate-epub', 'true')`, followed by a reload.
 Removing the Foliate migration gate is a separate release decision. Continuous
@@ -50,9 +50,8 @@ Theme variables are copied across the iframe boundary; the paper is opaque so
 text cannot show through the overlapping sheets. Selection, locator projection,
 character progress and annotations continue to use the committed document.
 
-The stack also repairs an existing PR #49 archive-index refactor that had removed
-the `openFoliateEpub` function, leaving invalid asynchronous code in a synchronous
-indexing helper. This prerequisite repair is a separate commit.
+The Foliate dependency includes the archive opener and module-resolution repairs
+needed by this integration.
 Existing cross-resource link regression coverage also caught the saved-content
 sanitizer dropping importer-generated chapter targets. Only bounded chapter
 indices and fragment IDs are retained during stored-book reads; raw imports still
@@ -70,7 +69,7 @@ python tests/browser/test_foliate_slide.py
 SLIDE_BROWSER=webkit python tests/browser/test_foliate_slide.py
 ```
 
-The tests import EPUBs through the built application's UI, inspect both directions
+The gesture tests import text-only EPUBs through the built application's UI, inspect both directions
 at 25/50/75%, reverse held gestures, exercise wheel/keyboard/reduced motion,
 selection, chapter seams, stale preparation, reflow and teardown. Trusted touch
 drags use Chromium's input protocol; WebKit runs the other tests. Screenshots are
@@ -84,8 +83,11 @@ exercised after promoting a prepared iframe.
 Physical iPhone Safari and Mac trackpad acceptance is still required for hardware
 feel; desktop WebKit and Chromium input emulation do not establish that result.
 
-Local verification on macOS: the installed Playwright WebKit 26 runtime failed
-before Reader opened, with a native IndexedDB Blob-write error reproduced in a
-minimal database probe. This is not recorded as a passing WebKit result. The
-Linux WebKit CI leg still exercises real import and rendering without a storage
-mock. Chromium covers the actual built application locally.
+The image-containing regression EPUB fails during import in Playwright WebKit on
+both macOS and Linux, before Reader opens. The macOS native IndexedDB Blob-write
+error was independently reproduced in a minimal database probe. This storage
+dependency issue remains unresolved. The gesture suite uses a text-only EPUB on
+both engines so it exercises real import, rendering and input without a storage
+mock. The existing Chromium security/Japanese-content regression retains its
+embedded image coverage; passing WebKit gesture tests do not establish image-import
+compatibility.

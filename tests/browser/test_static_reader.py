@@ -21,11 +21,12 @@ ROOT = Path(__file__).resolve().parents[2] / 'apps/web/build'
 TITLE = 'Reader browser acceptance'
 
 
-def epub():
+def epub(include_images=True):
     output = io.BytesIO()
     png = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a/ZkAAAAASUVORK5CYII=')
     body = '<h1>Reader browser acceptance</h1><p><ruby>本<rt>ほん</rt></ruby>を読む。</p>'
-    body += '<img id="safe-image" src="絵.png" alt="Archive illustration"/>'
+    if include_images:
+        body += '<img id="safe-image" src="絵.png" alt="Archive illustration"/>'
     body += '<img src="/attack-probe" onerror="window.bookAttack=true"/>'
     body += '<img src="missing/../../attack-probe"/><img src="#attack-probe"/>'
     body += '<iframe src="/attack-probe"></iframe><script>window.bookAttack=true</script>'
@@ -35,10 +36,12 @@ def epub():
     with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
         archive.writestr('mimetype', 'application/epub+zip')
         archive.writestr('META-INF/container.xml', '<container><rootfiles><rootfile full-path="content.opf"/></rootfiles></container>')
-        archive.writestr('content.opf', '<package><metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">' + TITLE + '</dc:title></metadata><manifest><item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/><item id="style" href="style.css" media-type="text/css"/><item id="image" href="絵.png" media-type="image/png"/></manifest><spine><itemref idref="chapter"/></spine></package>')
+        image_item = '<item id="image" href="絵.png" media-type="image/png"/>' if include_images else ''
+        archive.writestr('content.opf', '<package><metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">' + TITLE + '</dc:title></metadata><manifest><item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/><item id="style" href="style.css" media-type="text/css"/>' + image_item + '</manifest><spine><itemref idref="chapter"/></spine></package>')
         archive.writestr('chapter.xhtml', '<html><head><link rel="stylesheet" href="style.css"/></head><body>' + body + '</body></html>')
         archive.writestr('style.css', '.tcy{-webkit-text-combine:horizontal;-epub-text-combine:horizontal}')
-        archive.writestr('絵.png', png)
+        if include_images:
+            archive.writestr('絵.png', png)
     return output.getvalue()
 
 
@@ -285,7 +288,7 @@ class ReaderBrowser(unittest.TestCase):
     def go_offline(self):
         self.context.set_offline(True)
 
-    def open_book(self, view='paginated', writing='vertical-rl', font=None, foliate=False):
+    def open_book(self, view='paginated', writing='vertical-rl', font=None, foliate=False, include_images=True):
         settings = {'viewMode': view, 'writingMode': writing, 'hideFurigana': 'false', 'hideSpoilerImage': 'false'}
         self.context.add_init_script('if (location.origin === ' + json.dumps(self.origin) + ') { for (const [key,value] of Object.entries(' + json.dumps(settings) + ')) localStorage.setItem(key,value); }')
         if foliate:
@@ -304,7 +307,7 @@ class ReaderBrowser(unittest.TestCase):
         # Wait for real input handlers before assigning files to hidden SSR inputs.
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files(
-            {'name': 'acceptance.epub', 'mimeType': 'application/epub+zip', 'buffer': epub()})
+            {'name': 'acceptance.epub', 'mimeType': 'application/epub+zip', 'buffer': epub(include_images)})
         self.page.get_by_role('button', name='Read ' + TITLE, exact=True).click(timeout=30000)
         expect(self.page.locator('.book-content')).to_be_visible(timeout=30000)
         if foliate:

@@ -4,12 +4,14 @@ on:
     paths:
       - 'apps/web/**'
       - 'tests/browser/test_foliate_slide.py'
+      - 'tests/browser/test_static_reader.py'
       - 'tests/unit/foliate-*.test.mjs'
       - '.github/workflows/foliate-slide.yml'
   push:
     paths:
       - 'apps/web/**'
       - 'tests/browser/test_foliate_slide.py'
+      - 'tests/browser/test_static_reader.py'
       - 'tests/unit/foliate-*.test.mjs'
       - '.github/workflows/foliate-slide.yml'
 permissions:
@@ -55,11 +57,20 @@ jobs:
           python -m playwright install --with-deps ${{ matrix.browser }}
           set -o pipefail
           python tests/browser/test_foliate_slide.py 2>&1 | tee foliate-slide.log
+      - name: Preserve image, Japanese-content and chapter-link coverage
+        if: matrix.browser == 'chromium'
+        run: |
+          set -o pipefail
+          python tests/browser/test_static_reader.py \
+            ReaderBrowser.test_foliate_paginated_epub_preserves_reader_security_and_japanese_content \
+            ReaderBrowser.test_foliate_cross_resource_links_keep_duplicate_fragment_identity \
+            2>&1 | tee foliate-regressions.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: foliate-slide-${{ matrix.browser }}
           path: |
             foliate-slide.log
+            foliate-regressions.log
             test-results/
           retention-days: 7

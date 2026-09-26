@@ -33,7 +33,9 @@ class FoliateSlide(ReaderBrowser):
 
     def open_slide(self, rtl=False, mobile=False):
         self.page.set_viewport_size({'width': 390 if mobile else 1100, 'height': 844 if mobile else 780})
-        self.open_book(writing='vertical-rl' if rtl else 'horizontal-tb', foliate=True)
+        # Exercise real imports without depending on WebKit's separate native
+        # IndexedDB Blob-write failure. Image/security regressions retain images.
+        self.open_book(writing='vertical-rl' if rtl else 'horizontal-tb', foliate=True, include_images=False)
         self.page.wait_for_function(f"() => {P}?.page >= 1 && {P}?.pages > 3")
         self.page.evaluate(f"""() => {{
           window.turnCommits = 0;
