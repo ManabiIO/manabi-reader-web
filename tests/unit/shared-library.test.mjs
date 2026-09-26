@@ -57,3 +57,34 @@ test('native statistics, exponential progress and textual anchors keep the TTU w
     assert.equal(selectTtuFile([{ name }], prefix)?.name, name);
   }
 });
+
+test('shared publication choices group duplicate titles without merging local identities', async () => {
+  const { sharedPublishChoices } = await import(
+    '../../apps/web/src/lib/manabi/shared-title-selection.ts'
+  );
+  const rows = [
+    { id: 1, title: 'Same title', elementHtml: '<p>First</p>' },
+    { id: 2, title: 'Same title', elementHtml: '<p>Second</p>' },
+    { id: 3, title: '__proto__', elementHtml: '<p>Third</p>' },
+    { id: 4, title: 'Placeholder', elementHtml: '' },
+    { id: 5, title: 'Same title', elementHtml: '' }
+  ];
+  const original = globalThis.structuredClone(rows);
+  assert.deepEqual(sharedPublishChoices(rows), [
+    { title: 'Same title', copies: 3, hasContent: true },
+    { title: '__proto__', copies: 1, hasContent: true }
+  ]);
+  assert.deepEqual(rows, original);
+});
+
+test('both sharing directions reject ambiguous title lookup instead of selecting its first row', async () => {
+  const { uniqueSharedCopy } = await import(
+    '../../apps/web/src/lib/manabi/shared-title-selection.ts'
+  );
+  const first = { id: 1, storageSource: 'Shared fixture' };
+  const second = { id: 2, storageSource: 'Another source' };
+  assert.throws(() => uniqueSharedCopy('Same title', [first, second]), /multiple local copies/);
+  assert.throws(() => uniqueSharedCopy('Same title', [second, first]), /multiple local copies/);
+  assert.equal(uniqueSharedCopy('Same title', [first]), first);
+  assert.equal(uniqueSharedCopy('Absent', []), undefined);
+});

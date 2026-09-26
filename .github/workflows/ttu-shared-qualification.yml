@@ -42,7 +42,7 @@ jobs:
         run: pnpm build
       - name: Actual TTU package and native-format reading-data round trip
         run: |
-          python -m pip install 'playwright==1.55.0'
+          python -m pip install 'playwright==1.63.0'
           python -m playwright install --with-deps chromium
           set -o pipefail
           python tests/browser/test_shared_ttu.py 2>&1 | tee ttu-shared.log
@@ -50,6 +50,10 @@ jobs:
         run: |
           set -o pipefail
           python tests/browser/test_shared_safety.py 2>&1 | tee ttu-shared-safety.log
+      - name: Integrated same-title sharing UI
+        env:
+          PYTHONPATH: tests/browser
+        run: python -m unittest test_reader_integration -v
       - uses: actions/upload-artifact@v4
         if: always()
         with:

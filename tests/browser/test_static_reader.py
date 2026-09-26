@@ -274,8 +274,11 @@ class ReaderBrowser(unittest.TestCase):
         cls.server.server_close()
         cls.thread.join()
 
+    def new_context(self):
+        return self.browser.new_context()
+
     def setUp(self):
-        self.context = self.browser.new_context()
+        self.context = self.new_context()
         self.context.add_init_script(
             "try { localStorage.setItem('manabi-reader-dictionary-setup-v1', 'skip') } catch {}")
         self.page = self.context.new_page()

@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { encodeBook } from '$lib/data/database/books-db/book-binary';
+import { commitTransaction } from '$lib/data/database/books-db/commit-transaction.mjs';
 
 import type { BooksDbStorageSource } from '$lib/data/database/books-db/versions/books-db';
 import { BaseStorageHandler } from '$lib/data/storage/handler/base-handler';
@@ -17,8 +17,22 @@ import { database, fsStorageSource$ } from '$lib/data/store';
 import { MergeMode } from '$lib/data/merge-mode';
 import { ReplicationSaveBehavior } from '$lib/functions/replication/replication-options';
 import { replicateData } from '$lib/functions/replication/replicator';
-import { exclusive } from './persistence';
+import { exclusive, integrationDB } from './persistence';
+import { account, currentUser } from './client';
+import { visibleLibraryEntries } from '$lib/library/account-visibility';
 import { inspectTtuRoot, resolveTtuRoot, ttuRootName } from './ttu-folder-contract';
+import { uniqueSharedCopy } from './shared-title-selection';
+
+/** Record the ID the existing serializer actually saved, including a new same-title edition. */
+class SharedBrowserStorageHandler extends BrowserStorageHandler {
+  readonly savedBooks = new Map<number, string>();
+
+  override async saveBook(...args: Parameters<BrowserStorageHandler['saveBook']>) {
+    const id = await super.saveBook(...args);
+    if (id) this.savedBooks.set(id, this.currentContext.title);
+    return id;
+  }
+}
 
 export function filesystemData(source: BooksDbStorageSource): FsHandle {
   const data = source.data;
@@ -119,85 +133,133 @@ export async function transferSharedBooks(
   titles: string[]
 ) {
   if (!titles.length) throw new Error('Select at least one book.');
-  return exclusive(`shared-ttu/${source.name}`, async () => {
-    const root = filesystemData(source).directoryHandle;
-    if ((await root.queryPermission({ mode: 'readwrite' })) !== 'granted') {
-      throw new Error('Reconnect this folder before syncing.');
-    }
-    const folderNames = await inspectTtuRoot(root);
-    const remoteTitles = new Set(folderNames.map(BaseStorageHandler.desanitizeFilename));
-    for (const title of titles) {
-      const local = await database.getDataByTitle(title);
-      if (direction === 'publish') {
-        if (!local) throw new Error(`The local book ${title} no longer exists.`);
-        if (remoteTitles.has(title)) {
-          throw new Error(
-            `${title} already exists in the shared library. Open it there to sync reading data; publishing will not replace its package.`
-          );
-        }
-        // Percent encoding and Ttu Ebook Reader title markers must round-trip before creating a folder.
-        if (
-          BaseStorageHandler.desanitizeFilename(BaseStorageHandler.sanitizeForFilename(title)) !==
-          title
-        ) {
-          throw new Error(
-            `${title} cannot be represented unambiguously in the Ttu Ebook Reader folder format. Rename it before publishing.`
-          );
-        }
-      } else {
-        if (!remoteTitles.has(title))
-          throw new Error(`The shared book ${title} is no longer available.`);
-        if (local && local.storageSource !== source.name) {
-          throw new Error(
-            `${title} already exists from another source. Rename or move that local copy before importing; no book was overwritten.`
-          );
-        }
-      }
-    }
-    const filesystem = new FilesystemStorageHandler(window, StorageKey.FS);
-    filesystem.updateSettings(
-      window,
-      true,
-      ReplicationSaveBehavior.NewOnly,
-      MergeMode.MERGE,
-      MergeMode.MERGE,
-      false,
-      false,
-      source.name
-    );
-    const browser = new BrowserStorageHandler(window, StorageKey.BROWSER);
-    browser.updateSettings(
-      window,
-      true,
-      ReplicationSaveBehavior.NewOnly,
-      MergeMode.MERGE,
-      MergeMode.MERGE
-    );
-    const from = direction === 'import' ? filesystem : browser;
-    const to = direction === 'import' ? browser : filesystem;
-    const error = await replicateData(
-      from,
-      to,
-      true,
-      await Promise.all(
-        titles.map(async (title) => {
-          if (direction !== 'publish') return { title };
-          const matches = await (await database.db).getAllFromIndex('data', 'title', title);
-          if (matches.length !== 1)
-            throw new Error(`Cannot publish ${title}: choose a unique book copy.`);
-          return { title, id: matches[0].id };
-        })
-      ),
-      [StorageDataType.DATA, StorageDataType.PROGRESS, StorageDataType.STATISTICS]
-    );
-    if (error) throw new Error(error);
-    {
-      const db = await database.db;
-      for (const title of titles) {
-        const book = await database.getDataByTitle(title);
-        if (book) await db.put('data', await encodeBook({ ...book, storageSource: source.name }));
-      }
-    }
-    database.dataListChanged$.next(undefined);
+  const owner = currentUser()?.id ?? null;
+  const controller = new AbortController();
+  const stopAccount = account.subscribe((state) => {
+    if ((state.session?.user?.id ?? null) !== owner)
+      controller.abort(new Error('Account changed. Reopen the shared library before sharing.'));
   });
+  try {
+    return await exclusive(
+      `shared-ttu/${source.name}`,
+      async () => {
+        const root = filesystemData(source).directoryHandle;
+        if ((await root.queryPermission({ mode: 'readwrite' })) !== 'granted') {
+          throw new Error('Reconnect this folder before syncing.');
+        }
+        const folderNames = await inspectTtuRoot(root);
+        const remoteTitles = new Set(folderNames.map(BaseStorageHandler.desanitizeFilename));
+        const links = await (await integrationDB()).getAll('books');
+        controller.signal.throwIfAborted();
+        const contexts: { title: string; id?: number }[] = [];
+        for (const title of new Set(titles)) {
+          const local = uniqueSharedCopy(
+            title,
+            await (await database.db).getAllFromIndex('data', 'title', title)
+          );
+          controller.signal.throwIfAborted();
+          if (local && !visibleLibraryEntries([local], links, owner).cards.length)
+            throw new Error(
+              'This local book is unavailable for the current account. No transfer was started.'
+            );
+          if (direction === 'publish') {
+            if (!local?.elementHtml)
+              throw new Error(`The local book ${title} is not available on this device.`);
+            if (remoteTitles.has(title)) {
+              throw new Error(
+                `${title} already exists in the shared library. Open it there to sync reading data; publishing will not replace its package.`
+              );
+            }
+            // Percent encoding and Ttu Ebook Reader title markers must round-trip before creating a folder.
+            if (
+              BaseStorageHandler.desanitizeFilename(
+                BaseStorageHandler.sanitizeForFilename(title)
+              ) !== title
+            ) {
+              throw new Error(
+                `${title} cannot be represented unambiguously in the Ttu Ebook Reader folder format. Rename it before publishing.`
+              );
+            }
+          } else {
+            if (!remoteTitles.has(title))
+              throw new Error(`The shared book ${title} is no longer available.`);
+            if (local && local.storageSource !== source.name) {
+              throw new Error(
+                `${title} already exists from another source. Rename or move that local copy before importing; no book was overwritten.`
+              );
+            }
+          }
+          contexts.push({ title, id: local?.id });
+        }
+        controller.signal.throwIfAborted();
+        const filesystem = new FilesystemStorageHandler(window, StorageKey.FS);
+        filesystem.updateSettings(
+          window,
+          true,
+          ReplicationSaveBehavior.NewOnly,
+          MergeMode.MERGE,
+          MergeMode.MERGE,
+          false,
+          false,
+          source.name
+        );
+        const browser = new SharedBrowserStorageHandler(window, StorageKey.BROWSER);
+        browser.updateSettings(
+          window,
+          true,
+          ReplicationSaveBehavior.NewOnly,
+          MergeMode.MERGE,
+          MergeMode.MERGE
+        );
+        const from = direction === 'import' ? filesystem : browser;
+        const to = direction === 'import' ? browser : filesystem;
+        const error = await replicateData(
+          from,
+          to,
+          true,
+          contexts,
+          [StorageDataType.DATA, StorageDataType.PROGRESS, StorageDataType.STATISTICS],
+          controller.signal
+        );
+        controller.signal.throwIfAborted();
+        if (error) throw new Error(error);
+        const identities =
+          direction === 'import'
+            ? browser.savedBooks
+            : new Map(contexts.map(({ id, title }) => [id!, title]));
+        const db = await database.db;
+        controller.signal.throwIfAborted();
+        const tx = db.transaction('data', 'readwrite');
+        const abort = () => {
+          try {
+            tx.abort();
+          } catch {
+            /* Already settled. */
+          }
+        };
+        controller.signal.addEventListener('abort', abort, { once: true });
+        try {
+          await commitTransaction(tx, async () => {
+            for (const [id, title] of identities) {
+              const book = await tx.store.get(id);
+              controller.signal.throwIfAborted();
+              if (!book || book.title !== title)
+                throw new Error(
+                  'A transferred local book changed. Refresh the shared library before retrying.'
+                );
+              // Only update source metadata on the current stored byte record.
+              // Never re-encode an older full-book snapshot or pick by title.
+              await tx.store.put({ ...book, storageSource: source.name });
+            }
+          });
+        } finally {
+          controller.signal.removeEventListener('abort', abort);
+        }
+        database.dataListChanged$.next(undefined);
+      },
+      controller.signal
+    );
+  } finally {
+    stopAccount();
+  }
 }
