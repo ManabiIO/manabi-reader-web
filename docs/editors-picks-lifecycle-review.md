@@ -80,3 +80,47 @@ fatal UTF-8 decoding, DOM AbortSignal, and IndexedDB transaction completion.
 - https://encoding.spec.whatwg.org/
 - https://dom.spec.whatwg.org/#aborting-ongoing-activities
 - https://www.w3.org/TR/IndexedDB/
+
+## Follow-through: the UUID failure identified and storage repairs integrated
+
+The expanded WebKit stress case failed on `8649c0de546d5f77738c4bf219dbf462bb771307`
+([Books Library 36227962942](https://github.com/ManabiIO/manabi-reader-web/actions/runs/36227962942)).
+Full diagnostics identify `Cannot load blob:http://127.0.0.1:40349/bd7c1638-f753-4588-a50a-bb7d63d0b365`
+and the call stack `updateLastRead` through the binary encoder during immediate
+Reader departure. Appearance 36227962964 independently reproduced the same stack
+twice in its inherited catalog stress case; its other cases pass. This establishes the failing path, rather than attributing the
+UUID to OPDS. The evidence ZIP (artifact 10901069965) was verified against SHA-256
+`220078cfb462e9f4179b66223e676ce62282064553281098c497cb863d9ddd72`.
+
+The current last-read method re-encoded every image and rewrote the old Reader's
+whole book just to change a timestamp. Four new native-storage regressions failed
+on the integration: stale last-read replaced newer content/bytes/title/hash and
+lowered recency; a delayed last-read recreated a deleted book; a native binary
+read abort escaped as user cancellation; and listing retained every book payload
+through getAll. A separate built-app regression observed two PNG byte reads during
+ordinary saved-book opening, before repair. It checks the committed timestamp as
+well as the absence of those unnecessary byte reads, without delaying departure
+in the retained stress test.
+
+Selectively reuse #48 at `78a17fc082f64201e8d51cb01f7f900b612be1fa`:
+`book-records.ts`, the validated binary encoder and its seven unit cases. Adapt only
+Library listing and last-read in the current BrowserStorageHandler. Preserve its
+newer distinct same-title cards, exact-ID statistics, source-opening checks,
+cancellation, and deletion methods. No #48 schema downgrade, unrelated branch
+copy, offline activation change or older title-collapsing list behavior is adopted.
+
+Last-read now changes only the current stored record's monotonic timestamp in one
+native transaction, without any image read. Deleted books stay deleted. Library
+listing projects cursor records immediately into card metadata and covers; large
+individual records and retained covers still use memory. Binary preparation
+rejects malformed records, owns incoming bytes, preserves native failure causes,
+and reads a repeated Blob/cover only once. Native byte-read failure is not
+intentional cancellation; the existing captured AbortSignal still controls saves.
+
+The permanent suites now contain twelve built-app catalog cases and six
+engine-asserted native-storage cancellation/lifecycle cases. The four new native
+cases fail before repair and pass afterward; the two existing cancellation cases
+remain passing. No page-error assertion or original navigation step is removed.
+Final-head build, browser evidence and counts are recorded in the PR, not inferred
+from this intermediate failing revision. These changes do not certify physical
+Safari or turn two separate databases into one ownership transaction.
