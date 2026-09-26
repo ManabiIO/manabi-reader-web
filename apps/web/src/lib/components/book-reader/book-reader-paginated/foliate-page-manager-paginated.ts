@@ -10,10 +10,10 @@ import {
   sectionList$,
   type SectionWithProgress
 } from '$lib/components/book-reader/book-toc/book-toc';
-import type { PageManager } from '../types';
+import type { PaginatedPageManager } from '../types';
 import { FoliateInlinePaginator } from './foliate-inline-paginator';
 
-export class FoliatePageManagerPaginated implements PageManager {
+export class FoliatePageManagerPaginated implements PaginatedPageManager {
   private readonly paginator: FoliateInlinePaginator;
 
   private sectionData: Map<string, SectionWithProgress> = new Map();
