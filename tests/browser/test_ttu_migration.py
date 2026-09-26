@@ -32,6 +32,28 @@ def entries(raw):
         return {name: archive.read(name) for name in archive.namelist() if not name.endswith('/')}
 
 
+def append_book_content(book, fragment):
+    """Make a valid changed-content export, not a deliberately stale offset table."""
+    publication = book.get('epubPublication')
+    if publication is None:
+        book['elementHtml'] += fragment
+        return
+    encoded = book['elementHtml'].encode('utf-16-le')
+    pieces = []
+    position = 0
+    for index, resource in enumerate(publication['resources']):
+        html = encoded[resource['start'] * 2:resource['end'] * 2].decode('utf-16-le')
+        if index == len(publication['resources']) - 1:
+            closing = html.rfind('</div>')
+            assert closing >= 0
+            html = html[:closing] + fragment + html[closing:]
+        resource['start'] = position
+        position += len(html.encode('utf-16-le')) // 2
+        resource['end'] = position
+        pieces.append(html)
+    book['elementHtml'] = ''.join(pieces)
+
+
 def fixture_epub(title):
     files = entries(epub())
     files['content.opf'] = files['content.opf'].replace(TITLE.encode(), title.encode())
@@ -311,7 +333,7 @@ class MigrationBrowser(unittest.TestCase):
         files=dict(self.source_entries)
         book_name=next(n for n in files if n.startswith(TITLE+'/bookdata_'))
         package=entries(files[book_name]);book=json.loads(package['staticdata.json'])
-        book['elementHtml']+='<p>Different edition.</p>'
+        append_book_content(book, '<p>Different edition.</p>')
         book['storageSource']='secret cloud source';book['refreshToken']='must-not-import'
         package['staticdata.json']=json.dumps(book);files[book_name]=zip_bytes(package)
         self.clear();self.load(zip_bytes(files),'different-edition.zip');self.run_import()
@@ -350,18 +372,46 @@ class MigrationBrowser(unittest.TestCase):
     def test_hostile_restored_html_and_css_never_execute_or_fetch(self):
         files={n:b for n,b in self.source_entries.items() if n.startswith(TITLE+'/')}
         name=next(n for n in files if '/bookdata_' in n);package=entries(files[name]);book=json.loads(package['staticdata.json'])
-        book['elementHtml']+='<script>window.migrationAttack=true</script><img src="/attack-probe" onerror="window.migrationAttack=true"><iframe src="/attack-probe"></iframe>'
+        append_book_content(book, '<script>window.migrationAttack=true</script><img src="/attack-probe" onerror="window.migrationAttack=true"><iframe src="/attack-probe"></iframe>')
         book['styleSheet']='p {background-image:url(/attack-probe);color:red}'
+        book['epubPublication']['styleSheets'] = [book['styleSheet']] * len(book['epubPublication']['styleSheets'])
         book['htmlBackup']='<script>window.migrationAttack=true</script><p>safe</p>'
         package['staticdata.json']=json.dumps(book);files[name]=zip_bytes(package)
         self.load(zip_bytes(files),'hostile.zip');self.run_import()
         data=self.snapshot()['data'][0]
         self.assertNotIn('<script',data['elementHtml']);self.assertNotIn('onerror',data['elementHtml'])
         self.assertNotIn('url(',data['styleSheet']);self.assertNotIn('<script',data['htmlBackup'])
+        # Sanitization changed source length. Every persisted range is rebuilt,
+        # and the chapter-local CSS is independently sanitized as well.
+        self.assertLess(len(data['elementHtml']), len(book['elementHtml']))
+        encoded = data['elementHtml'].encode('utf-16-le')
+        position = 0
+        for resource in data['epubPublication']['resources']:
+            self.assertEqual(position, resource['start'])
+            html = encoded[resource['start'] * 2:resource['end'] * 2].decode('utf-16-le')
+            self.assertTrue(html.startswith('<div id="' + resource['sectionId'] + '"'))
+            self.assertTrue(html.endswith('</div>'))
+            position = resource['end']
+        self.assertEqual(len(encoded) // 2, position)
+        self.assertTrue(all('url(' not in css for css in data['epubPublication']['styleSheets']))
         self.row().get_by_role('link',name='Read '+TITLE,exact=True).click()
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy','false',timeout=45000)
         self.assertFalse(self.page.evaluate('Boolean(window.migrationAttack)'))
         self.assertEqual([],StaticHandler.probes)
+
+    def test_stale_resource_offsets_are_rejected_without_changing_imported_books(self):
+        self.load(); self.run_import()
+        before = self.snapshot()
+        files = {n: b for n, b in self.source_entries.items() if n.startswith(TITLE + '/')}
+        name = next(n for n in files if '/bookdata_' in n)
+        package = entries(files[name]); book = json.loads(package['staticdata.json'])
+        self.assertIn('epubPublication', book)
+        # Unlike changed-content fixtures, this intentionally leaves stale ranges.
+        book['elementHtml'] += '<p>Unindexed appended data.</p>'
+        package['staticdata.json'] = json.dumps(book); files[name] = zip_bytes(package)
+        self.clear(); self.load(zip_bytes(files), 'stale-ranges.zip'); self.run_import()
+        expect(self.row().get_by_role('status')).to_contain_text('ranges do not cover')
+        self.assertEqual(before, self.snapshot())
 
     def test_cancellation_preserves_completed_book_and_retry_is_safe(self):
         self.load()
