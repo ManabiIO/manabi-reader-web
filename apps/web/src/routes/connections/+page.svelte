@@ -1,5 +1,6 @@
 <script lang="ts">
   import AppNav from '$lib/components/navigation/app-nav.svelte';
+  import { Button } from '$lib/components/ui/button';
   import { onMount } from 'svelte';
   import { resolve } from '$app/paths';
   import {
@@ -202,8 +203,9 @@
 <svelte:head><title>Accounts and libraries · Manabi Reader</title></svelte:head>
 
 <main class="connections-page">
-  <nav aria-label="Reader navigation">
-    <a href={resolve('/manage')}>← Books</a><a href={resolve('/settings')}>Reader settings</a>
+  <nav aria-label="Reader navigation" class="page-navigation">
+    <Button href={resolve('/manage')} variant="link" size="sm">← Books</Button>
+    <Button href={resolve('/settings')} variant="link" size="sm">Reader settings</Button>
   </nav>
   <header>
     <h1>Accounts and libraries</h1>
@@ -285,11 +287,17 @@
     {:else}
       <p>An account is optional. Sign in to sync your preferences and connect cloud libraries.</p>
       <div class="actions">
-        <a class="button" rel="external" href="/accounts/login/?next={connectionReturn}"
-          >Sign in to Manabi</a
+        <Button
+          href="/accounts/login/?next={connectionReturn}"
+          rel="external"
+          variant="default"
+          size="lg">Sign in to Manabi</Button
         >
-        <a class="button" rel="external" href="/accounts/signup/?next={connectionReturn}"
-          >Create a Manabi account</a
+        <Button
+          href="/accounts/signup/?next={connectionReturn}"
+          rel="external"
+          variant="outline"
+          size="lg">Create a Manabi account</Button
         >
       </div>
     {/if}
@@ -297,13 +305,14 @@
     {#if $account.status === 'unavailable'}<p>
         Manabi account services are not available on this deployment. Local libraries still work.
       </p>{/if}
-    <button
+    <Button
+      variant="ghost"
       disabled={busy}
-      on:click={() =>
+      onclick={() =>
         action(async () => {
           await refreshAccount(true);
           await reload();
-        })}>Refresh connections</button
+        })}>Refresh connections</Button
     >
   </section>
 
@@ -338,7 +347,10 @@
             <button disabled={busy} on:click={() => action(() => chooseFolders(connection))}
               >Choose folders</button
             >
-            <button disabled={busy} on:click={() => action(() => disconnect(connection))}
+            <button
+              class="destructive-action"
+              disabled={busy}
+              on:click={() => action(() => disconnect(connection))}
               >Disconnect cloud account</button
             >
           </div>
@@ -386,7 +398,7 @@
       OneDrive, or Google Drive folders.
     </p>
     {#if nativeFolders}
-      <button disabled={busy} on:click={pickLocal}>Add local folder</button>
+      <Button variant="outline" disabled={busy} onclick={pickLocal}>Add local folder</Button>
     {:else}
       <p>
         Persistent folder access needs a compatible browser, such as desktop Chrome or Edge. You can
@@ -405,6 +417,7 @@
           <button disabled={busy} on:click={() => grant(library, true)}>Allow series editing</button
           >
           <button
+            class="destructive-action"
             disabled={busy}
             on:click={() =>
               action(async () => {
@@ -475,8 +488,8 @@
           >Load more files</button
         >{/if}
       {#if lastImported}<p>
-          <a class="button" href={resolve(`/b?id=${lastImported.bookId}`)}
-            >Read {lastImported.title}</a
+          <Button href={resolve(`/b?id=${lastImported.bookId}`)} variant="default"
+            >Read {lastImported.title}</Button
           >
         </p>{/if}
     </section>
@@ -509,8 +522,8 @@
         </div>
       </article>
     {/each}
-    <button disabled={busy} on:click={() => action(syncAllLinkedBooks)}
-      >Sync personal reading data now</button
+    <Button variant="secondary" disabled={busy} onclick={() => action(syncAllLinkedBooks)}
+      >Sync personal reading data now</Button
     >
     {#if !$linkedBooks.length}<p>
         Verified local books and annotations sync through your account even without a linked cloud
@@ -534,7 +547,7 @@
   .connections-page {
     max-width: 68rem;
     margin: 0 auto;
-    padding: 1.25rem;
+    padding: 24px 16px;
     writing-mode: horizontal-tb;
     line-height: 1.55;
   }
@@ -542,12 +555,16 @@
   .actions,
   .quick-settings {
     display: flex;
-    gap: 0.75rem;
+    gap: 12px;
     flex-wrap: wrap;
     align-items: center;
   }
+  .page-navigation {
+    margin-inline: -8px;
+    gap: 2px;
+  }
   header {
-    margin: 1.5rem 0;
+    margin: 24px 0;
   }
   h1 {
     font-size: 2rem;
@@ -565,10 +582,11 @@
   }
   section {
     border: 1px solid var(--border);
-    background: var(--muted);
-    border-radius: 0.75rem;
-    padding: 1.25rem;
-    margin: 1rem 0;
+    background: var(--card);
+    border-radius: 16px;
+    padding: 20px;
+    margin: 16px 0;
+    color: var(--card-foreground);
   }
   p {
     margin: 0.6rem 0;
@@ -578,19 +596,34 @@
     text-decoration: underline;
     text-underline-offset: 0.16em;
   }
-  button,
-  .button {
-    display: inline-block;
+  button:not([data-slot='button']) {
+    display: inline-flex;
+    min-height: 44px;
+    max-width: 100%;
+    align-items: center;
+    justify-content: center;
     border: 1px solid var(--border);
-    border-radius: 0.4rem;
-    padding: 0.45rem 0.75rem;
-    margin: 0.25rem 0;
+    border-radius: 10px;
+    padding: 8px 14px;
+    background: var(--background);
+    color: var(--foreground);
+    font-size: 0.9375rem;
+    font-weight: 500;
+    text-align: center;
     text-decoration: none;
+    overflow-wrap: anywhere;
     cursor: pointer;
   }
-  button:hover,
-  .button:hover {
-    background: var(--accent);
+  button:not([data-slot='button']):hover {
+    background: var(--muted);
+  }
+  button.destructive-action {
+    border-color: transparent;
+    background: color-mix(in oklch, var(--destructive) 10%, transparent);
+    color: var(--destructive);
+  }
+  button.destructive-action:hover {
+    background: color-mix(in oklch, var(--destructive) 18%, transparent);
   }
   button:disabled {
     opacity: 0.5;
@@ -621,10 +654,11 @@
   }
   input[type='number'],
   select {
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: 0.3rem;
-    padding: 0.3rem;
+    min-height: 44px;
+    background: var(--background);
+    border: 1px solid var(--input);
+    border-radius: 10px;
+    padding: 8px 10px;
   }
   .preference-controls {
     margin-top: 1rem;
@@ -660,10 +694,10 @@
   }
   @media (max-width: 36rem) {
     .connections-page {
-      padding: 0.75rem;
+      padding: 16px 12px;
     }
     section {
-      padding: 0.9rem;
+      padding: 16px;
     }
     .file-entry {
       align-items: flex-start;

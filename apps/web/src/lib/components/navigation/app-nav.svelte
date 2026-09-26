@@ -54,8 +54,26 @@
       detail: 'Bring books, bookmarks, and reading data'
     }
   ] as const;
+  const primaryDestinations = destinations.slice(0, 3);
 </script>
 
+<div class="flex items-center gap-1">
+  {#if !iconOnly}
+    <nav aria-label="Primary navigation" class="hidden items-center gap-1 xl:flex">
+      {#each primaryDestinations as destination (destination.path)}
+        <Button
+          href={resolve(destination.path)}
+          variant="ghost"
+          size="sm"
+          shape="rounded"
+          class={$page.url.pathname === base + destination.path ? 'bg-muted text-foreground' : ''}
+          aria-current={$page.url.pathname === base + destination.path ? 'page' : undefined}
+        >
+          {destination.label}
+        </Button>
+      {/each}
+    </nav>
+  {/if}
 <Sheet.Root bind:open>
   <Sheet.Trigger>
     {#snippet child({ props })}
@@ -126,3 +144,4 @@
     </nav>
   </Sheet.Content>
 </Sheet.Root>
+</div>

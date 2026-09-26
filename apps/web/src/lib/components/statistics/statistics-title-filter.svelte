@@ -13,7 +13,11 @@
     lastStatisticsFilterShowSelectedTitlesOnly$,
     skipKeyDownListener$
   } from '$lib/data/store';
-  import { filterStatisticsTitles, statisticsTitlePage } from './title-filter-model';
+  import {
+    filterStatisticsTitles,
+    setMatchingStatisticsTitleSelection,
+    statisticsTitlePage
+  } from './title-filter-model';
 
   export let statisticsTitleFilters: Map<string, boolean>;
   export let titlesInStatisticsDateRange: Set<string>;
@@ -68,14 +72,18 @@
     page = current.page;
   }
 
-  function selectAll(isSelected: boolean) {
-    titlesToFilter = titlesToFilter.map((item) => ({ ...item, isSelected }));
+  function selectMatching(isSelected: boolean) {
+    titlesToFilter = setMatchingStatisticsTitleSelection(
+      titlesToFilter,
+      filteredTitles,
+      isSelected
+    );
     page = 1;
   }
 </script>
 
 <div class="filter-panel">
-  <div class="flex items-start justify-between gap-3">
+  <div class="filter-header">
     <Sheet.Title class="min-w-0 text-xl font-semibold">Filter books</Sheet.Title>
     <CloseButton aria-label="Close title filter" onclick={() => dispatch('close')} />
   </div>
@@ -111,8 +119,16 @@
     >
   </div>
   <div class="flex flex-wrap items-center gap-2">
-    <Button variant="ghost" onclick={() => selectAll(true)}>Select All</Button>
-    <Button variant="ghost" onclick={() => selectAll(false)}>Remove All</Button>
+    <Button
+      variant="ghost"
+      disabled={!filteredTitles.length}
+      onclick={() => selectMatching(true)}>Select matching</Button
+    >
+    <Button
+      variant="ghost"
+      disabled={!filteredTitles.length}
+      onclick={() => selectMatching(false)}>Remove matching</Button
+    >
     {#if $preFilteredTitlesForStatistics$.size}
       <Button variant="outline" onclick={() => dispatch('clearPrefilter')}>Remove Prefilter</Button>
     {/if}
@@ -154,7 +170,7 @@
       >
     </div>
   {/if}
-  <div class="flex flex-wrap justify-end gap-2 border-t border-border pt-4">
+  <div class="filter-footer">
     <Button variant="ghost" onclick={() => dispatch('close')}>Cancel</Button>
     <Button
       variant="secondary"
@@ -174,6 +190,36 @@
     gap: 16px;
     padding: 20px;
     padding-bottom: max(20px, env(safe-area-inset-bottom));
+  }
+  .filter-header,
+  .filter-footer {
+    position: sticky;
+    z-index: 2;
+    margin-inline: -20px;
+    padding-inline: 20px;
+    background: var(--popover);
+  }
+  .filter-header {
+    top: 0;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: -20px;
+    padding-top: 20px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .filter-footer {
+    bottom: 0;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-bottom: -20px;
+    padding-top: 12px;
+    padding-bottom: max(20px, env(safe-area-inset-bottom));
+    border-top: 1px solid var(--border);
   }
   .title-list {
     overflow: hidden;
