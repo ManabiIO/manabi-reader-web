@@ -144,8 +144,7 @@ test('failed parent publication releases child resources loaded during replaceme
     const parent = { href: 'OPS/style.css', mediaType: 'text/css' };
     const child = { href: 'OPS/image.png', mediaType: 'image/png' };
     const loader = new Loader({
-      loadText: async (href) =>
-        href === parent.href ? 'body{background:url("image.png")}' : null,
+      loadText: async (href) => (href === parent.href ? 'body{background:url("image.png")}' : null),
       loadBlob: async (href) =>
         href === child.href ? new Blob(['image'], { type: 'image/png' }) : null,
       resources: { manifest: [parent, child] }
