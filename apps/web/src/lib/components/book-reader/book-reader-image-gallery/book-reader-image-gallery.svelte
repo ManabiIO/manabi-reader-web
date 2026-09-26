@@ -6,6 +6,7 @@
     readerImageGalleryPictures$,
     toggleImageGalleryPictureSpoiler$
   } from './book-reader-image-gallery';
+  import { revealGalleryPicture } from './reveal-gallery-picture';
   import {
     hideSpoilerImage$,
     readerImageGalleryKeybindMap$,
@@ -66,12 +67,11 @@
   }
 
   function reveal(url: string) {
-    $readerImageGalleryPictures$ = $readerImageGalleryPictures$.map((picture) =>
-      picture.url === url ? { ...picture, unspoilered: true } : picture
+    $readerImageGalleryPictures$ = revealGalleryPicture(
+      $readerImageGalleryPictures$,
+      url,
+      (picture) => toggleImageGalleryPictureSpoiler$.next(picture)
     );
-    // The reader also receives delayed spoiler updates from its image elements.
-    // Record this explicit reveal in that queue so an older update cannot hide it again.
-    toggleImageGalleryPictureSpoiler$.next({ url, unspoilered: true });
   }
 
   function select(index: number) {

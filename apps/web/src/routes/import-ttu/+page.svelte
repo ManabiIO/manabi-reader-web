@@ -24,12 +24,12 @@
     message: string;
     bookId?: number;
   }
+  let filePicker: HTMLInputElement;
   let rows: Row[] = [];
   let sources: TtuMigration[] = [];
   let choices: MigratedBookChoice[] = [];
   let parts = Object.keys(importLabels).filter((part) => part !== 'settings') as ImportPart[];
   let busy = false;
-  let hydrated = false;
   let message = '';
   let controller: AbortController | undefined;
   let stopped = false;
@@ -46,6 +46,15 @@
     if (error instanceof DOMException && error.name === 'QuotaExceededError')
       return 'Not enough browser storage. This item was not imported; completed items were kept.';
     return error instanceof Error ? error.message : 'This item could not be imported.';
+  }
+  function consumeSelection(input: HTMLInputElement) {
+    if (busy) return;
+    const files = [...(input.files ?? [])];
+    if (!files.length) return;
+    // Clear synchronously so a queued native change and onMount cannot consume
+    // the same selection twice. The browser may have accepted it before hydration.
+    input.value = '';
+    void choose(files);
   }
   async function choose(files: File[]) {
     if (busy || !files.length) return;
@@ -158,7 +167,7 @@
   });
   onMount(() => {
     yatsu = new URLSearchParams(window.location.search).get('source') === 'yatsu';
-    hydrated = true;
+    consumeSelection(filePicker);
     void migratedBookChoices()
       .then((value) => {
         if (!stopped) choices = value;
@@ -239,12 +248,9 @@
       type="file"
       accept=".zip,application/zip"
       multiple
-      disabled={busy || !hydrated}
-      on:change={(event) => {
-        const files = [...(event.currentTarget.files ?? [])];
-        event.currentTarget.value = '';
-        void choose(files);
-      }}
+      disabled={busy}
+      bind:this={filePicker}
+      on:change={(event) => consumeSelection(event.currentTarget)}
     />
   </label>
   <p>Imports stay on this device. No sign-in or cloud access is required.</p>
