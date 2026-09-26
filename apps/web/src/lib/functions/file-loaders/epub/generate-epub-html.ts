@@ -14,7 +14,10 @@ import { ImportHTMLFixMode } from '$lib/data/import-html-fix-mode';
 import { getCharacterCount } from '$lib/functions/get-character-count';
 import { getParagraphNodes } from '../../../components/book-reader/get-paragraph-nodes';
 import { resolveArchivePath } from '../utils/limited-archive';
-import { sanitizeBookHtml } from '../../book-security/book-content-security';
+import {
+  isSafeBookInternalHref,
+  sanitizeBookHtml
+} from '../../book-security/book-content-security';
 import type { PublicationResource } from '$lib/reader-location';
 
 export const prependValue = 'ttu-';
@@ -230,8 +233,8 @@ export default function generateEpubHtml(
       contentToParse = contentToParse
         .replace(controlCharactersRegex, '')
         .replace(selfClosingTagsRegex, '>')
-        .replace(htmlHexEntitiesRegex, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
-        .replace(htmlDecEntitiesRegex, (_, dec) => String.fromCharCode(parseInt(dec, 10)))
+        .replace(htmlHexEntitiesRegex, (_, hex) => decodeNumericEntity(hex, 16))
+        .replace(htmlDecEntitiesRegex, (_, dec) => decodeNumericEntity(dec, 10))
         .replace('<!DOCTYPE html []>', '<!DOCTYPE html>')
         .trim();
     }
@@ -357,10 +360,25 @@ function countForElement(containerEl: Node) {
   return characterCount;
 }
 
+export function decodeNumericEntity(value: string, radix: 10 | 16): string {
+  const codePoint = Number.parseInt(value, radix);
+  if (
+    !Number.isSafeInteger(codePoint) ||
+    codePoint < 0 ||
+    codePoint > 0x10ffff ||
+    (codePoint >= 0xd800 && codePoint <= 0xdfff)
+  )
+    return '\uFFFD';
+  return String.fromCodePoint(codePoint);
+}
+
 function flattenAnchorHref(el: HTMLElement) {
   Array.from(el.getElementsByTagName('a')).forEach((tag) => {
     const oldHref = tag.getAttribute('href');
-    if (!oldHref) return;
+    if (!oldHref || !isSafeBookInternalHref(oldHref)) return;
+    // Preserve the source-document target for the Foliate-style publication
+    // resolver while retaining the legacy flattened href for old renderers.
+    tag.setAttribute('data-manabi-epub-href', oldHref);
     tag.setAttribute('href', `#${oldHref.replace(/.+#/, '')}`);
   });
 }
