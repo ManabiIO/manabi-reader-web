@@ -60,6 +60,7 @@ export function createStoredFoliateBook(
   const sections = sourceSections.map((section, index): StoredFoliateSection => {
     const resource = manifest.resources[index];
     let currentUrl: string | undefined;
+    let references = 0;
     const body = section.outerHTML;
     const markup =
       '<!doctype html><html' +
@@ -78,13 +79,15 @@ export function createStoredFoliateBook(
       size: new TextEncoder().encode(markup).byteLength,
       async load() {
         if (destroyed) throw new DOMException('Publication is closed.', 'AbortError');
+        references += 1;
         if (currentUrl) return currentUrl;
         currentUrl = URL.createObjectURL(new Blob([markup], { type: 'text/html' }));
         liveUrls.add(currentUrl);
         return currentUrl;
       },
       unload() {
-        if (!currentUrl) return;
+        references = Math.max(0, references - 1);
+        if (!currentUrl || references) return;
         URL.revokeObjectURL(currentUrl);
         liveUrls.delete(currentUrl);
         currentUrl = undefined;

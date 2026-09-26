@@ -509,7 +509,12 @@
     The reader is currently blurred due to an external application (e. g. exstatic)
   </div>
 {/if}
-<div bind:this={$containerEl$} class="reader-page-frame" class:vertical-page={verticalMode}>
+<div
+  bind:this={$containerEl$}
+  class="reader-page-frame"
+  class:vertical-page={verticalMode}
+  class:foliate-page={useFoliatePaginator && viewMode === ViewMode.Paginated}
+>
   {#if viewMode === ViewMode.Continuous}
     <BookReaderContinuous
       {htmlContent}
@@ -565,8 +570,9 @@
       {htmlContent}
       {styleSheet}
       {publicationManifest}
-      width={$contentViewportWidth$ ?? 0}
-      height={$contentViewportHeight$ ?? 0}
+      {width}
+      {height}
+      maxInlineSize={secondDimensionMaxValue}
       {verticalMode}
       {fontFeatureSettings}
       {verticalTextOrientation}
@@ -662,21 +668,37 @@
 <style>
   /* The engine measures this padding before pagination, including safe areas. */
   .reader-page-frame {
-    padding-top: calc(4.5rem + env(safe-area-inset-top));
-    padding-bottom: calc(7.5rem + env(safe-area-inset-bottom));
-    padding-left: max(1.5rem, env(safe-area-inset-left));
-    padding-right: max(1.5rem, env(safe-area-inset-right));
+    --reader-frame-top: calc(4.5rem + env(safe-area-inset-top));
+    --reader-frame-bottom: calc(7.5rem + env(safe-area-inset-bottom));
+    --reader-frame-left: max(1.5rem, env(safe-area-inset-left));
+    --reader-frame-right: max(1.5rem, env(safe-area-inset-right));
+  }
+  .reader-page-frame {
+    padding: var(--reader-frame-top) var(--reader-frame-right) var(--reader-frame-bottom)
+      var(--reader-frame-left);
+  }
+  .reader-page-frame.foliate-page {
+    padding: 0;
+    --reader-page-radius: 55px;
+    --reader-page-insets: var(--reader-frame-top) var(--reader-frame-right)
+      var(--reader-frame-bottom) var(--reader-frame-left);
   }
   @media (min-width: 768px) {
+    .reader-page-frame.foliate-page {
+      --reader-page-radius: 20px;
+    }
     .reader-page-frame {
-      padding-top: max(calc(5rem + env(safe-area-inset-top)), calc((100dvh - 780px) / 2));
-      padding-bottom: max(calc(7.5rem + env(safe-area-inset-bottom)), calc((100dvh - 780px) / 2));
-      padding-left: max(4rem, calc((100vw - 1280px) / 2));
-      padding-right: max(4rem, calc((100vw - 1280px) / 2));
+      --reader-frame-top: max(calc(5rem + env(safe-area-inset-top)), calc((100dvh - 780px) / 2));
+      --reader-frame-bottom: max(
+        calc(7.5rem + env(safe-area-inset-bottom)),
+        calc((100dvh - 780px) / 2)
+      );
+      --reader-frame-left: max(4rem, calc((100vw - 1280px) / 2));
+      --reader-frame-right: max(4rem, calc((100vw - 1280px) / 2));
     }
     .vertical-page {
-      padding-left: max(4rem, calc((100vw - 960px) / 2));
-      padding-right: max(4rem, calc((100vw - 960px) / 2));
+      --reader-frame-left: max(4rem, calc((100vw - 960px) / 2));
+      --reader-frame-right: max(4rem, calc((100vw - 960px) / 2));
     }
   }
 </style>

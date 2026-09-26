@@ -1,15 +1,30 @@
 <script lang="ts">
   import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
-  import { nextChapter$, sectionList$, sectionProgress$, type SectionWithProgress } from '$lib/components/book-reader/book-toc/book-toc';
+  import {
+    nextChapter$,
+    sectionList$,
+    sectionProgress$,
+    type SectionWithProgress
+  } from '$lib/components/book-reader/book-toc/book-toc';
   import { createBookmarkSnapshot } from '$lib/components/book-reader/bookmark-snapshot';
   import type { BookmarkManager, PageManager } from '$lib/components/book-reader/types';
   import type { BooksDbBookmarkData } from '$lib/data/database/books-db/versions/books-db';
   import type { FuriganaStyle } from '$lib/data/furigana-style';
   import type { TextMarginMode } from '$lib/data/text-margin-mode';
   import { resolveReaderFont } from '$lib/data/reader-typography';
-  import { projectResource, rangeAt, resolveLocator, type PublicationManifest, type ReaderLocator } from '$lib/reader-location';
-  import { createStoredFoliateBook, type StoredFoliateBook } from '$lib/foliate-epub/stored-foliate-book';
+  import {
+    projectResource,
+    rangeAt,
+    resolveLocator,
+    type PublicationManifest,
+    type ReaderLocator
+  } from '$lib/reader-location';
+  import {
+    createStoredFoliateBook,
+    type StoredFoliateBook
+  } from '$lib/foliate-epub/stored-foliate-book';
   import { FoliateCharacterProgress } from '$lib/foliate-epub/foliate-character-progress';
+  import { PageTurnController } from '$lib/foliate-epub/page-turn-controller';
   import type { Paginator } from '$lib/foliate-epub/paginator.js';
 
   export let htmlContent: string;
@@ -17,6 +32,7 @@
   export let publicationManifest: PublicationManifest;
   export let width: number;
   export let height: number;
+  export let maxInlineSize = 0;
   export let verticalMode: boolean;
   export let fontFeatureSettings: string;
   export let verticalTextOrientation: string;
@@ -62,6 +78,7 @@
 
   let host: HTMLDivElement;
   let paginator: Paginator | undefined;
+  let pageTurns: PageTurnController | undefined;
   let book: StoredFoliateBook | undefined;
   let progress: FoliateCharacterProgress | undefined;
   let sourceSections: Element[] = [];
@@ -69,6 +86,7 @@
   let destroyed = false;
   let suppressRelocate = 0;
   let bookmarkTimer: ReturnType<typeof setTimeout> | undefined;
+  let themeObserver: MutationObserver | undefined;
   let tocSubscription: { unsubscribe(): void } | undefined;
 
   export function getContentElement(): HTMLElement | undefined {
@@ -80,8 +98,8 @@
   }
 
   const makePageManager = (): PageManager => ({
-    nextPage: () => void paginator?.next(),
-    prevPage: () => void paginator?.prev(),
+    nextPage: () => void pageTurns?.turn(1),
+    prevPage: () => void pageTurns?.turn(-1),
     updateSectionDataByOffset: () => undefined
   });
 
@@ -140,13 +158,32 @@
     entries.forEach((section, sectionIndex) => {
       map.set(section.reference, {
         ...section,
-        progress: sectionIndex < index ? 100 : sectionIndex > index ? 0 : Math.max(0, Math.min(100, fraction * 100))
+        progress:
+          sectionIndex < index
+            ? 100
+            : sectionIndex > index
+              ? 0
+              : Math.max(0, Math.min(100, fraction * 100))
       });
     });
     sectionProgress$.next(map);
   }
 
   function readerStyles() {
+    // Theme custom properties do not inherit across an iframe boundary.
+    const hostStyles = host ? getComputedStyle(host) : undefined;
+    const themeVariables = hostStyles
+      ? [
+          '--reader-background-color',
+          '--reader-font-color',
+          '--reader-selection-font-color',
+          '--reader-selection-background-color',
+          '--reader-hint-furigana-shadow-color',
+          '--reader-hint-furigana-font-color'
+        ]
+          .map((name) => `${name}: ${hostStyles.getPropertyValue(name)};`)
+          .join('\n')
+      : '';
     const important = prioritizeReaderStyles ? ' !important' : '';
     const primary = resolveReaderFont(fontFamilyGroupOne, verticalMode);
     const secondary = resolveReaderFont(fontFamilyGroupTwo, verticalMode, true);
@@ -210,6 +247,7 @@
       : '';
     return `
       :root {
+        ${themeVariables}
         --font-family-serif: ${primary};
         --font-family-sans-serif: ${secondary};
       }
@@ -272,7 +310,9 @@
   }
 
   function handleRelocate(event: Event) {
-    const detail = (event as CustomEvent<{ index: number; fraction?: number; range?: Range; reason?: string }>).detail;
+    const detail = (
+      event as CustomEvent<{ index: number; fraction?: number; range?: Range; reason?: string }>
+    ).detail;
     const current = contentForPaginator();
     if (!current || !progress) return;
     const fraction = Number.isFinite(detail.fraction) ? detail.fraction! : 0;
@@ -285,12 +325,17 @@
       dispatch('userNavigation');
       if (autoBookmark) {
         clearTimeout(bookmarkTimer);
-        bookmarkTimer = setTimeout(() => dispatch('bookmark'), Math.max(0, autoBookmarkTime) * 1000);
+        bookmarkTimer = setTimeout(
+          () => dispatch('bookmark'),
+          Math.max(0, autoBookmarkTime) * 1000
+        );
       }
     }
   }
 
   $: if (paginator) {
+    if (maxInlineSize > 0) paginator.setAttribute('max-inline-size', `${maxInlineSize}px`);
+    else paginator.removeAttribute('max-inline-size');
     paginator.setAttribute('margin', `${Math.max(0, firstDimensionMargin)}px`);
     paginator.setAttribute('max-column-count', String(Math.max(1, pageColumns || 1)));
     paginator.setStyles(readerStyles());
@@ -315,23 +360,32 @@
     paginator = document.createElement('foliate-paginator') as Paginator;
     paginator.setAttribute('flow', 'paginated');
     paginator.setAttribute('gap', '5%');
+    if (maxInlineSize > 0) paginator.setAttribute('max-inline-size', `${maxInlineSize}px`);
+    else paginator.removeAttribute('max-inline-size');
     paginator.setAttribute('margin', `${Math.max(0, firstDimensionMargin)}px`);
     paginator.setAttribute('max-column-count', String(Math.max(1, pageColumns || 1)));
     paginator.addEventListener('load', handleLoad);
     paginator.addEventListener('relocate', handleRelocate);
+    pageTurns = new PageTurnController(paginator);
     host.append(paginator);
     paginator.open(book);
     paginator.setStyles(readerStyles());
+    themeObserver = new MutationObserver(() => paginator?.setStyles(readerStyles()));
+    for (const element of [document.documentElement, document.body])
+      themeObserver.observe(element, {
+        attributes: true,
+        attributeFilter: ['style', 'class', 'data-theme', 'data-mode', 'data-appearance']
+      });
 
     pageManager = makePageManager();
     bookmarkManager = makeBookmarkManager();
 
     tocSubscription = nextChapter$.subscribe((target) => {
+      if (target === '') return;
       const index =
         typeof target === 'string'
           ? sourceSections.findIndex(
-              (section) =>
-                section.id === target || section.querySelector(`#${CSS.escape(target)}`)
+              (section) => section.id === target || section.querySelector(`#${CSS.escape(target)}`)
             )
           : target.spineIndex;
       if (index < 0 || index >= sourceSections.length || !paginator) return;
@@ -341,9 +395,7 @@
           index,
           anchor: fragment
             ? (doc: Document) =>
-                doc.getElementById(fragment) ??
-                doc.querySelector(`#${CSS.escape(fragment)}`) ??
-                0
+                doc.getElementById(fragment) ?? doc.querySelector(`#${CSS.escape(fragment)}`) ?? 0
             : 0
         })
       );
@@ -360,6 +412,9 @@
     tocSubscription?.unsubscribe();
     paginator?.removeEventListener('load', handleLoad);
     paginator?.removeEventListener('relocate', handleRelocate);
+    themeObserver?.disconnect();
+    pageTurns?.destroy();
+    pageTurns = undefined;
     paginator?.destroy();
     paginator?.remove();
     paginator = undefined;

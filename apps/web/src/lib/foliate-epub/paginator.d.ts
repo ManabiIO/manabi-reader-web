@@ -1,6 +1,18 @@
+export interface PreparedPageTurn {
+  update(progress: number): boolean;
+  commit(): boolean;
+  cancel(): void;
+}
+
 // Type surface for the pinned Foliate paginator used by the Web adapter.
 export class Paginator extends HTMLElement {
   bookDir?: string;
+  readonly pageTurnDirection: 'ltr' | 'rtl';
+  readonly page: number;
+  readonly pages: number;
+  readonly size: number;
+  preparePageTurn(direction: -1 | 1): Promise<PreparedPageTurn | null>;
+  cancelPageTurn(): void;
   sections: Array<{ linear?: string }>;
   currentIndex?: number;
   open(book: { sections: unknown[]; dir?: string }): void;
