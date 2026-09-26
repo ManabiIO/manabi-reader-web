@@ -1,0 +1,24 @@
+name: Snippets development qualification
+on:
+  push:
+    branches: [codex/cloud-backed-snippets-20260926]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Retain exact source for isolated validation
+        shell: bash
+        run: |
+          git archive --format=tar HEAD | gzip > "$RUNNER_TEMP/snippets-source.tar.gz"
+          sha256sum "$RUNNER_TEMP/snippets-source.tar.gz"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snippets-source-${{ github.sha }}
+          path: ${{ runner.temp }}/snippets-source.tar.gz
+          retention-days: 1
