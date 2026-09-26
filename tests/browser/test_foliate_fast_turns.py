@@ -86,6 +86,7 @@ class FoliateFastTurns(FoliateSlide):
         self.page.get_by_role('combobox', name='Page turn effect', exact=True).select_option(value)
         self.assertEqual(self.page.evaluate("localStorage.getItem('pageTurnEffect')"), value)
         self.page.get_by_role('button', name='Close reading appearance', exact=True).click()
+        self.page.locator('[data-slot="sheet-content"]:not([data-closed])').wait_for(state='detached')
         self.page.wait_for_function(f"() => {P}.getAttribute('page-turn-effect') === '{value}'")
 
     def test_none_is_saved_in_both_settings_and_has_no_repeat_tail(self):
@@ -93,6 +94,7 @@ class FoliateFastTurns(FoliateSlide):
         self.choose_effect('none')
         self.record_turns()
         self.page.evaluate(f'{P}.focusView()')
+        self.page.wait_for_function(f'() => {P}.getContents()[0]?.doc.hasFocus()')
         for i in range(5):
             self.page.keyboard.down('ArrowRight')
             self.page.wait_for_function('n => turnCommits === n', arg=i+1)
