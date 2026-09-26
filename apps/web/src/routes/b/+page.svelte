@@ -2086,6 +2086,7 @@
     bind:this={bookReaderComponent}
     previewNavigationActive={navigationPreviewing || suppressResumeSave}
     htmlContent={$bookData$.htmlContent}
+    publicationManifest={$rawBookData$.publicationManifest}
     width={$containerViewportWidth$ ?? 0}
     height={$containerViewportHeight$ ?? 0}
     {fontFeatureSettings}
