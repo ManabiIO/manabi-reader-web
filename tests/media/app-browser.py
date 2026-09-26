@@ -88,7 +88,7 @@ def main():
         page = context.new_page()
         page.on('pageerror', lambda error: errors.append(str(error)))
         page.set_default_timeout(20000)
-        page.goto(origin + '/Reader-Web/videos')
+        page.goto(origin + '/reader-web/videos')
         expect(page.get_by_role('heading', name='Videos', exact=True)).to_be_visible()
         def upload():
             page.locator('[data-testid=media-files]').set_input_files([

@@ -236,7 +236,7 @@ only after reviewing its code.
 The application job uses the repository's pinned Node/pnpm and requires a frozen,
 package-manager-generated lockfile; it will not silently manufacture the missing
 Mediabunny lock entry. It typechecks the actual adapter/Svelte application and builds
-at `/Reader-Web`.
+at `/reader-web`.
 
 The independent CPU job checks out emsdk 4.0.23 at commit
 `c0bb220cb6e6f4e0fabb6f6db9efd53390ef5e56`, builds both single-thread and pthread
@@ -253,6 +253,7 @@ weights, installed voice assets, fonts or browser profiles.
 The Ubuntu voice package is in multiverse; the workflow expects the runner's
 normal package sources to provide it. It does not change sources to bypass a
 restricted runner. Official package/source references:
+
 - https://packages.ubuntu.com/noble/hts-voice-nitech-jp-atr503-m001
 - https://packages.ubuntu.com/noble/open-jtalk-mecab-naist-jdic
 - https://github.com/emscripten-core/emsdk/tree/c0bb220cb6e6f4e0fabb6f6db9efd53390ef5e56
