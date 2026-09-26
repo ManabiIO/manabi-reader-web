@@ -34,6 +34,14 @@ export function onKeydownReader(
 ) {
   const action = bookReaderKeybindMap[ev.code || ev.key?.toLowerCase()];
 
+  // Repeated page commands feed the burst sequence; toggles retain one-shot behavior.
+  if (
+    ev.repeat &&
+    action !== BookReaderAvailableKeybind.NEXT_PAGE &&
+    action !== BookReaderAvailableKeybind.PREV_PAGE
+  )
+    return false;
+
   switch (action) {
     case BookReaderAvailableKeybind.BOOKMARK: {
       bookmarkPage();

@@ -1261,14 +1261,7 @@
 
   function onKeydown(ev: KeyboardEvent) {
     if (readerUIOwnsEvent(ev)) return;
-    if (
-      $skipKeyDownListener$ ||
-      ev.altKey ||
-      ev.ctrlKey ||
-      ev.shiftKey ||
-      ev.metaKey ||
-      ev.repeat
-    ) {
+    if ($skipKeyDownListener$ || ev.altKey || ev.ctrlKey || ev.shiftKey || ev.metaKey) {
       return;
     }
 

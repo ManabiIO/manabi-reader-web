@@ -28,16 +28,17 @@ class FoliateFastTurns(FoliateSlide):
             self.page.evaluate(f'{P}.focusView()')
         else:
             self.page.evaluate('document.activeElement?.blur(); window.focus()')
-        key = 'ArrowLeft' if rtl else 'ArrowRight'
+        # The outer reader uses configured PageDown/PageUp bindings; arrows are iframe controls.
+        key = ('ArrowLeft' if rtl else 'ArrowRight') if iframe else 'PageDown'
         self.page.keyboard.down(key)
-        self.page.wait_for_function('fastTurns[0]?.samples.length > 0')
-        self.page.wait_for_function('turnCommits === 1')
+        self.page.wait_for_function('() => fastTurns[0]?.samples.length > 0')
+        self.page.wait_for_function('() => turnCommits === 1')
         # Deliberately exceed the old animation time before the first repeat.
         self.page.wait_for_timeout(300)
         for _ in range(5):
             self.page.keyboard.down(key)
             self.page.wait_for_timeout(55)
-        self.page.wait_for_function('fastTurns.length === 6 && turnCommits === 5')
+        self.page.wait_for_function('() => fastTurns.length === 6 && turnCommits === 5')
         self.page.wait_for_timeout(200)
         logs = self.page.evaluate('fastTurns')
         self.assertTrue(logs[0]['samples'])
@@ -47,7 +48,7 @@ class FoliateFastTurns(FoliateSlide):
         if iframe:
             self.assertTrue(self.page.evaluate(f'{P}.getContents()[0].doc.hasFocus()'))
         self.page.keyboard.up(key)
-        self.page.wait_for_function('turnCommits === 6')
+        self.page.wait_for_function('() => turnCommits === 6')
         self.assertTrue(self.page.evaluate('fastTurns.at(-1).samples.length > 0'))
         self.page.wait_for_timeout(250)
         self.assertEqual(self.pose()['commits'], 6)
