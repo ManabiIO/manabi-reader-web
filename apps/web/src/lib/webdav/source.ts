@@ -6,7 +6,7 @@
 
 import { integrationDB, exclusive, equal, type BookLink } from '$lib/manabi/persistence';
 import type { LibrarySource, LibraryEntry, StateCopy } from '$lib/manabi/sources';
-import { WebDavClient, davRoot, DavError, strongEtag, decodeDavText } from './client';
+import { WebDavClient, davRoot, davChild, DavError, strongEtag, decodeDavText } from './client';
 
 export interface DavConfiguration {
   id: string;
@@ -175,8 +175,49 @@ export class WebDavSource implements LibrarySource {
     if (cursor) throw new Error('WebDAV pagination is not supported.');
     return { items: await (await this.client()).list(parent), cursor: '' };
   }
+  /** Explicit file selection authorizes only creation; existing files are never replaced. */
+  async uploadNew(file: File, parent = this.root) {
+    if (
+      !/\.(epub|txt|htmlz|zip)$/i.test(file.name) ||
+      /[\\/]/.test(file.name) ||
+      file.name.startsWith('.') ||
+      file.name.length > 240
+    )
+      throw new DavError('file', 'Select an EPUB, TXT, HTMLZ or ZIP backup with a plain filename.');
+    if (file.size > 128 * 1024 * 1024)
+      throw new DavError('size', 'WebDAV uploads are limited to 128 MiB.');
+    const folder = davChild(new URL(this.root), parent);
+    if (!folder.pathname.endsWith('/')) throw new DavError('path', 'Select a WebDAV folder.');
+    const target = davChild(
+      new URL(this.root),
+      new URL(encodeURIComponent(file.name), folder).href
+    );
+    await withDavSourceLock(this.id, async () => {
+      const client = await this.client();
+      await client.put(target.href, file, 'missing');
+      const confirmed = await client.get(target.href, 128 * 1024 * 1024);
+      const original = new Uint8Array(await file.arrayBuffer());
+      if (
+        confirmed.status !== 200 ||
+        confirmed.bytes.length !== original.length ||
+        !confirmed.bytes.every((value, index) => value === original[index])
+      )
+        throw new DavError(
+          'conflict',
+          'The uploaded file could not be verified. Refresh the folder before retrying.'
+        );
+    });
+  }
+  async downloadBackup(item: LibraryEntry) {
+    if (!/\.zip$/i.test(item.name)) throw new DavError('file', 'Select a ZIP backup.');
+    return this.download(item);
+  }
   async read(item: LibraryEntry) {
-    if (item.kind !== 'file' || !/\.(epub|txt|htmlz)$/i.test(item.name))
+    if (!/\.(epub|txt|htmlz)$/i.test(item.name)) throw new Error('Unsupported WebDAV book.');
+    return this.download(item);
+  }
+  private async download(item: LibraryEntry) {
+    if (item.kind !== 'file' || !/\.(epub|txt|htmlz|zip)$/i.test(item.name))
       throw new Error('Unsupported WebDAV book.');
     if ((item.size ?? 0) > 128 * 1024 * 1024) throw new Error('WebDAV book exceeds 128 MiB.');
     const result = await (

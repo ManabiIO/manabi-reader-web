@@ -195,3 +195,28 @@ edit, and a mismatched legacy/corrupt root fails before any network request.
 Removing source write permission atomically disables its existing per-book sync
 consents. Saving settings refreshes the linked-book controls and discards stale
 browsing handles, so their displayed choices agree with the persisted permission.
+
+## Explicit WebDAV file portability
+
+Accounts and libraries → Browse offers **Upload a new book or ZIP backup**.
+Selecting an EPUB, TXT, HTMLZ or ZIP file explicitly creates it in the displayed
+folder, with a 128 MiB limit. A conditional `If-None-Match: *` PUT prevents replacing
+existing files, and a GET verifies the uploaded bytes before reporting success.
+Folder traversal, hidden filenames and unsupported formats are rejected.
+Connection edits/disconnect serialize with this operation using the source lock.
+
+This explicit upload does not enable reading-data sync and does not require that
+separate consent. Original existing ebooks remain read-only. ZIP files have a
+**Download backup** action which preserves their bytes for a later migration;
+the WebDAV browser does not attempt to interpret an archive. The server must
+permit the PUT and GET methods and expose the required CORS headers.
+
+This preserves the distinct manual file-portability controls from PR #42 while
+using the qualified source identity, HTTP validation and lifecycle handling from
+PR #43. The other #42 feature groups are covered by #43: independent metadata and
+content search, cancellable worker results, Yatsu bookmarks/highlights/notes,
+editable exportable notes, repeat-import protection and opt-in safe settings.
+Its personal-sync reconciliation changes are represented by PR #47. Retaining an
+account's library after explicit sign-out is not imported as a side effect of this
+consolidation. Cold offline account visibility is a separate account-lifecycle
+concern and must be qualified with account isolation.

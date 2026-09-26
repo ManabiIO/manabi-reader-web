@@ -156,7 +156,7 @@ class DavHandler(BaseHTTPRequestHandler):
         if not self.auth(): return
         body = self.rfile.read(int(self.headers.get('Content-Length','0')))
         path = unquote(urlsplit(self.path).path)
-        if not path.startswith('/Books/.manabi-reader/'):
+        if not path.startswith('/Books/.manabi-reader/') and not self.state.get('allow_uploads'):
             self.send(403); return
         old = self.state['files'].get(path)
         etag = '"'+hashlib.sha256(old).hexdigest()+'"' if old is not None else None
@@ -257,6 +257,22 @@ class LocalFeatureBrowser(LibraryBase):
           tx.objectStore('data').getAll().onsuccess=e=>{const book=e.target.result[0];tx.objectStore('bookmark').put({dataId:book.id,exploredCharCount:char,progress:0.2,lastBookmarkModified:stamp});};
           tx.oncomplete=()=>{db.close();resolve()};tx.onerror=()=>reject(tx.error);};o.onerror=()=>reject(o.error);
         })''',dict(char=char,stamp=stamp))
+
+    def test_explicit_webdav_upload_is_create_only_and_backup_download_is_unchanged(self):
+        self.dav.state['allow_uploads'] = True
+        self.connect_dav(import_book=False)
+        payload = b'An opaque original ZIP backup, never parsed by WebDAV.'
+        upload = self.page.get_by_label('Upload a new book or ZIP backup', exact=True)
+        upload.set_input_files({'name':'portable.zip','mimeType':'application/zip','buffer':payload})
+        expect(self.page.get_by_text('Uploaded and verified portable.zip.', exact=True)).to_be_visible()
+        self.assertEqual(payload, self.dav.state['files']['/Books/portable.zip'])
+        with self.page.expect_download() as result:
+            self.page.get_by_role('button',name='Download backup portable.zip',exact=True).click()
+        self.assertEqual(payload, Path(result.value.path()).read_bytes())
+        upload.set_input_files({'name':'portable.zip','mimeType':'application/zip','buffer':b'replacement'})
+        expect(self.page.get_by_text('The WebDAV copy changed. Refresh and review before writing again.',exact=True)).to_be_visible()
+        self.assertEqual(payload, self.dav.state['files']['/Books/portable.zip'])
+        self.assertEqual(1, self.dav.state['puts'])
 
     def test_two_sections_normalized_content_and_metadata_priority(self):
         self.import_book('Search metadata',creators=('Test Author',),body='<p>ＡＢＣ <ruby>猫<rt>ねこ</rt></ruby>が好き。</p>')

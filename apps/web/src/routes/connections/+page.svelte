@@ -117,6 +117,34 @@
       await browse(value.root, false);
     });
   }
+  async function uploadDav(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    const active = source;
+    const parent = trail[trail.length - 1]?.id;
+    input.value = '';
+    if (!file || !(active instanceof WebDavSource) || !parent) return;
+    await action(async () => {
+      await active.uploadNew(file, parent);
+      if (source !== active || stopped) return;
+      await browse(parent);
+      message = `Uploaded and verified ${file.name}.`;
+    });
+  }
+  async function downloadDavBackup(entry: LibraryEntry) {
+    const active = source;
+    if (!(active instanceof WebDavSource)) return;
+    await action(async () => {
+      const file = await active.downloadBackup(entry);
+      if (source !== active || stopped) return;
+      const url = URL.createObjectURL(file);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = entry.name;
+      anchor.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    });
+  }
   async function openLocal(library: LocalLibrary) {
     source = new LocalLibrarySource(library);
     sourceName = library.name;
@@ -362,8 +390,7 @@
             <button
               class="destructive-action"
               disabled={busy}
-              on:click={() => action(() => disconnect(connection))}
-              >Disconnect cloud account</button
+              on:click={() => action(() => disconnect(connection))}>Disconnect cloud account</button
             >
           </div>
           {#if !connection.roots.length}<p>
@@ -484,6 +511,21 @@
           ? 'Import books for offline reading. WebDAV reading-data sync is a separate opt-in action below; original book files are never changed.'
           : 'Verified books sync personal reading data through your Manabi account. Folder write access is not required.'}
       </p>
+      {#if source instanceof WebDavSource}
+        <label
+          >Upload a new book or ZIP backup
+          <input
+            type="file"
+            accept=".epub,.txt,.htmlz,.zip"
+            disabled={busy}
+            on:change={uploadDav}
+          />
+        </label>
+        <p>
+          Selecting a file uploads it to this folder and verifies its bytes. Existing files are
+          never replaced. ZIP backups can be downloaded unchanged for migration.
+        </p>
+      {/if}
       {#each entries as entry (entry.id)}
         <div class="file-entry">
           <span
@@ -492,6 +534,10 @@
           {#if entry.kind === 'folder'}
             <button disabled={busy} on:click={() => action(() => enter(entry))}
               >Open folder {entry.name}</button
+            >
+          {:else if source instanceof WebDavSource && /\.zip$/i.test(entry.name)}
+            <button disabled={busy} on:click={() => downloadDavBackup(entry)}
+              >Download backup {entry.name}</button
             >
           {:else if supportedBook(entry.name)}
             <button
