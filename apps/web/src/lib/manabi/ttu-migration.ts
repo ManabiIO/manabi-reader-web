@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 
+import { rewriteEpubPublication } from '$lib/foliate-epub/publication-data';
 import { encodeBook } from '$lib/data/database/books-db/book-binary';
 
 import { database, lastReadingGoalsModified$, readingGoal$ } from '$lib/data/store';
@@ -383,6 +384,7 @@ export class TtuMigration {
         canonical({
           html: data.elementHtml,
           css: data.styleSheet,
+          ...(data.epubPublication ? { epubPublication: data.epubPublication } : {}),
           sections: data.sections,
           language: data.language,
           creators: data.creators,
@@ -398,11 +400,22 @@ export class TtuMigration {
         imageReferences.set(placeholder, placeholder);
         imageReferences.set(`ttu:${name}`, placeholder);
       }
-      const policy = { document, resolveImage: (source: string) => imageReferences.get(source) };
+      const policy = {
+        document,
+        preserveReaderLinks: true,
+        resolveImage: (source: string) => imageReferences.get(source)
+      };
+      const sanitized = data.epubPublication
+        ? rewriteEpubPublication(data.epubPublication, data.elementHtml, (resource) => ({
+            ...resource,
+            html: sanitizeBookHtml(resource.html, policy),
+            styleSheet: sanitizeBookStyleSheet(resource.styleSheet, document)
+          }))
+        : { elementHtml: sanitizeBookHtml(data.elementHtml, policy) };
       content = {
         ...data,
         title: item.title,
-        elementHtml: sanitizeBookHtml(data.elementHtml, policy),
+        ...sanitized,
         styleSheet: sanitizeBookStyleSheet(data.styleSheet, document),
         htmlBackup: data.htmlBackup ? sanitizeBookHtml(data.htmlBackup, policy) : undefined,
         characters,
@@ -523,6 +536,9 @@ export class TtuMigration {
                   canonical({
                     html: copy.value.elementHtml,
                     css: copy.value.styleSheet,
+                    ...(copy.value.epubPublication
+                      ? { epubPublication: copy.value.epubPublication }
+                      : {}),
                     sections: copy.value.sections
                   })) !==
                   (receipt(copy.value)
@@ -530,6 +546,9 @@ export class TtuMigration {
                     : canonical({
                         html: content.elementHtml,
                         css: content.styleSheet,
+                        ...(content.epubPublication
+                          ? { epubPublication: content.epubPublication }
+                          : {}),
                         sections: content.sections
                       }))
               ) {

@@ -10,14 +10,14 @@ reading and non-EPUB readers keep their existing implementations.
 
 The source prototype is `apple-books-slide-poc` at `f2f51f5d`. A forward turn
 slides the current sheet off the next page. The underlying page moves 15% of
-reader width and loses a 24% black shade. A backward turn brings the previous
+reader width and loses a 24% overlay (black in light appearance, white in dark).
+A backward turn brings the previous
 sheet over the current page with the inverse dimming. Both use horizontal screen
 coordinates, including vertical Japanese whose internal Foliate layout scrolls
 vertically. RTL reverses the physical directions. The page frame and moving sheet
-fill the viewport and share `--reader-page-radius` (55px on phones, 20px on larger
-windows). Reading margins and safe-area insets sit inside the moving sheets. There
-is no drop shadow; the full underlying page receives only the dimming overlay.
-Browsers do not expose a physical display's corner radius.
+fill the viewport and always have square corners. Reading margins and safe-area
+insets sit inside the moving sheets. There is no drop shadow; the full underlying
+page receives only the appearance-owned overlay.
 
 The first turn intent immediately collapses the controls, including the floating
 toggle and bottom action buttons. The bottom-center indicator is inside each
@@ -48,7 +48,7 @@ a shorter drag returns to the starting page. Arrow/Page keys and page controls
 use the same preparation/promotion path. Reduced motion removes the settling
 animation while keeping direct manipulation.
 
-Unlike the demo's transparent input overlay, the live iframe remains available
+Unlike the original prototype's transparent input overlay, the live iframe remains available
 for selection and dictionary hit testing. Therefore content gestures use a small
 pointer/wheel adapter rather than a native scroll rail or ScrollTimeline. Browser
 wheel events do not expose a reliable distinction between fingers and momentum;
@@ -123,3 +123,115 @@ both engines so it exercises real import, rendering and input without a storage
 mock. The existing Chromium security/Japanese-content regression retains its
 embedded image coverage; passing WebKit gesture tests do not establish image-import
 compatibility.
+
+## September 26 refinement: corners and rapid discrete navigation
+
+The follow-up targets the integrated #55 source `92a53bfe9452ea0a3ad81824934113b369d82651`.
+It does not enable the renderer gate, change release configuration, or merge the stack.
+
+### Square pages, stationary title, and appearance-owned overlay
+
+All reading surfaces have `border-radius: 0`. The native-radius contract and the
+demo radius controls are removed. Legacy `--reader-page-radius` values are ignored;
+there is no device detection, host override, or rounded-page option.
+
+The existing `.reader-context` book title remains in the outer, fixed UI layer,
+above the opaque Foliate sheets and below the toolbar/dialogs. Only each sheet's
+bottom-center page indicator moves. The standalone has the equivalent stationary
+running title outside the paginator. Chapter headings in the book's actual text
+remain content and still move with their page.
+
+The overlay uses `--reader-page-overlay`: black for light appearance and white
+for dark appearance. The Svelte adapter uses the app's **resolved** appearance,
+not an independent OS media query, so explicit overrides and System stay coherent.
+Alpha and geometry are unchanged: maximum 24%, fading with turn displacement.
+This is a lightening veil on dark paper, not a color inversion of the page text.
+
+### Persisted Slide / None preference
+
+`pageTurnEffect` is validated as `slide` or `none`, defaulting to `slide` for old
+installs and unknown stored values. It uses the reader's existing local-storage
+subject contract. A shared control appears in Themes & Settings and searchable
+All Settings → Page layout. This applies to the gated Foliate paginated EPUB
+path; it neither enables the renderer gate nor changes continuous scrolling.
+
+`PageTurnController.setEffect()` cancels the old gesture, prepared tail, and
+late asynchronous work before switching. The current committed locator is kept.
+Slide retains the sequence below. None commits every discrete request as soon as
+its neighbor is ready, without animation, a quiet timer, or a reserved final page.
+None gestures accumulate distance without moving or tinting the current page;
+release crosses the existing threshold and atomically promotes the next/previous
+page. Short/reversed gestures cancel. Neighbor loading is still asynchronous.
+The paginator itself refuses visual updates in None, including manual previews.
+Promotion clears the preparation-only visibility flag: a regression asserts that
+every instant turn leaves the active sheet and its iframe visible, not just that
+the page counter advanced.
+
+Mouse-margin presses prevent native drag-and-drop initiation; iframe text presses
+still take the original selection/dictionary path. This repairs the reproduced
+second-margin-drag `pointercancel` without suppressing real cancellation events.
+
+### Leading animation, instant middle, animated tail
+
+`PAGE_TURN_DURATION = 154` is exactly 70% of the old 220ms duration. It is shared
+by discrete commands and gesture settlement; direct dragging still follows
+pointer displacement. The existing cubic easing, layering, 15% parallax and 24%
+under-page dimming are unchanged. Reduced Motion removes settlement animation.
+
+The discrete sequence uses these rules:
+1. An isolated request begins its animation as soon as the neighbor is prepared.
+2. A request arriving while that turn is active finishes it immediately. Further
+   intermediate neighbors are prepared and committed without animation.
+3. Keep the newest neighbor prepared at progress zero, one turn ahead of the
+   committed reading location. A subsequent request makes it an instant middle
+   turn. Matched keyup, or 120ms without keyless button input, animates this final
+   reserved turn once. No reverse-and-replay of an already committed page occurs.
+4. `KeyboardEvent.repeat` and key identity survive the OS initial-repeat delay
+   and iframe promotion. Keyup is observed in the outer document and active
+   iframe. Custom Reader keybindings forward the same metadata through PageManager.
+5. Preserve direction order, not just a net delta: impossible turns at a book
+   edge must not cancel a later valid reversal. Equal consecutive directions are
+   compacted as runs. Only one neighbor loads at a time. Loading is still async;
+   removing animation waits does not eliminate actual chapter/font/layout work.
+6. Resize, navigation cancellation, blur, hidden document, failure and destruction
+   discard pending intents and stale results. One commit still emits one reading
+   relocation. A canceled reserved tail is never persisted as a visited page.
+
+The final request is necessarily held briefly: the controller cannot know which
+request is last until release/quiet. While a key is held, committed location trails
+requested location by at most the reserved neighbor once preparation catches up.
+There is no queue of animations to play after release. If layout itself is slower
+than input, ordered preparation still has to catch up; this is not an O(1) arbitrary
+EPUB-location jump or a guarantee of native hardware latency.
+
+### Standalone and tests
+
+`node scripts/build-slide-demo.mjs` generates
+`demos/apple-books-slide-poc/index.html` from the actual paginator, geometry,
+page-count, effect validation, gesture-controller and sequence modules. The output includes source
+SHA-256 hashes and the Foliate license. No third-party network requests are made
+by the demo. Source template: `demos/apple-books-slide-poc/template.html`.
+
+New deterministic tests cover burst timing, key identity, slow preparation,
+reversals, boundaries, reduced motion, failures, and cancellation. The built-app
+`test_foliate_fast_turns.py` adds held-key cases in the outer document and both
+LTR/vertical-RTL iframes, plus square-page checks, persisted effect controls, and stationary-title/white-overlay checks. The original
+keyframe suite now explicitly expects the square default instead of requiring a
+nonzero radius. No original case or no-page-error assertion is removed.
+
+`test_slide_demo.py` supports a served-HTML mode with real Blob URLs and an explicit
+in-memory fixture mode. The latter feeds only the sample HTML through srcdoc and
+preserves its fixture URL identity because this environment's about:blank origin
+makes distinct blob:null URLs cross-origin. This adapter is test-only, is not in
+the shipped HTML, and does not change sandbox attributes. In-memory passes do not
+qualify HTTP/file launch, Blob lifetimes, EPUB import, or the full Svelte application.
+The permanent Chromium CI step uses the served mode, without that adapter.
+
+## Follow-through on the previous CI failure
+
+The original 17-case Chromium slide suite passed at `a2c69bd`. The new fast-turn
+suite stopped in three wait predicates because string expressions required
+unsafe-eval under the application's CSP. They now use callable arrow predicates,
+matching the original suite. No CSP directive, assertion, browser security setting,
+or timeout was weakened. Served/built-app verification remains separate from the
+local in-memory renderer/input fixture mode.

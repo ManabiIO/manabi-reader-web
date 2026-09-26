@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
-  import { beforeNavigate } from '$app/navigation';
+  import { afterNavigate, beforeNavigate } from '$app/navigation';
   import { Button } from '$lib/components/ui/button';
   import { BookOpenIcon as BookOpen } from 'phosphor-svelte';
   import { loadEditorsPicks, type EditorsPick } from './editors-picks';
@@ -12,20 +12,43 @@
   let loading = true;
   let error = '';
   let mounted = false;
+  let pageActive = true;
   let loadVersion = 0;
   let request: AbortController | undefined;
 
   function cancelLoad() {
+    loadVersion += 1;
     request?.abort();
+    request = undefined;
+    loading = false;
+  }
+
+  function suspendLoad() {
+    // Svelte can flush a queued onMount callback while the document departs.
+    // Aborting an existing request alone cannot stop that callback starting one.
+    pageActive = false;
+    cancelLoad();
+  }
+
+  function resumeLoad() {
+    pageActive = true;
+    if (mounted && !request && !picks.length) void load();
+  }
+
+  function visibilityChanged() {
+    if (document.visibilityState === 'hidden') cancelLoad();
+    else if (pageActive && mounted && !request && !picks.length) void load();
   }
   beforeNavigate((navigation) => {
     // A same-route collection/view change can keep this component mounted.
     if (navigation.willUnload || navigation.to?.route.id !== navigation.from?.route.id)
-      cancelLoad();
+      suspendLoad();
   });
+  afterNavigate(resumeLoad);
   const dispatch = createEventDispatcher<{ open: EditorsPick }>();
 
   async function load() {
+    if (!mounted || !pageActive || document.visibilityState === 'hidden') return;
     const version = ++loadVersion;
     request?.abort();
     const current = new AbortController();
@@ -36,7 +59,7 @@
       const loaded = await loadEditorsPicks(window.location.origin, current.signal);
       if (mounted && version === loadVersion && !current.signal.aborted) picks = loaded;
     } catch (cause) {
-      if (mounted && version === loadVersion) {
+      if (mounted && pageActive && version === loadVersion && !current.signal.aborted) {
         error = cause instanceof Error ? cause.message : 'The catalog could not be loaded.';
       }
     } finally {
@@ -50,13 +73,13 @@
     void load();
     return () => {
       mounted = false;
-      loadVersion += 1;
-      cancelLoad();
+      suspendLoad();
     };
   });
 </script>
 
-<svelte:window onpagehide={cancelLoad} />
+<svelte:window onpagehide={suspendLoad} onpageshow={resumeLoad} />
+<svelte:document onvisibilitychange={visibilityChanged} />
 
 <section
   aria-labelledby={headingId}
@@ -72,7 +95,7 @@
   {:else if error}
     <div role="status" class="py-4 text-sm">
       <p>Editor's Picks are unavailable right now.</p>
-      <Button variant="outline" class="mt-3" onclick={load}>Try Again</Button>
+      <Button variant="outline" class="mt-3" onclick={resumeLoad}>Try Again</Button>
     </div>
   {:else if !picks.length}
     <p class="py-6 text-sm text-muted-foreground">No books are listed right now.</p>

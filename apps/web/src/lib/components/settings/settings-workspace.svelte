@@ -5,6 +5,8 @@
   import { Input } from '$lib/components/ui/input';
   import { Button } from '$lib/components/ui/button';
   import { SETTINGS_FILTER } from './settings-context';
+  import PageTurnEffectSelect from './page-turn-effect-select.svelte';
+  import SettingsItemGroup from './settings-item-group.svelte';
   import SettingsOfflineStatus from './settings-offline-status.svelte';
   const categories = [
     {
@@ -89,13 +91,17 @@
     <label for="settings-search" class="mb-2 block text-sm font-medium">Search settings</label>
     <Input
       id="settings-search"
+      aria-describedby={$filter.query ? 'settings-search-results' : undefined}
       type="search"
       placeholder="Search all settings…"
       value={$filter.query}
       oninput={(event) =>
         filter.update((value) => ({ ...value, query: event.currentTarget.value }))}
     />
-    <nav aria-label="Settings categories" class="section-navigation section-navigation-sidebar mt-3">
+    <nav
+      aria-label="Settings categories"
+      class="section-navigation section-navigation-sidebar mt-3"
+    >
       {#each categories as category (category.id)}
         <Button
           variant="ghost"
@@ -119,19 +125,34 @@
       <p class="mt-2 text-xs text-muted-foreground">
         Changes save automatically. Reading goals have separate Save and Cancel actions.
       </p>
-      {#if $filter.query}<p role="status" class="mt-3 text-sm">
+      {#if $filter.query}<p
+          id="settings-search-results"
+          role="status"
+          aria-label="Settings search results"
+          class="mt-3 text-sm"
+        >
           {visibleCount
             ? `${visibleCount} matching settings`
             : 'No matching settings. Try a different search.'}
         </p>{/if}
     </div>
     <SettingsOfflineStatus />
+    <SettingsItemGroup
+      settingId="page-turn-effect"
+      category="layout"
+      keywords="pageTurnEffect slide none animation pagination"
+      title="Page turn effect"
+      showHeading={false}
+    >
+      <PageTurnEffectSelect />
+    </SettingsItemGroup>
     <slot />
   </main>
 </div>
 
 <style>
-  :global([data-setting="offline-reading"]:not([hidden])) {
+  :global([data-setting='page-turn-effect']:not([hidden])),
+  :global([data-setting='offline-reading']:not([hidden])) {
     margin-bottom: 1.25rem;
   }
 </style>

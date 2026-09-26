@@ -15,6 +15,7 @@
     viewMode$,
     yuKyokashoAvailable$
   } from '$lib/data/store';
+  import PageTurnEffectSelect from '$lib/components/settings/page-turn-effect-select.svelte';
   import { ViewMode } from '$lib/data/view-mode';
 
   export let open = false;
@@ -156,6 +157,9 @@
         onclick={() => viewMode$.next(ViewMode.Continuous)}>Scroll</Button
       >
     </div>
+    {#if $viewMode$ === ViewMode.Paginated}
+      <div><PageTurnEffectSelect /></div>
+    {/if}
     <Button
       variant="outline"
       class="min-h-11"

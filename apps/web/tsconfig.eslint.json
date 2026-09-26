@@ -4,6 +4,7 @@
     "src/**/*.js",
     "static/appearance-init.js",
     "../../tools/appearance/**/*.mjs",
+    "../../scripts/build-slide-demo.mjs",
     "src/**/*.mjs",
     "src/**/*.ts",
     "src/**/*.svelte",

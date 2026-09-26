@@ -4,6 +4,13 @@
  * All rights reserved.
  */
 
+import {
+  readEpubPublication,
+  epubPublicationManifest,
+  assertEpubManifest,
+  type EpubPublicationData
+} from '$lib/foliate-epub/publication-data';
+import type { PublicationManifest } from '$lib/reader-location';
 import type { Section } from '$lib/data/database/books-db/versions/v4/books-db-v4';
 import { LimitedArchive, type ArchiveOptions } from './limited-archive';
 import { validDirectionEvidence, type DirectionEvidence } from '$lib/library/direction';
@@ -19,6 +26,9 @@ export interface RestoredContent {
   creators?: BookCreator[];
   pageDirection?: DirectionEvidence;
   contentHash?: string;
+  sourceFormat?: 'epub' | 'htmlz' | 'txt';
+  publicationManifest?: PublicationManifest;
+  epubPublication?: EpubPublicationData;
   blobs: Record<string, Blob>;
   coverImage?: Blob;
 }
@@ -89,7 +99,52 @@ function readMetadata(value: unknown): Omit<RestoredContent, 'blobs' | 'coverIma
       });
     }
   }
+  let publicationManifest: PublicationManifest | undefined;
+  if (value.publicationManifest !== undefined) {
+    const manifest = value.publicationManifest;
+    if (
+      !object(manifest) ||
+      manifest.version !== 1 ||
+      !Array.isArray(manifest.resources) ||
+      manifest.resources.length > 8192
+    )
+      throw new Error('Invalid restored publication manifest');
+    publicationManifest = {
+      version: 1,
+      resources: manifest.resources.map((resource, index) => {
+        if (
+          !object(resource) ||
+          resource.spineIndex !== index ||
+          typeof resource.href !== 'string' ||
+          !resource.href ||
+          resource.href.length > 2048 ||
+          typeof resource.sectionId !== 'string' ||
+          resource.sectionId.length > 512
+        )
+          throw new Error('Invalid restored publication resource');
+        return { href: resource.href, spineIndex: index, sectionId: resource.sectionId };
+      })
+    };
+  }
+  const epubPublication =
+    value.epubPublication === undefined
+      ? undefined
+      : readEpubPublication(value.epubPublication, value.elementHtml);
+  if (epubPublication) {
+    publicationManifest ??= epubPublicationManifest(epubPublication);
+    assertEpubManifest(epubPublication, publicationManifest);
+    if (value.sourceFormat !== undefined && value.sourceFormat !== 'epub')
+      throw new Error('Restored EPUB resources have a different source format');
+  }
+  const sourceFormat = epubPublication
+    ? 'epub'
+    : ['epub', 'htmlz', 'txt'].includes(value.sourceFormat as string)
+      ? (value.sourceFormat as 'epub' | 'htmlz' | 'txt')
+      : undefined;
   return {
+    ...(sourceFormat ? { sourceFormat } : {}),
+    ...(publicationManifest ? { publicationManifest } : {}),
+    ...(epubPublication ? { epubPublication } : {}),
     title: value.title,
     elementHtml: value.elementHtml,
     styleSheet: (value.styleSheet as string) || '',

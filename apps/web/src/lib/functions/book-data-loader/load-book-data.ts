@@ -17,10 +17,11 @@ export default function loadBookData(
   isPaginated: boolean,
   blurMode: BlurMode
 ) {
-  return formatBookDataHtml(bookData, document, isPaginated, blurMode).pipe(
-    map((htmlContent) => ({
+  return formatBookDataHtml(bookData, document, isPaginated, blurMode, parentSelector).pipe(
+    map(({ htmlContent, epubResources, epubStyleSheet }) => ({
       htmlContent,
-      styleSheet: formatStyleSheet(bookData, parentSelector, document)
+      epubResources,
+      styleSheet: epubStyleSheet ?? formatStyleSheet(bookData, parentSelector, document)
     }))
   );
 }

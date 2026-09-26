@@ -5,14 +5,23 @@
  */
 
 import type { Paginator, PreparedPageTurn } from './paginator.js';
-import { wheelPageDistance, type TurnDirection } from './slide-geometry';
+import { normalizePageTurnEffect, type PageTurnEffect } from './page-turn-effect.ts';
+import { wheelPageDistance, type TurnDirection } from './slide-geometry.ts';
+import { PAGE_TURN_DURATION, PageTurnSequence, type PageTurnInput } from './page-turn-sequence.ts';
 
 /**
  * Keep the actual iframe hit-testable. Touch drags claim a horizontal gesture
  * only after its direction is clear; mouse text drags, long presses, pinch,
  * links, and existing selections remain owned by the document/dictionary.
  */
+export interface PageTurnOptions {
+  keydown?: (event: KeyboardEvent) => void;
+  canTurn?: (event?: Event) => boolean;
+}
+
 export class PageTurnController {
+  private paginator: Paginator;
+  private options: PageTurnOptions;
   private lifetime = new AbortController();
   private documentEvents?: AbortController;
   private prepared?: PreparedPageTurn;
@@ -33,9 +42,43 @@ export class PageTurnController {
     target: Element;
   };
   private suppressClickUntil = 0;
+  private commands: PageTurnSequence;
 
-  constructor(private paginator: Paginator) {
+  constructor(paginator: Paginator, options: PageTurnOptions = {}) {
+    this.paginator = paginator;
+    this.options = options;
+    this.commands = new PageTurnSequence({
+      prepare: async (direction) => {
+        if (!this.canTurn()) return null;
+        const prepared = await this.ownTurnOperation(() => paginator.preparePageTurn(direction));
+        if (!prepared) return null;
+        return {
+          update: (progress) => {
+            if (!this.canTurn()) {
+              this.ownTurnOperation(() => prepared.cancel());
+              return false;
+            }
+            return prepared.update(progress);
+          },
+          commit: () => {
+            if (!this.canTurn()) {
+              this.ownTurnOperation(() => prepared.cancel());
+              return false;
+            }
+            return this.ownTurnOperation(() => prepared.commit());
+          },
+          cancel: () => this.ownTurnOperation(() => prepared.cancel())
+        };
+      },
+      cancel: () => this.ownTurnOperation(() => paginator.cancelPageTurn()),
+      reducedMotion: () =>
+        this.effect === 'none' || matchMedia('(prefers-reduced-motion: reduce)').matches,
+      error: (error) => paginator.dispatchEvent(new CustomEvent('pageturnerror', { detail: error }))
+    });
     paginator.setAttribute('layered', '');
+    window.addEventListener('keyup', (event) => this.commands.release(event.code || event.key), {
+      signal: this.lifetime.signal
+    });
     this.bind(paginator, this.lifetime.signal);
     paginator.addEventListener('load', () => this.bindDocument(), { signal: this.lifetime.signal });
     paginator.addEventListener(
@@ -45,7 +88,15 @@ export class PageTurnController {
       },
       { signal: this.lifetime.signal }
     );
-    window.addEventListener('blur', () => this.cancel(), { signal: this.lifetime.signal });
+    window.addEventListener(
+      'blur',
+      () => {
+        // Chromium also blurs the top Window when focus returns to an iframe.
+        // That is still reader focus, not the user leaving this document.
+        if (!document.hasFocus()) this.cancel();
+      },
+      { signal: this.lifetime.signal }
+    );
     window.addEventListener('resize', () => this.cancel(), { signal: this.lifetime.signal });
     document.addEventListener(
       'visibilitychange',
@@ -57,6 +108,19 @@ export class PageTurnController {
     this.bindDocument();
   }
 
+  get effect(): PageTurnEffect {
+    return normalizePageTurnEffect(this.paginator.getAttribute('page-turn-effect'));
+  }
+
+  setEffect(value: PageTurnEffect) {
+    const effect = normalizePageTurnEffect(value);
+    if (effect === this.effect) return;
+    // Changing policy invalidates a held gesture, queued tail, and late load.
+    // The committed locator remains authoritative; never finish a stale turn.
+    this.cancel();
+    this.paginator.setAttribute('page-turn-effect', effect);
+  }
+
   private bindDocument() {
     this.documentEvents?.abort();
     this.documentEvents = new AbortController();
@@ -66,11 +130,17 @@ export class PageTurnController {
       // Pinch zoom and long-press text selection stay native.
       doc.documentElement.style.touchAction = 'pan-y pinch-zoom';
       this.bind(doc, this.documentEvents.signal);
+      doc.addEventListener('keyup', (event) => this.commands.release(event.code || event.key), {
+        signal: this.documentEvents.signal
+      });
       doc.addEventListener(
         'keydown',
         (event) => {
+          this.options.keydown?.(event);
           if (
+            !this.canTurn(event) ||
             event.defaultPrevented ||
+            event.isComposing ||
             event.altKey ||
             event.ctrlKey ||
             event.metaKey ||
@@ -89,19 +159,23 @@ export class PageTurnController {
                 ? rtl
                   ? 1
                   : -1
-                : event.key === 'PageDown'
+                : event.key === 'ArrowDown' || (!this.options.keydown && event.key === 'PageDown')
                   ? 1
-                  : event.key === 'PageUp'
+                  : event.key === 'ArrowUp' || (!this.options.keydown && event.key === 'PageUp')
                     ? -1
                     : 0;
           if (turn) {
             event.preventDefault();
-            void this.turn(turn);
+            this.turn(turn, { repeat: event.repeat, key: event.code || event.key });
           } else if (event.key === 'Escape') this.cancel();
         },
         { signal: this.documentEvents.signal }
       );
     }
+  }
+
+  private canTurn(event?: Event) {
+    return !this.lifetime.signal.aborted && (this.options.canTurn?.(event) ?? true);
   }
 
   private selected() {
@@ -125,9 +199,11 @@ export class PageTurnController {
       'pointerdown',
       ((event: PointerEvent) => {
         if (
+          !this.canTurn(event) ||
           !event.isPrimary ||
           event.button !== 0 ||
           this.settling ||
+          this.commands.active ||
           this.inputControl(event.target) ||
           (target === this.paginator &&
             this.paginator.isPageNumberControlAt(event.clientX, event.clientY)) ||
@@ -146,6 +222,9 @@ export class PageTurnController {
           claimed: false,
           target: el
         };
+        // Margin drags must not start native text drag-and-drop on a later
+        // gesture. The iframe/text path returned above and remains selectable.
+        if (event.pointerType === 'mouse') event.preventDefault();
       }) as EventListener,
       { signal }
     );
@@ -154,6 +233,10 @@ export class PageTurnController {
       ((event: PointerEvent) => {
         const p = this.pointer;
         if (!p || p.id !== event.pointerId) return;
+        if (!this.canTurn(event)) {
+          this.cancel();
+          return;
+        }
         const dx = this.point(event).x - p.x;
         const dy = this.point(event).y - p.y;
         if (!p.claimed) {
@@ -179,7 +262,7 @@ export class PageTurnController {
         this.pointer = undefined;
         if (p.claimed) {
           this.suppressClickUntil = performance.now() + 500;
-          void this.finish(this.progress >= 0.5);
+          void this.finish(this.canTurn(event) && this.progress >= 0.5);
         }
       }) as EventListener,
       { signal }
@@ -207,6 +290,7 @@ export class PageTurnController {
       'wheel',
       ((event: WheelEvent) => {
         if (
+          !this.canTurn(event) ||
           event.ctrlKey ||
           event.metaKey ||
           event.defaultPrevented ||
@@ -217,7 +301,7 @@ export class PageTurnController {
         )
           return;
         event.preventDefault();
-        if (this.settling) return;
+        if (this.settling || this.commands.active) return;
         const delta = wheelPageDistance(
           event.deltaX,
           event.deltaY,
@@ -250,6 +334,8 @@ export class PageTurnController {
     if (direction !== this.direction) this.resetTurn();
     this.direction = direction;
     this.progress = Math.min(1, Math.abs(signed));
+    // None keeps the current page still until gesture release qualifies a turn.
+    if (this.effect === 'none') return;
     if (!this.pending && !this.prepared) {
       const generation = this.generation;
       this.ownCancellation = true;
@@ -276,15 +362,39 @@ export class PageTurnController {
     this.prepared?.update(this.progress);
   }
 
-  async turn(direction: TurnDirection) {
-    if (this.settling || this.selected()) return;
-    this.cancel();
-    this.move(direction * 0.001);
-    await this.finish(true);
+  private ownTurnOperation<T>(operation: () => T): T {
+    const previous = this.ownCancellation;
+    this.ownCancellation = true;
+    try {
+      return operation();
+    } finally {
+      this.ownCancellation = previous;
+    }
+  }
+
+  turn(direction: TurnDirection, input: PageTurnInput = {}) {
+    const allowed = this.canTurn();
+    if (!allowed || this.selected()) {
+      if (!allowed) this.cancel();
+      return;
+    }
+    // Only discard a gesture when beginning a new command sequence. Repeated
+    // commands must reach the sequence rather than cancelling or being dropped.
+    if (!this.commands.active) {
+      this.pointer = undefined;
+      this.resetTurn();
+    }
+    this.commands.request(direction, input);
   }
 
   private async finish(commit: boolean) {
     if (this.settling) return;
+    if (this.effect === 'none') {
+      const direction = this.direction;
+      this.resetTurn();
+      if (commit && this.canTurn()) this.turn(direction);
+      return;
+    }
     this.settling = true;
     clearTimeout(this.wheelTimer);
     const generation = this.generation;
@@ -295,17 +405,18 @@ export class PageTurnController {
       return;
     }
     const start = this.progress;
+    commit = commit && this.canTurn();
     const end = commit ? 1 : 0;
     const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
     const started = performance.now();
     const step = (now: number) => {
       if (generation !== this.generation) return;
-      const t = reduced ? 1 : Math.min(1, (now - started) / 220);
+      const t = reduced ? 1 : Math.min(1, (now - started) / PAGE_TURN_DURATION);
       prepared.update(start + (end - start) * (1 - (1 - t) ** 3));
       if (t < 1) this.frame = requestAnimationFrame(step);
       else {
         this.ownCancellation = true;
-        if (commit) prepared.commit();
+        if (commit && this.canTurn()) prepared.commit();
         else prepared.cancel();
         this.ownCancellation = false;
         this.resetTurn();
@@ -328,6 +439,7 @@ export class PageTurnController {
   }
 
   cancel() {
+    this.commands.cancel();
     this.pointer = undefined;
     this.resetTurn();
   }

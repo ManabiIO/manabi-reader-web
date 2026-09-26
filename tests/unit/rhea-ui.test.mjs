@@ -81,6 +81,7 @@ test('reader controls and overlays own keyboard and wheel events', () => {
   let overlay = null;
   class Target {
     constructor(interactive) {
+      this.nodeType = 1;
       this.interactive = interactive;
     }
     closest() {
@@ -93,6 +94,8 @@ test('reader controls and overlays own keyboard and wheel events', () => {
     assert.ok(readerUIOwnsEvent({ defaultPrevented: true }));
     assert.ok(readerUIOwnsEvent({ target: new Target(true) }));
     assert.equal(readerUIOwnsEvent({ target: new Target(false) }), false);
+    // Child-frame elements do not share the parent's Element constructor.
+    assert.ok(readerUIOwnsEvent({ target: { nodeType: 1, closest: () => ({}) } }));
     overlay = {};
     assert.ok(readerUIOwnsEvent({ target: new Target(false) }));
   } finally {

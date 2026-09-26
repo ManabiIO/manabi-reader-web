@@ -10,8 +10,8 @@ export function readerUIOwnsEvent(event?: Event): boolean {
   if (typeof document === 'undefined') return false;
   const target = event?.target;
   if (
-    target instanceof Element &&
-    target.closest(
+    (target as Node | null)?.nodeType === 1 &&
+    (target as Element).closest(
       'input, textarea, select, button, a, [contenteditable="true"], [role="menu"], [role="dialog"], [role="listbox"], [data-ui-overlay]'
     )
   )

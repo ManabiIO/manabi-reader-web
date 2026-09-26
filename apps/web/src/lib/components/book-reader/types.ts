@@ -31,9 +31,9 @@ export interface BookmarkManager {
 }
 
 export interface PageManager {
-  nextPage: () => void;
+  nextPage: (input?: { repeat?: boolean; key?: string }) => void;
 
-  prevPage: () => void;
+  prevPage: (input?: { repeat?: boolean; key?: string }) => void;
 
   updateSectionDataByOffset: (offset: number) => void;
 }
