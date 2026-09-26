@@ -7,8 +7,8 @@
 import { isElementGaiji } from './is-element-gaiji';
 
 export function isNodeGaiji(node: Node) {
-  if (!(node instanceof HTMLImageElement)) {
+  if (node.nodeType !== 1 || (node as Element).localName?.toLowerCase() !== 'img') {
     return false;
   }
-  return isElementGaiji(node);
+  return isElementGaiji(node as HTMLImageElement);
 }

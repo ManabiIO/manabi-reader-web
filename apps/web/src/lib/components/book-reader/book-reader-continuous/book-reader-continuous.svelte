@@ -617,18 +617,23 @@
     });
   }
 
-  nextChapter$.pipe(takeUntil(destroy$)).subscribe((chapterId) => {
-    let targetElement = document.getElementById(chapterId);
+  nextChapter$.pipe(takeUntil(destroy$)).subscribe((target) => {
+    let targetElement: Element | null;
 
-    if (!targetElement) {
-      return;
+    if (typeof target === 'string') {
+      targetElement = document.getElementById(target);
+      if (!targetElement) return;
+      if (!target.startsWith(prependValue)) {
+        targetElement = targetElement.closest(`div[id^="${prependValue}"]`) || targetElement;
+      }
+    } else {
+      const section = contentEl?.children.item(target.spineIndex);
+      if (!section) return;
+      targetElement = target.fragment
+        ? section.querySelector(`[id="${CSS.escape(target.fragment)}"]`)
+        : section;
+      if (!targetElement) return;
     }
-
-    const checkForParent = !chapterId.startsWith(prependValue);
-
-    targetElement = checkForParent
-      ? targetElement.closest(`div[id^="${prependValue}"]`) || targetElement
-      : targetElement;
 
     willNavigate = true;
 

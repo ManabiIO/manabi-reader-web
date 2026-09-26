@@ -45,11 +45,28 @@ function anchorTagListener(document: Document) {
   return (contentEl: HTMLElement) => {
     const anchorTags = Array.from(contentEl.getElementsByTagName('a'));
     anchorTags.forEach((el) => {
-      el.href = document.location.pathname + el.hash;
+      if (!el.dataset.manabiTargetSpineIndex) {
+        // A root-relative URL cannot resolve against a Foliate blob document.
+        el.href = new URL(document.location.pathname + el.hash, document.location.href).href;
+      }
     });
 
     const obs$ = anchorTags.map((el) =>
-      fromClickEvent(el).pipe(tap(() => nextChapter$.next(el.hash.substring(1))))
+      fromClickEvent(el).pipe(
+        tap(() => {
+          const spineIndex = Number(el.dataset.manabiTargetSpineIndex);
+          if (Number.isSafeInteger(spineIndex) && spineIndex >= 0) {
+            nextChapter$.next({
+              spineIndex,
+              ...(el.dataset.manabiTargetFragment
+                ? { fragment: el.dataset.manabiTargetFragment }
+                : {})
+            });
+            return;
+          }
+          nextChapter$.next(el.hash.substring(1));
+        })
+      )
     );
     return merge(...obs$);
   };
@@ -187,9 +204,12 @@ function openImageInNewTab(
 }
 
 function toggleImageGalleryPictureSpoiler(imageElement: Element | null, unspoilered: boolean) {
-  if (imageElement instanceof HTMLImageElement) {
-    toggleImageGalleryPictureSpoiler$.next({ url: imageElement.src, unspoilered });
-  } else if (imageElement && 'href' in imageElement) {
+  const localName = imageElement?.localName?.toLowerCase();
+  if (localName === 'img') {
+    const url =
+      (imageElement as HTMLImageElement).src || imageElement?.getAttribute('src') || undefined;
+    if (url) toggleImageGalleryPictureSpoiler$.next({ url, unspoilered });
+  } else if (localName === 'image' && imageElement && 'href' in imageElement) {
     toggleImageGalleryPictureSpoiler$.next({
       url: (imageElement.href as SVGAnimatedString).baseVal,
       unspoilered

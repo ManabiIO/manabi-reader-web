@@ -23,7 +23,7 @@ export function getParagraphToPoint(x: number, y: number) {
 }
 
 export function createRange(node: Node, startOffset = 0, endOffset = 0) {
-  const range = new Range();
+  const range = node.ownerDocument?.createRange() ?? new Range();
   range.setStart(node, startOffset);
   range.setEnd(node, endOffset);
 
@@ -31,9 +31,10 @@ export function createRange(node: Node, startOffset = 0, endOffset = 0) {
 }
 
 export function getRangeForUserSelection(window: Window, preSelection: Range | undefined) {
-  const currentSelection = window.getSelection()?.toString().trim()
-    ? window.getSelection()?.getRangeAt(0)
-    : undefined;
+  const selectionWindow =
+    preSelection?.commonAncestorContainer.ownerDocument?.defaultView ?? window;
+  const selection = selectionWindow.getSelection();
+  const currentSelection = selection?.toString().trim() ? selection.getRangeAt(0) : undefined;
 
   let userSelection: Range | undefined;
 

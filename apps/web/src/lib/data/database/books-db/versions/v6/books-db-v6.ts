@@ -40,6 +40,8 @@ interface BooksDbV6BookData {
   language?: string;
   creators?: BookCreator[];
   pageDirection?: DirectionEvidence;
+  /** Loader identity for new imports. Older records infer EPUB from their publication manifest. */
+  sourceFormat?: 'epub' | 'htmlz' | 'txt';
   /** SHA-256 of the original imported file, independent of title and location. */
   contentHash?: string;
   styleSheet: string;

@@ -16,6 +16,7 @@ import { getParagraphNodes } from '../../../components/book-reader/get-paragraph
 import { resolveArchivePath } from '../utils/limited-archive';
 import { sanitizeBookHtml } from '../../book-security/book-content-security';
 import type { PublicationResource } from '$lib/reader-location';
+import { resolveEpubLinkTarget } from './epub-link-target';
 
 export const prependValue = 'ttu-';
 
@@ -230,8 +231,8 @@ export default function generateEpubHtml(
       contentToParse = contentToParse
         .replace(controlCharactersRegex, '')
         .replace(selfClosingTagsRegex, '>')
-        .replace(htmlHexEntitiesRegex, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
-        .replace(htmlDecEntitiesRegex, (_, dec) => String.fromCharCode(parseInt(dec, 10)))
+        .replace(htmlHexEntitiesRegex, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+        .replace(htmlDecEntitiesRegex, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
         .replace('<!DOCTYPE html []>', '<!DOCTYPE html>')
         .trim();
     }
@@ -280,9 +281,12 @@ export default function generateEpubHtml(
     childWrapperDiv.id = `${prependValue}${itemIdRef}`;
     childWrapperDiv.appendChild(childHtmlDiv);
 
+    const resourceHref = resolveArchivePath(manifestOwner, htmlHref);
+    childWrapperDiv.dataset.manabiEpubResourceHref = resourceHref;
+    childWrapperDiv.dataset.manabiEpubSpineIndex = String(spineIndex);
     result.appendChild(childWrapperDiv);
     publicationResources.push({
-      href: resolveArchivePath(manifestOwner, htmlHref),
+      href: resourceHref,
       spineIndex,
       sectionId: childWrapperDiv.id
     });
@@ -334,7 +338,7 @@ export default function generateEpubHtml(
 
   clearAllBadImageRef(result);
   fixXHtmlHref(result);
-  flattenAnchorHref(result);
+  flattenAnchorHref(result, publicationResources);
 
   return {
     element: result,
@@ -357,10 +361,28 @@ function countForElement(containerEl: Node) {
   return characterCount;
 }
 
-function flattenAnchorHref(el: HTMLElement) {
+function flattenAnchorHref(el: HTMLElement, resources: PublicationResource[]) {
   Array.from(el.getElementsByTagName('a')).forEach((tag) => {
     const oldHref = tag.getAttribute('href');
     if (!oldHref) return;
-    tag.setAttribute('href', `#${oldHref.replace(/.+#/, '')}`);
+    tag.dataset.manabiEpubHref = oldHref;
+
+    const owner = tag.closest<HTMLElement>('[data-manabi-epub-resource-href]');
+    const ownerHref = owner?.dataset.manabiEpubResourceHref;
+    const ownerSpineIndex = Number(owner?.dataset.manabiEpubSpineIndex);
+    const target = ownerHref
+      ? resolveEpubLinkTarget(
+          ownerHref,
+          oldHref,
+          resources,
+          Number.isSafeInteger(ownerSpineIndex) ? ownerSpineIndex : undefined
+        )
+      : undefined;
+    if (target) {
+      tag.dataset.manabiTargetSpineIndex = String(target.spineIndex);
+      if (target.fragment) tag.dataset.manabiTargetFragment = target.fragment;
+    }
+
+    tag.setAttribute('href', `#${target?.fragment ?? oldHref.replace(/.+#/, '')}`);
   });
 }

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Paginator } from '$lib/foliate-epub/paginator.js';
   import AudiobookLauncher from '$lib/features/whispersync/audiobook-launcher.svelte';
   import * as Sheet from '$lib/components/ui/sheet';
   import { setCompletion } from '$lib/library/commands';
@@ -130,6 +131,7 @@
   import { takeLibraryLocation } from '$lib/library/search-navigation';
   import type { ReaderLocator } from '$lib/reader-location';
   import { readerBookKeyFor } from '$lib/reader-identity';
+  import { readerSourceFormat } from '$lib/reader-source-format';
   import { TextAlignLeft, X } from 'phosphor-svelte';
   import {
     readerImageGalleryPictures$,
@@ -217,6 +219,7 @@
 
   let showSpinner = true;
   let showHeader = false;
+  let foliatePagination = false;
   let showAppearance = false;
   let showBookSearch = false;
   let showScrubber = false;
@@ -585,19 +588,22 @@
     reduceToEmptyString()
   );
 
+  function noteReaderSelection(range: Range | undefined) {
+    if (!range && lastSelectedRangeWasEmpty) {
+      lastSelectedRange = undefined;
+    } else if (range) {
+      lastSelectedRange = range;
+      lastSelectedRangeWasEmpty = false;
+    } else {
+      lastSelectedRangeWasEmpty = true;
+    }
+  }
+
   const textSelector$ = iffBrowser(() => fromEvent(document, 'selectionchange')).pipe(
     debounceTime(200),
     tap(() => {
-      const currentSelected = window.getSelection()?.toString() || '';
-
-      if (!currentSelected && lastSelectedRangeWasEmpty) {
-        lastSelectedRange = undefined;
-      } else if (currentSelected) {
-        lastSelectedRange = window.getSelection()?.getRangeAt(0);
-        lastSelectedRangeWasEmpty = false;
-      } else {
-        lastSelectedRangeWasEmpty = true;
-      }
+      const selection = window.getSelection();
+      noteReaderSelection(selection?.toString() ? selection.getRangeAt(0).cloneRange() : undefined);
     }),
     reduceToEmptyString()
   );
@@ -2090,24 +2096,34 @@
 >
   {$rawBookData$?.title ?? ''}
 </div>
-<button
-  type="button"
-  aria-label={showHeader ? 'Hide reading controls' : 'Show reading controls'}
-  aria-expanded={showHeader}
-  data-reader-controls
-  class="reader-controls writing-horizontal-tb fixed z-20 flex size-11 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-sm"
-  on:click={() => (showHeader = !showHeader)}
-  >{#if showHeader}<X class="size-5" aria-hidden="true" />{:else}<TextAlignLeft
-      class="size-5"
-      aria-hidden="true"
-    />{/if}</button
->
+{#if !foliatePagination || showHeader}
+  <button
+    type="button"
+    aria-label={showHeader ? 'Hide reading controls' : 'Show reading controls'}
+    aria-expanded={showHeader}
+    data-reader-controls
+    class="reader-controls writing-horizontal-tb fixed z-20 flex size-11 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-sm"
+    on:click={() => (showHeader = !showHeader)}
+    >{#if showHeader}<X class="size-5" aria-hidden="true" />{:else}<TextAlignLeft
+        class="size-5"
+        aria-hidden="true"
+      />{/if}</button
+  >
+{/if}
 {#if showHeader}
   <div
     class="writing-horizontal-tb fixed inset-x-0 top-0 z-20 w-full"
-    transition:fly|local={{ y: -80, duration: 160, easing: quintInOut }}
+    transition:fly|local={{ y: -80, duration: foliatePagination ? 0 : 160, easing: quintInOut }}
     use:clickOutside={(event) => {
-      if (event.target instanceof Element && event.target.closest('[data-reader-controls]')) return;
+      const target = event.target;
+      if (target instanceof Element) {
+        if (target.closest('[data-reader-controls]')) return;
+        if (
+          target.matches('foliate-paginator') &&
+          (target as Paginator).isPageNumberControlAt(event.clientX, event.clientY)
+        )
+          return;
+      }
       showHeader = false;
     }}
   >
@@ -2227,8 +2243,15 @@
   <StyleSheetRenderer styleSheet={$bookData$.styleSheet} />
   <BookReader
     bind:this={bookReaderComponent}
+    bind:sheetPagination={foliatePagination}
+    controlsVisible={showHeader}
+    on:pageTurnStart={() => (showHeader = false)}
+    on:toggleControls={() => (showHeader = !showHeader)}
     previewNavigationActive={navigationPreviewing || suppressResumeSave}
     htmlContent={$bookData$.htmlContent}
+    styleSheet={$bookData$.styleSheet}
+    publicationManifest={$rawBookData$.publicationManifest}
+    sourceFormat={readerSourceFormat($rawBookData$)}
     width={$containerViewportWidth$ ?? 0}
     height={$containerViewportHeight$ ?? 0}
     {fontFeatureSettings}
@@ -2276,6 +2299,7 @@
     bind:showCustomReadingPoint
     on:bookmark={saveBookmark}
     on:trackerPause={() => pauseTracker(true)}
+    on:selectionChange={(ev) => noteReaderSelection(ev.detail)}
     on:userNavigation={() => {
       if (readerNavigation.previewing) pendingPreviewAdoption = true;
     }}
@@ -2453,16 +2477,17 @@
   id="ttu-page-footer"
   class="reader-footer writing-horizontal-tb fixed bottom-0 left-0 z-10 flex w-full items-center justify-between text-xs leading-none"
   class:controls-expanded={showHeader}
+  class:foliate-chrome-hidden={foliatePagination && !showHeader}
   class:many-controls={showTrackerIcon && !!dataToReplicate.length}
   data-reader-controls
   style:color={$themeOption$?.tooltipTextFontColor}
 >
   <div class="flex h-full items-center">
-    <button
-      class="progress-toggle h-11 px-2"
-      aria-expanded={showFooter}
-      on:click={() => (showFooter = !showFooter)}>Progress</button
-    >
+    {#if !foliatePagination}<button
+        class="progress-toggle h-11 px-2"
+        aria-expanded={showFooter}
+        on:click={() => (showFooter = !showFooter)}>Progress</button
+      >{/if}
     {#if $bookData$ && $rawBookData$}
       {#key `${$rawBookData$.id}:${$rawBookData$.title}`}
         <AudiobookLauncher
@@ -2513,7 +2538,7 @@
       </button>
     {/if}
   </div>
-  {#if showFooter && bookCharCount}
+  {#if showFooter && bookCharCount && !foliatePagination}
     {@const currentProgress = [
       $showCharacterCounter$ ? `${exploredCharCount} / ${bookCharCount}` : '',
       $showPercentage$ ? `${((exploredCharCount / bookCharCount) * 100).toFixed(2)}%` : '',
@@ -2602,6 +2627,12 @@
   }
   .reader-footer :global(button) {
     pointer-events: auto;
+  }
+  .reader-footer.foliate-chrome-hidden {
+    visibility: hidden;
+  }
+  .reader-footer.foliate-chrome-hidden :global(button) {
+    pointer-events: none;
   }
   .reader-progress {
     left: 50%;
