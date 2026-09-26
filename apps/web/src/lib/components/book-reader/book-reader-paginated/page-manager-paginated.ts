@@ -10,9 +10,9 @@ import {
   sectionList$,
   type SectionWithProgress
 } from '$lib/components/book-reader/book-toc/book-toc';
-import type { PageManager } from '../types';
+import type { PaginatedPageManager } from '../types';
 
-export class PageManagerPaginated implements PageManager {
+export class PageManagerPaginated implements PaginatedPageManager {
   private translateX = 0;
 
   private sectionData: Map<string, SectionWithProgress> = new Map();
