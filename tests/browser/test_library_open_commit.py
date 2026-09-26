@@ -366,8 +366,8 @@ class LibraryOpenCommitStatic(LibraryBase):
             self.page.go_back()
             expect(self.page).to_have_url(re.compile('/reader-web/settings$'))
             self.assertTrue(self.page.evaluate('window.sameOpenDocument === true'))
-            expect(self.page.locator('html')).to_have_attribute('data-resume-target-outcome','aborted')
             self.page.evaluate('async()=>{window.releaseResumeBlocker();await window.resumeBlockerDone;}')
+            expect(self.page.locator('html')).to_have_attribute('data-resume-target-outcome','aborted')
             self.assertEqual([{'dataId':ids['Phase retained book']}],self.stores('books',['lastItem'])['lastItem'])
         finally:
             self.page.evaluate('()=>{window.releaseResumeBlocker?.();window.restoreResumeTransaction?.();}')
