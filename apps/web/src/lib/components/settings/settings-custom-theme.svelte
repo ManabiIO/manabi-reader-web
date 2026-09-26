@@ -34,7 +34,9 @@
   $: themeStyle = `color: ${customTheme.fontColor.rgbaExpression}; background-color: ${customTheme.backgroundColor.rgbaExpression}`;
 
   onMount(() => {
-    const existingThemeObject = $customThemes$[selectedTheme];
+    const existingThemeObject = Object.hasOwn($customThemes$, selectedTheme)
+      ? $customThemes$[selectedTheme]
+      : undefined;
 
     if (!existingThemeObject) {
       return;

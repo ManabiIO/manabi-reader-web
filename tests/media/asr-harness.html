@@ -1,0 +1,13 @@
+<!doctype html><meta charset="utf-8"><title>Real MOSS CPU qualification</title>
+<button id="generate">Generate transcript</button><button id="cancel" disabled>Cancel</button><pre id="status">Not started. This test downloads the real model only after Generate.</pre>
+<script type="module">
+import {MossClient} from '../../.cache/media-test-build/moss-client.js';
+import {parseMoss} from '../../.cache/media-test-build/moss-output.js';
+import {MOSS} from '../../.cache/media-test-build/model-cache.js';
+const params=new URL(location.href).searchParams,fixture=params.get('fixture');
+const engine=new MossClient('/apps/web/static/moss',new URL('../../.cache/media-test-build/moss-worker.js',import.meta.url));
+let controller;const output=document.querySelector('#status');
+function decodeGeneratedPCM(bytes){const v=new DataView(bytes);if(v.getUint32(0)!==0x52494646||v.getUint32(8)!==0x57415645)throw Error('Not WAV');let sampleRate=0,channels=0,bits=0,format=0,start=0,length=0;for(let p=12;p+8<=v.byteLength;){const type=v.getUint32(p),size=v.getUint32(p+4,true);if(p+8+size>v.byteLength)throw Error('Invalid WAV');if(type===0x666d7420){format=v.getUint16(p+8,true);channels=v.getUint16(p+10,true);sampleRate=v.getUint32(p+12,true);bits=v.getUint16(p+22,true);}if(type===0x64617461){start=p+8;length=size;}p+=8+size+(size%2);}if(format!==1||channels!==1||sampleRate!==16000||bits!==16||!length)throw Error('Expected fixture PCM 16-bit mono 16 kHz');const out=new Float32Array(length/2);for(let i=0;i<out.length;i++)out[i]=v.getInt16(start+i*2,true)/32768;return out;}
+document.querySelector('#generate').onclick=async()=>{controller=new AbortController();document.querySelector('#generate').disabled=true;document.querySelector('#cancel').disabled=false;const start=performance.now();try{const response=await fetch(fixture+'/speech.wav');if(!response.ok)throw Error('Fixture unavailable');const pcm=decodeGeneratedPCM(await response.arrayBuffer()),duration=pcm.length/16000;await engine.prepare(controller.signal,p=>output.textContent=JSON.stringify(p));const inferenceStart=performance.now();const raw=await engine.transcribe(pcm,controller.signal);const seconds=(performance.now()-inferenceStart)/1000;window.result={model:MOSS,raw,cues:parseMoss(raw,duration),duration,inferenceSeconds:seconds,realTimeFactor:seconds/duration,prepareSeconds:(inferenceStart-start)/1000,crossOriginIsolated};output.textContent=JSON.stringify(window.result,null,2);}catch(e){window.failure=String(e);output.textContent=window.failure;}finally{document.querySelector('#generate').disabled=false;document.querySelector('#cancel').disabled=true;}};
+document.querySelector('#cancel').onclick=()=>controller?.abort();window.ready=true;
+</script>

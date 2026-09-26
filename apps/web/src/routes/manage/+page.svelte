@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LibraryTabs from '$lib/media/library-tabs.svelte';
   import { progressFraction } from '$lib/library/completion';
   import { resolve } from '$app/paths';
   import { beforeNavigate, goto } from '$app/navigation';
@@ -1057,6 +1058,7 @@
       on:replicateData={onReplicateData}
       on:importBackup={(ev) => onImportBackup(ev.detail)}
     />
+    {#if $storageSource$ === StorageKey.BROWSER}<LibraryTabs />{/if}
   </div>
 
   <div

@@ -54,6 +54,7 @@
     "rxjs": "7.8.2",
     "svelte-gestures": "5.0.7",
     "svelte-meta-tags": "3.1.4",
-    "ua-parser-js": "2.0.10"
+    "ua-parser-js": "2.0.10",
+    "mediabunny": "1.59.1"
   }
 }

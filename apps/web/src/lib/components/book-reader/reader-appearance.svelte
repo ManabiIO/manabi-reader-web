@@ -19,6 +19,9 @@
   import { ViewMode } from '$lib/data/view-mode';
 
   export let open = false;
+  export let showLayout = true;
+  export let returnFocus: HTMLElement | undefined = undefined;
+  export let description = 'Adjust text and appearance without leaving your book.';
   const dispatch = createEventDispatcher<{ settingsClick: void }>();
   const modes: AppearanceMode[] = ['system', 'light', 'dark'];
   const themes = [
@@ -54,6 +57,10 @@
     class="reader-appearance writing-horizontal-tb mx-auto max-h-[min(90dvh,48rem)] max-w-md gap-[20px] overflow-y-auto rounded-t-[24px] p-[20px] pb-[max(20px,env(safe-area-inset-bottom))] sm:mb-5 sm:mr-5 sm:rounded-[24px]"
     onCloseAutoFocus={(event) => {
       event.preventDefault();
+      if (returnFocus?.isConnected) {
+        returnFocus.focus({ preventScroll: true });
+        return;
+      }
       const controls = document.querySelector<HTMLButtonElement>('button[data-reader-controls]');
       const trigger =
         controls?.getAttribute('aria-expanded') === 'true'
@@ -69,9 +76,7 @@
         onclick={() => (open = false)}
       />
     </Sheet.Header>
-    <Sheet.Description class="sr-only"
-      >Adjust text and appearance without leaving your book.</Sheet.Description
-    >
+    <Sheet.Description class="sr-only">{description}</Sheet.Description>
     <div class="size-controls" role="group" aria-label="Text size">
       <Button
         variant="ghost"
@@ -141,24 +146,26 @@
           >{/each}
       </select></label
     >
-    <div class="modes" role="group" aria-label="Reading layout">
-      <Button
-        variant={$viewMode$ === ViewMode.Paginated ? 'secondary' : 'ghost'}
-        shape="rounded"
-        class="min-h-11"
-        aria-pressed={$viewMode$ === ViewMode.Paginated}
-        onclick={() => viewMode$.next(ViewMode.Paginated)}>Pages</Button
-      >
-      <Button
-        variant={$viewMode$ === ViewMode.Continuous ? 'secondary' : 'ghost'}
-        shape="rounded"
-        class="min-h-11"
-        aria-pressed={$viewMode$ === ViewMode.Continuous}
-        onclick={() => viewMode$.next(ViewMode.Continuous)}>Scroll</Button
-      >
-    </div>
-    {#if $viewMode$ === ViewMode.Paginated}
-      <div><PageTurnEffectSelect /></div>
+    {#if showLayout}
+      <div class="modes" role="group" aria-label="Reading layout">
+        <Button
+          variant={$viewMode$ === ViewMode.Paginated ? 'secondary' : 'ghost'}
+          shape="rounded"
+          class="min-h-11"
+          aria-pressed={$viewMode$ === ViewMode.Paginated}
+          onclick={() => viewMode$.next(ViewMode.Paginated)}>Pages</Button
+        >
+        <Button
+          variant={$viewMode$ === ViewMode.Continuous ? 'secondary' : 'ghost'}
+          shape="rounded"
+          class="min-h-11"
+          aria-pressed={$viewMode$ === ViewMode.Continuous}
+          onclick={() => viewMode$.next(ViewMode.Continuous)}>Scroll</Button
+        >
+      </div>
+      {#if $viewMode$ === ViewMode.Paginated}
+        <div><PageTurnEffectSelect /></div>
+      {/if}
     {/if}
     <Button
       variant="outline"
@@ -172,6 +179,14 @@
 </Sheet.Root>
 
 <style>
+  /* A theme switch must update text and surfaces together. Color interpolation
+     on the portal can otherwise briefly put dark-mode text on a light sheet.
+     Keep opening/closing motion and press feedback, not independent color fades. */
+  :global(.reader-appearance),
+  :global(.reader-appearance [data-slot]),
+  :global(.reader-appearance button) {
+    transition-property: transform, translate, opacity, box-shadow;
+  }
   :global(.reader-appearance > *) {
     flex-shrink: 0;
     min-width: 0;

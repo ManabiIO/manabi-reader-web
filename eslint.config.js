@@ -18,6 +18,7 @@ module.exports = (async () => {
       ignores: [
         '**/build/*',
         '**/test-results/**',
+        '**/.cache/**',
         '**/.svelte-kit/*',
         '**/*.d.mts',
         '**/service-worker.ts',
@@ -146,6 +147,47 @@ module.exports = (async () => {
       },
       rules: {
         '@typescript-eslint/no-require-imports': 'off'
+      }
+    },
+    {
+      files: ['tests/media/**/*.mjs', 'tools/media/**/*.mjs'],
+      languageOptions: {
+        ecmaVersion: 'latest',
+        parserOptions: { project: false },
+        globals: {
+          process: 'readonly',
+          Buffer: 'readonly',
+          console: 'readonly',
+          setTimeout: 'readonly',
+          clearTimeout: 'readonly',
+          setInterval: 'readonly',
+          clearInterval: 'readonly',
+          setImmediate: 'readonly',
+          clearImmediate: 'readonly',
+          queueMicrotask: 'readonly',
+          TextEncoder: 'readonly',
+          TextDecoder: 'readonly',
+          structuredClone: 'readonly',
+          AbortController: 'readonly',
+          AbortSignal: 'readonly',
+          DOMException: 'readonly',
+          Blob: 'readonly',
+          File: 'readonly',
+          Response: 'readonly',
+          Request: 'readonly',
+          Headers: 'readonly',
+          fetch: 'readonly',
+          performance: 'readonly',
+          URL: 'readonly',
+          URLSearchParams: 'readonly',
+          crypto: 'readonly',
+          MessageChannel: 'readonly',
+          ReadableStream: 'readonly',
+          EventTarget: 'readonly',
+          MessageEvent: 'readonly',
+          Event: 'readonly',
+          navigator: 'readonly'
+        }
       }
     },
     {
