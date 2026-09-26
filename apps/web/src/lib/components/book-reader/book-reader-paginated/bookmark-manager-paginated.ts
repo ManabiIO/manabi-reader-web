@@ -7,15 +7,17 @@
 import type { BehaviorSubject, Observable } from 'rxjs';
 
 import { createBookmarkSnapshot } from '$lib/components/book-reader/bookmark-snapshot';
-import type { BookmarkManager } from '$lib/components/book-reader/types';
+import type {
+  BookmarkManager,
+  PaginatedPageManager
+} from '$lib/components/book-reader/types';
 import type { BooksDbBookmarkData } from '$lib/data/database/books-db/versions/books-db';
-import type { PageManagerPaginated } from './page-manager-paginated';
 import type { SectionCharacterStatsCalculator } from './section-character-stats-calculator';
 
 export class BookmarkManagerPaginated implements BookmarkManager {
   constructor(
     private calculator: SectionCharacterStatsCalculator,
-    private pageManager: PageManagerPaginated,
+    private pageManager: PaginatedPageManager,
     private sectionReady$: Observable<SectionCharacterStatsCalculator>,
     private sectionIndex$: BehaviorSubject<number>,
     private setIntendedCharCount: (count: number) => void
