@@ -52,10 +52,10 @@ export function onKeydownReader(
       multiplierOffsetFn(-1);
       return true;
     case BookReaderAvailableKeybind.NEXT_PAGE:
-      pageManager?.nextPage();
+      pageManager?.nextPage({ repeat: ev.repeat, key: ev.code || ev.key });
       return true;
     case BookReaderAvailableKeybind.PREV_PAGE:
-      pageManager?.prevPage();
+      pageManager?.prevPage({ repeat: ev.repeat, key: ev.code || ev.key });
       return true;
     case BookReaderAvailableKeybind.PREV_CHAPTER:
       changeChapter(isVertical ? 1 : -1);

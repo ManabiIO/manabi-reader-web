@@ -687,14 +687,10 @@
   }
   .reader-page-frame.foliate-page {
     padding: 0;
-    --reader-page-radius: 55px;
     --reader-page-insets: var(--reader-frame-top) var(--reader-frame-right)
       var(--reader-frame-bottom) var(--reader-frame-left);
   }
   @media (min-width: 768px) {
-    .reader-page-frame.foliate-page {
-      --reader-page-radius: 20px;
-    }
     .reader-page-frame {
       --reader-frame-top: max(calc(5rem + env(safe-area-inset-top)), calc((100dvh - 780px) / 2));
       --reader-frame-bottom: max(

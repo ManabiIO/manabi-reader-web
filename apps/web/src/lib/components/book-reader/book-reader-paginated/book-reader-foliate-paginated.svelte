@@ -106,8 +106,8 @@
   }
 
   const makePageManager = (): PageManager => ({
-    nextPage: () => void pageTurns?.turn(1),
-    prevPage: () => void pageTurns?.turn(-1),
+    nextPage: (input) => pageTurns?.turn(1, input),
+    prevPage: (input) => pageTurns?.turn(-1, input),
     updateSectionDataByOffset: () => undefined
   });
 

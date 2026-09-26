@@ -14,8 +14,8 @@ reader width and loses a 24% black shade. A backward turn brings the previous
 sheet over the current page with the inverse dimming. Both use horizontal screen
 coordinates, including vertical Japanese whose internal Foliate layout scrolls
 vertically. RTL reverses the physical directions. The page frame and moving sheet
-fill the viewport and share `--reader-page-radius` (55px on phones, 20px on larger
-windows). Reading margins and safe-area insets sit inside the moving sheets. There
+fill the viewport and share `--reader-page-radius` (square, 0px, unless an
+embedding host supplies actual container geometry). Reading margins and safe-area insets sit inside the moving sheets. There
 is no drop shadow; the full underlying page receives only the dimming overlay.
 Browsers do not expose a physical display's corner radius.
 
@@ -48,7 +48,7 @@ a shorter drag returns to the starting page. Arrow/Page keys and page controls
 use the same preparation/promotion path. Reduced motion removes the settling
 animation while keeping direct manipulation.
 
-Unlike the demo's transparent input overlay, the live iframe remains available
+Unlike the original prototype's transparent input overlay, the live iframe remains available
 for selection and dictionary hit testing. Therefore content gestures use a small
 pointer/wheel adapter rather than a native scroll rail or ScrollTimeline. Browser
 wheel events do not expose a reliable distinction between fingers and momentum;
@@ -123,3 +123,94 @@ both engines so it exercises real import, rendering and input without a storage
 mock. The existing Chromium security/Japanese-content regression retains its
 embedded image coverage; passing WebKit gesture tests do not establish image-import
 compatibility.
+
+## September 26 refinement: corners and rapid discrete navigation
+
+The follow-up targets the integrated #55 source `92a53bfe9452ea0a3ad81824934113b369d82651`.
+It does not enable the renderer gate, change release configuration, or merge the stack.
+
+### Corners belong to the container, not a platform/device table
+
+The old phone-55px/desktop-20px rules are removed. Both stationary and moving
+surfaces resolve `border-radius: var(--reader-page-radius, 0px)`. An outer native
+host or a deliberately rounded web container can set that inherited CSS token.
+CSS shorthand permits asymmetric/elliptical corners. Remove the token when the
+container is square or its geometry is unknown; clear stale values on window,
+orientation, fullscreen, and display changes. Values must be expressed in the
+web viewport's CSS-pixel coordinate system, not blindly copied as device pixels.
+This patch provides the CSS contract; it does not add a Swift bridge.
+
+There is no interoperable browser API for physical display/window corner radii.
+`env(safe-area-inset-*)` gives a safe rectangle, not its enclosing curve. Insets
+also reserve other UI; converting them to radii, sniffing the UA, or treating a
+small viewport as an iPhone is not reliable. CSS `corner-shape` changes a drawn
+curve; it does not detect hardware geometry. Square-by-default applies on iPhone
+Safari too until geometry is supplied, rather than quietly guessing a radius.
+
+Native SwiftUI now documents `GeometryProxy.concentricCornerRadii(in:)`, returning
+optional radii for a specified frame relative to a known container shape. Its
+current documentation lists it as beta, so a future native bridge must check SDK
+and runtime availability, map physical corners, and handle `nil`. It is not a
+promise to recover every physical screen shape automatically. In particular,
+`containerCornerInsets` includes system controls and is not a substitute radius.
+
+Primary references, reviewed 2026-09-26:
+- https://www.w3.org/TR/css-env-1/#safe-area-insets
+- https://developer.apple.com/documentation/swiftui/geometryproxy/concentriccornerradii(in:)
+- https://developer.apple.com/documentation/swiftui/geometryproxy/containercornerinsets
+
+### Leading animation, instant middle, animated tail
+
+`PAGE_TURN_DURATION = 154` is exactly 70% of the old 220ms duration. It is shared
+by discrete commands and gesture settlement; direct dragging still follows
+pointer displacement. The existing cubic easing, layering, 15% parallax and 24%
+under-page dimming are unchanged. Reduced Motion removes settlement animation.
+
+The discrete sequence uses these rules:
+1. An isolated request begins its animation as soon as the neighbor is prepared.
+2. A request arriving while that turn is active finishes it immediately. Further
+   intermediate neighbors are prepared and committed without animation.
+3. Keep the newest neighbor prepared at progress zero, one turn ahead of the
+   committed reading location. A subsequent request makes it an instant middle
+   turn. Matched keyup, or 120ms without keyless button input, animates this final
+   reserved turn once. No reverse-and-replay of an already committed page occurs.
+4. `KeyboardEvent.repeat` and key identity survive the OS initial-repeat delay
+   and iframe promotion. Keyup is observed in the outer document and active
+   iframe. Custom Reader keybindings forward the same metadata through PageManager.
+5. Preserve direction order, not just a net delta: impossible turns at a book
+   edge must not cancel a later valid reversal. Equal consecutive directions are
+   compacted as runs. Only one neighbor loads at a time. Loading is still async;
+   removing animation waits does not eliminate actual chapter/font/layout work.
+6. Resize, navigation cancellation, blur, hidden document, failure and destruction
+   discard pending intents and stale results. One commit still emits one reading
+   relocation. A canceled reserved tail is never persisted as a visited page.
+
+The final request is necessarily held briefly: the controller cannot know which
+request is last until release/quiet. While a key is held, committed location trails
+requested location by at most the reserved neighbor once preparation catches up.
+There is no queue of animations to play after release. If layout itself is slower
+than input, ordered preparation still has to catch up; this is not an O(1) arbitrary
+EPUB-location jump or a guarantee of native hardware latency.
+
+### Standalone and tests
+
+`node scripts/build-slide-demo.mjs` generates
+`demos/apple-books-slide-poc/index.html` from the actual paginator, geometry,
+page-count, gesture-controller and sequence modules. The output includes source
+SHA-256 hashes and the Foliate license. No third-party network requests are made
+by the demo. Source template: `demos/apple-books-slide-poc/template.html`.
+
+New deterministic tests cover burst timing, key identity, slow preparation,
+reversals, boundaries, reduced motion, failures, and cancellation. The built-app
+`test_foliate_fast_turns.py` adds held-key cases in the outer document and both
+LTR/vertical-RTL iframes, plus inherited asymmetric-corner checks. The original
+keyframe suite now explicitly expects the square default instead of requiring a
+nonzero radius. No original case or no-page-error assertion is removed.
+
+`test_slide_demo.py` supports a served-HTML mode with real Blob URLs and an explicit
+in-memory fixture mode. The latter feeds only the sample HTML through srcdoc and
+preserves its fixture URL identity because this environment's about:blank origin
+makes distinct blob:null URLs cross-origin. This adapter is test-only, is not in
+the shipped HTML, and does not change sandbox attributes. In-memory passes do not
+qualify HTTP/file launch, Blob lifetimes, EPUB import, or the full Svelte application.
+The permanent Chromium CI step uses the served mode, without that adapter.

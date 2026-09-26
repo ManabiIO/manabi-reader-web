@@ -549,7 +549,7 @@ export class Paginator extends HTMLElement {
                 }
             }
         }
-        :host([layered]) { border-radius: var(--reader-page-radius, 55px); touch-action: pan-y pinch-zoom; overscroll-behavior-x: contain; }
+        :host([layered]) { border-radius: var(--reader-page-radius, 0px); touch-action: pan-y pinch-zoom; overscroll-behavior-x: contain; }
         :host([layered]) #top, .slide-sheet, .page-measure {
             border-radius: inherit;
             padding: var(--reader-page-insets, 0);

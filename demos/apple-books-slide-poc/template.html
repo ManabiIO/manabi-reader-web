@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f8f3e8">
+<link rel="icon" href="data:,">
+<title>Slide · Manabi Reader</title>
+<style>
+:root{--paper:#f8f3e8;--ink:#3d382f;--muted:#817867;--line:#cfc6b6;--accent:#a15335;color-scheme:light;font-family:system-ui,sans-serif}
+:root[data-theme=night]{--paper:#222724;--ink:#deddd3;--muted:#aaa998;--line:#4d544b;--accent:#e2a283;color-scheme:dark}
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--paper);color:var(--ink)}
+button,select,input{font:inherit;color:inherit}button,select{border:1px solid var(--line);background:var(--paper);border-radius:22px;min-height:44px;padding:0 16px;cursor:pointer}button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--accent);outline-offset:3px}button:disabled{opacity:.35;cursor:default}
+#mount{position:fixed;inset:0}foliate-paginator{width:100%;height:100%;--reader-page-insets:max(72px,env(safe-area-inset-top)) max(28px,env(safe-area-inset-right)) max(88px,env(safe-area-inset-bottom)) max(28px,env(safe-area-inset-left));}
+header,nav{position:fixed;left:max(22px,env(safe-area-inset-left));right:max(22px,env(safe-area-inset-right));z-index:8;display:flex;align-items:center;justify-content:space-between;gap:12px;pointer-events:none}header{top:max(16px,env(safe-area-inset-top))}nav{bottom:max(16px,env(safe-area-inset-bottom))}header>*,nav>*{pointer-events:auto}.brand{font-size:14px;font-weight:650;letter-spacing:-.3px}.brand small{display:block;font-size:9px;font-weight:450;letter-spacing:1.4px;text-transform:uppercase;color:var(--muted);margin-top:4px}.tools{display:flex;gap:7px}.circle{width:44px;padding:0;font-size:18px}.hint{transform:translateY(-34px);font-size:11px;color:var(--muted);text-align:center;max-width:270px;line-height:1.5}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+body.quiet header,body.quiet nav{display:none}#peek{position:fixed;z-index:9;right:max(16px,env(safe-area-inset-right));top:max(14px,env(safe-area-inset-top));display:none;opacity:.55}body.quiet #peek{display:block}
+dialog{max-width:410px;width:calc(100% - 26px);max-height:calc(100dvh - 30px);color:var(--ink);background:var(--paper);border:1px solid var(--line);border-radius:22px;padding:24px;overflow:auto;box-shadow:0 14px 70px #0003}dialog::backdrop{background:#0005;backdrop-filter:blur(5px)}h2{font-size:22px;font-weight:550;letter-spacing:-.7px;margin:0}.dialog-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:15px}.row{border-top:1px solid var(--line);padding:15px 0}.row label,.row-title{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px}.row p{font-size:11px;color:var(--muted);line-height:1.55;margin:9px 0 0}.row select{max-width:180px;font-size:12px;border-radius:12px}.row input[type=range]{width:100%;margin:16px 0 0;accent-color:var(--accent)}.row input[type=number]{width:78px;border:1px solid var(--line);border-radius:8px;background:var(--paper);padding:8px}.choices{display:flex;gap:8px;margin-top:12px}.choices button{font-size:12px;flex:1}.readout{font-variant-numeric:tabular-nums;font-size:12px;color:var(--accent);line-height:1.7}#error{position:fixed;bottom:90px;left:24px;right:24px;z-index:10;background:var(--paper);color:#b43b30;font-size:13px;white-space:pre-wrap}
+@media(min-width:768px){foliate-paginator{--reader-page-insets:max(88px,env(safe-area-inset-top)) max(64px,env(safe-area-inset-right)) max(110px,env(safe-area-inset-bottom)) max(64px,env(safe-area-inset-left));}header,nav{left:30px;right:30px}}@media(max-width:480px){.hint{max-width:170px;font-size:10px}.brand small{font-size:8px}.hold-label{display:none}}@media(max-height:450px){foliate-paginator{--reader-page-insets:52px 36px 58px}header{top:6px}nav{bottom:6px}.hint{display:none}}
+</style>
+<!-- BUNDLE -->
+</head>
+<body>
+<main id="mount" aria-label="Paginated sample book"></main>
+<header><div class="brand">Slide<small>The Manabi Reader implementation</small></div><div class="tools"><button id="hold" type="button" title="Hold to skim forward">Hold<span class="hold-label"> to skim</span> →</button><button id="settings-open" class="circle" aria-label="Reading and test controls">Aa</button></div></header>
+<nav aria-label="Page navigation"><button id="previous" class="circle" aria-label="Previous page">←</button><span class="hint">Swipe the page. Hold an arrow key.<br>First turn · instant middle · final turn.</span><button id="next" class="circle" aria-label="Next page">→</button></nav>
+<button id="peek" class="circle" aria-label="Show reading controls">···</button>
+<output id="error" role="alert"></output><div class="sr-only" id="status" role="status" aria-live="polite"></div>
+<dialog id="settings" aria-labelledby="settings-title"><div class="dialog-head"><h2 id="settings-title">Reading & motion</h2><button class="circle" id="close" aria-label="Close settings">×</button></div>
+<div class="row"><label for="language">Sample & direction<select id="language"><option value="en">English · LTR</option><option value="ja">日本語 · vertical RTL</option></select></label><p>Real Foliate text and iframe views, using the reader’s preparation, promotion, and input controller.</p></div>
+<div class="row"><label for="font-size">Text size <output id="font-label">22 px</output></label><input id="font-size" type="range" min="16" max="32" value="22" step="2"></div>
+<div class="row"><label for="night">Night paper<input id="night" type="checkbox"></label></div>
+<div class="row"><label for="corners">Corner geometry<select id="corners"><option value="auto">Host / square default</option><option value="preview">Manual preview only</option></select></label><p>No device list, screen-size guess, or safe-area-to-radius conversion. Browsers don’t supply the physical corner geometry. The host can provide <code>--reader-page-radius</code>; otherwise it is 0.</p><label for="radius" style="margin-top:10px">Preview radius <input id="radius" type="number" min="0" max="100" value="40" disabled aria-label="Manual preview radius in CSS pixels"></label></div>
+<div class="row"><div class="row-title">Inspect a partial turn<select id="direction" aria-label="Turn direction"><option value="1">Forward / uncover</option><option value="-1">Backward / cover</option></select></div><div class="choices"><button id="half">Hold at ½</button><button id="complete">Complete</button><button id="cancel">Cancel</button></div><input type="range" id="fraction" min="0" max="1" step=".001" value=".5" aria-label="Held turn progress"><p id="pose-note">Use the page itself for mouse-margin drag, touch, or wheel input. Mouse dragging text selects it.</p></div>
+<div class="row"><div class="readout" id="readout">Loading…</div><p>A turn takes 154 ms, down from 220 ms. Keyboard release finishes the reserved final turn. Buttons use 120 ms of quiet. Slow chapter preparation still has to finish; it doesn’t create an animation queue.</p><div class="choices"><button id="reset">First page</button></div></div>
+</dialog>
+<script type="module">
+import { Paginator } from '@slide/paginator';
+import { PageTurnController } from '@slide/page-turn-controller';
+const $=id=>document.getElementById(id), mount=$('mount'), dialog=$('settings');
+let paginator, controller, book, generation=0, held, inspecting=false, holdTimer, fontSize=22, rtl=false, commits=0;
+const texts={en:[
+ 'The best part of a walk is the moment you stop trying to arrive. One autumn morning, I left home with no destination. At the corner, instead of turning toward the station, I followed a narrow street I had passed a hundred times without entering.',
+ 'The street held a bicycle, three blue flowerpots, and a small bookshop whose door was already open. A curtain moved in the doorway. Somewhere behind it, a radio was playing quietly enough that the song belonged to the room rather than the street.',
+ 'I opened a book somewhere in the middle. There was a pencil mark beside a sentence. Whoever had made it had pressed lightly, as though they wanted to remember the words without disturbing them.',
+ 'For a moment, I held the next page halfway over. One paragraph was leaving; another was arriving. I could still go back. There was no need to hurry it. The next paragraph would still be there.'
+],ja:[
+ '朝の光が窓から差し込んでいた。私は行き先を決めずに家を出た。いつもの角を曲がる代わりに、まだ歩いたことのない細い道を選んだ。遠くで自転車のベルが鳴った。',
+ '道の先には小さな本屋があった。扉は少し開いていて、白いカーテンが静かに揺れていた。店主は顔を上げてうなずくと、またお茶に目を戻した。私は急がずに棚を眺めた。',
+ '本を開くと、ある文章の隣に薄い鉛筆の線が引かれていた。その言葉を覚えておきたいと思った人が、ここにもいたのだろう。窓の外では木の葉が光を受けて動いていた。',
+ '次のページを半分だけ動かして、私は少し待った。前の言葉も、これから読む言葉も、そこにあった。進んでも、戻ってもよかった。急いで着かなければならない場所はなかった。'
+]};
+function makeBook(){
+ const sections=Array.from({length:4},(_,chapter)=>{let url,refs=0;return {id:'chapter-'+chapter,linear:'yes',
+ async load(){refs++;if(!url){const body='<h1>'+(rtl?'ゆっくりと、先へ':'A little farther')+'</h1><p class="subtitle">'+(rtl?'第'+(chapter+1)+'章':'Chapter '+(chapter+1))+'</p>'+Array.from({length:32},(_,n)=>'<p>'+texts[rtl?'ja':'en'][(n+chapter)%4]+'</p>').join('');url=URL.createObjectURL(new Blob(['<!doctype html><html lang="'+(rtl?'ja':'en')+'"><head><meta charset="utf-8"></head><body><article class="book-content">'+body+'</article></body></html>'],{type:'text/html'}));}return url;},
+ unload(){if(refs>0&&--refs===0&&url){URL.revokeObjectURL(url);url=undefined;}},destroy(){if(url)URL.revokeObjectURL(url);url=undefined;refs=0;}}});return {dir:rtl?'rtl':'ltr',sections,destroy(){sections.forEach(s=>s.destroy());}};
+}
+function styles(){const css=getComputedStyle(document.documentElement);return `html{writing-mode:${rtl?'vertical-rl':'horizontal-tb'};background:${css.getPropertyValue('--paper')};color:${css.getPropertyValue('--ink')};}body{font-family:${rtl?'"Hiragino Mincho ProN", "Yu Mincho", serif':'"Iowan Old Style", Palatino, Georgia, serif'};font-size:${fontSize}px;line-height:1.8;}h1{font-size:2.4em;font-weight:400;line-height:1.2;margin:0 0 .5em;break-after:avoid;}p{margin:0 0 1em;text-indent:1em;orphans:2;widows:2;}.subtitle{font-size:.8em;opacity:.6;text-indent:0;margin-bottom:2em;}`;}
+function showControls(show){document.body.classList.toggle('quiet',!show);paginator?.setPageNumberDisplay({expanded:show,weights:[1,1,1,1]});}
+function update(){if(!paginator)return;const n=paginator.pageCounts;const total=n.every(x=>x!==undefined)?n.reduce((a,b)=>a+b,0):'?';$('readout').textContent=`Chapter ${(paginator.getContents()[0]?.index??0)+1} · page ${paginator.page} · ${total} total\n${commits} committed turns · ${getComputedStyle(paginator).borderRadius} corners`;$('status').textContent=`Chapter ${(paginator.getContents()[0]?.index??0)+1}, page ${paginator.page}`;}
+async function openBook(){const token=++generation;stopHold();controller?.destroy();paginator?.destroy();book?.destroy();mount.replaceChildren();commits=0;held=undefined;inspecting=false;book=makeBook();paginator=new Paginator();paginator.setAttribute('flow','paginated');paginator.setAttribute('gap','5%');paginator.setAttribute('margin','0');paginator.setAttribute('max-column-count','1');paginator.setAttribute('max-inline-size','760px');controller=new PageTurnController(paginator);mount.append(paginator);paginator.open(book);paginator.setStyles(styles());paginator.addEventListener('pageturnstart',()=>{if(!inspecting&&!holdTimer)showControls(false);});paginator.addEventListener('togglecontrols',()=>showControls(document.body.classList.contains('quiet')));paginator.addEventListener('relocate',e=>{if(e.detail.reason==='page')commits++;update();});paginator.addEventListener('pagecountchange',update);paginator.addEventListener('pageturnerror',e=>$('error').textContent=String(e.detail));await paginator.goTo({index:0,anchor:0});if(token!==generation)return;showControls(true);update();}
+function turn(d,input){held?.cancel();held=undefined;inspecting=false;controller.turn(d,input);}
+function stopHold(){clearInterval(holdTimer);holdTimer=undefined;}
+$('hold').addEventListener('pointerdown',e=>{if(e.button!==0)return;e.preventDefault();e.currentTarget.setPointerCapture(e.pointerId);holdTimer=setInterval(()=>turn(1),70);turn(1);});for(const type of ['pointerup','pointercancel','lostpointercapture'])$('hold').addEventListener(type,stopHold);
+$('previous').onclick=()=>turn(-1);$('next').onclick=()=>turn(1);$('peek').onclick=()=>showControls(true);
+window.addEventListener('keydown',e=>{if(dialog.open||e.defaultPrevented||e.altKey||e.ctrlKey||e.metaKey||e.shiftKey||e.target.closest?.('input,select,textarea,[contenteditable]'))return;const d=e.key==='ArrowRight'?(rtl?-1:1):e.key==='ArrowLeft'?(rtl?1:-1):e.key==='PageDown'?1:e.key==='PageUp'?-1:0;if(d){e.preventDefault();turn(d,{repeat:e.repeat,key:e.code||e.key});}else if(e.key==='Escape')controller.cancel();});
+window.addEventListener('blur',stopHold);document.addEventListener('visibilitychange',()=>{if(document.hidden)stopHold();});
+$('settings-open').onclick=()=>{stopHold();update();dialog.showModal();};$('close').onclick=()=>dialog.close();dialog.addEventListener('close',()=>{if(held){held.cancel();held=undefined;inspecting=false;}showControls(true);});
+$('language').onchange=()=>{rtl=$('language').value==='ja';openBook().catch(e=>$('error').textContent=String(e));};
+$('font-size').oninput=()=>{fontSize=Number($('font-size').value);$('font-label').textContent=fontSize+' px';controller.cancel();held=undefined;paginator.setStyles(styles());};
+$('night').onchange=()=>{document.documentElement.dataset.theme=$('night').checked?'night':'paper';controller.cancel();held=undefined;paginator.setStyles(styles());};
+function corners(){if($('corners').value==='preview'){const n=Math.max(0,Math.min(100,Number($('radius').value)||0));mount.style.setProperty('--reader-page-radius',n+'px');}else mount.style.removeProperty('--reader-page-radius');$('radius').disabled=$('corners').value!=='preview';update();}
+$('corners').onchange=corners;$('radius').oninput=corners;
+async function half(){controller.cancel();held?.cancel();inspecting=true;const token=generation;held=await paginator.preparePageTurn(Number($('direction').value));if(token!==generation)return;held?.update(Number($('fraction').value));$('pose-note').textContent=held?'Held pose. Move the slider; Complete promotes exactly once.':'No neighboring page in this direction.';}
+$('half').onclick=half;$('fraction').oninput=()=>held?.update(Number($('fraction').value));$('complete').onclick=()=>{held?.commit();held=undefined;inspecting=false;update();};$('cancel').onclick=()=>{held?.cancel();held=undefined;inspecting=false;};$('reset').onclick=async()=>{controller.cancel();held=undefined;await paginator.goTo({index:0,anchor:0});showControls(true);update();};
+window.slideDemo={get paginator(){return paginator},get controller(){return controller},getState:()=>({page:paginator.page,index:paginator.getContents()[0]?.index,commits,progress:Number(paginator.dataset.turnProgress||0),radius:getComputedStyle(paginator).borderRadius,counts:paginator.pageCounts,rtl}),turn,openBook};
+openBook().catch(e=>$('error').textContent=String(e));
+</script>
+</body></html>
