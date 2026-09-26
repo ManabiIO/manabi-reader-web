@@ -19,25 +19,26 @@ export interface FoliateEpubPublication {
 export function foliateArchiveEntryIndex(
   entries: ReadonlyMap<string, unknown>
 ): ReadonlyMap<string, string> {
-  const result = new Map<string, string>();
+  const resourceIndex = new Map<string, string>();
   for (const literal of entries.keys()) {
     const candidates = new Set([literal]);
     try {
       candidates.add(validateArchivePath(decodeURI(literal)));
     } catch {
-      // Malformed decoded names do not acquire a resource alias.
+      // LimitedArchive validates literal names. Invalid decoded spellings are
+      // not exposed as alternate resource names.
     }
     for (const candidate of candidates) {
-      const existing = result.get(candidate);
-      if (existing && existing !== literal)
+      const existing = resourceIndex.get(candidate);
+      if (existing !== undefined && existing !== literal)
         throw new Error(`Ambiguous EPUB resource path: ${candidate}`);
-      result.set(candidate, literal);
+      resourceIndex.set(candidate, literal);
     }
   }
-  return result;
+  return resourceIndex;
 }
 
-/** Open the bounded archive, closing it on every failed initialization path. */
+/** Adapt the bounded archive to Foliate while retaining ownership until close. */
 export async function openFoliateEpub(
   blob: Blob,
   options: ArchiveOptions = {}
@@ -61,7 +62,6 @@ export async function openFoliateEpub(
         return literal ? (archive.entries.get(literal)?.uncompressedSize ?? 0) : 0;
       }
     };
-
     const epub = new EPUB(source);
     const book = await epub.init();
     return {
