@@ -51,7 +51,7 @@ jobs:
       - run: pnpm --dir apps/web check
       - name: Build the actual application
         env:
-          BASE_PATH: /Reader-Web
+          BASE_PATH: /reader-web
         run: pnpm --dir apps/web build
       - name: Install generated-fixture and browser tools
         run: |

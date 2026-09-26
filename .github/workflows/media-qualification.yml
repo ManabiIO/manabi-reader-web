@@ -47,7 +47,7 @@ jobs:
           pnpm --dir apps/web check 2>&1 | tee .cache/media-qualification/app-check.log
       - name: Build the actual subpath application
         env:
-          BASE_PATH: /Reader-Web
+          BASE_PATH: /reader-web
         run: pnpm build 2>&1 | tee .cache/media-qualification/app-build.log
       - uses: actions/upload-artifact@v4
         if: always()
