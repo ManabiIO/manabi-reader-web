@@ -59,7 +59,13 @@ export class PageTurnSequence {
   private timer?: ReturnType<typeof setTimeout>;
   private animationStart?: number;
 
-  constructor(private port: TurnPort, private clock: Clock = defaultClock) {}
+  private port: TurnPort;
+  private clock: Clock;
+
+  constructor(port: TurnPort, clock: Clock = defaultClock) {
+    this.port = port;
+    this.clock = clock;
+  }
 
   get active() {
     return this.busy;
