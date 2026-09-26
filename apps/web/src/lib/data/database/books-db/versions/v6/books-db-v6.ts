@@ -8,6 +8,7 @@ import type { Completion } from '$lib/library/completion';
 import type { DirectionEvidence } from '$lib/library/direction';
 import type { BookCreator } from '$lib/library/book-metadata';
 import type { PublicationManifest } from '$lib/reader-location';
+import type { EpubPublicationDescriptor } from '$lib/functions/file-loaders/epub/epub-publication';
 import type { FsHandle, RemoteContext } from '$lib/data/storage/storage-source-manager';
 
 import type { DBSchema } from 'idb';
@@ -50,6 +51,8 @@ interface BooksDbV6BookData {
   characters: number;
   sections?: Section[];
   publicationManifest?: PublicationManifest;
+  /** EPUB-only Foliate-derived package/navigation descriptor for new imports. */
+  epubPublication?: EpubPublicationDescriptor;
   lastBookModified: number;
   lastBookOpen: number;
   storageSource?: string;
