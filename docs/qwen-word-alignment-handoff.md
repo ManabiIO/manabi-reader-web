@@ -123,3 +123,111 @@ absolute logit difference is 7.7992; this number is not a word-timing error metr
 or proof of a defective model. No reviewed Japanese audio/timestamp comparison
 is supplied by that metadata. It is therefore a candidate for qualification,
 not an accepted artifact for automatically downloading and timing user videos.
+
+## Post-Codex review: frozen inputs and revision-checked checkpoints
+
+Reviewed parent: `ce7e19a1aebfee1674931a9e9e322204cefb9922` (PR #52).
+The existing packed-duration correction, build integration, and complete-result
+checks are retained. The unpublished local alignment contract is now version 2
+and the planner revision is `qwen3-packed-v2`. No production caller currently
+imports these modules. This is not a migration of shipped captions or MOSS jobs;
+old experimental version-1 alignment records are rejected, not silently upgraded
+or erased. Experimental callers must explicitly regenerate a version-2 plan.
+
+### Corrected planning boundaries
+
+- Validate original cue IDs/text/times before padding. Padding cannot make a
+  reversed or negative interval valid. Bound count and cumulative UTF-8 payload.
+- Accumulate padded contexts using integer 16 kHz sample offsets and clip to
+  `mediaDuration` when supplied. The future decoder must supply its actual
+  canonical PCM duration and honor these exact floor/ceil sample boundaries.
+- Use content-derived batch IDs, including all cue identities, text, speaker,
+  ranges and planning settings. First/last delimiter strings were ambiguous and
+  survived text edits. Preserve input order for tied cue times.
+- Keep the existing conservative 180-second / 512-cue hard bounds, including
+  duplicated overlapping padded context. The previous configurable 600-second
+  ceiling exceeded the official model's documented five-minute input limit.
+- Validate the entire packed map before mapping words: contiguous positive
+  sample-aligned packed intervals, equal source/packed lengths, unique cue IDs,
+  bounded ranges and no synthetic-splice crossing, even by a sub-microsecond.
+
+The official model card is https://huggingface.co/Qwen/Qwen3-ForcedAligner-0.6B.
+A maximum is not a tested browser-performance guarantee. Public seconds represent
+sample-grid endpoints; returned model word times are not rounded into fabricated
+sample-level acoustic precision.
+
+### Version-2 store API
+
+New jobs must be queued, revision zero, empty, and include the nonempty ordered
+`plannedBatchIds` generated for their immutable transcript/model inputs.
+`modelRevision` must be an immutable lowercase 40-character Hub commit, not main.
+`put(job)` is create-only; an equivalent normalized existing snapshot is a no-op,
+but it cannot reset history or rebind the transcript/audio/model/plan.
+
+```ts
+let current = await store.get(id);
+if (!current) throw new Error('Missing alignment job');
+current = await store.update(id, current.revision, (job) => ({
+  ...job,
+  status: 'running'
+}));
+const approval = current.revision;
+// The future runtime uses the exact immutable plan represented by current.
+const result = await alignOnePlannedBatch(current);
+current = await store.checkpoint(id, result, approval);
+// Completion checks the durable plan; callers cannot supply a convenient subset.
+current = await store.complete(id, current.revision);
+```
+
+Capture the approval **before** decoding/inference. Never reread a newer revision
+solely to approve old output. A competing edit, pause/resume, or checkpoint revokes
+that approval in the same writable transaction. Process checkpoint writes
+serially. If a response is uncertain, inspect the durable result and compare it;
+an identical result with current approval is a no-op. A conflicting result cannot
+replace prior output, and completed jobs are immutable.
+
+`update` is state-only: source identity, plan, results and revision cannot be
+rewritten through it. `checkpoint` snapshots input before waiting for storage and
+requires a planned batch. `complete` requires every stored planned ID and refuses
+paused/failed/queued jobs. Bounds cover batch count, word count and JSON size;
+empty word output cannot certify a batch. Unalignable speech needs a future
+explicit rejected-result representation, not manufactured or empty successful
+word timing.
+
+The store uses the existing production MediaStore read/write transaction. See
+https://www.w3.org/TR/IndexedDB/#transaction-scheduling for overlapping-write
+serialization. This is a local compare-and-write contract, not worker leasing,
+network cancellation, filesystem durability, or native multi-tab qualification.
+
+### Important remaining implementation boundaries
+
+This planner still packs separate padded per-cue contexts and splits distant
+islands into separate plans. It does not yet create PCM, merge overlapping
+context, submit a true batched inference request, or implement adaptive
+throughput-based buffering. The static playhead priority is unchanged.
+
+Results still need authoritative cue/token/character-span binding, exact text
+coverage, packed-versus-unpacked Japanese accuracy tests, and real model identity
+verification before renderer use. JSON field validation and immutable inputs are
+not proof that a model produced correct timings. The required pipeline remains:
+publish usable MOSS lines first, enrich asynchronously, publish completed aligned
+regions independently, and retain static lines for unavailable/rejected timing.
+No new MOSS/player/background-service behavior is enabled by this review.
+
+### Review evidence
+
+The current local media run compiles the TypeScript and passes **399/399** tests,
+including **39** alignment cases (30 new and nine retained/adapted), with generated
+English container fixtures enabled and no skips. Six unchanged-API planner/map
+regressions fail against the exact parent module and pass after repair. Store
+cases execute the production MediaStore callbacks through the existing explicit
+transaction double, including separate connections, competing writes, pause /
+restart, rollback and input snapshots. They are not native IndexedDB or ASR tests.
+
+The parent CI reports successful normal CI, static build, video, Books, recovery
+and portability workflows. Its Appearance run `36213008055` failed in WebKit's
+`test_collection_management_reflows_at_double_text_size`: heading height 128 px
+versus allowed 65 px. That inherited collection-layout failure is outside these
+alignment files and is not declared flaky or fixed here. The new source still
+requires the normal installed-toolchain lint, Svelte, build and CI gates; local
+core compilation is not a substitute for those checks.

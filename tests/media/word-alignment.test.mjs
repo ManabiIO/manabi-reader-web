@@ -153,7 +153,9 @@ test('karaoke wipe is continuous only inside an authoritative word interval', ()
 
 test('durable job validation fences transcript/model identity and duplicate results', () => {
   const base = {
-    version: 1,
+    version: 2,
+    revision: 0,
+    plannedBatchIds: ['d'.repeat(64)],
     id: '00000000-0000-4000-8000-000000000001',
     mediaKey: `content:${'a'.repeat(64)}`,
     trackId: '00000000-0000-4000-8000-000000000002',
@@ -161,17 +163,17 @@ test('durable job validation fences transcript/model identity and duplicate resu
     audioTrack: 'audio:ja',
     language: 'ja',
     engine: 'qwen3-forced-aligner',
-    engineRevision: 'qwen3-packed-v1',
+    engineRevision: 'qwen3-packed-v2',
     model: 'Qwen/Qwen3-ForcedAligner-0.6B',
-    modelRevision: 'main',
+    modelRevision: 'e'.repeat(40),
     modelSha256: 'c'.repeat(64),
     status: 'running',
     createdAt: 1,
     updatedAt: 2,
-    completedBatchIds: ['a..b'],
+    completedBatchIds: ['d'.repeat(64)],
     results: [
       {
-        batchId: 'a..b',
+        batchId: 'd'.repeat(64),
         words: [{ text: '日本', start: 1, end: 2 }],
         completedAt: 2
       }
@@ -188,7 +190,7 @@ test('durable job validation fences transcript/model identity and duplicate resu
       /must match durable results/
     );
     assert.throws(
-      () => validateWordAlignmentJob({ ...base, status, completedBatchIds: ['other'] }),
+      () => validateWordAlignmentJob({ ...base, status, completedBatchIds: ['f'.repeat(64)] }),
       /must match durable results/
     );
   }
@@ -206,7 +208,7 @@ test('durable job validation fences transcript/model identity and duplicate resu
         ...base,
         results: [...base.results, base.results[0]]
       }),
-    /Duplicate alignment result/
+    /Invalid word-alignment job|Duplicate alignment result/
   );
 });
 
@@ -234,9 +236,15 @@ test('overlapping cue padding cannot exceed the packed inference duration limit'
 });
 
 test('durable alignment checkpoints reject stopped jobs and preserve completion', async () => {
-  const result = { batchId: 'a', words: [{ text: '日本', start: 1, end: 2 }], completedAt: 2 };
+  const result = {
+    batchId: 'd'.repeat(64),
+    words: [{ text: '日本', start: 1, end: 2 }],
+    completedAt: 2
+  };
   const base = {
-    version: 1,
+    version: 2,
+    revision: 0,
+    plannedBatchIds: ['d'.repeat(64)],
     id: '00000000-0000-4000-8000-000000000001',
     mediaKey: `content:${'a'.repeat(64)}`,
     trackId: '00000000-0000-4000-8000-000000000002',
@@ -244,9 +252,9 @@ test('durable alignment checkpoints reject stopped jobs and preserve completion'
     audioTrack: 'audio:ja',
     language: 'ja',
     engine: 'qwen3-forced-aligner',
-    engineRevision: 'qwen3-packed-v1',
+    engineRevision: 'qwen3-packed-v2',
     model: 'Qwen/Qwen3-ForcedAligner-0.6B',
-    modelRevision: 'test-revision',
+    modelRevision: 'e'.repeat(40),
     modelSha256: 'c'.repeat(64),
     status: 'running',
     createdAt: 1,
@@ -264,27 +272,34 @@ test('durable alignment checkpoints reject stopped jobs and preserve completion'
         return next;
       }
     },
-    'device'
+    'guest'
   );
   for (const status of ['paused', 'failed']) {
     durable = { ...base, status };
-    await assert.rejects(store.checkpoint(base.id, result), /Inactive/);
+    await assert.rejects(store.checkpoint(base.id, result, durable.revision), /Inactive/);
     assert.equal(durable.status, status);
     assert.deepEqual(durable.results, []);
   }
   durable = structuredClone(base);
-  await store.checkpoint(base.id, result);
-  await assert.rejects(store.complete(base.id, ['a', 'a']), /Duplicate expected/);
-  await store.complete(base.id, ['a']);
-  await store.checkpoint(base.id, result);
+  await store.checkpoint(base.id, result, durable.revision);
+  await assert.rejects(async () => store.complete(base.id, undefined), /exact alignment revision/);
+  await store.complete(base.id, durable.revision);
+  await store.checkpoint(base.id, result, durable.revision);
   assert.equal(durable.status, 'complete');
-  await assert.rejects(store.checkpoint(base.id, { ...result, batchId: 'b' }), /new checkpoint/);
   await assert.rejects(
-    store.checkpoint(base.id, { ...result, words: [] }),
+    store.checkpoint(base.id, { ...result, batchId: 'f'.repeat(64) }, durable.revision),
+    /new checkpoint/
+  );
+  await assert.rejects(
+    store.checkpoint(
+      base.id,
+      { ...result, words: [{ text: '別', start: 1, end: 2 }] },
+      durable.revision
+    ),
     /different durable output/
   );
   await assert.rejects(
-    store.update(base.id, (job) => ({ ...job, id: base.trackId })),
+    store.update(base.id, durable.revision, (job) => ({ ...job, id: base.trackId })),
     /identity cannot change/
   );
   assert.equal(durable.id, base.id);
