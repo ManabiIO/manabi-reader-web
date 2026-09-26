@@ -205,6 +205,8 @@
 
   export let htmlContent: string;
 
+  export let publicationManifest: PublicationManifest | undefined = undefined;
+
   export let previewNavigationActive = false;
 
   export let width: number;
@@ -459,6 +461,7 @@
   {#if viewMode === ViewMode.Continuous}
     <BookReaderContinuous
       {htmlContent}
+      {publicationManifest}
       {previewNavigationActive}
       width={$contentViewportWidth$ ?? 0}
       height={$contentViewportHeight$ ?? 0}
@@ -513,6 +516,7 @@
     <BookReaderPaginated
       bind:this={paginatedReader}
       {htmlContent}
+      {publicationManifest}
       width={$contentViewportWidth$ ?? 0}
       height={$contentViewportHeight$ ?? 0}
       {verticalMode}
