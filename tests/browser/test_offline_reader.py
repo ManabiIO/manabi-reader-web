@@ -106,7 +106,10 @@ class OfflineReader(unittest.TestCase):
     def test_aborted_import_rolls_back_and_a_retry_survives_offline_restart(self):
         self.run_offline_case(import_book=True, abort_once=True)
 
-    def run_offline_case(self, *, import_book, abort_once=False):
+    def test_binary_read_abort_is_visible_and_retry_survives_offline_restart(self):
+        self.run_offline_case(import_book=True, abort_bytes_once=True)
+
+    def run_offline_case(self, *, import_book, abort_once=False, abort_bytes_once=False):
         self.assertTrue((ROOT / 'service-worker.js').is_file(), 'Build the actual Reader first')
         manifest = json.loads((ROOT / 'manifest.webmanifest').read_text())
         server = ThreadingHTTPServer(('127.0.0.1', 0), OfflineStaticHandler)
@@ -141,6 +144,12 @@ class OfflineReader(unittest.TestCase):
                     document.add_init_script("""(() => {
                       const events = [];
                       window.__readerObjectURLs = events;
+                      window.__readerPngByteReads = 0;
+                      const readBytes = Blob.prototype.arrayBuffer;
+                      Blob.prototype.arrayBuffer = function() {
+                        if (this.type === 'image/png') window.__readerPngByteReads++;
+                        return readBytes.call(this);
+                      };
                       for (const method of ['createObjectURL', 'revokeObjectURL']) {
                         const original = URL[method];
                         URL[method] = function(value) {
@@ -180,6 +189,18 @@ class OfflineReader(unittest.TestCase):
                             return request;
                           };
                         })();""")
+                    if abort_bytes_once:
+                        context.add_init_script("""(() => {
+                          const read = Blob.prototype.arrayBuffer;
+                          Blob.prototype.arrayBuffer = function() {
+                            if (this.type === 'image/png') {
+                              Blob.prototype.arrayBuffer = read;
+                              window.__readerAbortedByteReads = 1;
+                              return Promise.reject(new DOMException('Native byte read failed', 'AbortError'));
+                            }
+                            return read.call(this);
+                          };
+                        })();""")
                     page = context.pages[0] if context.pages else context.new_page()
                     observe(page)
                     initial = page.goto(origin + SCOPE + 'manage')
@@ -191,19 +212,27 @@ class OfflineReader(unittest.TestCase):
                         page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
                             'name': 'offline.epub', 'mimeType': 'application/epub+zip', 'buffer': book_bytes
                         })
-                        if abort_once:
+                        if abort_once or abort_bytes_once:
                             stage = 'failed import rollback and retry'
                             expect(page.get_by_text('Bookimport failed', exact=True)).to_be_visible(timeout=15000)
-                            expect(page.get_by_text(re.compile(
+                            message = (
+                                r'The book’s image bytes could not be read' if abort_bytes_once else
                                 r'The book could not be saved because its local storage transaction was aborted'
-                            ))).to_be_visible()
-                            self.assertEqual(page.evaluate('window.__readerAbortedWrites'), 1)
+                            )
+                            expect(page.get_by_text(re.compile(message))).to_be_visible()
+                            counter = '__readerAbortedByteReads' if abort_bytes_once else '__readerAbortedWrites'
+                            self.assertEqual(page.evaluate('window.' + counter), 1)
                             self.assertEqual(page.evaluate("""() => new Promise((resolve, reject) => {
-                              const tx = window.__readerAbortedDatabase.transaction('data');
-                              const count = tx.objectStore('data').count();
-                              count.onerror = () => reject(count.error);
-                              tx.onabort = () => reject(tx.error);
-                              tx.oncomplete = () => resolve(count.result);
+                              const open = indexedDB.open('books');
+                              open.onupgradeneeded = () => open.transaction.abort();
+                              open.onerror = () => reject(open.error);
+                              open.onsuccess = () => {
+                                const db = open.result;
+                                const tx = db.transaction('data');
+                                const count = tx.objectStore('data').count();
+                                tx.onabort = () => { db.close(); reject(tx.error); };
+                                tx.oncomplete = () => { db.close(); resolve(count.result); };
+                              };
                             })"""), 0)
                             self.assertEqual(errors, [])
                             expect(page.get_by_role('button', name='Read ' + TITLE, exact=True)).to_have_count(0)
@@ -265,6 +294,30 @@ class OfflineReader(unittest.TestCase):
                         # failure must still contain its real local image.
                         decoded_image = decoded_local_image(page)
                         self.assertEqual(decoded_image, expected_image)
+                        # Reopening updates last-read metadata, not binary content.
+                        # No PNG Blob bytes should be read again just to touch the record.
+                        self.assertEqual(page.evaluate('window.__readerPngByteReads'), 0)
+                        stored = page.evaluate("""() => new Promise((resolve, reject) => {
+                          const open = indexedDB.open('books');
+                          open.onupgradeneeded = () => open.transaction.abort();
+                          open.onerror = () => reject(open.error);
+                          open.onsuccess = () => {
+                            const db = open.result;
+                            const tx = db.transaction('data');
+                            const get = tx.objectStore('data').get(Number(new URL(location.href).searchParams.get('id')));
+                            tx.onabort = () => { db.close(); reject(tx.error); };
+                            tx.oncomplete = () => {
+                              const images = Object.values(get.result.blobs);
+                              resolve({version: db.version, images: images.length,
+                                byteRecords: images.every(value => value.format === 'reader-bytes-v1' &&
+                                  typeof value.type === 'string' && value.bytes instanceof ArrayBuffer)});
+                              db.close();
+                            };
+                          };
+                        })""")
+                        self.assertEqual(stored['version'], 11)
+                        self.assertGreater(stored['images'], 0)
+                        self.assertTrue(stored['byteRecords'])
                     else:
                         expect(page).to_have_url(origin + SCOPE + 'manage')
                         expect(page.locator('input[type=file][webkitdirectory]')).to_be_attached()
@@ -278,7 +331,7 @@ class OfflineReader(unittest.TestCase):
                     self.assertEqual(errors, [])
                     stage = 'complete'
                 finally:
-                    variant = 'recovered-import' if abort_once else ('book' if import_book else 'empty-library')
+                    variant = ('recovered-byte-read' if abort_bytes_once else 'recovered-import') if (abort_once or abort_bytes_once) else ('book' if import_book else 'empty-library')
                     diagnostics = Path('test-results') / ('offline-' + OPTIONS.browser) / variant
                     diagnostics.mkdir(parents=True, exist_ok=True)
                     report = {

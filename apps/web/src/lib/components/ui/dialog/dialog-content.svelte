@@ -8,6 +8,7 @@
   import type { ComponentProps } from 'svelte';
   import { focusModalStart } from '$lib/hooks/focus-modal-start';
   import { containModalTab } from '$lib/hooks/focus-trap-fallback.js';
+  import { preserveModalFocus } from '$lib/hooks/preserve-modal-focus.js';
 
   let {
     ref = $bindable(null),
@@ -46,7 +47,7 @@
       containModalTab(event);
     }}
     onOpenAutoFocus={(event) => {
-      onOpenAutoFocus?.(event);
+      preserveModalFocus(event, ref, onOpenAutoFocus);
       if (!event.defaultPrevented && ref) focusModalStart(event, ref);
     }}
     data-modal-close-button={showCloseButton ? '' : undefined}

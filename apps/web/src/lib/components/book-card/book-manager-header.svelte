@@ -508,9 +508,6 @@
                 </Menu.Sub>
               {/if}
               <Menu.Separator />
-              <Menu.Item onSelect={openUserGuide}
-                ><BookOpen aria-hidden="true" />User guide</Menu.Item
-              >
               <Menu.Item onSelect={() => dispatch('bugReportClick')}
                 ><Bug aria-hidden="true" />Report an Issue</Menu.Item
               >

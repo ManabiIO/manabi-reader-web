@@ -142,6 +142,7 @@
   let targetBook: ShelfBook | undefined,
     coverTarget: ShelfBook | undefined,
     coverInput: HTMLInputElement,
+    newCollectionInput: HTMLInputElement | undefined,
     targetSeries: ShelfSeries | undefined,
     name = '',
     date = '',
@@ -1497,6 +1498,15 @@
 <Dialog.Root bind:open={dialogOpen}>
   <Dialog.Content
     class={`max-h-[85dvh] overflow-y-auto [&_[data-slot=dialog-close]]:top-3 [&_[data-slot=dialog-close]]:right-3 [&_[data-slot=dialog-close]]:size-11 [&_[data-slot=dialog-footer]_button]:min-h-11 ${dialog === 'new-series' ? 'sm:max-w-xl' : ''}`}
+    onOpenAutoFocus={(event) => {
+      if (dialog !== 'membership') return;
+      // Bits UI may otherwise move focus between the new-collection field and
+      // an existing membership checkbox while the portalled dialog settles in
+      // WebKit. Own the initial target so typing/Enter cannot submit an empty
+      // required field after focus is stolen.
+      event.preventDefault();
+      newCollectionInput?.focus();
+    }}
   >
     <Dialog.Header>
       <Dialog.Title class="pr-8"
@@ -1589,6 +1599,7 @@
         <label class="min-w-0 flex-1"
           ><span class="sr-only">New collection name</span><input
             class="min-h-11 w-full rounded-xl border border-input bg-background px-3"
+            bind:this={newCollectionInput}
             bind:value={newCollectionName}
             placeholder="New collection name"
             maxlength="240"
