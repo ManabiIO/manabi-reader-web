@@ -43,7 +43,8 @@ class LibraryReleaseGate(unittest.TestCase):
             self.assertEqual([['-m', 'unittest', *gate.LOCAL_MODULES, '-v']], matches)
         for name in ('test_library_deletion', 'test_book_save_cancellation', 'test_book_last_read',
                      'test_local_library_features', 'test_local_library_review',
-                     'test_local_library_refinement', 'test_local_library_lifecycle'):
+                     'test_local_library_refinement', 'test_local_library_lifecycle',
+                     'test_library_open_commit'):
             self.assertIn(name, gate.LOCAL_MODULES)
         for _, _, args in all_groups:
             if args[0].endswith('.py'):

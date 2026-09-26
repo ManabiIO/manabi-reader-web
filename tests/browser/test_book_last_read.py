@@ -55,6 +55,33 @@ class BookLastRead(LibraryDeletionRuntime):
         self.assertEqual(500, result['time'])
         self.assertEqual([], result['keys'])
 
+    def test_last_read_captures_arguments_before_waiting_for_database(self):
+        self.open_runtime()
+        result = self.page.evaluate("""async () => {
+          const {database} = await import('/reader-web/src/lib/data/store.ts');
+          const {BrowserStorageHandler} = await import('/reader-web/src/lib/data/storage/handler/browser-handler.ts');
+          const {StorageKey} = await import('/reader-web/src/lib/data/storage/storage-types.ts');
+          const original = database.db, db = await original;
+          const book = {title:'Selected',elementHtml:'<p>Read</p>',blobs:{},sections:[],lastBookOpen:100};
+          const id = await db.add('data',book);
+          const other = await db.add('data',{...book,title:'Unrelated'});
+          const handler = new BrowserStorageHandler(window,StorageKey.BROWSER);
+          handler.startContext({id,title:book.title});
+          let ready;
+          database.db = new Promise(resolve => { ready=resolve; });
+          const snapshot = {...book,id,lastBookOpen:200};
+          const pending = handler.updateLastRead(snapshot);
+          try {
+            snapshot.id=other; snapshot.lastBookOpen=900;
+          } finally {
+            database.db=original; ready(db);
+          }
+          await pending;
+          return {selected:(await db.get('data',id)).lastBookOpen,
+                  unrelated:(await db.get('data',other)).lastBookOpen};
+        }""")
+        self.assertEqual({'selected': 200, 'unrelated': 100}, result)
+
     def test_native_abort_rolls_back_is_observed_and_allows_retry(self):
         self.open_runtime()
         result = self.page.evaluate("""async () => {

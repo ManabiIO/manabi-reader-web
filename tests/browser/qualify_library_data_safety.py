@@ -15,6 +15,7 @@ LOCAL_MODULES = (
     'test_local_library_features', 'test_local_library_review',
     'test_local_library_refinement', 'test_local_library_lifecycle',
     'test_library_deletion', 'test_book_save_cancellation', 'test_book_last_read',
+    'test_library_open_commit',
 )
 OPEN_CASES = (
     'test_books_library.BooksLibraryFilesystem.test_external_relocation_rebinds_content_identity_and_presentation',

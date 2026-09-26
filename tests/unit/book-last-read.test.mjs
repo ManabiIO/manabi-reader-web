@@ -108,7 +108,7 @@ test('completion remains pending until commit, and a commit failure is propagate
   );
 });
 
-test('the actual browser handler uses only current identity and metadata for last-read', async () => {
+function browserLastRead() {
   const source = readFileSync(
     new URL('../../apps/web/src/lib/data/storage/handler/browser-handler.ts', import.meta.url),
     'utf8'
@@ -118,13 +118,11 @@ test('the actual browser handler uses only current identity and metadata for las
     .split('\n  async getFilenameForRecentCheck')[0]
     .replace(/\n {2}}\s*$/, '');
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-  const invoke = new AsyncFunction(
-    'book',
-    'database',
-    'updateBookLastRead',
-    'BaseStorageHandler',
-    body
-  );
+  return new AsyncFunction('book', 'database', 'updateBookLastRead', 'BaseStorageHandler', body);
+}
+
+test('the actual browser handler uses only current identity and metadata for last-read', async () => {
+  const invoke = browserLastRead();
   const db = database(currentBook());
   const cards = [];
   await invoke.call(
@@ -137,4 +135,25 @@ test('the actual browser handler uses only current identity and metadata for las
   assert.equal(cards[0][0], 'Current title');
   assert.equal(cards[0][1].lastBookOpen, 200);
   assert.equal(db.writes[0].elementHtml, '<p>Current content</p>');
+});
+
+test('the handler captures the selected ID and timestamp before waiting for its database', async () => {
+  let ready;
+  const waiting = new Promise((resolve) => (ready = resolve));
+  const book = { ...currentBook(), lastBookOpen: 200 };
+  const calls = [];
+  const pending = browserLastRead().call(
+    { addBookCard() {} },
+    book,
+    { db: waiting },
+    async (db, id, timestamp) => {
+      calls.push({ db, id, timestamp });
+    },
+    {}
+  );
+  book.id = 2;
+  book.lastBookOpen = 900;
+  ready('database');
+  await pending;
+  assert.deepEqual(calls, [{ db: 'database', id: 1, timestamp: 200 }]);
 });

@@ -1,61 +1,93 @@
 # Release data-safety follow-up
 
-The follow-up retains Reader #57 through
-`a2258a76c52ce4ce30d9c083910951e9a5494808`, including the concurrent metadata,
-binary validation and cursor-listing repairs. Every application source file is
-identical to that parent. No renderer or production activation gate is changed.
+The candidate retains Reader #57 through
+`c3f0ad8e64eeac73e208bba5d631851c83570efc` as a real merge parent, including
+committed resume-target writes and exact-ID local preparation. It preserves the
+preceding timestamp, binary validation, cursor-listing and cancellation repairs.
+No renderer, schema, dependency, provider or production activation gate changes.
 
 ## Required main qualification
 
-`books-library.yml` already qualifies every main push and is required by both
-the frontend notifier and backend publisher. Its existing app build and browser
-installation now also run Shared TTU round-trip/safety/UI and Local Library
-feature/review/lifecycle/deletion/save-cancellation/last-read suites. Local suites
-run in Chromium and WebKit; the two focused open/Back cases remain selected.
+`books-library.yml` qualifies every main push and is required by both the
+frontend notifier and backend publisher. Its existing app build and browsers
+also run Shared TTU round-trip/safety/UI and Local Library feature, review,
+lifecycle, deletion, save-cancellation, last-read and open-commit suites.
+Local suites run in Chromium and WebKit; the two focused open/Back cases remain.
 
 `tests/browser/qualify_library_data_safety.py` is the one suite list used by this
-required result and both standalone PR workflows. It is only a test launcher:
-no rebuild, download, deployment, provider access or new release authority.
-Shared files retain their explicit main entry points to avoid accidentally
-collecting inherited harness cases. Native-module tests still use their existing
-Vite harness; those cases are not represented as production-bundle evidence.
+required result and both standalone PR workflows. It is only a test launcher,
+not a deployment coordinator. Shared files retain their explicit main entry
+points to avoid accidental inherited test discovery. Native-module cases still
+use their existing Vite harness and are not production-bundle evidence.
 
 The launcher preserves every exit status, does not retry, and collects remaining
-engine results after a failure. Any failure makes the job fail. Its report and
-browser diagnostics are retained in the existing workflow artifacts. The Books
-job budget grows to accommodate the extra suites; no per-test timeout or
-assertion changes. Five standard-library tests exercise the actual dispatcher,
-including each group's nonzero and signal exit, source selection and mandatory
-main wiring. The three production workflow authorities are unchanged.
+engine results after a failure. Any failure fails qualification. Five
+standard-library tests exercise each group's nonzero/signal exit, actual engine
+selection and mandatory main wiring. The three production workflow authorities
+and notifier credential boundary remain unchanged.
 
-## Preserve the concurrent last-read repair
+The newer base added nine `test_library_open_commit` cases. Reconciliation adds
+that module to the central dispatcher and its regression, rather than losing
+it when resolving the standalone workflow conflict. Actual unittest discovery
+selects 77 unique Local Library cases, with no duplicated test IDs. This is
+selection evidence, not a claim that those browsers have passed locally.
 
-WebKit evidence on `8649c0de` (Appearance run `36227962964`) identified Blob-access
-errors through `updateLastRead` during immediate Reader departure. The old
-handler re-encoded every image and rewrote the caller's entire book snapshot for
-a timestamp update, also permitting stale content replacement or resurrection
-of a deleted book.
+## Preserve and refine the current-record timestamp boundary
 
-The initial follow-up independently selected #48's `book-records.ts` helper.
-While it was being prepared, #57's `a2258a76` integrated the same helper, binary
-validation and cursor-based listing, with its own native and built-app regression
-evidence. The follow-up merges that real commit and keeps its application files
-unchanged instead of overwriting or duplicating the repair.
+The earlier WebKit evidence on `8649c0de` identified Blob reads in
+`updateLastRead` during immediate Reader departure. The method encoded every
+image and replaced a stale whole-book snapshot just to update a timestamp.
+#57's `a2258a76` integrated the reviewed metadata-only helper, validated binary
+encoding and cursor-based listing. These concurrent repairs remain intact;
+this is not a wholesale merge of sibling #48.
 
-One read/write transaction now updates only the current stored record's monotonic
-last-read timestamp, preserving content, source, receipts and binary representation.
-Deleted books are not recreated and image bytes are not read. The separate
-content-save validation and cancellation repairs remain those of #57.
+The handler still read `book.id` and `book.lastBookOpen` after awaiting the DB
+promise. A deterministic test reproduced an update to ID 2 at timestamp 900
+instead of the original ID 1 at timestamp 200. Capture those two scalars at
+entry, while retaining the existing current-record read/modify/write transaction.
+No image is read, deleted books stay deleted and newer timestamps are preserved.
+This is a boundary reproduction, not an observed production caller changing IDs.
+The direct handler test and a native-IndexedDB test cover the held-DB sequence.
 
-Six additional unit tests exercise the helper and actual handler body. Three
-native IndexedDB cases are selected in both engines: stale snapshots with an
-image-read trap, deleted/newer timestamp preservation, and a real write-abort,
-rollback and retry. Existing strict catalog navigation stress and page-error
-assertions are unchanged. These add evidence; they do not claim ownership of the
-concurrent production fix or replace its built-app acceptance.
+The newer base also added two `$lib` runtime imports in `book-records.ts`.
+Combining them with the direct Node timestamp tests reproduced
+`ERR_MODULE_NOT_FOUND` before execution. Explicit relative TypeScript paths
+import the same production helpers, matching other directly tested pure modules.
+No copied implementation, loader mock or dependency is added.
 
-Exact composed-head browser, lint and build qualification is required. Local
-policy/unit tests alone do not establish WebKit, physical Safari, live-provider
-or host cutover acceptance. Backend pins must qualify the final selected
-frontend composition, not an older green pair. No main/master merge or production
-dispatch is part of this follow-up.
+Seven timestamp unit cases and four native IndexedDB cases cover metadata-only
+writes, delayed arguments, deleted/newer records and native abort/rollback/retry.
+The existing catalog, opening, ownership, migration and page-error tests remain.
+
+## Strict-CSP Back fixture
+
+Base Local Library run `36255103115` passed 73 Chromium cases and two focused
+open/Back cases. WebKit errored in the new queued-open Back test's
+`wait_for_function`: page-world eval was rejected by the actual app CSP. Failure
+teardown also reported an unfinished module-import rejection. This is distinct
+from the older catalog Blob-read failure.
+
+Observe the same native transaction-construction hook through a temporary HTML
+data attribute and a locator assertion instead of page-world eval polling.
+The other tab still holds a real native transaction. Back, release, unchanged
+resume state and explicit retry are retained. The successful retry also waits
+for the real Reader's `aria-busy=false` before teardown. No CSP bypass, error
+filter, retry or enlarged test timeout is introduced.
+
+A minimal local Chromium/CSP fixture supports the locator observation but does
+not reproduce the WebKit-only error or qualify the app. Exact composed Linux
+WebKit acceptance is required before this fixture issue can be called resolved.
+
+## Evidence and rollout boundary
+
+Local continuation: 23 focused Node tests and five release-gate tests pass;
+Python compilation, YAML parsing and whitespace checks pass. The delayed-ID
+case fails before its repair and passes afterward. Local Node 22.16 and
+Playwright 1.57 differ from the pinned CI tools. The full installed-toolchain
+build and native-browser results belong to the exact-head GitHub checks.
+
+Both backend qualification pins must follow the final selected frontend head.
+Earlier green pairs do not certify a new composition. Final main/master,
+physical Safari, live-provider, full server image/application and host-cutover
+acceptance remain separate. No main/master merge or production dispatch is
+part of this work. Current run IDs/results are recorded on the PRs.
