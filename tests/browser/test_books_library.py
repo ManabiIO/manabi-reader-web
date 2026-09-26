@@ -4,6 +4,7 @@ No mocked storage, replaced picker, imported substitute UI or request intercepti
 Filesystem cases run on Chromium; the browser-only cases also run on WebKit.
 """
 import base64
+import hashlib
 import io
 import json
 import os
@@ -55,6 +56,36 @@ def book(title, spine='', style='body{writing-mode:horizontal-tb}', body=None, s
     return output.getvalue()
 
 
+def cross_resource_book():
+    """Two real spine resources with a nonzero origin and an offscreen search hit."""
+    output = io.BytesIO()
+    chapter_one = (
+        '<h1>Origin Chapter</h1>'
+        + ''.join('<p>Opening passage %04d. ここでは猫と本を読みます。</p>' % i for i in range(60))
+        + '<p>ORIGIN_LEAD_IN. The exact passage is ORIGIN_ANCHOR_𠮷猫_終点. Continue reading here.</p>'
+        + ''.join('<p>Later passage %04d. さらに読書を続けています。</p>' % i for i in range(55))
+    )
+    chapter_two = (
+        '<h1>Destination Chapter</h1>'
+        + ''.join('<p>Destination passage %04d. 遠くまで進みます。</p>' % i for i in range(35))
+        + '<p>DESTINATION_UNIQUE_𠮷猫_終端. Search across resources.</p>'
+    )
+    with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr('mimetype', 'application/epub+zip', compress_type=zipfile.ZIP_STORED)
+        archive.writestr('META-INF/container.xml',
+                         '<container><rootfiles><rootfile full-path="OEBPS/content.opf"/></rootfiles></container>')
+        archive.writestr('OEBPS/content.opf',
+                         '<package xmlns="http://www.idpf.org/2007/opf" version="2.0">'
+                         '<metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">Cross Resource Return</dc:title>'
+                         '<dc:language xmlns:dc="http://purl.org/dc/elements/1.1/">ja</dc:language></metadata>'
+                         '<manifest><item id="first" href="chapter-1.xhtml" media-type="application/xhtml+xml"/>'
+                         '<item id="second" href="chapter-2.xhtml" media-type="application/xhtml+xml"/></manifest>'
+                         '<spine><itemref idref="first"/><itemref idref="second"/></spine></package>')
+        archive.writestr('OEBPS/chapter-1.xhtml', '<html><body>' + chapter_one + '</body></html>')
+        archive.writestr('OEBPS/chapter-2.xhtml', '<html><body>' + chapter_two + '</body></html>')
+    return output.getvalue()
+
+
 def macos_browser_package_handoff(title):
     source = zipfile.ZipFile(io.BytesIO(book(title)))
     output = io.BytesIO()
@@ -90,6 +121,8 @@ class LibraryBase(unittest.TestCase):
         self.engine = os.environ.get('LIBRARY_BROWSER', 'chromium')
         self.context = getattr(self.playwright, self.engine).launch_persistent_context(
             self.profile.name, viewport={'width': 1200, 'height': 900})
+        self.context.add_init_script(
+            "try { localStorage.setItem('manabi-reader-dictionary-setup-v1', 'skip') } catch {}")
         self.page = self.context.pages[0]
         self.page.set_default_timeout(20000)
         self.errors = []
@@ -112,7 +145,9 @@ class LibraryBase(unittest.TestCase):
     def go_library(self):
         self.page.goto(self.origin + '/reader-web/manage')
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
-        expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute('aria-busy', 'false', timeout=30000)
+        shelf = self.page.get_by_role('region', name='Library shelves')
+        expect(shelf).to_have_attribute('data-hydrated', 'true', timeout=30000)
+        expect(shelf).to_have_attribute('aria-busy', 'false', timeout=30000)
 
     def import_book(self, title='Library test', **options):
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files(
@@ -154,7 +189,31 @@ class LibraryBase(unittest.TestCase):
         self.menu(title, 'Add to Collection…')
         dialog = self.dialog()
         name_input = dialog.get_by_label('New collection name', exact=True)
-        name_input.fill(name)
+        expect(dialog).to_be_visible()
+        expect(self.page.get_by_role('menu')).to_have_count(0)
+        # The menu hands focus to the dialog in a portal. Wait for that handoff
+        # to finish before typing into its input; the first mounted node can
+        # be replaced during the transition.
+        self.page.evaluate('''() => new Promise(resolve =>
+          requestAnimationFrame(() => requestAnimationFrame(resolve)))''')
+        expect(name_input).to_be_visible()
+        self.page.evaluate('''() => {
+          const form = document.querySelector('[data-slot="dialog-content"] form');
+          const input = form?.querySelector('input[placeholder="New collection name"]');
+          window.__collectionEvents = [];
+          for (const [target, kind] of [[input,'input'],[input,'invalid'],[form,'submit']]) {
+            target?.addEventListener(kind, () => window.__collectionEvents.push({
+              kind, value: input?.value, time: performance.now()
+            }), {capture:true});
+          }
+        }''')
+        # Type through the actual input events after the portal settles.
+        name_input.press_sequentially(name)
+        try:
+            expect(name_input).to_have_value(name)
+        except AssertionError as failure:
+            events = self.page.evaluate('window.__collectionEvents || []')
+            raise AssertionError(f'Collection input changed while typing: {events!r}') from failure
         dialog.get_by_role('button', name='Create', exact=True).click()
         # The create action clears the field only after the IndexedDB
         # transaction publishes the updated organization. Waiting on that
@@ -167,8 +226,9 @@ class LibraryBase(unittest.TestCase):
             saved = next((row for row in rows if row.get('version') == 1 and 'collections' in row), {})
             names = [collection.get('name') for collection in saved.get('collections', [])]
             alerts = dialog.get_by_role('alert').all_text_contents()
+            events = self.page.evaluate('window.__collectionEvents || []')
             raise AssertionError(
-                f'Collection {name!r} was not shown after creation; persisted={names!r}; alerts={alerts!r}'
+                f'Collection {name!r} was not shown after creation; persisted={names!r}; alerts={alerts!r}; events={events!r}'
             ) from failure
         dialog.get_by_role('button', name='Done', exact=True).click()
         # Do not fill the previous dialog's still-mounted exit transition when
@@ -205,6 +265,176 @@ class LibraryBase(unittest.TestCase):
 
 
 class BooksLibraryBrowser(LibraryBase):
+    def test_yatsu_backup_collection_is_visible_on_phone_and_desktop(self):
+        fixture = Path(__file__).resolve().parents[1] / 'fixtures' / 'yatsu' / 'complete-local-backup-v11.zip'
+        self.page.goto(self.origin + '/reader-web/import-ttu?source=yatsu')
+        picker = self.page.get_by_label('Choose Yatsu backup ZIPs', exact=True)
+        picker.set_input_files(str(fixture))
+        self.page.get_by_role('button', name='Import selected (1)', exact=True).click()
+        expect(self.page.get_by_role('article', name='Import Manabi Yatsu Portability Fixture')
+               .get_by_role('status')).to_have_text('Imported Manabi Yatsu Portability Fixture.', timeout=60000)
+        for width in (390, 1200):
+            with self.subTest(width=width):
+                self.page.set_viewport_size({'width': width, 'height': 844})
+                self.go_library()
+                if width < 1024:
+                    self.page.get_by_role('button', name='Collections', exact=True).click()
+                    self.page.locator('#library-collections-sheet').get_by_role(
+                        'button', name=re.compile(r'^Portable Shelf\s+1$')).click()
+                else:
+                    self.page.get_by_role('complementary', name='Collections').get_by_role(
+                        'button', name=re.compile(r'^Portable Shelf\s+1$')).click()
+                expect(self.page.get_by_role('button', name='Read Manabi Yatsu Portability Fixture')).to_be_visible()
+                self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), width + 1)
+
+    def _cross_resource_return(self, viewport, writing_mode=None):
+        self.page.set_viewport_size(viewport)
+        if writing_mode:
+            self.page.evaluate('(mode) => localStorage.setItem("writingMode", mode)', writing_mode)
+        self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
+            'name': 'cross-resource-return.epub',
+            'mimeType': 'application/epub+zip',
+            'buffer': cross_resource_book()
+        })
+        self.page.get_by_role('button', name='Read Cross Resource Return', exact=True).click(timeout=30000)
+        content = self.page.locator('.book-content').first
+        expect(content).to_be_visible(timeout=30000)
+        expect(content).to_have_attribute('aria-busy', 'false', timeout=30000)
+        origin = content.get_by_text('ORIGIN_ANCHOR_𠮷猫_終点', exact=False)
+        expect(origin).to_be_attached(timeout=30000)
+
+        def passage_geometry(phrase):
+            return content.evaluate('''(host, phrase) => {
+              for (const section of host.children) {
+                const walker = document.createTreeWalker(section, NodeFilter.SHOW_TEXT);
+                let node;
+                while ((node = walker.nextNode())) {
+                  const offset = node.data.indexOf(phrase);
+                  if (offset < 0) continue;
+                  const range = document.createRange();
+                  range.setStart(node, offset);
+                  range.setEnd(node, offset + phrase.length);
+                  const ink = range.getBoundingClientRect();
+                  const port = host.getBoundingClientRect();
+                  return {
+                    spine: Number(section.dataset.manabiSpineIndex),
+                    visible: ink.right > port.left && ink.left < port.right &&
+                      ink.bottom > port.top && ink.top < port.bottom,
+                    scroll: Math.max(Math.abs(host.scrollTop), Math.abs(host.scrollLeft)),
+                    ink: { x: ink.x, y: ink.y, width: ink.width, height: ink.height },
+                    port: { x: port.x, y: port.y, width: port.width, height: port.height },
+                    scrollHeight: host.scrollHeight
+                  };
+                }
+              }
+              return null;
+            }''', phrase)
+
+        content.click(position={'x': 25, 'y': 100}, force=True)
+        for _ in range(20):
+            before = passage_geometry('ORIGIN_ANCHOR_𠮷猫_終点')
+            if before and before['visible'] and before['scroll'] > 0:
+                break
+            self.page.keyboard.press('PageDown')
+        else:
+            self.fail('A nonzero origin passage never entered the reading viewport')
+        visible_samples = content.evaluate('''host => {
+          const port = host.getBoundingClientRect();
+          const walker = document.createTreeWalker(host.firstElementChild, NodeFilter.SHOW_TEXT);
+          const found = [];
+          let node;
+          while ((node = walker.nextNode()) && found.length < 8) {
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            const boxes = [...range.getClientRects()].filter(box => box.width > 0 && box.height > 0 &&
+              box.right > port.left && box.left < port.right && box.bottom > port.top && box.top < port.bottom);
+            if (boxes.length) found.push({ text: node.data.slice(0, 80), x: boxes[0].x, y: boxes[0].y });
+          }
+          return found;
+        }''')
+        self.assertTrue(before and before['visible'])
+        self.assertEqual(0, before['spine'])
+        self.assertGreater(before['scroll'], 0, 'Origin must be beyond the first page')
+        self.assertTrue(visible_samples, 'A visible source run is needed for exact Return')
+        origin_run = visible_samples[0]['text']
+
+        controls = self.page.locator('button[data-reader-controls]')
+
+        def tool(name):
+            if controls.get_attribute('aria-expanded') != 'true':
+                controls.click()
+            self.page.get_by_role('button', name='Reading tools').click()
+            self.page.get_by_role('menuitem', name=name, exact=True).click()
+
+        book_id = self.stores('books', ['data'])['data'][0]['id']
+        previous = self.stores('books', ['bookmark'])['bookmark']
+        previous_modified = previous[0]['lastBookmarkModified'] if previous else 0
+        tool('Save Reading Position')
+        self.wait_bookmark(book_id, lambda row: row['exploredCharCount'] > 0 and
+                           row['lastBookmarkModified'] > previous_modified)
+        baseline = self.stores('books', ['bookmark', 'readerStatistic'])
+        self.assertTrue(baseline['readerStatistic'], 'The preview must preserve real reading statistics')
+
+        tool('Search Book')
+        self.page.get_by_role('searchbox', name='Search within book').fill('DESTINATION_UNIQUE_𠮷猫_終端')
+        result = self.page.get_by_role('button').filter(has_text='DESTINATION_UNIQUE_𠮷猫_終端').first
+        expect(result).to_be_visible(timeout=30000)
+        result.click()
+        return_button = self.page.get_by_role('button', name='Return to where I was')
+        expect(return_button).to_be_visible(timeout=30000)
+        expect(content.locator('[data-manabi-spine-index="1"]')).to_be_attached(timeout=30000)
+        self.assertEqual(baseline, self.stores('books', ['bookmark', 'readerStatistic']))
+
+        controls.click()
+        self.page.get_by_role('button', name='Themes & Settings').click()
+        self.page.get_by_role('button', name='Increase text size').click()
+        self.page.get_by_role('button', name='Close reading appearance').click()
+        expect(content.locator('[data-manabi-spine-index="1"]')).to_be_attached()
+        self.assertEqual(baseline, self.stores('books', ['bookmark', 'readerStatistic']))
+
+        return_button.click()
+        expect(return_button).to_have_count(0)
+        expect(content.locator('[data-manabi-spine-index="0"]')).to_be_attached(timeout=30000)
+        after = passage_geometry(origin_run)
+        self.assertTrue(after and after['visible'],
+                        'Return must reveal the captured source run: before=%r after=%r run=%r' %
+                        (before, after, origin_run))
+        self.assertEqual(0, after['spine'])
+        self.assertGreater(after['scroll'], 0, 'Return must not jump to offset zero')
+        self.assertEqual(baseline, self.stores('books', ['bookmark', 'readerStatistic']))
+
+    def test_cross_resource_return_after_reflow_phone(self):
+        self._cross_resource_return({'width': 390, 'height': 844})
+
+    def test_cross_resource_return_after_reflow_desktop(self):
+        self._cross_resource_return({'width': 1200, 'height': 900})
+
+    def test_cross_resource_return_after_reflow_vertical_webkit(self):
+        self._cross_resource_return({'width': 960, 'height': 700}, 'vertical-rl')
+
+    def test_search_uses_source_text_not_ruby_readings_or_hidden_blocks(self):
+        body = ('<div>alpha</div><div>beta</div>'
+                '<p><ruby>漢<rt>かん</rt></ruby>字と𠮷。</p>'
+                '<p>か\u3099くしき。</p>'
+                '<p hidden="hidden">HIDDEN_SENTINEL</p>'
+                '<p style="display:none!important">STYLE_HIDDEN_SENTINEL</p>'
+                + '<p>本文を読みます。</p>' * 60)
+        self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
+            'name': 'projection.epub', 'mimeType': 'application/epub+zip',
+            'buffer': book('Projection checks', body=body)
+        })
+        self.page.get_by_role('button', name='Read Projection checks', exact=True).click()
+        expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=35000)
+        self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+        self.page.get_by_role('button', name='Reading tools').click()
+        self.page.get_by_role('menuitem', name='Search Book', exact=True).click()
+        search = self.page.get_by_role('searchbox', name='Search within book')
+        for query, count in [('alpha', 1), ('alphabeta', 0), ('漢', 1),
+                             ('かん', 0), ('が', 1), ('𠮷', 1),
+                             ('HIDDEN_SENTINEL', 0), ('STYLE_HIDDEN_SENTINEL', 0)]:
+            search.fill(query)
+            expect(self.page.get_by_text(f'{count} results', exact=True)).to_be_visible(timeout=15000)
+
     def test_touch_menus_and_dark_reflow_keep_actions_accessible(self):
         profile = tempfile.TemporaryDirectory()
         # WebKit's ephemeral profiles do not support the real Blob-backed book
@@ -312,8 +542,8 @@ class BooksLibraryBrowser(LibraryBase):
         self.assertGreater(measurements[1400]['columns'], measurements[1300]['columns'])
         self.assertLess(measurements[1400]['width'], measurements[1300]['width'])
         self.assertGreater(measurements[1728]['columns'], measurements[1400]['columns'])
-        # Selection adds a row to the sticky header. The sidebar must remain
-        # below that measured height when the shelf scrolls, then recover on exit.
+        # Selection adds a row to the floating header. The sidebar stays in
+        # its own full-height panel through both header sizes.
         self.page.set_viewport_size({'width': 1440, 'height': 700})
         header = self.page.get_by_role('banner', name='Library toolbar')
         self.page.get_by_role('button', name='Library actions', exact=True).click()
@@ -321,15 +551,16 @@ class BooksLibraryBrowser(LibraryBase):
         self.page.evaluate('window.scrollTo(0, 600)')
         rail = self.page.get_by_role('complementary', name='Collections', exact=True)
         self.page.wait_for_function('''() => {
-            const header = document.querySelector('[aria-label="Library toolbar"]').getBoundingClientRect();
             const rail = document.querySelector('.library-rail').getBoundingClientRect();
-            return Math.abs(rail.top - header.bottom) < 2 && rail.bottom <= innerHeight + 1;
+            const shell = document.querySelector('.library-nav-shell');
+            return Math.abs(rail.top - 16) < 2 && rail.bottom <= innerHeight - 14 &&
+              shell.classList.contains('scrolled') &&
+              getComputedStyle(shell, '::before').backdropFilter !== 'none';
         }''')
         expect(rail.get_by_role('button', name=re.compile('^Books'))).to_be_in_viewport()
         header.get_by_role('button', name='Cancel selection', exact=True).click()
         self.page.wait_for_function('''() => {
-            const header = document.querySelector('[aria-label="Library toolbar"]').getBoundingClientRect();
-            return Math.abs(document.querySelector('.library-rail').getBoundingClientRect().top - header.bottom) < 2;
+            return Math.abs(document.querySelector('.library-rail').getBoundingClientRect().top - 16) < 2;
         }''')
 
     def test_library_responsive_search_geometry_and_touch_targets(self):
@@ -337,18 +568,24 @@ class BooksLibraryBrowser(LibraryBase):
         self.import_book('Standard cover', size=(240, 360))
         self.page.locator('.shelf-grid img').evaluate_all(
             'images => Promise.all(images.map(image => image.decode()))')
-        for width in (320, 390, 768, 1024, 1440):
+        for width in (320, 390, 768, 1024, 1440, 1920):
             with self.subTest(width=width):
                 self.page.set_viewport_size({'width': width, 'height': 844})
                 self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), width + 1)
+                brand = self.page.get_by_role('banner', name='Library toolbar').get_by_role(
+                    'heading', name='Manabi Reader for Web', exact=True).bounding_box()
+                shelf = self.page.locator('.shelf-heading').first.bounding_box()
+                self.assertAlmostEqual(brand['x'], shelf['x'], delta=1)
                 if width < 1024:
                     trigger = self.page.get_by_role('button', name='Search library', exact=True)
                     expect(trigger).to_be_visible()
                     actions = self.page.get_by_role('button', name='Library actions', exact=True).bounding_box()
+                    collections = self.page.get_by_role('button', name='Collections', exact=True).bounding_box()
                     box = trigger.bounding_box()
                     self.assertGreaterEqual(box['width'], 44)
                     self.assertGreaterEqual(box['height'], 44)
-                    self.assertGreater(box['x'], actions['x'])
+                    self.assertLess(box['x'] + box['width'], collections['x'] + 1)
+                    self.assertLess(collections['x'] + collections['width'], actions['x'] + 1)
                     trigger.click()
                     search = self.page.get_by_role('searchbox', name='Search library', exact=True)
                     expect(search).to_be_focused()
@@ -452,6 +689,27 @@ class BooksLibraryBrowser(LibraryBase):
         done.click()
         expect(dialog).to_have_count(0)
 
+    def test_collection_buttons_use_neutral_system_gray_in_both_appearances(self):
+        self.import_book('Neutral collection controls')
+        for mode, background, foreground in (
+            ('light', 'rgb(229, 229, 234)', 'rgb(33, 31, 28)'),
+            ('dark', 'rgb(44, 44, 46)', 'rgb(238, 238, 238)'),
+        ):
+            with self.subTest(mode=mode):
+                self.page.evaluate('mode => localStorage.setItem("appearance", mode)', mode)
+                self.go_library()
+                expect(self.page.locator('html')).to_have_attribute('data-appearance', mode)
+                self.menu('Neutral collection controls', 'Add to Collection…')
+                dialog = self.dialog()
+                create = dialog.get_by_role('button', name='Create', exact=True)
+                done = dialog.get_by_role('button', name='Done', exact=True)
+                for button in (create, done):
+                    self.assertEqual(background, button.evaluate('e => getComputedStyle(e).backgroundColor'))
+                    self.assertEqual(foreground, button.evaluate('e => getComputedStyle(e).color'))
+                Path('test-results').mkdir(exist_ok=True)
+                self.page.screenshot(path=f'test-results/{self.engine}-neutral-collection-{mode}.png')
+                done.click()
+
     def test_narrow_collection_editing_and_selection_stay_inside_viewport(self):
         self.import_book('Small screen book')
         self.add_collection('Small screen book', 'A long collection name 日本語の読書コレクション')
@@ -484,7 +742,11 @@ class BooksLibraryBrowser(LibraryBase):
                 rename.click()
                 dialog = self.dialog()
                 expect(dialog.get_by_role('heading', name='Rename collection', exact=True)).to_be_visible()
+                expect(self.page.locator('[role="dialog"][aria-modal="true"]')).to_have_count(1)
+                expect(sheet).to_have_count(0)
                 dialog.get_by_role('button', name='Cancel', exact=True).click()
+                expect(sheet).to_be_visible()
+                expect(sheet.locator(':focus')).to_have_count(1)
                 sheet.get_by_role('button', name='Close collections', exact=True).click()
                 expect(sheet).to_have_count(0)
                 self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), width + 1)
@@ -711,6 +973,34 @@ class BooksLibraryBrowser(LibraryBase):
         header = self.page.get_by_role('banner', name='Library toolbar')
         rail = self.page.get_by_role('complementary', name='Collections', exact=True)
         expect(rail).to_be_visible()
+        panel = rail.evaluate('''element => {
+            const box = element.getBoundingClientRect(), style = getComputedStyle(element);
+            return {top: box.top, bottom: box.bottom, radius: parseFloat(style.borderTopLeftRadius),
+                rightBorder: parseFloat(style.borderRightWidth)};
+        }''')
+        self.assertAlmostEqual(16, panel['top'], delta=2)
+        self.assertAlmostEqual(884, panel['bottom'], delta=2)
+        self.assertGreaterEqual(panel['radius'], 20)
+        self.assertGreater(panel['rightBorder'], 0)
+        scroll_y = self.page.evaluate('''() => {
+            const spacer = document.createElement('div');
+            spacer.id = 'rail-scroll-fixture';
+            spacer.style.height = '1200px';
+            document.body.append(spacer);
+            window.scrollTo(0, 80);
+            return window.scrollY;
+        }''')
+        self.assertGreater(scroll_y, 0)
+        scrolled = rail.bounding_box()
+        self.assertAlmostEqual(16, scrolled['y'], delta=2)
+        self.assertAlmostEqual(884, scrolled['y'] + scrolled['height'], delta=2)
+        self.page.evaluate("document.getElementById('rail-scroll-fixture').remove(); window.scrollTo(0, 0)")
+        header_style = header.evaluate('''element => {
+            const style = getComputedStyle(element);
+            return {background: style.backgroundColor, border: parseFloat(style.borderBottomWidth)};
+        }''')
+        self.assertIn(header_style['background'], ('rgba(0, 0, 0, 0)', 'transparent'))
+        self.assertEqual(0, header_style['border'])
         expect(header.get_by_role('button', name='Main menu', exact=True)).not_to_be_visible()
         expect(header.get_by_role('button', name='Collections', exact=True)).not_to_be_visible()
         expect(self.tile('Rail book')).to_be_visible()
@@ -891,13 +1181,15 @@ class BooksLibraryBrowser(LibraryBase):
             try:
                 self.page.goto(self.origin + '/reader-web/import-ttu')
                 chooser = self.page.get_by_label('Choose Ttu export ZIPs', exact=True)
-                chooser.set_input_files({'name':'library-backup.zip','mimeType':'application/zip','buffer':raw})
                 expect(chooser).to_be_enabled()
+                chooser.set_input_files({'name':'library-backup.zip','mimeType':'application/zip','buffer':raw})
                 import_selected = self.page.get_by_role(
                     'button', name=re.compile(r'^Import selected \('))
                 expect(import_selected).to_be_visible(timeout=60000)
-                import_selected.click()
                 imported = self.page.get_by_role('article', name='Import Portable finished book', exact=True)
+                expect(imported).to_be_visible(timeout=60000)
+                expect(import_selected).to_be_enabled(timeout=30000)
+                import_selected.click()
                 expect(imported.get_by_role('status')).to_have_text('Imported Portable finished book.', timeout=30000)
                 migrated = self.stores('books', ['bookmark','statistic','data'])
                 self.assertEqual(before['bookmark'][0]['completion'], migrated['bookmark'][0]['completion'])
@@ -941,10 +1233,10 @@ class BooksLibraryBrowser(LibraryBase):
         self.page.get_by_role('dialog').get_by_role('button', name='Confirm', exact=True).click()
         self.wait_bookmark(before['dataId'],
             lambda row: row.get('completion', {}).get('state') == 'finished')
-        after = self.stores('books', ['bookmark','statistic'])
+        after = self.stores('books', ['bookmark','readerStatistic'])
         self.assertEqual('finished', after['bookmark'][0]['completion']['state'])
         self.assertGreater(after['bookmark'][0]['completion']['modifiedAt'], before['completion']['modifiedAt'])
-        self.assertTrue(any(row.get('completedBook') == 1 for row in after['statistic']))
+        self.assertTrue(any(row.get('completedBook') == 1 for row in after['readerStatistic']))
         self.go_library()
         expect(self.tile('Finish once more').locator('.progress-label')).to_have_text('Finished')
         self.page.reload()
@@ -952,6 +1244,67 @@ class BooksLibraryBrowser(LibraryBase):
 
 
 class BooksLibraryFilesystem(LibraryBase):
+    def test_external_relocation_rebinds_content_identity_and_presentation(self):
+        original = book('Relocation original')
+        self.seed_files({'Old/Volume.epub': original})
+        expect(self.page.get_by_role('button', name='Read Relocation original', exact=True)).to_be_visible(
+            timeout=30000)
+        # These actions start on a preview-only source book. They must first
+        # establish a content identity, rather than saving a mutable file path.
+        self.add_collection('Relocation original', 'Relocation collection')
+        self.menu('Relocation original', 'Rename…')
+        self.dialog().get_by_label('Name', exact=True).fill('My relocated volume')
+        self.dialog().get_by_role('button', name='Save', exact=True).click()
+        expect(self.page.get_by_role('button', name='Read My relocated volume', exact=True)).to_be_visible()
+        self.assertEqual([], self.stores('manabi-reader-integrations', ['books'])['books'])
+        metadata = self.stores('manabi-reader-integrations', ['metadata'])['metadata']
+        organization = next(row for row in metadata if row.get('version') == 1 and 'collections' in row)
+        member = next(collection['members'][0] for collection in organization['collections']
+                      if collection['name'] == 'Relocation collection')
+        self.assertRegex(member, r'^content:[a-f0-9]{64}$')
+        self.assertEqual('My relocated volume', organization['books'][member]['title'])
+        with self.page.expect_file_chooser() as chooser:
+            self.menu('My relocated volume', 'Change Cover…')
+        chooser.value.set_files({
+            'name': 'replacement.png', 'mimeType': 'image/png',
+            'buffer': raster(120, 180, (40, 120, 180))
+        })
+        cover = self.tile('My relocated volume').locator('img')
+        expect(cover).to_have_attribute('src', re.compile(r'^data:image/(?:png|webp);base64,'))
+        override = cover.get_attribute('src')
+        links_before = self.stores('manabi-reader-integrations', ['books'])['books']
+        self.assertEqual(1, len(links_before))
+        book_id = links_before[0]['bookId']
+        reading_before = self.stores('books', ['bookmark', 'statistic'])
+        self.page.evaluate('''async () => {
+          const root = await (await navigator.storage.getDirectory()).getDirectoryHandle('Library fixture');
+          const old = await root.getDirectoryHandle('Old');
+          const file = await (await old.getFileHandle('Volume.epub')).getFile();
+          const nested = await (await root.getDirectoryHandle('New',{create:true})).getDirectoryHandle('Nested',{create:true});
+          const writer = await (await nested.getFileHandle('Moved.epub',{create:true})).createWritable();
+          await writer.write(file); await writer.close();
+          await old.removeEntry('Volume.epub');
+        }''')
+        self.open_organize_menu()
+        self.page.get_by_role('menuitem', name='Refresh Connected Folders', exact=True).click()
+        expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute(
+            'aria-busy', 'false', timeout=30000)
+        expect(self.page.get_by_role('button', name='Read My relocated volume', exact=True)).to_have_count(
+            1, timeout=30000)
+        expect(self.tile('My relocated volume').locator('img')).to_have_attribute('src', override)
+        self.choose_collection('Relocation collection')
+        expect(self.page.get_by_role('button', name='Read My relocated volume', exact=True)).to_have_count(1)
+        self.menu('My relocated volume', 'Add to Collection…')
+        expect(self.dialog().get_by_role('checkbox', name='Relocation collection')).to_be_checked()
+        self.dialog().get_by_role('button', name='Done').click()
+        self.assertEqual(reading_before, self.stores('books', ['bookmark', 'statistic']))
+        self.page.get_by_role('button', name='Read My relocated volume', exact=True).click()
+        expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=30000)
+        links_after = self.stores('manabi-reader-integrations', ['books'])['books']
+        self.assertIn('New/Nested/Moved.epub', [link['fileId'] for link in links_after])
+        self.assertEqual({book_id}, {link['bookId'] for link in links_after})
+        self.assertEqual(hashlib.sha256(original).hexdigest(), self.disk()['New/Nested/Moved.epub'])
+
     def test_series_geometry_uses_available_column_width_and_keeps_status_baselines(self):
         self.seed_files({
             'Volumes/1.epub': book('First volume'),
@@ -1007,7 +1360,7 @@ class BooksLibraryFilesystem(LibraryBase):
 
     def test_recursive_series_covers_filters_and_readonly_scanning(self):
         self.seed_files({'Wrapper/Volumes/1.epub':book('Volume 1'), 'Wrapper/Volumes/2.epub':book('Volume 2'),
-            'Wrapper/Volumes/.Manabi-Reader.yaml':b'name: "Named series"\n',
+            'Wrapper/Volumes/.manabi-reader.yaml':b'name: "Named series"\n',
             'Wrapper/Volumes/5.epub':book('Volume 5'),'Wrapper/Volumes/Nested/3.epub':book('Volume 3'),'Wrapper/Volumes/Nested/4.epub':book('Volume 4'),
             'Singleton/Deep/Only.epub':book('Single book')})
         before = self.disk()
@@ -1049,6 +1402,19 @@ class BooksLibraryFilesystem(LibraryBase):
         self.menu('First book','Mark as Finished')
         expect(self.tile('First book').locator('.progress-label')).to_have_text('Finished')
         self.add_collection('First book','Kept collection')
+        self.menu('First book', 'Rename…')
+        self.dialog().get_by_label('Name', exact=True).fill('Personal First')
+        self.dialog().get_by_role('button', name='Save', exact=True).click()
+        expect(self.page.get_by_role('button', name='Read Personal First', exact=True)).to_be_visible()
+        with self.page.expect_file_chooser() as chooser:
+            self.menu('Personal First', 'Change Cover…')
+        chooser.value.set_files({
+            'name': 'replacement.png', 'mimeType': 'image/png',
+            'buffer': raster(120, 180, (40, 120, 180))
+        })
+        cover = self.tile('Personal First').locator('img')
+        expect(cover).to_have_attribute('src', re.compile(r'^data:image/(?:png|webp);base64,'))
+        override = cover.get_attribute('src')
         old_reading=self.stores('books',['bookmark','statistic'])
         old_links=self.stores('manabi-reader-integrations',['books'])['books']
         before=self.disk()
@@ -1063,7 +1429,7 @@ class BooksLibraryFilesystem(LibraryBase):
         self.assertEqual(before['A/First.epub'],after['Combined/First.epub'])
         self.assertEqual(before['B/Second.epub'],after['Combined/Second.epub'])
         self.assertNotIn('A/First.epub',after);self.assertNotIn('B/Second.epub',after)
-        self.assertIn('Combined/.Manabi-Reader.yaml',after)
+        self.assertIn('Combined/.manabi-reader.yaml',after)
         self.assertFalse(any('operation-' in key for key in after))
         self.assertEqual(old_reading,self.stores('books',['bookmark','statistic']))
         new_links=self.stores('manabi-reader-integrations',['books'])['books']
@@ -1071,7 +1437,9 @@ class BooksLibraryFilesystem(LibraryBase):
         self.assertEqual(old_links[0]['bookId'],new_links[0]['bookId'])
         self.assertEqual('Combined/First.epub',new_links[0]['fileId'])
         self.page.get_by_role('button',name='Open series Combined',exact=True).click()
-        self.menu('First book','Add to Collection…')
+        expect(self.page.get_by_role('button', name='Read Personal First', exact=True)).to_be_visible()
+        expect(self.tile('Personal First').locator('img')).to_have_attribute('src', override)
+        self.menu('Personal First','Add to Collection…')
         expect(self.dialog().get_by_role('checkbox',name='Kept collection',exact=True)).to_be_checked()
         self.dialog().get_by_role('button',name='Done',exact=True).click()
         self.page.get_by_role('button',name='Actions for series Combined',exact=True).click()
@@ -1081,6 +1449,8 @@ class BooksLibraryFilesystem(LibraryBase):
         expect(self.page.get_by_role('heading',name='シリーズ',exact=True)).to_be_visible()
         self.page.reload()
         expect(self.page.get_by_role('heading',name='シリーズ',exact=True)).to_be_visible()
+        expect(self.page.get_by_role('button', name='Read Personal First', exact=True)).to_be_visible()
+        expect(self.tile('Personal First').locator('img')).to_have_attribute('src', override)
         self.assertEqual(after['Combined/First.epub'],self.disk()['Combined/First.epub'])
 
     def test_resume_durable_copied_journal_through_actual_library_button(self):

@@ -19,7 +19,8 @@
   <div role="group" aria-label="Appearance mode" class="modes">
     {#each modes as mode (mode.value)}
       <Button
-        variant={$appearance$ === mode.value ? 'default' : 'outline'}
+        variant={$appearance$ === mode.value ? 'secondary' : 'ghost'}
+        shape="rounded"
         aria-pressed={$appearance$ === mode.value}
         onclick={() => appearance$.next(mode.value)}>{mode.label}</Button
       >
@@ -57,7 +58,11 @@
   .modes {
     display: inline-flex;
     flex-wrap: wrap;
-    gap: 0.35rem;
+    gap: 4px;
+    padding: 4px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--background);
   }
   .description {
     color: var(--muted-foreground);

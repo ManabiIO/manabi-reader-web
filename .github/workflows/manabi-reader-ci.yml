@@ -11,7 +11,7 @@ concurrency:
 jobs:
   static-build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -50,6 +50,16 @@ jobs:
           python tests/browser/test_local_library.py 2>&1 | tee -a browser-results.log
           python test/whispersync/browser.py test-results/whispersync-bundle.js 2>&1 | tee -a browser-results.log
           python tests/browser/test_whispersync.py 2>&1 | tee -a browser-results.log
+      # These data-safety suites are part of the same required release result.
+      # Reuse the compiled app and Chromium instead of rebuilding on main in
+      # separate workflows that the publisher could race or ignore.
+      - name: Qualify recovery, migration and completed reading before publication
+        run: |
+          set -o pipefail
+          python tests/browser/test_reading_recovery.py 2>&1 | tee -a browser-results.log
+          python tests/browser/test_ttu_migration.py 2>&1 | tee -a browser-results.log
+          python tests/browser/test_ttu_migration_edges.py 2>&1 | tee -a browser-results.log
+          python tests/browser/test_completed_reading.py 2>&1 | tee -a browser-results.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:

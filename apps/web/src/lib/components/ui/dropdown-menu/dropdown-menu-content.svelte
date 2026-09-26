@@ -2,7 +2,7 @@
   import { DropdownMenu as DropdownMenuPrimitive } from 'bits-ui';
   import { cn, type WithoutChildrenOrChild } from '$lib/utils.js';
   import DropdownMenuPortal from './dropdown-menu-portal.svelte';
-  import type { ComponentProps } from 'svelte';
+  import { onDestroy, tick, type ComponentProps } from 'svelte';
 
   let {
     ref = $bindable(null),
@@ -10,15 +10,57 @@
     align = 'start',
     portalProps,
     class: className,
+    onOpenAutoFocus,
+    onCloseAutoFocus,
     ...restProps
   }: DropdownMenuPrimitive.ContentProps & {
     portalProps?: WithoutChildrenOrChild<ComponentProps<typeof DropdownMenuPortal>>;
   } = $props();
+
+  let focusGeneration = 0;
+  let lastNode: HTMLElement | null = null;
+  onDestroy(() => {
+    focusGeneration += 1;
+    lastNode = null;
+  });
 </script>
 
 <DropdownMenuPortal {...portalProps}>
   <DropdownMenuPrimitive.Content
     bind:ref
+    onOpenAutoFocus={(event) => {
+      const generation = ++focusGeneration;
+      if (ref) lastNode = ref;
+      onOpenAutoFocus?.(event);
+      if (event.defaultPrevented) return;
+      // Cancel the deferred default even before the forwarded ref is ready.
+      // Native keyboard entry may already have focused an item by the tick;
+      // never reset that item or a subsequent ArrowDown choice to the menu.
+      event.preventDefault();
+      void tick().then(() => {
+        const node = ref;
+        if (
+          generation !== focusGeneration ||
+          !node?.isConnected ||
+          node.dataset.state !== 'open'
+        )
+          return;
+        lastNode = node;
+        if (!node.contains(node.ownerDocument.activeElement)) node.focus({ preventScroll: true });
+      });
+    }}
+    onCloseAutoFocus={(event) => {
+      focusGeneration += 1;
+      const node = ref ?? lastNode;
+      onCloseAutoFocus?.(event);
+      if (event.defaultPrevented) return;
+      // FocusScope can briefly unmount and remount while an open menu
+      // repositions. That is not a menu close, so do not restore focus to the
+      // trigger and erase a keyboard choice made in the still-open menu.
+      // Genuine Escape/outside/selection closes expose data-state="closed"
+      // before close autofocus and retain Bits UI's normal focus restoration.
+      if (node?.isConnected && node.dataset.state === 'open') event.preventDefault();
+    }}
     data-slot="dropdown-menu-content"
     {sideOffset}
     {align}

@@ -2,7 +2,10 @@
   import { onKeyDownReaderImageGallery } from '../../../../routes/b/on-keydown-reader';
   import ChevronLeft from '@lucide/svelte/icons/chevron-left';
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
-  import { readerImageGalleryPictures$ } from './book-reader-image-gallery';
+  import {
+    readerImageGalleryPictures$,
+    toggleImageGalleryPictureSpoiler$
+  } from './book-reader-image-gallery';
   import {
     hideSpoilerImage$,
     readerImageGalleryKeybindMap$,
@@ -66,6 +69,9 @@
     $readerImageGalleryPictures$ = $readerImageGalleryPictures$.map((picture) =>
       picture.url === url ? { ...picture, unspoilered: true } : picture
     );
+    // The reader also receives delayed spoiler updates from its image elements.
+    // Record this explicit reveal in that queue so an older update cannot hide it again.
+    toggleImageGalleryPictureSpoiler$.next({ url, unspoilered: true });
   }
 
   function select(index: number) {

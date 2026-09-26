@@ -4,6 +4,7 @@ import {
   importFile,
   decodeTitle,
   bookmark,
+  yatsuMetadata,
   statistics,
   audio,
   subtitles,
@@ -48,16 +49,56 @@ test('versioned filenames support all exported parts without interpreting creden
   assert.equal(importFile('audioBook_1_6_100_1.5.json').part, 'audio');
   assert.equal(importFile('subtitles_1_6_100_1.json').part, 'subtitles');
   assert.equal(importFile('ttu-user-goals_1_6_100.json').part, 'goals');
+  assert.equal(importFile('bookdata_1_7_4382_100_200.zip').part, 'book');
+  assert.equal(importFile('bookdata_1_8_4382_100_200.zip').part, 'book');
+  assert.equal(importFile('progress_1_8_100_1e-7.json').part, 'bookmark');
   assert.equal(importFile('storageSource.json'), undefined);
   for (const name of [
     'bookdata_2_6_1_1_0.zip',
-    'bookdata_1_7_1_1_0.zip',
+    'bookdata_1_9_1_1_0.zip',
     'bookdata_1_6_1_1.zip',
     'bookdata_1_6_1_1_0.json',
     'progress_1_6_-1_0.json',
     'bookdata_1_6_9007199254740992_1_0.zip'
   ])
     assert.throws(() => importFile(name));
+});
+
+test('Yatsu v11 names and layout hints require the explicit Yatsu format', () => {
+  const bookName = 'bookdata_1_11_72_1790210899712_1790210900017.zip';
+  assert.throws(() => importFile(bookName), /Unsupported export version/);
+  assert.deepEqual(importFile(bookName, 'yatsu'), {
+    part: 'book',
+    modified: 1790210899712,
+    characters: 72,
+    opened: 1790210900017
+  });
+  assert.equal(importFile('progress_1_11_1790210900197_0.json', 'yatsu').part, 'bookmark');
+  assert.throws(() => importFile('bookdata_1_12_72_1_0.zip', 'yatsu'));
+  const yatsuProgress = {
+    ...mark,
+    targetSectionIndex: 0,
+    targetSectionId: 'section-1',
+    sourceViewMode: 'paginated',
+    sourceReaderLayoutKey: '["paginated-v1"]',
+    sourceBookCharCount: 72
+  };
+  assert.equal(bookmark(yatsuProgress, 100, 'yatsu').progress, 0.1);
+  assert.throws(() => bookmark(yatsuProgress, 100), /Unsupported fields/);
+  assert.throws(() => bookmark({ ...yatsuProgress, sourceBookCharCount: -1 }, 100, 'yatsu'));
+  assert.equal(
+    statistics([{ ...day, dictionaryPopupOpenCount: 2 }], '本', 'yatsu')[0].charactersRead,
+    60
+  );
+  assert.throws(() => statistics([{ ...day, dictionaryPopupOpenCount: 2 }], '本'));
+  assert.equal(importFile('bookmeta_1_11_1790212588235.json', 'yatsu').part, 'metadata');
+  assert.equal(importFile('bookmeta_1_11_1790212588235.json'), undefined);
+  assert.deepEqual(
+    yatsuMetadata({ tags: ['Portable Shelf', 'Portable Shelf'], lastBookMetaModified: 100 }, 100),
+    ['Portable Shelf']
+  );
+  assert.throws(() => yatsuMetadata({ tags: ['Portable Shelf'], lastBookMetaModified: 101 }, 100));
+  assert.throws(() => yatsuMetadata({ tags: ['\u0000bad'], lastBookMetaModified: 100 }, 100));
 });
 
 test('literal exported title markers decode without lossy path substitution', () => {

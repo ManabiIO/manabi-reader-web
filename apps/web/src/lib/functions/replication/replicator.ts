@@ -220,7 +220,11 @@ export async function replicateData(
             checkCancelAndProgress(cancelSignal);
 
             if (bookData) {
-              await targetHandler.saveBook(bookData);
+              const savedId = await targetHandler.saveBook(bookData);
+              // A verified backup may create a second copy with the same title.
+              // Subsequent progress must target the ID actually written, not
+              // whichever title match IndexedDB returns first.
+              if (savedId) targetHandler.startContext({ ...context, id: savedId }, cancelSignal);
               dataProcessed = true;
             }
 

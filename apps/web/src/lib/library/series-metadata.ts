@@ -4,7 +4,11 @@
  * All rights reserved.
  */
 
-export const seriesMetadataFilename = '.Manabi-Reader.yaml';
+export const seriesMetadataFilename = '.manabi-reader.yaml';
+/** Read existing sidecars, but never create or update this historical spelling. */
+export const legacySeriesMetadataFilename = '.Manabi-Reader.yaml';
+export const isSeriesMetadataFilename = (name: string) =>
+  name === seriesMetadataFilename || name === legacySeriesMetadataFilename;
 export function libraryName(value: string): string {
   const name = value.trim();
   // eslint-disable-next-line no-control-regex
@@ -39,7 +43,7 @@ export function decodeSeriesMetadata(text: string): string {
   if (lines[0]?.trim() === '---') lines.shift();
   if (lines.at(-1)?.trim() === '...') lines.pop();
   if (lines.length !== 1 || !/^name:\s+/.test(lines[0]))
-    throw new Error('Expected one name field in .Manabi-Reader.yaml.');
+    throw new Error('Expected one name field in .manabi-reader.yaml.');
   const scalar = lines[0].replace(/^name:\s+/, '').trim();
   let value: unknown;
   if (scalar.startsWith('"')) {

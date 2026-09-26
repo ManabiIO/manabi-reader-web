@@ -62,6 +62,10 @@ export default async function loadHtmlz(
     // its innerHTML. Keep the complete HTMLZ body inside one section so root
     // text, paragraph/heading semantics and following siblings are preserved.
     elementHtml: element.outerHTML,
+    publicationManifest: {
+      version: 1,
+      resources: [{ href: 'htmlz:body', spineIndex: 0, sectionId: element.id || 'section-0' }]
+    },
     blobs: blobData,
     coverImage,
     characters: 0,

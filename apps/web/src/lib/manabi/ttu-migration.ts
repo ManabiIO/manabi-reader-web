@@ -14,6 +14,7 @@ import type {
   BooksDbSubtitleData,
   BooksDbReadingGoal
 } from '$lib/data/database/books-db/versions/books-db';
+import { contentStatisticKey, statisticRange } from '$lib/data/database/books-db/reader-statistics';
 import { getStorageHandler } from '$lib/data/storage/storage-handler-factory';
 import { StorageDataType, StorageKey } from '$lib/data/storage/storage-types';
 import {
@@ -22,6 +23,7 @@ import {
   BACKUP_ARCHIVE_LIMITS
 } from '$lib/functions/file-loaders/utils/limited-archive';
 import { readRestoredBook } from '$lib/functions/file-loaders/utils/restored-book';
+import { bookKey, updateOrganization } from '$lib/library/organization';
 import {
   sanitizeBookHtml,
   sanitizeBookStyleSheet
@@ -36,11 +38,13 @@ import {
   reconcileImport,
   MigrationConflict,
   bookmark,
+  yatsuMetadata,
   statistics,
   audio,
   subtitles,
   goals,
   type Plain,
+  type ImportSource,
   type ImportPart,
   type ImportFile
 } from './ttu-migration-format';
@@ -86,6 +90,7 @@ export interface MigrationResult {
   title: string;
   bookId?: number;
   records: number;
+  warning?: string;
 }
 function receipt(book: MigratedBook): Receipt | undefined {
   const value = book.manabiTtuImport;
@@ -148,6 +153,7 @@ export async function migratedBookChoices(): Promise<MigratedBookChoice[]> {
 export class TtuMigration {
   readonly items: readonly MigrationItem[];
   readonly ignoredFiles: number;
+  readonly source: ImportSource;
   private archive?: LimitedArchive;
   private importing = false;
   private budget = new ArchiveBudget(TTU_MIGRATION_LIMITS.totalBytes);
@@ -155,10 +161,12 @@ export class TtuMigration {
   private constructor(
     readonly file: File,
     private readonly index: IndexedItem[],
-    ignored: number
+    ignored: number,
+    source: ImportSource
   ) {
     this.items = index.map(({ files: _files, ...item }) => item);
     this.ignoredFiles = ignored;
+    this.source = source;
   }
   static async inspect(file: File, signal?: AbortSignal): Promise<TtuMigration> {
     const archive = await LimitedArchive.open(file, {
@@ -167,6 +175,35 @@ export class TtuMigration {
       signal
     });
     try {
+      let source: ImportSource = 'ttu';
+      let yatsuBookCount: number | undefined;
+      if (archive.entries.has('yatsu-backup-manifest.json')) {
+        const manifestText = await archive.readText('yatsu-backup-manifest.json');
+        if (manifestText.length > 16_384)
+          throw new Error('Oversized Yatsu Reader backup manifest.');
+        const manifest = JSON.parse(manifestText);
+        if (
+          !manifest ||
+          typeof manifest !== 'object' ||
+          Array.isArray(manifest) ||
+          manifest.app !== 'Yatsu Reader' ||
+          manifest.manifestVersion !== 1 ||
+          manifest.kind !== 'complete-local-browser-backup' ||
+          manifest.sourceStorage !== 'browser' ||
+          !Number.isSafeInteger(manifest.bookCount) ||
+          manifest.bookCount < 0 ||
+          !Array.isArray(manifest.includedDataTypes) ||
+          manifest.includedDataTypes.some(
+            (part: unknown) => typeof part !== 'string' || part.length > 64
+          ) ||
+          !manifest.compatibility ||
+          manifest.compatibility.exporterVersion !== 1 ||
+          manifest.compatibility.databaseVersion !== 11
+        )
+          throw new Error('Unsupported Yatsu Reader backup manifest.');
+        source = 'yatsu';
+        yatsuBookCount = manifest.bookCount;
+      }
       const grouped = new Map<string, IndexedItem>();
       let ignored = 0;
       for (const entry of archive.entries.values()) {
@@ -177,7 +214,12 @@ export class TtuMigration {
           : entry.filename;
         const pieces = path.split('/');
         const name = pieces[pieces.length - 1];
-        if (!/^(?:bookdata|progress|statistics|audioBook|subtitles|ttu-user-goals)_/.test(name)) {
+        if (
+          (name.startsWith('bookmeta_') && source !== 'yatsu') ||
+          !/^(?:bookdata|bookmeta|progress|statistics|audioBook|subtitles|ttu-user-goals)_/.test(
+            name
+          )
+        ) {
           ignored++;
           continue;
         }
@@ -203,7 +245,7 @@ export class TtuMigration {
           }
         }
         try {
-          const meta = importFile(name)!;
+          const meta = importFile(name, source)!;
           if (item.files[meta.part])
             throw new Error(
               `Multiple ${meta.part} files for this item. Export a clean copy before importing.`
@@ -215,6 +257,10 @@ export class TtuMigration {
         }
       }
       const index = [...grouped.values()];
+      if (source === 'yatsu') {
+        if (index.filter((item) => item.parts.includes('book')).length !== yatsuBookCount)
+          throw new Error('Yatsu Reader backup book count does not match its manifest.');
+      }
       const titles = new Map<string, IndexedItem>();
       for (const item of index) {
         if (item.parts.includes('goals')) continue;
@@ -228,7 +274,7 @@ export class TtuMigration {
         throw new Error(
           'No Ttu Ebook Reader export data found. Choose a ZIP from Export → ZIP File.'
         );
-      return new TtuMigration(file, index, ignored);
+      return new TtuMigration(file, index, ignored, source);
     } finally {
       await archive.close();
     }
@@ -335,12 +381,17 @@ export class TtuMigration {
     }
     const imported: { bookmark?: Plain; statistics?: Plain[]; audio?: Plain; subtitles?: Plain } =
       {};
+    const metadata = await readJSON('metadata');
+    const collectionTags =
+      metadata === undefined
+        ? undefined
+        : yatsuMetadata(metadata, item.files.metadata!.metadata.modified);
     for (const part of ['bookmark', 'statistics', 'audio', 'subtitles'] as const) {
       const value = await readJSON(part);
       if (value === undefined) continue;
       const modified = item.files[part]!.metadata.modified;
-      if (part === 'bookmark') imported.bookmark = bookmark(value, modified);
-      if (part === 'statistics') imported.statistics = statistics(value, item.title);
+      if (part === 'bookmark') imported.bookmark = bookmark(value, modified, this.source);
+      if (part === 'statistics') imported.statistics = statistics(value, item.title, this.source);
       if (part === 'audio') imported.audio = audio(value, item.title, modified);
       if (part === 'subtitles') imported.subtitles = subtitles(value, item.title, modified);
     }
@@ -351,10 +402,18 @@ export class TtuMigration {
     )
       throw new Error('The bookmark is beyond the end of this book.');
     signal?.throwIfAborted();
-    return exclusive('import-library-book', async () => {
+    const core = await exclusive<MigrationResult>('import-library-book', async () => {
       const db = await database.db;
       const tx = db.transaction(
-        ['data', 'bookmark', 'statistic', 'lastModified', 'audioBook', 'subtitle'],
+        [
+          'data',
+          'bookmark',
+          'statistic',
+          'readerStatistic',
+          'lastModified',
+          'audioBook',
+          'subtitle'
+        ],
         'readwrite'
       );
       const cancel = () => {
@@ -390,6 +449,34 @@ export class TtuMigration {
         if (!target) {
           if (!content || !options.parts.includes('book'))
             throw new Error('Import Book Data before importing reading data.');
+          let contentToAdd = content;
+          if (content.contentHash) {
+            let copy = await tx.objectStore('data').openCursor();
+            while (copy) {
+              if (
+                copy.value.contentHash === content.contentHash &&
+                (receipt(copy.value)?.content ??
+                  canonical({
+                    html: copy.value.elementHtml,
+                    css: copy.value.styleSheet,
+                    sections: copy.value.sections
+                  })) !==
+                  (receipt(copy.value)
+                    ? fingerprint
+                    : canonical({
+                        html: content.elementHtml,
+                        css: content.styleSheet,
+                        sections: content.sections
+                      }))
+              ) {
+                // The exported hash is a claim about unavailable original
+                // bytes. Conflicting decoded content cannot inherit that ID.
+                contentToAdd = { ...content, contentHash: undefined };
+                break;
+              }
+              copy = await copy.continue();
+            }
+          }
           let title = item.title;
           let suffix = 1;
           // Also preserve orphaned statistics retained after an unrelated book was deleted.
@@ -400,8 +487,10 @@ export class TtuMigration {
             (await tx.objectStore('subtitle').getKey(title))
           )
             title = `${item.title} [Ttu import ${++suffix}]`;
-          const id = await tx.objectStore('data').add({ ...content, title } as BooksDbBookData);
-          target = { ...content, id, title };
+          const id = await tx
+            .objectStore('data')
+            .add({ ...contentToAdd, title } as BooksDbBookData);
+          target = { ...contentToAdd, id, title };
           created = true;
         }
         if (target.storageSource)
@@ -438,6 +527,10 @@ export class TtuMigration {
         };
         const bookId = target.id,
           title = target.title;
+        const statisticKey = contentStatisticKey(target);
+        const statisticStore = statisticKey
+          ? tx.objectStore('readerStatistic')
+          : tx.objectStore('statistic');
         if (imported.bookmark) {
           const value = imported.bookmark;
           if (
@@ -456,9 +549,19 @@ export class TtuMigration {
           await merge(
             `statistics/${day}`,
             value,
-            await tx.objectStore('statistic').get([title, day]),
+            await statisticStore.get(statisticKey ? [statisticKey, day] : [title, day]),
             () =>
-              tx.objectStore('statistic').put({ ...value, title } as unknown as BooksDbStatistic)
+              statisticKey
+                ? tx.objectStore('readerStatistic').put({
+                    ...value,
+                    title,
+                    bookKey: statisticKey
+                  } as BooksDbStatistic & {
+                    bookKey: string;
+                  })
+                : tx
+                    .objectStore('statistic')
+                    .put({ ...value, title } as unknown as BooksDbStatistic)
           );
         }
         if (imported.audio) {
@@ -475,16 +578,18 @@ export class TtuMigration {
         }
         if (imported.statistics && changed) {
           let lastModified = 0;
-          let cursor = await tx
-            .objectStore('statistic')
-            .openCursor(IDBKeyRange.bound([title], [title, []]));
+          let cursor = await statisticStore.openCursor(
+            statisticKey ? statisticRange(statisticKey) : IDBKeyRange.bound([title], [title, []])
+          );
           while (cursor) {
             lastModified = Math.max(lastModified, cursor.value.lastStatisticModified);
             cursor = await cursor.continue();
           }
-          await tx
-            .objectStore('lastModified')
-            .put({ title, dataType: StorageDataType.STATISTICS, lastModifiedValue: lastModified });
+          await tx.objectStore('lastModified').put({
+            title: statisticKey ?? title,
+            dataType: StorageDataType.STATISTICS,
+            lastModifiedValue: lastModified
+          });
         }
         // Receipt and payloads commit together. No cross-database "import succeeded" marker.
         if (created || canonical(prior) !== canonical(nextReceipt))
@@ -510,6 +615,32 @@ export class TtuMigration {
         signal?.removeEventListener('abort', cancel);
       }
     });
+    if (collectionTags?.length && core.bookId !== undefined) {
+      if (signal?.aborted)
+        return { ...core, warning: 'Book imported; retry this ZIP to finish collection tags.' };
+      let added = 0;
+      try {
+        const member = bookKey(core.bookId);
+        await updateOrganization((value) => {
+          for (const name of collectionTags) {
+            let collection = value.collections.find((item) => item.name === name);
+            if (!collection) {
+              collection = { id: crypto.randomUUID(), name, members: [] };
+              value.collections.push(collection);
+              added++;
+            }
+            if (!collection.members.includes(member)) {
+              collection.members.push(member);
+              added++;
+            }
+          }
+        });
+      } catch {
+        return { ...core, warning: 'Book imported; retry this ZIP to finish collection tags.' };
+      }
+      if (added) return { ...core, status: 'imported', records: core.records + added };
+    }
+    return core;
   }
 
   private async commitGoals(

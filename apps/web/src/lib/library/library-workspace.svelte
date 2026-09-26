@@ -26,10 +26,15 @@
   import { StorageKey } from '$lib/data/storage/storage-types';
   import type { SortOption } from '$lib/data/sort-types';
   import type { BookCardProps } from '$lib/components/book-card/book-card-props';
-  import { account, currentUser } from '$lib/manabi/client';
-  import { linkedBooks, refreshLinkedBooks, importLibraryBook } from '$lib/manabi/books';
+  import { account, currentUser, requestSeriesWriteAccess } from '$lib/manabi/client';
+  import {
+    allLinkedBooks,
+    linkedBooks,
+    refreshLinkedBooks,
+    importLibraryBook
+  } from '$lib/manabi/books';
   import { integrationDB, type LocalLibrary } from '$lib/manabi/persistence';
-  import { reconnectLocalLibrary } from '$lib/manabi/sources';
+  import { reconnectLocalLibrary, sha256 } from '$lib/manabi/sources';
   import {
     sourceDescriptors,
     cachedCatalog,
@@ -55,6 +60,7 @@
     type ShelfSeries
   } from './view-model';
   import { isFinished, finishedDay, calendarDay } from './completion';
+  import { visibleLibraryEntries } from './account-visibility';
   import { WANT_TO_READ_ID, wantToReadCollection, collectionContains } from './want-to-read';
   import { setCompletion } from './commands';
   import {
@@ -77,6 +83,17 @@
   }
   import { creatorLine, sharedCreatorLine } from './book-metadata';
   import { coverOverride } from './cover-override';
+  import { contentBookKey, sourceKey } from './organization';
+  import {
+    advanceCloudSeries,
+    cancelCloudSeries,
+    cloudSeriesStatus,
+    cloudSeriesCapabilities,
+    prepareCloudSeries,
+    recentCloudSeries,
+    type CloudSeriesCapability,
+    type CloudSeriesPlan
+  } from './cloud-series';
   import type { LibraryMenuModel } from './library-menu';
   import './library-menu.css';
   import {
@@ -127,6 +144,10 @@
     newCollectionName = '';
   let groupSource = '',
     groupFiles: string[] = [];
+  let cloudCapabilities: Record<string, CloudSeriesCapability> = {};
+  let cloudPlans: { source: SourceDescriptor; plan: CloudSeriesPlan }[] = [];
+  let cloudPlan: CloudSeriesPlan | undefined;
+  let cloudPlanSource: SourceDescriptor | undefined;
   let previewFailures = 0;
   let previewQueue: PreviewQueue | undefined;
   let alive = false,
@@ -201,7 +222,16 @@
     });
   }
   $: sort = $booklistSortOptions$[StorageKey.BROWSER];
-  $: tree = buildShelf(bookCards, $linkedBooks, catalogs, sources, $organization, $previews);
+  $: viewerId = $account.session?.user?.id ?? null;
+  $: accountEntries = visibleLibraryEntries(bookCards, $allLinkedBooks, viewerId);
+  $: tree = buildShelf(
+    accountEntries.cards,
+    accountEntries.links,
+    catalogs,
+    sources,
+    $organization,
+    $previews
+  );
   $: books = allBooks(tree);
   $: collectionId = $page.url.searchParams.get('collection') || 'books';
   $: wantToRead = wantToReadCollection($organization);
@@ -299,8 +329,13 @@
     announcedSelectionScope = selectionSignature;
     dispatch('selectionScopeChange', { key: selectionScopeKey, ids: selectableBookIds });
   }
+  const groupKey = (source: SourceDescriptor) =>
+    source.owner === null ? source.id : sourceKey(source);
   $: groupCandidates = books.filter(
-    (book) => book.source?.owner === null && book.source.id === groupSource && book.file
+    (book) => book.source && groupKey(book.source) === groupSource && book.file
+  );
+  $: groupCloudSource = sources.find(
+    (source) => source.owner !== null && groupKey(source) === groupSource
   );
   $: warnings = catalogs.flatMap((catalog) => catalog.warnings);
   $: menu = {
@@ -489,9 +524,41 @@
       await refreshLinkedBooks();
       if (!alive || run !== generation || owner !== currentUser()?.id) return;
       pending = nextPending;
+      const cloud = nextSources.filter((source) => source.owner && source.provider === 'onedrive');
+      const cloudState = await Promise.all(
+        cloud.map(async (source) => {
+          const [capability, plans] = await Promise.allSettled([
+            cloudSeriesCapabilities(source),
+            recentCloudSeries(source)
+          ]);
+          return {
+            source,
+            capability: capability.status === 'fulfilled' ? capability.value : undefined,
+            plans: plans.status === 'fulfilled' ? plans.value.items : [],
+            receiptsChanged: plans.status === 'fulfilled' && plans.value.receiptsChanged
+          };
+        })
+      );
+      if (!alive || run !== generation || owner !== currentUser()?.id) return;
+      cloudCapabilities = Object.fromEntries(
+        cloudState.flatMap(({ source, capability }) =>
+          capability ? [[sourceKey(source), capability]] : []
+        )
+      );
+      cloudPlans = cloudState.flatMap(({ source, plans }) =>
+        plans
+          .filter((plan) => !['complete', 'cancelled'].includes(plan.status))
+          .map((plan) => ({ source, plan }))
+      );
+      const cloudWithReceipts = new Set(
+        cloudState
+          .filter(({ receiptsChanged }) => receiptsChanged)
+          .map(({ source }) => sourceKey(source))
+      );
       for (const source of nextSources) {
         if (
           !refresh &&
+          !cloudWithReceipts.has(sourceKey(source)) &&
           cached.some(
             (c) =>
               c?.source.id === source.id &&
@@ -541,10 +608,16 @@
       if (alive) error = e instanceof Error ? e.message : 'Could not load collections.';
     });
     let previousOwner: string | null | undefined;
+    const seriesPoll = setInterval(() => void pollCloudPlan(), 1000);
     const stopAccount = account.subscribe(() => {
       const owner = currentUser()?.id ?? null;
       if (owner === previousOwner) return;
       previousOwner = owner;
+      if (cloudPlanSource && cloudPlanSource.owner !== owner) {
+        cloudPlan = undefined;
+        cloudPlanSource = undefined;
+        dialogOpen = false;
+      }
       previewQueue?.stop();
       previewQueue = new PreviewQueue(() => {
         if (alive) previewFailures++;
@@ -556,6 +629,7 @@
     });
     return () => {
       alive = false;
+      clearInterval(seriesPoll);
       ++generation;
       controller?.abort();
       previewQueue?.stop();
@@ -564,7 +638,21 @@
     };
   });
   async function ensureBook(book: ShelfBook): Promise<number> {
-    if (book.bookId && !book.isPlaceholder) return book.bookId;
+    if (
+      book.bookId &&
+      !book.isPlaceholder &&
+      (!book.source ||
+        !book.file ||
+        $linkedBooks.some(
+          (link) =>
+            link.bookId === book.bookId &&
+            link.sourceId === book.source?.id &&
+            link.owner === book.source?.owner &&
+            link.root === book.source?.root &&
+            link.fileId === book.file?.id
+        ))
+    )
+      return book.bookId;
     if (!book.source || !book.file) {
       if (book.bookId) return book.bookId;
       throw new Error('This book has no accessible source.');
@@ -573,6 +661,23 @@
     // Sync remains opt-in on Accounts and libraries; opening a file never enables remote writes.
     const link = await importLibraryBook(await librarySource(book.source), book.file, false);
     return link.bookId;
+  }
+  async function stableOrganizationBook(book: ShelfBook): Promise<ShelfBook> {
+    if (book.bookId && /^content:[a-f0-9]{64}$/.test(book.organizationKey)) return book;
+    if (!book.source || !book.file) {
+      if (/^content:[a-f0-9]{64}$/.test(book.organizationKey)) return book;
+      throw new Error('This book has no accessible source.');
+    }
+    const owner = currentUser()?.id ?? null;
+    const original = await (await librarySource(book.source)).read(book.file);
+    const hash = await sha256(await original.arrayBuffer());
+    if (owner !== (currentUser()?.id ?? null)) throw new Error('The account changed.');
+    const organizationKey = contentBookKey(hash);
+    return {
+      ...book,
+      organizationKey,
+      organizationAliases: [...new Set([...book.organizationAliases, organizationKey])]
+    };
   }
   function openBook(book: ShelfBook) {
     void action(async () => {
@@ -587,6 +692,8 @@
     });
   }
   function editBook(book: ShelfBook, kind: 'details' | 'rename' | 'date' | 'membership') {
+    cloudPlan = undefined;
+    cloudPlanSource = undefined;
     targetBook = book;
     dialog = kind;
     name = book.title;
@@ -617,6 +724,8 @@
   }
   function editSeries(value: ShelfSeries) {
     targetSeries = value;
+    cloudPlan = undefined;
+    cloudPlanSource = undefined;
     dialog = 'series-name';
     name = value.name;
     error = '';
@@ -624,17 +733,18 @@
   }
   function newSeries() {
     const selected = books.filter(
-      (book) =>
-        book.bookId && selectedBookIds.has(book.bookId) && book.source?.owner === null && book.file
+      (book) => book.bookId && selectedBookIds.has(book.bookId) && book.source && book.file
     );
     groupSource =
-      selected[0]?.source?.id ||
-      (series?.source.owner === null ? series.source.id : locals[0]?.id) ||
+      (selected[0]?.source ? groupKey(selected[0].source) : undefined) ||
+      (series ? groupKey(series.source) : locals[0]?.id) ||
       '';
     groupFiles = selected
-      .filter((book) => book.source?.id === groupSource)
+      .filter((book) => book.source && groupKey(book.source) === groupSource)
       .map((book) => book.file!.id);
     name = '';
+    cloudPlan = undefined;
+    cloudPlanSource = undefined;
     dialog = 'new-series';
     error = '';
     dialogOpen = true;
@@ -659,7 +769,9 @@
     const focusWasInMenu = !!document.activeElement?.closest('[role="menu"], .shelf-item');
     let changed = false;
     void action(async () => {
-      await setWantToRead(targets, included);
+      const stable: ShelfBook[] = [];
+      for (const book of targets) stable.push(await stableOrganizationBook(book));
+      await setWantToRead(stable, included);
       changed = true;
       notice = included ? 'Added to Want to Read.' : 'Removed from Want to Read.';
     }).then(async () => {
@@ -688,20 +800,138 @@
     void action(async () => {
       await permission;
       if (dialog === 'rename' && targetBook)
-        await presentBook(targetBook.organizationKey, { title: name });
+        await presentBook((await stableOrganizationBook(targetBook)).organizationKey, {
+          title: name
+        });
       else if (dialog === 'date' && targetBook)
         await setCompletion(await ensureBook(targetBook), 'finished', date);
       else if (dialog === 'series-name' && targetSeries && local) {
         await renameLocalSeries(local, targetSeries.directoryId, name);
         await load(true);
+      } else if (dialog === 'series-name' && targetSeries?.source.owner) {
+        const source = targetSeries.source;
+        if (!cloudCapabilities[sourceKey(source)]?.can_edit)
+          throw new Error('Connect this OneDrive library with series editing access first.');
+        cloudPlan = await prepareCloudSeries(source, {
+          operation: 'rename_series',
+          root: source.root,
+          folder_id: targetSeries.directoryId,
+          name
+        });
+        cloudPlanSource = source;
+        return;
       } else if (dialog === 'new-series' && local) {
         const parent = series?.source.id === local.id ? series.directoryId : '';
         await createLocalSeries(local, parent, name, groupFiles);
         await load(true);
         notice = 'Series created. Reading progress and collections were kept.';
+      } else if (dialog === 'new-series' && groupCloudSource) {
+        const source = groupCloudSource;
+        if (!cloudCapabilities[sourceKey(source)]?.can_edit)
+          throw new Error('Connect this OneDrive library with series editing access first.');
+        cloudPlan = await prepareCloudSeries(source, {
+          operation: 'create_series',
+          root: source.root,
+          parent_id:
+            series && sourceKey(series.source) === sourceKey(source)
+              ? series.directoryId
+              : source.root,
+          folder_name: name,
+          name,
+          book_ids: groupFiles
+        });
+        cloudPlanSource = source;
+        return;
       } else throw new Error('Connect a writable local folder to change the files on disk.');
       dialogOpen = false;
     });
+  }
+  let cloudPollBusy = false;
+  let cloudPollAfter = 0;
+  function cloudPlanCurrent(source: SourceDescriptor, plan: CloudSeriesPlan) {
+    return (
+      alive &&
+      dialogOpen &&
+      cloudPlan?.id === plan.id &&
+      cloudPlanSource &&
+      sourceKey(cloudPlanSource) === sourceKey(source) &&
+      currentUser()?.id === source.owner
+    );
+  }
+  async function showCloudPlan(source: SourceDescriptor, plan: CloudSeriesPlan) {
+    if (!cloudPlanCurrent(source, plan)) return;
+    cloudPlan = plan;
+    cloudPlans = [{ source, plan }, ...cloudPlans.filter((entry) => entry.plan.id !== plan.id)];
+    if (plan.status === 'complete') {
+      cloudPlan = undefined;
+      cloudPlanSource = undefined;
+      dialogOpen = false;
+      await load(true);
+      if (alive && currentUser()?.id === source.owner)
+        notice = 'Series updated. Reading progress, notes and collections were kept.';
+    }
+  }
+  async function pollCloudPlan() {
+    const plan = cloudPlan,
+      source = cloudPlanSource;
+    if (
+      cloudPollBusy ||
+      busy ||
+      !plan ||
+      !source ||
+      !cloudPlanCurrent(source, plan) ||
+      !['preparing', 'queued', 'running', 'reconcile'].includes(plan.status) ||
+      Date.now() < cloudPollAfter
+    )
+      return;
+    cloudPollBusy = true;
+    try {
+      const next = await cloudSeriesStatus(source, plan.id);
+      await showCloudPlan(source, next);
+    } catch (failure) {
+      // A status outage does not justify repeating admission or provider writes.
+      // Keep the durable plan available and back off bounded, read-only polling.
+      cloudPollAfter = Date.now() + 5000;
+      if (cloudPlanCurrent(source, plan))
+        error =
+          failure instanceof Error
+            ? failure.message
+            : 'Could not refresh this change. Its saved status will be checked again.';
+    } finally {
+      cloudPollBusy = false;
+    }
+  }
+  function confirmCloudPlan() {
+    if (!cloudPlan || !cloudPlanSource || cloudPlan.status !== 'prepared') return;
+    const source = cloudPlanSource,
+      plan = cloudPlan;
+    void action(async () => {
+      const next = await advanceCloudSeries(source, plan);
+      await showCloudPlan(source, next);
+    });
+  }
+  function abandonCloudPlan() {
+    if (!cloudPlan || !cloudPlanSource) return;
+    const source = cloudPlanSource,
+      plan = cloudPlan;
+    void action(async () => {
+      const next = await cancelCloudSeries(source, plan.id);
+      if (!cloudPlanCurrent(source, plan)) return;
+      cloudPlan = next;
+      cloudPlans = [
+        { source, plan: next },
+        ...cloudPlans.filter((entry) => entry.plan.id !== plan.id)
+      ];
+      dialogOpen = false;
+      await load(true);
+    });
+  }
+  function resumeCloudPlan(source: SourceDescriptor, plan: CloudSeriesPlan) {
+    if (busy) return;
+    cloudPlanSource = source;
+    cloudPlan = plan;
+    dialog = plan.operation === 'rename_series' ? 'series-name' : 'new-series';
+    dialogOpen = true;
   }
   function resumeMove(plan: MovePlan) {
     if (busy) return;
@@ -807,10 +1037,11 @@
       ><Menu.Item onSelect={() => navigate(value.id)}
         ><FolderOpen aria-hidden="true" />Open Series</Menu.Item
       >
-      {#if value.source.owner === null}<Menu.Item onSelect={() => editSeries(value)}
+      {#if value.source.owner === null || value.source.provider === 'onedrive'}<Menu.Item
+          onSelect={() => editSeries(value)}
           ><PencilSimple aria-hidden="true" />Rename Series…</Menu.Item
         >
-      {:else}<Menu.Label>Cloud folder names are managed in your drive.</Menu.Label>{/if}
+      {:else}<Menu.Label>This cloud provider cannot edit series yet.</Menu.Label>{/if}
     </Menu.Content>
   </Menu.Root>
 {/snippet}
@@ -869,6 +1100,7 @@
     tabindex="-1"
     aria-label="Library shelves"
     aria-busy={busy || scanning}
+    data-hydrated={alive}
   >
     {#if !series && collectionId === 'books'}
       <div class="library-toolbar">
@@ -900,6 +1132,20 @@
         </p>
         <Button onclick={() => resumeMove(plan)} disabled={busy}>Resume Folder Change</Button>
       </div>{/each}
+    {#each cloudPlans as entry (`${sourceKey(entry.source)}:${entry.plan.id}`)}
+      <div class="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-border p-4">
+        <p class="flex-1 text-sm">
+          A OneDrive series change is {entry.plan.status === 'paused' ? 'paused' : 'unfinished'}: {entry.plan.steps.filter(
+            (step) => step.state === 'done'
+          ).length} of {entry.plan.steps.length} steps complete. Completed moves remain in OneDrive.
+        </p>
+        <Button
+          variant="outline"
+          onclick={() => resumeCloudPlan(entry.source, entry.plan)}
+          disabled={busy}>Review Change</Button
+        >
+      </div>
+    {/each}
     {#if previewFailures}<p class="mb-4 text-sm text-muted-foreground">
         Some cover previews could not be loaded. Your files are unchanged. Refresh connected folders
         to retry.
@@ -1255,8 +1501,8 @@
               : dialog === 'membership'
                 ? 'A book can belong to more than one collection. This does not move files.'
                 : dialog === 'series-name'
-                  ? 'Save the display name in this folder’s .Manabi-Reader.yaml. The folder path stays the same.'
-                  : 'Move selected ebook files into a new subfolder. Close external editors first. Progress and collections are preserved; files are verified before originals are removed.'}</Dialog.Description
+                  ? 'Save the display name in this folder’s .manabi-reader.yaml. The folder path stays the same.'
+                  : 'Move selected ebook files into a new subfolder. Reading progress, notes and collections stay with the books.'}</Dialog.Description
       >
     </Dialog.Header>
     {#if dialog === 'details' && targetBook}
@@ -1270,9 +1516,11 @@
         <dt class="text-muted-foreground">Last update</dt>
         <dd>{dateInfo(targetBook.lastBookModified)}</dd>
       </dl>
-      <Dialog.Footer><Button onclick={() => (dialogOpen = false)}>Done</Button></Dialog.Footer>
+      <Dialog.Footer
+        ><Button variant="secondary" onclick={() => (dialogOpen = false)}>Done</Button
+        ></Dialog.Footer
+      >
     {:else if dialog === 'membership' && targetBook}
-      {@const targetOrganizationKey = targetBook.organizationKey}
       <div class="grid max-h-[40dvh] gap-3 overflow-y-auto">
         {#each [wantToRead, ...customCollections] as collection (collection.id)}<label
             class="flex min-h-11 items-center gap-3 rounded-xl border border-border px-3"
@@ -1284,14 +1532,17 @@
               disabled={busy}
               onchange={(event) => {
                 const included = event.currentTarget.checked;
-                void action(() =>
-                  setMembership(
+                const selected = targetBook!;
+                void action(async () => {
+                  const stable = await stableOrganizationBook(selected);
+                  targetBook = stable;
+                  await setMembership(
                     collection.id,
-                    targetOrganizationKey,
+                    stable.organizationKey,
                     included,
-                    targetBook!.organizationAliases
-                  )
-                );
+                    stable.organizationAliases
+                  );
+                });
               }}
             />{#if collection.id === WANT_TO_READ_ID}<BookmarkSimple
                 class="size-5"
@@ -1307,7 +1558,9 @@
         onsubmit={(event) => {
           event.preventDefault();
           void action(async () => {
-            await createCollection(newCollectionName, [targetOrganizationKey]);
+            const stable = await stableOrganizationBook(targetBook!);
+            targetBook = stable;
+            await createCollection(newCollectionName, [stable.organizationKey]);
             newCollectionName = '';
           });
         }}
@@ -1320,10 +1573,84 @@
             maxlength="240"
             required
           /></label
-        ><Button type="submit" class="min-h-11" disabled={busy}>Create</Button>
+        ><Button type="submit" variant="secondary" class="min-h-11" disabled={busy}>Create</Button>
       </form>
       {#if error}<p role="alert" class="text-sm text-destructive">{error}</p>{/if}
-      <Dialog.Footer><Button onclick={() => (dialogOpen = false)}>Done</Button></Dialog.Footer>
+      <Dialog.Footer
+        ><Button variant="secondary" onclick={() => (dialogOpen = false)}>Done</Button
+        ></Dialog.Footer
+      >
+    {:else if cloudPlan && cloudPlanSource}
+      <div class="grid gap-4">
+        <p class="text-sm">
+          {cloudPlan.status === 'preparing'
+            ? `Checking the selected books in ${cloudPlanSource.name}. No files have been changed.`
+            : cloudPlan.status === 'prepared'
+              ? `Review this change to ${cloudPlanSource.name} before writing to OneDrive.`
+              : 'Confirmed changes continue on the server even when this dialog is closed.'}
+        </p>
+        <dl
+          class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 rounded-xl border border-border p-4 text-sm"
+        >
+          <dt class="text-muted-foreground">Action</dt>
+          <dd>
+            {cloudPlan.operation === 'create_series'
+              ? 'Create series'
+              : cloudPlan.operation === 'rename_series'
+                ? 'Rename series'
+                : 'Move books'}
+          </dd>
+          <dt class="text-muted-foreground">Series</dt>
+          <dd>{cloudPlan.preview.name || cloudPlan.preview.folder_name || 'Existing series'}</dd>
+          <dt class="text-muted-foreground">Books</dt>
+          <dd>
+            {cloudPlan.status === 'preparing' && cloudPlan.preparation
+              ? `${cloudPlan.preparation.completed_books} of ${cloudPlan.preparation.total_books} checked`
+              : cloudPlan.preview.book_names.length}
+          </dd>
+          <dt class="text-muted-foreground">Steps</dt>
+          <dd>
+            {cloudPlan.steps.filter((step) => step.state === 'done').length} of {cloudPlan.steps
+              .length} complete
+          </dd>
+        </dl>
+        {#if cloudPlan.preview.book_names.length}<p class="max-h-32 overflow-y-auto text-sm">
+            {cloudPlan.preview.book_names.join(' · ')}
+          </p>{/if}
+        {#if cloudPlan.status === 'paused'}<p role="alert" class="text-sm text-destructive">
+            This change is paused ({cloudPlan.issue}). No further files will move. The completed
+            steps remain visible in OneDrive. Abandoning this change does not undo those steps.
+          </p>{/if}
+        {#if cloudPlan.status === 'reconcile'}<p
+            role="status"
+            class="text-sm text-muted-foreground"
+          >
+            OneDrive may have completed the last step, but its response was uncertain. The server
+            will reconcile it before moving another book. You can close this dialog safely.
+          </p>{/if}
+        {#if error}<p role="alert" class="text-sm text-destructive">{error}</p>{/if}
+        <Dialog.Footer>
+          <Button variant="outline" disabled={busy} onclick={() => (dialogOpen = false)}
+            >Close</Button
+          >
+          {#if ['preparing', 'prepared', 'paused'].includes(cloudPlan.status)}
+            <Button variant="outline" disabled={busy} onclick={abandonCloudPlan}
+              >{cloudPlan.status === 'paused'
+                ? 'Abandon unfinished change'
+                : 'Cancel change'}</Button
+            >
+          {/if}
+          {#if cloudPlan.status !== 'paused' && cloudPlan.status !== 'cancelled'}
+            <Button disabled={busy || cloudPlan.status !== 'prepared'} onclick={confirmCloudPlan}
+              >{cloudPlan.status === 'prepared'
+                ? 'Confirm Change'
+                : cloudPlan.status === 'preparing'
+                  ? 'Checking books…'
+                  : 'Updating…'}</Button
+            >
+          {/if}
+        </Dialog.Footer>
+      </div>
     {:else}
       <form
         onsubmit={(event) => {
@@ -1351,21 +1678,41 @@
           >{/if}
         {#if dialog === 'new-series'}
           <label class="grid gap-2"
-            >Local folder<select
+            >Source folder<select
               class="min-h-11 rounded-xl border border-input bg-background px-3"
               bind:value={groupSource}
               onchange={() => (groupFiles = [])}
-              >{#each locals as local (local.id)}<option value={local.id}>{local.name}</option
+              >{#each sources as source (sourceKey(source))}<option
+                  value={groupKey(source)}
+                  disabled={source.owner !== null && source.provider !== 'onedrive'}
+                  >{source.name}{source.owner ? ` · ${source.provider}` : ' · local'}</option
                 >{/each}</select
             ></label
           >
-          {#if !locals.length}<p class="text-sm text-muted-foreground">
-              Creating a series needs a writable local folder. Browser-only imports have no original
-              folder to move; cloud originals are currently read-only. <a
+          {#if !sources.length}<p class="text-sm text-muted-foreground">
+              Connect a local folder or OneDrive library to arrange original ebook files. <a
                 class="underline"
                 href={resolve('/connections')}>Manage connected libraries</a
               >.
             </p>{/if}
+          {#if groupCloudSource && !cloudCapabilities[sourceKey(groupCloudSource)]?.can_edit}
+            <p class="text-sm text-muted-foreground">
+              This OneDrive library needs write access for physical series changes.
+            </p>
+            {#if cloudCapabilities[sourceKey(groupCloudSource)]?.scope_upgrade}
+              <Button
+                variant="outline"
+                type="button"
+                onclick={() => {
+                  void requestSeriesWriteAccess(groupCloudSource!.id).catch(
+                    (e) =>
+                      (error =
+                        e instanceof Error ? e.message : 'Could not request OneDrive access.')
+                  );
+                }}>Allow Series Editing</Button
+              >
+            {/if}
+          {/if}
           <div
             class="grid max-h-[30dvh] gap-2 overflow-y-auto rounded-xl border border-border p-3"
             aria-label="Books to combine"
@@ -1386,6 +1733,23 @@
           <p class="text-xs text-muted-foreground">
             {groupFiles.length} selected · Select at least two books from the same source.
           </p>
+        {/if}
+        {#if dialog === 'series-name' && targetSeries?.source.owner && !cloudCapabilities[sourceKey(targetSeries.source)]?.can_edit}
+          <p class="text-sm text-muted-foreground">
+            This OneDrive library needs write access to change its series marker.
+          </p>
+          {#if cloudCapabilities[sourceKey(targetSeries.source)]?.scope_upgrade}
+            <Button
+              variant="outline"
+              type="button"
+              onclick={() => {
+                void requestSeriesWriteAccess(targetSeries!.source.id).catch(
+                  (e) =>
+                    (error = e instanceof Error ? e.message : 'Could not request OneDrive access.')
+                );
+              }}>Allow Series Editing</Button
+            >
+          {/if}
         {/if}
         {#if error}<p role="alert" class="text-sm text-destructive">{error}</p>{/if}
         <Dialog.Footer
@@ -1575,7 +1939,7 @@
     display: grid;
     grid-template-columns: repeat(
       auto-fill,
-      minmax(min(9.5rem, calc((100% - var(--shelf-gap)) / 2)), 1fr)
+      minmax(min(9.25rem, calc((100% - var(--shelf-gap)) / 2)), 1fr)
     );
     column-gap: var(--shelf-gap);
     row-gap: 1.5rem;
@@ -1749,22 +2113,27 @@
   @media (min-width: 1024px) {
     .library-frame {
       display: grid;
-      grid-template-columns: 14.5rem minmax(0, 1fr);
+      grid-template-columns: 16rem minmax(0, 1fr);
       align-items: start;
     }
     .library-workspace {
+      grid-column: 2;
       --library-gutter: clamp(1.5rem, 3vw, 3.5rem);
       padding-top: 1.75rem;
     }
     .library-rail {
       display: block;
-      position: sticky;
-      top: var(--library-header-height, 4rem);
-      height: calc(100dvh - var(--library-header-height, 4rem));
+      position: fixed;
+      top: 1rem;
+      left: 1rem;
+      width: 14rem;
+      height: calc(100dvh - 2rem);
       overflow-y: auto;
-      padding: 1.5rem 0.75rem;
-      border-right: 1px solid var(--border);
-      background: color-mix(in oklch, var(--card) 65%, var(--background));
+      padding: 1rem 0.75rem;
+      border: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
+      border-radius: 1.75rem;
+      background: color-mix(in oklch, var(--sidebar) 55%, var(--card));
+      box-shadow: 0 16px 40px color-mix(in oklch, var(--foreground) 11%, transparent);
     }
     .library-rail h2,
     .library-rail h3 {

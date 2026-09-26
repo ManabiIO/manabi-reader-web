@@ -177,7 +177,15 @@ export async function transferSharedBooks(
       from,
       to,
       true,
-      titles.map((title) => ({ title })),
+      await Promise.all(
+        titles.map(async (title) => {
+          if (direction !== 'publish') return { title };
+          const matches = await (await database.db).getAllFromIndex('data', 'title', title);
+          if (matches.length !== 1)
+            throw new Error(`Cannot publish ${title}: choose a unique book copy.`);
+          return { title, id: matches[0].id };
+        })
+      ),
       [StorageDataType.DATA, StorageDataType.PROGRESS, StorageDataType.STATISTICS]
     );
     if (error) throw new Error(error);

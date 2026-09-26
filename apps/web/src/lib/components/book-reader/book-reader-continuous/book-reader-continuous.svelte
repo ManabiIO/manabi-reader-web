@@ -52,6 +52,8 @@
 
   export let htmlContent: string;
 
+  export let previewNavigationActive = false;
+
   export let width: number;
 
   export let height: number;
@@ -136,6 +138,7 @@
     bookmark: void;
     contentChange: HTMLElement;
     trackerPause: void;
+    userNavigation: void;
   }>();
 
   let allowDisplay = false;
@@ -544,6 +547,7 @@
   }
 
   function onWheel(ev: WheelEvent) {
+    if (!readerUIOwnsEvent(ev) && (ev.deltaX || ev.deltaY)) dispatch('userNavigation');
     if (
       verticalMode &&
       !$disableWheelNavigation$ &&
@@ -587,6 +591,13 @@
 
       calculator.updateParagraphPos();
       updateCustomReadingPointPosition();
+      // A font load must not restore the saved reading position over a search,
+      // scrubber or annotation preview. Those jumps own their source locator.
+      if (previewNavigationActive) {
+        if (sectionToElement.size) updateSectionProgress();
+        dispatch('contentChange', contentEl);
+        return;
+      }
       if (pageManagerConcrete && !scrollWhenReady) {
         const scrollPos =
           calculator.getScrollPosByCharCount(prevIntendedCharCount) +

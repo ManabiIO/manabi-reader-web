@@ -89,10 +89,15 @@ class MigrationBrowser(unittest.TestCase):
         page.on('pageerror', lambda error: errors.append(str(error)))
         try:
             page.goto(cls.origin + '/reader-web/manage')
+            page.wait_for_function('''() => indexedDB.databases().then(databases =>
+              databases.some(database => database.name === 'books' && database.version >= 6))''',
+              timeout=30000)
             for title in (TITLE, OTHER):
-                page.locator('input[type=file][accept*=".epub"]').first.set_input_files(
+                epub_input = page.locator('input[type=file][accept*=".epub"]').first
+                expect(epub_input).to_be_attached(timeout=30000)
+                epub_input.set_input_files(
                     {'name': title+'.epub', 'mimeType': 'application/epub+zip', 'buffer': fixture_epub(title)})
-                expect(page.get_by_role('button', name='Read ' + title, exact=True)).to_be_visible()
+                expect(page.get_by_role('button', name='Read ' + title, exact=True)).to_be_visible(timeout=30000)
             # Source history deliberately initialized at the persistence boundary.
             # Export remains the actual user-facing exporter with real serializers.
             page.evaluate('''stamp => new Promise((resolve,reject) => {
@@ -115,7 +120,7 @@ class MigrationBrowser(unittest.TestCase):
             page.get_by_role('button', name='Library actions', exact=True).click()
             page.get_by_role('menuitem', name='Select Books', exact=True).click()
             page.get_by_role('button', name='Select all', exact=True).click()
-            expect(page.get_by_text('2 selected', exact=True)).to_be_visible()
+            expect(page.get_by_text('2 selected', exact=True)).to_be_visible(timeout=15000)
             page.get_by_role('button', name='Export', exact=True).click()
             page.get_by_role('button', name='Zip File', exact=True).click()
             for label in ('Book Data', 'Bookmark', 'Statistics', 'Audiobook', 'Subtitles'):
@@ -145,7 +150,8 @@ class MigrationBrowser(unittest.TestCase):
         self.page.on('pageerror', lambda error: self.errors.append(str(error)))
         StaticHandler.probes.clear()
         self.page.goto(self.origin + '/reader-web/import-ttu')
-        expect(self.page.get_by_role('heading', name='Import from Ttu Ebook Reader', exact=True)).to_be_visible()
+        expect(self.page.get_by_role('heading', name='Import from Ttu Ebook Reader', exact=True)).to_be_visible(timeout=30000)
+        expect(self.page.get_by_label('Choose Ttu export ZIPs', exact=True)).to_be_enabled()
 
     def tearDown(self):
         output=Path('test-results'); output.mkdir(exist_ok=True)
@@ -172,10 +178,22 @@ class MigrationBrowser(unittest.TestCase):
     def snapshot(self):
         return self.page.evaluate('''() => new Promise((resolve,reject)=>{
           const open=indexedDB.open('books');open.onerror=()=>reject(open.error);
-          open.onsuccess=()=>{const db=open.result,names=['data','bookmark','statistic','audioBook','subtitle','readingGoal','storageSource'];
+          open.onsuccess=()=>{const db=open.result,names=['data','bookmark','statistic','readerStatistic','audioBook','subtitle','readingGoal','storageSource'];
             const tx=db.transaction(names),out={};for(const name of names){const request=tx.objectStore(name).getAll();
               request.onsuccess=()=>out[name]=name==='data'?request.result.map(({blobs,coverImage,...book})=>({...book,media:Object.keys(blobs)})):request.result;}
-            tx.oncomplete=()=>{db.close();resolve(out);};tx.onerror=()=>reject(tx.error);};
+            tx.oncomplete=()=>{db.close();out.statistic=[...out.statistic,...out.readerStatistic];resolve(out);};tx.onerror=()=>reject(tx.error);};
+        })''')
+
+    def organization(self):
+        return self.page.evaluate('''() => new Promise((resolve, reject) => {
+          const request = indexedDB.open('manabi-reader-integrations');
+          request.onerror = () => reject(request.error);
+          request.onsuccess = () => {
+            const db = request.result;
+            const read = db.transaction('metadata').objectStore('metadata').get('books-organization-v1');
+            read.onsuccess = () => { db.close(); resolve(read.result); };
+            read.onerror = () => reject(read.error);
+          };
         })''')
 
     def subset(self, *parts, title=None):
@@ -222,9 +240,9 @@ class MigrationBrowser(unittest.TestCase):
         self.assertEqual(2,len(data['data']))
         self.assertEqual(2,len(data['statistic']))
         self.page.evaluate('''() => new Promise((resolve,reject)=>{const open=indexedDB.open('books');open.onsuccess=()=>{
-          const db=open.result,tx=db.transaction(['bookmark','statistic'],'readwrite');
-          tx.objectStore('bookmark').clear();const all=tx.objectStore('statistic').getAll();all.onsuccess=()=>{
-            for(const row of all.result)tx.objectStore('statistic').put({...row,readingTime:999,lastStatisticModified:row.lastStatisticModified+100});};
+          const db=open.result,tx=db.transaction(['bookmark','readerStatistic'],'readwrite');
+          tx.objectStore('bookmark').clear();const all=tx.objectStore('readerStatistic').getAll();all.onsuccess=()=>{
+            for(const row of all.result)tx.objectStore('readerStatistic').put({...row,readingTime:999,lastStatisticModified:row.lastStatisticModified+100});};
           tx.oncomplete=()=>{db.close();resolve();};tx.onerror=()=>reject(tx.error);};})''')
         before=self.snapshot()
         self.page.reload()
@@ -262,7 +280,7 @@ class MigrationBrowser(unittest.TestCase):
         self.load()
         self.run_import()
         self.page.evaluate('''() => new Promise(resolve=>{const open=indexedDB.open('books');open.onsuccess=()=>{
-          const db=open.result,tx=db.transaction('statistic','readwrite'),store=tx.objectStore('statistic'),all=store.getAll();
+          const db=open.result,tx=db.transaction('readerStatistic','readwrite'),store=tx.objectStore('readerStatistic'),all=store.getAll();
           all.onsuccess=()=>{for(const row of all.result)store.put({...row,readingTime:800,lastStatisticModified:row.lastStatisticModified+10});};
           tx.oncomplete=()=>{db.close();resolve();};};})''')
         before=self.snapshot()
@@ -382,8 +400,62 @@ class MigrationBrowser(unittest.TestCase):
         self.page.get_by_role('menuitem',name='Import from Ttu Ebook Reader',exact=True).click()
         expect(self.page.get_by_role('heading',name='Import from Ttu Ebook Reader',exact=True)).to_be_visible()
         self.assertNotRegex(self.page.locator('body').inner_text(),r'\b(?:TTU|GDrive)\b')
+        self.page.goto(self.origin+'/reader-web/manage')
+        self.page.get_by_role('button',name='Library actions',exact=True).click()
+        self.page.get_by_role('menuitem',name='Add Books',exact=True).click()
+        self.page.get_by_role('menuitem',name='Import from Yatsu Reader',exact=True).click()
+        expect(self.page.get_by_role('heading',name='Import from Yatsu Reader',exact=True)).to_be_visible()
         self.page.goto(self.origin+'/reader-web/settings')
         self.assertNotRegex(self.page.locator('body').inner_text(),r'\b(?:TTU|GDrive)\b')
+
+    def test_real_yatsu_v11_backup_imports_book_position_and_statistics_idempotently(self):
+        fixture = Path(__file__).resolve().parents[1] / 'fixtures' / 'yatsu' / 'complete-local-backup-v11.zip'
+        title = 'Manabi Yatsu Portability Fixture'
+        self.page.goto(self.origin + '/reader-web/import-ttu?source=yatsu')
+        expect(self.page.get_by_role('heading', name='Import from Yatsu Reader', exact=True)).to_be_visible()
+        picker = self.page.get_by_label('Choose Yatsu backup ZIPs', exact=True)
+        picker.set_input_files(str(fixture))
+        row = self.row(title)
+        expect(row).to_be_visible()
+        expect(row.locator('.details')).to_contain_text('Yatsu Reader')
+        expect(row.locator('.details')).to_contain_text('Book Data, Collection Tags')
+        self.page.get_by_role('button', name='Import selected (1)', exact=True).click()
+        expect(row.get_by_role('status')).to_have_text(f'Imported {title}.', timeout=60000)
+        snapshot = self.snapshot()
+        self.assertEqual(1, len(snapshot['data']))
+        self.assertEqual(title, snapshot['data'][0]['title'])
+        self.assertEqual(1, len(snapshot['bookmark']))
+        self.assertEqual(0, snapshot['bookmark'][0]['progress'])
+        self.assertEqual(1, len(snapshot['statistic']))
+        self.assertEqual(title, snapshot['statistic'][0]['title'])
+        organization = self.organization()
+        self.assertEqual(['Portable Shelf'], [item['name'] for item in organization['collections']])
+        self.assertEqual([f"book:{snapshot['data'][0]['id']}"], organization['collections'][0]['members'])
+        self.clear()
+        picker.set_input_files(str(fixture))
+        self.page.get_by_role('button', name='Import selected (1)', exact=True).click()
+        expect(self.row(title).get_by_role('status')).to_have_text('Already imported; existing data kept.', timeout=60000)
+        self.assertEqual(snapshot, self.snapshot())
+        self.assertEqual(organization, self.organization())
+        self.page.goto(self.origin + '/reader-web/manage')
+        collection = self.page.get_by_role('complementary', name='Collections').get_by_role(
+            'button', name=re.compile(r'^Portable Shelf\b'))
+        expect(collection).to_be_visible()
+        collection.click()
+        expect(self.page.get_by_role('button', name=f'Read {title}', exact=True)).to_be_visible()
+
+    def test_yatsu_manifest_mismatch_is_rejected_before_any_book_write(self):
+        fixture = Path(__file__).resolve().parents[1] / 'fixtures' / 'yatsu' / 'complete-local-backup-v11.zip'
+        files = entries(fixture.read_bytes())
+        manifest = json.loads(files['yatsu-backup-manifest.json'])
+        manifest['bookCount'] += 1
+        files['yatsu-backup-manifest.json'] = json.dumps(manifest)
+        self.page.goto(self.origin + '/reader-web/import-ttu?source=yatsu')
+        self.page.get_by_label('Choose Yatsu backup ZIPs', exact=True).set_input_files({
+            'name': 'corrupt-yatsu.zip', 'mimeType': 'application/zip', 'buffer': zip_bytes(files)
+        })
+        expect(self.page.get_by_role('status')).to_contain_text('book count does not match', timeout=30000)
+        self.assertEqual([], self.snapshot()['data'])
 
 
 if __name__=='__main__':

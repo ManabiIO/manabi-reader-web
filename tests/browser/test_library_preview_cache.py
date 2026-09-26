@@ -33,7 +33,7 @@ class PreviewCacheBrowser(fixtures.LibraryBase):
           const db=await new Promise((resolve,reject)=>{const r=indexedDB.open('manabi-library-previews',1);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)});
           try {const rows=await new Promise((resolve,reject)=>{const r=db.transaction('previews').objectStore('previews').getAll();r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)});
             return rows.map(row=>({key:row.key,title:row.title,scannedAt:row.scannedAt,direction:row.pageDirection.value,
-              creators:row.creators||[],metadataVersion:row.metadataVersion,
+              creators:row.creators||[],metadataVersion:row.metadataVersion,contentHash:row.contentHash,
               bytes:row.imageData instanceof ArrayBuffer ? row.imageData.byteLength : 0,blobStored:'imagePath' in row,type:row.imageType})).sort((a,b)=>a.key.localeCompare(b.key));
           } finally {db.close();}
         }'''
@@ -44,7 +44,8 @@ class PreviewCacheBrowser(fixtures.LibraryBase):
             self.assertLessEqual(row['bytes'], 1024 * 1024)
             self.assertFalse(row['blobStored'])
             self.assertIn(row['type'], ('image/png','image/jpeg','image/webp'))
-            self.assertEqual(1, row['metadataVersion'])
+            self.assertEqual(2, row['metadataVersion'])
+            self.assertRegex(row['contentHash'], r'^[a-f0-9]{64}$')
         first = next(row for row in saved if row['title'] == 'Cached first')
         self.assertEqual([{'name':'Preview Author'}], first['creators'])
         self.page.reload()

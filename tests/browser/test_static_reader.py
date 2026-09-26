@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import threading
 import unittest
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 import zipfile
 from playwright.sync_api import sync_playwright, expect
 
@@ -46,10 +46,14 @@ class StaticHandler(SimpleHTTPRequestHandler):
     probes = []
     session_gate = None
     session_started = None
+    connections_gate = None
+    connections_started = None
     account_fixture = None
     account_requests = []
     preference_revision = 0
     preference_settings = {}
+    personal_enabled = False
+    personal_mutations = []
 
     def api_request(self):
         length = int(self.headers.get('Content-Length') or '0')
@@ -102,7 +106,19 @@ class StaticHandler(SimpleHTTPRequestHandler):
                     'settings': type(self).preference_settings
                 }, user=identity)
             elif path.endswith('/connections/'):
+                gate = type(self).connections_gate
+                started = type(self).connections_started
+                if gate is not None:
+                    type(self).connections_gate = None
+                    type(self).connections_started = None
+                    if started is not None:
+                        started.set()
+                    gate.wait(timeout=10)
                 self.api_response({'items': []}, user=identity)
+            elif path.endswith('/personal/changes/') and type(self).personal_enabled:
+                cursor = int(parse_qs(urlsplit(self.path).query).get('cursor', ['0'])[0])
+                self.api_response({'items': [], 'next_cursor': cursor, 'has_more': False},
+                                  user=identity)
             else:
                 self.send_error(404)
             return
@@ -129,6 +145,19 @@ class StaticHandler(SimpleHTTPRequestHandler):
     def do_POST(self):
         fixture = type(self).account_fixture
         path = urlsplit(self.path).path
+        if fixture is not None and type(self).personal_enabled and path.endswith('/personal/mutations/'):
+            self.api_request()
+            value = type(self).account_requests[-1]['body']
+            identity = fixture['user']['id']
+            type(self).personal_mutations.append((identity, value))
+            self.api_response({
+                'accepted': True, 'mutation_id': value['mutation_id'],
+                'record': {'kind': value['kind'], 'entity_id': value['entity_id'],
+                           'book_key': value['book_key'], 'revision': 1,
+                           'payload': value['payload'],
+                           'deleted': value['operation'] == 'delete'}
+            }, user=identity)
+            return
         if fixture is not None and path.endswith('/logout/'):
             admitted = fixture['user']['id']
             self.api_request()
@@ -182,12 +211,16 @@ class ReaderBrowser(unittest.TestCase):
 
     def setUp(self):
         self.context = self.browser.new_context()
+        self.context.add_init_script(
+            "try { localStorage.setItem('manabi-reader-dictionary-setup-v1', 'skip') } catch {}")
         self.page = self.context.new_page()
         self.errors = []
         self.page.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))
         StaticHandler.probes.clear()
         StaticHandler.session_gate = None
         StaticHandler.session_started = None
+        StaticHandler.connections_gate = None
+        StaticHandler.connections_started = None
         StaticHandler.account_fixture = None
         StaticHandler.account_requests = []
         StaticHandler.preference_revision = 0
@@ -205,9 +238,14 @@ class ReaderBrowser(unittest.TestCase):
             gate = StaticHandler.session_gate
             StaticHandler.session_gate = None
             StaticHandler.session_started = None
+            connections_gate = StaticHandler.connections_gate
+            StaticHandler.connections_gate = None
+            StaticHandler.connections_started = None
             StaticHandler.account_fixture = None
             if gate is not None:
                 gate.set()
+            if connections_gate is not None:
+                connections_gate.set()
             # A diagnostic failure must not leak a profile into the next test.
             self.context.close()
             if self.errors:

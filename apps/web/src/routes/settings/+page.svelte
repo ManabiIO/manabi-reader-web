@@ -142,11 +142,11 @@
   <title>{formatPageTitle('Settings')}</title>
 </svelte:head>
 
-<div class="elevation-4 fixed inset-x-0 top-0 z-10">
+<div class="elevation-4 sticky top-0 z-10">
   <SettingsHeader leavePageLink={prevPage} />
 </div>
 
-<div class="{pxScreen} h-full pt-16 xl:pt-14">
+<div data-settings-content class="{pxScreen} settings-frame">
   <SettingsWorkspace>
     <SettingsContent
       {activeSettings}
@@ -221,3 +221,14 @@
   </SettingsWorkspace>
 </div>
 {$setPersistentStorage$ ?? ''}
+
+<style>
+  .settings-frame {
+    padding: 24px 16px;
+  }
+  @media (min-width: 768px) {
+    .settings-frame {
+      padding-inline: 32px;
+    }
+  }
+</style>

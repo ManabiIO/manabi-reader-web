@@ -18,10 +18,10 @@
     linkedBooks,
     refreshLinkedBooks,
     importLibraryBook,
-    setBookSync,
     syncBook,
     syncAllLinkedBooks
   } from '$lib/manabi/books';
+  import { personalSyncStatus, resolvePersonalConflict } from '$lib/manabi/personal-sync';
   import { integrationDB, type LocalLibrary } from '$lib/manabi/persistence';
   import {
     CloudLibrary,
@@ -49,8 +49,6 @@
   let entries: LibraryEntry[] = [];
   let trail: { id: string; name: string }[] = [];
   let cursor = '';
-  let canWrite = false;
-  let syncImported = true;
   let nativeFolders = false;
   let busy = false;
   let message = '';
@@ -109,8 +107,6 @@
   async function openLocal(library: LocalLibrary) {
     source = new LocalLibrarySource(library);
     sourceName = library.name;
-    canWrite = library.writable;
-    syncImported = library.writable;
     trail = [{ id: '', name: library.name }];
     await browse('', false);
   }
@@ -119,8 +115,6 @@
     if (!owner) throw new IntegrationError('sign_in_required');
     source = new CloudLibrary(connection.id, owner, root);
     sourceName = `${providerLabels[connection.provider] ?? connection.provider} · ${root}`;
-    canWrite = true;
-    syncImported = true;
     trail = [{ id: root, name: 'Selected folder' }];
     await browse(root, false);
   }
@@ -402,14 +396,13 @@
     {#each localLibraries as library (library.id)}
       <article class="library" aria-label="Local library {library.name}">
         <h3>{library.name}</h3>
-        <p>{library.writable ? 'Folder write-back enabled.' : 'Read-only book access.'}</p>
+        <p>{library.writable ? 'Series editing allowed.' : 'Read-only book access.'}</p>
         <div class="actions">
           <button disabled={busy} on:click={() => action(() => openLocal(library))}
             >Browse {library.name}</button
           >
           <button disabled={busy} on:click={() => grant(library, false)}>Reconnect folder</button>
-          <button disabled={busy} on:click={() => grant(library, true)}
-            >Allow reading-data write-back</button
+          <button disabled={busy} on:click={() => grant(library, true)}>Allow series editing</button
           >
           <button
             disabled={busy}
@@ -427,8 +420,10 @@
       </article>
     {/each}
     <p class="hint">
-      Original books are never modified. Reading data uses a separate .manabi-reader directory. A
-      local save does not confirm that your operating system has finished its cloud upload.
+      Reading does not modify original books. Series edits in a writable folder move selected
+      originals and write .manabi-reader.yaml. Personal reading data stays in IndexedDB and syncs
+      through Manabi when signed in. A local folder save does not confirm that your operating system
+      has finished its cloud upload.
     </p>
   </section>
 
@@ -447,11 +442,10 @@
           >
         {/each}
       </nav>
-      <label
-        ><input type="checkbox" bind:checked={syncImported} disabled={!canWrite} />Sync progress and
-        reading statistics to this library</label
-      >
-      {#if !canWrite}<p>Enable folder write-back above to use this option.</p>{/if}
+      <p>
+        Verified books sync personal reading data through your Manabi account. Folder write access
+        is not required.
+      </p>
       {#each entries as entry (entry.id)}
         <div class="file-entry">
           <span
@@ -467,7 +461,7 @@
               on:click={() =>
                 action(async () => {
                   if (!source) return;
-                  lastImported = await importLibraryBook(source, entry, syncImported && canWrite);
+                  lastImported = await importLibraryBook(source, entry, true);
                   message = `Imported ${lastImported.title}. It is now available offline.`;
                 })}>Import {entry.name}</button
             >
@@ -489,52 +483,48 @@
   {/if}
 
   <section aria-labelledby="reading-sync-heading">
-    <h2 id="reading-sync-heading">Linked books and reading sync</h2>
+    <h2 id="reading-sync-heading">Personal reading sync</h2>
+    <p role="status">
+      {$personalSyncStatus.message || 'Verified books and annotations sync when signed in.'}
+    </p>
+    {#each $personalSyncStatus.conflicts as conflict (conflict.id)}
+      <article class="library" aria-label="Sync conflict for {conflict.bookKey}">
+        <h3>{conflict.kind} conflict</h3>
+        <p>{conflict.bookKey} · {conflict.fields.join(', ')}</p>
+        {#if conflict.kind === 'annotation'}
+          <p>Device note: {String(conflict.local?.body ?? '(empty or deleted)')}</p>
+          <p>Account note: {String(conflict.remote?.body ?? '(empty or deleted)')}</p>
+        {/if}
+        <div class="actions">
+          <button
+            disabled={busy}
+            on:click={() => action(() => resolvePersonalConflict(conflict.id, 'local'))}
+            >Keep device copy</button
+          >
+          <button
+            disabled={busy}
+            on:click={() => action(() => resolvePersonalConflict(conflict.id, 'remote'))}
+            >Use account copy</button
+          >
+        </div>
+      </article>
+    {/each}
     <button disabled={busy} on:click={() => action(syncAllLinkedBooks)}
-      >Sync linked books now</button
+      >Sync personal reading data now</button
     >
     {#if !$linkedBooks.length}<p>
-        Import a book from a library above to link its reading data.
+        Verified local books and annotations sync through your account even without a linked cloud
+        library.
       </p>{/if}
     {#each $linkedBooks as link (link.id)}
       <article class="library" aria-label="Reading sync for {link.title}">
         <h3><a href={resolve(`/b?id=${link.bookId}`)}>{link.title}</a></h3>
-        <label
-          ><input
-            type="checkbox"
-            checked={link.syncEnabled}
-            disabled={busy}
-            on:change={(event) => action(() => setBookSync(link.id, event.currentTarget.checked))}
-          />Sync this book’s progress and statistics</label
-        >
         <p role="status">
-          {$bookSyncStatus[link.id]?.message ??
-            (link.syncEnabled ? 'Ready to sync.' : 'Reading sync is off.')}
+          {$bookSyncStatus[link.id]?.message ?? 'Ready to sync through your account.'}
         </p>
-        {#if link.syncEnabled}<button
-            disabled={busy}
-            on:click={() => action(() => syncBook(link.id))}>Sync {link.title}</button
-          >{/if}
-        {#if $bookSyncStatus[link.id]?.state === 'conflict'}
-          <div class="actions">
-            <button disabled={busy} on:click={() => action(() => syncBook(link.id, 'local'))}
-              >Keep this device’s reading data</button
-            >
-            {#if $bookSyncStatus[link.id]?.branches}
-              {#each $bookSyncStatus[link.id].branches ?? [] as branch (branch.id)}
-                <button
-                  disabled={busy}
-                  on:click={() => action(() => syncBook(link.id, 'remote', branch.id))}
-                  >Use folder copy saved {branch.createdAt}</button
-                >
-              {/each}
-            {:else}
-              <button disabled={busy} on:click={() => action(() => syncBook(link.id, 'remote'))}
-                >Use the library’s reading data</button
-              >
-            {/if}
-          </div>
-        {/if}
+        <button disabled={busy} on:click={() => action(() => syncBook(link.id))}
+          >Sync {link.title}</button
+        >
       </article>
     {/each}
   </section>

@@ -29,12 +29,14 @@
   let choices: MigratedBookChoice[] = [];
   let parts = Object.keys(importLabels) as ImportPart[];
   let busy = false;
+  let hydrated = false;
   let message = '';
   let controller: AbortController | undefined;
   let stopped = false;
   let completed = 0;
   let total = 0;
   let page = 0;
+  let yatsu = false;
   const pageSize = 50;
   $: visibleRows = rows.slice(page * pageSize, (page + 1) * pageSize);
   $: selected = rows.filter((row) => row.selected && !row.error);
@@ -107,8 +109,9 @@
           result.status === 'unchanged'
             ? 'Already imported; existing data kept.'
             : `Imported ${result.title}.`;
+        if (result.warning) row.message += ` ${result.warning}`;
         row.bookId = result.bookId;
-        row.selected = false;
+        row.selected = !!result.warning;
       } catch (error) {
         row.status = error instanceof MigrationConflict ? 'conflict' : 'error';
         row.message = controller.signal.aborted
@@ -154,6 +157,8 @@
     else cancel();
   });
   onMount(() => {
+    yatsu = new URLSearchParams(window.location.search).get('source') === 'yatsu';
+    hydrated = true;
     void migratedBookChoices()
       .then((value) => {
         if (!stopped) choices = value;
@@ -175,45 +180,62 @@
   <AppNav />
 </header>
 
-<svelte:head><title>Import from Ttu Ebook Reader · Manabi Reader</title></svelte:head>
+<svelte:head
+  ><title>Import from {yatsu ? 'Yatsu Reader' : 'Ttu Ebook Reader'} · Manabi Reader</title
+  ></svelte:head
+>
 
 <main class="migration-page">
   <nav aria-label="Reader navigation">
     <a href="{base}/manage">Books</a><a href="{base}/connections">Accounts and libraries</a>
   </nav>
-  <h1>Import from Ttu Ebook Reader</h1>
-  <section aria-labelledby="export-instructions">
-    <h2 id="export-instructions">Export in Ttu Ebook Reader</h2>
-    <ol>
-      <li>
-        In Book Manager, enter selection mode and select books or <strong>Select All Books</strong>.
-      </li>
-      <li>Choose <strong>Export → ZIP File</strong>.</li>
-      <li>
-        Include <strong>Book Data</strong>, <strong>Bookmark</strong> and
-        <strong>Statistics</strong>, then choose <strong>Start</strong>.
-      </li>
-    </ol>
-    <p>Choose the ZIPs below. A few books at a time is fine.</p>
-    <details>
-      <summary>Other exported data</summary>
+  <h1>Import from {yatsu ? 'Yatsu Reader' : 'Ttu Ebook Reader'}</h1>
+  {#if !yatsu}
+    <section aria-labelledby="export-instructions">
+      <h2 id="export-instructions">Export in Ttu Ebook Reader</h2>
+      <ol>
+        <li>
+          In Book Manager, enter selection mode and select books or <strong>Select All Books</strong
+          >.
+        </li>
+        <li>Choose <strong>Export → ZIP File</strong>.</li>
+        <li>
+          Include <strong>Book Data</strong>, <strong>Bookmark</strong> and
+          <strong>Statistics</strong>, then choose <strong>Start</strong>.
+        </li>
+      </ol>
+      <p>Choose the ZIPs below. A few books at a time is fine.</p>
+      <details>
+        <summary>Other exported data</summary>
+        <p>
+          Audiobook position and subtitles are supported. Export Reading Goals separately from
+          Statistics → Reading Goals.
+        </p>
+        <p>
+          Data-only ZIPs need Book Data imported first. Choose the matching imported book below.
+          Audio files and the original EPUB are not included in Ttu exports.
+        </p>
+      </details>
+    </section>
+  {:else}
+    <section aria-labelledby="yatsu-export-instructions">
+      <h2 id="yatsu-export-instructions">Export in Yatsu Reader</h2>
       <p>
-        Audiobook position and subtitles are supported. Export Reading Goals separately from
-        Statistics → Reading Goals.
+        In the Library, open More library actions and choose <strong
+          >Get complete local backup</strong
+        >. Select that ZIP below. Book data, current reading position, collection tags, and
+        statistics can be imported from a version-11 complete local backup. Yatsu highlights, notes,
+        saved bookmarks, and settings are not imported yet; keep your original backup.
       </p>
-      <p>
-        Data-only ZIPs need Book Data imported first. Choose the matching imported book below. Audio
-        files and the original EPUB are not included in Ttu exports.
-      </p>
-    </details>
-  </section>
+    </section>
+  {/if}
   <label class="file-picker"
-    >Choose Ttu export ZIPs
+    >Choose {yatsu ? 'Yatsu backup' : 'Ttu export'} ZIPs
     <input
       type="file"
       accept=".zip,application/zip"
       multiple
-      disabled={busy}
+      disabled={busy || !hydrated}
       on:change={(event) => {
         const files = [...(event.currentTarget.files ?? [])];
         event.currentTarget.value = '';
@@ -228,9 +250,16 @@
       <summary>Data to import</summary>
       <div class="parts">
         {#each Object.entries(importLabels) as [part, label]}
-          <label
-            ><input type="checkbox" bind:group={parts} value={part} disabled={busy} />{label}</label
-          >
+          {#if part !== 'metadata' || sources.some((source) => source.source === 'yatsu')}
+            <label
+              ><input
+                type="checkbox"
+                bind:group={parts}
+                value={part}
+                disabled={busy}
+              />{label}</label
+            >
+          {/if}
         {/each}
       </div>
     </details>
@@ -253,8 +282,8 @@
       <button disabled={busy} on:click={clear}>Clear list</button>
     </div>
     {#if ignored}<p>
-        {ignored} unrelated export files will not be imported. Storage connections and credentials are
-        never imported.
+        {ignored} files are not covered by this importer and will be kept only in the original ZIP. Storage
+        connections and credentials are never imported.
       </p>{/if}
     {#if busy}
       <div class="actions">
@@ -284,6 +313,7 @@
             />{row.title}</label
           >
           <p class="details">
+            {row.source.source === 'yatsu' ? 'Yatsu Reader' : 'Ttu Ebook Reader'} ·
             {row.source.file.name} · {row.parts.map((part) => importLabels[part]).join(', ')}
           </p>
           {#if !row.parts.includes('goals') && (!row.parts.includes('book') || row.status === 'conflict')}

@@ -41,10 +41,20 @@ class RefinedAppearance(previous.AppearanceBrowser):
         profile = TemporaryDirectory(prefix='reader-appearance-webkit-')
         self.addCleanup(profile.cleanup)
         self.context = self.playwright.webkit.launch_persistent_context(profile.name)
+        self.context.add_init_script(
+            "try { localStorage.setItem('manabi-reader-dictionary-setup-v1', 'skip') } catch {}")
         self.page = self.context.pages[0]
         self.errors = []
         self.page.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))
         previous.baseline.StaticHandler.probes.clear()
+        previous.baseline.StaticHandler.session_gate = None
+        previous.baseline.StaticHandler.session_started = None
+        previous.baseline.StaticHandler.connections_gate = None
+        previous.baseline.StaticHandler.connections_started = None
+        previous.baseline.StaticHandler.account_fixture = None
+        previous.baseline.StaticHandler.account_requests = []
+        previous.baseline.StaticHandler.preference_revision = 0
+        previous.baseline.StaticHandler.preference_settings = {}
         self.context.on('page', self.watch_page)
         self.record_network()
 

@@ -24,7 +24,7 @@ test('logical TTU revisions are unambiguous, version-qualified and left intact',
   assert.equal(selectTtuFile([first], 'bookdata_'), undefined);
   for (const name of [
     'bookdata_2_6_1_1_1.zip',
-    'bookdata_1_7_1_1_1.zip',
+    'bookdata_1_9_1_1_1.zip',
     'bookdata_1_6_1_1_1.json'
   ]) {
     assert.throws(
@@ -37,6 +37,10 @@ test('logical TTU revisions are unambiguous, version-qualified and left intact',
     /Invalid numeric/
   );
   assert.throws(() => selectTtuFile([{ name: 'bookdata_1_6_1_1.zip' }], 'bookdata_'), /Malformed/);
+  for (const version of [7, 8]) {
+    const name = `bookdata_1_${version}_1_1_1.zip`;
+    assert.equal(selectTtuFile([{ name }], 'bookdata_')?.name, name);
+  }
 });
 
 test('native statistics, exponential progress and textual anchors keep the TTU wire contract', () => {

@@ -15,7 +15,7 @@ const totals = {
 const completed = {
   ...totals,
   exporterVersion: 1,
-  dbVersion: 6,
+  dbVersion: 8,
   lastStatisticModified: 1789837322544,
   averageReadingTime: 300,
   averageWeightedRedingTime: 300,
@@ -30,6 +30,8 @@ test('actual Complete Book metadata and legacy totals both remain valid', () => 
   assert.equal(isCompletedStatistics(totals, day), true);
   assert.equal(isCompletedStatistics(completed, day), true);
   assert.equal(isCompletedStatistics({ ...completed, dbVersion: 5 }, day), true);
+  assert.equal(isCompletedStatistics({ ...completed, dbVersion: 6 }, day), true);
+  assert.equal(isCompletedStatistics({ ...completed, dbVersion: 7 }, day), true);
   assert.equal(isCompletedStatistics({ ...completed, finishDate: day }, day), true);
   assert.equal(isCompletedStatistics({ ...totals, completedBook: 1 }, day), true);
 });
@@ -40,7 +42,7 @@ test('completion schema rejects invalid metadata without erasing valid fields', 
     { averageWeightedCharatersRead: -1 },
     { readingTime: Infinity },
     { exporterVersion: 2 },
-    { dbVersion: 7 },
+    { dbVersion: 9 },
     { completedBook: true },
     { dateKey: '2026-02-30' },
     { finishDate: '2026-02-30' },

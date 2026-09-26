@@ -7,14 +7,7 @@ on:
       - 'package.json'
       - 'pnpm-lock.yaml'
       - '.github/workflows/ttu-migration.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'apps/web/**'
-      - 'tests/**'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - '.github/workflows/ttu-migration.yml'
+  # Main publication runs these suites in manabi-reader-ci.yml using its build.
 permissions:
   contents: read
 concurrency:

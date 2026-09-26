@@ -29,9 +29,183 @@
   import type { AutoScroller, BookmarkManager, PageManager } from './types';
   import BookReaderPaginated from './book-reader-paginated/book-reader-paginated.svelte';
   import { enableReaderWakeLock$, enableTapEdgeToFlip$ } from '$lib/data/store';
-  import { onDestroy } from 'svelte';
+  import { createEventDispatcher, onDestroy } from 'svelte';
+  import {
+    codePointLength,
+    makeLocator,
+    projectResource,
+    rangeAt,
+    resolveLocator,
+    selectedOffsets,
+    type PublicationManifest,
+    type ReaderLocator
+  } from '$lib/reader-location';
+
+  const dispatch = createEventDispatcher<{ contentChange: HTMLElement; userNavigation: void }>();
+  let currentContentEl: HTMLElement | undefined;
+  let paginatedReader: BookReaderPaginated | undefined;
+
+  function activeContentElement(): HTMLElement | undefined {
+    return viewMode === ViewMode.Paginated
+      ? (paginatedReader?.getContentElement() ?? currentContentEl)
+      : currentContentEl;
+  }
+
+  function firstVisibleTextOffset(
+    node: Text,
+    viewport: { left: number; top: number; right: number; bottom: number }
+  ): number | undefined {
+    const range = node.ownerDocument.createRange();
+    const intersectsViewport = (start: number, end: number) => {
+      range.setStart(node, start);
+      range.setEnd(node, end);
+      return Array.from(range.getClientRects()).some(
+        (box) =>
+          box.width > 0 &&
+          box.height > 0 &&
+          box.right > viewport.left &&
+          box.left < viewport.right &&
+          box.bottom > viewport.top &&
+          box.top < viewport.bottom
+      );
+    };
+    let start = 0;
+    let end = node.length;
+    if (!end || !intersectsViewport(start, end)) return undefined;
+    // Hit-testing a text point can return an adjacent element in WebKit's CSS
+    // columns. Resolve against source ranges instead, so a later visible page
+    // cannot silently become an offset-zero return point.
+    while (end - start > 1) {
+      const middle = start + Math.floor((end - start) / 2);
+      if (intersectsViewport(start, middle)) end = middle;
+      else start = middle;
+    }
+    return start > 0 && /[\uDC00-\uDFFF]/.test(node.data[start]) ? start - 1 : start;
+  }
+
+  /** Capture a visible passage in canonical source coordinates. */
+  export async function captureReaderPoint(
+    bookKey: string,
+    manifest?: PublicationManifest
+  ): Promise<ReaderLocator | undefined> {
+    const contentEl = activeContentElement();
+    if (!contentEl) return undefined;
+    // Text clipped by the reader's own scrollport can still have a DOM rect
+    // inside the window. Capture only ink that the reader is actually showing.
+    const scrollport = contentEl.getBoundingClientRect();
+    const viewport = {
+      left: Math.max(0, scrollport.left),
+      top: Math.max(0, scrollport.top),
+      right: Math.min(innerWidth, scrollport.right),
+      bottom: Math.min(innerHeight, scrollport.bottom)
+    };
+    const sections =
+      viewMode === ViewMode.Paginated
+        ? [contentEl.querySelector<HTMLElement>('[data-manabi-spine-index]')].filter(
+            (value): value is HTMLElement => !!value
+          )
+        : (Array.from(contentEl.children) as HTMLElement[]);
+    for (const section of sections) {
+      const rect = section.getBoundingClientRect();
+      // CSS columns can paint paginated text well outside the section's own
+      // block box. Its rect may be offscreen while a later page is visible.
+      if (
+        viewMode !== ViewMode.Paginated &&
+        (rect.right <= viewport.left ||
+          rect.left >= viewport.right ||
+          rect.bottom <= viewport.top ||
+          rect.top >= viewport.bottom)
+      )
+        continue;
+      const spineIndex =
+        viewMode === ViewMode.Paginated
+          ? Number(section.dataset.manabiSpineIndex)
+          : Array.prototype.indexOf.call(contentEl.children, section);
+      const resource = manifest?.resources[spineIndex] ?? {
+        href: `legacy-section-${spineIndex}`,
+        spineIndex,
+        sectionId: section.id || `section-${spineIndex}`
+      };
+      const projected = projectResource(section, resource);
+      for (const run of projected.runs) {
+        const offset = firstVisibleTextOffset(run.node, viewport);
+        if (offset === undefined) continue;
+        const start = run.start + codePointLength(run.node.data.slice(0, offset));
+        return makeLocator(bookKey, projected, start);
+      }
+      if (!projected.runs.length) return makeLocator(bookKey, projected, 0);
+    }
+    return undefined;
+  }
+
+  export async function captureReaderSelection(
+    bookKey: string,
+    manifest?: PublicationManifest,
+    savedRange?: Range
+  ): Promise<ReaderLocator[]> {
+    const selection = window.getSelection();
+    const range =
+      savedRange?.cloneRange() ??
+      (selection?.rangeCount ? selection.getRangeAt(0).cloneRange() : undefined);
+    const contentEl = activeContentElement();
+    if (!range || range.collapsed || !contentEl) return [];
+    if (!contentEl.contains(range.commonAncestorContainer)) return [];
+    const sections =
+      viewMode === ViewMode.Paginated
+        ? [contentEl.querySelector<HTMLElement>('[data-manabi-spine-index]')].filter(
+            (value): value is HTMLElement => !!value
+          )
+        : (Array.from(contentEl.children) as HTMLElement[]);
+    const targets: ReaderLocator[] = [];
+    for (const section of sections) {
+      if (!range.intersectsNode(section)) continue;
+      const spineIndex =
+        viewMode === ViewMode.Paginated
+          ? Number(section.dataset.manabiSpineIndex)
+          : Array.prototype.indexOf.call(contentEl.children, section);
+      const resource = manifest?.resources[spineIndex] ?? {
+        href: `legacy-section-${spineIndex}`,
+        spineIndex,
+        sectionId: section.id || `section-${spineIndex}`
+      };
+      const projected = projectResource(section, resource);
+      const offsets = selectedOffsets(projected, range);
+      if (offsets) targets.push(await makeLocator(bookKey, projected, offsets.start, offsets.end));
+    }
+    return targets;
+  }
+
+  export async function revealReaderLocator(
+    locator: ReaderLocator,
+    bookKey: string
+  ): Promise<boolean> {
+    if (viewMode === ViewMode.Paginated)
+      return paginatedReader?.revealLocator(locator, bookKey) ?? false;
+    const section = currentContentEl?.children[locator.resource.spineIndex];
+    if (!section) return false;
+    const projected = projectResource(section, locator.resource);
+    const position = await resolveLocator(locator, projected, bookKey);
+    if (!position) return false;
+    const range = rangeAt(projected, position.start, position.end);
+    if (!range) return false;
+    const rect = range.getBoundingClientRect();
+    const host = currentContentEl?.getBoundingClientRect();
+    if (!host || !currentContentEl) return false;
+    // The continuous reader owns the scroll container. Its scroll axis can
+    // differ from writing mode (notably vertical Japanese in WebKit).
+    if (currentContentEl.scrollHeight > currentContentEl.clientHeight + 1) {
+      currentContentEl.scrollBy({ top: rect.top - host.top - host.height / 2, behavior: 'auto' });
+    } else if (currentContentEl.scrollWidth > currentContentEl.clientWidth + 1) {
+      currentContentEl.scrollBy({ left: rect.left - host.left - host.width / 2, behavior: 'auto' });
+    } else if (verticalMode) window.scrollBy(rect.right - window.innerWidth / 2, 0);
+    else window.scrollBy(0, rect.top - window.innerHeight / 2);
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    return true;
+  }
 
   export let htmlContent: string;
+
+  export let previewNavigationActive = false;
 
   export let width: number;
 
@@ -285,6 +459,7 @@
   {#if viewMode === ViewMode.Continuous}
     <BookReaderContinuous
       {htmlContent}
+      {previewNavigationActive}
       width={$contentViewportWidth$ ?? 0}
       height={$contentViewportHeight$ ?? 0}
       {verticalMode}
@@ -325,12 +500,18 @@
       bind:customReadingPointTop
       bind:customReadingPointLeft
       bind:customReadingPointScrollOffset
-      on:contentChange={(ev) => contentEl$.next(ev.detail)}
+      on:contentChange={(ev) => {
+        currentContentEl = ev.detail;
+        contentEl$.next(ev.detail);
+        dispatch('contentChange', ev.detail);
+      }}
       on:bookmark
       on:trackerPause
+      on:userNavigation={() => dispatch('userNavigation')}
     />
   {:else}
     <BookReaderPaginated
+      bind:this={paginatedReader}
       {htmlContent}
       width={$contentViewportWidth$ ?? 0}
       height={$contentViewportHeight$ ?? 0}
@@ -369,9 +550,14 @@
       bind:pageManager
       bind:customReadingPointRange
       bind:showCustomReadingPoint
-      on:contentChange={(ev) => contentEl$.next(ev.detail)}
+      on:contentChange={(ev) => {
+        currentContentEl = ev.detail;
+        contentEl$.next(ev.detail);
+        dispatch('contentChange', ev.detail);
+      }}
       on:bookmark
       on:trackerPause
+      on:userNavigation={() => dispatch('userNavigation')}
     />
   {/if}
 </div>
