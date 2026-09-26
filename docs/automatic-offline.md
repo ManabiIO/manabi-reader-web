@@ -19,8 +19,10 @@ These are separate capabilities:
 - Persistent storage is browser-granted eviction protection, not proof of any
   of the above and not a backup. Network account sync is separate again.
 
-The existing IndexedDB schema and book format, account ownership rules, sync
-consent, source adapters, database identifiers and imported-font cache are unchanged.
+Local IndexedDB version 7 stores imported binary resources as bytes with their MIME
+types, while portable Ttu archives retain the version-6 format. Account ownership
+rules, sync consent, source adapters, database identifiers and imported-font cache
+are unchanged.
 No remote library is mirrored, no account/API responses are cached, and no
 large optional payload is downloaded by this change. Existing persistence
 preferences and the browser's native permission decisions are respected.
@@ -97,6 +99,20 @@ not permanently prohibit a later request. This is not a new permission-request
 policy. A native permission prompt still belongs to the browser; this wrapper
 does not dismiss it or claim it cannot remain pending.
 
+### Durable imported images
+
+WebKit can commit a native IndexedDB Blob and later return its size and MIME type
+while its backing file is unavailable (`NotFoundError` when reading the bytes).
+The real persistent-profile restart test reproduced this with the 68-byte PNG.
+Book writes now convert Blobs to ArrayBuffer records before opening the atomic
+IndexedDB transaction, and reading reconstructs ordinary Blobs for the reader
+and exports. Covers, browser imports, shared-library copies and Ttu migration
+use the same representation. Conversion failure leaves the previous record
+intact; existing Blob records are read without a destructive bulk migration.
+Already missing backing files cannot be reconstructed and require re-importing
+the original source. Database version 7 prevents older version-6 clients from
+opening the new local representation; archive format versions stay unchanged.
+
 ## Verification
 
 Dependency-free unit regressions:
@@ -147,13 +163,13 @@ IndexedDB abort/rollback followed by successful import retry and offline
 restart. It does not claim multi-device sync,
 physical-iPhone, OS permission-dialog, or browser-eviction certification.
 
-The initial 47 focused cases passed locally. The refinement's 33 module cases
-and Python syntax compilation also pass locally. Local browser navigation is
-blocked by the environment's administrator
-policy (`ERR_BLOCKED_BY_ADMINISTRATOR`); it is not counted as a browser pass.
-The complete application toolchain is not installed locally. The PR's GitHub
-checks are the authority for the full build and browser results; earlier PRs'
-evidence must not be attributed to this head.
+The durable-image repair passed the production build, Svelte diagnostics (zero
+errors/warnings), actual ESLint validation, 74 focused unit cases, and all three
+compiled offline-reader cases in both Chromium and WebKit. Each image-bearing
+case verifies the decoded PNG hash after a full browser restart with the origin
+stopped. The same WebKit persistent-profile test failed on the previous head:
+its stored native Blob metadata survived but reading its bytes raised
+`NotFoundError`. No browser tests are skipped for this repair.
 
 ## Sources consulted
 
@@ -165,7 +181,6 @@ evidence must not be attributed to this head.
 - [web.dev: Service worker lifecycle](https://web.dev/articles/service-worker-lifecycle)
 - [WebKit: Updates to Storage Policy](https://webkit.org/blog/14403/updates-to-storage-policy/)
 - [MDN: StorageManager.persist](https://developer.mozilla.org/en-US/docs/Web/API/StorageManager/persist)
-
 
 ## Deeper review: launch and failed-write boundaries
 
@@ -225,6 +240,7 @@ Playwright supports asynchronous wait predicates; the earlier comment that
 The fixture retains bounded explicit polling without making that claim.
 
 Additional primary references:
+
 - [WebKit issue 198278: private-mode IndexedDB Blob limitation](https://bugs.webkit.org/show_bug.cgi?id=198278)
 - [WebKit issue 188438: binary storage failure and later reports](https://bugs.webkit.org/show_bug.cgi?id=188438)
 - [Playwright: browser contexts](https://playwright.dev/python/docs/api/class-browser#browser-new-context)

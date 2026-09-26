@@ -61,7 +61,8 @@ def decoded_local_image(page):
             };
           });
           const resources = [];
-          for (const [key, value] of Object.entries(record?.blobs || {})) {
+          for (const [key, stored] of Object.entries(record?.blobs || {})) {
+            const value = stored instanceof Blob ? stored : new Blob([stored.bytes], {type: stored.type});
             const info = {key, size: value.size, type: value.type};
             resources.push(info);
             if (value.size > 1024) continue; // Only the tiny generated fixture.

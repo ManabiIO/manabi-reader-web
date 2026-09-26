@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 
+import { encodeBook, decodeBook } from './book-binary';
 import { mergeCompletion } from '$lib/library/completion';
 import { commitTransaction, explainBookStorageError } from './commit-transaction.mjs';
 import type {
@@ -151,7 +152,8 @@ export class DatabaseService {
   async getData(dataId: number) {
     if (!Number.isNaN(dataId)) {
       const db = await this.db;
-      return db.get('data', dataId);
+      const book = await db.get('data', dataId);
+      return book ? decodeBook(book) : undefined;
     }
     return undefined;
   }
@@ -159,7 +161,8 @@ export class DatabaseService {
   async getDataByTitle(title: string) {
     if (title) {
       const db = await this.db;
-      return db.getFromIndex('data', 'title', title);
+      const book = await db.getFromIndex('data', 'title', title);
+      return book ? decodeBook(book) : undefined;
     }
 
     return undefined;
@@ -220,6 +223,7 @@ export class DatabaseService {
   ) {
     const db = await this.db;
 
+    const stored = await encodeBook(data);
     const tx = db.transaction('data', 'readwrite');
     return commitTransaction(tx, async () => {
       let dataId: number;
@@ -240,7 +244,7 @@ export class DatabaseService {
           oldData.lastBookModified >= data.lastBookModified &&
           (oldData.lastBookOpen || 0) >= (data.lastBookOpen || 0)
         ) {
-          bookData = oldData;
+          bookData = decodeBook(oldData);
           dataId = oldData.id;
         } else {
           bookData = {
@@ -254,12 +258,15 @@ export class DatabaseService {
                 }),
             ...(removeStorageContext ? { storageSource: undefined } : {})
           };
-          dataId = await store.put(bookData);
+          dataId = await store.put({
+            ...bookData,
+            blobs: stored.blobs,
+            coverImage: stored.coverImage
+          });
         }
       } else {
         // Until https://github.com/jakearchibald/idb/issues/150 resolves
-        const bookDataWithoutKey: Omit<BooksDbBookData, 'id'> = data;
-        dataId = await store.add(bookDataWithoutKey as BooksDbBookData);
+        dataId = await store.add(stored as typeof stored & { id: number });
         bookData = { ...data, id: dataId };
       }
 
