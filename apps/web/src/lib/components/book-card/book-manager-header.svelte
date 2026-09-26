@@ -468,6 +468,7 @@
               {/if}
               <Menu.Separator />
               <Menu.Label>Manabi Reader</Menu.Label>
+              <Menu.Item onSelect={openUserGuide}>User guide</Menu.Item>
               <Menu.Item onSelect={() => goto(resolve('/connections'))}
                 ><UserCircle aria-hidden="true" />Accounts and Libraries</Menu.Item
               >
@@ -505,9 +506,6 @@
                 </Menu.Sub>
               {/if}
               <Menu.Separator />
-              <Menu.Item onSelect={openUserGuide}
-                ><BookOpen aria-hidden="true" />User guide</Menu.Item
-              >
               <Menu.Item onSelect={() => dispatch('bugReportClick')}
                 ><Bug aria-hidden="true" />Report an Issue</Menu.Item
               >
