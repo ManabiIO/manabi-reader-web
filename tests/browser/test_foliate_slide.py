@@ -104,7 +104,7 @@ class FoliateSlide(ReaderBrowser):
         self.assertAlmostEqual(p['neighborShade'], .24 * (1-progress) if direction == 1 else 0, delta=.005)
         self.assertNotIn(p['paper'], ['transparent', 'rgba(0, 0, 0, 0)'])
         self.assertEqual(p['radius'], p['neighborRadius'])
-        self.assertGreater(float(p['radius'].replace('px', '')), 0)
+        self.assertEqual(p['radius'], '0px')
         self.assertEqual(p['frames'], 2)
         self.assertLessEqual(p['measuring'], 1)
         self.assertGreater(p['currentZ'] if direction == 1 else p['neighborZ'], p['neighborZ'] if direction == 1 else p['currentZ'])
