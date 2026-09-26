@@ -33,6 +33,9 @@ Four layout results are cached in memory for the current book's reading session.
 ResizeObserver and typography changes select a new layout key and cancel stale
 measurements; returning to a cached layout reuses its counts. Prefix counts become
 available before the complete total, and the active chapter is immediately known.
+An unreadable chapter remains unknown while later chapters continue counting; a
+later layout pass or foreground visit can retry it. Foreground measurements made
+during an idle yield are reused rather than overwritten by unnecessary work.
 
 Touch displacement controls a turn after horizontal intent is established.
 Long presses, existing selections, taps on links/ruby/images, and pinch zoom
@@ -61,6 +64,11 @@ its browsing context. Consumers receive the new active document only on commit,
 followed by exactly one page relocation. Cancellation leaves the original document
 and reading location intact. Resource references, stale asynchronous loads,
 resize, typography changes, external navigation and destruction are fenced.
+A pending chapter jump blocks swipe preparation, and superseded or destroyed
+navigation releases late source URLs without publishing the stale chapter. Failed
+chapter loads leave the current reading location intact. Promotion transfers
+existing iframe focus so consecutive keyboard turns continue working. Writing
+mode reflow updates both the viewport and the document's pagination axes.
 
 Theme variables are copied across the iframe boundary; the paper is opaque so
 text cannot show through the overlapping sheets. Selection, locator projection,
@@ -98,7 +106,11 @@ exercised after promoting a prepared iframe.
 Additional tests compare background counts with every foreground chapter, resize
 the reader, change text size through the appearance UI, verify indicators on both
 sheets, and delay real resource loads to exercise each partial-count state. Unit
-tests cover prefix arithmetic, label formatting, cached layouts, and stale jobs.
+tests cover prefix arithmetic, label formatting, cached layouts, stale jobs,
+failed-chapter recovery, and foreground counts that arrive during an idle yield.
+Regressions also exercise repeated keyboard turns in both reading directions,
+horizontal/vertical mode changes, failed and superseded chapter jumps, late
+resource release after teardown, and dragging from the page-number control.
 
 Physical iPhone Safari and Mac trackpad acceptance is still required for hardware
 feel; desktop WebKit and Chromium input emulation do not establish that result.

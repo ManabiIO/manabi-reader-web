@@ -116,9 +116,18 @@ export class PageCountCache {
           if (counts[i] !== undefined) continue;
           await this.yieldWork(controller.signal);
           if (controller.signal.aborted) return;
-          const count = await this.measure(i, controller.signal);
-          if (controller.signal.aborted) return;
-          this.record(i, count);
+          // Navigation may have measured this chapter while the background work yielded.
+          if (counts[i] !== undefined) continue;
+          try {
+            const count = await this.measure(i, controller.signal);
+            if (controller.signal.aborted) return;
+            this.record(i, count);
+          } catch (error) {
+            if (controller.signal.aborted) return;
+            // Leave this count unknown and continue. A later foreground visit or
+            // layout refresh can retry it without blocking all following chapters.
+            this.failed(error);
+          }
         }
       } catch (error) {
         if (!controller.signal.aborted) this.failed(error);
