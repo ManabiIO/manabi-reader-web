@@ -4,6 +4,7 @@
     projectResource,
     rangeAt,
     resolveLocator,
+    type PublicationManifest,
     type ReaderLocator
   } from '$lib/reader-location';
   import { browser } from '$app/environment';
@@ -43,6 +44,11 @@
     throttleTime
   } from 'rxjs';
   import AppIcon from '$lib/components/app-icon.svelte';
+  import {
+    EPUB_NAVIGATION_EVENT,
+    resolveEpubTarget,
+    type EpubNavigationRequest
+  } from '$lib/functions/file-loaders/epub/epub-navigation';
   import { swipe } from 'svelte-gestures';
   import type { BookmarkManager, PageManager } from '../types';
   import { BookmarkManagerPaginated } from './bookmark-manager-paginated';
@@ -51,6 +57,8 @@
   import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
 
   export let htmlContent: string;
+
+  export let publicationManifest: PublicationManifest | undefined = undefined;
 
   export let width: number;
 
@@ -496,6 +504,88 @@
       concretePageManager?.flipPage(multiplier as -1 | 1);
     });
 
+  fromEvent<CustomEvent<EpubNavigationRequest>>(document, EPUB_NAVIGATION_EVENT)
+    .pipe(takeUntil(destroy$))
+    .subscribe((event) => {
+      const target = resolveEpubTarget(publicationManifest, event.detail);
+      if (target) void revealEpubTarget(target.resource.spineIndex, target.fragment);
+    });
+
+  async function ensureSectionMounted(targetIndex: number): Promise<boolean> {
+    if (
+      !Number.isSafeInteger(targetIndex) ||
+      targetIndex < 0 ||
+      targetIndex >= sections.length ||
+      disposed
+    )
+      return false;
+    if (sectionIndex$.getValue() === targetIndex) return true;
+    const ready = new Promise<void>((resolve) => {
+      const subscription = sectionRenderComplete$
+        .pipe(filter((index) => index === targetIndex), take(1))
+        .subscribe(() => {
+          subscription.unsubscribe();
+          resolve();
+        });
+    });
+    sectionIndex$.next(targetIndex);
+    concretePageManager?.scrollTo(0, false);
+    await ready;
+    await tick();
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    return !disposed && sectionIndex$.getValue() === targetIndex;
+  }
+
+  function fragmentElement(fragment: string): Element | undefined {
+    if (!contentEl || !fragment) return;
+    let id = fragment;
+    try {
+      id = decodeURIComponent(fragment);
+    } catch (_) {
+      // EPUB fragments may contain malformed legacy escapes. Match literally.
+    }
+    const escape = contentEl.ownerDocument.defaultView?.CSS?.escape;
+    if (!escape) return;
+    return (
+      contentEl.querySelector(`#${escape(id)}`) ??
+      Array.from(contentEl.querySelectorAll('[name]')).find(
+        (element) => element.getAttribute('name') === id
+      )
+    ) ?? undefined;
+  }
+
+  function scrollToLiveTarget(target: Range | Element): boolean {
+    if (!scrollEl || !concretePageManager) return false;
+    const rect = target.getBoundingClientRect();
+    const host = scrollEl.getBoundingClientRect();
+    const pageSize = (verticalMode ? height : width) + gap;
+    const relative = verticalMode ? rect.top - host.top : rect.left - host.left;
+    const pageTarget = Math.max(
+      0,
+      Math.floor((virtualScrollPos$.getValue() + relative) / pageSize) * pageSize
+    );
+    concretePageManager.scrollTo(pageTarget, false);
+    return true;
+  }
+
+  async function revealEpubTarget(targetIndex: number, fragment: string): Promise<boolean> {
+    if (!(await ensureSectionMounted(targetIndex)) || !contentEl) return false;
+    if (!fragment) {
+      concretePageManager?.scrollTo(0, false);
+      return true;
+    }
+    const target = fragmentElement(fragment);
+    if (!target) return false;
+    const generation = renderGeneration;
+    if (!scrollToLiveTarget(target)) return false;
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    return (
+      !disposed &&
+      generation === renderGeneration &&
+      sectionIndex$.getValue() === targetIndex
+    );
+  }
+
   function updateAfterCustomReadingPointUpdate(updatedCustomReadingPosition: Range | undefined) {
     if (!calculator) {
       return;
@@ -708,22 +798,7 @@
   /** Reveal a source range after its virtual section has mounted and measured. */
   export async function revealLocator(locator: ReaderLocator, bookKey: string): Promise<boolean> {
     const targetIndex = locator.resource.spineIndex;
-    if (targetIndex < 0 || targetIndex >= sections.length || disposed) return false;
-    if (sectionIndex$.getValue() !== targetIndex) {
-      const ready = new Promise<void>((resolve) => {
-        sectionReady$.pipe(take(1)).subscribe(() => resolve());
-      });
-      sectionIndex$.next(targetIndex);
-      // The previous resource's virtual page position survives a direct spine
-      // switch. Reset it before measuring the newly mounted resource, or a
-      // return can calculate its page from the search result's scroll offset.
-      concretePageManager?.scrollTo(0, false);
-      await ready;
-      // Section readiness is published before Svelte applies its display and
-      // bookmark-layout updates. Let those settle before accepting the jump.
-      await tick();
-      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-    }
+    if (!(await ensureSectionMounted(targetIndex))) return false;
     if (!scrollEl || !contentEl || !concretePageManager || disposed) return false;
     const generation = renderGeneration;
     const projected = projectResource(contentEl, locator.resource);
@@ -737,21 +812,12 @@
       return false;
     const range = rangeAt(projected, position.start, position.end);
     if (!range) return false;
-    const rect = range.getBoundingClientRect();
-    const host = scrollEl.getBoundingClientRect();
-    const pageSize = (verticalMode ? height : width) + gap;
-    const relative = verticalMode ? rect.top - host.top : rect.left - host.left;
-    const target = Math.max(
-      0,
-      Math.floor((virtualScrollPos$.getValue() + relative) / pageSize) * pageSize
-    );
-    concretePageManager.scrollTo(target, false);
+    if (!scrollToLiveTarget(range)) return false;
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     return (
       !disposed &&
       generation === renderGeneration &&
-      sectionIndex$.getValue() === targetIndex &&
-      (!verticalMode || Math.abs(scrollEl.scrollTop - target) <= 2)
+      sectionIndex$.getValue() === targetIndex
     );
   }
 </script>
