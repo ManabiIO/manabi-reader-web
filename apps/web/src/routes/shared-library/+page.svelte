@@ -4,11 +4,16 @@
   import { onMount } from 'svelte';
   import { resolve } from '$app/paths';
   import { goto } from '$app/navigation';
+  import type BooksDb from '$lib/data/database/books-db/versions/books-db';
   import type { BooksDbStorageSource } from '$lib/data/database/books-db/versions/books-db';
+  import { account } from '$lib/manabi/client';
+  import { allLinkedBooks } from '$lib/manabi/books';
+  import { visibleLibraryEntries } from '$lib/library/account-visibility';
   import { BaseStorageHandler } from '$lib/data/storage/handler/base-handler';
   import { database, autoReplication$, syncTarget$ } from '$lib/data/store';
   import { AutoReplicationType } from '$lib/functions/replication/replication-options';
   import { inspectTtuRoot } from '$lib/manabi/ttu-folder-contract';
+  import { sharedPublishChoices } from '$lib/manabi/shared-title-selection';
   import {
     addSharedFolder,
     filesystemData,
@@ -21,7 +26,16 @@
   let sources: BooksDbStorageSource[] = [];
   let selected = '';
   let remoteTitles: string[] = [];
-  let localTitles: string[] = [];
+  let localRows: BooksDb['data']['value'][] = [];
+  $: viewer = $account.session?.user?.id ?? null;
+  $: localBooks = sharedPublishChoices(
+    visibleLibraryEntries(localRows, $allLinkedBooks, viewer).cards
+  );
+  $: {
+    viewer;
+    imports = [];
+    exports = [];
+  }
   let imports: string[] = [];
   let exports: string[] = [];
   let busy = false;
@@ -47,9 +61,7 @@
   async function refresh() {
     sources = await sharedFolderSources();
     if (!sources.some((item) => item.name === selected)) selected = sources[0]?.name ?? '';
-    localTitles = (await (await database.db).getAll('data'))
-      .filter((book) => Boolean(book.elementHtml))
-      .map((book) => book.title);
+    localRows = await (await database.db).getAll('data');
     const current = sources.find((item) => item.name === selected);
     remoteTitles = current
       ? (await inspectTtuRoot(filesystemData(current).directoryHandle)).map(
@@ -214,9 +226,24 @@
         reading-data files; it does not modify original EPUB files or replace existing shared
         packages.
       </p>
-      {#each localTitles.filter((title) => !remoteTitles.includes(title)) as title (title)}<label
-          ><input type="checkbox" bind:group={exports} value={title} />{title}</label
-        >{/each}
+      {#each localBooks.filter((book) => !remoteTitles.includes(book.title)) as book (book.title)}
+        <div>
+          <label
+            ><input
+              type="checkbox"
+              bind:group={exports}
+              value={book.title}
+              disabled={busy || book.copies !== 1}
+            />{book.title}</label
+          >
+          {#if book.copies !== 1}
+            <p class="note">
+              {book.copies} local copies share this title. Ttu Ebook Reader libraries identify books
+              by title. Resolve the duplicate titles before sharing; your local copies are unchanged.
+            </p>
+          {/if}
+        </div>
+      {/each}
       <Button
         variant="secondary"
         disabled={busy || !source || !exports.length}
@@ -264,8 +291,7 @@
     align-items: center;
   }
   .page-navigation {
-    margin-inline: -8px;
-    gap: 2px;
+    gap: 12px;
   }
   h1 {
     font-size: 2rem;

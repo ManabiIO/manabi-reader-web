@@ -5,7 +5,11 @@
  */
 
 import { decodeBookBinary } from '$lib/data/database/books-db/book-binary';
-import { readBookSummaries, updateBookLastRead } from '$lib/data/database/books-db/book-records';
+import {
+  prepareBookForLocalReading,
+  readBookSummaries,
+  updateBookLastRead
+} from '$lib/data/database/books-db/book-records';
 import { BaseStorageHandler, FilePrefix } from '$lib/data/storage/handler/base-handler';
 import type {
   BooksDbAudioBook,
@@ -22,6 +26,7 @@ import { ReplicationSaveBehavior } from '$lib/functions/replication/replication-
 import { StorageDataType } from '$lib/data/storage/storage-types';
 import { bookKey, contentBookKey, relocatePresentation } from '$lib/library/organization';
 import { contentStatisticKey } from '$lib/data/database/books-db/reader-statistics';
+import { throwIfAborted } from '$lib/functions/replication/replication-error';
 import type { BookCardProps } from '$lib/components/book-card/book-card-props';
 
 export class BrowserStorageHandler extends BaseStorageHandler {
@@ -84,31 +89,15 @@ export class BrowserStorageHandler extends BaseStorageHandler {
   }
 
   async prepareBookForReading() {
-    const book = this.currentContext.id
-      ? await database.getData(this.currentContext.id)
-      : await database.getDataByTitle(this.currentContext.title);
-
-    if (!book) {
-      throw new Error('No local book data found');
-    }
-
-    if (!book.elementHtml) {
-      throw new Error(
-        `Placeholder books should be opened from their original source${
-          book.storageSource ? ` - last source: ${book.storageSource}` : ''
-        }`
-      );
-    }
-
-    if (book.storageSource) {
-      await database.upsertData(book, ReplicationSaveBehavior.Overwrite);
-    }
-
-    return book.id;
+    const context = { id: this.currentContext.id, title: this.currentContext.title };
+    const signal = this.cancelSignal;
+    throwIfAborted(signal);
+    return prepareBookForLocalReading(await database.db, context, signal);
   }
 
   async updateLastRead(book: BooksDbBookData) {
-    const current = await updateBookLastRead(await database.db, book.id, book.lastBookOpen || 0);
+    const { id, lastBookOpen } = book;
+    const current = await updateBookLastRead(await database.db, id, lastBookOpen || 0);
     if (!current) return;
     this.addBookCard(current.title, {
       characters: BaseStorageHandler.getBookCharacters(
@@ -341,14 +330,17 @@ export class BrowserStorageHandler extends BaseStorageHandler {
     removeStorageContext = true
   ) {
     let idToReturn = 0;
+    const signal = this.cancelSignal;
 
     if (!(data instanceof File)) {
       const storedBookData = await database.upsertData(
         data,
         this.saveBehavior,
         skipTimestampFallback,
-        removeStorageContext
+        removeStorageContext,
+        signal
       );
+      throwIfAborted(signal);
 
       idToReturn = storedBookData.id;
       // Promote the identity actually saved (NewOnly may retain an older book).
@@ -359,7 +351,7 @@ export class BrowserStorageHandler extends BaseStorageHandler {
           contentBookKey(storedBookData.contentHash)
         );
       }
-      this.addBookCard(data.title, {
+      this.addBookCard(storedBookData.title, {
         id: storedBookData.id,
         characters: BaseStorageHandler.getBookCharacters(
           storedBookData.characters || 0,

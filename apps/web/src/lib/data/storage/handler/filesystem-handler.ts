@@ -30,7 +30,7 @@ import { dialogManager } from '$lib/data/dialog-manager';
 import { getStorageHandler } from '$lib/data/storage/storage-handler-factory';
 import { handleErrorDuringReplication } from '$lib/functions/replication/error-handler';
 import pLimit from 'p-limit';
-import { assertExternalBookSource } from '$lib/manabi/external-book-source';
+import { getExternalBookData } from '$lib/manabi/external-book-data';
 import { replicationProgress$ } from '$lib/functions/replication/replication-progress';
 import { throwIfAborted } from '$lib/functions/replication/replication-error';
 import { selectTtuFile, ttuPrefixes } from '$lib/manabi/ttu-folder-contract';
@@ -104,8 +104,7 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
   }
 
   async prepareBookForReading(): Promise<number> {
-    const book = await database.getDataByTitle(this.currentContext.title);
-    assertExternalBookSource(book, this.storageSourceName);
+    const book = await getExternalBookData(this.currentContext.title, this.storageSourceName);
 
     let idToReturn = 0;
     let data: Omit<BooksDbBookData, 'id'> | undefined = book;
