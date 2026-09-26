@@ -203,11 +203,19 @@ export async function parseFoliatePackage(
       ...(series.length ? { series } : {})
     };
 
+    const coverId =
+      typeof book.resources?.cover?.id === 'string' && book.resources.cover.id
+        ? book.resources.cover.id
+        : undefined;
     const compatMetadata: EpubContent['package']['metadata'] = {
       'dc:title': title,
       'dc:language': metadata.language,
       ...(creators.length ? { 'dc:creator': creators } : {}),
-      meta: [] as EpubMetadataMeta[]
+      meta: [
+        ...(coverId
+          ? ([{ '@_name': 'cover', '@_content': coverId }] as EpubMetadataMeta[])
+          : [])
+      ]
     };
 
     return {
