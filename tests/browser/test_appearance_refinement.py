@@ -8,6 +8,7 @@ from urllib.error import URLError
 import os
 from tempfile import TemporaryDirectory
 from pathlib import Path
+from lifecycle_evidence import LifecycleEvidence
 import unittest
 from playwright.sync_api import expect
 import test_appearance as previous
@@ -62,6 +63,8 @@ class RefinedAppearance(previous.AppearanceBrowser):
         page.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))
 
     def record_network(self):
+        self.lifecycle = LifecycleEvidence(
+            self.context, self.page, os.environ.get('APPEARANCE_BROWSER', 'chromium'))
         self.network = []
         self.context.on('request', lambda r: self.network.append({
             'event': 'request', 'url': r.url, 'kind': r.resource_type,
@@ -78,7 +81,10 @@ class RefinedAppearance(previous.AppearanceBrowser):
     def tearDown(self):
         Path('test-results').mkdir(exist_ok=True)
         Path('test-results', self._testMethodName + '-network.json').write_text(json.dumps(self.network, indent=2))
-        super().tearDown()
+        try:
+            super().tearDown()
+        finally:
+            self.lifecycle.write(type(self).__name__ + '-' + self._testMethodName)
 
     def go_offline(self):
         if os.environ.get('APPEARANCE_BROWSER', 'chromium') == 'chromium':

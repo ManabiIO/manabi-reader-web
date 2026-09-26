@@ -8,6 +8,7 @@ import unittest
 from urllib.parse import urlsplit
 
 from playwright.sync_api import expect, sync_playwright
+from lifecycle_evidence import LifecycleEvidence
 
 from test_books_library import book
 from test_static_reader import StaticHandler, ThreadingHTTPServer
@@ -98,15 +99,19 @@ class EditorsPicksBrowser(unittest.TestCase):
         self.page.set_default_timeout(30000)
         self.errors = []
         self.page.on('pageerror', lambda error: self.errors.append(str(error)))
+        self.lifecycle = LifecycleEvidence(self.context, self.page, self.engine)
 
     def tearDown(self):
         if PicksHandler.index_gate is not None:
             PicksHandler.index_gate.set()
         PicksHandler.index_started = None
         PicksHandler.index_gate = None
-        self.context.close()
-        self.profile.cleanup()
-        self.assertEqual([], self.errors)
+        try:
+            self.context.close()
+            self.profile.cleanup()
+            self.assertEqual([], self.errors)
+        finally:
+            self.lifecycle.write(type(self).__name__ + '-' + self._testMethodName)
 
     def library(self):
         self.page.goto(self.origin + '/reader-web/manage')
