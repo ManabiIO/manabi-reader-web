@@ -5,7 +5,7 @@
  */
 
 import type { PublicationResource } from '$lib/reader-location';
-import { resolveArchivePath } from '../utils/limited-archive';
+import { resolveArchivePath } from '../utils/limited-archive.ts';
 
 export interface EpubLinkTarget {
   spineIndex: number;

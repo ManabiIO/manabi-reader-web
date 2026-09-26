@@ -9,7 +9,7 @@ import {
   LimitedArchive,
   validateArchivePath,
   type ArchiveOptions
-} from '../functions/file-loaders/utils/limited-archive';
+} from '../functions/file-loaders/utils/limited-archive.ts';
 
 export interface FoliateEpubPublication {
   book: FoliateEpubBook;
@@ -19,24 +19,49 @@ export interface FoliateEpubPublication {
 export function foliateArchiveEntryIndex(
   entries: ReadonlyMap<string, unknown>
 ): ReadonlyMap<string, string> {
-  const resourceIndex = foliateArchiveEntryIndex(archive.entries);
-  const literalName = (uri: string) => resourceIndex.get(uri);
-  const source = {
-    async loadText(uri: string): Promise<string | null> {
-      const literal = literalName(uri);
-      return literal ? archive.readText(literal) : null;
-    },
-    async loadBlob(uri: string): Promise<Blob | null> {
-      const literal = literalName(uri);
-      return literal ? archive.readBlob(literal) : null;
-    },
-    getSize(uri: string): number {
-      const literal = literalName(uri);
-      return literal ? (archive.entries.get(literal)?.uncompressedSize ?? 0) : 0;
+  const resourceIndex = new Map<string, string>();
+  for (const literal of entries.keys()) {
+    const candidates = new Set([literal]);
+    try {
+      candidates.add(validateArchivePath(decodeURI(literal)));
+    } catch {
+      // LimitedArchive validates literal names. Invalid decoded spellings are
+      // not exposed as alternate resource names.
     }
-  };
+    for (const candidate of candidates) {
+      const existing = resourceIndex.get(candidate);
+      if (existing !== undefined && existing !== literal)
+        throw new Error(`Ambiguous EPUB resource path: ${candidate}`);
+      resourceIndex.set(candidate, literal);
+    }
+  }
+  return resourceIndex;
+}
 
+/** Adapt the bounded archive to Foliate while retaining ownership until close. */
+export async function openFoliateEpub(
+  blob: Blob,
+  options: ArchiveOptions = {}
+): Promise<FoliateEpubPublication> {
+  const archive = await LimitedArchive.open(blob, options);
+  let closed = false;
   try {
+    const resourceIndex = foliateArchiveEntryIndex(archive.entries);
+    const literalName = (uri: string) => resourceIndex.get(uri);
+    const source = {
+      async loadText(uri: string): Promise<string | null> {
+        const literal = literalName(uri);
+        return literal ? archive.readText(literal) : null;
+      },
+      async loadBlob(uri: string): Promise<Blob | null> {
+        const literal = literalName(uri);
+        return literal ? archive.readBlob(literal) : null;
+      },
+      getSize(uri: string): number {
+        const literal = literalName(uri);
+        return literal ? (archive.entries.get(literal)?.uncompressedSize ?? 0) : 0;
+      }
+    };
     const epub = new EPUB(source);
     const book = await epub.init();
     return {
