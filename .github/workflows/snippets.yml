@@ -1,0 +1,57 @@
+name: Portable snippets
+on:
+  pull_request:
+    paths: ['apps/web/**', 'test/snippets/**', 'pnpm-lock.yaml', 'eslint.config.js', '.github/workflows/snippets.yml']
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: snippets-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  snippets:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: pnpm/action-setup@v6.1.0
+        with: {version: '12.3.4'}
+      - uses: actions/setup-node@v4
+        with: {node-version: '24.21.0', cache: pnpm}
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - name: Schema, actual editor and IndexedDB fault tests
+        shell: bash
+        run: |
+          mkdir -p test-results/snippets
+          node test/snippets/run.mjs 2>&1 | tee test-results/snippets/unit.log
+          node --experimental-strip-types --test tests/unit/*.test.mjs 2>&1 | tee test-results/snippets/regressions.log
+      - name: Typecheck and build
+        shell: bash
+        env: {BASE_PATH: /reader-web}
+        run: |
+          pnpm --dir apps/web check 2>&1 | tee test-results/snippets/types.log
+          pnpm build 2>&1 | tee test-results/snippets/build.log
+      - name: Assembled Chromium and WebKit acceptance
+        shell: bash
+        run: |
+          pnpm exec playwright install --with-deps chromium webkit
+          pnpm --dir apps/web exec vite preview --host 127.0.0.1 --port 4178 > test-results/snippets/server.log 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:4178/reader-web/snippets >/dev/null; then break; fi
+            sleep 1
+          done
+          for engine in chromium webkit; do
+            SNIPPETS_BROWSER="$engine" SNIPPETS_SCREENSHOT="test-results/snippets/$engine.png" node test/snippets/browser.mjs 2>&1 | tee "test-results/snippets/$engine.log"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: snippets-evidence-${{ github.sha }}
+          path: test-results/snippets
+          retention-days: 7
+          if-no-files-found: error
