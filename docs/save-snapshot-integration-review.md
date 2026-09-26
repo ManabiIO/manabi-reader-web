@@ -80,3 +80,40 @@ Primary references: [IndexedDB transaction and cloning semantics](https://www.w3
 [idb transaction completion](https://github.com/jakearchibald/idb#txdone),
 [Playwright locator assertions](https://playwright.dev/python/docs/api/class-locatorassertions),
 and [Playwright navigation and hydration](https://playwright.dev/python/docs/navigations).
+
+## Follow-through on asynchronous qualification
+
+The first integrated head `ec6e1f74` passed the expanded 78-case Chromium suite,
+but WebKit retained one Back-test teardown module rejection. Its captured HTML
+was still the Reader's loading state: the positive retry asserted only its URL
+and committed last item, then closed the page. The regression now also requires
+an actually ready reader. After Back it waits for the client-only SvelteKit
+announcer before initiating the next document navigation, not only the new URL
+or SSR heading. Full error name/message/stack, request failures and navigation
+phases are retained without filtering the ordinary no-page-errors assertion.
+This does not claim that every historical module-load failure has the same cause.
+
+A separate Firefox worker-fixture failure saw a candidate cache after observing
+an earlier redundant worker. The old helper followed the first updatefound event,
+not necessarily the candidate supplied by the requested job. A controlled overlap
+now queues two non-equivalent real browser update jobs and holds the second
+candidate's HTTP response. The old helper reports completion while that second
+worker is still installing; the corrected helper waits for its selected worker.
+The negative regression fails with the old event-selection helper and passes
+with the corrected one. This is evidence of the helper defect, not proof of the
+precise scheduling of the original Firefox run, which lacked lifecycle traces.
+
+Single-candidate invalid-shell checks avoid scheduling an unrelated navigation
+soft update before asserting that candidate's cache removal. They still verify
+immediate absence after failure and a fresh old-app navigation after stopping the
+real origin listener. The additional overlap case checks the installing cache,
+proper final cleanup and the same offline survival. The existing controlled-tab,
+waiting-update and later-activation case is unchanged. Both tests exercise the
+committed production worker; no Cache API or service-worker state is mocked.
+Request versions, candidate state events and cache names are now retained for
+all worker-fixture failures. No production worker, CSP or timeout is changed.
+
+The distinctions follow the [Service Workers install/job algorithms](https://www.w3.org/TR/service-workers/)
+and [Playwright navigation versus loading guidance](https://playwright.dev/python/docs/navigations).
+Local follow-through passes all eleven Chromium worker cases and both static
+resume-commit cases. Firefox and WebKit outcomes require the new-head CI result.

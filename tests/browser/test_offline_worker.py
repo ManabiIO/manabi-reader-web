@@ -9,6 +9,7 @@ import json
 import re
 from pathlib import Path
 import threading
+import time
 import unittest
 from urllib.parse import urlsplit
 from playwright.sync_api import sync_playwright
@@ -16,6 +17,51 @@ from playwright.sync_api import sync_playwright
 ROOT = Path(__file__).resolve().parents[2]
 SCOPE = '/reader-web/'
 OPTIONS = None
+
+
+# update() resolves when an update job supplies its registration, before that
+# worker necessarily finishes installing. A previously queued job may fire the
+# first updatefound event; observe the worker supplied by our completed request.
+WAIT_FOR_UPDATE = """async (registration, terminal, request = () => registration.update()) => {
+  const record = {events: [], selected: null};
+  (window.offlineUpdateTrace ??= []).push(record);
+  const observed = [], cleanups = [];
+  const observe = worker => {
+    if (!worker || observed.includes(worker)) return;
+    const id = observed.push(worker);
+    const changed = () => record.events.push({id, state: worker.state});
+    worker.addEventListener('statechange', changed);
+    cleanups.push(() => worker.removeEventListener('statechange', changed));
+    changed();
+  };
+  const found = () => observe(registration.installing);
+  registration.addEventListener('updatefound', found);
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error('Update lifecycle timed out')), 10000);
+  });
+  try {
+    const updated = await Promise.race([request(), deadline]);
+    const worker = updated.installing ?? observed.at(-1);
+    if (!worker) throw new Error('Update did not supply a new candidate worker');
+    observe(worker);
+    record.selected = observed.indexOf(worker) + 1;
+    return await Promise.race([new Promise((resolve, reject) => {
+      const changed = () => {
+        if (worker.state === terminal) resolve(worker.state);
+        else if (['installed', 'activated', 'redundant'].includes(worker.state))
+          reject(new Error(`Candidate reached ${worker.state}, expected ${terminal}`));
+      };
+      worker.addEventListener('statechange', changed);
+      cleanups.push(() => worker.removeEventListener('statechange', changed));
+      changed();
+    }), deadline]);
+  } finally {
+    clearTimeout(timer);
+    registration.removeEventListener('updatefound', found);
+    for (const cleanup of cleanups) cleanup();
+  }
+}"""
 
 
 class FixtureServer(ThreadingHTTPServer):
@@ -28,6 +74,15 @@ class FixtureHandler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         server.requests.append(path)
         version = server.version
+        server.request_details.append({'path': path, 'version': version, 'time': time.monotonic()})
+        if path == SCOPE + 'b' and version == 'bad-page':
+            with server.request_lock:
+                server.bad_page_requests += 1
+                held = server.bad_page_requests == server.hold_bad_page_call
+            if held:
+                server.held_page_entered.set()
+                if not server.release_page.wait(10):
+                    server.request_details.append({'error': 'Held candidate response timed out'})
         headers = {}
         mime = 'text/javascript'
         status = 200
@@ -121,6 +176,13 @@ class OfflineWorker(unittest.TestCase):
         self.server = FixtureServer(('127.0.0.1', 0), FixtureHandler)
         self.server.version = 'v1'
         self.server.requests = []
+        self.server.request_details = []
+        self.request_details = self.server.request_details
+        self.server.request_lock = threading.Lock()
+        self.server.bad_page_requests = 0
+        self.server.hold_bad_page_call = None
+        self.server.held_page_entered = threading.Event()
+        self.server.release_page = threading.Event()
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.origin = 'http://127.0.0.1:' + str(self.server.server_port)
@@ -131,14 +193,35 @@ class OfflineWorker(unittest.TestCase):
 
     def stop_origin(self):
         if self.server:
+            self.server.release_page.set()
             self.server.shutdown()
             self.server.server_close()
             self.thread.join()
             self.server = None
 
     def tearDown(self):
-        self.context.close()
-        self.stop_origin()
+        # Keep actual request/lifecycle evidence even when an assertion fails.
+        report = {'engine': OPTIONS.browser, 'requests': self.request_details, 'pageErrors': self.errors}
+        try:
+            if not self.page.is_closed():
+                report['browser'] = self.page.evaluate('''async scope => {
+                  const r = await navigator.serviceWorker.getRegistration(scope);
+                  const describe = w => w ? {url:w.scriptURL, state:w.state} : null;
+                  return {updates:window.offlineUpdateTrace ?? [], caches:await caches.keys(),
+                    active:describe(r?.active), installing:describe(r?.installing),
+                    waiting:describe(r?.waiting), userAgent:navigator.userAgent};
+                }''', SCOPE)
+        except Exception as error:
+            report['diagnosticError'] = str(error)
+        finally:
+            try:
+                output = ROOT / 'test-results'
+                output.mkdir(exist_ok=True)
+                (output / f'offline-{OPTIONS.browser}-{self._testMethodName}.json').write_text(
+                    json.dumps(report, indent=2))
+            finally:
+                self.context.close()
+                self.stop_origin()
         self.assertEqual(self.errors, [])
 
     def install(self):
@@ -164,23 +247,51 @@ class OfflineWorker(unittest.TestCase):
 
     def update(self, version, terminal):
         self.server.version = version
-        result = self.page.evaluate('''async ({scope, terminal}) => {
-          const r = await navigator.serviceWorker.getRegistration(scope);
-          const state = new Promise((resolve, reject) => {
-            const timer = setTimeout(() => reject(new Error('Update lifecycle timed out')), 10000);
-            r.addEventListener('updatefound', () => {
-              const w = r.installing;
-              const changed = () => {
-                if (w.state === terminal) { clearTimeout(timer); resolve(w.state); }
-              };
-              w.addEventListener('statechange', changed);
-              changed();
-            }, {once: true});
-          });
-          await r.update();
-          return state;
-        }''', {'scope': SCOPE, 'terminal': terminal})
+        result = self.page.evaluate(f"""async ({{scope, terminal}}) => {{
+          const registration = await navigator.serviceWorker.getRegistration(scope);
+          return ({WAIT_FOR_UPDATE})(registration, terminal);
+        }}""", {'scope': SCOPE, 'terminal': terminal})
         self.assertEqual(result, terminal)
+
+    def test_overlapping_updates_wait_for_the_selected_candidate_not_an_earlier_failure(self):
+        self.install()
+        self.server.version = 'bad-page'
+        # The first candidate fails normally. Hold only the second candidate's
+        # real HTTP page response, after its cache has been created.
+        self.server.hold_bad_page_call = 2
+        self.page.evaluate(f"""async scope => {{
+          const r = await navigator.serviceWorker.getRegistration(scope);
+          await r.update();
+          window.earlierCandidate = r.installing;
+          window.followupOutcome = null;
+          window.followup = ({WAIT_FOR_UPDATE})(r, 'redundant',
+            () => navigator.serviceWorker.register(scope + 'service-worker.js', {{updateViaCache:'none'}})).then(
+            state => window.followupOutcome = {{state}},
+            error => window.followupOutcome = {{error:error.message}});
+        }}""", SCOPE)
+        try:
+            self.assertTrue(self.server.held_page_entered.wait(10), 'Second candidate never requested its page')
+            held = self.page.evaluate("""async scope => {
+              const r = await navigator.serviceWorker.getRegistration(scope);
+              return {outcome:window.followupOutcome, earlier:window.earlierCandidate?.state,
+                current:r.installing?.state, same:r.installing === window.earlierCandidate,
+                candidateCached:(await caches.keys()).some(name => name.endsWith(':shell:bad-page'))};
+            }""", SCOPE)
+            self.assertEqual('redundant', held['earlier'])
+            self.assertEqual('installing', held['current'])
+            self.assertFalse(held['same'])
+            self.assertTrue(held['candidateCached'])
+            self.assertIsNone(held['outcome'], 'An earlier failure must not finish the selected update')
+        finally:
+            self.server.release_page.set()
+        self.assertEqual({'state':'redundant'}, self.page.evaluate('() => window.followup'))
+        self.assertFalse(self.page.evaluate("""async () =>
+          (await caches.keys()).some(name => name.endsWith(':shell:bad-page'))"""))
+        self.assertEqual(self.status()['state'], 'ready')
+        self.stop_origin()
+        response = self.page.reload()
+        self.assertTrue(response.from_service_worker)
+        self.assertEqual(self.page.locator('body').get_attribute('data-boot'), 'v1')
 
     def test_first_visit_then_fresh_navigation_with_stopped_origin(self):
         self.install()
@@ -263,7 +374,6 @@ class OfflineWorker(unittest.TestCase):
 
     def test_failed_required_asset_preserves_old_shell(self):
         self.install()
-        self.page.reload()
         self.update('bad', 'redundant')
         # A failed addAll batch must not leave a partially usable candidate.
         self.assertEqual(self.page.evaluate('''async scope => {
@@ -278,7 +388,8 @@ class OfflineWorker(unittest.TestCase):
 
     def assert_bad_candidate_keeps_old_app(self, version):
         self.install()
-        self.page.reload()
+        # Qualify this candidate before another navigation can schedule a soft
+        # update of the same version. Overlapping attempts have their own test.
         self.update(version, 'redundant')
         self.assertEqual(self.page.evaluate('''async ({scope, version}) => {
           const name = `manabi-reader:${encodeURIComponent(location.origin + scope)}:shell:${version}`;
@@ -335,7 +446,6 @@ class OfflineWorker(unittest.TestCase):
 
     def test_redirect_is_not_an_accepted_shell_asset(self):
         self.install()
-        self.page.reload()
         self.update('redirect', 'redundant')
         self.assertEqual(self.status()['state'], 'ready')
         self.assertNotIn(SCOPE + 'login', self.server.requests)
