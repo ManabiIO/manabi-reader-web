@@ -7,6 +7,7 @@
 import { encodeBook, decodeBook } from './book-binary';
 import { mergeCompletion } from '$lib/library/completion';
 import {
+  contentStatisticKey,
   migrateLegacyStatistics,
   preserveCompletedStatistic,
   statisticRange,
@@ -310,38 +311,28 @@ export class DatabaseService {
 
   async deleteData(
     dataIds: number[],
-    idsToTitles: Map<number, string>,
+    _idsToTitles: Map<number, string>,
     cancelSignal: AbortSignal,
     keepLocalStatistics: boolean
   ) {
+    // Snapshot the selected IDs, not their mutable title/resume metadata.
+    const selectedIds = [...new Set(dataIds)];
     const db = await this.db;
-    const lastItemObj = await db.get('lastItem', LAST_ITEM_KEY);
-    const bookmarkIdData = await db.getAllKeys('bookmark');
-    const lastItem = lastItemObj?.dataId;
-    const bookmarkIds = new Set(bookmarkIdData);
     const deleted: number[] = [];
     const limiter = pLimit(1);
     const tasks: Promise<void>[] = [];
 
     let errorMessage = '';
 
-    replicationProgress$.next({ progressBase: 1, maxProgress: dataIds.length });
+    replicationProgress$.next({ progressBase: 1, maxProgress: selectedIds.length });
 
-    dataIds.forEach((id) =>
+    selectedIds.forEach((id) =>
       tasks.push(
         limiter(async () => {
           try {
             throwIfAborted(cancelSignal);
 
-            deleted.push(
-              await this.deleteSingleData(
-                db,
-                id,
-                idsToTitles.get(id),
-                { lastItem, bookmarkIds },
-                !keepLocalStatistics
-              )
-            );
+            deleted.push(await this.deleteSingleData(db, id, !keepLocalStatistics));
           } catch (error) {
             errorMessage = handleErrorDuringReplication(
               error,
@@ -401,8 +392,6 @@ export class DatabaseService {
   private async deleteSingleData(
     db: IDBPDatabase<BooksDb>,
     dataId: number,
-    title: string | undefined,
-    cachedData: { bookmarkIds: Set<number>; lastItem: number | undefined },
     shouldDeleteStatistics: boolean
   ) {
     const storeNames: (
@@ -415,76 +404,96 @@ export class DatabaseService {
       | 'subtitle'
       | 'handle'
       | 'readerSearchProjection'
-    )[] = ['data', 'audioBook', 'subtitle', 'handle', 'readerSearchProjection'];
-    const shouldDeleteLastItem = cachedData.lastItem === dataId;
-    const shouldDeleteBookmark = cachedData.bookmarkIds.has(dataId);
-
-    let bookTitle = title;
-
-    if (shouldDeleteLastItem) {
-      storeNames.push('lastItem');
-    }
-
-    if (shouldDeleteBookmark) {
-      storeNames.push('bookmark');
-    }
-
-    if (shouldDeleteStatistics) {
-      storeNames.push('statistic');
-      storeNames.push('lastModified');
-    }
+      | 'readerStatistic'
+      | 'readerLocalIdentity'
+    )[] = [
+      'data',
+      'audioBook',
+      'subtitle',
+      'handle',
+      'readerSearchProjection',
+      'bookmark',
+      'lastItem'
+    ];
+    if (shouldDeleteStatistics)
+      storeNames.push('statistic', 'lastModified', 'readerStatistic', 'readerLocalIdentity');
 
     const tx = db.transaction(storeNames, 'readwrite');
-
+    let removedLastItem = false;
     try {
-      if (!bookTitle) {
-        bookTitle = (await tx.objectStore('data').get(dataId))?.title;
-      }
-      const titleUsedByAnotherBook = bookTitle
-        ? (await tx.objectStore('data').index('title').getAllKeys(bookTitle)).some(
-            (id) => id !== dataId
-          )
-        : false;
-
-      if (shouldDeleteLastItem) {
-        await tx.objectStore('lastItem').delete(LAST_ITEM_KEY);
-      }
-
-      if (shouldDeleteBookmark) {
+      await commitTransaction(tx, async () => {
+        // A batch may span reader writes, renames and other tabs. Decisions must
+        // use the current record in the same transaction as its deletion.
+        const book = await tx.objectStore('data').get(dataId);
+        const bookTitle = book?.title;
+        const titleUsedByAnotherBook = bookTitle
+          ? (await tx.objectStore('data').index('title').getAllKeys(bookTitle)).some(
+              (id) => id !== dataId
+            )
+          : false;
+        const lastItem = await tx.objectStore('lastItem').get(LAST_ITEM_KEY);
+        if (lastItem?.dataId === dataId) {
+          await tx.objectStore('lastItem').delete(LAST_ITEM_KEY);
+          removedLastItem = true;
+        }
         await tx.objectStore('bookmark').delete(dataId);
-      }
 
-      if (shouldDeleteStatistics && bookTitle && !titleUsedByAnotherBook) {
-        await tx.objectStore('statistic').delete(IDBKeyRange.bound([bookTitle], [bookTitle, []]));
-        await tx.objectStore('lastModified').delete([bookTitle, StorageDataType.STATISTICS]);
-      }
-
-      if (bookTitle && !titleUsedByAnotherBook) {
-        await tx.objectStore('audioBook').delete(bookTitle);
-        await tx.objectStore('subtitle').delete(bookTitle);
-        await tx.objectStore('handle').delete(IDBKeyRange.bound([bookTitle], [bookTitle, []]));
-      }
-
-      await tx.objectStore('readerSearchProjection').delete(dataId);
-      await tx.objectStore('data').delete(dataId);
-      await tx.done;
-
-      if (shouldDeleteLastItem) {
-        this.lastItemChanged$.next();
-      }
-    } catch (error: any) {
-      try {
-        tx.abort();
-        await tx.done;
-      } catch (_) {
-        // no-op
-      }
-
+        if (shouldDeleteStatistics && book) {
+          const keys = new Set<string>();
+          const contentKey = contentStatisticKey(book);
+          const local = await tx.objectStore('readerLocalIdentity').get(dataId);
+          if (local) keys.add(`local:${local.uuid}`);
+          if (contentKey) {
+            // Renamed copies can share one content identity. Do not remove their
+            // history while another copy remains, and do not retain all payloads
+            // at once just to inspect identity metadata.
+            let hasOtherCopy = false;
+            for (
+              let cursor = await tx.objectStore('data').openCursor();
+              cursor;
+              cursor = await cursor.continue()
+            ) {
+              if (
+                cursor.primaryKey !== dataId &&
+                contentStatisticKey(cursor.value) === contentKey
+              ) {
+                hasOtherCopy = true;
+                break;
+              }
+            }
+            if (!hasOtherCopy) keys.add(contentKey);
+          }
+          for (const key of keys) {
+            await tx.objectStore('readerStatistic').delete(statisticRange(key));
+            await tx.objectStore('lastModified').delete([key, StorageDataType.STATISTICS]);
+          }
+        }
+        if (shouldDeleteStatistics && bookTitle && !titleUsedByAnotherBook) {
+          await tx.objectStore('statistic').delete(IDBKeyRange.bound([bookTitle], [bookTitle, []]));
+          await tx.objectStore('lastModified').delete([bookTitle, StorageDataType.STATISTICS]);
+        }
+        if (bookTitle && !titleUsedByAnotherBook) {
+          await tx.objectStore('audioBook').delete(bookTitle);
+          await tx.objectStore('subtitle').delete(bookTitle);
+          await tx.objectStore('handle').delete(IDBKeyRange.bound([bookTitle], [bookTitle, []]));
+        }
+        await tx.objectStore('readerSearchProjection').delete(dataId);
+        await tx.objectStore('data').delete(dataId);
+      });
+    } catch (error) {
+      // This transaction has no user-cancellation signal. A native abort is a
+      // storage failure, not the deliberate cancellation checked between books.
+      if (error && typeof error === 'object' && 'name' in error && error.name === 'AbortError')
+        throw new Error(
+          'The book could not be deleted because its local storage transaction was aborted. ' +
+            'Its stored data was preserved. Try deleting it again.',
+          { cause: error }
+        );
       throw error;
     }
-
+    if (removedLastItem) this.lastItemChanged$.next();
+    this.bookmarksChanged$.next();
     replicationProgress$.next({ progressToAdd: 1 });
-
     return dataId;
   }
 
