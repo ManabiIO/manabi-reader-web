@@ -212,7 +212,13 @@ const setStylesImportant = (el, styles) => {
 }
 
 class View {
-    #observer = new ResizeObserver(() => this.expand())
+    #resizeFrame = 0
+    #observer = new ResizeObserver(() => {
+        // Resizing the iframe in its body's observer can trigger a WebKit
+        // ResizeObserver delivery loop. Apply layout in the next frame.
+        cancelAnimationFrame(this.#resizeFrame)
+        this.#resizeFrame = requestAnimationFrame(() => this.expand())
+    })
     #element = document.createElement('div')
     #iframe = document.createElement('iframe')
     #contentRange = document.createRange()
@@ -432,6 +438,7 @@ class View {
     destroy() {
         this.#disposed = true
         this.#observer.disconnect()
+        cancelAnimationFrame(this.#resizeFrame)
         this.#cancelLoad?.()
     }
 }
@@ -444,12 +451,18 @@ export class Paginator extends HTMLElement {
     ]
     #root = this.attachShadow({ mode: 'closed' })
     #observedSize = ''
-    #observer = new ResizeObserver(() => {
-        const { width, height } = this.#container.getBoundingClientRect()
+    #resizeFrame = 0
+    #observer = new ResizeObserver(entries => {
+        const entry = entries.find(entry => entry.target === this.#container)
+        if (!entry || this.#destroyed) return
+        // Client rectangles include the moving sheet's transform. Fractional
+        // translations can round their width differently without any reflow.
+        const { width, height } = entry.contentRect
         const size = `${width}:${height}`
         if (size === this.#observedSize) return
         this.#observedSize = size
-        this.render()
+        cancelAnimationFrame(this.#resizeFrame)
+        this.#resizeFrame = requestAnimationFrame(() => this.render())
     })
     #top
     #background
@@ -1348,6 +1361,7 @@ export class Paginator extends HTMLElement {
         this.#destroyed = true
         this.#navigationGeneration += 1
         this.#observer.disconnect()
+        cancelAnimationFrame(this.#resizeFrame)
         this.#view?.destroy()
         this.#view = null
         this.sections[this.#index]?.unload?.()
