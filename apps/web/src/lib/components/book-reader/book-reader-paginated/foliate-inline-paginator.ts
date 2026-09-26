@@ -120,8 +120,8 @@ export class FoliateInlinePaginator {
     return transform ? Math.max(0, -Number(transform[1])) : Math.max(0, this.scrollElement.scrollLeft);
   }
 
-  target(direction: -1 | 1): InlinePageTarget {
-    return inlinePageTarget(this.metrics(), this.currentPosition(), direction);
+  target(direction: -1 | 1, position = this.currentPosition()): InlinePageTarget {
+    return inlinePageTarget(this.metrics(), position, direction);
   }
 
   anchor(relativeOffset: number): number {
