@@ -12,7 +12,7 @@ export const MOSS = Object.freeze({
   filename: 'moss-transcribe-q5_0.gguf',
   bytes: 648174592,
   sha256: '7e9ce1de5648ed49fc5c4f5e003d61a7421a63c14074f7275dc8a8cc664ff865',
-  engineRevision: '190a569c13b4b247450f2fb3b2a431244e84833e+manabi-web-v3',
+  engineRevision: '190a569c13b4b247450f2fb3b2a431244e84833e+manabi-web-v4',
   ggmlRevision: 'eced84c86f8b012c752c016f7fe789adea168e1e',
   quantization: 'q5_0',
   model: 'MOSS-Transcribe-Diarize-0.9B'

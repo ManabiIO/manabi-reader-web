@@ -4,10 +4,10 @@ import argparse, hashlib, json, pathlib, shutil, subprocess, tempfile
 from runtime_artifacts import check_path, publish_pair
 from model_loader_patch import patch_model_loader
 PIN='190a569c13b4b247450f2fb3b2a431244e84833e'
-PORT_REVISION='manabi-web-v3'
+PORT_REVISION='manabi-web-v4'
 GGML_PIN='eced84c86f8b012c752c016f7fe789adea168e1e'
 ROOT=pathlib.Path(__file__).resolve().parents[2]
-def run(*args): subprocess.run(args, check=True)
+def run(*args, cwd=None): subprocess.run(args, check=True, cwd=cwd)
 def replace(path, old, new):
     source=path.read_text()
     if source.count(old)!=1: raise RuntimeError(f'Upstream contract changed in {path.name}: {old!r}')
@@ -31,6 +31,12 @@ def main():
     cmake=source/'CMakeLists.txt'
     replace(cmake,'set(GGML_NATIVE ON CACHE BOOL "" FORCE)','set(GGML_NATIVE OFF CACHE BOOL "" FORCE)')
     replace(cmake,'set(GGML_LLAMAFILE ON CACHE BOOL "" FORCE)','set(GGML_LLAMAFILE OFF CACHE BOOL "" FORCE)')
+    # Emscripten's CMake toolchain reports CMAKE_SYSTEM_PROCESSOR=x86 even for
+    # wasm32. Without this branch ggml silently compiles generic dot products
+    # instead of its dedicated Wasm SIMD quantized kernels.
+    replace(source/'third_party/ggml/src/ggml-cpu/CMakeLists.txt',
+        'elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "wasm")',
+        'elseif (CMAKE_SYSTEM_NAME STREQUAL "Emscripten" OR CMAKE_SYSTEM_PROCESSOR MATCHES "wasm")')
     for name in ('generate.cpp','audio_encoder.cpp','mel.cpp'):
         path=source/'src'/name;path.write_text('#include "manabi_web_hooks.hpp"\n#include <stdexcept>\n'+path.read_text())
     backend=source/'src/backend.cpp'
@@ -42,6 +48,28 @@ def main():
     replace(source/'src/generate.cpp','        if ((int)ids.size() >= max_new) break;','        if ((int)ids.size() >= max_new) throw std::runtime_error("MOSS token budget exhausted; incomplete window");')
     replace(source/'src/generate.cpp','    return ids;\n}\n\n}  // namespace mt','    if (ids.empty() || ids.back() != eos) throw std::runtime_error("MOSS stopped before EOS");\n    return ids;\n}\n\n}  // namespace mt')
     replace(source/'src/audio_encoder.cpp','    for (size_t off = 0; off < total; off += (size_t)chunk_samples) {','    for (size_t off = 0; off < total; off += (size_t)chunk_samples) {\n        manabi_web_check_cancel();')
+    replace(source/'src/mel.hpp', 'int& n_mels, int& n_frames) const;',
+        'int& n_mels, int& n_frames, int requested_frames) const;')
+    replace(source/'src/mel.cpp',
+        'int& n_mels, int& n_frames) const {\n    n_mels = n_mels_;\n    n_frames = nb_max_frames_;',
+        'int& n_mels, int& n_frames, int requested_frames) const {\n    n_mels = n_mels_;\n    n_frames = std::min(nb_max_frames_, requested_frames);')
+    replace(source/'src/audio_encoder.cpp',
+        '        // Pad chunk to feat_n_samples.\n        std::vector<float> chunk(samples16k.begin() + (long)off,\n                                 samples16k.begin() + (long)(off + unpadded));\n        chunk.resize((size_t)chunk_samples, 0.0f);\n\n        std::vector<float> feat; int n_mels = 0, T = 0;\n        mel.compute(chunk, feat, n_mels, T);',
+        '        // Compute only the positions retained after the encoder. Keep a\n'
+        '        // zero guard after the last mel center, matching 30-second padding.\n'
+        '        const int frames = token_len * c.audio_merge_size * WHISPER_ENCODER_STRIDE;\n'
+        '        std::vector<float> chunk(samples16k.begin() + (long)off,\n'
+        '                                 samples16k.begin() + (long)(off + unpadded));\n'
+        '        const size_t frame_samples = (size_t)frames * (size_t)c.feat_hop;\n'
+        '        chunk.resize(frames == c.feat_nb_max_frames ? (size_t)chunk_samples\n'
+        '                                                   : frame_samples + (size_t)c.feat_n_fft, 0.0f);\n'
+        '        std::vector<float> feat; int n_mels = 0, T = 0;\n'
+        '        mel.compute(chunk, feat, n_mels, T, frames);')
+    replace(source/'src/whisper_encoder.cpp',
+        '    cur = ggml_add(ctx, cur, pos_embd_);              // enc.pos_embd ne=[d, T]',
+        '    ggml_tensor* pos = T == pos_embd_->ne[1] ? pos_embd_\n'
+        '        : ggml_view_2d(ctx, pos_embd_, d, T, pos_embd_->nb[1], 0);\n'
+        '    cur = ggml_add(ctx, cur, pos);             // first T positional rows')
     replace(source/'src/mel.cpp','    for (int t = 0; t < n_frames; ++t) {','    for (int t = 0; t < n_frames; ++t) {\n        manabi_web_check_cancel();')
     replace(backend,'            ggml_backend_cpu_set_n_threads(g_backend, nt);',
         '            ggml_backend_cpu_set_n_threads(g_backend, nt);\n'
@@ -67,7 +95,7 @@ endif()
     for mode in ('single','threaded'):
         build=work/mode
         flags='-O3 -msimd128 -fexceptions'+(' -pthread' if mode=='threaded' else '')
-        run('emcmake','cmake','-S',str(source),'-B',str(build),'-DCMAKE_BUILD_TYPE=Release','-DMT_BUILD_CLI=OFF','-DMT_BUILD_TESTS=OFF','-DBUILD_SHARED_LIBS=OFF','-DGGML_OPENMP=OFF','-DGGML_BACKEND_DL=OFF','-DGGML_CPU_ALL_VARIANTS=OFF','-DGGML_WEBGPU=OFF','-DGGML_WASM_SINGLE_FILE=OFF',f'-DMANABI_THREADS={"ON" if mode=="threaded" else "OFF"}',f'-DCMAKE_C_FLAGS={flags}',f'-DCMAKE_CXX_FLAGS={flags}')
+        run('emcmake','cmake','-S',str(source),'-B',str(build),'-DCMAKE_BUILD_TYPE=Release','-DMT_BUILD_CLI=OFF','-DMT_BUILD_TESTS=OFF','-DBUILD_SHARED_LIBS=OFF','-DGGML_OPENMP=OFF','-DGGML_BACKEND_DL=OFF','-DGGML_CPU_ALL_VARIANTS=OFF','-DGGML_WEBGPU=OFF','-DGGML_WASM_SINGLE_FILE=OFF',f'-DMANABI_THREADS={"ON" if mode=="threaded" else "OFF"}',f'-DCMAKE_C_FLAGS={flags}',f'-DCMAKE_CXX_FLAGS={flags}',cwd=work)
         run('cmake','--build',str(build),'--target','moss-web','-j','2')
         for required in ('moss.mjs','moss.wasm'):
             if not (build/required).is_file(): raise RuntimeError(f'Missing build output: {required}')
