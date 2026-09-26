@@ -1036,8 +1036,9 @@ export class VideoWorkspace {
         );
       if (['paused', 'failed', 'queued'].includes(job.status))
         row.append(
-          action(job.status === 'queued' ? 'Run here' : 'Resume', () =>
-            void this.queue.resume(job.id).catch((e) => this.error(e))
+          action(
+            job.status === 'queued' ? 'Run here' : 'Resume',
+            () => void this.queue.resume(job.id).catch((e) => this.error(e))
           )
         );
       this.jobs.append(row);

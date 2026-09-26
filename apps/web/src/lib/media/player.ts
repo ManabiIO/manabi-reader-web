@@ -514,10 +514,8 @@ export class VideoPlayer {
   }
   generationStatus(id: string, state: string) {
     if (this.closed) return;
-    if (state === 'paused' || state === 'failed')
-      this.generationOutcomes?.set(id, state);
-    else
-      this.generationOutcomes?.delete(id);
+    if (state === 'paused' || state === 'failed') this.generationOutcomes?.set(id, state);
+    else this.generationOutcomes?.delete(id);
     if (id !== this.pendingGenerated) return;
     if (state === 'paused' || state === 'failed') {
       this.pendingGenerated = undefined;

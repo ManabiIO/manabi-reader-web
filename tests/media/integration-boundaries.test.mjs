@@ -393,11 +393,8 @@ test('queue disposal drains the active paused checkpoint before storage closes',
     },
     dispose() {}
   };
-  const queue = new TranscriptionQueue(
-    queueDoubleTransactions(store),
-    'guest',
-    engine,
-    async () => new Float32Array(16000).fill(0.1)
+  const queue = new TranscriptionQueue(queueDoubleTransactions(store), 'guest', engine, async () =>
+    new Float32Array(16000).fill(0.1)
   );
   await queue.enqueue(key, 'en', '1', 1);
   await prepared.promise;

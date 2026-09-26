@@ -115,9 +115,11 @@ test('retired preparation messages cannot make its replacement model ready', () 
     await rejected;
     const second = client.prepare(signal(), () => {});
     const disposal = previous.calls.find((message) => message.type === 'dispose');
-    previous.dispatchEvent(new MessageEvent('message', {
-      data: { id: disposal.id, type: 'disposed', value: null }
-    }));
+    previous.dispatchEvent(
+      new MessageEvent('message', {
+        data: { id: disposal.id, type: 'disposed', value: null }
+      })
+    );
     await new Promise((resolve) => setTimeout(resolve, 0));
     const current = WorkerDouble.current;
     previous.reply('ready', null);

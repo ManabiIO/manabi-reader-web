@@ -66,18 +66,27 @@ export class DeviceCheckpoints {
   private opened?: Promise<DevicePlayback | undefined>;
   private writable = false;
   private closing?: Promise<void>;
-  constructor(private store: DeviceStore, private scope: Scope, private key: DeviceKey) {}
+  constructor(
+    private store: DeviceStore,
+    private scope: Scope,
+    private key: DeviceKey
+  ) {}
   load(): Promise<DevicePlayback | undefined> {
-    return this.opened ??= this.store.local<unknown>(this.scope, 'device-playback', this.key).then(raw => {
-      const value = raw === undefined ? undefined : validateDevicePlayback(raw);
-      this.writable = true;
-      return value;
-    });
+    return (this.opened ??= this.store
+      .local<unknown>(this.scope, 'device-playback', this.key)
+      .then((raw) => {
+        const value = raw === undefined ? undefined : validateDevicePlayback(raw);
+        this.writable = true;
+        return value;
+      }));
   }
   save(value: DevicePlayback): Promise<void> {
     if (this.closing) return Promise.reject(new Error('Device playback storage is closed'));
-    try { this.pending = validateDevicePlayback(value); }
-    catch (error) { return Promise.reject(error); }
+    try {
+      this.pending = validateDevicePlayback(value);
+    } catch (error) {
+      return Promise.reject(error);
+    }
     if (this.draining) return this.draining;
     // Claim the first snapshot now, but defer work until ownership is set.
     const first = this.pending;
@@ -109,6 +118,9 @@ export class DeviceCheckpoints {
   close(): Promise<void> {
     // Save callers own error delivery. Close drains even a failed save so the
     // enclosing player can always retire its resources and database safely.
-    return this.closing ??= (this.draining ?? Promise.resolve()).then(() => {}, () => {});
+    return (this.closing ??= (this.draining ?? Promise.resolve()).then(
+      () => {},
+      () => {}
+    ));
   }
 }

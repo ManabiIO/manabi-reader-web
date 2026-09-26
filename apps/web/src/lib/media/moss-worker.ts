@@ -5,7 +5,11 @@
  */
 
 import { getModel, type ModelProgress } from './model-cache.js';
-import { assertRuntimeIdentity, assertRuntimeBindings, type RuntimeIdentity } from './moss-runtime-contract.js';
+import {
+  assertRuntimeIdentity,
+  assertRuntimeBindings,
+  type RuntimeIdentity
+} from './moss-runtime-contract.js';
 interface Module extends RuntimeIdentity {
   FS: {
     mkdir(p: string): void;
@@ -21,7 +25,13 @@ interface Module extends RuntimeIdentity {
   _free(p: number): void;
   _moss_web_cancel_ptr(): number;
   _moss_web_begin(n: number): void;
-  _moss_transcribe_capi_transcribe_pcm(ctx: number, pcm: number, n: number, sr: number, max: number): number;
+  _moss_transcribe_capi_transcribe_pcm(
+    ctx: number,
+    pcm: number,
+    n: number,
+    sr: number,
+    max: number
+  ): number;
   _moss_transcribe_capi_last_error(ctx: number): number;
   _moss_transcribe_capi_free_string(p: number): void;
   _moss_transcribe_capi_free(ctx: number): void;
@@ -36,7 +46,11 @@ const worker = self as unknown as {
   onmessage: ((event: MessageEvent) => void) | null;
   close(): void;
 };
-let runtime: Module | undefined, ctx = 0, busy = false, download: AbortController | undefined, downloadId: string | undefined;
+let runtime: Module | undefined,
+  ctx = 0,
+  busy = false,
+  download: AbortController | undefined,
+  downloadId: string | undefined;
 let disposeId: string | undefined;
 function disposeRuntime(id: string) {
   // Never free model memory while a native call is still using it. A disposal
@@ -45,38 +59,30 @@ function disposeRuntime(id: string) {
     try {
       const previous = ctx;
       ctx = 0;
-      if (previous)
-        runtime?._moss_transcribe_capi_free(previous);
-    }
-    finally {
+      if (previous) runtime?._moss_transcribe_capi_free(previous);
+    } finally {
       runtime?.PThread?.terminateAllThreads();
     }
     runtime = undefined;
     worker.postMessage({ id, type: 'disposed', value: null });
-  }
-  finally {
+  } finally {
     worker.close();
   }
 }
 worker.onmessage = async ({ data }) => {
-  if (!data || typeof data !== 'object' || Array.isArray(data))
-    return;
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return;
   const { id, type, operation } = data;
   const reply = (type: string, value: unknown) => worker.postMessage({ id, type, value });
   if (type === 'dispose') {
-    if (typeof id !== 'string' || !id || id.length > 128)
-      return;
+    if (typeof id !== 'string' || !id || id.length > 128) return;
     disposeId = id;
     download?.abort();
-    if (!busy)
-      disposeRuntime(id);
+    if (!busy) disposeRuntime(id);
     return;
   }
-  if (disposeId !== undefined)
-    return;
+  if (disposeId !== undefined) return;
   if (type === 'cancel-download') {
-    if (data.id === downloadId)
-      download?.abort();
+    if (data.id === downloadId) download?.abort();
     return;
   }
   if (busy) {
@@ -85,14 +91,20 @@ worker.onmessage = async ({ data }) => {
   }
   busy = true;
   try {
-    if ((type === 'prepare' || type === 'transcribe') &&
-      (!Number.isSafeInteger(operation) || operation < 1 || operation > 0x7ffffffe))
+    if (
+      (type === 'prepare' || type === 'transcribe') &&
+      (!Number.isSafeInteger(operation) || operation < 1 || operation > 0x7ffffffe)
+    )
       throw new Error('Invalid MOSS operation identity');
     if (type === 'prepare') {
-      if (runtime || ctx)
-        throw new Error('MOSS runtime is already prepared');
-      if (typeof data.threaded !== 'boolean' || !Number.isSafeInteger(data.threads) ||
-        data.threads < 1 || data.threads > 4 || (!data.threaded && data.threads !== 1))
+      if (runtime || ctx) throw new Error('MOSS runtime is already prepared');
+      if (
+        typeof data.threaded !== 'boolean' ||
+        !Number.isSafeInteger(data.threads) ||
+        data.threads < 1 ||
+        data.threads > 4 ||
+        (!data.threaded && data.threads !== 1)
+      )
         throw new Error('Invalid CPU runtime mode');
       download = new AbortController();
       downloadId = id;
@@ -108,64 +120,86 @@ worker.onmessage = async ({ data }) => {
       // Send the cancellation word BEFORE downloading/loading weights. While
       // C++ is loading synchronously its Worker cannot receive cancel messages,
       // but the owner can still store into this word in the pthread build.
-      reply('runtime', data.threaded ? { buffer: runtime!.HEAP32.buffer, offset: runtime!._moss_web_cancel_ptr() } : null);
+      reply(
+        'runtime',
+        data.threaded
+          ? { buffer: runtime!.HEAP32.buffer, offset: runtime!._moss_web_cancel_ptr() }
+          : null
+      );
       download.signal.throwIfAborted();
       const file = await getModel(download.signal, (p: ModelProgress) => reply('progress', p));
       download.signal.throwIfAborted();
       reply('progress', { stage: 'loading', loaded: 0, total: 1 });
       runtime!.FS.mkdir('/models');
-      runtime!.FS.mount(runtime!.WORKERFS, { blobs: [{ name: 'model.gguf', data: file }] }, '/models');
+      runtime!.FS.mount(
+        runtime!.WORKERFS,
+        { blobs: [{ name: 'model.gguf', data: file }] },
+        '/models'
+      );
       try {
-        ctx = runtime!.ccall('moss_web_load', 'number', ['string', 'number'], ['/models/model.gguf', data.threads]);
-      }
-      finally {
+        ctx = runtime!.ccall(
+          'moss_web_load',
+          'number',
+          ['string', 'number'],
+          ['/models/model.gguf', data.threads]
+        );
+      } finally {
         runtime!.FS.unmount('/models');
       }
-      if (!ctx)
-        throw new Error('MOSS could not load. This device may not have enough memory.');
-      const shared = typeof SharedArrayBuffer !== 'undefined' && runtime!.HEAP32.buffer instanceof SharedArrayBuffer;
-      reply('ready', shared ? { buffer: runtime!.HEAP32.buffer, offset: runtime!._moss_web_cancel_ptr() } : null);
-    }
-    else if (type === 'transcribe') {
+      if (!ctx) throw new Error('MOSS could not load. This device may not have enough memory.');
+      const shared =
+        typeof SharedArrayBuffer !== 'undefined' &&
+        runtime!.HEAP32.buffer instanceof SharedArrayBuffer;
+      reply(
+        'ready',
+        shared ? { buffer: runtime!.HEAP32.buffer, offset: runtime!._moss_web_cancel_ptr() } : null
+      );
+    } else if (type === 'transcribe') {
       const pcm = data.pcm;
-      if (!runtime || !ctx || !(pcm instanceof Float32Array) || !pcm.length || pcm.length > 16000 * 64 || pcm.some(n => !Number.isFinite(n)))
+      if (
+        !runtime ||
+        !ctx ||
+        !(pcm instanceof Float32Array) ||
+        !pcm.length ||
+        pcm.length > 16000 * 64 ||
+        pcm.some((n) => !Number.isFinite(n))
+      )
         throw new Error('Invalid audio window');
       runtime._moss_web_begin(operation);
       const p = runtime._malloc(pcm.byteLength);
-      if (!p)
-        throw new Error('Not enough memory');
+      if (!p) throw new Error('Not enough memory');
       let result = 0;
       try {
         // Memory growth can replace Emscripten's typed-array views. Read the
         // current view only after malloc and fail closed if it is stale or malformed.
         const heap = runtime.HEAPF32;
         const start = p / Float32Array.BYTES_PER_ELEMENT;
-        if (!(heap instanceof Float32Array) || p % Float32Array.BYTES_PER_ELEMENT ||
-          !Number.isSafeInteger(start) || start < 0 || start + pcm.length > heap.length)
+        if (
+          !(heap instanceof Float32Array) ||
+          p % Float32Array.BYTES_PER_ELEMENT ||
+          !Number.isSafeInteger(start) ||
+          start < 0 ||
+          start + pcm.length > heap.length
+        )
           throw new Error('MOSS runtime memory view is unavailable after allocation');
         heap.set(pcm, start);
         result = runtime._moss_transcribe_capi_transcribe_pcm(ctx, p, pcm.length, 16000, 2048);
         if (!result)
-          throw new Error(runtime.UTF8ToString(runtime._moss_transcribe_capi_last_error(ctx)) || 'MOSS failed');
+          throw new Error(
+            runtime.UTF8ToString(runtime._moss_transcribe_capi_last_error(ctx)) || 'MOSS failed'
+          );
         reply('result', runtime.UTF8ToString(result));
-      }
-      finally {
+      } finally {
         runtime._free(p);
-        if (result)
-          runtime._moss_transcribe_capi_free_string(result);
+        if (result) runtime._moss_transcribe_capi_free_string(result);
       }
-    }
-    else
-      throw new Error('Unknown MOSS operation');
-  }
-  catch (e) {
+    } else throw new Error('Unknown MOSS operation');
+  } catch (e) {
     reply('error', e instanceof Error ? e.message : String(e));
-  }
-  finally {
+  } finally {
     busy = false;
     download = undefined;
     downloadId = undefined;
-    if (disposeId !== undefined)
-      disposeRuntime(disposeId);
+    if (disposeId !== undefined) disposeRuntime(disposeId);
   }
 };

@@ -16,31 +16,36 @@ export class MossClient {
   private busy = false;
   private serial = 0;
   private rejectActive?: (error: unknown) => void;
-  private crashed = (event: Event) => this.workerFailed(event, 'The transcription worker stopped. Completed windows were kept.');
-  private unreadable = (event: Event) => this.workerFailed(event, 'The transcription worker returned an unreadable message. Retry transcription.');
+  private crashed = (event: Event) =>
+    this.workerFailed(event, 'The transcription worker stopped. Completed windows were kept.');
+  private unreadable = (event: Event) =>
+    this.workerFailed(
+      event,
+      'The transcription worker returned an unreadable message. Retry transcription.'
+    );
   private workerFailed(event: Event, message: string) {
-    if (event.currentTarget !== this.worker)
-      return;
+    if (event.currentTarget !== this.worker) return;
     this.rejectActive?.(new Error(message));
     this.retire();
   }
-  constructor(private runtimeBase: string, private workerURL?: URL) { }
+  constructor(
+    private runtimeBase: string,
+    private workerURL?: URL
+  ) {}
   private retire(): Promise<void> {
     const worker = this.worker;
     this.worker = undefined;
     this.ready = false;
     this.cancelFlag = undefined;
-    if (!worker)
-      return this.retiring ?? Promise.resolve();
+    if (!worker) return this.retiring ?? Promise.resolve();
     this.lifecycle++;
     worker.removeEventListener('error', this.crashed);
     worker.removeEventListener('messageerror', this.unreadable);
     const id = crypto.randomUUID();
-    const stopped = new Promise<void>(resolve => {
+    const stopped = new Promise<void>((resolve) => {
       let done = false;
       const finish = () => {
-        if (done)
-          return;
+        if (done) return;
         done = true;
         clearTimeout(timer);
         worker.removeEventListener('message', message);
@@ -48,70 +53,79 @@ export class MossClient {
         // This requests release; garbage collection timing is browser-owned.
         try {
           worker.terminate();
+        } catch {
+          /* Already stopped. */
         }
-        catch { /* Already stopped. */ }
         resolve();
       };
       const message = (event: MessageEvent) => {
-        if (event.data?.id === id && event.data.type === 'disposed')
-          finish();
+        if (event.data?.id === id && event.data.type === 'disposed') finish();
       };
       const timer = setTimeout(finish, 1000); // Broken worker: bounded shutdown fallback.
       worker.addEventListener('message', message);
       try {
         worker.postMessage({ id, type: 'dispose' });
-      }
-      catch {
+      } catch {
         finish();
       }
     });
     this.retiring = stopped;
-    void stopped.then(() => { if (this.retiring === stopped)
-      this.retiring = undefined; });
+    void stopped.then(() => {
+      if (this.retiring === stopped) this.retiring = undefined;
+    });
     return stopped;
   }
-  private call(type: 'prepare' | 'transcribe', fields: Record<string, unknown>, signal: AbortSignal, progress: (p: ModelProgress) => void = () => { }, transfer: Transferable[] = []): Promise<unknown> {
+  private call(
+    type: 'prepare' | 'transcribe',
+    fields: Record<string, unknown>,
+    signal: AbortSignal,
+    progress: (p: ModelProgress) => void = () => {},
+    transfer: Transferable[] = []
+  ): Promise<unknown> {
     signal.throwIfAborted();
-    if (this.busy)
-      return Promise.reject(new Error('Concurrent MOSS calls are not supported'));
+    if (this.busy) return Promise.reject(new Error('Concurrent MOSS calls are not supported'));
     let worker: Worker;
     try {
       // Keep the default Worker + URL expression literal: Vite must see and bundle it.
       if (!this.worker) {
-        this.worker = this.workerURL ? new Worker(this.workerURL, { type: 'module' })
+        this.worker = this.workerURL
+          ? new Worker(this.workerURL, { type: 'module' })
           : new Worker(new URL('./moss-worker.ts', import.meta.url), { type: 'module' });
         // Keep these listeners between calls: a warm worker can also crash while idle.
         this.worker.addEventListener('error', this.crashed);
         this.worker.addEventListener('messageerror', this.unreadable);
       }
       worker = this.worker;
-    }
-    catch (error) {
+    } catch (error) {
       return Promise.reject(error);
     }
     this.busy = true;
     // The C bridge stores operation IDs in a signed 32-bit cancellation word.
     // Avoid JS numbers eventually wrapping through an implementation-defined cast.
     this.serial = this.serial >= 0x7ffffffe ? 1 : this.serial + 1;
-    const id = crypto.randomUUID(), operation = this.serial;
+    const id = crypto.randomUUID(),
+      operation = this.serial;
     return new Promise((yes, no) => {
-      let done = false, timer: ReturnType<typeof setTimeout> | undefined;
+      let done = false,
+        timer: ReturnType<typeof setTimeout> | undefined;
       const finish = (error: unknown, value?: unknown, failed = true) => {
-        if (done)
-          return;
+        if (done) return;
         done = true;
         this.busy = false;
         this.rejectActive = undefined;
         clearTimeout(timer);
         worker.removeEventListener('message', message);
         signal.removeEventListener('abort', cancel);
-        failed ? no(error) : yes(value);
+        if (failed) no(error);
+        else yes(value);
       };
-      const fail = (error: unknown) => { finish(error); this.retire(); };
-      this.rejectActive = error => finish(error);
+      const fail = (error: unknown) => {
+        finish(error);
+        this.retire();
+      };
+      this.rejectActive = (error) => finish(error);
       const message = (event: MessageEvent) => {
-        if (!event.data || typeof event.data !== 'object' || event.data.id !== id)
-          return;
+        if (!event.data || typeof event.data !== 'object' || event.data.id !== id) return;
         if (signal.aborted) {
           fail(signal.reason);
           return;
@@ -119,13 +133,18 @@ export class MossClient {
         if (event.data.type === 'progress') {
           try {
             const p = event.data.value;
-            if (!p || !['checking', 'downloading', 'verifying', 'loading'].includes(p.stage) ||
-              !Number.isSafeInteger(p.loaded) || !Number.isSafeInteger(p.total) || p.loaded < 0 ||
-              p.total <= 0 || p.loaded > p.total)
+            if (
+              !p ||
+              !['checking', 'downloading', 'verifying', 'loading'].includes(p.stage) ||
+              !Number.isSafeInteger(p.loaded) ||
+              !Number.isSafeInteger(p.total) ||
+              p.loaded < 0 ||
+              p.total <= 0 ||
+              p.loaded > p.total
+            )
               throw new Error('Invalid model download progress');
             progress({ stage: p.stage, loaded: p.loaded, total: p.total });
-          }
-          catch (e) {
+          } catch (e) {
             fail(e);
           }
           return;
@@ -135,44 +154,51 @@ export class MossClient {
           return;
         }
         try {
-          if (type === 'prepare' && (event.data.type === 'runtime' || event.data.type === 'ready')) {
+          if (
+            type === 'prepare' &&
+            (event.data.type === 'runtime' || event.data.type === 'ready')
+          ) {
             const p = event.data.value;
             if (p !== null) {
-              if (!p || typeof SharedArrayBuffer === 'undefined' || !(p.buffer instanceof SharedArrayBuffer) ||
-                !Number.isSafeInteger(p.offset) || p.offset <= 0 || p.offset % 4 || p.offset + 4 > p.buffer.byteLength)
+              if (
+                !p ||
+                typeof SharedArrayBuffer === 'undefined' ||
+                !(p.buffer instanceof SharedArrayBuffer) ||
+                !Number.isSafeInteger(p.offset) ||
+                p.offset <= 0 ||
+                p.offset % 4 ||
+                p.offset + 4 > p.buffer.byteLength
+              )
                 throw new Error('Invalid transcription cancellation buffer');
               this.cancelFlag = new Int32Array(p.buffer, p.offset, 1);
-            }
-            else
-              this.cancelFlag = undefined;
+            } else this.cancelFlag = undefined;
             // The early handshake only makes preparation cancellable. It
             // must not admit transcription until all weights are loaded.
-            if (event.data.type === 'runtime')
-              return;
+            if (event.data.type === 'runtime') return;
             this.ready = true;
-          }
-          else if (type !== 'transcribe' || event.data.type !== 'result' || typeof event.data.value !== 'string' || event.data.value.length > 1024 * 1024) {
+          } else if (
+            type !== 'transcribe' ||
+            event.data.type !== 'result' ||
+            typeof event.data.value !== 'string' ||
+            event.data.value.length > 1024 * 1024
+          ) {
             throw new Error('Invalid transcription worker response');
           }
           finish(null, event.data.value, false);
-        }
-        catch (e) {
+        } catch (e) {
           fail(e);
         }
       };
       const cancel = () => {
         try {
-          if (type === 'prepare')
-            worker.postMessage({ type: 'cancel-download', id });
-          if (this.cancelFlag)
-            Atomics.store(this.cancelFlag, 0, operation);
+          if (type === 'prepare') worker.postMessage({ type: 'cancel-download', id });
+          if (this.cancelFlag) Atomics.store(this.cancelFlag, 0, operation);
           else if (type !== 'prepare') {
             fail(signal.reason);
             return;
           }
           timer = setTimeout(() => fail(signal.reason), type === 'prepare' ? 2000 : 15000);
-        }
-        catch {
+        } catch {
           fail(signal.reason);
         }
       };
@@ -181,8 +207,7 @@ export class MossClient {
       try {
         signal.throwIfAborted();
         worker.postMessage({ id, type, operation, ...fields }, transfer);
-      }
-      catch (e) {
+      } catch (e) {
         fail(e);
       }
     });
@@ -190,29 +215,39 @@ export class MossClient {
   async prepare(signal: AbortSignal, progress: (p: ModelProgress) => void) {
     signal.throwIfAborted();
     const lifecycle = this.lifecycle;
-    if (this.retiring)
-      await abortable(signal, () => this.retiring!);
+    if (this.retiring) await abortable(signal, () => this.retiring!);
     signal.throwIfAborted();
     if (lifecycle !== this.lifecycle)
       throw new DOMException('Transcription runtime closed', 'AbortError');
-    if (this.ready)
-      return;
+    if (this.ready) return;
     const threaded = globalThis.crossOriginIsolated && typeof SharedArrayBuffer !== 'undefined';
-    const threads = threaded ? Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1)) : 1;
-    await this.call('prepare', { url: `${this.runtimeBase}/${threaded ? 'threaded' : 'single'}/moss.mjs`, threads, threaded: !!threaded }, signal, progress);
+    const threads = threaded
+      ? Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1))
+      : 1;
+    await this.call(
+      'prepare',
+      {
+        url: `${this.runtimeBase}/${threaded ? 'threaded' : 'single'}/moss.mjs`,
+        threads,
+        threaded: !!threaded
+      },
+      signal,
+      progress
+    );
   }
   async transcribe(pcm: Float32Array, signal: AbortSignal) {
-    if (!this.ready)
-      throw new Error('Prepare the transcription model first');
-    return await this.call('transcribe', { pcm }, signal, () => { }, [pcm.buffer as ArrayBuffer]) as string;
+    if (!this.ready) throw new Error('Prepare the transcription model first');
+    return (await this.call('transcribe', { pcm }, signal, () => {}, [
+      pcm.buffer as ArrayBuffer
+    ])) as string;
   }
   dispose(): Promise<void> {
     this.lifecycle++; // Pending preparation must not resurrect a closed client lifetime.
     try {
-      if (this.cancelFlag && this.serial > 0)
-        Atomics.store(this.cancelFlag, 0, this.serial);
+      if (this.cancelFlag && this.serial > 0) Atomics.store(this.cancelFlag, 0, this.serial);
+    } catch {
+      /* Termination remains available if cooperative cancellation is unavailable. */
     }
-    catch { /* Termination remains available if cooperative cancellation is unavailable. */ }
     this.rejectActive?.(new DOMException('Transcription runtime closed', 'AbortError'));
     return this.retire();
   }
