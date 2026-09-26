@@ -105,21 +105,25 @@ export function projectResource(
       count += length;
       return;
     }
-    if (!(node instanceof Element)) return;
+    // Do not use instanceof Element: Foliate sections may live in a child
+    // browsing context, whose Element constructor is a different realm.
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    const element = node as Element;
+    const tagName = (element.localName || element.nodeName).toUpperCase();
     if (
-      excludedTags.has(node.tagName) ||
-      node.hasAttribute('hidden') ||
-      node.getAttribute('aria-hidden') === 'true' ||
+      excludedTags.has(tagName) ||
+      element.hasAttribute('hidden') ||
+      element.getAttribute('aria-hidden') === 'true' ||
       /(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden|content-visibility\s*:\s*hidden)\s*(?:!important\s*)?(?:;|$)/i.test(
-        node.getAttribute('style') ?? ''
+        element.getAttribute('style') ?? ''
       )
     )
       return;
-    if (node.tagName === 'BR') {
+    if (tagName === 'BR') {
       separator();
       return;
     }
-    const block = blockTags.has(node.tagName);
+    const block = blockTags.has(tagName);
     if (block) separator();
     for (const child of node.childNodes) visit(child);
     if (block) separator();
