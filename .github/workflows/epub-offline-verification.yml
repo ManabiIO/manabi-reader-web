@@ -1,17 +1,72 @@
-name: EPUB offline verification workspace
+name: EPUB resource migration verification
 on:
   push:
     branches: [codex/epub-offline-verification-20260926]
 permissions:
   contents: read
 jobs:
-  workspace:
+  prepare:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: 92a53bfe9452ea0a3ad81824934113b369d82651
+          persist-credentials: false
+      - name: Recover and verify reviewed source patch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for sha in \
+            9bf36abd8831f13f382bfe63cd30553af5871537 \
+            c6d0473b7bae49ee043166add928770740a2b4f1 \
+            37638a9c9b0365dd2d4e531509ac8f8f97054917 \
+            e214839a74abc19417fe143b4c37f51264a78cd3 \
+            1f40aa4aa0d09da7cadd621fe02043a34023b833 \
+            3accc9fa22012cb6225d80d969f158ca66e3263e \
+            a1aa553f82e5a59de589a11d77ace3a0fe786170 \
+            8c3c58aa5e459bf28e9a9ca993618a568540829b; do
+            gh api "repos/$GITHUB_REPOSITORY/git/blobs/$sha" --jq .content | base64 -d
+          done > /tmp/source.xz.b64
+          base64 -d /tmp/source.xz.b64 | xz -d > /tmp/source.patch
+          echo '44f33d41d4ef637901cab08c281e665c6e94114967cdab4ff1c5f723281640c3  /tmp/source.patch' | sha256sum --check
+          git apply --check /tmp/source.patch
+          git apply --index /tmp/source.patch
+          git diff --cached --stat
+          if git diff --cached --name-only | grep '^.github/'; then exit 1; fi
+      - name: Publish isolated candidate for exact-source tests
+        id: commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name 'Manabi EPUB verification'
+          git config user.email 'epub-verification@users.noreply.github.com'
+          git -c core.hooksPath=/dev/null commit -m 'feat(epub): finish resource import and preserve reader parity'
+          gh auth setup-git
+          git push origin "HEAD:refs/heads/codex/epub-resource-verify-$GITHUB_RUN_ID"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "Verified candidate: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+  qualification:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, webkit]
+    env:
+      EPUB_BROWSER: ${{ matrix.browser }}
+      SLIDE_BROWSER: ${{ matrix.browser }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
           persist-credentials: false
       - uses: pnpm/action-setup@v6.1.0
         with:
@@ -19,17 +74,60 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24.21.0'
-      - run: pnpm install --frozen-lockfile
-      - name: Package public source and installed build dependencies for isolated tests
-        run: |
-          mkdir -p /tmp/epub-verification
-          git archive HEAD | gzip > /tmp/epub-verification/source.tar.gz
-          tar -czf /tmp/epub-verification/dependencies.tar.gz node_modules apps/web/node_modules
-          cp "$(command -v node)" /tmp/epub-verification/node
-          git rev-parse HEAD > /tmp/epub-verification/source-head.txt
-      - uses: actions/upload-artifact@v4
+          cache: pnpm
+      - uses: actions/setup-python@v5
         with:
-          name: epub-verification-92a53bfe
-          path: /tmp/epub-verification
-          retention-days: 1
-          compression-level: 0
+          python-version: '3.13'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - name: Full unit suite and source checks
+        run: |
+          set -o pipefail
+          node --test --test-concurrency=2 tests/unit/*.test.mjs 2>&1 | tee unit.log
+          pnpm eslint .
+          pnpm --dir apps/web check
+          node test/reader/run.mjs
+      - name: Build actual static application and EPUB harness
+        env:
+          BASE_PATH: /reader-web
+        run: |
+          pnpm build
+          node test/reader/build-epub-harness.mjs
+          python -m pip install 'playwright==1.55.0'
+          python -m playwright install --with-deps ${{ matrix.browser }}
+      - name: EPUB import and lifecycle regressions
+        id: resources
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          python test/reader/epub-browser.py 2>&1 | tee epub-resources.log
+      - name: Actual application EPUB parity
+        id: app
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          python tests/browser/test_epub_resources.py 2>&1 | tee epub-app.log
+      - name: Existing page-turn acceptance
+        id: slides
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          python tests/browser/test_foliate_slide.py 2>&1 | tee foliate-slide.log
+      - name: Existing static reader acceptance
+        if: matrix.browser == 'chromium'
+        id: static
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          python tests/browser/test_static_reader.py 2>&1 | tee static-reader.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: epub-verification-${{ matrix.browser }}
+          path: |
+            *.log
+            test-results/
+          retention-days: 3
+      - name: Require all acceptance suites
+        if: always() && (steps.resources.outcome == 'failure' || steps.app.outcome == 'failure' || steps.slides.outcome == 'failure' || steps.static.outcome == 'failure')
+        run: exit 1
