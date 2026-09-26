@@ -40,26 +40,15 @@ jobs:
         env:
           BASE_PATH: /reader-web
         run: pnpm build
-      - name: Actual TTU package and native-format reading-data round trip
+      - name: Install the browser
         run: |
           python -m pip install 'playwright==1.63.0'
           python -m playwright install --with-deps chromium
-          set -o pipefail
-          python tests/browser/test_shared_ttu.py 2>&1 | tee ttu-shared.log
-      - name: Static-app isolation and real filesystem adapter regressions
-        run: |
-          set -o pipefail
-          python tests/browser/test_shared_safety.py 2>&1 | tee ttu-shared-safety.log
-      - name: Integrated same-title sharing UI
-        env:
-          PYTHONPATH: tests/browser
-        run: python -m unittest test_reader_integration -v
+      - name: Shared-library round-trip, ownership and integration acceptance
+        run: python tests/browser/qualify_library_data_safety.py --suite shared
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: ttu-shared-results
-          path: |
-            ttu-shared.log
-            ttu-shared-safety.log
-            test-results/
+          path: test-results/
           retention-days: 3
