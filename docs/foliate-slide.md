@@ -1,6 +1,6 @@
 # Layered page turns on the Foliate EPUB reader
 
-This change is stacked on Foliate migration PR #49 (`8699d92a`), which is stacked
+This change is stacked on Foliate migration PR #49 (`c8674948`), which is stacked
 on reader integration PR #47. It retains that migration's activation gate:
 `localStorage.setItem('manabi-dev-foliate-epub', 'true')`, followed by a reload.
 Removing the Foliate migration gate is a separate release decision. Continuous

@@ -420,7 +420,7 @@
     bookmarkManager = makeBookmarkManager();
 
     tocSubscription = nextChapter$.subscribe((target) => {
-      if (target === '') return;
+      if (typeof target === 'string' && !target) return;
       const index =
         typeof target === 'string'
           ? sourceSections.findIndex(
