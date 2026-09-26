@@ -312,6 +312,8 @@ export interface BookHtmlPolicy {
   /** URLs made by this read/import lifetime; arbitrary saved blob URLs are not trusted. */
   imageUrls?: ReadonlySet<string>;
   onEmbeddedStyle?: (css: string) => void;
+  /** Inspect a removed link in the inert sanitizer; never attach or fetch it. */
+  onStyleSheetReference?: (href: string) => void;
 }
 
 /**
@@ -326,6 +328,13 @@ export function sanitizeBookHtml(html: string, policy: BookHtmlPolicy): string {
   const purifier = createDOMPurify(view);
   if (!purifier.isSupported) throw new Error('This browser cannot safely render imported books');
   purifier.addHook('uponSanitizeElement', (node, data) => {
+    if (data.tagName === 'link' && policy.onStyleSheetReference && node.nodeType === 1) {
+      const element = node as Element;
+      if (element.getAttribute('rel')?.toLowerCase().split(/\s+/).includes('stylesheet')) {
+        const href = element.getAttribute('href');
+        if (href) policy.onStyleSheetReference(href);
+      }
+    }
     if (data.tagName === 'style' && policy.onEmbeddedStyle) {
       policy.onEmbeddedStyle(sanitizeBookStyleSheet(node.textContent ?? '', policy.document));
     }

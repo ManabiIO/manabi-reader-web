@@ -8,6 +8,7 @@ import type { Completion } from '$lib/library/completion';
 import type { DirectionEvidence } from '$lib/library/direction';
 import type { BookCreator } from '$lib/library/book-metadata';
 import type { PublicationManifest } from '$lib/reader-location';
+import type { EpubPublicationData } from '$lib/foliate-epub/publication-data';
 import type { FsHandle, RemoteContext } from '$lib/data/storage/storage-source-manager';
 
 import type { DBSchema } from 'idb';
@@ -52,6 +53,8 @@ interface BooksDbV6BookData {
   characters: number;
   sections?: Section[];
   publicationManifest?: PublicationManifest;
+  /** Per-resource EPUB data; absent on legacy records and other formats. */
+  epubPublication?: EpubPublicationData;
   lastBookModified: number;
   lastBookOpen: number;
   storageSource?: string;

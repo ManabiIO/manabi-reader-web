@@ -55,3 +55,13 @@ export function resolveEpubLinkTarget(
     ...(fragment ? { fragment } : {})
   };
 }
+
+/** Keep a navigation URI encoded until its resource and fragment are separated. */
+export function resolveEpubNavigationHref(owner: string, reference: string): string {
+  if (/^(?:[a-z][\w+.-]*:|[\\/])/i.test(reference)) return reference;
+  const hash = reference.indexOf('#');
+  const target = (hash < 0 ? reference : reference.slice(0, hash)).split('?', 1)[0];
+  const resource = target ? resolveArchivePath(owner, target) : owner;
+  const encoded = resource.split('/').map(encodeURIComponent).join('/');
+  return hash < 0 ? encoded : `${encoded}${reference.slice(hash)}`;
+}

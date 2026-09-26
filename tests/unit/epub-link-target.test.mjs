@@ -6,7 +6,10 @@
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { resolveEpubLinkTarget } from '../../apps/web/src/lib/functions/file-loaders/epub/epub-link-target.ts';
+import {
+  resolveEpubLinkTarget,
+  resolveEpubNavigationHref
+} from '../../apps/web/src/lib/functions/file-loaders/epub/epub-link-target.ts';
 
 test('EPUB links preserve resource identity when fragment IDs repeat', () => {
   const resources = [
@@ -41,4 +44,27 @@ test('EPUB links reject traversal outside the archive', () => {
     resolveEpubLinkTarget('OPS/chapter.xhtml', '../../escape.xhtml#x', resources, 0),
     undefined
   );
+});
+
+test('navigation URIs encode literal resource punctuation before splitting fragments', () => {
+  const owner = 'OPS/nav.xhtml';
+  assert.equal(
+    resolveEpubNavigationHref(owner, 'part%231%3F.xhtml?ignored=yes#%E6%B3%A8'),
+    'OPS/part%231%3F.xhtml#%E6%B3%A8'
+  );
+  assert.equal(resolveEpubNavigationHref(owner, 'part%2523.xhtml#note'), 'OPS/part%2523.xhtml#note');
+  assert.equal(resolveEpubNavigationHref('OPS/part#1.xhtml', '#note'), 'OPS/part%231.xhtml#note');
+  const resources = [{ href: 'OPS/part#1?.xhtml', spineIndex: 0, sectionId: 'part' }];
+  assert.deepEqual(
+    resolveEpubLinkTarget(owner, 'part%231%3F.xhtml#%E6%B3%A8', resources),
+    { spineIndex: 0, fragment: '注' }
+  );
+});
+
+test('navigation normalization never converts external URLs to archive paths', () => {
+  assert.equal(
+    resolveEpubNavigationHref('OPS/nav.xhtml', 'https://example.test/book#note'),
+    'https://example.test/book#note'
+  );
+  assert.throws(() => resolveEpubNavigationHref('OPS/nav.xhtml', '../../escape.xhtml'));
 });
