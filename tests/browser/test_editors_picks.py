@@ -22,13 +22,21 @@ class PicksHandler(StaticHandler):
     epub_bytes = book('A Pick from Manabi')
     index_started = None
     index_gate = None
+    book_started = None
+    book_gate = None
+    duplicate_ids = False
+    malformed_feed = False
+    download_status = 200
 
     def serve(self, body, content_type, status=200):
         self.send_response(status)
         self.send_header('Content-Type', content_type)
         self.send_header('Content-Length', str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # The native client can deliberately cancel a held response.
 
     def do_GET(self):
         path = urlsplit(self.path).path
@@ -55,14 +63,21 @@ class PicksHandler(StaticHandler):
                            else '/static/reader/books/library/%d.epub' % number)
                     entries.append('<entry><id>pick-%d</id><title>%s</title><author><name>Author %d</name></author>'
                                    '<link rel="http://opds-spec.org/acquisition" type="application/epub+zip" href="%s"/>'
-                                   '</entry>' % (number, title, number, url))
+                                   '</entry>' % (0 if type(self).duplicate_ids else number, title, number, url))
                 payload = ('<feed xmlns="http://www.w3.org/2005/Atom">' + ''.join(entries) + '</feed>').encode()
+                if type(self).malformed_feed:
+                    payload = payload.replace(b'First Pick', b'First \xff Pick')
                 self.serve(payload, 'application/atom+xml')
             elif path.startswith('/static/reader/books/library/'):
+                started, gate = type(self).book_started, type(self).book_gate
+                if started is not None:
+                    started.set()
+                if gate is not None:
+                    gate.wait(timeout=30)
                 if type(self).fail_download:
                     self.serve(b'Unavailable', 'text/plain', 503)
                 else:
-                    self.serve(type(self).epub_bytes, 'application/epub+zip')
+                    self.serve(type(self).epub_bytes, 'application/epub+zip', type(self).download_status)
             else:
                 self.send_error(404)
             return
@@ -91,6 +106,13 @@ class EditorsPicksBrowser(unittest.TestCase):
         PicksHandler.requests = []
         PicksHandler.index_started = None
         PicksHandler.index_gate = None
+        PicksHandler.book_started = None
+        PicksHandler.book_gate = None
+        PicksHandler.duplicate_ids = False
+        PicksHandler.malformed_feed = False
+        PicksHandler.download_status = 200
+        PicksHandler.account_fixture = None
+        PicksHandler.account_requests = []
         self.profile = tempfile.TemporaryDirectory()
         self.engine = os.environ.get('PICKS_BROWSER', 'chromium')
         self.context = getattr(self.playwright, self.engine).launch_persistent_context(
@@ -113,6 +135,17 @@ class EditorsPicksBrowser(unittest.TestCase):
         self.context.expose_binding('recordPicksError', lambda source, record:
                                     self.diagnostics.append(record))
         self.context.add_init_script("""
+          const record = entry => { void window.recordPicksError(entry).catch(() => {}); };
+          const create = URL.createObjectURL, revoke = URL.revokeObjectURL;
+          URL.createObjectURL = function(blob) {
+            const url = create.call(this, blob);
+            record({kind:'blob-create',url,type:blob.type,size:blob.size,stack:new Error().stack});
+            return url;
+          };
+          URL.revokeObjectURL = function(url) {
+            record({kind:'blob-revoke',url,stack:new Error().stack});
+            return revoke.call(this,url);
+          };
           for (const type of ['error', 'unhandledrejection']) {
             window.addEventListener(type, event => {
               const error = event.error || event.reason;
@@ -132,6 +165,11 @@ class EditorsPicksBrowser(unittest.TestCase):
                                  'stack': error.stack, 'page': self.page.url})
 
     def tearDown(self):
+        if PicksHandler.book_gate is not None:
+            PicksHandler.book_gate.set()
+        PicksHandler.book_started = None
+        PicksHandler.book_gate = None
+        PicksHandler.account_fixture = None
         if PicksHandler.index_gate is not None:
             PicksHandler.index_gate.set()
         PicksHandler.index_started = None
@@ -215,6 +253,157 @@ class EditorsPicksBrowser(unittest.TestCase):
         PicksHandler.index_gate.set()
         self.assertFalse(any(path.endswith('/opds/feeds/all.xml') for path in PicksHandler.requests))
         expect(self.page.get_by_role('heading', name='Want to Read', exact=True)).to_be_visible()
+
+    def guest_session(self):
+        return {'user': None, 'csrf_token': 'c' * 64, 'providers': []}
+
+    def book_rows(self):
+        return self.page.evaluate("""() => new Promise((resolve, reject) => {
+          const open = indexedDB.open('books');
+          open.onerror = () => reject(open.error);
+          open.onsuccess = () => {
+            const db = open.result, tx = db.transaction(['data', 'bookmark', 'lastItem']);
+            const data = tx.objectStore('data').getAll();
+            const bookmarks = tx.objectStore('bookmark').getAll();
+            const last = tx.objectStore('lastItem').getAll();
+            tx.oncomplete = () => { db.close(); resolve({books:data.result.map(
+              ({id, title, contentHash}) => ({id, title, contentHash})),
+              bookmarks:bookmarks.result, last:last.result}); };
+            tx.onabort = () => { db.close(); reject(tx.error); };
+          };
+        })""")
+
+    def prepare_foreign_book(self, catalog_copy=False):
+        PicksHandler.account_fixture = self.guest_session()
+        self.context.add_init_script("localStorage.setItem('manabi-reader-dictionary-setup-v1', 'skip')")
+        self.library()
+        title = 'A Pick from Manabi' if catalog_copy else 'Only Bob'
+        self.page.locator('input[type=file][accept*=\".epub\"]').first.set_input_files({
+            'name': 'owned.epub', 'mimeType':'application/epub+zip',
+            'buffer': PicksHandler.epub_bytes if catalog_copy else book(title)})
+        expect(self.page.get_by_role('button', name='Read ' + title, exact=True)).to_be_visible()
+        self.page.evaluate("""async (title) => {
+          const openDb = name => new Promise((resolve,reject) => {
+            const request = indexedDB.open(name);
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          const books = await openDb('books');
+          const rows = await new Promise((resolve,reject) => {
+            const tx=books.transaction('data'), request=tx.objectStore('data').getAll();
+            tx.oncomplete=()=>resolve(request.result); tx.onabort=()=>reject(tx.error);
+          }); books.close();
+          const selected=rows.find(row=>row.title===title);
+          if(!selected) throw new Error('Imported fixture missing');
+          const links=await openDb('manabi-reader-integrations');
+          await new Promise((resolve,reject)=>{
+            const tx=links.transaction('books','readwrite');
+            tx.objectStore('books').put({id:'owned-fixture',sourceId:'owned-source',owner:'bob',
+              root:'root',fileId:'book',name:'owned.epub',title,bookId:selected.id,
+              contentHash:selected.contentHash,syncEnabled:false});
+            tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);
+          }); links.close();
+        }""", title)
+        self.library()
+        expect(self.page.get_by_role('button', name='Read ' + title, exact=True)).to_have_count(0)
+        return title
+
+    def test_catalog_does_not_open_a_foreign_account_cached_copy(self):
+        self.prepare_foreign_book(catalog_copy=True)
+        before = self.book_rows()
+        self.page.get_by_role('region', name="Editor's Picks books").get_by_role(
+            'button', name='Open').first.click()
+        expect(self.page.get_by_text('Could not open book', exact=True)).to_be_visible(timeout=5000)
+        self.assertIn('/manage', self.page.url)
+        self.assertEqual(before, self.book_rows())
+
+    def test_account_switch_away_and_back_cancels_download_and_allows_fresh_open(self):
+        self.prepare_foreign_book()
+        before = self.book_rows()
+        PicksHandler.book_started, PicksHandler.book_gate = threading.Event(), threading.Event()
+        self.page.get_by_role('region', name="Editor's Picks books").get_by_role(
+            'button', name='Open').first.click()
+        self.assertTrue(PicksHandler.book_started.wait(timeout=5))
+        PicksHandler.account_fixture = {'user':{'id':'bob','username':'Bob'},
+                                       'csrf_token':'c' * 64,'providers':[]}
+        self.page.evaluate("window.dispatchEvent(new Event('online'))")
+        expect(self.page.get_by_role('button', name='Read Only Bob', exact=True)).to_be_visible()
+        PicksHandler.account_fixture = self.guest_session()
+        self.page.evaluate("window.dispatchEvent(new Event('online'))")
+        expect(self.page.get_by_role('button', name='Read Only Bob', exact=True)).to_have_count(0)
+        region = self.page.get_by_role('region', name="Editor's Picks books")
+        expect(region.get_by_role('button', name='Open').first).to_be_enabled(timeout=5000)
+        PicksHandler.book_gate.set()
+        self.assertEqual(before, self.book_rows())
+        self.assertIn('/manage', self.page.url)
+        region.get_by_role('button', name='Open').first.click()
+        expect(self.page).to_have_url(re.compile('/reader-web/b\\?id='))
+        expect(self.page.locator('.book-content').first).to_have_attribute('aria-busy','false')
+        self.assertEqual(2, len(self.book_rows()['books']))
+
+    def test_duplicate_catalog_ids_are_reported_and_retryable(self):
+        PicksHandler.duplicate_ids = True
+        self.page.goto(self.origin + '/reader-web/manage')
+        expect(self.page.get_by_role('button', name='Try Again', exact=True)).to_be_visible(timeout=5000)
+        self.assertEqual([], self.errors)
+        PicksHandler.duplicate_ids = False
+        self.page.get_by_role('button', name='Try Again', exact=True).click()
+        expect(self.page.get_by_role('region', name="Editor's Picks books").locator('h4')).to_have_count(6)
+
+    def test_partial_epub_response_is_not_a_successful_import(self):
+        PicksHandler.download_status = 206
+        self.library()
+        before = self.book_rows()
+        self.page.get_by_role('region', name="Editor's Picks books").get_by_role(
+            'button', name='Open').first.click()
+        expect(self.page.get_by_text('Could not open book', exact=True)).to_be_visible(timeout=5000)
+        self.assertEqual(before, self.book_rows())
+        self.assertIn('/manage', self.page.url)
+
+    def test_invalid_utf8_feed_is_not_silently_rewritten(self):
+        PicksHandler.malformed_feed = True
+        self.page.goto(self.origin + '/reader-web/manage')
+        expect(self.page.get_by_role('button', name='Try Again', exact=True)).to_be_visible(timeout=5000)
+        self.assertEqual([], self.errors)
+        PicksHandler.malformed_feed = False
+        self.page.get_by_role('button', name='Try Again', exact=True).click()
+        expect(self.page.get_by_role('region', name="Editor's Picks books").locator('h4')).to_have_count(6)
+
+    def test_saved_library_does_not_start_a_transient_empty_catalog(self):
+        self.context.add_init_script("localStorage.setItem('manabi-reader-dictionary-setup-v1', 'skip')")
+        self.library()
+        self.page.get_by_role('region', name="Editor's Picks books").get_by_role(
+            'button', name='Open').first.click()
+        expect(self.page).to_have_url(re.compile('/reader-web/b\\?id='))
+        expect(self.page.locator('.book-content').first).to_have_attribute('aria-busy','false')
+        PicksHandler.requests = []
+        self.page.goto(self.origin + '/reader-web/manage')
+        expect(self.page.get_by_role('button',name='Read A Pick from Manabi',exact=True)).to_be_visible()
+        expect(self.page.get_by_role('region',name='Library shelves')).to_have_attribute('aria-busy','false')
+        self.assertFalse(any(path.endswith('/opds/index.xml') for path in PicksHandler.requests),
+                         PicksHandler.requests)
+
+    def test_repeated_immediate_catalog_reader_departures(self):
+        self.context.add_init_script("localStorage.setItem('manabi-reader-dictionary-setup-v1', 'skip')")
+        self.library()
+        self.page.get_by_role('region', name="Editor's Picks books").get_by_role(
+            'button', name='Open').first.click()
+        expect(self.page).to_have_url(re.compile('/reader-web/b\\?id='))
+        for cycle in range(12):
+            with self.subTest(cycle=cycle):
+                self.diagnostics.append({'kind':'phase','cycle':cycle,'step':'depart-reader'})
+                self.page.goto(self.origin + '/reader-web/manage')
+                expect(self.page.get_by_role('button', name='Read A Pick from Manabi')).to_have_count(1)
+                self.page.get_by_role('button', name='Library actions').click()
+                self.page.get_by_role('menuitem', name='Add Books').click()
+                self.page.get_by_role('menuitem', name="Editor's Picks").click()
+                dialog = self.page.get_by_role('dialog').filter(has_text="Editor's Picks")
+                dialog.get_by_role('button', name='Open').first.click()
+                expect(self.page).to_have_url(re.compile('/reader-web/b\\?id='))
+                self.assertEqual([], self.errors)
+        self.page.goto(self.origin + '/reader-web/manage')
+        expect(self.page.get_by_role('button', name='Read A Pick from Manabi')).to_have_count(1)
+        self.assertEqual(1,len(self.book_rows()['books']))
 
     def test_installed_bridge_offers_jitendex_and_remembers_the_choice(self):
         self.context.add_init_script('''

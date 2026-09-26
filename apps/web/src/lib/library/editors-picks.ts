@@ -58,9 +58,16 @@ function safeCatalogUrl(href: string, origin: string, prefix: string): string | 
 }
 
 async function boundedResponse(response: Response, limit: number): Promise<Uint8Array> {
-  if (!response.ok) throw new Error(`The catalog returned ${response.status}.`);
+  // A complete EPUB/feed is required. A successful partial response is not one.
+  if (response.status !== 200) {
+    await response.body?.cancel().catch(() => {});
+    throw new Error(`The catalog returned ${response.status}; a complete response is required.`);
+  }
   const length = Number(response.headers.get('content-length'));
-  if (length > limit) throw new Error('This download is too large.');
+  if (length > limit) {
+    await response.body?.cancel().catch(() => {});
+    throw new Error('This download is too large.');
+  }
   const reader = response.body?.getReader();
   if (!reader) {
     const bytes = new Uint8Array(await response.arrayBuffer());
@@ -99,7 +106,9 @@ async function fetchFeed(path: string, signal?: AbortSignal): Promise<Document> 
     signal,
     headers: { Accept: 'application/atom+xml, application/xml;q=0.9' }
   });
-  const xml = new TextDecoder().decode(await boundedResponse(response, maxFeedBytes));
+  const xml = new TextDecoder('utf-8', { fatal: true }).decode(
+    await boundedResponse(response, maxFeedBytes)
+  );
   const document = new DOMParser().parseFromString(xml, 'application/xml');
   if (document.querySelector('parsererror') || document.documentElement.localName !== 'feed')
     throw new Error('The catalog is not a valid OPDS feed.');
@@ -123,6 +132,7 @@ export async function loadEditorsPicks(
   const feed = await fetchFeed(feedUrl, signal);
   const entries = children(feed.documentElement, 'entry');
   if (entries.length > 1000) throw new Error('The catalog has too many books to display.');
+  const ids = new Set<string>();
   return entries.flatMap((entry) => {
     const acquisition = children(entry, 'link').find(
       (link) =>
@@ -139,9 +149,12 @@ export async function loadEditorsPicks(
     );
     const title = value(entry, 'title');
     if (!title) return [];
+    const id = value(entry, 'id') || bookUrl;
+    if (ids.has(id)) throw new Error('The catalog repeats a book identifier. Try again later.');
+    ids.add(id);
     return [
       {
-        id: value(entry, 'id') || bookUrl,
+        id,
         title,
         author: children(entry, 'author')
           .map((author) => value(author, 'name'))

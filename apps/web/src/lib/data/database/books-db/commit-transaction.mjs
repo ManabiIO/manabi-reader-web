@@ -37,8 +37,8 @@ export async function commitTransaction(transaction, operation) {
 }
 
 /**
- * Explain failures at the book-write boundary, which does not take a user
- * AbortSignal. Its native transaction abort is not an import cancellation.
+ * Explain native failures at the book-write boundary. Callers with an AbortSignal
+ * must handle intentional cancellation first; a native abort is not cancellation.
  * Do not UA-sniff, detect private mode, drop images, or change the book format.
  * Other errors (including quota failures) retain their original identity.
  * @param {unknown} error

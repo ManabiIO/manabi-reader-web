@@ -21,6 +21,7 @@ import { ReplicationSaveBehavior } from '$lib/functions/replication/replication-
 import { StorageDataType } from '$lib/data/storage/storage-types';
 import { bookKey, contentBookKey, relocatePresentation } from '$lib/library/organization';
 import { contentStatisticKey } from '$lib/data/database/books-db/reader-statistics';
+import { throwIfAborted } from '$lib/functions/replication/replication-error';
 import type { BookCardProps } from '$lib/components/book-card/book-card-props';
 
 export class BrowserStorageHandler extends BaseStorageHandler {
@@ -338,14 +339,17 @@ export class BrowserStorageHandler extends BaseStorageHandler {
     removeStorageContext = true
   ) {
     let idToReturn = 0;
+    const signal = this.cancelSignal;
 
     if (!(data instanceof File)) {
       const storedBookData = await database.upsertData(
         data,
         this.saveBehavior,
         skipTimestampFallback,
-        removeStorageContext
+        removeStorageContext,
+        signal
       );
+      throwIfAborted(signal);
 
       idToReturn = storedBookData.id;
       // Promote the identity actually saved (NewOnly may retain an older book).

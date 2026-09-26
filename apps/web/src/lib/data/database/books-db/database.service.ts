@@ -246,13 +246,25 @@ export class DatabaseService {
     data: Omit<BooksDbBookData, 'id'>,
     saveBehavior: ReplicationSaveBehavior,
     skipTimestampFallback = true,
-    removeStorageContext = true
+    removeStorageContext = true,
+    signal?: AbortSignal
   ) {
+    throwIfAborted(signal);
     const db = await this.db;
 
     const stored = await encodeBook(data);
+    throwIfAborted(signal);
     const tx = db.transaction('data', 'readwrite');
+    const abort = () => {
+      try {
+        tx.abort();
+      } catch {
+        /* A committed transaction cannot be undone. */
+      }
+    };
+    signal?.addEventListener('abort', abort, { once: true });
     return commitTransaction(tx, async () => {
+      throwIfAborted(signal);
       let dataId: number;
       let bookData: BooksDbBookData;
 
@@ -304,9 +316,12 @@ export class DatabaseService {
       }
 
       return bookData;
-    }).catch((error) => {
-      throw explainBookStorageError(error);
-    });
+    })
+      .catch((error) => {
+        throwIfAborted(signal);
+        throw explainBookStorageError(error);
+      })
+      .finally(() => signal?.removeEventListener('abort', abort));
   }
 
   async deleteData(
