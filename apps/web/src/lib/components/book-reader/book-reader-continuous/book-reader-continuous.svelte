@@ -42,6 +42,12 @@
     timer
   } from 'rxjs';
   import { createEventDispatcher, onDestroy, onMount } from 'svelte';
+  import type { PublicationManifest } from '$lib/reader-location';
+  import {
+    EPUB_NAVIGATION_EVENT,
+    resolveEpubTarget,
+    type EpubNavigationRequest
+  } from '$lib/functions/file-loaders/epub/epub-navigation';
   import AppIcon from '$lib/components/app-icon.svelte';
   import type { AutoScroller, BookmarkManager, PageManager } from '../types';
   import { AutoScrollerContinuous } from './auto-scroller-continuous';
@@ -51,6 +57,8 @@
   import { PageManagerContinuous } from './page-manager-continuous';
 
   export let htmlContent: string;
+
+  export let publicationManifest: PublicationManifest | undefined = undefined;
 
   export let previewNavigationActive = false;
 
@@ -616,6 +624,64 @@
       dispatch('contentChange', contentEl);
     });
   }
+
+  fromEvent<CustomEvent<EpubNavigationRequest>>(document, EPUB_NAVIGATION_EVENT)
+    .pipe(takeUntil(destroy$))
+    .subscribe((event) => {
+      const target = resolveEpubTarget(publicationManifest, event.detail);
+      if (!target || !contentEl) return;
+      const section =
+        contentEl.querySelector<HTMLElement>(
+          `[data-manabi-spine-index="${target.resource.spineIndex}"]`
+        ) ?? (contentEl.children[target.resource.spineIndex] as HTMLElement | undefined);
+      if (!section) return;
+      let element: Element = section;
+      if (target.fragment) {
+        let id = target.fragment;
+        try {
+          id = decodeURIComponent(target.fragment);
+        } catch (_) {
+          // Match malformed legacy fragments literally.
+        }
+        const escape = contentEl.ownerDocument.defaultView?.CSS?.escape;
+        if (!escape) return;
+        element =
+          section.querySelector(`#${escape(id)}`) ??
+          Array.from(section.querySelectorAll('[name]')).find(
+            (candidate) => candidate.getAttribute('name') === id
+          ) ??
+          section;
+      }
+      willNavigate = true;
+      const rect = element.getBoundingClientRect();
+      if (verticalMode) {
+        window.scrollBy(
+          -(
+            window.innerWidth -
+            rect.right -
+            (firstDimensionMargin || 0) -
+            customReadingPointScrollOffset -
+            (!customReadingPointScrollOffset ||
+            (customReadingPointScrollOffset && scrollAdjustment > customReadingPointScrollOffset)
+              ? scrollAdjustment
+              : 0)
+          ),
+          0
+        );
+      } else {
+        window.scrollBy(
+          0,
+          rect.top -
+            (firstDimensionMargin || 0) -
+            customReadingPointScrollOffset -
+            (!customReadingPointScrollOffset ||
+            (customReadingPointScrollOffset && scrollAdjustment > customReadingPointScrollOffset)
+              ? scrollAdjustment
+              : 0)
+        );
+      }
+      dispatch('userNavigation');
+    });
 
   nextChapter$.pipe(takeUntil(destroy$)).subscribe((chapterId) => {
     let targetElement = document.getElementById(chapterId);
