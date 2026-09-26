@@ -391,11 +391,36 @@ export class DatabaseService {
     return db.put('subtitle', subtitleData);
   }
 
-  async putLastItem(dataId: number) {
+  async putLastItem(dataId: number, signal?: AbortSignal) {
+    throwIfAborted(signal);
+    if (!Number.isSafeInteger(dataId) || dataId <= 0)
+      throw new Error('The selected book is not a valid local book.');
     const db = await this.db;
-    const result = await db.put('lastItem', { dataId }, LAST_ITEM_KEY);
-    this.lastItemChanged$.next();
-    return result;
+    throwIfAborted(signal);
+    // Keep the existence check and resume target in one transaction, serialized
+    // with deletion. getKey avoids cloning the book's image payloads.
+    const tx = db.transaction(['data', 'lastItem'], 'readwrite');
+    const abort = () => {
+      try {
+        tx.abort();
+      } catch {
+        // A committed transaction cannot be undone by a later departure.
+      }
+    };
+    signal?.addEventListener('abort', abort, { once: true });
+    try {
+      const result = await commitTransaction(tx, async () => {
+        throwIfAborted(signal);
+        if ((await tx.objectStore('data').getKey(dataId)) === undefined)
+          throw new Error('The selected book was removed. Refresh the Library and try again.');
+        throwIfAborted(signal);
+        return tx.objectStore('lastItem').put({ dataId }, LAST_ITEM_KEY);
+      });
+      this.lastItemChanged$.next();
+      return result;
+    } finally {
+      signal?.removeEventListener('abort', abort);
+    }
   }
 
   async deleteLastItem() {

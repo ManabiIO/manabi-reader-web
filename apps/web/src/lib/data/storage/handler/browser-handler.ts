@@ -5,7 +5,11 @@
  */
 
 import { decodeBookBinary } from '$lib/data/database/books-db/book-binary';
-import { readBookSummaries, updateBookLastRead } from '$lib/data/database/books-db/book-records';
+import {
+  prepareBookForLocalReading,
+  readBookSummaries,
+  updateBookLastRead
+} from '$lib/data/database/books-db/book-records';
 import { BaseStorageHandler, FilePrefix } from '$lib/data/storage/handler/base-handler';
 import type {
   BooksDbAudioBook,
@@ -85,27 +89,10 @@ export class BrowserStorageHandler extends BaseStorageHandler {
   }
 
   async prepareBookForReading() {
-    const book = this.currentContext.id
-      ? await database.getData(this.currentContext.id)
-      : await database.getDataByTitle(this.currentContext.title);
-
-    if (!book) {
-      throw new Error('No local book data found');
-    }
-
-    if (!book.elementHtml) {
-      throw new Error(
-        `Placeholder books should be opened from their original source${
-          book.storageSource ? ` - last source: ${book.storageSource}` : ''
-        }`
-      );
-    }
-
-    if (book.storageSource) {
-      await database.upsertData(book, ReplicationSaveBehavior.Overwrite);
-    }
-
-    return book.id;
+    const context = { id: this.currentContext.id, title: this.currentContext.title };
+    const signal = this.cancelSignal;
+    throwIfAborted(signal);
+    return prepareBookForLocalReading(await database.db, context, signal);
   }
 
   async updateLastRead(book: BooksDbBookData) {
