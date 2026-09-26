@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { foldSearch } from './search-normalization';
   import { onMount, createEventDispatcher, tick, type Snippet } from 'svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
@@ -76,6 +77,8 @@
   import CoverStack from './cover-stack.svelte';
   import SourceIcon from './source-icon.svelte';
   import CollectionsSheet from './collections-sheet.svelte';
+  import type { ReaderLocator } from '../reader-location';
+  import LibrarySearch from './library-search.svelte';
   let coverWidths: Record<string, number> = {};
   let shelfElement: HTMLElement;
   function rememberCoverWidth(key: string, fraction: number) {
@@ -114,6 +117,7 @@
   export let menu: LibraryMenuModel | undefined = undefined;
   const dispatch = createEventDispatcher<{
     bookClick: { id: number };
+    prepareBook: { prepare: () => Promise<number>; locator?: ReaderLocator };
     selectionManyClick: { ids: number[] };
     selectionScopeChange: { key: string; ids: number[] };
     removeBookClick: { id: number };
@@ -169,7 +173,7 @@
     let matches: string[] = [];
     for (const node of nodes) {
       if (node.kind !== 'series') continue;
-      if (node.name.normalize('NFKC').toLocaleLowerCase().includes(search))
+      if (foldSearch(node.name).includes(search))
         matches = [...matches, ...node.books.map((book) => book.key)];
       matches = [...matches, ...booksInMatchingSeries(node.children, search)];
     }
@@ -183,7 +187,7 @@
         book.title,
         book.canonicalTitle,
         ...(book.creators || []).map((creator) => creator.name)
-      ].some((value) => value.normalize('NFKC').toLocaleLowerCase().includes(search))
+      ].some((value) => foldSearch(value).includes(search))
     );
   }
   function includesBook(
@@ -250,7 +254,18 @@
   $: series = trail.at(-1);
   $: notFinished = $page.url.searchParams.get('unfinished') === '1';
   $: destinationTitle = series?.name || (collectionId === 'books' ? 'Library' : collectionTitle);
-  $: normalizedQuery = query.trim().normalize('NFKC').toLocaleLowerCase();
+  $: normalizedQuery = foldSearch(query.trim());
+  $: metadataSeries = normalizedQuery ? booksInMatchingSeries(tree, normalizedQuery) : [];
+  $: metadataCollections = $organization.collections.filter((c) =>
+    foldSearch(c.name).includes(normalizedQuery)
+  );
+  $: metadataMatches = books.filter(
+    (book) =>
+      matchesBookQuery(book, normalizedQuery, metadataSeries) ||
+      metadataCollections.some((c) =>
+        book.organizationAliases.some((key) => c.members.includes(key))
+      )
+  );
   $: flatDestination = !series && (collectionId === 'finished' || !!selectedCollection);
   $: seriesMatchedKeys =
     normalizedQuery && !flatDestination
@@ -679,11 +694,10 @@
       organizationAliases: [...new Set([...book.organizationAliases, organizationKey])]
     };
   }
-  function openBook(book: ShelfBook) {
-    void action(async () => {
-      const id = await ensureBook(book);
-      dispatch('bookClick', { id });
-    });
+  function openBook(book: ShelfBook, locator?: ReaderLocator) {
+    // Relinking refreshes the book list and can remount this workspace. The
+    // owning page, not this replaceable projection, fences the async request.
+    dispatch('prepareBook', { prepare: () => ensureBook(book), locator });
   }
   function saveBook(book: ShelfBook) {
     void action(async () => {
@@ -1102,7 +1116,7 @@
     aria-busy={busy || scanning}
     data-hydrated={alive}
   >
-    {#if !series && collectionId === 'books'}
+    {#if !series && collectionId === 'books' && !normalizedQuery}
       <div class="library-toolbar">
         <h2 id={recentBooks.length ? 'continue-heading' : 'books-heading'} class="shelf-heading">
           {recentBooks.length ? 'Continue' : 'Books'}
@@ -1188,7 +1202,7 @@
         </div>
       </section>
     {/if}
-    {#if series}
+    {#if series && !normalizedQuery}
       <header
         use:previewVisible={series}
         class="series-hero mb-10 rounded-3xl px-6 pt-8 pb-7 text-center"
@@ -1228,8 +1242,15 @@
             >{/if}
         </div>
       </header>
-    {:else if recentBooks.length}<h2 id="books-heading" class="shelf-heading mb-4">Books</h2>{/if}
-    {#if completedGroups.length && collectionId === 'finished' && !series && currentLayout === 'timeline'}
+    {:else if recentBooks.length && !normalizedQuery}<h2
+        id="books-heading"
+        class="shelf-heading mb-4"
+      >
+        Books
+      </h2>{/if}
+    {#if normalizedQuery && !selectMode}
+      <LibrarySearch {query} {books} matches={metadataMatches} {openBook} />
+    {:else if completedGroups.length && collectionId === 'finished' && !series && currentLayout === 'timeline'}
       <div class="finished-timeline" role="list" aria-label="Finished books">
         {#each completedGroups as group (group.day || 'unknown')}
           <section class="finished-group" aria-labelledby={`finished-${group.day || 'unknown'}`}>

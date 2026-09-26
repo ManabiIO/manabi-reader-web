@@ -272,7 +272,7 @@ class BooksLibraryBrowser(LibraryBase):
         picker.set_input_files(str(fixture))
         self.page.get_by_role('button', name='Import selected (1)', exact=True).click()
         expect(self.page.get_by_role('article', name='Import Manabi Yatsu Portability Fixture')
-               .get_by_role('status')).to_have_text('Imported Manabi Yatsu Portability Fixture.', timeout=60000)
+               .get_by_role('status')).to_contain_text('Imported Manabi Yatsu Portability Fixture.', timeout=60000)
         for width in (390, 1200):
             with self.subTest(width=width):
                 self.page.set_viewport_size({'width': width, 'height': 844})
@@ -598,7 +598,8 @@ class BooksLibraryBrowser(LibraryBase):
                     expect(self.page.get_by_role('button', name='Read Standard cover', exact=True)).to_be_visible()
                     trigger.click()
                     self.page.get_by_role('searchbox', name='Search library', exact=True).fill('No matching title')
-                    expect(self.page.get_by_role('heading', name='No matching books', exact=True)).to_be_visible()
+                    expect(self.page.get_by_text('No matching book metadata.', exact=True)).to_be_visible()
+                    expect(self.page.get_by_text('No content matches.', exact=True)).to_be_visible()
                     self.page.get_by_role('button', name='Cancel', exact=True).click()
                     expect(trigger).to_be_focused()
                 else:
@@ -820,8 +821,9 @@ class BooksLibraryBrowser(LibraryBase):
             expect(self.tile(title).get_by_role('heading', name=title, exact=True)).to_be_visible()
         search = self.page.get_by_role('searchbox', name='Search library', exact=True)
         search.fill('missing book')
-        expect(self.page.get_by_role('heading', name='No matching books', exact=True)).to_be_visible()
-        self.page.get_by_role('button', name='Clear Search', exact=True).click()
+        expect(self.page.get_by_text('No matching book metadata.', exact=True)).to_be_visible()
+        expect(self.page.get_by_text('No content matches.', exact=True)).to_be_visible()
+        search.fill('')
         expect(self.page.get_by_role('heading', name='Continue', exact=True)).to_be_visible()
         self.assertEqual(before, self.stores('books', ['bookmark', 'statistic']))
 
@@ -1245,6 +1247,12 @@ class BooksLibraryBrowser(LibraryBase):
 
 class BooksLibraryFilesystem(LibraryBase):
     def test_external_relocation_rebinds_content_identity_and_presentation(self):
+        self.check_external_relocation_open()
+
+    def test_relocated_book_read_cannot_navigate_after_browser_back(self):
+        self.check_external_relocation_open(leave_during_open=True)
+
+    def check_external_relocation_open(self, leave_during_open=False):
         original = book('Relocation original')
         self.seed_files({'Old/Volume.epub': original})
         expect(self.page.get_by_role('button', name='Read Relocation original', exact=True)).to_be_visible(
@@ -1298,6 +1306,36 @@ class BooksLibraryFilesystem(LibraryBase):
         expect(self.dialog().get_by_role('checkbox', name='Relocation collection')).to_be_checked()
         self.dialog().get_by_role('button', name='Done').click()
         self.assertEqual(reading_before, self.stores('books', ['bookmark', 'statistic']))
+        if leave_during_open:
+            # Delay, but do not replace, the real OPFS file bytes. Browser Back
+            # must invalidate this open even though the Library page survives.
+            self.page.evaluate("""() => {
+              const original = File.prototype.arrayBuffer;
+              window.releaseLibraryRead = undefined;
+              File.prototype.arrayBuffer = async function() {
+                const bytes = await original.call(this);
+                if (this.name === 'Moved.epub') {
+                  File.prototype.arrayBuffer = original;
+                  await new Promise(resolve => window.releaseLibraryRead = resolve);
+                }
+                return bytes;
+              };
+            }""")
+            self.page.get_by_role('button', name='Read My relocated volume', exact=True).click()
+            self.page.wait_for_function('() => typeof window.releaseLibraryRead === "function"')
+            self.page.go_back()
+            expect(self.page).to_have_url(re.compile(r'/manage(?!.*collection=)'))
+            self.page.evaluate('window.releaseLibraryRead()')
+            deadline = time.monotonic() + 20
+            while True:
+                links = self.stores('manabi-reader-integrations', ['books'])['books']
+                if any(row['fileId'] == 'New/Nested/Moved.epub' for row in links):
+                    break
+                self.assertLess(time.monotonic(), deadline, 'Relink did not finish')
+                self.page.wait_for_timeout(25)
+            expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute('aria-busy', 'false')
+            expect(self.page).to_have_url(re.compile(r'/manage(?!.*collection=)'))
+            self.choose_collection('Relocation collection')
         self.page.get_by_role('button', name='Read My relocated volume', exact=True).click()
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=30000)
         links_after = self.stores('manabi-reader-integrations', ['books'])['books']

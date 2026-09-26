@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { WebDavSource } from '$lib/webdav/source';
+import { davSyncStatus, syncDavBook, syncEnabledDavBooks } from '$lib/webdav/sync';
 import { get, writable } from 'svelte/store';
 import { database } from '$lib/data/store';
 import {
@@ -127,15 +129,18 @@ export async function importLibraryBook(
       title: stored.title,
       syncEnabled
     };
-    await integration.put('books', link);
+    const savedLink =
+      source instanceof WebDavSource
+        ? await source.persistLink(link)
+        : (await integration.put('books', link), link);
     await relocatePresentation(sourceBookKey(source, item.id), contentBookKey(contentHash));
     await relocatePresentation(bookKey(stored.id), contentBookKey(contentHash));
     getStorageHandler(window, StorageKey.BROWSER).clearData();
     storageSource$.next(StorageKey.BROWSER);
     database.dataListChanged$.next(undefined);
     await refreshLinkedBooks();
-    if (syncEnabled) await syncBook(link.id);
-    return link;
+    if (syncEnabled) await syncBook(savedLink.id);
+    return savedLink;
   });
 }
 
@@ -143,6 +148,7 @@ export async function syncBook(id: string, choice?: 'local' | 'remote'): Promise
   const link = await (await integrationDB()).get('books', id);
   if (!link) throw new IntegrationError('not_found');
   ensureOwner(link);
+  if (link.sourceId.startsWith('webdav-')) return syncDavBook(id, choice);
   const conflicts = get(personalSyncStatus).conflicts.filter(
     (value) => value.bookKey === `content:${link.contentHash}`
   );
@@ -152,7 +158,8 @@ export async function syncBook(id: string, choice?: 'local' | 'remote'): Promise
 
 export async function syncAllLinkedBooks() {
   await refreshLinkedBooks();
-  await syncPersonalState();
+  if (currentUser()) await syncPersonalState();
+  await syncEnabledDavBooks();
 }
 
 export function startBookSync() {
@@ -161,6 +168,16 @@ export function startBookSync() {
     const status = get(personalSyncStatus);
     const entries: Record<string, SyncStatus> = {};
     for (const link of get(linkedBooks)) {
+      if (link.sourceId.startsWith('webdav-')) {
+        const dav = get(davSyncStatus)[link.id];
+        entries[link.id] = dav ?? {
+          state: link.syncEnabled ? 'idle' : 'off',
+          message: link.syncEnabled
+            ? 'WebDAV reading sync is enabled.'
+            : 'WebDAV reading sync is off.'
+        };
+        continue;
+      }
       const conflicts = status.conflicts.filter(
         (value) => value.bookKey === `content:${link.contentHash}`
       );
@@ -176,6 +193,13 @@ export function startBookSync() {
     bookSyncStatus.set(entries);
   };
   const unsubscribeStatus = personalSyncStatus.subscribe(updateStatuses);
+  const unsubscribeDav = davSyncStatus.subscribe(updateStatuses);
+  const syncDav = () => {
+    void syncEnabledDavBooks().catch(() => undefined);
+  };
+  const davTimer = setInterval(syncDav, 45000);
+  window.addEventListener('online', syncDav);
+  document.addEventListener('visibilitychange', syncDav);
   const unsubscribeBooks = linkedBooks.subscribe(updateStatuses);
   const unsubscribeAccount = account.subscribe(() => {
     void refreshLinkedBooks();
@@ -184,6 +208,10 @@ export function startBookSync() {
   return () => {
     stop();
     unsubscribeStatus();
+    unsubscribeDav();
+    clearInterval(davTimer);
+    window.removeEventListener('online', syncDav);
+    document.removeEventListener('visibilitychange', syncDav);
     unsubscribeBooks();
     unsubscribeAccount();
   };

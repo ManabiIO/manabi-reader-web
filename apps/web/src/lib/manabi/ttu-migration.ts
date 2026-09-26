@@ -30,6 +30,12 @@ import {
 } from '$lib/functions/book-security/book-content-security';
 import buildDummyBookImage from '$lib/functions/file-loaders/utils/build-dummy-book-image';
 import { exclusive } from './persistence';
+import { currentUser } from './client';
+import { yatsuRows, prepareYatsuEntries, annotationContent, type YatsuPart } from './yatsu-import';
+import { parseYatsuSettings } from './yatsu-settings-format';
+import { importYatsuSettings } from './yatsu-settings';
+import { validateImportedAnnotation } from '$lib/reader-annotations';
+import type { ReaderAnnotation } from '$lib/data/database/books-db/versions/v7/books-db-v7';
 import {
   importFile,
   decodeTitle,
@@ -63,6 +69,7 @@ interface Receipt {
   version: 1;
   sourceTitle: string;
   content: string;
+  yatsuMetadata?: Plain;
   records: Record<string, string>;
 }
 type MigratedBook = BooksDbBookData & { manabiTtuImport?: Receipt };
@@ -76,6 +83,7 @@ export interface MigrationItem {
   title: string;
   parts: ImportPart[];
   error?: string;
+  counts?: Partial<Record<ImportPart, number>>;
 }
 interface IndexedItem extends MigrationItem {
   files: Partial<Record<ImportPart, { path: string; metadata: ImportFile }>>;
@@ -216,30 +224,33 @@ export class TtuMigration {
         const name = pieces[pieces.length - 1];
         if (
           (name.startsWith('bookmeta_') && source !== 'yatsu') ||
-          !/^(?:bookdata|bookmeta|progress|statistics|audioBook|subtitles|ttu-user-goals)_/.test(
+          (!/^(?:bookdata|bookmeta|bookmarks|highlights|notes|progress|statistics|audioBook|subtitles|ttu-user-goals)_/.test(
             name
-          )
+          ) &&
+            !(source === 'yatsu' && name === 'yatsu-local-settings.json'))
         ) {
           ignored++;
           continue;
         }
         const isGoal = name.startsWith('ttu-user-goals_');
-        if ((isGoal && pieces.length !== 1) || (!isGoal && pieces.length !== 2))
+        const isSettings = source === 'yatsu' && name === 'yatsu-local-settings.json';
+        const global = isGoal || isSettings;
+        if ((global && pieces.length !== 1) || (!global && pieces.length !== 2))
           throw new Error(
             'Choose a ZIP from Export → ZIP File, with book folders at its top level.'
           );
-        const key = isGoal ? '' : pieces[0];
+        const key = isGoal ? '' : isSettings ? '@settings' : pieces[0];
         let item = grouped.get(key);
         if (!item) {
           item = {
             id: String(grouped.size),
-            title: isGoal ? 'Reading Goals' : key,
+            title: isGoal ? 'Reading Goals' : isSettings ? 'Safe reader settings' : key,
             parts: [],
             files: {}
           };
           grouped.set(key, item);
           try {
-            if (!isGoal) item.title = decodeTitle(key);
+            if (!global) item.title = decodeTitle(key);
           } catch (error) {
             item.error = (error as Error).message;
           }
@@ -252,6 +263,17 @@ export class TtuMigration {
             );
           item.files[meta.part] = { path: entry.filename, metadata: meta };
           item.parts.push(meta.part);
+          if (
+            source === 'yatsu' &&
+            ['savedBookmarks', 'highlights', 'notes', 'settings'].includes(meta.part)
+          ) {
+            const value = JSON.parse(await archive.readText(entry.filename));
+            item.counts ??= {};
+            item.counts[meta.part] =
+              meta.part === 'settings'
+                ? Object.keys(parseYatsuSettings(value).values).length
+                : yatsuRows(value, meta.part as YatsuPart, item.title).length;
+          }
         } catch (error) {
           item.error = (error as Error).message;
         }
@@ -263,7 +285,7 @@ export class TtuMigration {
       }
       const titles = new Map<string, IndexedItem>();
       for (const item of index) {
-        if (item.parts.includes('goals')) continue;
+        if (item.parts.includes('goals') || item.parts.includes('settings')) continue;
         const previous = titles.get(item.title);
         if (previous)
           previous.error = item.error =
@@ -307,6 +329,11 @@ export class TtuMigration {
     signal?: AbortSignal
   ): Promise<MigrationResult> {
     signal?.throwIfAborted();
+    const accountId = currentUser()?.id ?? null;
+    const assertAccount = () => {
+      if ((currentUser()?.id ?? null) !== accountId)
+        throw new Error('Account changed during import.');
+    };
     const item = this.index.find((entry) => entry.id === id);
     if (!item || item.error) throw new Error(item?.error ?? 'Import item not found.');
     if (!item.parts.some((part) => options.parts.includes(part)))
@@ -323,6 +350,8 @@ export class TtuMigration {
       if (!file || !options.parts.includes(part)) return undefined;
       return JSON.parse(await archive.readText(file.path));
     };
+    if (item.parts.includes('settings'))
+      return importYatsuSettings(await readJSON('settings'), !!options.replace, signal);
     if (item.parts.includes('goals')) {
       const rows = goals(await readJSON('goals'));
       return this.commitGoals(rows, !!options.replace, signal);
@@ -401,7 +430,31 @@ export class TtuMigration {
       Number(imported.bookmark.exploredCharCount) > content.characters
     )
       throw new Error('The bookmark is beyond the end of this book.');
+    const groups: { part: YatsuPart; rows: Plain[]; modified: number }[] = [];
+    for (const part of ['savedBookmarks', 'highlights', 'notes'] as const) {
+      const value = await readJSON(part);
+      if (value !== undefined)
+        groups.push({
+          part,
+          rows: yatsuRows(value, part, item.title),
+          modified: item.files[part]!.metadata.modified
+        });
+    }
+    const anchorBook =
+      content ?? (options.targetId ? await database.getData(options.targetId) : undefined);
+    const prepared = await prepareYatsuEntries(
+      groups,
+      item.title,
+      fingerprint ??
+        (anchorBook as MigratedBook | undefined)?.manabiTtuImport?.content ??
+        String(options.targetId),
+      anchorBook?.elementHtml,
+      anchorBook?.publicationManifest,
+      signal
+    );
+    const newIdentity = crypto.randomUUID();
     signal?.throwIfAborted();
+    assertAccount();
     const core = await exclusive<MigrationResult>('import-library-book', async () => {
       const db = await database.db;
       const tx = db.transaction(
@@ -412,7 +465,13 @@ export class TtuMigration {
           'readerStatistic',
           'lastModified',
           'audioBook',
-          'subtitle'
+          'subtitle',
+          'readerLocalIdentity',
+          'readerAnnotation',
+          'readerAnnotationScope',
+          'readerAnnotationOutbox',
+          'readerBookScope',
+          'readerImportRecord'
         ],
         'readwrite'
       );
@@ -426,6 +485,7 @@ export class TtuMigration {
       signal?.addEventListener('abort', cancel, { once: true });
       try {
         signal?.throwIfAborted();
+        assertAccount();
         let target: MigratedBook | undefined;
         if (options.targetId) {
           const found = await tx.objectStore('data').get(options.targetId);
@@ -497,6 +557,26 @@ export class TtuMigration {
           throw new MigrationConflict(
             'This book is linked to external storage. Import into an unlinked local copy instead.'
           );
+        const scope = await tx.objectStore('readerBookScope').get(target.id);
+        if (scope && scope.accountId !== accountId)
+          throw new MigrationConflict(
+            'This imported copy belongs to another account. Switch back to that account before importing.'
+          );
+        if (
+          prepared.some((entry) => entry.annotation) &&
+          target.elementHtml !== anchorBook?.elementHtml
+        )
+          throw new MigrationConflict(
+            'Book content changed after passage preparation. Reopen the import before continuing.'
+          );
+        let identity = await tx.objectStore('readerLocalIdentity').get(target.id);
+        if (!identity && !target.contentHash) {
+          identity = { bookId: target.id, uuid: newIdentity };
+          await tx.objectStore('readerLocalIdentity').put(identity);
+        }
+        const annotationBookKey = target.contentHash
+          ? `content:${target.contentHash.toLowerCase()}`
+          : `local:${identity!.uuid}`;
         const prior: Receipt = receipt(target) ?? {
           version: 1,
           sourceTitle: item.title,
@@ -505,6 +585,34 @@ export class TtuMigration {
         };
         const nextReceipt: Receipt = { ...prior, records: { ...prior.records } };
         let changed = 0;
+        if (metadata && canonical(metadata) !== canonical(prior.yatsuMetadata)) {
+          const incoming = metadata as Plain;
+          const older =
+            prior.yatsuMetadata &&
+            Number(incoming.lastBookMetaModified) <
+              Number(prior.yatsuMetadata.lastBookMetaModified);
+          if (!older || options.replace) {
+            const author = typeof incoming.author === 'string' ? incoming.author.trim() : '';
+            const previousAuthor = prior.yatsuMetadata?.author;
+            if (author && author !== previousAuthor) {
+              const localAuthor = target.creators?.map((creator) => creator.name).join(', ') ?? '';
+              if (
+                !created &&
+                localAuthor &&
+                localAuthor !== previousAuthor &&
+                localAuthor !== author &&
+                !options.replace
+              )
+                throw new MigrationConflict(
+                  'The local author differs from Yatsu. Review before replacing book metadata.'
+                );
+              target = { ...target, creators: [{ name: author }] };
+            }
+            // Keep original series position, cover preference and source identifiers as inert evidence.
+            nextReceipt.yatsuMetadata = incoming;
+            changed++;
+          }
+        }
         const merge = async (
           key: string,
           incoming: Plain,
@@ -576,6 +684,82 @@ export class TtuMigration {
             tx.objectStore('subtitle').put({ ...value, title } as unknown as BooksDbSubtitleData)
           );
         }
+        for (const entry of prepared) {
+          signal?.throwIfAborted();
+          assertAccount();
+          const incoming = { ...entry.record, bookId, bookKey: annotationBookKey, accountId };
+          const before = await tx.objectStore('readerImportRecord').get(incoming.id);
+          if (before && (before.bookKey !== annotationBookKey || before.accountId !== accountId))
+            throw new MigrationConflict(
+              'Imported annotation identity belongs to another book or account.'
+            );
+          if (before?.sourceCanonical === incoming.sourceCanonical) continue; // Never undo later edits/deletion on a repeated ZIP.
+          const local = await tx.objectStore('readerAnnotation').get(incoming.id);
+          if (
+            before &&
+            !options.replace &&
+            (before.deletedAt ||
+              before.body !== before.importedBody ||
+              before.label !== before.importedLabel ||
+              (before.annotationId && annotationContent(local) !== before.appliedAnnotation))
+          )
+            throw new MigrationConflict(
+              'An imported note or bookmark was changed locally. Review before replacing it with this ZIP.'
+            );
+          if (local && !before)
+            throw new MigrationConflict('An unrelated saved annotation has the same identity.');
+          if (entry.annotation) {
+            const mapped = entry.annotation;
+            const value: ReaderAnnotation = validateImportedAnnotation({
+              ...mapped,
+              bookKey: annotationBookKey,
+              targets: mapped.targets.map((target) => ({ ...target, bookKey: annotationBookKey })),
+              revision: (local?.revision ?? 0) + 1
+            });
+            await tx.objectStore('readerAnnotation').put(value);
+            incoming.appliedAnnotation = annotationContent(value);
+            if (accountId) {
+              const owner = await tx.objectStore('readerAnnotationScope').get(value.id);
+              if (owner && owner.accountId !== accountId)
+                throw new MigrationConflict('Saved annotation belongs to another account.');
+              await tx
+                .objectStore('readerAnnotationScope')
+                .put({ annotationId: value.id, accountId });
+              if (annotationBookKey.startsWith('content:'))
+                await tx.objectStore('readerAnnotationOutbox').put({
+                  id: crypto.randomUUID(),
+                  accountId,
+                  bookKey: annotationBookKey,
+                  annotationId: value.id,
+                  baseRevision: local?.revision ?? 0,
+                  localRevision: value.revision,
+                  value,
+                  createdAt: new Date().toISOString()
+                });
+            }
+          } else if (local && before?.annotationId && !local.deletedAt) {
+            const removed = {
+              ...local,
+              revision: local.revision + 1,
+              modifiedAt: new Date().toISOString(),
+              deletedAt: new Date().toISOString()
+            };
+            await tx.objectStore('readerAnnotation').put(removed);
+            if (accountId && annotationBookKey.startsWith('content:'))
+              await tx.objectStore('readerAnnotationOutbox').put({
+                id: crypto.randomUUID(),
+                accountId,
+                bookKey: annotationBookKey,
+                annotationId: local.id,
+                baseRevision: local.revision,
+                localRevision: removed.revision,
+                value: removed,
+                createdAt: removed.modifiedAt
+              });
+          }
+          await tx.objectStore('readerImportRecord').put(incoming);
+          changed++;
+        }
         if (imported.statistics && changed) {
           let lastModified = 0;
           let cursor = await statisticStore.openCursor(
@@ -597,6 +781,7 @@ export class TtuMigration {
             .objectStore('data')
             .put({ ...target, manabiTtuImport: nextReceipt } as MigratedBook);
         signal?.throwIfAborted();
+        assertAccount();
         await tx.done;
         getStorageHandler(window, StorageKey.BROWSER).clearData();
         database.bookmarksChanged$.next();
@@ -605,7 +790,10 @@ export class TtuMigration {
           status: created || changed ? 'imported' : 'unchanged',
           title,
           bookId,
-          records: changed
+          records: changed,
+          warning: prepared.length
+            ? `${prepared.filter((entry) => entry.record.status === 'anchored').length} anchored passage(s), ${prepared.filter((entry) => entry.record.status === 'book-note').length} book note(s), ${prepared.filter((entry) => entry.record.status === 'unresolved').length} unlocated record(s) retained. Open Bookmarks & Notes for imported notes and original records.`
+            : undefined
         };
       } catch (error) {
         cancel();
@@ -621,20 +809,29 @@ export class TtuMigration {
       let added = 0;
       try {
         const member = bookKey(core.bookId);
-        await updateOrganization((value) => {
-          for (const name of collectionTags) {
-            let collection = value.collections.find((item) => item.name === name);
-            if (!collection) {
-              collection = { id: crypto.randomUUID(), name, members: [] };
-              value.collections.push(collection);
-              added++;
+        assertAccount();
+        await updateOrganization(
+          (value) => {
+            assertAccount();
+            for (const name of collectionTags) {
+              let collection = value.collections.find((item) => item.name === name);
+              if (!collection) {
+                collection = { id: crypto.randomUUID(), name, members: [] };
+                value.collections.push(collection);
+                added++;
+              }
+              if (!collection.members.includes(member)) {
+                collection.members.push(member);
+                added++;
+              }
             }
-            if (!collection.members.includes(member)) {
-              collection.members.push(member);
-              added++;
-            }
+          },
+          {
+            key: `yatsu-organization:${core.bookId}`,
+            value: canonical(collectionTags),
+            modified: item.files.metadata!.metadata.modified
           }
-        });
+        );
       } catch {
         return { ...core, warning: 'Book imported; retry this ZIP to finish collection tags.' };
       }

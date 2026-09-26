@@ -12,6 +12,10 @@ export type ImportPart =
   | 'book'
   | 'bookmark'
   | 'metadata'
+  | 'savedBookmarks'
+  | 'highlights'
+  | 'notes'
+  | 'settings'
   | 'statistics'
   | 'audio'
   | 'subtitles'
@@ -19,7 +23,11 @@ export type ImportPart =
 export type ImportSource = 'ttu' | 'yatsu';
 export const importLabels: Record<ImportPart, string> = {
   book: 'Book Data',
-  bookmark: 'Bookmarks',
+  bookmark: 'Current reading position',
+  savedBookmarks: 'Saved bookmarks',
+  highlights: 'Highlights and passage notes',
+  notes: 'Book notes',
+  settings: 'Safe reader settings (optional)',
   metadata: 'Collection Tags',
   statistics: 'Statistics',
   audio: 'Audiobook position',
@@ -31,6 +39,9 @@ const prefixes: Record<string, ImportPart> = {
   bookdata: 'book',
   progress: 'bookmark',
   bookmeta: 'metadata',
+  bookmarks: 'savedBookmarks',
+  highlights: 'highlights',
+  notes: 'notes',
   statistics: 'statistics',
   audioBook: 'audio',
   subtitles: 'subtitles',
@@ -84,9 +95,12 @@ function array(value: unknown, description: string, maximum = 20000): unknown[] 
 }
 
 export function importFile(name: string, source: ImportSource = 'ttu'): ImportFile | undefined {
+  if (source === 'yatsu' && name === 'yatsu-local-settings.json')
+    return { part: 'settings', modified: 0 };
   const prefix = Object.keys(prefixes).find((item) => name.startsWith(`${item}_`));
   if (!prefix) return undefined;
-  if (prefix === 'bookmeta' && source !== 'yatsu') return undefined;
+  if (['bookmeta', 'bookmarks', 'highlights', 'notes'].includes(prefix) && source !== 'yatsu')
+    return undefined;
   const part = prefixes[prefix];
   const extension = part === 'book' ? '.zip' : '.json';
   if (!name.endsWith(extension)) throw new Error(`Invalid file type: ${name}`);
@@ -101,6 +115,10 @@ export function importFile(name: string, source: ImportSource = 'ttu'): ImportFi
     book: [6],
     bookmark: [5],
     metadata: [4],
+    savedBookmarks: [4],
+    highlights: [4],
+    notes: [4],
+    settings: [0],
     statistics: [16, 17],
     audio: [5],
     subtitles: [5],
@@ -194,12 +212,27 @@ export function yatsuMetadata(value: unknown, modified: number): string[] {
     (typeof v.bookFingerprint !== 'string' || !/^[a-f0-9]{64}$/.test(v.bookFingerprint))
   )
     throw new Error('Invalid Yatsu source fingerprint.');
+  for (const [field, limit] of [
+    ['author', 512],
+    ['series', 240],
+    ['seriesPosition', 64]
+  ] as const) {
+    if (v[field] !== undefined && v[field] !== null) {
+      const label = text(v[field], `Yatsu ${field}`, limit);
+      if ([...label].some((character) => character.charCodeAt(0) < 32))
+        throw new Error(`Invalid Yatsu ${field}.`);
+    }
+  }
+  if (new TextEncoder().encode(JSON.stringify(v)).length > 256 * 1024)
+    throw new Error('Yatsu book metadata is too large.');
   const tags = array(v.tags, 'Yatsu collection tags', 1000).map((item) => {
     const tag = text(item, 'Yatsu collection tag', 240).trim();
     if (!tag || [...tag].some((character) => character.charCodeAt(0) < 32))
       throw new Error('Invalid Yatsu collection tag.');
     return tag;
   });
+  // Yatsu series are labels, not folders. Import as a collection without moving originals.
+  if (typeof v.series === 'string' && v.series.trim()) tags.push(v.series.trim());
   return [...new Set(tags)];
 }
 const statisticNumbers = [

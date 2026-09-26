@@ -4,7 +4,6 @@
  * All rights reserved.
  */
 
-import { skip } from 'rxjs';
 import type { localStorage } from '../window/local-storage';
 import { writableSubject } from '$lib/functions/svelte/store';
 
@@ -18,10 +17,16 @@ export function writableStorageSubject<T>(
   return (key: string, defaultValue: T) => {
     const initValue = getStoredOrDefault(storage)(key, defaultValue, mapFromString);
     const subject = writableSubject(initValue);
-    subject.pipe(skip(1)).subscribe((updatedValue) => {
+    const publish = subject.next.bind(subject);
+    // Persistence is part of the write, not an RxJS subscriber side effect.
+    // RxJS reports subscriber exceptions asynchronously, after next() returns;
+    // an importer could otherwise acknowledge a preference that was never saved.
+    const next = (updatedValue: T) => {
       storage.setItem(key, mapToString(updatedValue ?? defaultValue));
-    });
-    return subject;
+      publish(updatedValue);
+    };
+    // subjectToSvelteWritable aliases set before this wrapper is installed.
+    return Object.assign(subject, { next, set: next });
   };
 }
 

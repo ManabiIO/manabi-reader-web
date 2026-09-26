@@ -39,14 +39,14 @@ function harness() {
   return {
     messages,
     send: (data) => self.onmessage({ data }),
-    search(requestId, texts, query = '日') {
+    search(requestId, texts, query = '日', matchCase = false) {
       const done = new Promise((resolve) => listeners.set(requestId, resolve));
       self.onmessage({
         data: {
           type: 'search',
           requestId,
           bookGeneration: 7,
-          matchCase: false,
+          matchCase,
           query,
           resources: texts.map((text, spineIndex) => ({
             resource: { spineIndex, href: `${spineIndex}.xhtml`, sectionId: `s${spineIndex}` },
@@ -152,4 +152,22 @@ test('many short spine resources yield to cancellation before scanning the whole
   await delay(10);
   assert.equal(done.total, 1);
   assert.ok(worker.messages.every((message) => message.requestId === 13));
+});
+
+test('contextual case matching agrees with grapheme offsets without changing Match case or NFC policy', async () => {
+  for (const query of ['ΟΣ', 'οσ', 'ος']) {
+    const worker = harness();
+    const done = await worker.search(1, ['先頭 ΟΣ 終点'], query);
+    assert.equal(done.total, 1, query);
+    const [hit] = hits(worker);
+    assert.equal(Array.from('先頭 ΟΣ 終点').slice(hit.start, hit.end).join(''), 'ΟΣ');
+  }
+  for (const [text, query, matchCase, expected] of [
+    ['ΟΣ', 'ος', true, 0],
+    ['ΟΣ', 'ΟΣ', true, 1],
+    ['ＡＢＣ', 'ABC', false, 0],
+    ['ＡＢＣ', 'ＡＢＣ', true, 1]
+  ]) {
+    assert.equal((await harness().search(1, [text], query, matchCase)).total, expected);
+  }
 });

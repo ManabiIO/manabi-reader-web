@@ -132,14 +132,26 @@ export async function reloadOrganization() {
   const value = normalizedOrganization(saved) ?? emptyOrganization();
   if (!equal(value, currentOrganization)) publish(value);
 }
-export async function updateOrganization(change: (value: Organization) => void) {
+export async function updateOrganization(
+  change: (value: Organization) => void,
+  receipt?: { key: string; value: string; modified: number }
+) {
   // IndexedDB serializes cross-tab read/modify/write transactions even without Web Locks.
   const db = await integrationDB(),
     tx = db.transaction('metadata', 'readwrite');
   const value = ((await tx.store.get(key)) as Organization | undefined) ?? emptyOrganization();
   try {
+    if (receipt) {
+      const previous = (await tx.store.get(receipt.key)) as typeof receipt | undefined;
+      if (previous && (previous.value === receipt.value || previous.modified > receipt.modified)) {
+        await tx.done;
+        return;
+      }
+    }
     const before = structuredClone(value);
     change(value);
+    // Migration retry protection commits atomically with collection memberships.
+    if (receipt) await tx.store.put(receipt, receipt.key);
     if (equal(before, value)) {
       await tx.done;
       return;
