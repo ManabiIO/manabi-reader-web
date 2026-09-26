@@ -5,6 +5,8 @@
   import { Input } from '$lib/components/ui/input';
   import { Button } from '$lib/components/ui/button';
   import { SETTINGS_FILTER } from './settings-context';
+  import PageTurnEffectSelect from './page-turn-effect-select.svelte';
+  import SettingsItemGroup from './settings-item-group.svelte';
   import SettingsOfflineStatus from './settings-offline-status.svelte';
   const categories = [
     {
@@ -135,11 +137,21 @@
         </p>{/if}
     </div>
     <SettingsOfflineStatus />
+    <SettingsItemGroup
+      settingId="page-turn-effect"
+      category="layout"
+      keywords="pageTurnEffect slide none animation pagination"
+      title="Page turn effect"
+      showHeading={false}
+    >
+      <PageTurnEffectSelect />
+    </SettingsItemGroup>
     <slot />
   </main>
 </div>
 
 <style>
+  :global([data-setting='page-turn-effect']:not([hidden])),
   :global([data-setting='offline-reading']:not([hidden])) {
     margin-bottom: 1.25rem;
   }

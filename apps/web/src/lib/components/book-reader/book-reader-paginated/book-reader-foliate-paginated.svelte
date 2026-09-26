@@ -29,6 +29,8 @@
   import { readerUIOwnsEvent } from '$lib/functions/reader-ui-events';
   import { disableWheelNavigation$, skipKeyDownListener$ } from '$lib/data/store';
   import { FoliateCharacterProgress } from '$lib/foliate-epub/foliate-character-progress';
+  import { pageTurnEffect$ } from '$lib/data/page-turn-preferences';
+  import { resolvedMode$ } from '$lib/appearance/state';
   import { PageTurnController } from '$lib/foliate-epub/page-turn-controller';
   import {
     ReaderNavigationCoordinator,
@@ -117,8 +119,8 @@
   }
 
   const makePageManager = (): PageManager => ({
-    nextPage: () => void pageTurns?.turn(1),
-    prevPage: () => void pageTurns?.turn(-1),
+    nextPage: (input) => pageTurns?.turn(1, input),
+    prevPage: (input) => pageTurns?.turn(-1, input),
     updateSectionDataByOffset: () => undefined
   });
 
@@ -139,8 +141,7 @@
   }
 
   function reportNavigationError(error: unknown) {
-    if (!destroyed)
-      paginator?.dispatchEvent(new CustomEvent('navigationerror', { detail: error }));
+    if (!destroyed) paginator?.dispatchEvent(new CustomEvent('navigationerror', { detail: error }));
   }
 
   async function restoreCharacterCount(count: number, owner: ReaderNavigationOwner) {
@@ -376,9 +377,12 @@
       dispatch('userNavigation');
       if (autoBookmark) {
         clearTimeout(bookmarkTimer);
-        bookmarkTimer = setTimeout(() => {
-          if (!destroyed && !navigation.pending) dispatch('bookmark');
-        }, Math.max(0, autoBookmarkTime) * 1000);
+        bookmarkTimer = setTimeout(
+          () => {
+            if (!destroyed && !navigation.pending) dispatch('bookmark');
+          },
+          Math.max(0, autoBookmarkTime) * 1000
+        );
       }
     }
   }
@@ -425,6 +429,8 @@
     });
   }
 
+  $: pageTurns?.setEffect($pageTurnEffect$);
+
   onMount(async () => {
     await import('$lib/foliate-epub/paginator.js');
     if (destroyed) return;
@@ -459,6 +465,7 @@
         !readerUIOwnsEvent(event) &&
         !(event?.type === 'wheel' && $disableWheelNavigation$)
     });
+    pageTurns.setEffect($pageTurnEffect$);
     host.append(paginator);
     paginator.open(book);
     paginator.setStyles(readerStyles());
@@ -533,6 +540,7 @@
 
 <div
   bind:this={host}
+  style:--reader-page-overlay={$resolvedMode$ === 'dark' ? 'white' : 'black'}
   class="foliate-reader book-content"
   style:width={width ? `${width}px` : '100%'}
   style:height={height ? `${height}px` : '100%'}
@@ -541,6 +549,10 @@
 ></div>
 
 <style>
+  :global(.reader-context) {
+    z-index: 10;
+  }
+
   .foliate-reader {
     overflow: hidden;
     min-width: 0;

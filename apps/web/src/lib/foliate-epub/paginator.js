@@ -549,9 +549,9 @@ export class Paginator extends HTMLElement {
                 }
             }
         }
-        :host([layered]) { border-radius: var(--reader-page-radius, 55px); touch-action: pan-y pinch-zoom; overscroll-behavior-x: contain; }
+        :host([layered]) { border-radius: 0; touch-action: pan-y pinch-zoom; overscroll-behavior-x: contain; }
         :host([layered]) #top, .slide-sheet, .page-measure {
-            border-radius: inherit;
+            border-radius: 0;
             padding: var(--reader-page-insets, 0);
             isolation: isolate;
             background-color: Canvas;
@@ -570,8 +570,8 @@ export class Paginator extends HTMLElement {
         .page-indicator[hidden] { display: none; }
         .page-indicator:focus-visible { outline: 2px solid currentColor; border-radius: 8px; }
         .slide-shade {
-            position: absolute; inset: 0; background: black;
-            pointer-events: none; z-index: 3; border-radius: inherit;
+            position: absolute; inset: 0; background: var(--reader-page-overlay, black);
+            pointer-events: none; z-index: 3; border-radius: 0;
         }
         #background {
             position: absolute; inset: 0;
@@ -1405,6 +1405,9 @@ export class Paginator extends HTMLElement {
             const width = this.getBoundingClientRect().width
             const paint = progress => {
                 if (this.#preparedTurn !== turn) return false
+                // None prepares offscreen and promotes atomically. Even direct
+                // preview calls cannot reveal a slide, tint, or partial page.
+                if (this.getAttribute('page-turn-effect') === 'none') return true
                 const pose = slideGeometry(progress, direction, this.pageTurnDirection, width)
                 this.#top.style.transform = `translate3d(${pose.currentX}px,0,0)`
                 sheet.style.transform = `translate3d(${pose.neighborX}px,0,0)`
@@ -1435,6 +1438,7 @@ export class Paginator extends HTMLElement {
                     sheet.id = 'top'
                     sheet.removeAttribute('aria-hidden')
                     sheet.inert = false
+                    sheet.style.removeProperty('visibility')
                     neighborShade.remove()
                     this.#top = sheet
                     this.#container = container

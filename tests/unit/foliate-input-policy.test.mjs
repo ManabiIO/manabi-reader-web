@@ -20,6 +20,7 @@ async function withController(options, run) {
     Object.defineProperty(globalThis, name, { value, configurable: true });
   };
   const state = { prepared: [], committed: 0, cancelled: 0 };
+  let activeTurn;
   const frames = new Map();
   let nextFrame = 0;
   const host = new EventTarget();
@@ -36,28 +37,33 @@ async function withController(options, run) {
   paginator.nodeType = 1;
   paginator.ownerDocument = document;
   paginator.pageTurnDirection = 'ltr';
-  paginator.setAttribute = () => {};
-  paginator.removeAttribute = () => {};
+  const attributes = new Map();
+  paginator.setAttribute = (name, value) => attributes.set(name, String(value));
+  paginator.getAttribute = (name) => attributes.get(name) ?? null;
+  paginator.removeAttribute = (name) => attributes.delete(name);
   paginator.getContents = () => [{ doc: content, index: 0 }];
   paginator.isPageNumberControlAt = () => false;
   paginator.getBoundingClientRect = () => ({ width: 400 });
-  paginator.cancelPageTurn = () => {};
+  paginator.cancelPageTurn = () => activeTurn?.cancel();
   paginator.preparePageTurn = async (direction) => {
     state.prepared.push(direction);
-    return {
+    activeTurn = {
       update: () => true,
       commit: () => {
+        activeTurn = undefined;
         state.committed++;
         return true;
       },
       cancel: () => {
+        activeTurn = undefined;
         state.cancelled++;
       }
     };
+    return activeTurn;
   };
   install('window', host);
   install('document', document);
-  install('matchMedia', () => ({ matches: true }));
+  install('matchMedia', () => ({ matches: false }));
   install('requestAnimationFrame', (callback) => {
     const id = ++nextFrame;
     frames.set(id, callback);
@@ -69,7 +75,7 @@ async function withController(options, run) {
     await tick();
     for (const [id, callback] of [...frames]) {
       frames.delete(id);
-      callback(performance.now());
+      callback(performance.now() + 1000);
     }
     await tick();
   };
@@ -121,14 +127,25 @@ test('unmapped PageDown is untouched; unhandled arrows retain page navigation', 
   });
 });
 
-test('composition and repeated fallback keys do not turn the page', async () => {
+test('composition and modified fallback keys do not turn the page', async () => {
   await withController({}, async ({ content, send, state, flush }) => {
-    for (const properties of [{ isComposing: true }, { repeat: true }, { ctrlKey: true }]) {
+    for (const properties of [{ isComposing: true }, { ctrlKey: true }]) {
       const event = send(content, 'keydown', { key: 'ArrowRight', ...properties });
       assert.equal(event.defaultPrevented, false);
     }
     await flush();
     assert.deepEqual(state.prepared, []);
+  });
+});
+
+test('repeated fallback key reaches the burst sequence and releases on keyup', async () => {
+  await withController({}, async ({ content, send, state, flush }) => {
+    const event = send(content, 'keydown', { key: 'ArrowRight', repeat: true });
+    assert.equal(event.defaultPrevented, true);
+    assert.deepEqual(state.prepared, [1]);
+    send(content, 'keyup', { key: 'ArrowRight' });
+    await flush();
+    assert.equal(state.committed, 1);
   });
 });
 
