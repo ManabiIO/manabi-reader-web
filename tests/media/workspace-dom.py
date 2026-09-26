@@ -255,6 +255,65 @@ def main():
             assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+1')
             page.screenshot(path=str(args.output/'library-phone.png'),full_page=True)
         case('video library controls and cards fit a phone viewport',screenshot)
+        def source_cancel(stage):
+            page.evaluate('reset()')
+            result=page.evaluate("""async stage=>{
+                const key=syntheticKey('e');let entered,release,loads=0,creates=0;
+                const reached=new Promise(r=>entered=r),held=new Promise(r=>release=r);
+                const local=store.local.bind(store),load=workspace.options.loadBunny;
+                if(stage==='source')store.local=async(...args)=>{if(args[1]==='aliases'&&args[2]===key){entered();await held;return undefined;}return local(...args)};
+                else workspace.sources.set(key,makeSource('Queued.mp4'));
+                workspace.options.loadBunny=async()=>{loads++;entered();await held;return {create(){creates++;throw Error('late decoder must not start')}}};
+                const job=await workspace.queue.enqueue(key,'ja','2',2);await reached;
+                try{
+                    await workspace.queue.cancel(job.id);
+                    const deadline=performance.now()+2000;let current;
+                    do{current=await local('guest','jobs',job.id);if(current.status==='paused')break;await new Promise(r=>setTimeout(r,5));}while(performance.now()<deadline);
+                    const before={status:current.status,loads,creates,prepares,inferences};
+                    release();await workspace.queue.task;await new Promise(r=>setTimeout(r,0));
+                    return {before,loads,creates,prepares,inferences};
+                }finally{release();store.local=local;workspace.options.loadBunny=load;}
+            }""",stage)
+            assert result['before']['status']=='paused',result
+            assert result['creates']==0 and result['prepares']==0 and result['inferences']==0,result
+            assert result['loads']==(1 if stage=='module' else 0),result
+        case('Cancel during saved-source lookup pauses the job before that lookup settles',lambda:source_cancel('source'))
+        case('Cancel during decoder-module loading cannot start a late decoder or model',lambda:source_cancel('module'))
+        def queued_resume():
+            page.evaluate('reset()')
+            page.evaluate("""()=>{
+                window.runHere=[];workspace.queue.resume=async id=>runHere.push(id);
+                workspace.renderJobs([{id:'saved-queued-job',status:'queued',language:'ja',createdAt:1}]);
+            }""")
+            assert page.evaluate('runHere.length')==0
+            page.get_by_role('button',name='Run here',exact=True).click()
+            assert page.evaluate('runHere')==['saved-queued-job']
+            assert page.evaluate('prepares')==0
+        case('unclaimed saved queued jobs offer an explicit Run here action',queued_resume)
+        def teardown_failure():
+            page.evaluate('reset()');page.evaluate("workspace.openSource(makeSource('Closing.mp4'))")
+            page.wait_for_function('workspace.player?.video.readyState>=2')
+            result=page.evaluate("""async()=>{
+                const current=workspace,player=current.player;await player.video.play();
+                let queueRelease,playerRelease,queueStarted=false,playerStarted=false;
+                const queueHeld=new Promise((_,no)=>queueRelease=no),playerHeld=new Promise(yes=>playerRelease=yes);
+                const original=player.dispose.bind(player);
+                current.queue.dispose=()=>{queueStarted=true;return queueHeld};
+                player.dispose=async()=>{playerStarted=true;await original();await playerHeld};
+                const first=current.dispose(),second=current.dispose();let settled=false;
+                const outcome=first.then(()=>{settled=true;return null},e=>{settled=true;return e.message});
+                try{
+                    await new Promise(r=>setTimeout(r,0));
+                    const before={same:first===second,paused:player.video.paused,hidden:!current.root.isConnected,queueStarted,playerStarted,settled};
+                    queueRelease(Error('shutdown fault'));await new Promise(r=>setTimeout(r,0));
+                    const afterQueueFailure=settled;playerRelease();const error=await outcome;
+                    return {before,afterQueueFailure,error};
+                }finally{queueRelease(Error('cleanup'));playerRelease();await outcome;window.workspace=undefined;}
+            }""")
+            assert result['before']==dict(same=True,paused=True,hidden=True,queueStarted=True,playerStarted=True,settled=False),result
+            assert result['afterQueueFailure'] is False and 'shutdown' in result['error'],result
+        case('workspace hides and pauses immediately, drains both owners, and reports shutdown failure afterward',teardown_failure)
+        page.evaluate('reset()')
         page.evaluate('workspace.dispose()');page.evaluate('store.close()');browser.close()
     report=dict(scope='Production workspace/player in-memory Chromium; transaction, media metadata and ASR doubles; UUID shim uses getRandomValues',
                 notCovered=['Svelte/Vite integration','native IndexedDB or secure-context worker loading','Mediabunny decoding','cloud providers','real MOSS'],

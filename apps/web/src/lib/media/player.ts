@@ -62,6 +62,8 @@ export class VideoPlayer {
   private generationBusy = false;
   private selectionIntent = 0;
   private pendingGenerated?: string;
+  // Only retained while an explicit Generate admission is awaiting its job ID.
+  private generationOutcomes?: Map<string, 'paused' | 'failed'>;
   private generationAvailable = false;
   private discovery: 'loading' | 'complete' | 'limited' = 'loading';
   private translationAutomatic = false;
@@ -122,6 +124,9 @@ export class VideoPlayer {
   private key?: ContentKey;
   private version: string | null = null;
   private saving: Promise<void> = Promise.resolve();
+  private savingActive = false;
+  private pendingSave?: Playback;
+  private closing?: Promise<void>;
   private position: Playback | undefined;
   private delays: Record<string, number> = {};
   private lastSave = 0;
@@ -508,8 +513,13 @@ export class VideoPlayer {
     this.updateSetup();
   }
   generationStatus(id: string, state: string) {
-    if (this.closed || id !== this.pendingGenerated) return;
-    if (['paused', 'failed'].includes(state)) {
+    if (this.closed) return;
+    if (state === 'paused' || state === 'failed')
+      this.generationOutcomes?.set(id, state);
+    else
+      this.generationOutcomes?.delete(id);
+    if (id !== this.pendingGenerated) return;
+    if (state === 'paused' || state === 'failed') {
       this.pendingGenerated = undefined;
       this.setupStatus.textContent =
         state === 'paused'
@@ -552,6 +562,8 @@ export class VideoPlayer {
   private async requestGenerate() {
     if (this.closed || this.generate.disabled || this.primary.value || this.secondary.value) return;
     const intent = this.selectionIntent;
+    const outcomes = new Map<string, 'paused' | 'failed'>();
+    this.generationOutcomes = outcomes;
     this.generationBusy = true;
     this.updateSetup();
     try {
@@ -559,11 +571,14 @@ export class VideoPlayer {
       if (this.closed) return;
       if (typeof id === 'string' && intent === this.selectionIntent) {
         this.pendingGenerated = id;
+        const outcome = outcomes.get(id);
+        if (outcome) this.generationStatus(id, outcome);
         this.setTracks(this.tracks);
       }
     } catch (error) {
       this.error(error);
     } finally {
+      this.generationOutcomes = undefined;
       this.generationBusy = false;
       this.updateSetup();
     }
@@ -930,6 +945,7 @@ export class VideoPlayer {
         if (!cues.length || (secondary && first && !this.translationVisible)) continue;
         const line = element('div', dialogueText(cues));
         line.className = secondary ? 'caption-line translation' : 'caption-line';
+        line.dir = 'auto';
         const track = this.tracks.find(
           (track) => track.id === (secondary ? this.secondary.value : this.primary.value)
         );
@@ -999,6 +1015,7 @@ export class VideoPlayer {
         row.dataset.cue = cue.id;
         const text = element('span', cue.text);
         text.className = 'transcript-text';
+        text.dir = 'auto';
         if (track) text.lang = trackLanguage(track);
         row.append(text);
         const translated = this.translationVisible
@@ -1011,6 +1028,7 @@ export class VideoPlayer {
         if (translated.length) {
           const line = element('span', dialogueText(translated));
           line.className = 'transcript-translation';
+          line.dir = 'auto';
           const secondaryTrack = this.tracks.find((track) => track.id === this.secondary.value);
           if (secondaryTrack) line.lang = trackLanguage(secondaryTrack);
           row.append(line);
@@ -1138,28 +1156,43 @@ export class VideoPlayer {
         delays: { ...this.delays }
       };
     this.position = payload;
-    this.saving = this.saving.then(async () => {
-      if (!this.writes) return;
+    this.pendingSave = payload;
+    if (this.savingActive) return;
+    this.savingActive = true;
+    const first = this.pendingSave;
+    this.pendingSave = undefined;
+    this.saving = Promise.resolve().then(async () => {
+      let next: Playback | undefined = first;
       try {
-        const r = await this.options.store.edit(
-          this.options.scope,
-          'video_resume',
-          key,
-          key,
-          payload as unknown as Record<string, unknown>,
-          this.version
-        );
-        this.version = r.localVersion;
-      } catch (e) {
+        while (next && this.writes) {
+          const saved = await this.options.store.edit(
+            this.options.scope,
+            'video_resume',
+            key,
+            key,
+            next as unknown as Record<string, unknown>,
+            this.version
+          );
+          this.version = saved.localVersion;
+          next = this.pendingSave;
+          this.pendingSave = undefined;
+        }
+      } catch (error) {
         this.writes = false;
-        this.error(e);
+        this.error(error);
+      } finally {
+        // Release ownership in the same continuation as the last pending read.
+        // A separate promise-finally could strand a newly submitted snapshot.
+        this.pendingSave = undefined;
+        this.savingActive = false;
       }
     });
   }
-  async dispose() {
-    if (this.closed) return;
+  dispose(): Promise<void> {
+    if (this.closing) return this.closing;
     this.scheduleSave(true);
     this.closed = true;
+    this.generationOutcomes = undefined;
     this.alive.abort();
     this.menu.dispose();
     this.observer.disconnect();
@@ -1168,8 +1201,9 @@ export class VideoPlayer {
     this.video.removeAttribute('src');
     this.video.load();
     this.release();
-    await this.saving;
-    await this.device?.close();
     this.root.remove();
+    // All callers wait for the same final portable and device-only checkpoints.
+    this.closing = Promise.all([this.saving, this.device?.close()]).then(() => {});
+    return this.closing;
   }
 }

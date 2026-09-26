@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 
+import { abortable, inAbortScope } from './abort.js';
 import { downloadSubtitles } from './subtitle-download.js';
 import { formatMediaTime } from './time.js';
 import { trackLanguage } from './track-selection.js';
@@ -97,6 +98,7 @@ export class VideoWorkspace {
   private syncChoiceMade = false;
   private audioChoices: AudioChoice[] = [];
   private closed = false;
+  private closing?: Promise<void>;
   private refreshing = 0;
   private jobsRead?: Promise<void>;
   private jobsDirty = false;
@@ -286,13 +288,17 @@ export class VideoWorkspace {
       options.scope,
       engine,
       async (job, start, end, signal) => {
-        const source = await this.resolveSource(job.mediaKey);
-        const pipeline = new MediaPipeline(await options.loadBunny(), source, signal);
-        try {
-          return await pipeline.decode(Number(job.audioTrack), start, end, signal);
-        } finally {
-          pipeline.dispose();
-        }
+        return inAbortScope([signal, this.lifetime.signal], async (operation) => {
+          const source = await this.resolveSource(job.mediaKey, operation);
+          const bunny = await abortable(operation, () => options.loadBunny());
+          operation.throwIfAborted();
+          const pipeline = new MediaPipeline(bunny, source, operation);
+          try {
+            return await pipeline.decode(Number(job.audioTrack), start, end, operation);
+          } finally {
+            pipeline.dispose();
+          }
+        });
       },
       (p) => {
         if (this.closed) return;
@@ -764,15 +770,19 @@ export class VideoWorkspace {
       );
     await this.refreshTracks();
   }
-  private async resolveSource(key: ContentKey): Promise<ByteSource> {
-    const signal = this.lifetime.signal;
+  private async resolveSource(
+    key: ContentKey,
+    signal: AbortSignal = this.lifetime.signal
+  ): Promise<ByteSource> {
     signal.throwIfAborted();
     const available = this.sources.get(key);
     if (available && (!available.isCurrent || available.isCurrent())) return available;
-    const alias = await this.store.local<Alias>(this.options.scope, 'aliases', key);
+    const alias = await abortable(signal, () =>
+      this.store.local<Alias>(this.options.scope, 'aliases', key)
+    );
     signal.throwIfAborted();
     let source: ByteSource | undefined;
-    if (alias?.handle) source = localSource(await alias.handle.getFile());
+    if (alias?.handle) source = localSource(await abortable(signal, () => alias.handle!.getFile()));
     else if (alias?.cloud && this.options.transport) {
       const transport = this.options.transport;
       const manifest = await cloudRequest<CloudManifest>(
@@ -788,7 +798,7 @@ export class VideoWorkspace {
       );
     // A saved locator grants no authority and is not content identity. The server
     // rechecks the selected root; byte verification must match before attaching data.
-    if ((await identify(source, signal)) !== key)
+    if ((await abortable(signal, () => identify(source!, signal))) !== key)
       throw new Error(
         'A video file changed. Reopen it before generating captions. Its previous progress was kept.'
       );
@@ -1024,9 +1034,11 @@ export class VideoWorkspace {
         row.append(
           action('Cancel', () => void this.queue.cancel(job.id).catch((e) => this.error(e)))
         );
-      if (['paused', 'failed'].includes(job.status))
+      if (['paused', 'failed', 'queued'].includes(job.status))
         row.append(
-          action('Resume', () => void this.queue.resume(job.id).catch((e) => this.error(e)))
+          action(job.status === 'queued' ? 'Run here' : 'Resume', () =>
+            void this.queue.resume(job.id).catch((e) => this.error(e))
+          )
         );
       this.jobs.append(row);
     }
@@ -1156,8 +1168,8 @@ export class VideoWorkspace {
     }
     this.notice('Folder scanned. Nothing was transcribed or written beside your videos.');
   }
-  async dispose() {
-    if (this.closed) return;
+  dispose(): Promise<void> {
+    if (this.closing) return this.closing;
     this.closed = true;
     this.generation++;
     this.lifetime.abort();
@@ -1167,9 +1179,25 @@ export class VideoWorkspace {
     clearTimeout(this.syncTimer);
     clearInterval(this.poll);
     this.stopStore();
-    await this.queue.dispose();
-    await this.player?.dispose();
-    if (!this.options.store) await this.store.close();
+    // Hide the outgoing account and stop sound before waiting for a large model
+    // or slow storage. Neither drain is allowed to skip the other on failure.
     this.root.remove();
+    this.player?.video.pause();
+    const queue = Promise.resolve().then(() => this.queue.dispose());
+    const player = Promise.resolve().then(() => this.player?.dispose());
+    this.closing = Promise.allSettled([queue, player]).then(async (results) => {
+      const failures = results
+        .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+        .map((result) => result.reason);
+      if (!this.options.store) {
+        try {
+          await this.store.close();
+        } catch (error) {
+          failures.push(error);
+        }
+      }
+      if (failures.length) throw new AggregateError(failures, 'Video workspace shutdown failed');
+    });
+    return this.closing;
   }
 }

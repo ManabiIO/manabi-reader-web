@@ -483,6 +483,87 @@ def main():
             page.keyboard.press('Escape');page.screenshot(path=str(args.output/'transcript-setup-phone.png'))
             page.set_viewport_size({'width':1280,'height':900})
         case('phone transcript setup and ellipsis stay within viewport bounds',popover_phone)
+        def bounded_saves():
+            result=page.evaluate("""async()=>{
+                await createPlayer(); await player.bindIdentity(mediaKey);
+                const original=store.edit.bind(store);let started,release;
+                const entered=new Promise(r=>started=r),held=new Promise(r=>release=r);
+                let calls=0;
+                store.edit=async(...args)=>{if(++calls===1){started();await held;}return original(...args)};
+                player.touched=true;player.video.currentTime=1;player.scheduleSave(true);
+                await entered;
+                for(let i=0;i<2000;i++){player.video.currentTime=(i%100)/10;player.scheduleSave(true);}
+                player.video.currentTime=7.5;player.scheduleSave(true,true);
+                const first=player.dispose(),second=player.dispose();let closed=false;
+                second.then(()=>closed=true);
+                try{
+                    await new Promise(r=>setTimeout(r,0));
+                    const before={calls,closed,same:first===second,paused:player.video.paused,hidden:!player.root.isConnected};
+                    release();await Promise.all([first,second]);
+                    return {before,calls,positions:writes.map(w=>w.position),last:writes.at(-1)};
+                }finally{release();await first;}
+            }""")
+            assert result['before']==dict(calls=1,closed=False,same=True,paused=True,hidden=True),result
+            assert result['calls']==2 and result['positions']==[1,7.5],result
+            assert result['last']['finished'] is True,result
+        case('2,000 playback updates coalesce and every Close waits for the latest saved position',bounded_saves)
+        def conflict_stops_saves():
+            result=page.evaluate("""async()=>{
+                await createPlayer();await player.bindIdentity(mediaKey);
+                let calls=0,release,started;const held=new Promise(r=>release=r),entered=new Promise(r=>started=r);
+                store.edit=async()=>{calls++;started();await held;throw Error('newer playback conflict')};
+                player.touched=true;player.video.currentTime=1;player.scheduleSave(true);await entered;
+                player.video.currentTime=3;player.scheduleSave(true);release();await player.saving;
+                player.video.currentTime=4;player.scheduleSave(true);await player.saving;
+                const result={calls,stopped:!player.writes,errors:[...errors]};await player.dispose();return result;
+            }""")
+            assert result['calls']==1 and result['stopped'],result
+            assert any('conflict' in error for error in result['errors']),result
+        case('a playback conflict drops obsolete pending writes instead of overwriting another edit',conflict_stops_saves)
+        def bidi_captions():
+            page.evaluate("""async()=>{
+                await createPlayer();player.setTracks([
+                    track(trackId,'ja',[{id:'jp',start:0,end:5,text:'こんにちは。'}]),
+                    track(trackId2,'ar',[{id:'ar',start:0,end:5,text:'مرحبا بالعالم'}])]);
+                select('Transcript track',trackId);select('Translation track',trackId2);
+            }""")
+            assert page.locator('.transcript-text').first.evaluate('e=>getComputedStyle(e).direction')=='ltr'
+            assert page.locator('.transcript-translation').first.evaluate('e=>getComputedStyle(e).direction')=='rtl'
+            page.get_by_role('button',name='Theater mode',exact=True).click()
+            assert page.locator('.caption-line').first.evaluate('e=>getComputedStyle(e).direction')=='ltr'
+            assert page.locator('.caption-line.translation').first.evaluate('e=>getComputedStyle(e).direction')=='rtl'
+        case('source and translated captions keep independent language and text direction',bidi_captions)
+        def early_generation_status(state):
+            result=page.evaluate("""async(state)=>{
+                await createPlayer({delayedGenerate:true});
+                player.setGenerationAvailable(true);player.setDiscovery('complete');
+                const request=player.requestGenerate();
+                player.generationStatus(trackId,state);
+                resolveGenerate(trackId);await request;
+                return {pending:player.pendingGenerated??null,disabled:player.generate.disabled,status:player.setupStatus.textContent};
+            }""",state)
+            assert result['pending'] is None and result['disabled'] is False,result
+            assert state in result['status'].lower(),result
+        case('a fast preflight failure before Generate returns restores the retry button',lambda:early_generation_status('failed'))
+        case('a pause before Generate returns is not lost behind the admission promise',lambda:early_generation_status('paused'))
+        def unrelated_generation_status():
+            result=page.evaluate("""async()=>{
+                await createPlayer({delayedGenerate:true});player.setGenerationAvailable(true);
+                const request=player.requestGenerate();player.generationStatus(trackId2,'failed');
+                resolveGenerate(trackId);await request;
+                return {pending:player.pendingGenerated,disabled:player.generate.disabled};
+            }""")
+            assert result=={'pending':'11111111-1111-4111-8111-111111111111','disabled':True},result
+        case('another job failure cannot cancel the pending Generate admission',unrelated_generation_status)
+        def restarted_generation_status():
+            result=page.evaluate("""async()=>{
+                await createPlayer({delayedGenerate:true});player.setGenerationAvailable(true);
+                const request=player.requestGenerate();player.generationStatus(trackId,'paused');
+                player.generationStatus(trackId,'decoding');resolveGenerate(trackId);await request;
+                return {pending:player.pendingGenerated,disabled:player.generate.disabled};
+            }""")
+            assert result=={'pending':'11111111-1111-4111-8111-111111111111','disabled':True},result
+        case('a resumed job supersedes an early paused notification before admission returns',restarted_generation_status)
         def csp_policy(allow_wasm):
             csp_page=browser.new_page()
             policy="script-src 'nonce-media-test'" + (" 'wasm-unsafe-eval'" if allow_wasm else "")
