@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { isReaderElementNode, readerElementName } from './reader-dom';
+
 // v2 treats block-level divs and !important-hidden inline content explicitly.
 export const readerProjectionVersion = 2;
 
@@ -107,9 +109,9 @@ export function projectResource(
     }
     // Do not use instanceof Element: Foliate sections may live in a child
     // browsing context, whose Element constructor is a different realm.
-    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    if (!isReaderElementNode(node)) return;
     const element = node as Element;
-    const tagName = (element.localName || element.nodeName).toUpperCase();
+    const tagName = readerElementName(element);
     if (
       excludedTags.has(tagName) ||
       element.hasAttribute('hidden') ||
