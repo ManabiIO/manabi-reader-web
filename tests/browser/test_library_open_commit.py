@@ -263,56 +263,76 @@ class LibraryOpenCommitStatic(LibraryBase):
             # A same-origin image document has IndexedDB but no application
             # module graph to interrupt when this storage-only actor closes.
             holder.goto(self.origin+'/reader-web/favicon.png')
+            # Establish both the retained resume target and a legacy source
+            # marker whose removal would prove that local preparation committed.
+            holder.evaluate("""({retained,queued})=>new Promise((resolve,reject)=>{
+              const open=indexedDB.open('books');open.onerror=()=>reject(open.error);
+              open.onsuccess=()=>{const db=open.result,tx=db.transaction(['data','lastItem'],'readwrite'),
+                data=tx.objectStore('data'),last=tx.objectStore('lastItem'),read=data.get(queued);
+                read.onerror=()=>{try{tx.abort();}catch{} reject(read.error);};
+                read.onsuccess=()=>{if(!read.result){try{tx.abort();}catch{}
+                  reject(new Error('Queued book disappeared'));return;}
+                  data.put({...read.result,storageSource:'queued-source'});
+                  last.put({dataId:retained},0);};
+                tx.oncomplete=()=>{db.close();resolve();};tx.onabort=()=>{db.close();reject(tx.error);};};
+            })""",{'retained':ids['Retained book'],'queued':ids['Queued book']})
+            # WebKit may serialize readwrite transactions across disjoint stores,
+            # so blocking lastItem can prevent the earlier local-preparation
+            # transaction from even being created. Block the data transaction
+            # itself; putLastItem cancellation is covered separately by the
+            # native runtime regression above.
             holder.evaluate("""id=>new Promise((resolve,reject)=>{
               const open=indexedDB.open('books');open.onerror=()=>reject(open.error);
-              open.onsuccess=()=>{const db=open.result,tx=db.transaction('lastItem','readwrite');
-                tx.objectStore('lastItem').put({dataId:id},0);
-                tx.oncomplete=()=>{db.close();resolve();};tx.onabort=()=>{db.close();reject(tx.error);};};
-            })""",ids['Retained book'])
-            holder.evaluate("""()=>new Promise((resolve,reject)=>{
-              const open=indexedDB.open('books');open.onerror=()=>reject(open.error);
-              open.onsuccess=()=>{const db=open.result,tx=db.transaction('lastItem','readwrite');
-                let held=true;window.releaseResumeBlocker=()=>{held=false;};
-                window.resumeBlockerDone=new Promise((done,fail)=>{
+              open.onsuccess=()=>{const db=open.result,tx=db.transaction('data','readwrite');
+                let held=true;window.releasePreparationBlocker=()=>{held=false;};
+                window.preparationBlockerDone=new Promise((done,fail)=>{
                   tx.oncomplete=()=>{db.close();done();};tx.onabort=()=>{db.close();fail(tx.error);};});
-                const keep=()=>{if(!held)return;const read=tx.objectStore('lastItem').get(0);
+                const keep=()=>{if(!held)return;const read=tx.objectStore('data').get(id);
+                  read.onerror=()=>{try{tx.abort();}catch{};};
                   read.onsuccess=keep;};keep();resolve();};
-            })""")
+            })""",ids['Queued book'])
             self.page.evaluate("""()=>{
               const original=IDBDatabase.prototype.transaction;
-              delete document.documentElement.dataset.resumeTargetTransactionStarted;
+              delete document.documentElement.dataset.libraryPreparationTransactionStarted;
               IDBDatabase.prototype.transaction=function(names,mode,...args){
                 const tx=original.call(this,names,mode,...args);
-                if(this.name==='books'&&mode==='readwrite'&&Array.from(tx.objectStoreNames).includes('lastItem'))
-                  document.documentElement.dataset.resumeTargetTransactionStarted='true';
+                if(this.name==='books'&&mode==='readwrite'&&Array.from(tx.objectStoreNames).includes('data'))
+                  document.documentElement.dataset.libraryPreparationTransactionStarted='true';
                 return tx;
               };
             }""")
             self.page.get_by_role('button',name='Read Queued book',exact=True).click()
             # Locator assertions do not compile a predicate in the page's CSP realm.
-            expect(self.page.locator('html')).to_have_attribute('data-resume-target-transaction-started','true')
-            self.phase = 'cancel queued resume via Back'
+            expect(self.page.locator('html')).to_have_attribute(
+                'data-library-preparation-transaction-started','true')
+            self.phase = 'cancel queued local preparation via Back'
             self.page.go_back()
             expect(self.page).to_have_url(re.compile('/reader-web/settings$'))
             # A history URL and SSR heading do not certify SvelteKit startup.
             expect(self.page.locator('#svelte-announcer')).to_be_attached()
-            holder.evaluate('async()=>{window.releaseResumeBlocker();await window.resumeBlockerDone;}')
+            holder.evaluate('async()=>{window.releasePreparationBlocker();await window.preparationBlockerDone;}')
             self.assertEqual([{'dataId':ids['Retained book']}],self.stores('books',['lastItem'])['lastItem'])
+            queued=next(row for row in self.stores('books',['data'])['data']
+                        if row['id']==ids['Queued book'])
+            self.assertEqual('queued-source',queued.get('storageSource'))
             self.assertTrue(self.page.url.endswith('/settings'))
             self.phase = 'fresh explicit retry'
             self.go_library()
             self.page.get_by_role('button',name='Read Queued book',exact=True).click()
-            expect(self.page).to_have_url(re.compile(r'/reader-web/b\?id='+str(ids['Queued book'])+r'$'))
+            expect(self.page).to_have_url(re.compile(r'/reader-web/b\\?id='+str(ids['Queued book'])+r'$'))
             self.assertEqual([{'dataId':ids['Queued book']}],self.stores('books',['lastItem'])['lastItem'])
             # Navigation commits the URL before the Reader's lazy modules and
             # publication finish loading. A successful retry must render the
             # reader, not close its document during those pending imports.
             self.phase = 'wait for actual reader retry'
             expect(self.page.locator('.book-content').first).to_have_attribute('aria-busy','false')
+            queued=next(row for row in self.stores('books',['data'])['data']
+                        if row['id']==ids['Queued book'])
+            self.assertIsNone(queued.get('storageSource'))
             self.phase = 'reader retry ready'
         finally:
             if not holder.is_closed():
-                holder.evaluate('window.releaseResumeBlocker?.()')
+                holder.evaluate('window.releasePreparationBlocker?.()')
                 holder.close()
 
 

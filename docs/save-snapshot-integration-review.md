@@ -117,3 +117,25 @@ The distinctions follow the [Service Workers install/job algorithms](https://www
 and [Playwright navigation versus loading guidance](https://playwright.dev/python/docs/navigations).
 Local follow-through passes all eleven Chromium worker cases and both static
 resume-commit cases. Firefox and WebKit outcomes require the new-head CI result.
+
+
+## Final queued-open WebKit scheduling repair
+
+The next exact-head WebKit run showed that the DOM/CSP correction was not enough:
+the marker for the queued `lastItem` transaction appeared only after the test
+released its blocker. The retained evidence had no page errors and eventually
+showed the marker on the Reader document. This is consistent with WebKit
+serializing the earlier `data` readwrite local-preparation transaction behind
+the held `lastItem` readwrite transaction, even though their object-store scopes
+are disjoint. Chromium reaches the later transaction while the holder is active;
+the regression must not depend on that scheduling difference.
+
+The built-app Back test now holds the selected book's `data` transaction instead.
+It marks creation of that exact queued local-preparation transaction, navigates
+Back, releases the real IndexedDB blocker, and requires both the retained resume
+target and a deliberately seeded legacy source marker to remain unchanged. A
+fresh explicit retry must then open the intended ID, commit its resume target,
+render a ready Reader, and detach that marker. The separate native runtime test
+continues to cover cancellation of `putLastItem` itself, including an abort
+after the real request has been enqueued. No production code, CSP, timeout, or
+no-page-errors assertion is weakened by this scheduling repair.
