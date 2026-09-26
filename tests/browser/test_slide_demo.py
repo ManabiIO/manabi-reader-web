@@ -115,7 +115,7 @@ class SlideDemo(unittest.TestCase):
     def wait_commits(self, count):
         self.page.wait_for_function('n => slideDemo.getState().commits === n', arg=count)
 
-    def test_square_default_and_explicit_per_corner_geometry(self):
+    def test_square_pages_ignore_legacy_radius(self):
         for width, height in [(1100, 780), (390, 844), (844, 390)]:
             self.page.set_viewport_size({'width': width, 'height': height})
             self.page.wait_for_timeout(180)
@@ -123,9 +123,162 @@ class SlideDemo(unittest.TestCase):
         self.page.evaluate("document.querySelector('#mount').style.setProperty('--reader-page-radius','0px 12px 24px 36px')")
         self.page.evaluate('async()=>{window.held=await slideDemo.paginator.preparePageTurn(1);held.update(.5)}')
         radii = self.page.evaluate("[testRoot.querySelector('#top'),testRoot.querySelector('.slide-sheet')].map(el=>getComputedStyle(el).borderRadius)")
-        self.assertEqual(radii, ['0px 12px 24px 36px'] * 2)
+        self.assertEqual(radii, ['0px'] * 2)
+        self.assertEqual(self.page.locator('#corners,#radius').count(), 0)
         self.page.evaluate("held.cancel();document.querySelector('#mount').style.removeProperty('--reader-page-radius')")
         self.assertEqual(self.state()['radius'], '0px')
+
+    def set_effect(self, effect):
+        self.page.evaluate("value => { const select = document.querySelector('#effect'); select.value = value; select.dispatchEvent(new Event('change')); }", effect)
+        self.assertEqual(self.state()['effect'], effect)
+
+    def test_stationary_title_and_theme_correct_overlay(self):
+        self.page.evaluate('slideDemo.paginator.goTo({index:0,anchor:.2})')
+        for night in [False, True]:
+            # The in-app theme, not the OS preference, owns the overlay color.
+            self.page.emulate_media(color_scheme='light' if night else 'dark')
+            self.page.evaluate("night => {const box=document.querySelector('#night');box.checked=night;box.dispatchEvent(new Event('change'))}", night)
+            for direction in [1, -1]:
+                initial = self.page.locator('#book-title').bounding_box()
+                self.page.evaluate('async d=>{window.held=await slideDemo.paginator.preparePageTurn(d)}', direction)
+                for progress in [.25, .5, .75]:
+                    self.page.evaluate('p=>held.update(p)', progress)
+                    pose = self.page.evaluate("""() => {
+                      const top=testRoot.querySelector('#top'), next=testRoot.querySelector('.slide-sheet')
+                      return [top, next].map(el => ({
+                        shade:getComputedStyle(el.querySelector('.slide-shade')).backgroundColor,
+                        opacity:Number(el.querySelector('.slide-shade').style.opacity),
+                        x:new DOMMatrix(getComputedStyle(el).transform).m41,
+                        number:el.querySelector('.page-indicator').getBoundingClientRect().x,
+                        radius:getComputedStyle(el).borderRadius
+                      }))
+                    }""")
+                    self.assertEqual([item['shade'] for item in pose], ['rgb(255, 255, 255)' if night else 'rgb(0, 0, 0)'] * 2)
+                    self.assertAlmostEqual(pose[0]['opacity'], .24*progress if direction == -1 else 0, places=5)
+                    self.assertAlmostEqual(pose[1]['opacity'], .24*(1-progress) if direction == 1 else 0, places=5)
+                    self.assertEqual(self.page.locator('#book-title').bounding_box(), initial)
+                    self.assertTrue(self.page.locator('#book-title').is_visible())
+                    self.assertNotEqual(pose[0]['x'], 0)
+                    # Each folio has the same local geometry; its difference follows the sheets.
+                    self.assertAlmostEqual(pose[1]['number']-pose[0]['number'], pose[1]['x']-pose[0]['x'], delta=1)
+                self.page.evaluate('held.cancel()')
+
+    def test_none_has_no_frames_or_tail_for_repeating_keys(self):
+        self.set_effect('none')
+        self.page.evaluate('slideDemo.paginator.focusView()')
+        for i in range(6):
+            self.page.keyboard.down('ArrowRight')
+            self.wait_commits(i+1)
+            self.assertEqual(self.page.evaluate("getComputedStyle(testRoot.querySelector('#top')).visibility"), 'visible')
+            self.assertTrue(self.page.evaluate("testRoot.querySelector('#top iframe').checkVisibility()"))
+        self.assertTrue(self.page.evaluate('turns.every(t=>t.samples.length===0 && t.committed)'))
+        self.assertFalse(self.page.evaluate("slideDemo.paginator.hasAttribute('data-turn-progress')"))
+        self.page.keyboard.up('ArrowRight')
+        self.page.wait_for_timeout(250)
+        self.assertEqual(self.state()['commits'], 6)
+
+    def test_none_rtl_forward_back_and_cross_chapter(self):
+        self.page.evaluate("document.querySelector('#language').value='ja';document.querySelector('#language').dispatchEvent(new Event('change'))")
+        self.page.wait_for_function('() => slideDemo.getState().rtl && slideDemo.paginator.pageCounts.every(n=>n>0)')
+        self.set_effect('none')
+        self.page.evaluate(INSTRUMENT)
+        self.page.evaluate('slideDemo.paginator.goTo({index:0,anchor:1})')
+        self.page.evaluate('slideDemo.paginator.focusView()')
+        for i in range(3):
+            self.page.keyboard.down('ArrowLeft')
+            self.wait_commits(i+1)
+        self.page.keyboard.up('ArrowLeft')
+        self.assertEqual((self.state()['index'], self.state()['page']), (1, 3))
+        self.page.keyboard.press('ArrowRight')
+        self.wait_commits(4)
+        self.assertEqual(self.state()['page'], 2)
+        self.assertTrue(self.page.evaluate('turns.every(t=>t.samples.length===0)'))
+
+    def test_none_does_not_reveal_direct_half_pose(self):
+        self.set_effect('none')
+        self.assertTrue(self.page.locator('#half').is_disabled())
+        self.page.evaluate('async()=>{window.held=await slideDemo.paginator.preparePageTurn(1);held.update(.5)}')
+        visual = self.page.evaluate("""() => ({
+          transform: getComputedStyle(testRoot.querySelector('#top')).transform,
+          neighbor: getComputedStyle(testRoot.querySelector('.slide-sheet')).visibility,
+          shade: getComputedStyle(testRoot.querySelector('#top .slide-shade')).opacity
+        })""")
+        self.assertEqual(visual, {'transform':'none','neighbor':'hidden','shade':'0'})
+        self.page.evaluate('held.cancel()')
+        self.assertEqual(self.state()['commits'], 0)
+
+    def test_none_mouse_drag_waits_for_release_and_short_drag_cancels(self):
+        self.set_effect('none')
+        for distance, expected in [(300,0),(750,1)]:
+            self.page.mouse.move(1080,350)
+            self.page.mouse.down()
+            self.page.mouse.move(1080-distance,350,steps=10)
+            self.page.wait_for_timeout(180)
+            self.assertEqual(self.state()['commits'], 0)
+            self.assertEqual(self.state()['progress'], 0)
+            self.assertEqual(self.page.evaluate("testRoot.querySelectorAll('.slide-sheet').length"),0)
+            self.page.mouse.up()
+            if expected: self.wait_commits(expected)
+            else: self.page.wait_for_timeout(200)
+        self.assertTrue(self.page.evaluate('turns.every(t=>t.samples.length===0)'))
+
+    def test_none_trusted_touch_release_and_wheel(self):
+        self.set_effect('none')
+        self.page.set_viewport_size({'width':390,'height':844})
+        self.page.wait_for_timeout(200)
+        session=self.context.new_cdp_session(self.page)
+        for kind,x in [('touchStart',330),('touchMove',90)]:
+            session.send('Input.dispatchTouchEvent', {'type':kind,'touchPoints':[{'x':x,'y':380,'id':1}]})
+        self.page.wait_for_timeout(180)
+        self.assertEqual(self.state()['commits'],0)
+        self.assertEqual(self.state()['progress'],0)
+        session.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]})
+        self.wait_commits(1)
+        self.page.mouse.move(370,350)
+        self.page.mouse.wheel(0,300)
+        self.wait_commits(2)
+        self.assertTrue(self.page.evaluate('turns.every(t=>t.samples.length===0)'))
+
+    def test_changing_effect_cancels_reserved_tail_then_slide_can_resume(self):
+        self.page.keyboard.down('ArrowRight')
+        self.wait_commits(1)
+        self.page.keyboard.down('ArrowRight')
+        self.page.wait_for_function('() => turns.length === 2')
+        self.set_effect('none')
+        self.page.keyboard.up('ArrowRight')
+        self.page.wait_for_timeout(300)
+        self.assertEqual(self.state()['commits'], 1)
+        self.assertFalse(self.page.evaluate("slideDemo.paginator.hasAttribute('data-turn-progress')"))
+        self.set_effect('slide')
+        self.page.keyboard.press('ArrowRight')
+        self.wait_commits(2)
+        self.assertTrue(self.page.evaluate('turns.at(-1).samples.length > 0'))
+
+    def test_effect_change_fences_pending_chapter_load(self):
+        self.page.evaluate('slideDemo.paginator.goTo({index:0,anchor:1})')
+        self.page.evaluate("""() => {
+          const section=slideDemo.paginator.sections[1], original=section.load.bind(section)
+          section.load=async()=>{await new Promise(resolve=>window.releaseChapter=resolve);return original()}
+        }""")
+        self.page.keyboard.down('ArrowRight')
+        self.page.wait_for_function('() => !!window.releaseChapter')
+        self.set_effect('none')
+        self.page.evaluate('releaseChapter()')
+        self.page.keyboard.up('ArrowRight')
+        self.page.wait_for_timeout(300)
+        self.assertEqual(self.state()['index'],0)
+        self.assertEqual(self.state()['commits'],0)
+        self.assertEqual(self.page.evaluate("testRoot.querySelectorAll('.slide-sheet').length"),0)
+
+    @unittest.skipUnless(os.environ.get('SLIDE_DEMO_URL'), 'Persistence requires a real origin; covered in served CI')
+    def test_effect_persists_across_actual_reload(self):
+        self.page.locator('#settings-open').click()
+        self.page.locator('#effect').select_option('none')
+        self.assertEqual(self.page.evaluate("localStorage.getItem('pageTurnEffect')"),'none')
+        self.page.reload()
+        self.page.wait_for_function("() => window.slideDemo?.paginator?.page === 1")
+        self.assertEqual(self.state()['effect'],'none')
+        self.assertEqual(self.page.locator('#effect').input_value(),'none')
 
     def fast_keys(self, rtl=False, iframe=False):
         if rtl:

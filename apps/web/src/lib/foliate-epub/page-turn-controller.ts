@@ -5,6 +5,7 @@
  */
 
 import type { Paginator, PreparedPageTurn } from './paginator.js';
+import { normalizePageTurnEffect, type PageTurnEffect } from './page-turn-effect';
 import { wheelPageDistance, type TurnDirection } from './slide-geometry';
 import { PAGE_TURN_DURATION, PageTurnSequence, type PageTurnInput } from './page-turn-sequence';
 
@@ -40,7 +41,8 @@ export class PageTurnController {
     this.commands = new PageTurnSequence({
       prepare: (direction) => this.ownTurnOperation(() => paginator.preparePageTurn(direction)),
       cancel: () => this.ownTurnOperation(() => paginator.cancelPageTurn()),
-      reducedMotion: () => matchMedia('(prefers-reduced-motion: reduce)').matches,
+      reducedMotion: () =>
+        this.effect === 'none' || matchMedia('(prefers-reduced-motion: reduce)').matches,
       error: (error) => paginator.dispatchEvent(new CustomEvent('pageturnerror', { detail: error }))
     });
     paginator.setAttribute('layered', '');
@@ -66,6 +68,19 @@ export class PageTurnController {
       { signal: this.lifetime.signal }
     );
     this.bindDocument();
+  }
+
+  get effect(): PageTurnEffect {
+    return normalizePageTurnEffect(this.paginator.getAttribute('page-turn-effect'));
+  }
+
+  setEffect(value: PageTurnEffect) {
+    const effect = normalizePageTurnEffect(value);
+    if (effect === this.effect) return;
+    // Changing policy invalidates a held gesture, queued tail, and late load.
+    // The committed locator remains authoritative; never finish a stale turn.
+    this.cancel();
+    this.paginator.setAttribute('page-turn-effect', effect);
   }
 
   private bindDocument() {
@@ -161,6 +176,9 @@ export class PageTurnController {
           claimed: false,
           target: el
         };
+        // Margin drags must not start native text drag-and-drop on a later
+        // gesture. The iframe/text path returned above and remains selectable.
+        if (event.pointerType === 'mouse') event.preventDefault();
       }) as EventListener,
       { signal }
     );
@@ -265,6 +283,8 @@ export class PageTurnController {
     if (direction !== this.direction) this.resetTurn();
     this.direction = direction;
     this.progress = Math.min(1, Math.abs(signed));
+    // None keeps the current page still until gesture release qualifies a turn.
+    if (this.effect === 'none') return;
     if (!this.pending && !this.prepared) {
       const generation = this.generation;
       this.ownCancellation = true;
@@ -314,6 +334,12 @@ export class PageTurnController {
 
   private async finish(commit: boolean) {
     if (this.settling) return;
+    if (this.effect === 'none') {
+      const direction = this.direction;
+      this.resetTurn();
+      if (commit) this.turn(direction);
+      return;
+    }
     this.settling = true;
     clearTimeout(this.wheelTimer);
     const generation = this.generation;

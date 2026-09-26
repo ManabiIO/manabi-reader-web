@@ -10,14 +10,14 @@ reading and non-EPUB readers keep their existing implementations.
 
 The source prototype is `apple-books-slide-poc` at `f2f51f5d`. A forward turn
 slides the current sheet off the next page. The underlying page moves 15% of
-reader width and loses a 24% black shade. A backward turn brings the previous
+reader width and loses a 24% overlay (black in light appearance, white in dark).
+A backward turn brings the previous
 sheet over the current page with the inverse dimming. Both use horizontal screen
 coordinates, including vertical Japanese whose internal Foliate layout scrolls
 vertically. RTL reverses the physical directions. The page frame and moving sheet
-fill the viewport and share `--reader-page-radius` (square, 0px, unless an
-embedding host supplies actual container geometry). Reading margins and safe-area insets sit inside the moving sheets. There
-is no drop shadow; the full underlying page receives only the dimming overlay.
-Browsers do not expose a physical display's corner radius.
+fill the viewport and always have square corners. Reading margins and safe-area
+insets sit inside the moving sheets. There is no drop shadow; the full underlying
+page receives only the appearance-owned overlay.
 
 The first turn intent immediately collapses the controls, including the floating
 toggle and bottom action buttons. The bottom-center indicator is inside each
@@ -129,35 +129,47 @@ compatibility.
 The follow-up targets the integrated #55 source `92a53bfe9452ea0a3ad81824934113b369d82651`.
 It does not enable the renderer gate, change release configuration, or merge the stack.
 
-### Corners belong to the container, not a platform/device table
+### Square pages, stationary title, and appearance-owned overlay
 
-The old phone-55px/desktop-20px rules are removed. Both stationary and moving
-surfaces resolve `border-radius: var(--reader-page-radius, 0px)`. An outer native
-host or a deliberately rounded web container can set that inherited CSS token.
-CSS shorthand permits asymmetric/elliptical corners. Remove the token when the
-container is square or its geometry is unknown; clear stale values on window,
-orientation, fullscreen, and display changes. Values must be expressed in the
-web viewport's CSS-pixel coordinate system, not blindly copied as device pixels.
-This patch provides the CSS contract; it does not add a Swift bridge.
+All reading surfaces have `border-radius: 0`. The native-radius contract and the
+demo radius controls are removed. Legacy `--reader-page-radius` values are ignored;
+there is no device detection, host override, or rounded-page option.
 
-There is no interoperable browser API for physical display/window corner radii.
-`env(safe-area-inset-*)` gives a safe rectangle, not its enclosing curve. Insets
-also reserve other UI; converting them to radii, sniffing the UA, or treating a
-small viewport as an iPhone is not reliable. CSS `corner-shape` changes a drawn
-curve; it does not detect hardware geometry. Square-by-default applies on iPhone
-Safari too until geometry is supplied, rather than quietly guessing a radius.
+The existing `.reader-context` book title remains in the outer, fixed UI layer,
+above the opaque Foliate sheets and below the toolbar/dialogs. Only each sheet's
+bottom-center page indicator moves. The standalone has the equivalent stationary
+running title outside the paginator. Chapter headings in the book's actual text
+remain content and still move with their page.
 
-Native SwiftUI now documents `GeometryProxy.concentricCornerRadii(in:)`, returning
-optional radii for a specified frame relative to a known container shape. Its
-current documentation lists it as beta, so a future native bridge must check SDK
-and runtime availability, map physical corners, and handle `nil`. It is not a
-promise to recover every physical screen shape automatically. In particular,
-`containerCornerInsets` includes system controls and is not a substitute radius.
+The overlay uses `--reader-page-overlay`: black for light appearance and white
+for dark appearance. The Svelte adapter uses the app's **resolved** appearance,
+not an independent OS media query, so explicit overrides and System stay coherent.
+Alpha and geometry are unchanged: maximum 24%, fading with turn displacement.
+This is a lightening veil on dark paper, not a color inversion of the page text.
 
-Primary references, reviewed 2026-09-26:
-- https://www.w3.org/TR/css-env-1/#safe-area-insets
-- https://developer.apple.com/documentation/swiftui/geometryproxy/concentriccornerradii(in:)
-- https://developer.apple.com/documentation/swiftui/geometryproxy/containercornerinsets
+### Persisted Slide / None preference
+
+`pageTurnEffect` is validated as `slide` or `none`, defaulting to `slide` for old
+installs and unknown stored values. It uses the reader's existing local-storage
+subject contract. A shared control appears in Themes & Settings and searchable
+All Settings → Page layout. This applies to the gated Foliate paginated EPUB
+path; it neither enables the renderer gate nor changes continuous scrolling.
+
+`PageTurnController.setEffect()` cancels the old gesture, prepared tail, and
+late asynchronous work before switching. The current committed locator is kept.
+Slide retains the sequence below. None commits every discrete request as soon as
+its neighbor is ready, without animation, a quiet timer, or a reserved final page.
+None gestures accumulate distance without moving or tinting the current page;
+release crosses the existing threshold and atomically promotes the next/previous
+page. Short/reversed gestures cancel. Neighbor loading is still asynchronous.
+The paginator itself refuses visual updates in None, including manual previews.
+Promotion clears the preparation-only visibility flag: a regression asserts that
+every instant turn leaves the active sheet and its iframe visible, not just that
+the page counter advanced.
+
+Mouse-margin presses prevent native drag-and-drop initiation; iframe text presses
+still take the original selection/dictionary path. This repairs the reproduced
+second-margin-drag `pointercancel` without suppressing real cancellation events.
 
 ### Leading animation, instant middle, animated tail
 
@@ -196,14 +208,14 @@ EPUB-location jump or a guarantee of native hardware latency.
 
 `node scripts/build-slide-demo.mjs` generates
 `demos/apple-books-slide-poc/index.html` from the actual paginator, geometry,
-page-count, gesture-controller and sequence modules. The output includes source
+page-count, effect validation, gesture-controller and sequence modules. The output includes source
 SHA-256 hashes and the Foliate license. No third-party network requests are made
 by the demo. Source template: `demos/apple-books-slide-poc/template.html`.
 
 New deterministic tests cover burst timing, key identity, slow preparation,
 reversals, boundaries, reduced motion, failures, and cancellation. The built-app
 `test_foliate_fast_turns.py` adds held-key cases in the outer document and both
-LTR/vertical-RTL iframes, plus inherited asymmetric-corner checks. The original
+LTR/vertical-RTL iframes, plus square-page checks, persisted effect controls, and stationary-title/white-overlay checks. The original
 keyframe suite now explicitly expects the square default instead of requiring a
 nonzero radius. No original case or no-page-error assertion is removed.
 
@@ -214,3 +226,12 @@ makes distinct blob:null URLs cross-origin. This adapter is test-only, is not in
 the shipped HTML, and does not change sandbox attributes. In-memory passes do not
 qualify HTTP/file launch, Blob lifetimes, EPUB import, or the full Svelte application.
 The permanent Chromium CI step uses the served mode, without that adapter.
+
+## Follow-through on the previous CI failure
+
+The original 17-case Chromium slide suite passed at `a2c69bd`. The new fast-turn
+suite stopped in three wait predicates because string expressions required
+unsafe-eval under the application's CSP. They now use callable arrow predicates,
+matching the original suite. No CSP directive, assertion, browser security setting,
+or timeout was weakened. Served/built-app verification remains separate from the
+local in-memory renderer/input fixture mode.

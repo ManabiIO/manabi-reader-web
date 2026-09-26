@@ -64,22 +64,74 @@ class FoliateFastTurns(FoliateSlide):
     def test_fast_key_iframe_rtl(self):
         self.burst(rtl=True, iframe=True)
 
-    def test_square_default_and_host_corner_override(self):
+    def test_square_pages_ignore_legacy_radius(self):
         self.open_slide(False, mobile=True)
         self.assertEqual(self.pose()['radius'], '0px')
         self.page.set_viewport_size({'width': 1100, 'height': 780})
         self.page.wait_for_timeout(200)
         self.assertEqual(self.pose()['radius'], '0px')
-        # Set the contract at the outer document, not on the paginator itself:
-        # the Svelte page frame must not overwrite host-supplied geometry.
+        # The removed radius contract must not restore rounded pages.
         self.page.evaluate("document.documentElement.style.setProperty('--reader-page-radius','0px 12px 24px 36px')")
         self.page.evaluate(f'async()=>{{window.turn=await {P}.preparePageTurn(1);turn.update(.5)}}')
         pose = self.pose()
-        self.assertEqual(pose['radius'], '0px 12px 24px 36px')
+        self.assertEqual(pose['radius'], '0px')
         self.assertEqual(pose['neighborRadius'], pose['radius'])
-        self.screenshot('host-per-corner-geometry')
+        self.screenshot('square-pages-no-radius-contract')
         self.page.evaluate("turn.cancel();document.documentElement.style.removeProperty('--reader-page-radius')")
         self.assertEqual(self.pose()['radius'], '0px')
+
+    def choose_effect(self, value):
+        self.toggle_controls()
+        self.page.get_by_role('button', name='Themes & Settings', exact=True).click()
+        self.page.get_by_role('combobox', name='Page turn effect', exact=True).select_option(value)
+        self.assertEqual(self.page.evaluate("localStorage.getItem('pageTurnEffect')"), value)
+        self.page.get_by_role('button', name='Close reading appearance', exact=True).click()
+        self.page.wait_for_function(f"() => {P}.getAttribute('page-turn-effect') === '{value}'")
+
+    def test_none_is_saved_in_both_settings_and_has_no_repeat_tail(self):
+        self.open_slide(False)
+        self.choose_effect('none')
+        self.record_turns()
+        self.page.evaluate(f'{P}.focusView()')
+        for i in range(5):
+            self.page.keyboard.down('ArrowRight')
+            self.page.wait_for_function('n => turnCommits === n', arg=i+1)
+            self.assertEqual(self.page.evaluate("getComputedStyle(slideRoot.querySelector('#top')).visibility"), 'visible')
+        self.assertTrue(self.page.evaluate('fastTurns.every(t=>t.committed && t.samples.length===0)'))
+        self.page.keyboard.up('ArrowRight')
+        self.page.wait_for_timeout(250)
+        self.assertEqual(self.pose()['commits'],5)
+        self.page.reload()
+        self.page.wait_for_function(f"() => {P}?.page >= 1")
+        self.assertEqual(self.page.evaluate(f"{P}.getAttribute('page-turn-effect')"),'none')
+        self.page.goto(self.origin + '/reader-web/settings#layout')
+        setting=self.page.get_by_role('combobox', name='Page turn effect', exact=True)
+        self.assertEqual(setting.input_value(),'none')
+        setting.select_option('slide')
+        self.assertEqual(self.page.evaluate("localStorage.getItem('pageTurnEffect')"),'slide')
+        self.page.reload()
+        self.assertEqual(self.page.get_by_role('combobox', name='Page turn effect', exact=True).input_value(),'slide')
+
+    def test_running_title_stays_put_and_dark_mode_uses_white_overlay(self):
+        self.open_slide(False)
+        self.page.evaluate(f'{P}.goTo({{index:0,anchor:.2}})')
+        self.page.evaluate("localStorage.setItem('appearance','dark')")
+        self.page.reload()
+        self.page.wait_for_function(f"() => {P}?.page >= 1 && {P}.pageCounts.every(Number.isFinite)")
+        self.page.evaluate(f'{P}.goTo({{index:0,anchor:.2}})')
+        title=self.page.locator('.reader-context')
+        initial=title.bounding_box()
+        for direction in [1,-1]:
+            self.page.evaluate(f'async d=>{{window.turn=await {P}.preparePageTurn(d)}}',direction)
+            for progress in [.25,.5,.75]:
+                self.page.evaluate('p=>turn.update(p)',progress)
+                self.assertEqual(title.bounding_box(),initial)
+                self.assertTrue(title.is_visible())
+                self.assertEqual(self.page.evaluate("[...slideRoot.querySelectorAll('.slide-shade')].map(el=>getComputedStyle(el).backgroundColor)"),['rgb(255, 255, 255)']*2)
+                self.assertGreaterEqual(self.page.evaluate("Number(getComputedStyle(document.querySelector('.reader-context')).zIndex)"),10)
+                self.assert_pose(self.pose(),progress,direction,False)
+            self.screenshot('stationary-title-white-overlay-'+str(direction))
+            self.page.evaluate('turn.cancel()')
 
 
 def load_tests(loader, tests, pattern):

@@ -24,11 +24,16 @@ select; mouse drags from the margins turn pages. Touch and wheel still use the
 reader's existing displacement-based gesture path, not the repeat-key sequence.
 
 **Aa** offers English/LTR and vertical Japanese/RTL, text size, night paper,
-held-pose inspection, and an explicitly manual corner preview. Corners default
-to square. Set inherited `--reader-page-radius` only when the embedding host
-knows its container geometry; it is not inferred from a platform/device table.
+a persisted **Page turn effect: Slide / None**, and held-pose inspection for Slide.
+Pages are always square. The running title stays fixed; only the page numbers
+move with the sheets. Dark paper uses a white overlay, light paper uses black.
 
-The artifact embeds SHA-256 hashes of all five source modules. Rebuild after
+None snaps to the selected page without an intermediate visual transition.
+There is no leading/trailing animation or reserved key-repeat tail in None.
+A swipe still qualifies by distance at release; book text stays still meanwhile.
+Changing effects cancels an unfinished turn without advancing reading progress.
+
+The artifact embeds SHA-256 hashes of all six source modules. Rebuild after
 editing any of them. Test in real Safari before judging Apple-device input feel.
 
 ## Verification modes
@@ -46,5 +51,4 @@ about:blank's opaque Blob origins. That adapter is not shipped in the HTML and
 does not qualify HTTP/file launch, Blob lifetimes, EPUB import, or the full
 Svelte application. The permanent Chromium CI step uses the first mode.
 
-See `docs/foliate-slide.md` for the sequence contract, native corner API research,
-remaining qualifications, and integration boundaries.
+See `docs/foliate-slide.md` for the sequence contract, remaining qualifications, and integration boundaries.

@@ -24,6 +24,8 @@
     type StoredFoliateBook
   } from '$lib/foliate-epub/stored-foliate-book';
   import { FoliateCharacterProgress } from '$lib/foliate-epub/foliate-character-progress';
+  import { pageTurnEffect$ } from '$lib/data/page-turn-preferences';
+  import { resolvedMode$ } from '$lib/appearance/state';
   import { PageTurnController } from '$lib/foliate-epub/page-turn-controller';
   import {
     ReaderNavigationCoordinator,
@@ -410,6 +412,8 @@
     });
   }
 
+  $: pageTurns?.setEffect($pageTurnEffect$);
+
   onMount(async () => {
     await import('$lib/foliate-epub/paginator.js');
     if (destroyed) return;
@@ -438,6 +442,7 @@
     paginator.addEventListener('pageturnstart', handlePageTurnStart);
     paginator.addEventListener('togglecontrols', () => dispatch('toggleControls'));
     pageTurns = new PageTurnController(paginator);
+    pageTurns.setEffect($pageTurnEffect$);
     host.append(paginator);
     paginator.open(book);
     paginator.setStyles(readerStyles());
@@ -511,6 +516,7 @@
 
 <div
   bind:this={host}
+  style:--reader-page-overlay={$resolvedMode$ === 'dark' ? 'white' : 'black'}
   class="foliate-reader book-content"
   style:width={width ? `${width}px` : '100%'}
   style:height={height ? `${height}px` : '100%'}
@@ -519,6 +525,10 @@
 ></div>
 
 <style>
+  :global(.reader-context) {
+    z-index: 10;
+  }
+
   .foliate-reader {
     overflow: hidden;
     min-width: 0;
