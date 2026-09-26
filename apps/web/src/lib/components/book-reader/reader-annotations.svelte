@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ImportedYatsuNotes from './imported-yatsu-notes.svelte';
   import { createEventDispatcher } from 'svelte';
   import * as Sheet from '$lib/components/ui/sheet';
   import { Button } from '$lib/components/ui/button';
@@ -14,6 +15,8 @@
   import type { AnnotationImportConflict } from '$lib/reader-annotations';
 
   export let open = false;
+  export let bookId = 0;
+  export let bookKey = '';
   export let annotations: ReaderAnnotation[] = [];
   export let importConflicts: AnnotationImportConflict[] = [];
   export let hasSelection = false;
@@ -69,7 +72,7 @@
         ><DownloadSimple aria-hidden="true" />Export Notes</Button
       >
       <label
-        class="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-md px-3 text-sm font-medium hover:bg-muted focus-within:outline-2 focus-within:outline-ring"
+        class="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-[10px] px-3 text-sm font-medium hover:bg-muted focus-within:outline-2 focus-within:outline-ring"
         class:opacity-50={busy}
         class:pointer-events-none={busy}
         aria-label="Import notes"
@@ -162,7 +165,14 @@
                   : 'Highlight'} · Section {annotation.targets[0].resource.spineIndex + 1}</span
             >
             <span class="mt-1 block break-words text-sm"
-              >{annotation.body || annotation.targets[0].quote || 'Saved reading position'}</span
+              >{annotation.label ||
+                annotation.body ||
+                annotation.targets[0].quote ||
+                'Saved reading position'}
+              {#if annotation.label && (annotation.body || annotation.targets[0].quote)}<span
+                  class="mt-1 block text-muted-foreground"
+                  >{annotation.body || annotation.targets[0].quote}</span
+                >{/if}</span
             >
             <span class="sr-only">Go to saved passage</span>
           </button>
@@ -177,5 +187,6 @@
         </div>
       {/each}
     </div>
+    <ImportedYatsuNotes {bookId} {bookKey} {open} />
   </Sheet.Content>
 </Sheet.Root>

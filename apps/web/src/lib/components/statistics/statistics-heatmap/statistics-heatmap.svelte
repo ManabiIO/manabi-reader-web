@@ -6,6 +6,7 @@
   import faRepeat from '@lucide/svelte/icons/repeat';
   import { ReadingGoalFrequency } from '$lib/components/book-reader/book-reading-tracker/book-reading-tracker';
   import Popover from '$lib/components/popover/popover.svelte';
+  import { Button } from '$lib/components/ui/button';
   import {
     type HeatmapMonthLabel,
     type HeatmapStreak,
@@ -45,7 +46,7 @@
     getPreviousDayKey,
     secondsToMinutes
   } from '$lib/functions/statistic-util';
-  import { caluclatePercentage, dummyFn, limitToRange, pluralize } from '$lib/functions/utils';
+  import { caluclatePercentage, limitToRange, pluralize } from '$lib/functions/utils';
   import { debounceTime, fromEvent, tap } from 'rxjs';
   import { onMount, tick } from 'svelte';
   import AppIcon from '$lib/components/app-icon.svelte';
@@ -145,6 +146,23 @@
     tick().then(() => {
       heatmapElement.scrollTo({ top: 0, left: 0, behavior: 'auto' });
     });
+  }
+
+  function openHeatmapDay(target: HTMLElement, heatmapDay: StatisticsHeatmapDayData) {
+    if (!heatmapDay.isCurrentYear) return;
+    popoverDetails = heatmapDay.dayDetails;
+    void tick().then(() => {
+      if (target.isConnected) heatmapDetailDataPopover.toggleOpen(target);
+    });
+  }
+
+  function handleHeatmapDayKeydown(
+    event: KeyboardEvent,
+    heatmapDay: StatisticsHeatmapDayData
+  ) {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    if (event.currentTarget instanceof HTMLElement) openHeatmapDay(event.currentTarget, heatmapDay);
   }
 
   async function highlightStreaks(streaks: HeatmapStreak[], streakToSelect: HeatmapStreakType) {
@@ -1072,32 +1090,42 @@
 </script>
 
 {$resizeHandler$ ?? ''}
-<div class="mb-4 flex justify-center">
-  {heatmapLabel}
-  <button
-    title="Return to current Year"
-    class="mx-4 hover:text-red-500"
-    on:click={() => changeHeatmapYear(today.getFullYear() - heatmapYear)}
+<div class="mb-4 flex items-center justify-center gap-1">
+  <span class="min-w-0 text-center">{heatmapLabel}</span>
+  <Button
+    variant="ghost"
+    size="icon"
+    shape="circle"
+    aria-label="Return to current year"
+    title="Return to current year"
+    onclick={() => changeHeatmapYear(today.getFullYear() - heatmapYear)}
   >
     <AppIcon icon={faRepeat} />
-  </button>
-  <button
-    title="Switch (Streak) Data between 'All Time' and 'Current Year'"
-    class="text-lg hover:text-red-500"
-    on:click={() =>
+  </Button>
+  <Button
+    variant={heatmapAggregration === HeatmapDataAggregration.ALL_TIME ? 'secondary' : 'ghost'}
+    size="icon"
+    shape="circle"
+    aria-label="Use all-time streak data"
+    aria-pressed={heatmapAggregration === HeatmapDataAggregration.ALL_TIME}
+    title="Switch streak data between all time and current year"
+    onclick={() =>
       (heatmapAggregration =
         heatmapAggregration === HeatmapDataAggregration.ALL_TIME
           ? HeatmapDataAggregration.YEAR
           : HeatmapDataAggregration.ALL_TIME)}
   >
     <AppIcon icon={faLayerGroup} />
-  </button>
+  </Button>
 </div>
-<div class="flex justify-between">
-  <button
-    title="Move Backwards"
-    class="hover:text-red-500"
-    on:click={() => {
+<div class="flex items-center justify-between">
+  <Button
+    variant="ghost"
+    size="icon"
+    shape="circle"
+    aria-label="Previous heatmap period"
+    title="Previous heatmap period"
+    onclick={() => {
       if (heatmapElement.scrollLeft === 0) {
         changeHeatmapYear(-1);
       } else {
@@ -1110,7 +1138,7 @@
     }}
   >
     <AppIcon icon={faChevronLeft} />
-  </button>
+  </Button>
   <div
     class="grid items-center overflow-x-auto py-1"
     style:grid-auto-columns={`${dayElementSize}px`}
@@ -1154,8 +1182,10 @@
         (heatmapDay.dateString === $lastStatisticsStartDate$ ||
           heatmapDay.dateString === $lastStatisticsEndDate$)}
       <div
-        tabindex="0"
-        role="cell"
+        tabindex={heatmapDay.isCurrentYear ? 0 : -1}
+        role="button"
+        aria-disabled={!heatmapDay.isCurrentYear}
+        aria-label={heatmapDay.isCurrentYear ? heatmapDay.dayDetails.join('. ') : undefined}
         class="justify-self-center fadeIn"
         class:cursor-pointer={heatmapDay.isCurrentYear}
         class:bg-heatmap-empty={heatmapDay.isCurrentYear}
@@ -1173,19 +1203,10 @@
         title={`${heatmapDay.isCurrentYear ? `${heatmapDay.dayDetails.join('\n')}` : ''}`}
         data-date={heatmapDay.dateString}
         on:click={(event) => {
-          if (!heatmapDay.isCurrentYear) {
-            return;
-          }
-
-          popoverDetails = heatmapDay.dayDetails;
-
-          tick().then(() => {
-            if (event.target instanceof HTMLElement) {
-              heatmapDetailDataPopover.toggleOpen(event.target);
-            }
-          });
+          if (event.currentTarget instanceof HTMLElement)
+            openHeatmapDay(event.currentTarget, heatmapDay);
         }}
-        on:keyup={dummyFn}
+        on:keydown={(event) => handleHeatmapDayKeydown(event, heatmapDay)}
       ></div>
     {/each}
     {#if popoverDetails.length}
@@ -1196,13 +1217,17 @@
           class:w-36={heatmapType === HeatmapType.STATISTICS}
           class:w-42={heatmapType === HeatmapType.READING_GOALS}
         >
-          <button
-            title="Close Details"
-            class="flex w-full justify-end absolute right-2"
-            on:click={() => (popoverDetails = [])}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            shape="circle"
+            class="absolute right-2 top-2"
+            aria-label="Close heatmap details"
+            title="Close heatmap details"
+            onclick={() => (popoverDetails = [])}
           >
             <AppIcon icon={faClose} />
-          </button>
+          </Button>
           {#each popoverDetails as popoverDetail (popoverDetail)}
             <div class="mb-2 last:mb-0">{popoverDetail}</div>
           {/each}
@@ -1210,10 +1235,13 @@
       </Popover>
     {/if}
   </div>
-  <button
-    title="Move Forwards"
-    class="hover:text-red-500"
-    on:click={() => {
+  <Button
+    variant="ghost"
+    size="icon"
+    shape="circle"
+    aria-label="Next heatmap period"
+    title="Next heatmap period"
+    onclick={() => {
       const scrollWidth =
         heatmapElement.scrollWidth - heatmapElement.scrollLeft - heatmapDayMargins;
       if (scrollWidth <= heatmapElement.clientWidth) {
@@ -1228,7 +1256,7 @@
     }}
   >
     <AppIcon icon={faChevronRight} />
-  </button>
+  </Button>
 </div>
 {#if currentHeatmapData}
   {@const isAllTime = heatmapAggregration === HeatmapDataAggregration.ALL_TIME}

@@ -35,7 +35,7 @@ class ControlRefinementBrowser(modal_controls.ModalControlsBrowser):
 
     def test_navigation_uses_shared_close_without_overlapping_enlarged_headers(self):
         self.page.set_viewport_size({'width': 320, 'height': 568})
-        self.page.goto(self.origin + '/Reader-Web/settings')
+        self.page.goto(self.origin + '/reader-web/settings')
         self.page.evaluate('document.documentElement.style.fontSize = "125%"')
         trigger = self.page.get_by_role('button', name='Navigate', exact=True)
         trigger.click()

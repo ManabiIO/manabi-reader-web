@@ -175,7 +175,10 @@ class RheaReader(previous.RefinedAppearance):
             expect(self.page.get_by_role('button', name='Show reading controls', exact=True)).to_be_focused()
             self.page.get_by_role('button', name='Show reading controls', exact=True).tap()
             self.page.get_by_role('button', name='Themes & Settings', exact=True).tap()
-            panel.get_by_role('button', name='Close reading appearance', exact=True).tap()
+            close = panel.get_by_role('button', name='Close reading appearance', exact=True)
+            expect(close).to_have_attribute('data-modal-dismiss', '')
+            expect(close).to_have_attribute('data-shape', 'circle')
+            close.tap()
             expect(panel).to_have_count(0)
             expect(self.page.get_by_role('button', name='Themes & Settings', exact=True)).to_be_focused()
         finally:
@@ -185,7 +188,7 @@ class RheaReader(previous.RefinedAppearance):
 
     def test_contents_navigation_reflows_and_returns_focus_at_phone_and_desktop(self):
         self.context.add_init_script("if (location.pathname.endsWith('/manage')) { localStorage.setItem('fontFamilyGroupOne', 'Klee One'); localStorage.setItem('viewMode', 'paginated'); }")
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
             'name': 'chapters.epub', 'mimeType': 'application/epub+zip', 'buffer': chaptered_epub()})
@@ -207,6 +210,9 @@ class RheaReader(previous.RefinedAppearance):
                 self.assertGreaterEqual(bounds['x'], 0)
                 self.assertLessEqual(bounds['x'] + bounds['width'], width)
                 self.assertGreaterEqual(bounds['height'], 43.99)
+            close = panel.get_by_role('button', name='Close Table of Contents', exact=True)
+            expect(close).to_have_attribute('data-modal-dismiss', '')
+            expect(close).to_have_attribute('data-shape', 'circle')
             chapters = panel.get_by_role('navigation', name='Chapters')
             expect(chapters.get_by_role('button', name='A new morning', exact=True)).to_be_visible()
             chapters.get_by_role('button', name='A new morning', exact=True).click()
@@ -288,7 +294,7 @@ class RheaReader(previous.RefinedAppearance):
             'button', name=name, exact=True).click()
 
     def test_empty_library_has_keyboard_import_action(self):
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         action = self.page.get_by_role('button', name='Import File(s)', exact=True)
         expect(action).to_be_visible()
         expect(self.page.locator('input[type=file][accept*=".epub"]')).to_be_hidden()
@@ -298,7 +304,7 @@ class RheaReader(previous.RefinedAppearance):
             action.press('Enter')
 
     def test_library_workspace_import_collection_search_and_completion(self):
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         self.page.locator('input[type=file][accept*=".epub"]').set_input_files({
             'name': 'acceptance.epub',
             'mimeType': 'application/epub+zip',
@@ -334,7 +340,8 @@ class RheaReader(previous.RefinedAppearance):
         search = self.page.get_by_role('searchbox', name='Search library', exact=True)
         expect(search).to_be_focused()
         search.fill('not-this-book')
-        expect(self.page.get_by_role('heading', name='No matching books', exact=True)).to_be_visible()
+        expect(self.page.get_by_role('heading', name='Books 0', exact=True)).to_be_visible()
+        expect(self.page.get_by_text('No matching book metadata.', exact=True)).to_be_visible()
         search.fill('reader browser')
         self.page.keyboard.press('Escape')
         expect(compact_search).to_be_focused()
@@ -342,7 +349,7 @@ class RheaReader(previous.RefinedAppearance):
 
     def test_library_overflow_is_labeled_keyboard_operable_and_mobile_sized(self):
         self.page.set_viewport_size({'width':390, 'height':844})
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         trigger = self.page.get_by_role('button', name='Library actions', exact=True)
         trigger.focus()
         trigger.press('Enter')
@@ -401,10 +408,39 @@ class RheaReader(previous.RefinedAppearance):
     def test_dialog_traps_focus_and_escape_preserves_custom_theme(self):
         self.settings()
         trigger = self.page.get_by_role('button', name='Add custom theme', exact=True)
+        expect(trigger).to_have_attribute('data-variant', 'outline')
+        expect(trigger).to_have_attribute('data-size', 'lg')
+        geometry = trigger.evaluate('''e => {
+          const rect = e.getBoundingClientRect();
+          return {height: rect.height, radius: parseFloat(getComputedStyle(e).borderTopLeftRadius)};
+        }''')
+        self.assertGreaterEqual(geometry['height'], 43.99)
+        self.assertGreaterEqual(geometry['radius'], geometry['height'] / 2)
         trigger.click()
         dialog = self.page.locator('[data-slot="dialog-content"]')
         expect(dialog).to_be_visible()
-        self.page.get_by_label('Theme name', exact=True).fill('Not saved')
+        expect(dialog.locator('[data-theme-preview]')).to_have_count(1)
+        expect(dialog.locator('[data-theme-preview]')).to_have_attribute('aria-hidden', 'true')
+        self.assertEqual(
+            0,
+            dialog.locator('[data-theme-preview] button, button[data-theme-preview]').count(),
+            'The visual theme sample must not be a focusable no-op button'
+        )
+        expect(dialog.get_by_role('button', name='Copy', exact=True)).to_have_attribute(
+            'data-variant', 'outline'
+        )
+        expect(dialog.get_by_role('button', name='Cancel', exact=True)).to_have_attribute(
+            'data-variant', 'ghost'
+        )
+        expect(dialog.get_by_role('button', name='Save', exact=True)).to_have_attribute(
+            'data-variant', 'secondary'
+        )
+        name = self.page.get_by_label('Theme name', exact=True)
+        self.assertGreaterEqual(name.bounding_box()['height'], 43.99)
+        for field in dialog.locator('input[type="color"]').all():
+            self.assertGreaterEqual(field.bounding_box()['height'], 43.99)
+            self.assertGreaterEqual(field.bounding_box()['width'], 43.99)
+        name.fill('Not saved')
         for _ in range(18):
             self.page.keyboard.press('Tab')
             expect(dialog.locator(':focus')).to_have_count(1)
@@ -507,7 +543,7 @@ class RheaReader(previous.RefinedAppearance):
 
     def test_library_sort_and_export_preserve_all_export_parts(self):
         self.open_book(font='Klee One')
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         self.page.get_by_role('button', name='Library actions', exact=True).click()
         self.page.get_by_role('menuitem', name='View Options', exact=True).hover()
         self.page.get_by_role('menuitem', name='Sort by…', exact=True).hover()
@@ -598,7 +634,7 @@ class RheaReader(previous.RefinedAppearance):
 
         screenshot_dir = os.environ.get('BOOK_DETAILS_SCREENSHOT_DIR')
         self.page.set_viewport_size({'width': 390, 'height': 844})
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute('aria-busy', 'false')
         for width, height, view in ((390, 844, 'Grid'), (390, 844, 'List'), (1440, 900, 'Grid'), (1440, 900, 'List')):
             with self.subTest(width=width, view=view):
@@ -674,13 +710,23 @@ class RheaReader(previous.RefinedAppearance):
         expect(unstarted_dialog).to_have_count(0)
 
     def test_statistics_filter_is_one_focus_managed_sheet(self):
-        self.page.goto(self.origin + '/Reader-Web/statistics')
+        self.page.set_viewport_size({'width': 390, 'height': 844})
+        self.page.goto(self.origin + '/reader-web/statistics')
         trigger = self.page.get_by_role('button', name='Filter books', exact=True)
         trigger.click()
         sheet = self.page.get_by_role('dialog', name='Filter books', exact=True)
         expect(sheet).to_be_visible()
         expect(self.page.get_by_role('dialog')).to_have_count(1)
+        expect(sheet.get_by_role('heading', name='Filter books', level=2)).to_be_visible()
+        close = sheet.get_by_role('button', name='Close title filter', exact=True)
+        expect(close).to_have_attribute('data-modal-dismiss', '')
+        expect(close).to_have_attribute('data-shape', 'circle')
+        self.assertGreaterEqual(close.bounding_box()['height'], 43.99)
+        apply = sheet.get_by_role('button', name='Apply Filter', exact=True)
+        expect(apply).to_have_attribute('data-variant', 'secondary')
+        self.assertLessEqual(sheet.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
         field = sheet.get_by_role('searchbox', name='Filter book titles', exact=True)
+        self.assertGreaterEqual(field.bounding_box()['height'], 43.99)
         field.fill('A title that is not present')
         expect(sheet.get_by_text('No Titles to filter', exact=True)).to_be_visible()
         for _ in range(8):
@@ -712,6 +758,7 @@ class RheaReader(previous.RefinedAppearance):
         self.category('Tracking & goals')
         self.page.get_by_role('switch', name='Enable Statistics', exact=True).check()
         self.assertEqual('1', self.page.evaluate('localStorage.getItem("statisticsEnabled")'))
+        self.page.set_viewport_size({'width': 390, 'height': 844})
         self.open_book(font='Klee One')
         trigger = self.page.get_by_role('button', name='Open reading tracker', exact=True)
         expect(trigger).to_be_visible(timeout=30000)
@@ -719,6 +766,12 @@ class RheaReader(previous.RefinedAppearance):
         sheet = self.page.get_by_role('dialog', name='Reading tracker', exact=True)
         expect(sheet).to_be_visible()
         expect(self.page.get_by_role('dialog')).to_have_count(1)
+        expect(sheet.get_by_role('heading', name='Reading tracker', level=2)).to_be_visible()
+        close = sheet.get_by_role('button', name='Close reading tracker', exact=True)
+        expect(close).to_have_attribute('data-modal-dismiss', '')
+        expect(close).to_have_attribute('data-shape', 'circle')
+        self.assertGreaterEqual(close.bounding_box()['height'], 43.99)
+        self.assertLessEqual(sheet.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
         for label in ['Toggle Tracker', 'Update Position', 'Toggle Freeze Position', 'Save']:
             expect(sheet.get_by_role('button', name=label, exact=True)).to_be_visible()
         expect(sheet.get_by_role('button', name='Save', exact=True)).to_be_disabled()
@@ -746,7 +799,7 @@ class RheaReader(previous.RefinedAppearance):
             target.writestr('second.png', png([24,100,146], 500, 700))
         values = {'fontFamilyGroupOne':'Klee One', 'hideSpoilerImage': '1' if hide_spoilers else '0'}
         self.context.add_init_script('for (const [key, value] of Object.entries(' + json.dumps(values) + ')) localStorage.setItem(key, value);')
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
             'name':'gallery.epub', 'mimeType':'application/epub+zip', 'buffer':output.getvalue()
@@ -820,7 +873,7 @@ class RheaReader(previous.RefinedAppearance):
         self.page.keyboard.press('Escape')
 
     def test_statistics_navigation_and_options_sheet(self):
-        self.page.goto(self.origin + '/Reader-Web/statistics')
+        self.page.goto(self.origin + '/reader-web/statistics')
         self.page.get_by_role('button', name='Heatmap', exact=True).click()
         expect(self.page.get_by_role('button', name='Heatmap', exact=True)).to_have_attribute('aria-pressed','true')
         self.page.get_by_role('button', name='Summary', exact=True).click()
@@ -832,14 +885,36 @@ class RheaReader(previous.RefinedAppearance):
         expect(panel).to_have_count(0)
 
     def test_statistics_raw_recovery_download_preserves_ambiguous_days(self):
-        self.page.goto(self.origin + '/Reader-Web/statistics')
+        self.page.goto(self.origin + '/reader-web/statistics')
         expect(self.page.get_by_role('button', name='Statistics options', exact=True)).to_be_visible()
-        self.page.evaluate('''() => new Promise((resolve, reject) => {
+        # The header can render before the application's database upgrade. A
+        # bare open here would create an empty v1 database if it wins that race.
+        # Observe the real schema, never create or upgrade it from this fixture.
+        self.page.wait_for_function('''() => new Promise((resolve, reject) => {
           const open = indexedDB.open('books');
-          open.onerror = () => reject(open.error);
+          let absent = false;
+          open.onupgradeneeded = () => { absent = true; open.transaction.abort(); };
+          open.onerror = () => absent ? resolve(false) : reject(open.error);
           open.onsuccess = () => {
             const db = open.result;
-            const tx = db.transaction(['statistic', 'readerStatistic', 'readerStatisticMigration'], 'readwrite');
+            const ready = ['statistic', 'readerStatistic', 'readerStatisticMigration']
+              .every(name => db.objectStoreNames.contains(name));
+            db.close();
+            resolve(ready);
+          };
+        })''')
+        self.page.evaluate('''() => new Promise((resolve, reject) => {
+          const deadline = setTimeout(() => reject(new Error('Statistics seed transaction stalled')), 15000);
+          const open = indexedDB.open('books');
+          open.onerror = () => { clearTimeout(deadline); reject(open.error); };
+          open.onsuccess = () => {
+            const db = open.result;
+            let tx;
+            try {
+              tx = db.transaction(['statistic', 'readerStatistic', 'readerStatisticMigration'], 'readwrite');
+            } catch (error) {
+              clearTimeout(deadline); db.close(); reject(error); return;
+            }
             const title = 'Two copies';
             const common = {title, readingTime: 60, charactersRead: 25, minReadingSpeed: 1,
               altMinReadingSpeed: 1, lastReadingSpeed: 1, maxReadingSpeed: 1,
@@ -848,8 +923,9 @@ class RheaReader(previous.RefinedAppearance):
             tx.objectStore('readerStatistic').put({...common, dateKey: '2026-09-21',
               bookKey: 'content:' + 'a'.repeat(64)});
             tx.objectStore('readerStatisticMigration').put({title, state: 'ambiguous'});
-            tx.oncomplete = () => { db.close(); resolve(); };
-            tx.onerror = () => reject(tx.error);
+            tx.oncomplete = () => { clearTimeout(deadline); db.close(); resolve(); };
+            tx.onerror = () => { clearTimeout(deadline); db.close(); reject(tx.error); };
+            tx.onabort = () => { clearTimeout(deadline); db.close(); reject(tx.error); };
           };
         })''')
         self.page.reload()

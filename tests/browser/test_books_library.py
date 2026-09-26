@@ -143,7 +143,7 @@ class LibraryBase(unittest.TestCase):
         self.assertEqual([], StaticHandler.probes)
 
     def go_library(self):
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
         shelf = self.page.get_by_role('region', name='Library shelves')
         expect(shelf).to_have_attribute('data-hydrated', 'true', timeout=30000)
@@ -222,13 +222,29 @@ class LibraryBase(unittest.TestCase):
         try:
             expect(dialog.get_by_role('checkbox', name=name, exact=True)).to_be_checked()
         except AssertionError as failure:
-            rows = self.stores('manabi-reader-integrations', ['metadata'])['metadata']
-            saved = next((row for row in rows if row.get('version') == 1 and 'collections' in row), {})
-            names = [collection.get('name') for collection in saved.get('collections', [])]
-            alerts = dialog.get_by_role('alert').all_text_contents()
+            # Failure-only evidence: distinguish a genuinely lost organization
+            # write from WebKit exposing the previous committed value briefly
+            # after tx.done. This never retries the user action or turns a
+            # failure into a pass.
+            samples = []
+            for delay in (0, 25, 100, 500, 1500):
+                if delay:
+                    self.page.wait_for_timeout(delay)
+                rows = self.stores('manabi-reader-integrations', ['metadata'])['metadata']
+                saved = next(
+                    (row for row in rows if row.get('version') == 1 and 'collections' in row), {}
+                )
+                samples.append({
+                    'delay': delay,
+                    'names': [
+                        collection.get('name') for collection in saved.get('collections', [])
+                    ],
+                    'checkboxes': dialog.get_by_role('checkbox').all_text_contents(),
+                    'alerts': dialog.get_by_role('alert').all_text_contents()
+                })
             events = self.page.evaluate('window.__collectionEvents || []')
             raise AssertionError(
-                f'Collection {name!r} was not shown after creation; persisted={names!r}; alerts={alerts!r}; events={events!r}'
+                f'Collection {name!r} was not shown after creation; samples={samples!r}; events={events!r}'
             ) from failure
         dialog.get_by_role('button', name='Done', exact=True).click()
         # Do not fill the previous dialog's still-mounted exit transition when
@@ -267,12 +283,12 @@ class LibraryBase(unittest.TestCase):
 class BooksLibraryBrowser(LibraryBase):
     def test_yatsu_backup_collection_is_visible_on_phone_and_desktop(self):
         fixture = Path(__file__).resolve().parents[1] / 'fixtures' / 'yatsu' / 'complete-local-backup-v11.zip'
-        self.page.goto(self.origin + '/Reader-Web/import-ttu?source=yatsu')
+        self.page.goto(self.origin + '/reader-web/import-ttu?source=yatsu')
         picker = self.page.get_by_label('Choose Yatsu backup ZIPs', exact=True)
         picker.set_input_files(str(fixture))
         self.page.get_by_role('button', name='Import selected (1)', exact=True).click()
         expect(self.page.get_by_role('article', name='Import Manabi Yatsu Portability Fixture')
-               .get_by_role('status')).to_have_text('Imported Manabi Yatsu Portability Fixture.', timeout=60000)
+               .get_by_role('status')).to_contain_text('Imported Manabi Yatsu Portability Fixture.', timeout=60000)
         for width in (390, 1200):
             with self.subTest(width=width):
                 self.page.set_viewport_size({'width': width, 'height': 844})
@@ -603,7 +619,8 @@ class BooksLibraryBrowser(LibraryBase):
                     expect(self.page.get_by_role('button', name='Read Standard cover', exact=True)).to_be_visible()
                     trigger.click()
                     self.page.get_by_role('searchbox', name='Search library', exact=True).fill('No matching title')
-                    expect(self.page.get_by_role('heading', name='No matching books', exact=True)).to_be_visible()
+                    expect(self.page.get_by_text('No matching book metadata.', exact=True)).to_be_visible()
+                    expect(self.page.get_by_text('No content matches.', exact=True)).to_be_visible()
                     self.page.get_by_role('button', name='Cancel', exact=True).click()
                     expect(trigger).to_be_focused()
                 else:
@@ -825,8 +842,9 @@ class BooksLibraryBrowser(LibraryBase):
             expect(self.tile(title).get_by_role('heading', name=title, exact=True)).to_be_visible()
         search = self.page.get_by_role('searchbox', name='Search library', exact=True)
         search.fill('missing book')
-        expect(self.page.get_by_role('heading', name='No matching books', exact=True)).to_be_visible()
-        self.page.get_by_role('button', name='Clear Search', exact=True).click()
+        expect(self.page.get_by_text('No matching book metadata.', exact=True)).to_be_visible()
+        expect(self.page.get_by_text('No content matches.', exact=True)).to_be_visible()
+        search.fill('')
         expect(self.page.get_by_role('heading', name='Continue', exact=True)).to_be_visible()
         self.assertEqual(before, self.stores('books', ['bookmark', 'statistic']))
 
@@ -956,6 +974,7 @@ class BooksLibraryBrowser(LibraryBase):
         expect(self.page.get_by_role('menuitem', name='Select Books', exact=True)).to_be_visible()
         expect(self.page.get_by_role('menuitem', name='Add Books', exact=True)).to_be_visible()
         expect(self.page.get_by_role('menuitem', name='Accounts and Libraries', exact=True)).to_be_visible()
+        expect(self.page.get_by_role('menuitem', name='User guide', exact=True)).to_be_visible()
         expect(self.page.get_by_role('menuitem', name='Statistics', exact=True)).to_be_visible()
         expect(self.page.get_by_role('menuitem', name='Settings', exact=True)).to_be_visible()
         self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
@@ -1183,7 +1202,7 @@ class BooksLibraryBrowser(LibraryBase):
             self.page = destination.pages[0]
             self.page.on('pageerror', lambda e: self.errors.append(str(e)))
             try:
-                self.page.goto(self.origin + '/Reader-Web/import-ttu')
+                self.page.goto(self.origin + '/reader-web/import-ttu')
                 chooser = self.page.get_by_label('Choose Ttu export ZIPs', exact=True)
                 expect(chooser).to_be_enabled()
                 chooser.set_input_files({'name':'library-backup.zip','mimeType':'application/zip','buffer':raw})
@@ -1249,6 +1268,12 @@ class BooksLibraryBrowser(LibraryBase):
 
 class BooksLibraryFilesystem(LibraryBase):
     def test_external_relocation_rebinds_content_identity_and_presentation(self):
+        self.check_external_relocation_open()
+
+    def test_relocated_book_read_cannot_navigate_after_browser_back(self):
+        self.check_external_relocation_open(leave_during_open=True)
+
+    def check_external_relocation_open(self, leave_during_open=False):
         original = book('Relocation original')
         self.seed_files({'Old/Volume.epub': original})
         expect(self.page.get_by_role('button', name='Read Relocation original', exact=True)).to_be_visible(
@@ -1302,6 +1327,36 @@ class BooksLibraryFilesystem(LibraryBase):
         expect(self.dialog().get_by_role('checkbox', name='Relocation collection')).to_be_checked()
         self.dialog().get_by_role('button', name='Done').click()
         self.assertEqual(reading_before, self.stores('books', ['bookmark', 'statistic']))
+        if leave_during_open:
+            # Delay, but do not replace, the real OPFS file bytes. Browser Back
+            # must invalidate this open even though the Library page survives.
+            self.page.evaluate("""() => {
+              const original = File.prototype.arrayBuffer;
+              window.releaseLibraryRead = undefined;
+              File.prototype.arrayBuffer = async function() {
+                const bytes = await original.call(this);
+                if (this.name === 'Moved.epub') {
+                  File.prototype.arrayBuffer = original;
+                  await new Promise(resolve => window.releaseLibraryRead = resolve);
+                }
+                return bytes;
+              };
+            }""")
+            self.page.get_by_role('button', name='Read My relocated volume', exact=True).click()
+            self.page.wait_for_function('() => typeof window.releaseLibraryRead === "function"')
+            self.page.go_back()
+            expect(self.page).to_have_url(re.compile(r'/manage(?!.*collection=)'))
+            self.page.evaluate('window.releaseLibraryRead()')
+            deadline = time.monotonic() + 20
+            while True:
+                links = self.stores('manabi-reader-integrations', ['books'])['books']
+                if any(row['fileId'] == 'New/Nested/Moved.epub' for row in links):
+                    break
+                self.assertLess(time.monotonic(), deadline, 'Relink did not finish')
+                self.page.wait_for_timeout(25)
+            expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute('aria-busy', 'false')
+            expect(self.page).to_have_url(re.compile(r'/manage(?!.*collection=)'))
+            self.choose_collection('Relocation collection')
         self.page.get_by_role('button', name='Read My relocated volume', exact=True).click()
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=30000)
         links_after = self.stores('manabi-reader-integrations', ['books'])['books']
@@ -1344,7 +1399,7 @@ class BooksLibraryFilesystem(LibraryBase):
                 expect(hero.get_by_role('button', name=re.compile('^Start Reading'))).to_be_visible()
 
     def seed_files(self, files):
-        self.page.goto(self.origin + '/Reader-Web/connections')
+        self.page.goto(self.origin + '/reader-web/connections')
         expect(self.page.get_by_role('button', name='Refresh connections')).to_be_enabled()
         self.source_id = self.page.evaluate('''async files => {
           const handle=await (await navigator.storage.getDirectory()).getDirectoryHandle('Library fixture',{create:true});

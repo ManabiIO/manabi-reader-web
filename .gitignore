@@ -2,7 +2,6 @@
 node_modules
 /test-results/
 __pycache__/
-
 # Generated media fixtures and MOSS runtime cache.
 .cache/
 

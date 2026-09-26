@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
+@import './lib/components/ui/section-navigation.css';
 @config '../tailwind.config.cjs';
 @custom-variant dark {
   &:where([data-appearance='dark'], [data-appearance='dark'] *) {
@@ -141,5 +142,41 @@
     border: 1px solid ButtonText;
     color: ButtonText;
     background: ButtonFace;
+  }
+}
+
+/* Reading-size preferences should not multiply decorative empty-shelf gutters.
+   Large actions already use fixed insets; text links must remain unboxed. */
+[data-slot='library-empty-state']
+  [data-slot='button']:not([data-variant='link']):not([data-size='lg']) {
+  padding-inline: 16px;
+}
+
+/* Compact Library chrome keeps decorative geometry independent of text size.
+   Full-page browser zoom still scales these CSS pixels. Labels grow and wrap. */
+@media (max-width: 1023px) {
+  :root .floating-library-header .library-header-inner {
+    flex-wrap: wrap;
+    padding-inline: 24px;
+  }
+  :root .floating-library-header .library-header-inner > div:first-child {
+    flex: 1 1 min-content;
+  }
+  :root .floating-library-header .library-header-inner > div:last-child {
+    margin-inline-start: auto;
+    gap: 6px;
+  }
+  :root .floating-library-header button[data-size='icon'] {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+  }
+  :root .floating-library-header button[data-size='icon'] svg {
+    width: 24px;
+    height: 24px;
+  }
+  :root .library-frame .library-workspace {
+    --library-gutter: 24px;
   }
 }

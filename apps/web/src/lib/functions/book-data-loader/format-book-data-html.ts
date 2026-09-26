@@ -5,6 +5,13 @@
  */
 
 import { sanitizeBookHtml } from '../book-security/book-content-security';
+import {
+  readEpubPublication,
+  epubResourceContents,
+  assertEpubManifest,
+  type EpubResourceData
+} from '$lib/foliate-epub/publication-data';
+import { epubResourceStyles, epubCompatibilityStyles } from '$lib/foliate-epub/resource-styles';
 import { BlurMode } from '$lib/data/blur-mode';
 import type { BooksDbBookData } from '$lib/data/database/books-db/versions/books-db';
 import { Observable } from 'rxjs';
@@ -21,10 +28,11 @@ export default function formatBookDataHtml(
   bookData: BooksDbBookData,
   document: Document,
   isPaginated: boolean,
-  blurMode: BlurMode
+  blurMode: BlurMode,
+  parentSelector = '.book-content'
 ) {
   return getHtmlWithImageSource(bookData, document, isPaginated).pipe(
-    map(({ html, imageUrls }) => {
+    map(({ html, imageUrls, resources }) => {
       const element = document.createElement('div');
       element.innerHTML = html;
 
@@ -34,7 +42,30 @@ export default function formatBookDataHtml(
       addSpoilerTags(element, document, blurMode);
       removeOldBrTagSolution(element);
 
-      return sanitizeBookHtml(element.innerHTML, { document, imageUrls });
+      const htmlContent = sanitizeBookHtml(element.innerHTML, {
+        document,
+        imageUrls,
+        preserveReaderLinks: true
+      });
+      const prepared = document.createElement('div');
+      prepared.innerHTML = htmlContent;
+      if (
+        resources &&
+        (prepared.children.length !== resources.length ||
+          resources.some((resource, index) => prepared.children[index]?.id !== resource.sectionId))
+      )
+        throw new Error('Prepared EPUB resources do not match the publication.');
+      return {
+        htmlContent,
+        epubStyleSheet: resources
+          ? epubCompatibilityStyles(resources, document, parentSelector)
+          : undefined,
+        epubResources: resources?.map((resource, index) => ({
+          ...resource,
+          html: prepared.children[index].outerHTML,
+          styleSheet: epubResourceStyles(resource, document)
+        }))
+      };
     })
   );
 }
@@ -44,10 +75,20 @@ function getHtmlWithImageSource(
   document: Document,
   isPaginated: boolean
 ) {
-  return new Observable<{ html: string; imageUrls: ReadonlySet<string> }>((subscriber) => {
+  return new Observable<{
+    html: string;
+    imageUrls: ReadonlySet<string>;
+    resources?: EpubResourceData[];
+  }>((subscriber) => {
     const objectUrls: string[] = [];
     let cancelled = false;
     void (async () => {
+      const publication =
+        bookData.epubPublication === undefined
+          ? undefined
+          : readEpubPublication(bookData.epubPublication, bookData.elementHtml);
+      if (publication) assertEpubManifest(publication, bookData.publicationManifest);
+      const sourceHtml = bookData.elementHtml;
       const replacements = new Map<string, string>();
       const pictures: Array<ReaderImageGalleryPicture & { index: number }> = [];
       for (const [key, original] of Object.entries(bookData.blobs)) {
@@ -86,16 +127,21 @@ function getHtmlWithImageSource(
         pictures.push({
           url,
           unspoilered: !isPaginated,
-          index: bookData.elementHtml.indexOf(placeholder)
+          index: sourceHtml.indexOf(placeholder)
         });
       }
       if (cancelled) return;
       const imageUrls = new Set(objectUrls);
-      const html = sanitizeBookHtml(bookData.elementHtml, {
+      const html = sanitizeBookHtml(sourceHtml, {
         document,
+        preserveReaderLinks: true,
         resolveImage: (source) => replacements.get(source)
       });
-      subscriber.next({ html, imageUrls });
+      subscriber.next({
+        html,
+        imageUrls,
+        resources: publication ? epubResourceContents(publication, sourceHtml) : undefined
+      });
       if (!cancelled && !subscriber.closed) {
         readerImageGalleryPictures$.next(
           pictures

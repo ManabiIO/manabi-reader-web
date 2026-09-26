@@ -23,6 +23,8 @@ export interface BookLink {
   bookId: number;
   title: string;
   syncEnabled: boolean;
+  /** Explicit consent is bound to the active local/account scope. */
+  davAccountId?: string | null;
   base?: Record<string, unknown>;
 }
 interface IntegrationDB extends DBSchema {
@@ -49,14 +51,24 @@ export async function setMetadata(key: string, value: unknown) {
 }
 
 const queues = new Map<string, Promise<unknown>>();
-export async function exclusive<T>(name: string, work: () => Promise<T>): Promise<T> {
+export async function exclusive<T>(
+  name: string,
+  work: () => Promise<T>,
+  signal?: AbortSignal
+): Promise<T> {
+  signal?.throwIfAborted();
   if (typeof navigator !== 'undefined' && navigator.locks) {
-    return navigator.locks.request(`manabi-reader:${name}`, work);
+    return navigator.locks.request(`manabi-reader:${name}`, { signal }, work);
   }
   // Browsers without Web Locks still serialize one tab; remote writes retain
   // their server-side preconditions. Local persistent folders require Chromium.
   const previous = queues.get(name) ?? Promise.resolve();
-  const next = previous.catch(() => undefined).then(work);
+  const next = previous
+    .catch(() => undefined)
+    .then(() => {
+      signal?.throwIfAborted();
+      return work();
+    });
   queues.set(name, next);
   try {
     return await next;

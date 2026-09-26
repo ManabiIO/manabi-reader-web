@@ -1,9 +1,9 @@
 <script lang="ts">
   import type { ToggleOption } from '$lib/components/button-toggle-group/toggle-option';
   import DialogTemplate from '$lib/components/dialog-template.svelte';
-  import Ripple from '$lib/components/ripple.svelte';
   import SettingsCustomThemeInput from '$lib/components/settings/settings-custom-theme-input.svelte';
-  import { buttonClasses } from '$lib/css-classes';
+  import { Button } from '$lib/components/ui/button';
+  import { Input } from '$lib/components/ui/input';
   import { customThemes$, theme$ } from '$lib/data/store';
   import {
     availableThemes,
@@ -28,6 +28,7 @@
   );
   let themeName = '';
   let nameError = '';
+  // Input's bindable ref has a null fallback; passing undefined throws at runtime.
   let themeNameElm: HTMLInputElement | null = null;
 
   $: themeStyle = `color: ${customTheme.fontColor.rgbaExpression}; background-color: ${customTheme.backgroundColor.rgbaExpression}`;
@@ -163,17 +164,18 @@
     <div
       class="grid grid-cols-1 gap-2 items-center overflow-auto max-h-[60vh] sm:grid-cols-[auto_auto_5rem] sm:gap-4"
     >
-      <select aria-label="Copy colors from theme" class="sm:col-span-2" bind:value={themeToCopy}>
+      <select
+        aria-label="Copy colors from theme"
+        class="min-h-11 rounded-xl border border-input bg-background px-3 sm:col-span-2"
+        bind:value={themeToCopy}
+      >
         {#each existingThemes as theme (theme.id)}
           <option value={theme.id}>
             {theme.id}
           </option>
         {/each}
       </select>
-      <button class={buttonClasses} on:click={handleCopyTheme}
-        >Copy
-        <Ripple />
-      </button>
+      <Button variant="outline" class="min-h-11" onclick={handleCopyTheme}>Copy</Button>
       <span class="hidden sm:block">Attribute</span>
       <span class="hidden sm:block">Color</span>
       <span class="hidden sm:block">Alpha</span>
@@ -226,37 +228,32 @@
         on:color={handleColorValueChange}
         on:alpha={handleAlphaValueChange}
       />
-      <input
-        class="sm:col-span-2"
+      <Input
+        class="min-h-11 sm:col-span-2"
         type="text"
         placeholder="Theme Name"
         aria-label="Theme name"
         aria-invalid={Boolean(nameError)}
         aria-describedby={nameError ? 'custom-theme-name-error' : undefined}
-        on:input={clearNameError}
+        oninput={clearNameError}
         bind:value={themeName}
-        bind:this={themeNameElm}
+        bind:ref={themeNameElm}
       />
-      <button
-        class="flex justify-center items-center rounded-md border-2 border-border p-2 text-lg"
+      <div
+        data-theme-preview
+        aria-hidden="true"
+        class="flex min-h-11 items-center justify-center rounded-xl border-2 border-border p-2 text-lg"
         style={themeStyle}
       >
         ぁあ
-        <Ripple />
-      </button>
+      </div>
     </div>
     {#if nameError}
       <p id="custom-theme-name-error" role="alert" class="mt-3">{nameError}</p>
     {/if}
   </div>
-  <div class="mt-2 flex grow justify-between" slot="footer">
-    <button class={buttonClasses} on:click={() => dispatch('close')}>
-      Cancel
-      <Ripple />
-    </button>
-    <button class={buttonClasses} on:click={handleSave}>
-      Save
-      <Ripple />
-    </button>
+  <div class="mt-2 flex grow justify-between gap-2" slot="footer">
+    <Button variant="ghost" onclick={() => dispatch('close')}>Cancel</Button>
+    <Button variant="secondary" onclick={handleSave}>Save</Button>
   </div>
 </DialogTemplate>

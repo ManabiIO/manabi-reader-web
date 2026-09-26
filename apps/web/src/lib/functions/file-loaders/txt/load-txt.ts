@@ -15,6 +15,7 @@ export default async function loadTxt(file: File, lastBookModified: number): Pro
 
   return {
     title: file.name.replace(/\.txt$/, ''),
+    sourceFormat: 'txt',
     styleSheet: '',
     elementHtml: element.innerHTML,
     publicationManifest: defaultManifest(element),

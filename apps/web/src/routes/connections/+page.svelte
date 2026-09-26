@@ -1,5 +1,10 @@
 <script lang="ts">
+  import { davSyncStatus, setDavBookSync } from '$lib/webdav/sync';
+  import DavConnections from '$lib/webdav/connections.svelte';
+  import { WebDavSource } from '$lib/webdav/source';
+  import { DavError } from '$lib/webdav/client';
   import AppNav from '$lib/components/navigation/app-nav.svelte';
+  import { Button } from '$lib/components/ui/button';
   import { onMount } from 'svelte';
   import { resolve } from '$app/paths';
   import {
@@ -60,7 +65,7 @@
 
   function report(error: unknown) {
     message =
-      error instanceof IntegrationError
+      error instanceof IntegrationError || error instanceof DavError
         ? error.message
         : error instanceof DOMException && error.name === 'AbortError'
           ? ''
@@ -102,6 +107,42 @@
       await pending;
       await reload();
       await openLocal(library);
+    });
+  }
+  async function openDav(value: WebDavSource) {
+    await action(async () => {
+      source = value;
+      sourceName = value.configuration.name;
+      trail = [{ id: value.root, name: sourceName }];
+      await browse(value.root, false);
+    });
+  }
+  async function uploadDav(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    const active = source;
+    const parent = trail[trail.length - 1]?.id;
+    input.value = '';
+    if (!file || !(active instanceof WebDavSource) || !parent) return;
+    await action(async () => {
+      await active.uploadNew(file, parent);
+      if (source !== active || stopped) return;
+      await browse(parent);
+      message = `Uploaded and verified ${file.name}.`;
+    });
+  }
+  async function downloadDavBackup(entry: LibraryEntry) {
+    const active = source;
+    if (!(active instanceof WebDavSource)) return;
+    await action(async () => {
+      const file = await active.downloadBackup(entry);
+      if (source !== active || stopped) return;
+      const url = URL.createObjectURL(file);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = entry.name;
+      anchor.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
     });
   }
   async function openLocal(library: LocalLibrary) {
@@ -202,8 +243,9 @@
 <svelte:head><title>Accounts and libraries · Manabi Reader</title></svelte:head>
 
 <main class="connections-page">
-  <nav aria-label="Reader navigation">
-    <a href={resolve('/manage')}>← Books</a><a href={resolve('/settings')}>Reader settings</a>
+  <nav aria-label="Reader navigation" class="page-navigation">
+    <Button href={resolve('/manage')} variant="link" size="sm">← Books</Button>
+    <Button href={resolve('/settings')} variant="link" size="sm">Reader settings</Button>
   </nav>
   <header>
     <h1>Accounts and libraries</h1>
@@ -285,11 +327,17 @@
     {:else}
       <p>An account is optional. Sign in to sync your preferences and connect cloud libraries.</p>
       <div class="actions">
-        <a class="button" rel="external" href="/accounts/login/?next={connectionReturn}"
-          >Sign in to Manabi</a
+        <Button
+          href="/accounts/login/?next={connectionReturn}"
+          rel="external"
+          variant="default"
+          size="lg">Sign in to Manabi</Button
         >
-        <a class="button" rel="external" href="/accounts/signup/?next={connectionReturn}"
-          >Create a Manabi account</a
+        <Button
+          href="/accounts/signup/?next={connectionReturn}"
+          rel="external"
+          variant="outline"
+          size="lg">Create a Manabi account</Button
         >
       </div>
     {/if}
@@ -297,13 +345,14 @@
     {#if $account.status === 'unavailable'}<p>
         Manabi account services are not available on this deployment. Local libraries still work.
       </p>{/if}
-    <button
+    <Button
+      variant="ghost"
       disabled={busy}
-      on:click={() =>
+      onclick={() =>
         action(async () => {
           await refreshAccount(true);
           await reload();
-        })}>Refresh connections</button
+        })}>Refresh connections</Button
     >
   </section>
 
@@ -338,8 +387,10 @@
             <button disabled={busy} on:click={() => action(() => chooseFolders(connection))}
               >Choose folders</button
             >
-            <button disabled={busy} on:click={() => action(() => disconnect(connection))}
-              >Disconnect cloud account</button
+            <button
+              class="destructive-action"
+              disabled={busy}
+              on:click={() => action(() => disconnect(connection))}>Disconnect cloud account</button
             >
           </div>
           {#if !connection.roots.length}<p>
@@ -379,6 +430,18 @@
     {/if}
   </section>
 
+  <DavConnections
+    onbrowse={openDav}
+    onchange={async (id) => {
+      if (source?.id === id) {
+        source = null;
+        entries = [];
+        navigation++;
+      }
+      await refreshLinkedBooks();
+    }}
+  />
+
   <section aria-labelledby="local-heading">
     <h2 id="local-heading">Local folders</h2>
     <p>
@@ -386,7 +449,7 @@
       OneDrive, or Google Drive folders.
     </p>
     {#if nativeFolders}
-      <button disabled={busy} on:click={pickLocal}>Add local folder</button>
+      <Button variant="outline" disabled={busy} onclick={pickLocal}>Add local folder</Button>
     {:else}
       <p>
         Persistent folder access needs a compatible browser, such as desktop Chrome or Edge. You can
@@ -405,6 +468,7 @@
           <button disabled={busy} on:click={() => grant(library, true)}>Allow series editing</button
           >
           <button
+            class="destructive-action"
             disabled={busy}
             on:click={() =>
               action(async () => {
@@ -443,9 +507,25 @@
         {/each}
       </nav>
       <p>
-        Verified books sync personal reading data through your Manabi account. Folder write access
-        is not required.
+        {source instanceof WebDavSource
+          ? 'Import books for offline reading. WebDAV reading-data sync is a separate opt-in action below; original book files are never changed.'
+          : 'Verified books sync personal reading data through your Manabi account. Folder write access is not required.'}
       </p>
+      {#if source instanceof WebDavSource}
+        <label
+          >Upload a new book or ZIP backup
+          <input
+            type="file"
+            accept=".epub,.txt,.htmlz,.zip"
+            disabled={busy}
+            on:change={uploadDav}
+          />
+        </label>
+        <p>
+          Selecting a file uploads it to this folder and verifies its bytes. Existing files are
+          never replaced. ZIP backups can be downloaded unchanged for migration.
+        </p>
+      {/if}
       {#each entries as entry (entry.id)}
         <div class="file-entry">
           <span
@@ -455,13 +535,21 @@
             <button disabled={busy} on:click={() => action(() => enter(entry))}
               >Open folder {entry.name}</button
             >
+          {:else if source instanceof WebDavSource && /\.zip$/i.test(entry.name)}
+            <button disabled={busy} on:click={() => downloadDavBackup(entry)}
+              >Download backup {entry.name}</button
+            >
           {:else if supportedBook(entry.name)}
             <button
               disabled={busy}
               on:click={() =>
                 action(async () => {
                   if (!source) return;
-                  lastImported = await importLibraryBook(source, entry, true);
+                  lastImported = await importLibraryBook(
+                    source,
+                    entry,
+                    !(source instanceof WebDavSource)
+                  );
                   message = `Imported ${lastImported.title}. It is now available offline.`;
                 })}>Import {entry.name}</button
             >
@@ -475,8 +563,8 @@
           >Load more files</button
         >{/if}
       {#if lastImported}<p>
-          <a class="button" href={resolve(`/b?id=${lastImported.bookId}`)}
-            >Read {lastImported.title}</a
+          <Button href={resolve(`/b?id=${lastImported.bookId}`)} variant="default"
+            >Read {lastImported.title}</Button
           >
         </p>{/if}
     </section>
@@ -509,8 +597,8 @@
         </div>
       </article>
     {/each}
-    <button disabled={busy} on:click={() => action(syncAllLinkedBooks)}
-      >Sync personal reading data now</button
+    <Button variant="secondary" disabled={busy} onclick={() => action(syncAllLinkedBooks)}
+      >Sync personal reading data now</Button
     >
     {#if !$linkedBooks.length}<p>
         Verified local books and annotations sync through your account even without a linked cloud
@@ -518,6 +606,37 @@
       </p>{/if}
     {#each $linkedBooks as link (link.id)}
       <article class="library" aria-label="Reading sync for {link.title}">
+        {#if link.sourceId.startsWith('webdav-')}
+          <label
+            ><input
+              type="checkbox"
+              checked={link.syncEnabled}
+              disabled={busy}
+              on:change={(event) =>
+                action(async () => {
+                  await setDavBookSync(link.id, event.currentTarget.checked);
+                  await refreshLinkedBooks();
+                })}
+            /> Sync this book’s reading data with WebDAV</label
+          >
+          <p class="hint">
+            No Manabi server is used. Sync runs while the Library is visible, not while reading or
+            after closing the app. Same-field conflicts require a choice.
+          </p>
+          {#if $davSyncStatus[link.id]?.state === 'conflict'}
+            <p>{$davSyncStatus[link.id]?.conflicts?.join(', ')}</p>
+            <button disabled={busy} on:click={() => action(() => syncBook(link.id, 'local'))}
+              >{$davSyncStatus[link.id]?.missing
+                ? 'Restore WebDAV file from this device'
+                : 'Keep device conflicts'}</button
+            >
+            {#if !$davSyncStatus[link.id]?.missing}<button
+                disabled={busy}
+                on:click={() => action(() => syncBook(link.id, 'remote'))}
+                >Use WebDAV conflicts</button
+              >{/if}
+          {/if}
+        {/if}
         <h3><a href={resolve(`/b?id=${link.bookId}`)}>{link.title}</a></h3>
         <p role="status">
           {$bookSyncStatus[link.id]?.message ?? 'Ready to sync through your account.'}
@@ -534,7 +653,7 @@
   .connections-page {
     max-width: 68rem;
     margin: 0 auto;
-    padding: 1.25rem;
+    padding: 24px 16px;
     writing-mode: horizontal-tb;
     line-height: 1.55;
   }
@@ -542,12 +661,16 @@
   .actions,
   .quick-settings {
     display: flex;
-    gap: 0.75rem;
+    gap: 12px;
     flex-wrap: wrap;
     align-items: center;
   }
+  .page-navigation {
+    margin-inline: -8px;
+    gap: 2px;
+  }
   header {
-    margin: 1.5rem 0;
+    margin: 24px 0;
   }
   h1 {
     font-size: 2rem;
@@ -565,10 +688,11 @@
   }
   section {
     border: 1px solid var(--border);
-    background: var(--muted);
-    border-radius: 0.75rem;
-    padding: 1.25rem;
-    margin: 1rem 0;
+    background: var(--card);
+    border-radius: 16px;
+    padding: 20px;
+    margin: 16px 0;
+    color: var(--card-foreground);
   }
   p {
     margin: 0.6rem 0;
@@ -578,19 +702,34 @@
     text-decoration: underline;
     text-underline-offset: 0.16em;
   }
-  button,
-  .button {
-    display: inline-block;
+  button:not([data-slot='button']) {
+    display: inline-flex;
+    min-height: 44px;
+    max-width: 100%;
+    align-items: center;
+    justify-content: center;
     border: 1px solid var(--border);
-    border-radius: 0.4rem;
-    padding: 0.45rem 0.75rem;
-    margin: 0.25rem 0;
+    border-radius: 10px;
+    padding: 8px 14px;
+    background: var(--background);
+    color: var(--foreground);
+    font-size: 0.9375rem;
+    font-weight: 500;
+    text-align: center;
     text-decoration: none;
+    overflow-wrap: anywhere;
     cursor: pointer;
   }
-  button:hover,
-  .button:hover {
-    background: var(--accent);
+  button:not([data-slot='button']):hover {
+    background: var(--muted);
+  }
+  button.destructive-action {
+    border-color: transparent;
+    background: color-mix(in oklch, var(--destructive) 10%, transparent);
+    color: var(--destructive);
+  }
+  button.destructive-action:hover {
+    background: color-mix(in oklch, var(--destructive) 18%, transparent);
   }
   button:disabled {
     opacity: 0.5;
@@ -621,10 +760,11 @@
   }
   input[type='number'],
   select {
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: 0.3rem;
-    padding: 0.3rem;
+    min-height: 44px;
+    background: var(--background);
+    border: 1px solid var(--input);
+    border-radius: 10px;
+    padding: 8px 10px;
   }
   .preference-controls {
     margin-top: 1rem;
@@ -660,10 +800,10 @@
   }
   @media (max-width: 36rem) {
     .connections-page {
-      padding: 0.75rem;
+      padding: 16px 12px;
     }
     section {
-      padding: 0.9rem;
+      padding: 16px;
     }
     .file-entry {
       align-items: flex-start;

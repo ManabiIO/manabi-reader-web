@@ -35,7 +35,16 @@ export interface CloudSeriesPlan {
   root: string;
   operation: CloudSeriesOperation;
   revision: number;
-  status: 'prepared' | 'running' | 'reconcile' | 'paused' | 'complete' | 'cancelled';
+  status:
+    | 'preparing'
+    | 'prepared'
+    | 'queued'
+    | 'running'
+    | 'reconcile'
+    | 'paused'
+    | 'complete'
+    | 'cancelled';
+  preparation?: { completed_books: number; total_books: number };
   issue: string;
   expires_at: string;
   preview: {
@@ -82,7 +91,7 @@ export async function cloudSeriesCapabilities(source: SourceDescriptor) {
     { userId: owner }
   );
 }
-/** Preparing is read-only. Present plan.preview before calling advanceCloudSeries. */
+/** Admit read-only preparation. Poll until prepared before presenting a final preview. */
 export async function prepareCloudSeries(source: SourceDescriptor, value: CloudSeriesRequest) {
   const owner = cloudSource(source);
   if (value.root !== source.root) throw new Error('Series plan must remain in its selected root.');
@@ -105,8 +114,10 @@ export async function recentCloudSeries(source: SourceDescriptor) {
     `${base(source)}plans/?${new URLSearchParams({ root: source.root })}`,
     { userId: owner }
   );
-  for (const plan of result.items) await applyCloudSeriesReceipts(source, plan);
-  return result.items;
+  let receiptsChanged = false;
+  for (const plan of result.items)
+    if (await applyCloudSeriesReceipts(source, plan)) receiptsChanged = true;
+  return { items: result.items, receiptsChanged };
 }
 export async function cloudSeriesStatus(source: SourceDescriptor, id: string) {
   const plan = await request<CloudSeriesPlan>(`${base(source)}plans/${planId(id)}/`, {
@@ -125,7 +136,7 @@ export async function cancelCloudSeries(source: SourceDescriptor, id: string) {
   return plan;
 }
 
-/** One committed provider step per request, so browser closure leaves a durable journal. */
+/** Confirm once; the bounded server worker continues independently of this browser. */
 export async function advanceCloudSeries(source: SourceDescriptor, plan: CloudSeriesPlan) {
   const owner = cloudSource(source);
   if (plan.root !== source.root) throw new Error('Plan root changed.');
@@ -164,6 +175,7 @@ export async function applyCloudSeriesReceipts(source: SourceDescriptor, plan: C
     }
     if (changed) await tx.store.delete(`library-catalog:${sourceKey(source)}`);
     await tx.done;
+    return changed;
   } catch (error) {
     try {
       tx.abort();

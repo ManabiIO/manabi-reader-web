@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Paginator } from '$lib/foliate-epub/paginator.js';
   import AudiobookLauncher from '$lib/features/whispersync/audiobook-launcher.svelte';
   import * as Sheet from '$lib/components/ui/sheet';
   import { setCompletion } from '$lib/library/commands';
@@ -123,10 +124,14 @@
   } from '$lib/reader-annotations';
   import type { AnnotationImportConflict } from '$lib/reader-annotations';
   import { account, currentUser } from '$lib/manabi/client';
+  import { legacyReplicationTypes } from '$lib/manabi/legacy-replication';
   import type { ReaderAnnotation } from '$lib/data/database/books-db/versions/v7/books-db-v7';
   import { ReaderNavigation } from '$lib/reader-navigation';
+  import { acquireReaderLease } from '$lib/webdav/reader-lock';
+  import { takeLibraryLocation } from '$lib/library/search-navigation';
   import type { ReaderLocator } from '$lib/reader-location';
   import { readerBookKeyFor } from '$lib/reader-identity';
+  import { readerSourceFormat } from '$lib/reader-source-format';
   import { TextAlignLeft, X } from 'phosphor-svelte';
   import {
     readerImageGalleryPictures$,
@@ -214,6 +219,7 @@
 
   let showSpinner = true;
   let showHeader = false;
+  let foliatePagination = false;
   let showAppearance = false;
   let showBookSearch = false;
   let showScrubber = false;
@@ -239,6 +245,19 @@
   let revealingReaderLocator = false;
   let previewTrackerWasPaused = false;
   let readerBookKey = '';
+  let libraryTarget: ReaderLocator | undefined;
+  let libraryNavigationTask = false;
+  let libraryNavigationEpoch = 0;
+  let librarySearchMessage = '';
+  $: if (
+    browser &&
+    libraryTarget &&
+    bookReaderComponent &&
+    readerBookKey &&
+    guideContentEl &&
+    !libraryNavigationTask
+  )
+    void openLibraryTarget();
   $: if (browser && $rawBookData$?.id) {
     const book = $rawBookData$;
     void readerBookKeyFor(book.id, book.contentHash).then((key) => {
@@ -296,6 +315,8 @@
   let dataToReplicate: StorageDataType[] = [];
   let dataToReplicateQueue: StorageDataType[] = [];
   let externalStorageHandler: BaseStorageHandler | undefined;
+  let personalManagedBookId: number | undefined;
+  const personalReplicationTypes = [StorageDataType.PROGRESS, StorageDataType.STATISTICS];
   let externalStorageErrors = 0;
   let isReplicating = false;
   let storedExploredCharacter = 0;
@@ -331,11 +352,16 @@
     shareReplay({ refCount: true, bufferSize: 1 })
   );
 
+  const readerLeaseLifetime = new AbortController();
+  let readerLease: Promise<void> | undefined;
   const rawBookData$ = bookId$.pipe(
     switchMap(async (id) => {
       let bookData: BooksDbBookData | undefined;
 
       try {
+        readerLease ??= acquireReaderLease(readerLeaseLifetime.signal);
+        await readerLease;
+        if (readerLeaseLifetime.signal.aborted) return undefined;
         localStorageHandler = getStorageHandler(
           window,
           StorageKey.BROWSER,
@@ -354,6 +380,9 @@
           return bookData;
         }
 
+        const personalReadingAuthority = await hasPersonalReadingAuthority(bookData);
+        personalManagedBookId = personalReadingAuthority ? bookData.id : undefined;
+
         const currentContext = {
           id: bookData.id,
           title: bookData.title,
@@ -371,7 +400,7 @@
         bookData.lastBookOpen = new Date().getTime();
 
         await localStorageHandler.updateLastRead(bookData);
-        await syncDownData(externalStorageHandler, currentContext);
+        await syncDownData(externalStorageHandler, currentContext, bookData);
 
         if (!$statisticsEnabled$) {
           const wasNew = (
@@ -394,6 +423,7 @@
           document.documentElement.lang = bookData.language;
         }
       } catch (error: any) {
+        if (readerLeaseLifetime.signal.aborted) return undefined;
         const message = `Error loading book: ${error.message}`;
 
         logger.warn(message);
@@ -434,7 +464,7 @@
 
   const leaveIfBookMissing$ = rawBookData$.pipe(
     tap((data) => {
-      if (!data) {
+      if (!data && !readerLeaseLifetime.signal.aborted) {
         goto(`${pagePath}${mergeEntries.MANAGE.routeId}`);
       }
     }),
@@ -449,6 +479,16 @@
       // template subscription to the non-replayed raw stream can miss its only
       // emission when Svelte mounts the conditional Reader subtree lazily.
       bookmarkData = database.getBookmark(rawBookData.id);
+      const incomingLocation = takeLibraryLocation(
+        rawBookData.id,
+        currentUser()?.id ?? null,
+        $page.url.searchParams.get('library-search')
+      );
+      if (incomingLocation) {
+        libraryTarget = incomingLocation;
+        suppressResumeSave = true;
+        pauseTracker();
+      }
       sectionList$.next(rawBookData.sections || []);
 
       return loadBookData(
@@ -548,19 +588,22 @@
     reduceToEmptyString()
   );
 
+  function noteReaderSelection(range: Range | undefined) {
+    if (!range && lastSelectedRangeWasEmpty) {
+      lastSelectedRange = undefined;
+    } else if (range) {
+      lastSelectedRange = range;
+      lastSelectedRangeWasEmpty = false;
+    } else {
+      lastSelectedRangeWasEmpty = true;
+    }
+  }
+
   const textSelector$ = iffBrowser(() => fromEvent(document, 'selectionchange')).pipe(
     debounceTime(200),
     tap(() => {
-      const currentSelected = window.getSelection()?.toString() || '';
-
-      if (!currentSelected && lastSelectedRangeWasEmpty) {
-        lastSelectedRange = undefined;
-      } else if (currentSelected) {
-        lastSelectedRange = window.getSelection()?.getRangeAt(0);
-        lastSelectedRangeWasEmpty = false;
-      } else {
-        lastSelectedRangeWasEmpty = true;
-      }
+      const selection = window.getSelection();
+      noteReaderSelection(selection?.toString() ? selection.getRangeAt(0).cloneRange() : undefined);
     }),
     reduceToEmptyString()
   );
@@ -669,6 +712,8 @@
   /** Experimental Code - May be removed any time without warning */
 
   onDestroy(() => {
+    readerLeaseLifetime.abort();
+    libraryNavigationEpoch++;
     if (browser) {
       document.removeEventListener('ttu-action', handleAction, false);
       document.documentElement.lang = 'ja';
@@ -1163,9 +1208,22 @@
     return dataToReturn;
   }
 
+  async function hasPersonalReadingAuthority(book: BooksDbBookData): Promise<boolean> {
+    if (currentUser() && book.contentHash && /^[a-f0-9]{64}$/i.test(book.contentHash)) return true;
+    try {
+      const db = await database.db;
+      return !!(await db.get('readerBookScope', book.id));
+    } catch {
+      // If ownership cannot be checked, do not let legacy replication become a
+      // second writer for personal reading data.
+      return true;
+    }
+  }
+
   async function syncDownData(
     storageHandler: BaseStorageHandler | undefined,
-    context: ReplicationContext
+    context: ReplicationContext,
+    book: BooksDbBookData
   ) {
     if (localStorageHandler && storageHandler) {
       storageHandler.startContext(context);
@@ -1182,13 +1240,17 @@
         localStorageHandler,
         false,
         [context],
-        [
-          StorageDataType.PROGRESS,
-          StorageDataType.STATISTICS,
-          StorageDataType.READING_GOALS,
-          StorageDataType.AUDIOBOOK,
-          StorageDataType.SUBTITLE
-        ]
+        legacyReplicationTypes(
+          [
+            StorageDataType.PROGRESS,
+            StorageDataType.STATISTICS,
+            StorageDataType.READING_GOALS,
+            StorageDataType.AUDIOBOOK,
+            StorageDataType.SUBTITLE
+          ],
+          await hasPersonalReadingAuthority(book),
+          personalReplicationTypes
+        )
       );
 
       if (error) {
@@ -1199,14 +1261,7 @@
 
   function onKeydown(ev: KeyboardEvent) {
     if (readerUIOwnsEvent(ev)) return;
-    if (
-      $skipKeyDownListener$ ||
-      ev.altKey ||
-      ev.ctrlKey ||
-      ev.shiftKey ||
-      ev.metaKey ||
-      ev.repeat
-    ) {
+    if ($skipKeyDownListener$ || ev.altKey || ev.ctrlKey || ev.shiftKey || ev.metaKey) {
       return;
     }
 
@@ -1352,6 +1407,56 @@
     navigationPreviewing = true;
     suppressResumeSave = false;
     revealingReaderLocator = false;
+  }
+
+  async function openLibraryTarget() {
+    const target = libraryTarget;
+    if (!target || libraryNavigationTask) return;
+    libraryTarget = undefined;
+    libraryNavigationTask = true;
+    const epoch = ++libraryNavigationEpoch;
+    const id = $rawBookData$?.id;
+    const owner = currentUser()?.id ?? null;
+    const current = () =>
+      epoch === libraryNavigationEpoch &&
+      id === $rawBookData$?.id &&
+      owner === (currentUser()?.id ?? null);
+    try {
+      const deadline = Date.now() + 10000;
+      await bookmarkData;
+      while (current() && Date.now() < deadline) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 32));
+        if (
+          bookReaderComponent &&
+          readerBookKey === target.bookKey &&
+          guideContentEl?.isConnected &&
+          !guideContentEl.closest('[aria-busy="true"]') &&
+          bookmarkManager?.formatBookmarkData(id!, customReadingPointScrollOffset)
+        ) {
+          // Let the initial resume/reflow callbacks finish before capturing Return.
+          await tick();
+          await new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+          );
+          if (!current()) return;
+          await previewLocator(target, 'search');
+          if (!readerNavigation.previewing)
+            throw new Error('The saved passage no longer resolves in this book.');
+          return;
+        }
+      }
+      if (current())
+        throw new Error('The reader could not open this passage. Search the book to try again.');
+    } catch (error) {
+      if (current())
+        librarySearchMessage =
+          error instanceof Error ? error.message : 'Could not open the passage.';
+    } finally {
+      if (current()) {
+        libraryNavigationTask = false;
+        suppressResumeSave = false;
+      }
+    }
   }
 
   async function openBookSearch() {
@@ -1593,7 +1698,36 @@
       return;
     }
 
+    const bookForReplication = $rawBookData$;
+    const handlerForReplication = externalStorageHandler;
     isReplicating = true;
+    const personalReadingAuthority = await hasPersonalReadingAuthority(bookForReplication);
+    if (
+      $rawBookData$?.id !== bookForReplication.id ||
+      externalStorageHandler !== handlerForReplication
+    ) {
+      dataToReplicate = [];
+      dataToReplicateQueue = [];
+      isReplicating = false;
+      return;
+    }
+    dataToReplicate = legacyReplicationTypes(
+      dataToReplicate,
+      personalReadingAuthority,
+      personalReplicationTypes
+    );
+    dataToReplicateQueue = legacyReplicationTypes(
+      dataToReplicateQueue,
+      personalReadingAuthority,
+      personalReplicationTypes
+    );
+    if (!dataToReplicate.length) {
+      dataToReplicate = dataToReplicateQueue;
+      dataToReplicateQueue = [];
+      isReplicating = false;
+      if (dataToReplicate.length) executeReplicate$.next();
+      return;
+    }
 
     if (!isSilent) {
       skipKeyDownListener$.next(true);
@@ -1916,6 +2050,14 @@
   }
 
   function scheduleReplication(dataType: StorageDataType) {
+    if (
+      personalReplicationTypes.includes(dataType) &&
+      ((personalManagedBookId !== undefined && personalManagedBookId === getBookIdSync()) ||
+        (!!currentUser() &&
+          !!$rawBookData$?.contentHash &&
+          /^[a-f0-9]{64}$/i.test($rawBookData$.contentHash)))
+    )
+      return;
     if (upSyncEnabled) {
       const toReplicate = isReplicating ? dataToReplicateQueue : dataToReplicate;
 
@@ -1947,24 +2089,34 @@
 >
   {$rawBookData$?.title ?? ''}
 </div>
-<button
-  type="button"
-  aria-label={showHeader ? 'Hide reading controls' : 'Show reading controls'}
-  aria-expanded={showHeader}
-  data-reader-controls
-  class="reader-controls writing-horizontal-tb fixed z-20 flex size-11 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-sm"
-  on:click={() => (showHeader = !showHeader)}
-  >{#if showHeader}<X class="size-5" aria-hidden="true" />{:else}<TextAlignLeft
-      class="size-5"
-      aria-hidden="true"
-    />{/if}</button
->
+{#if !foliatePagination || showHeader}
+  <button
+    type="button"
+    aria-label={showHeader ? 'Hide reading controls' : 'Show reading controls'}
+    aria-expanded={showHeader}
+    data-reader-controls
+    class="reader-controls writing-horizontal-tb fixed z-20 flex size-11 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-sm"
+    on:click={() => (showHeader = !showHeader)}
+    >{#if showHeader}<X class="size-5" aria-hidden="true" />{:else}<TextAlignLeft
+        class="size-5"
+        aria-hidden="true"
+      />{/if}</button
+  >
+{/if}
 {#if showHeader}
   <div
     class="writing-horizontal-tb fixed inset-x-0 top-0 z-20 w-full"
-    transition:fly|local={{ y: -80, duration: 160, easing: quintInOut }}
+    transition:fly|local={{ y: -80, duration: foliatePagination ? 0 : 160, easing: quintInOut }}
     use:clickOutside={(event) => {
-      if (event.target instanceof Element && event.target.closest('[data-reader-controls]')) return;
+      const target = event.target;
+      if (target instanceof Element) {
+        if (target.closest('[data-reader-controls]')) return;
+        if (
+          target.matches('foliate-paginator') &&
+          (target as Paginator).isPageNumberControlAt(event.clientX, event.clientY)
+        )
+          return;
+      }
       showHeader = false;
     }}
   >
@@ -2084,8 +2236,16 @@
   <StyleSheetRenderer styleSheet={$bookData$.styleSheet} />
   <BookReader
     bind:this={bookReaderComponent}
+    bind:sheetPagination={foliatePagination}
+    controlsVisible={showHeader}
+    on:pageTurnStart={() => (showHeader = false)}
+    on:toggleControls={() => (showHeader = !showHeader)}
     previewNavigationActive={navigationPreviewing || suppressResumeSave}
     htmlContent={$bookData$.htmlContent}
+    epubResources={$bookData$.epubResources}
+    styleSheet={$bookData$.styleSheet}
+    publicationManifest={$rawBookData$.publicationManifest}
+    sourceFormat={readerSourceFormat($rawBookData$)}
     width={$containerViewportWidth$ ?? 0}
     height={$containerViewportHeight$ ?? 0}
     {fontFeatureSettings}
@@ -2133,6 +2293,7 @@
     bind:showCustomReadingPoint
     on:bookmark={saveBookmark}
     on:trackerPause={() => pauseTracker(true)}
+    on:selectionChange={(ev) => noteReaderSelection(ev.detail)}
     on:userNavigation={() => {
       if (readerNavigation.previewing) pendingPreviewAdoption = true;
     }}
@@ -2143,6 +2304,12 @@
         void restorePreviewAfterReflow(readerContentEpoch);
     }}
   />
+  {#if librarySearchMessage}<p
+      role="alert"
+      class="fixed inset-x-4 top-16 z-50 rounded-xl bg-card p-4 text-foreground"
+    >
+      {librarySearchMessage}
+    </p>{/if}
   <ReaderHighlights
     contentEl={guideContentEl}
     {annotations}
@@ -2192,6 +2359,8 @@
 />
 
 <ReaderAnnotations
+  bookId={$rawBookData$?.id ?? 0}
+  bookKey={readerBookKey}
   bind:open={showAnnotations}
   {annotations}
   importConflicts={annotationImportConflicts}
@@ -2302,16 +2471,17 @@
   id="ttu-page-footer"
   class="reader-footer writing-horizontal-tb fixed bottom-0 left-0 z-10 flex w-full items-center justify-between text-xs leading-none"
   class:controls-expanded={showHeader}
+  class:foliate-chrome-hidden={foliatePagination && !showHeader}
   class:many-controls={showTrackerIcon && !!dataToReplicate.length}
   data-reader-controls
   style:color={$themeOption$?.tooltipTextFontColor}
 >
   <div class="flex h-full items-center">
-    <button
-      class="progress-toggle h-11 px-2"
-      aria-expanded={showFooter}
-      on:click={() => (showFooter = !showFooter)}>Progress</button
-    >
+    {#if !foliatePagination}<button
+        class="progress-toggle h-11 px-2"
+        aria-expanded={showFooter}
+        on:click={() => (showFooter = !showFooter)}>Progress</button
+      >{/if}
     {#if $bookData$ && $rawBookData$}
       {#key `${$rawBookData$.id}:${$rawBookData$.title}`}
         <AudiobookLauncher
@@ -2362,7 +2532,7 @@
       </button>
     {/if}
   </div>
-  {#if showFooter && bookCharCount}
+  {#if showFooter && bookCharCount && !foliatePagination}
     {@const currentProgress = [
       $showCharacterCounter$ ? `${exploredCharCount} / ${bookCharCount}` : '',
       $showPercentage$ ? `${((exploredCharCount / bookCharCount) * 100).toFixed(2)}%` : '',
@@ -2451,6 +2621,12 @@
   }
   .reader-footer :global(button) {
     pointer-events: auto;
+  }
+  .reader-footer.foliate-chrome-hidden {
+    visibility: hidden;
+  }
+  .reader-footer.foliate-chrome-hidden :global(button) {
+    pointer-events: none;
   }
   .reader-progress {
     left: 50%;

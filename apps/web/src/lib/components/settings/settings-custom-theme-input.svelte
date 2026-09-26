@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Input } from '$lib/components/ui/input';
   import type { CustomThemeValue, ThemeOption } from '$lib/data/theme-option';
   import { createEventDispatcher } from 'svelte';
 
@@ -35,16 +36,17 @@
 <input
   aria-label={`${label} color`}
   type="color"
-  class="border border-border"
+  class="size-11 rounded-xl border border-border bg-background p-1"
   value={values.hexExpression}
   on:change={handleColorChange}
 />
-<input
+<Input
   aria-label={`${label} opacity`}
+  class="min-h-11"
   type="number"
   step="0.1"
   min="0"
   max="1"
   value={values.alphaValue}
-  on:change={handleAlphaChange}
+  onchange={handleAlphaChange}
 />

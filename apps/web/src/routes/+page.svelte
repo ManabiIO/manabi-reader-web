@@ -7,7 +7,9 @@
   import { map, tap } from 'rxjs';
 
   const autoNavigate$ = database.lastItem$.pipe(
-    map((lastItem) => (lastItem ? `${pagePath}/b?id=${lastItem.dataId}` : 'manage')),
+    map((lastItem) =>
+      lastItem ? `${pagePath}/b?id=${lastItem.dataId}` : `${pagePath}/manage`
+    ),
     tap(goto)
   );
 </script>
@@ -16,4 +18,4 @@
   <title>{formatPageTitle('Home')}</title>
 </svelte:head>
 
-<div use:observe={autoNavigate$} ></div>
+<div use:observe={autoNavigate$}></div>

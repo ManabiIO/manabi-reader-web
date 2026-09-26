@@ -2,6 +2,12 @@
   import { onDestroy, onMount } from 'svelte';
   import { Button } from '$lib/components/ui/button';
   import { CaretLeft, CaretRight, X } from 'phosphor-svelte';
+  import {
+    groupLineRects,
+    visibleLineRects,
+    type MeasuredLine,
+    type LineRect
+  } from './line-guide-geometry';
 
   export let enabled = false;
   export let contentEl: HTMLElement | undefined;
@@ -11,6 +17,7 @@
   export let epoch = 0;
 
   let lines: DOMRect[] = [];
+  let measuredLines: MeasuredLine[] = [];
   let active = 0;
   let aperture: DOMRect | undefined;
   let observer: ResizeObserver | undefined;
@@ -61,17 +68,22 @@
     const candidates: { rect: DOMRect; vertical: boolean }[] = [];
     const modes = new WeakMap<Element, boolean>();
     const viewport = { width: window.innerWidth, height: window.innerHeight };
+    const ownerDocument = contentEl.ownerDocument;
+    const ownerWindow = ownerDocument.defaultView;
+    if (!ownerWindow) return;
+    const frameRect = ownerWindow.frameElement?.getBoundingClientRect();
+    const offsetLeft = frameRect?.left ?? 0;
+    const offsetTop = frameRect?.top ?? 0;
     const roots = Array.from(contentEl.children).filter((element) => {
       const rect = element.getBoundingClientRect();
-      return (
-        rect.right > 0 &&
-        rect.left < viewport.width &&
-        rect.bottom > 0 &&
-        rect.top < viewport.height
-      );
+      const left = rect.left + offsetLeft;
+      const right = rect.right + offsetLeft;
+      const top = rect.top + offsetTop;
+      const bottom = rect.bottom + offsetTop;
+      return right > 0 && left < viewport.width && bottom > 0 && top < viewport.height;
     });
     for (const root of roots) {
-      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      const walker = ownerDocument.createTreeWalker(root, 4);
       let node: Node | null;
       let inspected = 0;
       while ((node = walker.nextNode()) && inspected++ < 4000) {
@@ -84,22 +96,24 @@
           continue;
         let vertical = modes.get(parent);
         if (vertical === undefined) {
-          const writingMode = getComputedStyle(parent).writingMode;
+          const writingMode = ownerWindow.getComputedStyle(parent).writingMode;
           vertical = writingMode.startsWith('vertical') || writingMode.startsWith('sideways');
           modes.set(parent, vertical);
         }
-        const range = document.createRange();
+        const range = ownerDocument.createRange();
         range.selectNodeContents(node);
         for (const rect of range.getClientRects()) {
           if (rect.width < 1 || rect.height < 1) continue;
-          if (
-            rect.right <= 0 ||
-            rect.left >= viewport.width ||
-            rect.bottom <= 0 ||
-            rect.top >= viewport.height
-          )
+          const left = rect.left + offsetLeft;
+          const top = rect.top + offsetTop;
+          const right = rect.right + offsetLeft;
+          const bottom = rect.bottom + offsetTop;
+          if (right <= 0 || left >= viewport.width || bottom <= 0 || top >= viewport.height)
             continue;
-          candidates.push({ rect, vertical });
+          candidates.push({
+            rect: new DOMRect(left, top, rect.width, rect.height),
+            vertical
+          });
           if (candidates.length >= 600) break;
         }
         if (candidates.length >= 600) break;
@@ -110,25 +124,10 @@
       aperture = undefined;
       return;
     }
-    const groups: { rects: DOMRect[]; vertical: boolean; start: number; end: number }[] = [];
-    for (const { rect, vertical } of candidates) {
-      const start = vertical ? rect.left : rect.top;
-      const end = vertical ? rect.right : rect.bottom;
-      const group = groups.find(
-        (item) =>
-          item.vertical === vertical &&
-          Math.min(item.end, end) - Math.max(item.start, start) >=
-            Math.min(item.end - item.start, end - start) * 0.35
-      );
-      if (group) {
-        group.rects.push(rect);
-        group.start = Math.min(group.start, start);
-        group.end = Math.max(group.end, end);
-      } else groups.push({ rects: [rect], vertical, start, end });
-    }
-    lines = groups
-      .map((group) => union(group.rects))
-      .sort((a, b) => (verticalMode ? b.right - a.right : a.top - b.top));
+    measuredLines = groupLineRects(candidates);
+    lines = measuredLines.map(
+      ({ rect }) => new DOMRect(rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top)
+    );
     const center = verticalMode ? viewport.width / 2 : viewport.height / 2;
     active = Math.min(Math.max(active, 0), lines.length - 1);
     if (!aperture) {
@@ -146,10 +145,7 @@
 
   function updateAperture() {
     if (!lines.length) return;
-    const half = Math.floor(visibleLines / 2);
-    aperture = union(
-      lines.slice(Math.max(0, active - half), Math.min(lines.length, active + half + 1))
-    );
+    aperture = union(visibleLineRects(measuredLines, active, visibleLines));
   }
 
   function move(direction: -1 | 1) {
@@ -157,7 +153,7 @@
     updateAperture();
   }
 
-  function union(rects: DOMRect[]): DOMRect {
+  function union(rects: LineRect[]): DOMRect {
     const left = Math.min(...rects.map((rect) => rect.left));
     const top = Math.min(...rects.map((rect) => rect.top));
     const right = Math.max(...rects.map((rect) => rect.right));

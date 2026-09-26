@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { foldSearch } from './search-normalization';
   import { onMount, createEventDispatcher, tick, type Snippet } from 'svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
@@ -76,6 +77,8 @@
   import CoverStack from './cover-stack.svelte';
   import SourceIcon from './source-icon.svelte';
   import CollectionsSheet from './collections-sheet.svelte';
+  import type { ReaderLocator } from '../reader-location';
+  import LibrarySearch from './library-search.svelte';
   let coverWidths: Record<string, number> = {};
   let shelfElement: HTMLElement;
   function rememberCoverWidth(key: string, fraction: number) {
@@ -86,6 +89,8 @@
   import { contentBookKey, sourceKey } from './organization';
   import {
     advanceCloudSeries,
+    cancelCloudSeries,
+    cloudSeriesStatus,
     cloudSeriesCapabilities,
     prepareCloudSeries,
     recentCloudSeries,
@@ -112,6 +117,7 @@
   export let menu: LibraryMenuModel | undefined = undefined;
   const dispatch = createEventDispatcher<{
     bookClick: { id: number };
+    prepareBook: { prepare: () => Promise<number>; locator?: ReaderLocator };
     selectionManyClick: { ids: number[] };
     selectionScopeChange: { key: string; ids: number[] };
     removeBookClick: { id: number };
@@ -136,6 +142,7 @@
   let targetBook: ShelfBook | undefined,
     coverTarget: ShelfBook | undefined,
     coverInput: HTMLInputElement,
+    newCollectionInput: HTMLInputElement | undefined,
     targetSeries: ShelfSeries | undefined,
     name = '',
     date = '',
@@ -167,7 +174,7 @@
     let matches: string[] = [];
     for (const node of nodes) {
       if (node.kind !== 'series') continue;
-      if (node.name.normalize('NFKC').toLocaleLowerCase().includes(search))
+      if (foldSearch(node.name).includes(search))
         matches = [...matches, ...node.books.map((book) => book.key)];
       matches = [...matches, ...booksInMatchingSeries(node.children, search)];
     }
@@ -181,7 +188,7 @@
         book.title,
         book.canonicalTitle,
         ...(book.creators || []).map((creator) => creator.name)
-      ].some((value) => value.normalize('NFKC').toLocaleLowerCase().includes(search))
+      ].some((value) => foldSearch(value).includes(search))
     );
   }
   function includesBook(
@@ -248,7 +255,18 @@
   $: series = trail.at(-1);
   $: notFinished = $page.url.searchParams.get('unfinished') === '1';
   $: destinationTitle = series?.name || (collectionId === 'books' ? 'Library' : collectionTitle);
-  $: normalizedQuery = query.trim().normalize('NFKC').toLocaleLowerCase();
+  $: normalizedQuery = foldSearch(query.trim());
+  $: metadataSeries = normalizedQuery ? booksInMatchingSeries(tree, normalizedQuery) : [];
+  $: metadataCollections = $organization.collections.filter((c) =>
+    foldSearch(c.name).includes(normalizedQuery)
+  );
+  $: metadataMatches = books.filter(
+    (book) =>
+      matchesBookQuery(book, normalizedQuery, metadataSeries) ||
+      metadataCollections.some((c) =>
+        book.organizationAliases.some((key) => c.members.includes(key))
+      )
+  );
   $: flatDestination = !series && (collectionId === 'finished' || !!selectedCollection);
   $: seriesMatchedKeys =
     normalizedQuery && !flatDestination
@@ -532,7 +550,8 @@
           return {
             source,
             capability: capability.status === 'fulfilled' ? capability.value : undefined,
-            plans: plans.status === 'fulfilled' ? plans.value : []
+            plans: plans.status === 'fulfilled' ? plans.value.items : [],
+            receiptsChanged: plans.status === 'fulfilled' && plans.value.receiptsChanged
           };
         })
       );
@@ -549,7 +568,7 @@
       );
       const cloudWithReceipts = new Set(
         cloudState
-          .filter(({ plans }) => plans.some((plan) => plan.receipts.length))
+          .filter(({ receiptsChanged }) => receiptsChanged)
           .map(({ source }) => sourceKey(source))
       );
       for (const source of nextSources) {
@@ -605,10 +624,16 @@
       if (alive) error = e instanceof Error ? e.message : 'Could not load collections.';
     });
     let previousOwner: string | null | undefined;
+    const seriesPoll = setInterval(() => void pollCloudPlan(), 1000);
     const stopAccount = account.subscribe(() => {
       const owner = currentUser()?.id ?? null;
       if (owner === previousOwner) return;
       previousOwner = owner;
+      if (cloudPlanSource && cloudPlanSource.owner !== owner) {
+        cloudPlan = undefined;
+        cloudPlanSource = undefined;
+        dialogOpen = false;
+      }
       previewQueue?.stop();
       previewQueue = new PreviewQueue(() => {
         if (alive) previewFailures++;
@@ -620,6 +645,7 @@
     });
     return () => {
       alive = false;
+      clearInterval(seriesPoll);
       ++generation;
       controller?.abort();
       previewQueue?.stop();
@@ -669,11 +695,10 @@
       organizationAliases: [...new Set([...book.organizationAliases, organizationKey])]
     };
   }
-  function openBook(book: ShelfBook) {
-    void action(async () => {
-      const id = await ensureBook(book);
-      dispatch('bookClick', { id });
-    });
+  function openBook(book: ShelfBook, locator?: ReaderLocator) {
+    // Relinking refreshes the book list and can remount this workspace. The
+    // owning page, not this replaceable projection, fences the async request.
+    dispatch('prepareBook', { prepare: () => ensureBook(book), locator });
   }
   function saveBook(book: ShelfBook) {
     void action(async () => {
@@ -836,33 +861,85 @@
       dialogOpen = false;
     });
   }
-  async function executeCloudPlan(source: SourceDescriptor, prepared: CloudSeriesPlan) {
-    let plan = prepared;
-    for (let step = 0; step < 256 && plan.status !== 'complete'; step += 1) {
-      // An uncertain provider response must get one status/execute round trip.
-      // Otherwise the visible "Reconcile Change" action can never reconcile it.
-      if (plan.status === 'paused' || plan.status === 'cancelled') break;
-      plan = await advanceCloudSeries(source, plan);
-      cloudPlan = plan;
-      if (plan.status === 'reconcile') break;
+  let cloudPollBusy = false;
+  let cloudPollAfter = 0;
+  function cloudPlanCurrent(source: SourceDescriptor, plan: CloudSeriesPlan) {
+    return (
+      alive &&
+      dialogOpen &&
+      cloudPlan?.id === plan.id &&
+      cloudPlanSource &&
+      sourceKey(cloudPlanSource) === sourceKey(source) &&
+      currentUser()?.id === source.owner
+    );
+  }
+  async function showCloudPlan(source: SourceDescriptor, plan: CloudSeriesPlan) {
+    if (!cloudPlanCurrent(source, plan)) return;
+    cloudPlan = plan;
+    cloudPlans = [{ source, plan }, ...cloudPlans.filter((entry) => entry.plan.id !== plan.id)];
+    if (plan.status === 'complete') {
+      cloudPlan = undefined;
+      cloudPlanSource = undefined;
+      dialogOpen = false;
+      await load(true);
+      if (alive && currentUser()?.id === source.owner)
+        notice = 'Series updated. Reading progress, notes and collections were kept.';
     }
-    if (plan.status !== 'complete') {
-      cloudPlans = [{ source, plan }, ...cloudPlans.filter((entry) => entry.plan.id !== plan.id)];
-      throw new Error(
-        `Series change ${plan.status === 'reconcile' ? 'needs reconciliation' : 'paused'} at ${plan.steps.filter((step) => step.state === 'done').length} of ${plan.steps.length} steps. Review its status before resuming.`
-      );
+  }
+  async function pollCloudPlan() {
+    const plan = cloudPlan,
+      source = cloudPlanSource;
+    if (
+      cloudPollBusy ||
+      busy ||
+      !plan ||
+      !source ||
+      !cloudPlanCurrent(source, plan) ||
+      !['preparing', 'queued', 'running', 'reconcile'].includes(plan.status) ||
+      Date.now() < cloudPollAfter
+    )
+      return;
+    cloudPollBusy = true;
+    try {
+      const next = await cloudSeriesStatus(source, plan.id);
+      await showCloudPlan(source, next);
+    } catch (failure) {
+      // A status outage does not justify repeating admission or provider writes.
+      // Keep the durable plan available and back off bounded, read-only polling.
+      cloudPollAfter = Date.now() + 5000;
+      if (cloudPlanCurrent(source, plan))
+        error =
+          failure instanceof Error
+            ? failure.message
+            : 'Could not refresh this change. Its saved status will be checked again.';
+    } finally {
+      cloudPollBusy = false;
     }
-    cloudPlan = undefined;
-    cloudPlanSource = undefined;
-    dialogOpen = false;
-    await load(true);
-    notice = 'Series updated. Reading progress, notes and collections were kept.';
   }
   function confirmCloudPlan() {
+    if (!cloudPlan || !cloudPlanSource || cloudPlan.status !== 'prepared') return;
+    const source = cloudPlanSource,
+      plan = cloudPlan;
+    void action(async () => {
+      const next = await advanceCloudSeries(source, plan);
+      await showCloudPlan(source, next);
+    });
+  }
+  function abandonCloudPlan() {
     if (!cloudPlan || !cloudPlanSource) return;
     const source = cloudPlanSource,
       plan = cloudPlan;
-    void action(() => executeCloudPlan(source, plan));
+    void action(async () => {
+      const next = await cancelCloudSeries(source, plan.id);
+      if (!cloudPlanCurrent(source, plan)) return;
+      cloudPlan = next;
+      cloudPlans = [
+        { source, plan: next },
+        ...cloudPlans.filter((entry) => entry.plan.id !== plan.id)
+      ];
+      dialogOpen = false;
+      await load(true);
+    });
   }
   function resumeCloudPlan(source: SourceDescriptor, plan: CloudSeriesPlan) {
     if (busy) return;
@@ -1040,7 +1117,7 @@
     aria-busy={busy || scanning}
     data-hydrated={alive}
   >
-    {#if !series && collectionId === 'books'}
+    {#if !series && collectionId === 'books' && !normalizedQuery}
       <div class="library-toolbar">
         <h2 id={recentBooks.length ? 'continue-heading' : 'books-heading'} class="shelf-heading">
           {recentBooks.length ? 'Continue' : 'Books'}
@@ -1126,7 +1203,7 @@
         </div>
       </section>
     {/if}
-    {#if series}
+    {#if series && !normalizedQuery}
       <header
         use:previewVisible={series}
         class="series-hero mb-10 rounded-3xl px-6 pt-8 pb-7 text-center"
@@ -1166,8 +1243,15 @@
             >{/if}
         </div>
       </header>
-    {:else if recentBooks.length}<h2 id="books-heading" class="shelf-heading mb-4">Books</h2>{/if}
-    {#if completedGroups.length && collectionId === 'finished' && !series && currentLayout === 'timeline'}
+    {:else if recentBooks.length && !normalizedQuery}<h2
+        id="books-heading"
+        class="shelf-heading mb-4"
+      >
+        Books
+      </h2>{/if}
+    {#if normalizedQuery && !selectMode}
+      <LibrarySearch {query} {books} matches={metadataMatches} {openBook} />
+    {:else if completedGroups.length && collectionId === 'finished' && !series && currentLayout === 'timeline'}
       <div class="finished-timeline" role="list" aria-label="Finished books">
         {#each completedGroups as group (group.day || 'unknown')}
           <section class="finished-group" aria-labelledby={`finished-${group.day || 'unknown'}`}>
@@ -1414,6 +1498,15 @@
 <Dialog.Root bind:open={dialogOpen}>
   <Dialog.Content
     class={`max-h-[85dvh] overflow-y-auto [&_[data-slot=dialog-close]]:top-3 [&_[data-slot=dialog-close]]:right-3 [&_[data-slot=dialog-close]]:size-11 [&_[data-slot=dialog-footer]_button]:min-h-11 ${dialog === 'new-series' ? 'sm:max-w-xl' : ''}`}
+    onOpenAutoFocus={(event) => {
+      if (dialog !== 'membership') return;
+      // Bits UI may otherwise move focus between the new-collection field and
+      // an existing membership checkbox while the portalled dialog settles in
+      // WebKit. Own the initial target so typing/Enter cannot submit an empty
+      // required field after focus is stolen.
+      event.preventDefault();
+      newCollectionInput?.focus();
+    }}
   >
     <Dialog.Header>
       <Dialog.Title class="pr-8"
@@ -1506,6 +1599,7 @@
         <label class="min-w-0 flex-1"
           ><span class="sr-only">New collection name</span><input
             class="min-h-11 w-full rounded-xl border border-input bg-background px-3"
+            bind:this={newCollectionInput}
             bind:value={newCollectionName}
             placeholder="New collection name"
             maxlength="240"
@@ -1521,7 +1615,11 @@
     {:else if cloudPlan && cloudPlanSource}
       <div class="grid gap-4">
         <p class="text-sm">
-          Review this change to {cloudPlanSource.name} before writing to OneDrive.
+          {cloudPlan.status === 'preparing'
+            ? `Checking the selected books in ${cloudPlanSource.name}. No files have been changed.`
+            : cloudPlan.status === 'prepared'
+              ? `Review this change to ${cloudPlanSource.name} before writing to OneDrive.`
+              : 'Confirmed changes continue on the server even when this dialog is closed.'}
         </p>
         <dl
           class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 rounded-xl border border-border p-4 text-sm"
@@ -1537,7 +1635,11 @@
           <dt class="text-muted-foreground">Series</dt>
           <dd>{cloudPlan.preview.name || cloudPlan.preview.folder_name || 'Existing series'}</dd>
           <dt class="text-muted-foreground">Books</dt>
-          <dd>{cloudPlan.preview.book_names.length}</dd>
+          <dd>
+            {cloudPlan.status === 'preparing' && cloudPlan.preparation
+              ? `${cloudPlan.preparation.completed_books} of ${cloudPlan.preparation.total_books} checked`
+              : cloudPlan.preview.book_names.length}
+          </dd>
           <dt class="text-muted-foreground">Steps</dt>
           <dd>
             {cloudPlan.steps.filter((step) => step.state === 'done').length} of {cloudPlan.steps
@@ -1549,31 +1651,36 @@
           </p>{/if}
         {#if cloudPlan.status === 'paused'}<p role="alert" class="text-sm text-destructive">
             This change is paused ({cloudPlan.issue}). No further files will move. The completed
-            steps remain visible in OneDrive.
+            steps remain visible in OneDrive. Abandoning this change does not undo those steps.
           </p>{/if}
         {#if cloudPlan.status === 'reconcile'}<p
             role="status"
             class="text-sm text-muted-foreground"
           >
-            OneDrive may have completed the last step, but its response was uncertain. Wait briefly,
-            then reconcile this change before moving another book.
+            OneDrive may have completed the last step, but its response was uncertain. The server
+            will reconcile it before moving another book. You can close this dialog safely.
           </p>{/if}
         {#if error}<p role="alert" class="text-sm text-destructive">{error}</p>{/if}
         <Dialog.Footer>
           <Button variant="outline" disabled={busy} onclick={() => (dialogOpen = false)}
             >Close</Button
           >
-          <Button
-            disabled={busy || cloudPlan.status === 'paused' || cloudPlan.status === 'cancelled'}
-            onclick={confirmCloudPlan}
-            >{busy
-              ? 'Updating…'
-              : cloudPlan.status === 'prepared'
+          {#if ['preparing', 'prepared', 'paused'].includes(cloudPlan.status)}
+            <Button variant="outline" disabled={busy} onclick={abandonCloudPlan}
+              >{cloudPlan.status === 'paused'
+                ? 'Abandon unfinished change'
+                : 'Cancel change'}</Button
+            >
+          {/if}
+          {#if cloudPlan.status !== 'paused' && cloudPlan.status !== 'cancelled'}
+            <Button disabled={busy || cloudPlan.status !== 'prepared'} onclick={confirmCloudPlan}
+              >{cloudPlan.status === 'prepared'
                 ? 'Confirm Change'
-                : cloudPlan.status === 'reconcile'
-                  ? 'Reconcile Change'
-                  : 'Continue Change'}</Button
-          >
+                : cloudPlan.status === 'preparing'
+                  ? 'Checking books…'
+                  : 'Updating…'}</Button
+            >
+          {/if}
         </Dialog.Footer>
       </div>
     {:else}

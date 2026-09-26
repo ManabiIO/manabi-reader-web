@@ -2,7 +2,7 @@ import process from 'node:process';
 import adapter from '@sveltejs/adapter-static';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 
-const base = process.env.BASE_PATH ?? '/Reader-Web';
+const base = process.env.BASE_PATH ?? '/reader-web';
 if (base !== '' && !/^\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*$/.test(base)) {
   throw new Error('BASE_PATH must be a root-relative path without a trailing slash');
 }

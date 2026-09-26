@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { X, CaretLeft, CaretRight, Check } from 'phosphor-svelte';
+  import { CaretLeft, CaretRight, Check } from 'phosphor-svelte';
   import { Button } from '$lib/components/ui/button';
+  import CloseButton from '$lib/components/ui/close-button.svelte';
   import {
     getChapterData,
     nextChapter$,
@@ -126,13 +127,10 @@
       <h2 class="text-xl font-semibold">Contents</h2>
       <p class="mt-1 truncate text-sm text-muted-foreground" title={bookTitle}>{bookTitle}</p>
     </div>
-    <Button
-      variant="secondary"
-      size="icon"
-      class="min-h-11 min-w-11 rounded-full"
+    <CloseButton
       aria-label="Close Table of Contents"
-      onclick={closeTocMenu}><X aria-hidden="true" /></Button
-    >
+      onclick={closeTocMenu}
+    />
   </div>
   {#if currentChapter}
     <div class="mx-6 mb-4 rounded-2xl bg-muted p-4">

@@ -4,6 +4,11 @@
  * All rights reserved.
  */
 
+export interface PersonalSyncEpoch {
+  generation: string;
+  incarnation: string;
+}
+
 import type BooksDbV6 from '../v6/books-db-v6';
 import type { PublicationManifest, ReaderLocator } from '$lib/reader-location';
 
@@ -32,6 +37,7 @@ export interface ReaderAnnotationMutation {
   value: ReaderAnnotation;
   createdAt: string;
   request?: {
+    sync?: PersonalSyncEpoch;
     mutation_id: string;
     kind: 'annotation';
     entity_id: string;
@@ -63,7 +69,14 @@ export default interface BooksDbV7 extends BooksDbV6 {
   };
   readerSyncState: {
     key: string;
-    value: { accountId: string; cursor: string; modifiedAt: string };
+    value: {
+      accountId: string;
+      cursor: string;
+      modifiedAt: string;
+      generation?: string;
+      incarnation?: string;
+      resyncing?: boolean;
+    };
   };
   readerConflict: {
     key: string;

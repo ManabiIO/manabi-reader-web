@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { openUserGuide } from '$lib/components/navigation/docs-link';
   import { browser } from '$app/environment';
   import { resolve } from '$app/paths';
   import { goto } from '$app/navigation';
@@ -220,7 +221,11 @@
               class="min-w-0 w-full border-0 bg-transparent p-0 shadow-none outline-none focus:border-transparent focus:shadow-none focus:ring-0"
               placeholder="Search library"
               value={libraryMenu?.search.query || ''}
-              oninput={(event) => libraryMenu?.search.setQuery(event.currentTarget.value)}
+              oninput={(event) => {
+                if (!('isComposing' in event && event.isComposing))
+                  libraryMenu?.search.setQuery(event.currentTarget.value);
+              }}
+              oncompositionend={(event) => libraryMenu?.search.setQuery(event.currentTarget.value)}
               onkeydown={(event) => {
                 if (event.key === 'Escape') {
                   event.preventDefault();
@@ -463,6 +468,7 @@
               {/if}
               <Menu.Separator />
               <Menu.Label>Manabi Reader</Menu.Label>
+              <Menu.Item onSelect={openUserGuide}>User guide</Menu.Item>
               <Menu.Item onSelect={() => goto(resolve('/connections'))}
                 ><UserCircle aria-hidden="true" />Accounts and Libraries</Menu.Item
               >
@@ -525,7 +531,12 @@
                 type="search"
                 placeholder="Search library"
                 value={libraryMenu?.search.query || ''}
-                oninput={(event) => libraryMenu?.search.setQuery(event.currentTarget.value)}
+                oninput={(event) => {
+                  if (!('isComposing' in event && event.isComposing))
+                    libraryMenu?.search.setQuery(event.currentTarget.value);
+                }}
+                oncompositionend={(event) =>
+                  libraryMenu?.search.setQuery(event.currentTarget.value)}
               /></label
             >
           {/if}

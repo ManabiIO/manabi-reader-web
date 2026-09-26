@@ -5,20 +5,10 @@
  */
 
 import { isNodeGaiji } from '$lib/functions/is-node-gaiji';
+import { READER_TEXT_NODE, readerTraversalNodeIsVisible } from '$lib/reader-dom-core';
 
 export function getParagraphNodes(node: Node) {
-  return getTextNodeOrGaijiNodes(node, (n) => {
-    if (n.nodeName === 'RT') {
-      return false;
-    }
-    const isHidden =
-      n instanceof HTMLElement &&
-      (n.attributes.getNamedItem('aria-hidden') || n.attributes.getNamedItem('hidden'));
-    if (isHidden) {
-      return false;
-    }
-    return true;
-  }).filter((n) => {
+  return getTextNodeOrGaijiNodes(node, readerTraversalNodeIsVisible).filter((n) => {
     if (isNodeGaiji(n)) {
       return true;
     }
@@ -36,7 +26,7 @@ function getTextNodeOrGaijiNodes(node: Node, filterFn: (n: Node) => boolean): No
 
   return Array.from(node.childNodes)
     .flatMap((n) => {
-      if (n.nodeType === Node.TEXT_NODE) {
+      if (n.nodeType === READER_TEXT_NODE) {
         return [n];
       }
       if (isNodeGaiji(n)) {

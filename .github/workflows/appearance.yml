@@ -83,7 +83,7 @@ jobs:
           pnpm --dir apps/web check 2>&1 | tee appearance-types.log
       - name: Build the real subpath application
         env:
-          BASE_PATH: /Reader-Web
+          BASE_PATH: /reader-web
         run: |
           set -o pipefail
           pnpm build 2>&1 | tee appearance-build.log
@@ -100,10 +100,10 @@ jobs:
           status=0
           for engine in chromium webkit; do
             mkdir -p artifacts/appearance/$engine
-            APPEARANCE_BROWSER=$engine python tests/browser/test_rhea_ui.py 2>&1 | tee artifacts/appearance/$engine/results.log
+            APPEARANCE_BROWSER=$engine timeout -v -k 10s 300s python tests/browser/test_rhea_ui.py 2>&1 | tee artifacts/appearance/$engine/results.log
             result=${PIPESTATUS[0]}
             if [ "$result" -ne 0 ]; then status=1; fi
-            LIBRARY_BROWSER=$engine python tests/browser/test_deep_control_refinement.py 2>&1 | tee artifacts/appearance/$engine/modal-controls.log
+            LIBRARY_BROWSER=$engine PICKS_BROWSER=$engine timeout -v -k 10s 300s python tests/browser/test_connect_ui.py 2>&1 | tee artifacts/appearance/$engine/modal-controls.log
             result=${PIPESTATUS[0]}
             if [ "$result" -ne 0 ]; then status=1; fi
             if [ -d test-results ]; then mv test-results artifacts/appearance/$engine/screenshots; fi

@@ -1,0 +1,1070 @@
+// Vendored from foliate-js commit 78914aef4466eb960965702401634c2cb348e9b1.
+// See LICENSE.foliate-js.txt in this directory.
+import * as CFI from './epubcfi.js'
+
+const NS = {
+    CONTAINER: 'urn:oasis:names:tc:opendocument:xmlns:container',
+    XHTML: 'http://www.w3.org/1999/xhtml',
+    OPF: 'http://www.idpf.org/2007/opf',
+    EPUB: 'http://www.idpf.org/2007/ops',
+    DC: 'http://purl.org/dc/elements/1.1/',
+    DCTERMS: 'http://purl.org/dc/terms/',
+    ENC: 'http://www.w3.org/2001/04/xmlenc#',
+    NCX: 'http://www.daisy.org/z3986/2005/ncx/',
+    XLINK: 'http://www.w3.org/1999/xlink',
+}
+
+const MIME = {
+    XML: 'application/xml',
+    NCX: 'application/x-dtbncx+xml',
+    XHTML: 'application/xhtml+xml',
+    HTML: 'text/html',
+    CSS: 'text/css',
+    SVG: 'image/svg+xml',
+    JS: /\/(x-)?(javascript|ecmascript)/,
+}
+
+// https://www.w3.org/TR/epub-33/#sec-reserved-prefixes
+const PREFIX = {
+    a11y: 'http://www.idpf.org/epub/vocab/package/a11y/#',
+    dcterms: 'http://purl.org/dc/terms/',
+    marc: 'http://id.loc.gov/vocabulary/',
+    media: 'http://www.idpf.org/epub/vocab/overlays/#',
+    onix: 'http://www.editeur.org/ONIX/book/codelists/current.html#',
+    rendition: 'http://www.idpf.org/vocab/rendition/#',
+    schema: 'http://schema.org/',
+    xsd: 'http://www.w3.org/2001/XMLSchema#',
+    msv: 'http://www.idpf.org/epub/vocab/structure/magazine/#',
+    prism: 'http://www.prismstandard.org/specifications/3.0/PRISM_CV_Spec_3.0.htm#',
+}
+
+const RELATORS = {
+    art: 'artist',
+    aut: 'author',
+    clr: 'colorist',
+    edt: 'editor',
+    ill: 'illustrator',
+    nrt: 'narrator',
+    trl: 'translator',
+    pbl: 'publisher',
+}
+
+const ONIX5 = {
+    '02': 'isbn',
+    '06': 'doi',
+    '15': 'isbn',
+    '26': 'doi',
+    '34': 'issn',
+}
+
+// convert to camel case
+const camel = x => x.toLowerCase().replace(/[-:](.)/g, (_, g) => g.toUpperCase())
+
+// strip and collapse ASCII whitespace
+// https://infra.spec.whatwg.org/#strip-and-collapse-ascii-whitespace
+const normalizeWhitespace = str => str ? str
+    .replace(/[\t\n\f\r ]+/g, ' ')
+    .replace(/^[\t\n\f\r ]+/, '')
+    .replace(/[\t\n\f\r ]+$/, '') : ''
+
+const filterAttribute = (attr, value, isList) => isList
+    ? el => el.getAttribute(attr)?.split(/\s/)?.includes(value)
+    : typeof value === 'function'
+        ? el => value(el.getAttribute(attr))
+        : el => el.getAttribute(attr) === value
+
+const getAttributes = (...xs) => el =>
+    el ? Object.fromEntries(xs.map(x => [camel(x), el.getAttribute(x)])) : null
+
+const getElementText = el => normalizeWhitespace(el?.textContent)
+
+const childGetter = (doc, ns) => {
+    // ignore the namespace if it doesn't appear in document at all
+    const useNS = doc.lookupNamespaceURI(null) === ns || doc.lookupPrefix(ns)
+    const f = useNS
+        ? (el, name) => el => el.namespaceURI === ns && el.localName === name
+        : (el, name) => el => el.localName === name
+    return {
+        $: (el, name) => [...el.children].find(f(el, name)),
+        $$: (el, name) => [...el.children].filter(f(el, name)),
+        $$$: useNS
+            ? (el, name) => [...el.getElementsByTagNameNS(ns, name)]
+            : (el, name) => [...el.getElementsByTagName(name)],
+    }
+}
+
+const resolveURL = (url, relativeTo) => {
+    try {
+        if (relativeTo.includes(':')) return new URL(url, relativeTo)
+        // the base needs to be a valid URL, so set a base URL and then remove it
+        const root = 'https://invalid.invalid/'
+        const obj = new URL(url, root + relativeTo)
+        obj.search = ''
+        return decodeURI(obj.href.replace(root, ''))
+    } catch(e) {
+        console.warn(e)
+        return url
+    }
+}
+
+const isExternal = uri => /^(?!blob)\w+:/i.test(uri)
+
+// like `path.relative()` in Node.js
+const pathRelative = (from, to) => {
+    if (!from) return to
+    const as = from.replace(/\/$/, '').split('/')
+    const bs = to.replace(/\/$/, '').split('/')
+    const i = (as.length > bs.length ? as : bs).findIndex((_, i) => as[i] !== bs[i])
+    return i < 0 ? '' : Array(as.length - i).fill('..').concat(bs.slice(i)).join('/')
+}
+
+const pathDirname = str => str.slice(0, str.lastIndexOf('/') + 1)
+
+// replace asynchronously and sequentially
+// same technique as https://stackoverflow.com/a/48032528
+const replaceSeries = async (str, regex, f) => {
+    const matches = []
+    str.replace(regex, (...args) => (matches.push(args), null))
+    const results = []
+    for (const args of matches) results.push(await f(...args))
+    return str.replace(regex, () => results.shift())
+}
+
+const regexEscape = str => str.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')
+
+const tidy = obj => {
+    for (const [key, val] of Object.entries(obj))
+        if (val == null) delete obj[key]
+        else if (Array.isArray(val)) {
+            obj[key] = val.filter(x => x).map(x =>
+                typeof x === 'object' && !Array.isArray(x) ? tidy(x) : x)
+            if (!obj[key].length) delete obj[key]
+            else if (obj[key].length === 1) obj[key] = obj[key][0]
+        }
+        else if (typeof val === 'object') {
+            obj[key] = tidy(val)
+            if (!Object.keys(val).length) delete obj[key]
+        }
+    const keys = Object.keys(obj)
+    if (keys.length === 1 && keys[0] === 'name') return obj[keys[0]]
+    return obj
+}
+
+// https://www.w3.org/TR/epub/#sec-prefix-attr
+const getPrefixes = doc => {
+    const map = new Map(Object.entries(PREFIX))
+    const value = doc.documentElement.getAttributeNS(NS.EPUB, 'prefix')
+        || doc.documentElement.getAttribute('prefix')
+    if (value) for (const [, prefix, url] of value
+        .matchAll(/(.+): +(.+)[ \t\r\n]*/g)) map.set(prefix, url)
+    return map
+}
+
+// https://www.w3.org/TR/epub-rs/#sec-property-values
+// but ignoring the case where the prefix is omitted
+const getPropertyURL = (value, prefixes) => {
+    if (!value) return null
+    const [a, b] = value.split(':')
+    const prefix = b ? a : null
+    const reference = b ? b : a
+    const baseURL = prefixes.get(prefix)
+    return baseURL ? baseURL + reference : null
+}
+
+const getMetadata = opf => {
+    const { $ } = childGetter(opf, NS.OPF)
+    const $metadata = $(opf.documentElement, 'metadata')
+    if (!$metadata) return { metadata: {}, rendition: {}, media: {} }
+
+    // first pass: convert to JS objects
+    const els = Object.groupBy($metadata.children, el =>
+        el.namespaceURI === NS.DC ? 'dc'
+        : el.namespaceURI === NS.OPF && el.localName === 'meta' ?
+            (el.hasAttribute('name') ? 'legacyMeta' : 'meta') : '')
+    const baseLang = $metadata.getAttribute('xml:lang')
+        ?? opf.documentElement.getAttribute('xml:lang') ?? 'und'
+    const prefixes = getPrefixes(opf)
+    const parse = el => {
+        const property = el.getAttribute('property')
+        const scheme = el.getAttribute('scheme')
+        return {
+            property: getPropertyURL(property, prefixes) ?? property,
+            scheme: getPropertyURL(scheme, prefixes) ?? scheme,
+            lang: el.getAttribute('xml:lang'),
+            value: getElementText(el),
+            props: getProperties(el),
+            // `opf:` attributes from EPUB 2 & EPUB 3.1 (removed in EPUB 3.2)
+            attrs: Object.fromEntries(Array.from(el.attributes)
+                .filter(attr => attr.namespaceURI === NS.OPF)
+                .map(attr => [attr.localName, attr.value])),
+        }
+    }
+    const refines = Map.groupBy(els.meta ?? [], el => el.getAttribute('refines'))
+    const refining = new Set()
+    const getProperties = el => {
+        const key = el ? '#' + el.getAttribute('id') : null
+        const els = refines.get(key)
+        if (!els) return null
+        if (refining.has(key) || refining.size >= 32)
+            throw new Error('EPUB metadata refinements contain a cycle or exceed the depth limit')
+        refining.add(key)
+        try { return Object.groupBy(els.map(parse), x => x.property) }
+        finally { refining.delete(key) }
+    }
+    const dc = Object.fromEntries(Object.entries(Object.groupBy(els.dc ?? [], el => el.localName))
+        .map(([name, els]) => [name, els.map(parse)]))
+    const properties = getProperties() ?? {}
+    const legacyMeta = Object.fromEntries(els.legacyMeta?.map(el =>
+        [el.getAttribute('name'), el.getAttribute('content')]) ?? [])
+
+    // second pass: map to webpub
+    const one = x => x?.[0]?.value
+    const prop = (x, p) => one(x?.props?.[p])
+    const makeLanguageMap = x => {
+        if (!x) return null
+        const alts = x.props?.['alternate-script'] ?? []
+        const altRep = x.attrs['alt-rep']
+        if (!alts.length && (!x.lang || x.lang === baseLang) && !altRep) return x.value
+        const map = { [x.lang ?? baseLang]: x.value }
+        if (altRep) map[x.attrs['alt-rep-lang']] = altRep
+        for (const y of alts) map[y.lang] ??= y.value
+        return map
+    }
+    const makeContributor = x => x ? ({
+        name: makeLanguageMap(x),
+        sortAs: makeLanguageMap(x.props?.['file-as']?.[0]) ?? x.attrs['file-as'],
+        role: x.props?.role?.filter(x => x.scheme === PREFIX.marc + 'relators')
+            ?.map(x => x.value) ?? [x.attrs.role],
+        code: prop(x, 'term') ?? x.attrs.term,
+        scheme: prop(x, 'authority') ?? x.attrs.authority,
+    }) : null
+    const makeCollection = x => ({
+        name: makeLanguageMap(x),
+        // NOTE: webpub requires number but EPUB allows values like "2.2.1"
+        position: one(x.props?.['group-position']),
+    })
+    const makeAltIdentifier = x => {
+        const { value } = x
+        if (/^urn:/i.test(value)) return value
+        if (/^doi:/i.test(value)) return `urn:${value}`
+        const type = x.props?.['identifier-type']
+        if (!type) {
+            const scheme = x.attrs.scheme
+            if (!scheme) return value
+            // https://idpf.github.io/epub-registries/identifiers/
+            // but no "jdcn", which isn't a registered URN namespace
+            if (/^(doi|isbn|uuid)$/i.test(scheme)) return `urn:${scheme}:${value}`
+            // NOTE: webpub requires scheme to be a URI; EPUB allows anything
+            return { scheme, value }
+        }
+        if (type.scheme === PREFIX.onix + 'codelist5') {
+            const nid = ONIX5[type.value]
+            if (nid) return `urn:${nid}:${value}`
+        }
+        return value
+    }
+    const belongsTo = Object.groupBy(properties['belongs-to-collection'] ?? [],
+        x => prop(x, 'collection-type') === 'series' ? 'series' : 'collection')
+    const mainTitle = dc.title?.find(x => prop(x, 'title-type') === 'main') ?? dc.title?.[0]
+    const metadata = {
+        identifier: getIdentifier(opf),
+        title: makeLanguageMap(mainTitle),
+        sortAs: makeLanguageMap(mainTitle?.props?.['file-as']?.[0])
+            ?? mainTitle?.attrs?.['file-as']
+            ?? legacyMeta?.['calibre:title_sort'],
+        subtitle: dc.title?.find(x => prop(x, 'title-type') === 'subtitle')?.value,
+        language: dc.language?.map(x => x.value),
+        description: one(dc.description),
+        publisher: dc.publisher?.map(makeContributor),
+        published: dc.date?.find(x => x.attrs.event === 'publication')?.value
+            ?? one(dc.date),
+        modified: one(properties[PREFIX.dcterms + 'modified'])
+            ?? dc.date?.find(x => x.attrs.event === 'modification')?.value,
+        subject: dc.subject?.map(makeContributor),
+        belongsTo: {
+            collection: belongsTo.collection?.map(makeCollection),
+            series: belongsTo.series?.map(makeCollection)
+            ?? (legacyMeta?.['calibre:series'] ? {
+                name: legacyMeta?.['calibre:series'],
+                position: parseFloat(legacyMeta?.['calibre:series_index']),
+            } : null),
+        },
+        altIdentifier: dc.identifier?.map(makeAltIdentifier),
+        source: dc.source?.map(makeAltIdentifier), // NOTE: not in webpub schema
+        rights: one(dc.rights), // NOTE: not in webpub schema
+        pageBreakSource: one(properties['pageBreakSource']), // NOTE: not in webpub schema
+    }
+    const remapContributor = defaultKey => x => {
+        const keys = new Set(x.role?.map(role => RELATORS[role] ?? defaultKey))
+        return [keys.size ? keys : [defaultKey], x]
+    }
+    for (const [keys, val] of [].concat(
+        dc.creator?.map(makeContributor)?.map(remapContributor('author')) ?? [],
+        dc.contributor?.map(makeContributor)?.map(remapContributor('contributor')) ?? []))
+        for (const key of keys)
+            if (metadata[key]) metadata[key].push(val)
+            else metadata[key] = [val]
+    tidy(metadata)
+    if (metadata.altIdentifier === metadata.identifier)
+        delete metadata.altIdentifier
+
+    const rendition = {}
+    const media = {}
+    for (const [key, val] of Object.entries(properties)) {
+        if (key.startsWith(PREFIX.rendition))
+            rendition[camel(key.replace(PREFIX.rendition, ''))] = one(val)
+        else if (key.startsWith(PREFIX.media))
+            media[camel(key.replace(PREFIX.media, ''))] = one(val)
+    }
+    if (media.duration) media.duration = parseClock(media.duration)
+    return { metadata, rendition, media }
+}
+
+const parseNav = (doc, resolve = f => f) => {
+    const { $, $$, $$$ } = childGetter(doc, NS.XHTML)
+    const resolveHref = href => href ? resolve(href) : null
+    let entries = 0
+    const parseLI = (getType, depth) => $li => {
+        if (++entries > 20000 || depth > 64) throw new Error('EPUB navigation exceeds the size limit')
+        const $a = $($li, 'a') ?? $($li, 'span')
+        const $ol = $($li, 'ol')
+        const href = resolveHref($a?.getAttribute('href'))
+        const label = getElementText($a) || $a?.getAttribute('title')
+        // TODO: get and concat alt/title texts in content
+        const result = { label, href, subitems: parseOL($ol, getType, depth + 1) }
+        if (getType) result.type = $a?.getAttributeNS(NS.EPUB, 'type')?.split(/\s/)
+        return result
+    }
+    const parseOL = ($ol, getType, depth = 0) => $ol ? $$($ol, 'li').map(parseLI(getType, depth)) : null
+    const parseNav = ($nav, getType) => parseOL($($nav, 'ol'), getType)
+
+    const $$nav = $$$(doc, 'nav')
+    let toc = null, pageList = null, landmarks = null, others = []
+    for (const $nav of $$nav) {
+        const type = ($nav.getAttributeNS(NS.EPUB, 'type') ?? $nav.getAttribute('epub:type') ?? ($nav.id === 'toc' ? 'toc' : ''))?.split(/\s+/) ?? []
+        if (type.includes('toc')) toc ??= parseNav($nav)
+        else if (type.includes('page-list')) pageList ??= parseNav($nav)
+        else if (type.includes('landmarks')) landmarks ??= parseNav($nav, true)
+        else others.push({
+            label: getElementText($nav.firstElementChild), type,
+            list: parseNav($nav),
+        })
+    }
+    return { toc, pageList, landmarks, others }
+}
+
+const parseNCX = (doc, resolve = f => f) => {
+    const { $, $$ } = childGetter(doc, NS.NCX)
+    const resolveHref = href => href ? resolve(href) : null
+    let entries = 0
+    const parseItem = (el, depth = 0) => {
+        if (++entries > 20000 || depth > 64) throw new Error('EPUB NCX navigation exceeds the size limit')
+        const $label = $(el, 'navLabel')
+        const $content = $(el, 'content')
+        const label = getElementText($label)
+        const href = resolveHref($content?.getAttribute('src'))
+        if (el.localName === 'navPoint') {
+            const els = $$(el, 'navPoint')
+            return { label, href, subitems: els.length ? els.map(child => parseItem(child, depth + 1)) : null }
+        }
+        return { label, href }
+    }
+    const parseList = (el, itemName) => $$(el, itemName).map(child => parseItem(child))
+    const getSingle = (container, itemName) => {
+        const $container = $(doc.documentElement, container)
+        return $container ? parseList($container, itemName) : null
+    }
+    return {
+        toc: getSingle('navMap', 'navPoint'),
+        pageList: getSingle('pageList', 'pageTarget'),
+        others: $$(doc.documentElement, 'navList').map(el => ({
+            label: getElementText($(el, 'navLabel')),
+            list: parseList(el, 'navTarget'),
+        })),
+    }
+}
+
+const parseClock = str => {
+    if (!str) return
+    const parts = str.split(':').map(x => parseFloat(x))
+    if (parts.length === 3) {
+        const [h, m, s] = parts
+        return h * 60 * 60 + m * 60 + s
+    }
+    if (parts.length === 2) {
+        const [m, s] = parts
+        return m * 60 + s
+    }
+    const [x, unit] = str.split(/(?=[^\d.])/)
+    const n = parseFloat(x)
+    const f = unit === 'h' ? 60 * 60
+        : unit === 'min' ? 60
+        : unit === 'ms' ? .001
+        : 1
+    return n * f
+}
+
+const isUUID = /([0-9a-f]{8})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{12})/
+
+const getUUID = opf => {
+    for (const el of opf.getElementsByTagNameNS(NS.DC, 'identifier')) {
+        const [id] = getElementText(el).split(':').slice(-1)
+        if (isUUID.test(id)) return id
+    }
+    return ''
+}
+
+const getIdentifier = opf => getElementText(
+    opf.getElementById(opf.documentElement.getAttribute('unique-identifier'))
+    ?? opf.getElementsByTagNameNS(NS.DC, 'identifier')[0])
+
+// https://www.w3.org/publishing/epub32/epub-ocf.html#sec-resource-obfuscation
+const deobfuscate = async (key, length, blob) => {
+    const array = new Uint8Array(await blob.slice(0, length).arrayBuffer())
+    length = Math.min(length, array.length)
+    for (var i = 0; i < length; i++) array[i] = array[i] ^ key[i % key.length]
+    return new Blob([array, blob.slice(length)], { type: blob.type })
+}
+
+const WebCryptoSHA1 = async str => {
+    const data = new TextEncoder().encode(str)
+    const buffer = await globalThis.crypto.subtle.digest('SHA-1', data)
+    return new Uint8Array(buffer)
+}
+
+const deobfuscators = (sha1 = WebCryptoSHA1) => ({
+    'http://www.idpf.org/2008/embedding': {
+        key: opf => sha1(getIdentifier(opf)
+            // eslint-disable-next-line no-control-regex
+            .replaceAll(/[\u0020\u0009\u000d\u000a]/g, '')),
+        decode: (key, blob) => deobfuscate(key, 1040, blob),
+    },
+    'http://ns.adobe.com/pdf/enc#RC': {
+        key: opf => {
+            const uuid = getUUID(opf).replaceAll('-', '')
+            return Uint8Array.from({ length: 16 }, (_, i) =>
+                parseInt(uuid.slice(i * 2, i * 2 + 2), 16))
+        },
+        decode: (key, blob) => deobfuscate(key, 1024, blob),
+    },
+})
+
+class Encryption {
+    #uris = new Map()
+    #decoders = new Map()
+    #algorithms
+    constructor(algorithms) {
+        this.#algorithms = algorithms
+    }
+    async init(encryption, opf) {
+        if (!encryption) return
+        const data = Array.from(
+            encryption.getElementsByTagNameNS(NS.ENC, 'EncryptedData'), el => ({
+                algorithm: el.getElementsByTagNameNS(NS.ENC, 'EncryptionMethod')[0]
+                    ?.getAttribute('Algorithm'),
+                uri: el.getElementsByTagNameNS(NS.ENC, 'CipherReference')[0]
+                    ?.getAttribute('URI'),
+            }))
+        for (const { algorithm, uri } of data) {
+            if (!this.#decoders.has(algorithm)) {
+                const algo = this.#algorithms[algorithm]
+                if (!algo) {
+                    console.warn('Unknown encryption algorithm')
+                    continue
+                }
+                const key = await algo.key(opf)
+                this.#decoders.set(algorithm, blob => algo.decode(key, blob))
+            }
+            this.#uris.set(uri, algorithm)
+        }
+    }
+    getDecoder(uri) {
+        return this.#decoders.get(this.#uris.get(uri)) ?? (x => x)
+    }
+}
+
+class Resources {
+    constructor({ opf, resolveHref, resolveNavigationHref = resolveHref }) {
+        this.opf = opf
+        const { $, $$, $$$ } = childGetter(opf, NS.OPF)
+
+        const $manifest = $(opf.documentElement, 'manifest')
+        const $spine = $(opf.documentElement, 'spine')
+        if (!$manifest || !$spine) throw new Error('EPUB package has no manifest or spine')
+        const $$itemref = $$($spine, 'itemref')
+        if (!$$itemref.length || $$itemref.length > 8192 || $$($manifest, 'item').length > 8192)
+            throw new Error('EPUB manifest or spine exceeds the size limit')
+
+        this.manifest = $$($manifest, 'item')
+            .map(getAttributes('href', 'id', 'media-type', 'properties', 'media-overlay', 'fallback'))
+            .map(item => {
+                if (!item.id || item.id.length > 512 || !item.href || !item.mediaType)
+                    throw new Error('Invalid EPUB manifest item')
+                item.href = resolveHref(item.href)
+                item.properties = item.properties?.split(/\s/)
+                return item
+            })
+        this.manifestById = new Map(this.manifest.map(item => [item.id, item]))
+        if (this.manifestById.size !== this.manifest.length)
+            throw new Error('Duplicate EPUB manifest ID')
+        this.spine = $$itemref
+            .map(getAttributes('idref', 'id', 'linear', 'properties'))
+            .map(item => (item.properties = item.properties?.split(/\s/), item))
+        if (this.spine.some(item => !this.manifestById.has(item.idref)))
+            throw new Error('EPUB spine references a missing manifest item')
+        this.pageProgressionDirection = $spine
+            .getAttribute('page-progression-direction')
+
+        this.navPath = this.getItemByProperty('nav')?.href
+        this.ncxPath = (this.getItemByID($spine.getAttribute('toc'))
+            ?? this.manifest.find(item => item.mediaType === MIME.NCX))?.href
+
+        const $guide = $(opf.documentElement, 'guide')
+        if ($guide) this.guide = $$($guide, 'reference')
+            .map(getAttributes('type', 'title', 'href'))
+            .map(({ type, title, href }) => ({
+                label: title,
+                type: (type ?? '').split(/\s+/),
+                href: resolveNavigationHref(href),
+            }))
+
+        this.cover = this.getItemByProperty('cover-image')
+            // EPUB 2 compat
+            ?? this.getItemByID($$$(opf, 'meta')
+                .find(filterAttribute('name', 'cover'))
+                ?.getAttribute('content'))
+            ?? this.getItemByHref(this.guide
+                ?.find(ref => ref.type.includes('cover'))?.href)
+
+        this.cfis = CFI.fromElements($$itemref)
+    }
+    getItemByID(id) {
+        return this.manifestById.get(id)
+    }
+    getItemByHref(href) {
+        return this.manifest.find(item => item.href === href)
+    }
+    getItemByProperty(prop) {
+        return this.manifest.find(item => item.properties?.includes(prop))
+    }
+    resolveCFI(cfi) {
+        const parts = CFI.parse(cfi)
+        const top = (parts.parent ?? parts).shift()
+        let $itemref = CFI.toElement(this.opf, top)
+        // make sure it's an idref; if not, try again without the ID assertion
+        // mainly because Epub.js used to generate wrong ID assertions
+        // https://github.com/futurepress/epub.js/issues/1236
+        if ($itemref && $itemref.nodeName !== 'idref') {
+            top.at(-1).id = null
+            $itemref = CFI.toElement(this.opf, top)
+        }
+        const idref = $itemref?.getAttribute('idref')
+        const index = this.spine.findIndex(item => item.idref === idref)
+        const anchor = doc => CFI.toRange(doc, parts)
+        return { index, anchor }
+    }
+}
+
+const splitInternalResourceReference = href => {
+    const queryIndex = href.indexOf('?')
+    const fragmentIndex = href.indexOf('#')
+    let resourceEnd = href.length
+    if (queryIndex >= 0) resourceEnd = Math.min(resourceEnd, queryIndex)
+    if (fragmentIndex >= 0) resourceEnd = Math.min(resourceEnd, fragmentIndex)
+    return {
+        resourceHref: href.slice(0, resourceEnd),
+        suffix: href.slice(resourceEnd),
+    }
+}
+
+export class Loader {
+    #cache = new Map()
+    #children = new Map()
+    #refCount = new Map()
+    #pendingLoads = new Map()
+    #loadDependencies = new Map()
+    #destroyed = false
+    eventTarget = new EventTarget()
+    constructor({ loadText, loadBlob, resources }) {
+        this.loadText = loadText
+        this.loadBlob = loadBlob
+        this.manifest = resources.manifest
+        this.assets = resources.manifest
+    }
+    async createURL(href, data, type, parent, cacheKey = href) {
+        if (this.#destroyed || !data) return ''
+        const detail = { data, type }
+        Object.defineProperty(detail, 'name', { value: href })
+        const event = new CustomEvent('data', { detail })
+        this.eventTarget.dispatchEvent(event)
+        const newData = await event.detail.data
+        const newType = await event.detail.type
+        if (this.#destroyed || newData == null) return ''
+        const url = URL.createObjectURL(new Blob([newData], { type: newType }))
+        if (this.#destroyed) {
+            URL.revokeObjectURL(url)
+            return ''
+        }
+        this.#cache.set(cacheKey, url)
+        this.#refCount.set(cacheKey, 1)
+        if (parent) {
+            const childList = this.#children.get(parent)
+            if (childList) childList.push(cacheKey)
+            else this.#children.set(parent, [cacheKey])
+        }
+        return url
+    }
+    ref(href, parent) {
+        if (this.#destroyed || !this.#cache.has(href)) return null
+        if (!parent) {
+            this.#refCount.set(href, (this.#refCount.get(href) ?? 0) + 1)
+            return this.#cache.get(href)
+        }
+        const childList = this.#children.get(parent)
+        if (!childList?.includes(href)) {
+            this.#refCount.set(href, (this.#refCount.get(href) ?? 0) + 1)
+            if (childList) childList.push(href)
+            else this.#children.set(parent, [href])
+        }
+        return this.#cache.get(href)
+    }
+    unref(href) {
+        if (!this.#refCount.has(href)) return
+        const count = this.#refCount.get(href) - 1
+        if (count < 1) {
+            const url = this.#cache.get(href)
+            if (typeof url === 'string' && url.startsWith('blob:')) URL.revokeObjectURL(url)
+            this.#cache.delete(href)
+            this.#refCount.delete(href)
+            const childList = this.#children.get(href)
+            if (childList) while (childList.length) this.unref(childList.pop())
+            this.#children.delete(href)
+        } else this.#refCount.set(href, count)
+    }
+    #dependsOn(from, target, visited = new Set()) {
+        if (from === target) return true
+        if (visited.has(from)) return false
+        visited.add(from)
+        for (const child of this.#loadDependencies.get(from)?.keys() ?? []) {
+            if (this.#dependsOn(child, target, visited)) return true
+        }
+        return false
+    }
+    #rollbackUncommittedChildren(parent, retainedChildren) {
+        const childList = this.#children.get(parent)
+        if (!childList?.length) return
+        const retained = []
+        for (const child of childList) {
+            if (retainedChildren.has(child)) retained.push(child)
+            else this.unref(child)
+        }
+        if (retained.length) this.#children.set(parent, retained)
+        else this.#children.delete(parent)
+    }
+    async loadItem(item, parents = []) {
+        if (this.#destroyed || !item) return null
+        const { href, mediaType } = item
+        const isScript = MIME.JS.test(mediaType)
+        const detail = { type: mediaType, isScript, allow: true }
+        const event = new CustomEvent('load', { detail })
+        this.eventTarget.dispatchEvent(event)
+        const allow = await event.detail.allow
+        if (this.#destroyed || !allow) return null
+
+        const parent = parents.at(-1)
+        if (this.#cache.has(href)) return this.ref(href, parent)
+        if (parent && this.#dependsOn(href, parent))
+            return this.#loadItemUncoalesced(item, parents, true)
+
+        let dependencies
+        if (parent) {
+            dependencies = this.#loadDependencies.get(parent)
+            if (!dependencies)
+                this.#loadDependencies.set(parent, dependencies = new Map())
+            dependencies.set(href, (dependencies.get(href) ?? 0) + 1)
+        }
+
+        try {
+            const recursive = parents.includes(href)
+            if (recursive) return this.#loadItemUncoalesced(item, parents, true)
+
+            const pending = this.#pendingLoads.get(href)
+            if (pending) {
+                const url = await pending
+                if (this.#destroyed || !url) return null
+                return this.ref(href, parent)
+            }
+
+            const retainedChildren = new Set(this.#children.get(href) ?? [])
+            const load = (async () => {
+                try {
+                    const value = await this.#loadItemUncoalesced(item, parents)
+                    if (!value || !this.#cache.has(href))
+                        this.#rollbackUncommittedChildren(href, retainedChildren)
+                    return value
+                } catch (error) {
+                    this.#rollbackUncommittedChildren(href, retainedChildren)
+                    throw error
+                }
+            })()
+            this.#pendingLoads.set(href, load)
+            try {
+                return await load
+            } finally {
+                if (this.#pendingLoads.get(href) === load) this.#pendingLoads.delete(href)
+            }
+        } finally {
+            if (parent && dependencies) {
+                const count = (dependencies.get(href) ?? 1) - 1
+                if (count) dependencies.set(href, count)
+                else dependencies.delete(href)
+                if (!dependencies.size) this.#loadDependencies.delete(parent)
+            }
+        }
+    }
+    async #loadItemUncoalesced(item, parents = [], forceRaw = false) {
+        if (this.#destroyed || !item) return null
+        const { href, mediaType } = item
+        const parent = parents.at(-1)
+        if (this.#cache.has(href)) return this.ref(href, parent)
+
+        const isScript = MIME.JS.test(mediaType)
+        const shouldReplace =
+            !forceRaw
+            && (isScript || [MIME.XHTML, MIME.HTML, MIME.CSS, MIME.SVG].includes(mediaType))
+        if (shouldReplace) return this.loadReplaced(item, parents)
+
+        const blob = await this.loadBlob(href)
+        if (this.#destroyed || blob == null) return null
+        // Recursive references must not publish over the href-keyed outer load.
+        const cacheKey = forceRaw ? Symbol(`recursive:${href}`) : href
+        return this.createURL(href, blob, mediaType, parent, cacheKey)
+    }
+    async loadHref(href, base, parents = []) {
+        if (this.#destroyed || typeof href !== 'string' || !href || isExternal(href)) return href
+        const { resourceHref, suffix } = splitInternalResourceReference(href)
+        if (!resourceHref) return href
+        const path = resolveURL(resourceHref, base)
+        const item = this.manifest.find(item => item.href === path)
+        if (!item) return href
+        const url = await this.loadItem(item, parents.concat(base))
+        return url ? `${url}${suffix}` : url
+    }
+    async loadReplaced(item, parents = []) {
+        if (this.#destroyed) return null
+        const { href, mediaType } = item
+        const parent = parents.at(-1)
+        let str = ''
+        try {
+            str = await this.loadText(href)
+        } catch (e) {
+            if (this.#destroyed) return null
+            return this.createURL(href, Promise.reject(e), mediaType, parent)
+        }
+        if (this.#destroyed || !str) return null
+
+        if ([MIME.XHTML, MIME.HTML, MIME.SVG].includes(mediaType)) {
+            let doc = new DOMParser().parseFromString(str, mediaType)
+            if (mediaType === MIME.XHTML && (doc.querySelector('parsererror')
+            || !doc.documentElement?.namespaceURI)) {
+                console.warn(doc.querySelector('parsererror')?.innerText ?? 'Invalid XHTML')
+                item.mediaType = MIME.HTML
+                doc = new DOMParser().parseFromString(str, item.mediaType)
+            }
+            if ([MIME.XHTML, MIME.SVG].includes(item.mediaType)) {
+                let child = doc.firstChild
+                while (child instanceof ProcessingInstruction) {
+                    if (child.data) {
+                        const replacedData = await replaceSeries(child.data,
+                            /(?:^|\s*)(href\s*=\s*['"])([^'"]*)(['"])/i,
+                            (_, p1, p2, p3) => this.loadHref(p2, href, parents)
+                                .then(p2 => `${p1}${p2}${p3}`))
+                        if (this.#destroyed) return null
+                        child.replaceWith(doc.createProcessingInstruction(
+                            child.target, replacedData))
+                    }
+                    child = child.nextSibling
+                }
+            }
+            const replace = async (el, attr) => {
+                const value = await this.loadHref(el.getAttribute(attr), href, parents)
+                if (!this.#destroyed && value != null) el.setAttribute(attr, value)
+            }
+            for (const el of doc.querySelectorAll('link[href]')) await replace(el, 'href')
+            for (const el of doc.querySelectorAll('[src]')) await replace(el, 'src')
+            for (const el of doc.querySelectorAll('[poster]')) await replace(el, 'poster')
+            for (const el of doc.querySelectorAll('object[data]')) await replace(el, 'data')
+            for (const el of doc.querySelectorAll('[*|href]:not([href])')) {
+                const value = await this.loadHref(
+                    el.getAttributeNS(NS.XLINK, 'href'), href, parents)
+                if (!this.#destroyed && value != null)
+                    el.setAttributeNS(NS.XLINK, 'href', value)
+            }
+            for (const el of doc.querySelectorAll('[srcset]')) {
+                const value = await replaceSeries(el.getAttribute('srcset'),
+                    /(\s*)(.+?)\s*((?:\s[\d.]+[wx])+\s*(?:,|$)|,\s+|$)/g,
+                    (_, p1, p2, p3) => this.loadHref(p2, href, parents)
+                        .then(p2 => `${p1}${p2}${p3}`))
+                if (!this.#destroyed) el.setAttribute('srcset', value)
+            }
+            for (const el of doc.querySelectorAll('style'))
+                if (el.textContent) {
+                    const value = await this.replaceCSS(el.textContent, href, parents)
+                    if (!this.#destroyed) el.textContent = value
+                }
+            for (const el of doc.querySelectorAll('[style]')) {
+                const value = await this.replaceCSS(el.getAttribute('style'), href, parents)
+                if (!this.#destroyed) el.setAttribute('style', value)
+            }
+            if (this.#destroyed) return null
+            const result = new XMLSerializer().serializeToString(doc)
+            return this.createURL(href, result, item.mediaType, parent)
+        }
+
+        const result = mediaType === MIME.CSS
+            ? await this.replaceCSS(str, href, parents)
+            : await this.replaceString(str, href, parents)
+        if (this.#destroyed) return null
+        return this.createURL(href, result, mediaType, parent)
+    }
+    async replaceCSS(str, href, parents = []) {
+        const replacedUrls = await replaceSeries(str,
+            /url\(\s*["']?([^'"\n]*?)\s*["']?\s*\)/gi,
+            (_, url) => this.loadHref(url, href, parents)
+                .then(url => `url("${url}")`))
+        return replaceSeries(replacedUrls,
+            /@import\s*["']([^"'\n]*?)["']/gi,
+            (_, url) => this.loadHref(url, href, parents)
+                .then(url => `@import "${url}"`))
+    }
+    replaceString(str, href, parents = []) {
+        const assetMap = new Map()
+        const urls = this.assets.map(asset => {
+            if (asset.href === href) return
+            const relative = pathRelative(pathDirname(href), asset.href)
+            const relativeEnc = encodeURI(relative)
+            const rootRelative = '/' + asset.href
+            const rootRelativeEnc = encodeURI(rootRelative)
+            const set = new Set([relative, relativeEnc, rootRelative, rootRelativeEnc])
+            for (const url of set) assetMap.set(url, asset)
+            return Array.from(set)
+        }).flat().filter(x => x)
+        if (!urls.length) return str
+        const regex = new RegExp(urls.map(regexEscape).join('|'), 'g')
+        return replaceSeries(str, regex, async match =>
+            this.loadItem(assetMap.get(match) ?? assetMap.get(match.replace(/^\//, '')),
+                parents.concat(href)))
+    }
+    unloadItem(item) {
+        this.unref(item?.href)
+    }
+    destroy() {
+        if (this.#destroyed) return false
+        this.#destroyed = true
+        this.#pendingLoads.clear()
+        this.#loadDependencies.clear()
+        for (const url of this.#cache.values())
+            if (typeof url === 'string' && url.startsWith('blob:')) URL.revokeObjectURL(url)
+        this.#cache.clear()
+        this.#children.clear()
+        this.#refCount.clear()
+        return true
+    }
+}
+
+const getHTMLFragment = (doc, id) => doc.getElementById(id)
+    ?? doc.querySelector(`[name="${CSS.escape(id)}"]`)
+
+const getPageSpread = properties => {
+    for (const p of properties) {
+        if (p === 'page-spread-left' || p === 'rendition:page-spread-left')
+            return 'left'
+        if (p === 'page-spread-right' || p === 'rendition:page-spread-right')
+            return 'right'
+        if (p === 'rendition:page-spread-center') return 'center'
+    }
+}
+
+const getDisplayOptions = doc => {
+    if (!doc) return null
+    return {
+        fixedLayout: getElementText(doc.querySelector('option[name="fixed-layout"]')),
+        openToSpread: getElementText(doc.querySelector('option[name="open-to-spread"]')),
+    }
+}
+
+export class EPUB {
+    parser = new DOMParser()
+    #loader
+    #destroyed = false
+    #encryption
+    constructor({ loadText, loadBlob, getSize, sha1, resolveHref = resolveURL,
+        resolveNavigationHref = resolveURL }) {
+        this.loadText = loadText
+        this.loadBlob = loadBlob
+        this.getSize = getSize
+        this.resolveResourceHref = resolveHref
+        this.resolveNavigationReference = resolveNavigationHref
+        this.#encryption = new Encryption(deobfuscators(sha1))
+    }
+    #assertOpen() {
+        if (this.#destroyed) throw new DOMException('EPUB publication is closed.', 'AbortError')
+    }
+    async #loadXML(uri, maximum = 4 * 1024 * 1024) {
+        this.#assertOpen()
+        const str = await this.loadText(uri, maximum)
+        this.#assertOpen()
+        if (!str) return null
+        const doc = this.parser.parseFromString(str, MIME.XML)
+        if (doc.querySelector('parsererror'))
+            throw new Error(`XML parsing error: ${uri}
+${doc.querySelector('parsererror').innerText}`)
+        return doc
+    }
+    async init() {
+        this.#assertOpen()
+        const $container = await this.#loadXML('META-INF/container.xml', 1024 * 1024)
+        if (!$container) throw new Error('Failed to load container file')
+
+        const { $$$: containerElements } = childGetter($container, NS.CONTAINER)
+        const opfs = containerElements($container, 'rootfile')
+            .map(getAttributes('full-path', 'media-type'))
+            // Retain TTU's historical namespace-less/missing-media-type compatibility.
+            .filter(file => !file.mediaType || file.mediaType === 'application/oebps-package+xml')
+
+        if (!opfs.length) throw new Error('No package document defined in container')
+        const opfPath = this.resolveResourceHref(opfs[0].fullPath, '')
+        const opf = await this.#loadXML(opfPath)
+        if (!opf) throw new Error('Failed to load package document')
+
+        const $encryption = await this.#loadXML('META-INF/encryption.xml')
+        await this.#encryption.init($encryption, opf)
+        this.#assertOpen()
+
+        this.resources = new Resources({
+            opf,
+            resolveHref: url => this.resolveResourceHref(url, opfPath),
+            resolveNavigationHref: url => this.resolveNavigationReference(url, opfPath),
+        })
+        this.#loader = new Loader({
+            loadText: this.loadText,
+            loadBlob: uri => Promise.resolve(this.loadBlob(uri))
+                .then(this.#encryption.getDecoder(uri)),
+            resources: this.resources,
+        })
+        this.transformTarget = this.#loader.eventTarget
+        this.sections = this.resources.spine.map((spineItem, index) => {
+            const { idref, linear, properties = [] } = spineItem
+            const item = this.resources.getItemByID(idref)
+            if (!item) {
+                console.warn(`Could not find item with ID "${idref}" in manifest`)
+                return null
+            }
+            return {
+                id: item.href,
+                load: () => this.#loader.loadItem(item),
+                unload: () => this.#loader.unloadItem(item),
+                createDocument: () => this.loadDocument(item),
+                size: this.getSize(item.href),
+                cfi: this.resources.cfis[index],
+                linear,
+                pageSpread: getPageSpread(properties),
+                resolveHref: href => this.resolveNavigationReference(href, item.href),
+                mediaOverlay: item.mediaOverlay
+                    ? this.resources.getItemByID(item.mediaOverlay) : null,
+            }
+        }).filter(s => s)
+
+        const { navPath, ncxPath } = this.resources
+        if (navPath) try {
+            const resolve = url => this.resolveNavigationReference(url, navPath)
+            const nav = parseNav(await this.#loadXML(navPath), resolve)
+            this.toc = nav.toc
+            this.pageList = nav.pageList
+            this.landmarks = nav.landmarks
+        } catch(e) {
+            this.#assertOpen()
+            if (e?.name === 'ArchiveLimitError' || e?.name === 'AbortError') throw e
+            console.warn(e)
+        }
+        if (!this.toc && ncxPath) try {
+            const resolve = url => this.resolveNavigationReference(url, ncxPath)
+            const ncx = parseNCX(await this.#loadXML(ncxPath), resolve)
+            this.toc = ncx.toc
+            this.pageList = ncx.pageList
+        } catch(e) {
+            this.#assertOpen()
+            if (e?.name === 'ArchiveLimitError' || e?.name === 'AbortError') throw e
+            console.warn(e)
+        }
+        this.landmarks ??= this.resources.guide
+
+        const { metadata, rendition, media } = getMetadata(opf)
+        this.metadata = metadata
+        this.rendition = rendition
+        this.media = media
+        this.dir = this.resources.pageProgressionDirection
+        const displayOptions = getDisplayOptions(
+            await this.#loadXML('META-INF/com.apple.ibooks.display-options.xml')
+            ?? await this.#loadXML('META-INF/com.kobobooks.display-options.xml'))
+        if (displayOptions) {
+            if (displayOptions.fixedLayout === 'true')
+                this.rendition.layout ??= 'pre-paginated'
+            const first = this.sections.find(section => section.linear !== 'no')
+            if (first && displayOptions.openToSpread === 'false')
+                first.pageSpread ??= this.dir === 'rtl' ? 'left' : 'right'
+        }
+        return this
+    }
+    async loadDocument(item) {
+        this.#assertOpen()
+        const str = await this.loadText(item.href)
+        this.#assertOpen()
+        return this.parser.parseFromString(str, item.mediaType)
+    }
+    resolveCFI(cfi) {
+        return this.resources.resolveCFI(cfi)
+    }
+    resolveHref(href) {
+        const [path, hash] = href.split('#')
+        const item = this.resources.getItemByHref(decodeURI(path))
+        if (!item) return null
+        const index = this.resources.spine.findIndex(({ idref }) => idref === item.id)
+        const anchor = hash ? doc => getHTMLFragment(doc, hash) : () => 0
+        return { index, anchor }
+    }
+    splitTOCHref(href) {
+        return href?.split('#') ?? []
+    }
+    getTOCFragment(doc, id) {
+        return doc.getElementById(id)
+            ?? doc.querySelector(`[name="${CSS.escape(id)}"]`)
+    }
+    isExternal(uri) {
+        return isExternal(uri)
+    }
+    async getCover() {
+        this.#assertOpen()
+        const cover = this.resources?.cover
+        if (!cover?.href) return null
+        const blob = await this.loadBlob(cover.href)
+        this.#assertOpen()
+        return new Blob([blob], { type: cover.mediaType })
+    }
+    async getCalibreBookmarks() {
+        this.#assertOpen()
+        const txt = await this.loadText('META-INF/calibre_bookmarks.txt')
+        this.#assertOpen()
+        const magic = 'encoding=json+base64:'
+        if (txt?.startsWith(magic)) {
+            const json = atob(txt.slice(magic.length))
+            return JSON.parse(json)
+        }
+    }
+    destroy() {
+        if (this.#destroyed) return false
+        this.#destroyed = true
+        this.#loader?.destroy()
+        return true
+    }
+}

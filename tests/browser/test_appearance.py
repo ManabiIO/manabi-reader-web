@@ -19,6 +19,12 @@ def png(rgb, width=80, height=60):
 class AppearanceBrowser(baseline.ReaderBrowser):
     # The inherited baseline suite also exercises actual EPUB/ruby/illustration,
     # writing modes and offline restoration under the new default theme.
+    def wait_for_optional_catalog(self, page):
+        # These tests fence account requests, not the unrelated OPDS request.
+        # Let that optional request settle before navigating or closing WebKit.
+        expect(page.get_by_role('heading', name="Editor's Picks", exact=True)).to_be_visible()
+        expect(page.get_by_text('Loading books…', exact=True)).to_have_count(0)
+
     def settings(self, *, reload=False):
         # Observe the actual optional session probe, including its completed 404
         # body, before a subsequent deliberate navigation. Do not intercept or
@@ -29,7 +35,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
             if reload:
                 self.page.reload()
             else:
-                self.page.goto(self.origin + '/Reader-Web/settings')
+                self.page.goto(self.origin + '/reader-web/settings')
         response = probe.value.response()
         self.assertIsNotNone(response)
         self.assertEqual(404, response.status)
@@ -79,11 +85,12 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         with page.expect_request_finished(
             predicate=lambda r: r.url == self.origin + '/api/reader-web/session/'
         ):
-            page.goto(self.origin + '/Reader-Web/manage')
+            page.goto(self.origin + '/reader-web/manage')
+        self.wait_for_optional_catalog(page)
         with page.expect_request_finished(
             predicate=lambda r: r.url == self.origin + '/api/reader-web/session/'
         ):
-            page.goto(self.origin + '/Reader-Web/settings')
+            page.goto(self.origin + '/reader-web/settings')
 
         # Hold a forced refresh in the real HTTP handler, then destroy its page.
         # This deterministically covers the WebKit teardown path without request
@@ -116,8 +123,9 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         errors = []
         page.on('pageerror', lambda error: errors.append(error.stack or str(error)))
         try:
-            page.goto(self.origin + '/Reader-Web/manage')
+            page.goto(self.origin + '/reader-web/manage')
             self.assertTrue(started.wait(timeout=5), 'connection request did not reach the server')
+            self.wait_for_optional_catalog(page)
             page.close()
         finally:
             gate.set()
@@ -135,7 +143,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
             'csrf_token': 'c' * 64,
             'providers': []
         }
-        self.page.goto(self.origin + '/Reader-Web/connections')
+        self.page.goto(self.origin + '/reader-web/connections')
         try:
             self.assertTrue(started.wait(timeout=5), 'account bootstrap did not reach the server')
         finally:
@@ -169,7 +177,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         sign_in = self.page.get_by_role('link', name='Sign in to Manabi', exact=True)
         expect(sign_in).to_be_visible()
         self.assertEqual(
-            '/accounts/login/?next=%2FReader-Web%2Fconnections',
+            '/accounts/login/?next=%2Freader-web%2Fconnections',
             sign_in.get_attribute('href')
         )
         logout = next(
@@ -223,7 +231,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
                     expect(field).to_have_css('background-color', palette['background'])
                     expect(field).to_have_css('color', palette['foreground'])
             self.page.screenshot(path='test-results/palette-' + theme + '.png', full_page=True)
-        self.page.goto(self.origin + '/Reader-Web/statistics')
+        self.page.goto(self.origin + '/reader-web/statistics')
         self.assertEqual('dark', self.scheme())
         self.page.screenshot(path='test-results/appearance-statistics-dark.png', full_page=True)
 
@@ -274,7 +282,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         for _ in range(25):
             self.page.keyboard.press('ArrowRight')
 
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         background = self.page.locator('[data-background="library"]')
         expect(background).to_have_attribute('data-background-mode', 'dark')
         style = background.evaluate(
@@ -336,11 +344,11 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         ).to_be_visible()
 
         self.mode('Dark')
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         expect(self.page.locator('[data-background="library"]')).to_have_count(0)
         self.settings()
         self.mode('Light')
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         expect(self.page.locator('[data-background="library"]')).to_have_attribute(
             'data-background-mode', 'light'
         )
@@ -377,7 +385,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
             'fieldset:has(#background-library-light)'
         ).get_by_role('switch').uncheck()
         self.mode('Light')
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         self.assertEqual(
             'rgba(255, 255, 255, 0)',
             self.page.locator('.page-background').evaluate(
@@ -428,7 +436,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         self.upload('library', [100, 60, 150], 'light')
         self.mode('Light')
         self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), 390)
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         self.page.evaluate('navigator.serviceWorker.ready')
         # An activated worker takes control on the next navigation; the page
         # that registered it may remain deliberately uncontrolled.

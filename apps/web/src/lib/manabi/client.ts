@@ -26,6 +26,9 @@ const ROOT = '/api/reader-web/';
 let generation = 0;
 let refreshSerial = 0;
 let refreshInFlight: { generation: number; promise: Promise<ManabiSession | null> } | undefined;
+let forcedRefreshAfterFlight:
+  | { generation: number; promise: Promise<ManabiSession | null> }
+  | undefined;
 let lastRefreshFinished = 0;
 let lastRefreshResult: ManabiSession | null = null;
 let refreshAttempt = 0;
@@ -60,6 +63,8 @@ const messages: Record<string, string> = {
   unsupported: 'This browser does not support persistent local-folder access.',
   request_too_large: 'This reading or settings record exceeds the supported size limit.',
   too_large: 'This file or reading-data record exceeds the supported size limit.',
+  plan_limit:
+    'You have too many unfinished series operations. Finish or abandon one before starting another.',
   busy: 'This cloud operation is still in progress. Check its status shortly.',
   precondition_required: 'Refresh the operation plan before continuing.',
   ambiguous_statistics:
@@ -144,10 +149,26 @@ async function performAccountRefresh(force: boolean): Promise<ManabiSession | nu
 
 export function refreshAccount(force = false): Promise<ManabiSession | null> {
   const admittedGeneration = generation;
-  // A forced probe must observe a new cookie/account even when an older probe
-  // is still waiting. The refresh serial prevents that older result from
-  // replacing the newer session when it eventually settles.
-  if (!force && refreshInFlight?.generation === admittedGeneration) return refreshInFlight.promise;
+  const current = refreshInFlight;
+  if (current?.generation === admittedGeneration) {
+    if (!force) return current.promise;
+    if (forcedRefreshAfterFlight?.generation === admittedGeneration)
+      return forcedRefreshAfterFlight.promise;
+    // A real connectivity recovery must not disappear into a request that was
+    // already finishing when the online event arrived. Serialize one forced
+    // follow-up instead of issuing concurrent session probes.
+    const promise = current.promise
+      .then(() => {
+        if (generation !== admittedGeneration) return null;
+        if (refreshInFlight?.promise === current.promise) refreshInFlight = undefined;
+        return refreshAccount(true);
+      })
+      .finally(() => {
+        if (forcedRefreshAfterFlight?.promise === promise) forcedRefreshAfterFlight = undefined;
+      });
+    forcedRefreshAfterFlight = { generation: admittedGeneration, promise };
+    return promise;
+  }
   if (!force && Date.now() - lastRefreshFinished < 5000) return Promise.resolve(lastRefreshResult);
   const attempt = ++refreshAttempt;
   const promise = performAccountRefresh(force)
@@ -174,6 +195,7 @@ export async function request<T>(
     userId?: string;
     binary?: boolean;
     maximumBytes?: number;
+    syncEpoch?: { generation: string; incarnation: string };
   } = {}
 ): Promise<T> {
   if (!validInternalPath(path)) throw new Error('Invalid internal API path');
@@ -186,6 +208,10 @@ export async function request<T>(
   if (method !== 'GET') headers.set('X-CSRFToken', session.csrf_token);
   if (options.value !== undefined) headers.set('Content-Type', 'application/json');
   if (options.revision) headers.set('If-Match', options.revision);
+  if (options.syncEpoch) {
+    headers.set('X-Manabi-Sync-Generation', options.syncEpoch.generation);
+    headers.set('X-Manabi-Sync-Incarnation', options.syncEpoch.incarnation);
+  }
   let response: Response;
   try {
     response = await fetch(ROOT + path, {

@@ -15,6 +15,9 @@
     tap
   } from 'rxjs';
   import BookReaderContinuous from '$lib/components/book-reader/book-reader-continuous/book-reader-continuous.svelte';
+  import BookReaderFoliatePaginated from '$lib/components/book-reader/book-reader-paginated/book-reader-foliate-paginated.svelte';
+  import { browser } from '$app/environment';
+  import type { EpubResourceData } from '$lib/foliate-epub/publication-data';
   import type { BooksDbBookmarkData } from '$lib/data/database/books-db/versions/books-db';
   import type { FuriganaStyle } from '$lib/data/furigana-style';
   import type { TextMarginMode } from '$lib/data/text-margin-mode';
@@ -41,13 +44,51 @@
     type ReaderLocator
   } from '$lib/reader-location';
 
-  const dispatch = createEventDispatcher<{ contentChange: HTMLElement; userNavigation: void }>();
+  const dispatch = createEventDispatcher<{
+    contentChange: HTMLElement;
+    userNavigation: void;
+    selectionChange: Range | undefined;
+    pageTurnStart: void;
+    toggleControls: void;
+  }>();
   let currentContentEl: HTMLElement | undefined;
+  let selectionDocument: Document | undefined;
   let paginatedReader: BookReaderPaginated | undefined;
+  let foliatePaginatedReader: BookReaderFoliatePaginated | undefined;
+
+  const foliatePreviewEnabled =
+    browser && localStorage.getItem('manabi-dev-foliate-epub') === 'true';
+  $: useFoliatePaginator =
+    foliatePreviewEnabled && sourceFormat === 'epub' && !!publicationManifest;
+  export let sheetPagination = false;
+  export let controlsVisible = false;
+  $: sheetPagination = useFoliatePaginator && viewMode === ViewMode.Paginated;
+
+  function handleReaderSelectionChange() {
+    const selection = selectionDocument?.defaultView?.getSelection();
+    const range =
+      selection?.rangeCount && selection.toString().trim()
+        ? selection.getRangeAt(0).cloneRange()
+        : undefined;
+    dispatch('selectionChange', range);
+  }
+
+  function handleReaderContentChange(content: HTMLElement) {
+    if (selectionDocument !== content.ownerDocument) {
+      selectionDocument?.removeEventListener('selectionchange', handleReaderSelectionChange);
+      selectionDocument = content.ownerDocument;
+      selectionDocument.addEventListener('selectionchange', handleReaderSelectionChange);
+    }
+    currentContentEl = content;
+    contentEl$.next(content);
+    dispatch('contentChange', content);
+  }
 
   function activeContentElement(): HTMLElement | undefined {
     return viewMode === ViewMode.Paginated
-      ? (paginatedReader?.getContentElement() ?? currentContentEl)
+      ? ((useFoliatePaginator
+          ? foliatePaginatedReader?.getContentElement()
+          : paginatedReader?.getContentElement()) ?? currentContentEl)
       : currentContentEl;
   }
 
@@ -88,22 +129,27 @@
     bookKey: string,
     manifest?: PublicationManifest
   ): Promise<ReaderLocator | undefined> {
+    if (viewMode === ViewMode.Paginated && useFoliatePaginator)
+      return foliatePaginatedReader?.capturePoint(bookKey);
     const contentEl = activeContentElement();
     if (!contentEl) return undefined;
     // Text clipped by the reader's own scrollport can still have a DOM rect
     // inside the window. Capture only ink that the reader is actually showing.
     const scrollport = contentEl.getBoundingClientRect();
+    const view = contentEl.ownerDocument.defaultView;
+    if (!view) return undefined;
     const viewport = {
       left: Math.max(0, scrollport.left),
       top: Math.max(0, scrollport.top),
-      right: Math.min(innerWidth, scrollport.right),
-      bottom: Math.min(innerHeight, scrollport.bottom)
+      right: Math.min(view.innerWidth, scrollport.right),
+      bottom: Math.min(view.innerHeight, scrollport.bottom)
     };
+    const paginatedSection = contentEl.matches('[data-manabi-spine-index]')
+      ? contentEl
+      : contentEl.querySelector<HTMLElement>('[data-manabi-spine-index]');
     const sections =
       viewMode === ViewMode.Paginated
-        ? [contentEl.querySelector<HTMLElement>('[data-manabi-spine-index]')].filter(
-            (value): value is HTMLElement => !!value
-          )
+        ? [paginatedSection].filter((value): value is HTMLElement => !!value)
         : (Array.from(contentEl.children) as HTMLElement[]);
     for (const section of sections) {
       const rect = section.getBoundingClientRect();
@@ -143,18 +189,24 @@
     manifest?: PublicationManifest,
     savedRange?: Range
   ): Promise<ReaderLocator[]> {
-    const selection = window.getSelection();
+    const selection =
+      viewMode === ViewMode.Paginated
+        ? ((useFoliatePaginator
+            ? foliatePaginatedReader?.getDocumentSelection()
+            : paginatedReader?.getDocumentSelection()) ?? window.getSelection())
+        : window.getSelection();
     const range =
       savedRange?.cloneRange() ??
       (selection?.rangeCount ? selection.getRangeAt(0).cloneRange() : undefined);
     const contentEl = activeContentElement();
     if (!range || range.collapsed || !contentEl) return [];
     if (!contentEl.contains(range.commonAncestorContainer)) return [];
+    const paginatedSection = contentEl.matches('[data-manabi-spine-index]')
+      ? contentEl
+      : contentEl.querySelector<HTMLElement>('[data-manabi-spine-index]');
     const sections =
       viewMode === ViewMode.Paginated
-        ? [contentEl.querySelector<HTMLElement>('[data-manabi-spine-index]')].filter(
-            (value): value is HTMLElement => !!value
-          )
+        ? [paginatedSection].filter((value): value is HTMLElement => !!value)
         : (Array.from(contentEl.children) as HTMLElement[]);
     const targets: ReaderLocator[] = [];
     for (const section of sections) {
@@ -180,7 +232,9 @@
     bookKey: string
   ): Promise<boolean> {
     if (viewMode === ViewMode.Paginated)
-      return paginatedReader?.revealLocator(locator, bookKey) ?? false;
+      return useFoliatePaginator
+        ? (foliatePaginatedReader?.revealLocator(locator, bookKey) ?? false)
+        : (paginatedReader?.revealLocator(locator, bookKey) ?? false);
     const section = currentContentEl?.children[locator.resource.spineIndex];
     if (!section) return false;
     const projected = projectResource(section, locator.resource);
@@ -204,6 +258,13 @@
   }
 
   export let htmlContent: string;
+
+  export let styleSheet = '';
+  export let epubResources: EpubResourceData[] | undefined;
+
+  export let publicationManifest: PublicationManifest | undefined;
+
+  export let sourceFormat: 'epub' | 'htmlz' | 'txt' | 'unknown' = 'unknown';
 
   export let previewNavigationActive = false;
 
@@ -321,6 +382,8 @@
   }
 
   onDestroy(() => {
+    selectionDocument?.removeEventListener('selectionchange', handleReaderSelectionChange);
+    selectionDocument = undefined;
     mutationObserver.disconnect();
 
     releaseWakeLock();
@@ -409,12 +472,12 @@
   }
 
   function handleMutation([mutation]: MutationRecord[]) {
-    if (!(mutation.target instanceof HTMLElement)) {
+    if (mutation.target.nodeType !== 1) {
       showBlurMessage = false;
       return;
     }
 
-    showBlurMessage = mutation.target.style.filter.includes('blur');
+    showBlurMessage = (mutation.target as HTMLElement).style.filter.includes('blur');
   }
 
   async function requestWakeLock() {
@@ -455,7 +518,12 @@
     The reader is currently blurred due to an external application (e. g. exstatic)
   </div>
 {/if}
-<div bind:this={$containerEl$} class="reader-page-frame" class:vertical-page={verticalMode}>
+<div
+  bind:this={$containerEl$}
+  class="reader-page-frame"
+  class:vertical-page={verticalMode}
+  class:foliate-page={useFoliatePaginator && viewMode === ViewMode.Paginated}
+>
   {#if viewMode === ViewMode.Continuous}
     <BookReaderContinuous
       {htmlContent}
@@ -500,11 +568,60 @@
       bind:customReadingPointTop
       bind:customReadingPointLeft
       bind:customReadingPointScrollOffset
-      on:contentChange={(ev) => {
-        currentContentEl = ev.detail;
-        contentEl$.next(ev.detail);
-        dispatch('contentChange', ev.detail);
-      }}
+      on:contentChange={(ev) => handleReaderContentChange(ev.detail)}
+      on:bookmark
+      on:trackerPause
+      on:userNavigation={() => dispatch('userNavigation')}
+    />
+  {:else if useFoliatePaginator && publicationManifest}
+    <BookReaderFoliatePaginated
+      bind:this={foliatePaginatedReader}
+      {htmlContent}
+      {styleSheet}
+      {epubResources}
+      {publicationManifest}
+      {width}
+      {height}
+      maxInlineSize={secondDimensionMaxValue}
+      {controlsVisible}
+      on:pageTurnStart
+      on:toggleControls
+      {verticalMode}
+      {fontFeatureSettings}
+      {verticalTextOrientation}
+      {prioritizeReaderStyles}
+      {enableTextJustification}
+      {enableTextWrapPretty}
+      {fontColor}
+      {backgroundColor}
+      {hintFuriganaFontColor}
+      {hintFuriganaShadowColor}
+      {fontFamilyGroupOne}
+      {fontFamilyGroupTwo}
+      {fontWeight}
+      {fontSize}
+      {lineHeight}
+      {textIndentation}
+      {textMarginMode}
+      {textMarginValue}
+      {hideSpoilerImage}
+      {hideFurigana}
+      {furiganaStyle}
+      loadingState={$imageLoadingState$ ?? true}
+      {avoidPageBreak}
+      {pageColumns}
+      {autoBookmark}
+      {autoBookmarkTime}
+      {firstDimensionMargin}
+      bind:exploredCharCount
+      bind:bookCharCount
+      bind:isBookmarkScreen
+      bind:bookmarkData
+      bind:bookmarkManager
+      bind:pageManager
+      bind:customReadingPointRange
+      bind:showCustomReadingPoint
+      on:contentChange={(ev) => handleReaderContentChange(ev.detail)}
       on:bookmark
       on:trackerPause
       on:userNavigation={() => dispatch('userNavigation')}
@@ -550,11 +667,7 @@
       bind:pageManager
       bind:customReadingPointRange
       bind:showCustomReadingPoint
-      on:contentChange={(ev) => {
-        currentContentEl = ev.detail;
-        contentEl$.next(ev.detail);
-        dispatch('contentChange', ev.detail);
-      }}
+      on:contentChange={(ev) => handleReaderContentChange(ev.detail)}
       on:bookmark
       on:trackerPause
       on:userNavigation={() => dispatch('userNavigation')}
@@ -568,21 +681,33 @@
 <style>
   /* The engine measures this padding before pagination, including safe areas. */
   .reader-page-frame {
-    padding-top: calc(4.5rem + env(safe-area-inset-top));
-    padding-bottom: calc(7.5rem + env(safe-area-inset-bottom));
-    padding-left: max(1.5rem, env(safe-area-inset-left));
-    padding-right: max(1.5rem, env(safe-area-inset-right));
+    --reader-frame-top: calc(4.5rem + env(safe-area-inset-top));
+    --reader-frame-bottom: calc(7.5rem + env(safe-area-inset-bottom));
+    --reader-frame-left: max(1.5rem, env(safe-area-inset-left));
+    --reader-frame-right: max(1.5rem, env(safe-area-inset-right));
+  }
+  .reader-page-frame {
+    padding: var(--reader-frame-top) var(--reader-frame-right) var(--reader-frame-bottom)
+      var(--reader-frame-left);
+  }
+  .reader-page-frame.foliate-page {
+    padding: 0;
+    --reader-page-insets: var(--reader-frame-top) var(--reader-frame-right)
+      var(--reader-frame-bottom) var(--reader-frame-left);
   }
   @media (min-width: 768px) {
     .reader-page-frame {
-      padding-top: max(calc(5rem + env(safe-area-inset-top)), calc((100dvh - 780px) / 2));
-      padding-bottom: max(calc(7.5rem + env(safe-area-inset-bottom)), calc((100dvh - 780px) / 2));
-      padding-left: max(4rem, calc((100vw - 1280px) / 2));
-      padding-right: max(4rem, calc((100vw - 1280px) / 2));
+      --reader-frame-top: max(calc(5rem + env(safe-area-inset-top)), calc((100dvh - 780px) / 2));
+      --reader-frame-bottom: max(
+        calc(7.5rem + env(safe-area-inset-bottom)),
+        calc((100dvh - 780px) / 2)
+      );
+      --reader-frame-left: max(4rem, calc((100vw - 1280px) / 2));
+      --reader-frame-right: max(4rem, calc((100vw - 1280px) / 2));
     }
     .vertical-page {
-      padding-left: max(4rem, calc((100vw - 960px) / 2));
-      padding-right: max(4rem, calc((100vw - 960px) / 2));
+      --reader-frame-left: max(4rem, calc((100vw - 960px) / 2));
+      --reader-frame-right: max(4rem, calc((100vw - 960px) / 2));
     }
   }
 </style>

@@ -1,11 +1,11 @@
 <script lang="ts">
-  import faCircleQuestion from '@lucide/svelte/icons/circle-help';
   import faLeftLong from '@lucide/svelte/icons/arrow-left';
   import faRightLong from '@lucide/svelte/icons/arrow-right';
   import { Button } from '$lib/components/ui/button';
+  import CloseButton from '$lib/components/ui/close-button.svelte';
+  import * as Sheet from '$lib/components/ui/sheet';
   import ButtonToggleGroup from '$lib/components/button-toggle-group/button-toggle-group.svelte';
   import { optionsForToggle } from '$lib/components/button-toggle-group/toggle-option';
-  import Popover from '$lib/components/popover/popover.svelte';
   import SettingsItemGroup from '$lib/components/settings/settings-item-group.svelte';
   import {
     type StatisticsDateChange,
@@ -64,206 +64,135 @@
   }
 </script>
 
-<div class="flex flex-wrap items-center gap-2 p-4">
-  <Button variant="ghost" onclick={() => dispatch('close')}>Close</Button>
-  <div class="flex flex-1 flex-wrap justify-end gap-2">
-    <button
-      class="rounded-lg px-2 py-1 hover:bg-accent"
-      on:click={() => {
+<div class="statistics-options">
+  <div class="flex items-start justify-between gap-3">
+    <Sheet.Title class="min-w-0 text-xl font-semibold">Statistics options</Sheet.Title>
+    <CloseButton
+      aria-label="Close statistics options"
+      disabled={$statisticsActionInProgress$}
+      onclick={() => dispatch('close')}
+    />
+  </div>
+  <Sheet.Description>Choose your date range, measurements, and export format.</Sheet.Description>
+  <fieldset disabled={$statisticsActionInProgress$} class="options-group">
+    <legend>Date range</legend>
+    <div class="fields">
+      <div class="option-field">
+        <label for="datesTemplate">Template</label>
+        <select id="datesTemplate" bind:value={$lastStatisticsRangeTemplate$}>
+          {#each statisticsRangeTemplates as template (template)}
+            <option value={template}>{template}</option>
+          {/each}
+        </select>
+      </div>
+      <div class="option-field">
+        <label for="weekDay">Start of Week</label>
+        <select id="weekDay" bind:value={$lastStartDayOfWeek$}>
+          {#each weekDays as weekDay (weekDay.day)}
+            <option value={weekDay.index}>{weekDay.day}</option>
+          {/each}
+        </select>
+      </div>
+      <div class="option-field">
+        <label for="fromDate">From</label>
+        <input
+          id="fromDate"
+          type="date"
+          value={selectedStatisticsStartDate}
+          on:change={(event) =>
+            dispatch('statisticsDateChange', {
+              isStartDate: true,
+              dateString: event.currentTarget.value
+            })}
+        />
+      </div>
+      <div class="option-field">
+        <label for="toDate">To</label>
+        <input
+          id="toDate"
+          type="date"
+          value={selectedStatisticsEndDate}
+          on:change={(event) =>
+            dispatch('statisticsDateChange', {
+              isStartDate: false,
+              dateString: event.currentTarget.value
+            })}
+        />
+      </div>
+    </div>
+    <div class="actions">
+      <Button
+        variant="ghost"
+        aria-label="Set end date to start date"
+        onclick={() => dispatch('statisticsDateChange', {
+          isStartDate: false, dateString: selectedStatisticsStartDate
+        })}
+      ><AppIcon icon={faRightLong} />Use start date for both</Button>
+      <Button
+        variant="ghost"
+        aria-label="Set start date to end date"
+        onclick={() => dispatch('statisticsDateChange', {
+          isStartDate: true, dateString: selectedStatisticsEndDate
+        })}
+      ><AppIcon icon={faLeftLong} />Use end date for both</Button>
+      <Button
+        variant="ghost"
+        shape="rounded"
+        onclick={() => setStatisticsDatesToAllTime$.next()}
+        >Use all available dates for selected books</Button
+      >
+    </div>
+  </fieldset>
+  <fieldset disabled={$statisticsActionInProgress$} class="options-group">
+    <legend>Measurements</legend>
+    <p id="statistics-measurement-help" class="text-sm text-muted-foreground">
+      Choose which values appear in the summary and how the reading data is grouped.
+    </p>
+    <div class="fields">
+      <div class="option-field">
+        <label for="timeDataSource">Time Data Source</label>
+        <select id="timeDataSource" aria-describedby="statistics-measurement-help" bind:value={$lastReadingTimeDataSource$}>
+          {#each readingTimeDataSources as source (source.key)}<option value={source.key}>{source.label}</option>{/each}
+        </select>
+      </div>
+      <div class="option-field">
+        <label for="charactersSource">Characters Data Source</label>
+        <select id="charactersSource" aria-describedby="statistics-measurement-help" bind:value={$lastCharactersDataSource$}>
+          {#each charactersDataSources as source (source.key)}<option value={source.key}>{source.label}</option>{/each}
+        </select>
+      </div>
+      <div class="option-field">
+        <label for="speedSource">Speed Data Source</label>
+        <select id="speedSource" aria-describedby="statistics-measurement-help" bind:value={$lastReadingSpeedDataSource$}>
+          {#each readingSpeedDataSources as source (source.key)}<option value={source.key}>{source.label}</option>{/each}
+        </select>
+      </div>
+      <div class="option-field">
+        <label for="primaryAggregration">Primary Aggregation</label>
+        <select id="primaryAggregration" aria-describedby="statistics-measurement-help" bind:value={$lastPrimaryReadingDataAggregationMode$}>
+          {#each statisticsDataAggregrationModes as mode (mode)}<option value={mode}>{mode}</option>{/each}
+        </select>
+      </div>
+    </div>
+  </fieldset>
+  <fieldset disabled={$statisticsActionInProgress$} class="options-group">
+    <legend>Export history</legend>
+    <p class="text-sm text-muted-foreground">
+      Raw history preserves book identities, unresolved legacy days, and migration receipts for
+      recovery; it is not a TTU import file. The TTU ZIP exports use titles and cannot preserve
+      book identities.
+    </p>
+    <div class="actions">
+      <Button variant="secondary" onclick={() => {
         $statisticsActionInProgress$ = true;
         exportRawStatistics$.next();
-      }}
-    >
-      Download raw history (JSON)
-    </button>
-    <button
-      class="rounded-lg px-2 py-1 hover:bg-accent"
-      on:click={() => exportStatisticsData(false)}
-    >
-      Export Selection
-    </button>
-    <button
-      class="rounded-lg px-2 py-1 hover:bg-accent"
-      on:click={() => deleteStatisticsData(false)}
-    >
-      Delete Selection
-    </button>
-    <button class="rounded-lg px-2 py-1 hover:bg-accent" on:click={() => exportStatisticsData()}>
-      Export All
-    </button>
-    <button
-      class="rounded-lg px-2 py-1 text-destructive hover:bg-accent"
-      on:click={() => deleteStatisticsData()}>Delete All</button
-    >
-  </div>
-</div>
-<p class="px-4 text-sm text-muted-foreground">
-  Raw history preserves book identities, unresolved legacy days, and migration receipts for
-  recovery; it is not a TTU import file. The TTU ZIP exports below use titles and cannot preserve
-  book identities.
-</p>
-<div class="flex-1 p-4 overflow-auto">
-  <div class="flex flex-col mb-6">
-    <label for="datesTemplate">Template</label>
-    <select id="datesTemplate" class="text-foreground" bind:value={$lastStatisticsRangeTemplate$}>
-      {#each statisticsRangeTemplates as statisticsRangeTemplate (statisticsRangeTemplate)}
-        <option value={statisticsRangeTemplate}>
-          {statisticsRangeTemplate}
-        </option>
-      {/each}
-    </select>
-  </div>
-  <div class="flex flex-col mb-4 sm:hidden">
-    <label for="weekDay">Start of Week</label>
-    <select id="weekDay" class="text-foreground" bind:value={$lastStartDayOfWeek$}>
-      {#each weekDays as weekDay (weekDay.day)}
-        <option value={weekDay.index}>
-          {weekDay.day}
-        </option>
-      {/each}
-    </select>
-  </div>
-  <div class="flex justify-between sm:flex-row">
-    <div class="flex flex-col">
-      <label for="fromDate">From</label>
-      <input
-        id="fromDate"
-        type="date"
-        class="text-foreground"
-        bind:value={selectedStatisticsStartDate}
-        on:change={() =>
-          dispatch('statisticsDateChange', {
-            isStartDate: true,
-            dateString: selectedStatisticsStartDate
-          })}
-      />
+      }}>Download raw history (JSON)</Button>
+      <Button variant="outline" onclick={() => exportStatisticsData(false)}>Export Selection</Button>
+      <Button variant="outline" onclick={() => exportStatisticsData()}>Export All</Button>
     </div>
-    <div class="flex flex-col justify-between pt-4 mx-2 text-xl sm:mx-0">
-      <button
-        aria-label="Set end date to start date"
-        title="Set end date to start date"
-        on:click={() =>
-          dispatch('statisticsDateChange', {
-            isStartDate: false,
-            dateString: selectedStatisticsStartDate
-          })}
-      >
-        <AppIcon icon={faRightLong} />
-      </button>
-      <button
-        aria-label="Set start date to end date"
-        title="Set start date to end date"
-        on:click={() =>
-          dispatch('statisticsDateChange', {
-            isStartDate: true,
-            dateString: selectedStatisticsEndDate
-          })}
-      >
-        <AppIcon icon={faLeftLong} />
-      </button>
-    </div>
-    <div class="flex flex-col">
-      <label for="toDate">To</label>
-      <input
-        id="toDate"
-        type="date"
-        class="text-foreground"
-        bind:value={selectedStatisticsEndDate}
-        on:change={() =>
-          dispatch('statisticsDateChange', {
-            isStartDate: false,
-            dateString: selectedStatisticsEndDate
-          })}
-      />
-    </div>
-    <div class="flex-col hidden sm:flex">
-      <label for="weekDay">Start of Week</label>
-      <select id="weekDay" class="text-foreground" bind:value={$lastStartDayOfWeek$}>
-        {#each weekDays as weekDay (weekDay.day)}
-          <option value={weekDay.index}>
-            {weekDay.day}
-          </option>
-        {/each}
-      </select>
-    </div>
-  </div>
-  <button
-    class="text-left mt-3 hover:text-red-500"
-    on:click={() => setStatisticsDatesToAllTime$.next()}
-  >
-    Set to All Time for selected Book Titles
-  </button>
-  <div class="flex flex-wrap justify-between mt-4">
-    <div class="flex flex-col my-2 w-full sm:w-[initial]">
-      <Popover
-        contentText={'Reading Time Attribute which should be used for the Summary Tab'}
-        contentStyles="padding: 0.5rem;"
-      >
-        <AppIcon icon={faCircleQuestion} slot="icon" class="mx-2" />
-        <label for="timeDataSource">Time Data Source</label>
-      </Popover>
-      <select id="timeDataSource" class="text-foreground" bind:value={$lastReadingTimeDataSource$}>
-        {#each readingTimeDataSources as readingTimeDataSource (readingTimeDataSource.key)}
-          <option value={readingTimeDataSource.key}>
-            {readingTimeDataSource.label}
-          </option>
-        {/each}
-      </select>
-    </div>
-    <div class="flex flex-col my-2 w-full sm:w-[initial]">
-      <Popover
-        contentText={'Characters Read Attribute which should be used for the Summary Tab'}
-        contentStyles="padding: 0.5rem; max-width: 20rem;"
-      >
-        <AppIcon icon={faCircleQuestion} slot="icon" class="mx-2" />
-        <label for="charactersSource">Characters Data Source</label>
-      </Popover>
-      <select id="charactersSource" class="text-foreground" bind:value={$lastCharactersDataSource$}>
-        {#each charactersDataSources as charactersDataSource (charactersDataSource.key)}
-          <option value={charactersDataSource.key}>
-            {charactersDataSource.label}
-          </option>
-        {/each}
-      </select>
-    </div>
-    <div class="flex flex-col my-2 w-full sm:w-[initial]">
-      <Popover
-        contentText={'Reading Speed Attribute which should be used for the Summary Tab'}
-        contentStyles="padding: 0.5rem;"
-      >
-        <AppIcon icon={faCircleQuestion} slot="icon" class="mx-2" />
-        <label for="speedSource">Speed Data Source</label>
-      </Popover>
-      <select id="speedSource" class="text-foreground" bind:value={$lastReadingSpeedDataSource$}>
-        {#each readingSpeedDataSources as readingSpeedDataSource (readingSpeedDataSource.key)}
-          <option value={readingSpeedDataSource.key}>
-            {readingSpeedDataSource.label}
-          </option>
-        {/each}
-      </select>
-    </div>
-  </div>
-  <div class="flex flex-col mt-4">
-    <Popover
-      contentText={'Determines on which primary Attribute the Data will be grouped for the Summary Tab'}
-      contentStyles="padding: 0.5rem;"
-    >
-      <AppIcon icon={faCircleQuestion} slot="icon" class="mx-2" />
-      <label for="primaryAggregration">Primary Aggregration</label>
-    </Popover>
-    <select
-      id="primaryAggregration"
-      class="text-foreground"
-      bind:value={$lastPrimaryReadingDataAggregationMode$}
-    >
-      {#each statisticsDataAggregrationModes as statisticsDataAggregrationMode (statisticsDataAggregrationMode)}
-        <option value={statisticsDataAggregrationMode}>
-          {statisticsDataAggregrationMode}
-        </option>
-      {/each}
-    </select>
-  </div>
-  <div class="mt-4">
+  </fieldset>
+  <fieldset disabled={$statisticsActionInProgress$} class="options-group">
+    <legend>Manage history</legend>
     <SettingsItemGroup title="Confirm Statistics Deletion" applyHeaderClasses={false}>
       <ButtonToggleGroup
         invertColors
@@ -271,5 +200,67 @@
         bind:selectedOptionId={$confirmStatisticsDeletion$}
       />
     </SettingsItemGroup>
-  </div>
+    <div class="actions">
+      <Button variant="destructive" onclick={() => deleteStatisticsData(false)}>Delete Selection</Button>
+      <Button variant="destructive" onclick={() => deleteStatisticsData()}>Delete All</Button>
+    </div>
+  </fieldset>
 </div>
+
+<style>
+  .statistics-options {
+    display: grid;
+    flex-shrink: 0;
+    min-width: 0;
+    gap: 16px;
+    padding: 20px;
+    padding-bottom: max(20px, env(safe-area-inset-bottom));
+  }
+  .options-group {
+    display: grid;
+    min-width: 0;
+    gap: 16px;
+    margin-top: 8px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+  legend {
+    padding-inline-end: 12px;
+    font-weight: 600;
+  }
+  .fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+    gap: 16px;
+  }
+  .option-field {
+    display: grid;
+    min-width: 0;
+    gap: 6px;
+  }
+  label {
+    font-size: 0.875rem;
+  }
+  input,
+  select {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    padding: 8px 10px;
+    border: 1px solid var(--input);
+    border-radius: 10px;
+    background: var(--background);
+    color: var(--foreground);
+    font-size: 1rem;
+  }
+  input:focus-visible,
+  select:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+</style>

@@ -22,10 +22,12 @@ const { outputFiles } = await build({
       import Button, { buttonVariants } from './components/ui/button/button.svelte';
       import Close from './components/ui/close-button.svelte';
       import InputGroupButton from './components/ui/input-group/input-group-button.svelte';
+      import Input from './components/ui/input/input.svelte';
+      import InputGroupInput from './components/ui/input-group/input-group-input.svelte';
       import { render } from 'svelte/server';
       export { buttonVariants };
       export function html(kind, props) {
-        return render({ Button, Close, InputGroupButton }[kind], { props }).body;
+        return render({ Button, Close, InputGroupButton, Input, InputGroupInput }[kind], { props }).body;
       }`,
     resolveDir: lib
   },
@@ -98,7 +100,7 @@ test('embedded controls forward compact size rather than inheriting regular butt
 });
 
 test('disabled link buttons cannot retain href or an overridden tab stop', () => {
-  const markup = html('Button', { href: '/Reader-Web/manage', disabled: true, tabindex: 0 });
+  const markup = html('Button', { href: '/reader-web/manage', disabled: true, tabindex: 0 });
   assert.match(markup, /<a\s/);
   assert.doesNotMatch(markup, /\shref=/);
   assert.match(markup, /tabindex="-1"/);
@@ -106,16 +108,52 @@ test('disabled link buttons cannot retain href or an overridden tab stop', () =>
 });
 
 test('enabled links preserve already-resolved internal and external destinations', () => {
-  for (const href of ['/Reader-Web/manage', 'https://example.com/guide']) {
+  for (const href of ['/reader-web/manage', 'https://example.com/guide']) {
     assert.ok(html('Button', { href }).includes(`href="${href}"`));
   }
 });
 
-test('labels wrap without a fixed height and reduced motion disables the translate property', () => {
+test('labels wrap without a fixed height and activation does not displace the control', () => {
   const result = classes({ size: 'default' });
   assert.ok(result.includes('whitespace-normal'));
   assert.ok(result.includes('min-h-10'));
   assert.ok(!result.includes('h-10'));
-  assert.ok(result.includes('motion-safe:active:not-aria-[haspopup]:translate-y-px'));
-  assert.ok(!result.includes('active:not-aria-[haspopup]:translate-y-px'));
+  assert.ok(!result.some((value) => value.includes('translate-')));
+  assert.ok(result.includes('font-normal'));
+});
+
+test('filled, outlined, neutral and text actions have distinct treatments', () => {
+  const filled = classes({ variant: 'default' });
+  assert.ok(filled.includes('bg-primary'));
+  assert.ok(filled.includes('text-primary-foreground'));
+  assert.ok(!filled.includes('hover:bg-primary/80'));
+  const outlined = classes({ variant: 'outline' });
+  for (const value of [
+    'border-primary',
+    'bg-transparent',
+    'text-primary',
+    'hover:bg-primary',
+    'hover:text-primary-foreground'
+  ]) {
+    assert.ok(outlined.includes(value), value);
+  }
+  const neutral = classes({ variant: 'secondary' });
+  assert.ok(neutral.includes('bg-secondary'));
+  assert.ok(neutral.includes('text-secondary-foreground'));
+  const text = classes({ variant: 'link' });
+  for (const value of ['bg-transparent', 'border-0', 'px-0', 'rounded-none', 'hover:underline']) {
+    assert.ok(text.includes(value), value);
+  }
+  assert.ok(classes({ size: 'lg' }).includes('text-[1.0625rem]'));
+});
+
+test('standalone fields are touch sized while embedded inputs fit their owning group', () => {
+  const field = html('Input', { type: 'search' });
+  assert.match(field, /min-h-\[44px\]/);
+  assert.match(field, /rounded-\[10px\]/);
+  const embedded = html('InputGroupInput', { type: 'search' });
+  assert.match(embedded, /data-slot="input-group-control"/);
+  assert.match(embedded, /h-full/);
+  assert.match(embedded, /min-h-0/);
+  assert.doesNotMatch(embedded, /min-h-\[44px\]/);
 });

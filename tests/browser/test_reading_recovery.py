@@ -81,7 +81,7 @@ class ReadingRecoveryBrowser(LocalLibraryBrowser):
           const folder=await root.getDirectoryHandle('Fixture books');
           await folder.removeEntry('local-book.txt');
         }''')
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         self.page.get_by_role('button', name='Read local-book', exact=True).click()
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=35000)
         self.assertIn('地元の本', self.page.locator('.book-content').inner_text())

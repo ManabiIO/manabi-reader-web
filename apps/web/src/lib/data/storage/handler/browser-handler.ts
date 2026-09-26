@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { decodeBookBinary } from '$lib/data/database/books-db/book-binary';
+import { readBookSummaries, updateBookLastRead } from '$lib/data/database/books-db/book-records';
 import { BaseStorageHandler, FilePrefix } from '$lib/data/storage/handler/base-handler';
 import type {
   BooksDbAudioBook,
@@ -41,13 +43,16 @@ export class BrowserStorageHandler extends BaseStorageHandler {
     database.listLoading$.next(true);
     try {
       const db = await database.db;
-      const data = await db.getAll('data');
+      const data = await readBookSummaries(db);
       const cards: BookCardProps[] = [];
       this.titleToBookCard.clear();
       for (const book of data) {
         this.addBookCard(book.title, {
           id: book.id,
-          imagePath: book.coverImage || '',
+          imagePath:
+            typeof book.coverImage === 'string' || !book.coverImage
+              ? book.coverImage || ''
+              : decodeBookBinary(book.coverImage),
           creators: book.creators,
           characters: BaseStorageHandler.getBookCharacters(
             book.characters || 0,
@@ -57,7 +62,7 @@ export class BrowserStorageHandler extends BaseStorageHandler {
           lastBookOpen: book.lastBookOpen || 0,
           pageDirection: book.pageDirection,
           contentHash: book.contentHash,
-          isPlaceholder: !book.elementHtml
+          isPlaceholder: book.isPlaceholder
         });
         // The inherited TTU cache is keyed by title. Retain its legacy lookup
         // while giving every distinct imported ID its own Library card.
@@ -103,14 +108,16 @@ export class BrowserStorageHandler extends BaseStorageHandler {
   }
 
   async updateLastRead(book: BooksDbBookData) {
-    const filename = BaseStorageHandler.getBookFileName(book);
-    const { characters, lastBookModified, lastBookOpen } =
-      BaseStorageHandler.getBookMetadata(filename);
-    const db = await database.db;
-
-    await db.put('data', book);
-
-    this.addBookCard(this.currentContext.title, { characters, lastBookModified, lastBookOpen });
+    const current = await updateBookLastRead(await database.db, book.id, book.lastBookOpen || 0);
+    if (!current) return;
+    this.addBookCard(current.title, {
+      characters: BaseStorageHandler.getBookCharacters(
+        current.characters || 0,
+        current.sections || []
+      ),
+      lastBookModified: current.lastBookModified || 0,
+      lastBookOpen: current.lastBookOpen || 0
+    });
   }
 
   async getFilenameForRecentCheck(fileIdentifier: string) {

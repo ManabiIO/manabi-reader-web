@@ -20,13 +20,18 @@ module.exports = (async () => {
         '**/test-results/**',
         '**/.cache/**',
         '**/.svelte-kit/*',
+        '**/*.d.mts',
         '**/service-worker.ts',
         '**/postcss.config.cjs',
         '**/.prettierrc.cjs',
         '**/material-elevation.cjs',
         '**/vite.config.js',
         '**/eslint.config.js',
-        '**/tailwind.config.cjs'
+        '**/tailwind.config.cjs',
+        // Pinned third-party sources keep upstream formatting and license text.
+        'apps/web/src/lib/foliate-epub/epub.js',
+        'apps/web/src/lib/foliate-epub/epubcfi.js',
+        'apps/web/src/lib/foliate-epub/paginator.js'
       ]
     },
     {

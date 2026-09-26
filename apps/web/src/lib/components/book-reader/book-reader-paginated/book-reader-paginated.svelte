@@ -151,8 +151,6 @@
 
   let displayedHtml = '';
 
-  let skipFirstHtmlLoad = true;
-
   let previousIntendedCount = 0;
 
   let useExploredCharCount = false;
@@ -168,7 +166,8 @@
   let stopFontLayout: (() => void) | undefined;
 
   let currentSectionId = '';
-  let currentSpineIndex = 0;
+  let currentSpineIndex = -1;
+  let mountedGeneration = 0;
 
   let disposed = false;
   let renderGeneration = 0;
@@ -187,7 +186,13 @@
 
   const sectionReady$ = new Subject<SectionCharacterStatsCalculator>();
 
-  const currentSection$ = sectionIndex$.pipe(map((index) => sections[index]?.innerHTML || ''));
+  const currentSection$ = sectionIndex$.pipe(
+    map((index) => ({
+      index,
+      id: sections[index]?.id.startsWith('ttu-') ? sections[index].id : '',
+      html: sections[index]?.innerHTML || ''
+    }))
+  );
 
   const cssClassOverflowHidden = 'overflow-hidden';
 
@@ -197,6 +202,11 @@
 
   export function getContentElement(): HTMLElement | undefined {
     return scrollEl;
+  }
+
+  /** Selection belongs to the rendered resource document, which may be framed. */
+  export function getDocumentSelection(): Selection | null {
+    return scrollEl?.ownerDocument.defaultView?.getSelection() ?? null;
   }
 
   $: bookmarkData.then((data) => {
@@ -247,21 +257,10 @@
   $: {
     if (calculator && width && height && !loadingState) {
       const c = calculator;
+      const generation = renderGeneration;
       requestAnimationFrame(() => {
-        onContentDisplayChange(c);
+        if (generation === renderGeneration) onContentDisplayChange(c);
       });
-    }
-  }
-
-  $: {
-    if (calculator && !loadingState) {
-      const sectionIndex = sectionIndex$.getValue();
-      const section = sections[sectionIndex];
-
-      currentSectionId = section?.id.startsWith('ttu-') ? section.id : '';
-      currentSpineIndex = sectionIndex;
-
-      sectionRenderComplete$.next(sectionIndex);
     }
   }
 
@@ -459,26 +458,34 @@
       });
   }
 
-  currentSection$.pipe(distinctUntilChanged(), takeUntil(destroy$)).subscribe(() => {
-    allowDisplay = false;
-  });
+  currentSection$
+    .pipe(
+      distinctUntilChanged((a, b) => a.index === b.index && a.id === b.id && a.html === b.html),
+      takeUntil(destroy$)
+    )
+    .subscribe(({ index, id, html }) => {
+      const generation = ++renderGeneration;
+      allowDisplay = false;
+      calculator = undefined;
+      stopFontLayout?.();
+      const nestAnimationFrame = (fn: () => void, count: number) => {
+        if (disposed || generation !== renderGeneration) return;
+        if (count === 0) {
+          fn();
+          return;
+        }
+        requestAnimationFrame(() => nestAnimationFrame(fn, count - 1));
+      };
 
-  currentSection$.pipe(takeUntil(destroy$)).subscribe((html) => {
-    const generation = ++renderGeneration;
-    const nestAnimationFrame = (fn: () => void, count: number) => {
-      if (disposed || generation !== renderGeneration) return;
-      if (count === 0) {
-        fn();
-        return;
-      }
-      requestAnimationFrame(() => nestAnimationFrame(fn, count - 1));
-    };
-
-    // 2x for loading screen to render
-    nestAnimationFrame(() => {
-      displayedHtml = html;
-    }, 2);
-  });
+      // 2x for loading screen to render. Identity and content must mount together:
+      // chapter-scoped CSS is needed before any image/font/layout measurement.
+      nestAnimationFrame(() => {
+        currentSectionId = id;
+        currentSpineIndex = index;
+        displayedHtml = html;
+        mountedGeneration = generation;
+      }, 2);
+    });
 
   iffBrowser(() => fromEvent<WheelEvent>(document.body, 'wheel', { passive: true }))
     .pipe(
@@ -518,11 +525,7 @@
   }
 
   function onHtmlLoad() {
-    if (skipFirstHtmlLoad) {
-      skipFirstHtmlLoad = false;
-      return;
-    }
-    if (!scrollEl) return;
+    if (!scrollEl || currentSpineIndex < 0 || !displayedHtml) return;
 
     calculator = new SectionCharacterStatsCalculator(
       scrollEl,
@@ -544,9 +547,9 @@
   }
 
   function triggerContentChange() {
-    if (!calculator || !scrollEl) return;
+    if (!calculator || !scrollEl || currentSpineIndex !== sectionIndex$.getValue()) return;
 
-    calculator.updateCurrentSection(sectionIndex$.getValue());
+    calculator.updateCurrentSection(currentSpineIndex);
     calculator.updateParagraphPos();
     if (!scrollWhenReady && concretePageManager) {
       const scrollPos = calculator.getScrollPosByCharCount(previousIntendedCount);
@@ -560,7 +563,14 @@
   }
 
   function onContentDisplayChange(_calculator: SectionCharacterStatsCalculator) {
-    if (disposed || _calculator !== calculator) return;
+    if (
+      disposed ||
+      _calculator !== calculator ||
+      currentSpineIndex < 0 ||
+      currentSpineIndex !== sectionIndex$.getValue()
+    )
+      return;
+    const generation = renderGeneration;
     // Initialize the section at the boundary that consumes its geometry. Image
     // readiness can precede the font callback during Svelte component updates.
     _calculator.updateCurrentSection(sectionIndex$.getValue());
@@ -592,7 +602,11 @@
     } else {
       bookmarkData.then(updateBookmarkScreen);
     }
+    if (generation !== renderGeneration || _calculator !== calculator) return;
     allowDisplay = true;
+    // Consumers may now navigate within this exact mounted occurrence. Never
+    // acknowledge a pending chapter using the previous chapter's calculator.
+    sectionRenderComplete$.next(currentSpineIndex);
   }
 
   function updateBookmarkScreen(data: BooksDbBookmarkData | undefined) {
@@ -694,15 +708,18 @@
     }
   }
 
-  nextChapter$.pipe(takeUntil(destroy$)).subscribe((chapterId) => {
-    const nextSectionIndex = sections.findIndex(
-      (section) => section.id === chapterId || section.querySelector(`[id="${chapterId}"]`)
-    );
+  nextChapter$.pipe(takeUntil(destroy$)).subscribe((target) => {
+    const nextSectionIndex =
+      typeof target === 'string'
+        ? sections.findIndex(
+            (section) =>
+              section.id === target || section.querySelector(`[id="${CSS.escape(target)}"]`)
+          )
+        : target.spineIndex;
 
-    if (nextSectionIndex > -1) {
-      sectionIndex$.next(nextSectionIndex);
-      concretePageManager?.scrollTo(0, true);
-    }
+    if (nextSectionIndex < 0 || nextSectionIndex >= sections.length) return;
+    sectionIndex$.next(nextSectionIndex);
+    concretePageManager?.scrollTo(0, true);
   });
 
   /** Reveal a source range after its virtual section has mounted and measured. */
@@ -817,7 +834,9 @@
     data-manabi-spine-index={currentSpineIndex}
     bind:this={contentEl}
   >
-    <HtmlRenderer html={displayedHtml} on:load={onHtmlLoad} />
+    {#key mountedGeneration}
+      <HtmlRenderer html={displayedHtml} on:load={onHtmlLoad} />
+    {/key}
   </div>
 </div>
 

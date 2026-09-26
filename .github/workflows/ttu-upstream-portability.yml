@@ -50,7 +50,7 @@ jobs:
       - run: pnpm --dir apps/web exec svelte-kit sync
       - name: Build Manabi Reader
         env:
-          BASE_PATH: /Reader-Web
+          BASE_PATH: /reader-web
         run: pnpm build
       - name: Install pinned upstream TTU
         run: pnpm --dir upstream-ttu install --frozen-lockfile

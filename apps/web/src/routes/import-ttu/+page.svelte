@@ -2,7 +2,7 @@
   import AppNav from '$lib/components/navigation/app-nav.svelte';
   import { onDestroy, onMount } from 'svelte';
   import { beforeNavigate } from '$app/navigation';
-  import { base } from '$app/paths';
+  import { resolve } from '$app/paths';
   import {
     TtuMigration,
     migratedBookChoices,
@@ -24,12 +24,12 @@
     message: string;
     bookId?: number;
   }
+  let filePicker: HTMLInputElement;
   let rows: Row[] = [];
   let sources: TtuMigration[] = [];
   let choices: MigratedBookChoice[] = [];
-  let parts = Object.keys(importLabels) as ImportPart[];
+  let parts = Object.keys(importLabels).filter((part) => part !== 'settings') as ImportPart[];
   let busy = false;
-  let hydrated = false;
   let message = '';
   let controller: AbortController | undefined;
   let stopped = false;
@@ -46,6 +46,15 @@
     if (error instanceof DOMException && error.name === 'QuotaExceededError')
       return 'Not enough browser storage. This item was not imported; completed items were kept.';
     return error instanceof Error ? error.message : 'This item could not be imported.';
+  }
+  function consumeSelection(input: HTMLInputElement) {
+    if (busy) return;
+    const files = [...(input.files ?? [])];
+    if (!files.length) return;
+    // Clear synchronously so a queued native change and onMount cannot consume
+    // the same selection twice. The browser may have accepted it before hydration.
+    input.value = '';
+    void choose(files);
   }
   async function choose(files: File[]) {
     if (busy || !files.length) return;
@@ -68,7 +77,7 @@
             ...item,
             source,
             key: `${sourceId}/${item.id}`,
-            selected: !item.error,
+            selected: !item.error && !item.parts.includes('settings'),
             targetId: 0,
             status: item.error ? 'error' : 'ready',
             message: item.error ?? ''
@@ -111,7 +120,7 @@
             : `Imported ${result.title}.`;
         if (result.warning) row.message += ` ${result.warning}`;
         row.bookId = result.bookId;
-        row.selected = !!result.warning;
+        row.selected = false;
       } catch (error) {
         row.status = error instanceof MigrationConflict ? 'conflict' : 'error';
         row.message = controller.signal.aborted
@@ -158,7 +167,7 @@
   });
   onMount(() => {
     yatsu = new URLSearchParams(window.location.search).get('source') === 'yatsu';
-    hydrated = true;
+    consumeSelection(filePicker);
     void migratedBookChoices()
       .then((value) => {
         if (!stopped) choices = value;
@@ -187,7 +196,9 @@
 
 <main class="migration-page">
   <nav aria-label="Reader navigation">
-    <a href="{base}/manage">Books</a><a href="{base}/connections">Accounts and libraries</a>
+    <a href={resolve('/manage')}>Books</a><a href={resolve('/connections')}
+      >Accounts and libraries</a
+    >
   </nav>
   <h1>Import from {yatsu ? 'Yatsu Reader' : 'Ttu Ebook Reader'}</h1>
   {#if !yatsu}
@@ -223,9 +234,11 @@
       <p>
         In the Library, open More library actions and choose <strong
           >Get complete local backup</strong
-        >. Select that ZIP below. Book data, current reading position, collection tags, and
-        statistics can be imported from a version-11 complete local backup. Yatsu highlights, notes,
-        saved bookmarks, and settings are not imported yet; keep your original backup.
+        >. Select that ZIP below. Version-11 backups include book data, current reading position,
+        collection tags, statistics, saved bookmarks, highlights, passage notes and book notes. Safe
+        reader settings are optional and unchecked by default. Original note records are retained;
+        an ambiguous passage stays available in Imported Yatsu notes rather than jumping to a
+        guessed location. Keep your original ZIP for unsupported settings and external audio files.
       </p>
     </section>
   {/if}
@@ -235,12 +248,9 @@
       type="file"
       accept=".zip,application/zip"
       multiple
-      disabled={busy || !hydrated}
-      on:change={(event) => {
-        const files = [...(event.currentTarget.files ?? [])];
-        event.currentTarget.value = '';
-        void choose(files);
-      }}
+      disabled={busy}
+      bind:this={filePicker}
+      on:change={(event) => consumeSelection(event.currentTarget)}
     />
   </label>
   <p>Imports stay on this device. No sign-in or cloud access is required.</p>
@@ -249,8 +259,8 @@
     <details>
       <summary>Data to import</summary>
       <div class="parts">
-        {#each Object.entries(importLabels) as [part, label]}
-          {#if part !== 'metadata' || sources.some((source) => source.source === 'yatsu')}
+        {#each Object.entries(importLabels) as [part, label] (part)}
+          {#if !['metadata', 'savedBookmarks', 'highlights', 'notes', 'settings'].includes(part) || sources.some((source) => source.source === 'yatsu')}
             <label
               ><input
                 type="checkbox"
@@ -261,6 +271,10 @@
             >
           {/if}
         {/each}
+        <p>
+          Settings require selecting both the settings row and its data-type checkbox. Existing
+          Manabi sync choices and credentials are never imported.
+        </p>
       </div>
     </details>
     <div class="actions">
@@ -314,9 +328,14 @@
           >
           <p class="details">
             {row.source.source === 'yatsu' ? 'Yatsu Reader' : 'Ttu Ebook Reader'} ·
-            {row.source.file.name} · {row.parts.map((part) => importLabels[part]).join(', ')}
+            {row.source.file.name} · {row.parts
+              .map(
+                (part) =>
+                  `${importLabels[part]}${row.counts?.[part] !== undefined ? ` (${row.counts[part]})` : ''}`
+              )
+              .join(', ')}
           </p>
-          {#if !row.parts.includes('goals') && (!row.parts.includes('book') || row.status === 'conflict')}
+          {#if !row.parts.includes('goals') && !row.parts.includes('settings') && (!row.parts.includes('book') || row.status === 'conflict')}
             <label
               >Destination book
               <select
@@ -325,7 +344,7 @@
                 aria-label="Destination for {row.title}"
               >
                 <option value={0}>Choose a previously imported book</option>
-                {#each choices.filter((book) => book.sourceTitle === row.title) as book}
+                {#each choices.filter((book) => book.sourceTitle === row.title) as book (book.id)}
                   <option value={book.id}>{book.title}</option>
                 {/each}
               </select>
@@ -338,7 +357,7 @@
               >Use imported data for {row.title}</button
             >
           {/if}
-          {#if row.bookId}<a href="{base}/b?id={row.bookId}">Read {row.title}</a>{/if}
+          {#if row.bookId}<a href={resolve(`/b?id=${row.bookId}`)}>Read {row.title}</a>{/if}
         </article>
       {/each}
     </div>

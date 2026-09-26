@@ -2,7 +2,8 @@
   import { createEventDispatcher } from 'svelte';
   import * as Sheet from '$lib/components/ui/sheet';
   import { Button } from '$lib/components/ui/button';
-  import { Check, TextAa, X } from 'phosphor-svelte';
+  import CloseButton from '$lib/components/ui/close-button.svelte';
+  import { Check, TextAa } from 'phosphor-svelte';
   import { appearance$, resolvedMode$, theme$ } from '$lib/appearance/state';
   import { themeNames, themeForMode, type AppearanceMode } from '$lib/data/theme-option';
   import { LocalFont } from '$lib/data/fonts';
@@ -14,6 +15,7 @@
     viewMode$,
     yuKyokashoAvailable$
   } from '$lib/data/store';
+  import PageTurnEffectSelect from '$lib/components/settings/page-turn-effect-select.svelte';
   import { ViewMode } from '$lib/data/view-mode';
 
   export let open = false;
@@ -52,7 +54,7 @@
     side="bottom"
     overlayProps={{ onclick: () => (open = false) }}
     showCloseButton={false}
-    class="reader-appearance writing-horizontal-tb mx-auto max-h-[min(90dvh,48rem)] max-w-md gap-5 overflow-y-auto rounded-t-3xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:mb-5 sm:mr-5 sm:rounded-3xl"
+    class="reader-appearance writing-horizontal-tb mx-auto max-h-[min(90dvh,48rem)] max-w-md gap-[20px] overflow-y-auto rounded-t-[24px] p-[20px] pb-[max(20px,env(safe-area-inset-bottom))] sm:mb-5 sm:mr-5 sm:rounded-[24px]"
     onCloseAutoFocus={(event) => {
       event.preventDefault();
       if (returnFocus?.isConnected) {
@@ -67,15 +69,12 @@
       trigger?.focus();
     }}
   >
-    <Sheet.Header class="flex flex-row items-center justify-between gap-3 p-0">
+    <Sheet.Header class="flex flex-row items-center justify-between gap-[12px] p-0">
       <Sheet.Title class="text-lg font-semibold">Themes &amp; Settings</Sheet.Title>
-      <Button
-        size="icon"
-        variant="secondary"
-        class="min-h-11 min-w-11 rounded-full"
+      <CloseButton
         aria-label="Close reading appearance"
-        onclick={() => (open = false)}><X aria-hidden="true" /></Button
-      >
+        onclick={() => (open = false)}
+      />
     </Sheet.Header>
     <Sheet.Description class="sr-only">{description}</Sheet.Description>
     <div class="size-controls" role="group" aria-label="Text size">
@@ -98,6 +97,7 @@
     <div class="modes" role="group" aria-label="Reading appearance mode">
       {#each modes as mode (mode)}<Button
           variant={$appearance$ === mode ? 'secondary' : 'ghost'}
+          shape="rounded"
           class="min-h-11 capitalize"
           aria-pressed={$appearance$ === mode}
           onclick={() => appearance$.next(mode)}>{mode}</Button
@@ -150,17 +150,22 @@
       <div class="modes" role="group" aria-label="Reading layout">
         <Button
           variant={$viewMode$ === ViewMode.Paginated ? 'secondary' : 'ghost'}
+          shape="rounded"
           class="min-h-11"
           aria-pressed={$viewMode$ === ViewMode.Paginated}
           onclick={() => viewMode$.next(ViewMode.Paginated)}>Pages</Button
         >
         <Button
           variant={$viewMode$ === ViewMode.Continuous ? 'secondary' : 'ghost'}
+          shape="rounded"
           class="min-h-11"
           aria-pressed={$viewMode$ === ViewMode.Continuous}
           onclick={() => viewMode$.next(ViewMode.Continuous)}>Scroll</Button
         >
       </div>
+      {#if $viewMode$ === ViewMode.Paginated}
+        <div><PageTurnEffectSelect /></div>
+      {/if}
     {/if}
     <Button
       variant="outline"
@@ -182,6 +187,10 @@
   :global(.reader-appearance button) {
     transition-property: transform, translate, opacity, box-shadow;
   }
+  :global(.reader-appearance > *) {
+    flex-shrink: 0;
+    min-width: 0;
+  }
   .size-controls {
     display: grid;
     grid-template-columns: 1fr auto 1fr;
@@ -193,16 +202,18 @@
   }
   .modes {
     display: flex;
-    padding: 0.2rem;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 4px;
     border-radius: 1rem;
     background: var(--muted);
   }
   .modes :global(button) {
-    flex: 1;
+    flex: 1 1 auto;
   }
   .theme-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 6rem), 1fr));
     gap: 0.65rem;
   }
   .theme-tile {
@@ -227,6 +238,7 @@
   }
   .setting-row {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 1rem;
     justify-content: space-between;

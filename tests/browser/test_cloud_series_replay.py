@@ -20,6 +20,7 @@ class SeriesHandler(StaticHandler):
     completed_plan = False
     uncertain_plan = False
     execute_requests = 0
+    status_requests = 0
 
     @classmethod
     def plan(cls, status):
@@ -64,6 +65,13 @@ class SeriesHandler(StaticHandler):
                 self.api_response({'items': [type(self).plan(status)]
                                    if type(self).completed_plan or type(self).uncertain_plan else []}, user=owner)
                 return
+            if operation == f'series/plans/{PLAN}/':
+                type(self).status_requests += 1
+                status = 'complete' if type(self).completed_plan else 'reconcile'
+                # GET reads already committed worker state; it cannot perform
+                # or simulate a provider mutation.
+                self.api_response(type(self).plan(status), user=owner)
+                return
             if operation == 'files/':
                 parent = parse_qs(urlsplit(self.path).query).get('parent', ['root'])[0]
                 files = [{'id': item, 'name': f'{item}.txt', 'kind': 'file', 'size': 20}
@@ -88,18 +96,23 @@ class SeriesHandler(StaticHandler):
         super().do_GET()
 
     def do_POST(self):
-        if (type(self).uncertain_plan and urlsplit(self.path).path ==
-                f'/api/reader-web/connections/{CONNECTION}/series/plans/{PLAN}/execute/'):
+        if urlsplit(self.path).path.startswith(
+                f'/api/reader-web/connections/{CONNECTION}/series/plans/'):
             self.api_request()
             type(self).execute_requests += 1
-            status = 'running' if type(self).execute_requests == 1 else 'complete'
-            if status == 'complete':
-                type(self).moved = True
-                type(self).completed_plan = True
-                type(self).uncertain_plan = False
-            self.api_response(type(self).plan(status), user='42')
+            # Existing confirmed work is owned by the worker, not by browser
+            # retries. Any POST while reviewing/reconciling is a test failure.
+            self.send_error(409, 'Already confirmed: use read-only status')
             return
         super().do_POST()
+
+    @classmethod
+    def finish_worker(cls):
+        # Only the test's independent worker transition may change the provider
+        # state. Neither GET status nor a repeated confirmation advances work.
+        cls.moved = True
+        cls.completed_plan = True
+        cls.uncertain_plan = False
 
 
 class CloudSeriesReceiptReplay(LibraryBase):
@@ -120,16 +133,13 @@ class CloudSeriesReceiptReplay(LibraryBase):
         SeriesHandler.completed_plan = False
         SeriesHandler.uncertain_plan = False
         SeriesHandler.execute_requests = 0
+        SeriesHandler.status_requests = 0
         StaticHandler.account_fixture = {
             'user': {'id': '42', 'username': 'reader'}, 'csrf_token': 'c' * 64,
             'providers': []
         }
         StaticHandler.account_requests = []
-        if self._testMethodName == 'test_reconcile_action_sends_a_request_and_finishes_the_plan':
-            print('cloud replay: opening second browser', flush=True)
         super().setUp()
-        if self._testMethodName == 'test_reconcile_action_sends_a_request_and_finishes_the_plan':
-            print('cloud replay: second browser ready', flush=True)
 
     def tearDown(self):
         try:
@@ -140,6 +150,7 @@ class CloudSeriesReceiptReplay(LibraryBase):
             SeriesHandler.completed_plan = False
             SeriesHandler.uncertain_plan = False
             SeriesHandler.execute_requests = 0
+            SeriesHandler.status_requests = 0
 
     def snapshot(self):
         return self.page.evaluate('''async () => {
@@ -223,6 +234,8 @@ class CloudSeriesReceiptReplay(LibraryBase):
                              for request in StaticHandler.account_requests))
 
         self.wait_for_previews()
+        scans_after_replay = sum(request['path'].endswith('/files/')
+                                 for request in StaticHandler.account_requests)
         self.page.reload()
         expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute(
             'aria-busy', 'false', timeout=30000)
@@ -234,23 +247,67 @@ class CloudSeriesReceiptReplay(LibraryBase):
         self.assertEqual(2, len([key for key in again['metadata']
                                  if key.startswith(f'cloud-series-receipt:42:{CONNECTION}:{PLAN}:')]))
         self.wait_for_previews()
+        self.assertEqual(scans_after_replay,
+                         sum(request['path'].endswith('/files/')
+                             for request in StaticHandler.account_requests),
+                         'Already-applied receipts must not rescan OneDrive on every visit')
 
-    def test_reconcile_action_sends_a_request_and_finishes_the_plan(self):
-        print('cloud replay: waiting for initial previews', flush=True)
+    def open_reconciling_plan(self):
         self.wait_for_previews()
-        print('cloud replay: reloading uncertain plan', flush=True)
         SeriesHandler.uncertain_plan = True
         self.page.reload()
-        print('cloud replay: reviewing plan', flush=True)
-        expect(self.page.get_by_role('button', name='Review Change')).to_be_visible()
-        self.page.get_by_role('button', name='Review Change').click()
-        expect(self.page.get_by_role('button', name='Reconcile Change')).to_be_visible()
-        self.page.get_by_role('button', name='Reconcile Change').click()
-        print('cloud replay: waiting for completion', flush=True)
-        expect(self.page.get_by_text('Series updated. Reading progress, notes and collections were kept.')).to_be_visible()
-        self.assertEqual(2, SeriesHandler.execute_requests)
-        print('cloud replay: waiting for final previews', flush=True)
         self.wait_for_previews()
+        before = self.snapshot()['reading']
+        with self.page.expect_response(lambda response: response.url.endswith(
+                f'/series/plans/{PLAN}/') and response.request.method == 'GET'
+                and response.status == 200):
+            self.page.get_by_role('button', name='Review Change', exact=True).click()
+        dialog = self.page.get_by_role('dialog', name='Create series', exact=True)
+        expect(dialog.get_by_role('status')).to_contain_text('The server will reconcile it')
+        expect(dialog.get_by_role('button', name='Updating…', exact=True)).to_be_disabled()
+        expect(dialog.get_by_role('button', name='Reconcile Change', exact=True)).to_have_count(0)
+        expect(dialog.get_by_role('button', name='Confirm Change', exact=True)).to_have_count(0)
+        self.assertFalse(SeriesHandler.moved)
+        self.assertEqual(0, SeriesHandler.execute_requests)
+        return dialog, before
+
+    def assert_completed_receipts(self, before):
+        expect(self.page.get_by_text(
+            'Series updated. Reading progress, notes and collections were kept.')).to_be_visible()
+        after = self.wait_snapshot(lambda value: len([
+            key for key in value['metadata']
+            if key.startswith(f'cloud-series-receipt:42:{CONNECTION}:{PLAN}:')
+        ]) == 2)
+        self.assertEqual(before, after['reading'])
+        self.assertEqual(0, SeriesHandler.execute_requests)
+        self.assertFalse(any(request['method'] == 'POST' and '/series/plans/' in request['path']
+                             for request in StaticHandler.account_requests))
+        self.wait_for_previews()
+
+    def test_reconciliation_observes_worker_completion_without_repeating_confirmation(self):
+        _, before = self.open_reconciling_plan()
+        # A real GET has returned the uncertain state. The independent worker
+        # now commits completion and the next GET must publish both receipts.
+        SeriesHandler.finish_worker()
+        self.assert_completed_receipts(before)
+        self.assertGreaterEqual(SeriesHandler.status_requests, 2)
+
+    def test_closed_dialog_stops_polling_and_reopens_completed_worker_state(self):
+        dialog, before = self.open_reconciling_plan()
+        dialog.locator('[data-slot="dialog-footer"]').get_by_role(
+            'button', name='Close', exact=True).click()
+        expect(dialog).not_to_be_visible()
+        # Drain the already admitted status response; crossing more than two
+        # actual timer intervals must not admit further GETs while closed.
+        self.page.wait_for_load_state('networkidle')
+        reads = SeriesHandler.status_requests
+        self.page.wait_for_timeout(2200)
+        self.assertEqual(reads, SeriesHandler.status_requests)
+        self.assertEqual(0, SeriesHandler.execute_requests)
+        SeriesHandler.finish_worker()
+        self.page.get_by_role('button', name='Review Change', exact=True).click()
+        self.assert_completed_receipts(before)
+        self.assertGreater(SeriesHandler.status_requests, reads)
 
 
 if __name__ == '__main__':

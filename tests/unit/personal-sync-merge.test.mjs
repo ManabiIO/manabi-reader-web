@@ -71,6 +71,24 @@ test('annotation body and color merge while metadata revisions remain local enve
   });
 });
 
+test('annotation merge keeps an independent edit without reviving a removed optional field', () => {
+  const base = {
+    id: 'id',
+    kind: 'note',
+    body: 'remove me',
+    color: 'yellow',
+    revision: 1,
+    modifiedAt: 'base'
+  };
+  const local = { ...base, color: 'blue', revision: 2, modifiedAt: 'local' };
+  const remote = { ...base, revision: 2, modifiedAt: 'remote' };
+  delete remote.body;
+  const result = mergeAnnotationPayload(base, local, remote, 'merged');
+  assert.deepEqual(result.fields, []);
+  assert.equal(result.value.color, 'blue');
+  assert.equal(Object.hasOwn(result.value, 'body'), false);
+});
+
 test('same-field notes and delete-versus-edit keep a recoverable local draft', () => {
   const base = { kind: 'note', body: 'original', revision: 1 };
   const local = { ...base, body: 'device', revision: 2 };

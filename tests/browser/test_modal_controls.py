@@ -147,7 +147,7 @@ class ModalControlsBrowser(LibraryBase):
 
     def test_legacy_theme_dialog_uses_same_close_control_and_cancels(self):
         self.page.set_viewport_size({'width': 320, 'height': 520})
-        self.page.goto(self.origin + '/Reader-Web/settings')
+        self.page.goto(self.origin + '/reader-web/settings')
         trigger = self.page.get_by_role('button', name='Add custom theme', exact=True)
         trigger.click()
         panel = self.dialog()

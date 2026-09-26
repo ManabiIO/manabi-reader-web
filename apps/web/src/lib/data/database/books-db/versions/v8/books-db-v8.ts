@@ -5,10 +5,12 @@
  */
 
 import type BooksDbV7 from '../v7/books-db-v7';
+import type { PersonalSyncEpoch } from '../v7/books-db-v7';
 
 export type PersonalKind = 'annotation' | 'resume' | 'completion' | 'statistics';
 
 export interface PersonalRecord {
+  generation?: string;
   id: string;
   accountId: string;
   kind: PersonalKind;
@@ -28,6 +30,7 @@ export interface PersonalMutation {
   baseRevision: number;
   localValue: Record<string, unknown> | null;
   request?: {
+    sync?: PersonalSyncEpoch;
     mutation_id: string;
     kind: PersonalKind;
     entity_id: string;

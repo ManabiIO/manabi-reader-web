@@ -1,7 +1,7 @@
 """Whispersync acceptance against the actual built Svelte app.
 
 No request interception, framework mocks, or pre-populated reader database.
-Run after BASE_PATH=/Reader-Web pnpm build, with Python Playwright installed.
+Run after BASE_PATH=/reader-web pnpm build, with Python Playwright installed.
 """
 from http.server import ThreadingHTTPServer
 import argparse
@@ -98,7 +98,7 @@ class WhispersyncBrowser(unittest.TestCase):
             'manabi-reader-dictionary-setup-v1': 'skip',
         }
         self.context.add_init_script('if (location.origin === ' + json.dumps(self.origin) + ') { for (const [key,value] of Object.entries(' + json.dumps(settings) + ')) localStorage.setItem(key,value); }')
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files(
             {'name': 'whispersync.epub', 'mimeType': 'application/epub+zip', 'buffer': epub()})

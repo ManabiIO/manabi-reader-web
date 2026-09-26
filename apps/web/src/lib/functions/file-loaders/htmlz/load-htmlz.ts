@@ -58,6 +58,7 @@ export default async function loadHtmlz(
 
   return {
     ...displayData,
+    sourceFormat: 'htmlz',
     // Reader pagination treats each top-level element as a section and renders
     // its innerHTML. Keep the complete HTMLZ body inside one section so root
     // text, paragraph/heading semantics and following siblings are preserved.
