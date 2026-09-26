@@ -80,7 +80,13 @@ test('legacy Blob records are not read or converted by a timestamp write', async
 
 test('invalid identifiers and timestamps fail before opening a write transaction', async () => {
   const db = database(currentBook());
-  for (const [id, timestamp] of [[0, 1], [1.5, 1], [1, -1], [1, NaN], [1, Infinity]]) {
+  for (const [id, timestamp] of [
+    [0, 1],
+    [1.5, 1],
+    [1, -1],
+    [1, NaN],
+    [1, Infinity]
+  ]) {
     await assert.rejects(updateBookLastRead(db, id, timestamp), /invalid/);
   }
   assert.equal(db.calls, 0);
@@ -88,10 +94,7 @@ test('invalid identifiers and timestamps fail before opening a write transaction
 
 test('completion remains pending until commit, and a commit failure is propagated', async () => {
   let commit;
-  const db = database(
-    currentBook(),
-    new Promise((resolve) => (commit = resolve))
-  );
+  const db = database(currentBook(), new Promise((resolve) => (commit = resolve)));
   let settled = false;
   const pending = updateBookLastRead(db, 1, 200).then(() => (settled = true));
   await new Promise((resolve) => setImmediate(resolve));
@@ -113,7 +116,7 @@ test('the actual browser handler uses only current identity and metadata for las
   const body = source
     .split('  async updateLastRead(book: BooksDbBookData) {')[1]
     .split('\n  async getFilenameForRecentCheck')[0]
-    .replace(/\n  }\s*$/, '');
+    .replace(/\n {2}}\s*$/, '');
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
   const invoke = new AsyncFunction(
     'book',
