@@ -728,6 +728,8 @@ export class Paginator extends HTMLElement {
         return this.#view
     }
     #beforeRender({ vertical, rtl, background }) {
+        cancelAnimationFrame(this.#resizeFrame)
+        this.#resizeFrame = 0
         this.#vertical = vertical
         this.#rtl = rtl
         this.#top.classList.toggle('vertical', vertical)
@@ -737,6 +739,7 @@ export class Paginator extends HTMLElement {
         if (background) this.#background.style.background = background
 
         const { width, height } = this.#container.getBoundingClientRect()
+        this.#observedSize = `${width}:${height}`
         const size = vertical ? height : width
 
         const style = getComputedStyle(this.#top)
@@ -804,6 +807,8 @@ export class Paginator extends HTMLElement {
         return { height, width, margin, gap, columnWidth }
     }
     render() {
+        cancelAnimationFrame(this.#resizeFrame)
+        this.#resizeFrame = 0
         this.cancelPageTurn()
         if (this.#destroyed || !this.#view?.document?.body) return
         this.#view.render(this.#beforeRender({
@@ -1182,6 +1187,10 @@ export class Paginator extends HTMLElement {
         this.dispatchEvent(new Event('pageturncancel'))
     }
     async preparePageTurn(direction) {
+        // A new turn can follow a commit before the next animation frame.
+        // Flush a real pending resize before preparing its neighbor, so that
+        // delayed work cannot cancel the new preparation halfway through.
+        if (this.#resizeFrame) this.render()
         this.cancelPageTurn()
         if (this.#destroyed || this.#locked || this.scrolled || !this.#view?.document?.body || !this.size
             || ![-1, 1].includes(direction)) return null
