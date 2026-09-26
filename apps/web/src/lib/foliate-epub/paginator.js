@@ -304,6 +304,9 @@ class View {
     }
     render(layout) {
         if (!layout || this.#disposed || !this.document?.body) return
+        const { vertical, rtl } = getDirection(this.document)
+        this.#vertical = vertical
+        this.#rtl = rtl
         this.#column = layout.flow !== 'scrolled'
         this.#layout = layout
         if (this.#column) this.columnize(layout)
@@ -489,6 +492,7 @@ export class Paginator extends HTMLElement {
     #lastVisibleRange
     #navigationGeneration = 0
     #navigationChain = Promise.resolve()
+    #pendingNavigations = 0
     #destroyed = false
     #preparedTurn
     #turnGeneration = 0
@@ -1055,8 +1059,12 @@ export class Paginator extends HTMLElement {
         this.#syncPageCounts()
         this.dispatchEvent(new CustomEvent('relocate', { detail }))
     }
-    async #display(promise) {
+    async #display(promise, generation = this.#navigationGeneration) {
         const { index, src, anchor, onLoad, select } = await promise
+        if (this.#destroyed || generation !== this.#navigationGeneration) {
+            if (src) this.sections[index]?.unload?.()
+            return false
+        }
         this.#index = index
         const hasFocus = this.#view?.document?.hasFocus()
         if (src) {
@@ -1087,12 +1095,12 @@ export class Paginator extends HTMLElement {
         if (hasFocus) this.focusView()
     }
     #canGoToIndex(index) {
-        return index >= 0 && index <= this.sections.length - 1
+        return Number.isInteger(index) && index >= 0 && index < this.sections.length
     }
-    async #goTo({ index, anchor, select}) {
+    async #goTo({ index, anchor, select}, generation = this.#navigationGeneration) {
         this.cancelPageTurn()
         if (this.#destroyed || !this.#canGoToIndex(index)) return false
-        if (index === this.#index) await this.#display({ index, anchor, select })
+        if (index === this.#index) await this.#display({ index, anchor, select }, generation)
         else {
             const oldIndex = this.#index
             const onLoad = detail => {
@@ -1100,30 +1108,37 @@ export class Paginator extends HTMLElement {
                 this.setStyles(this.#styles)
                 this.dispatchEvent(new CustomEvent('load', { detail }))
             }
-            await this.#display(Promise.resolve(this.sections[index].load())
-                .then(src => ({ index, src, anchor, onLoad, select }))
-                .catch(e => {
-                    console.warn(e)
-                    console.warn(new Error(`Failed to load section ${index}`))
-                    return {}
-                }))
+            let src
+            try {
+                src = await this.sections[index].load()
+            } catch (error) {
+                if (!this.#destroyed && generation === this.#navigationGeneration)
+                    this.dispatchEvent(new CustomEvent('navigationerror', { detail: error }))
+                return false
+            }
+            await this.#display({ index, src, anchor, onLoad, select }, generation)
         }
-        return !this.#destroyed && this.#index === index
+        return !this.#destroyed && generation === this.#navigationGeneration && this.#index === index
     }
     async goTo(target) {
         this.cancelPageTurn()
         if (this.#locked || this.#destroyed) return false
         const generation = ++this.#navigationGeneration
-        const resolved = await target
-        if (!this.#canGoToIndex(resolved?.index)) return false
-        const operation = this.#navigationChain
-            .catch(() => false)
-            .then(() => {
-                if (this.#destroyed || generation !== this.#navigationGeneration) return false
-                return this.#goTo(resolved)
-            })
-        this.#navigationChain = operation
-        return operation
+        this.#pendingNavigations += 1
+        try {
+            const resolved = await target
+            if (!this.#canGoToIndex(resolved?.index)) return false
+            const operation = this.#navigationChain
+                .catch(() => false)
+                .then(() => {
+                    if (this.#destroyed || generation !== this.#navigationGeneration) return false
+                    return this.#goTo(resolved, generation)
+                })
+            this.#navigationChain = operation
+            return await operation
+        } finally {
+            this.#pendingNavigations -= 1
+        }
     }
     #scrollPrev(distance) {
         if (!this.#view) return true
@@ -1311,7 +1326,7 @@ export class Paginator extends HTMLElement {
         // delayed work cannot cancel the new preparation halfway through.
         if (this.#resizeFrame) this.render()
         this.cancelPageTurn()
-        if (this.#destroyed || this.#locked || this.scrolled || !this.#view?.document?.body || !this.size
+        if (this.#destroyed || this.#locked || this.#pendingNavigations || this.scrolled || !this.#view?.ready || !this.size
             || ![-1, 1].includes(direction)) return null
         const generation = this.#turnGeneration
         let index = this.#index
@@ -1410,6 +1425,7 @@ export class Paginator extends HTMLElement {
                     this.#preparedTurn = null
                     this.#turnGeneration += 1
                     const oldIndex = this.#index
+                    const hadFocus = this.#view.document.hasFocus()
                     this.#view.destroy()
                     this.#observer.unobserve(this.#container)
                     this.#top.remove()
@@ -1452,6 +1468,7 @@ export class Paginator extends HTMLElement {
                     this.#scrollBounds = [this.#container[this.scrollProp],
                         this.atStart ? 0 : this.size, this.atEnd ? 0 : this.size]
                     this.#afterScroll('page')
+                    if (hadFocus) this.focusView()
                     return true
                 },
             }

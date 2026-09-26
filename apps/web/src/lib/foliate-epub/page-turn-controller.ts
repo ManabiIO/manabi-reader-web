@@ -129,6 +129,8 @@ export class PageTurnController {
           event.button !== 0 ||
           this.settling ||
           this.inputControl(event.target) ||
+          (target === this.paginator &&
+            this.paginator.isPageNumberControlAt(event.clientX, event.clientY)) ||
           this.selected() ||
           (window.visualViewport?.scale ?? 1) > 1
         )

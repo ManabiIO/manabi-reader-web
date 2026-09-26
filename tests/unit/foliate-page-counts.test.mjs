@@ -131,3 +131,53 @@ test('destroy fences unfinished work and invalid measurements stay unknown', asy
   assert.equal(changes, before);
   assert.equal(cache.counts[1], undefined);
 });
+
+test('a failed chapter stays unknown while later chapters count, and a later pass retries it', async () => {
+  const attempts = [];
+  const errors = [];
+  let broken = true;
+  const cache = new PageCountCache(
+    4,
+    async (index) => {
+      attempts.push(index);
+      if (index === 1 && broken) throw new Error('Unreadable chapter');
+      return index + 3;
+    },
+    () => {},
+    (error) => errors.push(error.message),
+    immediate
+  );
+  cache.useLayout('phone', 0, 3);
+  await cache.settled;
+  assert.deepEqual(cache.counts, [3, undefined, 5, 6]);
+  assert.deepEqual(attempts, [1, 2, 3]);
+  assert.deepEqual(errors, ['Unreadable chapter']);
+  broken = false;
+  cache.useLayout('phone', 2, 5);
+  await cache.settled;
+  assert.deepEqual(cache.counts, [3, 4, 5, 6]);
+  assert.deepEqual(attempts, [1, 2, 3, 1]);
+  cache.destroy();
+});
+
+test('a chapter measured by navigation during an idle yield is not measured again', async () => {
+  let resume;
+  let measured = 0;
+  const cache = new PageCountCache(
+    2,
+    async () => {
+      measured++;
+      return 99;
+    },
+    () => {},
+    undefined,
+    () => new Promise((resolve) => (resume = resolve))
+  );
+  cache.useLayout('phone', 0, 3);
+  cache.record(1, 7);
+  resume();
+  await cache.settled;
+  assert.equal(measured, 0);
+  assert.deepEqual(cache.counts, [3, 7]);
+  cache.destroy();
+});

@@ -169,6 +169,12 @@ class FoliateSlide(ReaderBrowser):
         self.toggle_controls()
         expect(self.page.get_by_role('banner', name='Reader toolbar')).to_be_visible()
         self.assertRegex(self.indicator(), r'^2 of \d+$')
+        bounds = self.page.evaluate("window.slideRoot.querySelector('#top .page-indicator').getBoundingClientRect().toJSON()")
+        self.page.mouse.move(bounds['x']+bounds['width']/2, bounds['y']+bounds['height']/2)
+        self.page.mouse.down()
+        self.page.mouse.move(bounds['x']-80, bounds['y']+bounds['height']/2, steps=4)
+        self.assertFalse(self.page.evaluate(f"{P}.hasAttribute('data-turn-progress')"))
+        self.page.mouse.up()
 
     def test_global_counts_match_rendered_chapters_and_recompute_on_resize(self):
         self.open_numbered_book()
@@ -351,6 +357,90 @@ class FoliateSlide(ReaderBrowser):
         self.screenshot('mouse-margin-rtl-back-held')
         self.page.mouse.up()
         self.page.wait_for_function(f"() => {P}.page === {initial}")
+
+    def test_repeated_keyboard_turns_keep_focus_ltr(self):
+        self.check_repeated_keyboard_turns(False)
+
+    def test_repeated_keyboard_turns_keep_focus_rtl(self):
+        self.check_repeated_keyboard_turns(True)
+
+    def check_repeated_keyboard_turns(self, rtl):
+        self.open_slide(rtl, mobile=True)
+        self.page.emulate_media(reduced_motion='reduce')
+        self.page.mouse.click(195, 360)
+        initial = self.pose()['page']
+        forward, back = ('ArrowLeft', 'ArrowRight') if rtl else ('ArrowRight', 'ArrowLeft')
+        for key, offset in [(forward, 1), (forward, 2), (back, 1), (back, 0), ('PageDown', 1), ('PageUp', 0)]:
+            self.page.keyboard.press(key)
+            self.page.wait_for_function(f"() => {P}.page === {initial + offset}")
+            self.assertTrue(self.page.evaluate(f'{P}.getContents()[0].doc.hasFocus()'))
+
+    def test_writing_direction_changes_keep_counts_and_turns_consistent(self):
+        self.open_numbered_book()
+        for writing, rtl in [('vertical-rl', True), ('horizontal-tb', False)]:
+            self.page.evaluate(f"style => {P}.setStyles(style)", f'html,body {{background:white;color:black}} body {{font-size:20px;line-height:1.65;writing-mode:{writing}}}')
+            direction = 'rtl' if rtl else 'ltr'
+            self.page.wait_for_function(f"() => {P}.pageTurnDirection === '{direction}' && {P}.page >= 1 && {P}.pages > 3 && {P}.pageCounts.every(Number.isFinite)")
+            counts = self.page.evaluate(f'{P}.pageCounts')
+            self.assertEqual(self.page.evaluate(f'{P}.pages - 2'), counts[0])
+            self.page.evaluate(f"async () => {{window.prepared=await {P}.preparePageTurn(1);window.prepared.update(.45)}}")
+            self.assert_pose(self.pose(), .45, 1, rtl)
+            self.screenshot('writing-change-' + writing)
+            self.page.evaluate('window.prepared.cancel()')
+            # A newly loaded chapter must agree with both the reflowed active
+            # document and the background counts for the new writing direction.
+            for index in [1, 2, 3, 0]:
+                self.page.evaluate(f"async index => await {P}.goTo({{index}})", index)
+                self.assertEqual(self.page.evaluate(f'{P}.pages - 2'), counts[index])
+
+    def test_pending_navigation_blocks_turns_and_supersedes_stale_loads(self):
+        self.open_numbered_book()
+        result = self.page.evaluate(f"""async () => {{
+          const p={P}, section=p.sections[1], load=section.load, unload=section.unload;
+          let release, started, releases=0;
+          const loading=new Promise(resolve=>started=resolve);
+          section.load=async()=>{{started();await new Promise(resolve=>release=resolve);return load()}};
+          section.unload=()=>{{releases++;unload()}};
+          const loaded=[];p.addEventListener('load',e=>loaded.push(e.detail.index));
+          const first=p.goTo({{index:1}});await loading;
+          const turn=await p.preparePageTurn(1);
+          const latest=p.goTo({{index:2}});
+          release();
+          const results=await Promise.all([first,latest]);
+          section.load=load;section.unload=unload;
+          return {{blocked:turn===null,results,index:p.getContents()[0].index,loaded,releases}};
+        }}""")
+        self.assertEqual(result, {'blocked': True, 'results': [False, True], 'index': 2, 'loaded': [2], 'releases': 1})
+        # A failed navigation leaves the current location and its input usable.
+        result = self.page.evaluate(f"""async () => {{
+          const p={P}, section=p.sections[1], load=section.load;
+          let errors=0;p.addEventListener('navigationerror',()=>errors++);
+          const before={{index:p.getContents()[0].index,page:p.page}};
+          section.load=async()=>{{throw new Error('chapter unavailable')}};
+          const navigated=await p.goTo({{index:1}});section.load=load;
+          const invalid=await Promise.all([p.goTo({{index:null}}),p.goTo({{index:1.5}})]);
+          const unchanged=p.getContents()[0].index===before.index && p.page===before.page;
+          const turn=await p.preparePageTurn(1);turn?.cancel();
+          return {{navigated,invalid,unchanged,recovered:!!turn,errors}};
+        }}""")
+        self.assertEqual(result, {'navigated': False, 'invalid': [False, False], 'unchanged': True, 'recovered': True, 'errors': 1})
+
+    def test_destroy_during_navigation_releases_late_source_without_recreating_view(self):
+        self.open_numbered_book()
+        result = self.page.evaluate(f"""async () => {{
+          const p={P}, section=p.sections[1], load=section.load, unload=section.unload;
+          let release, started, releases=0;
+          const loading=new Promise(resolve=>started=resolve);
+          section.load=async()=>{{started();await new Promise(resolve=>release=resolve);return load()}};
+          section.unload=()=>{{releases++;unload()}};
+          const nav=p.goTo({{index:1}});await loading;
+          const frame=window.slideRoot.querySelector('#top iframe');
+          p.destroy();release();const navigated=await nav;
+          return {{navigated,releases,empty:p.getContents().length===0,
+            sameFrame:frame===window.slideRoot.querySelector('#top iframe'),
+            extras:window.slideRoot.querySelectorAll('.slide-sheet,.page-measure').length}};
+        }}""")
+        self.assertEqual(result, {'navigated': False, 'releases': 1, 'empty': True, 'sameFrame': True, 'extras': 0})
 
     def test_theme_update_cancels_preview_and_keeps_opaque_paper(self):
         self.open_slide(False, mobile=True)
