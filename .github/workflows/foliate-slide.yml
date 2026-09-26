@@ -7,6 +7,7 @@ on:
       - 'tests/browser/test_static_reader.py'
       - 'tests/browser/test_epub_publication.py'
       - 'tests/browser/test_epub_navigation.py'
+      - 'tests/browser/test_epub_resource_compatibility.py'
       - 'tests/unit/foliate-*.test.mjs'
       - '.github/workflows/foliate-slide.yml'
   push:
@@ -17,6 +18,7 @@ on:
       - 'tests/browser/test_static_reader.py'
       - 'tests/browser/test_epub_publication.py'
       - 'tests/browser/test_epub_navigation.py'
+      - 'tests/browser/test_epub_resource_compatibility.py'
       - 'tests/unit/foliate-*.test.mjs'
       - '.github/workflows/foliate-slide.yml'
 permissions:
@@ -69,6 +71,7 @@ jobs:
           set -o pipefail
           python tests/browser/test_epub_publication.py 2>&1 | tee epub-publication.log
           python tests/browser/test_epub_navigation.py 2>&1 | tee epub-navigation.log
+          python tests/browser/test_epub_resource_compatibility.py 2>&1 | tee epub-compatibility.log
       - name: Preserve image, Japanese-content and chapter-link coverage
         if: matrix.browser == 'chromium'
         run: |
@@ -86,5 +89,6 @@ jobs:
             foliate-regressions.log
             epub-publication.log
             epub-navigation.log
+            epub-compatibility.log
             test-results/
           retention-days: 7
