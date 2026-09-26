@@ -7,7 +7,7 @@
 import * as reader from '$lib/data/store';
 import { parseYatsuSettings } from './yatsu-settings-format';
 import { canonical, MigrationConflict } from './ttu-migration-format';
-import { currentUser } from './client';
+import { localProfileUser } from './client';
 import { exclusive } from './persistence';
 interface Subject {
   getValue(): unknown;
@@ -17,7 +17,7 @@ const key = 'manabi-yatsu-settings-receipt-v1';
 /** Called only from the explicitly selected settings row. Source auth/auto-sync is never applied. */
 export async function importYatsuSettings(value: unknown, replace = false, signal?: AbortSignal) {
   const parsed = parseYatsuSettings(value),
-    owner = currentUser()?.id ?? null;
+    owner = localProfileUser()?.id ?? null;
   return exclusive('yatsu-settings', async () => {
     signal?.throwIfAborted();
     const oldText = localStorage.getItem(key);
@@ -44,7 +44,7 @@ export async function importYatsuSettings(value: unknown, replace = false, signa
       changes[name] = incoming;
     }
     signal?.throwIfAborted();
-    if ((currentUser()?.id ?? null) !== owner)
+    if ((localProfileUser()?.id ?? null) !== owner)
       throw new Error('Account changed during settings import.');
     try {
       for (const [name, incoming] of Object.entries(changes)) subjects[name].next(incoming);

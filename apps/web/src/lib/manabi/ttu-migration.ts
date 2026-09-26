@@ -34,7 +34,7 @@ import {
 } from '$lib/functions/book-security/book-content-security';
 import buildDummyBookImage from '$lib/functions/file-loaders/utils/build-dummy-book-image';
 import { exclusive } from './persistence';
-import { currentUser } from './client';
+import { localProfileUser } from './client';
 import { yatsuRows, prepareYatsuEntries, annotationContent, type YatsuPart } from './yatsu-import';
 import { parseYatsuSettings } from './yatsu-settings-format';
 import { importYatsuSettings } from './yatsu-settings';
@@ -333,9 +333,9 @@ export class TtuMigration {
     signal?: AbortSignal
   ): Promise<MigrationResult> {
     signal?.throwIfAborted();
-    const accountId = currentUser()?.id ?? null;
+    const accountId = localProfileUser()?.id ?? null;
     const assertAccount = () => {
-      if ((currentUser()?.id ?? null) !== accountId)
+      if ((localProfileUser()?.id ?? null) !== accountId)
         throw new Error('Account changed during import.');
     };
     const item = this.index.find((entry) => entry.id === id);

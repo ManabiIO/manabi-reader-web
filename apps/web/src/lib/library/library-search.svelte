@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { Button } from '$lib/components/ui/button';
-  import { account, currentUser } from '$lib/manabi/client';
+  import { localProfileUser, localUser } from '$lib/manabi/client';
   import { readerBookKeyFor } from '$lib/reader-identity';
   import type { ContentHit } from './content-search';
   import type { ShelfBook } from './view-model';
@@ -24,7 +24,7 @@
     error = '',
     signature = '',
     metadataLimit = 30;
-  $: owner = $account.session?.user?.id ?? null;
+  $: owner = $localUser?.id ?? null;
   $: saved = [
     ...new Map(
       books.filter((book) => book.bookId && !book.isPlaceholder).map((book) => [book.bookId, book])
@@ -82,13 +82,13 @@
       // Small identity lookups only. No book markup or content hashing on the UI thread.
       const descriptors = [];
       for (const book of selected) {
-        if (run !== serial || !mounted || currentOwner !== (currentUser()?.id ?? null)) return;
+        if (run !== serial || !mounted || currentOwner !== (localProfileUser()?.id ?? null)) return;
         descriptors.push({
           id: book.bookId!,
           key: await readerBookKeyFor(book.bookId!, book.contentHash)
         });
       }
-      if (run !== serial || !mounted || currentOwner !== (currentUser()?.id ?? null)) return;
+      if (run !== serial || !mounted || currentOwner !== (localProfileUser()?.id ?? null)) return;
       const active = new Worker(new URL('./library-content-search-worker.ts', import.meta.url), {
         type: 'module'
       });
@@ -107,7 +107,7 @@
           run !== serial ||
           worker !== active ||
           data.requestId !== run ||
-          currentOwner !== (currentUser()?.id ?? null)
+          currentOwner !== (localProfileUser()?.id ?? null)
         )
           return;
         if (data.type === 'batch') hits = [...hits, ...data.hits];

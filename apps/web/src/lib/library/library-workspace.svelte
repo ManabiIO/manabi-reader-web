@@ -27,7 +27,13 @@
   import { StorageKey } from '$lib/data/storage/storage-types';
   import type { SortOption } from '$lib/data/sort-types';
   import type { BookCardProps } from '$lib/components/book-card/book-card-props';
-  import { account, currentUser, requestSeriesWriteAccess } from '$lib/manabi/client';
+  import {
+    account,
+    currentUser,
+    localProfileUser,
+    localUser,
+    requestSeriesWriteAccess
+  } from '$lib/manabi/client';
   import {
     allLinkedBooks,
     linkedBooks,
@@ -227,7 +233,7 @@
     });
   }
   $: sort = $booklistSortOptions$[StorageKey.BROWSER];
-  $: viewerId = $account.session?.user?.id ?? null;
+  $: viewerId = $localUser?.id ?? null;
   $: accountEntries = visibleLibraryEntries(bookCards, $allLinkedBooks, viewerId);
   $: tree = buildShelf(
     accountEntries.cards,
@@ -528,19 +534,21 @@
     const signal = controller.signal;
     scanning = true;
     try {
-      const owner = currentUser()?.id;
+      const owner = localProfileUser()?.id;
       const nextSources = await sourceDescriptors();
       const nextLocals = await (await integrationDB()).getAll('localLibraries');
       const cached = await Promise.all(nextSources.map(cachedCatalog));
-      if (!alive || run !== generation || owner !== currentUser()?.id) return;
+      if (!alive || run !== generation || owner !== localProfileUser()?.id) return;
       sources = nextSources;
       locals = nextLocals;
       catalogs = cached.filter((c): c is Catalog => !!c);
       const nextPending = await pendingMoves();
       await refreshLinkedBooks();
-      if (!alive || run !== generation || owner !== currentUser()?.id) return;
+      if (!alive || run !== generation || owner !== localProfileUser()?.id) return;
       pending = nextPending;
-      const cloud = nextSources.filter((source) => source.owner && source.provider === 'onedrive');
+      const cloud = nextSources.filter(
+        (source) => source.owner === currentUser()?.id && source.provider === 'onedrive'
+      );
       const cloudState = await Promise.all(
         cloud.map(async (source) => {
           const [capability, plans] = await Promise.allSettled([
@@ -555,7 +563,7 @@
           };
         })
       );
-      if (!alive || run !== generation || owner !== currentUser()?.id) return;
+      if (!alive || run !== generation || owner !== localProfileUser()?.id) return;
       cloudCapabilities = Object.fromEntries(
         cloudState.flatMap(({ source, capability }) =>
           capability ? [[sourceKey(source), capability]] : []
@@ -625,11 +633,11 @@
     });
     let previousOwner: string | null | undefined;
     const seriesPoll = setInterval(() => void pollCloudPlan(), 1000);
-    const stopAccount = account.subscribe(() => {
-      const owner = currentUser()?.id ?? null;
+    const stopAccount = localUser.subscribe(() => {
+      const owner = localProfileUser()?.id ?? null;
       if (owner === previousOwner) return;
       previousOwner = owner;
-      if (cloudPlanSource && cloudPlanSource.owner !== owner) {
+      if (cloudPlanSource && cloudPlanSource.owner !== currentUser()?.id) {
         cloudPlan = undefined;
         cloudPlanSource = undefined;
         dialogOpen = false;
@@ -684,10 +692,10 @@
       if (/^content:[a-f0-9]{64}$/.test(book.organizationKey)) return book;
       throw new Error('This book has no accessible source.');
     }
-    const owner = currentUser()?.id ?? null;
+    const owner = localProfileUser()?.id ?? null;
     const original = await (await librarySource(book.source)).read(book.file);
     const hash = await sha256(await original.arrayBuffer());
-    if (owner !== (currentUser()?.id ?? null)) throw new Error('The account changed.');
+    if (owner !== (localProfileUser()?.id ?? null)) throw new Error('The account changed.');
     const organizationKey = contentBookKey(hash);
     return {
       ...book,

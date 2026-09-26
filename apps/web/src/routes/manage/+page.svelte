@@ -66,7 +66,7 @@
     findEditorsPickCopy,
     validateEditorsPickCopy
   } from '$lib/library/editors-pick-storage';
-  import { account, currentUser } from '$lib/manabi/client';
+  import { account, currentUser, localProfileUser, localUser } from '$lib/manabi/client';
   import type { ReaderLocator } from '$lib/reader-location';
   import { clearLibraryLocation, queueLibraryLocation } from '$lib/library/search-navigation';
   import { allLinkedBooks } from '$lib/manabi/books';
@@ -152,9 +152,9 @@
   let pageAlive = true;
   let openGeneration = 0;
   let bookOpenAbort: AbortController | undefined;
-  let openOwner = currentUser()?.id ?? null;
-  const stopOpenAccount = account.subscribe(() => {
-    const owner = currentUser()?.id ?? null;
+  let openOwner = localProfileUser()?.id ?? null;
+  const stopOpenAccount = localUser.subscribe(() => {
+    const owner = localProfileUser()?.id ?? null;
     if (owner !== openOwner) {
       openOwner = owner;
       openGeneration++;
@@ -176,7 +176,7 @@
   $: activeLibraryCards = visibleLibraryEntries(
     $bookCards$ ?? [],
     $allLinkedBooks,
-    $account.session?.user?.id ?? null
+    $localUser?.id ?? null
   ).cards;
   $: activeLibraryCardIds = new Set(activeLibraryCards.map((card) => card.id));
   $: currentBookAvailable =
@@ -256,13 +256,13 @@
     bookOpenAbort = operation;
     const signal = operation.signal;
     const request = ++openGeneration;
-    const owner = currentUser()?.id ?? null;
+    const owner = localProfileUser()?.id ?? null;
     const storage = $storageSource$;
     const current = () =>
       pageAlive &&
       !signal.aborted &&
       request === openGeneration &&
-      owner === (currentUser()?.id ?? null) &&
+      owner === (localProfileUser()?.id ?? null) &&
       storage === $storageSource$;
 
     if (!selectMode) {
