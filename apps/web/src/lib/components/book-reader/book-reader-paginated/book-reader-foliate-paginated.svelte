@@ -1,14 +1,28 @@
 <script lang="ts">
   import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
-  import { nextChapter$, sectionList$, sectionProgress$, type SectionWithProgress } from '$lib/components/book-reader/book-toc/book-toc';
+  import {
+    nextChapter$,
+    sectionList$,
+    sectionProgress$,
+    type SectionWithProgress
+  } from '$lib/components/book-reader/book-toc/book-toc';
   import { createBookmarkSnapshot } from '$lib/components/book-reader/bookmark-snapshot';
   import type { BookmarkManager, PageManager } from '$lib/components/book-reader/types';
   import type { BooksDbBookmarkData } from '$lib/data/database/books-db/versions/books-db';
   import type { FuriganaStyle } from '$lib/data/furigana-style';
   import type { TextMarginMode } from '$lib/data/text-margin-mode';
   import { resolveReaderFont } from '$lib/data/reader-typography';
-  import { projectResource, rangeAt, resolveLocator, type PublicationManifest, type ReaderLocator } from '$lib/reader-location';
-  import { createStoredFoliateBook, type StoredFoliateBook } from '$lib/foliate-epub/stored-foliate-book';
+  import {
+    projectResource,
+    rangeAt,
+    resolveLocator,
+    type PublicationManifest,
+    type ReaderLocator
+  } from '$lib/reader-location';
+  import {
+    createStoredFoliateBook,
+    type StoredFoliateBook
+  } from '$lib/foliate-epub/stored-foliate-book';
   import { FoliateCharacterProgress } from '$lib/foliate-epub/foliate-character-progress';
   import type { Paginator } from '$lib/foliate-epub/paginator.js';
 
@@ -140,7 +154,12 @@
     entries.forEach((section, sectionIndex) => {
       map.set(section.reference, {
         ...section,
-        progress: sectionIndex < index ? 100 : sectionIndex > index ? 0 : Math.max(0, Math.min(100, fraction * 100))
+        progress:
+          sectionIndex < index
+            ? 100
+            : sectionIndex > index
+              ? 0
+              : Math.max(0, Math.min(100, fraction * 100))
       });
     });
     sectionProgress$.next(map);
@@ -272,7 +291,9 @@
   }
 
   function handleRelocate(event: Event) {
-    const detail = (event as CustomEvent<{ index: number; fraction?: number; range?: Range; reason?: string }>).detail;
+    const detail = (
+      event as CustomEvent<{ index: number; fraction?: number; range?: Range; reason?: string }>
+    ).detail;
     const current = contentForPaginator();
     if (!current || !progress) return;
     const fraction = Number.isFinite(detail.fraction) ? detail.fraction! : 0;
@@ -285,7 +306,10 @@
       dispatch('userNavigation');
       if (autoBookmark) {
         clearTimeout(bookmarkTimer);
-        bookmarkTimer = setTimeout(() => dispatch('bookmark'), Math.max(0, autoBookmarkTime) * 1000);
+        bookmarkTimer = setTimeout(
+          () => dispatch('bookmark'),
+          Math.max(0, autoBookmarkTime) * 1000
+        );
       }
     }
   }
@@ -327,11 +351,11 @@
     bookmarkManager = makeBookmarkManager();
 
     tocSubscription = nextChapter$.subscribe((target) => {
+      if (typeof target === 'string' && !target) return;
       const index =
         typeof target === 'string'
           ? sourceSections.findIndex(
-              (section) =>
-                section.id === target || section.querySelector(`#${CSS.escape(target)}`)
+              (section) => section.id === target || section.querySelector(`#${CSS.escape(target)}`)
             )
           : target.spineIndex;
       if (index < 0 || index >= sourceSections.length || !paginator) return;
@@ -341,9 +365,7 @@
           index,
           anchor: fragment
             ? (doc: Document) =>
-                doc.getElementById(fragment) ??
-                doc.querySelector(`#${CSS.escape(fragment)}`) ??
-                0
+                doc.getElementById(fragment) ?? doc.querySelector(`#${CSS.escape(fragment)}`) ?? 0
             : 0
         })
       );

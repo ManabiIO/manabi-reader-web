@@ -48,6 +48,7 @@ def linked_epub():
     chapter_one = (
         '<h1>第一章</h1><p id="note">第一章の注</p>'
         '<p><a id="to-second" href="chapter2.xhtml#note">第二章の注へ</a></p>'
+        '<p><a id="empty-link" href="#">空のリンク</a></p>'
     )
     chapter_two = (
         '<h1>第二章</h1><p id="note">第二章の注</p>'
@@ -424,15 +425,39 @@ class ReaderBrowser(unittest.TestCase):
         self.page.get_by_role('button', name='Read ' + title, exact=True).click(timeout=30000)
         self.page.wait_for_function(
             "() => document.querySelector('foliate-paginator')?.getContents?.()[0]?.index === 0")
+        self.page.wait_for_function(
+            "() => document.querySelector('foliate-paginator')?.getContents?.()[0]?.doc?.querySelector('#to-second')")
         self.page.evaluate(
             "() => document.querySelector('foliate-paginator').getContents()[0].doc"
             ".querySelector('#to-second').click()")
         self.page.wait_for_function(
             "() => document.querySelector('foliate-paginator')?.getContents?.()[0]?.index === 1")
+        self.page.wait_for_function(
+            "() => document.querySelector('foliate-paginator')?.getContents?.()[0]?.doc?.querySelector('#to-first')")
         note = self.page.evaluate(
             "() => document.querySelector('foliate-paginator').getContents()[0].doc"
             ".querySelector('#note')?.textContent")
         self.assertEqual('第二章の注', note)
+        self.page.evaluate(
+            "() => document.querySelector('foliate-paginator').getContents()[0].doc"
+            ".querySelector('#to-first').click()")
+        self.page.wait_for_function(
+            "() => document.querySelector('foliate-paginator')?.getContents?.()[0]?.index === 0")
+        self.page.wait_for_function(
+            "() => document.querySelector('foliate-paginator')?.getContents?.()[0]?.doc?.querySelector('#empty-link')")
+        self.page.evaluate(
+            "() => document.querySelector('foliate-paginator').getContents()[0].doc"
+            ".querySelector('#empty-link').click()")
+        self.page.reload()
+        self.page.wait_for_function(
+            "() => document.querySelector('foliate-paginator')?.getContents?.()[0]?.index === 0")
+        self.page.wait_for_function(
+            "() => document.querySelector('foliate-paginator')?.getContents?.()[0]?.doc?.querySelector('#to-second')")
+        self.page.evaluate(
+            "() => document.querySelector('foliate-paginator').getContents()[0].doc"
+            ".querySelector('#to-second').click()")
+        self.page.wait_for_function(
+            "() => document.querySelector('foliate-paginator')?.getContents?.()[0]?.index === 1")
 
     def test_continuous_horizontal_saved_explicit_font(self):
         self.open_book('continuous', 'horizontal-tb', font='Klee One')
