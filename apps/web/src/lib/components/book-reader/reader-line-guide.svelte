@@ -2,6 +2,12 @@
   import { onDestroy, onMount } from 'svelte';
   import { Button } from '$lib/components/ui/button';
   import { CaretLeft, CaretRight, X } from 'phosphor-svelte';
+  import {
+    groupLineRects,
+    visibleLineRects,
+    type MeasuredLine,
+    type LineRect
+  } from './line-guide-geometry';
 
   export let enabled = false;
   export let contentEl: HTMLElement | undefined;
@@ -11,6 +17,7 @@
   export let epoch = 0;
 
   let lines: DOMRect[] = [];
+  let measuredLines: MeasuredLine[] = [];
   let active = 0;
   let aperture: DOMRect | undefined;
   let observer: ResizeObserver | undefined;
@@ -117,25 +124,10 @@
       aperture = undefined;
       return;
     }
-    const groups: { rects: DOMRect[]; vertical: boolean; start: number; end: number }[] = [];
-    for (const { rect, vertical } of candidates) {
-      const start = vertical ? rect.left : rect.top;
-      const end = vertical ? rect.right : rect.bottom;
-      const group = groups.find(
-        (item) =>
-          item.vertical === vertical &&
-          Math.min(item.end, end) - Math.max(item.start, start) >=
-            Math.min(item.end - item.start, end - start) * 0.35
-      );
-      if (group) {
-        group.rects.push(rect);
-        group.start = Math.min(group.start, start);
-        group.end = Math.max(group.end, end);
-      } else groups.push({ rects: [rect], vertical, start, end });
-    }
-    lines = groups
-      .map((group) => union(group.rects))
-      .sort((a, b) => (verticalMode ? b.right - a.right : a.top - b.top));
+    measuredLines = groupLineRects(candidates);
+    lines = measuredLines.map(
+      ({ rect }) => new DOMRect(rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top)
+    );
     const center = verticalMode ? viewport.width / 2 : viewport.height / 2;
     active = Math.min(Math.max(active, 0), lines.length - 1);
     if (!aperture) {
@@ -153,10 +145,7 @@
 
   function updateAperture() {
     if (!lines.length) return;
-    const half = Math.floor(visibleLines / 2);
-    aperture = union(
-      lines.slice(Math.max(0, active - half), Math.min(lines.length, active + half + 1))
-    );
+    aperture = union(visibleLineRects(measuredLines, active, visibleLines));
   }
 
   function move(direction: -1 | 1) {
@@ -164,7 +153,7 @@
     updateAperture();
   }
 
-  function union(rects: DOMRect[]): DOMRect {
+  function union(rects: LineRect[]): DOMRect {
     const left = Math.min(...rects.map((rect) => rect.left));
     const top = Math.min(...rects.map((rect) => rect.top));
     const right = Math.max(...rects.map((rect) => rect.right));
