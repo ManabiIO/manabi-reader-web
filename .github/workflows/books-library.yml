@@ -18,7 +18,7 @@ concurrency:
 jobs:
   library:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -85,6 +85,26 @@ jobs:
           result=$?
           if [ "$result" -ne 0 ]; then status=1; fi
           exit "$status"
+      # These enabled data-safety features must qualify the final main SHA, not
+      # only a PR merge ref. Reuse this job's app, dependencies and browsers.
+      - name: Required Local Library and Shared TTU safety
+        env:
+          PYTHONPATH: tests/browser
+        run: |
+          set -euo pipefail
+          for engine in chromium webkit; do
+            LIBRARY_BROWSER=$engine python -m unittest test_local_library_features test_local_library_review test_local_library_refinement test_local_library_lifecycle test_library_deletion -v 2>&1 | tee artifacts/library/$engine/local-safety.log
+            if [ -d test-results ]; then mv test-results artifacts/library/$engine/local-safety-results; fi
+          done
+          LIBRARY_BROWSER=chromium python -m unittest test_books_library.BooksLibraryFilesystem.test_external_relocation_rebinds_content_identity_and_presentation test_books_library.BooksLibraryFilesystem.test_relocated_book_read_cannot_navigate_after_browser_back -v 2>&1 | tee artifacts/library/local-open-lifetime.log
+          if [ -d test-results ]; then mv test-results artifacts/library/local-open-lifetime-results; fi
+          # Retain each script's explicit suite selection; unittest discovery
+          # would also collect inherited/imported cases in these two modules.
+          python tests/browser/test_shared_ttu.py 2>&1 | tee artifacts/library/shared-roundtrip.log
+          python tests/browser/test_shared_safety.py 2>&1 | tee artifacts/library/shared-safety.log
+          LIBRARY_BROWSER=chromium python -m unittest test_reader_integration -v 2>&1 | tee artifacts/library/shared-integration.log
+          if [ -d test-results ]; then mv test-results artifacts/library/shared-safety-results; fi
+          git diff --exit-code > artifacts/library/post-safety-source.diff
       - uses: actions/upload-artifact@v4
         if: always()
         with:
