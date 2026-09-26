@@ -4,7 +4,8 @@
 
 A shared TTU library is `ttu-reader-data/<encoded-title>/`, not simply a folder
 of EPUBs. Its book ZIP, progress JSON and day-statistics JSON use TTU exporter 1 /
-database 6. The Shared TTU libraries page uses the existing TTU storage engine,
+database 6–8 filenames. New browser exports currently use database 8; the
+Shared TTU libraries page uses the existing TTU storage engine,
 not Manabi Web private sidecars. Native app integration is tracked by
 `aehlke/manabi-reader#162`, based on the root app's main branch and Core#129.
 
@@ -51,7 +52,7 @@ file-format selectors with input/output assertions. No source-string checks.
    attempting authorization. This is not a live cloud-service test.
 
 Vite is used only by the integration test and is terminated when the suite ends.
-Production still uses the static adapter build under `/Reader-Web/`. No test
+Production still uses the static adapter build under `/reader-web/`. No test
 interface is added to the deployed app, and no browser method, network response,
 storage handler, database, or reader UI is replaced. Native-format progress in
 the browser fixture is intentional test input, not evidence that the Swift

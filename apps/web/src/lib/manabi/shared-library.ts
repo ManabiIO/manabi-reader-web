@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { encodeBook } from '$lib/data/database/books-db/book-binary';
+
 import type { BooksDbStorageSource } from '$lib/data/database/books-db/versions/books-db';
 import { BaseStorageHandler } from '$lib/data/storage/handler/base-handler';
 import { BrowserStorageHandler } from '$lib/data/storage/handler/browser-handler';
@@ -177,7 +179,15 @@ export async function transferSharedBooks(
       from,
       to,
       true,
-      titles.map((title) => ({ title })),
+      await Promise.all(
+        titles.map(async (title) => {
+          if (direction !== 'publish') return { title };
+          const matches = await (await database.db).getAllFromIndex('data', 'title', title);
+          if (matches.length !== 1)
+            throw new Error(`Cannot publish ${title}: choose a unique book copy.`);
+          return { title, id: matches[0].id };
+        })
+      ),
       [StorageDataType.DATA, StorageDataType.PROGRESS, StorageDataType.STATISTICS]
     );
     if (error) throw new Error(error);
@@ -185,7 +195,7 @@ export async function transferSharedBooks(
       const db = await database.db;
       for (const title of titles) {
         const book = await database.getDataByTitle(title);
-        if (book) await db.put('data', { ...book, storageSource: source.name });
+        if (book) await db.put('data', await encodeBook({ ...book, storageSource: source.name }));
       }
     }
     database.dataListChanged$.next(undefined);

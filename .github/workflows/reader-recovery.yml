@@ -5,12 +5,7 @@ on:
       - 'apps/web/**'
       - 'tests/browser/**'
       - '.github/workflows/reader-recovery.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'apps/web/**'
-      - 'tests/browser/**'
-      - '.github/workflows/reader-recovery.yml'
+  # Main publication runs this suite in manabi-reader-ci.yml using its build.
 permissions:
   contents: read
 concurrency:
@@ -39,7 +34,7 @@ jobs:
       - run: pnpm --dir apps/web check
       - name: Build the actual static Reader
         env:
-          BASE_PATH: /Reader-Web
+          BASE_PATH: /reader-web
         run: pnpm build
       - name: Real storage loss and recovery through the application UI
         run: |

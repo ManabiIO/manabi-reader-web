@@ -7,7 +7,7 @@ import { chromium, expect } from '@playwright/test';
 import { runFontAcceptance } from './font-acceptance.mjs';
 import { runBackupAcceptance } from './backup-acceptance.mjs';
 
-const appBase = process.env.READER_BASE_PATH ?? '/Reader-Web';
+const appBase = process.env.READER_BASE_PATH ?? '/reader-web';
 assert.match(appBase, /^(?:\/[A-Za-z0-9_-]+)*$/);
 const root = path.resolve(process.env.READER_BUILD);
 const secondRoot = path.resolve(process.env.READER_BUILD_B || root);

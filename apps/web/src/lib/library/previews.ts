@@ -11,6 +11,7 @@ import coverFilename from '$lib/functions/file-loaders/epub/get-epub-cover-image
 import { epubDirection } from '$lib/functions/file-loaders/epub/epub-direction';
 import { isOPFType } from '$lib/functions/file-loaders/epub/types';
 import { currentUser } from '$lib/manabi/client';
+import { sha256 } from '$lib/manabi/sources';
 import { librarySource, type SourceDescriptor } from './catalog';
 import { sourceBookKey } from './organization';
 import type { DirectoryEntry } from './tree';
@@ -21,6 +22,7 @@ export interface Preview {
   key: string;
   scannedAt: number;
   metadataVersion: number;
+  contentHash: string;
   title: string;
   creators?: BookCreator[];
   imagePath?: Blob;
@@ -34,7 +36,7 @@ interface SavedPreview extends Omit<Preview, 'imagePath'> {
   imageType?: string;
 }
 let database: ReturnType<typeof openDB<PreviewDB>> | undefined;
-const metadataVersion = 1;
+const metadataVersion = 2;
 function previewDB() {
   return (database ??= openDB<PreviewDB>('manabi-library-previews', 1, {
     upgrade(db) {
@@ -57,6 +59,7 @@ function restore(saved: SavedPreview | undefined, key: string, scannedAt: number
     saved.key !== key ||
     saved.scannedAt !== scannedAt ||
     saved.metadataVersion !== metadataVersion ||
+    !/^[a-f0-9]{64}$/.test(saved.contentHash) ||
     typeof saved.title !== 'string' ||
     !saved.title ||
     saved.title.length > 1000 ||
@@ -75,6 +78,7 @@ function restore(saved: SavedPreview | undefined, key: string, scannedAt: number
     key,
     scannedAt,
     metadataVersion,
+    contentHash: saved.contentHash,
     title: saved.title,
     ...(saved.creators?.length ? { creators: saved.creators } : {}),
     pageDirection: saved.pageDirection,
@@ -123,13 +127,16 @@ async function readPreview(
     key,
     scannedAt,
     metadataVersion,
+    contentHash: '',
     title: file.name.replace(/\.(epub|txt|htmlz)$/i, ''),
     pageDirection: { value: 'unknown', source: 'unknown' }
   };
+  const original = await (await librarySource(source)).read(file);
+  checkAccess(source, signal);
+  value.contentHash = await sha256(await original.arrayBuffer());
+  checkAccess(source, signal);
   // Text/HTMLZ have no standardized package cover or page-progression metadata.
   if (/\.epub$/i.test(file.name)) {
-    const original = await (await librarySource(source)).read(file);
-    signal.throwIfAborted();
     const { contents, result } = await extractEpub(original, { signal, preview: true });
     signal.throwIfAborted();
     const metadata = isOPFType(contents)
@@ -158,6 +165,7 @@ async function readPreview(
     key: value.key,
     scannedAt: value.scannedAt,
     metadataVersion,
+    contentHash: value.contentHash,
     title: value.title,
     ...(value.creators?.length ? { creators: value.creators } : {}),
     pageDirection: value.pageDirection,

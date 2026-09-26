@@ -5,10 +5,13 @@
   import { refreshAccount } from './client';
   import { startPreferenceSync } from './preferences';
   import { bookSyncStatus, startBookSync } from './books';
+  import { personalSyncStatus } from './personal-sync';
 
-  $: needsAttention = Object.values($bookSyncStatus).some((status) =>
-    ['conflict', 'needs_reconnect', 'permission_required', 'unauthorized'].includes(status.state)
-  );
+  $: needsAttention =
+    ['conflict', 'legacy_statistics'].includes($personalSyncStatus.state) ||
+    Object.values($bookSyncStatus).some((status) =>
+      ['conflict', 'needs_reconnect', 'permission_required', 'unauthorized'].includes(status.state)
+    );
   onMount(() => {
     const stopPreferences = startPreferenceSync();
     const stopBooks = startBookSync();

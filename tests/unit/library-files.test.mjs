@@ -142,7 +142,7 @@ test('physical grouping verifies all copies before relinking and removing origin
     ['copied', 'done']
   );
   assert.deepEqual(linked, ['My Series/1.epub', 'My Series/2.epub']);
-  assert.equal(await fs.read('My Series/.Manabi-Reader.yaml'), 'name: "My Series"\n');
+  assert.equal(await fs.read('My Series/.manabi-reader.yaml'), 'name: "My Series"\n');
   await assert.rejects(fs.read('One/1.epub'), { name: 'NotFoundError' });
   await assert.rejects(fs.read('Two/2.epub'), { name: 'NotFoundError' });
 });
@@ -266,14 +266,14 @@ test('rename changes only safe metadata; root and unknown YAML are protected', a
   await fs.put('Series/one.epub', 'book');
   await renameSeriesOnDisk(fs.root, 'Series', 'A: "name"');
   assert.equal(
-    await fs.read('Series/.Manabi-Reader.yaml'),
+    await fs.read('Series/.manabi-reader.yaml'),
     `name: ${JSON.stringify('A: "name"')}\n`
   );
   assert.equal(await fs.read('Series/one.epub'), 'book');
   await assert.rejects(renameSeriesOnDisk(fs.root, '', 'Root'), /root is not a series/);
-  await fs.put('Series/.Manabi-Reader.yaml', 'name: Prior\nunknown: Keep\n');
+  await fs.put('Series/.manabi-reader.yaml', 'name: Prior\nunknown: Keep\n');
   await assert.rejects(renameSeriesOnDisk(fs.root, 'Series', 'Next'));
-  assert.match(await fs.read('Series/.Manabi-Reader.yaml'), /unknown: Keep/);
+  assert.match(await fs.read('Series/.manabi-reader.yaml'), /unknown: Keep/);
 });
 
 test('tampered recovery paths are rejected before touching disk', async () => {

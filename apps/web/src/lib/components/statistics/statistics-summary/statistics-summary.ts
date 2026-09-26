@@ -10,12 +10,14 @@ export interface StatisticsDeleteRequest {
   startDate: string;
   endDate: string;
   titlesToCheck: Set<string>;
+  bookKey?: string;
   takeAsIs?: boolean;
 }
 
 export interface StatisticsEditRequest {
   dateKey: string;
   title: string;
+  bookKey?: string;
   newReadingTime: number;
   newCharactersRead: number;
   resetMinMaxValues: boolean;

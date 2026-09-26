@@ -1,4 +1,4 @@
-"""Complete a real book, sync real files, then export and migrate its completion.
+"""Complete a real book, then export and migrate its completion.
 
 Only the local-folder capability is initialized as a fixture. Completion rows,
 ZIPs, and migration receipts are produced by the actual static application's UI.
@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import re
 import sys
+import time
 import unittest
 import zipfile
 from playwright.sync_api import expect
@@ -18,12 +19,12 @@ class CompletedReadingBrowser(LocalLibraryBrowser):
     def statistics(self, page):
         return page.evaluate('''() => new Promise((resolve,reject) => {
           const open=indexedDB.open('books');open.onerror=()=>reject(open.error);
-          open.onsuccess=()=>{const db=open.result,tx=db.transaction('statistic');
-            const rows=tx.objectStore('statistic').getAll();
+          open.onsuccess=()=>{const db=open.result,tx=db.transaction('readerStatistic');
+            const rows=tx.objectStore('readerStatistic').getAll();
             tx.oncomplete=()=>{resolve(rows.result);db.close();};tx.onerror=()=>reject(tx.error);};
         })''')
 
-    def test_finished_book_survives_folder_sync_export_migration_and_retry(self):
+    def test_finished_book_survives_export_migration_and_retry(self):
         self.seed(True)
         self.import_book()
         self.page.get_by_role('link', name='Read local-book', exact=True).click()
@@ -32,36 +33,29 @@ class CompletedReadingBrowser(LocalLibraryBrowser):
         self.page.get_by_role('button', name='Reading tools', exact=True).click()
         self.page.get_by_role('menuitem', name='Complete Book', exact=True).click()
         self.page.get_by_role('button', name='Confirm', exact=True).click()
-        self.page.wait_for_function('''() => new Promise(resolve => {
-          const open=indexedDB.open('books');open.onsuccess=()=>{const db=open.result,tx=db.transaction('statistic');
-            const all=tx.objectStore('statistic').getAll();tx.oncomplete=()=>{
-              resolve(all.result.some(row=>row.completedBook===1));db.close();};};
-        })''')
-        # Let the UI's complete-book transaction finish before navigating away.
+        # Playwright's wait_for_function can treat a returned Promise as truthy
+        # before its IndexedDB result settles. Poll committed rows instead.
+        deadline = time.monotonic() + 20
+        while True:
+            before = self.statistics(self.page)
+            if any(row.get('completedBook') == 1 for row in before):
+                break
+            self.assertLess(time.monotonic(), deadline, 'Completion statistic did not commit')
+            self.page.wait_for_timeout(25)
         expect(self.page.get_by_role('button', name='Confirm', exact=True)).to_have_count(0)
-        before=self.statistics(self.page)
         finished=next(row for row in before if row.get('completedBook')==1)
         completion=finished['completedData']
         self.assertEqual(1,completion['exporterVersion'])
-        self.assertEqual(6,completion['dbVersion'])
+        self.assertEqual(8,completion['dbVersion'])
         self.assertIn('averageWeightedRedingTime',completion)
         self.assertIn('averageWeightedCharatersRead',completion)
-        self.page.goto(self.origin+'/Reader-Web/connections')
+        self.page.goto(self.origin+'/reader-web/connections')
         expect(self.page.get_by_role('button', name='Refresh connections')).to_be_enabled()
-        article=self.page.locator('article[aria-label="Reading sync for local-book"]')
-        article.get_by_role('button',name='Sync local-book',exact=True).click()
-        expect(self.page.get_by_role('button',name='Refresh connections')).to_be_enabled()
-        expect(article.get_by_role('status')).to_contain_text('Saved to this folder')
-        documents=self.documents()
-        consumed={parent for document in documents for parent in document['parents']}
-        head=next(document for document in documents if document['id'] not in consumed)
-        saved=head['value']['statistics'][finished['dateKey']]
-        self.assertEqual(completion,saved['completedData'])
-        self.assertEqual(1,saved['completedBook'])
+        self.assertEqual([], self.documents())
         self.assertEqual(CONTENT,self.original())
         self.assertEqual(before,self.statistics(self.page))
 
-        self.page.goto(self.origin+'/Reader-Web/manage')
+        self.page.goto(self.origin+'/reader-web/manage')
         self.page.get_by_role('button', name='Library actions', exact=True).click()
         self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
         self.page.get_by_role('button', name='Select all', exact=True).click()
@@ -82,8 +76,9 @@ class CompletedReadingBrowser(LocalLibraryBrowser):
         try:
             page=destination.new_page()
             page.on('pageerror',lambda error:self.errors.append(str(error)))
-            page.goto(self.origin+'/Reader-Web/import-ttu')
+            page.goto(self.origin+'/reader-web/import-ttu')
             chooser=page.get_by_label('Choose Ttu export ZIPs',exact=True)
+            expect(chooser).to_be_enabled()
             chooser.set_input_files({'name':'completed-books.zip','mimeType':'application/zip','buffer':raw})
             expect(chooser).to_be_enabled()
             page.get_by_role('button',name=re.compile(r'^Import selected \(')).click()
@@ -106,5 +101,5 @@ class CompletedReadingBrowser(LocalLibraryBrowser):
 
 
 if __name__=='__main__':
-    suite=unittest.TestSuite([CompletedReadingBrowser('test_finished_book_survives_folder_sync_export_migration_and_retry')])
+    suite=unittest.TestSuite([CompletedReadingBrowser('test_finished_book_survives_export_migration_and_retry')])
     sys.exit(not unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful())

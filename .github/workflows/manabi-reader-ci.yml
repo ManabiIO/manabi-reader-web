@@ -11,7 +11,7 @@ concurrency:
 jobs:
   static-build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -29,23 +29,40 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --dir apps/web exec svelte-kit sync
       - run: node --experimental-strip-types --test tests/unit/*.test.mjs
+      - name: Reader archive, typography and service-worker regressions
+        run: pnpm test:reader
       - name: Whispersync core and Svelte compilation
         run: node test/whispersync/run.mjs --coverage --svelte --browser-bundle=test-results/whispersync-bundle.js
       - name: Type-check committed application source
         run: pnpm --dir apps/web check
       - name: Compile production static artifact
         env:
-          BASE_PATH: /Reader-Web
+          BASE_PATH: /reader-web
         run: pnpm build
+      - name: Build the user guide into the static artifact
+        run: |
+          python -m pip install -r requirements-docs.txt
+          bash scripts/build-docs
       - name: Browser acceptance for the actual static app and filesystem adapter
         run: |
           python -m pip install 'playwright==1.55.0'
           python -m playwright install --with-deps chromium
           set -o pipefail
-          python tests/browser/test_static_reader.py 2>&1 | tee browser-results.log
+          python tests/browser/test_offline_reader.py 2>&1 | tee browser-results.log
+          python tests/browser/test_static_reader.py 2>&1 | tee -a browser-results.log
           python tests/browser/test_local_library.py 2>&1 | tee -a browser-results.log
           python test/whispersync/browser.py test-results/whispersync-bundle.js 2>&1 | tee -a browser-results.log
           python tests/browser/test_whispersync.py 2>&1 | tee -a browser-results.log
+      # These data-safety suites are part of the same required release result.
+      # Reuse the compiled app and Chromium instead of rebuilding on main in
+      # separate workflows that the publisher could race or ignore.
+      - name: Qualify recovery, migration and completed reading before publication
+        run: |
+          set -o pipefail
+          python tests/browser/test_reading_recovery.py 2>&1 | tee -a browser-results.log
+          python tests/browser/test_ttu_migration.py 2>&1 | tee -a browser-results.log
+          python tests/browser/test_ttu_migration_edges.py 2>&1 | tee -a browser-results.log
+          python tests/browser/test_completed_reading.py 2>&1 | tee -a browser-results.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -84,15 +101,27 @@ jobs:
         run: |
           python -m pip install 'playwright==1.63.0'
           python -m playwright install --with-deps ${{ matrix.browser }}
+      - name: Offline worker lifecycle in ${{ matrix.browser }}
+        run: python tests/browser/test_offline_worker.py --browser ${{ matrix.browser }}
       - name: Run ${{ matrix.browser }} browser qualification
         run: python test/whispersync/browser.py test-results/whispersync-bundle.js --browser ${{ matrix.browser }} --autoplay-policy normal
       - name: Build the actual app for WebKit acceptance
         if: matrix.browser == 'webkit'
         env:
-          BASE_PATH: /Reader-Web
+          BASE_PATH: /reader-web
         run: |
           pnpm --dir apps/web exec svelte-kit sync
           pnpm build
       - name: Run actual-app WebKit acceptance
         if: matrix.browser == 'webkit'
         run: python tests/browser/test_whispersync.py --browser webkit
+      - name: Automatic offline reopening in the actual WebKit app
+        if: matrix.browser == 'webkit'
+        run: python tests/browser/test_offline_reader.py --browser webkit
+      - name: Retain engine diagnostics even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reader-${{ matrix.browser }}-results
+          path: test-results/
+          retention-days: 3

@@ -5,6 +5,7 @@
   import { Input } from '$lib/components/ui/input';
   import { Button } from '$lib/components/ui/button';
   import { SETTINGS_FILTER } from './settings-context';
+  import SettingsOfflineStatus from './settings-offline-status.svelte';
   const categories = [
     {
       id: 'appearance',
@@ -94,10 +95,12 @@
       oninput={(event) =>
         filter.update((value) => ({ ...value, query: event.currentTarget.value }))}
     />
-    <nav aria-label="Settings categories" class="mt-3 flex gap-1 overflow-x-auto pb-2 lg:grid">
+    <nav aria-label="Settings categories" class="section-navigation section-navigation-sidebar mt-3">
       {#each categories as category (category.id)}
         <Button
-          variant={$filter.category === category.id && !$filter.query ? 'secondary' : 'ghost'}
+          variant="ghost"
+          shape="rounded"
+          data-section-link
           class="justify-start"
           aria-pressed={$filter.category === category.id && !$filter.query}
           onclick={() => choose(category.id)}>{category.label}</Button
@@ -122,6 +125,13 @@
             : 'No matching settings. Try a different search.'}
         </p>{/if}
     </div>
+    <SettingsOfflineStatus />
     <slot />
   </main>
 </div>
+
+<style>
+  :global([data-setting="offline-reading"]:not([hidden])) {
+    margin-bottom: 1.25rem;
+  }
+</style>

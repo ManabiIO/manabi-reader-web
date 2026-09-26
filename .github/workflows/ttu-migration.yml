@@ -7,14 +7,7 @@ on:
       - 'package.json'
       - 'pnpm-lock.yaml'
       - '.github/workflows/ttu-migration.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'apps/web/**'
-      - 'tests/**'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - '.github/workflows/ttu-migration.yml'
+  # Main publication runs these suites in manabi-reader-ci.yml using its build.
 permissions:
   contents: read
 concurrency:
@@ -47,7 +40,7 @@ jobs:
         run: node --experimental-strip-types --test tests/unit/ttu-migration.test.mjs tests/unit/completed-statistics.test.mjs
       - name: Build production static Reader
         env:
-          BASE_PATH: /Reader-Web
+          BASE_PATH: /reader-web
         run: pnpm build
       - name: Real export and migration browser acceptance
         run: |

@@ -8,10 +8,27 @@ import { validCompletion } from '../library/completion.ts';
 import { isCompletedStatistics } from './completed-statistics.js';
 
 /** Import-only wire validation. No provider credentials or storage bindings enter here. */
-export type ImportPart = 'book' | 'bookmark' | 'statistics' | 'audio' | 'subtitles' | 'goals';
+export type ImportPart =
+  | 'book'
+  | 'bookmark'
+  | 'metadata'
+  | 'savedBookmarks'
+  | 'highlights'
+  | 'notes'
+  | 'settings'
+  | 'statistics'
+  | 'audio'
+  | 'subtitles'
+  | 'goals';
+export type ImportSource = 'ttu' | 'yatsu';
 export const importLabels: Record<ImportPart, string> = {
   book: 'Book Data',
-  bookmark: 'Bookmarks',
+  bookmark: 'Current reading position',
+  savedBookmarks: 'Saved bookmarks',
+  highlights: 'Highlights and passage notes',
+  notes: 'Book notes',
+  settings: 'Safe reader settings (optional)',
+  metadata: 'Collection Tags',
   statistics: 'Statistics',
   audio: 'Audiobook position',
   subtitles: 'Subtitles',
@@ -21,6 +38,10 @@ export type Plain = Record<string, unknown>;
 const prefixes: Record<string, ImportPart> = {
   bookdata: 'book',
   progress: 'bookmark',
+  bookmeta: 'metadata',
+  bookmarks: 'savedBookmarks',
+  highlights: 'highlights',
+  notes: 'notes',
   statistics: 'statistics',
   audioBook: 'audio',
   subtitles: 'subtitles',
@@ -73,18 +94,31 @@ function array(value: unknown, description: string, maximum = 20000): unknown[] 
   return value;
 }
 
-export function importFile(name: string): ImportFile | undefined {
+export function importFile(name: string, source: ImportSource = 'ttu'): ImportFile | undefined {
+  if (source === 'yatsu' && name === 'yatsu-local-settings.json')
+    return { part: 'settings', modified: 0 };
   const prefix = Object.keys(prefixes).find((item) => name.startsWith(`${item}_`));
   if (!prefix) return undefined;
+  if (['bookmeta', 'bookmarks', 'highlights', 'notes'].includes(prefix) && source !== 'yatsu')
+    return undefined;
   const part = prefixes[prefix];
   const extension = part === 'book' ? '.zip' : '.json';
   if (!name.endsWith(extension)) throw new Error(`Invalid file type: ${name}`);
   const fields = name.slice(0, -extension.length).split('_');
-  if (fields[1] !== '1' || fields[2] !== '6')
+  // Book metadata schema upgrades did not change the filename or exported
+  // payload shape. Accept this application's v7/v8 archives alongside TTU v6,
+  // while future schema versions still require explicit qualification.
+  const versions = source === 'yatsu' ? ['11'] : ['6', '7', '8'];
+  if (fields[1] !== '1' || !versions.includes(fields[2]))
     throw new Error('Unsupported export version. Re-export with the current Ttu Ebook Reader.');
   const counts: Record<ImportPart, number[]> = {
     book: [6],
     bookmark: [5],
+    metadata: [4],
+    savedBookmarks: [4],
+    highlights: [4],
+    notes: [4],
+    settings: [0],
     statistics: [16, 17],
     audio: [5],
     subtitles: [5],
@@ -115,7 +149,7 @@ export function decodeTitle(value: string): string {
   return title;
 }
 
-export function bookmark(value: unknown, modified: number): Plain {
+export function bookmark(value: unknown, modified: number, source: ImportSource = 'ttu'): Plain {
   const v = record(value, 'bookmark');
   keys(
     v,
@@ -126,12 +160,30 @@ export function bookmark(value: unknown, modified: number): Plain {
       'exploredCharCount',
       'progress',
       'lastBookmarkModified',
-      'completion'
+      'completion',
+      ...(source === 'yatsu'
+        ? [
+            'targetSectionIndex',
+            'targetSectionId',
+            'sourceViewMode',
+            'sourceReaderLayoutKey',
+            'sourceBookCharCount'
+          ]
+        : [])
     ],
     'bookmark'
   );
   if (v.completion !== undefined && !validCompletion(v.completion))
     throw new Error('Invalid book completion metadata.');
+  if (source === 'yatsu') {
+    if (v.targetSectionIndex !== undefined) number(v.targetSectionIndex, 'section index');
+    if (v.targetSectionId !== undefined) text(v.targetSectionId, 'section ID');
+    if (v.sourceViewMode !== undefined) text(v.sourceViewMode, 'source view mode', 64);
+    if (v.sourceReaderLayoutKey !== undefined)
+      text(v.sourceReaderLayoutKey, 'source layout key', 4096);
+    if (v.sourceBookCharCount !== undefined)
+      number(v.sourceBookCharCount, 'source character count');
+  }
   const out: Plain = { lastBookmarkModified: number(v.lastBookmarkModified, 'bookmark timestamp') };
   if (v.completion !== undefined) out.completion = v.completion;
   if (out.lastBookmarkModified !== modified)
@@ -149,6 +201,40 @@ export function bookmark(value: unknown, modified: number): Plain {
     throw new Error('The bookmark contains no reading position.');
   return out; // dataId is deliberately discarded and allocated by the destination DB.
 }
+export function yatsuMetadata(value: unknown, modified: number): string[] {
+  const v = record(value, 'Yatsu book metadata');
+  if (v.lastBookMetaModified !== modified)
+    throw new Error('Yatsu book metadata filename and data disagree.');
+  if (v.coverBlurred !== undefined && typeof v.coverBlurred !== 'boolean')
+    throw new Error('Invalid Yatsu cover visibility.');
+  if (
+    v.bookFingerprint !== undefined &&
+    (typeof v.bookFingerprint !== 'string' || !/^[a-f0-9]{64}$/.test(v.bookFingerprint))
+  )
+    throw new Error('Invalid Yatsu source fingerprint.');
+  for (const [field, limit] of [
+    ['author', 512],
+    ['series', 240],
+    ['seriesPosition', 64]
+  ] as const) {
+    if (v[field] !== undefined && v[field] !== null) {
+      const label = text(v[field], `Yatsu ${field}`, limit);
+      if ([...label].some((character) => character.charCodeAt(0) < 32))
+        throw new Error(`Invalid Yatsu ${field}.`);
+    }
+  }
+  if (new TextEncoder().encode(JSON.stringify(v)).length > 256 * 1024)
+    throw new Error('Yatsu book metadata is too large.');
+  const tags = array(v.tags, 'Yatsu collection tags', 1000).map((item) => {
+    const tag = text(item, 'Yatsu collection tag', 240).trim();
+    if (!tag || [...tag].some((character) => character.charCodeAt(0) < 32))
+      throw new Error('Invalid Yatsu collection tag.');
+    return tag;
+  });
+  // Yatsu series are labels, not folders. Import as a collection without moving originals.
+  if (typeof v.series === 'string' && v.series.trim()) tags.push(v.series.trim());
+  return [...new Set(tags)];
+}
 const statisticNumbers = [
   'charactersRead',
   'readingTime',
@@ -162,7 +248,7 @@ function completed(value: unknown, day: string): Plain {
   if (!isCompletedStatistics(v, day)) throw new Error('Invalid completed statistics.');
   return { ...v };
 }
-export function statistics(value: unknown, title: string): Plain[] {
+export function statistics(value: unknown, title: string, source: ImportSource = 'ttu'): Plain[] {
   const seen = new Set<string>();
   return array(value, 'statistics').map((item) => {
     const v = record(item, 'statistics row');
@@ -174,7 +260,8 @@ export function statistics(value: unknown, title: string): Plain[] {
         'dateKey',
         'lastStatisticModified',
         'completedBook',
-        'completedData'
+        'completedData',
+        ...(source === 'yatsu' ? ['dictionaryPopupOpenCount'] : [])
       ],
       'statistics'
     );
@@ -187,6 +274,8 @@ export function statistics(value: unknown, title: string): Plain[] {
       lastStatisticModified: number(v.lastStatisticModified, 'statistics timestamp')
     };
     for (const key of statisticNumbers) out[key] = number(v[key], key);
+    if (source === 'yatsu' && v.dictionaryPopupOpenCount !== undefined)
+      number(v.dictionaryPopupOpenCount, 'dictionary popup count');
     if (v.completedBook !== undefined) {
       if (v.completedBook !== 1) throw new Error('Invalid completed-book flag.');
       out.completedBook = 1;
@@ -308,7 +397,13 @@ export function canonical(value: unknown): string {
 }
 export function withoutIdentity(value: unknown): Plain | undefined {
   if (!value) return undefined;
-  const { title: _title, dataId: _id, manabiTtuReceipt: _receipt, ...rest } = value as Plain;
+  const {
+    title: _title,
+    bookKey: _bookKey,
+    dataId: _id,
+    manabiTtuReceipt: _receipt,
+    ...rest
+  } = value as Plain;
   return rest;
 }
 export class MigrationConflict extends Error {

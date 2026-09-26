@@ -23,9 +23,9 @@ export function selectTtuFile<T extends { name: string }>(
   if (!['bookdata_', 'progress_', 'statistics_'].includes(prefix)) return file;
   const extension = prefix === 'bookdata_' ? '.zip' : '.json';
   const parts = file.name.slice(0, -extension.length).split('_');
-  if (!file.name.endsWith(extension) || parts[1] !== '1' || parts[2] !== '6') {
+  if (!file.name.endsWith(extension) || parts[1] !== '1' || !['6', '7', '8'].includes(parts[2])) {
     throw new Error(
-      `Unsupported Ttu Ebook Reader file format: ${file.name}. This integration supports exporter 1 / database 6.`
+      `Unsupported Ttu Ebook Reader file format: ${file.name}. This integration supports exporter 1 / databases 6–8.`
     );
   }
   const expected = prefix === 'bookdata_' ? [6] : prefix === 'progress_' ? [5] : [16, 17];

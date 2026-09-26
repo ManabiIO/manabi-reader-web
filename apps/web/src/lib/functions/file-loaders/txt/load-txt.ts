@@ -7,6 +7,7 @@
 import type { LoadData } from '$lib/functions/file-loaders/types';
 import extractTxt from '$lib/functions/file-loaders/txt/extract-txt';
 import { getFormattedElementTxt } from '$lib/functions/file-loaders/txt/generate-txt-html';
+import { defaultManifest } from '$lib/reader-location';
 
 export default async function loadTxt(file: File, lastBookModified: number): Promise<LoadData> {
   const data = await extractTxt(file);
@@ -14,8 +15,10 @@ export default async function loadTxt(file: File, lastBookModified: number): Pro
 
   return {
     title: file.name.replace(/\.txt$/, ''),
+    sourceFormat: 'txt',
     styleSheet: '',
     elementHtml: element.innerHTML,
+    publicationManifest: defaultManifest(element),
     blobs: {},
     coverImage: undefined,
     hasThumb: false,

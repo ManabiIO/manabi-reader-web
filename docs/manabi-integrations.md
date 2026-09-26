@@ -1,6 +1,6 @@
 # Manabi accounts and libraries
 
-The app builds to static files under `/Reader-Web/`; Django provides optional
+The app builds to static files under `/reader-web/`; Django provides optional
 account and cloud-connection services. No SvelteKit server runs in production.
 Local reading continues when the account API is unavailable or disabled.
 
@@ -72,3 +72,22 @@ Deployment and operator setup are in `lake-of-fire/manabi` PRs #60 and #61,
 including `docs/reader-web-provider-e2e.md`. Production credentials, provider
 verification, native folder-picker qualification and cutover remain explicit
 operator steps. Never put provider client secrets into public Vite variables.
+
+### Bounded personal sync and series jobs
+
+The backend closeout protocol keeps a stable account incarnation and a rotatable
+history generation. Requests carry both in `X-Manabi-Sync-Incarnation` and
+`X-Manabi-Sync-Generation`; the mutation body remains the closed seven-field
+contract. A `resync_required` response triggers bounded snapshot pagination and
+then replay from its fixed high-water cursor. No upload occurs mid-snapshot.
+Unsent IndexedDB edits and tombstones remain local intent; immutable requests from
+an old generation are retired only after reconciliation, never relabeled and
+replayed. `invalid_cursor` or a changed incarnation is a recovery condition, not
+permission to erase local data or recreate a lost account feed. Account storage
+limits apply to current data, not a lifetime write count; deletion frees space.
+
+OneDrive series preparation and confirmation return HTTP 202. Poll plan status;
+show the final preview only when `prepared`, and confirm once. The backend worker
+advances its durable journal independently of the tab. `reconcile` is automatic,
+while `paused` requires review and explicit abandonment. Abandoning never undoes
+completed provider moves. Reopening a dialog never confirms a plan automatically.

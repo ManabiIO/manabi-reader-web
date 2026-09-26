@@ -14,8 +14,9 @@ multi-child folder becomes a series, whose subseries precede its individual
 books. Filtering never changes a series ID or flattens it merely because only
 one unfinished book remains. The source root itself is not a series.
 
-Only subdirectories may have `.Manabi-Reader.yaml`. Its bounded, name-only YAML
-schema is `name: "Display name"`. Plain and single-quoted names are also read;
+Only subdirectories may have `.manabi-reader.yaml`. Its bounded, name-only YAML
+schema is `name: "Display name"`. The former `.Manabi-Reader.yaml` spelling remains
+readable for existing libraries but is never created. Plain and single-quoted names are also read;
 complex YAML, duplicate/unknown fields and invalid files are not silently
 rewritten. Existing cloud sidecars are read within the already selected root;
 this requires no new provider grant. Missing names fall back to directory names.
@@ -63,24 +64,39 @@ until then; browser IDs and provider locators are never uploaded as book identit
 Identical filenames alone do not establish identity, and adding to Want to Read
 never imports a connected preview or enables account sync.
 
+Visible connected previews verify the original file's SHA-256 without adding the
+book to browser reading storage. A collection, Want to Read, or display-name edit
+on a preview verifies the bytes again before saving under `content:<sha256>`.
+This lets organization follow a file that receives a new provider ID, moves to
+another folder or is copied between local and cloud sources. The browser keeps
+reading records attached to its existing book ID when a same-owner source link
+is reconnected. A cross-account or local/cloud copy may have a separate browser
+book ID while sharing the portable organization key. Two available physical
+copies can appear as separate Books tiles; missing references do not inflate
+collection counts. Files with the same title but different bytes remain
+separate identities.
+Discovery remains lazy: a collection filter does not download every hidden file
+in a large connected library. Open or scroll the Books/series view to preview a
+newly located file, then its verified identity can appear in collections.
+
 Accepted account organization is committed before settings sync reports success.
 Remote changes notify other open Library tabs, and organization changes remain
 observable while account settings are open outside the Library.
 
 **Completion belongs to reading state.** A bookmark may contain `completion`
 with `state`, `modifiedAt`, and a `finishedOn` calendar date when finished. The
-same field is validated and preserved in managed progress sync and bookmark
-migration. An explicit Still Reading choice overrides a 100% position, without
+same field is validated and preserved in content-keyed Manabi account sync and
+bookmark migration. An explicit Still Reading choice overrides a 100% position, without
 resetting the position, scroll, counts or statistics. A delayed autosave cannot
 erase a newer finish/date choice. The first actual 100% save records a date;
 historical 100% bookmarks with no date remain unknown until edited. Existing
 Complete Book statistics are a distinct analytics operation, not invoked by
 these library actions. The reader's explicit Complete Book action also publishes
 a new completion decision, so it can supersede Still Reading; ordinary autosaves
-cannot. Sync retains the existing whole-bookmark conflict
-boundary, rather than claiming independent field conflict resolution. Managed
-bookmark/statistics state is bounded at 1 MiB per linked book so multi-year
-daily history does not hit the former 64 KiB envelope.
+cannot. IndexedDB remains the immediate source of reading state while signed-in
+accounts sync resume, completion and daily statistics through Manabi. The
+provider-managed state files are migration input, not a second active authority.
+Independent resume fields can merge; conflicting edits remain reviewable.
 
 ## macOS package EPUB import
 
@@ -108,9 +124,11 @@ behavior.
 
 Create Series moves at least two originals within one **local folder mount**
 into a new subdirectory. It does not pretend browser imports still have writable
-original file handles. Cloud originals remain read-only under the current
-backend/grants; cloud moves and renames need a separately authorized write
-contract. No OAuth scope is widened here.
+original file handles. OneDrive series editing is a separate, incremental
+`Files.ReadWrite` capability: the Library prepares a plan for review, then
+executes native provider steps under a server journal. Existing read-only grants
+remain usable if the user declines the upgrade. Google Drive and Dropbox series
+editing remain unavailable until their scoped mutation contracts are complete.
 
 Local moves request write permission from the user's action, reject existing
 destinations and filename collisions, journal a plan before writing, copy and
@@ -126,6 +144,14 @@ client propagation require separate platform qualification.
 Series rename changes its YAML display name, not the physical folder path.
 Existing book IDs, source hashes, progress baselines and canonical titles remain
 unchanged. Copy/delete is not advertised as an atomic filesystem rename.
+The canonical marker filename is all lowercase: `.manabi-reader.yaml`.
+
+OneDrive create/move/rename plans are confined to one selected root and account.
+Each provider step is claimed before its network call, reconciled after an
+uncertain response, and verified before a relocation receipt is published.
+Partial success is shown instead of rolling back or overwriting another change.
+The Library applies receipts idempotently to invalidate folder listings while
+book identity, progress, notes, collections and presentation stay intact.
 
 ## Library chrome
 
@@ -134,7 +160,7 @@ inherited Book Manager command row. In compact horizontal size, the title leads
 the bar and the Collections action opens the grouped collection sheet. There is
 no sidebar or hamburger control. The sheet exposes Books, Want to Read, Finished, custom collections,
 counts and Edit/Done management. At widths of 1024px and above, the Collections
-action disappears and a persistent 232px collection sidebar is shown instead.
+action disappears and a persistent inset, rounded collection sidebar is shown instead.
 Compact search opens from a 44px title-bar action and replaces the title row with
 a focused search field and Cancel; Escape/Cancel clears the query and restores
 focus to that action. Desktop keeps its inline field. Navigation glyphs use bold
@@ -152,10 +178,17 @@ labelled overflow menu. Root navigation identifies Manabi Reader for Web. A
 pushed collection or series replaces that brand with a back action and
 destination title. Selection and replication controls appear contextually only
 while those operations are active. The shelf row pairs Books or Continue with
-search. The desktop rail fills the viewport below the toolbar; shelf geometry
+search. The brand aligns with the shelf headings at compact and desktop widths.
+Routine collection buttons use neutral system-gray fills with dark or light text
+for the active appearance; the Manabi accent remains available for emphasis.
+The desktop rail floats inside the viewport with 16px insets; shelf geometry
 and series-hero reflow use the available content width. See
 [`books-responsive-review.md`](books-responsive-review.md) for the responsive
 qualification matrix and the proposed reader follow-up.
+
+Reader search, saved annotations, return navigation, scrubbing, Line Guide and
+their local-first account data model are specified in
+[`../specs/reader-parity-architecture.md`](../specs/reader-parity-architecture.md).
 
 The Continue shelf scrolls to the edges of the content pane. Its first and last
 cards retain the same inset as the headings, while intermediate cards pass
@@ -178,7 +211,8 @@ cover. Labeled menus, keyboard focus, reduced motion and forced colors use the
 existing UI primitives.
 
 Visible connected EPUB covers load through a two-worker, bounded preview queue,
-without importing a book or changing reading state. Only selected manifest
+without importing a book or changing reading state. The original bytes are
+hashed before the preview is cached; only selected manifest
 resources are decoded for previews; thumbnail cache entries are capped at 1 MiB
 and 500 entries. Refresh rescans before replacing the last usable catalog and
 invalidates preview generations. Failed scans do not delete books or history.

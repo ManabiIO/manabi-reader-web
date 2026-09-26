@@ -1,6 +1,6 @@
 <script lang="ts">
   import * as Modal from '$lib/components/ui/dialog';
-  import { Button } from '$lib/components/ui/button';
+  import CloseButton from '$lib/components/ui/close-button.svelte';
   import { browser } from '$app/environment';
   import { sanitizeDialogHtml } from '$lib/functions/book-security/dialog-content-security';
   import { page } from '$app/stores';
@@ -177,11 +177,10 @@
           <svelte:component this={dialog.component} {...dialog.props} on:close={closeAllDialogs} />
         {/if}
       {/each}
-      {#if !clickOnCloseDisabled}<Button
-          variant="ghost"
-          class="absolute top-2 right-2"
-          onclick={closeAllDialogs}>Close</Button
-        >{/if}
+      {#if !clickOnCloseDisabled}<CloseButton
+          class="absolute top-2 end-2"
+          onclick={closeAllDialogs}
+        />{/if}
     </Modal.Content>
   {/if}
 </Modal.Root>

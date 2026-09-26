@@ -4,7 +4,15 @@
  * All rights reserved.
  */
 
+import { encodeBook, decodeBook } from './book-binary';
 import { mergeCompletion } from '$lib/library/completion';
+import {
+  migrateLegacyStatistics,
+  preserveCompletedStatistic,
+  statisticRange,
+  visibleStatistics
+} from './reader-statistics';
+import { commitTransaction, explainBookStorageError } from './commit-transaction.mjs';
 import type {
   BooksDbAudioBook,
   BooksDbBookData,
@@ -150,7 +158,8 @@ export class DatabaseService {
   async getData(dataId: number) {
     if (!Number.isNaN(dataId)) {
       const db = await this.db;
-      return db.get('data', dataId);
+      const book = await db.get('data', dataId);
+      return book ? decodeBook(book) : undefined;
     }
     return undefined;
   }
@@ -158,7 +167,8 @@ export class DatabaseService {
   async getDataByTitle(title: string) {
     if (title) {
       const db = await this.db;
-      return db.getFromIndex('data', 'title', title);
+      const book = await db.getFromIndex('data', 'title', title);
+      return book ? decodeBook(book) : undefined;
     }
 
     return undefined;
@@ -167,9 +177,29 @@ export class DatabaseService {
   async setFirstBookRead(
     bookTitle: string,
     startDaysHoursForTracker: number,
-    existingStatistic?: BooksDbStatistic
+    existingStatistic?: BooksDbStatistic,
+    bookId?: number
   ) {
     const db = await this.db;
+
+    if (bookId) {
+      const book = await db.get('data', bookId);
+      if (!book || book.title !== bookTitle) throw new Error('The tracked book changed.');
+      const bookKey = await migrateLegacyStatistics(db, book);
+      const first = existingStatistic ?? (await db.get('readerStatistic', statisticRange(bookKey)));
+      if (first) return [first.dateKey, false];
+      const dateKey = getDateKey(startDaysHoursForTracker);
+      const statistic = { ...getDefaultStatistic(bookTitle, dateKey), bookKey };
+      const tx = db.transaction(['readerStatistic', 'lastModified'], 'readwrite');
+      await tx.objectStore('readerStatistic').put(statistic);
+      await tx.objectStore('lastModified').put({
+        title: bookKey,
+        dataType: StorageDataType.STATISTICS,
+        lastModifiedValue: statistic.lastStatisticModified
+      });
+      await tx.done;
+      return [dateKey, true];
+    }
 
     let firstStatistic = existingStatistic;
 
@@ -219,50 +249,63 @@ export class DatabaseService {
   ) {
     const db = await this.db;
 
-    let dataId: number;
-    let bookData: BooksDbBookData;
-
+    const stored = await encodeBook(data);
     const tx = db.transaction('data', 'readwrite');
-    const { store } = tx;
-    const oldData = await store.index('title').get(data.title);
+    return commitTransaction(tx, async () => {
+      let dataId: number;
+      let bookData: BooksDbBookData;
 
-    if (oldData) {
-      if (removeStorageContext) {
-        oldData.storageSource = undefined;
-      }
+      const { store } = tx;
+      const titleMatches = await store.index('title').getAll(data.title);
+      // Verified source identity must survive imports of different books sharing a title.
+      const oldData = data.contentHash
+        ? titleMatches.find(
+            (book) => book.contentHash?.toLowerCase() === data.contentHash?.toLowerCase()
+          )
+        : titleMatches.find((book) => !book.contentHash);
 
-      if (
-        saveBehavior === ReplicationSaveBehavior.NewOnly &&
-        oldData.lastBookModified &&
-        data.lastBookModified &&
-        oldData.lastBookModified >= data.lastBookModified &&
-        (oldData.lastBookOpen || 0) >= (data.lastBookOpen || 0)
-      ) {
-        bookData = oldData;
-        dataId = oldData.id;
+      if (oldData) {
+        if (removeStorageContext) {
+          oldData.storageSource = undefined;
+        }
+
+        if (
+          saveBehavior === ReplicationSaveBehavior.NewOnly &&
+          oldData.lastBookModified &&
+          data.lastBookModified &&
+          oldData.lastBookModified >= data.lastBookModified &&
+          (oldData.lastBookOpen || 0) >= (data.lastBookOpen || 0)
+        ) {
+          bookData = decodeBook(oldData);
+          dataId = oldData.id;
+        } else {
+          bookData = {
+            ...data,
+            id: oldData.id,
+            ...(skipTimestampFallback
+              ? { lastBookModified: data.lastBookModified, lastBookOpen: data.lastBookOpen }
+              : {
+                  lastBookModified: data.lastBookModified || oldData.lastBookModified,
+                  lastBookOpen: data.lastBookOpen || oldData.lastBookOpen
+                }),
+            ...(removeStorageContext ? { storageSource: undefined } : {})
+          };
+          dataId = await store.put({
+            ...bookData,
+            blobs: stored.blobs,
+            coverImage: stored.coverImage
+          });
+        }
       } else {
-        bookData = {
-          ...data,
-          id: oldData.id,
-          ...(skipTimestampFallback
-            ? { lastBookModified: data.lastBookModified, lastBookOpen: data.lastBookOpen }
-            : {
-                lastBookModified: data.lastBookModified || oldData.lastBookModified,
-                lastBookOpen: data.lastBookOpen || oldData.lastBookOpen
-              }),
-          ...(removeStorageContext ? { storageSource: undefined } : {})
-        };
-        dataId = await store.put(bookData);
+        // Until https://github.com/jakearchibald/idb/issues/150 resolves
+        dataId = await store.add(stored as typeof stored & { id: number });
+        bookData = { ...data, id: dataId };
       }
-    } else {
-      // Until https://github.com/jakearchibald/idb/issues/150 resolves
-      const bookDataWithoutKey: Omit<BooksDbBookData, 'id'> = data;
-      dataId = await store.add(bookDataWithoutKey as BooksDbBookData);
-      bookData = { ...data, id: dataId };
-    }
-    await tx.done;
 
-    return bookData;
+      return bookData;
+    }).catch((error) => {
+      throw explainBookStorageError(error);
+    });
   }
 
   async deleteData(
@@ -324,10 +367,10 @@ export class DatabaseService {
     const db = await this.db;
 
     const tx = db.transaction('bookmark', 'readwrite');
-    const before = await tx.store.get(bookmarkData.dataId);
-    const key = await tx.store.put(mergeCompletion(before, bookmarkData));
-    await tx.done;
-    return key;
+    return commitTransaction(tx, async () => {
+      const before = await tx.store.get(bookmarkData.dataId);
+      return tx.store.put(mergeCompletion(before, bookmarkData));
+    });
   }
 
   async putAudioBook(audioBook: BooksDbAudioBook) {
@@ -371,7 +414,8 @@ export class DatabaseService {
       | 'audioBook'
       | 'subtitle'
       | 'handle'
-    )[] = ['data', 'audioBook', 'subtitle', 'handle'];
+      | 'readerSearchProjection'
+    )[] = ['data', 'audioBook', 'subtitle', 'handle', 'readerSearchProjection'];
     const shouldDeleteLastItem = cachedData.lastItem === dataId;
     const shouldDeleteBookmark = cachedData.bookmarkIds.has(dataId);
 
@@ -396,6 +440,11 @@ export class DatabaseService {
       if (!bookTitle) {
         bookTitle = (await tx.objectStore('data').get(dataId))?.title;
       }
+      const titleUsedByAnotherBook = bookTitle
+        ? (await tx.objectStore('data').index('title').getAllKeys(bookTitle)).some(
+            (id) => id !== dataId
+          )
+        : false;
 
       if (shouldDeleteLastItem) {
         await tx.objectStore('lastItem').delete(LAST_ITEM_KEY);
@@ -405,17 +454,18 @@ export class DatabaseService {
         await tx.objectStore('bookmark').delete(dataId);
       }
 
-      if (shouldDeleteStatistics && bookTitle) {
+      if (shouldDeleteStatistics && bookTitle && !titleUsedByAnotherBook) {
         await tx.objectStore('statistic').delete(IDBKeyRange.bound([bookTitle], [bookTitle, []]));
         await tx.objectStore('lastModified').delete([bookTitle, StorageDataType.STATISTICS]);
       }
 
-      if (bookTitle) {
+      if (bookTitle && !titleUsedByAnotherBook) {
         await tx.objectStore('audioBook').delete(bookTitle);
         await tx.objectStore('subtitle').delete(bookTitle);
         await tx.objectStore('handle').delete(IDBKeyRange.bound([bookTitle], [bookTitle, []]));
       }
 
+      await tx.objectStore('readerSearchProjection').delete(dataId);
       await tx.objectStore('data').delete(dataId);
       await tx.done;
 
@@ -515,19 +565,39 @@ export class DatabaseService {
     return db.getAll('statistic', IDBKeyRange.bound([bookTitle], [bookTitle, []]));
   }
 
-  async getStatisticForCompletedBook(bookTitle: string) {
+  /** Original-file identity is the primary key for all newly tracked days. */
+  async getStatisticsForBookId(bookId: number) {
     const db = await this.db;
+    const book = await db.get('data', bookId);
+    if (!book) throw new Error('No local book data found');
+    const bookKey = await migrateLegacyStatistics(db, book);
+    return db.getAll('readerStatistic', statisticRange(bookKey));
+  }
+
+  async getAllStatistics() {
+    return visibleStatistics(await this.db);
+  }
+
+  async getStatisticForCompletedBook(bookTitle: string, bookId?: number) {
+    const db = await this.db;
+
+    if (bookId) {
+      const rows = await this.getStatisticsForBookId(bookId);
+      return rows.find((row) => row.completedBook === 1);
+    }
 
     return db.getFromIndex('statistic', 'completedBook', [1, bookTitle]);
   }
 
   async getStatisticsForTimeWindow(startDate: string, endDate: string) {
-    const db = await this.db;
-
-    return db.getAllFromIndex('statistic', 'dateKey', IDBKeyRange.bound(startDate, endDate));
+    return (await this.getAllStatistics()).filter(
+      (row) => row.dateKey >= startDate && row.dateKey <= endDate
+    );
   }
 
-  async getStatisticsUntilDate(bookTitle: string, maxDate: string) {
+  async getStatisticsUntilDate(bookTitle: string, maxDate: string, bookId?: number) {
+    if (bookId)
+      return (await this.getStatisticsForBookId(bookId)).filter((row) => row.dateKey <= maxDate);
     const db = await this.db;
 
     const results = await db.getAllFromIndex(
@@ -544,9 +614,60 @@ export class DatabaseService {
     statistics: BooksDbStatistic[],
     saveBehavior: ReplicationSaveBehavior,
     statisticsMergeMode: MergeMode,
-    currentLastModified = Date.now()
+    currentLastModified = Date.now(),
+    bookId?: number
   ) {
     const db = await this.db;
+
+    if (bookId) {
+      const book = await db.get('data', bookId);
+      if (!book || book.title !== bookTitle) throw new Error('The tracked book changed.');
+      const bookKey = await migrateLegacyStatistics(db, book);
+      let rows: BooksDbStatistic[] = statistics.map((row) => ({ ...row, title: bookTitle }));
+      if (statisticsMergeMode === MergeMode.MERGE)
+        rows = mergeStatistics(
+          rows,
+          await db.getAll('readerStatistic', statisticRange(bookKey)),
+          saveBehavior === ReplicationSaveBehavior.NewOnly
+        );
+      const updated = updateStatisticToStore(rows, currentLastModified);
+      const tx = db.transaction(['readerStatistic', 'lastModified'], 'readwrite');
+      const store = tx.objectStore('readerStatistic');
+      if (statisticsMergeMode !== MergeMode.LOCAL) await store.delete(statisticRange(bookKey));
+      const movesCompletion = updated.statisticsToStore.some((row) => row.completedBook === 1);
+      for (const row of updated.statisticsToStore) {
+        const existing =
+          statisticsMergeMode === MergeMode.LOCAL
+            ? await store.get([bookKey, row.dateKey])
+            : undefined;
+        // A tracker flush may have captured this day before Complete Book
+        // committed it. Preserve that explicit completion when the older flush
+        // reaches IndexedDB later. A deliberate completion-date move writes a
+        // new completed row in the same batch, so it may clear the old flag.
+        await store.put(
+          preserveCompletedStatistic(
+            existing,
+            { ...row, title: bookTitle, bookKey },
+            movesCompletion
+          )
+        );
+      }
+      const modifiedStore = tx.objectStore('lastModified');
+      const previousModified =
+        statisticsMergeMode === MergeMode.LOCAL
+          ? await modifiedStore.get([bookKey, StorageDataType.STATISTICS])
+          : undefined;
+      await modifiedStore.put({
+        title: bookKey,
+        dataType: StorageDataType.STATISTICS,
+        lastModifiedValue: Math.max(
+          updated.newStatisticModified,
+          previousModified?.lastModifiedValue ?? 0
+        )
+      });
+      await tx.done;
+      return;
+    }
 
     let statisticsToStore: BooksDbStatistic[] = statistics;
     let newStatisticModified = currentLastModified;
@@ -635,6 +756,25 @@ export class DatabaseService {
   async updateStatistic(newStatistic: BookStatistic) {
     const db = await this.db;
 
+    if (newStatistic.bookKey) {
+      const existing = await db.get('readerStatistic', [
+        newStatistic.bookKey,
+        newStatistic.dateKey
+      ]);
+      if (!existing) throw new Error('Unable to find record in the database');
+      await db.put('readerStatistic', {
+        ...existing,
+        charactersRead: newStatistic.charactersRead,
+        readingTime: newStatistic.readingTime,
+        minReadingSpeed: newStatistic.minReadingSpeed,
+        altMinReadingSpeed: newStatistic.altMinReadingSpeed,
+        lastReadingSpeed: newStatistic.lastReadingSpeed,
+        maxReadingSpeed: newStatistic.maxReadingSpeed,
+        lastStatisticModified: newStatistic.lastStatisticModified
+      });
+      return;
+    }
+
     let existingStatistic = await db.get('statistic', [newStatistic.title, newStatistic.dateKey]);
 
     if (!existingStatistic) {
@@ -668,7 +808,11 @@ export class DatabaseService {
       for (let index = 0, { length } = statistics; index < length; index += 1) {
         const entry = statistics[index];
 
-        if (!titles.has(entry.title)) {
+        if (
+          !entry.title.startsWith('content:') &&
+          !entry.title.startsWith('local:') &&
+          !titles.has(entry.title)
+        ) {
           statisticsToDelete.push(entry);
         }
       }
@@ -676,7 +820,11 @@ export class DatabaseService {
       for (let index = 0, { length } = lastModifiedForStatistics; index < length; index += 1) {
         const entry = lastModifiedForStatistics[index];
 
-        if (!titles.has(entry.title)) {
+        if (
+          !entry.title.startsWith('content:') &&
+          !entry.title.startsWith('local:') &&
+          !titles.has(entry.title)
+        ) {
           lastModifiedItemsToDelete.add(entry.title);
         }
       }
@@ -761,14 +909,15 @@ export class DatabaseService {
     bookTitles: string[],
     checkExistingData: boolean,
     startDateString = '',
-    endDateString = ''
+    endDateString = '',
+    bookKeys: string[] = []
   ) {
-    if (!bookTitles.length || (startDateString && !endDateString)) {
+    if ((!bookTitles.length && !bookKeys.length) || (startDateString && !endDateString)) {
       throw new Error('Received invalid Arguments for deleteStatisticEntries');
     }
 
     const db = await this.db;
-    const tx = db.transaction(['statistic', 'lastModified'], 'readwrite');
+    const tx = db.transaction(['statistic', 'readerStatistic', 'lastModified'], 'readwrite');
 
     try {
       const statisticsStore = tx.objectStore('statistic');
@@ -841,6 +990,37 @@ export class DatabaseService {
 
               throw error;
             }
+          })
+        );
+      });
+
+      bookKeys.forEach((bookKey) => {
+        if (dates.length) {
+          dates.forEach((dateKey) => {
+            tasks.push(
+              limiter(async () => {
+                await tx.objectStore('readerStatistic').delete([bookKey, dateKey]);
+              })
+            );
+          });
+        } else {
+          tasks.push(
+            limiter(async () => {
+              const range = statisticRange(bookKey);
+              if (checkExistingData)
+                hadDataMap.set(bookKey, !!(await tx.objectStore('readerStatistic').getKey(range)));
+              await tx.objectStore('readerStatistic').delete(range);
+            })
+          );
+        }
+        tasks.push(
+          limiter(async () => {
+            if (!checkExistingData || hadDataMap.get(bookKey))
+              await lastModifiedStore.put({
+                title: bookKey,
+                dataType: StorageDataType.STATISTICS,
+                lastModifiedValue
+              });
           })
         );
       });

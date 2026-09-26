@@ -3,8 +3,10 @@
   import { base, resolve } from '$app/paths';
   import * as Sheet from '$lib/components/ui/sheet';
   import { Button } from '$lib/components/ui/button';
+  import { USER_GUIDE_URL } from './docs-link';
   import {
     BookOpenIcon as BookOpen,
+    BookOpenTextIcon as BookOpenText,
     ChartBarIcon as ChartNoAxesCombined,
     CloudIcon as Cloud,
     FileArrowUpIcon as FileInput,
@@ -52,8 +54,26 @@
       detail: 'Bring books, bookmarks, and reading data'
     }
   ] as const;
+  const primaryDestinations = destinations.slice(0, 3);
 </script>
 
+<div class="flex items-center gap-1">
+  {#if !iconOnly}
+    <nav aria-label="Primary navigation" class="hidden items-center gap-1 xl:flex">
+      {#each primaryDestinations as destination (destination.path)}
+        <Button
+          href={resolve(destination.path)}
+          variant="ghost"
+          size="sm"
+          shape="rounded"
+          class={$page.url.pathname === base + destination.path ? 'bg-muted text-foreground' : ''}
+          aria-current={$page.url.pathname === base + destination.path ? 'page' : undefined}
+        >
+          {destination.label}
+        </Button>
+      {/each}
+    </nav>
+  {/if}
 <Sheet.Root bind:open>
   <Sheet.Trigger>
     {#snippet child({ props })}
@@ -74,15 +94,11 @@
   </Sheet.Trigger>
   <Sheet.Content
     side={iconOnly ? 'left' : 'right'}
-    class="w-[min(24rem,calc(100vw-1rem))] overflow-y-auto"
-    showCloseButton={false}
+    class="data-[side=left]:w-[min(24rem,calc(100vw-1rem))] data-[side=right]:w-[min(24rem,calc(100vw-1rem))] overflow-y-auto"
   >
     <Sheet.Header>
       <Sheet.Title>Manabi Reader</Sheet.Title>
       <Sheet.Description>Your books. Your reading space.</Sheet.Description>
-      <Button variant="ghost" class="absolute right-3 top-3" onclick={() => (open = false)}
-        >Close</Button
-      >
     </Sheet.Header>
     <nav aria-label="Main navigation" class="grid gap-1 p-3">
       {#each destinations as destination (destination.path)}
@@ -106,6 +122,26 @@
           >
         </a>
       {/each}
+      <div class="my-1 border-t border-border" role="separator"></div>
+      <!-- The guide is served outside SvelteKit's /reader-web base. -->
+      <!-- eslint-disable svelte/no-navigation-without-resolve -->
+      <a
+        aria-label="User guide"
+        href={USER_GUIDE_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        onclick={() => (open = false)}
+        class="flex items-start gap-3 rounded-2xl p-3 text-sm hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
+      >
+        <BookOpenText class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+        <span
+          ><span class="block font-medium">User guide</span><span
+            class="mt-1 block text-xs text-muted-foreground">Reading, libraries, and data</span
+          ></span
+        >
+      </a>
+      <!-- eslint-enable svelte/no-navigation-without-resolve -->
     </nav>
   </Sheet.Content>
 </Sheet.Root>
+</div>

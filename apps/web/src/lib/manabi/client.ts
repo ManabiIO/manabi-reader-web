@@ -26,6 +26,9 @@ const ROOT = '/api/reader-web/';
 let generation = 0;
 let refreshSerial = 0;
 let refreshInFlight: { generation: number; promise: Promise<ManabiSession | null> } | undefined;
+let forcedRefreshAfterFlight:
+  | { generation: number; promise: Promise<ManabiSession | null> }
+  | undefined;
 let lastRefreshFinished = 0;
 let lastRefreshResult: ManabiSession | null = null;
 let refreshAttempt = 0;
@@ -34,7 +37,8 @@ export class IntegrationError extends Error {
   constructor(
     public readonly code: string,
     public readonly status = 0,
-    public readonly retryAfter = 0
+    public readonly retryAfter = 0,
+    public readonly current?: unknown
   ) {
     super(
       messages[code] ?? 'The connection could not complete. Your local reading data is unchanged.'
@@ -58,7 +62,13 @@ const messages: Record<string, string> = {
   permission_required: 'Reconnect this local folder to grant access again.',
   unsupported: 'This browser does not support persistent local-folder access.',
   request_too_large: 'This reading or settings record exceeds the supported size limit.',
-  too_large: 'This file or reading-data record exceeds the supported size limit.'
+  too_large: 'This file or reading-data record exceeds the supported size limit.',
+  plan_limit:
+    'You have too many unfinished series operations. Finish or abandon one before starting another.',
+  busy: 'This cloud operation is still in progress. Check its status shortly.',
+  precondition_required: 'Refresh the operation plan before continuing.',
+  ambiguous_statistics:
+    'Reading sync is paused because different books share a title in legacy statistics. Local data is kept.'
 };
 
 export function currentUser(): ManabiUser | null {
@@ -95,7 +105,7 @@ async function jsonResponse(response: Response): Promise<any> {
   }
 }
 
-async function performAccountRefresh(): Promise<ManabiSession | null> {
+async function performAccountRefresh(force: boolean): Promise<ManabiSession | null> {
   const serial = ++refreshSerial;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
@@ -104,11 +114,11 @@ async function performAccountRefresh(): Promise<ManabiSession | null> {
       credentials: 'same-origin',
       cache: 'no-store',
       redirect: 'error',
-      // This small, optional session probe may overlap a same-origin navigation.
-      // Let it finish instead of aborting from pagehide: WebKit can surface an
-      // unload-time fetch cancellation as a CORS page error even when the
-      // rejected promise is caught. The timeout still bounds a stalled probe.
-      keepalive: true,
+      // Ordinary probes may overlap navigation. Let them finish rather than
+      // surfacing an unload-time cancellation as a WebKit CORS page error.
+      // A forced online/user refresh must consume the body in the live page;
+      // Chromium can discard a keepalive response body in that path.
+      keepalive: !force,
       signal: controller.signal
     });
     if (response.status === 404 || response.status === 503) {
@@ -139,10 +149,29 @@ async function performAccountRefresh(): Promise<ManabiSession | null> {
 
 export function refreshAccount(force = false): Promise<ManabiSession | null> {
   const admittedGeneration = generation;
-  if (refreshInFlight?.generation === admittedGeneration) return refreshInFlight.promise;
+  const current = refreshInFlight;
+  if (current?.generation === admittedGeneration) {
+    if (!force) return current.promise;
+    if (forcedRefreshAfterFlight?.generation === admittedGeneration)
+      return forcedRefreshAfterFlight.promise;
+    // A real connectivity recovery must not disappear into a request that was
+    // already finishing when the online event arrived. Serialize one forced
+    // follow-up instead of issuing concurrent session probes.
+    const promise = current.promise
+      .then(() => {
+        if (generation !== admittedGeneration) return null;
+        if (refreshInFlight?.promise === current.promise) refreshInFlight = undefined;
+        return refreshAccount(true);
+      })
+      .finally(() => {
+        if (forcedRefreshAfterFlight?.promise === promise) forcedRefreshAfterFlight = undefined;
+      });
+    forcedRefreshAfterFlight = { generation: admittedGeneration, promise };
+    return promise;
+  }
   if (!force && Date.now() - lastRefreshFinished < 5000) return Promise.resolve(lastRefreshResult);
   const attempt = ++refreshAttempt;
-  const promise = performAccountRefresh()
+  const promise = performAccountRefresh(force)
     .then((result) => {
       if (attempt === refreshAttempt) {
         lastRefreshResult = result;
@@ -166,6 +195,7 @@ export async function request<T>(
     userId?: string;
     binary?: boolean;
     maximumBytes?: number;
+    syncEpoch?: { generation: string; incarnation: string };
   } = {}
 ): Promise<T> {
   if (!validInternalPath(path)) throw new Error('Invalid internal API path');
@@ -178,6 +208,10 @@ export async function request<T>(
   if (method !== 'GET') headers.set('X-CSRFToken', session.csrf_token);
   if (options.value !== undefined) headers.set('Content-Type', 'application/json');
   if (options.revision) headers.set('If-Match', options.revision);
+  if (options.syncEpoch) {
+    headers.set('X-Manabi-Sync-Generation', options.syncEpoch.generation);
+    headers.set('X-Manabi-Sync-Incarnation', options.syncEpoch.incarnation);
+  }
   let response: Response;
   try {
     response = await fetch(ROOT + path, {
@@ -187,6 +221,10 @@ export async function request<T>(
       credentials: 'same-origin',
       redirect: 'error',
       cache: 'no-store',
+      // Library source discovery can still be in flight when a document closes.
+      // Keep this small account-scoped GET alive so WebKit does not report its
+      // unload cancellation as an uncaught cross-origin fetch error.
+      keepalive: method === 'GET' && path === 'connections/',
       signal: AbortSignal.timeout(45000)
     });
   } catch {
@@ -197,6 +235,9 @@ export async function request<T>(
   const responseUser = response.headers.get('X-Manabi-User');
   if (response.ok && responseUser !== scope.userId) {
     invalidateAccount();
+    // The response may race an in-flight session probe. Start a fresh probe
+    // after invalidation so the current cookie always gets the last word.
+    void refreshAccount(true);
     throw new IntegrationError('account_changed', 409);
   }
   if (!response.ok) {
@@ -205,11 +246,15 @@ export async function request<T>(
     // delayed 401/409 must not clear the newly authenticated account in this tab.
     if (scope.generation !== generation || currentUser()?.id !== scope.userId)
       throw new IntegrationError('account_changed', 409);
-    if (response.status === 401 || body.error === 'account_changed') invalidateAccount();
+    if (response.status === 401 || body.error === 'account_changed') {
+      invalidateAccount();
+      void refreshAccount(true);
+    }
     throw new IntegrationError(
       typeof body.error === 'string' ? body.error : 'unavailable',
       response.status,
-      Math.min(3600, Math.max(0, Number(response.headers.get('Retry-After')) || 0))
+      Math.min(3600, Math.max(0, Number(response.headers.get('Retry-After')) || 0)),
+      body.current
     );
   }
   if (options.binary) {
@@ -235,6 +280,18 @@ export async function connectProvider(provider: string) {
     value: {}
   });
   const url = providerAuthorization(result.authorize_url, provider, location.hostname);
+  if (!url) throw new IntegrationError('invalid_response');
+  location.assign(url.href);
+}
+
+/** Starts an incremental OneDrive grant bound to the existing connection. */
+export async function requestSeriesWriteAccess(connectionId: string) {
+  if (!/^[0-9a-f-]{36}$/i.test(connectionId)) throw new Error('Invalid connection ID');
+  const result = await request<{ authorize_url: string }>('oauth/onedrive/connect/', {
+    method: 'POST',
+    value: { purpose: 'series_edit', connection_id: connectionId }
+  });
+  const url = providerAuthorization(result.authorize_url, 'onedrive', location.hostname);
   if (!url) throw new IntegrationError('invalid_response');
   location.assign(url.href);
 }

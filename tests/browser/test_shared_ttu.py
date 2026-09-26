@@ -65,7 +65,7 @@ class SharedTtuBrowser(static.ReaderBrowser):
         self.open_book()
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
         self.seed_shared_source()
-        self.page.goto(self.origin + '/Reader-Web/shared-library')
+        self.page.goto(self.origin + '/reader-web/shared-library')
         self.page.get_by_role('heading', name='Publish browser books').wait_for()
         self.page.get_by_label(static.TITLE, exact=True).check()
         self.page.get_by_role('button', name='Publish selected browser books').click()
@@ -73,7 +73,7 @@ class SharedTtuBrowser(static.ReaderBrowser):
         files = self.read_shared_files()
         self.assertEqual([static.TITLE], list(files))
         book_name = next(name for name in files[static.TITLE] if name.startswith('bookdata_'))
-        self.assertTrue(book_name.startswith('bookdata_1_6_'))
+        self.assertTrue(book_name.startswith('bookdata_1_8_'))
         with zipfile.ZipFile(io.BytesIO(base64.b64decode(files[static.TITLE][book_name]))) as package:
             data = json.loads(package.read('staticdata.json'))
             self.assertEqual(static.TITLE, data['title'])
@@ -101,8 +101,8 @@ class SharedTtuBrowser(static.ReaderBrowser):
         self.page.get_by_role('button', name='Import selected shared books').click()
         expect(self.page.get_by_role('status')).to_contain_text('bookmarks and statistics imported', timeout=30000)
         result = self.page.evaluate('''() => new Promise(resolve => {
-          const open=indexedDB.open('books');open.onsuccess=()=>{const db=open.result,tx=db.transaction(['bookmark','statistic']);
-          const p=tx.objectStore('bookmark').getAll(),s=tx.objectStore('statistic').getAll();
+          const open=indexedDB.open('books');open.onsuccess=()=>{const db=open.result,tx=db.transaction(['bookmark','readerStatistic']);
+          const p=tx.objectStore('bookmark').getAll(),s=tx.objectStore('readerStatistic').getAll();
           tx.oncomplete=()=>{resolve({progress:p.result,statistics:s.result});db.close();};};
         })''')
         self.assertEqual(30, result['progress'][0]['exploredCharCount'])
@@ -117,7 +117,7 @@ class SharedTtuBrowser(static.ReaderBrowser):
         (output/'shared-ttu-wire-fixture.json').write_text(json.dumps({'files':self.read_shared_files(),'progress':progress,'statistics':[day]},ensure_ascii=False))
 
     def test_shared_duplicate_progress_is_a_repair_case_not_last_file_wins(self):
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         self.seed_shared_source()
         self.page.evaluate('''async () => {
           const root=await (await navigator.storage.getDirectory()).getDirectoryHandle('ttu-reader-data');
@@ -126,7 +126,7 @@ class SharedTtuBrowser(static.ReaderBrowser):
             const writer=await (await dir.getFileHandle(name,{create:true})).createWritable();await writer.write('{}');await writer.close();
           }
         }''')
-        self.page.goto(self.origin + '/Reader-Web/shared-library')
+        self.page.goto(self.origin + '/reader-web/shared-library')
         expect(self.page.get_by_role('status')).to_contain_text('Conflicting progress_', timeout=15000)
         self.assertEqual(3, len(self.read_shared_files()['Conflicted book']))
 

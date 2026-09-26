@@ -9,7 +9,7 @@ import type { ArchiveBudget } from '$lib/functions/file-loaders/utils/limited-ar
 import type { Section } from '$lib/data/database/books-db/versions/v4/books-db-v4';
 import type { BookCardProps } from '$lib/components/book-card/book-card-props';
 import {
-  currentDbVersion,
+  ttuWireVersion,
   type BooksDbBookData,
   type BooksDbBookmarkData,
   type BooksDbStatistic,
@@ -292,11 +292,11 @@ export abstract class BaseStorageHandler {
       ? Math.ceil((3600 * averageWeightedCharactersRead) / averageWeightedReadingTime)
       : 0;
 
-    return `statistics_${exporterVersion}_${currentDbVersion}_${lastStatisticModified}_${charactersRead}_${readingTime}_${minReadingSpeed}_${altMinReadingSpeed}_${lastReadingSpeed}_${maxReadingSpeed}_${averageReadingTime}_${averageWeightedReadingTime}_${averageCharactersRead}_${averageWeightedCharactersRead}_${averageReadingSpeed}_${averageWeightedReadingSpeed}_${finishDate}.json`;
+    return `statistics_${exporterVersion}_${ttuWireVersion}_${lastStatisticModified}_${charactersRead}_${readingTime}_${minReadingSpeed}_${altMinReadingSpeed}_${lastReadingSpeed}_${maxReadingSpeed}_${averageReadingTime}_${averageWeightedReadingTime}_${averageCharactersRead}_${averageWeightedCharactersRead}_${averageReadingSpeed}_${averageWeightedReadingSpeed}_${finishDate}.json`;
   }
 
   static getReadingGoalsFileName(lastGoalModified: number) {
-    return `${BaseStorageHandler.readingGoalsFilePrefix}${exporterVersion}_${currentDbVersion}_${lastGoalModified}.json`;
+    return `${BaseStorageHandler.readingGoalsFilePrefix}${exporterVersion}_${ttuWireVersion}_${lastGoalModified}.json`;
   }
 
   static getImageMimeTypeFromExtension(value: string) {
@@ -524,7 +524,7 @@ export abstract class BaseStorageHandler {
       const { characters, lastBookModified, lastBookOpen } =
         BaseStorageHandler.getBookMetadata(existingFilename);
 
-      return `bookdata_${exporterVersion}_${currentDbVersion}_${
+      return `bookdata_${exporterVersion}_${ttuWireVersion}_${
         characters ||
         BaseStorageHandler.getBookCharacters(book.characters || 0, book.sections || [])
       }_${book.lastBookModified || lastBookModified || 0}_${
@@ -532,7 +532,7 @@ export abstract class BaseStorageHandler {
       }.zip`;
     }
 
-    return `bookdata_${exporterVersion}_${currentDbVersion}_${BaseStorageHandler.getBookCharacters(
+    return `bookdata_${exporterVersion}_${ttuWireVersion}_${BaseStorageHandler.getBookCharacters(
       book.characters || 0,
       book.sections || []
     )}_${book.lastBookModified || 0}_${book.lastBookOpen || 0}.zip`;
@@ -541,7 +541,7 @@ export abstract class BaseStorageHandler {
   protected static getProgressFileName(progress: BooksDbBookmarkData | File) {
     return progress instanceof File
       ? progress.name
-      : `progress_${exporterVersion}_${currentDbVersion}_${progress.lastBookmarkModified || 0}_${
+      : `progress_${exporterVersion}_${ttuWireVersion}_${progress.lastBookmarkModified || 0}_${
           progress.progress || 0
         }.json`;
   }
@@ -549,19 +549,19 @@ export abstract class BaseStorageHandler {
   protected static getAudioBookFileName(audioBook: BooksDbAudioBook | File) {
     return audioBook instanceof File
       ? audioBook.name
-      : `${FilePrefix.AUDIO_BOOK}${exporterVersion}_${currentDbVersion}_${audioBook.lastAudioBookModified}_${audioBook.playbackPosition}.json`;
+      : `${FilePrefix.AUDIO_BOOK}${exporterVersion}_${ttuWireVersion}_${audioBook.lastAudioBookModified}_${audioBook.playbackPosition}.json`;
   }
 
   protected static getSubtitleDataFileName(data: BooksDbSubtitleData | File) {
     return data instanceof File
       ? data.name
-      : `${FilePrefix.SUBTITLE}${exporterVersion}_${currentDbVersion}_${data.lastSubtitleDataModified}_${data.subtitleData.subtitles.length}.json`;
+      : `${FilePrefix.SUBTITLE}${exporterVersion}_${ttuWireVersion}_${data.lastSubtitleDataModified}_${data.subtitleData.subtitles.length}.json`;
   }
 
   protected static async getCoverFileName(cover: Blob) {
     const type = (await BaseStorageHandler.determineImageExtension(cover)) || 'jpeg';
 
-    return `cover_${exporterVersion}_${currentDbVersion}.${type}`;
+    return `cover_${exporterVersion}_${ttuWireVersion}.${type}`;
   }
 
   protected static getBookMetadata(filename: string) {

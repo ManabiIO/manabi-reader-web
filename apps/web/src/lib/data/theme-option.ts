@@ -339,19 +339,12 @@ export function themeProperties(
     input: rgba(mix(opaqueBackground, ink, 0.6)),
     primary: accent,
     'primary-foreground': mode === 'dark' ? '#0b0b0b' : '#ffffff',
-    secondary: rgba(
-      mix(
-        opaqueBackground,
-        id === 'manabi-theme'
-          ? mode === 'dark'
-            ? [217, 177, 65]
-            : [163, 53, 57]
-          : mode === 'dark'
-            ? [165, 201, 225]
-            : [36, 80, 108],
-        0.13
-      )
-    ),
+    secondary:
+      id === 'manabi-theme'
+        ? mode === 'dark'
+          ? '#2c2c2e'
+          : '#e5e5ea'
+        : rgba(mix(opaqueBackground, mode === 'dark' ? [165, 201, 225] : [36, 80, 108], 0.13)),
     destructive: mode === 'dark' ? '#ffb4b1' : '#a11a1d',
     'card-foreground': rgba(ink),
     popover: rgba(mix(opaqueBackground, ink, 0.065)),

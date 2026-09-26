@@ -4,7 +4,10 @@
  * All rights reserved.
  */
 
-import { validCompletion } from '$lib/library/completion';
+import { WebDavSource } from '$lib/webdav/source';
+import { davSyncStatus, syncDavBook, syncEnabledDavBooks } from '$lib/webdav/sync';
+import { get, writable } from 'svelte/store';
+import { database } from '$lib/data/store';
 import {
   bookKey,
   contentBookKey,
@@ -12,13 +15,7 @@ import {
   relocatePresentation,
   stabilizeOrganization
 } from '$lib/library/organization';
-import { get, writable } from 'svelte/store';
-import { database } from '$lib/data/store';
-import type {
-  BooksDbBookmarkData,
-  BooksDbStatistic
-} from '$lib/data/database/books-db/versions/books-db';
-import { StorageDataType, StorageKey } from '$lib/data/storage/storage-types';
+import { StorageKey } from '$lib/data/storage/storage-types';
 import { storageSource$ } from '$lib/data/storage/storage-view';
 import { getStorageHandler } from '$lib/data/storage/storage-handler-factory';
 import { ReplicationSaveBehavior } from '$lib/functions/replication/replication-options';
@@ -26,181 +23,38 @@ import loadEpub from '$lib/functions/file-loaders/epub/load-epub';
 import loadTxt from '$lib/functions/file-loaders/txt/load-txt';
 import loadHtmlz from '$lib/functions/file-loaders/htmlz/load-htmlz';
 import { account, currentUser, IntegrationError } from './client';
-import { isCompletedStatistics } from './completed-statistics.js';
-import { integrationDB, exclusive, equal, mergeRecords, type BookLink } from './persistence';
+import { integrationDB, exclusive, type BookLink } from './persistence';
+import { sha256, type LibraryEntry, type LibrarySource } from './sources';
 import {
-  sha256,
-  sourceFor,
-  type LibraryEntry,
-  type LibrarySource,
-  type StateCopy
-} from './sources';
-import { maxManagedStateBytes } from './auth-contract';
+  personalSyncStatus,
+  resolvePersonalConflict,
+  syncPersonalState,
+  startPersonalSync
+} from './personal-sync';
 
-interface ReadingState extends Record<string, unknown> {
-  version: 1;
-  contentHash: string;
-  bookmark: Record<string, unknown> | null;
-  statistics: Record<string, Record<string, unknown>>;
-}
 interface SyncStatus {
   state: string;
   message: string;
   at?: number;
   conflicts?: string[];
-  branches?: { id: string; createdAt: string }[];
 }
 export const bookSyncStatus = writable<Record<string, SyncStatus>>({});
 export const linkedBooks = writable<BookLink[]>([]);
-const numericBookmark = [
-  'scrollX',
-  'scrollY',
-  'exploredCharCount',
-  'lastBookmarkModified'
-] as const;
-const statisticFields = [
-  'charactersRead',
-  'readingTime',
-  'minReadingSpeed',
-  'altMinReadingSpeed',
-  'lastReadingSpeed',
-  'maxReadingSpeed',
-  'lastStatisticModified'
-] as const;
-const allowedBookmark = new Set<string>([...numericBookmark, 'progress', 'completion']);
-
-function object(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-function finite(value: unknown, signed = false): value is number {
-  return (
-    typeof value === 'number' &&
-    Number.isFinite(value) &&
-    Math.abs(value) <= 1e15 &&
-    (signed || value >= 0)
-  );
-}
-function validateState(value: unknown, hash: string): ReadingState {
-  if (
-    !object(value) ||
-    value.version !== 1 ||
-    value.contentHash !== hash ||
-    !object(value.statistics) ||
-    Object.keys(value).some(
-      (key) => !['version', 'contentHash', 'bookmark', 'statistics'].includes(key)
-    )
-  ) {
-    throw new IntegrationError('invalid_response');
-  }
-  if (value.bookmark !== null) {
-    if (
-      !object(value.bookmark) ||
-      Object.keys(value.bookmark).some((key) => !allowedBookmark.has(key))
-    )
-      throw new IntegrationError('invalid_response');
-    for (const key of numericBookmark) {
-      if (
-        value.bookmark[key] !== undefined &&
-        !finite(value.bookmark[key], key === 'scrollX' || key === 'scrollY')
-      )
-        throw new IntegrationError('invalid_response');
-    }
-    if (value.bookmark.completion !== undefined && !validCompletion(value.bookmark.completion))
-      throw new IntegrationError('invalid_response');
-    const progress = value.bookmark.progress;
-    if (
-      progress !== undefined &&
-      !finite(progress) &&
-      !(typeof progress === 'string' && /^\d+(?:\.\d+)?%?$/.test(progress))
-    ) {
-      throw new IntegrationError('invalid_response');
-    }
-  }
-  if (Object.keys(value.statistics).length > 20000) throw new IntegrationError('too_large');
-  for (const [date, statistic] of Object.entries(value.statistics)) {
-    if (
-      !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
-      !Number.isFinite(Date.parse(date)) ||
-      !object(statistic) ||
-      Object.keys(statistic).some(
-        (key) => ![...statisticFields, 'completedBook', 'completedData'].includes(key as any)
-      )
-    ) {
-      throw new IntegrationError('invalid_response');
-    }
-    for (const key of statisticFields)
-      if (!finite(statistic[key])) throw new IntegrationError('invalid_response');
-    if (statistic.completedBook !== undefined && statistic.completedBook !== 1)
-      throw new IntegrationError('invalid_response');
-    if (
-      statistic.completedData !== undefined &&
-      !isCompletedStatistics(statistic.completedData, date)
-    )
-      throw new IntegrationError('invalid_response');
-  }
-  if (new TextEncoder().encode(JSON.stringify(value)).length > maxManagedStateBytes)
-    throw new IntegrationError('too_large');
-  return value as ReadingState;
-}
-function empty(hash: string): ReadingState {
-  return { version: 1, contentHash: hash, bookmark: null, statistics: {} };
-}
-function flat(state: ReadingState): Record<string, unknown> {
-  const result: Record<string, unknown> = Object.create(null);
-  if (state.bookmark !== null) result.bookmark = state.bookmark;
-  for (const [date, statistic] of Object.entries(state.statistics))
-    result[`day/${date}`] = statistic;
-  return result;
-}
-function unflat(hash: string, state: Record<string, unknown>): ReadingState {
-  const result = empty(hash);
-  result.bookmark = (state.bookmark as Record<string, unknown>) ?? null;
-  for (const [key, value] of Object.entries(state))
-    if (key.startsWith('day/')) result.statistics[key.slice(4)] = value as Record<string, unknown>;
-  return result;
-}
-function compact(
-  bookmark: BooksDbBookmarkData | undefined,
-  statistics: BooksDbStatistic[],
-  hash: string
-): ReadingState {
-  const result = empty(hash);
-  if (bookmark) {
-    result.bookmark = {};
-    for (const key of [...numericBookmark, 'progress', 'completion'] as const) {
-      if (bookmark[key] !== undefined) result.bookmark[key] = bookmark[key];
-    }
-  }
-  for (const statistic of statistics) {
-    const item: Record<string, unknown> = {};
-    for (const key of statisticFields) item[key] = statistic[key];
-    if (statistic.completedBook) item.completedBook = statistic.completedBook;
-    if (statistic.completedData) item.completedData = statistic.completedData;
-    result.statistics[statistic.dateKey] = item;
-  }
-  return validateState(result, hash);
-}
-async function capture(link: BookLink): Promise<ReadingState> {
-  const db = await database.db;
-  const tx = db.transaction(['bookmark', 'statistic']);
-  const [bookmark, statistics] = await Promise.all([
-    tx.objectStore('bookmark').get(link.bookId),
-    tx.objectStore('statistic').getAll(IDBKeyRange.bound([link.title], [link.title, []]))
-  ]);
-  await tx.done;
-  return compact(bookmark, statistics, link.contentHash);
-}
+// Keep the ownership map available even when the active account cannot use a link.
+// The Library needs it to distinguish a direct browser import from a book saved
+// through another account's cloud connection.
+export const allLinkedBooks = writable<BookLink[] | null>(null);
 function ensureOwner(link: BookLink) {
   if (link.owner !== null && currentUser()?.id !== link.owner)
     throw new IntegrationError('account_changed');
 }
-function setStatus(id: string, value: SyncStatus) {
-  bookSyncStatus.update((statuses) => ({ ...statuses, [id]: value }));
-}
 export async function refreshLinkedBooks() {
   const books = await (await integrationDB()).getAll('books');
-  const visible = books.filter((book) => book.owner === null || book.owner === currentUser()?.id);
+  allLinkedBooks.set(books);
+  const owner = currentUser()?.id ?? null;
+  const visible = books.filter((book) => book.owner === null || book.owner === owner);
   await stabilizeOrganization(visible);
+  if ((currentUser()?.id ?? null) !== owner) return;
   linkedBooks.set(visible);
 }
 
@@ -275,272 +129,90 @@ export async function importLibraryBook(
       title: stored.title,
       syncEnabled
     };
-    await integration.put('books', link);
+    const savedLink =
+      source instanceof WebDavSource
+        ? await source.persistLink(link)
+        : (await integration.put('books', link), link);
     await relocatePresentation(sourceBookKey(source, item.id), contentBookKey(contentHash));
     await relocatePresentation(bookKey(stored.id), contentBookKey(contentHash));
     getStorageHandler(window, StorageKey.BROWSER).clearData();
     storageSource$.next(StorageKey.BROWSER);
     database.dataListChanged$.next(undefined);
     await refreshLinkedBooks();
-    if (syncEnabled) await syncBook(link.id);
-    return link;
+    if (syncEnabled) await syncBook(savedLink.id);
+    return savedLink;
   });
 }
 
-export async function setBookSync(id: string, enabled: boolean) {
-  const db = await integrationDB();
-  // Read and patch in one transaction so a concurrent folder move cannot be undone.
-  const tx = db.transaction('books', 'readwrite');
-  const link = await tx.store.get(id);
+export async function syncBook(id: string, choice?: 'local' | 'remote'): Promise<void> {
+  const link = await (await integrationDB()).get('books', id);
   if (!link) throw new IntegrationError('not_found');
   ensureOwner(link);
-  await tx.store.put({ ...link, syncEnabled: enabled });
-  await tx.done;
-  await refreshLinkedBooks();
-  if (enabled) await syncBook(id);
-  else
-    setStatus(id, {
-      state: 'off',
-      message: 'Reading sync is off. Local reading data is retained.'
-    });
-}
-
-async function applyAcknowledged(link: BookLink, captured: ReadingState, accepted: ReadingState) {
-  ensureOwner(link);
-  const db = await database.db;
-  const tx = db.transaction(['data', 'bookmark', 'statistic', 'lastModified'], 'readwrite');
-  try {
-    const book = await tx.objectStore('data').get(link.bookId);
-    if (!book || book.title !== link.title) throw new IntegrationError('not_found');
-    const bookmarks = tx.objectStore('bookmark'),
-      statistics = tx.objectStore('statistic');
-    const latest = compact(
-      await bookmarks.get(link.bookId),
-      await statistics.getAll(IDBKeyRange.bound([link.title], [link.title, []])),
-      link.contentHash
-    );
-    const merge = mergeRecords(flat(captured), flat(latest), flat(accepted));
-    // A new local edit and the downloaded state may have changed the same day or
-    // bookmark while I/O was pending. Do not acknowledge an unresolved conflict:
-    // advancing the baseline here would let a later retry silently overwrite it.
-    if (merge.conflicts.length) throw new IntegrationError('conflict', 412);
-    const next = unflat(link.contentHash, merge.merged);
-    // Keep changes made while I/O was pending; the acknowledgement is only the
-    // accepted remote baseline, not permission to replace newer local reading.
-    if (next.bookmark === null) await bookmarks.delete(link.bookId);
-    else
-      await bookmarks.put({
-        ...next.bookmark,
-        dataId: link.bookId
-      } as unknown as BooksDbBookmarkData);
-    const nextDates = new Set(Object.keys(next.statistics));
-    for (const date of Object.keys(latest.statistics))
-      if (!nextDates.has(date)) await statistics.delete([link.title, date]);
-    let lastModified = 0;
-    for (const [date, value] of Object.entries(next.statistics)) {
-      await statistics.put({
-        ...value,
-        title: link.title,
-        dateKey: date
-      } as unknown as BooksDbStatistic);
-      lastModified = Math.max(lastModified, Number(value.lastStatisticModified));
-    }
-    await tx.objectStore('lastModified').put({
-      title: link.title,
-      dataType: StorageDataType.STATISTICS,
-      lastModifiedValue: lastModified
-    });
-    await tx.done;
-    database.bookmarksChanged$.next();
-    return equal(next, accepted);
-  } catch (error) {
-    try {
-      tx.abort();
-    } catch {
-      /* The transaction may already have completed. */
-    }
-    await tx.done.catch(() => undefined);
-    throw error;
-  }
-}
-
-export async function syncBook(
-  id: string,
-  choice?: 'local' | 'remote',
-  branchId?: string
-): Promise<void> {
-  await exclusive(`book-sync/${id}`, async () => {
-    const integration = await integrationDB();
-    const link = await integration.get('books', id);
-    if (!link?.syncEnabled) return;
-    try {
-      ensureOwner(link);
-      const data = await database.getData(link.bookId);
-      if (!data || data.title !== link.title) throw new IntegrationError('not_found');
-      setStatus(id, { state: 'syncing', message: 'Syncing reading progress and statistics…' });
-      const source = await sourceFor(link.sourceId, link.root, link.owner);
-      const captured = await capture(link);
-      const remote = await source.state(`book_${link.contentHash}`);
-      ensureOwner(link);
-      const base = link.base ? validateState(link.base, link.contentHash) : empty(link.contentHash);
-      const missingHistory =
-        remote.value === null &&
-        !remote.branches?.length &&
-        (base.bookmark !== null || Object.keys(base.statistics).length > 0);
-      // A missing file is not a reset document. Treating it as an empty snapshot
-      // would delete previously synced local history during the three-way merge.
-      // A never-written new library has an empty baseline and is still writable.
-      if (missingHistory && choice !== 'local') {
-        setStatus(id, {
-          state: 'conflict',
-          message:
-            'The library reading-data file is missing. Your local history was kept. Choose “Keep this device’s reading data” to restore it.',
-          // No remote copy exists to choose. The recovery UI offers local only.
-          branches: []
-        });
-        return;
-      }
-      let there: ReadingState;
-      if (remote.branches?.length) {
-        if (choice !== 'local' && !(choice === 'remote' && branchId)) {
-          setStatus(id, {
-            state: 'conflict',
-            message: 'This folder contains concurrent saves. Choose a copy to keep.',
-            branches: remote.branches.map(({ id: branch, createdAt }) => ({
-              id: branch,
-              createdAt
-            }))
-          });
-          return;
-        }
-        const selected = branchId
-          ? remote.branches.find((branch) => branch.id === branchId)
-          : undefined;
-        if (choice === 'remote' && !selected) throw new IntegrationError('conflict');
-        there = selected
-          ? validateState(selected.value, link.contentHash)
-          : empty(link.contentHash);
-      } else
-        there =
-          remote.value === null
-            ? empty(link.contentHash)
-            : validateState(remote.value, link.contentHash);
-      let merged: ReadingState;
-      if (choice === 'local') merged = captured;
-      else if (choice === 'remote') merged = there;
-      else {
-        const result = mergeRecords(flat(base), flat(captured), flat(there));
-        if (result.conflicts.length) {
-          setStatus(id, {
-            state: 'conflict',
-            message: 'Reading data changed on both devices. No copy was overwritten.',
-            conflicts: result.conflicts
-          });
-          return;
-        }
-        merged = unflat(link.contentHash, result.merged);
-      }
-      validateState(merged, link.contentHash);
-      const stillEnabled = async () => (await integration.get('books', id))?.syncEnabled === true;
-      if (!(await stillEnabled())) return;
-      let accepted: StateCopy = remote;
-      if (missingHistory || remote.branches?.length || !equal(merged, there)) {
-        accepted = await source.write(`book_${link.contentHash}`, merged, remote.revision);
-        ensureOwner(link);
-        if (
-          accepted.branches ||
-          accepted.value === null ||
-          !equal(validateState(accepted.value, link.contentHash), merged)
-        ) {
-          throw new IntegrationError('conflict');
-        }
-      }
-      if (!(await stillEnabled())) return;
-      ensureOwner(link);
-      const clean = await applyAcknowledged(link, captured, merged);
-      // Do not resurrect a binding removed or disabled while synchronization ran.
-      // A move may have updated fileId while remote I/O was pending. Patch only
-      // the accepted baseline in a single read/write transaction, never a stale locator.
-      const tx = integration.transaction('books', 'readwrite');
-      const current = await tx.store.get(id);
-      if (current?.syncEnabled) await tx.store.put({ ...current, base: merged });
-      await tx.done;
-      setStatus(id, {
-        state: clean ? 'synced' : 'pending',
-        message: clean
-          ? link.owner === null
-            ? 'Saved to this folder. Its cloud client manages upload separately.'
-            : 'Reading data synced.'
-          : 'Newer local changes are saved on this device and pending sync.',
-        at: Date.now()
-      });
-    } catch (error) {
-      const failure =
-        error instanceof IntegrationError
-          ? error
-          : new IntegrationError(
-              error instanceof DOMException &&
-              ['NotAllowedError', 'SecurityError'].includes(error.name)
-                ? 'permission_required'
-                : 'unavailable'
-            );
-      setStatus(id, { state: failure.code, message: failure.message });
-    }
-  });
+  if (link.sourceId.startsWith('webdav-')) return syncDavBook(id, choice);
+  const conflicts = get(personalSyncStatus).conflicts.filter(
+    (value) => value.bookKey === `content:${link.contentHash}`
+  );
+  if (choice) for (const conflict of conflicts) await resolvePersonalConflict(conflict.id, choice);
+  else await syncPersonalState();
 }
 
 export async function syncAllLinkedBooks() {
   await refreshLinkedBooks();
-  for (const link of get(linkedBooks)) if (link.syncEnabled) await syncBook(link.id);
+  if (currentUser()) await syncPersonalState();
+  await syncEnabledDavBooks();
 }
 
 export function startBookSync() {
-  let stopped = false,
-    running = false,
-    bootstrapped = false;
-  const run = async (all = false) => {
-    if (stopped || running) return;
-    running = true;
-    try {
-      await refreshLinkedBooks();
-      const currentId = Number(new URL(location.href).searchParams.get('id'));
-      const links = get(linkedBooks).filter(
-        (link) => link.syncEnabled && (all || link.bookId === currentId)
-      );
-      for (const link of links) {
-        if (stopped) break;
-        const status = get(bookSyncStatus)[link.id];
-        // Conflict resolution is always an explicit user choice.
-        if (status?.state !== 'conflict') await syncBook(link.id);
+  const stop = startPersonalSync();
+  const updateStatuses = () => {
+    const status = get(personalSyncStatus);
+    const entries: Record<string, SyncStatus> = {};
+    for (const link of get(linkedBooks)) {
+      if (link.sourceId.startsWith('webdav-')) {
+        const dav = get(davSyncStatus)[link.id];
+        entries[link.id] = dav ?? {
+          state: link.syncEnabled ? 'idle' : 'off',
+          message: link.syncEnabled
+            ? 'WebDAV reading sync is enabled.'
+            : 'WebDAV reading sync is off.'
+        };
+        continue;
       }
-    } finally {
-      running = false;
+      const conflicts = status.conflicts.filter(
+        (value) => value.bookKey === `content:${link.contentHash}`
+      );
+      entries[link.id] = {
+        state: conflicts.length ? 'conflict' : status.state,
+        message: conflicts.length
+          ? `${conflicts.length} personal-state conflict(s) need review.`
+          : status.message,
+        conflicts: conflicts.map((value) => `${value.kind}: ${value.fields.join(', ')}`),
+        at: Date.now()
+      };
     }
+    bookSyncStatus.set(entries);
   };
-  const timer = setInterval(() => {
-    if (document.visibilityState === 'visible') void run();
-  }, 30000);
-  const leave = () => {
-    if (document.visibilityState === 'hidden') void run();
+  const unsubscribeStatus = personalSyncStatus.subscribe(updateStatuses);
+  const unsubscribeDav = davSyncStatus.subscribe(updateStatuses);
+  const syncDav = () => {
+    void syncEnabledDavBooks().catch(() => undefined);
   };
-  const online = () => {
-    void run(true);
-  };
-  const unsubscribe = account.subscribe(({ status }) => {
+  const davTimer = setInterval(syncDav, 45000);
+  window.addEventListener('online', syncDav);
+  document.addEventListener('visibilitychange', syncDav);
+  const unsubscribeBooks = linkedBooks.subscribe(updateStatuses);
+  const unsubscribeAccount = account.subscribe(() => {
     void refreshLinkedBooks();
-    if (status === 'available' && !bootstrapped) {
-      bootstrapped = true;
-      void run(true);
-    }
   });
-  document.addEventListener('visibilitychange', leave);
-  window.addEventListener('online', online);
-  void run();
+  void refreshLinkedBooks();
   return () => {
-    stopped = true;
-    clearInterval(timer);
-    unsubscribe();
-    document.removeEventListener('visibilitychange', leave);
-    window.removeEventListener('online', online);
+    stop();
+    unsubscribeStatus();
+    unsubscribeDav();
+    clearInterval(davTimer);
+    window.removeEventListener('online', syncDav);
+    document.removeEventListener('visibilitychange', syncDav);
+    unsubscribeBooks();
+    unsubscribeAccount();
   };
 }

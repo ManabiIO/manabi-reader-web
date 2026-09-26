@@ -2,12 +2,12 @@
   import { tv, type VariantProps } from 'tailwind-variants';
 
   const inputGroupButtonVariants = tv({
-    base: 'gap-2 rounded-2xl text-sm flex items-center shadow-none',
+    base: 'gap-2 text-sm flex items-center shadow-none',
     variants: {
       size: {
-        xs: "h-6 gap-1 rounded-xl px-1.5 [&>svg:not([class*='size-'])]:size-3.5",
+        xs: "h-7 gap-1 rounded-[6px] px-1.5 [&>svg:not([class*='size-'])]:size-3.5",
         sm: '',
-        'icon-xs': 'size-6 rounded-xl p-0 has-[>svg]:p-0',
+        'icon-xs': 'size-7 rounded-[6px] p-0 has-[>svg]:p-0',
         'icon-sm': 'size-8 p-0 has-[>svg]:p-0'
       }
     },
@@ -42,6 +42,8 @@
   {type}
   data-size={size}
   {variant}
+  {size}
+  shape="rounded"
   class={cn(inputGroupButtonVariants({ size }), className)}
   {...restProps}
 >
