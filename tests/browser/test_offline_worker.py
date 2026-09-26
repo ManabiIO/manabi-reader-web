@@ -80,7 +80,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
                     f'<script src="{SCOPE}appearance-init.js"></script></head>'
                     f'<body data-document="{version}"><h1>Offline shell fixture</h1>'
                     f'<script src="{SCOPE}app-{version}.js"></script>'
-                    f'<script>navigator.serviceWorker.register("{SCOPE}service-worker.js")'
+                    f'<script>window.registrationAttempt = navigator.serviceWorker.register("{SCOPE}service-worker.js")'
                     '.catch(() => {});</script></body></html>')
             headers['Cache-Control'] = 'public, max-age=3600'
             if version == 'bad-page' and path == SCOPE + 'b':
@@ -163,6 +163,10 @@ class OfflineWorker(unittest.TestCase):
         }''', SCOPE)
 
     def update(self, version, terminal):
+        # A reload's automatic register() must finish before changing what its
+        # worker URL serves. Otherwise that job can race the deliberate update,
+        # reject one candidate and create another cache during the assertion.
+        self.page.evaluate('async () => { await window.registrationAttempt; }')
         self.server.version = version
         result = self.page.evaluate('''async ({scope, terminal}) => {
           const r = await navigator.serviceWorker.getRegistration(scope);

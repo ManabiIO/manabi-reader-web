@@ -24,7 +24,7 @@ TRACE = r'''() => {
     text: element.textContent?.trim().slice(0, 100),
     value: element instanceof HTMLInputElement ? element.value : undefined
   } : null;
-  for (const type of ['input', 'change', 'click', 'submit', 'reset', 'focusin']) {
+  for (const type of ['input', 'change', 'click', 'submit', 'reset', 'focusin', 'invalid']) {
     document.addEventListener(type, event => {
       if (!(event.target instanceof Element)) return;
       const target = event.target;
@@ -72,36 +72,39 @@ class CollectionCommitBrowser(LibraryBase):
     def setUp(self):
         super().setUp()
         self.page.evaluate(TRACE)
+        self.trace_before_reload = None
 
     def tearDown(self):
         output = Path('test-results')
         output.mkdir(exist_ok=True)
         if not self.page.is_closed():
             (output / (self.engine + '-' + self._testMethodName + '-trace.json')).write_text(
-                json.dumps(self.page.evaluate('window.__collectionTrace'), indent=2, ensure_ascii=False)
+                json.dumps(self.page.evaluate('window.__collectionTrace') or self.trace_before_reload, indent=2, ensure_ascii=False)
             )
         super().tearDown()
 
     def create_and_verify(self, keyboard):
         self.import_book('Finished selection')
         self.import_book('Still reading selection')
-        self.menu('Still reading selection', 'Add to Collection…')
-        dialog = self.dialog()
         name = 'Personal selection'
-        field = dialog.get_by_label('New collection name', exact=True)
-        field.fill(name)
-        expect(field).to_have_value(name)
         if keyboard:
+            self.menu('Still reading selection', 'Add to Collection…')
+            dialog = self.dialog()
+            field = dialog.get_by_label('New collection name', exact=True)
+            field.fill(name)
             field.press('Enter')
+            expect(dialog.get_by_role('checkbox', name=name, exact=True)).to_be_checked()
+            dialog.get_by_role('button', name='Done', exact=True).click()
+            expect(dialog).to_have_count(0)
         else:
-            dialog.get_by_role('button', name='Create', exact=True).click()
-        expect(dialog.get_by_role('checkbox', name=name, exact=True)).to_be_checked()
+            # Keep the exact previously failing interaction, without adding a
+            # pre-submit assertion/RPC that could change its event ordering.
+            self.add_collection('Still reading selection', name)
         rows = self.stores('manabi-reader-integrations', ['metadata'])['metadata']
         organization = next(row for row in rows if row.get('version') == 1 and 'collections' in row)
         collection = next(item for item in organization['collections'] if item['name'] == name)
         self.assertEqual(len(collection['members']), 1)
-        dialog.get_by_role('button', name='Done', exact=True).click()
-        expect(dialog).to_have_count(0)
+        self.trace_before_reload = self.page.evaluate('window.__collectionTrace')
         self.page.reload()
         self.choose_collection(name)
         expect(self.page.get_by_role('button', name='Read Still reading selection', exact=True)).to_be_visible()

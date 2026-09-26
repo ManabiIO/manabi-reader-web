@@ -24,6 +24,7 @@
     message: string;
     bookId?: number;
   }
+  let filePicker: HTMLInputElement;
   let rows: Row[] = [];
   let sources: TtuMigration[] = [];
   let choices: MigratedBookChoice[] = [];
@@ -44,6 +45,15 @@
     if (error instanceof DOMException && error.name === 'QuotaExceededError')
       return 'Not enough browser storage. This item was not imported; completed items were kept.';
     return error instanceof Error ? error.message : 'This item could not be imported.';
+  }
+  function consumeSelection(input: HTMLInputElement) {
+    if (busy) return;
+    const files = [...(input.files ?? [])];
+    if (!files.length) return;
+    // Clear synchronously so a queued native change and onMount cannot consume
+    // the same selection twice. The browser may have accepted it before hydration.
+    input.value = '';
+    void choose(files);
   }
   async function choose(files: File[]) {
     if (busy || !files.length) return;
@@ -154,6 +164,7 @@
     else cancel();
   });
   onMount(() => {
+    consumeSelection(filePicker);
     void migratedBookChoices()
       .then((value) => {
         if (!stopped) choices = value;
@@ -214,11 +225,8 @@
       accept=".zip,application/zip"
       multiple
       disabled={busy}
-      on:change={(event) => {
-        const files = [...(event.currentTarget.files ?? [])];
-        event.currentTarget.value = '';
-        void choose(files);
-      }}
+      bind:this={filePicker}
+      on:change={(event) => consumeSelection(event.currentTarget)}
     />
   </label>
   <p>Imports stay on this device. No sign-in or cloud access is required.</p>
