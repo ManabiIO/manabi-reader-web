@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { Button } from '$lib/components/ui/button';
-  import { currentUser, account } from '$lib/manabi/client';
+  import { localProfileUser, localUser } from '$lib/manabi/client';
   import {
     listImportedNotes,
     editImportedNote,
@@ -25,7 +25,7 @@
     signature = '',
     restorePickerOpen = false;
   let pendingArchive: string | undefined;
-  $: nextSignature = JSON.stringify([open, bookKey, $account.session?.user?.id]);
+  $: nextSignature = JSON.stringify([open, bookKey, $localUser?.id]);
   $: if (mounted && signature !== nextSignature) {
     signature = nextSignature;
     editing = '';
@@ -39,11 +39,11 @@
   async function load() {
     const run = ++serial,
       key = bookKey,
-      owner = currentUser()?.id ?? null;
+      owner = localProfileUser()?.id ?? null;
     if (!open || !key) return;
     try {
       const rows = await listImportedNotes(key);
-      if (run === serial && mounted && owner === (currentUser()?.id ?? null)) records = rows;
+      if (run === serial && mounted && owner === (localProfileUser()?.id ?? null)) records = rows;
     } catch (e) {
       if (run === serial && mounted) error = String(e);
     }
@@ -213,14 +213,18 @@
             onchange={(event) => {
               const file = event.currentTarget.files?.[0];
               const identity = signature,
-                owner = currentUser()?.id ?? null;
+                owner = localProfileUser()?.id ?? null;
               event.currentTarget.value = '';
               if (file)
                 void action(async () => {
                   if (file.size > 16 * 1024 * 1024)
                     throw new Error('Notebook archive is too large.');
                   const json = await file.text();
-                  if (!mounted || identity !== signature || owner !== (currentUser()?.id ?? null))
+                  if (
+                    !mounted ||
+                    identity !== signature ||
+                    owner !== (localProfileUser()?.id ?? null)
+                  )
                     return;
                   await restore(json);
                 });
