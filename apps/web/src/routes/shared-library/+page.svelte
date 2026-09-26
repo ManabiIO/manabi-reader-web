@@ -291,8 +291,7 @@
     align-items: center;
   }
   .page-navigation {
-    margin-inline: -8px;
-    gap: 2px;
+    gap: 12px;
   }
   h1 {
     font-size: 2rem;

@@ -183,9 +183,16 @@ class SharedStorageRuntime(static.ReaderBrowser):
         finally:
             cls.stop_server()
 
-    def test_shared_transfer_rejects_all_same_title_matches_before_any_write(self):
+    def open_runtime(self):
         self.page.goto(self.origin + '/reader-web/manage')
-        self.page.get_by_role('button', name='Library actions', exact=True).wait_for()
+        # Visible SSR commands do not establish initialized application stores.
+        # This Svelte action exists only after the real import handlers mount.
+        expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached(timeout=30000)
+        expect(self.page.get_by_role('region', name='Library shelves', exact=True)).to_have_attribute(
+            'data-hydrated', 'true', timeout=30000)
+
+    def test_shared_transfer_rejects_all_same_title_matches_before_any_write(self):
+        self.open_runtime()
         result = self.page.evaluate("""async () => {
           const {database} = await import('/reader-web/src/lib/data/store.ts');
           const {transferSharedBooks} = await import('/reader-web/src/lib/manabi/shared-library.ts');
@@ -218,8 +225,7 @@ class SharedStorageRuntime(static.ReaderBrowser):
         self.assertEqual('Unchanged remote package', result['remote'])
 
     def test_shared_transfer_respects_owner_and_cancels_queued_account_changes(self):
-        self.page.goto(self.origin + '/reader-web/manage')
-        self.page.get_by_role('button', name='Library actions', exact=True).wait_for()
+        self.open_runtime()
         result = self.page.evaluate("""async () => {
           const {database} = await import('/reader-web/src/lib/data/store.ts');
           const {transferSharedBooks} = await import('/reader-web/src/lib/manabi/shared-library.ts');
@@ -277,8 +283,7 @@ class SharedStorageRuntime(static.ReaderBrowser):
         self.assertEqual('Shared fixture', result['retryBook']['storageSource'])
 
     def test_directory_selection_does_not_create_a_nested_library_in_a_book_folder(self):
-        self.page.goto(self.origin + '/reader-web/manage')
-        self.page.get_by_role('button', name='Library actions', exact=True).wait_for()
+        self.open_runtime()
         result = self.page.evaluate('''async () => {
           const {resolveTtuRoot} = await import('/reader-web/src/lib/manabi/ttu-folder-contract.ts');
           const disk = await navigator.storage.getDirectory();
@@ -309,8 +314,7 @@ class SharedStorageRuntime(static.ReaderBrowser):
         self.assertEqual('original reading data', result['text'])
 
     def test_uncached_provider_observes_replacement_and_disappearance_without_losing_local_data(self):
-        self.page.goto(self.origin + '/reader-web/manage')
-        self.page.get_by_role('button', name='Library actions', exact=True).wait_for()
+        self.open_runtime()
         result = self.page.evaluate('''async () => {
           const {FilesystemStorageHandler} = await import('/reader-web/src/lib/data/storage/handler/filesystem-handler.ts');
           const {database} = await import('/reader-web/src/lib/data/store.ts');
@@ -370,9 +374,53 @@ class SharedStorageRuntime(static.ReaderBrowser):
         self.assertEqual(result['localBefore'], result['localAfter'])
         self.assertEqual('<p>Keep the local copy</p>', result['localBook']['elementHtml'])
 
+    def test_all_legacy_open_paths_reject_ambiguous_same_source_titles(self):
+        self.open_runtime()
+        result = self.page.evaluate("""async () => {
+          const {getStorageHandler} = await import('/reader-web/src/lib/data/storage/storage-handler-factory.ts');
+          const {StorageKey} = await import('/reader-web/src/lib/data/storage/storage-types.ts');
+          const {database} = await import('/reader-web/src/lib/data/store.ts');
+          const {MergeMode} = await import('/reader-web/src/lib/data/merge-mode.ts');
+          const {ReplicationSaveBehavior} = await import('/reader-web/src/lib/functions/replication/replication-options.ts');
+          const db = await database.db, title = 'Same source, different editions';
+          const source = 'selected-legacy-source';
+          const first = await db.add('data', {title, storageSource:source, elementHtml:'<p>First edition</p>',
+            styleSheet:'', blobs:{}, coverImage:'', hasThumb:false, characters:13, sections:[],
+            lastBookModified:1, lastBookOpen:0, contentHash:'a'.repeat(64)});
+          const second = await db.add('data', {title, storageSource:source, elementHtml:'<p>Second edition</p>',
+            styleSheet:'', blobs:{}, coverImage:'', hasThumb:false, characters:14, sections:[],
+            lastBookModified:2, lastBookOpen:0, contentHash:'b'.repeat(64)});
+          await db.put('bookmark', {dataId:first, progress:.25, exploredCharCount:3, lastBookmarkModified:1});
+          const before = await db.getAll('data'), progress = await db.getAll('bookmark');
+          const outcomes = [], unique = [];
+          for (const type of [StorageKey.FS, StorageKey.GDRIVE, StorageKey.ONEDRIVE]) {
+            const handler = getStorageHandler(window, type, source, true, false,
+              ReplicationSaveBehavior.NewOnly, MergeMode.MERGE, MergeMode.MERGE, false);
+            handler.startContext({title});
+            for (const operation of type === StorageKey.FS ? ['prepareBookForReading'] : ['hasLocalBookData', 'prepareBookForReading']) {
+              try { await handler[operation](); outcomes.push('did not reject'); }
+              catch (error) { outcomes.push(error.message); }
+            }
+          }
+          const after = await db.getAll('data'), afterProgress = await db.getAll('bookmark');
+          // Removing only the fixture's second edition must restore ordinary cached reads.
+          await db.delete('data', second);
+          for (const type of [StorageKey.FS, StorageKey.GDRIVE, StorageKey.ONEDRIVE]) {
+            const handler = getStorageHandler(window, type, source, true, false,
+              ReplicationSaveBehavior.NewOnly, MergeMode.MERGE, MergeMode.MERGE, false);
+            handler.startContext({title});
+            unique.push(await handler.prepareBookForReading());
+          }
+          return {outcomes, before, after, progress, afterProgress, unique, first};
+        }""")
+        self.assertEqual(5, len(result['outcomes']))
+        self.assertTrue(all('multiple local copies' in value for value in result['outcomes']), result['outcomes'])
+        self.assertEqual(result['before'], result['after'])
+        self.assertEqual(result['progress'], result['afterProgress'])
+        self.assertEqual([result['first']] * 3, result['unique'])
+
     def test_google_and_onedrive_open_paths_reject_unrelated_local_title_before_authorization(self):
-        self.page.goto(self.origin + '/reader-web/manage')
-        self.page.get_by_role('button', name='Library actions', exact=True).wait_for()
+        self.open_runtime()
         result = self.page.evaluate('''async () => {
           const {getStorageHandler} = await import('/reader-web/src/lib/data/storage/storage-handler-factory.ts');
           const {StorageKey} = await import('/reader-web/src/lib/data/storage/storage-types.ts');
@@ -411,6 +459,7 @@ if __name__ == '__main__':
         SharedStorageRuntime('test_shared_transfer_respects_owner_and_cancels_queued_account_changes'),
         SharedStorageRuntime('test_directory_selection_does_not_create_a_nested_library_in_a_book_folder'),
         SharedStorageRuntime('test_uncached_provider_observes_replacement_and_disappearance_without_losing_local_data'),
+        SharedStorageRuntime('test_all_legacy_open_paths_reject_ambiguous_same_source_titles'),
         SharedStorageRuntime('test_google_and_onedrive_open_paths_reject_unrelated_local_title_before_authorization'),
     ])
     result = unittest.TextTestRunner(verbosity=2).run(suite)

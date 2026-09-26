@@ -155,7 +155,7 @@ export async function transferSharedBooks(
         for (const title of new Set(titles)) {
           const local = uniqueSharedCopy(
             title,
-            await (await database.db).getAllFromIndex('data', 'title', title)
+            await (await database.db).getAllFromIndex('data', 'title', title, 2)
           );
           controller.signal.throwIfAborted();
           if (local && !visibleLibraryEntries([local], links, owner).cards.length)

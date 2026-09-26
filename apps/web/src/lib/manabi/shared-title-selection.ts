@@ -20,7 +20,7 @@ export function sharedPublishChoices(books: readonly { title: string; elementHtm
 export function uniqueSharedCopy<T>(title: string, matches: readonly T[]): T | undefined {
   if (matches.length > 1) {
     throw new Error(
-      `${title} has multiple local copies. Ttu Ebook Reader libraries identify books by title. Resolve the duplicate titles before sharing; no transfer was started.`
+      `${title} has multiple local copies. Ttu Ebook Reader libraries identify books by title. Resolve the duplicate titles before opening or sharing; no transfer was started.`
     );
   }
   return matches[0];

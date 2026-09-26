@@ -36,8 +36,8 @@ by the legacy folder title, show the number of copies, and disable ambiguous
 choices without merging or deleting their independent local identities. Another
 unambiguous book remains publishable in the same folder.
 
-The transfer boundary now reads all matching local IDs before either import or
-publication. It rejects ambiguity rather than accepting IndexedDB's first title
+The transfer boundary now reads enough matching local records to detect ambiguity
+before either import or publication. It rejects ambiguity rather than accepting IndexedDB's first title
 match. The runtime regression uses real IndexedDB and an actual OPFS directory;
 a rejected import/publication preserves both local copies and every remote byte.
 TTU's title-addressed wire format is not replaced with a new schema.
@@ -83,10 +83,11 @@ one. A TTU package export is still not a full Manabi notebook backup.
 
 ## Qualification design
 
-Five new real-browser regressions cover duplicate-title UI/recovery,
+Six new real-browser regressions cover duplicate-title UI/recovery,
 foreign-account visibility, ambiguous transfer rejection, queued account
-cancellation/retry, and changed-package source binding. Two unit additions cover
-pure selection/ambiguity contracts including placeholder and prototype-like
+cancellation/retry, changed-package source binding, and all five legacy
+filesystem/cloud cached-open entry points. Two unit additions cover pure
+selection/ambiguity contracts including placeholder and prototype-like
 titles. The existing native-format round trip and source-isolation assertions
 are retained.
 
@@ -125,3 +126,33 @@ This is an integration-boundary review, not certification of every EPUB,
 physical iPhone, NAS provider, or all 300-plus commits in the stack. It adds no
 runtime dependency, server, database schema, or permission. The browser test
 version change does not change shipped application dependencies.
+
+## Follow-through on legacy opening and final visual inspection
+
+The explicit transfer fix initially left a related first-title assumption in
+filesystem opening and the common Google Drive/OneDrive cached-read adapter.
+The actual production adapters returned the first ID (or true for cached data)
+when two different local editions shared both title and source. All five entry
+points failed the new ambiguity regression. They now use one bounded selection
+helper before remote access, reuse the same ambiguity rule, retain the existing
+source guard, and decode the exact selected record snapshot. Reading a unique
+cached copy still works on all three providers after the duplicate is resolved.
+No cloud authorization or external provider is exercised by that regression.
+
+Final sharing screenshots also exposed adjacent navigation links rendered
+without readable separation. The shared navigation now has explicit spacing,
+with a geometry assertion alongside the existing real two-copy UI test. Runtime
+adapter tests wait for the real Svelte input action and hydrated Library rather
+than treating an SSR-visible command as initialized stores. No arbitrary sleep
+or error suppression is added. Local runtime startup was intermittently slow;
+the final permanent nine-case safety suite passed in 42.2 seconds after the
+hydration wait, with the two static sharing UI cases also passing.
+
+The first #57 composition `2ae41bcdc3fd2fc10d892db05d647122ef7e031b` passed
+Shared TTU, Books Library, Local Library and Appearance qualification. Its gated
+Foliate WebKit keyframe case failed because `preparePageTurn` returned null
+before `window.prepared.update` in the RTL case; this is not diagnosed as a
+product defect versus a reflow/readiness race here. The failed matrix also skips
+Chromium-only trusted-touch tests by design. That separate renderer result must
+not be presented as green or silently waived. Final successor CI evidence belongs
+in the PR rather than being inferred from those earlier results.
