@@ -37,3 +37,8 @@ export interface PageManager {
 
   updateSectionDataByOffset: (offset: number) => void;
 }
+
+export interface PaginatedPageManager extends PageManager {
+  flipPage: (multiplier: 1 | -1) => void;
+  scrollTo: (scrollPos: number, isUser: boolean) => void;
+}
