@@ -14,6 +14,7 @@ import { isOPFType } from './types';
 import { epubDirection } from './epub-direction';
 import reduceObjToBlobs from '../utils/reduce-obj-to-blobs';
 import { extractCreators, type BookCreator } from '$lib/library/book-metadata';
+import { makeEpubPublicationDescriptor } from './epub-publication';
 
 export default async function loadEpub(
   file: File,
@@ -21,7 +22,14 @@ export default async function loadEpub(
   lastBookModified: number,
   signal?: AbortSignal
 ): Promise<LoadData> {
-  const { contents, result: data, contentsDirectory } = await extractEpub(file, { signal });
+  const {
+    contents,
+    result: data,
+    contentsDirectory,
+    packageMetadata,
+    navigation,
+    parser
+  } = await extractEpub(file, { signal });
   const result = generateEpubHtml(data, contents, document, contentsDirectory);
 
   const displayData: {
@@ -45,7 +53,19 @@ export default async function loadEpub(
     ? contents['opf:package']['opf:metadata']
     : contents.package.metadata;
 
-  if (metadata) {
+  if (packageMetadata) {
+    if (packageMetadata.title) displayData.title = packageMetadata.title;
+    displayData.creators = packageMetadata.creators.map((creator) => ({
+      name: creator['#text'],
+      ...(creator['@_file-as'] ? { sortAs: creator['@_file-as'] } : {}),
+      ...(creator['@_role'] ? { role: creator['@_role'] } : {})
+    }));
+    try {
+      displayData.language = Intl.getCanonicalLocales(packageMetadata.language.trim())[0] ?? '';
+    } catch (_) {
+      displayData.language = '';
+    }
+  } else if (metadata) {
     displayData.creators = extractCreators(metadata as unknown as Record<string, unknown>);
     const languageValues = Array.isArray(metadata['dc:language'])
       ? metadata['dc:language']
@@ -102,6 +122,13 @@ export default async function loadEpub(
     characters: result.characters,
     sections: result.sections,
     publicationManifest: result.publicationManifest,
+    epubPublication: makeEpubPublicationDescriptor({
+      parser,
+      toc: navigation?.toc,
+      pageList: navigation?.pageList,
+      landmarks: navigation?.landmarks,
+      rendition: navigation?.rendition
+    }),
     lastBookModified,
     lastBookOpen: 0
   };
