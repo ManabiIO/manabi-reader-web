@@ -121,7 +121,9 @@ export class PageCountCache {
           try {
             const count = await this.measure(i, controller.signal);
             if (controller.signal.aborted) return;
-            this.record(i, count);
+            // Foreground navigation may have measured the chapter while its
+            // background fonts/images were still settling. Keep that newer result.
+            if (counts[i] === undefined) this.record(i, count);
           } catch (error) {
             if (controller.signal.aborted) return;
             // Leave this count unknown and continue. A later foreground visit or
@@ -140,6 +142,7 @@ export class PageCountCache {
   record(index: number, pages: number) {
     if (
       this.disposed ||
+      !Number.isSafeInteger(index) ||
       index < 0 ||
       index >= this.counts.length ||
       !Number.isSafeInteger(pages) ||

@@ -25,6 +25,11 @@
   } from '$lib/foliate-epub/stored-foliate-book';
   import { FoliateCharacterProgress } from '$lib/foliate-epub/foliate-character-progress';
   import { PageTurnController } from '$lib/foliate-epub/page-turn-controller';
+  import {
+    ReaderNavigationCoordinator,
+    resourceForReaderLocator,
+    type ReaderNavigationOwner
+  } from '$lib/foliate-epub/reader-navigation-owner';
   import type { Paginator } from '$lib/foliate-epub/paginator.js';
 
   export let htmlContent: string;
@@ -87,7 +92,7 @@
   let sourceSections: Element[] = [];
   let contentEl: HTMLElement | undefined;
   let destroyed = false;
-  let suppressRelocate = 0;
+  const navigation = new ReaderNavigationCoordinator();
   let bookmarkTimer: ReturnType<typeof setTimeout> | undefined;
   let themeObserver: MutationObserver | undefined;
   let tocSubscription: { unsubscribe(): void } | undefined;
@@ -108,7 +113,7 @@
 
   function currentIndex(): number {
     const current = paginator?.getContents?.()[0]?.index;
-    return Number.isInteger(current) ? current! : 0;
+    return Number.isInteger(current) ? current! : -1;
   }
 
   function contentForPaginator(): HTMLElement | undefined {
@@ -116,14 +121,46 @@
     return doc?.querySelector<HTMLElement>('.book-content') ?? undefined;
   }
 
+  function runNavigation(operation: (owner: ReaderNavigationOwner) => Promise<boolean>) {
+    clearTimeout(bookmarkTimer);
+    pageTurns?.cancel();
+    return navigation.run(operation);
+  }
+
+  function reportNavigationError(error: unknown) {
+    if (!destroyed)
+      paginator?.dispatchEvent(new CustomEvent('navigationerror', { detail: error }));
+  }
+
+  async function restoreCharacterCount(count: number, owner: ReaderNavigationOwner) {
+    const renderer = paginator;
+    const calculator = progress;
+    if (!renderer || !calculator || !owner.isCurrent() || !Number.isFinite(count) || count < 0)
+      return false;
+    const index = calculator.sectionForCharacterCount(count);
+    if (index < 0 || index >= sourceSections.length) return false;
+    const accepted = await renderer.goTo({
+      index,
+      anchor: (doc: Document) => {
+        if (!owner.isCurrent()) throw new DOMException('Navigation superseded.', 'AbortError');
+        const current = doc.querySelector('.book-content');
+        if (!current) throw new Error('The requested EPUB section is unavailable.');
+        return calculator.rangeForCharacterCount(index, current, count) ?? 0;
+      }
+    });
+    return accepted === true && owner.isCurrent() && currentIndex() === index;
+  }
+
   function makeBookmarkManager(): BookmarkManager {
     return {
       formatBookmarkData(bookId: number) {
-        if (!progress || !bookCharCount) return undefined;
+        if (!progress || !bookCharCount || navigation.pending || currentIndex() < 0)
+          return undefined;
         return createBookmarkSnapshot(bookId, exploredCharCount, bookCharCount);
       },
       formatBookmarkDataByRange(bookId: number, range: Range | undefined) {
-        if (!progress || !bookCharCount) return undefined;
+        if (!progress || !bookCharCount || navigation.pending || currentIndex() < 0)
+          return undefined;
         const current = contentForPaginator();
         const index = currentIndex();
         const count =
@@ -133,23 +170,9 @@
         return createBookmarkSnapshot(bookId, count, bookCharCount);
       },
       scrollToBookmark(data: BooksDbBookmarkData) {
-        const count = data.exploredCharCount ?? 0;
-        const index = progress?.sectionForCharacterCount(count) ?? 0;
-        if (!paginator || index < 0) return;
-        suppressRelocate += 1;
-        void paginator
-          .goTo({
-            index,
-            anchor: (doc: Document) => {
-              const current = doc.querySelector('.book-content');
-              return current && progress
-                ? (progress.rangeForCharacterCount(index, current, count) ?? 0)
-                : 0;
-            }
-          })
-          .finally(() => {
-            suppressRelocate = Math.max(0, suppressRelocate - 1);
-          });
+        void runNavigation((owner) =>
+          restoreCharacterCount(data.exploredCharCount ?? 0, owner)
+        ).catch(reportNavigationError);
       }
     };
   }
@@ -274,42 +297,52 @@
     `;
   }
 
-  async function withSuppressedRelocate<T>(operation: () => Promise<T>): Promise<T> {
-    suppressRelocate += 1;
-    try {
-      return await operation();
-    } finally {
-      suppressRelocate = Math.max(0, suppressRelocate - 1);
-    }
-  }
-
   export async function revealLocator(locator: ReaderLocator, bookKey: string): Promise<boolean> {
-    if (!paginator || destroyed) return false;
-    const index = locator.resource.spineIndex;
-    if (index < 0 || index >= publicationManifest.resources.length) return false;
+    const renderer = paginator;
+    if (!renderer || destroyed) return false;
+    const resource = resourceForReaderLocator(publicationManifest.resources, locator);
+    const section = resource && sourceSections[resource.spineIndex];
+    if (!resource || !section) return false;
 
-    return withSuppressedRelocate(async () => {
-      await paginator!.goTo({ index });
-      if (destroyed) return false;
-      const current = contentForPaginator();
-      if (!current) return false;
-      const projected = projectResource(current, locator.resource);
+    return runNavigation(async (owner) => {
+      // Resolve before moving the visible reader. One goTo owns the entire reveal;
+      // a delayed digest cannot enqueue a second jump over a newer user request.
+      const projected = projectResource(section, resource);
       const offsets = await resolveLocator(locator, projected, bookKey);
-      if (!offsets || destroyed) return false;
-      const range = rangeAt(projected, offsets.start, offsets.end);
-      if (!range) return false;
-      await paginator!.goTo({ index, anchor: range });
+      if (!offsets || !owner.isCurrent()) return false;
+      const accepted = await renderer.goTo({
+        index: resource.spineIndex,
+        anchor: (doc: Document) => {
+          if (!owner.isCurrent()) throw new DOMException('Navigation superseded.', 'AbortError');
+          const current = doc.querySelector('.book-content');
+          if (!current) throw new Error('The requested EPUB section is unavailable.');
+          const live = projectResource(current, resource);
+          if (live.text !== projected.text)
+            throw new Error('The EPUB text changed while resolving its saved location.');
+          const range = rangeAt(live, offsets.start, offsets.end);
+          if (!range) throw new Error('The saved EPUB location could not be resolved.');
+          return range;
+        }
+      });
+      if (accepted !== true || !owner.isCurrent()) return false;
       await tick();
-      return !destroyed && currentIndex() === index;
+      return owner.isCurrent() && currentIndex() === resource.spineIndex;
     });
   }
 
   function handleLoad(event: Event) {
     const detail = (event as CustomEvent<{ doc: Document; index: number }>).detail;
     const current = detail.doc.querySelector<HTMLElement>('.book-content');
-    if (!current) return;
+    if (!current || destroyed) return;
     contentEl = current;
     dispatch('contentChange', current);
+  }
+
+  function handlePageTurnStart() {
+    // Gestures are newer user intent, including while initial bookmark I/O waits.
+    navigation.cancel();
+    clearTimeout(bookmarkTimer);
+    dispatch('pageTurnStart');
   }
 
   function handleRelocate(event: Event) {
@@ -317,21 +350,20 @@
       event as CustomEvent<{ index: number; fraction?: number; range?: Range; reason?: string }>
     ).detail;
     const current = contentForPaginator();
-    if (!current || !progress) return;
+    if (!current || !progress || destroyed || detail.index !== currentIndex()) return;
     const fraction = Number.isFinite(detail.fraction) ? detail.fraction! : 0;
     exploredCharCount = progress.exploredCharacterCount(detail.index, current, detail.range);
     updateSectionProgress(detail.index, fraction);
-    if (suppressRelocate) return;
+    if (navigation.pending) return;
     if (detail.reason === 'page' || detail.reason == null) {
       showCustomReadingPoint = false;
       customReadingPointRange = undefined;
       dispatch('userNavigation');
       if (autoBookmark) {
         clearTimeout(bookmarkTimer);
-        bookmarkTimer = setTimeout(
-          () => dispatch('bookmark'),
-          Math.max(0, autoBookmarkTime) * 1000
-        );
+        bookmarkTimer = setTimeout(() => {
+          if (!destroyed && !navigation.pending) dispatch('bookmark');
+        }, Math.max(0, autoBookmarkTime) * 1000);
       }
     }
   }
@@ -403,7 +435,7 @@
     paginator.setAttribute('max-column-count', String(Math.max(1, pageColumns || 1)));
     paginator.addEventListener('load', handleLoad);
     paginator.addEventListener('relocate', handleRelocate);
-    paginator.addEventListener('pageturnstart', () => dispatch('pageTurnStart'));
+    paginator.addEventListener('pageturnstart', handlePageTurnStart);
     paginator.addEventListener('togglecontrols', () => dispatch('toggleControls'));
     pageTurns = new PageTurnController(paginator);
     host.append(paginator);
@@ -427,30 +459,44 @@
               (section) => section.id === target || section.querySelector(`#${CSS.escape(target)}`)
             )
           : target.spineIndex;
-      if (index < 0 || index >= sourceSections.length || !paginator) return;
+      const renderer = paginator;
+      if (!Number.isSafeInteger(index) || index < 0 || index >= sourceSections.length || !renderer)
+        return;
       const fragment = typeof target === 'string' ? target : target.fragment;
-      void withSuppressedRelocate(() =>
-        paginator!.goTo({
+      void runNavigation(async (owner) => {
+        const accepted = await renderer.goTo({
           index,
           anchor: fragment
-            ? (doc: Document) =>
-                doc.getElementById(fragment) ?? doc.querySelector(`#${CSS.escape(fragment)}`) ?? 0
+            ? (doc: Document) => {
+                if (!owner.isCurrent())
+                  throw new DOMException('Navigation superseded.', 'AbortError');
+                return (
+                  doc.getElementById(fragment) ?? doc.querySelector(`#${CSS.escape(fragment)}`) ?? 0
+                );
+              }
             : 0
-        })
-      );
+        });
+        return accepted === true && owner.isCurrent() && currentIndex() === index;
+      }).catch(reportNavigationError);
     });
 
-    await paginator.goTo({ index: 0 });
-    const saved = await bookmarkData;
-    if (!destroyed && saved) bookmarkManager.scrollToBookmark(saved);
+    const renderer = paginator;
+    await runNavigation(async (owner) => {
+      if ((await renderer.goTo({ index: 0 })) !== true || !owner.isCurrent()) return false;
+      const saved = await bookmarkData;
+      if (!owner.isCurrent()) return false;
+      return saved ? restoreCharacterCount(saved.exploredCharCount ?? 0, owner) : true;
+    }).catch(reportNavigationError);
   });
 
   onDestroy(() => {
     destroyed = true;
+    navigation.destroy();
     clearTimeout(bookmarkTimer);
     tocSubscription?.unsubscribe();
     paginator?.removeEventListener('load', handleLoad);
     paginator?.removeEventListener('relocate', handleRelocate);
+    paginator?.removeEventListener('pageturnstart', handlePageTurnStart);
     themeObserver?.disconnect();
     pageTurns?.destroy();
     pageTurns = undefined;
