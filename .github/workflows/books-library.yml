@@ -109,6 +109,8 @@ jobs:
         if: always()
         with:
           name: books-library-evidence
-          path: artifacts/library
+          path: |
+            artifacts/library
+            test-results
           retention-days: 7
           if-no-files-found: error

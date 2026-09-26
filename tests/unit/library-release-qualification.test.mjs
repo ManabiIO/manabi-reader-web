@@ -11,6 +11,11 @@ test('required Library result includes local and shared browser safety and propa
     new URL('../../.github/workflows/books-library.yml', import.meta.url),
     'utf8'
   );
+  // A fail-fast suite exits before its successful-result move. Upload its
+  // still-live diagnostic directory as well, even on failure/cancellation.
+  const upload = library.split('      - uses: actions/upload-artifact@v4')[1];
+  assert.match(upload, /if: always\(\)/);
+  assert.match(upload, /path: \|\n\s+artifacts\/library\n\s+test-results/);
   const step = library
     .split('      - name: Required Local Library and Shared TTU safety\n')[1]
     .split('      - uses:')[0];
