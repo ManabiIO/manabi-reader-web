@@ -1,6 +1,8 @@
 """Editors' Picks and first-read dictionary setup against the built web app."""
 
 import re
+import json
+from pathlib import Path
 import os
 import tempfile
 import threading
@@ -8,7 +10,6 @@ import unittest
 from urllib.parse import urlsplit
 
 from playwright.sync_api import expect, sync_playwright
-from lifecycle_evidence import LifecycleEvidence
 
 from test_books_library import book
 from test_static_reader import StaticHandler, ThreadingHTTPServer
@@ -98,20 +99,50 @@ class EditorsPicksBrowser(unittest.TestCase):
         self.page = self.context.pages[0]
         self.page.set_default_timeout(30000)
         self.errors = []
-        self.page.on('pageerror', lambda error: self.errors.append(str(error)))
-        self.lifecycle = LifecycleEvidence(self.context, self.page, self.engine)
+        self.diagnostics = []
+        self.page.on('pageerror', self.page_error)
+        self.page.on('requestfailed', lambda request: self.diagnostics.append({
+            'kind': 'requestfailed', 'url': request.url,
+            'resource': request.resource_type, 'failure': request.failure,
+            'page': self.page.url
+        }))
+        self.page.on('console', lambda message: self.diagnostics.append({
+            'kind': 'console', 'type': message.type, 'text': message.text,
+            'location': message.location, 'page': self.page.url
+        }) if message.type == 'error' else None)
+        self.context.expose_binding('recordPicksError', lambda source, record:
+                                    self.diagnostics.append(record))
+        self.context.add_init_script("""
+          for (const type of ['error', 'unhandledrejection']) {
+            window.addEventListener(type, event => {
+              const error = event.error || event.reason;
+              void window.recordPicksError({kind: type, page: location.href,
+                message: event.message || String(error), name: error?.name,
+                stack: error?.stack}).catch(() => {});
+            });
+          }
+        """)
+
+    def page_error(self, error):
+        # WebKit console diagnostics can put the URL prefix in Error.name.
+        # Preserve it, rather than losing the resource identity via str(error).
+        message = f'{error.name}: {error.message}'
+        self.errors.append(message)
+        self.diagnostics.append({'kind': 'pageerror', 'message': message,
+                                 'stack': error.stack, 'page': self.page.url})
 
     def tearDown(self):
         if PicksHandler.index_gate is not None:
             PicksHandler.index_gate.set()
         PicksHandler.index_started = None
         PicksHandler.index_gate = None
-        try:
-            self.context.close()
-            self.profile.cleanup()
-            self.assertEqual([], self.errors)
-        finally:
-            self.lifecycle.write(type(self).__name__ + '-' + self._testMethodName)
+        self.context.close()
+        self.profile.cleanup()
+        folder = Path('test-results')
+        folder.mkdir(exist_ok=True)
+        (folder / f'{self.engine}-{self._testMethodName}-diagnostics.json').write_text(
+            json.dumps(self.diagnostics, ensure_ascii=False, indent=2))
+        self.assertEqual([], self.errors)
 
     def library(self):
         self.page.goto(self.origin + '/reader-web/manage')
