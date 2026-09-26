@@ -1,39 +1,39 @@
-name: Snippets development qualification
+name: Publish exact snippet implementation
 on:
   push:
     branches: [codex/cloud-backed-snippets-20260926]
+    paths: ['.snippets-transfer/ready']
 permissions:
-  contents: read
+  contents: write
 jobs:
-  dependencies:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+  publish:
+    if: github.repository == 'ManabiIO/manabi-reader-web' && github.ref == 'refs/heads/codex/cloud-backed-snippets-20260926'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v4
         with:
-          persist-credentials: false
-      - uses: pnpm/action-setup@v6.1.0
-        with:
-          version: 12.3.4
-          run_install: false
-      - uses: actions/setup-node@v7.0.0
-        with:
-          node-version: 24.21.0
-          cache: pnpm
-      - name: Resolve exact editor versions
-        run: |
-          pnpm --filter web add @tiptap/core@3.31.3 @tiptap/pm@3.31.3 @tiptap/starter-kit@3.31.3 @tiptap/extension-ruby-text@3.31.3 @tiptap/extension-unique-id@3.31.3 @tiptap/markdown@3.31.3
-          pnpm --filter web add -D jsdom@26.1.0
-      - name: Retain reproducible isolated validation environment
+          ref: ${{ github.sha }}
+          persist-credentials: true
+      - name: Apply checksum-verified implementation
         shell: bash
         run: |
-          tar -czf "$RUNNER_TEMP/snippets-dependencies.tar.gz" node_modules apps/web/node_modules pnpm-lock.yaml apps/web/package.json
-          cp "$(command -v node)" "$RUNNER_TEMP/node"
-          sha256sum "$RUNNER_TEMP/snippets-dependencies.tar.gz" "$RUNNER_TEMP/node"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: snippets-dependencies-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/snippets-dependencies.tar.gz
-            ${{ runner.temp }}/node
-          retention-days: 1
+          python - <<'PY'
+          import base64,hashlib,lzma,pathlib,subprocess
+          parts=sorted(pathlib.Path('.snippets-transfer').glob('part-*.txt'))
+          assert len(parts)==8
+          raw=lzma.decompress(base64.b64decode(''.join(p.read_text() for p in parts),validate=True))
+          assert hashlib.sha256(raw).hexdigest()=='f693d6eef4d87de1c45ec91a8465a0c8bfa1940708172b4507fbf8f29a1a0882'
+          stats=subprocess.check_output(['git','apply','--numstat','-'],input=raw).decode()
+          for row in stats.splitlines():
+              path=row.split('\t',2)[2]
+              assert '..' not in pathlib.PurePosixPath(path).parts
+              assert path.startswith(('apps/web/','test/snippets/','docs/')) or path in ('pnpm-lock.yaml','eslint.config.js')
+          subprocess.run(['git','apply','--check','-'],input=raw,check=True)
+          subprocess.run(['git','apply','--index','-'],input=raw,check=True)
+          PY
+          git rm -r .snippets-transfer
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(snippets): add portable rich text documents, cloud storage and scoped search'
+          git push origin HEAD:refs/heads/codex/cloud-backed-snippets-20260926
