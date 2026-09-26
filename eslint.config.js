@@ -19,6 +19,7 @@ module.exports = (async () => {
         '**/build/*',
         '**/test-results/**',
         '**/.svelte-kit/*',
+        '**/*.d.mts',
         '**/service-worker.ts',
         '**/postcss.config.cjs',
         '**/.prettierrc.cjs',
