@@ -89,7 +89,7 @@ node --experimental-strip-types tools/appearance/generate-css.mjs --check
 node --experimental-strip-types --test tests/unit/*.test.mjs test/reader/typography.test.mjs
 node tools/appearance/lint.mjs
 pnpm --dir apps/web check
-BASE_PATH=/Reader-Web pnpm build
+BASE_PATH=/reader-web pnpm build
 python -m playwright install --with-deps chromium webkit
 APPEARANCE_BROWSER=chromium python tests/browser/test_appearance_refinement.py
 APPEARANCE_BROWSER=webkit python tests/browser/test_appearance_refinement.py

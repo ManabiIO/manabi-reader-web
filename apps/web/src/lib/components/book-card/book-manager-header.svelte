@@ -8,6 +8,7 @@
   import * as Menu from '$lib/components/ui/dropdown-menu';
   import AppNav from '$lib/components/navigation/app-nav.svelte';
   import ActionMenu from '$lib/components/navigation/action-menu.svelte';
+  import { openUserGuide } from '$lib/components/navigation/docs-link';
   import type { SortOption } from '$lib/data/sort-types';
   import { SortDirection } from '$lib/data/sort-types';
   import { FilesystemStorageHandler } from '$lib/data/storage/handler/filesystem-handler';
@@ -31,6 +32,7 @@
     ArrowLeftIcon as ArrowLeft,
     BookmarkSimpleIcon as BookmarkSimple,
     BooksIcon as Books,
+    BookOpenTextIcon as BookOpenText,
     BugIcon as Bug,
     CalendarBlankIcon as CalendarBlank,
     ChartBarIcon as ChartBar,
@@ -465,6 +467,9 @@
                 </Menu.Sub>
               {/if}
               <Menu.Separator />
+              <Menu.Item onSelect={openUserGuide}
+                ><BookOpenText aria-hidden="true" />User guide</Menu.Item
+              >
               <Menu.Item onSelect={() => dispatch('bugReportClick')}
                 ><Bug aria-hidden="true" />Report an Issue</Menu.Item
               >
@@ -678,6 +683,7 @@
           >Select books</Button
         >
         <ActionMenu label="Help">
+          <Menu.Item onSelect={openUserGuide}>User guide</Menu.Item>
           <Menu.Item onSelect={() => dispatch('bugReportClick')}>Report an Issue</Menu.Item>
           {#if isOldUrl}<Menu.Item onSelect={() => dispatch('domainHintClick')}
               >Old domain information</Menu.Item

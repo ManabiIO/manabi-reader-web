@@ -1,6 +1,6 @@
 # Manabi accounts and libraries
 
-The app builds to static files under `/Reader-Web/`; Django provides optional
+The app builds to static files under `/reader-web/`; Django provides optional
 account and cloud-connection services. No SvelteKit server runs in production.
 Local reading continues when the account API is unavailable or disabled.
 
