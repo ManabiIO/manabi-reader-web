@@ -16,7 +16,18 @@ function makeHarness({ scope = url('/'), version = 'new', ...overrides } = {}) {
   const removed = [];
   const fetched = [];
   const precached = [];
+  const precacheRequests = [];
   let fetchImpl = async (request) => new Response(`network:${request.url ?? request}`);
+  let precacheResponse = (key) =>
+    new Response(`shell:${key}`, {
+      headers: {
+        'Content-Type': /\.m?js$/.test(key)
+          ? 'text/javascript'
+          : /\.css$/.test(key)
+            ? 'text/css'
+            : 'text/html'
+      }
+    });
   let failWrite = false;
   let failOpen = false;
   class MemoryCache {
@@ -38,8 +49,12 @@ function makeHarness({ scope = url('/'), version = 'new', ...overrides } = {}) {
       return [...this.entries.keys()].map((key) => new Request(key));
     }
     async addAll(keys) {
-      precached.push(...keys);
-      for (const key of keys) await this.put(key, new Response(`shell:${key}`));
+      precacheRequests.push(...keys);
+      for (const request of keys) {
+        const key = this.key(request);
+        precached.push(key);
+        await this.put(request, precacheResponse(key));
+      }
     }
   }
   const storage = {
@@ -96,11 +111,15 @@ function makeHarness({ scope = url('/'), version = 'new', ...overrides } = {}) {
     removed,
     fetched,
     precached,
+    precacheRequests,
     prefix,
     shell: `${prefix}shell:${version}`,
     fonts: `${prefix}remote-fonts:${version}`,
     packagedFonts: `${prefix}packaged-fonts:v1`,
     staticFonts: `${prefix}static-fonts:${version}`,
+    setPrecacheResponse(fn) {
+      precacheResponse = fn;
+    },
     setFetch(fn) {
       fetchImpl = fn;
     },
@@ -110,9 +129,10 @@ function makeHarness({ scope = url('/'), version = 'new', ...overrides } = {}) {
     setFailOpen(value) {
       failOpen = value;
     },
-    async event(type) {
+    async event(type, data = {}) {
       const promises = [];
       handlers.get(type)({
+        ...data,
         waitUntil(promise) {
           promises.push(promise);
         }
@@ -421,4 +441,169 @@ test('same-path static fonts are versioned so an upgrade cannot reuse old bytes'
   h.setFetch(async () => new Response('new static font'));
   await h.event('activate');
   assert.equal(await body(await h.request('/fonts/default.woff2')), 'new static font');
+});
+
+test('mutable shell paths bypass stale HTTP cache; immutable builds remain reusable', async () => {
+  const h = makeHarness({ files: ['/appearance-init.js'] });
+  await h.event('install');
+  for (const request of h.precacheRequests) {
+    assert.ok(request instanceof Request);
+    assert.equal(request.redirect, 'error');
+    assert.equal(request.credentials, 'same-origin');
+    assert.equal(request.cache, request.url === url('/app.js') ? 'default' : 'reload');
+  }
+});
+
+test('status inspects this shell and detects missing entries without repairing them', async () => {
+  const h = makeHarness({ scope: url('/reader/') });
+  const replies = [];
+  let closed = 0;
+  const query = () =>
+    h.event('message', {
+      data: { type: 'manabi-reader:offline-status:v1' },
+      source: { url: url('/reader/settings') },
+      ports: [{ postMessage: (value) => replies.push(value), close: () => closed++ }]
+    });
+  await query();
+  assert.equal(replies.at(-1).state, 'incomplete');
+  assert.equal(h.caches.has(h.shell), false);
+  await h.event('install');
+  await query();
+  assert.equal(replies.at(-1).state, 'ready');
+  assert.equal(replies.at(-1).scope, url('/reader/'));
+  assert.equal(replies.at(-1).required, replies.at(-1).cached);
+  await (await h.storage.open(h.shell)).delete(url('/reader/b'));
+  await (await h.storage.open('foreign')).put(url('/reader/b'), new Response('foreign'));
+  await query();
+  assert.equal(replies.at(-1).state, 'incomplete');
+  assert.equal(replies.at(-1).cached, replies.at(-1).required - 1);
+  assert.equal(h.fetched.length, 0);
+  assert.equal(closed, 3);
+});
+
+test('status rejects unrelated sources, protocol names and missing message ports', async () => {
+  const h = makeHarness({ scope: url('/reader/') });
+  let replies = 0;
+  const data = { type: 'manabi-reader:offline-status:v1' };
+  const ports = [{ postMessage: () => replies++, close() {} }];
+  for (const source of [
+    null,
+    {},
+    { url: url('/reader-other/') },
+    { url: 'https://other/reader/' }
+  ]) {
+    await h.event('message', { data, source, ports });
+  }
+  await h.event('message', {
+    data: { type: 'SKIP_WAITING' },
+    source: { url: url('/reader/') },
+    ports
+  });
+  await h.event('message', { data, source: { url: url('/reader/') }, ports: [] });
+  assert.equal(replies, 0);
+  assert.equal(h.caches.size, 0);
+});
+
+test('status cannot report readiness when the cache API is denied', async () => {
+  const h = makeHarness();
+  await h.event('install');
+  h.setFailOpen(true);
+  let reply;
+  await h.event('message', {
+    data: { type: 'manabi-reader:offline-status:v1' },
+    source: { url: url('/') },
+    ports: [
+      {
+        postMessage: (value) => {
+          reply = value;
+        },
+        close() {}
+      }
+    ]
+  });
+  assert.equal(reply.state, 'unavailable');
+});
+
+test('a 204 required response rejects installation and removes only its new candidate', async () => {
+  const h = makeHarness();
+  const old = `${h.prefix}shell:old`;
+  const previous = await h.storage.open(old);
+  await previous.put(url('/app.js'), new Response('previous'));
+  const imported = await h.storage.open('userFonts');
+  await imported.put(url('/userfonts/saved'), new Response('saved'));
+  h.setPrecacheResponse(() => new Response(null, { status: 204 }));
+  await assert.rejects(h.event('install'), /usable offline shell/i);
+  assert.equal(h.caches.has(h.shell), false);
+  assert.equal(await body(await previous.match(url('/app.js'))), 'previous');
+  assert.equal(await body(await imported.match(url('/userfonts/saved'))), 'saved');
+});
+
+test('HTML fallbacks for required JavaScript and CSS reject the candidate', async () => {
+  for (const asset of ['/app.js', '/app.css']) {
+    const h = makeHarness({ build: [asset] });
+    const fallback = new Response('<html>Fallback</html>', {
+      headers: { 'Content-Type': 'text/html' }
+    });
+    h.setPrecacheResponse(() => fallback.clone());
+    await assert.rejects(h.event('install'), /usable offline shell/i);
+    assert.equal(h.caches.has(h.shell), false);
+  }
+});
+
+test('a malformed cached page or script is neither ready nor returned as a usable shell', async () => {
+  const h = makeHarness();
+  await h.event('install');
+  const cache = await h.storage.open(h.shell);
+  const fallback = new Response('not JavaScript', {
+    headers: { 'Content-Type': 'text/html' }
+  });
+  await cache.put(url('/app.js'), fallback);
+  let state;
+  await h.event('message', {
+    data: { type: 'manabi-reader:offline-status:v1' },
+    source: { url: url('/') },
+    ports: [
+      {
+        postMessage: (reply) => {
+          state = reply.state;
+        },
+        close() {}
+      }
+    ]
+  });
+  assert.equal(state, 'incomplete');
+  assert.equal(await body(await h.request('/app.js')), `network:${url('/app.js')}`);
+  assert.equal(await body(await cache.match(url('/app.js'))), 'not JavaScript');
+});
+
+test('failed installation cleanup retains an existing cache and preserves the original error', async () => {
+  const h = makeHarness();
+  const cache = await h.storage.open(h.shell);
+  const failure = new Error('original failure');
+  cache.addAll = async () => {
+    throw failure;
+  };
+  await assert.rejects(h.event('install'), (error) => error === failure);
+  assert.equal(h.caches.has(h.shell), true);
+  assert.deepEqual(h.removed, []);
+  const second = makeHarness();
+  second.setFailWrite(true);
+  second.storage.delete = async () => {
+    throw new Error('cleanup also failed');
+  };
+  await assert.rejects(second.event('install'), /Quota/);
+});
+
+test('static fonts bypass stale HTTP cache on cache miss; hashed fonts still reuse it', async () => {
+  const h = makeHarness({ build: ['/app.js', '/_app/immutable/assets/face.hash.woff2'] });
+  const cacheModes = [];
+  h.setFetch(async (request) => {
+    cacheModes.push(request.cache);
+    return new Response('font');
+  });
+  await h.request('/fonts/default.woff2');
+  await h.request('/_app/immutable/assets/face.hash.woff2');
+  assert.deepEqual(cacheModes, ['reload', 'default']);
+  await h.request('/fonts/default.woff2');
+  assert.equal(cacheModes.length, 2, 'a saved font needs no further network request');
 });

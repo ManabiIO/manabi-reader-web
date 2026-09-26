@@ -219,7 +219,7 @@ class LocalFeatureBrowser(LibraryBase):
         field.fill(text)
 
     def open_migration(self, raw=None):
-        self.page.goto(self.origin+'/Reader-Web/import-ttu?source=yatsu')
+        self.page.goto(self.origin+'/reader-web/import-ttu?source=yatsu')
         field=self.page.get_by_label('Choose Yatsu backup ZIPs',exact=True)
         expect(field).to_be_enabled()
         field.set_input_files({'name':'Yatsu.zip','mimeType':'application/zip','buffer':raw or yatsu_fixture()})
@@ -231,7 +231,7 @@ class LocalFeatureBrowser(LibraryBase):
         expect(self.page.get_by_label('Choose Yatsu backup ZIPs',exact=True)).to_be_enabled(timeout=60000)
 
     def configure_dav(self, writable=False):
-        self.page.goto(self.origin+'/Reader-Web/connections')
+        self.page.goto(self.origin+'/reader-web/connections')
         self.page.get_by_role('button',name='Add WebDAV folder',exact=True).click()
         self.page.get_by_label('Name',exact=True).fill('Test DAV')
         self.page.get_by_label('WebDAV folder URL',exact=True).fill(self.dav_url)
@@ -497,7 +497,7 @@ class LocalFeatureBrowser(LibraryBase):
         self.connect_dav(writable=True);self.seed_resume()
         self.page.get_by_label('Sync this book’s reading data with WebDAV',exact=True).check()
         other=self.context.new_page()
-        other.goto(self.origin+'/Reader-Web/b?id=1')
+        other.goto(self.origin+'/reader-web/b?id=1')
         expect(other.get_by_text('WEBDAV_SEARCH_NEEDLE 本を読む。',exact=True)).to_be_visible()
         self.page.get_by_role('button',name='Sync WebDAV offline book',exact=True).click()
         expect(self.page.get_by_text('A book is open in another tab. Return all reader tabs to the Library before syncing reading data.',exact=True)).to_be_visible()
@@ -575,7 +575,7 @@ class LocalFeatureBrowser(LibraryBase):
         self.page.get_by_role('button',name='Bookmarks and Notes',exact=True).click()
         self.page.get_by_role('button',name='Add Bookmark',exact=True).click()
         self.wait_rows('readerAnnotation',lambda rows:len(rows)==1)
-        self.page.goto(self.origin+'/Reader-Web/connections');self.sync_dav()
+        self.page.goto(self.origin+'/reader-web/connections');self.sync_dav()
         page_a=self.page
         # Use two durable device profiles, as for device A. WebKit's ephemeral
         # context cannot store Blob values in this runtime (even in a bare IDB
@@ -650,7 +650,7 @@ class LocalFeatureBrowser(LibraryBase):
             while not self.dav.state['get_started'].is_set():
                 self.assertLess(time.monotonic(), deadline)
                 self.page.wait_for_timeout(20)
-            other.goto(self.origin + '/Reader-Web/connections')
+            other.goto(self.origin + '/reader-web/connections')
             other.get_by_role('button', name='Disconnect Test DAV', exact=True).click()
             expect(other.get_by_role('button', name='Browse Test DAV', exact=True)).to_have_count(0)
             gate.set()
@@ -708,7 +708,7 @@ class LocalFeatureBrowser(LibraryBase):
         gate = self.start_held_dav_sync()
         other = self.context.new_page()
         try:
-            other.goto(self.origin + '/Reader-Web/connections')
+            other.goto(self.origin + '/reader-web/connections')
             other.get_by_role('button', name='Disconnect Test DAV', exact=True).click()
             self.wait_source_operation_queued()
             self.assertEqual(1, len(self.stores('manabi-reader-integrations', ['books'])['books']))
@@ -729,7 +729,7 @@ class LocalFeatureBrowser(LibraryBase):
         gate = self.start_held_dav_sync()
         other = self.context.new_page()
         try:
-            other.goto(self.origin + '/Reader-Web/connections')
+            other.goto(self.origin + '/reader-web/connections')
             other.get_by_label('Sync this book’s reading data with WebDAV', exact=True).uncheck()
             self.wait_source_operation_queued()
             gate.set()

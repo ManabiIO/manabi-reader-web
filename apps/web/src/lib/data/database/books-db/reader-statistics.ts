@@ -12,9 +12,11 @@ import type {
   BooksDbStatistic
 } from './versions/books-db';
 
+type StatisticBook = Pick<BooksDbBookData, 'id' | 'title' | 'contentHash'>;
+
 const digest = /^[a-f0-9]{64}$/i;
 
-export function contentStatisticKey(book: BooksDbBookData): string | undefined {
+export function contentStatisticKey(book: StatisticBook): string | undefined {
   return digest.test(book.contentHash ?? '')
     ? `content:${book.contentHash!.toLowerCase()}`
     : undefined;
@@ -78,14 +80,14 @@ function sameDay(left: BooksDbStatistic, right: BooksDbStatistic): boolean {
  */
 export async function migrateLegacyStatistics(
   db: IDBPDatabase<BooksDb>,
-  book: BooksDbBookData
+  book: StatisticBook
 ): Promise<string> {
   const tx = db.transaction(
     ['data', 'statistic', 'readerStatistic', 'readerStatisticMigration', 'readerLocalIdentity'],
     'readwrite'
   );
   const identity = tx.objectStore('readerLocalIdentity');
-  const keyFor = async (copy: BooksDbBookData) => {
+  const keyFor = async (copy: StatisticBook) => {
     const contentKey = contentStatisticKey(copy);
     if (contentKey) return contentKey;
     let local = await identity.get(copy.id);

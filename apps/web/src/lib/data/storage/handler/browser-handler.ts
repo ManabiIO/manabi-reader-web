@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 
+import { encodeBook, decodeBookBinary } from '$lib/data/database/books-db/book-binary';
 import { BaseStorageHandler, FilePrefix } from '$lib/data/storage/handler/base-handler';
 import type {
   BooksDbAudioBook,
@@ -47,7 +48,10 @@ export class BrowserStorageHandler extends BaseStorageHandler {
       for (const book of data) {
         this.addBookCard(book.title, {
           id: book.id,
-          imagePath: book.coverImage || '',
+          imagePath:
+            typeof book.coverImage === 'string' || !book.coverImage
+              ? book.coverImage || ''
+              : decodeBookBinary(book.coverImage),
           creators: book.creators,
           characters: BaseStorageHandler.getBookCharacters(
             book.characters || 0,
@@ -108,7 +112,7 @@ export class BrowserStorageHandler extends BaseStorageHandler {
       BaseStorageHandler.getBookMetadata(filename);
     const db = await database.db;
 
-    await db.put('data', book);
+    await db.put('data', await encodeBook(book));
 
     this.addBookCard(this.currentContext.title, { characters, lastBookModified, lastBookOpen });
   }

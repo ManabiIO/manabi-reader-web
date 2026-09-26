@@ -6,10 +6,6 @@
 
 import { browser } from '$app/environment';
 
-const fakeStorage = {
-  persist: async () => false,
-  persisted: async () => false,
-  estimate: async () => ({ quota: 1, usage: 1 })
-};
+import { createStorageAccess } from './storage-access.mjs';
 
-export const storage = browser ? navigator.storage || fakeStorage : fakeStorage;
+export const storage = createStorageAccess(() => (browser ? navigator.storage : undefined));

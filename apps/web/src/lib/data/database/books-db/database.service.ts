@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 
+import { encodeBook, decodeBook } from './book-binary';
 import { mergeCompletion } from '$lib/library/completion';
 import {
   migrateLegacyStatistics,
@@ -11,6 +12,7 @@ import {
   statisticRange,
   visibleStatistics
 } from './reader-statistics';
+import { commitTransaction, explainBookStorageError } from './commit-transaction.mjs';
 import type {
   BooksDbAudioBook,
   BooksDbBookData,
@@ -156,7 +158,8 @@ export class DatabaseService {
   async getData(dataId: number) {
     if (!Number.isNaN(dataId)) {
       const db = await this.db;
-      return db.get('data', dataId);
+      const book = await db.get('data', dataId);
+      return book ? decodeBook(book) : undefined;
     }
     return undefined;
   }
@@ -164,7 +167,8 @@ export class DatabaseService {
   async getDataByTitle(title: string) {
     if (title) {
       const db = await this.db;
-      return db.getFromIndex('data', 'title', title);
+      const book = await db.getFromIndex('data', 'title', title);
+      return book ? decodeBook(book) : undefined;
     }
 
     return undefined;
@@ -245,17 +249,15 @@ export class DatabaseService {
   ) {
     const db = await this.db;
 
-    let dataId: number;
-    let bookData: BooksDbBookData;
-
+    const stored = await encodeBook(data);
     const tx = db.transaction('data', 'readwrite');
-    try {
+    return commitTransaction(tx, async () => {
+      let dataId: number;
+      let bookData: BooksDbBookData;
+
       const { store } = tx;
       const titleMatches = await store.index('title').getAll(data.title);
-      // The inherited TTU importer used title as identity. Distinct source bytes
-      // can have the same title, so never replace a verified book with another
-      // file merely because their titles match. Unverified legacy records retain
-      // their local title-based upsert behavior until they gain a real digest.
+      // Verified source identity must survive imports of different books sharing a title.
       const oldData = data.contentHash
         ? titleMatches.find(
             (book) => book.contentHash?.toLowerCase() === data.contentHash?.toLowerCase()
@@ -274,7 +276,7 @@ export class DatabaseService {
           oldData.lastBookModified >= data.lastBookModified &&
           (oldData.lastBookOpen || 0) >= (data.lastBookOpen || 0)
         ) {
-          bookData = oldData;
+          bookData = decodeBook(oldData);
           dataId = oldData.id;
         } else {
           bookData = {
@@ -288,28 +290,22 @@ export class DatabaseService {
                 }),
             ...(removeStorageContext ? { storageSource: undefined } : {})
           };
-          dataId = await store.put(bookData);
+          dataId = await store.put({
+            ...bookData,
+            blobs: stored.blobs,
+            coverImage: stored.coverImage
+          });
         }
       } else {
         // Until https://github.com/jakearchibald/idb/issues/150 resolves
-        const bookDataWithoutKey: Omit<BooksDbBookData, 'id'> = data;
-        dataId = await store.add(bookDataWithoutKey as BooksDbBookData);
+        dataId = await store.add(stored as typeof stored & { id: number });
         bookData = { ...data, id: dataId };
       }
-      await tx.done;
-    } catch (error) {
-      // A failed IDB request also rejects tx.done. Drain both paths, and roll
-      // back a still-active transaction instead of publishing a partial book.
-      try {
-        tx.abort();
-      } catch {
-        /* Already committed or aborted. */
-      }
-      await tx.done.catch(() => undefined);
-      throw error;
-    }
 
-    return bookData;
+      return bookData;
+    }).catch((error) => {
+      throw explainBookStorageError(error);
+    });
   }
 
   async deleteData(
@@ -371,10 +367,10 @@ export class DatabaseService {
     const db = await this.db;
 
     const tx = db.transaction('bookmark', 'readwrite');
-    const before = await tx.store.get(bookmarkData.dataId);
-    const key = await tx.store.put(mergeCompletion(before, bookmarkData));
-    await tx.done;
-    return key;
+    return commitTransaction(tx, async () => {
+      const before = await tx.store.get(bookmarkData.dataId);
+      return tx.store.put(mergeCompletion(before, bookmarkData));
+    });
   }
 
   async putAudioBook(audioBook: BooksDbAudioBook) {

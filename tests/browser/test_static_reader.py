@@ -5,9 +5,11 @@ import io
 import json
 from pathlib import Path
 import threading
+import struct
 import unittest
 from urllib.parse import parse_qs, unquote, urlsplit
 import zipfile
+import zlib
 from playwright.sync_api import sync_playwright, expect
 
 class ThreadingHTTPServer(BaseThreadingHTTPServer):
@@ -23,7 +25,8 @@ TITLE = 'Reader browser acceptance'
 
 def epub(include_images=True):
     output = io.BytesIO()
-    png = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a/ZkAAAAASUVORK5CYII=')
+    # One white grayscale+alpha pixel; every PNG chunk has a valid CRC.
+    png = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=')
     body = '<h1>Reader browser acceptance</h1><p><ruby>本<rt>ほん</rt></ruby>を読む。</p>'
     if include_images:
         body += '<img id="safe-image" src="絵.png" alt="Archive illustration"/>'
@@ -75,6 +78,34 @@ def linked_epub():
         archive.writestr('chapter1.xhtml', '<html><body>' + chapter_one + '</body></html>')
         archive.writestr('chapter2.xhtml', '<html><body>' + chapter_two + '</body></html>')
     return title, output.getvalue()
+
+class EpubFixture(unittest.TestCase):
+    def test_embedded_png_checksums_and_pixel_data_are_valid(self):
+        # Validate the input fixture independently of any browser's tolerance
+        # for corrupt PNG checksums; strict image.decode() assertions stay enabled.
+        with zipfile.ZipFile(io.BytesIO(epub())) as archive:
+            image = archive.read('絵.png')
+        self.assertEqual(image[:8], b'\x89PNG\r\n\x1a\n')
+        offset = 8
+        chunks = []
+        compressed = b''
+        while offset < len(image):
+            self.assertGreaterEqual(len(image) - offset, 12)
+            length = struct.unpack('!I', image[offset:offset + 4])[0]
+            self.assertGreaterEqual(len(image) - offset, length + 12)
+            kind = image[offset + 4:offset + 8]
+            data = image[offset + 8:offset + 8 + length]
+            checksum = struct.unpack('!I', image[offset + 8 + length:offset + 12 + length])[0]
+            self.assertEqual(checksum, zlib.crc32(kind + data) & 0xffffffff, kind.decode())
+            chunks.append(kind)
+            if kind == b'IHDR':
+                self.assertEqual(struct.unpack('!IIBBBBB', data), (1, 1, 8, 4, 0, 0, 0))
+            elif kind == b'IDAT':
+                compressed += data
+            offset += length + 12
+        self.assertEqual(chunks, [b'IHDR', b'IDAT', b'IEND'])
+        self.assertEqual(zlib.decompress(compressed), b'\x01\xff\xff')
+
 
 class StaticHandler(SimpleHTTPRequestHandler):
     probes = []
@@ -334,7 +365,12 @@ class ReaderBrowser(unittest.TestCase):
 
     def test_anonymous_navigation_without_backend(self):
         self.page.goto(self.origin + '/reader-web/manage')
-        self.page.get_by_role('button', name='Library actions', exact=True).click()
+        # Like open_book(), wait for the real Svelte action before interacting
+        # with prerendered controls. A visible SSR button may not have listeners.
+        expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
+        actions = self.page.get_by_role('button', name='Library actions', exact=True)
+        actions.click()
+        expect(actions).to_have_attribute('aria-expanded', 'true')
         self.page.get_by_role('menuitem', name='Accounts and Libraries', exact=True).click()
         expect(self.page.get_by_role('heading', name='Accounts and libraries', exact=True)).to_be_visible()
         expect(self.page.get_by_text('Manabi account services are not available on this deployment. Local libraries still work.')).to_be_visible()

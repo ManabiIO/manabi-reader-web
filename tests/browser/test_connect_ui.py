@@ -70,7 +70,7 @@ class ConnectControlsBrowser(previous.AppleControlsBrowser):
             self.page.evaluate('v => localStorage.setItem("appearance", v)', mode)
             for width, scale in ((390, '100%'), (320, '200%')):
                 self.page.set_viewport_size({'width': width, 'height': 844})
-                self.page.goto(self.origin + '/Reader-Web/connections')
+                self.page.goto(self.origin + '/reader-web/connections')
                 self.page.evaluate('v => document.documentElement.style.fontSize = v', scale)
                 expect(self.page.get_by_role('heading', name='Accounts and libraries', exact=True)).to_be_visible()
                 sign_in = self.page.get_by_role('link', name='Sign in to Manabi', exact=True)
@@ -94,7 +94,7 @@ class ConnectControlsBrowser(previous.AppleControlsBrowser):
         for mode in ('light', 'dark'):
             self.page.evaluate('v => localStorage.setItem("appearance", v)', mode)
             self.page.set_viewport_size({'width': 320, 'height': 844})
-            self.page.goto(self.origin + '/Reader-Web/shared-library')
+            self.page.goto(self.origin + '/reader-web/shared-library')
             self.page.evaluate('document.documentElement.style.fontSize = "200%"')
             expect(
                 self.page.get_by_role('heading', name='Shared Ttu Ebook Reader libraries', exact=True)
@@ -181,7 +181,7 @@ class ConnectControlsBrowser(previous.AppleControlsBrowser):
 
     def test_heatmap_days_are_real_keyboard_actions(self):
         self.seed_statistics()
-        self.page.goto(self.origin + '/Reader-Web/statistics')
+        self.page.goto(self.origin + '/reader-web/statistics')
         self.page.get_by_role('button', name='Heatmap', exact=True).click()
         day = self.page.locator('[data-date="2026-09-25"]')
         expect(day).to_have_attribute('role', 'button')

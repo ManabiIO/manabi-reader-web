@@ -102,7 +102,7 @@ class LocalLibraryLifecycle(LocalFeatureBrowser):
     def test_disconnect_transaction_failure_preserves_connection_and_can_retry(self):
         self.connect_dav(writable=True)
         before = self.stores('manabi-reader-integrations', ['metadata', 'books'])
-        self.page.goto(self.origin + '/Reader-Web/connections')
+        self.page.goto(self.origin + '/reader-web/connections')
         self.page.evaluate("""() => {
             window.originalDavDelete = IDBObjectStore.prototype.delete;
             IDBObjectStore.prototype.delete = function(...args) {
@@ -146,7 +146,7 @@ class LocalLibraryLifecycle(LocalFeatureBrowser):
         self.connect_dav(writable=True)
         self.seed_resume()
         self.page.get_by_label('Sync this book’s reading data with WebDAV', exact=True).check()
-        self.page.goto(self.origin + '/Reader-Web/connections')
+        self.page.goto(self.origin + '/reader-web/connections')
         form = self.edit_connection()
         other = self.context.new_page()
         try:

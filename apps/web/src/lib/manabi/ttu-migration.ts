@@ -4,10 +4,13 @@
  * All rights reserved.
  */
 
+import { encodeBook } from '$lib/data/database/books-db/book-binary';
+
 import { database, lastReadingGoalsModified$, readingGoal$ } from '$lib/data/store';
 import { getCurrentReadingGoal } from '$lib/data/reading-goal';
 import type {
   BooksDbBookData,
+  StoredBookData,
   BooksDbBookmarkData,
   BooksDbStatistic,
   BooksDbAudioBook,
@@ -72,7 +75,7 @@ interface Receipt {
   yatsuMetadata?: Plain;
   records: Record<string, string>;
 }
-type MigratedBook = BooksDbBookData & { manabiTtuImport?: Receipt };
+type MigratedBook = StoredBookData & { manabiTtuImport?: Receipt };
 export interface MigratedBookChoice {
   id: number;
   title: string;
@@ -453,6 +456,7 @@ export class TtuMigration {
       signal
     );
     const newIdentity = crypto.randomUUID();
+    const storedContent = content ? await encodeBook(content) : undefined;
     signal?.throwIfAborted();
     assertAccount();
     const core = await exclusive<MigrationResult>('import-library-book', async () => {
@@ -507,9 +511,9 @@ export class TtuMigration {
         } else throw new Error('Choose the previously imported book for this data-only export.');
         let created = false;
         if (!target) {
-          if (!content || !options.parts.includes('book'))
+          if (!content || !storedContent || !options.parts.includes('book'))
             throw new Error('Import Book Data before importing reading data.');
-          let contentToAdd = content;
+          let contentToAdd = storedContent;
           if (content.contentHash) {
             let copy = await tx.objectStore('data').openCursor();
             while (copy) {
@@ -531,7 +535,7 @@ export class TtuMigration {
               ) {
                 // The exported hash is a claim about unavailable original
                 // bytes. Conflicting decoded content cannot inherit that ID.
-                contentToAdd = { ...content, contentHash: undefined };
+                contentToAdd = { ...storedContent, contentHash: undefined };
                 break;
               }
               copy = await copy.continue();
@@ -547,9 +551,7 @@ export class TtuMigration {
             (await tx.objectStore('subtitle').getKey(title))
           )
             title = `${item.title} [Ttu import ${++suffix}]`;
-          const id = await tx
-            .objectStore('data')
-            .add({ ...contentToAdd, title } as BooksDbBookData);
+          const id = await tx.objectStore('data').add({ ...contentToAdd, title } as StoredBookData);
           target = { ...contentToAdd, id, title };
           created = true;
         }

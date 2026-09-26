@@ -4,12 +4,12 @@
  * All rights reserved.
  */
 
-import type BooksDb from './versions/books-db';
+import { currentStorageVersion, type default as BooksDb } from './versions/books-db';
 import { openDB } from 'idb';
 import upgradeBooksDbFromV2 from './versions/v2/upgrade';
 
 export function createBooksDb(name = 'books') {
-  return openDB<BooksDb>(name, 10, {
+  return openDB<BooksDb>(name, currentStorageVersion, {
     async upgrade(oldDb, oldVersion, newVersion, transaction) {
       switch (oldVersion) {
         case 0: {
