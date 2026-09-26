@@ -89,7 +89,12 @@ class SharedSafetyStatic(SharedTtuBrowser):
             parts = {name: archive.read(name) for name in archive.namelist()}
         data = json.loads(parts['staticdata.json'])
         data['contentHash'] = hashlib.sha256(b'distinct updated TTU fixture').hexdigest()
-        data['elementHtml'] += '<p>A new edition must retain a separate local identity.</p>'
+        addition = '<p>A new edition must retain a separate local identity.</p>'
+        data['elementHtml'] += addition
+        # Resource-backed EPUB copies bind each slice to elementHtml. This
+        # deliberately edited edition must keep that source range coherent.
+        if data.get('epubPublication'):
+            data['epubPublication']['resources'][-1]['end'] += len(addition)
         new_modified = int(original_name.split('_')[4]) + 20000
         parts['staticdata.json'] = json.dumps(data)
         buffer = io.BytesIO()
