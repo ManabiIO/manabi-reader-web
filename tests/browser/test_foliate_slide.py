@@ -1,12 +1,29 @@
 """Layered page turns in the built Reader, including real touch and wheel input."""
 import os
+import io
 import threading
+import zipfile
 from pathlib import Path
 import unittest
 from playwright.sync_api import expect, sync_playwright
 from test_static_reader import ReaderBrowser, linked_epub, ThreadingHTTPServer, StaticHandler
 
 P = "document.querySelector('foliate-paginator')"
+
+
+def numbered_epub():
+    output = io.BytesIO()
+    title = 'Global page number acceptance'
+    with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr('mimetype', 'application/epub+zip')
+        archive.writestr('META-INF/container.xml', '<container><rootfiles><rootfile full-path="content.opf"/></rootfiles></container>')
+        manifest = ''.join(f'<item id="c{i}" href="c{i}.xhtml" media-type="application/xhtml+xml"/>' for i in range(4))
+        spine = ''.join(f'<itemref idref="c{i}"/>' for i in range(4))
+        archive.writestr('content.opf', f'<package><metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">{title}</dc:title></metadata><manifest>{manifest}</manifest><spine>{spine}</spine></package>')
+        for i in range(4):
+            body = f'<h1>Chapter {i+1}</h1>' + ''.join(f'<p>{n+1}. 日本語の本を読みます。次のページも丁寧に読みます。</p>' for n in range(24 + i * 12))
+            archive.writestr(f'c{i}.xhtml', f'<html><body>{body}</body></html>')
+    return title, output.getvalue()
 
 
 class FoliateSlide(ReaderBrowser):
@@ -52,13 +69,17 @@ class FoliateSlide(ReaderBrowser):
             bounds:rect(el), shade:rect(el.querySelector('.slide-shade')),
             background:rect(el.querySelector('#background')),
             shadow:getComputedStyle(el).boxShadow, filter:getComputedStyle(el).filter,
-            insets:['Top','Right','Bottom','Left'].map(side => parseFloat(getComputedStyle(el)['padding'+side]))
+            insets:['Top','Right','Bottom','Left'].map(side => parseFloat(getComputedStyle(el)['padding'+side])),
+            indicator:rect(el.querySelector('.page-indicator')),
+            label:el.querySelector('.page-indicator').textContent,
+            globalPage:Number(el.querySelector('.page-indicator').dataset.page)
           }});
           return {{page:p.page, index:p.getContents()[0].index, width:p.getBoundingClientRect().width,
             host:rect(p), viewport:{{width:visualViewport.width,height:visualViewport.height}},
             surfaces:sheet ? [surface(top),surface(sheet)] : [],
             progress:Number(p.dataset.turnProgress || 0), commits:window.turnCommits,
-            frames:root.querySelectorAll('iframe').length,
+            frames:root.querySelectorAll('#top iframe, .slide-sheet iframe').length,
+            measuring:root.querySelectorAll('.page-measure iframe').length,
             currentX:x(top), neighborX:sheet ? x(sheet) : null,
             currentShade:Number(top.querySelector('.slide-shade')?.style.opacity || 0),
             neighborShade:Number(sheet?.querySelector('.slide-shade')?.style.opacity || 0),
@@ -85,6 +106,7 @@ class FoliateSlide(ReaderBrowser):
         self.assertEqual(p['radius'], p['neighborRadius'])
         self.assertGreater(float(p['radius'].replace('px', '')), 0)
         self.assertEqual(p['frames'], 2)
+        self.assertLessEqual(p['measuring'], 1)
         self.assertGreater(p['currentZ'] if direction == 1 else p['neighborZ'], p['neighborZ'] if direction == 1 else p['currentZ'])
         for axis in ['x', 'y']:
             self.assertAlmostEqual(p['host'][axis], 0, delta=1)
@@ -97,10 +119,111 @@ class FoliateSlide(ReaderBrowser):
             for axis in ['width', 'height']:
                 self.assertAlmostEqual(surface['bounds'][axis], p['viewport'][axis], delta=1)
             self.assertAlmostEqual(surface['bounds']['y'], 0, delta=1)
+            self.assertAlmostEqual(surface['indicator']['x'] + surface['indicator']['width']/2,
+                                   surface['bounds']['x'] + width/2, delta=1)
+            self.assertEqual(surface['label'], str(surface['globalPage']))
             for layer in ['shade', 'background']:
                 for axis in ['x', 'y', 'width', 'height']:
                     self.assertAlmostEqual(surface[layer][axis], surface['bounds'][axis], delta=1,
                                            msg=f"{layer} must cover the full sheet ({axis})")
+        self.assertEqual(p['surfaces'][1]['globalPage'], p['surfaces'][0]['globalPage'] + direction)
+
+    def indicator(self):
+        return self.page.evaluate("window.slideRoot.querySelector('#top .page-indicator').textContent")
+
+    def toggle_controls(self):
+        self.page.evaluate("window.slideRoot.querySelector('#top .page-indicator').click()")
+
+    def open_numbered_book(self):
+        self.page.set_viewport_size({'width': 390, 'height': 844})
+        title, archive = numbered_epub()
+        self.context.add_init_script("localStorage.setItem('manabi-dev-foliate-epub','true');localStorage.setItem('viewMode','paginated');localStorage.setItem('writingMode','horizontal-tb')")
+        self.page.goto(self.origin + '/reader-web/manage')
+        expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
+        self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({'name':'numbered.epub','mimeType':'application/epub+zip','buffer':archive})
+        self.page.get_by_role('button', name='Read ' + title, exact=True).click()
+        self.page.wait_for_function(f"() => {P}?.pageCounts.length === 4 && {P}.pageCounts.every(Number.isFinite)")
+
+    def test_controls_hide_at_turn_start_and_numbers_move_with_both_pages(self):
+        self.open_slide(False, mobile=True)
+        self.assertEqual(self.indicator(), '1')
+        self.toggle_controls()
+        expect(self.page.get_by_role('banner', name='Reader toolbar')).to_be_visible()
+        self.assertRegex(self.indicator(), r'^1 of \d+$')
+        self.page.evaluate(f"async () => {{window.prepared = await {P}.preparePageTurn(1);window.prepared.update(.45)}}")
+        expect(self.page.get_by_role('banner', name='Reader toolbar')).not_to_be_visible()
+        expect(self.page.locator('.reader-controls')).not_to_be_visible()
+        expect(self.page.locator('#ttu-page-footer')).not_to_be_visible()
+        self.assertEqual(self.page.locator('.reader-progress').count(), 0)
+        self.assert_pose(self.pose(), .45, 1, False)
+        self.screenshot('page-number-forward-held')
+        self.page.evaluate('window.prepared.commit()')
+        self.assertEqual(self.indicator(), '2')
+        self.toggle_controls()
+        self.assertRegex(self.indicator(), r'^2 of \d+$')
+        self.screenshot('page-number-expanded')
+
+    def test_global_counts_match_rendered_chapters_and_recompute_on_resize(self):
+        self.open_numbered_book()
+        initial = self.page.evaluate(f'{P}.pageCounts')
+        for index in range(4):
+            self.page.evaluate(f"async index => await {P}.goTo({{index}})", index)
+            self.assertEqual(self.page.evaluate(f'{P}.pages - 2'), initial[index])
+            self.assertEqual(self.indicator(), str(1 + sum(initial[:index])))
+        self.page.evaluate(f"async () => {{window.prepared=await {P}.preparePageTurn(-1);window.prepared.update(.5)}}")
+        self.assert_pose(self.pose(), .5, -1, False)
+        self.screenshot('chapter-page-number-back-held')
+        self.page.evaluate('window.prepared.cancel()')
+        self.toggle_controls()
+        self.assertEqual(self.indicator(), f'{1 + sum(initial[:3])} of {sum(initial)}')
+        self.page.set_viewport_size({'width': 600, 'height': 600})
+        self.page.wait_for_function(f"old => {P}.pageCounts.every(Number.isFinite) && JSON.stringify({P}.pageCounts)!==JSON.stringify(old)", arg=initial)
+        resized = self.page.evaluate(f'{P}.pageCounts')
+        self.assertEqual(self.page.evaluate(f'{P}.getContents()[0].index'), 3)
+        for index in range(4):
+            self.page.evaluate(f"async index => await {P}.goTo({{index}})", index)
+            self.assertEqual(self.page.evaluate(f'{P}.pages - 2'), resized[index])
+        self.page.get_by_role('button', name='Themes & Settings', exact=True).click()
+        font_size = self.page.evaluate(f"parseFloat(getComputedStyle({P}.getContents()[0].doc.body).fontSize)")
+        for _ in range(10):
+            self.page.get_by_role('button', name='Increase text size', exact=True).click()
+        self.page.get_by_role('button', name='Close reading appearance', exact=True).click()
+        self.page.wait_for_function(f"size => parseFloat(getComputedStyle({P}.getContents()[0].doc.body).fontSize)===size", arg=font_size+10)
+        self.page.wait_for_function(f"old => {P}.pageCounts.every(Number.isFinite) && JSON.stringify({P}.pageCounts)!==JSON.stringify(old)", arg=resized)
+        self.assertEqual(self.page.evaluate(f'{P}.getContents()[0].index'), 3)
+        restyled = self.page.evaluate(f'{P}.pageCounts')
+        for index in range(4):
+            self.page.evaluate(f"async index => await {P}.goTo({{index}})", index)
+            self.assertEqual(self.page.evaluate(f'{P}.pages - 2'), restyled[index])
+
+    def test_unknown_counts_progress_from_percent_to_current_to_total(self):
+        self.open_numbered_book()
+        self.page.evaluate(f"async () => await {P}.goTo({{index:2}})")
+        self.toggle_controls()
+        self.page.evaluate(f"""() => {{
+          window.countGates={{}};
+          for (const index of [0,3]) {{
+            const section={P}.sections[index], load=section.load;
+            section.load=async () => {{
+              await new Promise(resolve => window.countGates[index]=resolve);
+              return load();
+            }};
+          }}
+          {P}.setStyles('body {{font-size:32px; line-height:1.7; writing-mode:horizontal-tb}}');
+        }}""")
+        self.page.wait_for_function('() => !!window.countGates[0]')
+        self.assertRegex(self.indicator(), r'^\d+%$')
+        self.screenshot('page-number-percent-pending')
+        self.page.evaluate('window.countGates[0]()')
+        self.page.wait_for_function('() => !!window.countGates[3]')
+        self.assertRegex(self.indicator(), r'^\d+$')
+        self.screenshot('page-number-current-pending')
+        self.assertEqual(self.page.evaluate(f'{P}.getContents()[0].index'), 2)
+        self.page.evaluate('window.countGates[3]()')
+        self.page.wait_for_function(f"() => {P}.pageCounts.every(Number.isFinite)")
+        counts = self.page.evaluate(f'{P}.pageCounts')
+        self.assertEqual(self.indicator(), f'{1 + sum(counts[:2])} of {sum(counts)}')
+        self.screenshot('page-number-total-ready')
 
     def test_keyframes_ltr(self):
         self.check_keyframes(False)

@@ -11,6 +11,8 @@ export class Paginator extends HTMLElement {
   readonly page: number;
   readonly pages: number;
   readonly size: number;
+  readonly pageCounts: Array<number | undefined>;
+  setPageNumberDisplay(options: { expanded: boolean; weights?: number[]; color?: string }): void;
   preparePageTurn(direction: -1 | 1): Promise<PreparedPageTurn | null>;
   cancelPageTurn(): void;
   sections: Array<{ linear?: string }>;

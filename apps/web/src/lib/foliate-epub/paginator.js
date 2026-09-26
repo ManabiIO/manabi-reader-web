@@ -1,6 +1,7 @@
 // Vendored from foliate-js commit 78914aef4466eb960965702401634c2cb348e9b1.
 // See LICENSE.foliate-js.txt in this directory.
 import { slideGeometry } from './slide-geometry.ts'
+import { PageCountCache, pageNumber, pageNumberLabel } from './page-counts.ts'
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -212,12 +213,12 @@ const setStylesImportant = (el, styles) => {
 }
 
 class View {
-    #resizeFrame = 0
+    #resizeTimer = 0
     #observer = new ResizeObserver(() => {
-        // Resizing the iframe in its body's observer can trigger a WebKit
-        // ResizeObserver delivery loop. Apply layout in the next frame.
-        cancelAnimationFrame(this.#resizeFrame)
-        this.#resizeFrame = requestAnimationFrame(() => this.expand())
+        // An iframe and its parent have separate rendering cycles. Schedule a
+        // task after observer delivery in both documents before resizing it.
+        clearTimeout(this.#resizeTimer)
+        this.#resizeTimer = setTimeout(() => this.expand(), 0)
     })
     #element = document.createElement('div')
     #iframe = document.createElement('iframe')
@@ -438,7 +439,7 @@ class View {
     destroy() {
         this.#disposed = true
         this.#observer.disconnect()
-        cancelAnimationFrame(this.#resizeFrame)
+        clearTimeout(this.#resizeTimer)
         this.#cancelLoad?.()
     }
 }
@@ -490,6 +491,9 @@ export class Paginator extends HTMLElement {
     #destroyed = false
     #preparedTurn
     #turnGeneration = 0
+    #pageCounts
+    #pageNumberOptions
+    #indicator
     constructor() {
         super()
         this.#root.innerHTML = `<style>
@@ -497,14 +501,14 @@ export class Paginator extends HTMLElement {
             display: block;
             container-type: size;
         }
-        :host, #top, .slide-sheet {
+        :host, #top, .slide-sheet, .page-measure {
             box-sizing: border-box;
             position: relative;
             overflow: hidden;
             width: 100%;
             height: 100%;
         }
-        #top, .slide-sheet {
+        #top, .slide-sheet, .page-measure {
             --_gap: 7%;
             --_margin: 48px;
             --_max-inline-size: 720px;
@@ -541,13 +545,25 @@ export class Paginator extends HTMLElement {
             }
         }
         :host([layered]) { border-radius: var(--reader-page-radius, 55px); touch-action: pan-y pinch-zoom; overscroll-behavior-x: contain; }
-        :host([layered]) #top, .slide-sheet {
+        :host([layered]) #top, .slide-sheet, .page-measure {
             border-radius: inherit;
             padding: var(--reader-page-insets, 0);
             isolation: isolate;
             background-color: Canvas;
         }
-        .slide-sheet { position: absolute; inset: 0; visibility: hidden; }
+        .slide-sheet, .page-measure { position: absolute; inset: 0; visibility: hidden; }
+        .page-measure { pointer-events: none; }
+        .page-indicator {
+            position: absolute; left: 50%; bottom: calc(1rem + env(safe-area-inset-bottom));
+            transform: translateX(-50%); z-index: 2;
+            min-width: 44px; min-height: 44px; padding: 0 12px;
+            display: flex; align-items: center; justify-content: center;
+            border: 0; background: none; box-shadow: none; color: inherit;
+            font: 12px/1 system-ui, sans-serif; opacity: .7;
+            writing-mode: horizontal-tb; white-space: nowrap; cursor: pointer;
+        }
+        .page-indicator[hidden] { display: none; }
+        .page-indicator:focus-visible { outline: 2px solid currentColor; border-radius: 8px; }
         .slide-shade {
             position: absolute; inset: 0; background: black;
             pointer-events: none; z-index: 3; border-radius: inherit;
@@ -606,6 +622,7 @@ export class Paginator extends HTMLElement {
         this.#container = this.#root.getElementById('container')
         this.#header = this.#root.getElementById('header')
         this.#footer = this.#root.getElementById('footer')
+        this.#indicator = this.#createPageIndicator(this.#top)
 
         this.#observer.observe(this.#container)
         this.#container.addEventListener('scroll', () => this.dispatchEvent(new Event('scroll')))
@@ -698,6 +715,11 @@ export class Paginator extends HTMLElement {
     open(book) {
         this.bookDir = book.dir
         this.sections = book.sections
+        this.#pageCounts?.destroy()
+        this.#pageCounts = new PageCountCache(this.sections.length,
+            (index, signal) => this.#measureSection(index, signal),
+            () => this.#updatePageIndicators(),
+            error => this.dispatchEvent(new CustomEvent('paginationerror', { detail: error })))
         book.transformTarget?.addEventListener('data', ({ detail }) => {
             if (detail.type !== 'text/css') return
             const w = innerWidth
@@ -1029,6 +1051,7 @@ export class Paginator extends HTMLElement {
             detail.fraction = (page - 1) / (pages - 2)
             detail.size = 1 / (pages - 2)
         }
+        this.#syncPageCounts()
         this.dispatchEvent(new CustomEvent('relocate', { detail }))
     }
     async #display(promise) {
@@ -1169,6 +1192,96 @@ export class Paginator extends HTMLElement {
     }
     // A prepared View is owned by this engine. It cannot relocate, persist
     // progress, receive focus, or expose its document until promotion.
+    #createPageIndicator(sheet) {
+        const indicator = document.createElement('button')
+        indicator.type = 'button'
+        indicator.className = 'page-indicator'
+        indicator.hidden = true
+        indicator.addEventListener('click', () => this.dispatchEvent(new Event('togglecontrols')))
+        sheet.append(indicator)
+        return indicator
+    }
+    setPageNumberDisplay(options) {
+        this.#pageNumberOptions = options
+        this.#syncPageCounts()
+    }
+    get pageCounts() { return this.#pageCounts?.counts.slice() ?? [] }
+    #syncPageCounts() {
+        if (!this.#pageNumberOptions || !this.#view?.ready || this.scrolled || this.#destroyed) return
+        const key = JSON.stringify([this.#vertical, this.#rtl, this.#view.layout, this.#styles])
+        this.#pageCounts?.useLayout(key, this.#index, Math.max(1, this.pages - 2))
+        this.#updatePageIndicators()
+    }
+    #updatePageIndicators() {
+        const options = this.#pageNumberOptions
+        if (!options || !this.#view?.ready || this.#destroyed) return
+        const update = (indicator, index, page, pages) => {
+            if (!indicator || index < 0 || page < 1) return
+            const value = pageNumber(this.pageCounts, index, page, pages, options.weights)
+            indicator.hidden = false
+            indicator.textContent = pageNumberLabel(value, options.expanded)
+            indicator.style.color = options.color ?? 'inherit'
+            indicator.dataset.page = value.current ?? ''
+            indicator.dataset.total = value.total ?? ''
+            indicator.setAttribute('aria-label', `${options.expanded ? 'Hide' : 'Show'} reading controls. ${
+                value.current === undefined ? `${value.percentage}%` : `Page ${value.current}${
+                    value.total === undefined ? '' : ` of ${value.total}`}`}`)
+        }
+        update(this.#indicator, this.#index, this.page, Math.max(1, this.pages - 2))
+        const turn = this.#preparedTurn
+        if (turn?.page) update(turn.indicator, turn.index, turn.page, turn.pages)
+    }
+    async #measureSection(index, signal) {
+        if (signal.aborted || !this.#view?.ready) return 0
+        const layout = { ...this.#view.layout }
+        const side = this.sideProp
+        const size = this.size
+        const styles = this.#styles
+        const section = this.sections[index]
+        const sheet = this.#top.cloneNode(false)
+        sheet.removeAttribute('id')
+        sheet.classList.add('page-measure')
+        sheet.style.visibility = 'hidden'
+        sheet.setAttribute('aria-hidden', 'true')
+        sheet.inert = true
+        for (const prop of ['transform', 'z-index', 'will-change']) sheet.style.removeProperty(prop)
+        const container = this.#container.cloneNode(false)
+        sheet.append(container)
+        this.#root.append(sheet)
+        const view = new View({ container: this, onExpand: () => {} })
+        container.append(view.element)
+        let loaded = false
+        let stopWaiting
+        const cancelled = new Promise(resolve => stopWaiting = resolve)
+        const abort = () => { view.destroy(); sheet.remove(); stopWaiting() }
+        signal.addEventListener('abort', abort, { once: true })
+        try {
+            const src = await section.load()
+            loaded = true
+            if (signal.aborted) return 0
+            const ready = await view.load(src, doc => {
+                const before = doc.createElement('style')
+                const after = doc.createElement('style')
+                doc.head.prepend(before)
+                doc.head.append(after)
+                if (Array.isArray(styles)) [before.textContent, after.textContent] = styles
+                else after.textContent = styles ?? ''
+            }, () => layout)
+            if (!ready || signal.aborted) return 0
+            await Promise.race([cancelled, Promise.all([
+                view.document.fonts.ready,
+                ...Array.from(view.document.images, image => image.decode().catch(() => {})),
+            ])])
+            if (signal.aborted) return 0
+            view.expand()
+            return Math.max(1, Math.round(view.element.getBoundingClientRect()[side] / size) - 2)
+        } finally {
+            signal.removeEventListener('abort', abort)
+            view.destroy()
+            sheet.remove()
+            if (loaded) section.unload?.()
+        }
+    }
     get pageTurnDirection() {
         return this.#vertical || this.bookDir === 'rtl' || this.#rtl ? 'rtl' : 'ltr'
     }
@@ -1202,9 +1315,13 @@ export class Paginator extends HTMLElement {
             if (index == null) return null
             page = direction > 0 ? 1 : -1
         }
+        if (this.#pageNumberOptions) this.#pageNumberOptions.expanded = false
+        this.#updatePageIndicators()
+        this.dispatchEvent(new Event('pageturnstart'))
         const sheet = this.#top.cloneNode(false)
         sheet.removeAttribute('id')
         sheet.classList.add('slide-sheet')
+        sheet.style.visibility = 'hidden'
         sheet.setAttribute('aria-hidden', 'true')
         sheet.inert = true
         const background = this.#background.cloneNode(true)
@@ -1212,6 +1329,7 @@ export class Paginator extends HTMLElement {
         const footer = this.#footer.cloneNode(true)
         const container = this.#container.cloneNode(false)
         sheet.append(background, header, container, footer)
+        const indicator = this.#createPageIndicator(sheet)
         this.#root.append(sheet)
         const shade = document.createElement('div')
         shade.className = 'slide-shade'
@@ -1219,7 +1337,7 @@ export class Paginator extends HTMLElement {
         this.#top.append(shade)
         const neighborShade = shade.cloneNode()
         sheet.append(neighborShade)
-        const turn = { index, sheet, shade, ownsSource: index !== this.#index }
+        const turn = { index, sheet, shade, indicator, ownsSource: index !== this.#index }
         this.#preparedTurn = turn
         let positioned = false
         const position = () => {
@@ -1255,6 +1373,10 @@ export class Paginator extends HTMLElement {
             view.expand()
             const pages = Math.round(view.element.getBoundingClientRect()[this.sideProp] / this.size)
             if (page === -1) page = Math.max(1, pages - 2)
+            turn.page = page
+            turn.pages = Math.max(1, pages - 2)
+            this.#pageCounts?.record(index, turn.pages)
+            this.#updatePageIndicators()
             positioned = true
             position()
             background.style.background = getBackground(view.document)
@@ -1297,6 +1419,7 @@ export class Paginator extends HTMLElement {
                     this.#background = background
                     this.#header = header
                     this.#footer = footer
+                    this.#indicator = indicator
                     this.heads = Array.from(header.children, el => el.firstElementChild)
                     this.feet = Array.from(footer.children, el => el.firstElementChild)
                     this.#view = view
@@ -1368,6 +1491,7 @@ export class Paginator extends HTMLElement {
         if (this.#destroyed) return false
         this.cancelPageTurn()
         this.#destroyed = true
+        this.#pageCounts?.destroy()
         this.#navigationGeneration += 1
         this.#observer.disconnect()
         cancelAnimationFrame(this.#resizeFrame)

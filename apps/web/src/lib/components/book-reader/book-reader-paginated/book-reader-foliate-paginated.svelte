@@ -33,6 +33,7 @@
   export let width: number;
   export let height: number;
   export let maxInlineSize = 0;
+  export let controlsVisible = false;
   export let verticalMode: boolean;
   export let fontFeatureSettings: string;
   export let verticalTextOrientation: string;
@@ -74,6 +75,8 @@
     contentChange: HTMLElement;
     trackerPause: void;
     userNavigation: void;
+    pageTurnStart: void;
+    toggleControls: void;
   }>();
 
   let host: HTMLDivElement;
@@ -333,12 +336,46 @@
     }
   }
 
-  $: if (paginator) {
+  // Svelte does not follow reactive dependencies through readerStyles().
+  $: styleInputs = [
+    verticalMode,
+    fontFeatureSettings,
+    verticalTextOrientation,
+    prioritizeReaderStyles,
+    enableTextJustification,
+    enableTextWrapPretty,
+    fontColor,
+    backgroundColor,
+    hintFuriganaFontColor,
+    hintFuriganaShadowColor,
+    fontFamilyGroupOne,
+    fontFamilyGroupTwo,
+    fontWeight,
+    fontSize,
+    lineHeight,
+    textIndentation,
+    textMarginMode,
+    textMarginValue,
+    hideSpoilerImage,
+    hideFurigana,
+    furiganaStyle,
+    avoidPageBreak
+  ];
+
+  $: if (paginator && styleInputs) {
     if (maxInlineSize > 0) paginator.setAttribute('max-inline-size', `${maxInlineSize}px`);
     else paginator.removeAttribute('max-inline-size');
     paginator.setAttribute('margin', `${Math.max(0, firstDimensionMargin)}px`);
     paginator.setAttribute('max-column-count', String(Math.max(1, pageColumns || 1)));
     paginator.setStyles(readerStyles());
+  }
+
+  $: if (paginator && progress) {
+    paginator.setPageNumberDisplay({
+      expanded: controlsVisible,
+      color: fontColor,
+      weights: progress.sectionEnds.map((end, index) => end - progress!.sectionStart(index))
+    });
   }
 
   onMount(async () => {
@@ -366,6 +403,8 @@
     paginator.setAttribute('max-column-count', String(Math.max(1, pageColumns || 1)));
     paginator.addEventListener('load', handleLoad);
     paginator.addEventListener('relocate', handleRelocate);
+    paginator.addEventListener('pageturnstart', () => dispatch('pageTurnStart'));
+    paginator.addEventListener('togglecontrols', () => dispatch('toggleControls'));
     pageTurns = new PageTurnController(paginator);
     host.append(paginator);
     paginator.open(book);

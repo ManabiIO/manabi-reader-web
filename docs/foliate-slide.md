@@ -19,6 +19,21 @@ windows). Reading margins and safe-area insets sit inside the moving sheets. The
 is no drop shadow; the full underlying page receives only the dimming overlay.
 Browsers do not expose a physical display's corner radius.
 
+The first turn intent immediately collapses the controls, including the floating
+toggle and bottom action buttons. The bottom-center indicator is inside each
+sheet, so both outgoing and incoming labels move and dim with their paper. Tapping
+the active indicator toggles the controls: a known page displays `13` while hidden
+and `13 of 15` while expanded. If later chapters remain uncounted it displays `13`;
+if a preceding chapter is unknown it displays a character-weighted percentage.
+
+Chapter counts are measured sequentially in an inert, invisible Foliate view at
+the same layout and typography as the active reader, after fonts and images
+settle. This work yields between chapters and never navigates the visible reader.
+Four layout results are cached in memory for the current book's reading session.
+ResizeObserver and typography changes select a new layout key and cancel stale
+measurements; returning to a cached layout reuses its counts. Prefix counts become
+available before the complete total, and the active chapter is immediately known.
+
 Touch displacement controls a turn after horizontal intent is established.
 Long presses, existing selections, taps on links/ruby/images, and pinch zoom
 keep their document behavior. Horizontal drags can start on illustrated pages;
@@ -38,7 +53,8 @@ physical trackpad feel remains an acceptance item.
 
 ## Ownership
 
-The paginator owns at most the committed view and one prepared neighboring view.
+The paginator owns at most the committed view, one prepared neighboring view,
+and one invisible background measurement view.
 Preparation emits no load/relocate event and cannot update bookmarks or progress.
 Promotion reuses the prepared sheet in place: reparenting an iframe would reload
 its browsing context. Consumers receive the new active document only on commit,
@@ -79,6 +95,10 @@ production rendering. Geometry assertions include actual computed transforms,
 layer order, matching corners, opaque paper, full-viewport sheet/background/shade
 bounds, absence of sheet shadows, and bounded iframe count. Chapter links are
 exercised after promoting a prepared iframe.
+Additional tests compare background counts with every foreground chapter, resize
+the reader, change text size through the appearance UI, verify indicators on both
+sheets, and delay real resource loads to exercise each partial-count state. Unit
+tests cover prefix arithmetic, label formatting, cached layouts, and stale jobs.
 
 Physical iPhone Safari and Mac trackpad acceptance is still required for hardware
 feel; desktop WebKit and Chromium input emulation do not establish that result.

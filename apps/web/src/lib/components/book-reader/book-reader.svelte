@@ -47,6 +47,8 @@
     contentChange: HTMLElement;
     userNavigation: void;
     selectionChange: Range | undefined;
+    pageTurnStart: void;
+    toggleControls: void;
   }>();
   let currentContentEl: HTMLElement | undefined;
   let selectionDocument: Document | undefined;
@@ -57,6 +59,9 @@
     browser && localStorage.getItem('manabi-dev-foliate-epub') === 'true';
   $: useFoliatePaginator =
     foliatePreviewEnabled && sourceFormat === 'epub' && !!publicationManifest;
+  export let sheetPagination = false;
+  export let controlsVisible = false;
+  $: sheetPagination = useFoliatePaginator && viewMode === ViewMode.Paginated;
 
   function handleReaderSelectionChange() {
     const selection = selectionDocument?.defaultView?.getSelection();
@@ -573,6 +578,9 @@
       {width}
       {height}
       maxInlineSize={secondDimensionMaxValue}
+      {controlsVisible}
+      on:pageTurnStart
+      on:toggleControls
       {verticalMode}
       {fontFeatureSettings}
       {verticalTextOrientation}
