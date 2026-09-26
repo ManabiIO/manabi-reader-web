@@ -40,6 +40,7 @@ jobs:
           mkdir -p artifacts/library
           git rev-parse HEAD > artifacts/library/commit.txt
           python tests/unit/test_library_release_gate.py
+          python tests/unit/test_library_release_diagnostics.py
           set -o pipefail
           node --experimental-strip-types --test tests/unit/library*.test.mjs 2>&1 | tee artifacts/library/units.log
       - name: Build static application

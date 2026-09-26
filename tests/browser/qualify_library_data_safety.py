@@ -4,6 +4,7 @@ The native-storage suites also start their existing Vite module harness. They
 are not substitutes for the separately retained production-app browser cases.
 """
 import argparse
+import codecs
 import json
 import os
 from pathlib import Path
@@ -15,7 +16,7 @@ LOCAL_MODULES = (
     'test_local_library_features', 'test_local_library_review',
     'test_local_library_refinement', 'test_local_library_lifecycle',
     'test_library_deletion', 'test_book_save_cancellation', 'test_book_last_read',
-    'test_library_open_commit',
+    'test_library_open_commit', 'test_library_search_readiness',
 )
 OPEN_CASES = (
     'test_books_library.BooksLibraryFilesystem.test_external_relocation_rebinds_content_identity_and_presentation',
@@ -40,25 +41,70 @@ def groups(suite):
     return selected
 
 
+def run_group(command, environment, log_path):
+    """Tee one merged pipe in bounded chunks; never buffer an entire suite log."""
+    decoder = codecs.getincrementaldecoder('utf-8')(errors='replace')
+    with log_path.open('wb') as log:
+        try:
+            with subprocess.Popen(command, cwd=ROOT, env=environment,
+                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as process:
+                try:
+                    while chunk := process.stdout.read1(65536):
+                        log.write(chunk)
+                        log.flush()
+                        sys.stdout.write(decoder.decode(chunk))
+                        sys.stdout.flush()
+                    sys.stdout.write(decoder.decode(b'', final=True))
+                    sys.stdout.flush()
+                    return process.wait()
+                except BaseException:
+                    # An interrupted launcher must not leave its direct child
+                    # running or turn incomplete evidence into a successful run.
+                    process.kill()
+                    process.wait()
+                    raise
+        except OSError as error:
+            log.write((str(error) + '\n').encode('utf-8', errors='replace'))
+            raise
+
+
 def qualify(suite):
-    reports = []
+    selected = groups(suite)
     output = ROOT / 'test-results'
     output.mkdir(exist_ok=True)
     report = output / ('library-data-safety-' + suite + '.json')
-    for name, engine, arguments in groups(suite):
-        command = [sys.executable, *arguments]
+    reports = [dict(name=name, engine=engine, command=[sys.executable, *arguments],
+                    status='pending', returncode=None,
+                    log=f'test-results/library-data-safety-{suite}-{name}.log')
+               for name, engine, arguments in selected]
+
+    def save_report():
+        temporary = report.with_suffix('.json.tmp')
+        temporary.write_text(json.dumps(reports, indent=2) + '\n')
+        temporary.replace(report)
+
+    # Invalidate any older success before starting a child. An interrupted
+    # report identifies the unfinished group and all groups not yet attempted.
+    save_report()
+    for row in reports:
         environment = dict(os.environ, PYTHONPATH=str(ROOT / 'tests/browser'),
-                           LIBRARY_BROWSER=engine, PICKS_BROWSER=engine,
-                           APPEARANCE_BROWSER=engine)
-        print(f'::group::{name} ({engine})', flush=True)
-        # No retry or waived exit status. Continue to collect the remaining
-        # engine diagnostics, but any failed group fails the required job.
-        result = subprocess.run(command, cwd=ROOT, env=environment, check=False)
-        reports.append({'name': name, 'engine': engine, 'command': command,
-                        'returncode': result.returncode})
-        report.write_text(json.dumps(reports, indent=2) + '\n')
-        print('::endgroup::', flush=True)
-    return int(any(result['returncode'] != 0 for result in reports))
+                           LIBRARY_BROWSER=row['engine'], PICKS_BROWSER=row['engine'],
+                           APPEARANCE_BROWSER=row['engine'])
+        print(f"::group::{row['name']} ({row['engine']})", flush=True)
+        row['status'] = 'running'
+        save_report()
+        try:
+            row['returncode'] = run_group(row['command'], environment, ROOT / row['log'])
+            row['status'] = 'completed'
+        except OSError as error:
+            row.update(status='launch-failed', error=str(error))
+        except BaseException:
+            row['status'] = 'interrupted'
+            raise
+        finally:
+            save_report()
+            print('::endgroup::', flush=True)
+    return int(any(row['status'] != 'completed' or row['returncode'] != 0 for row in reports))
 
 
 if __name__ == '__main__':

@@ -280,17 +280,20 @@ class LibraryOpenCommitStatic(LibraryBase):
             })""")
             self.page.evaluate("""()=>{
               const original=IDBDatabase.prototype.transaction;
-              delete document.documentElement.dataset.resumeTargetTransactionStarted;
+              delete document.documentElement.dataset.bookOpenTransactionStarted;
               IDBDatabase.prototype.transaction=function(names,mode,...args){
                 const tx=original.call(this,names,mode,...args);
-                if(this.name==='books'&&mode==='readwrite'&&Array.from(tx.objectStoreNames).includes('lastItem'))
-                  document.documentElement.dataset.resumeTargetTransactionStarted='true';
+                if(this.name==='books'&&mode==='readwrite'&&Array.from(tx.objectStoreNames).includes('data'))
+                  document.documentElement.dataset.bookOpenTransactionStarted='true';
                 return tx;
               };
             }""")
             self.page.get_by_role('button',name='Read Queued book',exact=True).click()
-            # Locator assertions do not compile a predicate in the page's CSP realm.
-            expect(self.page.locator('html')).to_have_attribute('data-resume-target-transaction-started','true')
+            # The native peer can block preparation before the later resume
+            # transaction exists. Observe entry into storage, not an assumed
+            # cross-store writer scheduling policy. The next case isolates the
+            # actual queued resume phase and verifies its explicit abort.
+            expect(self.page.locator('html')).to_have_attribute('data-book-open-transaction-started','true')
             self.phase = 'cancel queued resume via Back'
             self.page.go_back()
             expect(self.page).to_have_url(re.compile('/reader-web/settings$'))
@@ -314,6 +317,64 @@ class LibraryOpenCommitStatic(LibraryBase):
             if not holder.is_closed():
                 holder.evaluate('window.releaseResumeBlocker?.()')
                 holder.close()
+
+    def test_back_aborts_the_actual_queued_resume_transaction_in_same_document(self):
+        self.import_book('Phase queued book')
+        self.import_book('Phase retained book')
+        ids = {row['title']:row['id'] for row in self.stores('books',['data'])['data']}
+        self.page.evaluate("""id=>new Promise((resolve,reject)=>{
+          const open=indexedDB.open('books');open.onerror=()=>reject(open.error);
+          open.onsuccess=()=>{const db=open.result,tx=db.transaction('lastItem','readwrite');
+            tx.objectStore('lastItem').put({dataId:id},0);
+            tx.oncomplete=()=>{db.close();resolve();};tx.onabort=()=>{db.close();reject(tx.error);};};
+        })""", ids['Phase retained book'])
+        self.page.evaluate('window.sameOpenDocument = true')
+        self.page.get_by_role('button',name='Library actions',exact=True).click()
+        self.page.get_by_role('menuitem',name='Settings',exact=True).click()
+        expect(self.page.get_by_role('heading',name='Appearance',exact=True)).to_be_visible()
+        self.page.get_by_role('button',name='Navigate',exact=True).click()
+        self.page.get_by_role('navigation',name='Main navigation').get_by_role('link',name='Library',exact=True).click()
+        expect(self.page.get_by_role('region',name='Library shelves')).to_have_attribute('data-hydrated','true')
+        self.assertTrue(self.page.evaluate('window.sameOpenDocument === true'))
+        self.page.evaluate("""()=>{
+          const original=IDBDatabase.prototype.transaction;
+          window.restoreResumeTransaction=()=>{IDBDatabase.prototype.transaction=original;};
+          IDBDatabase.prototype.transaction=function(names,mode,...args){
+            const scope=typeof names==='string'?[names]:Array.from(names);
+            if(this.name!=='books'||mode!=='readwrite'||!scope.includes('lastItem'))
+              return original.call(this,names,mode,...args);
+            // Install the real overlapping blocker at the actual resume boundary,
+            // after local preparation has completed, then enqueue the target.
+            IDBDatabase.prototype.transaction=original;
+            const blocker=original.call(this,'lastItem','readwrite');
+            let held=true;
+            window.releaseResumeBlocker=()=>{held=false;};
+            window.resumeBlockerDone=new Promise((resolve,reject)=>{
+              blocker.oncomplete=()=>resolve();blocker.onabort=()=>reject(blocker.error);});
+            const keep=()=>{if(!held)return;const request=blocker.objectStore('lastItem').get(0);
+              request.onsuccess=keep;};keep();
+            const target=original.call(this,names,mode,...args);
+            document.documentElement.dataset.resumeTargetOutcome='pending';
+            target.addEventListener('complete',()=>{document.documentElement.dataset.resumeTargetOutcome='committed';});
+            target.addEventListener('abort',()=>{document.documentElement.dataset.resumeTargetOutcome='aborted';});
+            return target;
+          };
+        }""")
+        try:
+            self.page.get_by_role('button',name='Read Phase queued book',exact=True).click()
+            expect(self.page.locator('html')).to_have_attribute('data-resume-target-outcome','pending')
+            self.page.go_back()
+            expect(self.page).to_have_url(re.compile('/reader-web/settings$'))
+            self.assertTrue(self.page.evaluate('window.sameOpenDocument === true'))
+            expect(self.page.locator('html')).to_have_attribute('data-resume-target-outcome','aborted')
+            self.page.evaluate('async()=>{window.releaseResumeBlocker();await window.resumeBlockerDone;}')
+            self.assertEqual([{'dataId':ids['Phase retained book']}],self.stores('books',['lastItem'])['lastItem'])
+        finally:
+            self.page.evaluate('()=>{window.releaseResumeBlocker?.();window.restoreResumeTransaction?.();}')
+        self.go_library()
+        self.page.get_by_role('button',name='Read Phase queued book',exact=True).click()
+        expect(self.page.locator('.book-content').first).to_have_attribute('aria-busy','false')
+        self.assertEqual([{'dataId':ids['Phase queued book']}],self.stores('books',['lastItem'])['lastItem'])
 
 
 class CatalogOpenCommitStatic(EditorsPicksBrowser):

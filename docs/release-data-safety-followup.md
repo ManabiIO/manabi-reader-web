@@ -91,3 +91,54 @@ Earlier green pairs do not certify a new composition. Final main/master,
 physical Safari, live-provider, full server image/application and host-cutover
 acceptance remain separate. No main/master merge or production dispatch is
 part of this work. Current run IDs/results are recorded on the PRs.
+
+
+## Follow-through on the final browser failures
+
+The `446a9169` Local Library run `36257604105` finished with two WebKit
+failures: the offline reload search had an empty query, and the queued-open
+fixture never observed construction of the later resume transaction. Appearance
+passed. These are not the previous CSP-evaluation exception. Artifact
+`10911079866` was checked against its SHA-256 before inspecting the report and
+retained DOM. No page-error assertion is waived.
+
+This continuation retains #57's newer `ec6e1f74` save snapshot/source/ambiguity
+changes, with the existing #59 scalar-capture and relative-import repairs. The
+original unmocked offline search test is unchanged. The search controls now stay
+disabled until the header is mounted and its query owner is available: otherwise
+the server-rendered field can accept text before it has an input handler. This
+does not wait for a search worker or block clickable metadata behind content
+results. A separate browser case checks the real server-rendered disabled input
+with JavaScript disabled, then normal hydrated input/query behavior; existing
+worker-delay, worker-failure and offline reload cases remain decisive.
+
+The peer-held opening test observes the first native book-storage transaction
+instead of assuming a later resume transaction can start while another writer
+holds the database. A separate same-document Back case installs an overlapping
+native blocker exactly when the real resume transaction is constructed, after
+local preparation. It asserts the target is pending, Back explicitly aborts it,
+the document itself was not replaced, the prior resume target survives, and an
+explicit retry succeeds. No production transaction is replaced, no native write
+is faked, no test timeout increases and no browser policy is relaxed. This
+separates the two cancellation phases instead of relying on cross-store writer
+scheduling to reach a particular phase.
+
+The central launcher had preserved exit statuses but dropped the per-suite
+stdout/stderr artifacts that the prior shell tee steps retained. It now streams
+one merged pipe in bounded chunks into both CI output and a per-group log. It
+writes a fresh pending/running/completed report before launching children, so
+interruption cannot leave an old success report. Launch failure is recorded and
+remaining groups still run; signal/nonzero/incomplete results never pass. Real
+subprocess tests cover both streams, large Unicode output, signal exits, launch
+failure and interrupted evidence. This is diagnostics, not another release gate
+or deployment coordinator.
+
+Before/after local policy tests establish the disabled-control and retained-log
+contracts. Native-browser execution on the final composition is still required
+to qualify the actual failure sequences; a source assertion alone does not
+establish an engine repair or certify physical Safari.
+
+Before publication, #59 advanced to `891e4227` with the concurrent snapshot,
+opening-lifecycle and offline-worker diagnostics. Those commits and their
+complete source are retained. The additional launcher logs complement the
+page-level lifecycle packets; they do not replace or duplicate those observers.

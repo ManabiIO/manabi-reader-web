@@ -54,9 +54,11 @@
   const compactMenus = new MediaQuery('(max-width: 639px)');
   let compactLibrary = browser && window.matchMedia('(max-width: 1023px)').matches;
   let searchExpanded = false;
+  let hydrated = false;
   let searchInput: HTMLInputElement | undefined;
   let searchButton: HTMLButtonElement | null = null;
   onMount(() => {
+    hydrated = true;
     const media = window.matchMedia('(max-width: 1023px)');
     const update = () => (compactLibrary = media.matches);
     update();
@@ -218,6 +220,7 @@
             <input
               bind:this={searchInput}
               type="search"
+              disabled={!hydrated || !libraryMenu}
               class="min-w-0 w-full border-0 bg-transparent p-0 shadow-none outline-none focus:border-transparent focus:shadow-none focus:ring-0"
               placeholder="Search library"
               value={libraryMenu?.search.query || ''}
@@ -269,7 +272,7 @@
               aria-label="Search library"
               title="Search library"
               onclick={openSearch}
-              disabled={!!replicationToProgress}
+              disabled={!hydrated || !libraryMenu || !!replicationToProgress}
               ><Search class="size-6" weight="bold" aria-hidden="true" /></Button
             >
           {/if}
@@ -531,6 +534,7 @@
               ><input
                 class="min-w-0 w-full border-0 bg-transparent p-0 shadow-none outline-none focus:border-transparent focus:shadow-none focus:ring-0"
                 type="search"
+                disabled={!hydrated || !libraryMenu}
                 placeholder="Search library"
                 value={libraryMenu?.search.query || ''}
                 oninput={(event) => {

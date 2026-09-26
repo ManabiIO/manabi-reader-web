@@ -3,7 +3,6 @@ import importlib.util
 import io
 from contextlib import redirect_stdout
 from pathlib import Path
-import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -44,7 +43,7 @@ class LibraryReleaseGate(unittest.TestCase):
         for name in ('test_library_deletion', 'test_book_save_cancellation', 'test_book_last_read',
                      'test_local_library_features', 'test_local_library_review',
                      'test_local_library_refinement', 'test_local_library_lifecycle',
-                     'test_library_open_commit'):
+                     'test_library_open_commit', 'test_library_search_readiness'):
             self.assertIn(name, gate.LOCAL_MODULES)
         for _, _, args in all_groups:
             if args[0].endswith('.py'):
@@ -58,15 +57,15 @@ class LibraryReleaseGate(unittest.TestCase):
         for failure in (None, *range(len(expected))):
             for status in (1, -15):
                 with self.subTest(failure=failure, status=status), tempfile.TemporaryDirectory() as directory:
-                    outcomes = [subprocess.CompletedProcess([], status if i == failure else 0)
+                    outcomes = [status if i == failure else 0
                                 for i in range(len(expected))]
-                    with patch.object(gate, 'ROOT', Path(directory)), patch.object(gate.subprocess, 'run', side_effect=outcomes) as run, redirect_stdout(io.StringIO()):
+                    with patch.object(gate, 'ROOT', Path(directory)), patch.object(gate, 'run_group', side_effect=outcomes) as run, redirect_stdout(io.StringIO()):
                         self.assertEqual(int(failure is not None), gate.qualify('all'))
                     self.assertEqual(len(expected), run.call_count)
                     for call, (_, engine, args) in zip(run.call_args_list, expected):
                         self.assertEqual([gate.sys.executable, *args], call.args[0])
-                        self.assertEqual(engine, call.kwargs['env']['LIBRARY_BROWSER'])
-                        self.assertEqual(engine, call.kwargs['env']['PICKS_BROWSER'])
+                        self.assertEqual(engine, call.args[1]['LIBRARY_BROWSER'])
+                        self.assertEqual(engine, call.args[1]['PICKS_BROWSER'])
                     self.assertTrue((Path(directory) / 'test-results/library-data-safety-all.json').is_file())
 
     def test_unknown_suite_cannot_silently_run_nothing(self):
