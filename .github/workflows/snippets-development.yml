@@ -5,20 +5,35 @@ on:
 permissions:
   contents: read
 jobs:
-  source:
+  dependencies:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - name: Retain exact source for isolated validation
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: 12.3.4
+          run_install: false
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 24.21.0
+          cache: pnpm
+      - name: Resolve exact editor versions
+        run: |
+          pnpm --filter web add @tiptap/core@3.31.3 @tiptap/pm@3.31.3 @tiptap/starter-kit@3.31.3 @tiptap/extension-ruby-text@3.31.3 @tiptap/extension-unique-id@3.31.3 @tiptap/markdown@3.31.3
+          pnpm --filter web add -D jsdom@26.1.0
+      - name: Retain reproducible isolated validation environment
         shell: bash
         run: |
-          git archive --format=tar HEAD | gzip > "$RUNNER_TEMP/snippets-source.tar.gz"
-          sha256sum "$RUNNER_TEMP/snippets-source.tar.gz"
+          tar -czf "$RUNNER_TEMP/snippets-dependencies.tar.gz" node_modules apps/web/node_modules pnpm-lock.yaml apps/web/package.json
+          cp "$(command -v node)" "$RUNNER_TEMP/node"
+          sha256sum "$RUNNER_TEMP/snippets-dependencies.tar.gz" "$RUNNER_TEMP/node"
       - uses: actions/upload-artifact@v4
         with:
-          name: snippets-source-${{ github.sha }}
-          path: ${{ runner.temp }}/snippets-source.tar.gz
+          name: snippets-dependencies-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/snippets-dependencies.tar.gz
+            ${{ runner.temp }}/node
           retention-days: 1
