@@ -12,6 +12,8 @@ export interface EpubResolvedTarget {
   fragment: string;
 }
 
+export const EPUB_NAVIGATION_EVENT = 'manabi-epub-navigation';
+
 export interface EpubNavigationRequest {
   sourceSpineIndex: number;
   href: string;
