@@ -1289,9 +1289,10 @@
 
     if (!result) return;
 
-    if (document.activeElement instanceof HTMLElement) {
-      document.activeElement.blur();
-    }
+    // Keep the active book frame focused so subsequent configured shortcuts
+    // continue to reach the same reader. Do not blur its browsing context.
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active.localName !== 'iframe') active.blur();
     ev.preventDefault();
   }
 
@@ -2243,6 +2244,7 @@
   <StyleSheetRenderer styleSheet={$bookData$.styleSheet} />
   <BookReader
     bind:this={bookReaderComponent}
+    on:readerKeydown={(event) => onKeydown(event.detail)}
     bind:sheetPagination={foliatePagination}
     controlsVisible={showHeader}
     on:pageTurnStart={() => (showHeader = false)}
@@ -2251,6 +2253,7 @@
     htmlContent={$bookData$.htmlContent}
     styleSheet={$bookData$.styleSheet}
     publicationManifest={$rawBookData$.publicationManifest}
+    epubResources={$bookData$.epubResources}
     sourceFormat={readerSourceFormat($rawBookData$)}
     width={$containerViewportWidth$ ?? 0}
     height={$containerViewportHeight$ ?? 0}
@@ -2494,6 +2497,7 @@
           bookId={$rawBookData$.id}
           bookTitle={$rawBookData$.title}
           htmlContent={$bookData$.htmlContent}
+          contentRoot={guideContentEl}
           layoutKey={$viewMode$}
           {bookmarkManager}
           onFollow={() => autoScroller?.off()}

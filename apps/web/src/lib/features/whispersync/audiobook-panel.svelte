@@ -29,6 +29,7 @@
   export let bookId: number;
   export let bookTitle: string;
   export let htmlContent: string;
+  export let contentRoot: HTMLElement | undefined = undefined;
   export let layoutKey: string | number;
   export let bookmarkManager: BookmarkManager | undefined;
   export let onFollow: () => void;
@@ -72,6 +73,7 @@
   let lastHtml = htmlContent;
   let lastLayout = layoutKey;
   let lastOpen = open;
+  let lastContentRoot: HTMLElement | undefined;
   let hasMatched = false;
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   let lastSave = 0;
@@ -87,6 +89,14 @@
   $: activeCue = current >= 0 ? cues[current] : undefined;
   $: if (mounted) contentChanged(htmlContent, layoutKey);
   $: if (mounted) panelVisibilityChanged(open);
+  $: if (mounted && contentRoot !== lastContentRoot) {
+    lastContentRoot = contentRoot;
+    highlight.clear();
+    observeLiveBook();
+    lastCue = -1;
+    updateCurrent(false);
+    document.dispatchEvent(new Event('manabi-reader-content-ready'));
+  }
 
   onMount(() => {
     alive = true;
@@ -95,7 +105,8 @@
     session = new AudiobookSessionCoordinator(new AudiobookSessionStore(), key);
     navigator = new ReaderNavigator({
       document,
-      root: () => document.querySelector<HTMLElement>('.book-content') ?? undefined,
+      contentReadyEvent: 'manabi-reader-content-ready',
+      root: () => contentRoot ?? document.querySelector<HTMLElement>('.book-content') ?? undefined,
       selectSection: (id) => nextChapter$.next(id),
       navigate: navigateToRange
     });
@@ -336,7 +347,7 @@
       built = await buildSourceBookIndex(htmlContent, document, controller.signal);
       if (!built.text) throw new Error('No readable book text was found for matching.');
       const prepared = new BookSource(built);
-      const root = document.querySelector<HTMLElement>('.book-content');
+      const root = contentRoot ?? document.querySelector<HTMLElement>('.book-content');
       const start =
         selectionHint && root ? prepared.selectionOffset(selectionHint, root) : undefined;
       if (selectionHint && start === undefined)
@@ -428,7 +439,7 @@
 
   function observeLiveBook() {
     liveObserver.disconnect();
-    const root = document.querySelector('.book-content');
+    const root = contentRoot ?? document.querySelector('.book-content');
     if (root)
       liveObserver.observe(root, {
         subtree: true,
@@ -445,7 +456,7 @@
     lastCue = current;
     const match = matches[current];
     const location = match && source?.location(match);
-    const root = document.querySelector<HTMLElement>('.book-content');
+    const root = contentRoot ?? document.querySelector<HTMLElement>('.book-content');
     highlight?.set(location && root ? source?.resolve(location, root) : undefined);
     if (location && navigate && follow && !snapshot.paused && !open)
       void showLocation(current, true);

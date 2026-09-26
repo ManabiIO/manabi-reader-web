@@ -6,6 +6,7 @@
   export let bookId: number;
   export let bookTitle: string;
   export let htmlContent: string;
+  export let contentRoot: HTMLElement | undefined = undefined;
   export let layoutKey: string | number;
   export let bookmarkManager: BookmarkManager | undefined;
   export let onFollow: () => void;
@@ -25,9 +26,9 @@
   async function show() {
     if (loading) return;
     // Capture before the modal takes focus or lazy loading changes selection.
-    const selection = window.getSelection();
+    const selection = contentRoot?.ownerDocument.getSelection() ?? window.getSelection();
     const range = selection?.rangeCount ? selection.getRangeAt(0) : undefined;
-    const root = document.querySelector('.book-content');
+    const root = contentRoot ?? document.querySelector('.book-content');
     if (range && !range.collapsed && root?.contains(range.startContainer))
       selectionHint = range.cloneRange();
     if (Panel) {
@@ -78,6 +79,7 @@
     {bookId}
     {bookTitle}
     {htmlContent}
+    {contentRoot}
     {layoutKey}
     {bookmarkManager}
     {onFollow}

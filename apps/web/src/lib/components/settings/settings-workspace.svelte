@@ -95,7 +95,10 @@
       oninput={(event) =>
         filter.update((value) => ({ ...value, query: event.currentTarget.value }))}
     />
-    <nav aria-label="Settings categories" class="section-navigation section-navigation-sidebar mt-3">
+    <nav
+      aria-label="Settings categories"
+      class="section-navigation section-navigation-sidebar mt-3"
+    >
       {#each categories as category (category.id)}
         <Button
           variant="ghost"
@@ -119,7 +122,7 @@
       <p class="mt-2 text-xs text-muted-foreground">
         Changes save automatically. Reading goals have separate Save and Cancel actions.
       </p>
-      {#if $filter.query}<p role="status" class="mt-3 text-sm">
+      {#if $filter.query}<p role="status" aria-label="Settings search results" class="mt-3 text-sm">
           {visibleCount
             ? `${visibleCount} matching settings`
             : 'No matching settings. Try a different search.'}
@@ -131,7 +134,7 @@
 </div>
 
 <style>
-  :global([data-setting="offline-reading"]:not([hidden])) {
+  :global([data-setting='offline-reading']:not([hidden])) {
     margin-bottom: 1.25rem;
   }
 </style>

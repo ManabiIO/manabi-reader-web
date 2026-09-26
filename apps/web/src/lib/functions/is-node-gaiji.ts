@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { isElementGaiji } from './is-element-gaiji';
+import { isElementGaiji } from './is-element-gaiji.ts';
 
 export function isNodeGaiji(node: Node) {
   if (node.nodeType !== 1 || (node as Element).localName?.toLowerCase() !== 'img') {

@@ -26,13 +26,16 @@ export class FoliateCharacterProgress {
   readonly bookCharacterCount: number;
   readonly sectionEnds: number[];
 
-  constructor(sourceSections: readonly Element[]) {
+  constructor(sourceSections: readonly Element[] | readonly number[]) {
     let total = 0;
     this.sectionEnds = sourceSections.map((section) => {
-      total += getParagraphNodes(section).reduce(
-        (count, paragraph) => count + getCharacterCount(paragraph),
-        0
-      );
+      total +=
+        typeof section === 'number'
+          ? section
+          : getParagraphNodes(section).reduce(
+              (count, paragraph) => count + getCharacterCount(paragraph),
+              0
+            );
       return total;
     });
     this.bookCharacterCount = total;

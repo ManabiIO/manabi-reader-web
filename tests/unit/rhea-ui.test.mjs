@@ -81,6 +81,7 @@ test('reader controls and overlays own keyboard and wheel events', () => {
   let overlay = null;
   class Target {
     constructor(interactive) {
+      this.nodeType = 1;
       this.interactive = interactive;
     }
     closest() {

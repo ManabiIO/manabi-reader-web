@@ -4,6 +4,9 @@
  * All rights reserved.
  */
 
+import { epubPublicationHtml } from '$lib/foliate-epub/publication-data';
+import { getCharacterCount } from '$lib/functions/get-character-count';
+import { getParagraphNodes } from '$lib/components/book-reader/get-paragraph-nodes';
 import { encodeBook } from '$lib/data/database/books-db/book-binary';
 
 import { database, lastReadingGoalsModified$, readingGoal$ } from '$lib/data/store';
@@ -399,11 +402,33 @@ export class TtuMigration {
         imageReferences.set(`ttu:${name}`, placeholder);
       }
       const policy = { document, resolveImage: (source: string) => imageReferences.get(source) };
+      const epubPublication = data.epubPublication && {
+        version: 1 as const,
+        resources: data.epubPublication.resources.map((resource) => {
+          const html = sanitizeBookHtml(resource.html, { ...policy, preserveReaderLinks: true });
+          const element = document.createElement('div');
+          element.innerHTML = html;
+          return {
+            ...resource,
+            html,
+            styleSheet: sanitizeBookStyleSheet(resource.styleSheet, document),
+            characters: getParagraphNodes(element).reduce(
+              (sum, node) => sum + getCharacterCount(node),
+              0
+            )
+          };
+        })
+      };
       content = {
         ...data,
+        ...(epubPublication ? { epubPublication } : {}),
         title: item.title,
-        elementHtml: sanitizeBookHtml(data.elementHtml, policy),
-        styleSheet: sanitizeBookStyleSheet(data.styleSheet, document),
+        elementHtml: epubPublication
+          ? epubPublicationHtml(epubPublication)
+          : sanitizeBookHtml(data.elementHtml, policy),
+        styleSheet: epubPublication
+          ? epubPublication.resources.map((resource) => resource.styleSheet).join('\n')
+          : sanitizeBookStyleSheet(data.styleSheet, document),
         htmlBackup: data.htmlBackup ? sanitizeBookHtml(data.htmlBackup, policy) : undefined,
         characters,
         hasThumb: !!data.coverImage,

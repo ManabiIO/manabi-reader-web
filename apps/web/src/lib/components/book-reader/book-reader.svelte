@@ -14,6 +14,7 @@
     Subject,
     tap
   } from 'rxjs';
+  import type { EpubResourceData } from '$lib/foliate-epub/publication-data';
   import BookReaderContinuous from '$lib/components/book-reader/book-reader-continuous/book-reader-continuous.svelte';
   import BookReaderFoliatePaginated from '$lib/components/book-reader/book-reader-paginated/book-reader-foliate-paginated.svelte';
   import { browser } from '$app/environment';
@@ -47,6 +48,7 @@
     contentChange: HTMLElement;
     userNavigation: void;
     selectionChange: Range | undefined;
+    readerKeydown: KeyboardEvent;
     pageTurnStart: void;
     toggleControls: void;
   }>();
@@ -128,6 +130,8 @@
     bookKey: string,
     manifest?: PublicationManifest
   ): Promise<ReaderLocator | undefined> {
+    if (viewMode === ViewMode.Paginated && useFoliatePaginator)
+      return foliatePaginatedReader?.capturePoint(bookKey);
     const contentEl = activeContentElement();
     if (!contentEl) return undefined;
     // Text clipped by the reader's own scrollport can still have a DOM rect
@@ -259,6 +263,7 @@
   export let styleSheet = '';
 
   export let publicationManifest: PublicationManifest | undefined;
+  export let epubResources: EpubResourceData[] | undefined = undefined;
 
   export let sourceFormat: 'epub' | 'htmlz' | 'txt' | 'unknown' = 'unknown';
 
@@ -572,9 +577,11 @@
   {:else if useFoliatePaginator && publicationManifest}
     <BookReaderFoliatePaginated
       bind:this={foliatePaginatedReader}
+      on:readerKeydown
       {htmlContent}
       {styleSheet}
       {publicationManifest}
+      {epubResources}
       {width}
       {height}
       maxInlineSize={secondDimensionMaxValue}

@@ -12,6 +12,12 @@ import { wheelPageDistance, type TurnDirection } from './slide-geometry';
  * only after its direction is clear; mouse text drags, long presses, pinch,
  * links, and existing selections remain owned by the document/dictionary.
  */
+export interface PageTurnInputPolicy {
+  keydown?: (event: KeyboardEvent) => void;
+  allowsInput?: (event: Event) => boolean;
+  allowsWheel?: () => boolean;
+}
+
 export class PageTurnController {
   private lifetime = new AbortController();
   private documentEvents?: AbortController;
@@ -34,7 +40,10 @@ export class PageTurnController {
   };
   private suppressClickUntil = 0;
 
-  constructor(private paginator: Paginator) {
+  constructor(
+    private paginator: Paginator,
+    private policy: PageTurnInputPolicy = {}
+  ) {
     paginator.setAttribute('layered', '');
     this.bind(paginator, this.lifetime.signal);
     paginator.addEventListener('load', () => this.bindDocument(), { signal: this.lifetime.signal });
@@ -69,6 +78,13 @@ export class PageTurnController {
       doc.addEventListener(
         'keydown',
         (event) => {
+          // The application owns its configurable shortcut map. Forward the
+          // original child-document event instead of synthesizing an untrusted
+          // duplicate or maintaining a second set of fixed key bindings.
+          if (this.policy.keydown) {
+            this.policy.keydown(event);
+            return;
+          }
           if (
             event.defaultPrevented ||
             event.altKey ||
@@ -125,6 +141,7 @@ export class PageTurnController {
       'pointerdown',
       ((event: PointerEvent) => {
         if (
+          this.policy.allowsInput?.(event) === false ||
           !event.isPrimary ||
           event.button !== 0 ||
           this.settling ||
@@ -207,6 +224,8 @@ export class PageTurnController {
       'wheel',
       ((event: WheelEvent) => {
         if (
+          this.policy.allowsInput?.(event) === false ||
+          this.policy.allowsWheel?.() === false ||
           event.ctrlKey ||
           event.metaKey ||
           event.defaultPrevented ||

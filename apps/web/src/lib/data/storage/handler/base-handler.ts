@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 
+import { encodeEpubPublication } from '$lib/foliate-epub/publication-wire';
 import { readRestoredBook } from '$lib/functions/file-loaders/utils/restored-book';
 import type { ArchiveBudget } from '$lib/functions/file-loaders/utils/limited-archive';
 import type { Section } from '$lib/data/database/books-db/versions/v4/books-db-v4';
@@ -371,9 +372,11 @@ export abstract class BaseStorageHandler {
       'language',
       'creators',
       'pageDirection',
-      'contentHash'
+      'contentHash',
+      'sourceFormat',
+      'publicationManifest'
     ] as const satisfies readonly (keyof BooksDbBookData)[];
-    const staticData: Record<string, BooksDbBookData[(typeof staticDataToZip)[number]]> = {};
+    const staticData: Record<string, unknown> = {};
     const limiter = pLimit(1);
     const cover = bookdata.coverImage;
     const isBlobCover = cover instanceof Blob;
@@ -413,6 +416,13 @@ export abstract class BaseStorageHandler {
 
       staticData[dataProperty] = bookdata[dataProperty];
     }
+
+    if (bookdata.epubPublication)
+      staticData.epubPublication = encodeEpubPublication(
+        bookdata.epubPublication,
+        bookdata.elementHtml,
+        bookdata.styleSheet
+      );
 
     if (Object.keys(staticData).length) {
       await this.addDataToZip(

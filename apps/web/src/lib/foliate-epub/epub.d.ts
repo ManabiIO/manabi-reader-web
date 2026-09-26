@@ -5,6 +5,8 @@
  */
 export interface FoliateSection {
   id: string;
+  idref: string;
+  mediaType: string;
   linear?: string;
   cfi?: string;
   load(): Promise<string | null>;
@@ -20,7 +22,23 @@ export interface FoliateNavigationItem {
   subitems?: FoliateNavigationItem[];
 }
 
+export interface FoliateManifestItem {
+  id: string;
+  href: string;
+  mediaType: string;
+  properties?: string[];
+  fallback?: string;
+}
+
 export interface FoliateEpubBook {
+  packagePath: string;
+  resources: {
+    opf: Document;
+    manifest: FoliateManifestItem[];
+    cover?: FoliateManifestItem;
+    navPath?: string;
+    ncxPath?: string;
+  };
   sections: FoliateSection[];
   toc?: FoliateNavigationItem[];
   pageList?: FoliateNavigationItem[];
@@ -39,10 +57,11 @@ export interface FoliateEpubBook {
 
 export class EPUB {
   constructor(source: {
-    loadText(uri: string): Promise<string | null>;
+    loadText(uri: string, maximum?: number): Promise<string | null>;
     loadBlob(uri: string): Promise<Blob | null>;
     getSize(uri: string): number;
     sha1?: (value: string) => Promise<Uint8Array>;
+    resolveResource?: (reference: string, owner: string) => string;
   });
   init(): Promise<FoliateEpubBook>;
   destroy(): unknown;
@@ -50,7 +69,7 @@ export class EPUB {
 
 export class Loader {
   constructor(source: {
-    loadText(uri: string): Promise<string | null>;
+    loadText(uri: string, maximum?: number): Promise<string | null>;
     loadBlob(uri: string): Promise<Blob | null>;
     resources: { manifest: Array<{ href: string; mediaType: string }> };
   });

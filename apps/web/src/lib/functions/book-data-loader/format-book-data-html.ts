@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { sanitizeBookHtml } from '../book-security/book-content-security';
+import { sanitizeBookHtml, sanitizeBookStyleSheet } from '../book-security/book-content-security';
 import { BlurMode } from '$lib/data/blur-mode';
 import type { BooksDbBookData } from '$lib/data/database/books-db/versions/books-db';
 import { Observable } from 'rxjs';
@@ -12,10 +12,18 @@ import { BaseStorageHandler } from '$lib/data/storage/handler/base-handler';
 import buildDummyBookImage from '$lib/functions/file-loaders/utils/build-dummy-book-image';
 import { isElementGaiji } from '$lib/functions/is-element-gaiji';
 import { map } from 'rxjs/operators';
+import { validateEpubPublication, type EpubResourceData } from '$lib/foliate-epub/publication-data';
+import { getParagraphNodes } from '$lib/components/book-reader/get-paragraph-nodes';
+import { getCharacterCount } from '$lib/functions/get-character-count';
 import {
   readerImageGalleryPictures$,
   type ReaderImageGalleryPicture
 } from '$lib/components/book-reader/book-reader-image-gallery/book-reader-image-gallery';
+
+export interface FormattedBookContent {
+  htmlContent: string;
+  epubResources?: EpubResourceData[];
+}
 
 export default function formatBookDataHtml(
   bookData: BooksDbBookData,
@@ -23,22 +31,72 @@ export default function formatBookDataHtml(
   isPaginated: boolean,
   blurMode: BlurMode
 ) {
+  return formatBookReadingContent(bookData, document, isPaginated, blurMode).pipe(
+    map((content) => content.htmlContent)
+  );
+}
+
+/** Sanitize/decorate one source document at a time, not a whole-book DOM. */
+export function formatBookReadingContent(
+  bookData: BooksDbBookData,
+  document: Document,
+  isPaginated: boolean,
+  blurMode: BlurMode
+) {
+  if (bookData.epubPublication)
+    validateEpubPublication(bookData.epubPublication, bookData.publicationManifest);
   return getHtmlWithImageSource(bookData, document, isPaginated).pipe(
-    map(({ html, imageUrls }) => {
-      const element = document.createElement('div');
-      element.innerHTML = html;
-
-      addImageContainerClass(element);
-      // combineImagePairs(element);
-      removeSvgDimensions(element);
-      addSpoilerTags(element, document, blurMode);
-      removeOldBrTagSolution(element);
-
-      return sanitizeBookHtml(element.innerHTML, {
-        document,
-        imageUrls,
-        preserveReaderLinks: true
+    map(({ htmls, imageUrls }): FormattedBookContent => {
+      const resources = bookData.epubPublication?.resources;
+      let afterToc = -1;
+      if (resources && blurMode === BlurMode.AFTER_TOC) {
+        afterToc = htmls.findIndex((html) => {
+          const section = document.createElement('div');
+          section.innerHTML = html;
+          return section.querySelectorAll('a').length > 1;
+        });
+        if (afterToc === htmls.length - 1) afterToc = -1;
+      }
+      const formatted = htmls.map((html, index) => {
+        const element = document.createElement('div');
+        element.innerHTML = html;
+        if (
+          resources &&
+          (element.children.length !== 1 ||
+            element.firstElementChild?.id !== resources[index].sectionId)
+        )
+          throw new Error('The EPUB source section has an invalid root.');
+        addImageContainerClass(element);
+        removeSvgDimensions(element);
+        if (!resources || afterToc < 0 || index > afterToc)
+          addSpoilerTags(element, document, resources ? BlurMode.ALL : blurMode);
+        removeOldBrTagSolution(element);
+        const safe = sanitizeBookHtml(element.innerHTML, {
+          document,
+          imageUrls,
+          preserveReaderLinks: true
+        });
+        element.innerHTML = safe;
+        return {
+          html: safe,
+          characters: getParagraphNodes(element).reduce(
+            (count, node) => count + getCharacterCount(node),
+            0
+          )
+        };
       });
+      return {
+        htmlContent: formatted.map((section) => section.html).join(''),
+        ...(resources
+          ? {
+              epubResources: resources.map((resource, index) => ({
+                ...resource,
+                ...formatted[index],
+                styleSheet: sanitizeBookStyleSheet(resource.styleSheet, document)
+              }))
+            }
+          : {})
+      };
     })
   );
 }
@@ -48,7 +106,7 @@ function getHtmlWithImageSource(
   document: Document,
   isPaginated: boolean
 ) {
-  return new Observable<{ html: string; imageUrls: ReadonlySet<string> }>((subscriber) => {
+  return new Observable<{ htmls: string[]; imageUrls: ReadonlySet<string> }>((subscriber) => {
     const objectUrls: string[] = [];
     let cancelled = false;
     void (async () => {
@@ -95,12 +153,17 @@ function getHtmlWithImageSource(
       }
       if (cancelled) return;
       const imageUrls = new Set(objectUrls);
-      const html = sanitizeBookHtml(bookData.elementHtml, {
-        document,
-        preserveReaderLinks: true,
-        resolveImage: (source) => replacements.get(source)
-      });
-      subscriber.next({ html, imageUrls });
+      const sources = bookData.epubPublication?.resources.map((resource) => resource.html) ?? [
+        bookData.elementHtml
+      ];
+      const htmls = sources.map((html) =>
+        sanitizeBookHtml(html, {
+          document,
+          resolveImage: (source) => replacements.get(source),
+          preserveReaderLinks: true
+        })
+      );
+      subscriber.next({ htmls, imageUrls });
       if (!cancelled && !subscriber.closed) {
         readerImageGalleryPictures$.next(
           pictures

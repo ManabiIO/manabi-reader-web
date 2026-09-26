@@ -4,8 +4,8 @@
  * All rights reserved.
  */
 
-import { isNodeGaiji } from '$lib/functions/is-node-gaiji';
-import { READER_TEXT_NODE, readerTraversalNodeIsVisible } from '$lib/reader-dom-core';
+import { isNodeGaiji } from '../../functions/is-node-gaiji.ts';
+import { READER_TEXT_NODE, readerTraversalNodeIsVisible } from '../../reader-dom-core.ts';
 
 export function getParagraphNodes(node: Node) {
   return getTextNodeOrGaijiNodes(node, readerTraversalNodeIsVisible).filter((n) => {

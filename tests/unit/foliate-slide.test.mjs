@@ -74,7 +74,9 @@ test('wheel distance respects pixel, line, page, and reading directions', () => 
 
 function storedBook() {
   const document = {
-    createElement: () => ({ children: [{ outerHTML: '<section>Text</section>' }] })
+    createElement: () => ({
+      children: [{ outerHTML: '<section>Text</section>', hasChildNodes: () => false }]
+    })
   };
   const manifest = { resources: [{ href: 'one.xhtml', sectionId: 'one', spineIndex: 0 }] };
   return createStoredFoliateBook('', '', manifest, document).book;

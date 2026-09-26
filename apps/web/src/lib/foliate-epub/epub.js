@@ -12,7 +12,6 @@ const NS = {
     ENC: 'http://www.w3.org/2001/04/xmlenc#',
     NCX: 'http://www.daisy.org/z3986/2005/ncx/',
     XLINK: 'http://www.w3.org/1999/xlink',
-    SMIL: 'http://www.w3.org/ns/SMIL',
 }
 
 const MIME = {
@@ -177,11 +176,11 @@ const getMetadata = opf => {
     const $metadata = $(opf.documentElement, 'metadata')
 
     // first pass: convert to JS objects
-    const els = Object.groupBy($metadata.children, el =>
+    const els = Object.groupBy($metadata?.children ?? [], el =>
         el.namespaceURI === NS.DC ? 'dc'
-        : el.namespaceURI === NS.OPF && el.localName === 'meta' ?
+        : (!el.namespaceURI || el.namespaceURI === NS.OPF) && el.localName === 'meta' ?
             (el.hasAttribute('name') ? 'legacyMeta' : 'meta') : '')
-    const baseLang = $metadata.getAttribute('xml:lang')
+    const baseLang = $metadata?.getAttribute('xml:lang')
         ?? opf.documentElement.getAttribute('xml:lang') ?? 'und'
     const prefixes = getPrefixes(opf)
     const parse = el => {
@@ -205,7 +204,7 @@ const getMetadata = opf => {
         if (!els) return null
         return Object.groupBy(els.map(parse), x => x.property)
     }
-    const dc = Object.fromEntries(Object.entries(Object.groupBy(els.dc, el => el.localName))
+    const dc = Object.fromEntries(Object.entries(Object.groupBy(els.dc ?? [], el => el.localName))
         .map(([name, els]) => [name, els.map(parse)]))
     const properties = getProperties() ?? {}
     const legacyMeta = Object.fromEntries(els.legacyMeta?.map(el =>
@@ -278,10 +277,10 @@ const getMetadata = opf => {
         belongsTo: {
             collection: belongsTo.collection?.map(makeCollection),
             series: belongsTo.series?.map(makeCollection)
-            ?? legacyMeta?.['calibre:series'] ? {
-                name: legacyMeta?.['calibre:series'],
-                position: parseFloat(legacyMeta?.['calibre:series_index']),
-            } : null,
+            ?? (legacyMeta?.['calibre:series'] ? {
+                name: legacyMeta['calibre:series'],
+                position: parseFloat(legacyMeta['calibre:series_index']),
+            } : null),
         },
         altIdentifier: dc.identifier?.map(makeAltIdentifier),
         source: dc.source?.map(makeAltIdentifier), // NOTE: not in webpub schema
@@ -316,7 +315,7 @@ const getMetadata = opf => {
 
 const parseNav = (doc, resolve = f => f) => {
     const { $, $$, $$$ } = childGetter(doc, NS.XHTML)
-    const resolveHref = href => href ? decodeURI(resolve(href)) : null
+    const resolveHref = href => href ? resolve(href) : null
     const parseLI = getType => $li => {
         const $a = $($li, 'a') ?? $($li, 'span')
         const $ol = $($li, 'ol')
@@ -347,7 +346,7 @@ const parseNav = (doc, resolve = f => f) => {
 
 const parseNCX = (doc, resolve = f => f) => {
     const { $, $$ } = childGetter(doc, NS.NCX)
-    const resolveHref = href => href ? decodeURI(resolve(href)) : null
+    const resolveHref = href => href ? resolve(href) : null
     const parseItem = el => {
         const $label = $(el, 'navLabel')
         const $content = $(el, 'content')
@@ -392,165 +391,6 @@ const parseClock = str => {
         : unit === 'ms' ? .001
         : 1
     return n * f
-}
-
-class MediaOverlay extends EventTarget {
-    #entries
-    #lastMediaOverlayItem
-    #sectionIndex
-    #audioIndex
-    #itemIndex
-    #audio
-    #volume = 1
-    #rate = 1
-    #state
-    constructor(book, loadXML) {
-        super()
-        this.book = book
-        this.loadXML = loadXML
-    }
-    async #loadSMIL(item) {
-        if (this.#lastMediaOverlayItem === item) return
-        const doc = await this.loadXML(item.href)
-        const resolve = href => href ? resolveURL(href, item.href) : null
-        const { $, $$$ } = childGetter(doc, NS.SMIL)
-        this.#audioIndex = -1
-        this.#itemIndex = -1
-        this.#entries = $$$(doc, 'par').reduce((arr, $par) => {
-            const text = resolve($($par, 'text')?.getAttribute('src'))
-            const $audio = $($par, 'audio')
-            if (!text || !$audio) return arr
-            const src = resolve($audio.getAttribute('src'))
-            const begin = parseClock($audio.getAttribute('clipBegin'))
-            const end = parseClock($audio.getAttribute('clipEnd'))
-            const last = arr.at(-1)
-            if (last?.src === src) last.items.push({ text, begin, end })
-            else arr.push({ src, items: [{ text, begin, end }] })
-            return arr
-        }, [])
-        this.#lastMediaOverlayItem = item
-    }
-    get #activeAudio() {
-        return this.#entries[this.#audioIndex]
-    }
-    get #activeItem() {
-        return this.#activeAudio?.items?.[this.#itemIndex]
-    }
-    #error(e) {
-        console.error(e)
-        this.dispatchEvent(new CustomEvent('error', { detail: e }))
-    }
-    #highlight() {
-        this.dispatchEvent(new CustomEvent('highlight', { detail: this.#activeItem }))
-    }
-    #unhighlight() {
-        this.dispatchEvent(new CustomEvent('unhighlight', { detail: this.#activeItem }))
-    }
-    async #play(audioIndex, itemIndex) {
-        this.#stop()
-        this.#audioIndex = audioIndex
-        this.#itemIndex = itemIndex
-        const src = this.#activeAudio?.src
-        if (!src || !this.#activeItem) return this.start(this.#sectionIndex + 1)
-
-        const url = URL.createObjectURL(await this.book.loadBlob(src))
-        const audio = new Audio(url)
-        this.#audio = audio
-        audio.volume = this.#volume
-        audio.playbackRate = this.#rate
-        audio.addEventListener('timeupdate', () => {
-            if (audio.paused) return
-            const t = audio.currentTime
-            const { items } = this.#activeAudio
-            if (t > this.#activeItem?.end) {
-                this.#unhighlight()
-                if (this.#itemIndex === items.length - 1) {
-                    this.#play(this.#audioIndex + 1, 0).catch(e => this.#error(e))
-                    return
-                }
-            }
-            const oldIndex = this.#itemIndex
-            while (items[this.#itemIndex + 1]?.begin <= t) this.#itemIndex++
-            if (this.#itemIndex !== oldIndex) this.#highlight()
-        })
-        audio.addEventListener('error', () =>
-            this.#error(new Error(`Failed to load ${src}`)))
-        audio.addEventListener('playing', () => this.#highlight())
-        audio.addEventListener('ended', () => {
-            this.#unhighlight()
-            URL.revokeObjectURL(url)
-            this.#audio = null
-            this.#play(audioIndex + 1, 0).catch(e => this.#error(e))
-        })
-        if (this.#state === 'paused') {
-            this.#highlight()
-            audio.currentTime = this.#activeItem.begin ?? 0
-        }
-        else audio.addEventListener('canplaythrough', () => {
-            // for some reason need to seek in `canplaythrough`
-            // or it won't play when skipping in WebKit
-            audio.currentTime = this.#activeItem.begin ?? 0
-            this.#state = 'playing'
-            audio.play().catch(e => this.#error(e))
-        }, { once: true })
-    }
-    async start(sectionIndex, filter = () => true) {
-        this.#audio?.pause()
-        const section = this.book.sections[sectionIndex]
-        const href = section?.id
-        if (!href) return
-
-        const { mediaOverlay } = section
-        if (!mediaOverlay) return this.start(sectionIndex + 1)
-        this.#sectionIndex = sectionIndex
-        await this.#loadSMIL(mediaOverlay)
-
-        for (let i = 0; i < this.#entries.length; i++) {
-            const { items } = this.#entries[i]
-            for (let j = 0; j < items.length; j++) {
-                if (items[j].text.split('#')[0] === href && filter(items[j], j, items))
-                    return this.#play(i, j).catch(e => this.#error(e))
-            }
-        }
-    }
-    pause() {
-        this.#state = 'paused'
-        this.#audio?.pause()
-    }
-    resume() {
-        this.#state = 'playing'
-        this.#audio?.play().catch(e => this.#error(e))
-    }
-    #stop() {
-        if (this.#audio) {
-            this.#audio.pause()
-            URL.revokeObjectURL(this.#audio.src)
-            this.#audio = null
-            this.#unhighlight()
-        }
-    }
-    stop() {
-        this.#state = 'stopped'
-        this.#stop()
-    }
-    prev() {
-        if (this.#itemIndex > 0) this.#play(this.#audioIndex, this.#itemIndex - 1)
-        else if (this.#audioIndex > 0) this.#play(this.#audioIndex - 1,
-            this.#entries[this.#audioIndex - 1].items.length - 1)
-        else if (this.#sectionIndex > 0)
-            this.start(this.#sectionIndex - 1, (_, i, items) => i === items.length - 1)
-    }
-    next() {
-        this.#play(this.#audioIndex, this.#itemIndex + 1)
-    }
-    setVolume(volume) {
-        this.#volume = volume
-        if (this.#audio) this.#audio.volume = volume
-    }
-    setRate(rate) {
-        this.#rate = rate
-        if (this.#audio) this.#audio.playbackRate = rate
-    }
 }
 
 const isUUID = /([0-9a-f]{8})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{12})/
@@ -639,16 +479,25 @@ class Resources {
 
         const $manifest = $(opf.documentElement, 'manifest')
         const $spine = $(opf.documentElement, 'spine')
+        if (!$manifest || !$spine) throw new Error('EPUB package has no manifest or spine')
         const $$itemref = $$($spine, 'itemref')
+        if (!$$itemref.length || $$itemref.length > 8192)
+            throw new Error('EPUB spine exceeds the size limit')
 
         this.manifest = $$($manifest, 'item')
-            .map(getAttributes('href', 'id', 'media-type', 'properties', 'media-overlay'))
+            .map(getAttributes('href', 'id', 'media-type', 'properties', 'fallback'))
             .map(item => {
+                if (!item.id || item.id.length > 512 || !item.href || !item.mediaType)
+                    throw new Error('Invalid EPUB manifest item')
                 item.href = resolveHref(item.href)
                 item.properties = item.properties?.split(/\s/)
                 return item
             })
+        if (!this.manifest.length || this.manifest.length > 8192)
+            throw new Error('EPUB manifest exceeds the size limit')
         this.manifestById = new Map(this.manifest.map(item => [item.id, item]))
+        if (this.manifestById.size !== this.manifest.length)
+            throw new Error('Duplicate EPUB manifest ID')
         this.spine = $$itemref
             .map(getAttributes('idref', 'id', 'linear', 'properties'))
             .map(item => (item.properties = item.properties?.split(/\s/), item))
@@ -664,7 +513,7 @@ class Resources {
             .map(getAttributes('type', 'title', 'href'))
             .map(({ type, title, href }) => ({
                 label: title,
-                type: type.split(/\s/),
+                type: type?.split(/\s+/) ?? [],
                 href: resolveHref(href),
             }))
 
@@ -686,6 +535,15 @@ class Resources {
     }
     getItemByProperty(prop) {
         return this.manifest.find(item => item.properties?.includes(prop))
+    }
+    getReadingItem(id) {
+        const seen = new Set()
+        for (let item = this.getItemByID(id); item; item = this.getItemByID(item.fallback)) {
+            if (seen.has(item.id)) throw new Error('Cyclic EPUB spine fallback')
+            seen.add(item.id)
+            if ([MIME.XHTML, MIME.HTML].includes(item.mediaType)) return item
+        }
+        throw new Error('EPUB spine has no supported local chapter')
     }
     resolveCFI(cfi) {
         const parts = CFI.parse(cfi)
@@ -725,9 +583,10 @@ export class Loader {
     #loadDependencies = new Map()
     #destroyed = false
     eventTarget = new EventTarget()
-    constructor({ loadText, loadBlob, resources }) {
+    constructor({ loadText, loadBlob, resources, resolveResource = resolveURL }) {
         this.loadText = loadText
         this.loadBlob = loadBlob
+        this.resolveResource = resolveResource
         this.manifest = resources.manifest
         this.assets = resources.manifest
     }
@@ -884,7 +743,7 @@ export class Loader {
         if (this.#destroyed || typeof href !== 'string' || !href || isExternal(href)) return href
         const { resourceHref, suffix } = splitInternalResourceReference(href)
         if (!resourceHref) return href
-        const path = resolveURL(resourceHref, base)
+        const path = this.resolveResource(resourceHref, base)
         const item = this.manifest.find(item => item.href === path)
         if (!item) return href
         const url = await this.loadItem(item, parents.concat(base))
@@ -1037,14 +896,21 @@ export class EPUB {
     parser = new DOMParser()
     #loader
     #encryption
-    constructor({ loadText, loadBlob, getSize, sha1 }) {
+    #destroyed = false
+    constructor({ loadText, loadBlob, getSize, sha1, resolveResource = resolveURL }) {
         this.loadText = loadText
         this.loadBlob = loadBlob
         this.getSize = getSize
+        this.resolveResource = resolveResource
         this.#encryption = new Encryption(deobfuscators(sha1))
     }
+    #assertActive() {
+        if (this.#destroyed) throw new DOMException('EPUB publication is closed', 'AbortError')
+    }
     async #loadXML(uri) {
-        const str = await this.loadText(uri)
+        this.#assertActive()
+        const str = await this.loadText(uri, uri === 'META-INF/container.xml' ? 1048576 : 4194304)
+        this.#assertActive()
         if (!str) return null
         const doc = this.parser.parseFromString(str, MIME.XML)
         if (doc.querySelector('parsererror'))
@@ -1056,39 +922,48 @@ ${doc.querySelector('parsererror').innerText}`)
         const $container = await this.#loadXML('META-INF/container.xml')
         if (!$container) throw new Error('Failed to load container file')
 
-        const opfs = Array.from(
-            $container.getElementsByTagNameNS(NS.CONTAINER, 'rootfile'),
-            getAttributes('full-path', 'media-type'))
-            .filter(file => file.mediaType === 'application/oebps-package+xml')
+        const root = $container.documentElement
+        if (root.localName !== 'container' || (root.namespaceURI && root.namespaceURI !== NS.CONTAINER))
+            throw new Error('Invalid EPUB container')
+        // Retain TTU compatibility with otherwise valid namespace-less packages.
+        // Do not retry failed archive reads or discard bounded-read failures.
+        const rootfiles = root.namespaceURI
+            ? $container.getElementsByTagNameNS(NS.CONTAINER, 'rootfile')
+            : $container.getElementsByTagName('rootfile')
+        const opfs = Array.from(rootfiles, getAttributes('full-path', 'media-type'))
+            .filter(file => file.mediaType === 'application/oebps-package+xml'
+                || (!root.namespaceURI && !file.mediaType))
 
         if (!opfs.length) throw new Error('No package document defined in container')
-        const opfPath = opfs[0].fullPath
+        const opfPath = this.resolveResource(opfs[0].fullPath, '')
+        this.packagePath = opfPath
         const opf = await this.#loadXML(opfPath)
-        if (!opf) throw new Error('Failed to load package document')
+        if (!opf || opf.documentElement.localName !== 'package')
+            throw new Error('Failed to load package document')
 
         const $encryption = await this.#loadXML('META-INF/encryption.xml')
         await this.#encryption.init($encryption, opf)
+        this.#assertActive()
 
         this.resources = new Resources({
             opf,
-            resolveHref: url => resolveURL(url, opfPath),
+            resolveHref: url => this.resolveResource(url, opfPath),
         })
         this.#loader = new Loader({
             loadText: this.loadText,
             loadBlob: uri => Promise.resolve(this.loadBlob(uri))
                 .then(this.#encryption.getDecoder(uri)),
             resources: this.resources,
+            resolveResource: this.resolveResource,
         })
         this.transformTarget = this.#loader.eventTarget
         this.sections = this.resources.spine.map((spineItem, index) => {
             const { idref, linear, properties = [] } = spineItem
-            const item = this.resources.getItemByID(idref)
-            if (!item) {
-                console.warn(`Could not find item with ID "${idref}" in manifest`)
-                return null
-            }
+            const item = this.resources.getReadingItem(idref)
             return {
                 id: item.href,
+                idref,
+                mediaType: item.mediaType,
                 load: () => this.#loader.loadItem(item),
                 unload: () => this.#loader.unloadItem(item),
                 createDocument: () => this.loadDocument(item),
@@ -1096,28 +971,30 @@ ${doc.querySelector('parsererror').innerText}`)
                 cfi: this.resources.cfis[index],
                 linear,
                 pageSpread: getPageSpread(properties),
-                resolveHref: href => resolveURL(href, item.href),
-                mediaOverlay: item.mediaOverlay
-                    ? this.resources.getItemByID(item.mediaOverlay) : null,
+                resolveHref: href => this.resolveResource(href, item.href),
             }
-        }).filter(s => s)
+        })
 
         const { navPath, ncxPath } = this.resources
         if (navPath) try {
-            const resolve = url => resolveURL(url, navPath)
+            const resolve = url => this.resolveResource(url, navPath)
             const nav = parseNav(await this.#loadXML(navPath), resolve)
             this.toc = nav.toc
             this.pageList = nav.pageList
             this.landmarks = nav.landmarks
         } catch(e) {
+            this.#assertActive()
+            if (e?.name === 'AbortError' || e?.name === 'ArchiveLimitError') throw e
             console.warn(e)
         }
         if (!this.toc && ncxPath) try {
-            const resolve = url => resolveURL(url, ncxPath)
+            const resolve = url => this.resolveResource(url, ncxPath)
             const ncx = parseNCX(await this.#loadXML(ncxPath), resolve)
             this.toc = ncx.toc
             this.pageList = ncx.pageList
         } catch(e) {
+            this.#assertActive()
+            if (e?.name === 'AbortError' || e?.name === 'ArchiveLimitError') throw e
             console.warn(e)
         }
         this.landmarks ??= this.resources.guide
@@ -1133,28 +1010,30 @@ ${doc.querySelector('parsererror').innerText}`)
         if (displayOptions) {
             if (displayOptions.fixedLayout === 'true')
                 this.rendition.layout ??= 'pre-paginated'
-            if (displayOptions.openToSpread === 'false') this.sections
-                .find(section => section.linear !== 'no').pageSpread ??=
-                    this.dir === 'rtl' ? 'left' : 'right'
+            const first = this.sections.find(section => section.linear !== 'no')
+            if (first && displayOptions.openToSpread === 'false') first.pageSpread ??=
+                this.dir === 'rtl' ? 'left' : 'right'
         }
         return this
     }
     async loadDocument(item) {
+        this.#assertActive()
         const str = await this.loadText(item.href)
+        this.#assertActive()
+        if (str == null) throw new Error(`EPUB resource not found: ${item.href}`)
         return this.parser.parseFromString(str, item.mediaType)
-    }
-    getMediaOverlay() {
-        return new MediaOverlay(this, this.#loadXML.bind(this))
     }
     resolveCFI(cfi) {
         return this.resources.resolveCFI(cfi)
     }
     resolveHref(href) {
+        if (typeof href !== 'string' || !href || isExternal(href)) return null
         const [path, hash] = href.split('#')
-        const item = this.resources.getItemByHref(decodeURI(path))
-        if (!item) return null
-        const index = this.resources.spine.findIndex(({ idref }) => idref === item.id)
-        const anchor = hash ? doc => getHTMLFragment(doc, hash) : () => 0
+        const resolved = this.resolveResource(path, '')
+        const index = this.sections.findIndex(section => section.id === resolved)
+        if (index < 0) return null
+        const fragment = hash ? decodeURIComponent(hash) : ''
+        const anchor = fragment ? doc => getHTMLFragment(doc, fragment) : () => 0
         return { index, anchor }
     }
     splitTOCHref(href) {
@@ -1182,6 +1061,9 @@ ${doc.querySelector('parsererror').innerText}`)
         }
     }
     destroy() {
+        if (this.#destroyed) return false
+        this.#destroyed = true
         this.#loader?.destroy()
+        return true
     }
 }

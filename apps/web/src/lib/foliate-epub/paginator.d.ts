@@ -20,11 +20,13 @@ export class Paginator extends HTMLElement {
   currentIndex?: number;
   open(book: { sections: unknown[]; dir?: string }): void;
   goTo(
-    target: Promise<unknown> | { index: number; anchor?: unknown; select?: boolean }
+    target: Promise<unknown> | { index: number; anchor?: unknown; select?: boolean },
+    options?: { signal?: AbortSignal }
   ): Promise<boolean>;
   prev(distance?: number): Promise<unknown>;
   next(distance?: number): Promise<unknown>;
   setStyles(styles: string | [string, string]): void;
+  getVisibleRange(): Range | undefined;
   getContents(): Array<{ index: number; doc: Document; overlayer?: unknown }>;
   destroy(): boolean;
 }

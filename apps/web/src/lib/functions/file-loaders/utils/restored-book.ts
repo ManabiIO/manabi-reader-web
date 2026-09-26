@@ -4,6 +4,14 @@
  * All rights reserved.
  */
 
+import type { PublicationManifest } from '$lib/reader-location';
+import { decodeEpubPublication } from '$lib/foliate-epub/publication-wire';
+import {
+  epubPublicationManifest,
+  validateEpubPublication,
+  type EpubPublicationData
+} from '$lib/foliate-epub/publication-data';
+
 import type { Section } from '$lib/data/database/books-db/versions/v4/books-db-v4';
 import { LimitedArchive, type ArchiveOptions } from './limited-archive';
 import { validDirectionEvidence, type DirectionEvidence } from '$lib/library/direction';
@@ -19,6 +27,9 @@ export interface RestoredContent {
   creators?: BookCreator[];
   pageDirection?: DirectionEvidence;
   contentHash?: string;
+  sourceFormat?: 'epub' | 'htmlz' | 'txt';
+  publicationManifest?: PublicationManifest;
+  epubPublication?: EpubPublicationData;
   blobs: Record<string, Blob>;
   coverImage?: Blob;
 }
@@ -50,6 +61,55 @@ function readMetadata(value: unknown): Omit<RestoredContent, 'blobs' | 'coverIma
     (typeof value.contentHash !== 'string' || !/^[a-f0-9]{64}$/.test(value.contentHash))
   )
     throw new Error('Invalid restored book content identity');
+  if (
+    value.sourceFormat !== undefined &&
+    !['epub', 'htmlz', 'txt'].includes(value.sourceFormat as string)
+  )
+    throw new Error('Invalid restored book source format');
+  let publicationManifest: PublicationManifest | undefined;
+  if (value.publicationManifest !== undefined) {
+    const manifest = value.publicationManifest as PublicationManifest;
+    if (
+      !object(manifest) ||
+      manifest.version !== 1 ||
+      !Array.isArray(manifest.resources) ||
+      manifest.resources.length > 8192 ||
+      manifest.resources.some(
+        (resource, index) =>
+          !object(resource) ||
+          resource.spineIndex !== index ||
+          typeof resource.href !== 'string' ||
+          !resource.href ||
+          resource.href.length > 2048 ||
+          typeof resource.sectionId !== 'string' ||
+          !resource.sectionId ||
+          resource.sectionId.length > 4096
+      )
+    )
+      throw new Error('Invalid restored book publication manifest');
+    publicationManifest = {
+      version: 1,
+      resources: manifest.resources.map(({ href, spineIndex, sectionId }) => ({
+        href,
+        spineIndex,
+        sectionId
+      }))
+    };
+  }
+  const epubPublication =
+    value.epubPublication === undefined
+      ? undefined
+      : decodeEpubPublication(
+          value.epubPublication,
+          value.elementHtml,
+          (value.styleSheet as string) || ''
+        );
+  if (epubPublication) {
+    validateEpubPublication(epubPublication, publicationManifest);
+    publicationManifest ??= epubPublicationManifest(epubPublication);
+    if (value.sourceFormat !== undefined && value.sourceFormat !== 'epub')
+      throw new Error('Invalid restored EPUB source format');
+  }
   const sections: Section[] = [];
   if (value.sections !== undefined) {
     if (!Array.isArray(value.sections) || value.sections.length > 8192)
@@ -91,6 +151,12 @@ function readMetadata(value: unknown): Omit<RestoredContent, 'blobs' | 'coverIma
   }
   return {
     title: value.title,
+    ...(publicationManifest ? { publicationManifest } : {}),
+    ...(epubPublication
+      ? { epubPublication, sourceFormat: 'epub' as const }
+      : value.sourceFormat
+        ? { sourceFormat: value.sourceFormat as 'epub' | 'htmlz' | 'txt' }
+        : {}),
     elementHtml: value.elementHtml,
     styleSheet: (value.styleSheet as string) || '',
     sections,

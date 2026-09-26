@@ -230,6 +230,8 @@ export interface ReaderNavigatorEnvironment {
   selectSection: (id: string) => void;
   navigate: (range: Range) => boolean;
   timeout?: number;
+  /** App-owned readiness notification for documents inside renderer frames. */
+  contentReadyEvent?: string;
 }
 
 /** Wait for the reader's normal render-ready signal; newer requests supersede old. */
@@ -276,6 +278,8 @@ export class ReaderNavigator {
             if (finished) return;
             finished = true;
             observer.disconnect();
+            if (this.environment.contentReadyEvent)
+              document.removeEventListener(this.environment.contentReadyEvent, check);
             clearTimeout(timer);
             controller.signal.removeEventListener('abort', abort);
             if (error) reject(error);
@@ -330,6 +334,8 @@ export class ReaderNavigator {
             this.environment.timeout ?? 5000
           );
           controller.signal.addEventListener('abort', abort, { once: true });
+          if (this.environment.contentReadyEvent)
+            document.addEventListener(this.environment.contentReadyEvent, check);
           check();
         });
       }

@@ -13,6 +13,8 @@
   import type { TextMarginMode } from '$lib/data/text-margin-mode';
   import { resolveReaderFont } from '$lib/data/reader-typography';
   import {
+    makeLocator,
+    selectedOffsets,
     projectResource,
     rangeAt,
     resolveLocator,
@@ -30,11 +32,16 @@
     resourceForReaderLocator,
     type ReaderNavigationOwner
   } from '$lib/foliate-epub/reader-navigation-owner';
+  import type { EpubResourceData } from '$lib/foliate-epub/publication-data';
   import type { Paginator } from '$lib/foliate-epub/paginator.js';
+  import { disableWheelNavigation$, skipKeyDownListener$ } from '$lib/data/store';
+  import { readerUIOwnsEvent } from '$lib/functions/reader-ui-events';
+  import { readerFontStyleSheet } from '$lib/foliate-epub/reader-fonts';
 
   export let htmlContent: string;
   export let styleSheet = '';
   export let publicationManifest: PublicationManifest;
+  export let epubResources: EpubResourceData[] | undefined = undefined;
   export let width: number;
   export let height: number;
   export let maxInlineSize = 0;
@@ -82,6 +89,7 @@
     userNavigation: void;
     pageTurnStart: void;
     toggleControls: void;
+    readerKeydown: KeyboardEvent;
   }>();
 
   let host: HTMLDivElement;
@@ -89,11 +97,25 @@
   let pageTurns: PageTurnController | undefined;
   let book: StoredFoliateBook | undefined;
   let progress: FoliateCharacterProgress | undefined;
-  let sourceSections: Element[] = [];
+  let sourceSection: (index: number) => Element | undefined = () => undefined;
+  let findSection: (target: string) => number = () => -1;
   let contentEl: HTMLElement | undefined;
   let destroyed = false;
   const navigation = new ReaderNavigationCoordinator();
   let bookmarkTimer: ReturnType<typeof setTimeout> | undefined;
+  let savedCharacterCount: number | undefined;
+  let bookmarkVersion = 0;
+  $: if (bookmarkData) {
+    const version = ++bookmarkVersion;
+    void bookmarkData
+      .then((saved) => {
+        if (!destroyed && version === bookmarkVersion)
+          savedCharacterCount = saved?.exploredCharCount;
+      })
+      .catch(reportNavigationError);
+  }
+  $: isBookmarkScreen =
+    savedCharacterCount !== undefined && savedCharacterCount === exploredCharCount;
   let themeObserver: MutationObserver | undefined;
   let tocSubscription: { unsubscribe(): void } | undefined;
 
@@ -103,6 +125,23 @@
 
   export function getDocumentSelection(): Selection | null {
     return contentEl?.ownerDocument.defaultView?.getSelection() ?? null;
+  }
+
+  /** Use Foliate's clipped visible range, not the expanded iframe viewport. */
+  export async function capturePoint(bookKey: string): Promise<ReaderLocator | undefined> {
+    const renderer = paginator;
+    const current = contentForPaginator();
+    const index = currentIndex();
+    const resource = publicationManifest.resources[index];
+    if (!renderer || !current || !resource || navigation.pending) return;
+    const projected = projectResource(current, resource);
+    const range = renderer.getVisibleRange();
+    const offsets = range && selectedOffsets(projected, range);
+    if (!offsets && projected.runs.length) return;
+    const locator = await makeLocator(bookKey, projected, offsets?.start ?? 0);
+    return !destroyed && current === contentForPaginator() && index === currentIndex()
+      ? locator
+      : undefined;
   }
 
   const makePageManager = (): PageManager => ({
@@ -122,14 +161,14 @@
   }
 
   function runNavigation(operation: (owner: ReaderNavigationOwner) => Promise<boolean>) {
+    captureReadingState();
     clearTimeout(bookmarkTimer);
     pageTurns?.cancel();
     return navigation.run(operation);
   }
 
   function reportNavigationError(error: unknown) {
-    if (!destroyed)
-      paginator?.dispatchEvent(new CustomEvent('navigationerror', { detail: error }));
+    if (!destroyed) paginator?.dispatchEvent(new CustomEvent('navigationerror', { detail: error }));
   }
 
   async function restoreCharacterCount(count: number, owner: ReaderNavigationOwner) {
@@ -138,16 +177,19 @@
     if (!renderer || !calculator || !owner.isCurrent() || !Number.isFinite(count) || count < 0)
       return false;
     const index = calculator.sectionForCharacterCount(count);
-    if (index < 0 || index >= sourceSections.length) return false;
-    const accepted = await renderer.goTo({
-      index,
-      anchor: (doc: Document) => {
-        if (!owner.isCurrent()) throw new DOMException('Navigation superseded.', 'AbortError');
-        const current = doc.querySelector('.book-content');
-        if (!current) throw new Error('The requested EPUB section is unavailable.');
-        return calculator.rangeForCharacterCount(index, current, count) ?? 0;
-      }
-    });
+    if (index < 0 || index >= publicationManifest.resources.length) return false;
+    const accepted = await renderer.goTo(
+      {
+        index,
+        anchor: (doc: Document) => {
+          if (!owner.isCurrent()) throw new DOMException('Navigation superseded.', 'AbortError');
+          const current = doc.querySelector('.book-content');
+          if (!current) throw new Error('The requested EPUB section is unavailable.');
+          return calculator.rangeForCharacterCount(index, current, count) ?? 0;
+        }
+      },
+      { signal: owner.signal }
+    );
     return accepted === true && owner.isCurrent() && currentIndex() === index;
   }
 
@@ -272,6 +314,7 @@
       `
       : '';
     return `
+      ${readerFontStyleSheet(document)}
       :root {
         ${themeVariables}
         --font-family-serif: ${primary};
@@ -287,7 +330,25 @@
         font-weight: ${fontWeight ?? 'normal'}${important};
         font-feature-settings: ${fontFeatureSettings || 'normal'}${important};
       }
-      .book-content { margin: ${textMarginMode === 'manual' ? `0 ${textMarginValue}rem` : '0'}; }
+      .book-content { margin: 0; }
+      .book-content > [class*="manabi-epub-resource-"] > .ttu-book-html-wrapper,
+      .book-content > [class*="manabi-epub-resource-"] > .ttu-book-html-wrapper > .ttu-book-body-wrapper {
+        writing-mode: inherit !important;
+      }
+      .book-content a { color: inherit !important; }
+      .book-content ruby > rt { user-select: none; }
+      .book-content svg { margin: auto; }
+      .book-content .ttu-no-text { margin: 0 !important; }
+      .book-content .ttu-img-parent { display: flex; justify-content: center; }
+      .book-content [data-ttu-spoiler-img] .spoiler-label { display: none; }
+      ${
+        textMarginMode === 'manual'
+          ? `.book-content p {
+        ${verticalMode ? 'margin-left' : 'margin-top'}: ${textMarginValue}rem${important};
+        ${verticalMode ? 'margin-right' : 'margin-bottom'}: ${textMarginValue}rem${important};
+      }`
+          : ''
+      }
       .book-content p { text-indent: ${textIndentation}rem${important}; }
       ${enableTextJustification ? `.book-content p { text-align: justify${important}; }` : ''}
       ${enableTextWrapPretty ? '.book-content { text-wrap: pretty; }' : ''}
@@ -301,7 +362,7 @@
     const renderer = paginator;
     if (!renderer || destroyed) return false;
     const resource = resourceForReaderLocator(publicationManifest.resources, locator);
-    const section = resource && sourceSections[resource.spineIndex];
+    const section = resource && sourceSection(resource.spineIndex);
     if (!resource || !section) return false;
 
     return runNavigation(async (owner) => {
@@ -310,20 +371,23 @@
       const projected = projectResource(section, resource);
       const offsets = await resolveLocator(locator, projected, bookKey);
       if (!offsets || !owner.isCurrent()) return false;
-      const accepted = await renderer.goTo({
-        index: resource.spineIndex,
-        anchor: (doc: Document) => {
-          if (!owner.isCurrent()) throw new DOMException('Navigation superseded.', 'AbortError');
-          const current = doc.querySelector('.book-content');
-          if (!current) throw new Error('The requested EPUB section is unavailable.');
-          const live = projectResource(current, resource);
-          if (live.text !== projected.text)
-            throw new Error('The EPUB text changed while resolving its saved location.');
-          const range = rangeAt(live, offsets.start, offsets.end);
-          if (!range) throw new Error('The saved EPUB location could not be resolved.');
-          return range;
-        }
-      });
+      const accepted = await renderer.goTo(
+        {
+          index: resource.spineIndex,
+          anchor: (doc: Document) => {
+            if (!owner.isCurrent()) throw new DOMException('Navigation superseded.', 'AbortError');
+            const current = doc.querySelector('.book-content');
+            if (!current) throw new Error('The requested EPUB section is unavailable.');
+            const live = projectResource(current, resource);
+            if (live.text !== projected.text)
+              throw new Error('The EPUB text changed while resolving its saved location.');
+            const range = rangeAt(live, offsets.start, offsets.end);
+            if (!range) throw new Error('The saved EPUB location could not be resolved.');
+            return range;
+          }
+        },
+        { signal: owner.signal }
+      );
       if (accepted !== true || !owner.isCurrent()) return false;
       await tick();
       return owner.isCurrent() && currentIndex() === resource.spineIndex;
@@ -338,7 +402,13 @@
     dispatch('contentChange', current);
   }
 
+  function captureReadingState() {
+    const current = paginator?.getContents()[0];
+    if (current) book?.captureState(current.index, current.doc);
+  }
+
   function handlePageTurnStart() {
+    captureReadingState();
     // Gestures are newer user intent, including while initial bookmark I/O waits.
     navigation.cancel();
     clearTimeout(bookmarkTimer);
@@ -361,9 +431,12 @@
       dispatch('userNavigation');
       if (autoBookmark) {
         clearTimeout(bookmarkTimer);
-        bookmarkTimer = setTimeout(() => {
-          if (!destroyed && !navigation.pending) dispatch('bookmark');
-        }, Math.max(0, autoBookmarkTime) * 1000);
+        bookmarkTimer = setTimeout(
+          () => {
+            if (!destroyed && !navigation.pending) dispatch('bookmark');
+          },
+          Math.max(0, autoBookmarkTime) * 1000
+        );
       }
     }
   }
@@ -419,11 +492,12 @@
       styleSheet,
       publicationManifest,
       document,
-      { writingMode: verticalMode ? 'vertical-rl' : 'horizontal-tb' }
+      { writingMode: verticalMode ? 'vertical-rl' : 'horizontal-tb', resources: epubResources }
     );
     book = publication.book;
-    sourceSections = publication.sourceSections;
-    progress = new FoliateCharacterProgress(sourceSections);
+    sourceSection = publication.sourceSection;
+    findSection = publication.findSection;
+    progress = new FoliateCharacterProgress(publication.characterCounts);
     bookCharCount = progress.bookCharacterCount;
 
     paginator = document.createElement('foliate-paginator') as Paginator;
@@ -437,7 +511,11 @@
     paginator.addEventListener('relocate', handleRelocate);
     paginator.addEventListener('pageturnstart', handlePageTurnStart);
     paginator.addEventListener('togglecontrols', () => dispatch('toggleControls'));
-    pageTurns = new PageTurnController(paginator);
+    pageTurns = new PageTurnController(paginator, {
+      keydown: (event) => dispatch('readerKeydown', event),
+      allowsInput: (event) => !$skipKeyDownListener$ && !readerUIOwnsEvent(event),
+      allowsWheel: () => !$disableWheelNavigation$
+    });
     host.append(paginator);
     paginator.open(book);
     paginator.setStyles(readerStyles());
@@ -453,36 +531,45 @@
 
     tocSubscription = nextChapter$.subscribe((target) => {
       if (typeof target === 'string' && !target) return;
-      const index =
-        typeof target === 'string'
-          ? sourceSections.findIndex(
-              (section) => section.id === target || section.querySelector(`#${CSS.escape(target)}`)
-            )
-          : target.spineIndex;
+      const index = typeof target === 'string' ? findSection(target) : target.spineIndex;
       const renderer = paginator;
-      if (!Number.isSafeInteger(index) || index < 0 || index >= sourceSections.length || !renderer)
+      if (
+        !Number.isSafeInteger(index) ||
+        index < 0 ||
+        index >= publicationManifest.resources.length ||
+        !renderer
+      )
         return;
       const fragment = typeof target === 'string' ? target : target.fragment;
       void runNavigation(async (owner) => {
-        const accepted = await renderer.goTo({
-          index,
-          anchor: fragment
-            ? (doc: Document) => {
-                if (!owner.isCurrent())
-                  throw new DOMException('Navigation superseded.', 'AbortError');
-                return (
-                  doc.getElementById(fragment) ?? doc.querySelector(`#${CSS.escape(fragment)}`) ?? 0
-                );
-              }
-            : 0
-        });
+        const accepted = await renderer.goTo(
+          {
+            index,
+            anchor: fragment
+              ? (doc: Document) => {
+                  if (!owner.isCurrent())
+                    throw new DOMException('Navigation superseded.', 'AbortError');
+                  return (
+                    doc.getElementById(fragment) ??
+                    doc.querySelector(`#${CSS.escape(fragment)}`) ??
+                    0
+                  );
+                }
+              : 0
+          },
+          { signal: owner.signal }
+        );
         return accepted === true && owner.isCurrent() && currentIndex() === index;
       }).catch(reportNavigationError);
     });
 
     const renderer = paginator;
     await runNavigation(async (owner) => {
-      if ((await renderer.goTo({ index: 0 })) !== true || !owner.isCurrent()) return false;
+      if (
+        (await renderer.goTo({ index: 0 }, { signal: owner.signal })) !== true ||
+        !owner.isCurrent()
+      )
+        return false;
       const saved = await bookmarkData;
       if (!owner.isCurrent()) return false;
       return saved ? restoreCharacterCount(saved.exploredCharCount ?? 0, owner) : true;

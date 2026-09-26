@@ -4,8 +4,8 @@
  * All rights reserved.
  */
 
-import { countReadingCharacters } from './count-reading-characters';
-import { isNodeGaiji } from './is-node-gaiji';
+import { countReadingCharacters } from './count-reading-characters.ts';
+import { isNodeGaiji } from './is-node-gaiji.ts';
 
 export function getCharacterCount(node: Node) {
   return isNodeGaiji(node) ? 1 : getRawCharacterCount(node);

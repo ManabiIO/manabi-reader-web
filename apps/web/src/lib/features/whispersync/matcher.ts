@@ -371,7 +371,7 @@ interface HighlightWindow {
 /** Owns one named CSS highlight; it never steals the user's text selection. */
 export class ReaderHighlight {
   private readonly name = `manabi-whispersync`;
-  private readonly host: HighlightWindow;
+  private host: HighlightWindow;
   private value: unknown;
   constructor(window: Window) {
     this.host = window as unknown as HighlightWindow;
@@ -381,6 +381,8 @@ export class ReaderHighlight {
   }
   set(range?: Range): void {
     this.clear();
+    const view = range?.startContainer.ownerDocument?.defaultView;
+    if (view) this.host = view as unknown as HighlightWindow;
     if (range && this.host.Highlight && this.host.CSS?.highlights) {
       this.value = new this.host.Highlight(range);
       this.host.CSS.highlights.set(this.name, this.value);
