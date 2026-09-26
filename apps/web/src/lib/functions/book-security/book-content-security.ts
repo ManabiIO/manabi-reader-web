@@ -125,6 +125,7 @@ const ATTRIBUTES = [
   'aria-hidden',
   'hidden',
   'data-ttu-spoiler-img',
+  'data-manabi-epub-href',
   'viewBox',
   'preserveAspectRatio',
   'xmlns',
@@ -226,6 +227,17 @@ const CSS_PROPERTIES = new Set([
   'stroke-width',
   'text-anchor'
 ]);
+export function isSafeBookInternalHref(value: string): boolean {
+  const normalized = value.trim();
+  // eslint-disable-next-line no-control-regex
+  return (
+    normalized.length > 0 &&
+    normalized.length <= 4096 &&
+    !/[\x00-\x20\x7f]/.test(normalized) &&
+    (normalized.startsWith('#') || !/^(?:[a-z][\w+.-]*:|[\\/])/i.test(normalized))
+  );
+}
+
 const READER_FONT_VALUES = new Set([
   'var(--font-family-sans-serif, Noto Sans JP, sans-serif)',
   'var(--font-family-serif, Noto Serif JP, serif)'
@@ -338,11 +350,10 @@ export function sanitizeBookHtml(html: string, policy: BookHtmlPolicy): string {
         // Reader links are internal. Import-time relative chapter links are
         // retained for the existing TOC flattener, then restricted on reading.
         data.keepAttr =
-          // eslint-disable-next-line no-control-regex
-          !/[\x00-\x20\x7f]/.test(value) &&
+          isSafeBookInternalHref(value) &&
           (value.startsWith('#') ||
-            ((policy.wholeDocument === true || policy.allowRelativeLinks === true) &&
-              !/^(?:[a-z][\w+.-]*:|[\\/])/i.test(value)));
+            policy.wholeDocument === true ||
+            policy.allowRelativeLinks === true);
         data.attrValue = value;
       } else if ((tag === 'img' && name === 'src') || (tag === 'image' && name !== 'src')) {
         let resolved: string | undefined;
@@ -360,6 +371,10 @@ export function sanitizeBookHtml(html: string, policy: BookHtmlPolicy): string {
       } else {
         data.keepAttr = false;
       }
+    } else if (name === 'data-manabi-epub-href') {
+      // Application-authored copy of the original internal EPUB target. It is
+      // never navigated as a URL until the publication resolver accepts it.
+      data.keepAttr = tag === 'a' && isSafeBookInternalHref(data.attrValue);
     } else if (['fill', 'stroke'].includes(name)) {
       data.keepAttr = safeCssValue(data.attrValue);
     } else if (name === 'id') {
