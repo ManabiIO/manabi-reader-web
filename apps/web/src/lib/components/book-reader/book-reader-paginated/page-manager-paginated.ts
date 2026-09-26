@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { Observable, take, type Subject, type BehaviorSubject } from 'rxjs';
+import { Observable, filter, take, type Subject, type BehaviorSubject } from 'rxjs';
 import {
   sectionProgress$,
   sectionList$,
@@ -69,7 +69,7 @@ export class PageManagerPaginated implements PageManager {
       const direction = offset < 0 ? -1 : 1;
       let target = current;
       for (let index = 0; index < Math.abs(offset); index += 1) {
-        const step = this.paginator.target(direction);
+        const step = this.paginator.target(direction, target);
         if (step.boundary) break;
         target = step.position;
       }
@@ -148,13 +148,12 @@ export class PageManagerPaginated implements PageManager {
         return undefined;
       }
 
-      const subscription = this.sectionRenderComplete$.subscribe((newIndex) => {
-        if (newIndex === index) {
+      const subscription = this.sectionRenderComplete$
+        .pipe(filter((newIndex) => newIndex === index), take(1))
+        .subscribe(() => {
           subscriber.next();
-        }
-        subscriber.complete();
-        subscription.unsubscribe();
-      });
+          subscriber.complete();
+        });
       this.sectionIndex$.next(index);
       return subscription;
     });
