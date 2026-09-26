@@ -886,13 +886,34 @@ class RheaReader(previous.RefinedAppearance):
     def test_statistics_raw_recovery_download_preserves_ambiguous_days(self):
         self.page.goto(self.origin + '/reader-web/statistics')
         expect(self.page.get_by_role('button', name='Statistics options', exact=True)).to_be_visible()
+        # The header can render before the application's database upgrade. A
+        # bare open here would create an empty v1 database if it wins that race.
+        # Observe the real schema, never create or upgrade it from this fixture.
+        self.page.wait_for_function('''() => new Promise((resolve, reject) => {
+          const open = indexedDB.open('books');
+          let absent = false;
+          open.onupgradeneeded = () => { absent = true; open.transaction.abort(); };
+          open.onerror = () => absent ? resolve(false) : reject(open.error);
+          open.onsuccess = () => {
+            const db = open.result;
+            const ready = ['statistic', 'readerStatistic', 'readerStatisticMigration']
+              .every(name => db.objectStoreNames.contains(name));
+            db.close();
+            resolve(ready);
+          };
+        })''')
         self.page.evaluate('''() => new Promise((resolve, reject) => {
           const deadline = setTimeout(() => reject(new Error('Statistics seed transaction stalled')), 15000);
           const open = indexedDB.open('books');
           open.onerror = () => { clearTimeout(deadline); reject(open.error); };
           open.onsuccess = () => {
             const db = open.result;
-            const tx = db.transaction(['statistic', 'readerStatistic', 'readerStatisticMigration'], 'readwrite');
+            let tx;
+            try {
+              tx = db.transaction(['statistic', 'readerStatistic', 'readerStatisticMigration'], 'readwrite');
+            } catch (error) {
+              clearTimeout(deadline); db.close(); reject(error); return;
+            }
             const title = 'Two copies';
             const common = {title, readingTime: 60, charactersRead: 25, minReadingSpeed: 1,
               altMinReadingSpeed: 1, lastReadingSpeed: 1, maxReadingSpeed: 1,
