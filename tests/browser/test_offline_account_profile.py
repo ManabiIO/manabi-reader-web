@@ -10,6 +10,16 @@ from test_static_reader import StaticHandler
 class OfflineAccountProfile(LibraryBase):
     def tearDown(self):
         try:
+            if (self.engine == 'webkit' and self._testMethodName ==
+                    'test_owned_book_opens_offline_and_disappears_after_confirmed_signout'):
+                # WebKit reports an aborted fetch as a page error while this
+                # case deliberately cuts network access and leaves documents.
+                # Keep every other page error subject to the base assertion.
+                self.errors = [error for error in self.errors if not (
+                    error.startswith('Fetch API cannot load http://127.0.0.1:') and
+                    ' due to access control checks.' in error and
+                    ('/api/reader-web/personal/changes/' in error or
+                     '/static/reader/books/opds/index.xml' in error))]
             super().tearDown()
         finally:
             StaticHandler.account_fixture = None
@@ -91,7 +101,7 @@ class OfflineAccountProfile(LibraryBase):
         self.page.get_by_role('button', name='Bookmarks and Notes', exact=True).click()
         self.page.get_by_role('button', name='Add Bookmark', exact=True).click()
         saved = self.page.get_by_label('Saved annotations')
-        expect(saved.get_by_text('Bookmark', exact=False)).to_be_visible()
+        expect(saved.get_by_role('button', name='Bookmark · Section')).to_be_visible()
         deadline = time.monotonic() + 10
         while True:
             scopes = self.stores('books', ['readerAnnotationScope'])['readerAnnotationScope']
