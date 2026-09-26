@@ -127,6 +127,7 @@ const ATTRIBUTES = [
   'hidden',
   'data-ttu-spoiler-img',
   'data-manabi-epub-href',
+  'data-manabi-spine-index',
   'viewBox',
   'preserveAspectRatio',
   'xmlns',
@@ -361,6 +362,10 @@ export function sanitizeBookHtml(html: string, policy: BookHtmlPolicy): string {
       } else {
         data.keepAttr = false;
       }
+    } else if (name === 'data-manabi-spine-index') {
+      const index = Number(data.attrValue);
+      data.keepAttr =
+        Number.isSafeInteger(index) && index >= 0 && index <= 8191;
     } else if (name === 'data-manabi-epub-href') {
       // Application-authored copy of the original internal EPUB target. It is
       // never navigated as a URL until the publication resolver accepts it.
