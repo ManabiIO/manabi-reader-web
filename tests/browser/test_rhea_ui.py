@@ -183,7 +183,7 @@ class RheaReader(previous.RefinedAppearance):
 
     def test_contents_navigation_reflows_and_returns_focus_at_phone_and_desktop(self):
         self.context.add_init_script("if (location.pathname.endsWith('/manage')) { localStorage.setItem('fontFamilyGroupOne', 'Klee One'); localStorage.setItem('viewMode', 'paginated'); }")
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
             'name': 'chapters.epub', 'mimeType': 'application/epub+zip', 'buffer': chaptered_epub()})
@@ -600,7 +600,7 @@ class RheaReader(previous.RefinedAppearance):
 
         screenshot_dir = os.environ.get('BOOK_DETAILS_SCREENSHOT_DIR')
         self.page.set_viewport_size({'width': 390, 'height': 844})
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute('aria-busy', 'false')
         for width, height, view in ((390, 844, 'Grid'), (390, 844, 'List'), (1440, 900, 'Grid'), (1440, 900, 'List')):
             with self.subTest(width=width, view=view):
