@@ -54,7 +54,15 @@ export class PageTurnController {
       },
       { signal: this.lifetime.signal }
     );
-    window.addEventListener('blur', () => this.cancel(), { signal: this.lifetime.signal });
+    window.addEventListener(
+      'blur',
+      () => {
+        // Chromium also blurs the top Window when focus returns to an iframe.
+        // That is still reader focus, not the user leaving this document.
+        if (!document.hasFocus()) this.cancel();
+      },
+      { signal: this.lifetime.signal }
+    );
     window.addEventListener('resize', () => this.cancel(), { signal: this.lifetime.signal });
     document.addEventListener(
       'visibilitychange',

@@ -21,7 +21,7 @@ class EpubNavigationBrowser(FoliateSlide):
         self.toggle_controls()
         self.page.get_by_role('button', name='Reading tools', exact=True).click()
         self.page.get_by_role('menuitem', name='Search Book').click()
-        self.page.get_by_role('textbox', name='Search within book').fill('本を読む')
+        self.page.get_by_role('searchbox', name='Search within book').fill('本を読む')
         self.page.locator('[aria-label="Search results"] button').first.click()
         self.page.wait_for_function(f"() => {P}.page === 1")
         self.page.get_by_role('button', name='Return to where I was', exact=True).click()

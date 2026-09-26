@@ -26,6 +26,7 @@ async function withController(options, run) {
   host.visualViewport = { scale: 1 };
   const document = new EventTarget();
   document.hidden = false;
+  document.hasFocus = () => true;
   document.defaultView = host;
   const content = new EventTarget();
   content.nodeType = 9;
@@ -80,7 +81,7 @@ async function withController(options, run) {
     return event;
   };
   try {
-    await run({ controller, paginator, content, state, flush, send });
+    await run({ controller, paginator, content, state, flush, send, host, document });
   } finally {
     controller.destroy();
     for (const [name, descriptor] of descriptors) {
@@ -197,5 +198,24 @@ test('destruction cancels a late prepared turn without animating or publishing i
     await pending;
     await flush();
     assert.equal(state.cancelled, 1);
+  });
+});
+
+test('top-window blur during iframe refocus does not cancel a handled page shortcut', async () => {
+  await withController({}, async ({ controller, host, state, flush }) => {
+    await controller.turn(1);
+    host.dispatchEvent(new Event('blur'));
+    await flush();
+    assert.equal(state.committed, 1);
+  });
+});
+
+test('genuine document focus loss cancels a pending turn', async () => {
+  await withController({}, async ({ controller, host, document, state, flush }) => {
+    await controller.turn(1);
+    document.hasFocus = () => false;
+    host.dispatchEvent(new Event('blur'));
+    await flush();
+    assert.equal(state.committed, 0);
   });
 });
