@@ -140,3 +140,23 @@ test('abort during initialization cannot return a publication and cleanup runs o
     assert.equal(state.destroys, 1);
   });
 });
+
+test('optional parser recovery cannot conceal a failed archive read during initialization', async () => {
+  await withArchive(async (archive, state) => {
+    const failure = new Error('ZIP checksum mismatch');
+    archive.readText = async () => {
+      throw failure;
+    };
+    EPUB.prototype.init = async function () {
+      try {
+        await this.loadText('chapter.xhtml');
+      } catch {
+        // Model an optional-nav fallback in the upstream parser.
+      }
+      return this;
+    };
+    await assert.rejects(openFoliateEpub(new Blob()), (error) => error === failure);
+    assert.equal(state.closes, 1);
+    assert.equal(state.destroys, 1);
+  });
+});

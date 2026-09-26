@@ -51,6 +51,8 @@ export async function openFoliateEpub(
   let epub: EPUB | undefined;
   let book: FoliateEpubBook | undefined;
   let closed = false;
+  let initializing = true;
+  let initializationFailure: unknown;
   let closing: Promise<void> | undefined;
   const close = (): Promise<void> => {
     if (!closing) {
@@ -75,6 +77,7 @@ export async function openFoliateEpub(
   const assertOpen = () => {
     options.signal?.throwIfAborted();
     if (closed) throw new DOMException('Publication is closed.', 'AbortError');
+    if (initializationFailure) throw initializationFailure;
   };
   options.signal?.addEventListener('abort', abort, { once: true });
   try {
@@ -94,7 +97,13 @@ export async function openFoliateEpub(
         assertOpen();
         const literal = literalName(uri);
         if (!literal) return null;
-        const result = await archive.readText(literal, maximum);
+        let result: string;
+        try {
+          result = await archive.readText(literal, maximum);
+        } catch (error) {
+          if (initializing) initializationFailure = error;
+          throw error;
+        }
         assertOpen();
         return result;
       },
@@ -102,7 +111,13 @@ export async function openFoliateEpub(
         assertOpen();
         const literal = literalName(uri);
         if (!literal) return null;
-        const result = await archive.readBlob(literal);
+        let result: Blob;
+        try {
+          result = await archive.readBlob(literal);
+        } catch (error) {
+          if (initializing) initializationFailure = error;
+          throw error;
+        }
         assertOpen();
         return result;
       },
@@ -119,6 +134,7 @@ export async function openFoliateEpub(
     });
     book = await epub.init();
     assertOpen();
+    initializing = false;
     return { book, readText: source.loadText, readBlob: source.loadBlob, close };
   } catch (error) {
     try {

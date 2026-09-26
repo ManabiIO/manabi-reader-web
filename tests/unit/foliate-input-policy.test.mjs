@@ -7,6 +7,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { setImmediate } from 'node:timers';
+import { performance } from 'node:perf_hooks';
 import { PageTurnController } from '../../apps/web/src/lib/foliate-epub/page-turn-controller.ts';
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));

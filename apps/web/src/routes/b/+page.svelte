@@ -2249,6 +2249,7 @@
     on:toggleControls={() => (showHeader = !showHeader)}
     previewNavigationActive={navigationPreviewing || suppressResumeSave}
     htmlContent={$bookData$.htmlContent}
+    epubResources={$bookData$.epubResources}
     styleSheet={$bookData$.styleSheet}
     publicationManifest={$rawBookData$.publicationManifest}
     sourceFormat={readerSourceFormat($rawBookData$)}

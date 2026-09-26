@@ -81,16 +81,7 @@ function chapterLabels(toc: FoliateNavigationItem[] | undefined): Map<string, st
 
 function copyRootAttributes(source: Element, target: HTMLElement): void {
   // These attributes have already crossed the HTML sanitizer, including style.
-  for (const name of [
-    'id',
-    'class',
-    'style',
-    'lang',
-    'xml:lang',
-    'dir',
-    'hidden',
-    'aria-hidden'
-  ]) {
+  for (const name of ['id', 'class', 'style', 'lang', 'xml:lang', 'dir', 'hidden', 'aria-hidden']) {
     const value = source.getAttribute(name);
     if (value !== null) target.setAttribute(name, value);
   }
@@ -110,7 +101,7 @@ export async function importEpubPublication(
 ): Promise<LoadData> {
   const { signal } = options;
   const publication = await openFoliateEpub(file, { signal });
-  let failed = false;
+  let imported: LoadData;
   try {
     const { book } = publication;
     const items = book.resources.manifest;
@@ -161,7 +152,11 @@ export async function importEpubPublication(
     let mainChapter: (typeof sections)[number] | undefined;
     for (const [index, item] of spine.entries()) {
       signal?.throwIfAborted();
-      const raw = repairEpubHtml(await readText(item.href), options.repairMode, options.anchorsOnly);
+      const raw = repairEpubHtml(
+        await readText(item.href),
+        options.repairMode,
+        options.anchorsOnly
+      );
       rawSize += raw.length;
       if (rawSize > 32 * 1024 * 1024)
         throw new Error('EPUB expanded reading content exceeds the size limit.');
@@ -215,7 +210,10 @@ export async function importEpubPublication(
         }
         anchor.setAttribute('data-manabi-target-spine-index', String(target.spineIndex));
         if (target.fragment) anchor.setAttribute('data-manabi-target-fragment', target.fragment);
-        anchor.setAttribute('href', `#${target.fragment ?? resources[target.spineIndex].sectionId}`);
+        anchor.setAttribute(
+          'href',
+          `#${target.fragment ?? resources[target.spineIndex].sectionId}`
+        );
       }
       const characters = getParagraphNodes(section).reduce(
         (count, node) => count + getCharacterCount(node),
@@ -256,10 +254,14 @@ export async function importEpubPublication(
     const creators = extractCreators({
       'dc:creator': values(metadata.author).map((value) => {
         const entry = typeof value === 'object' && value ? (value as Record<string, unknown>) : {};
-        return { '#text': text(entry.name ?? value), '@_role': 'aut', '@_file-as': text(entry.sortAs) };
+        return {
+          '#text': text(entry.name ?? value),
+          '@_role': 'aut',
+          '@_file-as': text(entry.sortAs)
+        };
       })
     });
-    let language = 'ja';
+    let language = '';
     for (const value of values(metadata.language)) {
       if (typeof value !== 'string') continue;
       try {
@@ -290,7 +292,7 @@ export async function importEpubPublication(
     };
     const directionSources = Object.fromEntries(sourceText);
     signal?.throwIfAborted();
-    return {
+    imported = {
       title: (text(metadata.title) || file.name).slice(0, 4096),
       creators,
       language,
@@ -309,14 +311,11 @@ export async function importEpubPublication(
       lastBookOpen: 0
     };
   } catch (error) {
-    failed = true;
+    // Always drain the archive, retaining the original import failure.
+    await publication.close().catch(() => {});
     throw error;
-  } finally {
-    try {
-      await publication.close();
-    } catch (error) {
-      // Preserve an import failure, but do not hide a close failure after success.
-      if (!failed) throw error;
-    }
   }
+  // A successful import is not acknowledged before its archive closes.
+  await publication.close();
+  return imported;
 }

@@ -52,13 +52,16 @@ test('navigation URIs encode literal resource punctuation before splitting fragm
     resolveEpubNavigationHref(owner, 'part%231%3F.xhtml?ignored=yes#%E6%B3%A8'),
     'OPS/part%231%3F.xhtml#%E6%B3%A8'
   );
-  assert.equal(resolveEpubNavigationHref(owner, 'part%2523.xhtml#note'), 'OPS/part%2523.xhtml#note');
+  assert.equal(
+    resolveEpubNavigationHref(owner, 'part%2523.xhtml#note'),
+    'OPS/part%2523.xhtml#note'
+  );
   assert.equal(resolveEpubNavigationHref('OPS/part#1.xhtml', '#note'), 'OPS/part%231.xhtml#note');
   const resources = [{ href: 'OPS/part#1?.xhtml', spineIndex: 0, sectionId: 'part' }];
-  assert.deepEqual(
-    resolveEpubLinkTarget(owner, 'part%231%3F.xhtml#%E6%B3%A8', resources),
-    { spineIndex: 0, fragment: '注' }
-  );
+  assert.deepEqual(resolveEpubLinkTarget(owner, 'part%231%3F.xhtml#%E6%B3%A8', resources), {
+    spineIndex: 0,
+    fragment: '注'
+  });
 });
 
 test('navigation normalization never converts external URLs to archive paths', () => {

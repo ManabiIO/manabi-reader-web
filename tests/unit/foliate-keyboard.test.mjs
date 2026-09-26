@@ -25,6 +25,7 @@ function fixture() {
   });
   let focuses = 0;
   const source = {
+    hasFocus: () => true,
     defaultView: {
       frameElement: frame,
       focus: () => {
@@ -129,5 +130,17 @@ test('forwarding retains modifiers/repeat but refuses detached frames', async ()
     frame.isConnected = false;
     relayReaderKeydown(key(), host);
     assert.equal(calls, 1);
+  });
+});
+
+test('shadow-root frame focus survives the top-level shortcut blur', async () => {
+  await environment(({ host, document, key, focuses }) => {
+    document.activeElement = { localName: 'foliate-paginator' };
+    host.addEventListener('keydown', (event) => {
+      document.activeElement = document.body;
+      event.preventDefault();
+    });
+    relayReaderKeydown(key(), host);
+    assert.equal(focuses(), 1);
   });
 });

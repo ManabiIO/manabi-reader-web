@@ -109,7 +109,8 @@ export function packEpubResources(resources: readonly EpubResourceData[]): {
     if (!styles.has(styleSheet)) styles.set(styleSheet, styles.size);
     const start = position;
     position += html.length;
-    return { href, spineIndex, sectionId, start, end: position, style: styles.get(styleSheet)! };
+    const end = position;
+    return { href, spineIndex, sectionId, start, end, style: styles.get(styleSheet)! };
   });
   const elementHtml = resources.map((resource) => resource.html).join('');
   const epubPublication = readEpubPublication(
@@ -132,9 +133,9 @@ export function epubResourceContents(
   }));
 }
 
-export function epubPublicationManifest(
-  publication: { resources: readonly PublicationResource[] }
-): PublicationManifest {
+export function epubPublicationManifest(publication: {
+  resources: readonly PublicationResource[];
+}): PublicationManifest {
   return {
     version: 1,
     resources: publication.resources.map(({ href, spineIndex, sectionId }) => ({

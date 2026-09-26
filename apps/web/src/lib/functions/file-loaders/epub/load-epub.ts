@@ -7,6 +7,7 @@
 import { importHTMLFixMode$, restrictImportFixToAnchor$ } from '$lib/data/store';
 import { importEpubPublication } from '$lib/foliate-epub/import-publication';
 import type { LoadData } from '../types';
+import initZipSettings from '../utils/init-zip-settings';
 
 export default function loadEpub(
   file: File,
@@ -14,6 +15,7 @@ export default function loadEpub(
   lastBookModified: number,
   signal?: AbortSignal
 ): Promise<LoadData> {
+  initZipSettings();
   return importEpubPublication(file, document, lastBookModified, {
     signal,
     repairMode: importHTMLFixMode$.getValue(),

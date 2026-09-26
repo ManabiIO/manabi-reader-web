@@ -6,6 +6,7 @@
 
 import { sanitizeBookStyleSheet } from '../functions/book-security/book-content-security';
 import { scopedEpubSelector } from './epub-root-selectors';
+import { EpubStyleBudget } from './style-budget';
 import type { EpubResourceData } from './publication-data';
 
 function scopedStyles(
@@ -22,7 +23,7 @@ function scopedStyles(
   if (!Sheet || !Sheet.prototype.replaceSync) return '';
   const sheet = new Sheet();
   sheet.replaceSync(sanitizeBookStyleSheet(css, document));
-  const output: string[] = [];
+  const output = new EpubStyleBudget();
   // Share identical CSS across chapters, without an unbounded selector list.
   for (let index = 0; index < ids.length; index += 32) {
     const scopeIds = ids
@@ -50,16 +51,16 @@ function scopedStyles(
         !style.style.getPropertyValue('line-break')
       )
         style.style.setProperty('line-break', 'loose');
-      output.push(`${scopedEpubSelector(style.selectorText, scope)}{${style.style.cssText}}`);
+      output.append(`${scopedEpubSelector(style.selectorText, scope)}{${style.style.cssText}}`);
     }
-    output.push(`${scope} br{display:inline!important}`);
+    output.append(`${scope} br{display:inline!important}`);
     // The reader's selected layout axis remains authoritative, as in TTU.
     // Preserve interior mixed-writing islands; only synthetic roots inherit it.
-    output.push(
+    output.append(
       `${scope}>.ttu-book-html-wrapper,${scope}>.ttu-book-html-wrapper>.ttu-book-body-wrapper{writing-mode:inherit!important}`
     );
   }
-  return output.join('\n');
+  return output.toString();
 }
 
 export function epubResourceStyles(resource: EpubResourceData, document: Document): string {
@@ -77,10 +78,7 @@ export function epubCompatibilityStyles(
     ids.push(resource.sectionId);
     groups.set(resource.styleSheet, ids);
   }
-  const result = [...groups]
-    .map(([css, ids]) => scopedStyles(css, ids, document, parentSelector))
-    .join('\n');
-  if (result.length > 4 * 1024 * 1024)
-    throw new Error('EPUB compatibility styles exceed the expanded size limit.');
-  return result;
+  const output = new EpubStyleBudget();
+  for (const [css, ids] of groups) output.append(scopedStyles(css, ids, document, parentSelector));
+  return output.toString();
 }

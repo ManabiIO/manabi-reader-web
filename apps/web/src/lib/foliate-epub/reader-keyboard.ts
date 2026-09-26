@@ -26,7 +26,8 @@ export function relayReaderKeydown(event: KeyboardEvent, host: Window): void {
     bubbles: true,
     cancelable: true
   });
-  const focused = host.document.activeElement === frame;
+  // The top document exposes the shadow host as activeElement, not this iframe.
+  const focused = source.hasFocus();
   host.dispatchEvent(forwarded);
   if (!forwarded.defaultPrevented) return;
   event.preventDefault();
