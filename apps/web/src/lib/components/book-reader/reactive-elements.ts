@@ -46,7 +46,8 @@ function anchorTagListener(document: Document) {
     const anchorTags = Array.from(contentEl.getElementsByTagName('a'));
     anchorTags.forEach((el) => {
       if (!el.dataset.manabiTargetSpineIndex) {
-        el.href = document.location.pathname + el.hash;
+        // A root-relative URL cannot resolve against a Foliate blob document.
+        el.href = new URL(document.location.pathname + el.hash, document.location.href).href;
       }
     });
 
