@@ -371,7 +371,10 @@ test('pause then restart fences an old completion even when status is running ag
   const { a, b } = await stores(t);
   const current = await started(a);
   const paused = await b.update(current.id, current.revision, (j) => ({ ...j, status: 'paused' }));
-  const restarted = await b.update(current.id, paused.revision, (j) => ({ ...j, status: 'running' }));
+  const restarted = await b.update(current.id, paused.revision, (j) => ({
+    ...j,
+    status: 'running'
+  }));
   await assert.rejects(a.checkpoint(current.id, batch(), current.revision), /state changed/);
   await assert.rejects(a.complete(current.id, current.revision), /state changed/);
   assert.deepEqual(await a.get(current.id), restarted);
@@ -396,7 +399,9 @@ test('completion verifies the stored whole plan, not a caller subset or stopped 
     a.checkpoint(current.id, batch(hash('d'), 'changed'), complete.revision),
     /different/
   );
-  await assert.rejects(a.update(current.id, complete.revision, (j) => ({ ...j, status: 'running' })));
+  await assert.rejects(
+    a.update(current.id, complete.revision, (j) => ({ ...j, status: 'running' }))
+  );
 });
 
 test('foreign batch results are rejected atomically', async (t) => {
