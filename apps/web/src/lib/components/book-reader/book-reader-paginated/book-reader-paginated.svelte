@@ -54,6 +54,7 @@
   import { BookmarkManagerPaginated } from './bookmark-manager-paginated';
   import { PageManagerPaginated } from './page-manager-paginated';
   import { FoliatePageManagerPaginated } from './foliate-page-manager-paginated';
+  import { paginatedEngineFor } from './paginated-engine';
   import type { EpubPublicationDescriptor } from '$lib/functions/file-loaders/epub/epub-publication';
   import { SectionCharacterStatsCalculator } from './section-character-stats-calculator';
   import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
@@ -240,7 +241,7 @@
   $: {
     if (contentEl && scrollEl && sections) {
       const Manager =
-        epubPublication?.engine === 'foliate-epub-v1'
+        paginatedEngineFor(epubPublication) === 'foliate-inline'
           ? FoliatePageManagerPaginated
           : PageManagerPaginated;
       concretePageManager = new Manager(
@@ -833,9 +834,7 @@
 <div
   bind:this={scrollEl}
   data-manabi-resource-count={sections.length}
-  data-manabi-page-engine={epubPublication?.engine === 'foliate-epub-v1'
-    ? 'foliate-inline'
-    : 'legacy'}
+  data-manabi-page-engine={paginatedEngineFor(epubPublication)}
   style:color={fontColor}
   style:font-size="{fontSize}px"
   style:line-height={lineHeight}
