@@ -30,7 +30,7 @@ class LibraryOrganizationSync(LibraryBase):
         }
         StaticHandler.preference_revision = 0
         StaticHandler.preference_settings = {}
-        self.page.goto(self.origin + '/Reader-Web/connections')
+        self.page.goto(self.origin + '/reader-web/connections')
         self.page.get_by_label('Sync reader settings with this Manabi account', exact=True).check()
         status = self.page.get_by_role('status', name='Settings sync status')
         expect(status).to_contain_text('synced')
@@ -38,7 +38,7 @@ class LibraryOrganizationSync(LibraryBase):
         library = self.context.new_page()
         library.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))
         try:
-            library.goto(self.origin + '/Reader-Web/manage?collection=want-to-read')
+            library.goto(self.origin + '/reader-web/manage?collection=want-to-read')
             expect(library.get_by_role('region', name='Library shelves')).to_have_attribute('aria-busy', 'false')
             expect(library.get_by_role('button', name='Read Before sync', exact=True)).to_be_visible()
             # Another device has replaced the shared membership. Sync it from

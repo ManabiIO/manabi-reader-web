@@ -142,11 +142,11 @@ class WantToReadBrowser(LibraryBase):
 
         # The URL is a durable destination, including direct load and browser back.
         destination = self.page.url
-        self.page.goto(self.origin + '/Reader-Web/manage')
+        self.page.goto(self.origin + '/reader-web/manage')
         self.page.goto(destination)
         expect(self.page.get_by_role('heading', name='Want to Read', exact=True)).to_be_visible()
         self.page.go_back()
-        expect(self.page).to_have_url(self.origin + '/Reader-Web/manage')
+        expect(self.page).to_have_url(self.origin + '/reader-web/manage')
         self.page.go_forward()
         expect(self.page.get_by_role('heading', name='Want to Read', exact=True)).to_be_visible()
 
@@ -211,7 +211,7 @@ class WantToReadBrowser(LibraryBase):
         StaticHandler.preference_settings = {
             'library_organization': {'version': 1, 'collections': [], 'books': {}}
         }
-        self.page.goto(self.origin + '/Reader-Web/connections')
+        self.page.goto(self.origin + '/reader-web/connections')
         self.page.get_by_label('Sync reader settings with this Manabi account', exact=True).check()
         expect(self.page.get_by_role('status', name='Settings sync status')).to_contain_text('synced')
         self.go_library()
@@ -323,7 +323,7 @@ class WantToReadBrowser(LibraryBase):
         other = self.context.new_page()
         other.set_default_timeout(20000)
         other.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))
-        other.goto(self.origin + '/Reader-Web/manage?collection=want-to-read')
+        other.goto(self.origin + '/reader-web/manage?collection=want-to-read')
         expect(other.get_by_role('region', name='Library shelves')).to_have_attribute('aria-busy', 'false', timeout=30000)
         expect(other.get_by_role('button', name='Read Focus first', exact=True)).to_be_visible()
         expect(other.get_by_role('button', name='Read Focus last', exact=True)).to_be_visible()
@@ -489,7 +489,7 @@ class WantToReadBrowser(LibraryBase):
         StaticHandler.account_requests = []
         StaticHandler.preference_revision = 0
         StaticHandler.preference_settings = {}
-        self.page.goto(self.origin + '/Reader-Web/connections')
+        self.page.goto(self.origin + '/reader-web/connections')
         self.page.get_by_label('Sync reader settings with this Manabi account', exact=True).check()
         expect(self.page.get_by_role('status', name='Settings sync status')).to_contain_text('synced')
         deadline = time.monotonic() + 15
@@ -521,7 +521,7 @@ class WantToReadBrowser(LibraryBase):
             self.import_bytes('Portable wishlist', portable_bytes)
             variant = book('Portable wishlist variant', body='<h1>Different internal title</h1><p>Different original bytes.</p>')
             self.import_bytes('Portable wishlist variant', variant, filename='Portable wishlist')
-            self.page.goto(self.origin + '/Reader-Web/connections')
+            self.page.goto(self.origin + '/reader-web/connections')
             self.page.get_by_label('Sync reader settings with this Manabi account', exact=True).check()
             expect(self.page.get_by_role('status', name='Settings sync status')).to_contain_text('synced')
             self.go_library()
