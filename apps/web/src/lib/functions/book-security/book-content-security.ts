@@ -381,7 +381,8 @@ export function sanitizeBookHtml(html: string, policy: BookHtmlPolicy): string {
       data.keepAttr =
         policy.allowReaderAnnotations === true &&
         ((tag === 'm-s' && name === 'sid') || (tag === 'm-c' && name === 'pid')) &&
-        data.attrValue.length > 0 && data.attrValue.length <= 512;
+        data.attrValue.length > 0 &&
+        data.attrValue.length <= 512;
     } else if (name === 'id') {
       data.keepAttr = data.attrValue.length <= 512;
     } else if (name === 'class') {
@@ -395,8 +396,13 @@ export function sanitizeBookHtml(html: string, policy: BookHtmlPolicy): string {
   return purifier.sanitize(html, {
     ALLOWED_TAGS: policy.svgOnly
       ? SVG_TAGS
-      : [...HTML_TAGS, ...SVG_TAGS, ...(policy.allowReaderAnnotations === true ? ['m-m', 'm-t', 'm-s', 'm-c'] : [])],
-    ALLOWED_ATTR: policy.allowReaderAnnotations === true ? [...ATTRIBUTES, 'sid', 'pid'] : ATTRIBUTES,
+      : [
+          ...HTML_TAGS,
+          ...SVG_TAGS,
+          ...(policy.allowReaderAnnotations === true ? ['m-m', 'm-t', 'm-s', 'm-c'] : [])
+        ],
+    ALLOWED_ATTR:
+      policy.allowReaderAnnotations === true ? [...ATTRIBUTES, 'sid', 'pid'] : ATTRIBUTES,
     ALLOW_DATA_ATTR: false,
     ALLOW_ARIA_ATTR: false,
     FORBID_TAGS: [

@@ -107,7 +107,6 @@ Only resources that actually affect analysis belong in semantic cache identity.
 Keep data-reader-lookup and data-reader-lookup-context out of untrusted input;
 validated runtime mounting installs them after sanitization.
 
-
 ## R3: integration and publication contracts
 
 Apply the guarded `integration/web.json` source edit together with these additions.

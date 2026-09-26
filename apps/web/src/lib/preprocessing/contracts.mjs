@@ -12,9 +12,14 @@ export function canonicalJSON(value) {
   const ancestors = new Set();
   const encode = (item, depth) => {
     if (depth > 128) throw new TypeError('Contract nesting exceeds budget');
-    if (item === null || typeof item === 'boolean' || typeof item === 'string') return JSON.stringify(item);
+    if (item === null || typeof item === 'boolean' || typeof item === 'string')
+      return JSON.stringify(item);
     if (typeof item === 'number' && Number.isFinite(item)) return JSON.stringify(item);
-    if (typeof item !== 'object' || (!Array.isArray(item) && Object.getPrototypeOf(item) !== Object.prototype)) throw new TypeError('Contract contains a non-JSON value');
+    if (
+      typeof item !== 'object' ||
+      (!Array.isArray(item) && Object.getPrototypeOf(item) !== Object.prototype)
+    )
+      throw new TypeError('Contract contains a non-JSON value');
     if (ancestors.has(item)) throw new TypeError('Contract contains a cycle');
     ancestors.add(item);
     try {
@@ -28,71 +33,114 @@ export function canonicalJSON(value) {
         }
         return '[' + parts.join(',') + ']';
       }
-      return '{' + Object.keys(item).sort().map(k => JSON.stringify(k) + ':' + encode(item[k], depth + 1)).join(',') + '}';
-    } finally { ancestors.delete(item); }
+      return (
+        '{' +
+        Object.keys(item)
+          .sort()
+          .map((k) => JSON.stringify(k) + ':' + encode(item[k], depth + 1))
+          .join(',') +
+        '}'
+      );
+    } finally {
+      ancestors.delete(item);
+    }
   };
   return encode(value, 0);
 }
 export async function sha256(value) {
   const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value;
-  const result = await crypto.subtle.digest('SHA-256', bytes);
+  const result = await globalThis.crypto.subtle.digest('SHA-256', bytes);
   return Array.from(new Uint8Array(result), (n) => n.toString(16).padStart(2, '0')).join('');
 }
 export function identifier(value, label) {
-  if (typeof value !== 'string' || value.length === 0 || value.length > 8192) throw new TypeError(`Invalid ${label}`);
+  if (typeof value !== 'string' || value.length === 0 || value.length > 8192)
+    throw new TypeError(`Invalid ${label}`);
   return value;
 }
 export function validateProvider(provider) {
-  if (!provider || provider.protocol !== PROTOCOL_VERSION) throw new Error('Unsupported preprocessor protocol');
-  identifier(provider.id, 'provider identity'); identifier(provider.release, 'provider release');
+  if (!provider || provider.protocol !== PROTOCOL_VERSION)
+    throw new Error('Unsupported preprocessor protocol');
+  identifier(provider.id, 'provider identity');
+  identifier(provider.release, 'provider release');
   for (const method of ['fingerprint', 'preprocess', 'mount', 'dispose']) {
-    if (typeof provider[method] !== 'function') throw new TypeError(`Preprocessor is missing ${method}`);
+    if (typeof provider[method] !== 'function')
+      throw new TypeError(`Preprocessor is missing ${method}`);
   }
   return provider;
 }
 export function validateResult(result, fingerprint) {
-  if (!result || result.protocol !== PROTOCOL_VERSION || result.fingerprint !== fingerprint) throw new Error('Stale or unsupported chapter result');
-  if (typeof result.html !== 'string' || utf8Size(result.html) > MAX_RESULT_BYTES) throw new Error('Invalid chapter HTML');
+  if (!result || result.protocol !== PROTOCOL_VERSION || result.fingerprint !== fingerprint)
+    throw new Error('Stale or unsupported chapter result');
+  if (typeof result.html !== 'string' || utf8Size(result.html) > MAX_RESULT_BYTES)
+    throw new Error('Invalid chapter HTML');
   const encoded = canonicalJSON(result);
   if (utf8Size(encoded) > MAX_RESULT_BYTES) throw new Error('Chapter result exceeds memory budget');
   if (result.sidecar === undefined) throw new Error('Missing chapter sidecar');
-  if (result.sidecar !== null && fingerprint === null) throw new Error('Annotations require an analysis generation');
+  if (result.sidecar !== null && fingerprint === null)
+    throw new Error('Annotations require an analysis generation');
   if (!Array.isArray(result.vocabulary)) throw new Error('Missing vocabulary projection');
-  if (result.sidecar === null && result.vocabulary.length !== 0) throw new Error('Unprocessed output cannot contain vocabulary');
+  if (result.sidecar === null && result.vocabulary.length !== 0)
+    throw new Error('Unprocessed output cannot contain vocabulary');
   const seenVocabulary = new Set();
   for (const row of result.vocabulary) {
-    identifier(row.term, 'term'); identifier(row.key, 'vocabulary key');
+    identifier(row.term, 'term');
+    identifier(row.key, 'vocabulary key');
     if (seenVocabulary.has(row.key)) throw new Error('Duplicate vocabulary key');
     seenVocabulary.add(row.key);
     if (row.reading !== null && typeof row.reading !== 'string') throw new Error('Invalid reading');
-    if (!Number.isSafeInteger(row.count) || row.count <= 0) throw new Error('Invalid occurrence count');
+    if (!Number.isSafeInteger(row.count) || row.count <= 0)
+      throw new Error('Invalid occurrence count');
   }
   // Copy so neither the provider nor a cache consumer can mutate admitted data.
   return JSON.parse(encoded);
 }
-export async function chapterCacheKey({provider, fingerprint, source, bookKey, chapterID, baseURL, contextKey, resourceVersion, analysisOptions = {}}) {
-  return sha256(canonicalJSON({
-    schema: CACHE_SCHEMA, protocol: PROTOCOL_VERSION,
-    provider: provider.id, release: provider.release, fingerprint,
-    source: await sha256(source), bookKey, chapterID, baseURL, contextKey, resourceVersion, analysisOptions
-  }));
+export async function chapterCacheKey({
+  provider,
+  fingerprint,
+  source,
+  bookKey,
+  chapterID,
+  baseURL,
+  contextKey,
+  resourceVersion,
+  analysisOptions = {}
+}) {
+  return sha256(
+    canonicalJSON({
+      schema: CACHE_SCHEMA,
+      protocol: PROTOCOL_VERSION,
+      provider: provider.id,
+      release: provider.release,
+      fingerprint,
+      source: await sha256(source),
+      bookKey,
+      chapterID,
+      baseURL,
+      contextKey,
+      resourceVersion,
+      analysisOptions
+    })
+  );
 }
 
 /** null means this provider made no transformation. It never means an error.
  * Original HTML passes through byte-for-byte; there is no reader-mode switch. */
 export function unchangedChapter(html, fingerprint = null) {
-  return {protocol: PROTOCOL_VERSION, fingerprint, html, sidecar: null, vocabulary: []};
+  return { protocol: PROTOCOL_VERSION, fingerprint, html, sidecar: null, vocabulary: [] };
 }
 export function normalizeChapterResult(output, html, fingerprint) {
   if (output === null) return unchangedChapter(html, fingerprint);
   const result = validateResult(output, fingerprint);
-  if (result.sidecar === null && result.html !== html) throw new Error('A transformation requires a sidecar');
+  if (result.sidecar === null && result.html !== html)
+    throw new Error('A transformation requires a sidecar');
   return result;
 }
 /** The standard distribution satisfies exactly the same preprocessing interface.
  * No download, Worker, dictionary probe or derived-cache dependency is needed. */
 export const identityPreprocessor = Object.freeze({
-  protocol: PROTOCOL_VERSION, id: 'identity', release: '1',
+  protocol: PROTOCOL_VERSION,
+  id: 'identity',
+  release: '1',
   fingerprint: async () => null,
   preprocess: async () => null,
   mount: () => () => {},

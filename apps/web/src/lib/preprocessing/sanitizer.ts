@@ -1,5 +1,13 @@
-/** @license BSD-3-Clause */
-import { sanitizeBookHtml, type BookHtmlPolicy } from '../functions/book-security/book-content-security';
+/**
+ * @license BSD-3-Clause
+ * Copyright (c) 2026, ッツ Reader Authors
+ * All rights reserved.
+ */
+
+import {
+  sanitizeBookHtml,
+  type BookHtmlPolicy
+} from '../functions/book-security/book-content-security';
 
 /** Reuse the same URL/CSS/static-SVG policy as every imported/restored book.
  * The host supplies its current placeholder or Blob URL allowlist. This helper
