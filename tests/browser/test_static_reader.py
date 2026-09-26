@@ -398,6 +398,31 @@ class ReaderBrowser(unittest.TestCase):
         self.assertEqual('Klee One', self.first_font())
         self.page.keyboard.press('ArrowLeft')
         expect(self.page.locator('.book-content')).to_be_visible()
+        self.page.evaluate("""() => new Promise((resolve, reject) => {
+          const open = indexedDB.open('books');
+          open.onerror = () => reject(open.error);
+          open.onsuccess = () => {
+            const db = open.result;
+            const tx = db.transaction('data', 'readwrite');
+            const store = tx.objectStore('data');
+            const req = store.getAll();
+            req.onerror = () => reject(req.error);
+            req.onsuccess = () => {
+              const value = req.result.find((book) => book.title === 'Reader browser acceptance');
+              delete value.epubPublication;
+              store.put(value);
+            };
+            tx.oncomplete = () => { db.close(); resolve(); };
+            tx.onerror = () => reject(tx.error);
+          };
+        })""")
+        self.page.reload()
+        expect(self.page.locator('.book-content')).to_be_visible(timeout=30000)
+        self.assertEqual(
+            'legacy',
+            self.page.locator('.book-content').first.get_attribute('data-manabi-page-engine')
+        )
+        self.assertEqual('ほん', self.page.locator('.book-content ruby rt').first.text_content())
 
     def test_continuous_horizontal_saved_explicit_font(self):
         self.open_book('continuous', 'horizontal-tb', font='Klee One')
