@@ -16,6 +16,7 @@
   } from 'rxjs';
   import BookReaderContinuous from '$lib/components/book-reader/book-reader-continuous/book-reader-continuous.svelte';
   import type { BooksDbBookmarkData } from '$lib/data/database/books-db/versions/books-db';
+  import type { EpubPublicationDescriptor } from '$lib/functions/file-loaders/epub/epub-publication';
   import type { FuriganaStyle } from '$lib/data/furigana-style';
   import type { TextMarginMode } from '$lib/data/text-margin-mode';
   import { ViewMode } from '$lib/data/view-mode';
@@ -206,6 +207,8 @@
   export let htmlContent: string;
 
   export let publicationManifest: PublicationManifest | undefined = undefined;
+
+  export let epubPublication: EpubPublicationDescriptor | undefined = undefined;
 
   export let previewNavigationActive = false;
 
@@ -517,6 +520,7 @@
       bind:this={paginatedReader}
       {htmlContent}
       {publicationManifest}
+      {epubPublication}
       width={$contentViewportWidth$ ?? 0}
       height={$contentViewportHeight$ ?? 0}
       {verticalMode}
