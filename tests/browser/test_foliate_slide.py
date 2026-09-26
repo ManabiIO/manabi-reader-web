@@ -1,7 +1,6 @@
 """Layered page turns in the built Reader, including real touch and wheel input."""
 import os
 import io
-import json
 import threading
 import zipfile
 from pathlib import Path
@@ -41,25 +40,6 @@ class FoliateSlide(ReaderBrowser):
         super().setUp()
         self.page.set_default_timeout(8000)
         self.context.add_init_script("""(() => {
-          const trace = window.resizeTrace = [];
-          const OriginalObserver = window.ResizeObserver;
-          let id = 0;
-          window.ResizeObserver = class extends OriginalObserver {
-            constructor(callback) {
-              const name = ++id, created = new Error().stack;
-              super((entries, observer) => {
-                trace.push({name, created, phase:window.slidePhase, time:performance.now(),
-                  entries:entries.map(e=>({tag:e.target.tagName,id:e.target.id,
-                    classes:e.target.className,document:e.target.ownerDocument.URL,
-                    size:[e.contentRect.width,e.contentRect.height]}))});
-                if(trace.length>30)trace.shift();
-                callback(entries, observer);
-              });
-            }
-          };
-          window.addEventListener('error', e => {
-            window.resizeErrorTrace = {message:e.message,phase:window.slidePhase,trace:[...trace]};
-          });
           const attach = Element.prototype.attachShadow;
           Element.prototype.attachShadow = function(options) {
             const root = attach.call(this, options);
@@ -67,11 +47,6 @@ class FoliateSlide(ReaderBrowser):
             return root;
           };
         })()""")
-
-    def tearDown(self):
-        if self.errors:
-            print('Resize trace:', json.dumps(self.page.evaluate('window.resizeErrorTrace')))
-        super().tearDown()
 
     def open_slide(self, rtl=False, mobile=False):
         self.page.set_viewport_size({'width': 390 if mobile else 1100, 'height': 844 if mobile else 780})
@@ -258,23 +233,21 @@ class FoliateSlide(ReaderBrowser):
 
     def check_keyframes(self, rtl):
         self.open_slide(rtl, mobile=True)
-        self.page.evaluate("window.slidePhase='initial next'")
         # Begin from an interior page so both neighbors exist.
         self.page.evaluate(f"async () => {{ await {P}.next(); }}")
         initial = self.pose()
         for direction in [1, -1]:
-            self.page.evaluate("direction => window.slidePhase='prepare '+direction",direction)
             self.page.evaluate(f"async dir => {{window.prepared = await {P}.preparePageTurn(dir)}}", direction)
             for fraction in [.25, .5, .75, .5, .25]:
-                self.page.evaluate("p => {window.slidePhase='update '+p;window.prepared.update(p)}", fraction)
+                self.page.evaluate('p => window.prepared.update(p)', fraction)
                 pose = self.pose()
                 self.assert_pose(pose, fraction, direction, rtl)
                 self.assertEqual(pose['page'], initial['page'])
                 self.assertEqual(pose['commits'], initial['commits'])
                 self.screenshot(f"{'rtl' if rtl else 'ltr'}-{'forward' if direction == 1 else 'back'}-{int(fraction*100)}")
-            self.page.evaluate("() => {window.slidePhase='cancel';window.prepared.cancel()}")
+            self.page.evaluate('window.prepared.cancel()')
             self.assertEqual(self.pose()['frames'], 1)
-        self.page.evaluate(f"async () => {{window.slidePhase='final commit';const t=await {P}.preparePageTurn(1); t.update(1); t.commit();}}")
+        self.page.evaluate(f"async () => {{const t=await {P}.preparePageTurn(1); t.update(1); t.commit();}}")
         self.assertEqual(self.pose()['page'], initial['page'] + 1)
         self.assertEqual(self.pose()['commits'], initial['commits'] + 1)
 

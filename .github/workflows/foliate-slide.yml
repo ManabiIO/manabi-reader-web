@@ -8,6 +8,7 @@ on:
       - 'tests/unit/foliate-*.test.mjs'
       - '.github/workflows/foliate-slide.yml'
   push:
+    branches: [main]
     paths:
       - 'apps/web/**'
       - 'tests/browser/test_foliate_slide.py'

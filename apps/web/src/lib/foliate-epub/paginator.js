@@ -452,6 +452,7 @@ export class Paginator extends HTMLElement {
     ]
     #root = this.attachShadow({ mode: 'closed' })
     #observedSize = ''
+    #observeTimer = 0
     #resizeFrame = 0
     #observer = new ResizeObserver(entries => {
         const entry = entries.find(entry => entry.target === this.#container)
@@ -1424,7 +1425,14 @@ export class Paginator extends HTMLElement {
                     this.feet = Array.from(footer.children, el => el.firstElementChild)
                     this.#view = view
                     this.#index = index
-                    this.#observer.observe(container)
+                    // Promotion can finish during the iframe's observer delivery.
+                    // Register the shallower parent in a new task so WebKit does
+                    // not treat its initial notification as a skipped resize.
+                    clearTimeout(this.#observeTimer)
+                    this.#observeTimer = setTimeout(() => {
+                        if (!this.#destroyed && this.#container === container)
+                            this.#observer.observe(container)
+                    }, 0)
                     this.#container[this.scrollProp] = this.size * (this.#rtl ? -page : page)
                     for (const prop of ['transform', 'z-index', 'box-shadow', 'will-change'])
                         this.#top.style.removeProperty(prop)
@@ -1494,6 +1502,7 @@ export class Paginator extends HTMLElement {
         this.#pageCounts?.destroy()
         this.#navigationGeneration += 1
         this.#observer.disconnect()
+        clearTimeout(this.#observeTimer)
         cancelAnimationFrame(this.#resizeFrame)
         this.#view?.destroy()
         this.#view = null
