@@ -48,10 +48,72 @@ test('legacy records stay readable, while re-saving converts their bytes without
 
 test('unreadable legacy backing files fail before a replacement can be written', async () => {
   const image = new Blob(['original']);
+  const cause = new DOMException('Missing backing file', 'NotFoundError');
   image.arrayBuffer = async () => {
-    throw new DOMException('Missing backing file', 'NotFoundError');
+    throw cause;
   };
   const original = { blobs: { image }, coverImage: undefined };
-  await assert.rejects(encodeBook(original), { name: 'NotFoundError' });
+  await assert.rejects(encodeBook(original), (error) => {
+    assert.equal(error.cause, cause);
+    assert.match(error.message, /re-import the original source/i);
+    return true;
+  });
   assert.equal(original.blobs.image, image);
+});
+
+test('binary preparation aborts are save failures, never user cancellation', async () => {
+  const image = new Blob(['unreadable']);
+  const cause = new DOMException('Native byte read failed', 'AbortError');
+  image.arrayBuffer = async () => {
+    throw cause;
+  };
+  await assert.rejects(encodeBook({ blobs: { image } }), (error) => {
+    assert.notEqual(error.name, 'AbortError');
+    assert.equal(error.cause, cause);
+    assert.match(error.message, /could not be read/i);
+    return true;
+  });
+});
+
+test('encoding rejects malformed stored binary values before any database write', async () => {
+  for (const value of [
+    null,
+    {},
+    'bad',
+    42,
+    { format: 'reader-bytes-v2', type: 'image/png', bytes: new ArrayBuffer(1) },
+    { format: 'reader-bytes-v1', type: 7, bytes: new ArrayBuffer(1) },
+    { format: 'reader-bytes-v1', type: 'image/png', bytes: new Uint8Array(1) }
+  ]) {
+    await assert.rejects(encodeBook({ blobs: { image: value } }), /unsupported image format/);
+    assert.throws(() => decodeBook({ blobs: { image: value } }), /unsupported image format/);
+  }
+});
+
+test('re-encoding byte records owns the bytes and strips unrelated record fields', async () => {
+  const bytes = new Uint8Array([1, 2, 3]);
+  const record = {
+    format: 'reader-bytes-v1',
+    type: 'image/png',
+    bytes: bytes.buffer,
+    extra: new Blob(['unexpected'])
+  };
+  const result = await encodeBook({ blobs: { image: record } });
+  bytes[0] = 9;
+  assert.deepEqual([...new Uint8Array(result.blobs.image.bytes)], [1, 2, 3]);
+  assert.deepEqual(Object.keys(result.blobs.image).sort(), ['bytes', 'format', 'type']);
+});
+
+test('shared cover and image Blob is read once per encoding operation', async () => {
+  const image = new Blob(['shared'], { type: 'image/png' });
+  const read = image.arrayBuffer.bind(image);
+  let calls = 0;
+  image.arrayBuffer = () => {
+    calls++;
+    return read();
+  };
+  const result = await encodeBook({ blobs: { a: image, b: image }, coverImage: image });
+  assert.equal(calls, 1);
+  assert.equal(result.blobs.a, result.blobs.b);
+  assert.equal(result.blobs.a, result.coverImage);
 });

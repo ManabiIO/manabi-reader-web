@@ -1,16 +1,17 @@
 # Release data-safety follow-up
 
-Base: Reader #57 at `8649c0de546d5f77738c4bf219dbf462bb771307`.
-This follow-up preserves its catalog/account/cancellation/deletion repairs and
-all renderer and production activation gates. It does not merge sibling #48.
+The follow-up retains Reader #57 through
+`a2258a76c52ce4ce30d9c083910951e9a5494808`, including the concurrent metadata,
+binary validation and cursor-listing repairs. Every application source file is
+identical to that parent. No renderer or production activation gate is changed.
 
 ## Required main qualification
 
 `books-library.yml` already qualifies every main push and is required by both
 the frontend notifier and backend publisher. Its existing app build and browser
-installation now also run the Shared TTU round-trip/safety/UI and Local Library
-feature/review/lifecycle/deletion/save-cancellation/last-read suites. The latter
-run in Chromium and WebKit. The two focused open/Back cases remain selected.
+installation now also run Shared TTU round-trip/safety/UI and Local Library
+feature/review/lifecycle/deletion/save-cancellation/last-read suites. Local suites
+run in Chromium and WebKit; the two focused open/Back cases remain selected.
 
 `tests/browser/qualify_library_data_safety.py` is the one suite list used by this
 required result and both standalone PR workflows. It is only a test launcher:
@@ -27,31 +28,34 @@ assertion changes. Five standard-library tests exercise the actual dispatcher,
 including each group's nonzero and signal exit, source selection and mandatory
 main wiring. The three production workflow authorities are unchanged.
 
-## Last-read is not a content save
+## Preserve the concurrent last-read repair
 
-Current-head WebKit evidence (Appearance run `36227962964`) reports blob-access
-errors with a stack through `updateLastRead` while rapidly leaving catalog-opened
-books. The current browser handler calls `encodeBook(book)` and writes the whole
-caller snapshot just to record a reading timestamp. That creates asynchronous
-image reads and also lets stale readers overwrite current content or recreate
-an already deleted book.
+WebKit evidence on `8649c0de` (Appearance run `36227962964`) identified Blob-access
+errors through `updateLastRead` during immediate Reader departure. The old
+handler re-encoded every image and rewrote the caller's entire book snapshot for
+a timestamp update, also permitting stale content replacement or resurrection
+of a deleted book.
 
-Reuse #48's reviewed `book-records.ts` helper verbatim from `78a17fc0` (Git blob
-`8b3cd8ff8f188932c8491b510b951b5691d910f8`), wiring only its timestamp function.
-The listing helper is retained unchanged for a conflict-free selective port;
-this follow-up does not change listing or adopt #48's other binary/offline work.
-The handler snapshots the requested numeric ID and timestamp before awaiting.
-One read/write transaction reads the current stored record, preserves its
-content/source/import receipts/binary representation, never lowers last-opened
-time and does not recreate missing books. The existing transaction completion
-wrapper drains failures. No new database store or schema migration is needed.
+The initial follow-up independently selected #48's `book-records.ts` helper.
+While it was being prepared, #57's `a2258a76` integrated the same helper, binary
+validation and cursor-based listing, with its own native and built-app regression
+evidence. The follow-up merges that real commit and keeps its application files
+unchanged instead of overwriting or duplicating the repair.
 
-Six unit tests cover the helper and actual handler body. Three native IndexedDB
-cases in both engines cover stale snapshots without Blob reads, deletion/newer
-timestamps, and a real write-abort followed by retry. Existing strict catalog
-navigation stress and no-page-errors assertions are unchanged.
+One read/write transaction now updates only the current stored record's monotonic
+last-read timestamp, preserving content, source, receipts and binary representation.
+Deleted books are not recreated and image bytes are not read. The separate
+content-save validation and cancellation repairs remain those of #57.
 
-The inherited WebKit failure is not considered resolved until the newly composed
-app passes its browser checks. Local policy/unit tests alone do not establish
-WebKit, physical Safari, live-provider or host cutover acceptance. Backend pins
-must qualify the final selected frontend composition, not an older green pair.
+Six additional unit tests exercise the helper and actual handler body. Three
+native IndexedDB cases are selected in both engines: stale snapshots with an
+image-read trap, deleted/newer timestamp preservation, and a real write-abort,
+rollback and retry. Existing strict catalog navigation stress and page-error
+assertions are unchanged. These add evidence; they do not claim ownership of the
+concurrent production fix or replace its built-app acceptance.
+
+Exact composed-head browser, lint and build qualification is required. Local
+policy/unit tests alone do not establish WebKit, physical Safari, live-provider
+or host cutover acceptance. Backend pins must qualify the final selected
+frontend composition, not an older green pair. No main/master merge or production
+dispatch is part of this follow-up.

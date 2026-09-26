@@ -5,7 +5,7 @@
  */
 
 import { decodeBookBinary } from '$lib/data/database/books-db/book-binary';
-import { updateBookLastRead } from '$lib/data/database/books-db/book-records';
+import { readBookSummaries, updateBookLastRead } from '$lib/data/database/books-db/book-records';
 import { BaseStorageHandler, FilePrefix } from '$lib/data/storage/handler/base-handler';
 import type {
   BooksDbAudioBook,
@@ -44,7 +44,7 @@ export class BrowserStorageHandler extends BaseStorageHandler {
     database.listLoading$.next(true);
     try {
       const db = await database.db;
-      const data = await db.getAll('data');
+      const data = await readBookSummaries(db);
       const cards: BookCardProps[] = [];
       this.titleToBookCard.clear();
       for (const book of data) {
@@ -63,7 +63,7 @@ export class BrowserStorageHandler extends BaseStorageHandler {
           lastBookOpen: book.lastBookOpen || 0,
           pageDirection: book.pageDirection,
           contentHash: book.contentHash,
-          isPlaceholder: !book.elementHtml
+          isPlaceholder: book.isPlaceholder
         });
         // The inherited TTU cache is keyed by title. Retain its legacy lookup
         // while giving every distinct imported ID its own Library card.
@@ -109,11 +109,9 @@ export class BrowserStorageHandler extends BaseStorageHandler {
   }
 
   async updateLastRead(book: BooksDbBookData) {
-    const { id, lastBookOpen = 0 } = book;
-    const current = await updateBookLastRead(await database.db, id, lastBookOpen);
+    const current = await updateBookLastRead(await database.db, book.id, book.lastBookOpen || 0);
     if (!current) return;
     this.addBookCard(current.title, {
-      id: current.id,
       characters: BaseStorageHandler.getBookCharacters(
         current.characters || 0,
         current.sections || []

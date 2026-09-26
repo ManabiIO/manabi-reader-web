@@ -132,6 +132,6 @@ test('the actual browser handler uses only current identity and metadata for las
     { getBookCharacters: () => 10 }
   );
   assert.equal(cards[0][0], 'Current title');
-  assert.equal(cards[0][1].id, 1);
+  assert.equal(cards[0][1].lastBookOpen, 200);
   assert.equal(db.writes[0].elementHtml, '<p>Current content</p>');
 });

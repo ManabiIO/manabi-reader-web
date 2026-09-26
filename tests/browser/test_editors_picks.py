@@ -383,6 +383,44 @@ class EditorsPicksBrowser(unittest.TestCase):
         self.assertFalse(any(path.endswith('/opds/index.xml') for path in PicksHandler.requests),
                          PicksHandler.requests)
 
+    def test_opening_saved_image_book_does_not_reread_image_bytes_for_last_read(self):
+        self.context.add_init_script("localStorage.setItem('manabi-reader-dictionary-setup-v1', 'skip')")
+        self.library()
+        self.page.get_by_role('region', name="Editor's Picks books").get_by_role(
+            'button', name='Open').first.click()
+        expect(self.page).to_have_url(re.compile('/reader-web/b\\?id='))
+        expect(self.page.locator('.book-content').first).to_have_attribute('aria-busy','false')
+        self.page.goto(self.origin + '/reader-web/manage')
+        expect(self.page.get_by_role('button',name='Read A Pick from Manabi',exact=True)).to_be_visible()
+        # Only instrument the later, ordinary saved-book opening; initial import
+        # must still encode its actual image bytes. Calls execute the native method.
+        self.context.add_init_script("""
+          window.imageReadsForLastOpen = 0;
+          const original = Blob.prototype.arrayBuffer;
+          Blob.prototype.arrayBuffer = function(...args) {
+            if (this.type === 'image/png') window.imageReadsForLastOpen++;
+            return original.apply(this,args);
+          };
+        """)
+        self.page.evaluate("""()=>new Promise((resolve,reject)=>{
+          const request=indexedDB.open('books');request.onerror=()=>reject(request.error);
+          request.onsuccess=()=>{const db=request.result,tx=db.transaction('data','readwrite');
+            const get=tx.objectStore('data').getAll();
+            get.onsuccess=()=>{for(const book of get.result)tx.objectStore('data').put({...book,lastBookOpen:0});};
+            tx.oncomplete=()=>{db.close();resolve();};tx.onabort=()=>{db.close();reject(tx.error);};};
+        })""")
+        self.page.goto(self.origin + '/reader-web/b?id=1')
+        expect(self.page.locator('.book-content').first).to_have_attribute('aria-busy','false')
+        self.page.wait_for_function("""()=>new Promise((resolve,reject)=>{
+          const request=indexedDB.open('books');request.onerror=()=>reject(request.error);
+          request.onsuccess=()=>{const db=request.result,tx=db.transaction('data');
+            const get=tx.objectStore('data').get(1);
+            tx.oncomplete=()=>{db.close();resolve(get.result?.lastBookOpen>0);};
+            tx.onabort=()=>{db.close();reject(tx.error);};};
+        })""")
+        self.assertEqual(0,self.page.evaluate('window.imageReadsForLastOpen'))
+        self.assertEqual([],self.errors)
+
     def test_repeated_immediate_catalog_reader_departures(self):
         self.context.add_init_script("localStorage.setItem('manabi-reader-dictionary-setup-v1', 'skip')")
         self.library()
