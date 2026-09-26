@@ -284,6 +284,7 @@ export default function generateEpubHtml(
 
     const childWrapperDiv = document.createElement('div');
     childWrapperDiv.id = `${prependValue}${itemIdRef}`;
+    childWrapperDiv.dataset.manabiSpineIndex = String(spineIndex);
     childWrapperDiv.appendChild(childHtmlDiv);
 
     result.appendChild(childWrapperDiv);
