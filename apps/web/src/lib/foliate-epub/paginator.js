@@ -1202,6 +1202,10 @@ export class Paginator extends HTMLElement {
         sheet.append(indicator)
         return indicator
     }
+    // Outside-click consumers see only the host of this closed shadow root.
+    isPageNumberControlAt(x, y) {
+        return this.#root.elementFromPoint(x, y) === this.#indicator
+    }
     setPageNumberDisplay(options) {
         this.#pageNumberOptions = options
         this.#syncPageCounts()
@@ -1224,6 +1228,7 @@ export class Paginator extends HTMLElement {
             indicator.style.color = options.color ?? 'inherit'
             indicator.dataset.page = value.current ?? ''
             indicator.dataset.total = value.total ?? ''
+            indicator.setAttribute('aria-expanded', String(options.expanded))
             indicator.setAttribute('aria-label', `${options.expanded ? 'Hide' : 'Show'} reading controls. ${
                 value.current === undefined ? `${value.percentage}%` : `Page ${value.current}${
                     value.total === undefined ? '' : ` of ${value.total}`}`}`)

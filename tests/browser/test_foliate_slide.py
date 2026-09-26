@@ -132,7 +132,8 @@ class FoliateSlide(ReaderBrowser):
         return self.page.evaluate("window.slideRoot.querySelector('#top .page-indicator').textContent")
 
     def toggle_controls(self):
-        self.page.evaluate("window.slideRoot.querySelector('#top .page-indicator').click()")
+        bounds = self.page.evaluate("window.slideRoot.querySelector('#top .page-indicator').getBoundingClientRect().toJSON()")
+        self.page.mouse.click(bounds['x'] + bounds['width']/2, bounds['y'] + bounds['height']/2)
 
     def open_numbered_book(self):
         self.page.set_viewport_size({'width': 390, 'height': 844})
@@ -162,6 +163,12 @@ class FoliateSlide(ReaderBrowser):
         self.toggle_controls()
         self.assertRegex(self.indicator(), r'^2 of \d+$')
         self.screenshot('page-number-expanded')
+        self.toggle_controls()
+        expect(self.page.get_by_role('banner', name='Reader toolbar')).not_to_be_visible()
+        self.assertEqual(self.indicator(), '2')
+        self.toggle_controls()
+        expect(self.page.get_by_role('banner', name='Reader toolbar')).to_be_visible()
+        self.assertRegex(self.indicator(), r'^2 of \d+$')
 
     def test_global_counts_match_rendered_chapters_and_recompute_on_resize(self):
         self.open_numbered_book()

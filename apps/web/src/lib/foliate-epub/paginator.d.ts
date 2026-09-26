@@ -12,6 +12,7 @@ export class Paginator extends HTMLElement {
   readonly pages: number;
   readonly size: number;
   readonly pageCounts: Array<number | undefined>;
+  isPageNumberControlAt(x: number, y: number): boolean;
   setPageNumberDisplay(options: { expanded: boolean; weights?: number[]; color?: string }): void;
   preparePageTurn(direction: -1 | 1): Promise<PreparedPageTurn | null>;
   cancelPageTurn(): void;

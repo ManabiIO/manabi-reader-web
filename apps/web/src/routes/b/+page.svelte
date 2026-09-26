@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Paginator } from '$lib/foliate-epub/paginator.js';
   import AudiobookLauncher from '$lib/features/whispersync/audiobook-launcher.svelte';
   import * as Sheet from '$lib/components/ui/sheet';
   import { setCompletion } from '$lib/library/commands';
@@ -2031,7 +2032,15 @@
     class="writing-horizontal-tb fixed inset-x-0 top-0 z-20 w-full"
     transition:fly|local={{ y: -80, duration: foliatePagination ? 0 : 160, easing: quintInOut }}
     use:clickOutside={(event) => {
-      if (event.target instanceof Element && event.target.closest('[data-reader-controls]')) return;
+      const target = event.target;
+      if (target instanceof Element) {
+        if (target.closest('[data-reader-controls]')) return;
+        if (
+          target.matches('foliate-paginator') &&
+          (target as Paginator).isPageNumberControlAt(event.clientX, event.clientY)
+        )
+          return;
+      }
       showHeader = false;
     }}
   >
