@@ -144,59 +144,47 @@ const failingObserver = (previews) => (raw) => {
   throw new Error('optional preview failed');
 };
 test('disabled preview rendering does not disable worker prefix validation', () =>
-  harness(
-    async (h) => {
-      const rejected = assert.rejects(h.pending, /Invalid MOSS output preview/);
-      h.worker.emit(h.id, 'partial', 'first');
-      h.worker.emit(h.id, 'partial', 'contradiction');
-      await rejected;
-      assert.deepEqual(h.previews, ['first']);
-    },
-    failingObserver
-  ));
+  harness(async (h) => {
+    const rejected = assert.rejects(h.pending, /Invalid MOSS output preview/);
+    h.worker.emit(h.id, 'partial', 'first');
+    h.worker.emit(h.id, 'partial', 'contradiction');
+    await rejected;
+    assert.deepEqual(h.previews, ['first']);
+  }, failingObserver));
 test('disabled preview rendering does not disable authoritative final validation', () =>
-  harness(
-    async (h) => {
-      const rejected = assert.rejects(h.pending, /prefix|preview/);
-      h.worker.emit(h.id, 'partial', 'first');
-      h.worker.emit(h.id, 'partial', 'first second');
-      h.worker.emit(h.id, 'result', 'first');
-      await rejected;
-      assert.deepEqual(h.previews, ['first']);
-    },
-    failingObserver
-  ));
+  harness(async (h) => {
+    const rejected = assert.rejects(h.pending, /prefix|preview/);
+    h.worker.emit(h.id, 'partial', 'first');
+    h.worker.emit(h.id, 'partial', 'first second');
+    h.worker.emit(h.id, 'result', 'first');
+    await rejected;
+    assert.deepEqual(h.previews, ['first']);
+  }, failingObserver));
 test('disabled preview rendering does not suppress cancellation', () =>
-  harness(
-    async (h) => {
-      const rejected = assert.rejects(h.pending, { name: 'AbortError' });
-      h.worker.emit(h.id, 'partial', 'first');
-      h.controller.abort();
-      h.worker.emit(h.id, 'result', 'first final');
-      await rejected;
-    },
-    failingObserver
-  ));
+  harness(async (h) => {
+    const rejected = assert.rejects(h.pending, { name: 'AbortError' });
+    h.worker.emit(h.id, 'partial', 'first');
+    h.controller.abort();
+    h.worker.emit(h.id, 'result', 'first final');
+    await rejected;
+  }, failingObserver));
 test('a failed observer does not retire the warm worker or disable the next observer', () =>
-  harness(
-    async (h) => {
-      h.worker.emit(h.id, 'partial', 'first');
-      h.worker.emit(h.id, 'result', 'first final');
-      await h.pending;
-      const nextPreviews = [];
-      const next = h.client.transcribe(new Float32Array(160), h.controller.signal, (text) =>
-        nextPreviews.push(text)
-      );
-      assert.equal(WorkerDouble.latest, h.worker);
-      const nextId = h.worker.last.id;
-      assert.notEqual(nextId, h.id);
-      h.worker.emit(h.id, 'partial', 'stale');
-      h.worker.emit(h.id, 'result', 'stale');
-      h.worker.emit(nextId, 'partial', 'second');
-      h.worker.emit(nextId, 'result', 'second final');
-      assert.equal(await next, 'second final');
-      assert.deepEqual(nextPreviews, ['second']);
-      assert.deepEqual(h.previews, ['first']);
-    },
-    failingObserver
-  ));
+  harness(async (h) => {
+    h.worker.emit(h.id, 'partial', 'first');
+    h.worker.emit(h.id, 'result', 'first final');
+    await h.pending;
+    const nextPreviews = [];
+    const next = h.client.transcribe(new Float32Array(160), h.controller.signal, (text) =>
+      nextPreviews.push(text)
+    );
+    assert.equal(WorkerDouble.latest, h.worker);
+    const nextId = h.worker.last.id;
+    assert.notEqual(nextId, h.id);
+    h.worker.emit(h.id, 'partial', 'stale');
+    h.worker.emit(h.id, 'result', 'stale');
+    h.worker.emit(nextId, 'partial', 'second');
+    h.worker.emit(nextId, 'result', 'second final');
+    assert.equal(await next, 'second final');
+    assert.deepEqual(nextPreviews, ['second']);
+    assert.deepEqual(h.previews, ['first']);
+  }, failingObserver));

@@ -2,7 +2,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { transcribeProgressively } from '../../.cache/media-test-build/progressive-transcription.js';
-import { newProgressiveState, SAMPLE_RATE } from '../../.cache/media-test-build/moss-progressive.js';
+import {
+  newProgressiveState,
+  SAMPLE_RATE
+} from '../../.cache/media-test-build/moss-progressive.js';
 
 const fresh = (duration = 2) => ({
   version: 2,
@@ -21,8 +24,7 @@ const fresh = (duration = 2) => ({
 });
 const prefix = '[0][S01]日本語[1][1][S01]続き',
   final = prefix + '[2]';
-const decode = async (_job, a, b) =>
-  new Float32Array(Math.round((b - a) * SAMPLE_RATE)).fill(0.1);
+const decode = async (_job, a, b) => new Float32Array(Math.round((b - a) * SAMPLE_RATE)).fill(0.1);
 async function run(
   transcribe,
   { duration = 2, notify = () => {}, signal = new AbortController().signal } = {}
