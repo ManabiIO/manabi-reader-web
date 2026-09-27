@@ -22,6 +22,7 @@ import {
   coreEnd,
   durationSamples,
   cueBelongsToWindow,
+  pendingSeamRepair,
   validateProgressiveState,
   type ProgressiveState
 } from './moss-progressive.js';
@@ -48,6 +49,13 @@ export interface Job {
   cancelRequested?: boolean;
 }
 export const JOB_LEASE_MS = 90_000;
+
+/** Whether repeating Resume can make progress without changing transcription policy. */
+export function jobCanResume(job: Job): boolean {
+  if (job.status !== 'paused' && job.status !== 'failed') return false;
+  const repair = job.progressive && pendingSeamRepair(job.progressive);
+  return !repair || repair.retryable;
+}
 
 export function validateJob(value: unknown): Job {
   const j = record(value);
