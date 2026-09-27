@@ -16,6 +16,7 @@ import {
   releasedJob,
   JobOwnershipLost,
   JOB_LEASE_MS,
+  jobCanResume,
   type Job
 } from './jobs.js';
 export type { Job } from './jobs.js';
@@ -159,6 +160,10 @@ export class TranscriptionQueue {
       if (job.status === 'complete' || job.status === 'queued') return old;
       if (job.status === 'running' && (job.leaseUntil ?? 0) > Date.now())
         throw new Error('This job is still active in another tab. Cancel it before resuming.');
+      if ((job.status === 'paused' || job.status === 'failed') && !jobCanResume(job))
+        throw new Error(
+          'This saved seam cannot be retried safely with the current window policy. Accepted lines were kept; start a new transcription only after choosing a different policy.'
+        );
       this.compatible(job);
       if (this.closed) throw new Error('The queue is closed');
       const next = releasedJob(job, 'queued');
