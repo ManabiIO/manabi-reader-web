@@ -4,10 +4,12 @@
  * All rights reserved.
  */
 
-import { type ContentKey, type Scope, type Track, language } from './contracts.js';
+import { type ContentKey, type Cue, type Scope, type Track, language } from './contracts.js';
 import { MediaStore } from './store.js';
 import { MOSS, type ModelProgress } from './model-cache.js';
-import { parseMoss, planWindows, ownedCues } from './moss-output.js';
+import { parseMoss, parseMossPreview, planWindows, ownedCues } from './moss-output.js';
+import { newProgressiveState } from './moss-progressive.js';
+import { transcribeProgressively } from './progressive-transcription.js';
 import {
   validateJob,
   ownsJob,
@@ -17,12 +19,43 @@ import {
   type Job
 } from './jobs.js';
 export type { Job } from './jobs.js';
+const ENGINE_SOURCE = '190a569c13b4b247450f2fb3b2a431244e84833e';
+const ENGINE_PREFIX = `${ENGINE_SOURCE}+`;
+const PORT_ORDER = new Map([
+  ['manabi-web-v3', 3],
+  ['manabi-web-v4', 4],
+  ['manabi-web-v5', 5],
+  ['manabi-web-v6', 6]
+]);
+function runtimePorts(revision: string): string[] | undefined {
+  if (!revision.startsWith(ENGINE_PREFIX)) return undefined;
+  const ports = revision.slice(ENGINE_PREFIX.length).split(',');
+  if (!ports.length || ports.some((port) => !PORT_ORDER.has(port))) return undefined;
+  for (let i = 0; i < ports.length; i++) {
+    if (i && PORT_ORDER.get(ports[i - 1])! >= PORT_ORDER.get(ports[i])!) return undefined;
+  }
+  return ports;
+}
+function continuedRuntime(revision: string, hasPriorWindows: boolean): string {
+  if (!hasPriorWindows) return MOSS.engineRevision;
+  const ports = runtimePorts(revision);
+  if (!ports)
+    throw new Error('This job uses another model revision. Generate a new track instead.');
+  const current = MOSS.engineRevision.slice(ENGINE_PREFIX.length);
+  return ports.includes(current) ? revision : `${ENGINE_PREFIX}${[...ports, current].join(',')}`;
+}
 export interface Engine {
   prepare(signal: AbortSignal, progress: (p: ModelProgress) => void): Promise<void>;
-  transcribe(pcm: Float32Array, signal: AbortSignal): Promise<string>;
+  transcribe(
+    pcm: Float32Array,
+    signal: AbortSignal,
+    partial?: (text: string) => void
+  ): Promise<string>;
   dispose(): void | Promise<void>;
 }
 export interface QueueProgress {
+  /** Uncommitted, operation-scoped output. Never written to caption pages or synced. */
+  provisional?: Cue[];
   job: Job;
   stage: string;
   loaded: number;
@@ -87,7 +120,7 @@ export class TranscriptionQueue {
     }
   }
   private compatible(job: Job) {
-    if (job.modelSha256 !== MOSS.sha256 || job.engineRevision !== MOSS.engineRevision)
+    if (job.modelSha256 !== MOSS.sha256 || !runtimePorts(job.engineRevision))
       throw new Error('This job uses another model revision. Generate a new track instead.');
   }
   private async jobs() {
@@ -96,7 +129,8 @@ export class TranscriptionQueue {
   async enqueue(key: ContentKey, lang: string, audioTrack: string, duration: number): Promise<Job> {
     if (this.closed) throw new Error('The queue is closed');
     const draft = validateJob({
-      version: 1,
+      version: 2,
+      progressive: newProgressiveState(),
       id: crypto.randomUUID(),
       mediaKey: key,
       language: language(lang),
@@ -315,7 +349,32 @@ export class TranscriptionQueue {
             };
             try {
               this.compatible(job);
-              const windows = planWindows(job.duration);
+              const hasWork =
+                job.version === 1
+                  ? job.nextWindow < planWindows(job.duration).length
+                  : job.progressive!.windows.at(-1)?.coreEndSample !==
+                    Math.ceil(job.duration * 16000);
+              if (job.engineRevision !== MOSS.engineRevision && hasWork) {
+                job = {
+                  ...job,
+                  engineRevision: continuedRuntime(job.engineRevision, job.nextWindow > 0)
+                };
+                await checkpoint();
+              }
+              const windows = job.version === 1 ? planWindows(job.duration) : [];
+              if (job.version === 2) {
+                job = await transcribeProgressively(job, {
+                  engine: this.engine,
+                  decode: this.decode,
+                  signal,
+                  checkpoint: async (next) => {
+                    job = next;
+                    await checkpoint();
+                    return job;
+                  },
+                  notify: (p) => this.notify(p)
+                });
+              }
               for (let i = job.nextWindow; i < windows.length; i++) {
                 signal.throwIfAborted();
                 const w = windows[i];
@@ -337,7 +396,16 @@ export class TranscriptionQueue {
                 if (!pcm.every((x) => x === 0)) {
                   await this.engine.prepare(signal, (p) => this.notify({ job, ...p }));
                   signal.throwIfAborted();
-                  raw = await this.engine.transcribe(pcm, signal);
+                  raw = await this.engine.transcribe(pcm, signal, (text) => {
+                    signal.throwIfAborted();
+                    this.notify({
+                      job,
+                      stage: 'transcribing',
+                      loaded: i,
+                      total: windows.length,
+                      provisional: ownedCues(parseMossPreview(text, w.end - w.start), w)
+                    });
+                  });
                 }
                 signal.throwIfAborted();
                 job.cues.push(...ownedCues(parseMoss(raw, w.end - w.start), w));
@@ -362,14 +430,17 @@ export class TranscriptionQueue {
                 forced: false,
                 createdAt: job.createdAt,
                 provenance: {
-                  engine: 'moss-transcribe.cpp',
+                  engine:
+                    job.version === 2
+                      ? `moss-transcribe.cpp/${job.progressive!.policy}`
+                      : 'moss-transcribe.cpp',
                   engineRevision: job.engineRevision,
                   model: MOSS.model,
                   modelRevision: MOSS.revision,
                   modelSha256: job.modelSha256,
                   quantization: MOSS.quantization,
                   audioTrack: job.audioTrack,
-                  windowSeconds: 60,
+                  windowSeconds: job.progressive?.inputSeconds ?? 60,
                   overlapSeconds: 2,
                   generatedAt: job.completedAt!
                 }
@@ -382,8 +453,8 @@ export class TranscriptionQueue {
               this.notify({
                 job,
                 stage: 'complete',
-                loaded: windows.length,
-                total: windows.length
+                loaded: job.duration,
+                total: job.duration
               });
             } catch (e) {
               const paused = signal.aborted || e instanceof JobOwnershipLost;
@@ -405,8 +476,10 @@ export class TranscriptionQueue {
                 this.notify({
                   job: latest,
                   stage: latest.status,
-                  loaded: latest.nextWindow,
-                  total: planWindows(latest.duration).length
+                  loaded: latest.progressive
+                    ? (latest.progressive.windows.at(-1)?.coreEndSample ?? 0) / 16000
+                    : latest.nextWindow,
+                  total: latest.progressive ? latest.duration : planWindows(latest.duration).length
                 });
             } finally {
               clearInterval(heartbeat);

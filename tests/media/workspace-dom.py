@@ -313,6 +313,37 @@ def main():
             assert result['before']==dict(same=True,paused=True,hidden=True,queueStarted=True,playerStarted=True,settled=False),result
             assert result['afterQueueFailure'] is False and 'shutdown' in result['error'],result
         case('workspace hides and pauses immediately, drains both owners, and reports shutdown failure afterward',teardown_failure)
+        def progressive_flow():
+            page.evaluate('reset()');page.evaluate("workspace.openSource(makeSource('Progressive.mp4'))")
+            page.wait_for_function('workspace.player?.generationAvailable && workspace.current')
+            page.evaluate("""()=>{
+                const q=workspace.queue;window.progressiveCalls=0;window.secondStarted=false;
+                q.decode=async(_job,start,end)=>new Float32Array(Math.round((end-start)*16000)).fill(.1);
+                q.engine.transcribe=async(_pcm,signal,preview)=>{
+                    progressiveCalls++;
+                    if(progressiveCalls===1){preview?.('[0][S01]仮の文章。[1][3][S01]');return '[0][S01]最初の文章。[2]'}
+                    secondStarted=true;
+                    return await new Promise((_,reject)=>{
+                        if(signal.aborted)reject(signal.reason);
+                        else signal.addEventListener('abort',()=>reject(signal.reason),{once:true});
+                    });
+                };
+                workspace.player.options.onGenerate=async()=>{
+                    window.progressiveJob=await q.enqueue(workspace.current.key,'ja','2',70);return progressiveJob.id;
+                };
+                void workspace.player.requestGenerate();
+            }""")
+            page.wait_for_function('secondStarted && document.querySelectorAll(".transcript-cue").length===1')
+            assert page.locator('.transcript-cue').inner_text()=='最初の文章。'
+            assert page.evaluate('!workspace.player.exportTrack() && workspace.player.primary.value===progressiveJob.id')
+            assert page.evaluate("store.tracks('guest',workspace.current.key).then(tracks=>tracks.length)")==0
+            page.evaluate('workspace.queue.cancel(progressiveJob.id)')
+            page.evaluate('workspace.queue.task')
+            page.evaluate('workspace.refreshJobs()')
+            page.wait_for_function('document.querySelector(".transcription-progress-note")?.textContent.includes("paused")')
+            assert page.locator('.transcript-cue').inner_text()=='最初の文章。'
+            assert page.evaluate("store.local('guest','jobs',progressiveJob.id).then(job=>job.status==='paused' && job.nextWindow===1 && job.cues.length===1)")
+        case('real queue checkpoints reach the active player before completion and survive Cancel',progressive_flow)
         page.evaluate('reset()')
         page.evaluate('workspace.dispose()');page.evaluate('store.close()');browser.close()
     report=dict(scope='Production workspace/player in-memory Chromium; transaction, media metadata and ASR doubles; UUID shim uses getRandomValues',

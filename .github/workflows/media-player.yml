@@ -64,6 +64,7 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p test-results/media
+          python -m unittest discover -s tests/media -p 'test_*.py' -v 2>&1 | tee test-results/media/tooling.log
           python tools/media/generate-fixtures.py --language en > fixture-path.txt
           export MEDIA_FIXTURE="$(cat fixture-path.txt)"
           pnpm exec node tools/media/test.mjs | tee test-results/media/core.log

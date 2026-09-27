@@ -27,7 +27,7 @@ async function harness(body) {
   const queues = [];
   const make = (engine) => {
     const q = new TranscriptionQueue(store, 'guest', engine, async () =>
-      new Float32Array(16000).fill(0.1)
+      new Float32Array(32000).fill(0.1)
     );
     queues.push(q);
     return q;

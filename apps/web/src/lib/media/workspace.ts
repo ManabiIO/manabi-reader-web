@@ -9,6 +9,7 @@ import { downloadSubtitles } from './subtitle-download.js';
 import { formatMediaTime } from './time.js';
 import { trackLanguage } from './track-selection.js';
 import { audioLanguage, chooseTranscriptionAudio, type AudioChoice } from './audio-selection.js';
+import { transcriptionDraft, type TranscriptionDraft } from './transcription-draft.js';
 import { validateJob } from './jobs.js';
 import { deviceKey } from './device-checkpoint.js';
 import {
@@ -308,7 +309,10 @@ export class VideoWorkspace {
         this.notice(
           `${p.stage === 'downloading' ? 'Downloading speech model' : p.stage === 'loading' || p.stage === 'checking' ? 'Preparing speech model' : p.stage === 'verifying' ? 'Verifying speech model' : p.stage === 'complete' ? 'Transcript ready' : p.stage === 'paused' ? 'Transcription paused' : p.stage === 'failed' ? 'Transcription failed' : 'Generating transcript'}${p.total > 0 ? ` · ${Math.min(100, Math.round((p.loaded / p.total) * 100))}%` : ''}`
         );
-        this.player?.generationStatus(p.job.id, p.stage);
+        if (this.current?.key === p.job.mediaKey) {
+          this.player?.generationStatus(p.job.id, p.stage);
+          this.player?.generationPreview(p.job.id, p.provisional);
+        }
         if (['complete', 'paused', 'failed'].includes(p.stage)) {
           this.progress.hidden = true;
           void this.refreshTracks().catch((e) => this.error(e));
@@ -853,6 +857,7 @@ export class VideoWorkspace {
       if (this.closed || current !== this.current || player !== this.player || this.tracksDirty)
         continue;
       player.setTracks(tracks);
+      await this.refreshJobs();
     }
   }
   private async refresh() {
@@ -1019,6 +1024,14 @@ export class VideoWorkspace {
       // A newer notification arrived while reading: don't flash an older state.
       if (this.jobsDirty) continue;
       this.renderJobs(jobs);
+      const key = this.current?.key;
+      if (key)
+        this.player?.setDrafts(
+          jobs
+            .filter((job) => job.mediaKey === key)
+            .map(transcriptionDraft)
+            .filter((draft): draft is TranscriptionDraft => !!draft)
+        );
     }
   }
   private renderJobs(jobs: Job[]) {

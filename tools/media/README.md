@@ -41,8 +41,10 @@ checks; a successful helper test is not proof of real-model inference or deploym
 - Cloud locators are saved only locally; reopening obtains a fresh authenticated
   metadata/range source and verifies content before attaching portable state.
   Full hashing still reads every byte; large cloud videos incur material traffic.
-- A serial queue uses 60-second cores with two-second overlaps and completed-window
-  checkpoints. Speaker labels are window-local; boundary deduplication is heuristic.
+- New version-two jobs use pause-aware inputs of at most 30 seconds including
+  context, durable progressive publication and joint boundary reconciliation. Legacy
+  version-one jobs retain their 60-second cores and two-second halos unchanged.
+  Speaker labels remain window-local; recognition/seam quality is not guaranteed.
   Each job has a compare-and-update owner token and expiring lease. A stale worker
   cannot commit checkpoints or publish after another worker claims the job. Cancellation
   is durable, not an older full-record replacement. Subtitle pages, manifest and the
@@ -298,3 +300,15 @@ pages in one read-only transaction. It never loads unrelated caption bodies. A
 missing/deleted page keeps the incomplete track unpublished until all its verified
 pages are available. The Node transaction-boundary tests use an explicit double;
 the native browser suite contains separate cross-connection admission checks.
+
+## Progressive transcription (port v6)
+
+See [the progressive design and qualification notes](../../docs/moss-progressive-transcription.md).
+The v6 C++ output callback is stacked on the parent v5 performance port and changes
+the runtime identity, not the Q5_0 weights. Rebuild both runtimes before real-model
+qualification. Preview output never makes a failed or token-budget-exhausted inference
+successful, and incomplete local tracks are not exported or synchronized.
+
+The opt-in ASR gate requires actual output callbacks and records first-output and
+first-preview-cue latency separately from preparation and total inference. These
+runtime measurements remain qualification evidence, not controller-test substitutes.

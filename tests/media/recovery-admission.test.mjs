@@ -81,7 +81,7 @@ async function harness(body, locked = true) {
         },
         dispose() {}
       },
-      async () => new Float32Array(16000).fill(0.1)
+      async () => new Float32Array(32000).fill(0.1)
     );
     queues.push(q);
     return q;
@@ -201,7 +201,7 @@ test('queue shutdown failure still waits for the active job checkpoint', async (
         if (++stops === 1) throw Error('runtime cleanup failed');
       }
     },
-    async () => new Float32Array(16000).fill(0.1)
+    async () => new Float32Array(32000).fill(0.1)
   );
   let closing;
   try {

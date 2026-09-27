@@ -564,6 +564,243 @@ def main():
             }""")
             assert result=={'pending':'11111111-1111-4111-8111-111111111111','disabled':True},result
         case('a resumed job supersedes an early paused notification before admission returns',restarted_generation_status)
+        # The view data is scripted; actual production selection, rendering and persistence run.
+        page.evaluate("""() => {
+            window.draftView=(id=trackId,cues=[{id:'w0/cue-0',start:0,end:3,text:'最初の行。'}],state='running')=>({
+                track:{...track(id,'ja',cues),origin:'generated',complete:false,label:'MOSS · In progress'},
+                coverage:28,duration:70,state,pending:[]
+            });
+            window.startDraft=async()=>{
+                await createPlayer({delayedGenerate:true});await player.bindIdentity(mediaKey);
+                player.setGenerationAvailable(true);player.setDiscovery('complete');
+                const request=player.requestGenerate();resolveGenerate(trackId);await request;
+                player.setDrafts([draftView()]);
+            };
+        }""")
+        def first_draft():
+            page.evaluate('startDraft()')
+            assert page.locator('.transcript-cue').count()==1
+            assert page.locator('.transcript-cue').first.inner_text()=='最初の行。'
+            assert page.evaluate('player.primary.value===trackId && !player.tracks[0].complete')
+            assert 'processed' in page.locator('.transcription-progress-note').inner_text()
+            assert page.evaluate('player.exportTrack()===undefined')
+        case('a generated track is selected and readable at its first accepted checkpoint',first_draft)
+        def provisional_inert():
+            page.evaluate("player.generationPreview(trackId,[{id:'pending',start:3,end:5,text:'仮の行 <img src=x onerror=alert(1)>'}])")
+            assert page.locator('.transcript-cue').count()==1
+            assert page.get_by_label('Provisional transcript',exact=True).is_visible()
+            assert '<img' in page.get_by_label('Provisional transcript',exact=True).inner_text()
+            assert page.get_by_label('Provisional transcript',exact=True).locator('img,button,a').count()==0
+            assert page.evaluate('player.exportTrack()===undefined && player.tracks[0].cues.length===1')
+        case('within-window preview is inert text, not an accepted cue or exportable track',provisional_inert)
+        def stopped_draft(state):
+            page.evaluate("""state=>{
+                player.generationPreview(trackId);player.setDrafts([draftView(trackId,undefined,state)]);
+                player.generationStatus(trackId,state);
+            }""",state)
+            assert page.locator('.transcript-cue').count()==1
+            assert page.get_by_label('Provisional transcript',exact=True).is_hidden()
+            assert ('paused' if state=='paused' else 'retry') in page.locator('.transcription-progress-note').inner_text()
+            assert page.evaluate('!player.exportTrack()')
+        case('pause keeps accepted captions and clears the failed operation preview',lambda:stopped_draft('paused'))
+        case('a failed later window does not erase accepted captions',lambda:stopped_draft('failed'))
+        def explicit_track():
+            page.evaluate("""async()=>{
+                await startDraft();player.setTracks([track(trackId2,'ja',[{id:'authored',start:0,end:4,text:'著者の字幕'}])]);
+                select('Transcript track',trackId2);player.setDrafts([draftView()]);
+                player.generationPreview(trackId,[{id:'later',start:4,end:6,text:'選択されていない仮の行'}]);
+            }""")
+            assert page.evaluate('player.primary.value===trackId2')
+            assert page.get_by_label('Provisional transcript',exact=True).is_hidden()
+            assert page.locator('.transcript-cue').first.inner_text()=='著者の字幕'
+        case('late progressive updates cannot replace the user’s authored subtitle selection',explicit_track)
+        def completion_handoff():
+            page.evaluate("""async()=>{
+                await startDraft();player.setDrafts([draftView(trackId,[],'complete')]);
+            }""")
+            assert page.locator('.transcript-cue').count()==1
+            assert 'Finalizing' in page.locator('.transcription-progress-note').inner_text()
+            assert page.evaluate('!player.exportTrack()')
+            page.evaluate("player.setTracks([{...draftView().track,complete:true}])")
+            assert page.locator('.transcript-cue').count()==1
+            assert page.evaluate('player.exportTrack()?.id===trackId')
+            assert page.locator('.transcription-progress-note').is_hidden()
+        case('compacted completion keeps accepted lines until the final manifest arrives',completion_handoff)
+        def local_only_choice():
+            result=page.evaluate("""async()=>{
+                await startDraft();player.touched=true;player.scheduleSave(true);await player.saving;
+                const before=writes.at(-1);const local=locals.filter(x=>x.id.startsWith('transcript-draft/')).at(-1);
+                player.setTracks([{...draftView().track,complete:true}]);await player.saving;
+                return {before,after:writes.at(-1),local,last:locals.filter(x=>x.id.startsWith('transcript-draft/')).at(-1)};
+            }""")
+            assert result['before']['primary'] is None,result
+            assert result['local']['value']=='11111111-1111-4111-8111-111111111111',result
+            assert result['after']['primary']=='11111111-1111-4111-8111-111111111111',result
+            assert result['last']['value'] is None,result
+        case('partial track selection remains local and becomes portable only on completion',local_only_choice)
+        def draft_restore():
+            page.evaluate("""async()=>{
+                await createPlayer();await store.putLocal('guest','settings','transcript-draft/'+mediaKey,trackId);
+                await player.bindIdentity(mediaKey);player.setDrafts([draftView(trackId,undefined,'paused')]);
+            }""")
+            assert page.evaluate('player.primary.value===trackId && generated===0')
+            assert page.locator('.transcript-cue').count()==1
+            assert 'paused' in page.locator('.transcription-progress-note').inner_text()
+        case('reloading a paused local draft restores captions without starting inference',draft_restore)
+        def restore_race(dispose=False):
+            page.evaluate("""async()=>{
+                await createPlayer();store.local=async()=>await new Promise(resolve=>window.resolveDraft=resolve);
+                window.bindingDraft=player.bindIdentity(mediaKey);void 0;
+            }""")
+            page.wait_for_function('typeof resolveDraft==="function"')
+            if dispose:
+                page.evaluate('player.dispose()')
+            else:
+                page.evaluate("player.setTracks([track(trackId2,'ja',[{id:'choice',start:0,end:4,text:'新しい選択'}])]);select('Transcript track',trackId2)")
+            page.evaluate('resolveDraft(trackId);bindingDraft')
+            if dispose:
+                assert page.evaluate('!player.root.isConnected && !player.pendingGenerated')
+            else:
+                page.evaluate('player.setDrafts([draftView()])')
+                assert page.evaluate('player.primary.value===trackId2 && generated===0')
+        case('late local draft restoration cannot override a newer explicit selection',lambda:restore_race(False))
+        case('late local draft restoration cannot revive a disposed player',lambda:restore_race(True))
+        def wrong_media_draft():
+            page.evaluate("""async()=>{
+                await createPlayer();await player.bindIdentity(mediaKey);
+                const other=draftView();other.track.mediaKey='sha256:'+'b'.repeat(64);player.setDrafts([other]);
+            }""")
+            assert page.evaluate('player.drafts.length===0 && player.tracks.length===0')
+        case('another media item’s job cannot enter this player’s local track catalog',wrong_media_draft)
+        def append_pause():
+            result=page.evaluate("""async()=>{
+                await startDraft();const previous=player.studyTimeline;let resets=0;
+                const reset=player.linePause.reset.bind(player.linePause);player.linePause.reset=()=>{resets++;reset()};
+                const next=draftView();next.track.cues.push({id:'w1/cue-0',start:4,end:6,text:'次の行。'});
+                player.setDrafts([next]);player.studyTimeline;return {resets,old:previous.cues.length,current:player.studyTimeline.cues.length};
+            }""")
+            assert result=={'resets':0,'old':1,'current':2},result
+        case('appending accepted lines preserves the existing line-pause session',append_pause)
+        def initial_preview():
+            page.evaluate("""async()=>{
+                await createPlayer({delayedGenerate:true});await player.bindIdentity(mediaKey);
+                player.setGenerationAvailable(true);const request=player.requestGenerate();resolveGenerate(trackId);await request;
+                player.setDrafts([draftView(trackId,[])]);
+                player.generationPreview(trackId,[{id:'w0/cue-0',start:0,end:3,text:'最初の仮の文章です。'}]);
+            }""")
+            assert page.locator('.transcript-cue').count()==0
+            assert page.get_by_label('Provisional transcript',exact=True).is_visible()
+            assert '最初の仮の文章' in page.get_by_label('Provisional transcript',exact=True).inner_text()
+            assert page.evaluate('!player.exportTrack() && !!player.pendingGenerated')
+        case('the first in-flight output is visible before any complete window exists',initial_preview)
+        def progressive_screenshots():
+            page.evaluate('startDraft()')
+            page.evaluate("player.generationPreview(trackId,[{id:'pending',start:3,end:5,text:'続きの文章を認識しています。'}])")
+            for width,height,name in [(1280,900,'progressive-desktop'),(390,844,'progressive-phone')]:
+                page.set_viewport_size(dict(width=width,height=height));page.wait_for_timeout(50)
+                assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+1')
+                assert page.get_by_label('Provisional transcript',exact=True).is_visible()
+                page.screenshot(path=str(args.output/(name+'.png')),full_page=False)
+            page.set_viewport_size(dict(width=1280,height=900))
+        case('progressive status, accepted lines and provisional text fit desktop and phone',progressive_screenshots)
+        def disappearing_draft():
+            result=page.evaluate("""async()=>{
+                await startDraft();await player.draftSaving;
+                player.setDrafts([]);player.touched=true;player.scheduleSave(true);await player.saving;
+                const missing=writes.at(-1).primary;
+                player.setTracks([{...draftView().track,complete:true}]);await player.saving;await player.draftSaving;
+                const completed=writes.at(-1).primary;
+                player.setTracks([]);player.scheduleSave(true);await player.saving;
+                return {missing,completed,unavailable:writes.at(-1).primary};
+            }""")
+            assert result=={'missing':None,'completed':'11111111-1111-4111-8111-111111111111','unavailable':'11111111-1111-4111-8111-111111111111'},result
+        case('missing job snapshots cannot leak a draft ID into sync, while published selections remain portable',disappearing_draft)
+        def bounded_draft_saves():
+            result=page.evaluate("""async()=>{
+                await startDraft();await player.draftSaving;
+                player.setTracks([track(trackId2,'ja',[{id:'other',start:0,end:3,text:'別の字幕'}])]);
+                const original=store.putLocal.bind(store);let release,entered;
+                const held=new Promise(r=>release=r),started=new Promise(r=>entered=r);const values=[];
+                store.putLocal=async(...args)=>{
+                    if(args[2].startsWith('transcript-draft/')){values.push(args[3]);if(values.length===1){entered();await held;}}
+                    return original(...args);
+                };
+                player.saveDraftSelection();await started;
+                for(let i=0;i<2000;i++){player.primary.value=i%2?trackId:trackId2;player.saveDraftSelection();}
+                player.primary.value=trackId2;player.saveDraftSelection();
+                const first=player.dispose(),second=player.dispose();let closed=false;
+                first.then(()=>closed=true);await new Promise(r=>setTimeout(r,0));
+                const before={writes:values.length,closed,same:first===second};
+                release();await Promise.all([first,second]);return {before,values};
+            }""")
+            assert result=={'before':{'writes':1,'closed':False,'same':True},'values':['11111111-1111-4111-8111-111111111111',None]},result
+        case('local draft selection coalesces 2,000 changes and Close waits for the newest choice',bounded_draft_saves)
+        def draft_failure_drain():
+            result=page.evaluate("""async()=>{
+                await startDraft();await player.draftSaving;await player.saving;
+                const original=store.edit.bind(store);let release,entered;
+                const held=new Promise(r=>release=r),started=new Promise(r=>entered=r);
+                store.edit=async(...args)=>{entered();await held;return original(...args)};
+                const put=store.putLocal.bind(store);
+                store.putLocal=async(...args)=>{if(args[2].startsWith('transcript-draft/'))throw Error('draft quota');return put(...args)};
+                player.touched=true;player.scheduleSave(true);await started;
+                player.saveDraftSelection();const closing=player.dispose();let settled=false;
+                const outcome=closing.then(()=>{settled=true;return null},error=>{settled=true;return String(error)});
+                await new Promise(r=>setTimeout(r,0));const before=settled;
+                release();const error=await outcome;window.player=undefined;return {before,error};
+            }""")
+            assert result['before'] is False and 'draft quota' in result['error'],result
+        case('a failed local draft save still drains portable playback before Close reports failure',draft_failure_drain)
+        def invalid_draft_restore():
+            page.evaluate("""async()=>{
+                await createPlayer();await store.putLocal('guest','settings','transcript-draft/'+mediaKey,'------------------------------------');
+                await player.bindIdentity(mediaKey);
+            }""")
+            assert page.evaluate('!player.pendingGenerated && generated===0')
+        case('a malformed local draft identity does not become a waiting transcript selection',invalid_draft_restore)
+        def draft_restore_after_generate():
+            page.evaluate("""async()=>{
+                await createPlayer({delayedGenerate:true});
+                const original=store.local.bind(store);
+                store.local=async(...args)=>args[2].startsWith('transcript-draft/')
+                    ? new Promise(resolve=>window.releaseDraftRestore=resolve) : original(...args);
+                window.identityBinding=player.bindIdentity(mediaKey);
+            }""")
+            page.wait_for_function('typeof releaseDraftRestore === "function"')
+            page.evaluate("player.setGenerationAvailable(true); player.generate.click()")
+            page.wait_for_function('typeof resolveGenerate === "function"')
+            page.evaluate('resolveGenerate(trackId2)')
+            page.wait_for_function('player.pendingGenerated === trackId2')
+            page.evaluate('releaseDraftRestore(trackId); identityBinding')
+            assert page.evaluate('player.pendingGenerated === trackId2 && !player.primary.value'), 'older saved draft stole the newer Generate intent'
+        case('a pending saved draft cannot supersede a newer explicit Generate action',draft_restore_after_generate)
+        def preview_failure_without_workspace_clear():
+            page.evaluate("""async()=>{
+                await startDraft();
+                player.generationPreview(trackId,[{id:'preview',start:4,end:5,text:'失敗した出力'}]);
+                player.generationStatus(trackId,'failed');
+            }""")
+            assert '失敗した出力' not in page.locator('.transcription-provisional').inner_text()
+        case('a terminal job status retires its preview without depending on a later workspace callback',preview_failure_without_workspace_clear)
+        def stale_preview_after_status():
+            page.evaluate("""async()=>{
+                await startDraft();
+                player.generationStatus(trackId,'paused');
+                player.generationPreview(trackId,[{id:'late',start:4,end:5,text:'中止後の出力'}]);
+            }""")
+            assert '中止後の出力' not in page.locator('.transcription-provisional').inner_text()
+        case('a late preview cannot revive after its job was paused',stale_preview_after_status)
+        def preview_resume():
+            page.evaluate("""async()=>{
+                await startDraft();
+                player.generationStatus(trackId,'paused');
+                player.generationStatus(trackId,'decoding');
+                player.generationPreview(trackId,[{id:'new',start:4,end:5,text:'再開した出力'}]);
+                player.generationStatus(trackId2,'failed');
+                player.generationPreview(trackId2);
+            }""")
+            assert '再開した出力' in page.locator('.transcription-provisional').inner_text()
+        case('resumed output is allowed and another job cannot clear its preview',preview_resume)
         def csp_policy(allow_wasm):
             csp_page=browser.new_page()
             policy="script-src 'nonce-media-test'" + (" 'wasm-unsafe-eval'" if allow_wasm else "")

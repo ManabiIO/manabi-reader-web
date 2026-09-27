@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 
+import { assertFinalOutputPrefix, outputPreview } from './moss-output.js';
 import { getModel, type ModelProgress } from './model-cache.js';
 import {
   assertRuntimeIdentity,
@@ -11,6 +12,7 @@ import {
   type RuntimeIdentity
 } from './moss-runtime-contract.js';
 interface Module extends RuntimeIdentity {
+  onMossOutput?: (bytes: Uint8Array) => void;
   FS: {
     mkdir(p: string): void;
     mount(fs: unknown, args: unknown, p: string): void;
@@ -183,13 +185,26 @@ worker.onmessage = async ({ data }) => {
         )
           throw new Error('MOSS runtime memory view is unavailable after allocation');
         heap.set(pcm, start);
+        let previous = '';
+        runtime.onMossOutput = (bytes) => {
+          const text = outputPreview(bytes);
+          if (text !== previous) {
+            if (!text.startsWith(previous))
+              throw new Error('MOSS preview rewrote an emitted prefix');
+            previous = text;
+            reply('partial', text);
+          }
+        };
         result = runtime._moss_transcribe_capi_transcribe_pcm(ctx, p, pcm.length, 16000, 2048);
         if (!result)
           throw new Error(
             runtime.UTF8ToString(runtime._moss_transcribe_capi_last_error(ctx)) || 'MOSS failed'
           );
-        reply('result', runtime.UTF8ToString(result));
+        const final = runtime.UTF8ToString(result);
+        assertFinalOutputPrefix(previous, final);
+        reply('result', final);
       } finally {
+        runtime.onMossOutput = undefined;
         runtime._free(p);
         if (result) runtime._moss_transcribe_capi_free_string(result);
       }

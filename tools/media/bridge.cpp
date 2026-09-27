@@ -6,6 +6,12 @@
 #include <stdexcept>
 #include <string>
 #include <emscripten.h>
+// Explicit-length UTF-8 bytes, not UTF8ToString: a token can end mid-character.
+EM_JS(void, manabi_web_output, (const char* data, int length), {
+    if (typeof Module['onMossOutput'] === 'function') {
+        Module['onMossOutput'](HEAPU8.slice(data, data + length));
+    }
+});
 #ifndef MANABI_MOSS_ENGINE_REVISION
 #error "The build must bind transcript provenance to the compiled engine revision"
 #endif

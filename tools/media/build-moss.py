@@ -3,6 +3,7 @@
 import argparse, hashlib, json, pathlib, shutil, subprocess, tempfile
 from runtime_artifacts import check_path, publish_pair
 from model_loader_patch import patch_model_loader
+from output_stream_patch import patch_output_stream
 PIN='190a569c13b4b247450f2fb3b2a431244e84833e'
 PORT_REVISION='manabi-web-v6'
 GGML_PIN='eced84c86f8b012c752c016f7fe789adea168e1e'
@@ -93,6 +94,7 @@ def main():
     replace(backend,'            ggml_backend_cpu_set_n_threads(g_backend, nt);',
         '            ggml_backend_cpu_set_n_threads(g_backend, nt);\n'
         '            ggml_backend_cpu_set_abort_callback(g_backend, [](void *) { return manabi_web_cancel_requested(); }, nullptr);')
+    patch_output_stream(source)
     shutil.copy(ROOT/'tools/media/bridge.cpp',source/'manabi_bridge.cpp')
     with cmake.open('a') as f:
         f.write('''
@@ -127,7 +129,7 @@ endif()
         shutil.copy(source/'third_party/ggml/LICENSE',dest/'LICENSE-GGML.txt')
         metadata={'version':1,'engineRevision':PIN+'+'+PORT_REVISION,'mossCommit':PIN,'ggmlCommit':GGML_PIN,'compiler':compiler,'mode':mode,
                   'portSha256':{name:hashlib.sha256((ROOT/'tools/media'/name).read_bytes()).hexdigest()
-                    for name in ('build-moss.py','bridge.cpp','manabi_web_hooks.hpp','runtime_artifacts.py','manabi_model_reader.hpp','model_loader_patch.py')},
+                    for name in ('build-moss.py','bridge.cpp','manabi_web_hooks.hpp','runtime_artifacts.py','manabi_model_reader.hpp','model_loader_patch.py','output_stream_patch.py')},
                   'files':{file.name:hashlib.sha256(file.read_bytes()).hexdigest()
                     for file in sorted(dest.iterdir()) if file.is_file()}}
         (dest/'build.json').write_text(json.dumps(metadata,indent=2)+'\n')

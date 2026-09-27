@@ -12,13 +12,16 @@ import {
   type CaptionStyle,
   DEFAULT_STYLE,
   validatePlayback,
-  validateStyle
+  validateStyle,
+  isUUID
 } from './contracts.js';
 import { dialogueText } from './dialogue.js';
 import { element, button, iconButton, TranscriptMenu } from './player-controls.js';
 import { trackLanguage, languageName, translationCandidate } from './track-selection.js';
 import { studySpans, seekSpan, LinePause, type StudySpan } from './study.js';
 import { type CueTimeline, chooseLayout } from './captions.js';
+import { formatMediaTime } from './time.js';
+import type { TranscriptionDraft } from './transcription-draft.js';
 import { TrackCatalog } from './track-catalog.js';
 import { type ByteSource } from './sources.js';
 import { MediaStore } from './store.js';
@@ -53,6 +56,20 @@ export class VideoPlayer {
   private linePause = new LinePause();
   private studyTimeline?: CueTimeline;
   private studyDelay = 0;
+  private studyTrack = '';
+  private progressNote = element('p');
+  private provisional = element('div');
+  private publishedTracks: Track[] = [];
+  private drafts: TranscriptionDraft[] = [];
+  private preview?: { id: string; cues: Cue[] };
+  private retiredPreviews = new Set<string>();
+  private draftSelectionRestored = false;
+  // Recognition provenance survives a temporarily missing job or caption page.
+  private localDraftIds = new Set<string>();
+  private publishedIds = new Set<string>();
+  private draftSaving: Promise<void> = Promise.resolve();
+  private draftSavingActive = false;
+  private pendingDraftSave?: { key: ContentKey; id: string | null };
   private spans: StudySpan[] = [];
   private menu = new TranscriptMenu();
   private setup = element('div');
@@ -314,7 +331,20 @@ export class VideoPlayer {
       add,
       this.setupStatus
     );
-    this.pane.append(header, this.setup, this.transcript, this.menu.panel);
+    this.progressNote.className = 'transcription-progress-note';
+    this.progressNote.setAttribute('role', 'status');
+    this.progressNote.hidden = true;
+    this.provisional.className = 'transcription-provisional';
+    this.provisional.setAttribute('aria-label', 'Provisional transcript');
+    this.provisional.hidden = true;
+    this.pane.append(
+      header,
+      this.setup,
+      this.progressNote,
+      this.transcript,
+      this.provisional,
+      this.menu.panel
+    );
     this.stage.append(this.video, this.overlay);
     const videoColumn = element('div');
     videoColumn.className = 'video-column';
@@ -514,6 +544,11 @@ export class VideoPlayer {
   }
   generationStatus(id: string, state: string) {
     if (this.closed) return;
+    if (state === 'paused' || state === 'failed' || state === 'complete') {
+      this.retiredPreviews.add(id);
+      if (this.preview?.id === id) this.preview = undefined;
+    } else this.retiredPreviews.delete(id);
+    this.updateProgressiveView();
     if (state === 'paused' || state === 'failed') this.generationOutcomes?.set(id, state);
     else this.generationOutcomes?.delete(id);
     if (id !== this.pendingGenerated) return;
@@ -548,6 +583,7 @@ export class VideoPlayer {
       this.pendingGenerated || this.generationBusy
         ? 'Generating transcript…'
         : 'Generate transcript';
+    this.updateProgressiveView();
     this.setupNote.textContent =
       this.discovery === 'loading'
         ? 'Looking for subtitles. Choose one below, or generate a transcript when the video is ready.'
@@ -559,7 +595,9 @@ export class VideoPlayer {
   }
   private async requestGenerate() {
     if (this.closed || this.generate.disabled || this.primary.value || this.secondary.value) return;
-    const intent = this.selectionIntent;
+    // Generate is a new selection intent even before it has produced a cue.
+    // Fence a pending saved-draft read before awaiting the job admission.
+    const intent = ++this.selectionIntent;
     const outcomes = new Map<string, 'paused' | 'failed'>();
     this.generationOutcomes = outcomes;
     this.generationBusy = true;
@@ -571,7 +609,7 @@ export class VideoPlayer {
         this.pendingGenerated = id;
         const outcome = outcomes.get(id);
         if (outcome) this.generationStatus(id, outcome);
-        this.setTracks(this.tracks);
+        this.applyTracks();
       }
     } catch (error) {
       this.error(error);
@@ -667,6 +705,7 @@ export class VideoPlayer {
     this.resize();
     this.applyDeviceState();
     await this.restore();
+    await this.restoreDraftSelection();
   }
   async bindDeviceCheckpoint(key: DeviceKey) {
     if (this.closed || this.device) return;
@@ -700,6 +739,7 @@ export class VideoPlayer {
     if (this.closed) return;
     this.key = key;
     await this.restore();
+    await this.restoreDraftSelection();
   }
   private restore(): Promise<void> {
     if (!this.key || !this.ready || this.closed || this.restored) return Promise.resolve();
@@ -729,7 +769,7 @@ export class VideoPlayer {
         if (!this.selectionTouched) {
           // A feed may deliver the resume record before its caption pages.
           // Keep the saved selection visible instead of assigning a missing option.
-          this.setTracks(this.tracks);
+          this.applyTracks();
         }
       }
       this.restored = true;
@@ -749,6 +789,79 @@ export class VideoPlayer {
   }
   setTracks(tracks: Track[]) {
     if (this.closed) return;
+    const wasDraft =
+      this.localDraftIds.has(this.primary.value) && !this.publishedIds.has(this.primary.value);
+    this.publishedTracks = tracks;
+    for (const track of tracks) if (track.complete) this.publishedIds.add(track.id);
+    this.applyTracks();
+    if (wasDraft && tracks.some((t) => t.id === this.primary.value && t.complete)) {
+      this.saveDraftSelection();
+      this.scheduleSave(true);
+    }
+  }
+  setDrafts(drafts: TranscriptionDraft[]) {
+    if (this.closed) return;
+    this.drafts = drafts
+      .filter((draft) => draft.track.mediaKey === this.key)
+      .map((draft) => {
+        const previous = this.drafts.find((old) => old.track.id === draft.track.id);
+        return draft.state === 'complete' &&
+          !draft.track.cues.length &&
+          previous &&
+          !this.publishedTracks.some((track) => track.id === draft.track.id && track.complete)
+          ? { ...previous, state: draft.state }
+          : draft;
+      });
+    for (const draft of this.drafts) {
+      this.localDraftIds.add(draft.track.id);
+      if (['paused', 'failed', 'complete'].includes(draft.state)) {
+        this.retiredPreviews.add(draft.track.id);
+        if (this.preview?.id === draft.track.id) this.preview = undefined;
+      }
+    }
+    this.applyTracks();
+  }
+  generationPreview(id: string, cues?: Cue[]) {
+    if (this.closed) return;
+    if (cues?.length) {
+      if (this.retiredPreviews.has(id) || this.publishedIds.has(id)) return;
+      this.preview = { id, cues: cues.slice(-8) };
+    } else if (this.preview?.id === id) this.preview = undefined;
+    this.updateProgressiveView();
+  }
+  private updateProgressiveView() {
+    const id = this.primary.value || this.pendingGenerated;
+    const draft = this.drafts.find((d) => d.track.id === id);
+    const complete = this.publishedTracks.some((t) => t.id === id && t.complete);
+    this.progressNote.hidden = !draft || complete;
+    if (draft && !complete) {
+      this.progressNote.textContent = `${draft.state === 'complete' ? 'Finalizing transcript' : draft.state === 'failed' ? 'Transcription needs a retry' : draft.state === 'paused' ? 'Transcription paused' : 'Generating transcript'} · ${formatMediaTime(draft.coverage)} of ${formatMediaTime(draft.duration)} processed. Accepted lines are available below; this track is not complete.`;
+    }
+    const cues = complete
+      ? []
+      : this.preview && this.preview.id === id
+        ? this.preview.cues
+        : (draft?.pending ?? []);
+    this.provisional.hidden = !cues.length;
+    this.provisional.replaceChildren();
+    if (cues.length) {
+      this.provisional.append(element('p', 'Provisional — these lines may change'));
+      for (const cue of cues.slice(-8)) {
+        const text = element('p', cue.text);
+        text.dir = 'auto';
+        text.lang = draft?.track.language ?? '';
+        this.provisional.append(text);
+      }
+    }
+  }
+  private applyTracks() {
+    const published = new Set(this.publishedTracks.map((track) => track.id));
+    const tracks = [
+      ...this.publishedTracks,
+      ...this.drafts
+        .filter((draft) => !published.has(draft.track.id) && draft.track.cues.length > 0)
+        .map((draft) => draft.track)
+    ];
     const selected = [this.primary.value, this.secondary.value];
     const changed = this.catalog.replace(tracks);
     this.tracks = tracks;
@@ -794,7 +907,9 @@ export class VideoPlayer {
     );
     placeholder.value = '';
     this.setupTracks.append(placeholder);
-    for (const track of this.tracks.filter((track) => track.complete)) {
+    for (const track of this.tracks.filter(
+      (track) => track.complete || this.drafts.some((d) => d.track.id === track.id)
+    )) {
       const option = element(
         'option',
         `${languageName(trackLanguage(track))} · ${track.label}${track.forced ? ' · Forced' : ''}`
@@ -802,10 +917,14 @@ export class VideoPlayer {
       option.value = track.id;
       this.setupTracks.append(option);
     }
-    this.setupTracks.disabled = !tracks.some((track) => track.complete);
+    this.setupTracks.disabled = !tracks.some(
+      (track) => track.complete || this.drafts.some((d) => d.track.id === track.id)
+    );
     if (
       this.pendingGenerated &&
-      tracks.some((track) => track.id === this.pendingGenerated && track.complete)
+      tracks.some(
+        (track) => track.id === this.pendingGenerated && (track.complete || track.cues.length > 0)
+      )
     ) {
       const id = this.pendingGenerated;
       this.pendingGenerated = undefined;
@@ -821,10 +940,10 @@ export class VideoPlayer {
     this.render();
   }
   private exportTrack(): Track | undefined {
-    return (
+    const selected =
       this.tracks.find((t) => t.id === this.primary.value) ??
-      this.tracks.find((t) => t.id === this.secondary.value)
-    );
+      this.tracks.find((t) => t.id === this.secondary.value);
+    return selected?.complete ? selected : undefined;
   }
   private offsetControls() {
     this.exportButton.disabled = !this.exportTrack();
@@ -841,6 +960,7 @@ export class VideoPlayer {
     this.activeSignature = '';
     this.transcriptSignature = '';
     this.render();
+    this.saveDraftSelection();
     this.scheduleSave(true);
   }
   private setStyle(style: CaptionStyle) {
@@ -882,12 +1002,30 @@ export class VideoPlayer {
     const trackId = first ? this.primary.value : this.secondary.value;
     const delay = this.delays[trackId] ?? 0;
     if (timeline !== this.studyTimeline || delay !== this.studyDelay) {
+      const old = this.studyTimeline?.cues;
+      const appendOnly =
+        this.studyTrack === trackId &&
+        delay === this.studyDelay &&
+        old &&
+        timeline &&
+        old.length <= timeline.cues.length &&
+        old.every((cue, index) => {
+          const next = timeline.cues[index];
+          return (
+            cue.id === next.id &&
+            cue.start === next.start &&
+            cue.end === next.end &&
+            cue.text === next.text &&
+            cue.speaker === next.speaker
+          );
+        });
+      this.studyTrack = trackId;
       this.studyTimeline = timeline;
       this.cueIndexes = new Map(timeline?.cues.map((cue, index) => [cue.id, index]) ?? []);
       this.renderedStart = this.renderedEnd = -1;
       this.studyDelay = delay;
       this.spans = studySpans(timeline?.cues ?? [], delay);
-      this.linePause.reset();
+      if (!appendOnly) this.linePause.reset();
     }
     if (
       this.autoPause.checked &&
@@ -1112,6 +1250,82 @@ export class VideoPlayer {
     this.theater = !this.theater;
     this.applyViewingMode();
   }
+  private portableSelection(id: string): string | null {
+    if (!id) return null;
+    return this.localDraftIds.has(id) && !this.publishedIds.has(id) ? null : id;
+  }
+  private saveDraftSelection() {
+    if (!this.key || this.closed) return;
+    const id = this.primary.value;
+    this.pendingDraftSave = {
+      key: this.key,
+      id: this.localDraftIds.has(id) && !this.publishedIds.has(id) ? id : null
+    };
+    if (this.draftSavingActive) return;
+    this.draftSavingActive = true;
+    const first = this.pendingDraftSave;
+    this.pendingDraftSave = undefined;
+    // One active write plus the newest pending intent. Close owns the whole drain.
+    this.draftSaving = Promise.resolve().then(async () => {
+      let next: typeof first | undefined = first;
+      let failure: { error: unknown } | undefined;
+      try {
+        while (next) {
+          try {
+            await this.options.store.putLocal(
+              this.options.scope,
+              'settings',
+              `transcript-draft/${next.key}`,
+              next.id
+            );
+            failure = undefined;
+          } catch (error) {
+            failure = { error };
+            this.error(error);
+          }
+          next = this.pendingDraftSave;
+          this.pendingDraftSave = undefined;
+        }
+        if (failure) throw failure.error;
+      } finally {
+        this.draftSavingActive = false;
+      }
+    });
+    // Observe immediately but preserve failure for the Close caller.
+    void this.draftSaving.catch(() => {});
+  }
+  private async restoreDraftSelection() {
+    if (!this.key || !this.ready || this.closed || this.draftSelectionRestored) return;
+    this.draftSelectionRestored = true;
+    const key = this.key,
+      intent = this.selectionIntent;
+    try {
+      const id = await this.options.store.local<unknown>(
+        this.options.scope,
+        'settings',
+        `transcript-draft/${key}`
+      );
+      if (
+        this.closed ||
+        this.key !== key ||
+        intent !== this.selectionIntent ||
+        this.selectionTouched
+      )
+        return;
+      // Local intent may override an older portable choice. Treat a missing job as a waiting
+      // selection, not permission to select a different track or start recognition automatically.
+      if (isUUID(id)) {
+        this.localDraftIds.add(id);
+        this.selectionTouched = true;
+        this.pendingGenerated = id;
+        this.primary.value = '';
+        this.secondary.value = '';
+        this.applyTracks();
+      }
+    } catch (error) {
+      this.error(error);
+    }
+  }
   private scheduleSave(
     force: boolean,
     finished = this.position?.finished ?? this.deviceState?.finished ?? false,
@@ -1149,9 +1363,11 @@ export class VideoPlayer {
         rate: this.video.playbackRate,
         finished,
         updatedAt: Date.now(),
-        primary: this.primary.value || null,
-        secondary: this.secondary.value || null,
-        delays: { ...this.delays }
+        primary: this.portableSelection(this.primary.value),
+        secondary: this.portableSelection(this.secondary.value),
+        delays: Object.fromEntries(
+          Object.entries(this.delays).filter(([id]) => this.portableSelection(id))
+        )
       };
     this.position = payload;
     this.pendingSave = payload;
@@ -1201,7 +1417,16 @@ export class VideoPlayer {
     this.release();
     this.root.remove();
     // All callers wait for the same final portable and device-only checkpoints.
-    this.closing = Promise.all([this.saving, this.device?.close()]).then(() => {});
+    this.closing = Promise.allSettled([this.saving, this.device?.close(), this.draftSaving]).then(
+      (results) => {
+        const failures = results.flatMap((result) =>
+          result.status === 'rejected' ? [result.reason] : []
+        );
+        if (failures.length === 1) throw failures[0];
+        if (failures.length)
+          throw new AggregateError(failures, 'Player checkpoints failed to close');
+      }
+    );
     return this.closing;
   }
 }
