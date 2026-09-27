@@ -9,6 +9,7 @@ import {
   safeSparseCues,
   sparseLead,
   sparseCoverage,
+  sparseMissingWindowsForLead,
   assembleSparse,
   sparseBounds
 } from '../../.cache/media-test-build/sparse-transcription.js';
@@ -34,6 +35,11 @@ test('sparse coverage follows seeks and never schedules a completed window twice
   assert.equal(nextSparseWindow(state), -1);
   assert.equal(sparseCoverage(state, 78), 78);
   assert.equal(sparseLead(state, 78, 10), 68);
+  const seek = newSparseState(78, 26.5);
+  seek.windows[1] = { cues: [], inferenceMs: 42000 };
+  assert.equal(nextSparseWindow(seek), 0, 'the missing previous seam beats a future core');
+  assert.deepEqual(sparseMissingWindowsForLead(seek, 78, 26.5, 26), [0, 2]);
+  assert.deepEqual(sparseMissingWindowsForLead(seek, 78, 51, 26), [2]);
 });
 test('unresolved edges stay out of drafts until an adjacent hypothesis joins', () => {
   const state = newSparseState(52);

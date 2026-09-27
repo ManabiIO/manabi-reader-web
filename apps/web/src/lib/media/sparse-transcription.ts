@@ -166,6 +166,12 @@ export function nextSparseWindow(state: SparseState): number {
     Math.floor(state.targetSeconds / SPARSE_CORE_SECONDS)
   );
   if (!state.windows[target]) return target;
+  if (
+    target > 0 &&
+    state.targetSeconds < target * SPARSE_CORE_SECONDS + SPARSE_CONTEXT_SECONDS &&
+    !state.windows[target - 1]
+  )
+    return target - 1;
   for (let distance = 1; distance < state.windows.length; distance++) {
     const after = target + distance,
       before = target - distance;
@@ -173,6 +179,27 @@ export function nextSparseWindow(state: SparseState): number {
     if (before >= 0 && !state.windows[before]) return before;
   }
   return -1;
+}
+/** Missing inputs needed to cover a requested caption lead, including seam context. */
+export function sparseMissingWindowsForLead(
+  state: SparseState,
+  duration: number,
+  position: number,
+  leadSeconds: number
+): number[] {
+  const first = Math.min(state.windows.length - 1, Math.floor(position / SPARSE_CORE_SECONDS));
+  const end = Math.min(duration, position + leadSeconds);
+  const last = Math.min(
+    state.windows.length - 1,
+    Math.max(first, Math.ceil((end + SPARSE_CONTEXT_SECONDS) / SPARSE_CORE_SECONDS) - 1)
+  );
+  const start =
+    first > 0 && position < first * SPARSE_CORE_SECONDS + SPARSE_CONTEXT_SECONDS
+      ? first - 1
+      : first;
+  return Array.from({ length: last - start + 1 }, (_, offset) => start + offset).filter(
+    (index) => !state.windows[index]
+  );
 }
 /** Display only lines wholly away from unresolved boundaries. */
 export function safeSparseCues(state: SparseState, duration: number): Cue[] {

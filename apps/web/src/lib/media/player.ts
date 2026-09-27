@@ -23,7 +23,12 @@ import { type CueTimeline, chooseLayout } from './captions.js';
 import { formatMediaTime } from './time.js';
 import type { TranscriptionDraft } from './transcription-draft.js';
 import type { Job } from './jobs.js';
-import { sparseLead, SPARSE_CORE_SECONDS } from './sparse-transcription.js';
+import {
+  sparseBounds,
+  sparseLead,
+  sparseMissingWindowsForLead,
+  SPARSE_CORE_SECONDS
+} from './sparse-transcription.js';
 import { cueDigest } from './captions.js';
 import { TrackCatalog } from './track-catalog.js';
 import { type ByteSource } from './sources.js';
@@ -905,22 +910,41 @@ export class VideoPlayer {
     const position = Math.min(job.duration, this.video.currentTime || 0);
     const lead = sparseLead(state, job.duration, position);
     const needed = Math.min(SPARSE_CORE_SECONDS, job.duration - position);
-    const samples = state.windows.flatMap((window) => (window ? [window.inferenceMs] : []));
-    const average = samples.length ? samples.reduce((sum, ms) => sum + ms, 0) / samples.length : 0;
-    const missing = Math.max(0, Math.ceil((needed - lead) / SPARSE_CORE_SECONDS));
+    const samples = state.windows.flatMap((window, index) => {
+      if (!window) return [];
+      const bounds = sparseBounds(index, job.duration);
+      return [
+        {
+          ms: window.inferenceMs,
+          inputSeconds: bounds.end - bounds.start,
+          coreSeconds: bounds.coreEnd - bounds.coreStart
+        }
+      ];
+    });
+    const totalMs = samples.reduce((sum, sample) => sum + sample.ms, 0);
+    const inputSeconds = samples.reduce((sum, sample) => sum + sample.inputSeconds, 0);
+    const coreSeconds = samples.reduce((sum, sample) => sum + sample.coreSeconds, 0);
+    const missingWindows = sparseMissingWindowsForLead(state, job.duration, position, needed);
+    const missing = lead < needed;
+    const repairing = missing && !missingWindows.length;
+    const workSeconds =
+      missingWindows.reduce((sum, index) => {
+        const bounds = sparseBounds(index, job.duration);
+        return sum + bounds.end - bounds.start;
+      }, 0) + (repairing ? Math.min(job.duration, 2 * SPARSE_CORE_SECONDS + 4) : 0);
     const eta =
-      missing && average
-        ? `about ${formatMediaTime(Math.ceil((missing * average) / 1000))}`
+      missing && totalMs > 0 && inputSeconds > 0
+        ? `about ${formatMediaTime(Math.ceil((workSeconds * totalMs) / inputSeconds / 1000))}`
         : missing
           ? 'estimating after the first window'
           : 'ready';
     const speed =
-      samples.length && average > SPARSE_CORE_SECONDS * 1000
+      samples.length && totalMs > coreSeconds * 1000
         ? ' Recognition is slower than playback; captions may need to buffer again.'
         : '';
     this.bufferStatus.textContent = `Caption lead: ${formatMediaTime(lead)}. ${
       missing
-        ? `Estimated wait for ${formatMediaTime(needed)} of coverage: ${eta}.`
+        ? `Estimated wait for ${formatMediaTime(needed)} of coverage: ${eta}.${repairing ? ' Reconciling a caption boundary.' : ''}`
         : 'Ready to play with captions.'
     }${speed}`;
     if (this.waitForCaptions && !missing) {
