@@ -60,8 +60,8 @@ repair bounds, unique cue identities and accepted/unsettled separation.
 
 The output callback port is `manabi-web-v6`, on the same pinned C++ and ggml
 revisions and the same weight digest. Both runtime variants must be rebuilt. Reader #46's v5 runtime already contains
-the Wasm-SIMD and partial-encoder performance patch; v5 stacks the output callback
-on that exact work and must not relabel v4 bytes as v5. Partially completed v3 or
+the Wasm-SIMD and partial-encoder performance patch; v6 stacks the output callback
+on that exact v5 performance work and must not relabel v5 bytes as v6. Partially completed v3 or
 v4 jobs keep their durable window policy when resumed and record ordered mixed
 runtime provenance. A completed old-runtime checkpoint awaiting only publication
 keeps its original provenance without re-inference.
@@ -111,9 +111,9 @@ compiles a scripted C++ decoder; it is not a full MOSS or Emscripten build.
 The opt-in real-ASR harness now records `partialUpdates`, `firstOutputSeconds`, and
 `firstPreviewCueSeconds`, relative to inference start. It rejects missing callbacks
 or invalid timing evidence. `prepareSeconds` remains separate. This harness change
-has not been run against the v5 WASM/model here.
+has not been run against the v6 WASM/model here.
 
-Before merge, rebuild and qualify both v5 runtimes, run the repository-pinned
+Before merge, rebuild and qualify both v6 runtimes, run the repository-pinned
 formatter/ESLint/Svelte/build and exact-head CI, and exercise real-model output,
 cancellation and resume. Benchmark current legacy windows against the new profile;
 compare unique covered media seconds, encoder and decoder time, time to first
@@ -125,7 +125,7 @@ native multi-tab/IndexedDB and live cloud/account composition remain separate ga
 PR #46's exact-head v4 CPU qualification run `36280725560` reports roughly
 33.8–34.85 seconds threaded (about 3.14x realtime) and 61.96–63.38 seconds
 single-threaded (about 5.7x realtime) for roughly 11 seconds of generated audio.
-That large base-v4 improvement motivates the short first input, but it is not v5 or
+That large base-v4 improvement motivates the short first input, but it is not v6 or
 representative-device qualification and inference is still slower than realtime on
 that CI host. The base closeout
 also identifies production packaging/serving of both WASM variants as unresolved.
