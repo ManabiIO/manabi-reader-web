@@ -86,15 +86,27 @@ export function validateSparseState(value: unknown, duration: number): SparseSta
     const start = sparseBounds(index, duration).start;
     const end = sparseBounds(index + 1, duration).end;
     const cues = raw.map(validateCue);
+    const originals = new Map(
+      [...windows[index]!.cues, ...windows[index + 1]!.cues].map((cue) => [cue.id, cue])
+    );
     if (!cues.length && (windows[index]!.cues.length || windows[index + 1]!.cues.length))
       throw new Error('Empty sparse seam repair cannot replace recognized speech');
     if (
       (index > 0 && rawRepairs[index - 1] !== null) ||
       new Set(cues.map((cue) => cue.id)).size !== cues.length ||
-      cues.some(
-        (cue) =>
-          !cue.id.startsWith(`w${index}/repair-`) || cue.start < start || cue.end > end + 0.001
-      )
+      cues.some((cue) => {
+        const original = originals.get(cue.id);
+        return (
+          (!cue.id.startsWith(`w${index}/repair-`) &&
+            (!original ||
+              original.start !== cue.start ||
+              original.end !== cue.end ||
+              original.text !== cue.text ||
+              original.speaker !== cue.speaker)) ||
+          cue.start < start ||
+          cue.end > end + 0.001
+        );
+      })
     )
       throw new Error('Sparse repair lies outside its input');
     return cues;
@@ -165,7 +177,17 @@ export function nextSparseWindow(state: SparseState): number {
 /** Display only lines wholly away from unresolved boundaries. */
 export function safeSparseCues(state: SparseState, duration: number): Cue[] {
   const interior = state.windows.flatMap((window, index) => {
-    if (!window) return [];
+    if (!window || state.repairs[index] || state.repairs[index - 1]) return [];
+    if (
+      index > 0 &&
+      state.windows[index - 1] &&
+      !joinBoundary(
+        state.windows[index - 1]!.cues.slice(-16),
+        window.cues.slice(0, 16),
+        index * SPARSE_CORE_SECONDS
+      )
+    )
+      return [];
     const bounds = sparseBounds(index, duration);
     const left = index === 0 ? 0 : bounds.coreStart + SPARSE_CONTEXT_SECONDS;
     const right =
@@ -174,12 +196,22 @@ export function safeSparseCues(state: SparseState, duration: number): Cue[] {
   });
   const seams: Cue[] = [];
   for (let index = 0; index < state.windows.length - 1; index++) {
+    if (state.repairs[index]) {
+      const left =
+        index === 0 ? 0 : sparseBounds(index, duration).coreStart + SPARSE_CONTEXT_SECONDS;
+      const right =
+        index + 1 === state.windows.length - 1
+          ? duration
+          : sparseBounds(index + 1, duration).coreEnd - SPARSE_CONTEXT_SECONDS;
+      seams.push(...state.repairs[index]!.filter((cue) => cue.start >= left && cue.end <= right));
+      continue;
+    }
+    if (state.repairs[index - 1] || state.repairs[index + 1]) continue;
     const left = state.windows[index],
       right = state.windows[index + 1];
     if (!left || !right) continue;
     const seam = (index + 1) * SPARSE_CORE_SECONDS;
-    const joined =
-      state.repairs[index] ?? joinBoundary(left.cues.slice(-16), right.cues.slice(0, 16), seam);
+    const joined = joinBoundary(left.cues.slice(-16), right.cues.slice(0, 16), seam);
     if (!joined) continue;
     seams.push(
       ...joined.filter(

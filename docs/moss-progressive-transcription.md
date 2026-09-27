@@ -152,6 +152,14 @@ windows agree, their boundary cues can appear too. A completed track is
 published only after every core is covered and the whole-cue hypotheses join.
 An ambiguous seam is repaired with a bounded union input; overlapping repairs
 that exceed the model budget fail with the original hypotheses preserved.
+Repair now runs as soon as both neighboring windows are available, before
+unrelated later video windows. The draft defers the newly completed window's
+interior while that seam is ambiguous. A repair must retain any earlier accepted
+cue at matching text and timing; otherwise the job fails with its saved
+hypotheses instead of silently rewriting an accepted caption. An empty repair
+cannot erase speech recognized in the original windows. A successful repaired
+pair uses the full repaired cues for playback and final publication, preserving
+the identities and timing of matched accepted cues.
 Completed version-3 jobs are compacted after atomic track publication, so
 routine queue reads do not reload the complete window hypotheses.
 
@@ -169,9 +177,10 @@ They are saved and bound to the portable content identity only after the full
 hash verifies. Generation is enabled after that verification; temporary
 subtitle IDs never enter portable playback state.
 
-Version-3 scheduling and the browser controls have deterministic and Chromium
-tests. Natural Japanese boundary quality, real-WASM throughput, device memory,
-and suspended-tab recovery have not yet been qualified for this new policy.
+Version-3 scheduling, early seam repair, accepted-cue preservation, and the
+browser controls have deterministic and Chromium tests. Natural Japanese
+boundary quality, real-WASM throughput, device memory, and suspended-tab
+recovery have not yet been qualified for this new policy.
 
 One targeted real-WASM Japanese check now covers the sparse seam. The pinned
 single-thread v7 runtime and Q5_0 model processed a 35.68-second sequence made

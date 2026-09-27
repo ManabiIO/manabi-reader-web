@@ -8,11 +8,12 @@ import { type ContentKey, type Cue, type Scope, type Track, language } from './c
 import { MediaStore } from './store.js';
 import { MOSS, type ModelProgress } from './model-cache.js';
 import { parseMoss, parseMossPreview, planWindows, ownedCues } from './moss-output.js';
-import { newProgressiveState } from './moss-progressive.js';
+import { joinBoundary, newProgressiveState } from './moss-progressive.js';
 import { transcribeWithPreview } from './moss-preview.js';
 import { transcribeProgressively } from './progressive-transcription.js';
 import {
   newSparseState,
+  SPARSE_CORE_SECONDS,
   sparseBounds,
   safeSparseCues,
   nextSparseWindow,
@@ -414,6 +415,84 @@ export class TranscriptionQueue {
                 });
               }
               if (job.version === 3) {
+                const repairSparseSeam = async (seam: number) => {
+                  if (job.sparse!.repairs[seam])
+                    throw new Error(
+                      'An adjacent repaired seam remains ambiguous; saved hypotheses were kept.'
+                    );
+                  if (job.sparse!.repairs[seam - 1] || job.sparse!.repairs[seam + 1])
+                    throw new Error(
+                      'An overlapping seam cannot be repaired within the model input limit; saved hypotheses were kept.'
+                    );
+                  const first = sparseBounds(seam, job.duration);
+                  const second = sparseBounds(seam + 1, job.duration);
+                  if (second.end - first.start > 60)
+                    throw new Error(
+                      'A transcript seam exceeds the safe repair input; saved hypotheses were kept.'
+                    );
+                  this.notify({
+                    job,
+                    stage: 'repairing',
+                    loaded: sparseCoverage(job.sparse!, job.duration),
+                    total: job.duration
+                  });
+                  const pcm = await this.decode(job, first.start, second.end, signal);
+                  signal.throwIfAborted();
+                  if (
+                    !(pcm instanceof Float32Array) ||
+                    !pcm.length ||
+                    Math.abs(pcm.length - Math.round((second.end - first.start) * 16000)) > 1 ||
+                    !pcm.every(Number.isFinite)
+                  )
+                    throw new Error('Invalid decoded seam audio');
+                  const inputDuration = pcm.length / 16000;
+                  const exactSilence = pcm.every((sample) => sample === 0);
+                  if (!exactSilence)
+                    await this.engine.prepare(signal, (p) => this.notify({ job, ...p }));
+                  const raw = exactSilence
+                    ? ''
+                    : await transcribeWithPreview(this.engine, pcm, signal);
+                  const repair = parseMoss(raw, inputDuration).map((cue, n) => ({
+                    ...cue,
+                    id: `w${seam}/repair-${n}`,
+                    start: cue.start + first.start,
+                    end: cue.end + first.start,
+                    ...(cue.speaker ? { speaker: `w${seam}/${cue.speaker}` } : {})
+                  }));
+                  if (
+                    !repair.length &&
+                    (job.sparse!.windows[seam]!.cues.length ||
+                      job.sparse!.windows[seam + 1]!.cues.length)
+                  )
+                    throw new Error(
+                      'Seam repair returned no speech while the original windows contain speech; saved hypotheses were kept.'
+                    );
+                  // Previously accepted cues are immutable. A repair may improve
+                  // the unsettled region, but it must recognize each accepted cue
+                  // at the same time before the larger hypothesis can replace it.
+                  const matched = new Set<number>();
+                  for (const accepted of job.cues) {
+                    if (accepted.start < first.start || accepted.end > second.end) continue;
+                    const candidates = repair.flatMap((cue, index) =>
+                      !matched.has(index) &&
+                      cue.text === accepted.text &&
+                      Math.abs(cue.start - accepted.start) <= 0.35 &&
+                      Math.abs(cue.end - accepted.end) <= 0.35
+                        ? [index]
+                        : []
+                    );
+                    if (candidates.length !== 1)
+                      throw new Error(
+                        'Seam repair conflicts with an accepted caption; saved hypotheses were kept.'
+                      );
+                    repair[candidates[0]] = accepted;
+                    matched.add(candidates[0]);
+                  }
+                  const next = { ...job.sparse!, repairs: [...job.sparse!.repairs] };
+                  next.repairs[seam] = repair;
+                  job = { ...job, sparse: next, cues: safeSparseCues(next, job.duration) };
+                  await checkpoint();
+                };
                 while (job.nextWindow < job.sparse!.windows.length) {
                   signal.throwIfAborted();
                   const target = this.targets.get(job.id) ?? job.sparse!.targetSeconds;
@@ -483,60 +562,35 @@ export class TranscriptionQueue {
                     loaded: sparseCoverage(next, job.duration),
                     total: job.duration
                   });
+                  // A near-playhead seam must settle before the queue spends time
+                  // on the rest of a long video. Do not repeat adjacent repairs.
+                  for (const seam of [index - 1, index]) {
+                    if (
+                      seam < 0 ||
+                      seam >= next.repairs.length ||
+                      job.sparse!.repairs[seam] ||
+                      job.sparse!.repairs[seam - 1] ||
+                      job.sparse!.repairs[seam + 1]
+                    )
+                      continue;
+                    const left = job.sparse!.windows[seam],
+                      right = job.sparse!.windows[seam + 1];
+                    if (
+                      left &&
+                      right &&
+                      !joinBoundary(
+                        left.cues.slice(-16),
+                        right.cues.slice(0, 16),
+                        (seam + 1) * SPARSE_CORE_SECONDS
+                      )
+                    )
+                      await repairSparseSeam(seam);
+                  }
                 }
                 let assembled = assembleSparse(job.sparse!);
                 while (assembled.repair !== undefined) {
-                  const seam = assembled.repair;
-                  if (job.sparse!.repairs[seam])
-                    throw new Error(
-                      'An adjacent repaired seam remains ambiguous; saved hypotheses were kept.'
-                    );
-                  if (job.sparse!.repairs[seam - 1] || job.sparse!.repairs[seam + 1])
-                    throw new Error(
-                      'An overlapping seam cannot be repaired within the model input limit; saved hypotheses were kept.'
-                    );
-                  const first = sparseBounds(seam, job.duration);
-                  const second = sparseBounds(seam + 1, job.duration);
-                  if (second.end - first.start > 60)
-                    throw new Error(
-                      'A transcript seam exceeds the safe repair input; saved hypotheses were kept.'
-                    );
-                  const pcm = await this.decode(job, first.start, second.end, signal);
-                  signal.throwIfAborted();
-                  if (
-                    !(pcm instanceof Float32Array) ||
-                    !pcm.length ||
-                    Math.abs(pcm.length - Math.round((second.end - first.start) * 16000)) > 1 ||
-                    !pcm.every(Number.isFinite)
-                  )
-                    throw new Error('Invalid decoded seam audio');
-                  const inputDuration = pcm.length / 16000;
-                  const exactSilence = pcm.every((sample) => sample === 0);
-                  if (!exactSilence)
-                    await this.engine.prepare(signal, (p) => this.notify({ job, ...p }));
-                  const raw = exactSilence
-                    ? ''
-                    : await transcribeWithPreview(this.engine, pcm, signal);
-                  const repair = parseMoss(raw, inputDuration).map((cue, n) => ({
-                    ...cue,
-                    id: `w${seam}/repair-${n}`,
-                    start: cue.start + first.start,
-                    end: cue.end + first.start,
-                    ...(cue.speaker ? { speaker: `w${seam}/${cue.speaker}` } : {})
-                  }));
-                  if (
-                    !repair.length &&
-                    (job.sparse!.windows[seam]!.cues.length ||
-                      job.sparse!.windows[seam + 1]!.cues.length)
-                  )
-                    throw new Error(
-                      'Seam repair returned no speech while the original windows contain speech; saved hypotheses were kept.'
-                    );
-                  const next = { ...job.sparse!, repairs: [...job.sparse!.repairs] };
-                  next.repairs[seam] = repair;
-                  job = { ...job, sparse: next, cues: safeSparseCues(next, job.duration) };
-                  await checkpoint();
-                  assembled = assembleSparse(next);
+                  await repairSparseSeam(assembled.repair);
+                  assembled = assembleSparse(job.sparse!);
                 }
                 if (!assembled.cues)
                   throw new Error('Sparse transcription did not cover the complete video');

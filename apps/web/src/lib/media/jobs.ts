@@ -160,29 +160,27 @@ export function validateJob(value: unknown): Job {
     nextWindow = j.nextWindow as number;
   if (sparse) {
     const safe = safeSparseCues(sparse, duration);
-    const accepted = new Set(safe.map((cue) => cue.id));
-    if (
-      j.status !== 'complete' &&
-      (cues.length !== safe.length || cues.some((cue) => !accepted.has(cue.id)))
-    )
+    const matches = (expected: Cue[]) =>
+      cues.length === expected.length &&
+      cues.every((cue, index) => {
+        const other = expected[index];
+        return (
+          cue.id === other.id &&
+          cue.start === other.start &&
+          cue.end === other.end &&
+          cue.text === other.text &&
+          cue.speaker === other.speaker
+        );
+      });
+    // Final cues are checkpointed while the lease is still running, before the
+    // atomic track publication changes the job status to complete.
+    const finalizing = j.status === 'complete' || j.completedAt !== undefined;
+    if (!finalizing && !matches(safe))
       throw new Error('Sparse draft does not match saved coverage');
     // Published jobs are compacted to an empty cue summary by MediaStore.
-    if (j.status === 'complete' && cues.length) {
+    if (finalizing) {
       const assembled = assembleSparse(sparse).cues;
-      if (
-        !assembled ||
-        cues.length !== assembled.length ||
-        cues.some((cue, index) => {
-          const other = assembled[index];
-          return (
-            cue.id !== other.id ||
-            cue.start !== other.start ||
-            cue.end !== other.end ||
-            cue.text !== other.text ||
-            cue.speaker !== other.speaker
-          );
-        })
-      )
+      if (!assembled || !matches(assembled))
         throw new Error('Completed sparse captions do not match saved hypotheses');
     }
   }

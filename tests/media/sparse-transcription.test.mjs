@@ -85,6 +85,19 @@ test('an empty seam repair cannot erase recognized speech', () => {
     /Empty sparse seam repair/
   );
 });
+test('repaired drafts hold cues crossing the next unresolved boundary', () => {
+  const state = newSparseState(78);
+  state.windows[0] = { cues: [cue(0, 3, 4, 'early')], inferenceMs: 1 };
+  state.windows[1] = { cues: [cue(1, 51, 53, 'next seam')], inferenceMs: 1 };
+  state.repairs[0] = [
+    { id: 'w0/repair-0', start: 3, end: 4, text: 'early' },
+    { id: 'w0/repair-1', start: 51, end: 53, text: 'next seam' }
+  ];
+  assert.deepEqual(
+    safeSparseCues(state, 78).map((c) => c.text),
+    ['early']
+  );
+});
 test('watched-through sparse job completes from one inference per window', async () => {
   const old = globalThis.IDBKeyRange;
   globalThis.IDBKeyRange = RangeDouble;
@@ -135,6 +148,96 @@ test('watched-through sparse job completes from one inference per window', async
     );
   } finally {
     unblock?.();
+    await queue.dispose();
+    await store.close();
+    if (old === undefined) delete globalThis.IDBKeyRange;
+    else globalThis.IDBKeyRange = old;
+  }
+});
+test('an ambiguous near-playhead seam is repaired before unrelated later windows', async () => {
+  const old = globalThis.IDBKeyRange;
+  globalThis.IDBKeyRange = RangeDouble;
+  const store = new MediaStore(new TransactionFactory(), 'sparse-early-repair-tests');
+  const calls = [];
+  const responses = [
+    '[3][S01]accepted[4][24][S01]left[27]',
+    '[0][S01]right[3]',
+    '[3][S01]accepted[4][24][S01]repaired[27]',
+    '[3][S01]later[4]'
+  ];
+  const engine = {
+    async prepare() {},
+    async transcribe(pcm) {
+      calls.push(pcm.length / 16000);
+      return responses.shift();
+    },
+    dispose() {}
+  };
+  const queue = new TranscriptionQueue(store, 'guest', engine, async (_job, start, end) =>
+    new Float32Array(Math.round((end - start) * 16000)).fill(0.1)
+  );
+  try {
+    const job = await queue.enqueue(key, 'ja', '1', 78, 0);
+    for (let i = 0; i < 500; i++) {
+      const saved = await store.local('guest', 'jobs', job.id);
+      if (saved?.status === 'complete' || saved?.status === 'failed') break;
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    const saved = validateJob(await store.local('guest', 'jobs', job.id));
+    assert.equal(saved.status, 'complete', saved.error);
+    assert.deepEqual(calls, [28, 30, 54, 28]);
+    const [track] = await store.tracks('guest', key);
+    assert.deepEqual(
+      track.cues.map((c) => c.text),
+      ['accepted', 'repaired', 'later']
+    );
+    assert.equal(track.cues[0].id, 'w0/cue-0', 'earlier accepted caption keeps its identity');
+  } finally {
+    await queue.dispose();
+    await store.close();
+    if (old === undefined) delete globalThis.IDBKeyRange;
+    else globalThis.IDBKeyRange = old;
+  }
+});
+test('a repair that changes an accepted cue fails without publishing a rewritten track', async () => {
+  const old = globalThis.IDBKeyRange;
+  globalThis.IDBKeyRange = RangeDouble;
+  const store = new MediaStore(new TransactionFactory(), 'sparse-repair-conflict-tests');
+  const responses = [
+    '[3][S01]accepted[4][24][S01]left[27]',
+    '[0][S01]right[3]',
+    '[3][S01]changed[4][24][S01]repaired[27]'
+  ];
+  let calls = 0;
+  const engine = {
+    async prepare() {},
+    async transcribe() {
+      calls++;
+      return responses.shift();
+    },
+    dispose() {}
+  };
+  const queue = new TranscriptionQueue(store, 'guest', engine, async (_job, start, end) =>
+    new Float32Array(Math.round((end - start) * 16000)).fill(0.1)
+  );
+  try {
+    const job = await queue.enqueue(key, 'ja', '1', 78, 0);
+    for (let i = 0; i < 500; i++) {
+      const saved = await store.local('guest', 'jobs', job.id);
+      if (saved?.status === 'failed') break;
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    const saved = validateJob(await store.local('guest', 'jobs', job.id));
+    assert.equal(saved.status, 'failed');
+    assert.match(saved.error, /conflicts with an accepted caption/);
+    assert.equal(saved.nextWindow, 2);
+    assert.deepEqual(
+      saved.cues.map((c) => c.text),
+      ['accepted']
+    );
+    assert.equal(calls, 3, 'the remaining video was not inferred after the blocker');
+    assert.deepEqual(await store.tracks('guest', key), []);
+  } finally {
     await queue.dispose();
     await store.close();
     if (old === undefined) delete globalThis.IDBKeyRange;
