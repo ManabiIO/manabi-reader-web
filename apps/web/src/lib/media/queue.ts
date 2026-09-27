@@ -493,6 +493,42 @@ export class TranscriptionQueue {
                   job = { ...job, sparse: next, cues: safeSparseCues(next, job.duration) };
                   await checkpoint();
                 };
+                const repairAvailableSeams = async (indices: Iterable<number>) => {
+                  for (const seam of indices) {
+                    if (
+                      seam < 0 ||
+                      seam >= job.sparse!.repairs.length ||
+                      job.sparse!.repairs[seam] ||
+                      job.sparse!.repairs[seam - 1] ||
+                      job.sparse!.repairs[seam + 1]
+                    )
+                      continue;
+                    const left = job.sparse!.windows[seam],
+                      right = job.sparse!.windows[seam + 1];
+                    if (
+                      left &&
+                      right &&
+                      !joinBoundary(
+                        left.cues.slice(-16),
+                        right.cues.slice(0, 16),
+                        (seam + 1) * SPARSE_CORE_SECONDS
+                      )
+                    )
+                      await repairSparseSeam(seam);
+                  }
+                };
+                // A resumed job may already have both ambiguous hypotheses.
+                // Settle the playhead seam before transcribing another core.
+                const target = Math.floor(
+                  (this.targets.get(job.id) ?? job.sparse!.targetSeconds) / SPARSE_CORE_SECONDS
+                );
+                await repairAvailableSeams(
+                  new Set([
+                    target - 1,
+                    target,
+                    ...Array.from({ length: job.sparse!.repairs.length }, (_, index) => index)
+                  ])
+                );
                 while (job.nextWindow < job.sparse!.windows.length) {
                   signal.throwIfAborted();
                   const target = this.targets.get(job.id) ?? job.sparse!.targetSeconds;
@@ -562,30 +598,8 @@ export class TranscriptionQueue {
                     loaded: sparseCoverage(next, job.duration),
                     total: job.duration
                   });
-                  // A near-playhead seam must settle before the queue spends time
-                  // on the rest of a long video. Do not repeat adjacent repairs.
-                  for (const seam of [index - 1, index]) {
-                    if (
-                      seam < 0 ||
-                      seam >= next.repairs.length ||
-                      job.sparse!.repairs[seam] ||
-                      job.sparse!.repairs[seam - 1] ||
-                      job.sparse!.repairs[seam + 1]
-                    )
-                      continue;
-                    const left = job.sparse!.windows[seam],
-                      right = job.sparse!.windows[seam + 1];
-                    if (
-                      left &&
-                      right &&
-                      !joinBoundary(
-                        left.cues.slice(-16),
-                        right.cues.slice(0, 16),
-                        (seam + 1) * SPARSE_CORE_SECONDS
-                      )
-                    )
-                      await repairSparseSeam(seam);
-                  }
+                  // A near-playhead seam must settle before unrelated video.
+                  await repairAvailableSeams([index - 1, index]);
                 }
                 let assembled = assembleSparse(job.sparse!);
                 while (assembled.repair !== undefined) {

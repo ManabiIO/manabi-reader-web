@@ -214,11 +214,11 @@ test('a repair that changes an accepted cue fails without publishing a rewritten
     '[0][S01]right[3]',
     '[3][S01]changed[4][24][S01]repaired[27]'
   ];
-  let calls = 0;
+  const calls = [];
   const engine = {
     async prepare() {},
-    async transcribe() {
-      calls++;
+    async transcribe(pcm) {
+      calls.push(pcm.length / 16000);
       return responses.shift();
     },
     dispose() {}
@@ -241,8 +241,20 @@ test('a repair that changes an accepted cue fails without publishing a rewritten
       saved.cues.map((c) => c.text),
       ['accepted']
     );
-    assert.equal(calls, 3, 'the remaining video was not inferred after the blocker');
+    assert.deepEqual(calls, [28, 30, 54], 'the remaining video was not inferred after the blocker');
     assert.deepEqual(await store.tracks('guest', key), []);
+    responses.push('[3][S01]accepted[4][24][S01]repaired[27]', '[3][S01]later[4]');
+    await queue.resume(job.id);
+    for (let i = 0; i < 500; i++) {
+      const resumed = await store.local('guest', 'jobs', job.id);
+      if (resumed?.status === 'complete' || resumed?.status === 'failed') break;
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    const completed = validateJob(await store.local('guest', 'jobs', job.id));
+    assert.equal(completed.status, 'complete', completed.error);
+    assert.deepEqual(calls, [28, 30, 54, 54, 28], 'retry repairs before the later core');
+    const [track] = await store.tracks('guest', key);
+    assert.equal(track.cues[0].id, 'w0/cue-0');
   } finally {
     await queue.dispose();
     await store.close();
