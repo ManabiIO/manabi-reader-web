@@ -228,7 +228,6 @@ test('switching away revokes only this tab’s admission to a shared queued job'
     assert.equal((await store.local('guest', 'jobs', queued.id)).status, 'queued');
     await owner.cancel(blocker.id);
     await until(async () => (await store.local('guest', 'jobs', blocker.id))?.status === 'paused');
-    await other.resume(queued.id);
     await until(async () => (await store.local('guest', 'jobs', queued.id))?.status === 'complete');
   } finally {
     await Promise.all([owner.dispose(), other.dispose()]);

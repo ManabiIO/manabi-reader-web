@@ -187,12 +187,10 @@ export class TranscriptionQueue {
     const job = await this.store.enqueueJob(this.scope, draft, () => {
       if (this.closed) throw new Error('The queue is closed');
     });
-    // A deduplicated queued job may already be admitted in another tab.
-    // Only the tab that created this record automatically runs it.
-    if (job.id === draft.id) {
-      this.admitted.set(job.id, Symbol());
-      this.kick();
-    }
+    // Multiple tabs may admit one deduplicated queued job. The origin lock and
+    // atomic claim select one runner; either tab can make progress if the other stops.
+    this.admitted.set(job.id, Symbol());
+    this.kick();
     return job;
   }
   /** Playback and seeks affect the next input, not an in-flight model call. */
