@@ -13,6 +13,7 @@ from pathlib import Path
 import threading
 from urllib.parse import urlsplit
 from playwright.sync_api import sync_playwright
+from browser_poll import wait_for_async
 
 ROOT = Path(__file__).resolve().parents[2]
 HTML = '''<!doctype html><meta charset="utf-8"><title>Queue freeze qualification</title>
@@ -40,7 +41,12 @@ self.onmessage=({data})=>{
   } else if(data.type==='transcribe'){
     calls++;
     if(role==='owner' && calls>1) return;
-    self.postMessage({id:data.id,type:'result',value:'[1][S01]'+(role==='owner'?'保存した字幕':'後続の字幕')+'[2]'});
+    const result=()=>self.postMessage({id:data.id,type:'result',value:'[1][S01]'+(role==='owner'?'保存した字幕':'後続の字幕')+'[2]'});
+    if(role==='peer') navigator.locks.request('moss-test-child-owner',{ifAvailable:true},lock=>{
+      if(!lock) self.postMessage({id:data.id,type:'error',value:'Successor inference overlapped the previous nested worker'});
+      else result();
+    });
+    else result();
   }
   // No disposal acknowledgement: freeze must not depend on a message or timer.
 };'''
@@ -127,7 +133,7 @@ def main():
                 window.job = await queue.enqueue('content:'+'a'.repeat(64),'ja','1',15);
                 return job.id;
             }''')
-            owner.wait_for_function('''async () => {
+            wait_for_async(owner, '''async () => {
                 const saved=await store.local('guest','jobs',job.id);
                 return saved?.nextWindow===1 && latest?.stage==='transcribing' && saved.status==='running';
             }''')
@@ -138,14 +144,14 @@ def main():
                 window.peerJob = await queue.enqueue('content:'+'b'.repeat(64),'ja','1',2);
                 return peerJob.id;
             }''')
-            peer.wait_for_function('''async () => (await navigator.locks.query()).pending.some(
+            wait_for_async(peer, '''async () => (await navigator.locks.query()).pending.some(
                 lock=>lock.name==='manabi-moss-inference')''')
             owner_cdp.send('Page.setWebLifecycleState', {'state': 'frozen'})
-            peer.wait_for_function('''async () =>
+            wait_for_async(peer, '''async () =>
                 (await store.local('guest','jobs',peerJob.id))?.status==='complete'
             ''')
             record('frozen owner yields inference so the waiting real tab completes', True)
-            peer.wait_for_function('''async () => !(await navigator.locks.query()).held.some(
+            wait_for_async(peer, '''async () => !(await navigator.locks.query()).held.some(
                 lock=>lock.name==='manabi-moss-inference' || lock.name==='moss-test-child-owner')''')
             record('interruption terminates the nested worker as well as the owner', True)
 
@@ -161,7 +167,7 @@ def main():
                    saved['status'] == 'paused' and saved['nextWindow'] == 1 and saved['cues'] == before,
                    {'before': before, 'saved': saved, 'context': diagnostics})
             peer.evaluate('(id)=>queue.resume(id)', job_id)
-            peer.wait_for_function('''async id =>
+            wait_for_async(peer, '''async id =>
                 (await store.local('guest','jobs',id))?.status==='complete'
             ''', arg=job_id)
             tracks = peer.evaluate('() => store.tracks("guest","content:"+"a".repeat(64))')
