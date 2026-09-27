@@ -208,7 +208,10 @@ for (const fail of [false, true]) {
   await h.send({ id: 'recognize', type: 'transcribe', operation: 2, pcm: new Float32Array(320) });
   const replies = h.messages.filter((m) => m.id === 'recognize');
   assert.equal(nativeFinished, true, 'preview validation must not unwind the native call');
-  assert.deepEqual(replies.map((m) => m.type), ['result']);
+  assert.deepEqual(
+    replies.map((m) => m.type),
+    ['result']
+  );
   assert.equal(replies[0].value, raw);
   assert.equal(h.runtime.onMossOutput, undefined);
   await h.send({ id: 'stop', type: 'dispose' });
