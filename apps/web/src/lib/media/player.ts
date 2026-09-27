@@ -835,7 +835,7 @@ export class VideoPlayer {
     const complete = this.publishedTracks.some((t) => t.id === id && t.complete);
     this.progressNote.hidden = !draft || complete;
     if (draft && !complete) {
-      this.progressNote.textContent = `${draft.state === 'complete' ? 'Finalizing transcript' : draft.state === 'failed' ? 'Transcription needs a retry' : draft.state === 'paused' ? 'Transcription paused' : 'Generating transcript'} · ${formatMediaTime(draft.coverage)} of ${formatMediaTime(draft.duration)} processed. Accepted lines are available below; this track is not complete.`;
+      this.progressNote.textContent = `${draft.state === 'complete' ? 'Finalizing transcript' : draft.state === 'failed' ? (draft.restartRequired ? 'Transcription needs a different window policy' : 'Transcription needs a retry') : draft.state === 'paused' ? 'Transcription paused' : 'Generating transcript'} · ${formatMediaTime(draft.coverage)} of ${formatMediaTime(draft.duration)} processed. Accepted lines are available below; this track is not complete.`;
     }
     const cues = complete
       ? []
