@@ -86,6 +86,8 @@ export function validateSparseState(value: unknown, duration: number): SparseSta
     const start = sparseBounds(index, duration).start;
     const end = sparseBounds(index + 1, duration).end;
     const cues = raw.map(validateCue);
+    if (!cues.length && (windows[index]!.cues.length || windows[index + 1]!.cues.length))
+      throw new Error('Empty sparse seam repair cannot replace recognized speech');
     if (
       (index > 0 && rawRepairs[index - 1] !== null) ||
       new Set(cues.map((cue) => cue.id)).size !== cues.length ||
@@ -196,6 +198,12 @@ export function assembleSparse(state: SparseState): { cues?: Cue[]; repair?: num
   let cues: Cue[] = [];
   for (let index = 0; index < state.windows.length; ) {
     const repair = state.repairs[index];
+    if (
+      repair &&
+      !repair.length &&
+      (state.windows[index]!.cues.length || state.windows[index + 1]!.cues.length)
+    )
+      return { repair: index };
     const current = repair ?? state.windows[index]!.cues;
     const seam = index * SPARSE_CORE_SECONDS;
     if (!cues.length) cues = [...current];

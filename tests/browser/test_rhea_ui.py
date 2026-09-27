@@ -305,6 +305,9 @@ class RheaReader(previous.RefinedAppearance):
 
     def test_library_workspace_import_collection_search_and_completion(self):
         self.page.goto(self.origin + '/reader-web/manage')
+        # The server-rendered picker exists before its Svelte file-change action.
+        # Wait for the hydrated library controls before selecting a test file.
+        expect(self.page.locator('input[placeholder="Search library"]')).to_be_enabled()
         self.page.locator('input[type=file][accept*=".epub"]').set_input_files({
             'name': 'acceptance.epub',
             'mimeType': 'application/epub+zip',

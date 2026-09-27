@@ -59,6 +59,32 @@ test('unresolved edges stay out of drafts until an adjacent hypothesis joins', (
     ['first', 'edge', 'last']
   );
 });
+test('an empty seam repair cannot erase recognized speech', () => {
+  const state = newSparseState(52);
+  state.windows[0] = { cues: [cue(0, 24, 27, 'spoken left')], inferenceMs: 1 };
+  state.windows[1] = { cues: [cue(1, 24, 27, 'spoken right')], inferenceMs: 1 };
+  state.repairs[0] = [];
+  assert.deepEqual(assembleSparse(state), { repair: 0 });
+  assert.throws(
+    () =>
+      validateJob({
+        version: 3,
+        sparse: state,
+        id: crypto.randomUUID(),
+        mediaKey: key,
+        language: 'ja',
+        audioTrack: '1',
+        duration: 52,
+        status: 'failed',
+        nextWindow: 2,
+        cues: [],
+        modelSha256: 'a'.repeat(64),
+        engineRevision: 'test',
+        createdAt: Date.now()
+      }),
+    /Empty sparse seam repair/
+  );
+});
 test('watched-through sparse job completes from one inference per window', async () => {
   const old = globalThis.IDBKeyRange;
   globalThis.IDBKeyRange = RangeDouble;

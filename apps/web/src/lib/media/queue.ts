@@ -524,6 +524,14 @@ export class TranscriptionQueue {
                     end: cue.end + first.start,
                     ...(cue.speaker ? { speaker: `w${seam}/${cue.speaker}` } : {})
                   }));
+                  if (
+                    !repair.length &&
+                    (job.sparse!.windows[seam]!.cues.length ||
+                      job.sparse!.windows[seam + 1]!.cues.length)
+                  )
+                    throw new Error(
+                      'Seam repair returned no speech while the original windows contain speech; saved hypotheses were kept.'
+                    );
                   const next = { ...job.sparse!, repairs: [...job.sparse!.repairs] };
                   next.repairs[seam] = repair;
                   job = { ...job, sparse: next, cues: safeSparseCues(next, job.duration) };

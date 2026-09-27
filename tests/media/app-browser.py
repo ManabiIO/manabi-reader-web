@@ -108,13 +108,21 @@ def main():
         results.append('real local-file/sidecar import and explicit main selection with locale translation')
         def menu():
             page.get_by_role('button', name='Transcript options', exact=True).click()
-        before = float(page.locator('.transcript-text').first.evaluate('e=>parseFloat(getComputedStyle(e).fontSize)'))
         menu()
         page.get_by_role('button', name='Themes & Settings', exact=True).click()
         sheet = page.get_by_role('dialog', name='Themes & Settings', exact=True)
         expect(sheet).to_be_visible()
         assert sheet.get_by_role('group', name='Reading layout', exact=True).count() == 0
+        before = float(sheet.get_by_role('group', name='Text size').locator('output').inner_text().split()[0])
+        page.wait_for_function('''size => {
+            const text=document.querySelector('.transcript-text');
+            const host=text?.closest('.manabi-media')?.parentElement;
+            return !!host &&
+                parseFloat(getComputedStyle(host).getPropertyValue('--transcript-font-size'))===size &&
+                parseFloat(getComputedStyle(text).fontSize)===size;
+        }''', arg=before)
         sheet.get_by_role('button', name='Increase text size', exact=True).click()
+        expect(sheet.get_by_role('group', name='Text size').locator('output')).to_have_text(f'{int(before+1)} px')
         page.wait_for_function('(size)=>parseFloat(getComputedStyle(document.querySelector(".transcript-text")).fontSize)===size',arg=before+1)
         assert float(page.evaluate('localStorage.getItem("fontSize")')) == before+1
         sheet.get_by_label('Reading font', exact=True).select_option('Serif')
