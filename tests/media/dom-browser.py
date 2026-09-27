@@ -568,7 +568,7 @@ def main():
         page.evaluate("""() => {
             window.draftView=(id=trackId,cues=[{id:'w0/cue-0',start:0,end:3,text:'最初の行。'}],state='running')=>({
                 track:{...track(id,'ja',cues),origin:'generated',complete:false,label:'MOSS · In progress'},
-                coverage:28,duration:70,state,pending:[]
+                coverage:28,duration:70,state,restartRequired:false,pending:[]
             });
             window.startDraft=async()=>{
                 await createPlayer({delayedGenerate:true});await player.bindIdentity(mediaKey);
@@ -604,6 +604,15 @@ def main():
             assert page.evaluate('!player.exportTrack()')
         case('pause keeps accepted captions and clears the failed operation preview',lambda:stopped_draft('paused'))
         case('a failed later window does not erase accepted captions',lambda:stopped_draft('failed'))
+        def nonretryable_draft():
+            page.evaluate("""()=>{
+                const draft=draftView(trackId,undefined,'failed');draft.restartRequired=true;
+                player.setDrafts([draft]);player.generationStatus(trackId,'failed');
+            }""")
+            note=page.locator('.transcription-progress-note').inner_text()
+            assert 'different window policy' in note and 'retry' not in note
+            assert page.locator('.transcript-cue').count()==1
+        case('a non-retryable seam keeps accepted captions without promising an identical retry',nonretryable_draft)
         def explicit_track():
             page.evaluate("""async()=>{
                 await startDraft();player.setTracks([track(trackId2,'ja',[{id:'authored',start:0,end:4,text:'著者の字幕'}])]);
