@@ -222,7 +222,7 @@ export class MossClient {
     if (this.ready) return;
     const threaded = globalThis.crossOriginIsolated && typeof SharedArrayBuffer !== 'undefined';
     const threads = threaded
-      ? Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1))
+      ? Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 2) - 1))
       : 1;
     await this.call(
       'prepare',

@@ -134,6 +134,7 @@ jobs:
             for mode in single threaded; do
               flags=()
               if [ "$mode" = threaded ]; then flags+=(--threaded); fi
+              if [ "$mode" = threaded ] && [ "$language" = en ]; then flags+=(--repeat 2); fi
               python tests/media/asr.py --fixture "$fixture" --language "$language" "${flags[@]}" \
                 --output ".cache/media-qualification/asr-$language-$mode.json" \
                 2>&1 | tee ".cache/media-qualification/asr-$language-$mode.log" || status=1

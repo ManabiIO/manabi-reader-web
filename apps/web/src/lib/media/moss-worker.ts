@@ -102,7 +102,7 @@ worker.onmessage = async ({ data }) => {
         typeof data.threaded !== 'boolean' ||
         !Number.isSafeInteger(data.threads) ||
         data.threads < 1 ||
-        data.threads > 4 ||
+        data.threads > 8 ||
         (!data.threaded && data.threads !== 1)
       )
         throw new Error('Invalid CPU runtime mode');

@@ -11,6 +11,9 @@ selected only when `crossOriginIsolated` and `SharedArrayBuffer` are available;
 otherwise the single-thread SIMD runtime is used. This patch does not impose
 COOP/COEP on the existing app or assume its OAuth/cloud flows are qualified under
 isolation. Browser thread teardown, memory use and speed require real-device tests.
+The v5 pthread build can use up to eight workers for encoding and prompt prefill;
+token generation uses at most four. A new audio window restores the configured
+worker count. The single-thread build keeps one worker throughout.
 
 The build uses `-sDYNAMIC_EXECUTION=0`; deployment CSP should allow
 `'wasm-unsafe-eval'`, never broaden to JavaScript `'unsafe-eval'`. Each runtime
@@ -21,7 +24,7 @@ be qualified separately from the application's document meta policy.
 Before any model download, the Worker verifies the module's ABI, engine revision,
 ggml revision and actual single/shared-memory mode. A stale runtime directory fails
 with a rebuild/deploy message; it is never silently assigned the app's expected
-provenance. Rebuild both variants for `manabi-web-v4`. Changing a port revision
+provenance. Rebuild both variants for `manabi-web-v5`. Changing a port revision
 invalidates resumption of incomplete old-engine jobs, not completed subtitle tracks.
 
 Required JavaScript/C functions, WORKERFS integration, typed heap views, the

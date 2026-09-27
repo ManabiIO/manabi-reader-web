@@ -46,7 +46,7 @@ def valid_cer(value):
     return value
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--fixture',required=True,type=pathlib.Path);parser.add_argument('--language',choices=['en','ja'],required=True);parser.add_argument('--threaded',action='store_true');parser.add_argument('--max-cer',type=float,default=.35);parser.add_argument('--output',type=pathlib.Path,required=True);args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--fixture',required=True,type=pathlib.Path);parser.add_argument('--language',choices=['en','ja'],required=True);parser.add_argument('--threaded',action='store_true');parser.add_argument('--repeat',type=int,choices=[1,2],default=1);parser.add_argument('--max-cer',type=float,default=.35);parser.add_argument('--output',type=pathlib.Path,required=True);args=parser.parse_args()
     valid_cer(args.max_cer)
     fixture=fixture_metadata(args.fixture,args.language)
     mode='threaded' if args.threaded else 'single'
@@ -56,15 +56,22 @@ def main():
     Handler.threaded=args.threaded;Handler.fixture=args.fixture.resolve();server=http.server.ThreadingHTTPServer(('127.0.0.1',0),functools.partial(Handler,directory=str(ROOT)));threading.Thread(target=server.serve_forever,daemon=True).start()
     try:
         with sync_playwright() as p:
-            browser=p.chromium.launch(executable_path=os.environ.get('CHROMIUM','/usr/bin/chromium'),headless=True,args=['--no-sandbox']);page=browser.new_page();page.goto(f'http://127.0.0.1:{server.server_port}/tests/media/asr-harness.html?fixture=/__fixture__');page.wait_for_function('window.ready');page.get_by_role('button',name='Generate transcript',exact=True).click();page.wait_for_function('window.result || window.failure',timeout=30*60*1000);failure=page.evaluate('window.failure');
-            if failure:raise RuntimeError(failure)
-            result=page.evaluate('window.result');browser.close()
-        if result.get('crossOriginIsolated') is not args.threaded: raise AssertionError('Runtime isolation does not match the requested CPU variant')
+            browser=p.chromium.launch(executable_path=os.environ.get('CHROMIUM','/usr/bin/chromium'),headless=True,args=['--no-sandbox']);page=browser.new_page();page.goto(f'http://127.0.0.1:{server.server_port}/tests/media/asr-harness.html?fixture=/__fixture__');page.wait_for_function('window.ready')
+            attempts=[]
+            for _ in range(args.repeat):
+                page.evaluate('window.result = null; window.failure = null')
+                page.get_by_role('button',name='Generate transcript',exact=True).click();page.wait_for_function('window.result || window.failure',timeout=30*60*1000);failure=page.evaluate('window.failure')
+                if failure:raise RuntimeError(failure)
+                result=page.evaluate('window.result')
+                if result.get('crossOriginIsolated') is not args.threaded: raise AssertionError('Runtime isolation does not match the requested CPU variant')
+                actual=' '.join(cue['text'] for cue in result['cues']);cer=distance(normalize(expected),normalize(actual))/max(1,len(normalize(expected)))
+                if len(result['cues'])<2:raise AssertionError('Expected at least two timestamped caption lines')
+                if cer>args.max_cer:raise AssertionError('Recognition exceeds the configured character-error threshold')
+                attempts.append({'inferenceSeconds':result['inferenceSeconds'],'realTimeFactor':result['realTimeFactor'],'characterErrorRate':cer})
+            browser.close()
         result['fixture']={'fingerprint':fixture['fingerprint'],'language':args.language,'engine':fixture['engine'],'speechSha256':fixture['files']['speech.wav']}
         result['runtimeVariant']=mode
-        actual=' '.join(cue['text'] for cue in result['cues']);result['characterErrorRate']=distance(normalize(expected),normalize(actual))/max(1,len(normalize(expected)));result['expected']=expected;result['kind']='real CPU WASM inference; not a test double';args.output.parent.mkdir(parents=True,exist_ok=True);args.output.write_text(json.dumps(result,ensure_ascii=False,indent=2))
-        if len(result['cues'])<2:raise AssertionError('Expected at least two timestamped caption lines')
-        if result['characterErrorRate']>args.max_cer:raise AssertionError('Recognition exceeds the configured character-error threshold')
-        print(json.dumps({k:result[k] for k in ['characterErrorRate','inferenceSeconds','realTimeFactor','prepareSeconds']}))
+        result['characterErrorRate']=attempts[-1]['characterErrorRate'];result['attempts']=attempts;result['expected']=expected;result['kind']='real CPU WASM inference; not a test double';args.output.parent.mkdir(parents=True,exist_ok=True);args.output.write_text(json.dumps(result,ensure_ascii=False,indent=2))
+        print(json.dumps({k:result[k] for k in ['characterErrorRate','inferenceSeconds','realTimeFactor','prepareSeconds','attempts']}))
     finally:server.shutdown()
 if __name__=='__main__':main()

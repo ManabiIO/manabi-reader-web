@@ -91,18 +91,25 @@ JavaScript/C exports, WORKERFS integration, typed heap views, cancellation addre
 and pthread teardown binding before the large download. Early HTTP/stream failures
 abort the destination without losing their original error to cleanup failures.
 Both CPU artifacts must match the
-app's port revision (`manabi-web-v4`). When changing the C++ port, bump the revision
+app's port revision (`manabi-web-v5`). When changing the C++ port, bump the revision
 in the build recipe and model manifest together. Completed older transcripts remain
 valid; interrupted old-port jobs must be regenerated rather than mixing engines.
 This compatibility check is not a signature or sandbox for untrusted JavaScript.
 The runtime recipe records source/compiler/output hashes but is not itself evidence
 that these binaries compile or perform acceptably.
 
-The v4 port compiles ggml's Wasm SIMD quantized kernels. Emscripten reports its
+The v4 and v5 ports compile ggml's Wasm SIMD quantized kernels. Emscripten reports its
 system processor as `x86`, which otherwise selects ggml's generic CPU kernels.
 For a partial audio chunk, the encoder computes the mel and attention positions
 that are retained downstream, with a zero guard after the last mel center. A full
 30-second chunk keeps its original frame count and positional embedding path.
+The v5 pthread runtime uses up to eight workers for audio encoding and decoder
+prefill, then caps token generation at four. It restores the configured count at
+the start of every audio window, including a second transcription on a warm worker.
+The browser leaves one reported hardware thread free and never requests more than
+eight; hosts reporting five or fewer threads retain the previous selection.
+Thread counts and benefits depend on the device and browser, so representative
+hardware still needs timing and memory qualification.
 
 Model loading now reuses at most 4 MiB of tensor-transfer scratch storage rather
 than staging each entire tensor. Packed tensor bytes and destination offsets are

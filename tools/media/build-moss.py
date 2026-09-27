@@ -4,7 +4,7 @@ import argparse, hashlib, json, pathlib, shutil, subprocess, tempfile
 from runtime_artifacts import check_path, publish_pair
 from model_loader_patch import patch_model_loader
 PIN='190a569c13b4b247450f2fb3b2a431244e84833e'
-PORT_REVISION='manabi-web-v4'
+PORT_REVISION='manabi-web-v5'
 GGML_PIN='eced84c86f8b012c752c016f7fe789adea168e1e'
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 def run(*args, cwd=None): subprocess.run(args, check=True, cwd=cwd)
@@ -47,7 +47,13 @@ def main():
     replace(source/'src/generate.cpp','    for (;;) {','    for (;;) {\n        manabi_web_check_cancel();')
     replace(source/'src/generate.cpp','        if ((int)ids.size() >= max_new) break;','        if ((int)ids.size() >= max_new) throw std::runtime_error("MOSS token budget exhausted; incomplete window");')
     replace(source/'src/generate.cpp','    return ids;\n}\n\n}  // namespace mt','    if (ids.empty() || ids.back() != eos) throw std::runtime_error("MOSS stopped before EOS");\n    return ids;\n}\n\n}  // namespace mt')
+    replace(source/'src/generate.cpp',
+        '    if ((int)hid.size() < H * seq) { MT_LOGE("greedy_generate: short prefill hidden"); return ids; }',
+        '    if ((int)hid.size() < H * seq) { MT_LOGE("greedy_generate: short prefill hidden"); return ids; }\n'
+        '    manabi_web_decode_threads();')
     replace(source/'src/audio_encoder.cpp','    for (size_t off = 0; off < total; off += (size_t)chunk_samples) {','    for (size_t off = 0; off < total; off += (size_t)chunk_samples) {\n        manabi_web_check_cancel();')
+    replace(source/'src/audio_encoder.cpp','    WhisperMel     mel(m_);',
+        '    manabi_web_restore_threads();\n    WhisperMel     mel(m_);')
     replace(source/'src/mel.hpp', 'int& n_mels, int& n_frames) const;',
         'int& n_mels, int& n_frames, int requested_frames) const;')
     replace(source/'src/mel.cpp',
@@ -79,6 +85,7 @@ def main():
         f.write('''
 add_executable(moss-web manabi_bridge.cpp)
 target_link_libraries(moss-web PRIVATE moss-transcribe)
+target_include_directories(moss-web PRIVATE src third_party/ggml/include)
 set_target_properties(moss-web PROPERTIES OUTPUT_NAME moss SUFFIX .mjs)
 target_link_options(moss-web PRIVATE
  "--no-entry" "-O3" "-msimd128" "-sMODULARIZE=1" "-sEXPORT_ES6=1"
@@ -87,7 +94,7 @@ target_link_options(moss-web PRIVATE
  "-sEXPORTED_RUNTIME_METHODS=['ccall','UTF8ToString','FS','WORKERFS','HEAP32','HEAPF32']"
  "-sEXPORTED_FUNCTIONS=['_malloc','_free','_moss_web_abi_version','_moss_web_engine_revision','_moss_web_ggml_revision','_moss_web_load','_moss_web_cancel_ptr','_moss_web_begin','_moss_transcribe_capi_transcribe_pcm','_moss_transcribe_capi_free','_moss_transcribe_capi_free_string','_moss_transcribe_capi_last_error']")
 if(MANABI_THREADS)
- target_link_options(moss-web PRIVATE "-pthread" "-sPTHREAD_POOL_SIZE=4" "-sEXPORTED_RUNTIME_METHODS=['ccall','UTF8ToString','FS','WORKERFS','HEAP32','HEAPF32','PThread']")
+ target_link_options(moss-web PRIVATE "-pthread" "-sPTHREAD_POOL_SIZE=8" "-sEXPORTED_RUNTIME_METHODS=['ccall','UTF8ToString','FS','WORKERFS','HEAP32','HEAPF32','PThread']")
 endif()
 ''')
         f.write(f'\ntarget_compile_definitions(moss-web PRIVATE MANABI_MOSS_ENGINE_REVISION="{PIN}+{PORT_REVISION}" MANABI_MOSS_GGML_REVISION="{GGML_PIN}")\n')
