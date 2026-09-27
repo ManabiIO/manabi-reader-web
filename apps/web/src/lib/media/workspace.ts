@@ -443,7 +443,8 @@ export class VideoWorkspace {
       },
       onPosition: (seconds) => {
         const job = this.currentTranscription;
-        if (job && active()) this.queue.prioritize(job.id, seconds);
+        if (job && (job.status === 'queued' || job.status === 'running') && active())
+          this.queue.prioritize(job.id, seconds);
       },
       onAppearance: this.options.onAppearance,
       onImport: () => {
@@ -1097,8 +1098,14 @@ export class VideoWorkspace {
       this.renderJobs(jobs);
       const key = this.current?.key;
       if (key) {
+        const previous = jobs.find((job) => job.id === this.currentTranscription?.id);
+        const active = (job: Job) => job.status === 'queued' || job.status === 'running';
         const selected =
-          jobs.find((job) => job.id === this.currentTranscription?.id) ??
+          (previous && active(previous) ? previous : undefined) ??
+          jobs
+            .filter((job) => job.mediaKey === key && job.sparse && active(job))
+            .sort((a, b) => b.createdAt - a.createdAt)[0] ??
+          previous ??
           jobs
             .filter((job) => job.mediaKey === key && job.sparse)
             .sort((a, b) => b.createdAt - a.createdAt)[0];
