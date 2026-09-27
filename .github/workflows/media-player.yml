@@ -105,12 +105,14 @@ jobs:
         if: ${{ !cancelled() && steps.fixture.outcome == 'success' }}
         run: |
           export CHROMIUM="$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
+          python tests/media/browser-poll.py --output test-results/media/polling
           python tests/media/browser.py --fixture "$(cat fixture-path.txt)" --output test-results/media/native-browser
           python tests/media/sparse-browser.py --fixture "$(cat fixture-path.txt)" --output test-results/media/sparse-native
       - name: Player, workspace and real Web Audio
         if: ${{ !cancelled() && steps.fixture.outcome == 'success' }}
         run: |
           export CHROMIUM="$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
+          python tests/media/player-publication-browser.py --fixture "$(cat fixture-path.txt)" --output test-results/media/publication
           python tests/media/dom-browser.py --fixture "$(cat fixture-path.txt)" --output test-results/media/player
           python tests/media/workspace-dom.py --fixture "$(cat fixture-path.txt)" --output test-results/media/workspace
           python tests/media/audio-browser.py --output test-results/media/audio

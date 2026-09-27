@@ -16,6 +16,7 @@ import time
 from urllib.parse import urlsplit
 
 from playwright.sync_api import sync_playwright
+from browser_poll import wait_for_async
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -117,7 +118,7 @@ def main():
                 for label, value in [('Video text color', 'yellow'), ('Video background opacity', '0.8'), ('Video text size', '1.25')]:
                     page.get_by_label(label, exact=True).select_option(value)
                 check(js('document.querySelector(".caption-overlay").style.getPropertyValue("--caption-color") === "yellow"'))
-                page.wait_for_function('async () => (await store.local("guest", "settings", "captions"))?.size === 1.25')
+                wait_for_async(page, 'async () => (await store.local("guest", "settings", "captions"))?.size === 1.25')
             case('Overlay preferences commit to real IndexedDB', caption_style)
 
             def off_and_save():
@@ -126,7 +127,7 @@ def main():
                 page.get_by_label('Transcript track', exact=True).select_option('')
                 js('player.setTracks(tracks); player.video.currentTime = 4.2')
                 page.wait_for_function('!player.video.seeking && Math.abs(player.video.currentTime - 4.2) < .1')
-                page.wait_for_function('async () => {const value=(await store.get("guest","video_resume",key))?.payload; return value && Math.abs(value.position - 4.2) < .1 && value.primary === null && value.secondary === null;}')
+                wait_for_async(page, 'async () => {const value=(await store.get("guest","video_resume",key))?.payload; return value && Math.abs(value.position - 4.2) < .1 && value.primary === null && value.secondary === null;}')
             case('Explicit Off and seek persist in native IndexedDB', off_and_save)
 
             def restore():
@@ -281,7 +282,7 @@ def main():
                         },async () => new Float32Array(16000*4).fill(.1));
                         window.orphanJob=(await orphanQueue.enqueue(key,'en','1',4)).id;
                     }''', name)
-                    first.wait_for_function('''async () => orphanStarted &&
+                    wait_for_async(first, '''async () => orphanStarted &&
                         (await orphanStore.local('account:abandoned-tab','jobs',orphanJob))?.status === 'running' ''')
                     orphan_id = first.evaluate('orphanJob')
                     second.evaluate('''name => {
@@ -309,7 +310,7 @@ def main():
                         time.sleep(.05)
                     new_id = second.evaluate('''async () =>
                         (await recoveryQueue.enqueue(key,'en','2',4)).id ''')
-                    second.wait_for_function('''async id =>
+                    wait_for_async(second, '''async id =>
                         (await recoveryStore.local('account:abandoned-tab','jobs',id))?.status === 'complete' ''', arg=new_id)
                     check(not first_errors and not second_errors,
                           f'Tab errors: first={first_errors}; second={second_errors}')

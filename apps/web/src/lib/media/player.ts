@@ -809,7 +809,7 @@ export class VideoPlayer {
           this.restoringSeek = Math.min(state.position, this.video.duration);
           this.video.currentTime = this.restoringSeek;
           this.restoringRate = state.rate;
-          this.video.playbackRate = state.rate;
+          this.video.playbackRate = this.restoringRate;
         }
         if (!this.selectionTouched) {
           // A feed may deliver the resume record before its caption pages.
@@ -934,11 +934,24 @@ export class VideoPlayer {
     const state = job?.sparse;
     const published =
       !!job && this.publishedTracks.some((track) => track.id === job.id && track.complete);
-    const active = !!state && !published;
+    // Stored completed jobs deliberately omit sparse windows. The summary and
+    // caption pages refresh independently; only this job's visible complete track
+    // releases a caption wait, never the absence of its compacted window state.
+    const finalizing = job?.version === 3 && job.status === 'complete' && !published;
+    const active = (!!state && !published) || finalizing;
+    if (published) {
+      clearInterval(this.firstWindowClock);
+      this.firstWindowClock = undefined;
+      this.firstWindowStartedAt = undefined;
+    }
     this.bufferStatus.hidden = !active;
     this.bypassButton.hidden = !active || !this.waitForCaptions;
     this.waitButton.hidden =
       !active || this.waitForCaptions || job.status === 'paused' || job.status === 'failed';
+    if (finalizing && !state) {
+      this.bufferStatus.textContent = 'Finalizing captions. You can play without captions.';
+      return;
+    }
     if (!active || !state) {
       if (this.waitForCaptions) {
         this.waitForCaptions = false;

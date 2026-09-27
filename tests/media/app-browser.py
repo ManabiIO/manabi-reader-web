@@ -6,6 +6,7 @@ import pathlib
 import sys
 import threading
 from playwright.sync_api import sync_playwright, expect
+from browser_poll import wait_for_async
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'tests/browser'))
 from test_static_reader import StaticHandler, ThreadingHTTPServer
@@ -169,7 +170,7 @@ def main():
         expect(page.locator('.transcript-pane')).to_be_visible()
         # A rendered row is not a durable write acknowledgement. Establish the
         # actual committed IDB state before testing reload, without sleep timers.
-        page.wait_for_function("""async (primary) => {
+        wait_for_async(page, """async (primary) => {
             const db = await new Promise((yes,no) => {
                 const r=indexedDB.open('manabi-media-v1');
                 r.onsuccess=()=>yes(r.result);r.onerror=()=>no(r.error);
