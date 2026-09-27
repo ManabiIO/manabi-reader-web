@@ -208,7 +208,7 @@ def main():
                             });},
                             async dispose(){}
                         },async () => new Float32Array(16000*4).fill(.1));
-                        window.tabJob=(await tabQueue.enqueue(key,'en','tab-one',4)).id;
+                        window.tabJob=(await tabQueue.enqueue(key,'en','1',4)).id;
                     }''')
                     page.wait_for_function('tabStarts === 1 && typeof releaseTab === "function"')
                     other.evaluate('''async name => {
@@ -219,7 +219,7 @@ def main():
                             async transcribe(){tabStarts++;return '[0.2][S01]First sentence.[1.2][1.5][S01]Second sentence.[2.5]';},
                             async dispose(){}
                         },async () => new Float32Array(16000*4).fill(.1));
-                        window.tabJob=(await tabQueue.enqueue(key,'en','tab-two',4)).id;
+                        window.tabJob=(await tabQueue.enqueue(key,'en','2',4)).id;
                     }''', name)
                     other.wait_for_function('async () => (await navigator.locks.query()).pending.some(lock => lock.name === "manabi-moss-inference")')
                     check(other.evaluate('tabStarts === 0'), 'Second tab inferred while the first tab held the Web Lock')
