@@ -8,6 +8,7 @@ import type { Cue } from './contracts.js';
 import type { Job } from './jobs.js';
 import type { Engine, QueueProgress } from './queue.js';
 import { parseMoss, parseMossPreview } from './moss-output.js';
+import { transcribeWithPreview } from './moss-preview.js';
 import {
   SAMPLE_RATE,
   absoluteCues,
@@ -102,29 +103,21 @@ export async function transcribeProgressively(
     await engine.prepare(signal, (p) => notify({ job, ...p }));
     signal.throwIfAborted();
     const duration = pcm.length / SAMPLE_RATE;
-    // A custom engine can retain its callback. Each inference owns its preview
-    // lifetime independently of the longer job; late delivery must be inert.
-    let acceptingPreview = true;
-    let raw: string;
-    try {
-      raw = await engine.transcribe(
-        pcm,
-        signal,
-        preview
-          ? (text) => {
-              if (!acceptingPreview || signal.aborted) return;
-              const cues = absoluteCues(
-                parseMossPreview(text, duration),
-                w,
-                start === w.startSample ? undefined : start
-              );
-              progress('transcribing', cues);
-            }
-          : undefined
-      );
-    } finally {
-      acceptingPreview = false;
-    }
+    const raw = await transcribeWithPreview(
+      engine,
+      pcm,
+      signal,
+      preview
+        ? (text) => {
+            const cues = absoluteCues(
+              parseMossPreview(text, duration),
+              w,
+              start === w.startSample ? undefined : start
+            );
+            progress('transcribing', cues);
+          }
+        : undefined
+    );
     signal.throwIfAborted();
     return absoluteCues(parseMoss(raw, duration), w, start === w.startSample ? undefined : start);
   };

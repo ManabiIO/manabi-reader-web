@@ -22,7 +22,7 @@ class WorkerDouble extends EventTarget {
   }
   terminate() {}
 }
-async function harness(body) {
+async function harness(body, observer = (previews) => (raw) => previews.push(raw)) {
   const old = globalThis.Worker;
   globalThis.Worker = WorkerDouble;
   const client = new MossClient('/moss', new URL('https://test.invalid/worker.js'));
@@ -30,9 +30,7 @@ async function harness(body) {
     previews = [];
   try {
     await client.prepare(controller.signal, () => {});
-    const pending = client.transcribe(new Float32Array(160), controller.signal, (raw) =>
-      previews.push(raw)
-    );
+    const pending = client.transcribe(new Float32Array(160), controller.signal, observer(previews));
     await body({
       client,
       controller,
@@ -58,6 +56,20 @@ test('partial output arrives before success without settling the inference', () 
     h.worker.emit(h.id, 'result', '[0][S01]日本語[1]');
     assert.equal(await h.pending, '[0][S01]日本語[1]');
   }));
+test('a preview consumer failure disables optional rendering without failing recognition', () =>
+  harness(
+    async (h) => {
+      h.worker.emit(h.id, 'partial', 'first');
+      h.worker.emit(h.id, 'partial', 'first second');
+      h.worker.emit(h.id, 'result', 'first second final');
+      assert.equal(await h.pending, 'first second final');
+      assert.deepEqual(h.previews, ['first']);
+    },
+    (previews) => (raw) => {
+      previews.push(raw);
+      throw new Error('preview renderer failed');
+    }
+  ));
 test('a wrong request ID cannot inject partial text', () =>
   harness(async (h) => {
     h.worker.emit('old', 'partial', 'foreign');
@@ -126,3 +138,65 @@ test('native edge trimming cannot erase a word boundary inside the final transcr
     h.worker.emit(h.id, 'result', '[0][S01]apart[1]');
     await rejected;
   }));
+
+const failingObserver = (previews) => (raw) => {
+  previews.push(raw);
+  throw new Error('optional preview failed');
+};
+test('disabled preview rendering does not disable worker prefix validation', () =>
+  harness(
+    async (h) => {
+      const rejected = assert.rejects(h.pending, /Invalid MOSS output preview/);
+      h.worker.emit(h.id, 'partial', 'first');
+      h.worker.emit(h.id, 'partial', 'contradiction');
+      await rejected;
+      assert.deepEqual(h.previews, ['first']);
+    },
+    failingObserver
+  ));
+test('disabled preview rendering does not disable authoritative final validation', () =>
+  harness(
+    async (h) => {
+      const rejected = assert.rejects(h.pending, /prefix|preview/);
+      h.worker.emit(h.id, 'partial', 'first');
+      h.worker.emit(h.id, 'partial', 'first second');
+      h.worker.emit(h.id, 'result', 'first');
+      await rejected;
+      assert.deepEqual(h.previews, ['first']);
+    },
+    failingObserver
+  ));
+test('disabled preview rendering does not suppress cancellation', () =>
+  harness(
+    async (h) => {
+      const rejected = assert.rejects(h.pending, { name: 'AbortError' });
+      h.worker.emit(h.id, 'partial', 'first');
+      h.controller.abort();
+      h.worker.emit(h.id, 'result', 'first final');
+      await rejected;
+    },
+    failingObserver
+  ));
+test('a failed observer does not retire the warm worker or disable the next observer', () =>
+  harness(
+    async (h) => {
+      h.worker.emit(h.id, 'partial', 'first');
+      h.worker.emit(h.id, 'result', 'first final');
+      await h.pending;
+      const nextPreviews = [];
+      const next = h.client.transcribe(new Float32Array(160), h.controller.signal, (text) =>
+        nextPreviews.push(text)
+      );
+      assert.equal(WorkerDouble.latest, h.worker);
+      const nextId = h.worker.last.id;
+      assert.notEqual(nextId, h.id);
+      h.worker.emit(h.id, 'partial', 'stale');
+      h.worker.emit(h.id, 'result', 'stale');
+      h.worker.emit(nextId, 'partial', 'second');
+      h.worker.emit(nextId, 'result', 'second final');
+      assert.equal(await next, 'second final');
+      assert.deepEqual(nextPreviews, ['second']);
+      assert.deepEqual(h.previews, ['first']);
+    },
+    failingObserver
+  ));

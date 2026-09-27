@@ -9,6 +9,7 @@ import { MediaStore } from './store.js';
 import { MOSS, type ModelProgress } from './model-cache.js';
 import { parseMoss, parseMossPreview, planWindows, ownedCues } from './moss-output.js';
 import { newProgressiveState } from './moss-progressive.js';
+import { transcribeWithPreview } from './moss-preview.js';
 import { transcribeProgressively } from './progressive-transcription.js';
 import {
   validateJob,
@@ -402,8 +403,7 @@ export class TranscriptionQueue {
                 if (!pcm.every((x) => x === 0)) {
                   await this.engine.prepare(signal, (p) => this.notify({ job, ...p }));
                   signal.throwIfAborted();
-                  raw = await this.engine.transcribe(pcm, signal, (text) => {
-                    signal.throwIfAborted();
+                  raw = await transcribeWithPreview(this.engine, pcm, signal, (text) => {
                     this.notify({
                       job,
                       stage: 'transcribing',

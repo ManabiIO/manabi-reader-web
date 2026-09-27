@@ -108,7 +108,8 @@ export class MossClient {
     const id = crypto.randomUUID(),
       operation = this.serial;
     return new Promise((yes, no) => {
-      let previous = '';
+      let previous = '',
+        previewObserver = partial;
       let done = false,
         timer: ReturnType<typeof setTimeout> | undefined;
       const finish = (error: unknown, value?: unknown, failed = true) => {
@@ -134,8 +135,9 @@ export class MossClient {
           return;
         }
         if (event.data.type === 'partial') {
+          let text: string;
           try {
-            const text = event.data.value;
+            text = event.data.value;
             if (
               type !== 'transcribe' ||
               typeof text !== 'string' ||
@@ -143,11 +145,18 @@ export class MossClient {
               !text.startsWith(previous)
             )
               throw new Error('Invalid MOSS output preview');
-            if (text === previous) return;
-            previous = text;
-            partial?.(text);
           } catch (e) {
             fail(e);
+            return;
+          }
+          if (text === previous) return;
+          previous = text;
+          // Provisional rendering is optional. A parser/UI observer failure must
+          // not retire a healthy worker or turn valid final recognition into failure.
+          try {
+            previewObserver?.(text);
+          } catch {
+            previewObserver = undefined;
           }
           return;
         }
