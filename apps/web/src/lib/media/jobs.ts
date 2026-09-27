@@ -59,6 +59,8 @@ export interface Job {
   ownerId?: string;
   leaseUntil?: number;
   cancelRequested?: boolean;
+  /** Why a running job was paused; only a video switch may resume automatically. */
+  pauseReason?: 'switch' | 'user';
 }
 export const JOB_LEASE_MS = 90_000;
 
@@ -100,6 +102,7 @@ export function validateJob(value: unknown): Job {
     'ownerId',
     'leaseUntil',
     'cancelRequested',
+    'pauseReason',
     'progressive',
     'sparse'
   ]);
@@ -234,6 +237,10 @@ export function validateJob(value: unknown): Job {
     throw new Error('Invalid job lease');
   if (j.cancelRequested !== undefined && typeof j.cancelRequested !== 'boolean')
     throw new Error('Invalid cancellation request');
+  if (j.pauseReason !== undefined && j.pauseReason !== 'switch' && j.pauseReason !== 'user')
+    throw new Error('Invalid transcription pause reason');
+  if (j.pauseReason !== undefined && j.status !== 'running' && j.status !== 'paused')
+    throw new Error('Pause reason requires a running or paused transcription');
   return {
     version: j.version as 1 | 2 | 3,
     ...(progressive ? { progressive } : {}),
@@ -257,7 +264,8 @@ export function validateJob(value: unknown): Job {
           ownerId: j.ownerId as string,
           leaseUntil: finite(j.leaseUntil, 0, Number.MAX_SAFE_INTEGER)
         }),
-    ...(j.cancelRequested === undefined ? {} : { cancelRequested: j.cancelRequested as boolean })
+    ...(j.cancelRequested === undefined ? {} : { cancelRequested: j.cancelRequested as boolean }),
+    ...(j.pauseReason === undefined ? {} : { pauseReason: j.pauseReason as 'switch' | 'user' })
   };
 }
 export class JobOwnershipLost extends Error {
@@ -270,6 +278,16 @@ export function ownsJob(job: Job | undefined, ownerId: string) {
   return !!job && job.status === 'running' && job.ownerId === ownerId && !job.cancelRequested;
 }
 export function releasedJob(job: Job, status: Job['status']): Job {
-  const { ownerId: _owner, leaseUntil: _lease, cancelRequested: _cancel, ...rest } = job;
-  return { ...rest, status };
+  const {
+    ownerId: _owner,
+    leaseUntil: _lease,
+    cancelRequested: _cancel,
+    pauseReason: _reason,
+    ...rest
+  } = job;
+  return {
+    ...rest,
+    status,
+    ...(status === 'paused' && job.pauseReason ? { pauseReason: job.pauseReason } : {})
+  };
 }

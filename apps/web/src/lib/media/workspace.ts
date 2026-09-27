@@ -89,6 +89,7 @@ export class VideoWorkspace {
     source: ByteSource;
   };
   private currentTranscription?: Job;
+  private switchPaused = new Set<string>();
   private player?: VideoPlayer;
   private queue: TranscriptionQueue;
   private stopStore: () => void;
@@ -306,7 +307,7 @@ export class VideoWorkspace {
         if (this.closed) return;
         if (this.current?.key === p.job.mediaKey) {
           this.currentTranscription = p.job;
-          this.player?.generationProgress(p.job);
+          this.player?.generationProgress(p.job, p.stage);
         }
         this.progress.hidden = false;
         this.progress.max = Math.max(1, p.total);
@@ -423,7 +424,8 @@ export class VideoWorkspace {
     const outgoing = this.current;
     if (outgoing && outgoing.source !== source && outgoing.key !== expected) {
       // Keep accepted windows, but free inference for the newly opened video.
-      await this.queue.pauseSparseForMedia(outgoing.key);
+      for (const id of await this.queue.pauseSparseForMedia(outgoing.key))
+        this.switchPaused.add(id);
     }
     await this.player?.dispose();
     if (this.closed || generation !== this.generation) return;
@@ -536,7 +538,13 @@ export class VideoWorkspace {
       if (expected && key !== expected)
         throw new Error('The selected file is not the saved video. Its old progress was kept.');
       this.current = { key, source };
-      player.setGenerationAvailable(this.audioChoices.some((track) => track.decodable));
+      player.setGenerationAvailable(
+        this.audioChoices.some((track) => track.decodable) &&
+          typeof navigator.locks?.request === 'function',
+        typeof navigator.locks?.request === 'function'
+          ? undefined
+          : 'This browser cannot coordinate transcription across tabs (Web Locks unavailable). Playback and existing captions remain available.'
+      );
       this.sources.set(key, source);
       await this.store.putLocal(this.options.scope, 'aliases', key, {
         key,
@@ -581,6 +589,7 @@ export class VideoWorkspace {
       );
       void this.discover(source, key, signal, generation, embedded);
       await this.refresh();
+      await this.resumeSwitchedJobs();
     } catch (e) {
       if (active()) this.error(e);
     }
@@ -679,7 +688,14 @@ export class VideoWorkspace {
       }
       this.audio.disabled = !descriptions.some((t) => t.decodable);
       this.audio.value = String(chooseTranscriptionAudio(descriptions, this.lang.value)?.id ?? '');
-      this.player?.setGenerationAvailable(!!this.current && descriptions.some((t) => t.decodable));
+      this.player?.setGenerationAvailable(
+        !!this.current &&
+          descriptions.some((t) => t.decodable) &&
+          typeof navigator.locks?.request === 'function',
+        typeof navigator.locks?.request === 'function'
+          ? undefined
+          : 'This browser cannot coordinate transcription across tabs (Web Locks unavailable). Playback and existing captions remain available.'
+      );
       if (!descriptions.length) this.notice('This video has no audio track to transcribe.');
     } catch (e) {
       if (!signal.aborted && generation === this.generation)
@@ -1107,6 +1123,7 @@ export class VideoWorkspace {
       if (this.closed) return;
       // A newer notification arrived while reading: don't flash an older state.
       if (this.jobsDirty) continue;
+      await this.resumeSwitchedJobs(jobs);
       this.renderJobs(jobs);
       const key = this.current?.key;
       if (key) {
@@ -1131,6 +1148,32 @@ export class VideoWorkspace {
             .map(transcriptionDraft)
             .filter((draft): draft is TranscriptionDraft => !!draft)
         );
+      }
+    }
+  }
+  private async resumeSwitchedJobs(snapshot?: Job[]) {
+    const key = this.current?.key;
+    if (!key || !this.switchPaused.size) return;
+    const jobs =
+      snapshot ??
+      (await this.store.listLocal<unknown>(this.options.scope, 'jobs')).map(validateJob);
+    for (const job of jobs) {
+      if (!this.switchPaused.has(job.id) || job.mediaKey !== key) continue;
+      if (
+        job.pauseReason === 'user' ||
+        job.status === 'complete' ||
+        job.status === 'failed' ||
+        (job.status === 'running' && job.pauseReason !== 'switch')
+      ) {
+        this.switchPaused.delete(job.id);
+      } else if (
+        job.status === 'queued' ||
+        (job.status === 'paused' && job.pauseReason === 'switch' && jobCanResume(job))
+      ) {
+        // A switch can finish aborting after the new video's identity is known.
+        // Store notifications retry this when that final pause is durable.
+        this.switchPaused.delete(job.id);
+        if (this.current?.key === key) await this.queue.resume(job.id);
       }
     }
   }

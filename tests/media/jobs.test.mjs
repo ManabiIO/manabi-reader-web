@@ -257,7 +257,13 @@ test('a cancellation requested by another queue reaches the active worker and pr
     await other.cancel(j.id);
     await eventually(async () => (await store.local(scope, 'jobs', j.id)).status === 'paused');
     assert.equal(aborted, true);
+    assert.equal((await store.local(scope, 'jobs', j.id)).pauseReason, 'user');
     assert.equal((await store.tracks(scope, key)).length, 0);
+  }));
+test('Resume rejects a missing saved job without admitting a phantom runner', () =>
+  harness(async ({ queue }) => {
+    const q = queue({ dispose() {} });
+    await assert.rejects(q.resume(id), /no longer exists/);
   }));
 test('resume refuses a live lease; recovery only releases stale owners without Web Locks', () =>
   withLocks(undefined, () =>

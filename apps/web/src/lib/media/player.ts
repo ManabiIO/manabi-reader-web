@@ -73,6 +73,9 @@ export class VideoPlayer {
   private publishedTracks: Track[] = [];
   private temporaryTracks: Track[] = [];
   private activeJob?: Job;
+  private firstWindowJob?: string;
+  private firstWindowStartedAt?: number;
+  private firstWindowClock?: ReturnType<typeof setInterval>;
   private followGeneratedCaptions = false;
   private waitForCaptions = false;
   private resumeAfterBuffer = false;
@@ -101,6 +104,7 @@ export class VideoPlayer {
   // Only retained while an explicit Generate admission is awaiting its job ID.
   private generationOutcomes?: Map<string, 'paused' | 'failed'>;
   private generationAvailable = false;
+  private generationUnavailableReason?: string;
   private discovery: 'loading' | 'complete' | 'limited' = 'loading';
   private translationAutomatic = false;
   private transcriptOpen = true;
@@ -575,9 +579,10 @@ export class VideoPlayer {
     }
     this.updateSetup();
   }
-  setGenerationAvailable(available: boolean) {
+  setGenerationAvailable(available: boolean, reason?: string) {
     if (this.closed) return;
     this.generationAvailable = available;
+    this.generationUnavailableReason = available ? undefined : reason;
     this.updateSetup();
   }
   generationStatus(id: string, state: string) {
@@ -623,13 +628,14 @@ export class VideoPlayer {
         : 'Generate transcript';
     this.updateProgressiveView();
     this.setupNote.textContent =
-      this.discovery === 'loading'
+      this.generationUnavailableReason ??
+      (this.discovery === 'loading'
         ? 'Looking for subtitles. Choose one below, or generate a transcript when the video is ready.'
         : this.discovery === 'limited'
           ? 'Some embedded subtitles could not be read. Choose an available track, add a subtitle file, or generate a transcript.'
           : this.tracks.length
             ? 'Select the language you want to follow. Translation can be added afterwards.'
-            : 'Add subtitles you already have, or generate a transcript privately on this device.';
+            : 'Add subtitles you already have, or generate a transcript privately on this device.');
   }
   private async requestGenerate() {
     if (this.closed || this.generate.disabled || this.primary.value || this.secondary.value) return;
@@ -877,9 +883,28 @@ export class VideoPlayer {
     ];
     this.applyTracks();
   }
-  generationProgress(job: Job) {
+  generationProgress(job: Job, stage?: string) {
     if (this.closed || this.key !== job.mediaKey) return;
     this.activeJob = job;
+    if (this.firstWindowJob !== job.id) {
+      clearInterval(this.firstWindowClock);
+      this.firstWindowClock = undefined;
+      this.firstWindowJob = job.id;
+      this.firstWindowStartedAt = undefined;
+    }
+    if (
+      job.sparse &&
+      !job.sparse.windows.some(Boolean) &&
+      job.status === 'running' &&
+      (stage === 'decoding' || stage === 'transcribing')
+    ) {
+      this.firstWindowStartedAt ??= Date.now();
+      this.firstWindowClock ??= setInterval(() => this.updateBuffering(), 1000);
+    } else if (!job.sparse || job.status !== 'running' || job.sparse.windows.some(Boolean)) {
+      clearInterval(this.firstWindowClock);
+      this.firstWindowClock = undefined;
+      this.firstWindowStartedAt = undefined;
+    }
     this.updateBuffering();
   }
   private waitForBuffer() {
@@ -981,7 +1006,7 @@ export class VideoPlayer {
       missing && totalMs > 0 && inputSeconds > 0
         ? `about ${formatMediaTime(Math.ceil((workSeconds * totalMs) / inputSeconds / 1000))}`
         : missing
-          ? 'estimating after the first window'
+          ? `estimating after the first window${this.firstWindowStartedAt ? ` (${formatMediaTime((Date.now() - this.firstWindowStartedAt) / 1000)} elapsed on this device)` : ''}`
           : 'ready';
     const speed =
       samples.length && totalMs > coreSeconds * 1000
@@ -1633,6 +1658,7 @@ export class VideoPlayer {
     if (this.closing) return this.closing;
     this.scheduleSave(true);
     this.closed = true;
+    clearInterval(this.firstWindowClock);
     this.generationOutcomes = undefined;
     this.alive.abort();
     this.menu.dispose();

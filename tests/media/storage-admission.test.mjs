@@ -69,7 +69,7 @@ test('concurrent Generate admission across two store connections creates only on
     assert.equal(first.id, second.id);
     assert.equal((await a.listLocal(scope, 'jobs')).length, 1);
   }));
-test('running job is reused, but paused and completed jobs permit a deliberate alternative', () =>
+test('Generate reuses a resumable paused job while a completed job permits a new request', () =>
   harness(async ({ a }) => {
     await a.putLocal(
       scope,
@@ -79,14 +79,42 @@ test('running job is reused, but paused and completed jobs permit a deliberate a
     );
     assert.equal((await a.enqueueJob(scope, job(2))).id, id(1));
     await a.putLocal(scope, 'jobs', id(1), job(1, { status: 'paused' }));
-    assert.equal((await a.enqueueJob(scope, job(2))).id, id(2));
+    assert.equal((await a.enqueueJob(scope, job(2))).id, id(1));
+    assert.equal((await a.local(scope, 'jobs', id(1))).status, 'queued');
     await a.putLocal(
       scope,
       'jobs',
-      id(2),
-      job(2, { status: 'complete', nextWindow: 1, completedAt: 2 })
+      id(1),
+      job(1, { status: 'complete', nextWindow: 1, completedAt: 2 })
     );
     assert.equal((await a.enqueueJob(scope, job(3))).id, id(3));
+  }));
+test('Generate retains sparse checkpoints and changes only the requested playback target', () =>
+  harness(async ({ a }) => {
+    const sparse = newSparseState(52);
+    sparse.windows[0] = { cues: [], inferenceMs: 1200 };
+    const saved = job(1, {
+      version: 3,
+      sparse,
+      duration: 52,
+      status: 'paused',
+      pauseReason: 'switch',
+      nextWindow: 1
+    });
+    await a.putLocal(scope, 'jobs', saved.id, saved);
+    const requested = job(2, {
+      version: 3,
+      sparse: newSparseState(52, 31),
+      duration: 52
+    });
+    const resumed = await a.enqueueJob(scope, requested);
+    assert.equal(resumed.id, saved.id);
+    assert.equal(resumed.status, 'queued');
+    assert.equal(resumed.nextWindow, 1);
+    assert.deepEqual(resumed.sparse.windows[0], sparse.windows[0]);
+    assert.equal(resumed.sparse.targetSeconds, 31);
+    assert.equal(resumed.pauseReason, undefined);
+    assert.equal((await a.listLocal(scope, 'jobs')).length, 1);
   }));
 test('new sparse policy does not silently reuse a running job with old acceptance rules', () =>
   harness(async ({ a }) => {

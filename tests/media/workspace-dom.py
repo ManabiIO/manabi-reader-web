@@ -45,8 +45,13 @@ def main():
             window.syntheticKey=letter=>'content:'+letter.repeat(64);
             window.info=title=>({version:1,title,duration:30,width:320,height:180,addedAt:1});
             window.resume=(key,position,finished=false)=>({version:1,mediaKey:key,position,duration:30,rate:1,finished,updatedAt:2,primary:null,secondary:null,delays:{}});
+            window.testLocks={request:async(_name,options,callback)=>
+                callback(options?.ifAvailable===true?{name:'manabi-moss-inference'}:{name:'manabi-moss-inference'})};
             window.reset=async (config={})=>{
                 if(window.workspace)await workspace.dispose();if(window.store)await store.close();
+                Object.defineProperty(navigator,'locks',{
+                    configurable:true,value:config.noLocks?undefined:testLocks
+                });
                 window.bound=[];window.prepares=0;window.inferences=0;window.writes=[];window.aliasBlocked=false;
                 window.factory=new TransactionFactory();window.store=new MediaStore(factory,'workspace-test');
                 const originalPut=store.putLocal.bind(store),originalLocal=store.local.bind(store);
@@ -136,22 +141,62 @@ def main():
             page.evaluate("workspace.queue.task")
             assert page.evaluate('sparseCalls')==2
             page.evaluate("""async()=>{
-                await workspace.openSource(makeSource('Captioned.mp4'));
                 workspace.queue.engine.transcribe=async()=>{
                     sparseCalls++;return '[5][S01]続きの字幕です。[6]';
                 };
-                await workspace.queue.resume(oldJob.id);
+                await workspace.openSource(makeSource('Captioned.mp4'));
             }""")
             page.wait_for_function("store.local('guest','jobs',oldJob.id).then(j=>j?.status==='complete')")
             complete=page.evaluate("""async()=>{
                 const tracks=await store.tracks('guest',oldKey);
+                const original=tracks.find(track=>track.id===oldJob.id);
                 return {sameVideo:workspace.current.key===oldKey,calls:sparseCalls,
-                    tracks:tracks.length,complete:tracks[0]?.complete,
-                    cues:tracks[0]?.cues.map(c=>c.text)};
+                    tracks:tracks.length,complete:original?.complete,
+                    otherComplete:tracks.some(track=>track.id===otherOldJob.id&&track.complete),
+                    cues:original?.cues.map(c=>c.text)};
             }""")
-            assert complete==dict(sameVideo=True,calls=4,tracks=1,complete=True,
+            assert complete==dict(sameVideo=True,calls=7,tracks=2,complete=True,otherComplete=True,
                 cues=['保存された字幕です。','続きの字幕です。','続きの字幕です。']),complete
-        case('switching videos pauses sparse inference; reopening and resuming publishes saved work',switching_pauses_sparse_job)
+        case('switching videos pauses sparse inference; reopening automatically resumes saved work',switching_pauses_sparse_job)
+        def no_web_locks():
+            page.evaluate('reset({noLocks:true})')
+            page.evaluate("workspace.openSource(makeSource('No-locks.mp4'))")
+            page.wait_for_function('workspace.current && workspace.audioChoices.length')
+            assert page.get_by_role('button',name='Generate transcript',exact=True).is_disabled()
+            assert 'Web Locks unavailable' in page.locator('main').inner_text()
+            result=page.evaluate("""async()=>{
+                try{await workspace.queue.enqueue(workspace.current.key,'ja','2',20,0)}
+                catch(e){return {message:String(e),jobs:(await store.listLocal('guest','jobs')).length}}
+            }
+            """)
+            assert 'Web Locks' in result['message'] and result['jobs']==0,result
+        case('browsers without Web Locks cannot admit concurrent model inference',no_web_locks)
+        def explicit_cancel_overrides_switch():
+            page.evaluate('reset()')
+            page.evaluate("workspace.openSource(makeSource('First.mp4'))")
+            page.wait_for_function('workspace.current && workspace.player?.generationAvailable')
+            page.evaluate("""async()=>{
+                window.originalKey=workspace.current.key;
+                const q=workspace.queue;
+                q.decode=async(_job,start,end)=>new Float32Array(Math.ceil((end-start)*16000)).fill(.1);
+                q.engine.transcribe=async(_pcm,signal)=>new Promise((_,reject)=>{
+                    if(signal.aborted)reject(signal.reason);
+                    else signal.addEventListener('abort',()=>reject(signal.reason),{once:true});
+                });
+                window.cancelledAfterSwitch=await q.enqueue(originalKey,'ja','2',52,0);
+            }""")
+            page.wait_for_function("store.local('guest','jobs',cancelledAfterSwitch.id).then(j=>j?.status==='running')")
+            page.evaluate("workspace.openSource(makeSource('Second.mp4',1))")
+            page.wait_for_function("store.local('guest','jobs',cancelledAfterSwitch.id).then(j=>j?.status==='paused')")
+            page.evaluate("workspace.queue.cancel(cancelledAfterSwitch.id)")
+            page.evaluate("workspace.openSource(makeSource('First.mp4'))")
+            page.wait_for_function('workspace.current?.key===originalKey')
+            result=page.evaluate("""async()=>{
+                const job=await store.local('guest','jobs',cancelledAfterSwitch.id);
+                return {status:job.status,reason:job.pauseReason,tracks:(await store.tracks('guest',originalKey)).length};
+            }""")
+            assert result==dict(status='paused',reason='user',tracks=0),result
+        case('explicit Cancel after a switch prevents automatic restart',explicit_cancel_overrides_switch)
         def late_generation_after_switch():
             page.evaluate('reset({holdAdmission:true})')
             page.evaluate("workspace.openSource(makeSource('Admission.mp4'))")

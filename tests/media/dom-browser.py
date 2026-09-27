@@ -822,6 +822,13 @@ def main():
                 player.generationProgress(sparseJob);
             }""")
             assert 'estimating after the first window' in page.locator('.video-viewing [role=status]').all_inner_texts()[-1]
+            elapsed=page.evaluate("""()=>{
+                player.generationProgress(sparseJob,'transcribing');
+                player.firstWindowStartedAt-=5000;
+                player.updateBuffering();
+                return player.bufferStatus.textContent;
+            }""")
+            assert '0:05 elapsed on this device' in elapsed,elapsed
             page.get_by_role('button',name='Wait for captions',exact=True).click()
             assert page.get_by_role('button',name='Play without captions',exact=True).is_visible()
             page.evaluate("""()=>{

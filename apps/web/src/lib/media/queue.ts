@@ -159,6 +159,14 @@ export class TranscriptionQueue {
   private async jobs() {
     return (await this.store.listLocal<unknown>(this.scope, 'jobs')).map(validateJob);
   }
+  private requireOriginLock() {
+    // Production browser inference must have origin-wide admission. A durable
+    // job lease fences writes but cannot stop two tabs allocating model RAM.
+    if (typeof window !== 'undefined' && typeof navigator.locks?.request !== 'function')
+      throw new Error(
+        'Transcription needs browser Web Locks to coordinate model memory across tabs.'
+      );
+  }
   async enqueue(
     key: ContentKey,
     lang: string,
@@ -167,6 +175,7 @@ export class TranscriptionQueue {
     targetSeconds?: number
   ): Promise<Job> {
     if (this.closed) throw new Error('The queue is closed');
+    this.requireOriginLock();
     const draft = validateJob({
       version: targetSeconds === undefined ? 2 : 3,
       ...(targetSeconds === undefined
@@ -198,13 +207,15 @@ export class TranscriptionQueue {
     if (!Number.isFinite(seconds) || seconds < 0 || this.closed) return;
     this.targets.set(id, seconds);
   }
-  async resume(id: string) {
+  async resume(id: string): Promise<Job> {
     if (this.closed) throw new Error('The queue is closed');
-    await this.store.updateLocal<Job>(this.scope, 'jobs', id, (old) => {
-      if (!old) return old;
+    this.requireOriginLock();
+    const resumed = await this.store.updateLocal<Job>(this.scope, 'jobs', id, (old) => {
+      if (!old) throw new Error('The saved transcription no longer exists');
       const job = validateJob(old);
       if (job.id !== id) throw new Error('Wrong saved job identity');
-      if (job.status === 'complete' || job.status === 'queued') return old;
+      if (job.status === 'complete') throw new Error('This transcript is already complete');
+      if (job.status === 'queued') return old;
       if (job.status === 'running' && (job.leaseUntil ?? 0) > Date.now())
         throw new Error('This job is still active in another tab. Cancel it before resuming.');
       if ((job.status === 'paused' || job.status === 'failed') && !jobCanResume(job))
@@ -217,27 +228,32 @@ export class TranscriptionQueue {
       delete next.error;
       return next;
     });
+    if (!resumed) throw new Error('The saved transcription no longer exists');
     this.admitted.set(id, Symbol());
     this.kick();
+    return validateJob(resumed);
   }
   async cancel(id: string) {
     this.targets.delete(id);
-    if (this.active?.id === id)
-      this.active.controller.abort(new DOMException('Generation cancelled', 'AbortError'));
-    await this.store.updateLocal<Job>(this.scope, 'jobs', id, (old) => {
-      if (!old) return old;
-      const job = validateJob(old);
-      if (job.id !== id) throw new Error('Wrong saved job identity');
-      if (job.status === 'complete') return old;
-      // Retain the owner's newest checkpoint. Its next atomic publication sees this bit.
-      return job.status === 'running'
-        ? { ...job, cancelRequested: true }
-        : releasedJob(job, 'paused');
-    });
+    try {
+      await this.store.updateLocal<Job>(this.scope, 'jobs', id, (old) => {
+        if (!old) return old;
+        const job = validateJob(old);
+        if (job.id !== id) throw new Error('Wrong saved job identity');
+        if (job.status === 'complete') return old;
+        // Retain the owner's newest checkpoint. Its next atomic publication sees this bit.
+        return job.status === 'running'
+          ? { ...job, cancelRequested: true, pauseReason: 'user' }
+          : { ...releasedJob(job, 'paused'), pauseReason: 'user' };
+      });
+    } finally {
+      if (this.active?.id === id)
+        this.active.controller.abort(new DOMException('Generation cancelled', 'AbortError'));
+    }
   }
   /** Leaving a video pauses owned inference and revokes local queued admissions. */
-  async pauseSparseForMedia(mediaKey: ContentKey) {
-    if (this.closed) return;
+  async pauseSparseForMedia(mediaKey: ContentKey): Promise<string[]> {
+    if (this.closed) return [];
     const pending: Job[] = [];
     for (const raw of await this.store.listLocal<unknown>(this.scope, 'jobs')) {
       if (!raw || typeof raw !== 'object' || (raw as Job).mediaKey !== mediaKey) continue;
@@ -256,6 +272,7 @@ export class TranscriptionQueue {
       await this.pauseLocalSparse(job.id);
     for (const job of pending.filter((job) => job.status === 'running'))
       await this.pauseLocalSparse(job.id);
+    return pending.map((job) => job.id);
   }
   private async pauseLocalSparse(id: string) {
     this.targets.delete(id);
@@ -263,13 +280,15 @@ export class TranscriptionQueue {
     // a stale queued snapshot but has not claimed it yet.
     this.admitted.delete(id);
     const active = this.active?.id === id ? this.active : undefined;
-    if (!active) return;
     await this.store.updateLocal<Job>(this.scope, 'jobs', id, (old) => {
       if (!old) return old;
       const job = validateJob(old);
       if (!job.sparse) return old;
-      if (job.status === 'running' && active?.ownerId === job.ownerId)
-        return { ...job, cancelRequested: true };
+      // The queued record can also be admitted by another tab. Revoke only
+      // this queue's token; the other tab remains free to claim it.
+      if (job.status === 'queued') return old;
+      if (job.status === 'running' && active?.ownerId === job.ownerId && job.pauseReason !== 'user')
+        return { ...job, cancelRequested: true, pauseReason: 'switch' };
       return old;
     });
     if (active && this.active === active)
@@ -826,9 +845,12 @@ export class TranscriptionQueue {
       }
     };
     try {
-      if (navigator.locks)
+      if (typeof navigator.locks?.request === 'function')
         await navigator.locks.request('manabi-moss-inference', { signal: batch.signal }, drain);
-      else await drain();
+      else {
+        this.requireOriginLock();
+        await drain(); // Node-only test harnesses inject no browser Window.
+      }
     } catch (error) {
       // Only the actual cancellation reason is expected. An aborted signal
       // does not turn a failed checkpoint or runtime retirement into success.

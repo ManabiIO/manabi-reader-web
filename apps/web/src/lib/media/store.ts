@@ -4,7 +4,14 @@
  * All rights reserved.
  */
 
-import { validateJob, ownsJob, JobOwnershipLost, type Job } from './jobs.js';
+import {
+  validateJob,
+  ownsJob,
+  releasedJob,
+  jobCanResume,
+  JobOwnershipLost,
+  type Job
+} from './jobs.js';
 /** @license BSD-3-Clause — Manabi media integration. */
 import { type Scope, type ContentKey, type Track, validateTrack } from './contracts.js';
 import {
@@ -279,18 +286,36 @@ export class MediaStore {
           const jobs = (request.result as unknown[]).map(validateJob);
           if (jobs.some((job) => job.id === draft.id))
             throw new Error('Transcription job identity is already in use');
+          const compatible = (job: Job) =>
+            job.mediaKey === draft.mediaKey &&
+            job.language === draft.language &&
+            job.audioTrack === draft.audioTrack &&
+            job.duration === draft.duration &&
+            job.version === draft.version &&
+            job.modelSha256 === draft.modelSha256 &&
+            job.engineRevision === draft.engineRevision &&
+            job.sparse?.policy === draft.sparse?.policy &&
+            job.progressive?.policy === draft.progressive?.policy;
           const existing = jobs.find(
-            (job) =>
-              (job.status === 'queued' || job.status === 'running') &&
-              job.mediaKey === draft.mediaKey &&
-              job.language === draft.language &&
-              job.audioTrack === draft.audioTrack &&
-              job.modelSha256 === draft.modelSha256 &&
-              job.engineRevision === draft.engineRevision &&
-              job.sparse?.policy === draft.sparse?.policy
+            (job) => (job.status === 'queued' || job.status === 'running') && compatible(job)
           );
           if (existing) {
             done(existing);
+            return;
+          }
+          // Reuse durable windows when Generate is pressed after a pause or a
+          // retryable failure. Choosing and requeueing happen in one transaction
+          // so simultaneous tabs cannot admit two expensive jobs.
+          const resumable = jobs
+            .filter((job) => compatible(job) && jobCanResume(job))
+            .sort((a, b) => b.createdAt - a.createdAt)[0];
+          if (resumable) {
+            const resumed = releasedJob(resumable, 'queued');
+            delete resumed.error;
+            if (resumed.sparse && draft.sparse)
+              resumed.sparse = { ...resumed.sparse, targetSeconds: draft.sparse.targetSeconds };
+            store.put(resumed, key(scope, 'jobs', resumed.id));
+            done(resumed);
             return;
           }
           store.put(draft, key(scope, 'jobs', draft.id));
