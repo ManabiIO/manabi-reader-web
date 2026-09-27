@@ -14,7 +14,7 @@ time. Encoding and decoder prefill still precede the first output callback.
 
 ## Scheduling and seam policy
 
-New jobs use version 2 and `pause-overlap-v2`. The first input is deliberately
+Sequential and bulk jobs use version 2 and `pause-overlap-v2`. The first input is deliberately
 12 seconds; it advances the durable core to 10 seconds, while whole cues crossing
 the final two-second stability margin remain provisional for the next window. After
 that, ordinary inputs include both halos inside a 480,000-sample / 30-second limit.
@@ -134,8 +134,43 @@ also identifies production packaging/serving of both WASM variants as unresolved
 This patch does not repair that deployment pipeline. It makes no new real-time
 factor, accuracy, or device-memory claim.
 
-Seek-priority/out-of-order filling, a two-block normal scheduling profile, true
-microphone streaming and a neural VAD remain outside this change.
+True microphone streaming and a neural VAD remain outside this change.
+
+## Playback-first sparse jobs
+
+An explicit Generate action in the player now creates a version-3
+`overlap-sparse-v1` job. Its 26-second cores and two-second halos bound normal
+MOSS inputs to 30 seconds. The current playhead selects the next missing core;
+seeks change that priority after the current inference finishes. Each completed
+core is checkpointed once and reused in the same job as the queue fills the
+remainder of the video. A viewer who watches through the video does not trigger
+a second full transcription pass. Bulk jobs and saved v1/v2 jobs retain their
+original sequential policy and can resume without reinterpretation.
+
+Draft captions use whole cues away from unresolved seams. Once neighboring
+windows agree, their boundary cues can appear too. A completed track is
+published only after every core is covered and the whole-cue hypotheses join.
+An ambiguous seam is repaired with a bounded union input; overlapping repairs
+that exceed the model budget fail with the original hypotheses preserved.
+Completed version-3 jobs are compacted after atomic track publication, so
+routine queue reads do not reload the complete window hypotheses.
+
+The player measures inference time for each finished core and estimates how
+long it will take to build a 26-second caption lead. The estimate is updated
+as more windows finish; before the first window it says that it is estimating.
+If inference takes longer than one core of playback, the UI says captions may
+need to buffer again. Viewers can wait or choose **Play without captions**.
+This is a rolling estimate, not a promise of sustained real-time transcription.
+
+Playback begins as soon as the browser can play the source. Authored sidecars
+and embedded subtitles are shown in memory while full content hashing runs.
+They are saved and bound to the portable content identity only after the full
+hash verifies. Generation is enabled after that verification; temporary
+subtitle IDs never enter portable playback state.
+
+Version-3 scheduling and the browser controls have deterministic and Chromium
+tests. Natural Japanese boundary quality, real-WASM throughput, device memory,
+and suspended-tab recovery have not yet been qualified for this new policy.
 
 ## References
 

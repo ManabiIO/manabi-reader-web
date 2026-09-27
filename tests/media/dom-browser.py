@@ -812,6 +812,38 @@ def main():
             }""")
             assert '再開した出力' in page.locator('.transcription-provisional').inner_text()
         case('resumed output is allowed and another job cannot clear its preview',preview_resume)
+        def sparse_buffer_controls():
+            page.evaluate("""async()=>{
+                await createPlayer();
+                await player.bindIdentity(mediaKey);
+                window.sparseJob={id:trackId,mediaKey,status:'running',duration:78,
+                    sparse:{policy:'overlap-sparse-v1',targetSeconds:0,
+                        windows:[null,null,null],repairs:[null,null]}};
+                player.generationProgress(sparseJob);
+            }""")
+            assert 'estimating after the first window' in page.locator('.video-viewing [role=status]').all_inner_texts()[-1]
+            page.get_by_role('button',name='Wait for captions',exact=True).click()
+            assert page.get_by_role('button',name='Play without captions',exact=True).is_visible()
+            page.evaluate("""()=>{
+                sparseJob.sparse.windows[0]={cues:[],inferenceMs:40000};
+                player.generationProgress(sparseJob);
+            }""")
+            assert 'slower than playback' in page.locator('.video-viewing [role=status]').all_inner_texts()[-1]
+            page.get_by_role('button',name='Play without captions',exact=True).click()
+            assert page.get_by_role('button',name='Wait for captions',exact=True).is_visible()
+        case('slow sparse inference shows a measured ETA and playback bypass',sparse_buffer_controls)
+        def temporary_captions_remap():
+            page.evaluate("""async()=>{
+                await createPlayer();
+                const cues=[{id:'a',start:0,end:2,text:'Existing subtitles'}];
+                player.setTemporaryTracks([{...track(trackId,'ja',cues),
+                    mediaKey:'content:'+'0'.repeat(64),label:'Early subtitles'}]);
+                select('Transcript track',trackId);
+                await player.bindIdentity(mediaKey);
+                player.setTracks([{...track(trackId2,'ja',cues),label:'Early subtitles'}]);
+            }""")
+            assert page.locator('[aria-label="Transcript track"]').input_value()==page.evaluate('trackId2')
+        case('early authored subtitles remap to verified portable identity',temporary_captions_remap)
         def csp_policy(allow_wasm):
             csp_page=browser.new_page()
             policy="script-src 'nonce-media-test'" + (" 'wasm-unsafe-eval'" if allow_wasm else "")

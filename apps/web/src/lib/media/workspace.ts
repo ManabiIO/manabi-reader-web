@@ -88,6 +88,7 @@ export class VideoWorkspace {
     key: ContentKey;
     source: ByteSource;
   };
+  private currentTranscription?: Job;
   private player?: VideoPlayer;
   private queue: TranscriptionQueue;
   private stopStore: () => void;
@@ -303,6 +304,10 @@ export class VideoWorkspace {
       },
       (p) => {
         if (this.closed) return;
+        if (this.current?.key === p.job.mediaKey) {
+          this.currentTranscription = p.job;
+          this.player?.generationProgress(p.job);
+        }
         this.progress.hidden = false;
         this.progress.max = Math.max(1, p.total);
         this.progress.value = p.loaded;
@@ -417,6 +422,7 @@ export class VideoWorkspace {
     await this.player?.dispose();
     if (this.closed || generation !== this.generation) return;
     this.current = undefined;
+    this.currentTranscription = undefined;
     this.audioChoices = [];
     this.audio.replaceChildren();
     this.audio.disabled = true;
@@ -435,6 +441,10 @@ export class VideoWorkspace {
         if (active()) return await this.generate();
         return undefined;
       },
+      onPosition: (seconds) => {
+        const job = this.currentTranscription;
+        if (job && active()) this.queue.prioritize(job.id, seconds);
+      },
       onAppearance: this.options.onAppearance,
       onImport: () => {
         if (active()) this.pickSubtitle();
@@ -442,9 +452,66 @@ export class VideoWorkspace {
       onExport: (t) => this.export(source.name, t)
     }));
     this.viewing.replaceChildren(player.root);
-    this.notice('Preparing portable progress identity. Playback is already available.');
+    this.notice(
+      'Looking for captions and audio while verifying this video. Playback is available.'
+    );
     this.progress.hidden = false;
     this.progress.max = source.size;
+    const temporary: Track[] = [];
+    const addTemporary = (tracks: Track[]) => {
+      if (!active()) return;
+      temporary.push(...tracks);
+      player.setTemporaryTracks(temporary);
+    };
+    void Promise.all(
+      subs
+        .filter((sub) => matchSidecar(source.name, sub.name))
+        .map(async (sub) => {
+          if (sub.size > 5 * 1024 * 1024) return;
+          const match = matchSidecar(source.name, sub.name);
+          const cues = parseSubtitles(await sub.text());
+          const lang = trackLanguage({ language: match?.language ?? 'und', cues });
+          addTemporary([
+            {
+              version: 1,
+              id: crypto.randomUUID(),
+              mediaKey: `content:${'0'.repeat(64)}`,
+              label: `${lang} · ${sub.name}`,
+              language: lang,
+              kind: 'transcription',
+              origin: 'sidecar',
+              complete: true,
+              forced: match?.forced ?? false,
+              createdAt: Date.now(),
+              cues
+            }
+          ]);
+        })
+    ).catch((e) => {
+      if (active()) this.error(e);
+    });
+    const embedded = discoverEmbedded(source, signal);
+    void embedded
+      .then((result) => {
+        if (!active()) return;
+        addTemporary(
+          result.tracks.map((track) => ({
+            ...track,
+            version: 1,
+            id: crypto.randomUUID(),
+            mediaKey: `content:${'0'.repeat(64)}`,
+            origin: 'embedded',
+            kind: 'transcription',
+            complete: true,
+            createdAt: Date.now()
+          }))
+        );
+        player.setDiscovery(result.state === 'complete' ? 'complete' : 'limited');
+      })
+      .catch(() => {
+        if (active()) player.setDiscovery('limited');
+      });
+    void this.loadAudio(source, signal, generation);
     try {
       try {
         const sampled = await deviceKey(source, signal);
@@ -462,6 +529,7 @@ export class VideoWorkspace {
       if (expected && key !== expected)
         throw new Error('The selected file is not the saved video. Its old progress was kept.');
       this.current = { key, source };
+      player.setGenerationAvailable(this.audioChoices.some((track) => track.decodable));
       this.sources.set(key, source);
       await this.store.putLocal(this.options.scope, 'aliases', key, {
         key,
@@ -504,8 +572,7 @@ export class VideoWorkspace {
       this.notice(
         'Choose Generate transcript when you need captions. Nothing is generated automatically.'
       );
-      void this.discover(source, key, signal, generation);
-      void this.loadAudio(source, signal, generation);
+      void this.discover(source, key, signal, generation, embedded);
       await this.refresh();
     } catch (e) {
       if (active()) this.error(e);
@@ -515,10 +582,11 @@ export class VideoWorkspace {
     source: ByteSource,
     key: ContentKey,
     signal: AbortSignal,
-    generation: number
+    generation: number,
+    preloaded?: Promise<Awaited<ReturnType<typeof discoverEmbedded>>>
   ) {
     try {
-      const result = await discoverEmbedded(source, signal);
+      const result = await (preloaded ?? discoverEmbedded(source, signal));
       signal.throwIfAborted();
       if (this.closed || generation !== this.generation) return;
       await this.saveEmbedded(key, result.tracks, signal);
@@ -604,7 +672,7 @@ export class VideoWorkspace {
       }
       this.audio.disabled = !descriptions.some((t) => t.decodable);
       this.audio.value = String(chooseTranscriptionAudio(descriptions, this.lang.value)?.id ?? '');
-      this.player?.setGenerationAvailable(descriptions.some((t) => t.decodable));
+      this.player?.setGenerationAvailable(!!this.current && descriptions.some((t) => t.decodable));
       if (!descriptions.length) this.notice('This video has no audio track to transcribe.');
     } catch (e) {
       if (!signal.aborted && generation === this.generation)
@@ -714,8 +782,11 @@ export class VideoWorkspace {
       current.key,
       lang === 'und' ? selected.language : lang,
       String(selected.id),
-      duration
+      duration,
+      this.player?.video.currentTime ?? 0
     );
+    this.currentTranscription = job;
+    this.player?.generationProgress(job);
     await this.refreshJobs();
     return job.id;
   }
@@ -1025,13 +1096,23 @@ export class VideoWorkspace {
       if (this.jobsDirty) continue;
       this.renderJobs(jobs);
       const key = this.current?.key;
-      if (key)
+      if (key) {
+        const selected =
+          jobs.find((job) => job.id === this.currentTranscription?.id) ??
+          jobs
+            .filter((job) => job.mediaKey === key && job.sparse)
+            .sort((a, b) => b.createdAt - a.createdAt)[0];
+        if (selected?.mediaKey === key) {
+          this.currentTranscription = selected;
+          this.player?.generationProgress(selected);
+        }
         this.player?.setDrafts(
           jobs
             .filter((job) => job.mediaKey === key)
             .map(transcriptionDraft)
             .filter((draft): draft is TranscriptionDraft => !!draft)
         );
+      }
     }
   }
   private renderJobs(jobs: Job[]) {

@@ -22,6 +22,9 @@ import { studySpans, seekSpan, LinePause, type StudySpan } from './study.js';
 import { type CueTimeline, chooseLayout } from './captions.js';
 import { formatMediaTime } from './time.js';
 import type { TranscriptionDraft } from './transcription-draft.js';
+import type { Job } from './jobs.js';
+import { sparseLead, SPARSE_CORE_SECONDS } from './sparse-transcription.js';
+import { cueDigest } from './captions.js';
 import { TrackCatalog } from './track-catalog.js';
 import { type ByteSource } from './sources.js';
 import { MediaStore } from './store.js';
@@ -34,6 +37,7 @@ export interface PlayerOptions {
   store: MediaStore;
   onError(message: string): void;
   onGenerate(): void | Promise<string | void>;
+  onPosition?(seconds: number): void;
   onAppearance?(trigger: HTMLElement): void;
   preferredLanguages?: readonly string[];
   onImport(): void;
@@ -60,6 +64,13 @@ export class VideoPlayer {
   private progressNote = element('p');
   private provisional = element('div');
   private publishedTracks: Track[] = [];
+  private temporaryTracks: Track[] = [];
+  private activeJob?: Job;
+  private waitForCaptions = false;
+  private resumeAfterBuffer = false;
+  private bufferStatus = element('p');
+  private bypassButton = button('Play without captions', () => this.bypassCaptions());
+  private waitButton = button('Wait for captions', () => this.waitForBuffer());
   private drafts: TranscriptionDraft[] = [];
   private preview?: { id: string; cues: Cue[] };
   private retiredPreviews = new Set<string>();
@@ -337,10 +348,17 @@ export class VideoPlayer {
     this.provisional.className = 'transcription-provisional';
     this.provisional.setAttribute('aria-label', 'Provisional transcript');
     this.provisional.hidden = true;
+    this.bufferStatus.setAttribute('role', 'status');
+    this.bufferStatus.hidden = true;
+    this.bypassButton.hidden = true;
+    this.waitButton.hidden = true;
     this.pane.append(
       header,
       this.setup,
       this.progressNote,
+      this.bufferStatus,
+      this.bypassButton,
+      this.waitButton,
       this.transcript,
       this.provisional,
       this.menu.panel
@@ -395,6 +413,7 @@ export class VideoPlayer {
     this.video.addEventListener(
       'seeking',
       () => {
+        options.onPosition?.(this.video.currentTime);
         this.linePause.reset();
         if (
           this.restoringSeek === undefined ||
@@ -409,6 +428,7 @@ export class VideoPlayer {
       () => {
         this.restoringSeek = undefined;
         this.render();
+        this.updateBuffering();
         this.scheduleSave(true);
       },
       { signal }
@@ -425,6 +445,8 @@ export class VideoPlayer {
     this.video.addEventListener(
       'timeupdate',
       () => {
+        options.onPosition?.(this.video.currentTime);
+        this.updateBuffering();
         this.render();
         this.scheduleSave(false);
       },
@@ -607,6 +629,7 @@ export class VideoPlayer {
       if (this.closed) return;
       if (typeof id === 'string' && intent === this.selectionIntent) {
         this.pendingGenerated = id;
+        if (this.activeJob?.id === id && this.activeJob.sparse) this.waitForBuffer();
         const outcome = outcomes.get(id);
         if (outcome) this.generationStatus(id, outcome);
         this.applyTracks();
@@ -791,12 +814,123 @@ export class VideoPlayer {
     if (this.closed) return;
     const wasDraft =
       this.localDraftIds.has(this.primary.value) && !this.publishedIds.has(this.primary.value);
-    this.publishedTracks = tracks;
+    const previous = this.temporaryTracks.find((track) => track.id === this.primary.value);
+    let remapped = false;
+    if (previous) {
+      const replacement = tracks.find(
+        (track) =>
+          track.origin === previous.origin &&
+          track.label === previous.label &&
+          cueDigest(track.cues) === cueDigest(previous.cues)
+      );
+      if (replacement) {
+        const waiting = element('option');
+        waiting.value = replacement.id;
+        this.primary.append(waiting);
+        this.primary.value = replacement.id;
+        remapped = true;
+      }
+    }
+    this.temporaryTracks = this.temporaryTracks.filter(
+      (temporary) =>
+        !tracks.some(
+          (track) =>
+            track.origin === temporary.origin &&
+            track.label === temporary.label &&
+            cueDigest(track.cues) === cueDigest(temporary.cues)
+        )
+    );
+    this.publishedTracks = [...tracks, ...this.temporaryTracks];
     for (const track of tracks) if (track.complete) this.publishedIds.add(track.id);
     this.applyTracks();
+    if (remapped) this.scheduleSave(true);
     if (wasDraft && tracks.some((t) => t.id === this.primary.value && t.complete)) {
       this.saveDraftSelection();
       this.scheduleSave(true);
+    }
+  }
+  /** In-memory authored captions are usable while full content identity is verified. */
+  setTemporaryTracks(tracks: Track[]) {
+    if (this.closed) return;
+    const oldIds = new Set(this.temporaryTracks.map((track) => track.id));
+    this.temporaryTracks = tracks;
+    this.publishedTracks = [
+      ...this.publishedTracks.filter((track) => !oldIds.has(track.id)),
+      ...tracks
+    ];
+    this.applyTracks();
+  }
+  generationProgress(job: Job) {
+    if (this.closed || this.key !== job.mediaKey) return;
+    this.activeJob = job;
+    this.updateBuffering();
+  }
+  private waitForBuffer() {
+    this.waitForCaptions = true;
+    this.resumeAfterBuffer = !this.video.paused;
+    this.video.pause();
+    this.updateBuffering();
+  }
+  private bypassCaptions() {
+    this.waitForCaptions = false;
+    this.resumeAfterBuffer = false;
+    this.updateBuffering();
+    void this.video.play().catch((error) => this.error(error));
+  }
+  private updateBuffering() {
+    const job = this.activeJob;
+    const state = job?.sparse;
+    const active = !!state && job.status !== 'complete';
+    this.bufferStatus.hidden = !active;
+    this.bypassButton.hidden = !active || !this.waitForCaptions;
+    this.waitButton.hidden =
+      !active || this.waitForCaptions || job.status === 'paused' || job.status === 'failed';
+    if (!active || !state) {
+      if (this.waitForCaptions) {
+        this.waitForCaptions = false;
+        if (this.resumeAfterBuffer) {
+          this.resumeAfterBuffer = false;
+          void this.video.play().catch((error) => this.error(error));
+        }
+      }
+      return;
+    }
+    if (job.status === 'paused' || job.status === 'failed') {
+      this.bufferStatus.textContent =
+        job.status === 'paused'
+          ? 'Transcription paused. Resume it in the queue or play without captions.'
+          : 'Transcription failed. You can play without captions.';
+      return;
+    }
+    const position = Math.min(job.duration, this.video.currentTime || 0);
+    const lead = sparseLead(state, job.duration, position);
+    const needed = Math.min(SPARSE_CORE_SECONDS, job.duration - position);
+    const samples = state.windows.flatMap((window) => (window ? [window.inferenceMs] : []));
+    const average = samples.length ? samples.reduce((sum, ms) => sum + ms, 0) / samples.length : 0;
+    const missing = Math.max(0, Math.ceil((needed - lead) / SPARSE_CORE_SECONDS));
+    const eta =
+      missing && average
+        ? `about ${formatMediaTime(Math.ceil((missing * average) / 1000))}`
+        : missing
+          ? 'estimating after the first window'
+          : 'ready';
+    const speed =
+      samples.length && average > SPARSE_CORE_SECONDS * 1000
+        ? ' Recognition is slower than playback; captions may need to buffer again.'
+        : '';
+    this.bufferStatus.textContent = `Caption lead: ${formatMediaTime(lead)}. ${
+      missing
+        ? `Estimated wait for ${formatMediaTime(needed)} of coverage: ${eta}.`
+        : 'Ready to play with captions.'
+    }${speed}`;
+    if (this.waitForCaptions && !missing) {
+      this.waitForCaptions = false;
+      this.bypassButton.hidden = true;
+      this.waitButton.hidden = false;
+      if (this.resumeAfterBuffer) {
+        this.resumeAfterBuffer = false;
+        void this.video.play().catch((error) => this.error(error));
+      }
     }
   }
   setDrafts(drafts: TranscriptionDraft[]) {
@@ -835,7 +969,7 @@ export class VideoPlayer {
     const complete = this.publishedTracks.some((t) => t.id === id && t.complete);
     this.progressNote.hidden = !draft || complete;
     if (draft && !complete) {
-      this.progressNote.textContent = `${draft.state === 'complete' ? 'Finalizing transcript' : draft.state === 'failed' ? (draft.restartRequired ? 'Transcription needs a different window policy' : 'Transcription needs a retry') : draft.state === 'paused' ? 'Transcription paused' : 'Generating transcript'} · ${formatMediaTime(draft.coverage)} of ${formatMediaTime(draft.duration)} processed. Accepted lines are available below; this track is not complete.`;
+      this.progressNote.textContent = `${draft.state === 'complete' ? 'Finalizing transcript' : draft.state === 'failed' ? (draft.restartRequired ? 'Transcription needs a different window policy' : 'Transcription needs a retry') : draft.state === 'paused' ? 'Transcription paused' : 'Generating transcript'} · ${formatMediaTime(draft.coverage)} of ${formatMediaTime(draft.duration)} processed. ${draft.track.cues.length ? 'Accepted lines are available below.' : 'No accepted lines are ready yet.'} This track is not complete.`;
     }
     const cues = complete
       ? []
@@ -1259,6 +1393,7 @@ export class VideoPlayer {
   }
   private portableSelection(id: string): string | null {
     if (!id) return null;
+    if (this.temporaryTracks.some((track) => track.id === id)) return null;
     return this.localDraftIds.has(id) && !this.publishedIds.has(id) ? null : id;
   }
   private saveDraftSelection() {

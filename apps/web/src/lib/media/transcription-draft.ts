@@ -9,6 +9,7 @@ import { jobCanResume, type Job } from './jobs.js';
 import { MOSS } from './model-cache.js';
 import { coreEnd, SAMPLE_RATE } from './moss-progressive.js';
 import { planWindows } from './moss-output.js';
+import { sparseCoverage } from './sparse-transcription.js';
 
 /** Device-only view of a durable job. Never saved as a caption manifest or synced. */
 export interface TranscriptionDraft {
@@ -20,11 +21,16 @@ export interface TranscriptionDraft {
   pending: Cue[];
 }
 export function transcriptionDraft(job: Job): TranscriptionDraft | undefined {
-  const coverage = job.progressive
-    ? Math.min(job.duration, coreEnd(job.progressive) / SAMPLE_RATE)
-    : job.nextWindow
-      ? planWindows(job.duration)[job.nextWindow - 1].coreEnd
-      : 0;
+  const coverage =
+    job.version === 3 && !job.sparse
+      ? job.duration
+      : job.sparse
+        ? sparseCoverage(job.sparse, job.duration)
+        : job.progressive
+          ? Math.min(job.duration, coreEnd(job.progressive) / SAMPLE_RATE)
+          : job.nextWindow
+            ? planWindows(job.duration)[job.nextWindow - 1].coreEnd
+            : 0;
   return {
     track: {
       version: 1,
@@ -39,16 +45,19 @@ export function transcriptionDraft(job: Job): TranscriptionDraft | undefined {
       forced: false,
       createdAt: job.createdAt,
       provenance: {
-        engine: job.progressive
-          ? `moss-transcribe.cpp/${job.progressive.policy}`
-          : 'moss-transcribe.cpp',
+        engine:
+          job.version === 3
+            ? `moss-transcribe.cpp/${job.sparse?.policy ?? 'overlap-sparse-v1'}`
+            : job.progressive
+              ? `moss-transcribe.cpp/${job.progressive.policy}`
+              : 'moss-transcribe.cpp',
         engineRevision: job.engineRevision,
         model: MOSS.model,
         modelRevision: MOSS.revision,
         modelSha256: job.modelSha256,
         quantization: MOSS.quantization,
         audioTrack: job.audioTrack,
-        windowSeconds: job.progressive?.inputSeconds ?? 60,
+        windowSeconds: job.version === 3 ? 30 : (job.progressive?.inputSeconds ?? 60),
         overlapSeconds: 2,
         generatedAt: job.createdAt
       }

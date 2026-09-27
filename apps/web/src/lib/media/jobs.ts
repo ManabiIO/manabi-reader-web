@@ -19,6 +19,15 @@ import {
 } from './contracts.js';
 import { planWindows } from './moss-output.js';
 import {
+  SPARSE_CORE_SECONDS,
+  assembleSparse,
+  safeSparseCues,
+  sparseBounds,
+  sparseCoverage,
+  validateSparseState,
+  type SparseState
+} from './sparse-transcription.js';
+import {
   coreEnd,
   durationSamples,
   cueBelongsToWindow,
@@ -29,8 +38,9 @@ import {
 
 /** Device-only jobs. Never included in the personal account feed. */
 export interface Job {
-  version: 1 | 2;
+  version: 1 | 2 | 3;
   progressive?: ProgressiveState;
+  sparse?: SparseState;
   id: string;
   mediaKey: ContentKey;
   language: string;
@@ -53,6 +63,17 @@ export const JOB_LEASE_MS = 90_000;
 /** Whether repeating Resume can make progress without changing transcription policy. */
 export function jobCanResume(job: Job): boolean {
   if (job.status !== 'paused' && job.status !== 'failed') return false;
+  if (job.sparse && job.nextWindow === job.sparse.windows.length) {
+    const seam = assembleSparse(job.sparse).repair;
+    if (
+      seam !== undefined &&
+      (job.sparse.repairs[seam] ||
+        job.sparse.repairs[seam - 1] ||
+        job.sparse.repairs[seam + 1] ||
+        sparseBounds(seam + 1, job.duration).end - sparseBounds(seam, job.duration).start > 60)
+    )
+      return false;
+  }
   const repair = job.progressive && pendingSeamRepair(job.progressive);
   return !repair || repair.retryable;
 }
@@ -77,10 +98,11 @@ export function validateJob(value: unknown): Job {
     'ownerId',
     'leaseUntil',
     'cancelRequested',
-    'progressive'
+    'progressive',
+    'sparse'
   ]);
   if (
-    (j.version !== 1 && j.version !== 2) ||
+    (j.version !== 1 && j.version !== 2 && j.version !== 3) ||
     !isUUID(j.id) ||
     !isContentKey(j.mediaKey) ||
     !isDigest(j.modelSha256) ||
@@ -96,15 +118,37 @@ export function validateJob(value: unknown): Job {
     j.version === 2
       ? validateProgressiveState(j.progressive, duration, j.nextWindow as number)
       : undefined;
+  const compactSparse =
+    j.version === 3 &&
+    j.status === 'complete' &&
+    j.sparse === undefined &&
+    Array.isArray(j.cues) &&
+    j.cues.length === 0;
+  const sparse =
+    j.version === 3 && !compactSparse ? validateSparseState(j.sparse, duration) : undefined;
   if (j.version === 1 && j.progressive !== undefined)
     throw new Error('Legacy job cannot change its window policy');
-  const windowCount = progressive ? progressive.windows.length : planWindows(duration).length;
+  if (
+    (j.version !== 3 && j.sparse !== undefined) ||
+    (j.version === 3 && j.progressive !== undefined)
+  )
+    throw new Error('Job window policies cannot be mixed');
+  const windowCount = compactSparse
+    ? Math.ceil(duration / SPARSE_CORE_SECONDS)
+    : sparse
+      ? sparse.windows.length
+      : progressive
+        ? progressive.windows.length
+        : planWindows(duration).length;
+  const completedWindows = sparse?.windows.filter(Boolean).length;
   if (
     !Number.isSafeInteger(j.nextWindow) ||
     (j.nextWindow as number) < 0 ||
     (j.nextWindow as number) > windowCount ||
+    (sparse && j.nextWindow !== completedWindows) ||
     (j.status === 'complete' &&
       (j.nextWindow !== windowCount ||
+        (sparse && sparseCoverage(sparse, duration) < duration - 0.001) ||
         (progressive &&
           (coreEnd(progressive) !== durationSamples(duration) || progressive.failedSeam))))
   )
@@ -114,12 +158,41 @@ export function validateJob(value: unknown): Job {
     throw new Error('Invalid saved audio track');
   const cues = j.cues.map(validateCue),
     nextWindow = j.nextWindow as number;
+  if (sparse) {
+    const safe = safeSparseCues(sparse, duration);
+    const accepted = new Set(safe.map((cue) => cue.id));
+    if (
+      j.status !== 'complete' &&
+      (cues.length !== safe.length || cues.some((cue) => !accepted.has(cue.id)))
+    )
+      throw new Error('Sparse draft does not match saved coverage');
+    // Published jobs are compacted to an empty cue summary by MediaStore.
+    if (j.status === 'complete' && cues.length) {
+      const assembled = assembleSparse(sparse).cues;
+      if (
+        !assembled ||
+        cues.length !== assembled.length ||
+        cues.some((cue, index) => {
+          const other = assembled[index];
+          return (
+            cue.id !== other.id ||
+            cue.start !== other.start ||
+            cue.end !== other.end ||
+            cue.text !== other.text ||
+            cue.speaker !== other.speaker
+          );
+        })
+      )
+        throw new Error('Completed sparse captions do not match saved hypotheses');
+    }
+  }
   if (
     new Set(cues.map((c) => c.id)).size !== cues.length ||
-    cues.some((c) => {
-      const match = /^w(\d+)\//.exec(c.id);
-      return !match || Number(match[1]) >= nextWindow || c.end > duration + 0.001;
-    })
+    (!sparse &&
+      cues.some((c) => {
+        const match = /^w(\d+)\//.exec(c.id);
+        return !match || Number(match[1]) >= nextWindow || c.end > duration + 0.001;
+      }))
   )
     throw new Error('Caption does not belong to a completed transcription window');
   if (progressive) {
@@ -144,8 +217,9 @@ export function validateJob(value: unknown): Job {
   if (j.cancelRequested !== undefined && typeof j.cancelRequested !== 'boolean')
     throw new Error('Invalid cancellation request');
   return {
-    version: j.version as 1 | 2,
+    version: j.version as 1 | 2 | 3,
     ...(progressive ? { progressive } : {}),
+    ...(sparse ? { sparse } : {}),
     id: j.id,
     mediaKey: j.mediaKey,
     language: language(j.language),

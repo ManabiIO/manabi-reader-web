@@ -461,14 +461,16 @@ export class MediaStore {
               if (
                 fields.some((field) => current![field] !== completed[field]) ||
                 !same(current!.cues, completed.cues) ||
-                !same(current!.progressive ?? null, completed.progressive ?? null)
+                !same(current!.progressive ?? null, completed.progressive ?? null) ||
+                !same(current!.sparse ?? null, completed.sparse ?? null)
               )
                 throw new Error('Completed transcript differs from its durable checkpoint');
               // Completion and caption publication either both commit or neither does.
               // Once published, cue pages own the text. Keep only a compact completed-job
               // summary so queue scans do not deserialize every previous full transcript.
               // Failed/paused jobs retain their cue checkpoints for actual resume.
-              jobs.put({ ...completed, cues: [] }, jobKey);
+              const { sparse: _sparse, ...summary } = completed;
+              jobs.put({ ...summary, cues: [] }, jobKey);
             } catch (e) {
               fail(e);
             }

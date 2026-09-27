@@ -12,6 +12,14 @@ import { newProgressiveState } from './moss-progressive.js';
 import { transcribeWithPreview } from './moss-preview.js';
 import { transcribeProgressively } from './progressive-transcription.js';
 import {
+  newSparseState,
+  sparseBounds,
+  safeSparseCues,
+  nextSparseWindow,
+  sparseCoverage,
+  assembleSparse
+} from './sparse-transcription.js';
+import {
   validateJob,
   ownsJob,
   releasedJob,
@@ -73,6 +81,7 @@ export interface QueueProgress {
 export class TranscriptionQueue {
   private running = false;
   private admitted = new Map<string, symbol>();
+  private targets = new Map<string, number>();
   private batch?: AbortController;
   private closing?: Promise<void>;
   private task?: Promise<void>;
@@ -129,11 +138,19 @@ export class TranscriptionQueue {
   private async jobs() {
     return (await this.store.listLocal<unknown>(this.scope, 'jobs')).map(validateJob);
   }
-  async enqueue(key: ContentKey, lang: string, audioTrack: string, duration: number): Promise<Job> {
+  async enqueue(
+    key: ContentKey,
+    lang: string,
+    audioTrack: string,
+    duration: number,
+    targetSeconds?: number
+  ): Promise<Job> {
     if (this.closed) throw new Error('The queue is closed');
     const draft = validateJob({
-      version: 2,
-      progressive: newProgressiveState(),
+      version: targetSeconds === undefined ? 2 : 3,
+      ...(targetSeconds === undefined
+        ? { progressive: newProgressiveState() }
+        : { sparse: newSparseState(duration, targetSeconds) }),
       id: crypto.randomUUID(),
       mediaKey: key,
       language: language(lang),
@@ -152,6 +169,11 @@ export class TranscriptionQueue {
     this.admitted.set(job.id, Symbol());
     this.kick();
     return job;
+  }
+  /** Playback and seeks affect the next input, not an in-flight model call. */
+  prioritize(id: string, seconds: number) {
+    if (!Number.isFinite(seconds) || seconds < 0 || this.closed) return;
+    this.targets.set(id, seconds);
   }
   async resume(id: string) {
     if (this.closed) throw new Error('The queue is closed');
@@ -176,6 +198,7 @@ export class TranscriptionQueue {
     this.kick();
   }
   async cancel(id: string) {
+    this.targets.delete(id);
     if (this.active?.id === id)
       this.active.controller.abort(new DOMException('Generation cancelled', 'AbortError'));
     await this.store.updateLocal<Job>(this.scope, 'jobs', id, (old) => {
@@ -350,7 +373,13 @@ export class TranscriptionQueue {
               const saved = await this.store.updateLocal<Job>(this.scope, 'jobs', job.id, (old) => {
                 if (!ownsJob(old, ownerId)) throw new JobOwnershipLost();
                 signal.throwIfAborted();
-                return { ...snapshot, leaseUntil: Date.now() + JOB_LEASE_MS };
+                return {
+                  ...snapshot,
+                  ...(snapshot.sparse && old?.sparse
+                    ? { sparse: { ...snapshot.sparse, targetSeconds: old.sparse.targetSeconds } }
+                    : {}),
+                  leaseUntil: Date.now() + JOB_LEASE_MS
+                };
               });
               job = saved!;
             };
@@ -359,8 +388,10 @@ export class TranscriptionQueue {
               const hasWork =
                 job.version === 1
                   ? job.nextWindow < planWindows(job.duration).length
-                  : job.progressive!.windows.at(-1)?.coreEndSample !==
-                    Math.ceil(job.duration * 16000);
+                  : job.version === 2
+                    ? job.progressive!.windows.at(-1)?.coreEndSample !==
+                      Math.ceil(job.duration * 16000)
+                    : job.nextWindow < job.sparse!.windows.length;
               if (job.engineRevision !== MOSS.engineRevision && hasWork) {
                 job = {
                   ...job,
@@ -381,6 +412,122 @@ export class TranscriptionQueue {
                   },
                   notify: (p) => this.notify(p)
                 });
+              }
+              if (job.version === 3) {
+                while (job.nextWindow < job.sparse!.windows.length) {
+                  signal.throwIfAborted();
+                  const target = this.targets.get(job.id) ?? job.sparse!.targetSeconds;
+                  const state = { ...job.sparse!, targetSeconds: Math.min(job.duration, target) };
+                  const index = nextSparseWindow(state);
+                  if (index < 0) break;
+                  const bounds = sparseBounds(index, job.duration);
+                  this.notify({
+                    job,
+                    stage: 'decoding',
+                    loaded: sparseCoverage(state, job.duration),
+                    total: job.duration
+                  });
+                  const pcm = await this.decode(job, bounds.start, bounds.end, signal);
+                  signal.throwIfAborted();
+                  const expectedSamples = Math.round((bounds.end - bounds.start) * 16000);
+                  if (
+                    !(pcm instanceof Float32Array) ||
+                    !pcm.length ||
+                    Math.abs(pcm.length - expectedSamples) > 1 ||
+                    pcm.length > 30 * 16000 + 1 ||
+                    !pcm.every(Number.isFinite)
+                  )
+                    throw new Error('Invalid decoded sparse audio window');
+                  let raw = '';
+                  const started = performance.now();
+                  if (!pcm.every((sample) => sample === 0)) {
+                    await this.engine.prepare(signal, (p) => this.notify({ job, ...p }));
+                    raw = await transcribeWithPreview(this.engine, pcm, signal, (text) => {
+                      const provisional = ownedCues(parseMossPreview(text, pcm.length / 16000), {
+                        index,
+                        ...bounds
+                      });
+                      this.notify({
+                        job,
+                        stage: 'transcribing',
+                        loaded: sparseCoverage(state, job.duration),
+                        total: job.duration,
+                        provisional
+                      });
+                    });
+                  }
+                  signal.throwIfAborted();
+                  const cues = parseMoss(raw, pcm.length / 16000).map((cue, n) => ({
+                    ...cue,
+                    id: `w${index}/cue-${n}`,
+                    start: cue.start + bounds.start,
+                    end: cue.end + bounds.start,
+                    ...(cue.speaker ? { speaker: `w${index}/${cue.speaker}` } : {})
+                  }));
+                  const next = { ...state, windows: [...state.windows] };
+                  next.windows[index] = { cues, inferenceMs: performance.now() - started };
+                  job = {
+                    ...job,
+                    sparse: next,
+                    nextWindow: job.nextWindow + 1,
+                    cues: safeSparseCues(next, job.duration)
+                  };
+                  await checkpoint();
+                  this.notify({
+                    job,
+                    stage: 'transcribing',
+                    loaded: sparseCoverage(next, job.duration),
+                    total: job.duration
+                  });
+                }
+                let assembled = assembleSparse(job.sparse!);
+                while (assembled.repair !== undefined) {
+                  const seam = assembled.repair;
+                  if (job.sparse!.repairs[seam])
+                    throw new Error(
+                      'An adjacent repaired seam remains ambiguous; saved hypotheses were kept.'
+                    );
+                  if (job.sparse!.repairs[seam - 1] || job.sparse!.repairs[seam + 1])
+                    throw new Error(
+                      'An overlapping seam cannot be repaired within the model input limit; saved hypotheses were kept.'
+                    );
+                  const first = sparseBounds(seam, job.duration);
+                  const second = sparseBounds(seam + 1, job.duration);
+                  if (second.end - first.start > 60)
+                    throw new Error(
+                      'A transcript seam exceeds the safe repair input; saved hypotheses were kept.'
+                    );
+                  const pcm = await this.decode(job, first.start, second.end, signal);
+                  signal.throwIfAborted();
+                  if (
+                    !(pcm instanceof Float32Array) ||
+                    !pcm.length ||
+                    Math.abs(pcm.length - Math.round((second.end - first.start) * 16000)) > 1 ||
+                    !pcm.every(Number.isFinite)
+                  )
+                    throw new Error('Invalid decoded seam audio');
+                  const exactSilence = pcm.every((sample) => sample === 0);
+                  if (!exactSilence)
+                    await this.engine.prepare(signal, (p) => this.notify({ job, ...p }));
+                  const raw = exactSilence
+                    ? ''
+                    : await transcribeWithPreview(this.engine, pcm, signal);
+                  const repair = parseMoss(raw, pcm.length / 16000).map((cue, n) => ({
+                    ...cue,
+                    id: `w${seam}/repair-${n}`,
+                    start: cue.start + first.start,
+                    end: cue.end + first.start,
+                    ...(cue.speaker ? { speaker: `w${seam}/${cue.speaker}` } : {})
+                  }));
+                  const next = { ...job.sparse!, repairs: [...job.sparse!.repairs] };
+                  next.repairs[seam] = repair;
+                  job = { ...job, sparse: next, cues: safeSparseCues(next, job.duration) };
+                  await checkpoint();
+                  assembled = assembleSparse(next);
+                }
+                if (!assembled.cues)
+                  throw new Error('Sparse transcription did not cover the complete video');
+                job = { ...job, cues: assembled.cues };
               }
               for (let i = job.nextWindow; i < windows.length; i++) {
                 signal.throwIfAborted();
@@ -437,16 +584,18 @@ export class TranscriptionQueue {
                 createdAt: job.createdAt,
                 provenance: {
                   engine:
-                    job.version === 2
-                      ? `moss-transcribe.cpp/${job.progressive!.policy}`
-                      : 'moss-transcribe.cpp',
+                    job.version === 3
+                      ? `moss-transcribe.cpp/${job.sparse!.policy}`
+                      : job.version === 2
+                        ? `moss-transcribe.cpp/${job.progressive!.policy}`
+                        : 'moss-transcribe.cpp',
                   engineRevision: job.engineRevision,
                   model: MOSS.model,
                   modelRevision: MOSS.revision,
                   modelSha256: job.modelSha256,
                   quantization: MOSS.quantization,
                   audioTrack: job.audioTrack,
-                  windowSeconds: job.progressive?.inputSeconds ?? 60,
+                  windowSeconds: job.sparse ? 30 : (job.progressive?.inputSeconds ?? 60),
                   overlapSeconds: 2,
                   generatedAt: job.completedAt!
                 }
@@ -499,6 +648,7 @@ export class TranscriptionQueue {
           } catch (e) {
             if (!signal.aborted || e !== signal.reason) throw e;
           } finally {
+            this.targets.delete(candidate.id);
             this.active = undefined;
           }
         }
