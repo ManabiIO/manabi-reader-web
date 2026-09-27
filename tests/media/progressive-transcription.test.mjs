@@ -351,7 +351,10 @@ test('verified-zero next input drops only fully covered unsettled hallucinations
   h.options.decode = async (_job, start, end) => pcm(end - start, 0);
   await h.run();
   assert.equal(h.state.prepares, 0);
-  assert.deepEqual(h.state.job.cues.map((c) => c.text), ['確定した発言です。']);
+  assert.deepEqual(
+    h.state.job.cues.map((c) => c.text),
+    ['確定した発言です。']
+  );
   assert.deepEqual(h.state.job.progressive.tail, []);
 });
 test('verified-zero overlap preserves a held cue that began before the covered input', async () => {
@@ -364,10 +367,10 @@ test('verified-zero overlap preserves a held cue that began before the covered i
   const h = runner(validateJob(job), []);
   h.options.decode = async (_job, start, end) => pcm(end - start, 0);
   await h.run();
-  assert.deepEqual(h.state.job.cues.map((c) => c.text), [
-    '確定した発言です。',
-    '境界をまたぐ発言です。'
-  ]);
+  assert.deepEqual(
+    h.state.job.cues.map((c) => c.text),
+    ['確定した発言です。', '境界をまたぐ発言です。']
+  );
 });
 test('silent-tail correction is not durable until its checkpoint succeeds', async () => {
   const job = legacyProgressive(50),
@@ -686,7 +689,9 @@ test('a long held utterance is not dropped when it starts before the next repair
   assert.ok(h.state.job.progressive.failedSeam);
   const repair = pendingSeamRepair(h.state.job.progressive);
   assert.equal(repair?.retryable, false);
-  const { ownerId: _owner, leaseUntil: _lease, ...released } = h.state.job;
+  const released = structuredClone(h.state.job);
+  delete released.ownerId;
+  delete released.leaseUntil;
   const failed = validateJob({ ...released, status: 'failed' });
   assert.equal(jobCanResume(failed), false);
   assert.equal(transcriptionDraft(failed).restartRequired, true);
@@ -699,11 +704,17 @@ test('a long held utterance is not dropped when it starts before the next repair
     store,
     'guest',
     {
-      async prepare() { throw Error('must not prepare'); },
-      async transcribe() { throw Error('must not infer'); },
+      async prepare() {
+        throw Error('must not prepare');
+      },
+      async transcribe() {
+        throw Error('must not infer');
+      },
       dispose() {}
     },
-    async () => { throw Error('must not decode'); }
+    async () => {
+      throw Error('must not decode');
+    }
   );
   try {
     await store.putLocal('guest', 'jobs', id, failed);
@@ -724,8 +735,13 @@ test('ordinary saved seam failures remain retryable', () => {
   job.nextWindow = 1;
   job.progressive.tail = [cue('境界です。', 25, 29)];
   const next = chooseWindow(job.progressive, 50, pcm(24));
-  job.progressive.failedSeam = { window: next, cues: [cue('別の認識です。', 26, 30, 'w1/cue-0')] };
-  const { ownerId: _owner, leaseUntil: _lease, ...released } = validateJob(job);
+  job.progressive.failedSeam = {
+    window: next,
+    cues: [cue('別の認識です。', 26, 30, 'w1/cue-0')]
+  };
+  const released = validateJob(job);
+  delete released.ownerId;
+  delete released.leaseUntil;
   const failed = validateJob({ ...released, status: 'failed' });
   assert.equal(pendingSeamRepair(failed.progressive).retryable, true);
   assert.equal(jobCanResume(failed), true);
