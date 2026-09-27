@@ -5,7 +5,7 @@
  */
 
 import type { Cue, Track } from './contracts.js';
-import type { Job } from './jobs.js';
+import { jobCanResume, type Job } from './jobs.js';
 import { MOSS } from './model-cache.js';
 import { coreEnd, SAMPLE_RATE } from './moss-progressive.js';
 import { planWindows } from './moss-output.js';
@@ -16,6 +16,7 @@ export interface TranscriptionDraft {
   coverage: number;
   duration: number;
   state: Job['status'];
+  restartRequired: boolean;
   pending: Cue[];
 }
 export function transcriptionDraft(job: Job): TranscriptionDraft | undefined {
@@ -55,6 +56,7 @@ export function transcriptionDraft(job: Job): TranscriptionDraft | undefined {
     coverage,
     duration: job.duration,
     state: job.status,
+    restartRequired: job.status === 'failed' && !jobCanResume(job),
     pending: job.progressive?.tail ?? []
   };
 }
