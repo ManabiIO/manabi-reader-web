@@ -831,6 +831,7 @@ def main():
             assert 'slower than playback' in page.locator('.video-viewing [role=status]').all_inner_texts()[-1]
             page.get_by_role('button',name='Play without captions',exact=True).click()
             assert page.get_by_role('button',name='Wait for captions',exact=True).is_visible()
+            page.wait_for_function('!player.video.paused')
         case('slow sparse inference shows a measured ETA and playback bypass',sparse_buffer_controls)
         def temporary_captions_remap():
             page.evaluate("""async()=>{

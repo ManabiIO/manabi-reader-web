@@ -93,6 +93,30 @@ def main():
             assert page.evaluate("bound.every(b=>b.name==='Second.mp4' && b.key===workspace.current.key)")
             assert page.evaluate('prepares')==0
         case('late first-file storage continuation cannot bind its identity to the successor player',switching)
+        def play_and_sidecar_during_hash():
+            page.evaluate('reset()')
+            page.evaluate(r"""()=>{
+                const source=makeSource('Early.mp4');
+                const read=source.read.bind(source);
+                window.hashGate=new Promise(resolve=>window.releaseHash=resolve);
+                source.read=async(start,end,signal)=>{
+                    if(end-start>32768)await hashGate;
+                    return read(start,end,signal);
+                };
+                const text='1\n00:00:00,100 --> 00:00:01,500\n早い字幕です。';
+                window.opened=workspace.openSource(source,[new File([text],'Early.ja.srt')]);
+            }""")
+            page.wait_for_function("document.querySelector('[aria-label=\"Choose existing subtitles\"]')?.options.length===2")
+            assert page.evaluate('workspace.current===undefined && workspace.player.video.readyState>=1')
+            temp=page.evaluate("document.querySelector('[aria-label=\"Choose existing subtitles\"]').options[1].value")
+            page.get_by_label('Choose existing subtitles',exact=True).select_option(temp)
+            assert page.locator('.transcript-cue').count()==1
+            assert page.evaluate('inferences')==0
+            page.evaluate('releaseHash();opened')
+            page.wait_for_function('workspace.current!==undefined')
+            page.wait_for_function('(old)=>workspace.player.primary.value!==old',arg=temp)
+            assert page.locator('.transcript-cue').count()==1
+        case('video and authored sidecar work while full identity hashing is pending',play_and_sidecar_during_hash)
         def audio():
             page.wait_for_function("document.querySelector('[aria-label=\"Audio track for transcription\"]').value==='2'")
             assert page.get_by_label('Audio track for transcription',exact=True).input_value()=='2'
