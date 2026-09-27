@@ -17,6 +17,7 @@ import {
   inputStart,
   inputEnd,
   joinBoundary,
+  pendingSeamRepair,
   repairedSuffix,
   splitSettled,
   type ProgressiveWindow
@@ -161,21 +162,16 @@ export async function transcribeProgressively(
       // Persist both interpretations BEFORE the optional repair. A crash/cancel resumes here.
       job = await checkpoint({ ...job, progressive: { ...state, failedSeam: hypothesis } });
       progress('repairing');
-      const previous = state.windows.at(-1)!;
-      // A held utterance can span more than the previous core. Include its beginning
-      // rather than silently replacing only the latter part of the retained hypothesis.
-      const start = Math.min(
-        previous.startSample,
-        ...state.tail.map((cue) => Math.floor(cue.start * SAMPLE_RATE))
-      );
-      const end = window.endSample;
-      if (end - start > 60 * SAMPLE_RATE) {
+      const repairRange = pendingSeamRepair(job.progressive!);
+      if (!repairRange) throw new Error('Saved transcript seam is missing its repair evidence');
+      const { startSample: start, endSample: end } = repairRange;
+      if (!repairRange.retryable) {
         throw new Error(
-          'This boundary needs a smaller-window retry. Both interpretations and accepted captions were kept.'
+          'This boundary needs a different window policy. Accepted captions and both interpretations were kept; repeating Resume would reproduce the same oversized repair.'
         );
       }
-      const repair = await recognize(await audio.read(job, start, end), window, start, false);
-      combined = repairedSuffix(job.cues, repair, start / SAMPLE_RATE);
+      const repairCues = await recognize(await audio.read(job, start, end), window, start, false);
+      combined = repairedSuffix(job.cues, repairCues, start / SAMPLE_RATE);
       if (!combined || (!combined.length && (state.tail.length || hypothesis.cues.length))) {
         throw new Error(
           'An ambiguous transcript boundary could not be joined safely. Accepted captions and both interpretations were kept; resume to retry.'
