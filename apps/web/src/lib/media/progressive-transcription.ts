@@ -131,6 +131,7 @@ export async function transcribeProgressively(
   while (coreEnd(job.progressive!) < durationSamples(job.duration)) {
     signal.throwIfAborted();
     const state = job.progressive!;
+    let boundaryTail = state.tail;
     let hypothesis = state.failedSeam;
     if (!hypothesis) {
       progress('decoding');
@@ -147,14 +148,14 @@ export async function transcribeProgressively(
       // A wholly covered cue over verified digital-zero PCM is stronger evidence
       // than an earlier model tail hallucination. Keep a cue that began before
       // this input, because only its suffix is covered by the silent evidence.
-      if (exactSilence && state.tail.length) {
+      if (exactSilence && boundaryTail.length) {
         const coveredFrom = window.startSample / SAMPLE_RATE;
-        state.tail = state.tail.filter((cue) => cue.start < coveredFrom);
+        boundaryTail = boundaryTail.filter((cue) => cue.start < coveredFrom);
       }
     }
     let window = hypothesis.window;
     let combined = state.windows.length
-      ? joinBoundary(state.tail, hypothesis.cues, window.coreStartSample / SAMPLE_RATE)
+      ? joinBoundary(boundaryTail, hypothesis.cues, window.coreStartSample / SAMPLE_RATE)
       : hypothesis.cues;
     if (!combined) {
       // Persist both interpretations BEFORE the optional repair. A crash/cancel resumes here.

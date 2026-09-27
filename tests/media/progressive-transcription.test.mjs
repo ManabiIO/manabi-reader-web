@@ -360,6 +360,22 @@ test('verified-zero overlap preserves a held cue that began before the covered i
     '境界をまたぐ発言です。'
   ]);
 });
+test('silent-tail correction is not durable until its checkpoint succeeds', async () => {
+  const job = legacyProgressive(50),
+    first = chooseWindow(job.progressive, 50, pcm(30));
+  job.progressive.windows = [first];
+  job.nextWindow = 1;
+  job.cues = [cue('確定した発言です。', 1, 2)];
+  job.progressive.tail = [cue('まだ保存済みの候補です。', 26.5, 27.5, 'w0/cue-1')];
+  const h = runner(validateJob(job), []);
+  h.options.decode = async (_job, start, end) => pcm(end - start, 0);
+  h.options.checkpoint = async () => {
+    throw Error('quota');
+  };
+  await assert.rejects(h.run(), /quota/);
+  assert.equal(h.state.job.progressive.tail[0].text, 'まだ保存済みの候補です。');
+  assert.equal(h.state.job.nextWindow, 1);
+});
 test('a token preview followed by inference failure never becomes an accepted checkpoint', async () => {
   const h = runner(fresh(2), []);
   h.options.engine.transcribe = async (_pcm, _signal, preview) => {
