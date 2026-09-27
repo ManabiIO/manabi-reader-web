@@ -94,21 +94,21 @@ JavaScript/C exports, WORKERFS integration, typed heap views, cancellation addre
 and pthread teardown binding before the large download. Early HTTP/stream failures
 abort the destination without losing their original error to cleanup failures.
 Both CPU artifacts must match the
-app's port revision (`manabi-web-v6`). When changing the C++ port, bump the revision
+app's port revision (`manabi-web-v7`). When changing the C++ port, bump the revision
 in the build recipe and model manifest together. Completed older transcripts remain
 valid; interrupted old-port jobs must be regenerated rather than mixing engines.
 This compatibility check is not a signature or sandbox for untrusted JavaScript.
 The runtime recipe records source/compiler/output hashes but is not itself evidence
 that these binaries compile or perform acceptably.
 
-The v4 through v6 ports compile ggml's Wasm SIMD quantized kernels. Emscripten reports its
+The v4 through v7 ports compile ggml's Wasm SIMD quantized kernels. Emscripten reports its
 system processor as `x86`, which otherwise selects ggml's generic CPU kernels.
-The v6 port unrolls ggml's Q5_0 dot-product loop by two blocks; it keeps the
+The v6 and v7 ports unroll ggml's Q5_0 dot-product loop by two blocks; they keep the
 selected Q5_0 weights and the kernel's arithmetic unchanged.
 For a partial audio chunk, the encoder computes the mel and attention positions
 that are retained downstream, with a zero guard after the last mel center. A full
 30-second chunk keeps its original frame count and positional embedding path.
-The v5 and v6 pthread runtimes use up to eight workers for audio encoding and decoder
+The v5 through v7 pthread runtimes use up to eight workers for audio encoding and decoder
 prefill, then caps token generation at four. It restores the configured count at
 the start of every audio window, including a second transcription on a warm worker.
 The browser leaves one reported hardware thread free and never requests more than
@@ -301,10 +301,10 @@ missing/deleted page keeps the incomplete track unpublished until all its verifi
 pages are available. The Node transaction-boundary tests use an explicit double;
 the native browser suite contains separate cross-connection admission checks.
 
-## Progressive transcription (port v6)
+## Progressive transcription (port v7)
 
 See [the progressive design and qualification notes](../../docs/moss-progressive-transcription.md).
-The v6 C++ output callback is stacked on the parent v5 performance port and changes
+The v7 C++ output callback is stacked on the parent v6 performance port and changes
 the runtime identity, not the Q5_0 weights. Rebuild both runtimes before real-model
 qualification. Preview output never makes a failed or token-budget-exhausted inference
 successful, and incomplete local tracks are not exported or synchronized.

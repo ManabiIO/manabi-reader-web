@@ -1,11 +1,11 @@
 # Progressive MOSS: adversarial review and refinement
 
 Reviewed against the unpublished 37-file progressive bundle rebased onto Reader #46
-at `698a764e1d283f49ada88dac722b76fe2f5a1fd9`. That parent carries the v5 Wasm
-SIMD/partial-encoder/thread-tuning performance port. Mudler Q5_0, model SHA-256 and
-pinned C++/ggml source are unchanged. The progressive callback is therefore v6: it
-retains all v5 performance behavior and adds callback/progressive semantics; v5 and
-v6 are intentionally distinct runtime identities. No replacement model, forced
+at `b1040f917f1af16ba7fd5b7cfbdcbf02a103197a`. That parent carries the v6 Wasm
+SIMD/partial-encoder/thread-tuning/Q5_0 loop performance port. Mudler Q5_0, model SHA-256 and
+pinned C++/ggml source are unchanged. The progressive callback is therefore v7: it
+retains all v6 performance behavior and adds callback/progressive semantics; v6 and
+v7 are intentionally distinct runtime identities. No replacement model, forced
 aligner, microphone capture, global speaker identification, merge, or deployment.
 
 ## Reproduced defects and repairs
@@ -95,7 +95,7 @@ and regression cases preserve bracketed numeric text and preview withholding.
 A separate rebase review also fixed policy provenance: a saved `pause-overlap-v1`
 job resumed under v5 now publishes its actual durable policy instead of being labeled
 with the current `pause-overlap-v2` default. v3/v4/v5 runtime history is likewise kept
-separate from the progressive v6 runtime identity.
+separate from the progressive v7 runtime identity.
 
 ## Research used in the review
 
@@ -121,7 +121,7 @@ separate from the progressive v6 runtime identity.
   https://emscripten.org/docs/porting/connecting_cpp_and_javascript/Interacting-with-code.html
   Reviewed the C++/JavaScript boundary and copied heap bytes against its documented
   interoperation model. Scripted native/worker tests are not a replacement for a
-  rebuilt v5 WASM runtime in both threading modes.
+  rebuilt v7 WASM runtime in both threading modes.
 - Silero VAD maintained implementation:
   https://github.com/snakers4/silero-vad/blob/master/src/silero_vad/utils_vad.py
   Speech thresholds, minimum silence duration and padding are explicit policy
@@ -166,7 +166,7 @@ items for representative inputs.
 
 ## Remaining qualification
 
-Both v5 WASM variants must be built and run with the unchanged real model. The
+Both v7 WASM variants must be built and run with the unchanged real model. The
 repository-pinned formatter/ESLint/Svelte/build and exact-head CI must run on the
 published composition. Local formatting used the available official Prettier
 3.10-dev distribution without the repository's Svelte/Tailwind plugins; it is not
@@ -180,7 +180,7 @@ character/word timestamps are invented to conceal that uncertainty.
 
 The exact base-v4 CPU smoke result improved to about 3.14x realtime threaded and
 5.7x single-threaded on its small CI fixture. Those results motivate a short first
-window but are not v5 or representative-device qualification. Production WASM packaging
+window but are not v7 or representative-device qualification. Production WASM packaging
 warning still applies.
 This review does not claim faster-than-real-time inference, fix the deployment
 pipeline, establish physical Safari/iOS behavior, or qualify live cloud/account

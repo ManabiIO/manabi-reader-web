@@ -26,7 +26,8 @@ const PORT_ORDER = new Map([
   ['manabi-web-v3', 3],
   ['manabi-web-v4', 4],
   ['manabi-web-v5', 5],
-  ['manabi-web-v6', 6]
+  ['manabi-web-v6', 6],
+  ['manabi-web-v7', 7]
 ]);
 function runtimePorts(revision: string): string[] | undefined {
   if (!revision.startsWith(ENGINE_PREFIX)) return undefined;

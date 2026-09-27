@@ -145,7 +145,7 @@ class OutputStreamPatch(unittest.TestCase):
 
     def test_build_identity_and_manifest_cover_the_callback_patch(self):
         source = (ROOT / 'tools/media/build-moss.py').read_text()
-        self.assertIn("PORT_REVISION='manabi-web-v6'", source)
+        self.assertIn("PORT_REVISION='manabi-web-v7'", source)
         self.assertIn('patch_output_stream(source)', source)
         self.assertIn("'output_stream_patch.py'", source)
         self.assertIn('MOSS token budget exhausted; incomplete window', source)

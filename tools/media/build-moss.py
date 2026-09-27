@@ -5,7 +5,7 @@ from runtime_artifacts import check_path, publish_pair
 from model_loader_patch import patch_model_loader
 from output_stream_patch import patch_output_stream
 PIN='190a569c13b4b247450f2fb3b2a431244e84833e'
-PORT_REVISION='manabi-web-v6'
+PORT_REVISION='manabi-web-v7'
 GGML_PIN='eced84c86f8b012c752c016f7fe789adea168e1e'
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 def run(*args, cwd=None): subprocess.run(args, check=True, cwd=cwd)

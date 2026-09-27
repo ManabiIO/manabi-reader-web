@@ -526,7 +526,7 @@ test('real queue resumes legacy runtime/windows and records mixed callback-port 
       status: 'paused',
       nextWindow: 1,
       cues: [cue('以前の文章です。', 1, 2)],
-      engineRevision: MOSS.engineRevision.replace('manabi-web-v6', 'manabi-web-v3')
+      engineRevision: MOSS.engineRevision.replace('manabi-web-v7', 'manabi-web-v3')
     });
     await q.resume(id);
     for (let i = 0; i < 500; i++) {
@@ -537,7 +537,7 @@ test('real queue resumes legacy runtime/windows and records mixed callback-port 
     assert.ok(track);
     assert.deepEqual(reads, [[58, 120]]);
     assert.equal(track.cues[0].text, '以前の文章です。');
-    assert.match(track.provenance.engineRevision, /manabi-web-v3,manabi-web-v6$/);
+    assert.match(track.provenance.engineRevision, /manabi-web-v3,manabi-web-v7$/);
     assert.equal(track.provenance.windowSeconds, 60);
   } finally {
     await q.dispose();
@@ -576,7 +576,7 @@ test('real queue resumes base-v4 windows and records v4/v5 mixed provenance', as
       status: 'paused',
       nextWindow: 1,
       cues: [cue('v4までの文章です。', 1, 2)],
-      engineRevision: MOSS.engineRevision.replace('manabi-web-v6', 'manabi-web-v4')
+      engineRevision: MOSS.engineRevision.replace('manabi-web-v7', 'manabi-web-v4')
     });
     await q.resume(id);
     for (let i = 0; i < 500; i++) {
@@ -586,7 +586,7 @@ test('real queue resumes base-v4 windows and records v4/v5 mixed provenance', as
     const [track] = await store.tracks('guest', key);
     assert.ok(track);
     assert.deepEqual(reads, [[58, 120]]);
-    assert.match(track.provenance.engineRevision, /manabi-web-v4,manabi-web-v6$/);
+    assert.match(track.provenance.engineRevision, /manabi-web-v4,manabi-web-v7$/);
   } finally {
     await q.dispose();
     await store.close();
@@ -752,7 +752,7 @@ test('legacy publication retry without new inference keeps its original runtime 
   const range = globalThis.IDBKeyRange;
   globalThis.IDBKeyRange = RangeDouble;
   const store = new MediaStore(new TransactionFactory(), 'legacy-publication-only');
-  const legacy = MOSS.engineRevision.replace('manabi-web-v6', 'manabi-web-v3');
+  const legacy = MOSS.engineRevision.replace('manabi-web-v7', 'manabi-web-v3');
   const q = new TranscriptionQueue(
     store,
     'guest',
