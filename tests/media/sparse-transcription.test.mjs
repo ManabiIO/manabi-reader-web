@@ -71,9 +71,10 @@ test('watched-through sparse job completes from one inference per window', async
   });
   const engine = {
     async prepare() {},
-    async transcribe() {
+    async transcribe(pcm) {
       inferred.push(1);
       if (inferred.length === 1) await first;
+      structuredClone(pcm.buffer, { transfer: [pcm.buffer] });
       return '[3][S01]テスト。[4]';
     },
     dispose() {}

@@ -439,13 +439,14 @@ export class TranscriptionQueue {
                     !pcm.every(Number.isFinite)
                   )
                     throw new Error('Invalid decoded sparse audio window');
+                  const inputDuration = pcm.length / 16000;
                   let raw = '';
                   let inferenceMs = performance.now() - decodeStarted;
                   if (!pcm.every((sample) => sample === 0)) {
                     await this.engine.prepare(signal, (p) => this.notify({ job, ...p }));
                     const inferenceStarted = performance.now();
                     raw = await transcribeWithPreview(this.engine, pcm, signal, (text) => {
-                      const provisional = ownedCues(parseMossPreview(text, pcm.length / 16000), {
+                      const provisional = ownedCues(parseMossPreview(text, inputDuration), {
                         index,
                         ...bounds
                       });
@@ -460,7 +461,7 @@ export class TranscriptionQueue {
                     inferenceMs += performance.now() - inferenceStarted;
                   }
                   signal.throwIfAborted();
-                  const cues = parseMoss(raw, pcm.length / 16000).map((cue, n) => ({
+                  const cues = parseMoss(raw, inputDuration).map((cue, n) => ({
                     ...cue,
                     id: `w${index}/cue-${n}`,
                     start: cue.start + bounds.start,
@@ -509,13 +510,14 @@ export class TranscriptionQueue {
                     !pcm.every(Number.isFinite)
                   )
                     throw new Error('Invalid decoded seam audio');
+                  const inputDuration = pcm.length / 16000;
                   const exactSilence = pcm.every((sample) => sample === 0);
                   if (!exactSilence)
                     await this.engine.prepare(signal, (p) => this.notify({ job, ...p }));
                   const raw = exactSilence
                     ? ''
                     : await transcribeWithPreview(this.engine, pcm, signal);
-                  const repair = parseMoss(raw, pcm.length / 16000).map((cue, n) => ({
+                  const repair = parseMoss(raw, inputDuration).map((cue, n) => ({
                     ...cue,
                     id: `w${seam}/repair-${n}`,
                     start: cue.start + first.start,

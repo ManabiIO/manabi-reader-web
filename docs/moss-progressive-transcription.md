@@ -173,6 +173,19 @@ Version-3 scheduling and the browser controls have deterministic and Chromium
 tests. Natural Japanese boundary quality, real-WASM throughput, device memory,
 and suspended-tab recovery have not yet been qualified for this new policy.
 
+One targeted real-WASM Japanese check now covers the sparse seam. The pinned
+single-thread v7 runtime and Q5_0 model processed a 35.68-second sequence made
+from the two FLEURS `ja_jp` dev speakers reading the same sentence with 0.4
+seconds of digital silence between them. The verified archive SHA-256 is
+`2547f19203e1272aeba99c2235326fea525d6cfb9348bafbea2c3a7929e8e441`;
+the recreated PCM WAV SHA-256 is
+`7b6e5fcc8e6645a01bfa75b40ec162bb93519adba67c059e48ea8106e7b02e39`.
+Sparse processing made two normal windows and one bounded seam repair. Its
+complete text had 4 edits in 122 normalized reference characters (3.28% CER),
+the same error rate as the earlier v2 check on these speakers. The first sparse
+window already yielded two safely accepted cues. This is one read-speech seam
+case, not a broad quality or performance result; the Mac was under load.
+
 ## References
 
 - Pinned encoder padding:
