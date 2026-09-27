@@ -853,6 +853,7 @@ export class VideoPlayer {
       this.saveDraftSelection();
       this.scheduleSave(true);
     }
+    this.updateBuffering();
   }
   /** In-memory authored captions are usable while full content identity is verified. */
   setTemporaryTracks(tracks: Track[]) {
@@ -885,7 +886,9 @@ export class VideoPlayer {
   private updateBuffering() {
     const job = this.activeJob;
     const state = job?.sparse;
-    const active = !!state && job.status !== 'complete';
+    const published =
+      !!job && this.publishedTracks.some((track) => track.id === job.id && track.complete);
+    const active = !!state && (!published || job.status !== 'complete');
     this.bufferStatus.hidden = !active;
     this.bypassButton.hidden = !active || !this.waitForCaptions;
     this.waitButton.hidden =
@@ -898,6 +901,10 @@ export class VideoPlayer {
           void this.video.play().catch((error) => this.error(error));
         }
       }
+      return;
+    }
+    if (job.status === 'complete') {
+      this.bufferStatus.textContent = 'Finalizing captions. You can play without captions.';
       return;
     }
     if (job.status === 'paused' || job.status === 'failed') {
@@ -925,8 +932,15 @@ export class VideoPlayer {
     const inputSeconds = samples.reduce((sum, sample) => sum + sample.inputSeconds, 0);
     const coreSeconds = samples.reduce((sum, sample) => sum + sample.coreSeconds, 0);
     const missingWindows = sparseMissingWindowsForLead(state, job.duration, position, needed);
-    const missing = lead < needed;
-    const repairing = missing && !missingWindows.length;
+    // A queue progress callback can precede the saved draft page. Do not start
+    // playback until the accepted captions from this checkpoint are visible.
+    const draft = this.waitForCaptions
+      ? this.drafts.find((item) => item.track.id === job.id)
+      : undefined;
+    const awaitingDraft =
+      this.waitForCaptions && (!draft || cueDigest(draft.track.cues) !== cueDigest(job.cues));
+    const missing = lead < needed || awaitingDraft;
+    const repairing = lead < needed && !missingWindows.length;
     const workSeconds =
       missingWindows.reduce((sum, index) => {
         const bounds = sparseBounds(index, job.duration);
@@ -943,9 +957,11 @@ export class VideoPlayer {
         ? ' Recognition is slower than playback; captions may need to buffer again.'
         : '';
     this.bufferStatus.textContent = `Caption lead: ${formatMediaTime(lead)}. ${
-      missing
-        ? `Estimated wait for ${formatMediaTime(needed)} of coverage: ${eta}.${repairing ? ' Reconciling a caption boundary.' : ''}`
-        : 'Ready to play with captions.'
+      awaitingDraft && lead >= needed
+        ? 'Loading accepted captions.'
+        : missing
+          ? `Estimated wait for ${formatMediaTime(needed)} of coverage: ${eta}.${repairing ? ' Reconciling a caption boundary.' : ''}`
+          : 'Ready to play with captions.'
     }${speed}`;
     if (this.waitForCaptions && !missing) {
       this.waitForCaptions = false;
@@ -978,6 +994,7 @@ export class VideoPlayer {
       }
     }
     this.applyTracks();
+    this.updateBuffering();
   }
   generationPreview(id: string, cues?: Cue[]) {
     if (this.closed) return;

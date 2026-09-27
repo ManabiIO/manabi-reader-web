@@ -833,6 +833,57 @@ def main():
             assert page.get_by_role('button',name='Wait for captions',exact=True).is_visible()
             page.wait_for_function('!player.video.paused')
         case('slow sparse inference shows a measured ETA and playback bypass',sparse_buffer_controls)
+        def sparse_waits_for_visible_captions():
+            page.evaluate("""async()=>{
+                await createPlayer();
+                await player.bindIdentity(mediaKey);
+                window.sparseJob={id:trackId,mediaKey,status:'running',duration:26,cues:[],
+                    sparse:{policy:'overlap-sparse-v1',targetSeconds:0,windows:[null],repairs:[]}};
+                player.generationProgress(sparseJob);
+                await player.video.play();
+            }""")
+            page.get_by_role('button',name='Wait for captions',exact=True).click()
+            assert page.evaluate('player.video.paused')
+            page.evaluate("""()=>{
+                const cue={id:'w0/cue-0',start:0,end:3,text:'字幕が見えます。'};
+                sparseJob.cues=[cue];
+                sparseJob.sparse.windows[0]={cues:[cue],inferenceMs:40000};
+                player.generationProgress(sparseJob);
+            }""")
+            assert page.evaluate('player.video.paused')
+            assert 'Loading accepted captions' in page.locator('.video-viewing [role=status]').all_inner_texts()[-1]
+            page.evaluate("""()=>{
+                player.pendingGenerated=trackId;
+                player.setDrafts([{track:{...track(trackId,'ja',sparseJob.cues),complete:false},
+                    coverage:26,duration:26,state:'running',restartRequired:false,pending:[]}]);
+            }""")
+            page.wait_for_function('!player.video.paused')
+            assert page.locator('[aria-label="Transcript track"]').input_value()==page.evaluate('trackId')
+        case('sparse lead waits until its accepted draft is visible',sparse_waits_for_visible_captions)
+        def sparse_completion_waits_for_publication():
+            page.evaluate("""async()=>{
+                await createPlayer();
+                await player.bindIdentity(mediaKey);
+                window.sparseJob={id:trackId,mediaKey,status:'running',duration:26,cues:[],
+                    sparse:{policy:'overlap-sparse-v1',targetSeconds:0,windows:[null],repairs:[]}};
+                player.generationProgress(sparseJob);
+                await player.video.play();
+            }""")
+            page.get_by_role('button',name='Wait for captions',exact=True).click()
+            page.evaluate("""()=>{
+                player.pendingGenerated=trackId;
+                sparseJob.status='complete';
+                sparseJob.sparse.windows[0]={cues:[],inferenceMs:40000};
+                player.generationProgress(sparseJob);
+            }""")
+            assert page.evaluate('player.video.paused')
+            assert 'Finalizing captions' in page.locator('.video-viewing [role=status]').all_inner_texts()[-1]
+            assert page.get_by_role('button',name='Play without captions',exact=True).is_visible()
+            page.evaluate("player.setTracks([track(trackId,'ja',[{id:'w0/cue-0',start:0,end:3,text:'完成した字幕'}])])")
+            page.wait_for_function('!player.video.paused')
+            assert page.locator('[aria-label="Transcript track"]').input_value()==page.evaluate('trackId')
+            assert page.evaluate('player.bufferStatus.hidden')
+        case('completed sparse job waits for its published track before resuming',sparse_completion_waits_for_publication)
         def temporary_captions_remap():
             page.evaluate("""async()=>{
                 await createPlayer();
