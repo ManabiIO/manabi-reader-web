@@ -187,8 +187,12 @@ export class TranscriptionQueue {
     const job = await this.store.enqueueJob(this.scope, draft, () => {
       if (this.closed) throw new Error('The queue is closed');
     });
-    this.admitted.set(job.id, Symbol());
-    this.kick();
+    // A deduplicated queued job may already be admitted in another tab.
+    // Only the tab that created this record automatically runs it.
+    if (job.id === draft.id) {
+      this.admitted.set(job.id, Symbol());
+      this.kick();
+    }
     return job;
   }
   /** Playback and seeks affect the next input, not an in-flight model call. */
@@ -233,7 +237,7 @@ export class TranscriptionQueue {
         : releasedJob(job, 'paused');
     });
   }
-  /** Leaving a video pauses all of its interactive jobs, including queued alternatives. */
+  /** Leaving a video pauses owned inference and revokes local queued admissions. */
   async pauseSparseForMedia(mediaKey: ContentKey) {
     if (this.closed) return;
     const pending: Job[] = [];
@@ -261,11 +265,11 @@ export class TranscriptionQueue {
     // a stale queued snapshot but has not claimed it yet.
     this.admitted.delete(id);
     const active = this.active?.id === id ? this.active : undefined;
+    if (!active) return;
     await this.store.updateLocal<Job>(this.scope, 'jobs', id, (old) => {
       if (!old) return old;
       const job = validateJob(old);
       if (!job.sparse) return old;
-      if (job.status === 'queued') return releasedJob(job, 'paused');
       if (job.status === 'running' && active?.ownerId === job.ownerId)
         return { ...job, cancelRequested: true };
       return old;

@@ -125,7 +125,7 @@ def main():
             }""")
             page.wait_for_function("secondSparseStarted && workspace.currentTranscription?.id===oldJob.id")
             page.evaluate("workspace.openSource(makeSource('Other.mp4',1))")
-            page.wait_for_function("workspace.current?.key!==oldKey && workspace.current && Promise.all([store.local('guest','jobs',oldJob.id),store.local('guest','jobs',otherOldJob.id)]).then(j=>j.every(x=>x?.status==='paused'))")
+            page.wait_for_function("workspace.current?.key!==oldKey && workspace.current && Promise.all([store.local('guest','jobs',oldJob.id),store.local('guest','jobs',otherOldJob.id)]).then(([active,queued])=>active?.status==='paused'&&queued?.status==='queued')")
             result=page.evaluate("""async()=>{
                 const saved=await store.local('guest','jobs',oldJob.id);
                 const other=await store.local('guest','jobs',otherOldJob.id);
@@ -178,7 +178,8 @@ def main():
                     old:jobs.filter(j=>j.mediaKey===departedKey).map(j=>j.status),
                     published:(await store.tracks('guest',departedKey)).length};
             }""")
-            assert result==dict(returned=None,attached=None,old=['paused'],published=0),result
+            assert result['returned'] is None and result['attached'] is None and result['published']==0,result
+            assert result['old'][0] in ('queued','paused'),result
         case('late Generate admission after a switch cannot attach or run the old video',late_generation_after_switch)
         def play_and_sidecar_during_hash():
             page.evaluate('reset()')

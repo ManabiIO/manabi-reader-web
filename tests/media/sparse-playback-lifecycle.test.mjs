@@ -177,7 +177,59 @@ test('switching one workspace does not cancel another tab’s sparse jobs', asyn
     assert.equal((await store.local('guest', 'jobs', queued.id)).status, 'queued');
     await owner.pauseSparseForMedia(key);
     await until(async () => (await store.local('guest', 'jobs', running.id))?.status === 'paused');
-    assert.equal((await store.local('guest', 'jobs', queued.id)).status, 'paused');
+    assert.equal((await store.local('guest', 'jobs', queued.id)).status, 'queued');
+  } finally {
+    await Promise.all([owner.dispose(), other.dispose()]);
+    await store.close();
+    if (range === undefined) delete globalThis.IDBKeyRange;
+    else globalThis.IDBKeyRange = range;
+  }
+});
+
+test('switching away revokes only this tab’s admission to a shared queued job', async () => {
+  const range = globalThis.IDBKeyRange;
+  globalThis.IDBKeyRange = RangeDouble;
+  const store = new MediaStore(new TransactionFactory(), 'sparse-shared-admission');
+  const blockedKey = `content:${'4'.repeat(64)}`;
+  const owner = new TranscriptionQueue(
+    store,
+    'guest',
+    {
+      async prepare() {},
+      async transcribe(_pcm, signal) {
+        await new Promise((_, reject) => {
+          if (signal.aborted) reject(signal.reason);
+          else signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+        });
+      },
+      dispose() {}
+    },
+    async (_job, start, end) => new Float32Array(Math.ceil((end - start) * 16000)).fill(0.1)
+  );
+  const other = new TranscriptionQueue(
+    store,
+    'guest',
+    {
+      async prepare() {},
+      async transcribe() {
+        return '[0][S01]字幕があります。[1]';
+      },
+      dispose() {}
+    },
+    async (_job, start, end) => new Float32Array(Math.ceil((end - start) * 16000)).fill(0.1)
+  );
+  try {
+    const blocker = await owner.enqueue(blockedKey, 'ja', '1', 52, 0);
+    await until(async () => (await store.local('guest', 'jobs', blocker.id))?.status === 'running');
+    const queued = await owner.enqueue(key, 'ja', '1', 2, 0);
+    const deduplicated = await other.enqueue(key, 'ja', '1', 2, 0);
+    assert.equal(deduplicated.id, queued.id);
+    await owner.pauseSparseForMedia(key);
+    assert.equal((await store.local('guest', 'jobs', queued.id)).status, 'queued');
+    await owner.cancel(blocker.id);
+    await until(async () => (await store.local('guest', 'jobs', blocker.id))?.status === 'paused');
+    await other.resume(queued.id);
+    await until(async () => (await store.local('guest', 'jobs', queued.id))?.status === 'complete');
   } finally {
     await Promise.all([owner.dispose(), other.dispose()]);
     await store.close();
