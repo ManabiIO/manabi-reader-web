@@ -5,7 +5,7 @@
  */
 
 import { boundedBytes } from '$lib/library/bounded-response';
-import { get, writable } from 'svelte/store';
+import { derived, get, writable } from 'svelte/store';
 import {
   parseSession,
   providerAuthorization,
@@ -21,6 +21,38 @@ export const account = writable<{ status: AccountStatus; session: ManabiSession 
   status: 'loading',
   session: null
 });
+
+const LOCAL_PROFILE_KEY = 'manabi-reader-local-profile-v1';
+function storedLocalProfile(): ManabiUser | null {
+  try {
+    const value = JSON.parse(localStorage.getItem(LOCAL_PROFILE_KEY) ?? 'null');
+    // Reuse the authenticated identity validator, without persisting credentials.
+    return parseSession({ user: value, csrf_token: 'x'.repeat(64), providers: [] })?.user ?? null;
+  } catch {
+    return null;
+  }
+}
+const rememberedProfile = writable<ManabiUser | null>(storedLocalProfile());
+/** Local ownership is available after a failed offline probe, never while login is unresolved. */
+export const localUser = derived(
+  [account, rememberedProfile],
+  ([state, profile]) => state.session?.user ?? (state.status === 'offline' ? profile : null)
+);
+export function localProfileUser(): ManabiUser | null {
+  return get(localUser);
+}
+function rememberLocalProfile(user: ManabiUser | null) {
+  rememberedProfile.set(user);
+  try {
+    if (user) {
+      const value = JSON.stringify({ id: user.id, username: user.username });
+      if (localStorage.getItem(LOCAL_PROFILE_KEY) !== value)
+        localStorage.setItem(LOCAL_PROFILE_KEY, value);
+    } else localStorage.removeItem(LOCAL_PROFILE_KEY);
+  } catch {
+    // Storage denial must not change authentication or the current in-memory profile.
+  }
+}
 
 const ROOT = '/api/reader-web/';
 let generation = 0;
@@ -81,7 +113,9 @@ export function accountScope(): { userId: string; generation: number } {
   return { userId: user.id, generation };
 }
 
-function invalidateAccount() {
+function invalidateAccount(persist = true) {
+  if (persist) rememberLocalProfile(null);
+  else rememberedProfile.set(null);
   refreshSerial += 1;
   generation += 1;
   refreshAttempt += 1;
@@ -133,6 +167,8 @@ async function performAccountRefresh(force: boolean): Promise<ManabiSession | nu
       throw new IntegrationError('invalid_response');
     if (serial !== refreshSerial) return null;
     if (currentUser()?.id !== session.user?.id) generation += 1;
+    // A confirmed anonymous session is sign-out, not an offline profile selection.
+    rememberLocalProfile(session.user);
     account.set({ status: 'available', session });
     return session;
   } catch {
@@ -307,3 +343,12 @@ export const providerLabels: Record<string, string> = {
   onedrive: 'OneDrive',
   dropbox: 'Dropbox'
 };
+
+// Sign-out in another tab revokes local visibility and in-flight network authority.
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event) => {
+    if (event.key !== LOCAL_PROFILE_KEY && event.key !== null) return;
+    invalidateAccount(false);
+    void refreshAccount(true);
+  });
+}

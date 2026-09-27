@@ -123,7 +123,14 @@
     saveReaderAnnotation
   } from '$lib/reader-annotations';
   import type { AnnotationImportConflict } from '$lib/reader-annotations';
-  import { account, currentUser } from '$lib/manabi/client';
+  import {
+    account,
+    currentUser,
+    localProfileUser,
+    localUser,
+    refreshAccount
+  } from '$lib/manabi/client';
+  import { integrationDB } from '$lib/manabi/persistence';
   import { legacyReplicationTypes } from '$lib/manabi/legacy-replication';
   import type { ReaderAnnotation } from '$lib/data/database/books-db/versions/v7/books-db-v7';
   import { ReaderNavigation } from '$lib/reader-navigation';
@@ -245,6 +252,16 @@
   let revealingReaderLocator = false;
   let previewTrackerWasPaused = false;
   let readerBookKey = '';
+  let readerProtectedOwners: string[] = [];
+  const stopReaderOwner = localUser.subscribe((user) => {
+    if (
+      browser &&
+      readerProtectedOwners.length &&
+      $account.status !== 'loading' &&
+      !readerProtectedOwners.includes(user?.id ?? '')
+    )
+      void goto(`${pagePath}${mergeEntries.MANAGE.routeId}`);
+  });
   let libraryTarget: ReaderLocator | undefined;
   let libraryNavigationTask = false;
   let libraryNavigationEpoch = 0;
@@ -266,7 +283,7 @@
   }
   $: if (browser && readerBookKey && $account.status) {
     const key = readerBookKey;
-    const owner = $account.session?.user?.id ?? null;
+    const owner = localProfileUser()?.id ?? null;
     if (annotationsOwner !== owner) {
       annotations = [];
       annotationImportConflicts = [];
@@ -274,7 +291,8 @@
     }
     void listReaderAnnotations(key)
       .then((items) => {
-        if (readerBookKey === key && (currentUser()?.id ?? null) === owner) annotations = items;
+        if (readerBookKey === key && (localProfileUser()?.id ?? null) === owner)
+          annotations = items;
       })
       .catch(() => undefined);
   }
@@ -357,6 +375,7 @@
   const rawBookData$ = bookId$.pipe(
     switchMap(async (id) => {
       let bookData: BooksDbBookData | undefined;
+      readerProtectedOwners = [];
 
       try {
         readerLease ??= acquireReaderLease(readerLeaseLifetime.signal);
@@ -379,6 +398,17 @@
         if (!bookData) {
           return bookData;
         }
+
+        const links = (await (await integrationDB()).getAll('books')).filter(
+          (link) => link.bookId === id
+        );
+        const protectedOwners = links.some((link) => link.owner === null)
+          ? []
+          : links.flatMap((link) => (link.owner ? [link.owner] : []));
+        if (protectedOwners.length && $account.status === 'loading') await refreshAccount();
+        if (protectedOwners.length && !protectedOwners.includes(localProfileUser()?.id ?? ''))
+          return undefined;
+        readerProtectedOwners = protectedOwners;
 
         const personalReadingAuthority = await hasPersonalReadingAuthority(bookData);
         personalManagedBookId = personalReadingAuthority ? bookData.id : undefined;
@@ -481,7 +511,7 @@
       bookmarkData = database.getBookmark(rawBookData.id);
       const incomingLocation = takeLibraryLocation(
         rawBookData.id,
-        currentUser()?.id ?? null,
+        localProfileUser()?.id ?? null,
         $page.url.searchParams.get('library-search')
       );
       if (incomingLocation) {
@@ -712,6 +742,7 @@
   /** Experimental Code - May be removed any time without warning */
 
   onDestroy(() => {
+    stopReaderOwner();
     readerLeaseLifetime.abort();
     libraryNavigationEpoch++;
     if (browser) {
@@ -1416,11 +1447,11 @@
     libraryNavigationTask = true;
     const epoch = ++libraryNavigationEpoch;
     const id = $rawBookData$?.id;
-    const owner = currentUser()?.id ?? null;
+    const owner = localProfileUser()?.id ?? null;
     const current = () =>
       epoch === libraryNavigationEpoch &&
       id === $rawBookData$?.id &&
-      owner === (currentUser()?.id ?? null);
+      owner === (localProfileUser()?.id ?? null);
     try {
       const deadline = Date.now() + 10000;
       await bookmarkData;
@@ -1520,7 +1551,7 @@
     try {
       await saveReaderAnnotation(
         { bookKey: readerBookKey, kind, targets, body },
-        currentUser()?.id
+        localProfileUser()?.id
       );
       annotations = await listReaderAnnotations(readerBookKey);
       if (kind === 'note') annotationSavedVersion += 1;
@@ -1536,7 +1567,7 @@
     annotationBusy = true;
     annotationError = '';
     try {
-      await removeReaderAnnotation(id, currentUser()?.id);
+      await removeReaderAnnotation(id, localProfileUser()?.id);
       annotations = await listReaderAnnotations(readerBookKey);
     } catch (error) {
       annotationError = error instanceof Error ? error.message : String(error);
@@ -1573,7 +1604,7 @@
     annotationStatus = '';
     try {
       if (file.size > 16 * 1024 * 1024) throw new Error('The annotation archive is too large.');
-      const result = await importReaderAnnotations(await file.text(), currentUser()?.id);
+      const result = await importReaderAnnotations(await file.text(), localProfileUser()?.id);
       annotations = await listReaderAnnotations(readerBookKey);
       annotationImportConflicts = await listAnnotationImportConflicts(readerBookKey);
       annotationStatus = `${result.imported} imported, ${result.alreadyPresent} already present, ${result.conflicts} kept for conflict review. Archives may include notes for books not currently connected.`;
@@ -1589,7 +1620,7 @@
     annotationBusy = true;
     annotationError = '';
     try {
-      await resolveAnnotationImportConflict(id, choice, currentUser()?.id);
+      await resolveAnnotationImportConflict(id, choice, localProfileUser()?.id);
       annotations = await listReaderAnnotations(readerBookKey);
       annotationImportConflicts = await listAnnotationImportConflicts(readerBookKey);
       annotationStatus =

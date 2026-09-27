@@ -8,7 +8,14 @@ import { get, writable } from 'svelte/store';
 import * as reader from '$lib/data/store';
 import { appearance$ } from '$lib/appearance/state';
 import { availableThemes, portableThemeName } from '$lib/data/theme-option';
-import { account, currentUser, IntegrationError, request } from './client';
+import {
+  account,
+  currentUser,
+  localProfileUser,
+  localUser,
+  IntegrationError,
+  request
+} from './client';
 import { equal, exclusive, mergeRecords, metadata, setMetadata } from './persistence';
 import {
   organizationPreference,
@@ -354,7 +361,7 @@ export async function enablePreferenceSync(enabled: boolean, choice?: 'local' | 
 function startPreferenceSyncReady() {
   let stopped = false;
   async function switchUser() {
-    const user = currentUser()?.id ?? null;
+    const user = localProfileUser()?.id ?? null;
     if (user === activeUser) return;
     activation += 1;
     activeUser = user;
@@ -380,7 +387,7 @@ function startPreferenceSyncReady() {
       await syncPreferences();
     }
   }
-  const accountSubscription = account.subscribe(() => {
+  const accountSubscription = localUser.subscribe(() => {
     void switchUser().catch(() => undefined);
   });
   const subscriptions = Object.values(bindings).map((binding) => {

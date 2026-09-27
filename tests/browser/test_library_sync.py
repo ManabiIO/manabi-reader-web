@@ -359,7 +359,8 @@ class LibraryOrganizationSync(LibraryBase):
         self.page.get_by_role('button', name='Show reading controls', exact=True).click()
         self.page.get_by_role('button', name='Bookmarks and Notes', exact=True).click()
         self.page.get_by_role('button', name='Add Bookmark', exact=True).click()
-        expect(self.page.get_by_label('Saved annotations').get_by_text('Bookmark', exact=False)).to_be_visible()
+        expect(self.page.get_by_label('Saved annotations').get_by_role(
+            'button', name='Bookmark · Section')).to_be_visible()
         annotation = self.stores('books', ['readerAnnotation'])['readerAnnotation'][0]
         self.assertFalse(any(request['kind'] == 'annotation'
                              for _, request in StaticHandler.personal_mutations))
@@ -369,7 +370,8 @@ class LibraryOrganizationSync(LibraryBase):
             expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=35000)
             self.page.get_by_role('button', name='Show reading controls', exact=True).click()
             self.page.get_by_role('button', name='Bookmarks and Notes', exact=True).click()
-            expect(self.page.get_by_label('Saved annotations').get_by_text('Bookmark', exact=False)).to_be_visible()
+            expect(self.page.get_by_label('Saved annotations').get_by_role(
+                'button', name='Bookmark · Section')).to_be_visible()
         # Playwright WebKit's set_offline prevents even a controlled service
         # worker from serving a URL already present in CacheStorage. Cover its
         # offline edit/reconnect path here; Chromium covers offline reload.
