@@ -79,25 +79,29 @@ export function chooseWindow(
       levels.push({ start: at, energy: Math.sqrt(sum / frame) });
     }
     const peak = Math.max(0, ...levels.map((f) => f.energy));
-    const threshold = Math.min(0.005, peak * 0.08);
-    let run = 0,
-      bestScore = -Infinity;
-    for (let i = 0; i <= levels.length; i++) {
-      if (i < levels.length && levels[i].energy <= threshold) {
-        run++;
-        continue;
-      }
-      if (run >= 15) {
-        // A sustained 300 ms valley, not an individual waveform zero.
-        const length = run * frame;
-        const middle = levels[i - run].start + Math.floor(length / 2);
-        const score = Math.min(length, SAMPLE_RATE) - (nominal - middle) * 0.15;
-        if (score > bestScore) {
-          cut = middle;
-          bestScore = score;
+    // If the whole candidate region is digital zero, the nominal boundary is
+    // already inside a perfect pause. Advancing to it avoids extra silent windows.
+    if (peak > 0) {
+      const threshold = Math.min(0.005, peak * 0.08);
+      let run = 0,
+        bestScore = -Infinity;
+      for (let i = 0; i <= levels.length; i++) {
+        if (i < levels.length && levels[i].energy <= threshold) {
+          run++;
+          continue;
         }
+        if (run >= 15) {
+          // A sustained 300 ms valley, not an individual waveform zero.
+          const length = run * frame;
+          const middle = levels[i - run].start + Math.floor(length / 2);
+          const score = Math.min(length, SAMPLE_RATE) - (nominal - middle) * 0.15;
+          if (score > bestScore) {
+            cut = middle;
+            bestScore = score;
+          }
+        }
+        run = 0;
       }
-      run = 0;
     }
   }
   return {

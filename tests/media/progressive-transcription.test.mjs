@@ -130,6 +130,14 @@ test('final short clips and leading silence never require whole-file analysis', 
   assert.equal(window.coreEndSample, 7 * SR);
   assert.equal(window.endSample, 7 * SR);
 });
+test('digital-zero seam region advances to the nominal maximum boundary', () => {
+  const state = newProgressiveState(),
+    first = chooseWindow(state, 80, pcm(12));
+  state.windows.push(first);
+  const next = chooseWindow(state, 80, pcm(30, 0));
+  assert.equal(next.coreEndSample, 36 * SR);
+  assert.equal(next.endSample, 38 * SR);
+});
 for (const [a, b, expectedOld] of [
   [[58, 61], [59, 62], 2],
   [[59, 62], [58, 61], 0]
