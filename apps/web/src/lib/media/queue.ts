@@ -235,8 +235,12 @@ export class TranscriptionQueue {
   }
   async cancel(id: string) {
     this.targets.delete(id);
+    const active = this.active?.id === id ? this.active : undefined;
+    let pending: Promise<Job | undefined>;
     try {
-      await this.store.updateLocal<Job>(this.scope, 'jobs', id, (old) => {
+      // Admit the durable user intent before aborting. Its transaction must
+      // precede the runner's pause write, without delaying local cancellation.
+      pending = this.store.updateLocal<Job>(this.scope, 'jobs', id, (old) => {
         if (!old) return old;
         const job = validateJob(old);
         if (job.id !== id) throw new Error('Wrong saved job identity');
@@ -247,9 +251,9 @@ export class TranscriptionQueue {
           : { ...releasedJob(job, 'paused'), pauseReason: 'user' };
       });
     } finally {
-      if (this.active?.id === id)
-        this.active.controller.abort(new DOMException('Generation cancelled', 'AbortError'));
+      active?.controller.abort(new DOMException('Generation cancelled', 'AbortError'));
     }
+    await pending;
   }
   /** Leaving a video pauses owned inference and revokes local queued admissions. */
   async pauseSparseForMedia(mediaKey: ContentKey): Promise<string[]> {
@@ -780,7 +784,7 @@ export class TranscriptionQueue {
               const completed = releasedJob(job, 'complete');
               delete completed.error;
               signal.throwIfAborted();
-              await this.store.saveTrack(this.scope, track, { ownerId, job: completed });
+              await this.store.saveTrack(this.scope, track, { ownerId, job: completed, signal });
               job = completed;
               this.notify({
                 job,

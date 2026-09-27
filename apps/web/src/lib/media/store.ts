@@ -178,33 +178,59 @@ export class MediaStore {
       fail: (e: unknown) => void,
       transaction: IDBTransaction
     ) => void,
-    captions = false
+    captions = false,
+    signal?: AbortSignal
   ): Promise<T> {
     if (this.closed) return Promise.reject(new Error('Video storage is closed'));
+    if (signal?.aborted) return Promise.reject(signal.reason);
     // Admission happens now. close() waits even for calls still opening the database.
     const opening = this.open();
     const operation = opening.then(
       (db) =>
         new Promise<T>((yes, no) => {
+          // Opening storage is asynchronous; cancelled publication must not enter
+          // a new transaction just because its database eventually became ready.
+          signal?.throwIfAborted();
           const transaction = db.transaction(name, mode);
           let result: T, error: unknown;
+          let hasError = false;
+          const cleanup = () => signal?.removeEventListener('abort', cancel);
+          const cancel = () => {
+            try {
+              transaction.abort();
+              if (!hasError) {
+                hasError = true;
+                error = signal!.reason;
+              }
+            } catch {
+              // IndexedDB has already started committing or finished. Its
+              // complete/abort event, not a late signal, owns the outcome.
+            }
+          };
           const fail = (e: unknown) => {
+            if (hasError) return;
+            hasError = true;
             error = e;
             try {
               transaction.abort();
             } catch {
+              cleanup();
               no(e);
             }
           };
           transaction.oncomplete = () => {
+            cleanup();
             yes(result);
             if (mode === 'readwrite') this.notify(true, captions);
           };
-          transaction.onabort = () =>
-            no(error ?? transaction.error ?? new Error('Media transaction failed'));
+          transaction.onabort = () => {
+            cleanup();
+            no(hasError ? error : (transaction.error ?? new Error('Media transaction failed')));
+          };
           transaction.onerror = () => {
             /* Abort owns error delivery. */
           };
+          signal?.addEventListener('abort', cancel, { once: true });
           try {
             work(
               transaction.objectStore(Array.isArray(name) ? name[0] : name),
@@ -446,8 +472,13 @@ export class MediaStore {
   async saveTrack(
     scope: Scope,
     track: Track,
-    completion?: { ownerId: string; job: Job }
+    completion?: { ownerId: string; job: Job; signal?: AbortSignal }
   ): Promise<void> {
+    // Authority and cancellation belong to the call, not a later mutation of
+    // the caller's completion object while storage is opening.
+    const ownerId = completion?.ownerId,
+      signal = completion?.signal;
+    signal?.throwIfAborted();
     const snapshot = validateTrack(track),
       pieces = splitTrack(snapshot);
     const completed = completion ? validateJob(completion.job) : undefined;
@@ -472,7 +503,7 @@ export class MediaStore {
             try {
               const current =
                 request.result === undefined ? undefined : validateJob(request.result);
-              if (!ownsJob(current, completion.ownerId)) throw new JobOwnershipLost();
+              if (!ownsJob(current, ownerId!)) throw new JobOwnershipLost();
               const fields = [
                 'version',
                 'mediaKey',
@@ -537,7 +568,8 @@ export class MediaStore {
           };
         }
       },
-      true
+      true,
+      signal
     );
   }
   /** Read a consistent manifest/page snapshot for ONE video. Do not fetch all
