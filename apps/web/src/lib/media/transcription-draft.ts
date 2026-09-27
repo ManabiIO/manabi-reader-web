@@ -5,7 +5,7 @@
  */
 
 import type { Cue, Track } from './contracts.js';
-import { jobCanResume, type Job } from './jobs.js';
+import { jobCanResume, jobContentKey, type Job } from './jobs.js';
 import { MOSS } from './model-cache.js';
 import { coreEnd, SAMPLE_RATE } from './moss-progressive.js';
 import { planWindows } from './moss-output.js';
@@ -37,7 +37,7 @@ export function transcriptionDraft(job: Job): TranscriptionDraft | undefined {
     track: {
       version: 1,
       id: job.id,
-      mediaKey: job.mediaKey,
+      mediaKey: jobContentKey(job),
       language: job.language,
       kind: 'transcription',
       origin: 'generated',

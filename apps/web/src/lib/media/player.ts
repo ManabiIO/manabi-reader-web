@@ -22,7 +22,7 @@ import { studySpans, seekSpan, LinePause, type StudySpan } from './study.js';
 import { type CueTimeline, chooseLayout } from './captions.js';
 import { formatMediaTime } from './time.js';
 import type { TranscriptionDraft } from './transcription-draft.js';
-import type { Job } from './jobs.js';
+import { jobContentKey, type Job } from './jobs.js';
 import {
   sparseBounds,
   sparseLead,
@@ -163,6 +163,8 @@ export class VideoPlayer {
   private touched = false;
   private selectionTouched = false;
   private key?: ContentKey;
+  /** Can be a device-only job key while portable playback has no content identity. */
+  private generationKey?: ContentKey;
   private version: string | null = null;
   private saving: Promise<void> = Promise.resolve();
   private savingActive = false;
@@ -182,6 +184,7 @@ export class VideoPlayer {
   private alive = new AbortController();
   constructor(private options: PlayerOptions) {
     this.key = options.key;
+    this.generationKey = options.key;
     this.root.className = 'manabi-video-player';
     this.root.setAttribute('aria-label', 'Video player');
     this.stage.className = 'video-stage';
@@ -586,7 +589,7 @@ export class VideoPlayer {
     this.generationUnavailableReason = available ? undefined : reason;
     this.updateSetup();
   }
-  generationStatus(id: string, state: string) {
+  generationStatus(id: string, state: string, reason?: Job['pauseReason']) {
     if (this.closed) return;
     if (state === 'waiting-for-tab') this.waitingForOriginLock = id;
     else if (this.waitingForOriginLock === id) this.waitingForOriginLock = undefined;
@@ -596,10 +599,11 @@ export class VideoPlayer {
     } else this.retiredPreviews.delete(id);
     this.updateProgressiveView();
     this.updateBuffering();
-    if (state === 'paused' || state === 'failed') this.generationOutcomes?.set(id, state);
+    if ((state === 'paused' && reason !== 'identity') || state === 'failed')
+      this.generationOutcomes?.set(id, state);
     else this.generationOutcomes?.delete(id);
     if (id !== this.pendingGenerated) return;
-    if (state === 'paused' || state === 'failed') {
+    if ((state === 'paused' && reason !== 'identity') || state === 'failed') {
       this.pendingGenerated = undefined;
       this.setupStatus.textContent =
         state === 'paused'
@@ -787,8 +791,13 @@ export class VideoPlayer {
   async bindIdentity(key: ContentKey) {
     if (this.closed) return;
     this.key = key;
+    this.generationKey = key;
     await this.restore();
     await this.restoreDraftSelection();
+  }
+  bindProvisionalGeneration(key: ContentKey) {
+    if (this.closed || this.key) return;
+    this.generationKey = key;
   }
   private restore(): Promise<void> {
     if (!this.key || !this.ready || this.closed || this.restored) return Promise.resolve();
@@ -888,7 +897,7 @@ export class VideoPlayer {
     this.applyTracks();
   }
   generationProgress(job: Job, stage?: string) {
-    if (this.closed || this.key !== job.mediaKey) return;
+    if (this.closed || this.generationKey !== jobContentKey(job)) return;
     this.activeJob = job;
     if (this.firstWindowJob !== job.id) {
       clearInterval(this.firstWindowClock);
@@ -983,9 +992,11 @@ export class VideoPlayer {
     if (job.status === 'paused' || job.status === 'failed') {
       if (nearGap) this.pauseAtCaptionGap();
       this.bufferStatus.textContent =
-        job.status === 'paused'
-          ? 'Transcription paused. Resume it in the queue or play without captions.'
-          : 'Transcription failed. You can play without captions.';
+        job.pauseReason === 'identity' && !job.verifiedMediaKey
+          ? 'Captions are waiting for full video verification. You can play without captions.'
+          : job.status === 'paused'
+            ? 'Transcription paused. Resume it in the queue or play without captions.'
+            : 'Transcription failed. You can play without captions.';
       return;
     }
     if (this.waitingForOriginLock === job.id) {
@@ -1055,7 +1066,7 @@ export class VideoPlayer {
   setDrafts(drafts: TranscriptionDraft[]) {
     if (this.closed) return;
     this.drafts = drafts
-      .filter((draft) => draft.track.mediaKey === this.key)
+      .filter((draft) => draft.track.mediaKey === this.generationKey)
       .map((draft) => {
         const previous = this.drafts.find((old) => old.track.id === draft.track.id);
         return draft.state === 'complete' &&

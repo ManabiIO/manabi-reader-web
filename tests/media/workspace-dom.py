@@ -241,7 +241,7 @@ def main():
             }""")
             page.wait_for_function("document.querySelector('[aria-label=\"Choose existing subtitles\"]')?.options.length===2")
             page.wait_for_function('workspace.player.video.readyState>=1')
-            assert page.evaluate('workspace.current===undefined'), 'portable hashing must still be pending'
+            assert page.evaluate('workspace.current?.provisional===true && workspace.player.key===undefined'), 'portable identity must still be pending'
             temp=page.evaluate("document.querySelector('[aria-label=\"Choose existing subtitles\"]').options[1].value")
             # Dispatch value and change in one browser task: embedded discovery
             # can rebuild this picker between separate automation operations.
@@ -257,6 +257,177 @@ def main():
             page.wait_for_function('(old)=>workspace.player.primary.value!==old',arg=temp)
             assert page.locator('.transcript-cue').count()==1
         case('video and authored sidecar work while full identity hashing is pending',play_and_sidecar_during_hash)
+        def generate_before_hash_then_publish_once():
+            page.evaluate('reset()')
+            page.evaluate(r"""()=>{
+                const source=makeSource('Early-generate.mp4');
+                const read=source.read.bind(source);
+                window.hashGate=new Promise(resolve=>window.releaseHash=resolve);
+                source.read=async(start,end,signal)=>{
+                    if(end-start>32768)await hashGate;
+                    return read(start,end,signal);
+                };
+                window.opened=workspace.openSource(source);
+                window.earlySource=source;
+            }""")
+            page.wait_for_function('workspace.current?.provisional && workspace.player?.generationAvailable')
+            page.evaluate("""()=>{
+                workspace.audio.value='2';workspace.lang.value='ja';
+                workspace.queue.decode=async(_job,start,end)=>
+                    new Float32Array(Math.ceil(end*16000)-Math.round(start*16000)).fill(.1);
+            }""")
+            page.get_by_role('button',name='Generate transcript',exact=True).click()
+            page.wait_for_function("store.listLocal('guest','jobs').then(j=>j.length===1)")
+            page.evaluate("store.listLocal('guest','jobs').then(j=>window.earlyJob=j[0].id)")
+            page.wait_for_function("store.local('guest','jobs',earlyJob).then(j=>j?.pauseReason==='identity'&&j.status==='paused')")
+            before=page.evaluate("""async()=>({
+                provisional:workspace.current.provisional===true,
+                portable:workspace.player.key??null,
+                windows:(await store.local('guest','jobs',earlyJob)).nextWindow,
+                tracks:(await store.tracks('guest',workspace.current.key)).length,
+                inferences
+            })""")
+            assert before==dict(provisional=True,portable=None,windows=1,tracks=0,inferences=1),before
+            page.evaluate('releaseHash();opened')
+            page.wait_for_function("store.local('guest','jobs',earlyJob).then(j=>j?.status==='complete')")
+            after=page.evaluate("""async()=>({
+                key:workspace.current.key,
+                provisional:workspace.current.provisional??false,
+                inferences,
+                tracks:(await store.tracks('guest',workspace.current.key)).map(t=>({id:t.id,complete:t.complete})),
+                draft:(await store.local('guest','jobs',earlyJob)).verifiedMediaKey,
+                selected:workspace.player.primary.value
+            })""")
+            assert after['provisional'] is False and after['inferences']==1,after
+            assert after['tracks']==[dict(id=page.evaluate('earlyJob'),complete=True)],after
+            assert after['draft']==after['key'],after
+            assert after['selected']==page.evaluate('earlyJob'),after
+        case('Generate starts on a local File before full hashing and publishes the saved job once',generate_before_hash_then_publish_once)
+        def verification_precedes_delayed_admission():
+            page.evaluate('reset({holdAdmission:true})')
+            page.evaluate(r"""()=>{
+                const source=makeSource('Late-admission.mp4');
+                const read=source.read.bind(source);
+                window.hashGate=new Promise(resolve=>window.releaseHash=resolve);
+                source.read=async(start,end,signal)=>{
+                    if(end-start>32768)await hashGate;
+                    return read(start,end,signal);
+                };
+                window.opened=workspace.openSource(source);
+            }""")
+            page.wait_for_function('workspace.current?.provisional && workspace.player?.generationAvailable')
+            page.evaluate("""()=>{
+                workspace.audio.value='2';workspace.lang.value='ja';
+                workspace.queue.decode=async(_job,start,end)=>
+                    new Float32Array(Math.ceil(end*16000)-Math.round(start*16000)).fill(.1);
+                window.admitted=workspace.generate();
+            }""")
+            page.wait_for_function('admissionBlocked')
+            page.evaluate('releaseHash();opened')
+            page.wait_for_function('workspace.current && !workspace.current.provisional')
+            page.evaluate('releaseAdmission()')
+            page.evaluate('admitted.then(id=>window.lateJob=id)')
+            page.wait_for_function("store.local('guest','jobs',lateJob).then(j=>j?.status==='complete')")
+            result=page.evaluate("""async()=>{
+                const job=await store.local('guest','jobs',lateJob);
+                return {count:(await store.listLocal('guest','jobs')).length,
+                    key:workspace.current.key,verified:job.verifiedMediaKey,
+                    published:(await store.tracks('guest',workspace.current.key)).map(t=>t.id),
+                    inferences};
+            }""")
+            assert result==dict(count=1,key=result['key'],verified=result['key'],
+                                published=[page.evaluate('lateJob')],inferences=1),result
+        case('a Generate admission delayed past the digest still binds to the verified file',verification_precedes_delayed_admission)
+        def cancel_while_waiting_for_identity():
+            page.evaluate('reset()')
+            page.evaluate(r"""()=>{
+                const source=makeSource('Cancel-verification.mp4');
+                const read=source.read.bind(source);
+                window.hashGate=new Promise(resolve=>window.releaseHash=resolve);
+                source.read=async(start,end,signal)=>{
+                    if(end-start>32768)await hashGate;
+                    return read(start,end,signal);
+                };
+                window.opened=workspace.openSource(source);
+            }""")
+            page.wait_for_function('workspace.current?.provisional && workspace.player?.generationAvailable')
+            page.evaluate("""async()=>{
+                workspace.audio.value='2';workspace.lang.value='ja';
+                workspace.queue.decode=async(_job,start,end)=>
+                    new Float32Array(Math.ceil(end*16000)-Math.round(start*16000)).fill(.1);
+                window.cancelIdentityJob=await workspace.generate();
+            }""")
+            page.wait_for_function("store.local('guest','jobs',cancelIdentityJob).then(j=>j?.pauseReason==='identity')")
+            page.evaluate('workspace.queue.cancel(cancelIdentityJob)')
+            page.evaluate('releaseHash();opened')
+            page.wait_for_function("store.local('guest','jobs',cancelIdentityJob).then(j=>!!j?.verifiedMediaKey)")
+            result=page.evaluate("""async()=>{
+                const job=await store.local('guest','jobs',cancelIdentityJob);
+                return {status:job.status,reason:job.pauseReason,windows:job.nextWindow,
+                    published:(await store.tracks('guest',job.verifiedMediaKey)).length,inferences};
+            }""")
+            assert result==dict(status='paused',reason='user',windows=1,published=0,inferences=1),result
+        case('Cancel while verifying keeps the checkpoint without publishing or restarting',cancel_while_waiting_for_identity)
+        def switch_during_provisional_generation():
+            page.evaluate('reset()')
+            page.evaluate(r"""()=>{
+                window.originalSource=makeSource('Provisional-switch.mp4');
+                const read=originalSource.read.bind(originalSource);
+                window.hashGate=new Promise(resolve=>window.releaseHash=resolve);
+                originalSource.read=async(start,end,signal)=>{
+                    if(end-start>32768)await hashGate;
+                    return read(start,end,signal);
+                };
+                window.opened=workspace.openSource(originalSource);
+            }""")
+            page.wait_for_function('workspace.current?.provisional && workspace.player?.generationAvailable')
+            page.evaluate("""async()=>{
+                window.provisionalKey=workspace.current.key;
+                // This case admits a 52-second fixture job directly; Generate
+                // normally marks its hash as needed before queue admission.
+                workspace.localHashes.get(provisionalKey).requested=true;
+                const q=workspace.queue;
+                q.decode=async(_job,start,end)=>
+                    new Float32Array(Math.ceil(end*16000)-Math.round(start*16000)).fill(.1);
+                window.calls=0;window.secondStarted=false;
+                q.engine.transcribe=async(_pcm,signal)=>{
+                    calls++;
+                    if(calls===1)return '[3][S01]最初です。[4]';
+                    secondStarted=true;
+                    return new Promise((_,reject)=>{
+                        if(signal.aborted)reject(signal.reason);
+                        else signal.addEventListener('abort',()=>reject(signal.reason),{once:true});
+                    });
+                };
+                window.provisionalJob=await q.enqueue(provisionalKey,'ja','2',52,0,true);
+            }""")
+            page.wait_for_function('secondStarted')
+            page.evaluate("workspace.openSource(makeSource('After-switch.mp4',1))")
+            page.wait_for_function("store.local('guest','jobs',provisionalJob.id).then(j=>j?.status==='paused'&&j.nextWindow===1)")
+            page.evaluate('releaseHash();opened')
+            page.wait_for_function("store.local('guest','jobs',provisionalJob.id).then(j=>!!j?.verifiedMediaKey)")
+            held=page.evaluate("""async()=>{
+                const job=await store.local('guest','jobs',provisionalJob.id);
+                return {reason:job.pauseReason,windows:job.nextWindow,cues:job.cues.length,
+                    verified:job.verifiedMediaKey,
+                    portable:(await store.tracks('guest',job.verifiedMediaKey)).length};
+            }""")
+            assert held['reason']=='switch' and held['windows']==1 and held['cues']==1 and held['portable']==0,held
+            page.evaluate("""async()=>{
+                workspace.queue.engine.transcribe=async()=>{calls++;return '[6][S01]続きです。[7]'};
+                await workspace.openSource(originalSource,[],
+                    (await store.local('guest','jobs',provisionalJob.id)).verifiedMediaKey);
+            }""")
+            page.wait_for_function("store.local('guest','jobs',provisionalJob.id).then(j=>j?.status==='complete')")
+            finished=page.evaluate("""async()=>{
+                const job=await store.local('guest','jobs',provisionalJob.id);
+                const [track]=await store.tracks('guest',job.verifiedMediaKey);
+                return {calls,key:workspace.current.key,verified:job.verifiedMediaKey,
+                    cues:track.cues.map(c=>c.text)};
+            }""")
+            assert finished==dict(calls=3,key=held['verified'],verified=held['verified'],
+                                  cues=['最初です。','続きです。']),finished
+        case('switching videos keeps provisional checkpoints and resumes after full verification',switch_during_provisional_generation)
         def account_replaced_at_identity_boundary():
             page.evaluate('reset()')
             page.evaluate("""async()=>{

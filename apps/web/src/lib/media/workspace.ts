@@ -10,7 +10,7 @@ import { formatMediaTime } from './time.js';
 import { trackLanguage } from './track-selection.js';
 import { audioLanguage, chooseTranscriptionAudio, type AudioChoice } from './audio-selection.js';
 import { transcriptionDraft, type TranscriptionDraft } from './transcription-draft.js';
-import { jobCanResume, validateJob } from './jobs.js';
+import { jobCanResume, jobContentKey, validateJob } from './jobs.js';
 import { deviceKey } from './device-checkpoint.js';
 import {
   type Scope,
@@ -88,9 +88,11 @@ export class VideoWorkspace {
   private verifiedSources = new WeakMap<ByteSource, ContentKey>();
   /** A freshly hashed cloud locator may skip only the immediate second open pass. */
   private verifiedCloudOpen = new WeakMap<ByteSource, ContentKey>();
+  private localHashes = new Map<ContentKey, { controller: AbortController; requested: boolean }>();
   private current?: {
     key: ContentKey;
     source: ByteSource;
+    provisional?: true;
   };
   private currentTranscription?: Job;
   private switchPaused = new Set<string>();
@@ -296,7 +298,7 @@ export class VideoWorkspace {
       engine,
       async (job, start, end, signal) => {
         return inAbortScope([signal, this.lifetime.signal], async (operation) => {
-          const source = await this.resolveSource(job.mediaKey, operation);
+          const source = await this.resolveSource(jobContentKey(job), operation);
           const bunny = await abortable(operation, () => options.loadBunny());
           operation.throwIfAborted();
           const pipeline = new MediaPipeline(bunny, source, operation);
@@ -309,7 +311,7 @@ export class VideoWorkspace {
       },
       (p) => {
         if (this.closed) return;
-        if (this.current?.key === p.job.mediaKey) {
+        if (this.current?.key === jobContentKey(p.job)) {
           this.currentTranscription = p.job;
           this.player?.generationProgress(p.job, p.stage);
         }
@@ -319,8 +321,8 @@ export class VideoWorkspace {
         this.notice(
           `${p.stage === 'waiting-for-tab' ? 'Waiting for another tab or workspace to release transcription' : p.stage === 'downloading' ? 'Downloading speech model' : p.stage === 'loading' || p.stage === 'checking' ? 'Preparing speech model' : p.stage === 'verifying' ? 'Verifying speech model' : p.stage === 'complete' ? 'Transcript ready' : p.stage === 'paused' ? 'Transcription paused' : p.stage === 'failed' ? 'Transcription failed' : 'Generating transcript'}${p.total > 0 ? ` · ${Math.min(100, Math.round((p.loaded / p.total) * 100))}%` : ''}`
         );
-        if (this.current?.key === p.job.mediaKey) {
-          this.player?.generationStatus(p.job.id, p.stage);
+        if (this.current?.key === jobContentKey(p.job)) {
+          this.player?.generationStatus(p.job.id, p.stage, p.job.pauseReason);
           this.player?.generationPreview(p.job.id, p.provisional);
         }
         if (['complete', 'paused', 'failed'].includes(p.stage)) {
@@ -431,6 +433,8 @@ export class VideoWorkspace {
       // Keep accepted windows, but free inference for the newly opened video.
       for (const id of await this.queue.pauseSparseForMedia(outgoing.key))
         this.switchPaused.add(id);
+      const pendingHash = this.localHashes.get(outgoing.key);
+      if (pendingHash && !pendingHash.requested) pendingHash.controller.abort();
     }
     await this.player?.dispose();
     if (this.closed || generation !== this.generation) return;
@@ -473,8 +477,9 @@ export class VideoWorkspace {
     this.progress.hidden = false;
     this.progress.max = source.size;
     const temporary: Track[] = [];
+    let identityBound = false;
     const addTemporary = (tracks: Track[]) => {
-      if (!active() || this.current?.source === source) return;
+      if (!active() || identityBound) return;
       temporary.push(...tracks);
       player.setTemporaryTracks(temporary);
     };
@@ -544,11 +549,76 @@ export class VideoWorkspace {
             : this.verifiedCloudOpen.get(source)
           : undefined;
       this.verifiedCloudOpen.delete(source);
-      const key =
-        cached ??
-        (await identify(source, signal, (n) => {
-          if (active()) this.progress.value = n;
-        }));
+      // A fresh local File is immutable for this open. Its random key may own
+      // device-only checkpoints while the full digest runs; it is never used
+      // for portable playback, captions or SRT publication.
+      let provisionalKey: ContentKey | undefined;
+      let identityController: AbortController | undefined;
+      let stopIdentity: (() => void) | undefined;
+      if (source.file && !cached && !expected) {
+        const random = crypto.getRandomValues(new Uint8Array(32));
+        provisionalKey = `content:${[...random].map((byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+        this.sources.set(provisionalKey, source);
+        identityController = new AbortController();
+        stopIdentity = () => identityController?.abort(this.lifetime.signal.reason);
+        this.lifetime.signal.addEventListener('abort', stopIdentity, { once: true });
+        this.localHashes.set(provisionalKey, { controller: identityController, requested: false });
+        this.current = { key: provisionalKey, source, provisional: true };
+        player.bindProvisionalGeneration(provisionalKey);
+        player.setGenerationAvailable(
+          this.audioChoices.some((track) => track.decodable) &&
+            typeof navigator.locks?.request === 'function',
+          typeof navigator.locks?.request === 'function'
+            ? undefined
+            : 'This browser cannot coordinate transcription across tabs (Web Locks unavailable). Playback and existing captions remain available.'
+        );
+        void this.refreshJobs().catch((e) => this.error(e));
+      }
+      let key: ContentKey;
+      try {
+        key =
+          cached ??
+          (await identify(source, identityController?.signal ?? signal, (n) => {
+            if (active()) this.progress.value = n;
+          }));
+      } finally {
+        if (provisionalKey) this.localHashes.delete(provisionalKey);
+        if (stopIdentity) this.lifetime.signal.removeEventListener('abort', stopIdentity);
+      }
+      if (provisionalKey) {
+        this.verifiedSources.set(source, key);
+        this.sources.set(key, source);
+        if (active()) {
+          this.current = { key, source };
+          player.bindProvisionalGeneration(key);
+        }
+        await this.queue.verifyProvisional(provisionalKey, key);
+        if (!active()) {
+          // The user switched videos during hashing. Keep the verified source
+          // and its completed windows available in this workspace's library.
+          if (!this.closed) {
+            await this.store.putLocal(this.options.scope, 'aliases', key, {
+              key,
+              name: source.name,
+              ...(handle ? { handle } : {})
+            } satisfies Alias);
+            if (!(await this.store.get(this.options.scope, 'video_info', key)))
+              await this.store.edit(this.options.scope, 'video_info', key, key, {
+                version: 1,
+                title: source.name,
+                duration: 0,
+                width: 0,
+                height: 0,
+                addedAt: Date.now()
+              });
+            for (const sub of subs)
+              if (matchSidecar(source.name, sub.name))
+                await this.saveSubtitle(key, source.name, sub);
+            await this.refresh();
+          }
+          return;
+        }
+      }
       guard();
       if (expected && key !== expected)
         throw new Error('The selected file is not the saved video. Its old progress was kept.');
@@ -599,6 +669,7 @@ export class VideoWorkspace {
       guard();
       await this.refreshTracks();
       guard();
+      identityBound = true;
       this.progress.hidden = true;
       this.notice(
         'Choose Generate transcript when you need captions. Nothing is generated automatically.'
@@ -730,7 +801,8 @@ export class VideoWorkspace {
     }
   }
   async importSubtitle(file: File) {
-    if (!this.current) throw new Error('Wait for the video identity before importing captions');
+    if (!this.current || this.current.provisional)
+      throw new Error('Wait for the video identity before importing captions');
     await this.saveSubtitle(this.current.key, this.current.source.name, file);
     await this.refreshTracks();
   }
@@ -773,7 +845,7 @@ export class VideoWorkspace {
   private pickSubtitle() {
     const current = this.current,
       generation = this.generation;
-    if (!current) {
+    if (!current || current.provisional) {
       this.notice('Wait for the video identity before importing captions.');
       return;
     }
@@ -826,15 +898,29 @@ export class VideoWorkspace {
     const duration = player?.video.duration;
     if (!player || !duration || !Number.isFinite(duration))
       throw new Error('Video duration is unavailable');
-    const job = await this.queue.enqueue(
+    if (current.provisional) {
+      const hash = this.localHashes.get(current.key);
+      if (hash) hash.requested = true;
+    }
+    let job = await this.queue.enqueue(
       current.key,
       lang === 'und' ? selected.language : lang,
       String(selected.id),
       duration,
-      player?.video.currentTime ?? 0
+      player?.video.currentTime ?? 0,
+      !!current.provisional
     );
-    if (this.closed || this.current !== current || this.player !== player) {
-      if (this.current?.key !== current.key) await this.queue.pauseSparseForMedia(current.key);
+    if (current.provisional) {
+      const verified = this.verifiedSources.get(current.source);
+      if (verified) {
+        await this.queue.verifyProvisional(current.key, verified);
+        const latest = await this.store.local<unknown>(this.options.scope, 'jobs', job.id);
+        if (latest) job = validateJob(latest);
+      }
+    }
+    if (this.closed || this.current?.source !== current.source || this.player !== player) {
+      if (this.current?.source !== current.source)
+        await this.queue.pauseSparseForMedia(current.key);
       return undefined;
     }
     this.currentTranscription = job;
@@ -1155,6 +1241,7 @@ export class VideoWorkspace {
       // A newer notification arrived while reading: don't flash an older state.
       if (this.jobsDirty) continue;
       await this.resumeSwitchedJobs(jobs);
+      await this.resumeVerifiedIdentityJobs(jobs);
       this.renderJobs(jobs);
       const key = this.current?.key;
       if (key) {
@@ -1163,19 +1250,19 @@ export class VideoWorkspace {
         const selected =
           (previous && active(previous) ? previous : undefined) ??
           jobs
-            .filter((job) => job.mediaKey === key && job.sparse && active(job))
+            .filter((job) => jobContentKey(job) === key && job.sparse && active(job))
             .sort((a, b) => b.createdAt - a.createdAt)[0] ??
           previous ??
           jobs
-            .filter((job) => job.mediaKey === key && job.sparse)
+            .filter((job) => jobContentKey(job) === key && job.sparse)
             .sort((a, b) => b.createdAt - a.createdAt)[0];
-        if (selected?.mediaKey === key) {
+        if (selected && jobContentKey(selected) === key) {
           this.currentTranscription = selected;
           this.player?.generationProgress(selected);
         }
         this.player?.setDrafts(
           jobs
-            .filter((job) => job.mediaKey === key)
+            .filter((job) => jobContentKey(job) === key)
             .map(transcriptionDraft)
             .filter((draft): draft is TranscriptionDraft => !!draft)
         );
@@ -1189,7 +1276,7 @@ export class VideoWorkspace {
       snapshot ??
       (await this.store.listLocal<unknown>(this.options.scope, 'jobs')).map(validateJob);
     for (const job of jobs) {
-      if (!this.switchPaused.has(job.id) || job.mediaKey !== key) continue;
+      if (!this.switchPaused.has(job.id) || jobContentKey(job) !== key) continue;
       if (
         job.pauseReason === 'user' ||
         job.status === 'complete' ||
@@ -1199,13 +1286,29 @@ export class VideoWorkspace {
         this.switchPaused.delete(job.id);
       } else if (
         job.status === 'queued' ||
-        (job.status === 'paused' && job.pauseReason === 'switch' && jobCanResume(job))
+        (job.status === 'paused' &&
+          (job.pauseReason === 'switch' || job.pauseReason === 'identity') &&
+          jobCanResume(job))
       ) {
         // A switch can finish aborting after the new video's identity is known.
         // Store notifications retry this when that final pause is durable.
         this.switchPaused.delete(job.id);
         if (this.current?.key === key) await this.queue.resume(job.id);
       }
+    }
+  }
+  private async resumeVerifiedIdentityJobs(jobs: Job[]) {
+    const key = this.current?.key;
+    if (!key || this.current?.provisional) return;
+    for (const job of jobs) {
+      if (
+        job.provisional &&
+        job.verifiedMediaKey === key &&
+        job.status === 'paused' &&
+        job.pauseReason === 'identity' &&
+        jobCanResume(job)
+      )
+        await this.queue.resume(job.id);
     }
   }
   private renderJobs(jobs: Job[]) {
@@ -1215,7 +1318,10 @@ export class VideoWorkspace {
       const row = make('div');
       row.className = 'job-row';
       row.append(
-        make('span', `${job.language} · ${job.status}${job.error ? ` — ${job.error}` : ''}`)
+        make(
+          'span',
+          `${job.language} · ${job.pauseReason === 'identity' && !job.verifiedMediaKey ? 'verifying video' : job.status}${job.error ? ` — ${job.error}` : ''}`
+        )
       );
       if (['running', 'queued'].includes(job.status))
         row.append(

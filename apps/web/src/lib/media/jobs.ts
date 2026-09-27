@@ -45,6 +45,9 @@ export interface Job {
   sparse?: SparseState;
   id: string;
   mediaKey: ContentKey;
+  /** An unverified, device-only File job uses a random local key until full hashing finishes. */
+  provisional?: true;
+  verifiedMediaKey?: ContentKey;
   language: string;
   audioTrack: string;
   duration: number;
@@ -60,13 +63,15 @@ export interface Job {
   leaseUntil?: number;
   cancelRequested?: boolean;
   /** Why a running job was paused; only a video switch may resume automatically. */
-  pauseReason?: 'switch' | 'user';
+  pauseReason?: 'switch' | 'user' | 'identity';
 }
 export const JOB_LEASE_MS = 90_000;
+export const jobContentKey = (job: Job): ContentKey => job.verifiedMediaKey ?? job.mediaKey;
 
 /** Whether repeating Resume can make progress without changing transcription policy. */
 export function jobCanResume(job: Job): boolean {
   if (job.status !== 'paused' && job.status !== 'failed') return false;
+  if (job.pauseReason === 'identity' && !job.verifiedMediaKey) return false;
   if (job.sparse) {
     const seam = pendingSparseSeam(job.sparse);
     if (
@@ -86,6 +91,8 @@ export function validateJob(value: unknown): Job {
     'version',
     'id',
     'mediaKey',
+    'provisional',
+    'verifiedMediaKey',
     'language',
     'audioTrack',
     'duration',
@@ -115,6 +122,14 @@ export function validateJob(value: unknown): Job {
     j.cues.length > 50_000
   )
     throw new Error('Invalid saved transcription job');
+  if (
+    (j.provisional !== undefined && j.provisional !== true) ||
+    (j.verifiedMediaKey !== undefined && !isContentKey(j.verifiedMediaKey)) ||
+    (j.verifiedMediaKey !== undefined && j.provisional !== true) ||
+    (j.provisional === true && j.version !== 3) ||
+    (j.provisional === true && j.status === 'complete' && j.verifiedMediaKey === undefined)
+  )
+    throw new Error('Invalid provisional transcription identity');
   const duration = finite(j.duration, 0, 604800);
   if (duration <= 0) throw new Error('Invalid saved duration');
   const progressive =
@@ -235,8 +250,15 @@ export function validateJob(value: unknown): Job {
     throw new Error('Invalid job lease');
   if (j.cancelRequested !== undefined && typeof j.cancelRequested !== 'boolean')
     throw new Error('Invalid cancellation request');
-  if (j.pauseReason !== undefined && j.pauseReason !== 'switch' && j.pauseReason !== 'user')
+  if (
+    j.pauseReason !== undefined &&
+    j.pauseReason !== 'switch' &&
+    j.pauseReason !== 'user' &&
+    j.pauseReason !== 'identity'
+  )
     throw new Error('Invalid transcription pause reason');
+  if (j.pauseReason === 'identity' && j.provisional !== true)
+    throw new Error('Identity pause requires a provisional job');
   if (j.pauseReason !== undefined && j.status !== 'running' && j.status !== 'paused')
     throw new Error('Pause reason requires a running or paused transcription');
   return {
@@ -245,6 +267,8 @@ export function validateJob(value: unknown): Job {
     ...(sparse ? { sparse } : {}),
     id: j.id,
     mediaKey: j.mediaKey,
+    ...(j.provisional === true ? { provisional: true as const } : {}),
+    ...(j.verifiedMediaKey === undefined ? {} : { verifiedMediaKey: j.verifiedMediaKey }),
     language: language(j.language),
     audioTrack,
     duration,
@@ -263,7 +287,9 @@ export function validateJob(value: unknown): Job {
           leaseUntil: finite(j.leaseUntil, 0, Number.MAX_SAFE_INTEGER)
         }),
     ...(j.cancelRequested === undefined ? {} : { cancelRequested: j.cancelRequested as boolean }),
-    ...(j.pauseReason === undefined ? {} : { pauseReason: j.pauseReason as 'switch' | 'user' })
+    ...(j.pauseReason === undefined
+      ? {}
+      : { pauseReason: j.pauseReason as 'switch' | 'user' | 'identity' })
   };
 }
 export class JobOwnershipLost extends Error {

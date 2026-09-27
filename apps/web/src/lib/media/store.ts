@@ -9,6 +9,7 @@ import {
   ownsJob,
   releasedJob,
   jobCanResume,
+  jobContentKey,
   JobOwnershipLost,
   type Job
 } from './jobs.js';
@@ -313,7 +314,7 @@ export class MediaStore {
           if (jobs.some((job) => job.id === draft.id))
             throw new Error('Transcription job identity is already in use');
           const compatible = (job: Job) =>
-            job.mediaKey === draft.mediaKey &&
+            jobContentKey(job) === jobContentKey(draft) &&
             job.language === draft.language &&
             job.audioTrack === draft.audioTrack &&
             job.duration === draft.duration &&
@@ -485,7 +486,7 @@ export class MediaStore {
     if (
       completed &&
       (completed.id !== snapshot.id ||
-        completed.mediaKey !== snapshot.mediaKey ||
+        jobContentKey(completed) !== snapshot.mediaKey ||
         completed.language !== snapshot.language ||
         completed.status !== 'complete' ||
         !same(completed.cues, snapshot.cues))
@@ -507,6 +508,8 @@ export class MediaStore {
               const fields = [
                 'version',
                 'mediaKey',
+                'provisional',
+                'verifiedMediaKey',
                 'language',
                 'audioTrack',
                 'duration',

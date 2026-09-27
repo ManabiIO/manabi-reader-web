@@ -28,9 +28,15 @@ import {
   JobOwnershipLost,
   JOB_LEASE_MS,
   jobCanResume,
+  jobContentKey,
   type Job
 } from './jobs.js';
 export type { Job } from './jobs.js';
+class AwaitVerifiedIdentity extends Error {
+  constructor() {
+    super('Waiting for the full video identity before publishing captions.');
+  }
+}
 const ENGINE_SOURCE = '190a569c13b4b247450f2fb3b2a431244e84833e';
 const ENGINE_PREFIX = `${ENGINE_SOURCE}+`;
 const PORT_ORDER = new Map([
@@ -172,7 +178,8 @@ export class TranscriptionQueue {
     lang: string,
     audioTrack: string,
     duration: number,
-    targetSeconds?: number
+    targetSeconds?: number,
+    provisional = false
   ): Promise<Job> {
     if (this.closed) throw new Error('The queue is closed');
     this.requireOriginLock();
@@ -183,6 +190,7 @@ export class TranscriptionQueue {
         : { sparse: newSparseState(duration, targetSeconds) }),
       id: crypto.randomUUID(),
       mediaKey: key,
+      ...(provisional ? { provisional: true } : {}),
       language: language(lang),
       audioTrack,
       duration,
@@ -202,6 +210,23 @@ export class TranscriptionQueue {
     this.kick();
     return job;
   }
+  /** The full digest may finish while a window is running. Keep its checkpoint
+   * owner and attach only the verified portable key in the same local record. */
+  async verifyProvisional(mediaKey: ContentKey, verified: ContentKey) {
+    for (const raw of await this.store.listLocal<unknown>(this.scope, 'jobs')) {
+      const job = validateJob(raw);
+      if (!job.provisional || job.mediaKey !== mediaKey) continue;
+      await this.store.updateLocal<Job>(this.scope, 'jobs', job.id, (old) => {
+        if (!old) return old;
+        const current = validateJob(old);
+        if (!current.provisional || current.mediaKey !== mediaKey)
+          throw new Error('Provisional transcription identity changed');
+        if (current.verifiedMediaKey && current.verifiedMediaKey !== verified)
+          throw new Error('Provisional transcription belongs to another video');
+        return current.verifiedMediaKey ? old : { ...current, verifiedMediaKey: verified };
+      });
+    }
+  }
   /** Playback and seeks affect the next input, not an in-flight model call. */
   prioritize(id: string, seconds: number) {
     if (!Number.isFinite(seconds) || seconds < 0 || this.closed) return;
@@ -215,6 +240,8 @@ export class TranscriptionQueue {
       const job = validateJob(old);
       if (job.id !== id) throw new Error('Wrong saved job identity');
       if (job.status === 'complete') throw new Error('This transcript is already complete');
+      if (job.pauseReason === 'identity' && !job.verifiedMediaKey)
+        throw new Error('Wait for full video verification before resuming this transcript.');
       if (job.status === 'queued') return old;
       if (job.status === 'running' && (job.leaseUntil ?? 0) > Date.now())
         throw new Error('This job is still active in another tab. Cancel it before resuming.');
@@ -467,6 +494,7 @@ export class TranscriptionQueue {
                 signal.throwIfAborted();
                 return {
                   ...snapshot,
+                  ...(old!.verifiedMediaKey ? { verifiedMediaKey: old!.verifiedMediaKey } : {}),
                   ...(snapshot.sparse
                     ? {
                         sparse: {
@@ -751,10 +779,11 @@ export class TranscriptionQueue {
               }
               job.completedAt ??= Date.now();
               await checkpoint(); // Stable provenance survives retry after publication failure.
+              if (job.provisional && !job.verifiedMediaKey) throw new AwaitVerifiedIdentity();
               const track: Track = {
                 version: 1,
                 id: job.id,
-                mediaKey: job.mediaKey,
+                mediaKey: jobContentKey(job),
                 language: job.language,
                 kind: 'transcription',
                 origin: 'generated',
@@ -793,7 +822,8 @@ export class TranscriptionQueue {
                 total: job.duration
               });
             } catch (e) {
-              const paused = signal.aborted || e instanceof JobOwnershipLost;
+              const awaitingIdentity = e instanceof AwaitVerifiedIdentity;
+              const paused = signal.aborted || e instanceof JobOwnershipLost || awaitingIdentity;
               const latest = await this.store.updateLocal<Job>(
                 this.scope,
                 'jobs',
@@ -802,9 +832,13 @@ export class TranscriptionQueue {
                   // Never replace a successor owner or its completed result with a stale error.
                   if (!old || old.ownerId !== ownerId || old.status !== 'running') return old;
                   const next = releasedJob(validateJob(old), paused ? 'paused' : 'failed');
-                  next.error =
-                    (e instanceof Error ? e.message : String(e)).slice(0, 2048) ||
-                    'Transcription failed';
+                  if (awaitingIdentity) {
+                    next.pauseReason = 'identity';
+                    delete next.error;
+                  } else
+                    next.error =
+                      (e instanceof Error ? e.message : String(e)).slice(0, 2048) ||
+                      'Transcription failed';
                   return next;
                 }
               );
