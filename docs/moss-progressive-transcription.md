@@ -174,8 +174,17 @@ This is a rolling estimate, not a promise of sustained real-time transcription.
 Playback begins as soon as the browser can play the source. Authored sidecars
 and embedded subtitles are shown in memory while full content hashing runs.
 They are saved and bound to the portable content identity only after the full
-hash verifies. Generation is enabled after that verification; temporary
-subtitle IDs never enter portable playback state.
+hash verifies. A fresh local file can begin generation while that hash runs:
+its windows are saved under a random device-only job identity, and no generated
+track or SRT is published until the full hash binds the job to the verified
+content identity. A cloud source still waits for full verification before
+generation. Temporary subtitle IDs never enter portable playback state.
+
+Switching videos keeps a requested local hash running and preserves its saved
+windows. If the tab closes or verification fails before the digest is attached,
+the provisional windows remain on the device but cannot yet be safely matched
+to a newly selected file. Recovery from that interrupted verification remains
+a release gate for the early-generation flow.
 
 Version-3 scheduling, early seam repair, accepted-cue preservation, and the
 browser controls have deterministic and Chromium tests. Natural Japanese
