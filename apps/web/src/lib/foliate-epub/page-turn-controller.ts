@@ -53,8 +53,20 @@ export class PageTurnController {
         const prepared = await this.ownTurnOperation(() => paginator.preparePageTurn(direction));
         if (!prepared) return null;
         return {
-          update: (progress) => this.canTurn() && prepared.update(progress),
-          commit: () => this.canTurn() && this.ownTurnOperation(() => prepared.commit()),
+          update: (progress) => {
+            if (!this.canTurn()) {
+              this.ownTurnOperation(() => prepared.cancel());
+              return false;
+            }
+            return prepared.update(progress);
+          },
+          commit: () => {
+            if (!this.canTurn()) {
+              this.ownTurnOperation(() => prepared.cancel());
+              return false;
+            }
+            return this.ownTurnOperation(() => prepared.commit());
+          },
           cancel: () => this.ownTurnOperation(() => prepared.cancel())
         };
       },
@@ -361,7 +373,11 @@ export class PageTurnController {
   }
 
   turn(direction: TurnDirection, input: PageTurnInput = {}) {
-    if (!this.canTurn() || this.selected()) return;
+    const allowed = this.canTurn();
+    if (!allowed || this.selected()) {
+      if (!allowed) this.cancel();
+      return;
+    }
     // Only discard a gesture when beginning a new command sequence. Repeated
     // commands must reach the sequence rather than cancelling or being dropped.
     if (!this.commands.active) {
@@ -376,7 +392,7 @@ export class PageTurnController {
     if (this.effect === 'none') {
       const direction = this.direction;
       this.resetTurn();
-      if (commit) this.turn(direction);
+      if (commit && this.canTurn()) this.turn(direction);
       return;
     }
     this.settling = true;

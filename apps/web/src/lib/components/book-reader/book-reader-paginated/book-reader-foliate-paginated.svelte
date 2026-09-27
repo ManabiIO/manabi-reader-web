@@ -434,6 +434,7 @@
   onMount(async () => {
     await import('$lib/foliate-epub/paginator.js');
     if (destroyed) return;
+    isBookmarkScreen = false;
 
     const publication = createStoredFoliateBook(
       htmlContent,

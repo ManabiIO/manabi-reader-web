@@ -5,7 +5,7 @@
  */
 
 import { database } from '$lib/data/store';
-import { currentUser } from './client';
+import { localProfileUser } from './client';
 import { canonical, MigrationConflict } from './ttu-migration-format';
 import type { ReaderImportRecord } from '$lib/data/database/books-db/versions/v10/books-db-v10';
 export function validateImportRecord(value: unknown): ReaderImportRecord {
@@ -67,10 +67,10 @@ export function unlocatedImportRecord(value: ReaderImportRecord): ReaderImportRe
   };
 }
 function checkOwner(owner: string | null) {
-  if ((currentUser()?.id ?? null) !== owner) throw new Error('Account changed.');
+  if ((localProfileUser()?.id ?? null) !== owner) throw new Error('Account changed.');
 }
 export async function listImportedNotes(bookKey: string) {
-  const owner = currentUser()?.id ?? null;
+  const owner = localProfileUser()?.id ?? null;
   const rows = await (await database.db).getAllFromIndex('readerImportRecord', 'bookKey', bookKey);
   checkOwner(owner);
   return rows.filter((row) => row.accountId === null || row.accountId === owner);
@@ -81,7 +81,7 @@ export async function editImportedNote(
   label: string,
   deleted = false
 ) {
-  const owner = currentUser()?.id ?? null;
+  const owner = localProfileUser()?.id ?? null;
   if (body.length > 65536 || label.length > 512) throw new Error('The note is too large.');
   const db = await database.db;
   const tx = db.transaction('readerImportRecord', 'readwrite');
@@ -116,7 +116,7 @@ export async function editImportedNote(
   }
 }
 export async function exportImportedNotes(bookId: number, bookKey: string) {
-  const owner = currentUser()?.id ?? null,
+  const owner = localProfileUser()?.id ?? null,
     db = await database.db;
   const book = (await db.get('data', bookId)) as
     | { contentHash?: string; manabiTtuImport?: { content: string } }
@@ -145,7 +145,7 @@ export async function restoreImportedNotes(
   if (new TextEncoder().encode(json).byteLength > 16 * 1024 * 1024)
     throw new Error('Imported notes archive exceeds 16 MiB.');
   const document = JSON.parse(json),
-    owner = currentUser()?.id ?? null;
+    owner = localProfileUser()?.id ?? null;
   if (
     !document ||
     document.format !== 'manabi-reader-imported-notes' ||
