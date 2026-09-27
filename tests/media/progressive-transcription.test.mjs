@@ -331,6 +331,35 @@ test('exact silence advances coverage with no model preparation; quiet speech st
   await quiet.run();
   assert.equal(quiet.state.inferences.length, 1);
 });
+test('verified-zero next input drops only fully covered unsettled hallucinations', async () => {
+  const job = legacyProgressive(50),
+    first = chooseWindow(job.progressive, 50, pcm(30));
+  job.progressive.windows = [first];
+  job.nextWindow = 1;
+  job.cues = [cue('確定した発言です。', 1, 2)];
+  job.progressive.tail = [cue('無音上の幻覚です。', 26.5, 27.5, 'w0/cue-1')];
+  const h = runner(validateJob(job), []);
+  h.options.decode = async (_job, start, end) => pcm(end - start, 0);
+  await h.run();
+  assert.equal(h.state.prepares, 0);
+  assert.deepEqual(h.state.job.cues.map((c) => c.text), ['確定した発言です。']);
+  assert.deepEqual(h.state.job.progressive.tail, []);
+});
+test('verified-zero overlap preserves a held cue that began before the covered input', async () => {
+  const job = legacyProgressive(50),
+    first = chooseWindow(job.progressive, 50, pcm(30));
+  job.progressive.windows = [first];
+  job.nextWindow = 1;
+  job.cues = [cue('確定した発言です。', 1, 2)];
+  job.progressive.tail = [cue('境界をまたぐ発言です。', 25, 27.5, 'w0/cue-1')];
+  const h = runner(validateJob(job), []);
+  h.options.decode = async (_job, start, end) => pcm(end - start, 0);
+  await h.run();
+  assert.deepEqual(h.state.job.cues.map((c) => c.text), [
+    '確定した発言です。',
+    '境界をまたぐ発言です。'
+  ]);
+});
 test('a token preview followed by inference failure never becomes an accepted checkpoint', async () => {
   const h = runner(fresh(2), []);
   h.options.engine.transcribe = async (_pcm, _signal, preview) => {

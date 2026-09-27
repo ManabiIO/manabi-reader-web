@@ -329,7 +329,7 @@ test('compiled Worker acknowledges only after model and pthread cleanup (runtime
     }
   );
   assert.equal(result.status, 0, result.stdout + result.stderr);
-  assert.match(result.stdout, /PASS: 6 compiled-worker disposal\/output cases/);
+  assert.match(result.stdout, /PASS: 7 compiled-worker disposal\/output cases/);
 });
 
 test('quota guidance derives its free-space requirement from the pinned model bytes', () =>

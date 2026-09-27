@@ -185,14 +185,24 @@ worker.onmessage = async ({ data }) => {
         )
           throw new Error('MOSS runtime memory view is unavailable after allocation');
         heap.set(pcm, start);
-        let previous = '';
+        let previous = '',
+          previewFailed = false;
         runtime.onMossOutput = (bytes) => {
-          const text = outputPreview(bytes);
-          if (text !== previous) {
-            if (!text.startsWith(previous))
-              throw new Error('MOSS preview rewrote an emitted prefix');
-            previous = text;
-            reply('partial', text);
+          // Preview is optional UI. Never throw a JS exception back through the
+          // native callback: that can unwind a healthy WASM inference without
+          // running C++ cleanup. Stop previewing this operation and let the
+          // authoritative final result/parser decide whether recognition succeeds.
+          if (previewFailed) return;
+          try {
+            const text = outputPreview(bytes);
+            if (text !== previous) {
+              if (!text.startsWith(previous))
+                throw new Error('MOSS preview rewrote an emitted prefix');
+              previous = text;
+              reply('partial', text);
+            }
+          } catch {
+            previewFailed = true;
           }
         };
         result = runtime._moss_transcribe_capi_transcribe_pcm(ctx, p, pcm.length, 16000, 2048);

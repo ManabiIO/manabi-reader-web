@@ -192,6 +192,27 @@ for (const fail of [false, true]) {
   else assert.equal(replies.at(-1).value, raw);
   await h.send({ id: 'stop', type: 'dispose' });
 }
+// Malformed preview bytes are non-authoritative and must not throw back through WASM.
+{
+  const h = await harness(async () => new Blob(['test']));
+  await h.prepare('prepare');
+  const decode = h.runtime.UTF8ToString;
+  const raw = '[0][S01]最終結果です。[.02]';
+  h.runtime.UTF8ToString = (p) => (p === 99 ? raw : decode(p));
+  let nativeFinished = false;
+  h.runtime._moss_transcribe_capi_transcribe_pcm = () => {
+    h.runtime.onMossOutput(new Uint8Array([0xff]));
+    nativeFinished = true;
+    return 99;
+  };
+  await h.send({ id: 'recognize', type: 'transcribe', operation: 2, pcm: new Float32Array(320) });
+  const replies = h.messages.filter((m) => m.id === 'recognize');
+  assert.equal(nativeFinished, true, 'preview validation must not unwind the native call');
+  assert.deepEqual(replies.map((m) => m.type), ['result']);
+  assert.equal(replies[0].value, raw);
+  assert.equal(h.runtime.onMossOutput, undefined);
+  await h.send({ id: 'stop', type: 'dispose' });
+}
 // A successful native pointer does not excuse output inconsistent with the preview.
 {
   const h = await harness(async () => new Blob(['test']));
@@ -212,4 +233,4 @@ for (const fail of [false, true]) {
   assert.equal(h.runtime.onMossOutput, undefined);
   await h.send({ id: 'stop', type: 'dispose' });
 }
-console.log('PASS: 6 compiled-worker disposal/output cases (runtime/download doubles, no WASM)');
+console.log('PASS: 7 compiled-worker disposal/output cases (runtime/download doubles, no WASM)');

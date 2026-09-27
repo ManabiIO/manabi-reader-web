@@ -136,11 +136,21 @@ export async function transcribeProgressively(
       progress('decoding');
       const pcm = await audio.read(job, inputStart(state), inputEnd(state, job.duration));
       const window = chooseWindow(state, job.duration, pcm);
+      const modelPcm = pcm.slice(0, window.endSample - window.startSample);
+      // Capture silence evidence before the engine may transfer/detach modelPcm.
+      const exactSilence = modelPcm.every((sample) => sample === 0);
       progress('transcribing');
       hypothesis = {
         window,
-        cues: await recognize(pcm.slice(0, window.endSample - window.startSample), window)
+        cues: await recognize(modelPcm, window)
       };
+      // A wholly covered cue over verified digital-zero PCM is stronger evidence
+      // than an earlier model tail hallucination. Keep a cue that began before
+      // this input, because only its suffix is covered by the silent evidence.
+      if (exactSilence && state.tail.length) {
+        const coveredFrom = window.startSample / SAMPLE_RATE;
+        state.tail = state.tail.filter((cue) => cue.start < coveredFrom);
+      }
     }
     let window = hypothesis.window;
     let combined = state.windows.length

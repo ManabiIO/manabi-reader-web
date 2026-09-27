@@ -154,3 +154,7 @@ See `moss-progressive-review.md` for the subsequent numeric/lexical seam fixes,
 repetition and speaker-turn checks, final-prefix/preview ownership repairs, delayed
 draft restoration regression, and corrected single-cue streaming evidence gate.
 That report distinguishes newly executed tests from real-model/device qualification.
+
+Exact digital silence is also allowed to invalidate only an unsettled prior cue fully covered by the zero-valued input; crossing cues are preserved whole.
+
+Preview decoding is best-effort and never throws through the native WASM callback. A malformed preview disables preview for that inference; final output remains authoritative.
