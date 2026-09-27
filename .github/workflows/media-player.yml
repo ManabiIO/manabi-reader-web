@@ -43,7 +43,7 @@ jobs:
           git rev-parse HEAD^{tree} > test-results/media/source/tested-tree.txt
           git archive --format=tar.gz HEAD \
             apps/web/src/lib/media tests/media tools/media \
-            package.json apps/web/package.json pnpm-lock.yaml \
+            package.json apps/web/package.json apps/web/svelte.config.js pnpm-lock.yaml \
             .prettierrc.cjs .github/workflows/media-player.yml \
             > test-results/media/source/media-source.tar.gz
           sha256sum test-results/media/source/media-source.tar.gz > test-results/media/source/SHA256SUMS
@@ -64,6 +64,20 @@ jobs:
         with:
           python-version: '3.13'
       - run: pnpm install --frozen-lockfile
+      - name: Record pinned formatter for reproducible offline media review
+        run: |
+          mkdir -p test-results/media/formatter
+          node --version > test-results/media/formatter/node-version.txt
+          node -p "require('prettier/package.json').version" > test-results/media/formatter/version.txt
+          formatter="$(node -p "require('path').dirname(require.resolve('prettier/package.json'))")"
+          tar -czf test-results/media/formatter/prettier.tar.gz -C "$formatter" .
+          sha256sum test-results/media/formatter/prettier.tar.gz > test-results/media/formatter/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: video-player-formatter
+          path: test-results/media/formatter/
+          if-no-files-found: error
+          retention-days: 7
       - run: pnpm --dir apps/web exec svelte-kit sync
       - run: pnpm --dir apps/web check
       - name: Build the actual application
