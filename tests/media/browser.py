@@ -226,8 +226,13 @@ def main():
                     js('releaseTab()')
                     page.wait_for_function('async () => (await store.local("account:two-tabs","jobs",tabJob))?.status === "complete"')
                     other.wait_for_function('async () => (await sharedStore.local("account:two-tabs","jobs",tabJob))?.status === "complete"')
-                    check(other.evaluate('tabStarts === 1') and not other_errors,
-                          '; '.join(other_errors) or 'Second tab did not complete one inference')
+                    second = other.evaluate('''async () => ({
+                        starts: tabStarts,
+                        job: await sharedStore.local('account:two-tabs','jobs',tabJob),
+                        errors: window.errors
+                    })''')
+                    check(second['starts'] == 1 and not other_errors and not second['errors'],
+                          f'Second tab outcome: {second}; page errors: {other_errors}')
                 finally:
                     js('window.releaseTab?.()')
                     js('window.tabQueue?.dispose()')
