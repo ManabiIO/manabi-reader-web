@@ -135,7 +135,10 @@ class OutputStreamPatch(unittest.TestCase):
     def test_existing_tokenizer_is_reused_and_output_size_is_bounded(self):
         patcher.patch_output_stream(self.root)
         source = (self.root / 'src/transcribe.cpp').read_text()
-        self.assertIn('tok.decode(ids)', source)
+        self.assertNotIn('tok.decode(ids)', source)
+        self.assertIn('preview += tok.decode(delta)', source)
+        self.assertIn('ids.begin() + preview_ids', source)
+        self.assertIn('preview_ids = ids.size()', source)
         self.assertIn('preview.size() > 1024u * 1024u', source)
         self.assertIn('manabi_web_output(preview.data()', source)
         self.assertNotIn('Tokenizer tok', source)

@@ -25,8 +25,13 @@ def patch_output_stream(source: Path) -> None:
             '#include "transcribe.hpp"\n#include "manabi_web_hooks.hpp"')
     replace('transcribe.cpp', 'greedy_generate(dec, m, fused, seq, max_new, c.eos_token_id);',
             'greedy_generate(dec, m, fused, seq, max_new, c.eos_token_id,\n'
-            '            [&](const std::vector<int32_t>& ids) {\n'
-            '                const std::string preview = tok.decode(ids);\n'
+            '            [&, preview = std::string{}, preview_ids = std::size_t{0}](\n'
+            '                const std::vector<int32_t>& ids) mutable {\n'
+            '                if (ids.size() < preview_ids)\n'
+            '                    throw std::runtime_error("MOSS preview token prefix shrank");\n'
+            '                const std::vector<int32_t> delta(ids.begin() + preview_ids, ids.end());\n'
+            '                preview += tok.decode(delta);\n'
+            '                preview_ids = ids.size();\n'
             '                if (preview.size() > 1024u * 1024u)\n'
             '                    throw std::runtime_error("MOSS output exceeds preview budget");\n'
             '                manabi_web_output(preview.data(), static_cast<int>(preview.size()));\n'
