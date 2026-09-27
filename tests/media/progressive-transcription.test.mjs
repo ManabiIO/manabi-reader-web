@@ -14,6 +14,7 @@ import {
   coreEnd,
   durationSamples,
   joinBoundary,
+  pendingSeamRepair,
   repairedSuffix,
   splitSettled,
   validateProgressiveState
@@ -26,7 +27,7 @@ import {
   planWindows
 } from '../../.cache/media-test-build/moss-output.js';
 import { transcribeProgressively } from '../../.cache/media-test-build/progressive-transcription.js';
-import { validateJob } from '../../.cache/media-test-build/jobs.js';
+import { jobCanResume, validateJob } from '../../.cache/media-test-build/jobs.js';
 import { MOSS } from '../../.cache/media-test-build/model-cache.js';
 import { transcriptionDraft } from '../../.cache/media-test-build/transcription-draft.js';
 import { MediaStore } from '../../.cache/media-test-build/store.js';
@@ -678,12 +679,57 @@ test('a long held utterance is not dropped when it starts before the next repair
     '[0][S01]全体の長い発言です。[55]',
     '[0][S01]さらに続く発言です。[30]'
   ]);
-  await assert.rejects(h.run(), /smaller-window retry/);
+  await assert.rejects(h.run(), /different window policy/);
   assert.equal(h.state.job.nextWindow, 2);
   assert.equal(h.state.job.progressive.tail[0].start, 0);
   assert.equal(h.state.job.progressive.tail[0].text, '全体の長い発言です。');
   assert.ok(h.state.job.progressive.failedSeam);
+  const repair = pendingSeamRepair(h.state.job.progressive);
+  assert.equal(repair?.retryable, false);
+  const { ownerId: _owner, leaseUntil: _lease, ...released } = h.state.job;
+  const failed = validateJob({ ...released, status: 'failed' });
+  assert.equal(jobCanResume(failed), false);
+  assert.equal(transcriptionDraft(failed).restartRequired, true);
   assert.equal(h.state.inferences.length, 4, 'no repair may silently omit the older held speech');
+
+  const range = globalThis.IDBKeyRange;
+  globalThis.IDBKeyRange = RangeDouble;
+  const store = new MediaStore(new TransactionFactory(), 'oversized-seam-resume');
+  const queue = new TranscriptionQueue(
+    store,
+    'guest',
+    {
+      async prepare() { throw Error('must not prepare'); },
+      async transcribe() { throw Error('must not infer'); },
+      dispose() {}
+    },
+    async () => { throw Error('must not decode'); }
+  );
+  try {
+    await store.putLocal('guest', 'jobs', id, failed);
+    await assert.rejects(queue.resume(id), /cannot be retried safely/);
+    assert.equal((await store.local('guest', 'jobs', id)).status, 'failed');
+  } finally {
+    await queue.dispose();
+    await store.close();
+    if (range === undefined) delete globalThis.IDBKeyRange;
+    else globalThis.IDBKeyRange = range;
+  }
+});
+
+test('ordinary saved seam failures remain retryable', () => {
+  const job = legacyProgressive(50),
+    first = chooseWindow(job.progressive, 50, pcm(30));
+  job.progressive.windows = [first];
+  job.nextWindow = 1;
+  job.progressive.tail = [cue('境界です。', 25, 29)];
+  const next = chooseWindow(job.progressive, 50, pcm(24));
+  job.progressive.failedSeam = { window: next, cues: [cue('別の認識です。', 26, 30, 'w1/cue-0')] };
+  const { ownerId: _owner, leaseUntil: _lease, ...released } = validateJob(job);
+  const failed = validateJob({ ...released, status: 'failed' });
+  assert.equal(pendingSeamRepair(failed.progressive).retryable, true);
+  assert.equal(jobCanResume(failed), true);
+  assert.equal(transcriptionDraft(failed).restartRequired, false);
 });
 
 test('legacy publication retry without new inference keeps its original runtime provenance', async () => {
