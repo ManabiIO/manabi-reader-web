@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { Sha256, hashBlob } from '../../.cache/media-test-build/hash.js';
+import { identify } from '../../.cache/media-test-build/sources.js';
 const native = (b) => createHash('sha256').update(b).digest('hex');
 for (const length of [
   0, 1, 2, 55, 56, 57, 63, 64, 65, 127, 128, 129, 1023, 1024, 1025, 65536, 1000000
@@ -38,4 +39,31 @@ test('blob hash preserves byte identity and supports cancellation between bounde
     hashBlob(new Blob([bytes]), c.signal, () => c.abort()),
     { name: 'AbortError' }
   );
+});
+test('cloud identity uses bounded 4 MiB requests and yields after each hashed MiB', async () => {
+  const bytes = new Uint8Array(9 * 1024 * 1024 + 17);
+  for (let i = 0; i < bytes.length; i++) bytes[i] = (i * 31 + (i >>> 8)) & 255;
+  const reads = [],
+    progress = [];
+  const source = {
+    name: 'video.mp4',
+    size: bytes.length,
+    version: 'v',
+    cloud: {},
+    async read(start, end) {
+      reads.push([start, end]);
+      return bytes.subarray(start, end);
+    }
+  };
+  assert.equal(
+    await identify(source, new AbortController().signal, (n) => progress.push(n)),
+    `content:${native(bytes)}`
+  );
+  assert.deepEqual(reads, [
+    [0, 4 * 1024 * 1024],
+    [4 * 1024 * 1024, 8 * 1024 * 1024],
+    [8 * 1024 * 1024, bytes.length]
+  ]);
+  assert.equal(progress.length, 10);
+  assert.equal(progress.at(-1), bytes.length);
 });

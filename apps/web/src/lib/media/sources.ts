@@ -198,15 +198,23 @@ export async function identify(
 ): Promise<ContentKey> {
   if (!Number.isSafeInteger(source.size) || source.size <= 0) throw new Error('Invalid media size');
   const hash = new Sha256();
-  for (let start = 0; start < source.size; start += 1024 * 1024) {
+  const yieldBytes = 1024 * 1024;
+  // Remote range requests are expensive. Read the permitted 4 MiB at once,
+  // but keep hashing/progress and main-thread yielding at 1 MiB intervals.
+  const requestBytes = source.cloud ? LIMITS.rangeBytes : yieldBytes;
+  for (let start = 0; start < source.size; start += requestBytes) {
     signal.throwIfAborted();
-    const end = Math.min(source.size, start + 1024 * 1024);
+    const end = Math.min(source.size, start + requestBytes);
     const bytes = await source.read(start, end, signal);
     signal.throwIfAborted();
     if (bytes.length !== end - start) throw new Error('Incomplete media identity read');
-    hash.update(bytes);
-    progress(end);
-    await new Promise((r) => setTimeout(r, 0));
+    for (let offset = 0; offset < bytes.length; offset += yieldBytes) {
+      signal.throwIfAborted();
+      const boundary = Math.min(bytes.length, offset + yieldBytes);
+      hash.update(bytes.subarray(offset, boundary));
+      progress(start + boundary);
+      await new Promise((r) => setTimeout(r, 0));
+    }
   }
   signal.throwIfAborted();
   return `content:${hash.hex()}`;
