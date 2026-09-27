@@ -11,6 +11,7 @@ import { assertFinalOutputPrefix } from './moss-output.js';
 export class MossClient {
   private worker?: Worker;
   private retiring?: Promise<void>;
+  private forceRetiring?: () => void;
   private lifecycle = 0;
   private ready = false;
   private cancelFlag?: Int32Array;
@@ -45,7 +46,7 @@ export class MossClient {
     const id = crypto.randomUUID();
     const stopped = new Promise<void>((resolve) => {
       let done = false;
-      const finish = () => {
+      const finish = (terminated = false) => {
         if (done) return;
         done = true;
         clearTimeout(timer);
@@ -53,7 +54,7 @@ export class MossClient {
         // Acknowledge normal cleanup, but always terminate the owner too.
         // This requests release; garbage collection timing is browser-owned.
         try {
-          worker.terminate();
+          if (!terminated) worker.terminate();
         } catch {
           /* Already stopped. */
         }
@@ -64,6 +65,12 @@ export class MossClient {
       };
       const timer = setTimeout(finish, 1000); // Broken worker: bounded shutdown fallback.
       worker.addEventListener('message', message);
+      this.forceRetiring = () => {
+        // A freeze cannot wait for an acknowledgement or timer. Do not report
+        // synchronous interruption if the browser rejects termination.
+        worker.terminate();
+        finish(true);
+      };
       try {
         worker.postMessage({ id, type: 'dispose' });
       } catch {
@@ -72,7 +79,10 @@ export class MossClient {
     });
     this.retiring = stopped;
     void stopped.then(() => {
-      if (this.retiring === stopped) this.retiring = undefined;
+      if (this.retiring === stopped) {
+        this.retiring = undefined;
+        this.forceRetiring = undefined;
+      }
     });
     return stopped;
   }
@@ -276,6 +286,13 @@ export class MossClient {
       [pcm.buffer as ArrayBuffer],
       partial
     )) as string;
+  }
+  /** Stop the worker now when page freezing would suspend asynchronous teardown.
+   * The browser owns memory reclamation; no native final result survives this call.
+   */
+  interrupt(): void {
+    void this.dispose();
+    this.forceRetiring?.();
   }
   dispose(): Promise<void> {
     this.lifecycle++; // Pending preparation must not resurrect a closed client lifetime.

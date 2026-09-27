@@ -6,6 +6,7 @@
 
 import { type ContentKey, type Cue, type Scope, type Track, language } from './contracts.js';
 import { MediaStore } from './store.js';
+import { bindTranscriptionPageLifecycle } from './transcription-page-lifecycle.js';
 import { MOSS, type ModelProgress } from './model-cache.js';
 import { parseMoss, parseMossPreview, planWindows, ownedCues } from './moss-output.js';
 import { newProgressiveState } from './moss-progressive.js';
@@ -84,6 +85,11 @@ export interface Engine {
     partial?: (text: string) => void
   ): Promise<string>;
   dispose(): void | Promise<void>;
+  /** Synchronously invalidate and terminate all inference resources. Optional for
+   * custom engines; without it a freeze must not release their live origin lock.
+   * A later dispose() must remain safe after interruption.
+   */
+  interrupt?(): void;
 }
 export interface QueueProgress {
   /** Uncommitted, operation-scoped output. Never written to caption pages or synced. */
@@ -113,9 +119,14 @@ export class TranscriptionQueue {
     controller: AbortController;
   };
   private closed = false;
+  private suspended = false;
+  private stopPage?: () => void;
+  private releaseInterruptedBatch?: () => void;
   private stopStore?: () => void;
   private checking?: Promise<void>;
   private recovering?: Promise<void>;
+  private recoveryLifetime?: AbortController;
+  private releaseRecovery?: () => void;
   private checkAgain = false;
   constructor(
     private store: MediaStore,
@@ -130,9 +141,50 @@ export class TranscriptionQueue {
     private changed: (p: QueueProgress) => void = () => {},
     private failed: (error: unknown) => void = () => {}
   ) {
+    this.stopPage = bindTranscriptionPageLifecycle(
+      (immediate) => this.suspendForPage(immediate),
+      () => {
+        this.suspended = false; // A paused job still needs explicit Resume.
+      }
+    );
     this.stopStore = store.subscribe?.(() => {
       void this.checkCancellation();
     });
+  }
+  /** Revoke this tab's admissions before any asynchronous database/worker work.
+   * Hiding starts orderly teardown; freeze/pagehide may finish it without a timer.
+   * Durable checkpoints survive even if their final pause notification is frozen.
+   */
+  suspendForPage(immediate = false): void {
+    if (this.closed && !this.batch && !this.recovering) return;
+    this.suspended = true;
+    this.admitted.clear();
+    this.targets.clear();
+    const reason = new DOMException(
+      'Transcription paused while this tab is inactive',
+      'AbortError'
+    );
+    this.batch?.abort(reason);
+    this.active?.controller.abort(reason);
+    // Recovery has no inference resources. Its transaction callbacks check this
+    // lifetime before touching an owner, even if they only run after thaw.
+    this.recoveryLifetime?.abort(reason);
+    this.releaseRecovery?.();
+    if (immediate && this.batch && this.engine.interrupt) {
+      try {
+        this.engine.interrupt();
+        // Only a synchronously stopped engine permits release before storage
+        // callbacks resume. Late writes retain their aborted signal/owner fence.
+        this.releaseInterruptedBatch?.();
+      } catch (error) {
+        this.report(error); // Keep the lock if interruption was not guaranteed.
+      }
+    }
+  }
+  private assertActivePage() {
+    if (this.closed) throw new Error('The queue is closed');
+    if (this.suspended)
+      throw new Error('Return to this tab before starting or resuming transcription.');
   }
   private report(error: unknown) {
     if (!this.closed) {
@@ -166,7 +218,7 @@ export class TranscriptionQueue {
     duration: number,
     targetSeconds?: number
   ): Promise<Job> {
-    if (this.closed) throw new Error('The queue is closed');
+    this.assertActivePage();
     const draft = validateJob({
       version: targetSeconds === undefined ? 2 : 3,
       ...(targetSeconds === undefined
@@ -185,10 +237,11 @@ export class TranscriptionQueue {
       createdAt: Date.now()
     });
     const job = await this.store.enqueueJob(this.scope, draft, () => {
-      if (this.closed) throw new Error('The queue is closed');
+      this.assertActivePage();
     });
     // Multiple tabs may admit one deduplicated queued job. The origin lock and
     // atomic claim select one runner; either tab can make progress if the other stops.
+    this.assertActivePage();
     this.admitted.set(job.id, Symbol());
     this.kick();
     return job;
@@ -199,7 +252,7 @@ export class TranscriptionQueue {
     this.targets.set(id, seconds);
   }
   async resume(id: string) {
-    if (this.closed) throw new Error('The queue is closed');
+    this.assertActivePage();
     await this.store.updateLocal<Job>(this.scope, 'jobs', id, (old) => {
       if (!old) return old;
       const job = validateJob(old);
@@ -212,11 +265,12 @@ export class TranscriptionQueue {
           'This saved seam cannot be retried safely with the current window policy. Accepted lines were kept; start a new transcription only after choosing a different policy.'
         );
       this.compatible(job);
-      if (this.closed) throw new Error('The queue is closed');
+      this.assertActivePage();
       const next = releasedJob(job, 'queued');
       delete next.error;
       return next;
     });
+    this.assertActivePage();
     this.admitted.set(id, Symbol());
     this.kick();
   }
@@ -276,22 +330,28 @@ export class TranscriptionQueue {
       active.controller.abort(new DOMException('Generation paused', 'AbortError'));
   }
   recover(): Promise<void> {
-    if (this.closed) return Promise.resolve();
+    if (this.closed || this.suspended) return Promise.resolve();
     if (this.recovering) return this.recovering;
-    const task = this.recoverJobs();
+    const lifetime = new AbortController();
+    this.recoveryLifetime = lifetime;
+    const task = this.recoverJobs(lifetime.signal);
     this.recovering = task;
     const settled = () => {
-      if (this.recovering === task) this.recovering = undefined;
+      if (this.recovering === task) {
+        this.recovering = undefined;
+        this.recoveryLifetime = undefined;
+        this.releaseRecovery = undefined;
+      }
     };
     void task.then(settled, settled);
     return task;
   }
-  private async recoverJobs() {
+  private async recoverJobs(signal: AbortSignal) {
     const recover = async (exclusive: boolean) => {
       for (const job of await this.jobs()) {
-        if (this.closed) return;
+        if (this.closed || signal.aborted) return;
         await this.store.updateLocal<Job>(this.scope, 'jobs', job.id, (old) => {
-          if (!old || this.closed) return old;
+          if (!old || this.closed || signal.aborted) return old;
           const latest = validateJob(old);
           // A queued job can belong to a live workspace waiting for this
           // very lock. Startup is not evidence that its owner crashed.
@@ -302,15 +362,33 @@ export class TranscriptionQueue {
         });
       }
     };
-    if (navigator.locks)
-      await navigator.locks.request(
-        'manabi-moss-inference',
-        { ifAvailable: true },
-        async (lock) => {
-          if (lock) await recover(true);
-        }
-      );
-    else await recover(false);
+    if (navigator.locks) {
+      let work: Promise<void> | undefined;
+      await navigator.locks.request('manabi-moss-inference', { ifAvailable: true }, (lock) => {
+        if (!lock || signal.aborted || this.closed) return;
+        return new Promise<void>((resolve, reject) => {
+          const release = () => resolve();
+          this.releaseRecovery = release;
+          work = recover(true);
+          const clear = () => {
+            if (this.releaseRecovery === release) this.releaseRecovery = undefined;
+          };
+          void work.then(
+            () => {
+              clear();
+              resolve();
+            },
+            (error) => {
+              clear();
+              reject(error);
+            }
+          );
+        });
+      });
+      // Keep this local lifetime until any admitted transactions have settled;
+      // only the origin lock may be released early after its writes are fenced.
+      await work;
+    } else await recover(false);
   }
   private checkCancellation(): Promise<void> {
     if (this.checking) {
@@ -342,7 +420,7 @@ export class TranscriptionQueue {
     return check;
   }
   private kick() {
-    if (this.closed) return;
+    if (this.closed || this.suspended) return;
     this.rerun = true;
     if (this.running) return;
     // Observe background errors without converting the owned operation into a
@@ -358,7 +436,7 @@ export class TranscriptionQueue {
     });
   }
   private async run() {
-    if (this.running || this.closed) return;
+    if (this.running || this.closed || this.suspended) return;
     this.running = true;
     this.rerun = false;
     const batch = new AbortController();
@@ -367,7 +445,7 @@ export class TranscriptionQueue {
       try {
         batch.signal.throwIfAborted();
         for (;;) {
-          if (this.closed) break;
+          if (this.closed || this.suspended || batch.signal.aborted) break;
           this.rerun = false;
           // A queued record is account-shared, but its plain File may
           // exist only in the workspace that admitted it. Do not drain
@@ -388,7 +466,7 @@ export class TranscriptionQueue {
                 candidate = job;
             } else this.admitted.delete(id);
           }
-          if (this.closed || !candidate) break;
+          if (this.closed || this.suspended || batch.signal.aborted || !candidate) break;
           // Remove before running so a later explicit resume/enqueue
           // can independently admit the same id during completion.
           this.admitted.delete(candidate.id);
@@ -826,15 +904,44 @@ export class TranscriptionQueue {
       }
     };
     try {
-      if (navigator.locks)
-        await navigator.locks.request('manabi-moss-inference', { signal: batch.signal }, drain);
-      else await drain();
+      if (navigator.locks) {
+        let work: Promise<void> | undefined;
+        await navigator.locks.request('manabi-moss-inference', { signal: batch.signal }, () => {
+          // Normal ownership still spans the complete draining batch and teardown.
+          // Freeze may settle this promise only AFTER synchronous interruption.
+          return new Promise<void>((resolve, reject) => {
+            const release = () => resolve();
+            this.releaseInterruptedBatch = release;
+            work = drain();
+            const clear = () => {
+              if (this.releaseInterruptedBatch === release)
+                this.releaseInterruptedBatch = undefined;
+            };
+            void work.then(
+              () => {
+                clear();
+                resolve();
+              },
+              (error) => {
+                clear();
+                reject(error);
+              }
+            );
+          });
+        });
+        // Even after emergency lock release, keep this queue's own lifetime open
+        // until its in-flight transactions/heartbeat settle on page reactivation.
+        await work;
+      } else await drain();
     } catch (error) {
       // Only the actual cancellation reason is expected. An aborted signal
       // does not turn a failed checkpoint or runtime retirement into success.
       if (!batch.signal.aborted || error !== batch.signal.reason) throw error;
     } finally {
-      if (this.batch === batch) this.batch = undefined;
+      if (this.batch === batch) {
+        this.batch = undefined;
+        this.releaseInterruptedBatch = undefined;
+      }
       this.running = false;
       if (this.rerun && !this.closed) this.kick();
     }
@@ -847,11 +954,14 @@ export class TranscriptionQueue {
     const reason = new DOMException('Video workspace closed', 'AbortError');
     this.batch?.abort(reason); // Also cancels a lock request before any job is claimed.
     this.active?.controller.abort(reason);
-    // The draining batch is the sole runtime-retirement owner. It awaits
-    // engine.dispose() before releasing the origin Web Lock. Calling dispose
-    // again here would impose an undocumented idempotency requirement on Engine.
+    this.recoveryLifetime?.abort(reason);
+    this.releaseRecovery?.();
+    // Normal retirement belongs to the draining batch, which awaits
+    // engine.dispose() before releasing the origin lock. Freeze/pagehide alone
+    // may use the explicit synchronous interrupt contract while it is closing.
     this.closing = Promise.allSettled([this.task, this.checking, this.recovering]).then(
       (results) => {
+        this.stopPage?.();
         // A teardown error must not let the owner close storage while the
         // active job is still publishing its pause/checkpoint transaction.
         const failures = results

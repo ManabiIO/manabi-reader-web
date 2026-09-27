@@ -106,6 +106,7 @@ jobs:
         run: |
           export CHROMIUM="$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
           python tests/media/browser.py --fixture "$(cat fixture-path.txt)" --output test-results/media/native-browser
+          python tests/media/page-lifecycle-browser.py --output test-results/media/page-lifecycle
           python tests/media/sparse-browser.py --fixture "$(cat fixture-path.txt)" --output test-results/media/sparse-native
       - name: Player, workspace and real Web Audio
         if: ${{ !cancelled() && steps.fixture.outcome == 'success' }}
