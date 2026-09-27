@@ -42,9 +42,11 @@ covers the adjacent inputs and any earlier held utterance, but never exceeds two
 encoder blocks. When accepted text overlaps that input, a unique whole-cue anchor
 must connect the replacement suffix to accepted content. An oversized or still
 ambiguous repair fails explicitly; accepted captions and both original boundary
-hypotheses remain recoverable. Resume retries that seam rather than earlier work.
-An oversized held utterance is not automatically solvable by another identical
-retry: resolving it requires a reviewed larger-context/different-policy path.
+hypotheses remain recoverable. Resume retries an ordinary bounded seam rather than
+earlier work. An oversized held utterance is not automatically solvable by another
+identical retry: resolving it requires a reviewed larger-context/different-policy path.
+That condition is derived from durable seam state, so the queue rejects an identical
+Resume and the UI does not advertise it as retryable; accepted lines remain available.
 
 This is deliberately conservative, not a proof of recognition quality. Real
 Japanese, overlapping speakers and timestamps can disagree in ways the policy
