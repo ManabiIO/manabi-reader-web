@@ -140,6 +140,39 @@ test('repaired drafts hold cues crossing the next unresolved boundary', () => {
     ['early']
   );
 });
+test('adjacent two-core repairs join on their shared core without replacing accepted cue IDs', () => {
+  const state = newSparseState(78);
+  state.windows[0] = { cues: [cue(0, 24, 27, 'old left')], inferenceMs: 1 };
+  state.windows[1] = {
+    cues: [cue(1, 24, 27, 'old right'), cue(1, 50, 53, 'old middle')],
+    inferenceMs: 1
+  };
+  state.windows[2] = { cues: [cue(2, 50, 53, 'old last')], inferenceMs: 1 };
+  const first = [
+    { id: 'w0/repair-0', start: 24, end: 27, text: 'shared start' },
+    { id: 'w0/repair-1', start: 40, end: 41, text: 'shared middle' },
+    { id: 'w0/repair-2', start: 50, end: 53, text: 'shared end' }
+  ];
+  state.repairs[0] = first;
+  state.repairs[1] = [
+    { ...first[0], id: 'w1/repair-0' },
+    { ...first[1], id: 'w1/repair-1' },
+    { ...first[2], id: 'w1/repair-2' },
+    { id: 'w1/repair-3', start: 62, end: 63, text: 'last core' }
+  ];
+  const assembled = assembleSparse(state);
+  assert.equal(assembled.repair, undefined);
+  assert.deepEqual(
+    assembled.cues?.map((item) => item.id),
+    [...first.map((item) => item.id), 'w1/repair-3']
+  );
+  assert.deepEqual(safeSparseCues(state, 78), assembled.cues);
+  assert.equal(sparseLead(state, 78, 0), 78);
+  state.repairs[1] = state.repairs[1].map((item) =>
+    item.text === 'shared middle' ? { ...item, text: 'conflicting middle' } : item
+  );
+  assert.equal(assembleSparse(state).repair, 0);
+});
 test('watched-through sparse job completes from one inference per window', async () => {
   const old = globalThis.IDBKeyRange;
   globalThis.IDBKeyRange = RangeDouble;

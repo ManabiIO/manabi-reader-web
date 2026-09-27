@@ -517,10 +517,6 @@ export class TranscriptionQueue {
                     throw new Error(
                       'An adjacent repaired seam remains ambiguous; saved hypotheses were kept.'
                     );
-                  if (job.sparse!.repairs[seam - 1] || job.sparse!.repairs[seam + 1])
-                    throw new Error(
-                      'An overlapping seam cannot be repaired within the model input limit; saved hypotheses were kept.'
-                    );
                   const first = sparseBounds(seam, job.duration);
                   const second = sparseBounds(seam + 1, job.duration);
                   if (second.end - first.start > 60)

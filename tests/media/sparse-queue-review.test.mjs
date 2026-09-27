@@ -172,6 +172,52 @@ test('resume retries a saved near-playhead seam before decoding unrelated missin
       ]);
     }
   ));
+test('a saved repair can be followed by a neighboring repair and still publish one complete track', () => {
+  const initial = savedJob(78);
+  initial.sparse.windows[0] = {
+    cues: [{ id: 'w0/cue-0', start: 24, end: 27, text: '左' }],
+    inferenceMs: 1
+  };
+  initial.sparse.windows[1] = {
+    cues: [
+      { id: 'w1/cue-0', start: 24, end: 27, text: '右' },
+      { id: 'w1/cue-1', start: 50, end: 53, text: '中' }
+    ],
+    inferenceMs: 1
+  };
+  initial.sparse.windows[2] = {
+    cues: [{ id: 'w2/cue-0', start: 50, end: 53, text: '終' }],
+    inferenceMs: 1
+  };
+  initial.sparse.repairs[0] = [
+    { id: 'w0/repair-0', start: 24, end: 27, text: '共通始' },
+    { id: 'w0/repair-1', start: 40, end: 41, text: '共通中' },
+    { id: 'w0/repair-2', start: 50, end: 53, text: '共通終' }
+  ];
+  initial.nextWindow = 3;
+  initial.cues = safeSparseCues(initial.sparse, 78);
+  return harness(
+    {
+      initial,
+      transcribe: async () =>
+        '[0][S01]共通始[3][16][S01]共通中[17][26][S01]共通終[29][38][S01]後半[39]'
+    },
+    async ({ saved, reads, store }) => {
+      assert.equal(saved.status, 'complete', saved.error);
+      assert.deepEqual(reads, [[24, 78]]);
+      const [track] = await store.tracks('guest', key);
+      assert.equal(track.complete, true);
+      assert.deepEqual(
+        track.cues.map((item) => item.text),
+        ['共通始', '共通中', '共通終', '後半']
+      );
+      assert.deepEqual(
+        track.cues.slice(0, initial.cues.length).map((item) => item.id),
+        initial.cues.map((item) => item.id)
+      );
+    }
+  );
+});
 test('a repair-only resume records the runtime that actually performed the new inference', () => {
   const initial = pendingSeam(52);
   initial.engineRevision = MOSS.engineRevision.replace('manabi-web-v7', 'manabi-web-v6');

@@ -111,12 +111,17 @@ export function validateSparseState(value: unknown, duration: number): SparseSta
     const end = sparseBounds(index + 1, duration).end;
     const cues = raw.map(validateCue);
     const originals = new Map(
-      [...windows[index]!.cues, ...windows[index + 1]!.cues].map((cue) => [cue.id, cue])
+      [
+        ...windows[index]!.cues,
+        ...windows[index + 1]!.cues,
+        ...(index > 0 && Array.isArray(rawRepairs[index - 1])
+          ? (rawRepairs[index - 1] as unknown[]).map(validateCue)
+          : [])
+      ].map((cue) => [cue.id, cue])
     );
     if (!cues.length && (windows[index]!.cues.length || windows[index + 1]!.cues.length))
       throw new Error('Empty sparse seam repair cannot replace recognized speech');
     if (
-      (index > 0 && rawRepairs[index - 1] !== null) ||
       new Set(cues.map((cue) => cue.id)).size !== cues.length ||
       cues.some((cue) => {
         const original = originals.get(cue.id);
@@ -218,35 +223,60 @@ function sparseComponents(state: SparseState): SparseComponent[] {
   const components: SparseComponent[] = [];
   let active: SparseComponent | undefined;
   let cursor = 0;
-  for (let index = 0; index < state.windows.length; ) {
+  const segments: SparseComponent[] = [];
+  for (let index = 0; index < state.windows.length; index++) {
     const window = state.windows[index];
-    if (!window) {
-      active = undefined;
-      index++;
-      continue;
-    }
     const repair = state.repairs[index];
-    const current = repair ?? window.cues;
-    const last = index + (repair ? 1 : 0);
-    if (active && active.last + 1 === index) {
-      const start = Math.max(0, index * SPARSE_CORE_SECONDS - SPARSE_CONTEXT_SECONDS);
+    if (repair) {
+      segments.push({ first: index, last: index + 1, cues: [...repair] });
+    } else if (window && !state.repairs[index - 1])
+      segments.push({ first: index, last: index, cues: [...window.cues] });
+  }
+  for (const segment of segments) {
+    if (active && active.last + 1 >= segment.first) {
+      // Adjacent two-core repairs share an entire 26-second core. Join their
+      // whole-cue hypotheses at its midpoint, retaining the older IDs where
+      // they agree. Disagreement remains an unresolved seam, never a clip.
+      const overlap = active.last >= segment.first;
+      const seam = (segment.first + (overlap ? 1 : 0)) * SPARSE_CORE_SECONDS;
+      const start = overlap
+        ? seam - SPARSE_CONTEXT_SECONDS
+        : Math.max(0, segment.first * SPARSE_CORE_SECONDS - SPARSE_CONTEXT_SECONDS);
       while (cursor < active.cues.length && active.cues[cursor].end <= start) cursor++;
-      const joined = joinSparseBoundary(
-        active.cues.slice(cursor),
-        current,
-        index * SPARSE_CORE_SECONDS
+      const overlapStart = Math.max(
+        0,
+        segment.first * SPARSE_CORE_SECONDS - SPARSE_CONTEXT_SECONDS
       );
+      const early = (cues: readonly Cue[]) =>
+        cues.filter((cue) => cue.start >= overlapStart && cue.end <= start);
+      const leftEarly = overlap ? early(active.cues) : [];
+      const rightEarly = overlap ? early(segment.cues) : [];
+      // Do not throw away the younger repair's earlier speech merely because
+      // the older repair already covers that time. Require whole-cue agreement.
+      const agreed =
+        !overlap ||
+        (leftEarly.length === rightEarly.length &&
+          leftEarly.every((cue, index) => {
+            const other = rightEarly[index];
+            return (
+              cue.text === other.text &&
+              Math.abs(cue.start - other.start) <= 0.35 &&
+              Math.abs(cue.end - other.end) <= 0.35
+            );
+          }));
+      const current = overlap ? segment.cues.filter((cue) => cue.end > start) : segment.cues;
+      const joined = agreed
+        ? joinSparseBoundary(active.cues.slice(cursor), current, seam)
+        : undefined;
       if (joined) {
         active.cues.splice(cursor, active.cues.length - cursor, ...joined);
-        active.last = last;
-        index = last + 1;
+        active.last = Math.max(active.last, segment.last);
         continue;
       }
     }
-    active = { first: index, last, cues: [...current] };
+    active = { ...segment };
     components.push(active);
     cursor = 0;
-    index = last + 1;
   }
   return components;
 }
@@ -318,7 +348,7 @@ export function pendingSparseSeam(
   const components = sparseComponents(state);
   const seams: number[] = [];
   for (let index = 1; index < components.length; index++) {
-    if (components[index - 1].last + 1 === components[index].first)
+    if (components[index - 1].last + 1 >= components[index].first)
       seams.push(components[index].first - 1);
   }
   const target = Math.floor(targetSeconds / SPARSE_CORE_SECONDS);

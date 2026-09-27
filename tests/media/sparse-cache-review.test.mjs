@@ -58,13 +58,13 @@ test('held leading text prioritizes and estimates the missing previous window be
   assert.equal(nextSparseWindow(s), 0);
   assert.deepEqual(sparseMissingWindowsForLead(s, 104, 31, 26), [0, 2]);
 });
-test('a blocked repaired outer seam is non-retryable even with unrelated cores still missing', () => {
+test('a repaired outer seam can retry a neighboring repair without losing earlier captions', () => {
   const s = newSparseState(104);
   s.windows[0] = win();
   s.windows[1] = win(cue(1, 0, 50, 53, '旧候補'));
   s.windows[2] = win(cue(2, 0, 50, 53, '旧候補'));
   s.repairs[0] = [{ ...cue(0, 0, 50, 53, '修復後の相反する候補'), id: 'w0/repair-0' }];
-  assert.equal(jobCanResume(job(s, 104, safeSparseCues(s, 104))), false);
+  assert.equal(jobCanResume(job(s, 104, safeSparseCues(s, 104))), true);
 });
 test('out-of-order consistent windows preserve every previously accepted caption', () => {
   const duration = 26 * 8;

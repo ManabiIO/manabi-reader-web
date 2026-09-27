@@ -72,8 +72,6 @@ export function jobCanResume(job: Job): boolean {
     if (
       seam !== undefined &&
       (job.sparse.repairs[seam] ||
-        job.sparse.repairs[seam - 1] ||
-        job.sparse.repairs[seam + 1] ||
         sparseBounds(seam + 1, job.duration).end - sparseBounds(seam, job.duration).start > 60)
     )
       return false;
