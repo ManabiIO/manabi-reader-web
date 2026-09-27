@@ -4,7 +4,7 @@ import argparse, hashlib, json, pathlib, shutil, subprocess, tempfile
 from runtime_artifacts import check_path, publish_pair
 from model_loader_patch import patch_model_loader
 PIN='190a569c13b4b247450f2fb3b2a431244e84833e'
-PORT_REVISION='manabi-web-v5'
+PORT_REVISION='manabi-web-v6'
 GGML_PIN='eced84c86f8b012c752c016f7fe789adea168e1e'
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 def run(*args, cwd=None): subprocess.run(args, check=True, cwd=cwd)
@@ -37,6 +37,19 @@ def main():
     replace(source/'third_party/ggml/src/ggml-cpu/CMakeLists.txt',
         'elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "wasm")',
         'elseif (CMAKE_SYSTEM_NAME STREQUAL "Emscripten" OR CMAKE_SYSTEM_PROCESSOR MATCHES "wasm")')
+    # The pinned Wasm Q5_0 kernel uses four dependent high-bit table loads per
+    # block. Unrolling two blocks hides some of that latency without changing
+    # the quantization or dot-product arithmetic. Scope this to Q5_0 so a
+    # nearby Q5_1 loop cannot silently receive the patch instead.
+    quants=source/'third_party/ggml/src/ggml-cpu/arch/wasm/quants.c'
+    quant_source=quants.read_text()
+    q5_start=quant_source.index('void ggml_vec_dot_q5_0_q8_0(')
+    q5_end=quant_source.index('void ggml_vec_dot_q5_1_q8_1(',q5_start)
+    q5=quant_source[q5_start:q5_end]
+    old='    // TODO: check if unrolling this is better\n    for (; ib < nb; ++ib) {'
+    if q5.count(old)!=1: raise RuntimeError('Pinned Q5_0 Wasm loop changed')
+    q5=q5.replace(old,'    #pragma clang loop unroll_count(2)\n    for (; ib < nb; ++ib) {')
+    quants.write_text(quant_source[:q5_start]+q5+quant_source[q5_end:])
     for name in ('generate.cpp','audio_encoder.cpp','mel.cpp'):
         path=source/'src'/name;path.write_text('#include "manabi_web_hooks.hpp"\n#include <stdexcept>\n'+path.read_text())
     backend=source/'src/backend.cpp'
