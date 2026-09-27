@@ -84,8 +84,10 @@ export class VideoWorkspace {
   private syncPanel = make('section');
   private selected = new Set<ContentKey>();
   private sources = new Map<ContentKey, ByteSource>();
-  /** A digest belongs only to this immutable File or version-bound cloud source instance. */
+  /** A digest belongs to this immutable local File instance, not its filename or mtime. */
   private verifiedSources = new WeakMap<ByteSource, ContentKey>();
+  /** A freshly hashed cloud locator may skip only the immediate second open pass. */
+  private verifiedCloudOpen = new WeakMap<ByteSource, ContentKey>();
   private current?: {
     key: ContentKey;
     source: ByteSource;
@@ -391,7 +393,7 @@ export class VideoWorkspace {
     this.notice(`Adding ${source.name}…`);
     const key = await identify(source, signal);
     if (this.closed) return;
-    if (source.file || source.cloud) this.verifiedSources.set(source, key);
+    if (source.file) this.verifiedSources.set(source, key);
     this.sources.set(key, source);
     await this.store.putLocal(this.options.scope, 'aliases', key, {
       key,
@@ -535,9 +537,12 @@ export class VideoWorkspace {
         this.notice('Device resume is unavailable; playback remains available.');
       }
       const cached =
-        (source.file || source.cloud) && (!source.isCurrent || source.isCurrent())
-          ? this.verifiedSources.get(source)
+        (!source.isCurrent || source.isCurrent()) && (source.file || source.cloud)
+          ? source.file
+            ? this.verifiedSources.get(source)
+            : this.verifiedCloudOpen.get(source)
           : undefined;
+      this.verifiedCloudOpen.delete(source);
       const key =
         cached ??
         (await identify(source, signal, (n) => {
@@ -546,7 +551,7 @@ export class VideoWorkspace {
       guard();
       if (expected && key !== expected)
         throw new Error('The selected file is not the saved video. Its old progress was kept.');
-      if (source.file || source.cloud) this.verifiedSources.set(source, key);
+      if (source.file) this.verifiedSources.set(source, key);
       this.current = { key, source };
       player.setGenerationAvailable(
         this.audioChoices.some((track) => track.decodable) &&
@@ -886,7 +891,8 @@ export class VideoWorkspace {
   }
   private async resolveSource(
     key: ContentKey,
-    signal: AbortSignal = this.lifetime.signal
+    signal: AbortSignal = this.lifetime.signal,
+    forOpen = false
   ): Promise<ByteSource> {
     signal.throwIfAborted();
     const available = this.sources.get(key);
@@ -917,17 +923,22 @@ export class VideoWorkspace {
         'A video file changed. Reopen it before generating captions. Its previous progress was kept.'
       );
     signal.throwIfAborted();
-    if (source.file || source.cloud) this.verifiedSources.set(source, key);
+    if (source.file) this.verifiedSources.set(source, key);
+    else if (source.cloud && forOpen) this.verifiedCloudOpen.set(source, key);
     this.sources.set(key, source);
     return source;
   }
   private async reopen(key: ContentKey) {
     const intent = ++this.openIntent;
-    const source = await this.resolveSource(key);
-    if (this.closed || intent !== this.openIntent) return;
-    const alias = await this.store.local<Alias>(this.options.scope, 'aliases', key);
-    if (this.closed || intent !== this.openIntent) return;
-    await this.openSource(source, [], key, alias?.handle);
+    const source = await this.resolveSource(key, this.lifetime.signal, true);
+    try {
+      if (this.closed || intent !== this.openIntent) return;
+      const alias = await this.store.local<Alias>(this.options.scope, 'aliases', key);
+      if (this.closed || intent !== this.openIntent) return;
+      await this.openSource(source, [], key, alias?.handle);
+    } finally {
+      this.verifiedCloudOpen.delete(source);
+    }
   }
   private refreshTracks(): Promise<void> {
     if (this.closed) return Promise.resolve();
