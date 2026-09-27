@@ -35,4 +35,31 @@ class ASRInputTests(unittest.TestCase):
         self.manifest['engine']['name']='unverified';self.write()
         with self.assertRaisesRegex(ValueError,'voice'):asr.fixture_metadata(self.path,'ja')
 
+class StreamingMetricsTest(unittest.TestCase):
+    def test_real_callback_latencies_are_required(self):
+        good=dict(inferenceSeconds=10,partialUpdates=4,firstOutputSeconds=2,firstPreviewCueSeconds=3,cues=[{'text':'one'},{'text':'two'}])
+        asr.validate_streaming_metrics(good)
+        for update in [dict(partialUpdates=0),dict(partialUpdates=True),dict(firstOutputSeconds=None),
+                       dict(firstPreviewCueSeconds=float('nan')),dict(firstPreviewCueSeconds=11),
+                       dict(firstPreviewCueSeconds=1),dict(inferenceSeconds=0)]:
+            with self.subTest(update=update),self.assertRaises(ValueError):
+                asr.validate_streaming_metrics({**good,**update})
+
+    def test_single_cue_can_have_callbacks_without_a_structurally_complete_preview(self):
+        # The end timestamp remains ambiguous until EOS; no invented preview latency.
+        asr.validate_streaming_metrics(dict(inferenceSeconds=10,partialUpdates=4,
+            firstOutputSeconds=2,firstPreviewCueSeconds=None,cues=[{'text':'Only one cue.'}]))
+
+    def test_empty_or_missing_cues_cannot_excuse_missing_preview_evidence(self):
+        for cues in (None, [], 'one'):
+            with self.subTest(cues=cues),self.assertRaises(ValueError):
+                asr.validate_streaming_metrics(dict(inferenceSeconds=10,partialUpdates=4,
+                    firstOutputSeconds=2,firstPreviewCueSeconds=None,cues=cues))
+
+    def test_multi_cue_result_requires_preview_and_missing_is_not_explicit_null(self):
+        one=dict(inferenceSeconds=10,partialUpdates=4,firstOutputSeconds=2,cues=[{'text':'one'}])
+        with self.assertRaises(ValueError):asr.validate_streaming_metrics(one)
+        with self.assertRaises(ValueError):
+            asr.validate_streaming_metrics({**one,'firstPreviewCueSeconds':None,'cues':[{},{}]})
+
 if __name__=='__main__':unittest.main()

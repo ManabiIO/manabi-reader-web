@@ -45,6 +45,30 @@ def valid_cer(value):
         raise ValueError('Character-error threshold must be finite and between zero and one')
     return value
 
+def validate_streaming_metrics(result):
+    """Real runtime evidence must include actual callbacks, not only final recognition."""
+    if type(result) is not dict:
+        raise ValueError('Invalid real MOSS streaming result')
+    cues=result.get('cues')
+    if type(cues) is not list or not cues or any(type(cue) is not dict for cue in cues):
+        raise ValueError('Missing parsed real MOSS cues')
+    count=result.get('partialUpdates')
+    if type(count) is not int or count < 1:
+        raise ValueError('Real MOSS emitted no streaming output callbacks')
+    total=result.get('inferenceSeconds')
+    if type(total) not in (int,float) or not math.isfinite(total) or total <= 0:
+        raise ValueError('Invalid real MOSS inference duration')
+    for name in ('firstOutputSeconds','firstPreviewCueSeconds'):
+        value=result.get(name)
+        # A single final cue has no following opening tag to disambiguate its
+        # end timestamp during preview. Explicit null is honest; omission is not.
+        if name == 'firstPreviewCueSeconds' and name in result and value is None and len(cues) == 1:
+            continue
+        if type(value) not in (int,float) or not math.isfinite(value) or not 0 <= value <= total:
+            raise ValueError('Missing or invalid '+name)
+    if result['firstPreviewCueSeconds'] is not None and result['firstPreviewCueSeconds'] < result['firstOutputSeconds']:
+        raise ValueError('Preview cue precedes the first output callback')
+
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--fixture',required=True,type=pathlib.Path);parser.add_argument('--language',choices=['en','ja'],required=True);parser.add_argument('--threaded',action='store_true');parser.add_argument('--max-cer',type=float,default=.35);parser.add_argument('--output',type=pathlib.Path,required=True);args=parser.parse_args()
     valid_cer(args.max_cer)
@@ -63,8 +87,10 @@ def main():
         result['fixture']={'fingerprint':fixture['fingerprint'],'language':args.language,'engine':fixture['engine'],'speechSha256':fixture['files']['speech.wav']}
         result['runtimeVariant']=mode
         actual=' '.join(cue['text'] for cue in result['cues']);result['characterErrorRate']=distance(normalize(expected),normalize(actual))/max(1,len(normalize(expected)));result['expected']=expected;result['kind']='real CPU WASM inference; not a test double';args.output.parent.mkdir(parents=True,exist_ok=True);args.output.write_text(json.dumps(result,ensure_ascii=False,indent=2))
-        if len(result['cues'])<2:raise AssertionError('Expected at least two timestamped caption lines')
+        validate_streaming_metrics(result)
+        # Do not require the recognizer to use the fixture's editorial line breaks.
+        # Parsing, nonempty recognition, streaming evidence and CER remain required.
         if result['characterErrorRate']>args.max_cer:raise AssertionError('Recognition exceeds the configured character-error threshold')
-        print(json.dumps({k:result[k] for k in ['characterErrorRate','inferenceSeconds','realTimeFactor','prepareSeconds']}))
+        print(json.dumps({k:result[k] for k in ['characterErrorRate','inferenceSeconds','realTimeFactor','prepareSeconds','partialUpdates','firstOutputSeconds','firstPreviewCueSeconds']}))
     finally:server.shutdown()
 if __name__=='__main__':main()

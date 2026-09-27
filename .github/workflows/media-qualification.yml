@@ -10,6 +10,7 @@ on:
       - 'tools/media/bridge.cpp'
       - 'tools/media/manabi_*.hpp'
       - 'tools/media/model_loader_patch.py'
+      - 'tools/media/output_stream_patch.py'
       - 'tools/media/runtime_artifacts.py'
       - 'apps/web/src/lib/media/moss-*.ts'
       - 'apps/web/src/lib/media/model-cache.ts'

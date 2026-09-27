@@ -660,3 +660,22 @@
     outline: 1px solid Highlight;
   }
 }
+
+/* Job previews are separate from playable/exportable cue rows. */
+.manabi-media .transcription-progress-note,
+.manabi-media .transcription-provisional {
+  padding: 0.65rem 1.25rem;
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: inherit;
+}
+.manabi-media .transcription-provisional {
+  max-height: 9rem;
+  overflow: auto;
+  flex-shrink: 0;
+  border-block-start: 1px solid currentColor;
+}
+.manabi-media .transcription-provisional p {
+  margin: 0.3rem 0;
+}

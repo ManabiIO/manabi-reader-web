@@ -6,6 +6,7 @@
 
 import { type ModelProgress } from './model-cache.js';
 import { abortable } from './abort.js';
+import { assertFinalOutputPrefix } from './moss-output.js';
 /** One worker/model at a time. Constructor injection is reserved for test/custom hosting. */
 export class MossClient {
   private worker?: Worker;
@@ -80,7 +81,8 @@ export class MossClient {
     fields: Record<string, unknown>,
     signal: AbortSignal,
     progress: (p: ModelProgress) => void = () => {},
-    transfer: Transferable[] = []
+    transfer: Transferable[] = [],
+    partial?: (text: string) => void
   ): Promise<unknown> {
     signal.throwIfAborted();
     if (this.busy) return Promise.reject(new Error('Concurrent MOSS calls are not supported'));
@@ -106,6 +108,7 @@ export class MossClient {
     const id = crypto.randomUUID(),
       operation = this.serial;
     return new Promise((yes, no) => {
+      let previous = '';
       let done = false,
         timer: ReturnType<typeof setTimeout> | undefined;
       const finish = (error: unknown, value?: unknown, failed = true) => {
@@ -125,9 +128,27 @@ export class MossClient {
       };
       this.rejectActive = (error) => finish(error);
       const message = (event: MessageEvent) => {
-        if (!event.data || typeof event.data !== 'object' || event.data.id !== id) return;
+        if (done || !event.data || typeof event.data !== 'object' || event.data.id !== id) return;
         if (signal.aborted) {
           fail(signal.reason);
+          return;
+        }
+        if (event.data.type === 'partial') {
+          try {
+            const text = event.data.value;
+            if (
+              type !== 'transcribe' ||
+              typeof text !== 'string' ||
+              text.length > 1024 * 1024 ||
+              !text.startsWith(previous)
+            )
+              throw new Error('Invalid MOSS output preview');
+            if (text === previous) return;
+            previous = text;
+            partial?.(text);
+          } catch (e) {
+            fail(e);
+          }
           return;
         }
         if (event.data.type === 'progress') {
@@ -184,6 +205,7 @@ export class MossClient {
           ) {
             throw new Error('Invalid transcription worker response');
           }
+          if (type === 'transcribe') assertFinalOutputPrefix(previous, event.data.value);
           finish(null, event.data.value, false);
         } catch (e) {
           fail(e);
@@ -235,11 +257,16 @@ export class MossClient {
       progress
     );
   }
-  async transcribe(pcm: Float32Array, signal: AbortSignal) {
+  async transcribe(pcm: Float32Array, signal: AbortSignal, partial?: (text: string) => void) {
     if (!this.ready) throw new Error('Prepare the transcription model first');
-    return (await this.call('transcribe', { pcm }, signal, () => {}, [
-      pcm.buffer as ArrayBuffer
-    ])) as string;
+    return (await this.call(
+      'transcribe',
+      { pcm },
+      signal,
+      () => {},
+      [pcm.buffer as ArrayBuffer],
+      partial
+    )) as string;
   }
   dispose(): Promise<void> {
     this.lifecycle++; // Pending preparation must not resurrect a closed client lifetime.

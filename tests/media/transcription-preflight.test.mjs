@@ -89,13 +89,25 @@ test('exactly silent audio publishes an empty complete track without preparing M
 test('first nonsilent window prepares lazily and later windows reuse the prepared batch', () => {
   let calls = 0;
   return harness(
-    async () => new Float32Array(16000).fill(++calls === 1 ? 0 : 0.1),
+    async (_job, start, end) =>
+      new Float32Array(Math.round((end - start) * 16000)).fill(++calls === 1 ? 0 : 0.1),
     async ({ queue, store, events }) => {
-      const job = await queue.enqueue(key, 'ja', '1', 121);
+      const job = await queue.enqueue(key, 'ja', '1', 70);
       assert.equal((await final(store, job.id)).status, 'complete');
       assert.deepEqual(
         events.filter((x) => x !== 'dispose'),
-        ['decode', 'decode', 'prepare', 'inference', 'decode', 'prepare', 'inference']
+        [
+          'decode',
+          'decode',
+          'prepare',
+          'inference',
+          'decode',
+          'prepare',
+          'inference',
+          'decode',
+          'prepare',
+          'inference'
+        ]
       );
     }
   );

@@ -21,8 +21,11 @@ be qualified separately from the application's document meta policy.
 Before any model download, the Worker verifies the module's ABI, engine revision,
 ggml revision and actual single/shared-memory mode. A stale runtime directory fails
 with a rebuild/deploy message; it is never silently assigned the app's expected
-provenance. Rebuild both variants for `manabi-web-v4`. Changing a port revision
+provenance. Rebuild both variants for `manabi-web-v5`. Changing a port revision
 invalidates resumption of incomplete old-engine jobs, not completed subtitle tracks.
+
+The v5 identity combines the base v4 Wasm-SIMD/partial-encoder optimization with
+the progressive-output callback. Do not reuse or relabel a v4 runtime as v5.
 
 Required JavaScript/C functions, WORKERFS integration, typed heap views, the
 cancellation address and pthread teardown are also checked before weight download.

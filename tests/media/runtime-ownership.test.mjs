@@ -87,7 +87,7 @@ async function harness(body, withLocks = true) {
   const store = new MediaStore(new TransactionFactory(), 'runtime-ownership'),
     queues = [],
     errors = [];
-  const queue = (scope, engine, decode = async () => new Float32Array(16000).fill(0.1)) => {
+  const queue = (scope, engine, decode = async () => new Float32Array(32000).fill(0.1)) => {
     const q = new TranscriptionQueue(
       store,
       scope,
@@ -196,7 +196,7 @@ test('same-account batches do not claim jobs whose local File belongs to another
       async (job) => {
         decoded.push(['A', job.mediaKey]);
         assert.equal(job.mediaKey, key, 'A has no access to B local File');
-        return new Float32Array(16000).fill(0.1);
+        return new Float32Array(32000).fill(0.1);
       }
     );
     const b = queue(
@@ -211,7 +211,7 @@ test('same-account batches do not claim jobs whose local File belongs to another
       async (job) => {
         decoded.push(['B', job.mediaKey]);
         assert.equal(job.mediaKey, otherKey);
-        return new Float32Array(16000).fill(0.1);
+        return new Float32Array(32000).fill(0.1);
       }
     );
     try {
@@ -335,7 +335,7 @@ test('model lifetime ends after a failed decode and the next explicit job can re
           first = false;
           throw Error('Decode failed');
         }
-        return new Float32Array(16000).fill(0.1);
+        return new Float32Array(32000).fill(0.1);
       }
     );
     const j = await q.enqueue(key, 'en', '1', 2);

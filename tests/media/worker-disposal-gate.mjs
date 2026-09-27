@@ -5,6 +5,10 @@ import vm from 'node:vm';
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import { MOSS } from '../../.cache/media-test-build/model-cache.js';
+import {
+  outputPreview,
+  assertFinalOutputPrefix
+} from '../../.cache/media-test-build/moss-output.js';
 import * as contract from '../../.cache/media-test-build/moss-runtime-contract.js';
 const deferred = () => {
   let resolve;
@@ -89,7 +93,11 @@ async function harness(getModel) {
     importModuleDynamically: () => factory
   });
   await worker.link((name) =>
-    name === './model-cache.js' ? module({ getModel }) : module(contract)
+    name === './model-cache.js'
+      ? module({ getModel })
+      : name === './moss-output.js'
+        ? module({ outputPreview, assertFinalOutputPrefix })
+        : module(contract)
   );
   await worker.evaluate();
   return {
@@ -159,4 +167,49 @@ async function harness(getModel) {
   assert.deepEqual(h.events.slice(-2), ['stop-pool', 'close']);
   assert.ok(!h.messages.some((m) => m.type === 'disposed'));
 }
-console.log('PASS: 3 compiled-worker disposal cases (runtime/download doubles, no WASM)');
+// Actual compiled worker forwards a native output callback before the final reply,
+// then removes the callback on success and failure. Native computation is a double.
+for (const fail of [false, true]) {
+  const h = await harness(async () => new Blob(['test']));
+  await h.prepare('prepare');
+  const decode = h.runtime.UTF8ToString;
+  const raw = '[0][S01]こんにちは。[.01][.01][S01]続き。[.02]';
+  h.runtime.UTF8ToString = (p) => (p === 99 ? raw : decode(p));
+  h.runtime._moss_transcribe_capi_transcribe_pcm = () => {
+    h.runtime.onMossOutput(new TextEncoder().encode('[0][S01]こんにちは。'));
+    h.runtime.onMossOutput(new TextEncoder().encode(raw));
+    if (fail) throw Error('budget exhausted after preview');
+    return 99;
+  };
+  await h.send({ id: 'recognize', type: 'transcribe', operation: 2, pcm: new Float32Array(320) });
+  const replies = h.messages.filter((m) => m.id === 'recognize');
+  assert.deepEqual(
+    replies.map((m) => m.type),
+    ['partial', 'partial', fail ? 'error' : 'result']
+  );
+  assert.equal(h.runtime.onMossOutput, undefined);
+  if (fail) assert.match(replies.at(-1).value, /budget exhausted after preview/);
+  else assert.equal(replies.at(-1).value, raw);
+  await h.send({ id: 'stop', type: 'dispose' });
+}
+// A successful native pointer does not excuse output inconsistent with the preview.
+{
+  const h = await harness(async () => new Blob(['test']));
+  await h.prepare('prepare');
+  const decode = h.runtime.UTF8ToString;
+  h.runtime.UTF8ToString = (p) => (p === 99 ? '[0][S01]Changed final[.02]' : decode(p));
+  h.runtime._moss_transcribe_capi_transcribe_pcm = () => {
+    h.runtime.onMossOutput(new TextEncoder().encode('[0][S01]Original preview'));
+    return 99;
+  };
+  await h.send({ id: 'recognize', type: 'transcribe', operation: 2, pcm: new Float32Array(320) });
+  const replies = h.messages.filter((m) => m.id === 'recognize');
+  assert.deepEqual(
+    replies.map((m) => m.type),
+    ['partial', 'error']
+  );
+  assert.match(replies.at(-1).value, /prefix/);
+  assert.equal(h.runtime.onMossOutput, undefined);
+  await h.send({ id: 'stop', type: 'dispose' });
+}
+console.log('PASS: 6 compiled-worker disposal/output cases (runtime/download doubles, no WASM)');

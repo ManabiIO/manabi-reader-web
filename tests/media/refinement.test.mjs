@@ -35,6 +35,53 @@ test('MOSS bracketed numbers inside speech do not become spurious end timestamps
     ]
   );
 });
+test('MOSS parser preserves text when an entire output omits speaker tags', () => {
+  const result = parseMoss('[0.00]最初の文です。[1.80][1.80]次の文です。[3.75]', 4);
+  assert.deepEqual(
+    result.map(({ start, end, text, speaker }) => ({ start, end, text, speaker })),
+    [
+      { start: 0, end: 1.8, text: '最初の文です。', speaker: undefined },
+      { start: 1.8, end: 3.75, text: '次の文です。', speaker: undefined }
+    ]
+  );
+});
+test('speakerless MOSS parsing still preserves bracketed numbers inside speech', () => {
+  const result = parseMoss('[0]番号は[2026]です。[2][2.2]次の文です。[4]', 5);
+  assert.deepEqual(
+    result.map((c) => c.text),
+    ['番号は[2026]です。', '次の文です。']
+  );
+  assert.ok(result.every((c) => c.speaker === undefined));
+});
+test('speakerless preview withholds its ambiguous trailing cue until final output', async () => {
+  const { parseMossPreview } = await import('../../.cache/media-test-build/moss-output.js');
+  const raw = '[0]最初です。[1.5][1.6]次です。[3]';
+  assert.deepEqual(
+    parseMossPreview(raw, 4).map((c) => c.text),
+    ['最初です。']
+  );
+  assert.deepEqual(
+    parseMoss(raw, 4).map((c) => c.text),
+    ['最初です。', '次です。']
+  );
+});
+test('MOSS parser rejects a stream that switches from speakerless to tagged openings', () => {
+  assert.throws(
+    () => parseMoss('[0]最初です。[1.5][1.6][S01]次です。[3]', 4),
+    /Mixed MOSS speaker-tag format/
+  );
+});
+test('MOSS parser rejects a tagged stream that drops a later speaker tag', () => {
+  assert.throws(
+    () => parseMoss('[0][S01]最初です。[1.5][1.6]次です。[3]', 4),
+    /Mixed MOSS speaker-tag format/
+  );
+});
+test('large adjacent bracketed reference numbers remain transcript text', () => {
+  const [cue] = parseMoss('[0][S01]codes [2026][123] remain literal.[3]', 4);
+  assert.equal(cue.text, 'codes [2026][123] remain literal.');
+});
+
 test('MOSS parser accepts reference decimal forms and surrounding whitespace', () => {
   const result = parseMoss(
     ' \n[.25][S01]今日は晴れです。[2.] \n[2.1][S02]明日は公園に行きます。[4.9]\n',

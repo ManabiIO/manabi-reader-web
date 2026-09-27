@@ -41,7 +41,7 @@ def main():
     metadata = artifacts.validate_mode(path, 'single', metadata.get('engineRevision'), metadata.get('ggmlCommit'))
     inputs = metadata.get('portSha256')
     expected_inputs = {'build-moss.py', 'bridge.cpp', 'manabi_web_hooks.hpp',
-                       'runtime_artifacts.py', 'manabi_model_reader.hpp', 'model_loader_patch.py'}
+                       'runtime_artifacts.py', 'manabi_model_reader.hpp', 'model_loader_patch.py', 'output_stream_patch.py'}
     if type(inputs) is not dict or set(inputs) != expected_inputs:
         raise SystemExit('Runtime manifest does not cover the complete port inputs.')
     for name, digest in inputs.items():

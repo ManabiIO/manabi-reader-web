@@ -41,8 +41,10 @@ checks; a successful helper test is not proof of real-model inference or deploym
 - Cloud locators are saved only locally; reopening obtains a fresh authenticated
   metadata/range source and verifies content before attaching portable state.
   Full hashing still reads every byte; large cloud videos incur material traffic.
-- A serial queue uses 60-second cores with two-second overlaps and completed-window
-  checkpoints. Speaker labels are window-local; boundary deduplication is heuristic.
+- New version-two jobs use pause-aware inputs of at most 30 seconds including
+  context, durable progressive publication and joint boundary reconciliation. Legacy
+  version-one jobs retain their 60-second cores and two-second halos unchanged.
+  Speaker labels remain window-local; recognition/seam quality is not guaranteed.
   Each job has a compare-and-update owner token and expiring lease. A stale worker
   cannot commit checkpoints or publish after another worker claims the job. Cancellation
   is durable, not an older full-record replacement. Subtitle pages, manifest and the
@@ -91,18 +93,17 @@ JavaScript/C exports, WORKERFS integration, typed heap views, cancellation addre
 and pthread teardown binding before the large download. Early HTTP/stream failures
 abort the destination without losing their original error to cleanup failures.
 Both CPU artifacts must match the
-app's port revision (`manabi-web-v4`). When changing the C++ port, bump the revision
+app's port revision (`manabi-web-v5`). When changing the C++ port, bump the revision
 in the build recipe and model manifest together. Completed older transcripts remain
 valid; interrupted old-port jobs must be regenerated rather than mixing engines.
 This compatibility check is not a signature or sandbox for untrusted JavaScript.
 The runtime recipe records source/compiler/output hashes but is not itself evidence
 that these binaries compile or perform acceptably.
 
-The v4 port compiles ggml's Wasm SIMD quantized kernels. Emscripten reports its
-system processor as `x86`, which otherwise selects ggml's generic CPU kernels.
-For a partial audio chunk, the encoder computes the mel and attention positions
-that are retained downstream, with a zero guard after the last mel center. A full
-30-second chunk keeps its original frame count and positional embedding path.
+The combined v5 port retains the base v4 performance work: ggml's dedicated Wasm
+SIMD quantized kernels are selected under Emscripten, and partial audio chunks compute
+only encoder positions retained downstream. It then adds the progressive-output callback.
+A v4 runtime therefore cannot be relabeled as v5; both variants must be rebuilt.
 
 Model loading now reuses at most 4 MiB of tensor-transfer scratch storage rather
 than staging each entire tensor. Packed tensor bytes and destination offsets are
@@ -288,3 +289,16 @@ pages in one read-only transaction. It never loads unrelated caption bodies. A
 missing/deleted page keeps the incomplete track unpublished until all its verified
 pages are available. The Node transaction-boundary tests use an explicit double;
 the native browser suite contains separate cross-connection admission checks.
+
+## Progressive transcription (port v5)
+
+See [the progressive design and qualification notes](../../docs/moss-progressive-transcription.md).
+The C++ output callback changes the port identity, not the Q5_0 weights. Rebuild
+both runtimes before real-model qualification. Preview output never makes a failed
+or token-budget-exhausted inference successful, and incomplete local tracks are
+not exported or synchronized.
+
+The opt-in ASR gate now requires actual output callbacks and records first-output
+and first-preview-cue latency separately from preparation and total inference.
+These new runtime measurements are pending; controller and scripted-decoder tests
+are not recognition or throughput evidence.

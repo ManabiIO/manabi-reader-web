@@ -18,10 +18,18 @@ import {
   type Cue
 } from './contracts.js';
 import { planWindows } from './moss-output.js';
+import {
+  coreEnd,
+  durationSamples,
+  cueBelongsToWindow,
+  validateProgressiveState,
+  type ProgressiveState
+} from './moss-progressive.js';
 
 /** Device-only jobs. Never included in the personal account feed. */
 export interface Job {
-  version: 1;
+  version: 1 | 2;
+  progressive?: ProgressiveState;
   id: string;
   mediaKey: ContentKey;
   language: string;
@@ -60,10 +68,11 @@ export function validateJob(value: unknown): Job {
     'error',
     'ownerId',
     'leaseUntil',
-    'cancelRequested'
+    'cancelRequested',
+    'progressive'
   ]);
   if (
-    j.version !== 1 ||
+    (j.version !== 1 && j.version !== 2) ||
     !isUUID(j.id) ||
     !isContentKey(j.mediaKey) ||
     !isDigest(j.modelSha256) ||
@@ -73,13 +82,23 @@ export function validateJob(value: unknown): Job {
     j.cues.length > 50_000
   )
     throw new Error('Invalid saved transcription job');
-  const duration = finite(j.duration, 0, 604800),
-    windows = planWindows(duration);
+  const duration = finite(j.duration, 0, 604800);
+  if (duration <= 0) throw new Error('Invalid saved duration');
+  const progressive =
+    j.version === 2
+      ? validateProgressiveState(j.progressive, duration, j.nextWindow as number)
+      : undefined;
+  if (j.version === 1 && j.progressive !== undefined)
+    throw new Error('Legacy job cannot change its window policy');
+  const windowCount = progressive ? progressive.windows.length : planWindows(duration).length;
   if (
     !Number.isSafeInteger(j.nextWindow) ||
     (j.nextWindow as number) < 0 ||
-    (j.nextWindow as number) > windows.length ||
-    (j.status === 'complete' && j.nextWindow !== windows.length)
+    (j.nextWindow as number) > windowCount ||
+    (j.status === 'complete' &&
+      (j.nextWindow !== windowCount ||
+        (progressive &&
+          (coreEnd(progressive) !== durationSamples(duration) || progressive.failedSeam))))
   )
     throw new Error('Invalid saved transcription checkpoint');
   const audioTrack = string(j.audioTrack, 128);
@@ -95,6 +114,20 @@ export function validateJob(value: unknown): Job {
     })
   )
     throw new Error('Caption does not belong to a completed transcription window');
+  if (progressive) {
+    const accepted = new Set(cues.map((cue) => cue.id));
+    if (progressive.tail.some((cue) => accepted.has(cue.id)))
+      throw new Error('Unsettled cues cannot also be accepted');
+    const window = progressive.windows.at(-1);
+    const cutoff =
+      window && window.coreEndSample < durationSamples(duration)
+        ? (window.coreEndSample - 32000) / 16000
+        : duration + 1 / 16000;
+    if (window && cues.some((cue) => cue.end > cutoff!))
+      throw new Error('Accepted captions cross the unsettled boundary');
+  }
+  if (progressive && cues.some((cue) => !cueBelongsToWindow(cue, progressive.windows)))
+    throw new Error('Caption lies outside its recorded recognition window');
   if (new TextEncoder().encode(JSON.stringify(j)).length > 16 * 1024 * 1024)
     throw new Error('Saved transcription is too large');
   if (j.ownerId !== undefined && !isUUID(j.ownerId)) throw new Error('Invalid job owner');
@@ -103,7 +136,8 @@ export function validateJob(value: unknown): Job {
   if (j.cancelRequested !== undefined && typeof j.cancelRequested !== 'boolean')
     throw new Error('Invalid cancellation request');
   return {
-    version: 1,
+    version: j.version as 1 | 2,
+    ...(progressive ? { progressive } : {}),
     id: j.id,
     mediaKey: j.mediaKey,
     language: language(j.language),

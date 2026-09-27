@@ -448,6 +448,7 @@ export class MediaStore {
                 request.result === undefined ? undefined : validateJob(request.result);
               if (!ownsJob(current, completion.ownerId)) throw new JobOwnershipLost();
               const fields = [
+                'version',
                 'mediaKey',
                 'language',
                 'audioTrack',
@@ -459,7 +460,8 @@ export class MediaStore {
               ] as const;
               if (
                 fields.some((field) => current![field] !== completed[field]) ||
-                !same(current!.cues, completed.cues)
+                !same(current!.cues, completed.cues) ||
+                !same(current!.progressive ?? null, completed.progressive ?? null)
               )
                 throw new Error('Completed transcript differs from its durable checkpoint');
               // Completion and caption publication either both commit or neither does.

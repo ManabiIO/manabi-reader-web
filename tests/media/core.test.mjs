@@ -442,10 +442,11 @@ test('cancelled windows resume from the last durable checkpoint', async () => {
     },
     dispose() {}
   };
-  const queue = new TranscriptionQueue(store, scope, engine, async () =>
-    new Float32Array(16000 * 5).fill(0.1)
+  const queue = new TranscriptionQueue(store, scope, engine, async (_job, start, end) =>
+    new Float32Array(Math.round((end - start) * 16000)).fill(0.1)
   );
-  const job = await queue.enqueue(key, 'ja', '1', 120);
+  // Two progressive windows; the decoder double preserves the requested sample extent.
+  const job = await queue.enqueue(key, 'ja', '1', 50);
   await eventually(() => secondStarted);
   await queue.cancel(job.id);
   await eventually(async () => (await store.local(scope, 'jobs', job.id)).status === 'paused');
@@ -453,8 +454,8 @@ test('cancelled windows resume from the last durable checkpoint', async () => {
   assert.equal(store.tracks.length, 0);
   await queue.resume(job.id);
   await eventually(async () => (await store.local(scope, 'jobs', job.id)).status === 'complete');
-  assert.equal(calls, 3);
-  assert.equal(store.tracks[0].cues.length, 2);
+  assert.equal(calls, 4);
+  assert.equal(store.tracks[0].cues.length, 3);
   queue.dispose();
 });
 test('queue failure keeps incomplete transcript unpublished', async () => {
