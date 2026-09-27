@@ -94,6 +94,53 @@ def main():
             assert page.evaluate("bound.every(b=>b.name==='Second.mp4' && b.key===workspace.current.key)")
             assert page.evaluate('prepares')==0
         case('late first-file storage continuation cannot bind its identity to the successor player',switching)
+        def switching_pauses_sparse_job():
+            page.evaluate('reset()')
+            page.evaluate("workspace.openSource(makeSource('Captioned.mp4'))")
+            page.wait_for_function('workspace.current && workspace.player?.generationAvailable')
+            page.evaluate("""async()=>{
+                window.oldKey=workspace.current.key;
+                const q=workspace.queue;
+                q.decode=async(_job,start,end)=>new Float32Array(Math.ceil((end-start)*16000)).fill(.1);
+                window.sparseCalls=0;window.secondSparseStarted=false;
+                q.engine.transcribe=async(_pcm,signal)=>{
+                    sparseCalls++;
+                    if(sparseCalls===1)return '[5][S01]保存された字幕です。[6]';
+                    secondSparseStarted=true;
+                    return await new Promise((_,reject)=>{
+                        if(signal.aborted)reject(signal.reason);
+                        else signal.addEventListener('abort',()=>reject(signal.reason),{once:true});
+                    });
+                };
+                window.oldJob=await q.enqueue(oldKey,'ja','2',78,0);
+            }""")
+            page.wait_for_function("secondSparseStarted && workspace.currentTranscription?.id===oldJob.id")
+            page.evaluate("workspace.openSource(makeSource('Other.mp4',1))")
+            page.wait_for_function("workspace.current?.key!==oldKey && workspace.current && store.local('guest','jobs',oldJob.id).then(j=>j?.status==='paused')")
+            result=page.evaluate("""async()=>{
+                const saved=await store.local('guest','jobs',oldJob.id);
+                return {windows:saved.nextWindow,cues:saved.cues.length,published:(await store.tracks('guest',oldKey)).length,calls:sparseCalls};
+            }""")
+            assert result==dict(windows=1,cues=1,published=0,calls=2),result
+            page.evaluate("workspace.queue.task")
+            assert page.evaluate('sparseCalls')==2
+            page.evaluate("""async()=>{
+                await workspace.openSource(makeSource('Captioned.mp4'));
+                workspace.queue.engine.transcribe=async()=>{
+                    sparseCalls++;return '[5][S01]続きの字幕です。[6]';
+                };
+                await workspace.queue.resume(oldJob.id);
+            }""")
+            page.wait_for_function("store.local('guest','jobs',oldJob.id).then(j=>j?.status==='complete')")
+            complete=page.evaluate("""async()=>{
+                const tracks=await store.tracks('guest',oldKey);
+                return {sameVideo:workspace.current.key===oldKey,calls:sparseCalls,
+                    tracks:tracks.length,complete:tracks[0]?.complete,
+                    cues:tracks[0]?.cues.map(c=>c.text)};
+            }""")
+            assert complete==dict(sameVideo=True,calls=4,tracks=1,complete=True,
+                cues=['保存された字幕です。','続きの字幕です。','続きの字幕です。']),complete
+        case('switching videos pauses sparse inference; reopening and resuming publishes saved work',switching_pauses_sparse_job)
         def play_and_sidecar_during_hash():
             page.evaluate('reset()')
             page.evaluate(r"""()=>{

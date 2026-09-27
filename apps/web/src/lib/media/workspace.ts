@@ -419,6 +419,14 @@ export class VideoWorkspace {
     this.openAbort?.abort();
     const controller = (this.openAbort = new AbortController()),
       signal = controller.signal;
+    this.player?.video.pause();
+    const previous = this.currentTranscription;
+    if (previous && this.current?.source !== source && this.current?.key !== expected) {
+      // Keep accepted windows, but free inference for the newly opened video.
+      const saved = await this.store.local<Job>(this.options.scope, 'jobs', previous.id);
+      if (saved?.status === 'queued' || saved?.status === 'running')
+        await this.queue.cancel(previous.id);
+    }
     await this.player?.dispose();
     if (this.closed || generation !== this.generation) return;
     this.current = undefined;

@@ -9,6 +9,7 @@ import type { Track } from './contracts.js';
 
 /** Explicit local download, never a write to the source video or its provider. */
 export function downloadSubtitles(name: string, track: Track): void {
+  if (!track.complete) throw new Error('Finish transcription before downloading subtitles');
   const url = URL.createObjectURL(
     new Blob([serializeSubtitles(track, 'srt')], {
       type: 'application/x-subrip;charset=utf-8'
