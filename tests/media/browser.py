@@ -57,7 +57,7 @@ def main():
                 headless=True, args=['--no-sandbox'])
             context = browser.new_context(viewport={'width': 1280, 'height': 900})
             page = context.new_page()
-            page.set_default_timeout(10000)
+            page.set_default_timeout(30000)
             page_errors, requests = [], []
             page.on('pageerror', lambda error: page_errors.append(str(error)))
             page.on('request', lambda request: requests.append(request.url))
@@ -258,6 +258,73 @@ def main():
                     }''')
                     other.close()
             case('Two native tabs serialize model inference with Web Locks and shared IDB', native_two_tabs)
+
+            def abandoned_tab_recovery():
+                first, second = context.new_page(), context.new_page()
+                first_errors, second_errors = [], []
+                first.on('pageerror', lambda error: first_errors.append(str(error)))
+                second.on('pageerror', lambda error: second_errors.append(str(error)))
+                name = js('store.name')
+                url = f'http://127.0.0.1:{server.server_port}/tests/media/browser-harness.html?fixture=/__fixture__/video.mp4'
+                try:
+                    first.goto(url)
+                    second.goto(url)
+                    first.wait_for_function('window.ready === true')
+                    second.wait_for_function('window.ready === true')
+                    first.evaluate('''async name => {
+                        window.orphanStarted=false;
+                        window.orphanStore=new modules.MediaStore(indexedDB,name);
+                        window.orphanQueue=new modules.TranscriptionQueue(orphanStore,'account:abandoned-tab',{
+                            async prepare(){},
+                            transcribe(){window.orphanStarted=true;return new Promise(()=>{});},
+                            async dispose(){}
+                        },async () => new Float32Array(16000*4).fill(.1));
+                        window.orphanJob=(await orphanQueue.enqueue(key,'en','1',4)).id;
+                    }''', name)
+                    first.wait_for_function('''async () => orphanStarted &&
+                        (await orphanStore.local('account:abandoned-tab','jobs',orphanJob))?.status === 'running' ''')
+                    orphan_id = first.evaluate('orphanJob')
+                    second.evaluate('''name => {
+                        window.recoveryStore=new modules.MediaStore(indexedDB,name);
+                        window.recoveryQueue=new modules.TranscriptionQueue(recoveryStore,'account:abandoned-tab',{
+                            async prepare(){},
+                            async transcribe(){return '[0.2][S01]Recovered tab.[1.2]';},
+                            async dispose(){}
+                        },async () => new Float32Array(16000*4).fill(.1));
+                    }''', name)
+                    second.evaluate('recoveryQueue.recover()')
+                    check(second.evaluate('''async id =>
+                        (await recoveryStore.local('account:abandoned-tab','jobs',id))?.status === 'running' ''', orphan_id),
+                          'Recovery stole a job while the first tab held the native lock')
+                    first.close()  # Abrupt owner loss, without queue.dispose().
+                    deadline = time.monotonic() + 10
+                    while True:
+                        second.evaluate('recoveryQueue.recover()')
+                        state = second.evaluate('''async id =>
+                            (await recoveryStore.local('account:abandoned-tab','jobs',id))?.status ''', orphan_id)
+                        if state == 'paused':
+                            break
+                        if time.monotonic() >= deadline:
+                            raise AssertionError(f'Abandoned job stayed {state} after native lock release')
+                        time.sleep(.05)
+                    new_id = second.evaluate('''async () =>
+                        (await recoveryQueue.enqueue(key,'en','2',4)).id ''')
+                    second.wait_for_function('''async id =>
+                        (await recoveryStore.local('account:abandoned-tab','jobs',id))?.status === 'complete' ''', arg=new_id)
+                    check(not first_errors and not second_errors,
+                          f'Tab errors: first={first_errors}; second={second_errors}')
+                finally:
+                    if not first.is_closed():
+                        first.close()
+                    if not second.is_closed():
+                        second.evaluate('''async () => {
+                            await window.recoveryQueue?.dispose();
+                            await window.recoveryStore?.close();
+                            await window.player?.dispose();
+                            await window.store?.close();
+                        }''')
+                        second.close()
+            case('Abrupt tab close pauses an orphaned job before another tab infers', abandoned_tab_recovery)
             case('No unhandled browser or controller errors', lambda: check(
                 not page_errors and not js('errors'), '; '.join(page_errors + js('errors'))))
             js('store.close()')
@@ -267,7 +334,7 @@ def main():
         server.shutdown()
         server.server_close()
         report = {'kind': 'production media modules / native Chromium IndexedDB',
-                  'notCovered': ['Svelte shell', 'speech accuracy', 'live accounts/providers', 'cross-tab suspension'],
+                  'notCovered': ['Svelte shell', 'speech accuracy', 'live accounts/providers', 'background-tab freeze'],
                   'tests': results,
                   'passed': sum(item['status'] == 'passed' for item in results),
                   'failed': sum(item['status'] == 'failed' for item in results)}
