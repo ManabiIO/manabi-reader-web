@@ -71,6 +71,7 @@ def main():
                 window.draftModule = await import('../../.cache/media-test-build/transcription-draft.js');
                 const {MOSS} = await import('../../.cache/media-test-build/model-cache.js');
                 const s = sparseModule.newSparseState(78);
+                s.policy = 'overlap-sparse-v1'; // This fixture exercises the saved old policy.
                 s.windows[0] = {cues:[{id:'w0/cue-0',start:23,end:27,text:'境界をまたぐ長い文章です。'}],inferenceMs:1000};
                 s.windows[1] = {cues:[{id:'w1/cue-0',start:24,end:27,text:'境界をまたぐ長い文章です。'}],inferenceMs:1000};
                 window.savedDraft = {version:3,sparse:s,id:crypto.randomUUID(),mediaKey:key,
@@ -122,6 +123,21 @@ def main():
                 draftStore = new modules.MediaStore(indexedDB,testDB);
                 const raw = await draftStore.local('guest','jobs',savedDraft.id);
                 return raw.cues.length === 1 && JSON.stringify(jobsModule.validateJob(raw)) === JSON.stringify(raw);
+            }'''))
+            case('A reopened seek-local window remains visible but provisional under version 2', lambda: verify('''async () => {
+                const sparse = sparseModule.newSparseState(78, 57);
+                sparse.windows[2] = {cues:[{id:'w2/cue-0',start:56,end:58,text:'後で直せる字幕'}],inferenceMs:1000};
+                const candidate = {...savedDraft,id:crypto.randomUUID(),sparse,nextWindow:1,cues:[]};
+                await draftStore.putLocal('guest','jobs',candidate.id,candidate);
+                await draftStore.close();
+                draftStore = new modules.MediaStore(indexedDB,testDB);
+                const raw = await draftStore.local('guest','jobs',candidate.id);
+                const reopened = jobsModule.validateJob(raw);
+                const view = draftModule.transcriptionDraft(reopened);
+                return reopened.sparse.policy === 'overlap-sparse-v2' &&
+                    reopened.cues.length === 0 && view.provisional &&
+                    view.track.cues.length === 1 &&
+                    view.track.cues[0].text === '後で直せる字幕' && !view.track.complete;
             }'''))
 
             def display():
