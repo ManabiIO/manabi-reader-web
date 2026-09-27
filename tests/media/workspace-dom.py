@@ -257,6 +257,27 @@ def main():
             page.wait_for_function('(old)=>workspace.player.primary.value!==old',arg=temp)
             assert page.locator('.transcript-cue').count()==1
         case('video and authored sidecar work while full identity hashing is pending',play_and_sidecar_during_hash)
+        def account_replaced_at_identity_boundary():
+            page.evaluate('reset()')
+            page.evaluate("""async()=>{
+                const source=makeSource('Account-change.mp4');
+                const read=source.read.bind(source);
+                let current=true;
+                source.isCurrent=()=>current;
+                source.read=async(start,end,signal)=>{
+                    const bytes=await read(start,end,signal);
+                    if(end-start>32768)current=false;
+                    return bytes;
+                };
+                await workspace.openSource(source);
+            }""")
+            result=page.evaluate("""async()=>({
+                current:workspace.current?.key??null,
+                aliases:(await store.listLocal('guest','aliases')).length,
+                bound:bound.length
+            })""")
+            assert result==dict(current=None,aliases=0,bound=0),result
+        case('an account revoked after its last hash range cannot bind the video',account_replaced_at_identity_boundary)
         def verified_source_is_not_hashed_twice():
             page.evaluate('reset()')
             page.evaluate("workspace.openSource(makeSource('Verified.mp4'))")

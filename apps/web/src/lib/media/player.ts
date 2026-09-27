@@ -73,6 +73,7 @@ export class VideoPlayer {
   private publishedTracks: Track[] = [];
   private temporaryTracks: Track[] = [];
   private activeJob?: Job;
+  private waitingForOriginLock?: string;
   private firstWindowJob?: string;
   private firstWindowStartedAt?: number;
   private firstWindowClock?: ReturnType<typeof setInterval>;
@@ -587,11 +588,14 @@ export class VideoPlayer {
   }
   generationStatus(id: string, state: string) {
     if (this.closed) return;
+    if (state === 'waiting-for-tab') this.waitingForOriginLock = id;
+    else if (this.waitingForOriginLock === id) this.waitingForOriginLock = undefined;
     if (state === 'paused' || state === 'failed' || state === 'complete') {
       this.retiredPreviews.add(id);
       if (this.preview?.id === id) this.preview = undefined;
     } else this.retiredPreviews.delete(id);
     this.updateProgressiveView();
+    this.updateBuffering();
     if (state === 'paused' || state === 'failed') this.generationOutcomes?.set(id, state);
     else this.generationOutcomes?.delete(id);
     if (id !== this.pendingGenerated) return;
@@ -982,6 +986,12 @@ export class VideoPlayer {
         job.status === 'paused'
           ? 'Transcription paused. Resume it in the queue or play without captions.'
           : 'Transcription failed. You can play without captions.';
+      return;
+    }
+    if (this.waitingForOriginLock === job.id) {
+      if (nearGap) this.pauseAtCaptionGap();
+      this.bufferStatus.textContent =
+        'Waiting for transcription in another tab or workspace. Close a stuck tab to release its model, or play without captions.';
       return;
     }
     const samples = state.windows.flatMap((window, index) => {

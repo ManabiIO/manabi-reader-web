@@ -841,9 +841,41 @@ export class TranscriptionQueue {
       }
     };
     try {
-      if (typeof navigator.locks?.request === 'function')
-        await navigator.locks.request('manabi-moss-inference', { signal: batch.signal }, drain);
-      else {
+      if (typeof navigator.locks?.request === 'function') {
+        let acquired = false;
+        const waiting = setTimeout(() => {
+          void this.jobs()
+            .then((jobs) => {
+              if (acquired || this.closed || batch.signal.aborted) return;
+              const pending = jobs.find(
+                (job) => job.status === 'queued' && this.admitted.has(job.id)
+              );
+              if (pending)
+                this.notify({
+                  job: pending,
+                  stage: 'waiting-for-tab',
+                  loaded: pending.sparse
+                    ? sparseCoverage(pending.sparse, pending.duration)
+                    : pending.nextWindow,
+                  total: pending.sparse ? pending.duration : planWindows(pending.duration).length
+                });
+            })
+            .catch((error) => this.report(error));
+        }, 10_000);
+        try {
+          await navigator.locks.request(
+            'manabi-moss-inference',
+            { signal: batch.signal },
+            async () => {
+              acquired = true;
+              clearTimeout(waiting);
+              await drain();
+            }
+          );
+        } finally {
+          clearTimeout(waiting);
+        }
+      } else {
         this.requireOriginLock();
         await drain(); // Node-only test harnesses inject no browser Window.
       }

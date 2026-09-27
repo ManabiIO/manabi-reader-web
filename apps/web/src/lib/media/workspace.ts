@@ -317,7 +317,7 @@ export class VideoWorkspace {
         this.progress.max = Math.max(1, p.total);
         this.progress.value = p.loaded;
         this.notice(
-          `${p.stage === 'downloading' ? 'Downloading speech model' : p.stage === 'loading' || p.stage === 'checking' ? 'Preparing speech model' : p.stage === 'verifying' ? 'Verifying speech model' : p.stage === 'complete' ? 'Transcript ready' : p.stage === 'paused' ? 'Transcription paused' : p.stage === 'failed' ? 'Transcription failed' : 'Generating transcript'}${p.total > 0 ? ` · ${Math.min(100, Math.round((p.loaded / p.total) * 100))}%` : ''}`
+          `${p.stage === 'waiting-for-tab' ? 'Waiting for another tab or workspace to release transcription' : p.stage === 'downloading' ? 'Downloading speech model' : p.stage === 'loading' || p.stage === 'checking' ? 'Preparing speech model' : p.stage === 'verifying' ? 'Verifying speech model' : p.stage === 'complete' ? 'Transcript ready' : p.stage === 'paused' ? 'Transcription paused' : p.stage === 'failed' ? 'Transcription failed' : 'Generating transcript'}${p.total > 0 ? ` · ${Math.min(100, Math.round((p.loaded / p.total) * 100))}%` : ''}`
         );
         if (this.current?.key === p.job.mediaKey) {
           this.player?.generationStatus(p.job.id, p.stage);
@@ -549,6 +549,7 @@ export class VideoWorkspace {
           if (active()) this.progress.value = n;
         }));
       guard();
+      if (source.isCurrent && !source.isCurrent()) throw new Error('Account changed');
       if (expected && key !== expected)
         throw new Error('The selected file is not the saved video. Its old progress was kept.');
       if (source.file) this.verifiedSources.set(source, key);
@@ -923,6 +924,7 @@ export class VideoWorkspace {
         'A video file changed. Reopen it before generating captions. Its previous progress was kept.'
       );
     signal.throwIfAborted();
+    if (source.isCurrent && !source.isCurrent()) throw new Error('Account changed');
     if (source.file) this.verifiedSources.set(source, key);
     else if (source.cloud && forOpen) this.verifiedCloudOpen.set(source, key);
     this.sources.set(key, source);
