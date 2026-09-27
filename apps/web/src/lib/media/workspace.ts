@@ -442,6 +442,7 @@ export class VideoWorkspace {
     const active = () => !this.closed && generation === this.generation && !signal.aborted;
     const guard = () => {
       if (!active()) throw new DOMException('Video opening was replaced', 'AbortError');
+      if (source.isCurrent && !source.isCurrent()) throw new Error('Account changed');
     };
     const player = (this.player = new VideoPlayer({
       scope: this.options.scope,
@@ -549,7 +550,6 @@ export class VideoWorkspace {
           if (active()) this.progress.value = n;
         }));
       guard();
-      if (source.isCurrent && !source.isCurrent()) throw new Error('Account changed');
       if (expected && key !== expected)
         throw new Error('The selected file is not the saved video. Its old progress was kept.');
       if (source.file) this.verifiedSources.set(source, key);
@@ -607,7 +607,14 @@ export class VideoWorkspace {
       await this.refresh();
       await this.resumeSwitchedJobs();
     } catch (e) {
-      if (active()) this.error(e);
+      if (active()) {
+        if (source.isCurrent && !source.isCurrent() && this.current?.source === source) {
+          this.current = undefined;
+          this.currentTranscription = undefined;
+          player.setGenerationAvailable(false, 'The connected account changed. Reopen this video.');
+        }
+        this.error(e);
+      }
     }
   }
   private async discover(
