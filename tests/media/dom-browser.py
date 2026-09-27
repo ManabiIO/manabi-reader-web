@@ -837,12 +837,14 @@ def main():
             page.evaluate("""async()=>{
                 await createPlayer();
                 await player.bindIdentity(mediaKey);
-                window.sparseJob={id:trackId,mediaKey,status:'running',duration:26,cues:[],
-                    sparse:{policy:'overlap-sparse-v1',targetSeconds:0,windows:[null],repairs:[]}};
+                window.sparseJob={id:trackId,mediaKey,status:'running',duration:78,cues:[],
+                    sparse:{policy:'overlap-sparse-v1',targetSeconds:0,
+                        windows:[null,null,null],repairs:[null,null]}};
                 player.generationProgress(sparseJob);
                 await player.video.play();
             }""")
             page.get_by_role('button',name='Wait for captions',exact=True).click()
+            page.evaluate('player.video.currentTime=1')
             assert page.evaluate('player.video.paused')
             page.evaluate("""()=>{
                 const cue={id:'w0/cue-0',start:0,end:3,text:'字幕が見えます。'};
@@ -855,11 +857,12 @@ def main():
             page.evaluate("""()=>{
                 player.pendingGenerated=trackId;
                 player.setDrafts([{track:{...track(trackId,'ja',sparseJob.cues),complete:false},
-                    coverage:26,duration:26,state:'running',restartRequired:false,pending:[]}]);
+                    coverage:26,duration:78,state:'running',restartRequired:false,pending:[]}]);
             }""")
             page.wait_for_function('!player.video.paused')
+            assert page.evaluate('sparseJob.sparse.windows[1]===null')
             assert page.locator('[aria-label="Transcript track"]').input_value()==page.evaluate('trackId')
-        case('sparse lead waits until its accepted draft is visible',sparse_waits_for_visible_captions)
+        case('one safe sparse window starts playback after its accepted draft is visible',sparse_waits_for_visible_captions)
         def sparse_completion_waits_for_publication():
             page.evaluate("""async()=>{
                 await createPlayer();

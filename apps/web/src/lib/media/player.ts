@@ -27,7 +27,8 @@ import {
   sparseBounds,
   sparseLead,
   sparseMissingWindowsForLead,
-  SPARSE_CORE_SECONDS
+  SPARSE_CORE_SECONDS,
+  SPARSE_CONTEXT_SECONDS
 } from './sparse-transcription.js';
 import { cueDigest } from './captions.js';
 import { TrackCatalog } from './track-catalog.js';
@@ -916,7 +917,12 @@ export class VideoPlayer {
     }
     const position = Math.min(job.duration, this.video.currentTime || 0);
     const lead = sparseLead(state, job.duration, position);
-    const needed = Math.min(SPARSE_CORE_SECONDS, job.duration - position);
+    // Leave two halo widths of lead so playback started near zero can use the
+    // first safe window without requiring a second inference at its edge.
+    const needed = Math.min(
+      SPARSE_CORE_SECONDS - 2 * SPARSE_CONTEXT_SECONDS,
+      job.duration - position
+    );
     const samples = state.windows.flatMap((window, index) => {
       if (!window) return [];
       const bounds = sparseBounds(index, job.duration);

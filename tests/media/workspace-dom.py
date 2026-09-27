@@ -5,7 +5,7 @@ Uses explicit transaction, decoder/metadata and recognition doubles, not Svelte,
 IndexedDB, cloud transport or real MOSS. getRandomValues supplies the UUID shim for
 this opaque in-memory test document; no browser security policy is changed.
 """
-import argparse, base64, functools, json, os, pathlib, re
+import argparse, base64, functools, json, os, pathlib, re, traceback
 from playwright.sync_api import sync_playwright
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
@@ -79,7 +79,8 @@ def main():
             print('RUN',name,flush=True)
             try:fn();results.append(dict(name=name,passed=True));print('PASS',name,flush=True)
             except Exception as e:
-                results.append(dict(name=name,passed=False,error=str(e)));print('FAIL',name,str(e),flush=True)
+                error=''.join(traceback.format_exception(e))
+                results.append(dict(name=name,passed=False,error=error));print('FAIL',name,error,flush=True)
                 page.screenshot(path=str(args.output/f'failure-{len(results)}.png'))
         def switching():
             page.evaluate('reset({holdFirstAlias:true})')
@@ -110,7 +111,13 @@ def main():
             page.wait_for_function('workspace.player.video.readyState>=1')
             assert page.evaluate('workspace.current===undefined'), 'portable hashing must still be pending'
             temp=page.evaluate("document.querySelector('[aria-label=\"Choose existing subtitles\"]').options[1].value")
-            page.get_by_label('Choose existing subtitles',exact=True).select_option(temp)
+            # Dispatch value and change in one browser task: embedded discovery
+            # can rebuild this picker between separate automation operations.
+            page.evaluate("""id=>{
+                const picker=document.querySelector('[aria-label="Choose existing subtitles"]');
+                if(![...picker.options].some(option=>option.value===id))throw Error('Early sidecar vanished');
+                picker.value=id;picker.dispatchEvent(new Event('change',{bubbles:true}));
+            }""",temp)
             assert page.locator('.transcript-cue').count()==1
             assert page.evaluate('inferences')==0
             page.evaluate('releaseHash();opened')
@@ -124,6 +131,9 @@ def main():
             assert page.evaluate('prepares')==0
         case('automatic language uses the tagged original stream rather than the first dub, without inference',audio)
         def wrong_audio():
+            page.evaluate('reset()')
+            page.evaluate("workspace.openSource(makeSource('Language.mp4'))")
+            page.wait_for_function('workspace.current && !workspace.audio.disabled')
             page.locator('summary',has_text='Transcription and sync').click()
             page.get_by_label('Audio track for transcription',exact=True).select_option('1')
             page.get_by_label('Caption language',exact=True).fill('ja')
