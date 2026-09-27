@@ -45,7 +45,7 @@ real-MOSS, native IndexedDB or representative-device performance evidence.
 
 ## Unchanged release gates
 
-The parent now contains packaged v7 single/threaded runtimes. Keep the PR draft
+The progressive stack now contains packaged v7 single/threaded runtimes. Keep the PR draft
 until their exact-head real-model/application qualification, natural Japanese seam
 evaluation, device time-to-first-caption and throughput/memory measurements,
 physical Safari/iOS and multi-tab lifecycle tests, and production serving checks
