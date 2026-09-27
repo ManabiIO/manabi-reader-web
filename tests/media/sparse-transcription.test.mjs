@@ -81,7 +81,7 @@ test('agreed whole cues crossing a seam margin appear, one-sided cues require re
   state.windows[1] = { cues: [], inferenceMs: 1 };
   assert.deepEqual(safeSparseCues(state, 52), []);
   assert.deepEqual(assembleSparse(state), { repair: 0 });
-  assert.equal(sparseLead(state, 52, 0), 24);
+  assert.equal(sparseLead(state, 52, 0), 23);
 });
 test('an empty seam repair cannot erase recognized speech', () => {
   const state = newSparseState(52);

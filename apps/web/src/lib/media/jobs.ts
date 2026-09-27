@@ -23,10 +23,12 @@ import {
   assembleSparse,
   safeSparseCues,
   sparseBounds,
+  pendingSparseSeam,
   sparseCoverage,
   validateSparseState,
   type SparseState
 } from './sparse-transcription.js';
+import { legacySparseCues, legacyAssembleSparse } from './sparse-legacy.js';
 import {
   coreEnd,
   durationSamples,
@@ -63,8 +65,8 @@ export const JOB_LEASE_MS = 90_000;
 /** Whether repeating Resume can make progress without changing transcription policy. */
 export function jobCanResume(job: Job): boolean {
   if (job.status !== 'paused' && job.status !== 'failed') return false;
-  if (job.sparse && job.nextWindow === job.sparse.windows.length) {
-    const seam = assembleSparse(job.sparse).repair;
+  if (job.sparse) {
+    const seam = pendingSparseSeam(job.sparse);
     if (
       seam !== undefined &&
       (job.sparse.repairs[seam] ||
@@ -156,8 +158,10 @@ export function validateJob(value: unknown): Job {
   const audioTrack = string(j.audioTrack, 128);
   if (!/^\d{1,10}$/.test(audioTrack) || !Number.isSafeInteger(Number(audioTrack)))
     throw new Error('Invalid saved audio track');
-  const cues = j.cues.map(validateCue),
-    nextWindow = j.nextWindow as number;
+  let cues = j.cues.map(validateCue);
+  let completedAt =
+    j.completedAt === undefined ? undefined : finite(j.completedAt, 0, Number.MAX_SAFE_INTEGER);
+  const nextWindow = j.nextWindow as number;
   if (sparse) {
     const safe = safeSparseCues(sparse, duration);
     const matches = (expected: Cue[]) =>
@@ -174,17 +178,32 @@ export function validateJob(value: unknown): Job {
       });
     // Final cues are checkpointed while the lease is still running, before the
     // atomic track publication changes the job status to complete.
-    const finalizing = j.status === 'complete' || j.completedAt !== undefined;
-    if (!finalizing && !matches(safe))
-      throw new Error('Sparse draft does not match saved coverage');
+    const finalizing = j.status === 'complete' || completedAt !== undefined;
+    if (!finalizing && !matches(safe)) {
+      if (
+        !matches(legacySparseCues(sparse, duration)) &&
+        !matches(legacySparseCues(sparse, duration, false)) &&
+        !matches(legacySparseCues(sparse, duration, true, true))
+      )
+        throw new Error('Sparse draft does not match saved coverage');
+      cues = safe; // Upgrade only the verified derived cache, never the hypotheses.
+    }
     // Published jobs are compacted to an empty cue summary by MediaStore.
     if (finalizing) {
       const assembled = assembleSparse(sparse).cues;
-      if (!assembled || !matches(assembled))
-        throw new Error('Completed sparse captions do not match saved hypotheses');
+      if (!assembled || !matches(assembled)) {
+        const legacy = [legacyAssembleSparse(sparse), legacyAssembleSparse(sparse, true)];
+        if (j.status === 'complete' || !legacy.some((prior) => prior && matches(prior)))
+          throw new Error('Completed sparse captions do not match saved hypotheses');
+        // A previously unpublished cache may have admitted a one-sided seam.
+        // Keep all inference inputs and return that seam to repair, not completion.
+        cues = assembled ?? safe;
+        if (!assembled) completedAt = undefined;
+      }
     }
   }
   if (
+    cues.length > 50_000 ||
     new Set(cues.map((c) => c.id)).size !== cues.length ||
     (!sparse &&
       cues.some((c) => {
@@ -229,9 +248,7 @@ export function validateJob(value: unknown): Job {
     modelSha256: j.modelSha256,
     engineRevision: string(j.engineRevision, 128),
     createdAt: finite(j.createdAt, 0, Number.MAX_SAFE_INTEGER),
-    ...(j.completedAt === undefined
-      ? {}
-      : { completedAt: finite(j.completedAt, 0, Number.MAX_SAFE_INTEGER) }),
+    ...(completedAt === undefined ? {} : { completedAt }),
     ...(j.error === undefined ? {} : { error: string(j.error, 2048) }),
     ...(j.ownerId === undefined
       ? {}

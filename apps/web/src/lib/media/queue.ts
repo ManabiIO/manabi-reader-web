@@ -13,8 +13,8 @@ import { transcribeWithPreview } from './moss-preview.js';
 import { transcribeProgressively } from './progressive-transcription.js';
 import {
   newSparseState,
-  SPARSE_CORE_SECONDS,
-  joinSparseBoundary,
+  pendingSparseSeam,
+  sparseModelPcm,
   sparseBounds,
   safeSparseCues,
   nextSparseWindow,
@@ -377,8 +377,16 @@ export class TranscriptionQueue {
                 signal.throwIfAborted();
                 return {
                   ...snapshot,
-                  ...(snapshot.sparse && old?.sparse
-                    ? { sparse: { ...snapshot.sparse, targetSeconds: old.sparse.targetSeconds } }
+                  ...(snapshot.sparse
+                    ? {
+                        sparse: {
+                          ...snapshot.sparse,
+                          targetSeconds: Math.min(
+                            snapshot.duration,
+                            this.targets.get(snapshot.id) ?? snapshot.sparse.targetSeconds
+                          )
+                        }
+                      }
                     : {}),
                   leaseUntil: Date.now() + JOB_LEASE_MS
                 };
@@ -393,7 +401,8 @@ export class TranscriptionQueue {
                   : job.version === 2
                     ? job.progressive!.windows.at(-1)?.coreEndSample !==
                       Math.ceil(job.duration * 16000)
-                    : job.nextWindow < job.sparse!.windows.length;
+                    : job.nextWindow < job.sparse!.windows.length ||
+                      pendingSparseSeam(job.sparse!) !== undefined;
               if (job.engineRevision !== MOSS.engineRevision && hasWork) {
                 job = {
                   ...job,
@@ -417,6 +426,7 @@ export class TranscriptionQueue {
               }
               if (job.version === 3) {
                 const repairSparseSeam = async (seam: number) => {
+                  signal.throwIfAborted();
                   if (job.sparse!.repairs[seam])
                     throw new Error(
                       'An adjacent repaired seam remains ambiguous; saved hypotheses were kept.'
@@ -437,15 +447,9 @@ export class TranscriptionQueue {
                     loaded: sparseCoverage(job.sparse!, job.duration),
                     total: job.duration
                   });
-                  const pcm = await this.decode(job, first.start, second.end, signal);
+                  const decoded = await this.decode(job, first.start, second.end, signal);
                   signal.throwIfAborted();
-                  if (
-                    !(pcm instanceof Float32Array) ||
-                    !pcm.length ||
-                    Math.abs(pcm.length - Math.round((second.end - first.start) * 16000)) > 1 ||
-                    !pcm.every(Number.isFinite)
-                  )
-                    throw new Error('Invalid decoded seam audio');
+                  const pcm = sparseModelPcm(decoded, first.start, second.end, 60);
                   const inputDuration = pcm.length / 16000;
                   const exactSilence = pcm.every((sample) => sample === 0);
                   if (!exactSilence)
@@ -494,42 +498,19 @@ export class TranscriptionQueue {
                   job = { ...job, sparse: next, cues: safeSparseCues(next, job.duration) };
                   await checkpoint();
                 };
-                const repairAvailableSeams = async (indices: Iterable<number>) => {
-                  for (const seam of indices) {
-                    if (
-                      seam < 0 ||
-                      seam >= job.sparse!.repairs.length ||
-                      job.sparse!.repairs[seam] ||
-                      job.sparse!.repairs[seam - 1] ||
-                      job.sparse!.repairs[seam + 1]
-                    )
-                      continue;
-                    const left = job.sparse!.windows[seam],
-                      right = job.sparse!.windows[seam + 1];
-                    if (
-                      left &&
-                      right &&
-                      !joinSparseBoundary(
-                        left.cues.slice(-16),
-                        right.cues.slice(0, 16),
-                        (seam + 1) * SPARSE_CORE_SECONDS
-                      )
-                    )
-                      await repairSparseSeam(seam);
+                const settleSparseSeams = async () => {
+                  const pending = () =>
+                    pendingSparseSeam(
+                      job.sparse!,
+                      this.targets.get(job.id) ?? job.sparse!.targetSeconds
+                    );
+                  let seam = pending();
+                  while (seam !== undefined) {
+                    await repairSparseSeam(seam);
+                    seam = pending();
                   }
                 };
-                // A resumed job may already have both ambiguous hypotheses.
-                // Settle the playhead seam before transcribing another core.
-                const target = Math.floor(
-                  (this.targets.get(job.id) ?? job.sparse!.targetSeconds) / SPARSE_CORE_SECONDS
-                );
-                await repairAvailableSeams(
-                  new Set([
-                    target - 1,
-                    target,
-                    ...Array.from({ length: job.sparse!.repairs.length }, (_, index) => index)
-                  ])
-                );
+                await settleSparseSeams();
                 while (job.nextWindow < job.sparse!.windows.length) {
                   signal.throwIfAborted();
                   const target = this.targets.get(job.id) ?? job.sparse!.targetSeconds;
@@ -544,17 +525,9 @@ export class TranscriptionQueue {
                     total: job.duration
                   });
                   const decodeStarted = performance.now();
-                  const pcm = await this.decode(job, bounds.start, bounds.end, signal);
+                  const decoded = await this.decode(job, bounds.start, bounds.end, signal);
                   signal.throwIfAborted();
-                  const expectedSamples = Math.round((bounds.end - bounds.start) * 16000);
-                  if (
-                    !(pcm instanceof Float32Array) ||
-                    !pcm.length ||
-                    Math.abs(pcm.length - expectedSamples) > 1 ||
-                    pcm.length > 30 * 16000 + 1 ||
-                    !pcm.every(Number.isFinite)
-                  )
-                    throw new Error('Invalid decoded sparse audio window');
+                  const pcm = sparseModelPcm(decoded, bounds.start, bounds.end, 30);
                   const inputDuration = pcm.length / 16000;
                   let raw = '';
                   let inferenceMs = performance.now() - decodeStarted;
@@ -599,8 +572,7 @@ export class TranscriptionQueue {
                     loaded: sparseCoverage(next, job.duration),
                     total: job.duration
                   });
-                  // A near-playhead seam must settle before unrelated video.
-                  await repairAvailableSeams([index - 1, index]);
+                  await settleSparseSeams();
                 }
                 let assembled = assembleSparse(job.sparse!);
                 while (assembled.repair !== undefined) {
@@ -713,10 +685,15 @@ export class TranscriptionQueue {
                 this.notify({
                   job: latest,
                   stage: latest.status,
-                  loaded: latest.progressive
-                    ? (latest.progressive.windows.at(-1)?.coreEndSample ?? 0) / 16000
-                    : latest.nextWindow,
-                  total: latest.progressive ? latest.duration : planWindows(latest.duration).length
+                  loaded: latest.sparse
+                    ? sparseCoverage(latest.sparse, latest.duration)
+                    : latest.progressive
+                      ? (latest.progressive.windows.at(-1)?.coreEndSample ?? 0) / 16000
+                      : latest.nextWindow,
+                  total:
+                    latest.sparse || latest.progressive
+                      ? latest.duration
+                      : planWindows(latest.duration).length
                 });
             } finally {
               clearInterval(heartbeat);

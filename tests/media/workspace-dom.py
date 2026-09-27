@@ -107,7 +107,8 @@ def main():
                 window.opened=workspace.openSource(source,[new File([text],'Early.ja.srt')]);
             }""")
             page.wait_for_function("document.querySelector('[aria-label=\"Choose existing subtitles\"]')?.options.length===2")
-            assert page.evaluate('workspace.current===undefined && workspace.player.video.readyState>=1')
+            page.wait_for_function('workspace.player.video.readyState>=1')
+            assert page.evaluate('workspace.current===undefined'), 'portable hashing must still be pending'
             temp=page.evaluate("document.querySelector('[aria-label=\"Choose existing subtitles\"]').options[1].value")
             page.get_by_label('Choose existing subtitles',exact=True).select_option(temp)
             assert page.locator('.transcript-cue').count()==1

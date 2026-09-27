@@ -5,7 +5,7 @@
  */
 
 import { finite, onlyKeys, record, validateCue, type Cue } from './contracts.js';
-import { joinBoundary } from './moss-progressive.js';
+import { joinBoundary, SAMPLE_RATE } from './moss-progressive.js';
 
 /** A fixed 26-second core keeps each input within MOSS's 30-second budget. */
 export const SPARSE_CORE_SECONDS = 26;
@@ -31,6 +31,30 @@ export function sparseBounds(index: number, duration: number) {
     coreEnd
   };
 }
+/** Match decoded PCM to the integer sample interval before a worker can detach it.
+ * Accept the decoder's one extra rounding sample, never infer on that extra sample
+ * or pad a missing one. In particular 480001 samples must not buy a second block.
+ */
+export function sparseModelPcm(
+  pcm: Float32Array,
+  start: number,
+  end: number,
+  maximumSeconds: 30 | 60
+): Float32Array {
+  const expected = Math.ceil(end * SAMPLE_RATE) - Math.round(start * SAMPLE_RATE);
+  if (
+    !Number.isSafeInteger(expected) ||
+    expected <= 0 ||
+    expected > maximumSeconds * SAMPLE_RATE ||
+    !(pcm instanceof Float32Array) ||
+    pcm.length < expected ||
+    pcm.length > expected + 1 ||
+    !pcm.every(Number.isFinite)
+  )
+    throw new Error('Invalid decoded sparse audio window');
+  return pcm.length === expected ? pcm : pcm.subarray(0, expected);
+}
+
 export function newSparseState(duration: number, targetSeconds = 0): SparseState {
   if (
     !Number.isFinite(duration) ||
@@ -136,37 +160,11 @@ export function joinSparseBoundary(left: readonly Cue[], right: readonly Cue[], 
   return joinBoundary(left, right, seam);
 }
 export function sparseLead(state: SparseState, duration: number, position: number) {
-  const index = Math.min(
-    state.windows.length - 1,
-    Math.max(0, Math.floor(position / SPARSE_CORE_SECONDS))
+  if (!Number.isFinite(position) || position < 0 || position >= duration) return 0;
+  const interval = sparseProjection(state, duration).ready.find(
+    ({ start, end }) => position >= start && position < end
   );
-  const seamReady = (leftIndex: number) => {
-    const left = state.windows[leftIndex],
-      right = state.windows[leftIndex + 1];
-    return (
-      !!left &&
-      !!right &&
-      (!!state.repairs[leftIndex] ||
-        !!joinSparseBoundary(
-          left.cues.slice(-16),
-          right.cues.slice(0, 16),
-          (leftIndex + 1) * SPARSE_CORE_SECONDS
-        ))
-    );
-  };
-  if (
-    index > 0 &&
-    position < index * SPARSE_CORE_SECONDS + SPARSE_CONTEXT_SECONDS &&
-    !seamReady(index - 1)
-  )
-    return 0;
-  let end = position;
-  for (let i = index; i < state.windows.length && state.windows[i]; i++) {
-    const bounds = sparseBounds(i, duration);
-    end = i === state.windows.length - 1 ? duration : bounds.coreEnd - SPARSE_CONTEXT_SECONDS;
-    if (!seamReady(i)) break;
-  }
-  return Math.max(0, end - position);
+  return interval ? interval.end - position : 0;
 }
 export function nextSparseWindow(state: SparseState): number {
   const target = Math.min(
@@ -174,12 +172,8 @@ export function nextSparseWindow(state: SparseState): number {
     Math.floor(state.targetSeconds / SPARSE_CORE_SECONDS)
   );
   if (!state.windows[target]) return target;
-  if (
-    target > 0 &&
-    state.targetSeconds < target * SPARSE_CORE_SECONDS + SPARSE_CONTEXT_SECONDS &&
-    !state.windows[target - 1]
-  )
-    return target - 1;
+  const predecessor = sparsePredecessor(state, state.targetSeconds);
+  if (predecessor !== undefined) return predecessor;
   for (let distance = 1; distance < state.windows.length; distance++) {
     const after = target + distance,
       before = target - distance;
@@ -202,85 +196,138 @@ export function sparseMissingWindowsForLead(
     Math.max(first, Math.ceil((end + SPARSE_CONTEXT_SECONDS) / SPARSE_CORE_SECONDS) - 1)
   );
   const start =
-    first > 0 && position < first * SPARSE_CORE_SECONDS + SPARSE_CONTEXT_SECONDS
+    sparsePredecessor(state, position) ??
+    (first > 0 && position < first * SPARSE_CORE_SECONDS + SPARSE_CONTEXT_SECONDS
       ? first - 1
-      : first;
+      : first);
   return Array.from({ length: last - start + 1 }, (_, offset) => start + offset).filter(
     (index) => !state.windows[index]
   );
 }
-/** Display only lines wholly away from unresolved boundaries. */
-export function safeSparseCues(state: SparseState, duration: number): Cue[] {
-  const interior = state.windows.flatMap((window, index) => {
-    if (!window || state.repairs[index] || state.repairs[index - 1]) return [];
-    if (
-      index > 0 &&
-      state.windows[index - 1] &&
-      !joinSparseBoundary(
-        state.windows[index - 1]!.cues.slice(-16),
-        window.cues.slice(0, 16),
-        index * SPARSE_CORE_SECONDS
-      )
-    )
-      return [];
-    const bounds = sparseBounds(index, duration);
-    const left = index === 0 ? 0 : bounds.coreStart + SPARSE_CONTEXT_SECONDS;
-    const right =
-      index === state.windows.length - 1 ? duration : bounds.coreEnd - SPARSE_CONTEXT_SECONDS;
-    return window.cues.filter((cue) => cue.start >= left && cue.end <= right);
-  });
-  const seams: Cue[] = [];
-  for (let index = 0; index < state.windows.length - 1; index++) {
-    if (state.repairs[index]) {
-      const left =
-        index === 0 ? 0 : sparseBounds(index, duration).coreStart + SPARSE_CONTEXT_SECONDS;
-      const right =
-        index + 1 === state.windows.length - 1
-          ? duration
-          : sparseBounds(index + 1, duration).coreEnd - SPARSE_CONTEXT_SECONDS;
-      seams.push(...state.repairs[index]!.filter((cue) => cue.start >= left && cue.end <= right));
+interface SparseComponent {
+  first: number;
+  last: number;
+  cues: Cue[];
+}
+
+/** Reconcile the same whole-cue hypotheses for display, readiness and publication.
+ * A repair is one two-core input; its superseded raw windows never decide its
+ * outer seams. The cursor advances by time, not an arbitrary last-N cue slice.
+ */
+function sparseComponents(state: SparseState): SparseComponent[] {
+  const components: SparseComponent[] = [];
+  let active: SparseComponent | undefined;
+  let cursor = 0;
+  for (let index = 0; index < state.windows.length; ) {
+    const window = state.windows[index];
+    if (!window) {
+      active = undefined;
+      index++;
       continue;
     }
-    if (state.repairs[index - 1] || state.repairs[index + 1]) continue;
-    const left = state.windows[index],
-      right = state.windows[index + 1];
-    if (!left || !right) continue;
-    const seam = (index + 1) * SPARSE_CORE_SECONDS;
-    const joined = joinSparseBoundary(left.cues.slice(-16), right.cues.slice(0, 16), seam);
-    if (!joined) continue;
-    seams.push(
-      ...joined.filter(
-        (cue) =>
-          cue.start < seam + SPARSE_CONTEXT_SECONDS && cue.end > seam - SPARSE_CONTEXT_SECONDS
-      )
-    );
+    const repair = state.repairs[index];
+    const current = repair ?? window.cues;
+    const last = index + (repair ? 1 : 0);
+    if (active && active.last + 1 === index) {
+      const start = Math.max(0, index * SPARSE_CORE_SECONDS - SPARSE_CONTEXT_SECONDS);
+      while (cursor < active.cues.length && active.cues[cursor].end <= start) cursor++;
+      const joined = joinSparseBoundary(
+        active.cues.slice(cursor),
+        current,
+        index * SPARSE_CORE_SECONDS
+      );
+      if (joined) {
+        active.cues.splice(cursor, active.cues.length - cursor, ...joined);
+        active.last = last;
+        index = last + 1;
+        continue;
+      }
+    }
+    active = { first: index, last, cues: [...current] };
+    components.push(active);
+    cursor = 0;
+    index = last + 1;
   }
-  return [...new Map([...interior, ...seams].map((cue) => [cue.id, cue])).values()].sort(
-    (a, b) => a.start - b.start
+  return components;
+}
+
+/** A held leading cue may need its predecessor even several seconds past the
+ * nominal seam. Use the same whole-cue extent as readiness, not just core index.
+ */
+function sparsePredecessor(state: SparseState, position: number): number | undefined {
+  const component = sparseComponents(state).find(
+    ({ first, last }) =>
+      position >= first * SPARSE_CORE_SECONDS && position < (last + 1) * SPARSE_CORE_SECONDS
+  );
+  if (!component || !component.first || state.windows[component.first - 1]) return undefined;
+  const edge = component.first * SPARSE_CORE_SECONDS + SPARSE_CONTEXT_SECONDS;
+  const neededUntil = component.cues.reduce(
+    (end, cue) => (cue.start < edge ? Math.max(end, cue.end) : end),
+    edge
+  );
+  return position < neededUntil ? component.first - 1 : undefined;
+}
+
+function sparseProjection(state: SparseState, duration: number) {
+  const cues: Cue[] = [];
+  const ready: { start: number; end: number }[] = [];
+  for (const component of sparseComponents(state)) {
+    const start =
+      component.first === 0 ? 0 : component.first * SPARSE_CORE_SECONDS + SPARSE_CONTEXT_SECONDS;
+    const end =
+      component.last === state.windows.length - 1
+        ? Math.ceil(duration * SAMPLE_RATE) / SAMPLE_RATE
+        : (component.last + 1) * SPARSE_CORE_SECONDS - SPARSE_CONTEXT_SECONDS;
+    let readyStart = start;
+    let readyEnd = Math.min(end, duration);
+    for (const cue of component.cues) {
+      if (cue.start >= start && cue.end <= end) cues.push(cue);
+      else {
+        // An omitted whole cue can extend well beyond the nominal two-second
+        // context. Never claim its time is caption-ready just because PCM ran.
+        if (cue.start < start && cue.end > start) readyStart = Math.max(readyStart, cue.end);
+        if (cue.start < end && cue.end > end) readyEnd = Math.min(readyEnd, cue.start);
+      }
+    }
+    if (readyEnd > readyStart) ready.push({ start: readyStart, end: readyEnd });
+  }
+  return { cues: cues.sort((a, b) => a.start - b.start), ready };
+}
+
+/** Display complete agreed components, holding only their unresolved outer cues. */
+export function safeSparseCues(state: SparseState, duration: number): Cue[] {
+  return sparseProjection(state, duration).cues;
+}
+
+/** Earliest ambiguous computed seam, even when unrelated windows are missing. */
+export function pendingSparseSeam(
+  state: SparseState,
+  targetSeconds = state.targetSeconds
+): number | undefined {
+  const components = sparseComponents(state);
+  const seams: number[] = [];
+  for (let index = 1; index < components.length; index++) {
+    if (components[index - 1].last + 1 === components[index].first)
+      seams.push(components[index].first - 1);
+  }
+  const target = Math.floor(targetSeconds / SPARSE_CORE_SECONDS);
+  return (
+    seams.find((seam) => seam === target - 1) ?? seams.find((seam) => seam === target) ?? seams[0]
   );
 }
+
 /** Assemble whole-cue hypotheses. Ambiguous boundaries must be repaired, never clipped. */
 export function assembleSparse(state: SparseState): { cues?: Cue[]; repair?: number } {
   if (state.windows.some((window) => !window)) return {};
-  let cues: Cue[] = [];
-  for (let index = 0; index < state.windows.length; ) {
-    const repair = state.repairs[index];
-    if (
-      repair &&
+  // A malformed in-memory repair is not a license to erase its source speech.
+  const empty = state.repairs.findIndex(
+    (repair, index) =>
+      repair !== null &&
       !repair.length &&
       (state.windows[index]!.cues.length || state.windows[index + 1]!.cues.length)
-    )
-      return { repair: index };
-    const current = repair ?? state.windows[index]!.cues;
-    const seam = index * SPARSE_CORE_SECONDS;
-    if (!cues.length) cues = [...current];
-    else {
-      const tail = cues.slice(-16);
-      const joined = joinSparseBoundary(tail, current, seam);
-      if (!joined) return { repair: index - 1 };
-      cues = [...cues.slice(0, -tail.length), ...joined];
-    }
-    index += repair ? 2 : 1;
-  }
-  return { cues };
+  );
+  if (empty >= 0) return { repair: empty };
+  const components = sparseComponents(state);
+  if (components.length > 1) return { repair: components[1].first - 1 };
+  return { cues: components[0]?.cues.sort((a, b) => a.start - b.start) ?? [] };
 }
