@@ -878,7 +878,11 @@ export class VideoPlayer {
       const off = element('option', index === 0 ? 'Choose transcript…' : 'Off');
       off.value = '';
       picker.append(off);
-      for (const track of tracks) {
+      // Accepted draft captions are useful as the main transcript, but an incomplete
+      // local draft is not a translation track. Automatic translation already requires
+      // complete candidates; make the manual picker honor the same boundary.
+      const choices = index === 0 ? tracks : tracks.filter((track) => track.complete);
+      for (const track of choices) {
         const o = element(
           'option',
           `${languageName(trackLanguage(track))} · ${track.label}${track.forced ? ' · Forced' : ''}`
@@ -892,13 +896,16 @@ export class VideoPlayer {
         : this.position
           ? (stored ?? '')
           : selected[index];
-      if (desired && !tracks.some((t) => t.id === desired)) {
-        const waiting = element('option', 'Saved track · not available yet');
-        waiting.value = desired;
-        waiting.disabled = true;
-        picker.append(waiting);
+      let selectedValue = desired;
+      if (desired && !choices.some((t) => t.id === desired)) {
+        if (!tracks.some((t) => t.id === desired)) {
+          const waiting = element('option', 'Saved track · not available yet');
+          waiting.value = desired;
+          waiting.disabled = true;
+          picker.append(waiting);
+        } else selectedValue = ''; // Present locally, but incomplete and ineligible here.
       }
-      picker.value = desired;
+      picker.value = selectedValue;
     }
     this.setupTracks.replaceChildren();
     const placeholder = element(

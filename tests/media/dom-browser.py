@@ -582,6 +582,8 @@ def main():
             assert page.locator('.transcript-cue').count()==1
             assert page.locator('.transcript-cue').first.inner_text()=='最初の行。'
             assert page.evaluate('player.primary.value===trackId && !player.tracks[0].complete')
+            assert page.get_by_label('Transcript track',exact=True).locator(f'option[value="{page.evaluate("trackId")}"]').count()==1
+            assert page.get_by_label('Translation track',exact=True).locator(f'option[value="{page.evaluate("trackId")}"]').count()==0
             assert 'processed' in page.locator('.transcription-progress-note').inner_text()
             assert page.evaluate('player.exportTrack()===undefined')
         case('a generated track is selected and readable at its first accepted checkpoint',first_draft)
