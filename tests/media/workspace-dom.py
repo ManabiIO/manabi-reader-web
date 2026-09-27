@@ -368,6 +368,85 @@ def main():
             }""")
             assert result==dict(status='paused',reason='user',windows=1,published=0,inferences=1),result
         case('Cancel while verifying keeps the checkpoint without publishing or restarting',cancel_while_waiting_for_identity)
+        def retry_failed_local_verification():
+            page.evaluate('reset()')
+            page.evaluate(r"""()=>{
+                const source=makeSource('Retry-verification.mp4');
+                const read=source.read.bind(source);
+                window.hashGate=new Promise(resolve=>window.releaseHash=resolve);
+                let fail=true;
+                source.read=async(start,end,signal)=>{
+                    if(end-start>32768&&fail){
+                        await hashGate;
+                        fail=false;
+                        throw Error('Transient full-file read failure');
+                    }
+                    return read(start,end,signal);
+                };
+                window.retrySource=source;
+                window.opened=workspace.openSource(source);
+            }""")
+            page.wait_for_function('workspace.current?.provisional && workspace.player?.generationAvailable')
+            page.evaluate("""async()=>{
+                workspace.audio.value='2';workspace.lang.value='ja';
+                workspace.queue.decode=async(_job,start,end)=>
+                    new Float32Array(Math.ceil(end*16000)-Math.round(start*16000)).fill(.1);
+                window.retryJob=await workspace.generate();
+            }""")
+            page.wait_for_function("store.local('guest','jobs',retryJob).then(j=>j?.pauseReason==='identity')")
+            page.evaluate('releaseHash();opened')
+            page.wait_for_function('workspace.player?.generationAvailable===false')
+            assert page.evaluate('inferences')==1
+            assert page.evaluate("store.tracks('guest',workspace.current.key).then(t=>t.length)")==0
+            page.get_by_role('button',name='Retry video verification').click()
+            page.wait_for_function("store.local('guest','jobs',retryJob).then(j=>j?.status==='complete')")
+            page.wait_for_function('workspace.current && !workspace.current.provisional && workspace.current.source===retrySource')
+            result=page.evaluate("""async()=>{
+                const job=await store.local('guest','jobs',retryJob);
+                return {sameSource:workspace.current.source===retrySource,
+                    key:workspace.current.key,verified:job.verifiedMediaKey,
+                    windows:job.nextWindow,inferences,
+                    published:(await store.tracks('guest',workspace.current.key)).map(t=>t.id)};
+            }""")
+            assert result==dict(sameSource=True,key=result['key'],verified=result['key'],
+                                windows=1,inferences=1,published=[page.evaluate('retryJob')]),result
+        case('failed local verification can retry the same File without repeating saved inference',retry_failed_local_verification)
+        def reopen_same_file_during_verification():
+            page.evaluate('reset()')
+            page.evaluate(r"""()=>{
+                const source=makeSource('Reopen-verification.mp4');
+                const read=source.read.bind(source);
+                window.hashGate=new Promise(resolve=>window.releaseHash=resolve);
+                source.read=async(start,end,signal)=>{
+                    if(end-start>32768)await hashGate;
+                    return read(start,end,signal);
+                };
+                window.reopenedSource=source;
+                window.firstOpen=workspace.openSource(source);
+            }""")
+            page.wait_for_function('workspace.current?.provisional && workspace.player?.generationAvailable')
+            page.evaluate("""async()=>{
+                workspace.audio.value='2';workspace.lang.value='ja';
+                workspace.queue.decode=async(_job,start,end)=>
+                    new Float32Array(Math.ceil(end*16000)-Math.round(start*16000)).fill(.1);
+                window.reopenedJob=await workspace.generate();
+            }""")
+            page.wait_for_function("store.local('guest','jobs',reopenedJob).then(j=>j?.pauseReason==='identity')")
+            key=page.evaluate('workspace.current.key')
+            page.evaluate('window.oldHashController=workspace.localHashes.get(workspace.current.key).controller')
+            page.evaluate('()=>{window.secondOpen=workspace.openSource(reopenedSource)}')
+            page.wait_for_function('(key)=>workspace.current?.key===key && workspace.localHashes.get(key)?.requested===true && workspace.localHashes.get(key).controller!==oldHashController',arg=key)
+            page.evaluate('releaseHash();Promise.all([firstOpen,secondOpen])')
+            page.wait_for_function("store.local('guest','jobs',reopenedJob).then(j=>j?.status==='complete')")
+            result=page.evaluate("""async()=>({
+                key:workspace.current.key,
+                verified:(await store.local('guest','jobs',reopenedJob)).verifiedMediaKey,
+                published:(await store.tracks('guest',workspace.current.key)).map(t=>t.id),
+                inferences
+            })""")
+            assert result==dict(key=result['key'],verified=result['key'],
+                                published=[page.evaluate('reopenedJob')],inferences=1),result
+        case('reopening the same File during hashing retains its requested checkpoint',reopen_same_file_during_verification)
         def switch_during_provisional_generation():
             page.evaluate('reset()')
             page.evaluate(r"""()=>{

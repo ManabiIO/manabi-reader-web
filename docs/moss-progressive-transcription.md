@@ -181,10 +181,11 @@ content identity. A cloud source still waits for full verification before
 generation. Temporary subtitle IDs never enter portable playback state.
 
 Switching videos keeps a requested local hash running and preserves its saved
-windows. If the tab closes or verification fails before the digest is attached,
-the provisional windows remain on the device but cannot yet be safely matched
-to a newly selected file. Recovery from that interrupted verification remains
-a release gate for the early-generation flow.
+windows. A failed digest can be retried while the same File source remains open;
+the saved windows then publish without repeating inference. If the tab closes
+before the digest is attached, the provisional windows remain on the device
+but cannot yet be safely matched to a newly selected file. Recovery after that
+interruption remains a release gate for the early-generation flow.
 
 Version-3 scheduling, early seam repair, accepted-cue preservation, and the
 browser controls have deterministic and Chromium tests. Natural Japanese

@@ -88,7 +88,10 @@ export class VideoWorkspace {
   private verifiedSources = new WeakMap<ByteSource, ContentKey>();
   /** A freshly hashed cloud locator may skip only the immediate second open pass. */
   private verifiedCloudOpen = new WeakMap<ByteSource, ContentKey>();
+  /** Reuse an unverified job key only for the exact source object that created it. */
+  private provisionalSources = new WeakMap<ByteSource, ContentKey>();
   private localHashes = new Map<ContentKey, { controller: AbortController; requested: boolean }>();
+  private identityRetrying = new Set<ContentKey>();
   private current?: {
     key: ContentKey;
     source: ByteSource;
@@ -429,6 +432,11 @@ export class VideoWorkspace {
       signal = controller.signal;
     this.player?.video.pause();
     const outgoing = this.current;
+    const sameSourceHash =
+      outgoing?.source === source ? this.localHashes.get(outgoing.key) : undefined;
+    // Reopening the same File replaces its verifier, but keeps the checkpoint
+    // request alive. The old attempt must not clear the new attempt's state.
+    if (!expected) sameSourceHash?.controller.abort();
     if (outgoing && outgoing.source !== source && outgoing.key !== expected) {
       // Keep accepted windows, but free inference for the newly opened video.
       for (const id of await this.queue.pauseSparseForMedia(outgoing.key))
@@ -556,13 +564,20 @@ export class VideoWorkspace {
       let identityController: AbortController | undefined;
       let stopIdentity: (() => void) | undefined;
       if (source.file && !cached && !expected) {
-        const random = crypto.getRandomValues(new Uint8Array(32));
-        provisionalKey = `content:${[...random].map((byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+        provisionalKey = this.provisionalSources.get(source);
+        if (!provisionalKey) {
+          const random = crypto.getRandomValues(new Uint8Array(32));
+          provisionalKey = `content:${[...random].map((byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+          this.provisionalSources.set(source, provisionalKey);
+        }
         this.sources.set(provisionalKey, source);
         identityController = new AbortController();
         stopIdentity = () => identityController?.abort(this.lifetime.signal.reason);
         this.lifetime.signal.addEventListener('abort', stopIdentity, { once: true });
-        this.localHashes.set(provisionalKey, { controller: identityController, requested: false });
+        this.localHashes.set(provisionalKey, {
+          controller: identityController,
+          requested: sameSourceHash?.requested ?? false
+        });
         this.current = { key: provisionalKey, source, provisional: true };
         player.bindProvisionalGeneration(provisionalKey);
         player.setGenerationAvailable(
@@ -575,24 +590,37 @@ export class VideoWorkspace {
         void this.refreshJobs().catch((e) => this.error(e));
       }
       let key: ContentKey;
+      let identified = false;
       try {
         key =
           cached ??
           (await identify(source, identityController?.signal ?? signal, (n) => {
             if (active()) this.progress.value = n;
           }));
+        identified = true;
       } finally {
-        if (provisionalKey) this.localHashes.delete(provisionalKey);
+        if (
+          provisionalKey &&
+          !identified &&
+          this.localHashes.get(provisionalKey)?.controller === identityController
+        )
+          this.localHashes.delete(provisionalKey);
         if (stopIdentity) this.lifetime.signal.removeEventListener('abort', stopIdentity);
       }
       if (provisionalKey) {
-        this.verifiedSources.set(source, key);
         this.sources.set(key, source);
+        try {
+          await this.queue.verifyProvisional(provisionalKey, key);
+        } finally {
+          if (this.localHashes.get(provisionalKey)?.controller === identityController)
+            this.localHashes.delete(provisionalKey);
+        }
+        this.verifiedSources.set(source, key);
+        this.provisionalSources.delete(source);
         if (active()) {
           this.current = { key, source };
           player.bindProvisionalGeneration(key);
         }
-        await this.queue.verifyProvisional(provisionalKey, key);
         if (!active()) {
           // The user switched videos during hashing. Keep the verified source
           // and its completed windows available in this workspace's library.
@@ -679,6 +707,13 @@ export class VideoWorkspace {
       await this.resumeSwitchedJobs();
     } catch (e) {
       if (active()) {
+        if (this.current?.source === source && this.current.provisional) {
+          player.setGenerationAvailable(
+            false,
+            'Video verification failed. Retry verification from the transcription queue.'
+          );
+          void this.refreshJobs().catch((error) => this.error(error));
+        }
         if (source.isCurrent && !source.isCurrent() && this.current?.source === source) {
           this.current = undefined;
           this.currentTranscription = undefined;
@@ -877,6 +912,8 @@ export class VideoWorkspace {
       player = this.player,
       lang = language(this.lang.value);
     if (!current) throw new Error('The video is still preparing. Playback remains available.');
+    if (current.provisional && !this.localHashes.has(current.key))
+      throw new Error('Video verification failed. Retry verification before generating.');
     const selected = this.audioChoices.find(
       (t) => String(t.id) === this.audio.value && t.decodable
     );
@@ -1333,6 +1370,27 @@ export class VideoWorkspace {
             job.status === 'queued' ? 'Run here' : 'Resume',
             () => void this.queue.resume(job.id).catch((e) => this.error(e))
           )
+        );
+      if (
+        job.provisional &&
+        !job.verifiedMediaKey &&
+        this.current?.key === job.mediaKey &&
+        this.current.source.file &&
+        !this.localHashes.has(job.mediaKey) &&
+        !this.identityRetrying.has(job.mediaKey)
+      )
+        row.append(
+          action('Retry video verification', () => {
+            const source = this.current?.source;
+            if (!source || this.identityRetrying.has(job.mediaKey)) return;
+            this.identityRetrying.add(job.mediaKey);
+            void this.openSource(source)
+              .catch((error) => this.error(error))
+              .finally(() => {
+                this.identityRetrying.delete(job.mediaKey);
+                void this.refreshJobs().catch((error) => this.error(error));
+              });
+          })
         );
       this.jobs.append(row);
     }
