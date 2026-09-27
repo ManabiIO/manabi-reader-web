@@ -12,6 +12,47 @@ sys.path.insert(0, str(ROOT / 'tests/browser'))
 from test_static_reader import StaticHandler, ThreadingHTTPServer
 
 
+PERSISTED_SELECTION = """
+async expected => {
+    // An early sidecar selection may still have its temporary pre-hash ID.
+    // Its verified track must keep the intended label, language and exact cues.
+    const primary = document.querySelector('[aria-label="Transcript track"]')?.value;
+    if (!primary) return false;
+    const db = await new Promise((yes,no) => {
+        const r=indexedDB.open('manabi-media-v1');
+        r.onsuccess=()=>yes(r.result);r.onerror=()=>no(r.error);
+    });
+    try {
+        const tx=db.transaction(['local','records'],'readonly');
+        const read=name=>new Promise((yes,no)=>{
+            const r=tx.objectStore(name).getAll();
+            r.onsuccess=()=>yes(r.result);r.onerror=()=>no(r.error);
+        });
+        const [local,records]=await Promise.all([read('local'),read('records')]);
+        const record=records.find(v=>v.scope==='guest' && v.kind==='video_track' && v.id===primary);
+        const track=record?.payload?.track;
+        if (!track || !track.complete || track.origin!=='sidecar' ||
+            track.label!==expected.label || track.language!==expected.language ||
+            track.id!==primary || track.mediaKey!==record.mediaKey) return false;
+        const resume=records.find(v=>v.scope==='guest' && v.kind==='video_resume' &&
+            v.id===track.mediaKey && v.mediaKey===track.mediaKey);
+        if (resume?.payload?.primary!==primary || !local.some(v=>v?.open===true)) return false;
+        const cues=[];
+        for (const [index,ref] of (record.payload.pages ?? []).entries()) {
+            const page=records.find(v=>v.scope==='guest' && v.kind==='video_chunk' &&
+                v.id===ref.id && v.mediaKey===track.mediaKey)?.payload;
+            if (!page || page.trackId!==primary || page.index!==index || !Array.isArray(page.cues))
+                return false;
+            cues.push(...page.cues);
+        }
+        return document.querySelector('[aria-label="Transcript track"]')?.value===primary &&
+            cues.length===expected.cues.length && cues.every((cue,index)=>
+                cue.start===expected.cues[index].start && cue.end===expected.cues[index].end &&
+                cue.text===expected.cues[index].text);
+    } finally {db.close();}
+}
+"""
+
 APPEARANCE_AUDIT = """
 async (sheet) => {
     // Let Svelte commit this frame, but do not wait out or cancel color transitions.
@@ -170,21 +211,17 @@ def main():
         expect(page.locator('.transcript-pane')).to_be_visible()
         # A rendered row is not a durable write acknowledgement. Establish the
         # actual committed IDB state before testing reload, without sleep timers.
-        wait_for_async(page, """async (primary) => {
-            const db = await new Promise((yes,no) => {
-                const r=indexedDB.open('manabi-media-v1');
-                r.onsuccess=()=>yes(r.result);r.onerror=()=>no(r.error);
-            });
-            try {
-                const tx=db.transaction(['local','records'],'readonly');
-                const read=name=>new Promise((yes,no)=>{
-          const r=tx.objectStore(name).getAll();
-          r.onsuccess=()=>yes(r.result);r.onerror=()=>no(r.error);
-                });
-                const [local,records]=await Promise.all([read('local'),read('records')]);
-                return local.some(v=>v?.open===true) && records.some(v=>v?.payload?.primary===primary);
-            } finally {db.close();}
-        }""",arg=chosen)
+        wait_for_async(page, PERSISTED_SELECTION, arg={
+            'label':'ja · video.ja.srt', 'language':'ja',
+            'cues':[
+                {'start':0,'end':4,'text':'こんにちは。何かお探しですか。'},
+                {'start':4,'end':8,'text':'日本語の本を探しています。'}
+            ]
+        })
+        persisted_primary = page.get_by_label('Transcript track', exact=True).input_value()
+        (args.output/'subtitle-selection.json').write_text(json.dumps({
+            'initialSelection':chosen, 'persistedSelection':persisted_primary
+        },indent=2))
         results.append('close/reopen retains selected tracks and commits native storage')
         # A small file is reselected on this device; the original provider is not modified.
         page.reload()
@@ -192,6 +229,7 @@ def main():
         upload()
         expect(page.locator('.transcript-cue')).to_have_count(2)
         assert not page.locator('.transcript-setup').is_visible()
+        expect(page.get_by_label('Transcript track', exact=True)).to_have_value(persisted_primary)
         # Caption records and shared ebook preferences restore independently.
         # Wait for the exact rendered typography, not only for cue-row existence.
         # Keep the persistent store assertions: this cannot pass on a temporary
