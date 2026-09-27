@@ -257,6 +257,37 @@ def main():
             page.wait_for_function('(old)=>workspace.player.primary.value!==old',arg=temp)
             assert page.locator('.transcript-cue').count()==1
         case('video and authored sidecar work while full identity hashing is pending',play_and_sidecar_during_hash)
+        def verified_source_is_not_hashed_twice():
+            page.evaluate('reset()')
+            page.evaluate("workspace.openSource(makeSource('Verified.mp4'))")
+            page.wait_for_function('workspace.current')
+            result=page.evaluate("""async()=>{
+                const key=workspace.current.key;
+                const file=workspace.current.source.file;
+                workspace.sources.clear();
+                const local=store.local.bind(store);
+                store.local=async(scope,kind,id)=>kind==='aliases'&&id===key
+                    ? {key,name:file.name,handle:{getFile:async()=>file}}
+                    : local(scope,kind,id);
+                try{
+                    const source=await workspace.resolveSource(key);
+                    let release;
+                    const gate=new Promise(resolve=>release=resolve);
+                    const read=source.read.bind(source);
+                    source.read=async(start,end,signal)=>{
+                        if(end-start>32768)await gate;
+                        return read(start,end,signal);
+                    };
+                    const opened=workspace.openSource(source,[],key);
+                    const finished=await Promise.race([
+                        opened.then(()=>true),new Promise(resolve=>setTimeout(()=>resolve(false),500))
+                    ]);
+                    release();await opened;
+                    return {finished,sameKey:workspace.current.key===key};
+                }finally{store.local=local}
+            }""")
+            assert result==dict(finished=True,sameKey=True),result
+        case('a verified saved source is not fully hashed a second time while opening',verified_source_is_not_hashed_twice)
         def audio():
             page.wait_for_function("document.querySelector('[aria-label=\"Audio track for transcription\"]').value==='2'")
             assert page.get_by_label('Audio track for transcription',exact=True).input_value()=='2'

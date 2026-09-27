@@ -84,6 +84,8 @@ export class VideoWorkspace {
   private syncPanel = make('section');
   private selected = new Set<ContentKey>();
   private sources = new Map<ContentKey, ByteSource>();
+  /** A digest belongs only to this immutable File or version-bound cloud source instance. */
+  private verifiedSources = new WeakMap<ByteSource, ContentKey>();
   private current?: {
     key: ContentKey;
     source: ByteSource;
@@ -389,6 +391,7 @@ export class VideoWorkspace {
     this.notice(`Adding ${source.name}…`);
     const key = await identify(source, signal);
     if (this.closed) return;
+    if (source.file || source.cloud) this.verifiedSources.set(source, key);
     this.sources.set(key, source);
     await this.store.putLocal(this.options.scope, 'aliases', key, {
       key,
@@ -531,12 +534,19 @@ export class VideoWorkspace {
         guard();
         this.notice('Device resume is unavailable; playback remains available.');
       }
-      const key = await identify(source, signal, (n) => {
-        if (active()) this.progress.value = n;
-      });
+      const cached =
+        (source.file || source.cloud) && (!source.isCurrent || source.isCurrent())
+          ? this.verifiedSources.get(source)
+          : undefined;
+      const key =
+        cached ??
+        (await identify(source, signal, (n) => {
+          if (active()) this.progress.value = n;
+        }));
       guard();
       if (expected && key !== expected)
         throw new Error('The selected file is not the saved video. Its old progress was kept.');
+      if (source.file || source.cloud) this.verifiedSources.set(source, key);
       this.current = { key, source };
       player.setGenerationAvailable(
         this.audioChoices.some((track) => track.decodable) &&
@@ -907,6 +917,7 @@ export class VideoWorkspace {
         'A video file changed. Reopen it before generating captions. Its previous progress was kept.'
       );
     signal.throwIfAborted();
+    if (source.file || source.cloud) this.verifiedSources.set(source, key);
     this.sources.set(key, source);
     return source;
   }
