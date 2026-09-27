@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Opt-in REAL MOSS inference gate. Missing runtimes are failures, never fake passes."""
-import argparse, functools, http.server, importlib.util, json, math, os, pathlib, re, threading, unicodedata
+import argparse, functools, hashlib, http.server, importlib.util, json, math, os, pathlib, re, threading, unicodedata
 from playwright.sync_api import sync_playwright
 from urllib.parse import urlsplit
 ROOT=pathlib.Path(__file__).resolve().parents[2]
+JFK_SHA256='59dfb9a4acb36fe2a2affc14bacbee2920ff435cb13cc314a08c13f66ba7860e'
+JFK_REFERENCE='And so, my fellow Americans, ask not what your country can do for you, ask what you can do for your country.'
 class Handler(http.server.SimpleHTTPRequestHandler):
     threaded=False
     fixture=None
@@ -45,6 +47,16 @@ def valid_cer(value):
         raise ValueError('Character-error threshold must be finite and between zero and one')
     return value
 
+def natural_upstream_fixture(path, language):
+    """The pinned upstream source's real speech fixture and published transcript."""
+    if language != 'en':
+        raise ValueError('The pinned natural fixture is English')
+    wave = pathlib.Path(path)/'speech.wav'
+    if wave.is_symlink() or hashlib.sha256(wave.read_bytes()).hexdigest() != JFK_SHA256:
+        raise ValueError('Pinned upstream natural speech hash does not match')
+    return {'fingerprint': JFK_SHA256, 'engine': {'name': 'upstream-natural-jfk', 'language': 'en'},
+            'files': {'speech.wav': JFK_SHA256}, 'cues': [{'text': JFK_REFERENCE}]}
+
 def validate_streaming_metrics(result):
     """Real runtime evidence must include actual callbacks, not only final recognition."""
     if type(result) is not dict:
@@ -70,9 +82,9 @@ def validate_streaming_metrics(result):
         raise ValueError('Preview cue precedes the first output callback')
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--fixture',required=True,type=pathlib.Path);parser.add_argument('--language',choices=['en','ja'],required=True);parser.add_argument('--threaded',action='store_true');parser.add_argument('--repeat',type=int,choices=[1,2],default=1);parser.add_argument('--max-cer',type=float,default=.35);parser.add_argument('--output',type=pathlib.Path,required=True);args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--fixture',required=True,type=pathlib.Path);parser.add_argument('--language',choices=['en','ja'],required=True);parser.add_argument('--threaded',action='store_true');parser.add_argument('--repeat',type=int,choices=[1,2],default=1);parser.add_argument('--max-cer',type=float,default=.35);parser.add_argument('--upstream-jfk',action='store_true');parser.add_argument('--output',type=pathlib.Path,required=True);args=parser.parse_args()
     valid_cer(args.max_cer)
-    fixture=fixture_metadata(args.fixture,args.language)
+    fixture=natural_upstream_fixture(args.fixture,args.language) if args.upstream_jfk else fixture_metadata(args.fixture,args.language)
     mode='threaded' if args.threaded else 'single'
     for suffix in ['mjs','wasm']:
         if not (ROOT/f'apps/web/static/moss/{mode}/moss.{suffix}').exists():raise SystemExit('Real WASM runtime is missing; build tools/media/build-moss.py before running this gate.')

@@ -142,6 +142,17 @@ jobs:
             done
           done
           exit "$status"
+      - name: Natural upstream speech recognition
+        if: ${{ !cancelled() && steps.runtime.outcome == 'success' && steps.core.outcome == 'success' }}
+        run: |
+          mkdir -p .cache/media-fixtures/natural-jfk
+          curl --fail --location --retry 3 \
+            'https://raw.githubusercontent.com/localai-org/moss-transcribe.cpp/190a569c13b4b247450f2fb3b2a431244e84833e/tests/fixtures/short.wav' \
+            --output .cache/media-fixtures/natural-jfk/speech.wav
+          python tests/media/asr.py --fixture .cache/media-fixtures/natural-jfk \
+            --upstream-jfk --language en --threaded --max-cer 0.20 \
+            --output .cache/media-qualification/asr-natural-jfk.json \
+            2>&1 | tee .cache/media-qualification/asr-natural-jfk.log
       - name: Collect runtime build identities only
         if: always()
         run: |
