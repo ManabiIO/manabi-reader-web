@@ -221,11 +221,25 @@ def main():
                         },async () => new Float32Array(16000*4).fill(.1));
                         window.tabJob=(await tabQueue.enqueue(key,'en','2',4)).id;
                     }''', name)
-                    other.wait_for_function('async () => (await navigator.locks.query()).pending.some(lock => lock.name === "manabi-moss-inference")')
+                    deadline = time.monotonic() + 10
+                    while not other.evaluate('''async () =>
+                        (await navigator.locks.query()).pending.some(lock => lock.name === 'manabi-moss-inference')'''):
+                        if time.monotonic() >= deadline:
+                            raise AssertionError('Second tab never queued for the native Web Lock')
+                        time.sleep(.02)
                     check(other.evaluate('tabStarts === 0'), 'Second tab inferred while the first tab held the Web Lock')
                     js('releaseTab()')
-                    page.wait_for_function('async () => (await store.local("account:two-tabs","jobs",tabJob))?.status === "complete"')
-                    other.wait_for_function('async () => (await sharedStore.local("account:two-tabs","jobs",tabJob))?.status === "complete"')
+                    deadline = time.monotonic() + 10
+                    while True:
+                        first_done = js('''async () =>
+                            (await store.local('account:two-tabs','jobs',tabJob))?.status === 'complete' ''')
+                        second_done = other.evaluate('''async () =>
+                            (await sharedStore.local('account:two-tabs','jobs',tabJob))?.status === 'complete' ''')
+                        if first_done and second_done:
+                            break
+                        if time.monotonic() >= deadline:
+                            raise AssertionError(f'Two-tab jobs did not complete: first={first_done}, second={second_done}')
+                        time.sleep(.02)
                     second = other.evaluate('''async () => ({
                         starts: tabStarts,
                         job: await sharedStore.local('account:two-tabs','jobs',tabJob),
