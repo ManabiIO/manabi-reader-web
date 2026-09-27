@@ -827,8 +827,11 @@ def main():
             page.evaluate("""()=>{
                 sparseJob.sparse.windows[0]={cues:[],inferenceMs:40000};
                 player.generationProgress(sparseJob);
+                player.video.currentTime=7;
             }""")
-            assert 'slower than playback' in page.locator('.video-viewing [role=status]').all_inner_texts()[-1]
+            page.wait_for_function("player.video.currentTime>=7 && player.bufferStatus.textContent.includes('Estimated wait')")
+            status=page.locator('.video-viewing [role=status]').all_inner_texts()[-1]
+            assert 'about 0:' in status and 'slower than playback' in status
             page.get_by_role('button',name='Play without captions',exact=True).click()
             assert page.get_by_role('button',name='Wait for captions',exact=True).is_visible()
             page.wait_for_function('!player.video.paused')
