@@ -188,6 +188,57 @@ def main():
                     return a.id===b.id && (await store.listLocal('account:admission','jobs')).length===1;
                 } finally {await other.close();}
             }''')))
+
+            def native_two_tabs():
+                other = context.new_page()
+                other_errors = []
+                other.on('pageerror', lambda error: other_errors.append(str(error)))
+                try:
+                    other.goto(f'http://127.0.0.1:{server.server_port}/tests/media/browser-harness.html?fixture=/__fixture__/video.mp4')
+                    other.wait_for_function('window.ready === true')
+                    check(js('Boolean(navigator.locks)') and other.evaluate('Boolean(navigator.locks)'),
+                          'Native Web Locks are unavailable')
+                    name = js('store.name')
+                    js('''async () => {
+                        window.tabStarts=0;
+                        window.tabQueue=new modules.TranscriptionQueue(store,'account:two-tabs',{
+                            async prepare(){},
+                            transcribe(){tabStarts++;return new Promise(resolve => {
+                                window.releaseTab=() => resolve('[0.2][S01]First sentence.[1.2][1.5][S01]Second sentence.[2.5]');
+                            });},
+                            async dispose(){}
+                        },async () => new Float32Array(16000*4).fill(.1));
+                        window.tabJob=(await tabQueue.enqueue(key,'en','tab-one',4)).id;
+                    }''')
+                    page.wait_for_function('tabStarts === 1 && typeof releaseTab === "function"')
+                    other.evaluate('''async name => {
+                        window.sharedStore=new modules.MediaStore(indexedDB,name);
+                        window.tabStarts=0;
+                        window.tabQueue=new modules.TranscriptionQueue(sharedStore,'account:two-tabs',{
+                            async prepare(){},
+                            async transcribe(){tabStarts++;return '[0.2][S01]First sentence.[1.2][1.5][S01]Second sentence.[2.5]';},
+                            async dispose(){}
+                        },async () => new Float32Array(16000*4).fill(.1));
+                        window.tabJob=(await tabQueue.enqueue(key,'en','tab-two',4)).id;
+                    }''', name)
+                    other.wait_for_function('async () => (await navigator.locks.query()).pending.some(lock => lock.name === "manabi-moss-inference")')
+                    check(other.evaluate('tabStarts === 0'), 'Second tab inferred while the first tab held the Web Lock')
+                    js('releaseTab()')
+                    page.wait_for_function('async () => (await store.local("account:two-tabs","jobs",tabJob))?.status === "complete"')
+                    other.wait_for_function('async () => (await sharedStore.local("account:two-tabs","jobs",tabJob))?.status === "complete"')
+                    check(other.evaluate('tabStarts === 1') and not other_errors,
+                          '; '.join(other_errors) or 'Second tab did not complete one inference')
+                finally:
+                    js('window.releaseTab?.()')
+                    js('window.tabQueue?.dispose()')
+                    other.evaluate('''async () => {
+                        await window.tabQueue?.dispose();
+                        await window.sharedStore?.close();
+                        await window.player?.dispose();
+                        await window.store?.close();
+                    }''')
+                    other.close()
+            case('Two native tabs serialize model inference with Web Locks and shared IDB', native_two_tabs)
             case('No unhandled browser or controller errors', lambda: check(
                 not page_errors and not js('errors'), '; '.join(page_errors + js('errors'))))
             js('store.close()')
