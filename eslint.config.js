@@ -28,6 +28,9 @@ module.exports = (async () => {
         '**/vite.config.js',
         '**/eslint.config.js',
         '**/tailwind.config.cjs',
+        // Generated pinned WASM loaders are verified by their build manifests.
+        'apps/web/static/moss/single/moss.mjs',
+        'apps/web/static/moss/threaded/moss.mjs',
         // Pinned third-party sources keep upstream formatting and license text.
         'apps/web/src/lib/foliate-epub/epub.js',
         'apps/web/src/lib/foliate-epub/epubcfi.js',

@@ -2,8 +2,9 @@
 
 `python tools/media/build-moss.py` builds `single/moss.mjs` / `single/moss.wasm`
 and their `threaded/` equivalents from the pinned C++/ggml source. These files
-must be included by the deployment build. They are intentionally not fabricated
-or committed here. Model weights are fetched on an explicit Generate action,
+are committed with their build manifests and upstream notices. The production
+build verifies their identities, source hashes and copied artifact bytes before
+it succeeds. Model weights are fetched on an explicit Generate action,
 streamed into OPFS, and verified against the pinned SHA-256.
 
 The application must serve `.wasm` as `application/wasm`. Threaded execution is
@@ -36,5 +37,5 @@ The installed pair is retained if prepublication validation fails; caught rename
 failures restore the previous outputs. Failed recovery retains a named backup for
 inspection. This is not an atomic live-deployment switch or crash-proof filesystem
 transaction. Use the normal immutable deployment artifact/release process. Generated
-runtime and recovery directories are Git-ignored, but must be deliberately included
-in the final deployment artifact after their real build/recognition gates pass.
+recovery directories remain Git-ignored. Rebuild both tracked runtime directories
+together whenever the native port changes, then run the real recognition gate.

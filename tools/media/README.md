@@ -72,7 +72,8 @@ recovery itself fails, the error names a retained `.moss-runtime-*` backup direc
 Inspect it before retrying; do not delete it automatically. A process kill can also
 leave recovery files. Two renames are not an atomic live-deployment mechanism; use
 the normal deployment's immutable build/release switch rather than building into
-a live-served directory. Generated runtime/recovery directories are ignored by Git.
+a live-served directory. Generated recovery directories are ignored by Git. The
+reviewed runtime pair is tracked so production builds package the same bytes.
 The original source tree is never patched in place when `--source` is supplied;
 its pinned commit is cloned into an isolated build directory.
 The q5_0 GGUF is fetched only after an explicit generation request; its immutable

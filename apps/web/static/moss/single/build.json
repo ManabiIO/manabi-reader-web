@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "engineRevision": "190a569c13b4b247450f2fb3b2a431244e84833e+manabi-web-v6",
+  "mossCommit": "190a569c13b4b247450f2fb3b2a431244e84833e",
+  "ggmlCommit": "eced84c86f8b012c752c016f7fe789adea168e1e",
+  "compiler": "emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 5.0.1-git\nCopyright (C) 2026 the Emscripten authors (see AUTHORS.txt)\nThis is free and open source software under the MIT license.\nThere is NO warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.",
+  "mode": "single",
+  "portSha256": {
+    "build-moss.py": "bde1735de59196ac75eae38751022e7e1284f975a3d7b7365c60ab20adfa2b11",
+    "bridge.cpp": "a7d092357b5d99217318dbd76530ca7ea69eaddfad1544e181911e943c86c4cf",
+    "manabi_web_hooks.hpp": "b38a94cc7326a5e99b71093e01ac591567512b7a3e79a36b54efcd3ceafed75b",
+    "runtime_artifacts.py": "6b3a180ccddeb3eca504aef4fe9443a80855280f8cf9fb1d8e83df897b3ecb0c",
+    "manabi_model_reader.hpp": "4dd0c9ba158bfdff8dc4062176cfffa24113cd8fec0c67ecc4943b5361dc1463",
+    "model_loader_patch.py": "454cb6075378ef2cd47fb31c9dfee288e2ad6b1050c57a4ab9658fbb93f3c39e"
+  },
+  "files": {
+    "LICENSE-GGML.txt": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d",
+    "LICENSE-MOSS.txt": "396cb1a512310cb4fabd73118114c8cb53c7352955a37b583e165f15af64f095",
+    "moss.mjs": "e71e1603780da2b1530406476d6de332c8fd1294cdd8e74b67f07c360b2d69ff",
+    "moss.wasm": "fcb5f88737a1f5510b1e65757b8a2910840e550e9e25097d8feb7ddb4eee2486"
+  }
+}

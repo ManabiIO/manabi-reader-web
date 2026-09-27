@@ -5,8 +5,6 @@ __pycache__/
 # Generated media fixtures and MOSS runtime cache.
 .cache/
 
-# Built CPU runtimes are release/build artifacts, not source-controlled weights.
-/apps/web/static/moss/single/
-/apps/web/static/moss/threaded/
+# Build staging and recovery files are not production assets.
 /apps/web/static/.moss-runtime-*/
 /apps/web/static/.moss-publication-lock/
