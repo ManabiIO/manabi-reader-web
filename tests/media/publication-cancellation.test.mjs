@@ -43,7 +43,9 @@ function checkpoint() {
     ownerId: owner,
     leaseUntil: Date.now() + 90000
   };
-  const { ownerId: _, leaseUntil: __, ...completed } = { ...job, status: 'complete' };
+  const completed = { ...job, status: 'complete' };
+  delete completed.ownerId;
+  delete completed.leaseUntil;
   const track = {
     version: 1,
     id: job.id,
