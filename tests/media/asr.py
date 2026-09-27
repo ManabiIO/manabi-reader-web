@@ -67,11 +67,13 @@ def main():
                 actual=' '.join(cue['text'] for cue in result['cues']);cer=distance(normalize(expected),normalize(actual))/max(1,len(normalize(expected)))
                 if len(result['cues'])<2:raise AssertionError('Expected at least two timestamped caption lines')
                 if cer>args.max_cer:raise AssertionError('Recognition exceeds the configured character-error threshold')
+                if not attempts:first_result=result
                 attempts.append({'prepareSeconds':result['prepareSeconds'],'inferenceSeconds':result['inferenceSeconds'],'realTimeFactor':result['realTimeFactor'],'characterErrorRate':cer})
             browser.close()
+        result=first_result
         result['fixture']={'fingerprint':fixture['fingerprint'],'language':args.language,'engine':fixture['engine'],'speechSha256':fixture['files']['speech.wav']}
         result['runtimeVariant']=mode
-        result['prepareSeconds']=attempts[0]['prepareSeconds'];result['characterErrorRate']=attempts[-1]['characterErrorRate'];result['attempts']=attempts;result['expected']=expected;result['kind']='real CPU WASM inference; not a test double';args.output.parent.mkdir(parents=True,exist_ok=True);args.output.write_text(json.dumps(result,ensure_ascii=False,indent=2))
+        result['characterErrorRate']=attempts[0]['characterErrorRate'];result['attempts']=attempts;result['expected']=expected;result['kind']='real CPU WASM inference; not a test double';args.output.parent.mkdir(parents=True,exist_ok=True);args.output.write_text(json.dumps(result,ensure_ascii=False,indent=2))
         print(json.dumps({k:result[k] for k in ['characterErrorRate','inferenceSeconds','realTimeFactor','prepareSeconds','attempts']}))
     finally:server.shutdown()
 if __name__=='__main__':main()
