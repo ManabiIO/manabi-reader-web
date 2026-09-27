@@ -225,11 +225,7 @@ test('switching away revokes only this tab’s admission to a shared queued job'
     const deduplicated = await other.enqueue(key, 'ja', '1', 2, 0);
     assert.equal(deduplicated.id, queued.id);
     await owner.pauseSparseForMedia(key);
-    // Without native Web Locks (e.g. Node 22), the other tab can already have
-    // claimed/completed this job. Revocation must not pause or cancel that owner.
-    const afterSwitch = await store.local('guest', 'jobs', queued.id);
-    assert.ok(['queued', 'running', 'complete'].includes(afterSwitch.status));
-    assert.notEqual(afterSwitch.cancelRequested, true);
+    assert.equal((await store.local('guest', 'jobs', queued.id)).status, 'queued');
     await owner.cancel(blocker.id);
     await until(async () => (await store.local('guest', 'jobs', blocker.id))?.status === 'paused');
     await until(async () => (await store.local('guest', 'jobs', queued.id))?.status === 'complete');
