@@ -50,6 +50,14 @@ def main():
                 window.bound=[];window.prepares=0;window.inferences=0;window.writes=[];window.aliasBlocked=false;
                 window.factory=new TransactionFactory();window.store=new MediaStore(factory,'workspace-test');
                 const originalPut=store.putLocal.bind(store),originalLocal=store.local.bind(store);
+                const originalEnqueue=store.enqueueJob.bind(store);
+                store.enqueueJob=async(...args)=>{
+                    if(config.holdAdmission){
+                        window.admissionBlocked=true;
+                        await new Promise(resolve=>window.releaseAdmission=resolve);
+                    }
+                    return originalEnqueue(...args);
+                };
                 store.putLocal=async(scope,kind,id,value)=>{
                     if(config.holdFirstAlias&&kind==='aliases'&&value.name==='First.mp4'){
                         aliasBlocked=true;await new Promise(resolve=>window.releaseAlias=resolve);
@@ -113,15 +121,18 @@ def main():
                     });
                 };
                 window.oldJob=await q.enqueue(oldKey,'ja','2',78,0);
+                window.otherOldJob=await q.enqueue(oldKey,'en','1',78,0);
             }""")
             page.wait_for_function("secondSparseStarted && workspace.currentTranscription?.id===oldJob.id")
             page.evaluate("workspace.openSource(makeSource('Other.mp4',1))")
-            page.wait_for_function("workspace.current?.key!==oldKey && workspace.current && store.local('guest','jobs',oldJob.id).then(j=>j?.status==='paused')")
+            page.wait_for_function("workspace.current?.key!==oldKey && workspace.current && Promise.all([store.local('guest','jobs',oldJob.id),store.local('guest','jobs',otherOldJob.id)]).then(j=>j.every(x=>x?.status==='paused'))")
             result=page.evaluate("""async()=>{
                 const saved=await store.local('guest','jobs',oldJob.id);
-                return {windows:saved.nextWindow,cues:saved.cues.length,published:(await store.tracks('guest',oldKey)).length,calls:sparseCalls};
+                const other=await store.local('guest','jobs',otherOldJob.id);
+                return {windows:saved.nextWindow,cues:saved.cues.length,
+                    otherWindows:other.nextWindow,published:(await store.tracks('guest',oldKey)).length,calls:sparseCalls};
             }""")
-            assert result==dict(windows=1,cues=1,published=0,calls=2),result
+            assert result==dict(windows=1,cues=1,otherWindows=0,published=0,calls=2),result
             page.evaluate("workspace.queue.task")
             assert page.evaluate('sparseCalls')==2
             page.evaluate("""async()=>{
@@ -141,6 +152,34 @@ def main():
             assert complete==dict(sameVideo=True,calls=4,tracks=1,complete=True,
                 cues=['保存された字幕です。','続きの字幕です。','続きの字幕です。']),complete
         case('switching videos pauses sparse inference; reopening and resuming publishes saved work',switching_pauses_sparse_job)
+        def late_generation_after_switch():
+            page.evaluate('reset({holdAdmission:true})')
+            page.evaluate("workspace.openSource(makeSource('Admission.mp4'))")
+            page.wait_for_function('workspace.current && workspace.player?.generationAvailable')
+            page.evaluate("""()=>{
+                window.departedKey=workspace.current.key;
+                workspace.audio.value='2';workspace.lang.value='ja';
+                const q=workspace.queue;
+                q.decode=async(_job,start,end)=>new Float32Array(Math.ceil((end-start)*16000)).fill(.1);
+                q.engine.transcribe=async(_pcm,signal)=>new Promise((_,reject)=>{
+                    if(signal.aborted)reject(signal.reason);
+                    else signal.addEventListener('abort',()=>reject(signal.reason),{once:true});
+                });
+                window.lateGeneration=workspace.generate();
+            }""")
+            page.wait_for_function('admissionBlocked')
+            page.evaluate("workspace.openSource(makeSource('After-admission.mp4',1))")
+            page.wait_for_function('workspace.current && workspace.current.key!==departedKey')
+            result=page.evaluate("""async()=>{
+                releaseAdmission();
+                const returned=await lateGeneration;
+                const jobs=await store.listLocal('guest','jobs');
+                return {returned:returned??null,attached:workspace.currentTranscription?.mediaKey??null,
+                    old:jobs.filter(j=>j.mediaKey===departedKey).map(j=>j.status),
+                    published:(await store.tracks('guest',departedKey)).length};
+            }""")
+            assert result==dict(returned=None,attached=None,old=['paused'],published=0),result
+        case('late Generate admission after a switch cannot attach or run the old video',late_generation_after_switch)
         def play_and_sidecar_during_hash():
             page.evaluate('reset()')
             page.evaluate(r"""()=>{

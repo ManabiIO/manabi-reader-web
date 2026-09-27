@@ -98,3 +98,136 @@ test('seeking ahead keeps completed windows, then resume fills every gap before 
     else globalThis.IDBKeyRange = range;
   }
 });
+
+test('a newly watched sparse video runs before queued batch transcription', async () => {
+  const range = globalThis.IDBKeyRange;
+  globalThis.IDBKeyRange = RangeDouble;
+  const store = new MediaStore(new TransactionFactory(), 'sparse-playback-priority');
+  const decoded = [];
+  let started = 0;
+  let release;
+  const firstInference = new Promise((resolve) => {
+    release = resolve;
+  });
+  const queue = new TranscriptionQueue(
+    store,
+    'guest',
+    {
+      async prepare() {},
+      async transcribe() {
+        if (++started === 1) await firstInference;
+        return '[0][S01]字幕があります。[1]';
+      },
+      dispose() {}
+    },
+    async (job, start, end) => {
+      decoded.push(job.mediaKey);
+      return new Float32Array(Math.ceil((end - start) * 16000)).fill(0.1);
+    }
+  );
+  const firstKey = `content:${'1'.repeat(64)}`;
+  const batchKey = `content:${'2'.repeat(64)}`;
+  const watchedKey = `content:${'3'.repeat(64)}`;
+  try {
+    const first = await queue.enqueue(firstKey, 'ja', '1', 2);
+    await until(() => started === 1);
+    const batch = await queue.enqueue(batchKey, 'ja', '1', 2);
+    const watched = await queue.enqueue(watchedKey, 'ja', '1', 26, 0);
+    release();
+    await until(async () => {
+      const jobs = await Promise.all(
+        [first, batch, watched].map((job) => store.local('guest', 'jobs', job.id))
+      );
+      return jobs.every((job) => job?.status === 'complete');
+    });
+    assert.deepEqual(decoded, [firstKey, watchedKey, batchKey]);
+  } finally {
+    release();
+    await queue.dispose();
+    await store.close();
+    if (range === undefined) delete globalThis.IDBKeyRange;
+    else globalThis.IDBKeyRange = range;
+  }
+});
+
+test('switching one workspace does not cancel another tab’s sparse jobs', async () => {
+  const range = globalThis.IDBKeyRange;
+  globalThis.IDBKeyRange = RangeDouble;
+  const store = new MediaStore(new TransactionFactory(), 'sparse-workspace-ownership');
+  const engine = {
+    async prepare() {},
+    async transcribe(_pcm, signal) {
+      await new Promise((_, reject) => {
+        if (signal.aborted) reject(signal.reason);
+        else signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      });
+    },
+    dispose() {}
+  };
+  const decode = async (_job, start, end) =>
+    new Float32Array(Math.ceil((end - start) * 16000)).fill(0.1);
+  const owner = new TranscriptionQueue(store, 'guest', engine, decode);
+  const other = new TranscriptionQueue(store, 'guest', engine, decode);
+  try {
+    const running = await owner.enqueue(key, 'ja', '1', 52, 0);
+    await until(async () => (await store.local('guest', 'jobs', running.id))?.status === 'running');
+    const queued = await owner.enqueue(key, 'en', '2', 52, 0);
+    await other.pauseSparseForMedia(key);
+    assert.equal((await store.local('guest', 'jobs', running.id)).status, 'running');
+    assert.equal((await store.local('guest', 'jobs', queued.id)).status, 'queued');
+    await owner.pauseSparseForMedia(key);
+    await until(async () => (await store.local('guest', 'jobs', running.id))?.status === 'paused');
+    assert.equal((await store.local('guest', 'jobs', queued.id)).status, 'paused');
+  } finally {
+    await Promise.all([owner.dispose(), other.dispose()]);
+    await store.close();
+    if (range === undefined) delete globalThis.IDBKeyRange;
+    else globalThis.IDBKeyRange = range;
+  }
+});
+
+test('a video switch does not cancel a sparse job after ownership changes', async () => {
+  const range = globalThis.IDBKeyRange;
+  globalThis.IDBKeyRange = RangeDouble;
+  const store = new MediaStore(new TransactionFactory(), 'sparse-owner-handoff');
+  const queue = new TranscriptionQueue(
+    store,
+    'guest',
+    {
+      async prepare() {},
+      async transcribe(_pcm, signal) {
+        await new Promise((_, reject) => {
+          if (signal.aborted) reject(signal.reason);
+          else signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+        });
+      },
+      dispose() {}
+    },
+    async (_job, start, end) => new Float32Array(Math.ceil((end - start) * 16000)).fill(0.1)
+  );
+  try {
+    const job = await queue.enqueue(key, 'ja', '1', 52, 0);
+    await until(async () => (await store.local('guest', 'jobs', job.id))?.status === 'running');
+    const successor = crypto.randomUUID();
+    const originalUpdate = store.updateLocal.bind(store);
+    let transferred = false;
+    store.updateLocal = async (scope, kind, id, update) => {
+      if (!transferred && kind === 'jobs' && id === job.id) {
+        transferred = true;
+        await originalUpdate(scope, kind, id, (old) => ({ ...old, ownerId: successor }));
+      }
+      return originalUpdate(scope, kind, id, update);
+    };
+    await queue.pauseSparseForMedia(key);
+    const saved = await store.local('guest', 'jobs', job.id);
+    assert.equal(transferred, true);
+    assert.equal(saved.status, 'running');
+    assert.equal(saved.ownerId, successor);
+    assert.equal(saved.cancelRequested, false);
+  } finally {
+    await queue.dispose();
+    await store.close();
+    if (range === undefined) delete globalThis.IDBKeyRange;
+    else globalThis.IDBKeyRange = range;
+  }
+});

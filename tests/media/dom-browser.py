@@ -836,6 +836,21 @@ def main():
             assert page.get_by_role('button',name='Wait for captions',exact=True).is_visible()
             page.wait_for_function('!player.video.paused')
         case('slow sparse inference shows a measured ETA and playback bypass',sparse_buffer_controls)
+        def native_play_at_sparse_gap():
+            result=page.evaluate("""async()=>{
+                await createPlayer();
+                await player.bindIdentity(mediaKey);
+                player.generationProgress({id:trackId,mediaKey,status:'running',duration:78,cues:[],
+                    sparse:{policy:'overlap-sparse-v1',targetSeconds:0,
+                        windows:[null,null,null],repairs:[null,null]}});
+                player.followGeneratedCaptions=true;
+                player.waitForCaptions=false;
+                await player.video.play().catch(()=>{});
+                return {paused:player.video.paused,waiting:player.waitForCaptions};
+            }""")
+            assert result=={'paused':True,'waiting':True},result
+            assert page.get_by_role('button',name='Play without captions',exact=True).is_visible()
+        case('native Play at a sought-to sparse gap waits before video advances',native_play_at_sparse_gap)
         def sparse_waits_for_visible_captions():
             page.evaluate("""async()=>{
                 await createPlayer();

@@ -408,7 +408,8 @@ export class VideoPlayer {
           this.waitForCaptions = false;
           this.resumeAfterBuffer = false;
           this.updateBuffering();
-        }
+        } else this.updateBuffering();
+        if (this.video.paused) return;
         this.linePause.reset();
         this.touched = true;
         this.loop();

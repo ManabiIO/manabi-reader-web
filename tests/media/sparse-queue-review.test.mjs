@@ -184,3 +184,61 @@ test('a repair-only resume records the runtime that actually performed the new i
     }
   );
 });
+function crossingOuterSeam() {
+  const initial = savedJob(78);
+  const accepted = { id: 'w0/cue-0', start: 23, end: 27, text: '保存済みの字幕' };
+  initial.sparse.windows[0] = { cues: [accepted], inferenceMs: 1000 };
+  initial.sparse.windows[1] = {
+    cues: [
+      { id: 'w1/cue-0', start: 24, end: 27, text: accepted.text },
+      { id: 'w1/cue-1', start: 50, end: 53, text: '左の候補' }
+    ],
+    inferenceMs: 1000
+  };
+  initial.sparse.windows[2] = {
+    cues: [{ id: 'w2/cue-0', start: 50, end: 53, text: '右の候補' }],
+    inferenceMs: 1000
+  };
+  initial.nextWindow = 3;
+  initial.cues = safeSparseCues(initial.sparse, 78);
+  assert.deepEqual(initial.cues, [accepted]);
+  return { initial, accepted };
+}
+test('a later seam repair carries a saved outer cue omitted by its shorter input', () => {
+  const { initial, accepted } = crossingOuterSeam();
+  return harness(
+    { initial, transcribe: async () => '[26][S01]修復結果です。[29]' },
+    async ({ saved, reads, store }) => {
+      assert.equal(saved.status, 'complete', saved.error);
+      assert.deepEqual(reads, [[24, 78]]);
+      const [track] = await store.tracks('guest', key);
+      assert.deepEqual(track.cues[0], accepted);
+      assert.equal(track.cues[1].text, '修復結果です。');
+    }
+  );
+});
+test('conflicting speech at an accepted outer cue fails without losing the checkpoint', () => {
+  const { initial, accepted } = crossingOuterSeam();
+  return harness(
+    { initial, transcribe: async () => '[0][S01]違う文章です。[3][26][S01]修復結果です。[29]' },
+    async ({ saved, store }) => {
+      assert.equal(saved.status, 'failed');
+      assert.match(saved.error, /remove an accepted caption/);
+      assert.deepEqual(saved.cues, [accepted]);
+      assert.ok(saved.sparse.repairs.every((repair) => repair === null));
+      assert.equal((await store.tracks('guest', key)).length, 0);
+    }
+  );
+});
+test('a repair that retains the accepted outer cue can still publish the whole track', () => {
+  const { initial, accepted } = crossingOuterSeam();
+  return harness(
+    { initial, transcribe: async () => '[0][S01]保存済みの字幕[3][26][S01]修復結果です。[29]' },
+    async ({ saved, store }) => {
+      assert.equal(saved.status, 'complete', saved.error);
+      const [track] = await store.tracks('guest', key);
+      assert.deepEqual(track.cues[0], accepted);
+      assert.equal(track.cues[1].text, '修復結果です。');
+    }
+  );
+});

@@ -420,12 +420,10 @@ export class VideoWorkspace {
     const controller = (this.openAbort = new AbortController()),
       signal = controller.signal;
     this.player?.video.pause();
-    const previous = this.currentTranscription;
-    if (previous && this.current?.source !== source && this.current?.key !== expected) {
+    const outgoing = this.current;
+    if (outgoing && outgoing.source !== source && outgoing.key !== expected) {
       // Keep accepted windows, but free inference for the newly opened video.
-      const saved = await this.store.local<Job>(this.options.scope, 'jobs', previous.id);
-      if (saved?.status === 'queued' || saved?.status === 'running')
-        await this.queue.cancel(previous.id);
+      await this.queue.pauseSparseForMedia(outgoing.key);
     }
     await this.player?.dispose();
     if (this.closed || generation !== this.generation) return;
@@ -765,6 +763,7 @@ export class VideoWorkspace {
   }
   async generate() {
     const current = this.current,
+      player = this.player,
       lang = language(this.lang.value);
     if (!current) throw new Error('The video is still preparing. Playback remains available.');
     const selected = this.audioChoices.find(
@@ -785,17 +784,22 @@ export class VideoWorkspace {
       throw new Error(
         `The selected audio is ${selected.language}. Change the caption language or select a matching audio track.`
       );
-    const duration = this.player?.video.duration;
-    if (!duration || !Number.isFinite(duration)) throw new Error('Video duration is unavailable');
+    const duration = player?.video.duration;
+    if (!player || !duration || !Number.isFinite(duration))
+      throw new Error('Video duration is unavailable');
     const job = await this.queue.enqueue(
       current.key,
       lang === 'und' ? selected.language : lang,
       String(selected.id),
       duration,
-      this.player?.video.currentTime ?? 0
+      player?.video.currentTime ?? 0
     );
+    if (this.closed || this.current !== current || this.player !== player) {
+      if (this.current?.key !== current.key) await this.queue.pauseSparseForMedia(current.key);
+      return undefined;
+    }
     this.currentTranscription = job;
-    this.player?.generationProgress(job);
+    player.generationProgress(job);
     await this.refreshJobs();
     return job.id;
   }

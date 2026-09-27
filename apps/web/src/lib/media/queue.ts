@@ -57,6 +57,25 @@ function continuedRuntime(revision: string, hasPriorWindows: boolean): string {
   const current = MOSS.engineRevision.slice(ENGINE_PREFIX.length);
   return ports.includes(current) ? revision : `${ENGINE_PREFIX}${[...ports, current].join(',')}`;
 }
+function missingAccepted(accepted: readonly Cue[], next: readonly Cue[]) {
+  const byId = new Map(next.map((cue) => [cue.id, cue]));
+  return accepted.filter((cue) => {
+    const kept = byId.get(cue.id);
+    return (
+      !kept ||
+      kept.start !== cue.start ||
+      kept.end !== cue.end ||
+      kept.text !== cue.text ||
+      kept.speaker !== cue.speaker
+    );
+  });
+}
+function preserveAccepted(accepted: readonly Cue[], next: readonly Cue[]) {
+  if (missingAccepted(accepted, next).length)
+    throw new Error(
+      'Sparse reconciliation would remove an accepted caption; saved hypotheses were kept.'
+    );
+}
 export interface Engine {
   prepare(signal: AbortSignal, progress: (p: ModelProgress) => void): Promise<void>;
   transcribe(
@@ -214,6 +233,46 @@ export class TranscriptionQueue {
         : releasedJob(job, 'paused');
     });
   }
+  /** Leaving a video pauses all of its interactive jobs, including queued alternatives. */
+  async pauseSparseForMedia(mediaKey: ContentKey) {
+    if (this.closed) return;
+    const pending: Job[] = [];
+    for (const raw of await this.store.listLocal<unknown>(this.scope, 'jobs')) {
+      if (!raw || typeof raw !== 'object' || (raw as Job).mediaKey !== mediaKey) continue;
+      const job = validateJob(raw);
+      const local =
+        job.status === 'queued'
+          ? this.admitted.has(job.id) || this.active?.id === job.id
+          : job.status === 'running' &&
+            this.active?.id === job.id &&
+            this.active.ownerId === job.ownerId;
+      if (job.sparse && local) pending.push(job);
+    }
+    // Stop queued alternatives before aborting the current inference, so the
+    // drain cannot claim another old-video job in between transactions.
+    for (const job of pending.filter((job) => job.status === 'queued'))
+      await this.pauseLocalSparse(job.id);
+    for (const job of pending.filter((job) => job.status === 'running'))
+      await this.pauseLocalSparse(job.id);
+  }
+  private async pauseLocalSparse(id: string) {
+    this.targets.delete(id);
+    // Revoking admission before the transaction fences a drain that has read
+    // a stale queued snapshot but has not claimed it yet.
+    this.admitted.delete(id);
+    const active = this.active?.id === id ? this.active : undefined;
+    await this.store.updateLocal<Job>(this.scope, 'jobs', id, (old) => {
+      if (!old) return old;
+      const job = validateJob(old);
+      if (!job.sparse) return old;
+      if (job.status === 'queued') return releasedJob(job, 'paused');
+      if (job.status === 'running' && active?.ownerId === job.ownerId)
+        return { ...job, cancelRequested: true };
+      return old;
+    });
+    if (active && this.active === active)
+      active.controller.abort(new DOMException('Generation paused', 'AbortError'));
+  }
   recover(): Promise<void> {
     if (this.closed) return Promise.resolve();
     if (this.recovering) return this.recovering;
@@ -318,7 +377,13 @@ export class TranscriptionQueue {
             if (this.admitted.get(id) !== token) continue;
             const job = jobs.get(id);
             if (job?.status === 'queued') {
-              candidate ??= job;
+              // A video being watched should start before queued batch work.
+              // The latest sparse request wins when the viewer changes videos.
+              if (
+                !candidate ||
+                (job.sparse && (!candidate.sparse || job.createdAt >= candidate.createdAt))
+              )
+                candidate = job;
             } else this.admitted.delete(id);
           }
           if (this.closed || !candidate) break;
@@ -495,7 +560,45 @@ export class TranscriptionQueue {
                   }
                   const next = { ...job.sparse!, repairs: [...job.sparse!.repairs] };
                   next.repairs[seam] = repair;
-                  job = { ...job, sparse: next, cues: safeSparseCues(next, job.duration) };
+                  let safe = safeSparseCues(next, job.duration);
+                  // A whole cue accepted across the repair input's outer edge
+                  // cannot be reproduced from this input alone. Retain its
+                  // matching saved partial hypothesis when the new result left
+                  // that interval empty; conflicting new speech still fails.
+                  const original = [
+                    ...job.sparse!.windows[seam]!.cues,
+                    ...job.sparse!.windows[seam + 1]!.cues
+                  ];
+                  for (const accepted of missingAccepted(job.cues, safe)) {
+                    if (!missingAccepted([accepted], safe).length) continue;
+                    if (
+                      !(
+                        (accepted.start < first.start && accepted.end > first.start) ||
+                        (accepted.start < second.end && accepted.end > second.end)
+                      )
+                    )
+                      break;
+                    const candidates = original.filter(
+                      (cue) =>
+                        cue.start >= first.start &&
+                        cue.end <= second.end &&
+                        cue.text === accepted.text &&
+                        Math.abs(cue.start - Math.max(first.start, accepted.start)) <= 0.35 &&
+                        Math.abs(cue.end - Math.min(second.end, accepted.end)) <= 0.35
+                    );
+                    if (
+                      candidates.length !== 1 ||
+                      repair.some(
+                        (cue) => cue.start < candidates[0].end && cue.end > candidates[0].start
+                      )
+                    )
+                      break;
+                    repair.push(candidates[0]);
+                    repair.sort((a, b) => a.start - b.start || a.end - b.end);
+                    safe = safeSparseCues(next, job.duration);
+                  }
+                  preserveAccepted(job.cues, safe);
+                  job = { ...job, sparse: next, cues: safe };
                   await checkpoint();
                 };
                 const settleSparseSeams = async () => {
@@ -559,11 +662,13 @@ export class TranscriptionQueue {
                   }));
                   const next = { ...state, windows: [...state.windows] };
                   next.windows[index] = { cues, inferenceMs };
+                  const safe = safeSparseCues(next, job.duration);
+                  preserveAccepted(job.cues, safe);
                   job = {
                     ...job,
                     sparse: next,
                     nextWindow: job.nextWindow + 1,
-                    cues: safeSparseCues(next, job.duration)
+                    cues: safe
                   };
                   await checkpoint();
                   this.notify({
@@ -581,6 +686,7 @@ export class TranscriptionQueue {
                 }
                 if (!assembled.cues)
                   throw new Error('Sparse transcription did not cover the complete video');
+                preserveAccepted(job.cues, assembled.cues);
                 job = { ...job, cues: assembled.cues };
               }
               for (let i = job.nextWindow; i < windows.length; i++) {
