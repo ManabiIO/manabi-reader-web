@@ -1374,14 +1374,13 @@ export class VideoWorkspace {
       if (
         job.provisional &&
         !job.verifiedMediaKey &&
-        this.current?.key === job.mediaKey &&
-        this.current.source.file &&
+        this.sources.get(job.mediaKey)?.file &&
         !this.localHashes.has(job.mediaKey) &&
         !this.identityRetrying.has(job.mediaKey)
       )
         row.append(
           action('Retry video verification', () => {
-            const source = this.current?.source;
+            const source = this.sources.get(job.mediaKey);
             if (!source || this.identityRetrying.has(job.mediaKey)) return;
             this.identityRetrying.add(job.mediaKey);
             void this.openSource(source)

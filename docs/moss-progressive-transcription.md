@@ -181,8 +181,9 @@ content identity. A cloud source still waits for full verification before
 generation. Temporary subtitle IDs never enter portable playback state.
 
 Switching videos keeps a requested local hash running and preserves its saved
-windows. A failed digest can be retried while the same File source remains open;
-the saved windows then publish without repeating inference. If the tab closes
+windows. A failed digest can be retried while the workspace still holds the
+same File source, including after switching videos; the saved windows then
+publish without repeating inference. If the tab closes
 before the digest is attached, the provisional windows remain on the device
 but cannot yet be safely matched to a newly selected file. Recovery after that
 interruption remains a release gate for the early-generation flow.

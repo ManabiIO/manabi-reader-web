@@ -398,6 +398,8 @@ def main():
             page.wait_for_function('workspace.player?.generationAvailable===false')
             assert page.evaluate('inferences')==1
             assert page.evaluate("store.tracks('guest',workspace.current.key).then(t=>t.length)")==0
+            page.evaluate("workspace.openSource(makeSource('After-failed-verification.mp4',1))")
+            page.wait_for_function("workspace.current?.source.name==='After-failed-verification.mp4'")
             page.get_by_role('button',name='Retry video verification').click()
             page.wait_for_function("store.local('guest','jobs',retryJob).then(j=>j?.status==='complete')")
             page.wait_for_function('workspace.current && !workspace.current.provisional && workspace.current.source===retrySource')
