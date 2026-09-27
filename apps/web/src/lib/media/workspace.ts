@@ -10,7 +10,7 @@ import { formatMediaTime } from './time.js';
 import { trackLanguage } from './track-selection.js';
 import { audioLanguage, chooseTranscriptionAudio, type AudioChoice } from './audio-selection.js';
 import { transcriptionDraft, type TranscriptionDraft } from './transcription-draft.js';
-import { validateJob } from './jobs.js';
+import { jobCanResume, validateJob } from './jobs.js';
 import { deviceKey } from './device-checkpoint.js';
 import {
   type Scope,
@@ -1047,7 +1047,7 @@ export class VideoWorkspace {
         row.append(
           action('Cancel', () => void this.queue.cancel(job.id).catch((e) => this.error(e)))
         );
-      if (['paused', 'failed', 'queued'].includes(job.status))
+      if (job.status === 'queued' || jobCanResume(job))
         row.append(
           action(
             job.status === 'queued' ? 'Run here' : 'Resume',
