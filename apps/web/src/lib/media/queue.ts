@@ -427,6 +427,7 @@ export class TranscriptionQueue {
                     loaded: sparseCoverage(state, job.duration),
                     total: job.duration
                   });
+                  const decodeStarted = performance.now();
                   const pcm = await this.decode(job, bounds.start, bounds.end, signal);
                   signal.throwIfAborted();
                   const expectedSamples = Math.round((bounds.end - bounds.start) * 16000);
@@ -439,9 +440,10 @@ export class TranscriptionQueue {
                   )
                     throw new Error('Invalid decoded sparse audio window');
                   let raw = '';
-                  const started = performance.now();
+                  let inferenceMs = performance.now() - decodeStarted;
                   if (!pcm.every((sample) => sample === 0)) {
                     await this.engine.prepare(signal, (p) => this.notify({ job, ...p }));
+                    const inferenceStarted = performance.now();
                     raw = await transcribeWithPreview(this.engine, pcm, signal, (text) => {
                       const provisional = ownedCues(parseMossPreview(text, pcm.length / 16000), {
                         index,
@@ -455,6 +457,7 @@ export class TranscriptionQueue {
                         provisional
                       });
                     });
+                    inferenceMs += performance.now() - inferenceStarted;
                   }
                   signal.throwIfAborted();
                   const cues = parseMoss(raw, pcm.length / 16000).map((cue, n) => ({
@@ -465,7 +468,7 @@ export class TranscriptionQueue {
                     ...(cue.speaker ? { speaker: `w${index}/${cue.speaker}` } : {})
                   }));
                   const next = { ...state, windows: [...state.windows] };
-                  next.windows[index] = { cues, inferenceMs: performance.now() - started };
+                  next.windows[index] = { cues, inferenceMs };
                   job = {
                     ...job,
                     sparse: next,

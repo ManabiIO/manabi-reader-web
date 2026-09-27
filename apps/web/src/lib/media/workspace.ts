@@ -459,7 +459,7 @@ export class VideoWorkspace {
     this.progress.max = source.size;
     const temporary: Track[] = [];
     const addTemporary = (tracks: Track[]) => {
-      if (!active()) return;
+      if (!active() || this.current?.source === source) return;
       temporary.push(...tracks);
       player.setTemporaryTracks(temporary);
     };
