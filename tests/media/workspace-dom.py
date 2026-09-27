@@ -290,6 +290,22 @@ def main():
             assert page.evaluate('runHere')==['saved-queued-job']
             assert page.evaluate('prepares')==0
         case('unclaimed saved queued jobs offer an explicit Run here action',queued_resume)
+        def nonretryable_seam():
+            page.evaluate('''()=>{
+                workspace.renderJobs([{
+                    id:'oversized-seam',status:'failed',language:'ja',createdAt:2,
+                    error:'different window policy required',
+                    progressive:{
+                        policy:'pause-overlap-v2',inputSeconds:30,
+                        windows:[{index:0,startSample:0,endSample:480000,coreStartSample:0,coreEndSample:448000}],
+                        tail:[{id:'w0/cue-0',start:0,end:29,text:'long',speaker:'w0/S01'}],
+                        failedSeam:{window:{index:1,startSample:416000,endSample:1400000,coreStartSample:448000,coreEndSample:1368000},cues:[]}
+                    }
+                }]);
+            }''')
+            assert page.get_by_text('different window policy required',exact=False).count()==1
+            assert page.get_by_role('button',name='Resume',exact=True).count()==0
+        case('a deterministically oversized seam does not advertise an identical Resume',nonretryable_seam)
         def teardown_failure():
             page.evaluate('reset()');page.evaluate("workspace.openSource(makeSource('Closing.mp4'))")
             page.wait_for_function('workspace.player?.video.readyState>=2')
