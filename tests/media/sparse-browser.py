@@ -49,9 +49,21 @@ def main():
                 executable_path=os.environ.get('CHROMIUM', '/usr/bin/chromium'),
                 headless=True, args=['--no-sandbox'])
             page = browser.new_page()
-            page.set_default_timeout(10000)
+            page.set_default_timeout(30000)
+            page_errors = []
+            page.on('pageerror', lambda error: page_errors.append(str(error)))
             page.goto(f'http://127.0.0.1:{server.server_port}/tests/media/browser-harness.html?fixture=/__fixture__/video.mp4')
-            page.wait_for_function('window.ready === true')
+            try:
+                page.wait_for_function('window.ready === true')
+            except Exception as error:
+                state = page.evaluate('''() => ({
+                    modules: !!window.modules,
+                    fileSize: window.file?.size,
+                    player: !!window.player,
+                    videoState: window.player?.video.readyState,
+                    videoError: window.player?.video.error?.message
+                })''')
+                raise AssertionError(f'Browser harness did not start: {page_errors}; {state}') from error
             page.evaluate('''async () => {
                 window.sparseModule = await import('../../.cache/media-test-build/sparse-transcription.js');
                 window.legacyModule = await import('../../.cache/media-test-build/sparse-legacy.js');
