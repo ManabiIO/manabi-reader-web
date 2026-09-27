@@ -8,12 +8,13 @@ import { type ContentKey, type Cue, type Scope, type Track, language } from './c
 import { MediaStore } from './store.js';
 import { MOSS, type ModelProgress } from './model-cache.js';
 import { parseMoss, parseMossPreview, planWindows, ownedCues } from './moss-output.js';
-import { joinBoundary, newProgressiveState } from './moss-progressive.js';
+import { newProgressiveState } from './moss-progressive.js';
 import { transcribeWithPreview } from './moss-preview.js';
 import { transcribeProgressively } from './progressive-transcription.js';
 import {
   newSparseState,
   SPARSE_CORE_SECONDS,
+  joinSparseBoundary,
   sparseBounds,
   safeSparseCues,
   nextSparseWindow,
@@ -508,7 +509,7 @@ export class TranscriptionQueue {
                     if (
                       left &&
                       right &&
-                      !joinBoundary(
+                      !joinSparseBoundary(
                         left.cues.slice(-16),
                         right.cues.slice(0, 16),
                         (seam + 1) * SPARSE_CORE_SECONDS

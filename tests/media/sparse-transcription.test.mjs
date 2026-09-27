@@ -65,6 +65,24 @@ test('unresolved edges stay out of drafts until an adjacent hypothesis joins', (
     ['first', 'edge', 'last']
   );
 });
+test('agreed whole cues crossing a seam margin appear, one-sided cues require repair', () => {
+  const state = newSparseState(52);
+  const agreed = cue(0, 23, 26, 'agreed line');
+  state.windows[0] = { cues: [agreed], inferenceMs: 1 };
+  state.windows[1] = {
+    cues: [{ ...cue(1, 24, 26, 'agreed line'), id: 'w1/cue-0' }],
+    inferenceMs: 1
+  };
+  assert.deepEqual(
+    safeSparseCues(state, 52).map((c) => c.id),
+    [agreed.id]
+  );
+  assert.equal(assembleSparse(state).repair, undefined);
+  state.windows[1] = { cues: [], inferenceMs: 1 };
+  assert.deepEqual(safeSparseCues(state, 52), []);
+  assert.deepEqual(assembleSparse(state), { repair: 0 });
+  assert.equal(sparseLead(state, 52, 0), 24);
+});
 test('an empty seam repair cannot erase recognized speech', () => {
   const state = newSparseState(52);
   state.windows[0] = { cues: [cue(0, 24, 27, 'spoken left')], inferenceMs: 1 };
@@ -120,7 +138,7 @@ test('watched-through sparse job completes from one inference per window', async
       inferred.push(1);
       if (inferred.length === 1) await first;
       structuredClone(pcm.buffer, { transfer: [pcm.buffer] });
-      return '[3][S01]テスト。[4]';
+      return decoded.at(-1) === 0 ? '[3][S01]テスト。[4]' : '[6][S01]テスト。[7]';
     },
     dispose() {}
   };
@@ -150,7 +168,7 @@ test('watched-through sparse job completes from one inference per window', async
     assert.equal(track.complete, true);
     assert.deepEqual(
       track.cues.map((cue) => cue.start),
-      [3, 27, 53]
+      [3, 30, 56]
     );
   } finally {
     unblock?.();
@@ -169,7 +187,7 @@ test('an ambiguous near-playhead seam is repaired before unrelated later windows
     '[3][S01]accepted[4][24][S01]left[27]',
     '[0][S01]right[3]',
     '[3][S01]accepted[4][24][S01]repaired[27]',
-    '[3][S01]later[4]'
+    '[5][S01]later[6]'
   ];
   const engine = {
     async prepare() {},
@@ -243,7 +261,7 @@ test('a repair that changes an accepted cue fails without publishing a rewritten
     );
     assert.deepEqual(calls, [28, 30, 54], 'the remaining video was not inferred after the blocker');
     assert.deepEqual(await store.tracks('guest', key), []);
-    responses.push('[3][S01]accepted[4][24][S01]repaired[27]', '[3][S01]later[4]');
+    responses.push('[3][S01]accepted[4][24][S01]repaired[27]', '[5][S01]later[6]');
     await queue.resume(job.id);
     for (let i = 0; i < 500; i++) {
       const resumed = await store.local('guest', 'jobs', job.id);

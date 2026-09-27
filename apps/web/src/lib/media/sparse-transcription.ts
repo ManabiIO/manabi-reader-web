@@ -127,6 +127,14 @@ export function sparseCoverage(state: SparseState, duration: number) {
     0
   );
 }
+/** A one-sided cue in the shared input halo is unresolved, even if the other
+ * window returned no text there. Only jointly compatible hypotheses can lead. */
+export function joinSparseBoundary(left: readonly Cue[], right: readonly Cue[], seam: number) {
+  const leftHalo = left.some((cue) => cue.end > seam - SPARSE_CONTEXT_SECONDS);
+  const rightHalo = right.some((cue) => cue.start < seam + SPARSE_CONTEXT_SECONDS);
+  if (leftHalo !== rightHalo) return undefined;
+  return joinBoundary(left, right, seam);
+}
 export function sparseLead(state: SparseState, duration: number, position: number) {
   const index = Math.min(
     state.windows.length - 1,
@@ -139,7 +147,7 @@ export function sparseLead(state: SparseState, duration: number, position: numbe
       !!left &&
       !!right &&
       (!!state.repairs[leftIndex] ||
-        !!joinBoundary(
+        !!joinSparseBoundary(
           left.cues.slice(-16),
           right.cues.slice(0, 16),
           (leftIndex + 1) * SPARSE_CORE_SECONDS
@@ -208,7 +216,7 @@ export function safeSparseCues(state: SparseState, duration: number): Cue[] {
     if (
       index > 0 &&
       state.windows[index - 1] &&
-      !joinBoundary(
+      !joinSparseBoundary(
         state.windows[index - 1]!.cues.slice(-16),
         window.cues.slice(0, 16),
         index * SPARSE_CORE_SECONDS
@@ -238,12 +246,12 @@ export function safeSparseCues(state: SparseState, duration: number): Cue[] {
       right = state.windows[index + 1];
     if (!left || !right) continue;
     const seam = (index + 1) * SPARSE_CORE_SECONDS;
-    const joined = joinBoundary(left.cues.slice(-16), right.cues.slice(0, 16), seam);
+    const joined = joinSparseBoundary(left.cues.slice(-16), right.cues.slice(0, 16), seam);
     if (!joined) continue;
     seams.push(
       ...joined.filter(
         (cue) =>
-          cue.start >= seam - SPARSE_CONTEXT_SECONDS && cue.end <= seam + SPARSE_CONTEXT_SECONDS
+          cue.start < seam + SPARSE_CONTEXT_SECONDS && cue.end > seam - SPARSE_CONTEXT_SECONDS
       )
     );
   }
@@ -268,7 +276,7 @@ export function assembleSparse(state: SparseState): { cues?: Cue[]; repair?: num
     if (!cues.length) cues = [...current];
     else {
       const tail = cues.slice(-16);
-      const joined = joinBoundary(tail, current, seam);
+      const joined = joinSparseBoundary(tail, current, seam);
       if (!joined) return { repair: index - 1 };
       cues = [...cues.slice(0, -tail.length), ...joined];
     }
