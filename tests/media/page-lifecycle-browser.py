@@ -98,9 +98,9 @@ def main():
                 page.wait_for_function('window.ready===true')
             owner_cdp = context.new_cdp_session(owner)
 
-            def record(name, condition):
+            def record(name, condition, details=None):
                 if not condition:
-                    raise AssertionError(name)
+                    raise AssertionError(name + (": " + json.dumps(details, ensure_ascii=False) if details else ""))
                 results.append({'name': name, 'passed': True})
                 print('PASS', name, flush=True)
 
@@ -149,10 +149,17 @@ def main():
                 lock=>lock.name==='manabi-moss-inference' || lock.name==='moss-test-child-owner')''')
             record('interruption terminates the nested worker as well as the owner', True)
 
+            diagnostics = peer.evaluate('''async () => ({
+                visibility:document.visibilityState, suspended:queue.suspended,
+                locks:await navigator.locks.query(), errors:[...errors],
+                jobs:await store.listLocal('guest','jobs')
+            })''')
+            (args.output / 'before-recovery.json').write_text(json.dumps(diagnostics, ensure_ascii=False, indent=2))
             peer.evaluate('() => queue.recover()')
             saved = peer.evaluate('(id) => store.local("guest","jobs",id)', job_id)
             record('orphan recovery keeps exactly the accepted pre-freeze checkpoint',
-                   saved['status'] == 'paused' and saved['nextWindow'] == 1 and saved['cues'] == before)
+                   saved['status'] == 'paused' and saved['nextWindow'] == 1 and saved['cues'] == before,
+                   {'before': before, 'saved': saved, 'context': diagnostics})
             peer.evaluate('(id)=>queue.resume(id)', job_id)
             peer.wait_for_function('''async id =>
                 (await store.local('guest','jobs',id))?.status==='complete'
