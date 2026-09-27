@@ -43,6 +43,27 @@ export function newProgressiveState(inputSeconds: 30 = 30): ProgressiveState {
 }
 export const durationSamples = (duration: number) => Math.ceil(duration * SAMPLE_RATE);
 export const coreEnd = (state: ProgressiveState) => state.windows.at(-1)?.coreEndSample ?? 0;
+
+export interface PendingSeamRepair {
+  startSample: number;
+  endSample: number;
+  retryable: boolean;
+}
+/** Derive repair extent entirely from durable state. A failed seam whose held
+ * utterance forces more than two encoder blocks will reproduce the same failure
+ * on Resume, so callers must not present that operation as retryable.
+ */
+export function pendingSeamRepair(state: ProgressiveState): PendingSeamRepair | undefined {
+  const failed = state.failedSeam,
+    previous = state.windows.at(-1);
+  if (!failed || !previous) return undefined;
+  const startSample = Math.min(
+    previous.startSample,
+    ...state.tail.map((cue) => Math.floor(cue.start * SAMPLE_RATE))
+  );
+  const endSample = failed.window.endSample;
+  return { startSample, endSample, retryable: endSample - startSample <= 60 * SAMPLE_RATE };
+}
 export const inputStart = (state: ProgressiveState) =>
   Math.max(0, coreEnd(state) - CONTEXT_SAMPLES);
 export function inputEnd(state: ProgressiveState, duration: number): number {
