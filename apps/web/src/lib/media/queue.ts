@@ -16,7 +16,7 @@ import {
   pendingSparseSeam,
   sparseModelPcm,
   sparseBounds,
-  safeSparseCues,
+  acceptedSparseCues,
   nextSparseWindow,
   sparseCoverage,
   assembleSparse
@@ -562,7 +562,7 @@ export class TranscriptionQueue {
                   }
                   const next = { ...job.sparse!, repairs: [...job.sparse!.repairs] };
                   next.repairs[seam] = repair;
-                  let safe = safeSparseCues(next, job.duration);
+                  let safe = acceptedSparseCues(next, job.duration);
                   // A whole cue accepted across the repair input's outer edge
                   // cannot be reproduced from this input alone. Retain its
                   // matching saved partial hypothesis when the new result left
@@ -597,7 +597,7 @@ export class TranscriptionQueue {
                       break;
                     repair.push(candidates[0]);
                     repair.sort((a, b) => a.start - b.start || a.end - b.end);
-                    safe = safeSparseCues(next, job.duration);
+                    safe = acceptedSparseCues(next, job.duration);
                   }
                   preserveAccepted(job.cues, safe);
                   job = { ...job, sparse: next, cues: safe };
@@ -664,7 +664,7 @@ export class TranscriptionQueue {
                   }));
                   const next = { ...state, windows: [...state.windows] };
                   next.windows[index] = { cues, inferenceMs };
-                  const safe = safeSparseCues(next, job.duration);
+                  const safe = acceptedSparseCues(next, job.duration);
                   preserveAccepted(job.cues, safe);
                   job = {
                     ...job,

@@ -1,5 +1,39 @@
 # Sparse transcription: coverage and durable recovery review
 
+## Real conversation regression and version 2 acceptance policy (2026-09-27)
+
+The actual sparse queue was exercised in Chromium with native IndexedDB, the
+single-thread v7 WASM runtime, and the verified Q5_0 model on 42.77 seconds
+assembled from 20 utterances in the public HTH casual Japanese conversation
+preview (dataset revision `9fde6880623724b58f8b26e6ba9fb96f04e9c88f`, local WAV
+SHA-256 `fc4933c54391f84145190cbd05530b7dd04ff7db40813291afcf08e93814fc26`).
+The utterances were joined with 0.2-second digital pauses; this is a stress
+sequence, not original continuous or overlapping dialogue.
+
+Version 1 finished its two ordinary windows but failed the seam repair because
+it had already accepted a disconnected right-side component. That window had
+switched to Chinese characters for later Japanese speech. Its surviving partial
+draft had 29 edits in 76 normalized reference characters (38.16% CER), and no
+complete track was published. A direct full-input call on the same PCM/model
+returned Japanese in that region with 17/76 edits (22.37% CER).
+
+New jobs use `overlap-sparse-v2`: a disconnected seek-local component is still
+shown in the device-only incomplete draft, but only the reconciled prefix from
+time zero becomes immutable accepted captions. The UI says draft lines may
+change; export remains limited to a complete published track. Saved version 1
+jobs retain their original interpretation, and admission does not deduplicate
+jobs across these policies. On the same real-model input, version 2 completed
+with one repaired full track, unique cue IDs, and 17/76 edits. A scripted queue
+regression checks that the earlier accepted cue keeps its identity while a
+provisional later cue is replaced. These are quality observations, not speed
+comparisons: the local system was loaded.
+
+This policy can still fail safely if a repair disagrees with the accepted prefix,
+or if adjacent seams need more than the bounded repair input. Broader natural
+conversation and video audio, controlled device measurements, frozen-tab lock
+recovery, physical Safari/iOS, production serving, and live provider behavior
+remain release gates.
+
 Reviewed the playback-first stack through `9cdc1510e24e54e4c5223445f6a9297471d3c156`,
 retaining the concurrent early-repair, accepted-cue, and one-sided-halo safeguards.
 The runtime remains `manabi-web-v7`; no C++/WASM, model weights, quantization,

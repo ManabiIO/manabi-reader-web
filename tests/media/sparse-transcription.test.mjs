@@ -7,6 +7,7 @@ import {
   newSparseState,
   nextSparseWindow,
   safeSparseCues,
+  acceptedSparseCues,
   sparseLead,
   sparseCoverage,
   sparseMissingWindowsForLead,
@@ -14,6 +15,7 @@ import {
   sparseBounds
 } from '../../.cache/media-test-build/sparse-transcription.js';
 import { TransactionFactory, RangeDouble } from './transaction-double.mjs';
+import { transcriptionDraft } from '../../.cache/media-test-build/transcription-draft.js';
 
 const key = 'content:' + '6'.repeat(64);
 const cue = (window, start, end, text) => ({
@@ -21,6 +23,22 @@ const cue = (window, start, end, text) => ({
   start,
   end,
   text
+});
+test('a disconnected seek window stays visible but provisional under the new policy', () => {
+  const state = newSparseState(52, 31);
+  assert.equal(state.policy, 'overlap-sparse-v2');
+  state.windows[1] = { cues: [cue(1, 31, 32, 'seek-local draft')], inferenceMs: 1000 };
+  assert.deepEqual(
+    safeSparseCues(state, 52).map((item) => item.text),
+    ['seek-local draft']
+  );
+  assert.deepEqual(acceptedSparseCues(state, 52), []);
+  state.policy = 'overlap-sparse-v1';
+  assert.deepEqual(
+    acceptedSparseCues(state, 52).map((item) => item.text),
+    ['seek-local draft'],
+    'existing jobs retain their accepted-caption interpretation'
+  );
 });
 test('sparse coverage follows seeks and never schedules a completed window twice', () => {
   const state = newSparseState(78, 62);
@@ -217,6 +235,75 @@ test('an ambiguous near-playhead seam is repaired before unrelated later windows
     );
     assert.equal(track.cues[0].id, 'w0/cue-0', 'earlier accepted caption keeps its identity');
   } finally {
+    await queue.dispose();
+    await store.close();
+    if (old === undefined) delete globalThis.IDBKeyRange;
+    else globalThis.IDBKeyRange = old;
+  }
+});
+test('a later provisional window can be corrected without rewriting accepted captions', async () => {
+  const old = globalThis.IDBKeyRange;
+  globalThis.IDBKeyRange = RangeDouble;
+  const store = new MediaStore(new TransactionFactory(), 'sparse-provisional-repair-tests');
+  let unblock;
+  const holdRepair = new Promise((resolve) => {
+    unblock = resolve;
+  });
+  let calls = 0;
+  const responses = [
+    '[3][S01]accepted[4][24][S01]left[27]',
+    '[0][S01]right[3][7][S01]wrong-language[8]',
+    '[3][S01]accepted[4][24][S01]repaired[27][31][S01]correct[32]'
+  ];
+  const engine = {
+    async prepare() {},
+    async transcribe() {
+      const index = calls++;
+      if (index === 2) await holdRepair;
+      return responses[index];
+    },
+    dispose() {}
+  };
+  const queue = new TranscriptionQueue(store, 'guest', engine, async (_job, start, end) =>
+    new Float32Array(Math.round((end - start) * 16000)).fill(0.1)
+  );
+  try {
+    const job = await queue.enqueue(key, 'ja', '1', 52, 0);
+    let pending;
+    for (let i = 0; i < 500; i++) {
+      pending = await store.local('guest', 'jobs', job.id);
+      if (calls === 3 && pending?.sparse?.windows.every(Boolean)) break;
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    pending = validateJob(pending);
+    assert.equal(calls, 3, 'the repair starts after both ordinary windows');
+    assert.deepEqual(
+      pending.cues.map((cue) => cue.text),
+      ['accepted']
+    );
+    assert.deepEqual(
+      transcriptionDraft(pending).track.cues.map((cue) => cue.text),
+      ['accepted', 'wrong-language'],
+      'seek-local text remains available as a replaceable device draft'
+    );
+    assert.equal(transcriptionDraft(pending).provisional, true);
+    assert.deepEqual(await store.tracks('guest', key), []);
+    unblock();
+    for (let i = 0; i < 500; i++) {
+      const saved = await store.local('guest', 'jobs', job.id);
+      if (saved?.status === 'complete' || saved?.status === 'failed') break;
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    const saved = validateJob(await store.local('guest', 'jobs', job.id));
+    assert.equal(saved.status, 'complete', saved.error);
+    const [track] = await store.tracks('guest', key);
+    assert.deepEqual(
+      track.cues.map((cue) => cue.text),
+      ['accepted', 'repaired', 'correct']
+    );
+    assert.equal(track.cues[0].id, 'w0/cue-0');
+  } finally {
+    unblock?.();
     await queue.dispose();
     await store.close();
     if (old === undefined) delete globalThis.IDBKeyRange;

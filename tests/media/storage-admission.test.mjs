@@ -5,6 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MediaStore } from '../../.cache/media-test-build/store.js';
 import { MOSS } from '../../.cache/media-test-build/model-cache.js';
+import { newSparseState } from '../../.cache/media-test-build/sparse-transcription.js';
 import { TransactionFactory, RangeDouble } from './transaction-double.mjs';
 const scope = 'account:admission',
   mediaKey = 'content:' + 'a'.repeat(64),
@@ -86,6 +87,16 @@ test('running job is reused, but paused and completed jobs permit a deliberate a
       job(2, { status: 'complete', nextWindow: 1, completedAt: 2 })
     );
     assert.equal((await a.enqueueJob(scope, job(3))).id, id(3));
+  }));
+test('new sparse policy does not silently reuse a running job with old acceptance rules', () =>
+  harness(async ({ a }) => {
+    const oldState = newSparseState(10);
+    oldState.policy = 'overlap-sparse-v1';
+    const oldJob = job(1, { version: 3, sparse: oldState });
+    const newJob = job(2, { version: 3, sparse: newSparseState(10) });
+    assert.equal((await a.enqueueJob(scope, oldJob)).id, id(1));
+    assert.equal((await a.enqueueJob(scope, newJob)).id, id(2));
+    assert.equal((await a.listLocal(scope, 'jobs')).length, 2);
   }));
 test('different audio, language, media, model and account retain independent generation jobs', () =>
   harness(async ({ a }) => {

@@ -33,6 +33,7 @@ const job = (sparse, duration, cues) => ({
 for (const suppress of [true, false]) {
   test(`old sparse draft cache upgrades from verified hypotheses (suppression=${suppress})`, () => {
     const s = newSparseState(104);
+    s.policy = 'overlap-sparse-v1';
     s.windows[0] = win(cue(0, 0, 3, 4, '保持された文章'), cue(0, 1, 23, 27, '長い文章です。'));
     s.windows[1] = win(cue(1, 0, 24, 27, '長い文章です。'), cue(1, 1, 50, 53, '左の解釈'));
     s.windows[2] = win(cue(2, 0, 50, 53, '右の解釈'), cue(2, 1, 60, 62, '維持する文章'));

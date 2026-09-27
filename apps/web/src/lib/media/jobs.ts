@@ -21,7 +21,7 @@ import { planWindows } from './moss-output.js';
 import {
   SPARSE_CORE_SECONDS,
   assembleSparse,
-  safeSparseCues,
+  acceptedSparseCues,
   sparseBounds,
   pendingSparseSeam,
   sparseCoverage,
@@ -163,7 +163,7 @@ export function validateJob(value: unknown): Job {
     j.completedAt === undefined ? undefined : finite(j.completedAt, 0, Number.MAX_SAFE_INTEGER);
   const nextWindow = j.nextWindow as number;
   if (sparse) {
-    const safe = safeSparseCues(sparse, duration);
+    const safe = acceptedSparseCues(sparse, duration);
     const matches = (expected: Cue[]) =>
       cues.length === expected.length &&
       cues.every((cue, index) => {
@@ -181,9 +181,10 @@ export function validateJob(value: unknown): Job {
     const finalizing = j.status === 'complete' || completedAt !== undefined;
     if (!finalizing && !matches(safe)) {
       if (
-        !matches(legacySparseCues(sparse, duration)) &&
-        !matches(legacySparseCues(sparse, duration, false)) &&
-        !matches(legacySparseCues(sparse, duration, true, true))
+        sparse.policy !== 'overlap-sparse-v1' ||
+        (!matches(legacySparseCues(sparse, duration)) &&
+          !matches(legacySparseCues(sparse, duration, false)) &&
+          !matches(legacySparseCues(sparse, duration, true, true)))
       )
         throw new Error('Sparse draft does not match saved coverage');
       cues = safe; // Upgrade only the verified derived cache, never the hypotheses.

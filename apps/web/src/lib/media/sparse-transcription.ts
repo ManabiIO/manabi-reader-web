@@ -15,7 +15,7 @@ export interface SparseWindow {
   inferenceMs: number;
 }
 export interface SparseState {
-  policy: 'overlap-sparse-v1';
+  policy: 'overlap-sparse-v1' | 'overlap-sparse-v2';
   windows: (SparseWindow | null)[];
   /** A failed seam keeps both original hypotheses until an explicit repair succeeds. */
   repairs: (Cue[] | null)[];
@@ -65,7 +65,7 @@ export function newSparseState(duration: number, targetSeconds = 0): SparseState
     throw new Error('Invalid sparse transcription duration');
   const count = Math.ceil(duration / SPARSE_CORE_SECONDS);
   return {
-    policy: 'overlap-sparse-v1',
+    policy: 'overlap-sparse-v2',
     windows: Array.from({ length: count }, () => null),
     repairs: Array.from({ length: Math.max(0, count - 1) }, () => null),
     targetSeconds: Math.min(duration, Math.max(0, targetSeconds))
@@ -76,7 +76,7 @@ export function validateSparseState(value: unknown, duration: number): SparseSta
   onlyKeys(state, ['policy', 'windows', 'repairs', 'targetSeconds']);
   const count = Math.ceil(duration / SPARSE_CORE_SECONDS);
   if (
-    state.policy !== 'overlap-sparse-v1' ||
+    (state.policy !== 'overlap-sparse-v1' && state.policy !== 'overlap-sparse-v2') ||
     !Array.isArray(state.windows) ||
     state.windows.length !== count ||
     !Array.isArray(state.repairs) ||
@@ -136,7 +136,7 @@ export function validateSparseState(value: unknown, duration: number): SparseSta
     return cues;
   });
   return {
-    policy: 'overlap-sparse-v1',
+    policy: state.policy,
     windows,
     repairs,
     targetSeconds: finite(state.targetSeconds, 0, duration)
@@ -268,10 +268,13 @@ function sparsePredecessor(state: SparseState, position: number): number | undef
   return position < neededUntil ? component.first - 1 : undefined;
 }
 
-function sparseProjection(state: SparseState, duration: number) {
+function sparseProjection(state: SparseState, duration: number, acceptedOnly = false) {
   const cues: Cue[] = [];
   const ready: { start: number; end: number }[] = [];
   for (const component of sparseComponents(state)) {
+    // A disconnected component is useful near a seek, but its text can change
+    // when its preceding seam is repaired. Never make that text immutable.
+    if (acceptedOnly && component.first !== 0) break;
     const start =
       component.first === 0 ? 0 : component.first * SPARSE_CORE_SECONDS + SPARSE_CONTEXT_SECONDS;
     const end =
@@ -297,6 +300,14 @@ function sparseProjection(state: SparseState, duration: number) {
 /** Display complete agreed components, holding only their unresolved outer cues. */
 export function safeSparseCues(state: SparseState, duration: number): Cue[] {
   return sparseProjection(state, duration).cues;
+}
+
+/** Version 1 already persisted every visible component as accepted. Version 2
+ * keeps seek-local components visible in the device draft while committing only
+ * the reconciled prefix. Existing jobs retain their original interpretation.
+ */
+export function acceptedSparseCues(state: SparseState, duration: number): Cue[] {
+  return sparseProjection(state, duration, state.policy === 'overlap-sparse-v2').cues;
 }
 
 /** Earliest ambiguous computed seam, even when unrelated windows are missing. */

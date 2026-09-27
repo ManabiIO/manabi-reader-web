@@ -26,6 +26,7 @@ import type { Job } from './jobs.js';
 import {
   sparseBounds,
   sparseLead,
+  safeSparseCues,
   sparseMissingWindowsForLead,
   SPARSE_CORE_SECONDS,
   SPARSE_CONTEXT_SECONDS
@@ -966,7 +967,8 @@ export class VideoPlayer {
       ? this.drafts.find((item) => item.track.id === job.id)
       : undefined;
     const awaitingDraft =
-      this.waitForCaptions && (!draft || cueDigest(draft.track.cues) !== cueDigest(job.cues));
+      this.waitForCaptions &&
+      (!draft || cueDigest(draft.track.cues) !== cueDigest(safeSparseCues(state, job.duration)));
     const missing = lead < needed || awaitingDraft;
     if (nearGap) this.pauseAtCaptionGap();
     const repairing = lead < needed && !missingWindows.length;
@@ -1039,7 +1041,12 @@ export class VideoPlayer {
     const complete = this.publishedTracks.some((t) => t.id === id && t.complete);
     this.progressNote.hidden = !draft || complete;
     if (draft && !complete) {
-      this.progressNote.textContent = `${draft.state === 'complete' ? 'Finalizing transcript' : draft.state === 'failed' ? (draft.restartRequired ? 'Transcription needs a different window policy' : 'Transcription needs a retry') : draft.state === 'paused' ? 'Transcription paused' : 'Generating transcript'} · ${formatMediaTime(draft.coverage)} of ${formatMediaTime(draft.duration)} processed. ${draft.track.cues.length ? 'Accepted lines are available below.' : 'No accepted lines are ready yet.'} This track is not complete.`;
+      const lines = draft.track.cues.length
+        ? draft.provisional
+          ? 'Draft lines are available below; some may change after boundary repair.'
+          : 'Accepted lines are available below.'
+        : 'No accepted lines are ready yet.';
+      this.progressNote.textContent = `${draft.state === 'complete' ? 'Finalizing transcript' : draft.state === 'failed' ? (draft.restartRequired ? 'Transcription needs a different window policy' : 'Transcription needs a retry') : draft.state === 'paused' ? 'Transcription paused' : 'Generating transcript'} · ${formatMediaTime(draft.coverage)} of ${formatMediaTime(draft.duration)} processed. ${lines} This track is not complete.`;
     }
     const cues = complete
       ? []

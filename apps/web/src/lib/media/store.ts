@@ -286,7 +286,8 @@ export class MediaStore {
               job.language === draft.language &&
               job.audioTrack === draft.audioTrack &&
               job.modelSha256 === draft.modelSha256 &&
-              job.engineRevision === draft.engineRevision
+              job.engineRevision === draft.engineRevision &&
+              job.sparse?.policy === draft.sparse?.policy
           );
           if (existing) {
             done(existing);

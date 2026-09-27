@@ -9,7 +9,7 @@ import { jobCanResume, type Job } from './jobs.js';
 import { MOSS } from './model-cache.js';
 import { coreEnd, SAMPLE_RATE } from './moss-progressive.js';
 import { planWindows } from './moss-output.js';
-import { sparseCoverage } from './sparse-transcription.js';
+import { safeSparseCues, sparseCoverage } from './sparse-transcription.js';
 
 /** Device-only view of a durable job. Never saved as a caption manifest or synced. */
 export interface TranscriptionDraft {
@@ -18,9 +18,11 @@ export interface TranscriptionDraft {
   duration: number;
   state: Job['status'];
   restartRequired: boolean;
+  provisional: boolean;
   pending: Cue[];
 }
 export function transcriptionDraft(job: Job): TranscriptionDraft | undefined {
+  const visible = job.sparse ? safeSparseCues(job.sparse, job.duration) : job.cues;
   const coverage =
     job.version === 3 && !job.sparse
       ? job.duration
@@ -40,14 +42,14 @@ export function transcriptionDraft(job: Job): TranscriptionDraft | undefined {
       kind: 'transcription',
       origin: 'generated',
       label: `${job.language} · MOSS · In progress`,
-      cues: job.cues,
+      cues: visible,
       complete: false,
       forced: false,
       createdAt: job.createdAt,
       provenance: {
         engine:
           job.version === 3
-            ? `moss-transcribe.cpp/${job.sparse?.policy ?? 'overlap-sparse-v1'}`
+            ? `moss-transcribe.cpp/${job.sparse?.policy ?? 'overlap-sparse'}`
             : job.progressive
               ? `moss-transcribe.cpp/${job.progressive.policy}`
               : 'moss-transcribe.cpp',
@@ -66,6 +68,7 @@ export function transcriptionDraft(job: Job): TranscriptionDraft | undefined {
     duration: job.duration,
     state: job.status,
     restartRequired: job.status === 'failed' && !jobCanResume(job),
+    provisional: job.sparse?.policy === 'overlap-sparse-v2' && visible.length > job.cues.length,
     pending: job.progressive?.tail ?? []
   };
 }
