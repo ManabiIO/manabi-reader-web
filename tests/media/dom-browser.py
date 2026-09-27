@@ -865,7 +865,21 @@ def main():
             page.wait_for_function('!player.video.paused')
             assert page.evaluate('sparseJob.sparse.windows[1]===null')
             assert page.locator('[aria-label="Transcript track"]').input_value()==page.evaluate('trackId')
-        case('one safe sparse window starts playback after its accepted draft is visible',sparse_waits_for_visible_captions)
+            page.evaluate("sparseJob.status='paused';player.generationProgress(sparseJob)")
+            assert not page.evaluate('player.video.paused'), 'accepted captions stay playable while inference is paused'
+            page.evaluate("""()=>{
+                sparseJob.status='running';
+                player.video.currentTime=7;
+                sparseJob.sparse.windows[0]={cues:[...sparseJob.cues,
+                    {id:'w0/cue-1',start:8,end:27,text:'境界をまたぐ文'}],inferenceMs:40000};
+                player.generationProgress(sparseJob);
+            }""")
+            page.wait_for_function('player.video.paused && player.waitForCaptions')
+            assert page.get_by_role('button',name='Play without captions',exact=True).is_visible()
+            assert 'Estimated wait' in page.locator('.video-viewing [role=status]').all_inner_texts()[-1]
+            page.get_by_role('button',name='Play without captions',exact=True).click()
+            page.wait_for_function('!player.video.paused')
+        case('one safe sparse window starts playback and later rebuffering offers a bypass',sparse_waits_for_visible_captions)
         def sparse_completion_waits_for_publication():
             page.evaluate("""async()=>{
                 await createPlayer();

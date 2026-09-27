@@ -72,6 +72,7 @@ export class VideoPlayer {
   private publishedTracks: Track[] = [];
   private temporaryTracks: Track[] = [];
   private activeJob?: Job;
+  private followGeneratedCaptions = false;
   private waitForCaptions = false;
   private resumeAfterBuffer = false;
   private bufferStatus = element('p');
@@ -401,6 +402,13 @@ export class VideoPlayer {
     this.video.addEventListener(
       'play',
       () => {
+        // Native video controls also let the viewer bypass a caption wait.
+        if (this.waitForCaptions) {
+          this.followGeneratedCaptions = false;
+          this.waitForCaptions = false;
+          this.resumeAfterBuffer = false;
+          this.updateBuffering();
+        }
         this.linePause.reset();
         this.touched = true;
         this.loop();
@@ -873,23 +881,33 @@ export class VideoPlayer {
     this.updateBuffering();
   }
   private waitForBuffer() {
+    this.followGeneratedCaptions = true;
     this.waitForCaptions = true;
     this.resumeAfterBuffer = !this.video.paused;
     this.video.pause();
     this.updateBuffering();
   }
   private bypassCaptions() {
+    this.followGeneratedCaptions = false;
     this.waitForCaptions = false;
     this.resumeAfterBuffer = false;
     this.updateBuffering();
     void this.video.play().catch((error) => this.error(error));
+  }
+  private pauseAtCaptionGap() {
+    if (!this.followGeneratedCaptions || this.waitForCaptions || this.video.paused) return;
+    this.waitForCaptions = true;
+    this.resumeAfterBuffer = true;
+    this.video.pause();
+    this.bypassButton.hidden = false;
+    this.waitButton.hidden = true;
   }
   private updateBuffering() {
     const job = this.activeJob;
     const state = job?.sparse;
     const published =
       !!job && this.publishedTracks.some((track) => track.id === job.id && track.complete);
-    const active = !!state && (!published || job.status !== 'complete');
+    const active = !!state && !published;
     this.bufferStatus.hidden = !active;
     this.bypassButton.hidden = !active || !this.waitForCaptions;
     this.waitButton.hidden =
@@ -904,17 +922,6 @@ export class VideoPlayer {
       }
       return;
     }
-    if (job.status === 'complete') {
-      this.bufferStatus.textContent = 'Finalizing captions. You can play without captions.';
-      return;
-    }
-    if (job.status === 'paused' || job.status === 'failed') {
-      this.bufferStatus.textContent =
-        job.status === 'paused'
-          ? 'Transcription paused. Resume it in the queue or play without captions.'
-          : 'Transcription failed. You can play without captions.';
-      return;
-    }
     const position = Math.min(job.duration, this.video.currentTime || 0);
     const lead = sparseLead(state, job.duration, position);
     // Leave two halo widths of lead so playback started near zero can use the
@@ -923,6 +930,20 @@ export class VideoPlayer {
       SPARSE_CORE_SECONDS - 2 * SPARSE_CONTEXT_SECONDS,
       job.duration - position
     );
+    const nearGap = lead < needed && lead <= SPARSE_CONTEXT_SECONDS;
+    if (job.status === 'complete') {
+      if (nearGap) this.pauseAtCaptionGap();
+      this.bufferStatus.textContent = 'Finalizing captions. You can play without captions.';
+      return;
+    }
+    if (job.status === 'paused' || job.status === 'failed') {
+      if (nearGap) this.pauseAtCaptionGap();
+      this.bufferStatus.textContent =
+        job.status === 'paused'
+          ? 'Transcription paused. Resume it in the queue or play without captions.'
+          : 'Transcription failed. You can play without captions.';
+      return;
+    }
     const samples = state.windows.flatMap((window, index) => {
       if (!window) return [];
       const bounds = sparseBounds(index, job.duration);
@@ -946,6 +967,7 @@ export class VideoPlayer {
     const awaitingDraft =
       this.waitForCaptions && (!draft || cueDigest(draft.track.cues) !== cueDigest(job.cues));
     const missing = lead < needed || awaitingDraft;
+    if (nearGap) this.pauseAtCaptionGap();
     const repairing = lead < needed && !missingWindows.length;
     const workSeconds =
       missingWindows.reduce((sum, index) => {
@@ -1141,6 +1163,14 @@ export class VideoPlayer {
     this.secondaryDelay.disabled = !this.secondary.value;
   }
   private trackChanged() {
+    if (this.followGeneratedCaptions && this.primary.value !== this.activeJob?.id) {
+      const resume = this.waitForCaptions && this.resumeAfterBuffer;
+      this.followGeneratedCaptions = false;
+      this.waitForCaptions = false;
+      this.resumeAfterBuffer = false;
+      this.updateBuffering();
+      if (resume) void this.video.play().catch((error) => this.error(error));
+    }
     this.updateSetup();
     // render() resets listening state only when its actual timeline/delay changes.
     this.pageIndex = 0;
