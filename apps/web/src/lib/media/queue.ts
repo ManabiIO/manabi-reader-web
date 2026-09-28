@@ -446,7 +446,11 @@ export class TranscriptionQueue {
       this.active?.id === id && (this.active === activeAtStart || this.active.admission === token)
         ? this.active
         : undefined;
-    if (!active) return revoked;
+    if (!active) {
+      if (!this.active && !this.admitted.size && this.lockWait === this.batch)
+        this.batch?.abort(new DOMException('No local transcription jobs remain', 'AbortError'));
+      return revoked;
+    }
     let paused = false,
       writeFailed = true;
     try {
