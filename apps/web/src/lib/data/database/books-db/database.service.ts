@@ -16,6 +16,7 @@ import {
 import { commitTransaction, explainBookStorageError } from './commit-transaction.mjs';
 import { matchesDirectImportIdentity, normalizedDirectImportHash } from './direct-import-identity';
 import { snapshotBookmarkData } from './book-records';
+import { captureLibraryOperation } from '$lib/manabi/operation-scope';
 import type {
   BooksDbAudioBook,
   BooksDbBookData,
@@ -252,102 +253,133 @@ export class DatabaseService {
     removeStorageContext = true,
     signal?: AbortSignal
   ) {
-    throwIfAborted(signal);
-    // encodeBook takes its owned snapshot synchronously, before either the
-    // database promise or image reads can let the caller mutate the payload.
-    const encoding = encodeBook(data);
-    // Observe both failures immediately. A rejected database promise must not
-    // escape unhandled while an earlier image read is still pending.
-    const [stored, db] = await Promise.all([encoding, this.db]);
-    throwIfAborted(signal);
-    const tx = db.transaction('data', 'readwrite');
-    const abort = () => {
-      try {
-        tx.abort();
-      } catch {
-        /* A committed transaction cannot be undone. */
-      }
-    };
-    signal?.addEventListener('abort', abort, { once: true });
-    return commitTransaction(tx, async () => {
+    const scope = captureLibraryOperation();
+    try {
+      scope.assertCurrent();
       throwIfAborted(signal);
-      const { store } = tx;
-      // Exact bytes, not a mutable filename/title, identify a direct browser
-      // re-import. Scan in the write transaction so another tab cannot insert a
-      // second same-content history between selection and publication. Retain
-      // the narrower title index only for pre-hash legacy payloads.
-      let oldData: StoredBookData | undefined;
-      const incomingHash = normalizedDirectImportHash(stored.contentHash);
-      const remember = (candidate: StoredBookData) => {
-        if (!matchesDirectImportIdentity(candidate, stored)) return;
-        if (oldData)
-          throw new Error(
-            'This import matches multiple local copies. Resolve the copies in the Library ' +
-              'before importing again. No book was changed.'
-          );
-        oldData = candidate;
+      // encodeBook takes its owned snapshot synchronously, before either the
+      // database promise or image reads can let the caller mutate the payload.
+      const encoding = encodeBook(data);
+      // Observe both failures immediately. A rejected database promise must not
+      // escape unhandled while an earlier image read is still pending.
+      const [stored, db] = await Promise.all([encoding, this.db]);
+      scope.assertCurrent();
+      throwIfAborted(signal);
+      const tx = db.transaction(['data', 'readerBookScope'], 'readwrite');
+      const abort = () => {
+        try {
+          tx.abort();
+        } catch {
+          /* A committed transaction cannot be undone. */
+        }
       };
-      if (incomingHash) {
-        for (let cursor = await store.openCursor(); cursor; cursor = await cursor.continue()) {
+      signal?.addEventListener('abort', abort, { once: true });
+      scope.signal.addEventListener('abort', abort, { once: true });
+      return commitTransaction(tx, async () => {
+        scope.assertCurrent();
+        throwIfAborted(signal);
+        const store = tx.objectStore('data');
+        const ownerStore = tx.objectStore('readerBookScope');
+        // Exact bytes, not a mutable filename/title, identify a direct browser
+        // re-import. Scan in the write transaction so another tab cannot insert a
+        // second same-content history between selection and publication. Retain
+        // the narrower title index only for pre-hash legacy payloads.
+        let oldData: StoredBookData | undefined;
+        const incomingHash = normalizedDirectImportHash(stored.contentHash);
+        const remember = async (candidate: StoredBookData) => {
+          if (!matchesDirectImportIdentity(candidate, stored)) return;
+          const readerOwner = await ownerStore.get(candidate.id);
+          scope.assertCurrent();
           throwIfAborted(signal);
-          remember(cursor.value);
+          if (
+            !matchesDirectImportIdentity(
+              { ...candidate, readerOwner: readerOwner?.accountId },
+              stored,
+              scope.profileId
+            )
+          )
+            return;
+          if (oldData)
+            throw new Error(
+              'This import matches multiple local copies. Resolve the copies in the Library ' +
+                'before importing again. No book was changed.'
+            );
+          oldData = candidate;
+        };
+        if (incomingHash) {
+          for (let cursor = await store.openCursor(); cursor; cursor = await cursor.continue()) {
+            scope.assertCurrent();
+            throwIfAborted(signal);
+            await remember(cursor.value);
+          }
+        } else {
+          for (
+            let cursor = await store.index('title').openCursor(stored.title);
+            cursor;
+            cursor = await cursor.continue()
+          ) {
+            scope.assertCurrent();
+            throwIfAborted(signal);
+            await remember(cursor.value);
+          }
         }
-      } else {
-        for (
-          let cursor = await store.index('title').openCursor(stored.title);
-          cursor;
-          cursor = await cursor.continue()
-        ) {
-          throwIfAborted(signal);
-          remember(cursor.value);
-        }
-      }
 
-      if (oldData) {
-        if (
-          saveBehavior === ReplicationSaveBehavior.NewOnly &&
-          oldData.lastBookModified &&
-          stored.lastBookModified &&
-          oldData.lastBookModified >= stored.lastBookModified &&
-          (oldData.lastBookOpen || 0) >= (stored.lastBookOpen || 0)
-        ) {
-          // No write means no source-context change, including in the reply.
-          return decodeBook(oldData);
+        if (oldData) {
+          if (
+            saveBehavior === ReplicationSaveBehavior.NewOnly &&
+            oldData.lastBookModified &&
+            stored.lastBookModified &&
+            oldData.lastBookModified >= stored.lastBookModified &&
+            (oldData.lastBookOpen || 0) >= (stored.lastBookOpen || 0)
+          ) {
+            // No write means no source-context change, including in the reply.
+            return decodeBook(oldData);
+          }
+          const replacement = {
+            ...stored,
+            id: oldData.id,
+            // Exact-byte direct reimports may arrive under a different filename
+            // (TXT derives its parsed title from that filename). The established
+            // logical title also keys legacy side stores, so do not silently
+            // rename those records as a side effect of identity reuse.
+            title: oldData.title,
+            libraryOwner: oldData.libraryOwner ?? stored.libraryOwner,
+            ...(skipTimestampFallback
+              ? { lastBookModified: stored.lastBookModified, lastBookOpen: stored.lastBookOpen }
+              : {
+                  lastBookModified: stored.lastBookModified || oldData.lastBookModified,
+                  lastBookOpen: stored.lastBookOpen || oldData.lastBookOpen
+                }),
+            ...(removeStorageContext ? { storageSource: undefined } : {})
+          };
+          scope.assertCurrent();
+          throwIfAborted(signal);
+          await store.put(replacement);
+          return decodeBook(replacement);
         }
-        const replacement = {
+
+        const created = {
           ...stored,
-          id: oldData.id,
-          // Exact-byte direct reimports may arrive under a different filename
-          // (TXT derives its parsed title from that filename). The established
-          // logical title also keys legacy side stores, so do not silently
-          // rename those records as a side effect of identity reuse.
-          title: oldData.title,
-          libraryOwner: oldData.libraryOwner ?? stored.libraryOwner,
-          ...(skipTimestampFallback
-            ? { lastBookModified: stored.lastBookModified, lastBookOpen: stored.lastBookOpen }
-            : {
-                lastBookModified: stored.lastBookModified || oldData.lastBookModified,
-                lastBookOpen: stored.lastBookOpen || oldData.lastBookOpen
-              }),
           ...(removeStorageContext ? { storageSource: undefined } : {})
         };
-        await store.put(replacement);
-        return decodeBook(replacement);
-      }
-
-      const created = {
-        ...stored,
-        ...(removeStorageContext ? { storageSource: undefined } : {})
-      };
-      // Until https://github.com/jakearchibald/idb/issues/150 resolves
-      const id = await store.add(created as typeof created & { id: number });
-      return decodeBook({ ...created, id });
-    })
-      .catch((error) => {
+        scope.assertCurrent();
         throwIfAborted(signal);
-        throw explainBookStorageError(error);
+        // Until https://github.com/jakearchibald/idb/issues/150 resolves
+        const id = await store.add(created as typeof created & { id: number });
+        return decodeBook({ ...created, id });
       })
-      .finally(() => signal?.removeEventListener('abort', abort));
+        .catch((error) => {
+          scope.assertCurrent();
+          throwIfAborted(signal);
+          throw explainBookStorageError(error);
+        })
+        .finally(() => {
+          signal?.removeEventListener('abort', abort);
+          scope.signal.removeEventListener('abort', abort);
+        });
+    } finally {
+      scope.stop();
+    }
   }
 
   async deleteData(
