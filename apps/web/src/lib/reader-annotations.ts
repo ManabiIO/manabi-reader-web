@@ -228,6 +228,8 @@ export async function importReaderAnnotations(
       if (owner && owner.accountId !== accountId)
         throw new Error('This annotation belongs to another account.');
       if (existing) {
+        if (existing.bookKey !== annotation.bookKey)
+          throw new Error('An annotation ID cannot refer to another book.');
         if (
           !existing.deletedAt &&
           JSON.stringify(validateImportedAnnotation(existing)) === JSON.stringify(annotation)
@@ -307,10 +309,13 @@ export async function resolveAnnotationImportConflict(
   );
   const conflict = await tx.objectStore('readerConflict').get(id);
   if (!conflict) return;
+  if (id !== `import:${conflict.local.id}`) throw new Error('Invalid archive conflict.');
   const existingOwner = await tx.objectStore('readerAnnotationScope').get(conflict.local.id);
+  assertCurrentAccount(accountId);
   if (existingOwner && existingOwner.accountId !== accountId)
     throw new Error('This annotation belongs to another account.');
   const current = await tx.objectStore('readerAnnotation').get(conflict.local.id);
+  assertCurrentAccount(accountId);
   if (
     !current ||
     current.revision !== conflict.local.revision ||
@@ -320,8 +325,15 @@ export async function resolveAnnotationImportConflict(
       'The local note changed. Import the archive again to review the latest version.'
     );
   if (choice === 'restore-archive') {
+    const remote = validateImportedAnnotation(conflict.remote);
+    if (
+      conflict.local.bookKey !== current.bookKey ||
+      remote.id !== current.id ||
+      remote.bookKey !== current.bookKey
+    )
+      throw new Error('An annotation cannot move to another book.');
     const value: ReaderAnnotation = {
-      ...conflict.remote,
+      ...remote,
       revision: current.revision + 1,
       modifiedAt: new Date().toISOString(),
       deletedAt: undefined

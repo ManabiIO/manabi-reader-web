@@ -42,9 +42,9 @@ function load(url) {
 }
 
 const localBook = 'local:11111111-1111-4111-8111-111111111111';
-const locator = () => ({
+const locator = (bookKey = localBook) => ({
   version: 1,
-  bookKey: localBook,
+  bookKey,
   resource: { href: 'chapter.xhtml', spineIndex: 0, sectionId: 'ttu-epub-0' },
   projectionVersion: 2,
   resourceDigest: 'a'.repeat(64),
@@ -144,4 +144,55 @@ test('portable annotation validation rejects unsupported locator projections', (
     revision: 1
   };
   assert.throws(() => validateImportedAnnotation(annotation), /invalid reading location/i);
+});
+
+
+test('annotation import refuses an ID collision across different books', async () => {
+  profile = undefined;
+  const existingBook = localBook;
+  const incomingBook = 'local:44444444-4444-4444-8444-444444444444';
+  const id = '55555555-5555-4555-8555-555555555555';
+  const annotation = (bookKey) => ({
+    id,
+    bookKey,
+    kind: 'bookmark',
+    targets: [locator(bookKey)],
+    createdAt: '2026-09-28T12:00:00.000Z',
+    modifiedAt: '2026-09-28T12:00:00.000Z',
+    revision: 1
+  });
+  const existing = annotation(existingBook);
+  let conflicts = 0;
+  const tx = {
+    objectStore: (name) => ({
+      get: async () =>
+        name === 'readerAnnotation'
+          ? existing
+          : undefined,
+      put: async () => {
+        if (name === 'readerConflict') conflicts += 1;
+      }
+    }),
+    abort: () => {},
+    done: Promise.resolve()
+  };
+  database = {
+    db: Promise.resolve({
+      transaction: () => tx
+    })
+  };
+  modules.clear();
+  const { importReaderAnnotations } = load(new URL('reader-annotations.ts', root));
+  await assert.rejects(
+    importReaderAnnotations(
+      JSON.stringify({
+        format: 'manabi-reader-annotations',
+        version: 1,
+        annotations: [annotation(incomingBook)]
+      }),
+      null
+    ),
+    /another book/i
+  );
+  assert.equal(conflicts, 0);
 });
