@@ -54,7 +54,7 @@
   function seriesValue() {
     return seriesName.trim()
       ? {
-          name: seriesName.trim().normalize('NFC'),
+          name: seriesName.replace(/\s+/gu, ' ').trim().normalize('NFC'),
           ...(seriesIndex.trim() ? { index: Number(seriesIndex) } : {})
         }
       : null;
