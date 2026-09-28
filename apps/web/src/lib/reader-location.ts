@@ -180,6 +180,14 @@ export function rangeAt(
   start: number,
   end = start
 ): Range | undefined {
+  if (
+    !Number.isSafeInteger(start) ||
+    !Number.isSafeInteger(end) ||
+    start < 0 ||
+    end < start ||
+    end > codePointLength(resource.text)
+  )
+    return undefined;
   if (!resource.runs.length && start === 0 && end === 0) {
     const range = resource.element.ownerDocument.createRange();
     range.selectNodeContents(resource.element);
@@ -244,7 +252,7 @@ export async function makeLocator(
   return {
     version: 1,
     bookKey,
-    resource: projected.resource,
+    resource: { ...projected.resource },
     projectionVersion: readerProjectionVersion,
     resourceDigest: await resourceDigest(text),
     start,
@@ -262,51 +270,67 @@ export async function resolveLocator(
   bookKey: string
 ): Promise<{ start: number; end: number } | undefined> {
   if (
+    !locator ||
     locator.version !== 1 ||
     locator.bookKey !== bookKey ||
+    !locator.resource ||
+    !Number.isSafeInteger(locator.resource.spineIndex) ||
+    locator.resource.spineIndex < 0 ||
     locator.resource.spineIndex !== projected.resource.spineIndex ||
-    locator.resource.href !== projected.resource.href
+    typeof locator.resource.href !== 'string' ||
+    locator.resource.href !== projected.resource.href ||
+    !Number.isSafeInteger(locator.projectionVersion) ||
+    locator.projectionVersion < 1 ||
+    !Number.isSafeInteger(locator.start) ||
+    !Number.isSafeInteger(locator.end) ||
+    locator.start < 0 ||
+    locator.end < locator.start ||
+    typeof locator.resourceDigest !== 'string' ||
+    typeof locator.quote !== 'string' ||
+    typeof locator.prefix !== 'string' ||
+    typeof locator.suffix !== 'string'
   )
     return undefined;
-  const digest = await resourceDigest(projected.text);
+  // Own caller coordinates before hashing yields. A saved locator is a value,
+  // not authority for the caller to retarget a pending resolution by mutation.
+  locator = { ...locator, resource: { ...locator.resource } };
+  const text = projected.text;
+  const digest = await resourceDigest(text);
   if (
-    Number.isSafeInteger(locator.projectionVersion) &&
-    locator.projectionVersion > 0 &&
-    digest === locator.resourceDigest &&
-    locator.start >= 0 &&
-    locator.end >= locator.start &&
-    locator.end <= codePointLength(projected.text)
+    projected.text !== text ||
+    projected.resource.spineIndex !== locator.resource.spineIndex ||
+    projected.resource.href !== locator.resource.href
   )
+    return undefined;
+  if (digest === locator.resourceDigest && locator.end <= codePointLength(text))
     return { start: locator.start, end: locator.end };
   const candidates: number[] = [];
   if (!locator.quote) {
     if (!locator.prefix && !locator.suffix)
-      return projected.text.length === 0 ? { start: 0, end: 0 } : undefined;
+      return text.length === 0 ? { start: 0, end: 0 } : undefined;
     if (locator.suffix) {
       let index = -1;
-      while ((index = projected.text.indexOf(locator.suffix, index + 1)) >= 0) {
-        if (
-          projected.text.slice(Math.max(0, index - locator.prefix.length), index) === locator.prefix
-        )
+      while ((index = text.indexOf(locator.suffix, index + 1)) >= 0) {
+        if (text.slice(Math.max(0, index - locator.prefix.length), index) === locator.prefix)
           candidates.push(index);
         if (candidates.length > 1) return undefined;
       }
     } else {
       let index = -1;
-      while ((index = projected.text.indexOf(locator.prefix, index + 1)) >= 0) {
+      while ((index = text.indexOf(locator.prefix, index + 1)) >= 0) {
         candidates.push(index + locator.prefix.length);
         if (candidates.length > 1) return undefined;
       }
     }
     if (candidates.length !== 1) return undefined;
-    const point = codePointLength(projected.text.slice(0, candidates[0]));
+    const point = codePointLength(text.slice(0, candidates[0]));
     return { start: point, end: point };
   }
   let index = -1;
-  while ((index = projected.text.indexOf(locator.quote, index + 1)) >= 0) {
+  while ((index = text.indexOf(locator.quote, index + 1)) >= 0) {
     if (
-      projected.text.slice(Math.max(0, index - locator.prefix.length), index) === locator.prefix &&
-      projected.text.slice(
+      text.slice(Math.max(0, index - locator.prefix.length), index) === locator.prefix &&
+      text.slice(
         index + locator.quote.length,
         index + locator.quote.length + locator.suffix.length
       ) === locator.suffix
@@ -315,6 +339,6 @@ export async function resolveLocator(
     if (candidates.length > 1) return undefined;
   }
   if (candidates.length !== 1) return undefined;
-  const start = codePointLength(projected.text.slice(0, candidates[0]));
+  const start = codePointLength(text.slice(0, candidates[0]));
   return { start, end: start + codePointLength(locator.quote) };
 }
