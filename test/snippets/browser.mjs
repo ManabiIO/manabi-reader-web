@@ -254,6 +254,12 @@ try {
     'Snippets workspace must not overflow horizontally at 320px / 200% text'
   );
   await expect(page.getByRole('button', { name: 'Navigate', exact: true })).toBeVisible();
+  const largeTextEvidence = process.env.SNIPPETS_SCREENSHOT;
+  if (largeTextEvidence) {
+    const largeTextPath = largeTextEvidence.replace(/\.png$/i, '-large-text.png');
+    await mkdir(dirname(largeTextPath), { recursive: true });
+    await page.screenshot({ path: largeTextPath, fullPage: true });
+  }
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.evaluate(() => {
     document.documentElement.style.fontSize = '';
@@ -361,6 +367,7 @@ try {
   await sourceSelect.selectOption({ label: 'dropbox · Dropbox snippets' });
   const rootCrumb = picker.getByRole('button', { name: 'Dropbox snippets', exact: true });
   await expect(rootCrumb).toHaveAttribute('data-slot', 'button');
+  await expect(rootCrumb).toHaveAttribute('aria-current', 'page');
   assert((await rootCrumb.boundingBox()).height >= 43.99);
   await picker.getByRole('checkbox', { name: 'Use this location for new snippets' }).check();
   await picker.getByRole('button', { name: 'Use this folder', exact: true }).click();

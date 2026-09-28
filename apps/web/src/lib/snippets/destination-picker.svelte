@@ -160,6 +160,7 @@
           variant="link"
           size="sm"
           class="min-h-11 px-1"
+          aria-current={index === trail.length - 1 ? 'page' : undefined}
           disabled={busy}
           onclick={() => {
             trail = trail.slice(0, index);
@@ -219,8 +220,9 @@
         {capabilities.reason ||
           'This source is read-only. Authorize document editing to save here.'}
       </p>
-      {#if selected.provider !== 'webdav' && !capabilities.reason}<Button onclick={grant}
-          >Allow document editing</Button
+      {#if selected.provider !== 'webdav' && !capabilities.reason}<Button
+          disabled={busy}
+          onclick={grant}>Allow document editing</Button
         >{/if}
       {#if selected.provider === 'google'}<p>
           Google will request access to files in your Drive so Manabi can edit documents inside your
@@ -294,5 +296,8 @@
   }
   p {
     color: var(--muted-foreground);
+  }
+  [role='alert'] {
+    color: var(--destructive);
   }
 </style>
