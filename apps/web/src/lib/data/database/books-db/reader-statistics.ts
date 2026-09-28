@@ -280,19 +280,43 @@ function statisticLegacyAssignment(
  */
 export async function statisticIdentityPlan(
   db: IDBPDatabase<BooksDb>,
-  bookId: number
+  bookId: number,
+  guard?: StatisticsMigrationGuard
 ): Promise<StatisticIdentityPlan> {
+  guard?.assertCurrent();
+  guard?.signal.throwIfAborted();
   if (!Number.isSafeInteger(bookId) || bookId <= 0)
     throw new Error('The selected statistics book is invalid.');
   const book = await db.get('data', bookId);
+  guard?.assertCurrent();
+  guard?.signal.throwIfAborted();
   if (!book) throw new Error('The selected statistics book no longer exists.');
   const snapshot = { id: book.id, title: book.title, contentHash: book.contentHash };
-  const bookKey = await migrateLegacyStatistics(db, snapshot);
-  const [current, local, receipt] = await Promise.all([
+  const migrationGuard = guard
+    ? {
+        ...guard,
+        validate(current: BooksDb['data']['value'] | undefined, owner: BooksDb['readerBookScope']['value'] | undefined) {
+          guard.validate(current, owner);
+          if (
+            current &&
+            (current.title !== snapshot.title || current.contentHash !== snapshot.contentHash)
+          )
+            throw new Error(
+              'The selected statistics book changed. Refresh the Library and try again.'
+            );
+        }
+      }
+    : undefined;
+  const bookKey = await migrateLegacyStatistics(db, snapshot, migrationGuard);
+  const [current, local, receipt, owner] = await Promise.all([
     db.get('data', bookId),
     db.get('readerLocalIdentity', bookId),
-    db.get('readerStatisticMigration', snapshot.title)
+    db.get('readerStatisticMigration', snapshot.title),
+    guard ? db.get('readerBookScope', bookId) : Promise.resolve(undefined)
   ]);
+  guard?.assertCurrent();
+  guard?.signal.throwIfAborted();
+  guard?.validate(current, owner);
   if (
     !current ||
     current.title !== snapshot.title ||
