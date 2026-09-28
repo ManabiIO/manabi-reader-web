@@ -10,6 +10,7 @@ on:
       - 'apps/web/src/lib/media/moss-*.ts'
       - 'apps/web/src/lib/media/model-cache.ts'
       - 'tests/media/asr*'
+      - 'tests/media/thread-sweep.py'
       - 'tests/media/encoded*'
       - 'tests/media/test_encoded_asr.py'
       - 'apps/web/src/lib/manabi/media-runtime.ts'
@@ -148,6 +149,10 @@ jobs:
             done
           done
           exit "$status"
+      - name: Measure 2/4/8-thread policy on the exact checked-in runtime
+        if: ${{ !cancelled() && steps.identity.outcome == 'success' }}
+        run: |
+          python tests/media/thread-sweep.py --fixture "$JA_FIXTURE" --language ja             --output test-results/media-packaged/thread-sweep-ja.json             2>&1 | tee test-results/media-packaged/thread-sweep-ja.log
       - name: Recognize pinned natural speech using the checked-in threaded runtime
         if: ${{ !cancelled() && steps.identity.outcome == 'success' }}
         run: |
