@@ -236,14 +236,7 @@ export async function importReaderAnnotations(
   );
   const db = await database.db;
   const tx = db.transaction(
-    [
-      'data',
-      'readerBookScope',
-      'readerAnnotation',
-      'readerAnnotationOutbox',
-      'readerConflict',
-      'readerAnnotationScope'
-    ],
+    ['readerAnnotation', 'readerAnnotationOutbox', 'readerConflict', 'readerAnnotationScope'],
     'readwrite'
   );
   const result = { imported: 0, alreadyPresent: 0, conflicts: 0 };
@@ -338,11 +331,21 @@ export async function resolveAnnotationImportConflict(
   if (!id.startsWith('import:')) throw new Error('Invalid archive conflict.');
   const db = await database.db;
   const tx = db.transaction(
-    ['readerAnnotation', 'readerAnnotationOutbox', 'readerConflict', 'readerAnnotationScope'],
+    [
+      'data',
+      'readerBookScope',
+      'readerAnnotation',
+      'readerAnnotationOutbox',
+      'readerConflict',
+      'readerAnnotationScope'
+    ],
     'readwrite'
   );
   const conflict = await tx.objectStore('readerConflict').get(id);
-  if (!conflict) return;
+  if (!conflict) {
+    await tx.done;
+    return;
+  }
   if (id !== `import:${conflict.local.id}`) throw new Error('Invalid archive conflict.');
   const existingOwner = await tx.objectStore('readerAnnotationScope').get(conflict.local.id);
   assertCurrentAccount(accountId);
