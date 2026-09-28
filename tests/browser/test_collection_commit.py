@@ -111,6 +111,76 @@ class CollectionCommitBrowser(LibraryBase):
         expect(self.page.get_by_role('button', name='Read Finished selection', exact=True)).to_have_count(0)
 
 
+    def test_initial_organization_read_abort_keeps_membership_and_allows_retry(self):
+        self.import_book('Read abort book')
+        self.add_collection('Read abort book', 'Existing shelf')
+        expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute(
+            'aria-busy', 'false'
+        )
+        rows = self.stores('manabi-reader-integrations', ['metadata'])['metadata']
+        before = next(row for row in rows if row.get('version') == 1 and 'collections' in row)
+        self.menu('Read abort book', 'Add to Collection…')
+        dialog = self.dialog()
+        field = dialog.get_by_label('New collection name', exact=True)
+        field.fill('Retry shelf')
+        # Fault injection aborts a real native transaction at its first read.
+        # It does not replace storage, synthesize a successful write, or touch
+        # previously committed records. The second user submission is explicit.
+        self.page.evaluate('''() => {
+          const original = IDBObjectStore.prototype.get;
+          window.__organizationReadAbortCount = 0;
+          IDBObjectStore.prototype.get = function (...args) {
+            const request = original.apply(this, args);
+            if (window.__organizationReadAbortCount === 0 &&
+                this.transaction.db.name === 'manabi-reader-integrations' &&
+                this.transaction.mode === 'readwrite' && this.name === 'metadata' &&
+                args[0] === 'books-organization-v1') {
+              window.__organizationReadAbortCount++;
+              this.transaction.abort();
+            }
+            return request;
+          };
+        }''')
+        dialog.get_by_role('button', name='Create', exact=True).click()
+        expect(dialog.get_by_role('alert')).to_contain_text('The library change could not be saved')
+        expect(field).to_have_value('Retry shelf')
+        expect(dialog.get_by_role('checkbox', name='Retry shelf', exact=True)).to_have_count(0)
+        self.assertEqual(1, self.page.evaluate('window.__organizationReadAbortCount'))
+        rows = self.stores('manabi-reader-integrations', ['metadata'])['metadata']
+        after = next(row for row in rows if row.get('version') == 1 and 'collections' in row)
+        self.assertEqual(before, after)
+        self.assertEqual([], self.errors)
+        dialog.get_by_role('button', name='Create', exact=True).click()
+        expect(dialog.get_by_role('checkbox', name='Retry shelf', exact=True)).to_be_checked()
+        expect(dialog.get_by_role('checkbox', name='Existing shelf', exact=True)).to_be_checked()
+        dialog.get_by_role('button', name='Done', exact=True).click()
+        self.page.reload()
+        self.choose_collection('Retry shelf')
+        expect(self.page.get_by_role('button', name='Read Read abort book', exact=True)).to_be_visible()
+        self.assertEqual([], self.errors)
+
+    def test_denied_organization_channel_does_not_disable_local_collections(self):
+        self.import_book('Local messaging book')
+        # Deny only organization notifications; other app channels are unchanged.
+        # The native browser database and compiled Svelte UI still perform all I/O.
+        self.context.add_init_script('''(() => {
+          const NativeChannel = window.BroadcastChannel;
+          window.BroadcastChannel = new Proxy(NativeChannel, {
+            construct(Target, args) {
+              if (args[0] === 'books-organization-v1')
+                throw new DOMException('Messaging denied by fixture', 'SecurityError');
+              return Reflect.construct(Target, args);
+            }
+          });
+        })()''')
+        self.go_library()
+        self.add_collection('Local messaging book', 'Local shelf')
+        self.page.reload()
+        self.choose_collection('Local shelf')
+        expect(self.page.get_by_role('button', name='Read Local messaging book', exact=True)).to_be_visible()
+        self.assertEqual([], self.errors)
+
+
 # Each fresh-profile run is independently required; these are not retries.
 for method in ('pointer', 'keyboard'):
     for attempt in range(1, 5):
