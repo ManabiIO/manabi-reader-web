@@ -70,6 +70,8 @@ test('bounded import never splits an astral character or treats HTML as executab
 });
 test('series names and fractional volume numbers are bounded; explicit removal is valid', () => {
   assert.equal(validBookSeries({ name: 'Series', index: 2.5 }), true);
+  assert.equal(validBookSeries({ name: 'My   Series' }), false);
+  assert.equal(validBookSeries({ name: ' My Series' }), false);
   assert.equal(validBookSeries(null), true);
   for (const value of [
     { name: '' },
