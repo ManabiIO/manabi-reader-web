@@ -17,7 +17,13 @@ export function containModalTab(event: KeyboardEvent) {
   const node = event.currentTarget;
   if (!(node instanceof HTMLElement)) return;
   pendingTabs.get(node)?.();
-  if (event.key !== 'Tab' || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey)
+  if (
+    event.key !== 'Tab' ||
+    event.defaultPrevented ||
+    event.altKey ||
+    event.ctrlKey ||
+    event.metaKey
+  )
     return;
   const target = event.target;
   if (target instanceof Element && target.closest(modalSelector) !== node) return;
@@ -26,7 +32,6 @@ export function containModalTab(event: KeyboardEvent) {
   if (!view) return;
   const backwards = event.shiftKey;
   const existingLayers = new Set([...document.querySelectorAll(layerSelector)].filter(isOpenLayer));
-  let frame: number | undefined;
 
   function isOpenLayer(element: Element) {
     return (
@@ -39,14 +44,14 @@ export function containModalTab(event: KeyboardEvent) {
   }
 
   function cancel() {
-    if (frame !== undefined) view!.cancelAnimationFrame(frame);
+    view!.cancelAnimationFrame(frame);
     document.removeEventListener('pointerdown', cancel, true);
     if (pendingTabs.get(node as HTMLElement) === cancel) pendingTabs.delete(node as HTMLElement);
   }
 
   pendingTabs.set(node, cancel);
   document.addEventListener('pointerdown', cancel, { capture: true, once: true });
-  frame = view.requestAnimationFrame(() => {
+  const frame = view.requestAnimationFrame(() => {
     cancel();
     // Bubble-phase handlers may cancel Tab after our capture handler ran.
     if (

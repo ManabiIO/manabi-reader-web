@@ -25,31 +25,31 @@ const candidates = [
 export function modalTabCandidates(container: HTMLElement): HTMLElement[] {
   const view = container.ownerDocument.defaultView;
   if (!view) return [];
-  return [...container.querySelectorAll<HTMLElement>(candidates)]
-    .filter((element) => {
-      if (
-        element.matches(':disabled, input[type="hidden"]') ||
-        element.closest('[inert], [hidden], [aria-hidden="true"]') ||
-        !element.getClientRects().length ||
-        view.getComputedStyle(element).visibility !== 'visible' ||
-        tabOrder(element) < 0
-      )
-        return false;
-      if (element.matches('details') && element.querySelector(':scope > summary')) return false;
-      if (element.matches('input[type="radio"]')) {
-        const radio = element as HTMLInputElement;
-        if (radio.name) {
-          const root = radio.getRootNode() as Document | ShadowRoot;
-          const checked = [...root.querySelectorAll<HTMLInputElement>('input[type="radio"]')].find(
-            (other) => other.name === radio.name && other.form === radio.form && other.checked
-          );
-          if (checked && checked !== radio) return false;
-        }
+  const eligible = [...container.querySelectorAll<HTMLElement>(candidates)].filter((element) => {
+    if (
+      element.matches(':disabled, input[type="hidden"]') ||
+      element.closest('[inert], [hidden], [aria-hidden="true"]') ||
+      !element.getClientRects().length ||
+      view.getComputedStyle(element).visibility !== 'visible' ||
+      tabOrder(element) < 0
+    )
+      return false;
+    if (element.matches('details') && element.querySelector(':scope > summary')) return false;
+    if (element.matches('input[type="radio"]')) {
+      const radio = element as HTMLInputElement;
+      if (radio.name) {
+        const root = radio.getRootNode() as Document | ShadowRoot;
+        const radios = root.querySelectorAll<HTMLInputElement>('input[type="radio"]');
+        const checked = [...radios].find(
+          (other) => other.name === radio.name && other.form === radio.form && other.checked
+        );
+        if (checked && checked !== radio) return false;
       }
-      return true;
-    })
-    // Sort is stable: positive tabindex precedes the zero-order document flow.
-    .sort((a, b) => (tabOrder(a) || Infinity) - (tabOrder(b) || Infinity));
+    }
+    return true;
+  });
+  // Sort is stable: positive tabindex precedes the zero-order document flow.
+  return eligible.sort((a, b) => (tabOrder(a) || Infinity) - (tabOrder(b) || Infinity));
 }
 
 function tabOrder(element: HTMLElement): number {
