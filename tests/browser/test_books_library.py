@@ -1279,9 +1279,12 @@ class BooksLibraryFilesystem(LibraryBase):
         before_completion = self.stores('books', ['bookmark'])['bookmark'][0]['completion']
 
         self.seed_files({'Different/Nested/Renamed.epub': original})
-        button = self.page.get_by_role('button', name='Read Browser identity', exact=True)
-        expect(button).to_have_count(1, timeout=30000)
-        expect(self.tile('Browser identity').locator('.progress-label')).to_have_text('Finished')
+        local = self.page.locator('.shelf-item').filter(
+            has=self.page.get_by_role('img', name='Local folder: Library fixture', exact=True))
+        button = local.get_by_role('button', name='Read Browser identity', exact=True)
+        expect(button).to_be_visible(timeout=30000)
+        expect(self.page.get_by_role('button', name='Read Browser identity', exact=True)).to_have_count(1)
+        expect(local.locator('.progress-label')).to_have_text('Finished')
         button.click()
         expect(self.page.locator('.book-content')).to_have_attribute(
             'aria-busy', 'false', timeout=30000)
