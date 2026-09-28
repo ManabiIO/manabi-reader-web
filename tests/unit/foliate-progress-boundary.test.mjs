@@ -62,7 +62,10 @@ const element = (localName, childNodes = [], attributes = {}) => ({
 });
 function fixture(length = 9) {
   const nodes = Array.from({ length }, () => text('あいうえ'));
-  const content = element('div', nodes.map((node) => element('p', [node])));
+  const content = element(
+    'div',
+    nodes.map((node) => element('p', [node]))
+  );
   return { nodes, content, progress: new FoliateCharacterProgress([content]) };
 }
 function range(nodes, first, last, startOffset = 0, endOffset = nodes[last].data.length) {
