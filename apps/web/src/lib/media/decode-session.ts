@@ -15,7 +15,6 @@ interface Session {
   signal: AbortSignal;
   controller: AbortController;
   stop: () => void;
-  raw: Promise<DecodePipeline>;
   ready: Promise<DecodePipeline>;
   pipeline?: DecodePipeline;
 }
@@ -27,28 +26,34 @@ interface Session {
  */
 export class DecodeSessionCache<Job extends { id: string }> {
   private sessions = new Map<string, Session>();
+  private closed = false;
 
   constructor(private open: (job: Job, signal: AbortSignal) => Promise<DecodePipeline>) {}
 
   private create(job: Job, signal: AbortSignal): Session {
+    // A caller can retain its job object. Retirement owns the ID admitted here,
+    // not a later mutation of that object while opening or decoding is pending.
+    const id = job.id;
     const controller = new AbortController();
-    const entry = {} as Session;
-    const externalAbort = () => this.retire(job.id, entry, signal.reason);
-    const stop = () => signal.removeEventListener('abort', externalAbort);
-    Object.assign(entry, {
+    const raw = Promise.resolve().then(() => {
+      // Opening is deliberately deferred. Cancel/Close can win before it starts.
+      controller.signal.throwIfAborted();
+      return this.open(job, controller.signal);
+    });
+    const externalAbort = () => this.retire(id, entry, signal.reason);
+    const entry: Session = {
       signal,
       controller,
-      stop,
-      raw: Promise.resolve().then(() => this.open(job, controller.signal)),
-      ready: undefined as unknown as Promise<DecodePipeline>
-    });
-    this.sessions.set(job.id, entry);
+      stop: () => signal.removeEventListener('abort', externalAbort),
+      ready: abortable(controller.signal, () => raw)
+    };
+    this.sessions.set(id, entry);
     signal.addEventListener('abort', externalAbort, { once: true });
     if (signal.aborted) externalAbort();
 
-    void entry.raw.then(
+    void raw.then(
       (pipeline) => {
-        if (controller.signal.aborted || this.sessions.get(job.id) !== entry) {
+        if (controller.signal.aborted || this.sessions.get(id) !== entry) {
           pipeline.dispose();
           return;
         }
@@ -58,9 +63,8 @@ export class DecodeSessionCache<Job extends { id: string }> {
         /* ready carries the authoritative open failure. */
       }
     );
-    entry.ready = abortable(controller.signal, () => entry.raw);
     void entry.ready.catch((error) => {
-      if (this.sessions.get(job.id) === entry) this.retire(job.id, entry, error);
+      if (this.sessions.get(id) === entry) this.retire(id, entry, error);
     });
     return entry;
   }
@@ -73,6 +77,7 @@ export class DecodeSessionCache<Job extends { id: string }> {
     signal: AbortSignal
   ): Promise<Float32Array> {
     signal.throwIfAborted();
+    if (this.closed) throw new Error('The decoder cache is closed');
     let entry = this.sessions.get(job.id);
     if (entry && entry.signal !== signal) {
       this.retire(
@@ -84,21 +89,27 @@ export class DecodeSessionCache<Job extends { id: string }> {
     }
     entry ??= this.create(job, signal);
     const pipeline = await entry.ready;
-    entry.controller.signal.throwIfAborted();
-    return await pipeline.decode(trackId, start, end, entry.controller.signal);
+    // Disposing a decoder does not guarantee that its pending promise settles.
+    // Detach the retired caller, observe late failure, and never return stale PCM.
+    return await abortable(entry.controller.signal, () =>
+      pipeline.decode(trackId, start, end, entry.controller.signal)
+    );
   }
-
 
   private retire(id: string, entry: Session, reason: unknown): void {
     if (this.sessions.get(id) === entry) this.sessions.delete(id);
     entry.stop();
+    const pipeline = entry.pipeline;
+    entry.pipeline = undefined;
     if (!entry.controller.signal.aborted) entry.controller.abort(reason);
-    entry.pipeline?.dispose();
+    pipeline?.dispose();
     // If open ignored cancellation and returns later, the raw observer above
     // sees the retired entry and disposes that late pipeline exactly once.
   }
 
   dispose(): void {
+    if (this.closed) return;
+    this.closed = true;
     for (const [id, entry] of [...this.sessions])
       this.retire(id, entry, new DOMException('Decoder cache closed', 'AbortError'));
   }
