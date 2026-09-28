@@ -152,8 +152,8 @@ export async function updateBookLastRead(
   db: IDBPDatabase<BooksDb>,
   id: number,
   timestamp: number,
-  profileId: string | null,
-  assertCurrent: () => void,
+  profileId: string | null = null,
+  assertCurrent: () => void = () => undefined,
   signal?: AbortSignal
 ): Promise<BookSummary | undefined> {
   if (!Number.isSafeInteger(id) || id <= 0 || !Number.isFinite(timestamp) || timestamp < 0)

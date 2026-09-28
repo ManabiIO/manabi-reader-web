@@ -359,7 +359,8 @@ export async function resolveAnnotationImportConflict(
       tx.objectStore('data'),
       tx.objectStore('readerBookScope')
     );
-    if (bookOwner === undefined) throw new Error('This annotation has ambiguous account ownership.');
+    if (bookOwner === undefined)
+      throw new Error('This annotation has ambiguous account ownership.');
     if (bookOwner && bookOwner !== accountId)
       throw new Error('This annotation belongs to another account.');
   }

@@ -88,10 +88,7 @@ function scoped(accountId: string) {
   activeSyncGuard?.();
 }
 
-async function withPersonalSyncOperation<T>(
-  accountId: string,
-  work: () => Promise<T>
-): Promise<T> {
+async function withPersonalSyncOperation<T>(accountId: string, work: () => Promise<T>): Promise<T> {
   // Capture before lock admission. An A→B→A session round trip while queued
   // must revoke this invocation rather than recapturing authority afterward.
   const scope = captureLibraryOperation(accountId);
@@ -970,10 +967,7 @@ async function flushReading(accountId: string, books: Map<string, StoredBookData
   }
 }
 
-async function stageAnnotations(
-  accountId: string,
-  books: ReadonlyMap<string, StoredBookData[]>
-) {
+async function stageAnnotations(accountId: string, books: ReadonlyMap<string, StoredBookData[]>) {
   const db = await database.db;
   const pending = await db.getAllFromIndex('readerAnnotationOutbox', 'accountId', accountId);
   const pendingIds = new Set(pending.map((value) => value.annotationId));

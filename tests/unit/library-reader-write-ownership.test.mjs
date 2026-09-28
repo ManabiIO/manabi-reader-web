@@ -158,7 +158,10 @@ test('matching personal scope exposes and updates reading state normally', async
     bookmark: [{ dataId: 1, progress: 0.25, lastBookmarkModified: 1 }],
     readerBookScope: [{ bookId: 1, accountId: 'alice' }]
   });
-  assert.equal((await bookRecords.readOwnedBookmark(db, 1, 'alice', () => undefined)).progress, 0.25);
+  assert.equal(
+    (await bookRecords.readOwnedBookmark(db, 1, 'alice', () => undefined)).progress,
+    0.25
+  );
   await bookRecords.commitOwnedBookmark(
     db,
     { dataId: 1, progress: 0.9, lastBookmarkModified: 2 },
@@ -273,7 +276,11 @@ test('deleting an unscoped annotation cannot adopt a foreign-owned book', async 
 test('archive conflict restore cannot adopt an unscoped foreign-owned annotation', async () => {
   const fixture = annotationFixture({ bookOwner: 'bob' });
   await assert.rejects(
-    fixture.api.resolveAnnotationImportConflict('import:' + fixture.annotation.id, 'restore-archive', 'alice'),
+    fixture.api.resolveAnnotationImportConflict(
+      'import:' + fixture.annotation.id,
+      'restore-archive',
+      'alice'
+    ),
     /another account/
   );
   assert.equal(fixture.db.rows('readerAnnotation')[0].body, undefined);
