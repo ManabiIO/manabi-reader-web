@@ -96,7 +96,25 @@ try:
         assert any('voice-pitch.worker' in url for url in requests), 'worker was not loaded on demand'
         assert 'loading' in page.evaluate('window.states')
         page.click('#play')
-        page.wait_for_function('state.points.filter(p => p.hz > 210 && p.hz < 230).length >= 8')
+        try:
+            page.wait_for_function('state.points.filter(p => p.hz > 210 && p.hz < 230).length >= 8')
+        except Exception:
+            sampling = page.evaluate('''() => {
+              const analyser = controller.analyser;
+              const samples = analyser && new Float32Array(analyser.fftSize);
+              if (samples) analyser.getFloatTimeDomainData(samples);
+              return {
+                state, states, audioEvents, audio: {time: audio.currentTime, paused: audio.paused,
+                  ended: audio.ended, readyState: audio.readyState, error: audio.error?.message},
+                context: contexts.map(context => ({state: context.state, time: context.currentTime})),
+                controller: {pending: controller.pending, lastAudioTime: controller.lastAudioTime,
+                  lastSample: controller.lastSample, frame: controller.frame},
+                waveform: samples && {min: Math.min(...samples), max: Math.max(...samples)}
+              };
+            }''')
+            (root / 'sampling.json').write_text(json.dumps(sampling, indent=2))
+            print('sampling:', json.dumps(sampling), flush=True)
+            raise
         assert 'L' in page.evaluate('paths.pitch')
         before = page.evaluate('audio.currentTime')
         page.evaluate('controller.setEnabled(false)')
