@@ -92,14 +92,14 @@ export async function cloudRequest<T>(
   path: string,
   signal: AbortSignal
 ): Promise<T> {
+  const userId = transport.userId;
+  const isCurrent = transport.isCurrent.bind(transport);
   const guard = () => {
     signal.throwIfAborted();
-    if (!transport.isCurrent()) throw new Error('Account changed');
+    if (transport.userId !== userId || !isCurrent()) throw new Error('Account changed');
   };
   guard();
-  const result = await abortable(signal, () =>
-    transport.request<T>(path, { userId: transport.userId })
-  );
+  const result = await abortable(signal, () => transport.request<T>(path, { userId }));
   guard();
   return result;
 }
