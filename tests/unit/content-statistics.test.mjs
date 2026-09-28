@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import test from 'node:test';
 import {
   contentStatisticKey,
+  deleteStatisticsForIdentityPlan,
   migrateLegacyStatistics,
   preserveCompletedStatistic,
   readStatisticsRecoverySnapshot,
@@ -27,6 +28,8 @@ async function database() {
       content.createIndex('dateKey', 'dateKey');
       db.createObjectStore('readerStatisticMigration', { keyPath: 'title' });
       db.createObjectStore('readerLocalIdentity', { keyPath: 'bookId' });
+      db.createObjectStore('readerBookScope', { keyPath: 'bookId' });
+      db.createObjectStore('lastModified', { keyPath: ['title', 'dataType'] });
     }
   });
 }
@@ -278,6 +281,7 @@ test('statistics deletion plan refuses unresolved same-title legacy history', as
   assert.equal(plan.bookKey, contentStatisticKey(first));
   assert.deepEqual(plan.keys, [contentStatisticKey(first)]);
   assert.equal(plan.unresolvedLegacy, true);
+  assert.equal(plan.legacyTitle, undefined);
   assert.equal((await db.get('readerStatisticMigration', first.title)).state, 'ambiguous');
   db.close();
 });
@@ -291,6 +295,7 @@ test('statistics deletion plan maps assigned legacy history to the selected logi
   const plan = await statisticIdentityPlan(db, copy.id);
   assert.equal(plan.bookKey, contentStatisticKey(copy));
   assert.deepEqual(plan.keys, [contentStatisticKey(copy)]);
+  assert.equal(plan.legacyTitle, copy.title);
   assert.equal(plan.unresolvedLegacy, false);
   assert.equal(
     (await db.get('readerStatistic', [plan.bookKey, '2026-09-20'])).charactersRead,
@@ -316,6 +321,7 @@ test('statistics deletion plan includes retained pre-hash identity after a resol
   const plan = await statisticIdentityPlan(db, verified.id);
   assert.equal(plan.bookKey, contentStatisticKey(verified));
   assert.deepEqual(new Set(plan.keys), new Set([contentStatisticKey(verified), localKey]));
+  assert.equal(plan.legacyTitle, verified.title);
   assert.equal(plan.unresolvedLegacy, false);
   db.close();
 });
@@ -342,6 +348,89 @@ test('statistics deletion plan keeps ambiguous legacy history fail-closed across
 
   const plan = await statisticIdentityPlan(db, verified.id);
   assert.equal(plan.unresolvedLegacy, true);
+  assert.equal(plan.legacyTitle, undefined);
   assert.deepEqual(new Set(plan.keys), new Set([contentStatisticKey(verified), localKey]));
+  db.close();
+});
+
+
+test('identity deletion removes keyed history and its safely assigned legacy source', async () => {
+  const db = await database();
+  const copy = book(1, 'Delete assigned legacy', 'f');
+  await db.put('data', copy);
+  await db.put('statistic', day(copy.title, '2026-09-20', 12));
+  const plan = await statisticIdentityPlan(db, copy.id);
+  assert.equal(plan.legacyTitle, copy.title);
+  assert.equal((await db.getAll('statistic')).length, 1);
+  assert.equal((await db.getAll('readerStatistic')).length, 1);
+
+  await deleteStatisticsForIdentityPlan(db, copy.id, plan);
+
+  assert.deepEqual(await db.getAll('statistic'), []);
+  assert.deepEqual(await db.getAll('readerStatistic'), []);
+  const modified = await db.getAll('lastModified');
+  assert.deepEqual(
+    new Set(modified.map((entry) => entry.title)),
+    new Set([copy.title, contentStatisticKey(copy)])
+  );
+  assert.ok(modified.every((entry) => entry.dataType === 'statistic'));
+  db.close();
+});
+
+test('identity deletion refuses a stale plan without removing either history', async () => {
+  const db = await database();
+  const first = book(1, 'Stale deletion plan', 'a');
+  await db.put('data', first);
+  await db.put('readerStatistic', {
+    ...day(first.title, '2026-09-20', 30),
+    bookKey: contentStatisticKey(first)
+  });
+  const plan = await statisticIdentityPlan(db, first.id);
+  const replacement = book(first.id, first.title, 'b');
+  await db.put('data', replacement);
+  await db.put('readerStatistic', {
+    ...day(first.title, '2026-09-21', 40),
+    bookKey: contentStatisticKey(replacement)
+  });
+
+  await assert.rejects(
+    deleteStatisticsForIdentityPlan(db, first.id, plan),
+    /identity changed/
+  );
+  assert.deepEqual(
+    new Set((await db.getAll('readerStatistic')).map((row) => row.charactersRead)),
+    new Set([30, 40])
+  );
+  db.close();
+});
+
+test('identity deletion rechecks persistent reader ownership inside its transaction', async () => {
+  const db = await database();
+  const copy = book(1, 'Owned deletion', 'c');
+  await db.put('data', copy);
+  await db.put('readerBookScope', { bookId: copy.id, accountId: 'alice' });
+  await db.put('readerStatistic', {
+    ...day(copy.title, '2026-09-20', 55),
+    bookKey: contentStatisticKey(copy)
+  });
+  const plan = await statisticIdentityPlan(db, copy.id);
+  const controller = new AbortController();
+  const guard = {
+    signal: controller.signal,
+    assertCurrent() {},
+    validate(_book, owner) {
+      if (owner && owner.accountId !== 'bob') throw new Error('belongs to another account');
+    },
+    validateCopy(_book, owner) {
+      if (owner && owner.accountId !== 'bob') throw new Error('belongs to another account');
+    }
+  };
+
+  await assert.rejects(
+    deleteStatisticsForIdentityPlan(db, copy.id, plan, guard),
+    /another account/
+  );
+  assert.equal((await db.getAll('readerStatistic')).length, 1);
+  assert.equal((await db.getAll('lastModified')).length, 0);
   db.close();
 });
