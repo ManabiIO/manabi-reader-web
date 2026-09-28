@@ -51,6 +51,10 @@ class GalleryContinuity(GalleryRevealBase):
                 self.assertEqual(identity, [(r['id'], r['contentHash']) for r in self.stores('books', ['data'])['data']])
 
     def test_gallery_round_trip_restores_nonzero_continuous_scroll(self):
+        # This journey measures vertical document scrolling. Configure horizontal
+        # reading explicitly instead of inheriting the default vertical-rl mode.
+        self.context.add_init_script("localStorage.setItem('writingMode', 'horizontal-tb')")
+        self.go_library()
         title = 'Continuous reading continuity'
         source = illustrated_book(title)
         output = io.BytesIO()
@@ -67,6 +71,7 @@ class GalleryContinuity(GalleryRevealBase):
         self.page.get_by_role('button', name='Read ' + title, exact=True).click()
         content = self.page.locator('.book-content')
         expect(content).to_have_attribute('aria-busy', 'false')
+        expect(content).to_have_css('writing-mode', 'horizontal-tb')
         self.page.wait_for_function("document.fonts.check('20px \"Klee One\"', '日本語')")
         anchor = content.get_by_text('READING_ANCHOR_060', exact=False)
         anchor.scroll_into_view_if_needed()
