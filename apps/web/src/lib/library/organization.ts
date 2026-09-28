@@ -205,7 +205,12 @@ export async function updateOrganization(
   }
   // A commit is final. Only publication can be suppressed if its initiating
   // scope ended after commit; never describe that as a rolled-back write.
-  if (changed && !signal?.aborted) {
+  if (changed) {
+    try {
+      assertCurrent();
+    } catch {
+      return;
+    }
     publish(changed);
     notifyOrganizationChange();
   }
