@@ -27,8 +27,9 @@ import {
 import loadEpub from '$lib/functions/file-loaders/epub/load-epub';
 import loadTxt from '$lib/functions/file-loaders/txt/load-txt';
 import loadHtmlz from '$lib/functions/file-loaders/htmlz/load-htmlz';
-import { accountScope, currentUser, localProfileUser, localUser, IntegrationError } from './client';
+import { currentUser, localProfileUser, localUser, IntegrationError } from './client';
 import { integrationDB, exclusive, type BookLink } from './persistence';
+import { captureLibraryOperation } from './operation-scope';
 import { LocalLibrarySource, sha256, type LibraryEntry, type LibrarySource } from './sources';
 import {
   personalSyncStatus,
@@ -67,32 +68,20 @@ export async function refreshLinkedBooks() {
   await stabilizeOrganization(visible, records);
   if (!current()) return;
   allLinkedBooks.set(books);
-  linkedBooks.set(visible);
-}
-
-/** Capture before waiting for import admission. A logout/login round trip must
- * not restore an old import's authority just because the user ID is equal. */
-function importScope(source: LibrarySource) {
-  const profile = localProfileUser()?.id ?? null;
-  const authenticated = source.owner === null ? undefined : accountScope();
-  if (authenticated && authenticated.userId !== source.owner)
-    throw new IntegrationError('account_changed');
-  const controller = new AbortController();
-  const stop = localUser.subscribe((user) => {
-    if ((user?.id ?? null) !== profile) controller.abort();
-  });
-  const assertCurrent = () => {
-    if (controller.signal.aborted) throw new IntegrationError('account_changed');
-    if (authenticated) {
-      const current = accountScope();
-      if (
-        current.userId !== authenticated.userId ||
-        current.generation !== authenticated.generation
-      )
-        throw new IntegrationError('account_changed');
-    }
-  };
-  return { assertCurrent, signal: controller.signal, stop };
+  const byId = new Map(records.map((record) => [record.id, record]));
+  // Keep historical claims in allLinkedBooks and alias migration, but do not
+  // expose stale claims as usable links to cached-open, cover or sync callers.
+  linkedBooks.set(
+    visible.filter((link) => {
+      const record = byId.get(link.bookId);
+      const hash = normalizedContentHash(record?.contentHash);
+      return (
+        !!hash &&
+        hash === normalizedContentHash(link.contentHash) &&
+        (record?.libraryOwner === undefined || record.libraryOwner === link.owner)
+      );
+    })
+  );
 }
 
 export async function importLibraryBook(
@@ -101,7 +90,7 @@ export async function importLibraryBook(
   syncEnabled = false,
   expectedBookId?: number
 ): Promise<BookLink> {
-  const scope = importScope(source);
+  const scope = captureLibraryOperation(source.owner);
   const selectedFile = { ...item };
   const sourceIdentity = { id: source.id, owner: source.owner, root: source.root };
   try {

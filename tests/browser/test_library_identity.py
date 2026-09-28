@@ -6,7 +6,7 @@ import unittest
 
 from playwright.sync_api import expect, sync_playwright
 
-from test_books_library import LibraryBase
+from test_books_library import LibraryBase, raster
 from test_library_cloud_relocation import CloudRelocationHandler, GOOGLE, DROPBOX, BYTES
 from test_static_reader import StaticHandler, ThreadingHTTPServer
 
@@ -225,6 +225,87 @@ class LibraryIdentityBrowser(LibraryBase):
         expect(self.page.get_by_text(re.compile('download does not match the selected size'))).to_be_visible()
         expect(self.page.locator('.book-content')).to_have_count(0)
         self.assertEqual([], self.stores('books', ['data'])['data'])
+
+    def organization_snapshot(self):
+        rows = self.stores('manabi-reader-integrations', ['metadata'])['metadata']
+        return next((row for row in rows if isinstance(row, dict)
+                     and row.get('version') == 1 and 'collections' in row), None)
+
+    def replace_selected_bytes(self):
+        replacement = bytearray(BYTES)
+        replacement[10] ^= 1
+        CloudRelocationHandler.nodes[GOOGLE]['g-old']['bytes'] = bytes(replacement)
+
+    def test_want_to_read_does_not_retarget_replacement_bytes(self):
+        before = self.organization_snapshot()
+        self.replace_selected_bytes()
+        self.menu('Traveling volume', 'Add to Want to Read')
+        expect(self.page.get_by_text(re.compile('source book changed')).first).to_be_visible()
+        self.assertEqual(before, self.organization_snapshot())
+        self.assertEqual([], self.stores('books', ['data'])['data'])
+        self.assertEqual([], self.stores('manabi-reader-integrations', ['books'])['books'])
+
+    def test_rename_does_not_apply_to_a_replacement_after_opening_the_dialog(self):
+        before = self.organization_snapshot()
+        self.menu('Traveling volume', 'Rename…')
+        self.dialog().get_by_label('Name', exact=True).fill('Must not apply')
+        self.replace_selected_bytes()
+        self.dialog().get_by_role('button', name='Save', exact=True).click()
+        expect(self.page.get_by_text(re.compile('source book changed')).first).to_be_visible()
+        self.assertEqual(before, self.organization_snapshot())
+        self.assertEqual([], self.stores('books', ['data'])['data'])
+
+    def test_cover_uses_live_content_instead_of_the_first_stale_link(self):
+        original = self.import_finished()
+        stale_hash = ('1' if original['contentHash'].startswith('0') else '0') + original['contentHash'][1:]
+        self.page.evaluate('''async ({link, hash}) => {
+          const db = await new Promise((resolve, reject) => {
+            const r = indexedDB.open('manabi-reader-integrations');
+            r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error);
+          });
+          const tx = db.transaction('books', 'readwrite');
+          tx.objectStore('books').put({...link, id: '!stale-content-claim',
+            fileId: 'unavailable-old-file', contentHash: hash});
+          await new Promise((resolve, reject) => {
+            tx.oncomplete = resolve; tx.onabort = () => reject(tx.error);
+          });
+          db.close();
+        }''', {'link': original, 'hash': stale_hash})
+        self.go_library()
+        with self.page.expect_file_chooser() as chooser:
+            self.menu('Traveling volume', 'Change Cover…')
+        chooser.value.set_files({
+            'name': 'cover.png', 'mimeType': 'image/png',
+            'buffer': raster(120, 180, (40, 120, 180))
+        })
+        expect(self.tile('Traveling volume').locator('img').first).to_have_attribute(
+            'src', re.compile(r'^data:image/(?:png|webp);base64,'))
+        organization = self.organization_snapshot()
+        self.assertTrue(organization['books']['content:' + original['contentHash']]['cover'])
+        self.assertFalse(organization['books'].get('content:' + stale_hash, {}).get('cover'))
+        self.assertEqual(2, len(self.stores('manabi-reader-integrations', ['books'])['books']))
+
+    def test_stale_cached_completion_cannot_modify_a_newly_foreign_book(self):
+        original = self.import_finished()
+        before = self.stores('books', ['bookmark'])['bookmark']
+        # Retain the already-rendered shelf while a competing writer changes the
+        # durable ownership. The command must check the row, not trust that UI.
+        self.page.evaluate('''async id => {
+          const db = await new Promise((resolve, reject) => {
+            const r = indexedDB.open('books');
+            r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error);
+          });
+          const tx = db.transaction('data', 'readwrite');
+          const r = tx.objectStore('data').get(id);
+          r.onsuccess = () => tx.objectStore('data').put({...r.result, libraryOwner: 'other'});
+          await new Promise((resolve, reject) => {
+            tx.oncomplete = resolve; tx.onabort = () => reject(tx.error);
+          });
+          db.close();
+        }''', original['bookId'])
+        self.menu('Traveling volume', 'Mark as Still Reading')
+        expect(self.page.get_by_text('This book belongs to another account.', exact=True)).to_be_visible()
+        self.assertEqual(before, self.stores('books', ['bookmark'])['bookmark'])
 
 
 if __name__ == '__main__':
