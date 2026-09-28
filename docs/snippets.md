@@ -19,7 +19,9 @@ Titles have an explicit automatic/custom policy. Automatic titles use heading/bo
 without interleaved furigana and truncate on grapheme boundaries; custom titles survive edits.
 Drafts are private, owner-scoped IndexedDB records. Save commits a revision, Cancel can discard
 only the draft, and Keep draft retains it. Recovering a draft claims a fresh editor session and
-updates the reload URL. Concurrent edits are rejected by revision, not silently overwritten.
+updates the reload URL before publishing the editor. Navigation ownership is independent of
+reactive UI state: a late draft/record load cannot replace the next route, even after leaving
+and returning to the same URL. Concurrent edits are rejected by revision, not silently overwritten.
 An append operation captures its destination and receipt identity before asynchronous work.
 
 The reader supports horizontal/vertical reading, typography size, source attribution and
@@ -39,7 +41,9 @@ The backend counterpart is lake-of-fire/manabi#87 (`connections/<id>/documents/`
 A new document uses an explicitly selected location, otherwise the remembered destination,
 otherwise the only eligible writable source. Multiple providers require a visible choice;
 provider order does not decide. A remembered unavailable destination remains the intended home.
-Users can choose a folder or create one in the destination picker and remember it. Cloud is not
+Users can choose a folder or create one in the destination picker and remember it. **Clear default
+location** removes that preference; subsequent creation again uses the one-eligible-source rule or
+asks when there are multiple eligible sources. Clearing the default never moves existing files. Cloud is not
 required to start: choosing this-device-only is explicit and labeled, and Move publishes such
 a document later. Native local-folder and strong-ETag WebDAV adapters are included. Local folder
 writes cannot atomically exclude external applications; the picker warns users to close them.
@@ -59,11 +63,20 @@ Successful flushes drain successors with bounded work; errors do not become a ti
 
 Moving freezes a document revision and atomically stores its transfer journal. Copy/native move
 is followed by read-back verification. Reading state travels before conditional source cleanup.
-Only then is the new primary location committed. A cleanup failure retains both files and can
+The destination is checked again after asynchronous reading-state I/O and immediately before
+source cleanup, so an edit during that interval preserves the original. Only then is the new
+primary location committed. A cleanup failure retains both files and can
 resume without another upload. Source/destination edits halt cleanup. Keep both preserves
 copies and releases the reservation rather than deleting an uncertain destination. There is
 no claim of an atomic cross-provider transaction. Disconnect, failed scans and permission
 errors are not deletion evidence. All async operations carry account/lifetime guards.
+
+Automatic discovery runs while browsing the root library, Books/collections, or Snippets, not
+while configuring connections or reading a book. Leaving these library routes cancels the scan
+and any queued catalog/checkpoint publication. Cached summary updates, account isolation and
+pending document saves remain active throughout the application. Brief reloads reuse recent
+durable checkpoints; explicit Refresh still rescans. Source adapters must match their stored
+ID, owner and root before access, so reconfiguring a WebDAV root cannot retarget saved reading data.
 
 Indexing hydrates at most 100 documents/16 MiB in each pass and retains a checkpoint. Completed
 sources do not restart during continuation passes. Corrupt files generate notices without
@@ -86,7 +99,8 @@ backups preserve collection memberships. Reading state is independently stored a
 `node test/snippets/run.mjs` executes production schema, native-IDB-compatible transaction code,
 outbox and transfer orchestration against deterministic transport fixtures. The added cases
 include lost create replies, concurrent edits, conflict resolution, account ABA, more than 100
-index entries, interrupted moves and reading-state relocation. Existing unit tests remain in
+index entries, interrupted moves, destination edits during reading-state transfer, route ABA,
+default removal, canceled IndexedDB metadata transactions, and route-scoped discovery. Existing unit tests remain in
 `tests/unit/*.test.mjs`.
 
 `test/snippets/browser.mjs` drives the assembled production application, actual TipTap,
