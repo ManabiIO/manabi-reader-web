@@ -28,8 +28,9 @@ export type BooksDbLastModified = BooksDb['lastModified']['value'];
 export type BooksDbAudioBook = BooksDb['audioBook']['value'];
 export type BooksDbSubtitleData = BooksDb['subtitle']['value'];
 export type BooksDbHandle = BooksDb['handle']['value'];
-// Local byte records require a new storage version; portable archives keep their wire format.
-export const currentDbVersion = 11;
+// v12 repairs missing stores/indexes in older and already-upgraded local schemas.
+// Payloads and the portable archive wire format are unchanged.
+export const currentDbVersion = 12;
 export const currentStorageVersion = currentDbVersion;
 export const ttuWireVersion = 8;
 
