@@ -112,6 +112,14 @@ export interface QueueProgress {
   loaded: number;
   total: number;
 }
+type Admission = { isCurrent?: () => boolean };
+type ActiveJob = {
+  id: string;
+  ownerId: string;
+  controller: AbortController;
+  admission: Admission;
+};
+
 /** One warm model per draining batch; the origin lock covers its whole lifetime.
  * The runtime is stopped before releasing the lock, not retained by idle tabs.
  * Durable owner tokens also fence old workers and cancellation at every checkpoint.
@@ -120,7 +128,7 @@ export interface QueueProgress {
  */
 export class TranscriptionQueue {
   private running = false;
-  private admitted = new Map<string, { isCurrent?: () => boolean }>();
+  private admitted = new Map<string, Admission>();
   private targets = new Map<string, number>();
   private batch?: AbortController;
   /** Set only while this batch is queued for the origin inference lock. */
@@ -128,11 +136,7 @@ export class TranscriptionQueue {
   private closing?: Promise<void>;
   private task?: Promise<void>;
   private rerun = false;
-  private active?: {
-    id: string;
-    ownerId: string;
-    controller: AbortController;
-  };
+  private active?: ActiveJob;
   private closed = false;
   private stopStore?: () => void;
   private checking?: Promise<void>;
@@ -364,28 +368,33 @@ export class TranscriptionQueue {
     }
     await pending;
   }
-  /** Leaving a video pauses this workspace's sparse inference only. */
-  pauseSparseForMedia(mediaKey: ContentKey): Promise<string[]> {
-    return this.pauseOwnedForMedia(mediaKey, true);
+  /** Leaving a video pauses owned inference and revokes local queued admissions. */
+  pauseSparseForMedia(
+    mediaKey: ContentKey,
+    isCurrent: () => boolean = () => true
+  ): Promise<string[]> {
+    return this.pauseOwnedForMedia(mediaKey, true, isCurrent);
   }
-  /** Revoking a media source pauses every locally admitted job for it, including
-   * bulk progressive jobs. Other tabs' queued/running ownership is untouched.
-   */
+  /** A revoked source also pauses locally owned bulk jobs, never another tab's work. */
   pauseForMedia(mediaKey: ContentKey): Promise<string[]> {
     return this.pauseOwnedForMedia(mediaKey, false);
   }
-  private async pauseOwnedForMedia(mediaKey: ContentKey, sparseOnly: boolean): Promise<string[]> {
-    if (this.closed) return [];
-    // Capture this invocation's authority before storage yields. A successor can
-    // reuse the same job ID; a delayed source revocation must not pause it.
-    const admitted = new Map(this.admitted);
-    const active = this.active;
-    const pending: {
-      job: Job;
-      admission?: { isCurrent?: () => boolean };
-      active?: typeof active;
-    }[] = [];
+  private async pauseOwnedForMedia(
+    mediaKey: ContentKey,
+    sparseOnly: boolean,
+    isCurrent: () => boolean = () => true
+  ): Promise<string[]> {
+    const current = () => !this.closed && isCurrent();
+    if (!current()) return [];
+    // Capture request identity before the scan. A later explicit Resume/Generate
+    // may reuse the same job ID, but not the old local admission token.
+    const admissions = new Map(this.admitted),
+      activeAtStart = this.active;
+    if (activeAtStart && !admissions.has(activeAtStart.id))
+      admissions.set(activeAtStart.id, activeAtStart.admission);
+    const pending: Job[] = [];
     for (const raw of await this.store.listLocal<unknown>(this.scope, 'jobs')) {
+      if (!current()) return [];
       if (
         !raw ||
         typeof raw !== 'object' ||
@@ -393,58 +402,81 @@ export class TranscriptionQueue {
       )
         continue;
       const job = validateJob(raw);
-      const admission = admitted.get(job.id);
-      const capturedActive = active?.id === job.id ? active : undefined;
+      const token = admissions.get(job.id);
       const local =
-        job.status === 'queued'
-          ? (!!admission && this.admitted.get(job.id) === admission) ||
-            (!!capturedActive && this.active === capturedActive)
-          : job.status === 'running' &&
-            !!capturedActive &&
-            this.active === capturedActive &&
-            capturedActive.ownerId === job.ownerId;
-      if ((!sparseOnly || job.sparse) && local)
-        pending.push({ job, admission, active: capturedActive });
+        token !== undefined &&
+        this.localAdmission(job.id) === token &&
+        (job.status === 'queued' ||
+          (job.status === 'running' &&
+            this.active?.id === job.id &&
+            this.active.ownerId === job.ownerId));
+      if ((!sparseOnly || job.sparse) && local) pending.push(job);
     }
-    // Revoke queued admissions before aborting the current inference so the
-    // drain cannot claim another job for the retired source between writes.
-    for (const item of pending.filter(({ job }) => job.status === 'queued'))
-      await this.pauseLocal(item.job.id, sparseOnly, item.admission, item.active);
-    for (const item of pending.filter(({ job }) => job.status === 'running'))
-      await this.pauseLocal(item.job.id, sparseOnly, item.admission, item.active);
-    return pending.map(({ job }) => job.id);
+    const paused: string[] = [];
+    for (const job of [
+      ...pending.filter((job) => job.status === 'queued'),
+      ...pending.filter((job) => job.status === 'running')
+    ]) {
+      if (!current()) break;
+      if (
+        await this.pauseLocal(job.id, sparseOnly, admissions.get(job.id)!, activeAtStart, current)
+      )
+        paused.push(job.id);
+    }
+    return paused;
+  }
+  private localAdmission(id: string): Admission | undefined {
+    return this.admitted.get(id) ?? (this.active?.id === id ? this.active.admission : undefined);
   }
   private async pauseLocal(
     id: string,
     sparseOnly: boolean,
-    admission?: { isCurrent?: () => boolean },
-    active?: NonNullable<typeof this.active>
+    token: Admission,
+    activeAtStart: ActiveJob | undefined,
+    current: () => boolean
   ) {
-    const admittedHere = !!admission && this.admitted.get(id) === admission;
-    const activeHere = !!active && this.active === active;
-    if (!admittedHere && !activeHere) return;
+    if (!current() || this.localAdmission(id) !== token) return false;
     this.targets.delete(id);
-    // Delete only the captured admission; a later Resume may already have
-    // installed a distinct token for the same durable job ID.
-    if (admittedHere) this.admitted.delete(id);
-    await this.store.updateLocal<Job>(this.scope, 'jobs', id, (old) => {
-      if (!old) return old;
-      const job = validateJob(old);
-      if (sparseOnly && !job.sparse) return old;
-      // The queued record can also be admitted by another tab or by a newer
-      // local Resume. Revocation is local authority, not a durable cancellation.
-      if (job.status === 'queued') return old;
-      if (
-        job.status === 'running' &&
-        activeHere &&
-        active?.ownerId === job.ownerId &&
-        job.pauseReason !== 'user'
-      )
-        return { ...job, cancelRequested: true, pauseReason: 'switch' };
-      return old;
-    });
-    if (activeHere && this.active === active)
-      active.controller.abort(new DOMException('Generation paused', 'AbortError'));
+    const revoked = this.admitted.get(id) === token;
+    if (revoked) this.admitted.delete(id);
+    const active =
+      this.active?.id === id && (this.active === activeAtStart || this.active.admission === token)
+        ? this.active
+        : undefined;
+    if (!active) {
+      if (!this.active && !this.admitted.size && this.lockWait === this.batch)
+        this.batch?.abort(new DOMException('No local transcription jobs remain', 'AbortError'));
+      return revoked;
+    }
+    let paused = false,
+      writeFailed = true;
+    try {
+      await this.store.updateLocal<Job>(this.scope, 'jobs', id, (old) => {
+        if (!old || !current() || this.active !== active || this.admitted.has(id)) return old;
+        const job = validateJob(old);
+        if (sparseOnly && !job.sparse) return old;
+        // A claimed job may still be awaiting its queued -> running write. Its
+        // controller fences that write; another tab's owner is never cancelled.
+        if (job.status === 'queued') {
+          paused = true;
+          return old;
+        }
+        if (
+          job.status === 'running' &&
+          active.ownerId === job.ownerId &&
+          job.pauseReason !== 'user'
+        ) {
+          paused = true;
+          return { ...job, cancelRequested: true, pauseReason: 'switch' };
+        }
+        return old;
+      });
+      writeFailed = false;
+    } finally {
+      if ((paused || writeFailed) && current() && this.active === active && !this.admitted.has(id))
+        active.controller.abort(new DOMException('Generation paused', 'AbortError'));
+    }
+    return revoked || paused;
   }
   recover(): Promise<void> {
     if (this.closed) return Promise.resolve();
@@ -570,7 +602,7 @@ export class TranscriptionQueue {
           this.admitted.delete(candidate.id);
           const controller = new AbortController(),
             ownerId = crypto.randomUUID();
-          this.active = { id: candidate.id, ownerId, controller };
+          this.active = { id: candidate.id, ownerId, controller, admission };
           const signal = controller.signal;
           const work = async () => {
             signal.throwIfAborted();
