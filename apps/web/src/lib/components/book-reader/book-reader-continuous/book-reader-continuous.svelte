@@ -372,6 +372,29 @@
     autoScroller = autoScrollerConcrete;
   }
 
+  function layoutScrollPosition(): number | undefined {
+    if (!calculator) return undefined;
+
+    const currentScroll = verticalMode ? window.scrollX : window.scrollY;
+    let intendedCharCount = prevIntendedCharCount;
+
+    // Opening a modal can resize visualViewport without a user navigation.
+    // Chromium may deliver that before the next scroll frame has captured the
+    // reader's intended character. Never translate a stale zero into scrollTo(0).
+    if (!intendedCharCount && Math.abs(currentScroll) > 0.5) {
+      const currentCharCount = calculator.calcExploredCharCount(customReadingPointScrollOffset);
+      if (!currentCharCount) return currentScroll;
+      intendedCharCount = currentCharCount;
+      prevIntendedCharCount = currentCharCount;
+      exploredCharCount = currentCharCount;
+    }
+
+    return (
+      calculator.getScrollPosByCharCount(intendedCharCount) +
+      (verticalMode ? customReadingPointScrollOffset : -customReadingPointScrollOffset)
+    );
+  }
+
   combineLatest([width$, height$])
     .pipe(
       filter(() => autoPositionOnResize),
@@ -383,17 +406,13 @@
       takeUntil(destroy$)
     )
     .subscribe(() => {
-      if (!calculator || !pageManagerConcrete) return;
-      // A zero character estimate is not a valid destination after the reader
-      // has moved down the document. Keep the visible position until geometry
-      // can map it to text instead of jumping back to the first paragraph.
-      if (!prevIntendedCharCount && Math.abs(verticalMode ? window.scrollX : window.scrollY) > 1) {
-        return;
-      }
+      if (!pageManagerConcrete) return;
 
-      const scrollPos =
-        calculator.getScrollPosByCharCount(prevIntendedCharCount) +
-        (verticalMode ? customReadingPointScrollOffset : -customReadingPointScrollOffset);
+      const scrollPos = layoutScrollPosition();
+      if (scrollPos === undefined) return;
+      const currentScroll = verticalMode ? window.scrollX : window.scrollY;
+      if (Math.abs(currentScroll - scrollPos) <= 0.5) return;
+
       isResizeScroll = true;
       pageManagerConcrete.scrollTo(scrollPos);
     });
@@ -605,18 +624,9 @@
         return;
       }
       if (pageManagerConcrete && !scrollWhenReady) {
+        const scrollPos = layoutScrollPosition();
         const currentScroll = verticalMode ? window.scrollX : window.scrollY;
-        if (!prevIntendedCharCount && Math.abs(currentScroll) > 1) {
-          // Font completion can arrive while the character index is still
-          // unmeasured. Preserve the user's actual reading position.
-          if (sectionToElement.size) updateSectionProgress();
-          dispatch('contentChange', contentEl);
-          return;
-        }
-        const scrollPos =
-          calculator.getScrollPosByCharCount(prevIntendedCharCount) +
-          (verticalMode ? customReadingPointScrollOffset : -customReadingPointScrollOffset);
-        if (Math.abs(currentScroll - scrollPos) > 0.5) {
+        if (scrollPos !== undefined && Math.abs(currentScroll - scrollPos) > 0.5) {
           isResizeScroll = true;
           pageManagerConcrete.scrollTo(scrollPos);
         } else {

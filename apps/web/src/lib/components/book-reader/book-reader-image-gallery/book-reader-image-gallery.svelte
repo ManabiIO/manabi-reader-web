@@ -152,6 +152,7 @@
     bind:ref={gallery}
     showCloseButton={false}
     class="top-0 left-0 h-dvh max-h-dvh w-full max-w-none translate-x-0 translate-y-0 grid-rows-[auto_minmax(0,1fr)] gap-0 rounded-none p-0 sm:max-w-none writing-horizontal-tb"
+    style="inset: 0; width: auto; height: auto; max-width: none; max-height: none; transform: none;"
     onCloseAutoFocus={(event) => {
       event.preventDefault();
       document
@@ -236,7 +237,7 @@
 <style>
   .gallery-header {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 44px;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: start;
     gap: 12px;
     padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
