@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 
+import { isSnippetFile } from '../snippets/document';
 import { currentUser, localProfileUser, request } from '$lib/manabi/client';
 import { integrationDB, metadata, setMetadata } from '$lib/manabi/persistence';
 import {
@@ -79,14 +80,17 @@ export async function librarySource(source: SourceDescriptor): Promise<LibrarySo
   if (!local) throw new Error('This folder is no longer connected.');
   return new LocalLibrarySource(local);
 }
-export async function cachedCatalog(source: SourceDescriptor) {
-  return metadata<Catalog>(`library-catalog:${sourceKey(source)}`);
+export async function cachedCatalog(source: SourceDescriptor, kind: 'book' | 'snippet' = 'book') {
+  return metadata<Catalog>(
+    `${kind === 'book' ? 'library-catalog' : 'snippet-catalog'}:${sourceKey(source)}`
+  );
 }
 /** Entire traversal succeeds before replacing the last usable snapshot. No partial empty library on error. */
 export async function scanCatalog(
   source: LibrarySource,
   descriptor: SourceDescriptor,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  kind: 'book' | 'snippet' = 'book'
 ): Promise<Catalog> {
   const entries: DirectoryEntry[] = [],
     names: Record<string, string> = Object.create(null),
@@ -100,7 +104,7 @@ export async function scanCatalog(
     if (visited.has(folder.id) || folder.depth > 64)
       throw new Error('Cyclic or excessively deep library.');
     visited.add(folder.id);
-    if (folder.id !== source.root && source instanceof LocalLibrarySource) {
+    if (kind === 'book' && folder.id !== source.root && source instanceof LocalLibrarySource) {
       try {
         const name = await source.seriesName(folder.id);
         if (name) names[folder.id] = name;
@@ -129,7 +133,11 @@ export async function scanCatalog(
           continue;
         }
         if (entry.name === '.manabi-reader') continue;
-        if (entry.kind === 'file' && !supportedBook(entry.name)) continue;
+        if (
+          entry.kind === 'file' &&
+          !(kind === 'book' ? supportedBook(entry.name) : isSnippetFile(entry.name))
+        )
+          continue;
         if (entry.id === source.root || seen.has(entry.id))
           throw new Error('The provider returned a duplicate or cyclic file.');
         seen.add(entry.id);
@@ -140,7 +148,7 @@ export async function scanCatalog(
       }
       cursor = page.cursor;
     } while (cursor);
-    if (source instanceof CloudLibrary && sidecars.length) {
+    if (kind === 'book' && source instanceof CloudLibrary && sidecars.length) {
       try {
         const canonical = sidecars.find((item) => item.name === seriesMetadataFilename);
         if (sidecars.length > 1 && !canonical)
@@ -161,6 +169,9 @@ export async function scanCatalog(
     throw new Error('The account changed during the scan.');
   signal?.throwIfAborted();
   const catalog = { source: descriptor, entries, names, warnings, scannedAt: Date.now() };
-  await setMetadata(`library-catalog:${sourceKey(descriptor)}`, catalog);
+  await setMetadata(
+    `${kind === 'book' ? 'library-catalog' : 'snippet-catalog'}:${sourceKey(descriptor)}`,
+    catalog
+  );
   return catalog;
 }

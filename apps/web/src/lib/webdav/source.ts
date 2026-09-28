@@ -171,6 +171,10 @@ export class WebDavSource implements LibrarySource {
     }
     return new WebDavClient(latest.url, latest.username, password ?? '', lifetime.signal);
   }
+  /** Reuse the same consent, credentials and disconnect lifetime for authored documents. */
+  documentClient(write = false) {
+    return this.client(write);
+  }
   async list(parent = this.root, cursor = '') {
     if (cursor) throw new Error('WebDAV pagination is not supported.');
     return { items: await (await this.client()).list(parent), cursor: '' };

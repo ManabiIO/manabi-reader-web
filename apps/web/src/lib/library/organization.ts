@@ -129,8 +129,10 @@ export async function reloadOrganization() {
 }
 export async function updateOrganization(
   change: (value: Organization) => void,
-  receipt?: { key: string; value: string; modified: number }
+  receipt?: { key: string; value: string; modified: number },
+  guard: () => void = () => undefined
 ) {
+  guard();
   // IndexedDB serializes cross-tab read/modify/write transactions even without Web Locks.
   const db = await integrationDB(),
     tx = db.transaction('metadata', 'readwrite');
@@ -143,8 +145,10 @@ export async function updateOrganization(
         return;
       }
     }
+    guard();
     const before = structuredClone(value);
     change(value);
+    guard();
     // Migration retry protection commits atomically with collection memberships.
     if (receipt) await tx.store.put(receipt, receipt.key);
     if (equal(before, value)) {
@@ -174,15 +178,23 @@ export function watchOrganization(onError: (error: unknown) => void = () => unde
     };
   return () => channel?.close();
 }
-export async function createCollection(name: string, members: string[] = []) {
+export async function createCollection(
+  name: string,
+  members: string[] = [],
+  guard: () => void = () => undefined
+) {
   const collection = {
     id: crypto.randomUUID(),
     name: libraryName(name),
     members: [...new Set(members)]
   };
-  await updateOrganization((value) => {
-    value.collections.push(collection);
-  });
+  await updateOrganization(
+    (value) => {
+      value.collections.push(collection);
+    },
+    undefined,
+    guard
+  );
   return collection.id;
 }
 export async function renameCollection(id: string, name: string) {
@@ -217,6 +229,35 @@ export async function setMembership(
     const retained = collection.members.filter((key) => key !== member && !aliases.includes(key));
     collection.members = included ? [...retained, member] : retained;
   });
+}
+/** Change a batch in one organization transaction, including mixed book/snippet collections. */
+export async function setMembershipMany(
+  id: string,
+  members: string[],
+  included: boolean,
+  guard: () => void = () => undefined
+) {
+  const unique = [...new Set(members)];
+  if (unique.length > 50000) throw new Error('Too many collection members.');
+  await updateOrganization(
+    (value) => {
+      if (id === WANT_TO_READ_ID) {
+        changeWantToRead(
+          value,
+          unique.map((member) => ({ organizationKey: member, organizationAliases: [] })),
+          included
+        );
+        return;
+      }
+      const collection = value.collections.find((item) => item.id === id);
+      if (!collection) throw new Error('This collection no longer exists.');
+      const keys = new Set(unique),
+        retained = collection.members.filter((key) => !keys.has(key));
+      collection.members = included ? [...retained, ...unique] : retained;
+    },
+    undefined,
+    guard
+  );
 }
 export async function presentBook(
   id: string,
@@ -264,4 +305,32 @@ export async function relocatePresentation(before: string, after: string) {
     if (prior && (!current || prior.modifiedAt > current.modifiedAt)) value.books[after] = prior;
     delete value.books[before];
   });
+}
+
+/** Restore only additive portable snippet membership; never clear unrelated books or rename a collection. */
+export async function importSnippetCollections(
+  collections: Collection[],
+  guard: () => void = () => undefined
+) {
+  await updateOrganization(
+    (value) => {
+      for (const incoming of collections) {
+        if (
+          !isPortableText(incoming.id, 128) ||
+          !incoming.members.every((member) => /^snippet:[0-9a-f-]{36}$/.test(member))
+        )
+          throw new Error('Invalid restored collection.');
+        const current = value.collections.find((c) => c.id === incoming.id);
+        if (current) current.members = [...new Set([...current.members, ...incoming.members])];
+        else
+          value.collections.push({
+            ...incoming,
+            name: libraryName(incoming.name),
+            members: [...new Set(incoming.members)]
+          });
+      }
+    },
+    undefined,
+    guard
+  );
 }

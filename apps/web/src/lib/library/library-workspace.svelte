@@ -85,6 +85,9 @@
   import CollectionsSheet from './collections-sheet.svelte';
   import type { ReaderLocator } from '../reader-location';
   import LibrarySearch from './library-search.svelte';
+  import SnippetShelf from '../snippets/shelf.svelte';
+  import { snippetItems } from '../snippets/service';
+  import { snippetKey } from '../snippets/document';
   let coverWidths: Record<string, number> = {};
   let shelfElement: HTMLElement;
   function rememberCoverWidth(key: string, fraction: number) {
@@ -261,12 +264,36 @@
   $: series = trail.at(-1);
   $: notFinished = $page.url.searchParams.get('unfinished') === '1';
   $: destinationTitle = series?.name || (collectionId === 'books' ? 'Library' : collectionTitle);
+  let queryURL = '',
+    searchScope = '';
+  $: nextQueryURL = $page.url.searchParams.get('q') ?? '';
+  $: if (queryURL !== nextQueryURL) {
+    queryURL = nextQueryURL;
+    query = nextQueryURL;
+  }
+  $: searchScope =
+    $page.url.searchParams.get('scope') || (selectedCollection || series ? 'here' : 'all');
+  $: snippetMembers = searchScope === 'all' ? undefined : selectedCollection?.members;
+  $: searchableBooks =
+    searchScope === 'all' || searchScope === 'books'
+      ? books
+      : series
+        ? series.books
+        : selectedCollection
+          ? books.filter((book) => collectionContains(selectedCollection, book))
+          : books;
+  function chooseSearchScope(value: string) {
+    const url = new URL($page.url);
+    url.searchParams.set('scope', value);
+    url.searchParams.set('q', query);
+    void goto(url, { replaceState: true, noScroll: true, keepFocus: true });
+  }
   $: normalizedQuery = foldSearch(query.trim());
   $: metadataSeries = normalizedQuery ? booksInMatchingSeries(tree, normalizedQuery) : [];
   $: metadataCollections = $organization.collections.filter((c) =>
     foldSearch(c.name).includes(normalizedQuery)
   );
-  $: metadataMatches = books.filter(
+  $: metadataMatches = searchableBooks.filter(
     (book) =>
       matchesBookQuery(book, normalizedQuery, metadataSeries) ||
       metadataCollections.some((c) =>
@@ -458,6 +485,10 @@
   }
   function setQuery(value: string) {
     query = value;
+    const url = new URL($page.url);
+    if (value) url.searchParams.set('q', value);
+    else url.searchParams.delete('q');
+    void goto(url, { replaceState: true, noScroll: true, keepFocus: true });
   }
   function setLayout(value: string) {
     if (collectionId === 'finished' && !series) {
@@ -537,7 +568,7 @@
       const owner = localProfileUser()?.id;
       const nextSources = await sourceDescriptors();
       const nextLocals = await (await integrationDB()).getAll('localLibraries');
-      const cached = await Promise.all(nextSources.map(cachedCatalog));
+      const cached = await Promise.all(nextSources.map((source) => cachedCatalog(source)));
       if (!alive || run !== generation || owner !== localProfileUser()?.id) return;
       sources = nextSources;
       locals = nextLocals;
@@ -1085,6 +1116,11 @@
           navigate(undefined, 'books', false);
         }}><BookOpen aria-hidden="true" /><span>Books</span><span>{books.length}</span></button
       >
+      <a class="flex items-center gap-3 rounded-xl p-3 text-sm" href={resolve('/snippets')}
+        ><Books aria-hidden="true" /><span>Snippets</span><span
+          >{$snippetItems.filter((item) => !item.trashedAt).length}</span
+        ></a
+      >
       <button
         aria-current={collectionId === WANT_TO_READ_ID ? 'page' : undefined}
         onclick={() => {
@@ -1182,6 +1218,20 @@
         <summary>Some series names could not be read ({warnings.length})</summary
         >{#each warnings as warning, index (index)}<p class="mt-2 break-words">{warning}</p>{/each}
       </details>{/if}
+    {#if !normalizedQuery && !series && !selectMode && (collectionId === 'books' || selectedCollection) && $snippetItems.some((item) => !item.trashedAt && (!selectedCollection || selectedCollection.members.includes(snippetKey(item.id))))}
+      <section class="my-6" aria-label="Snippets in this library">
+        <div class="mb-4 flex items-center justify-between">
+          <h2 class="text-xl font-semibold">Snippets</h2>
+          <Button
+            variant="ghost"
+            href={selectedCollection
+              ? resolve(`/snippets?collection=${encodeURIComponent(selectedCollection.id)}`)
+              : resolve('/snippets')}>Manage snippets</Button
+          >
+        </div>
+        <SnippetShelf members={selectedCollection?.members} showEmpty={false} />
+      </section>
+    {/if}
     {#if recentBooks.length}
       <section class="continue-section mb-7" aria-labelledby="continue-heading">
         <div class="continue-track" role="list">
@@ -1263,7 +1313,46 @@
         Books
       </h2>{/if}
     {#if normalizedQuery && !selectMode}
-      <LibrarySearch {query} {books} matches={metadataMatches} {openBook} />
+      <nav aria-label="Search scope" class="mb-5 flex flex-wrap gap-2">
+        {#if selectedCollection || series}<Button
+            variant={searchScope === 'here' ? 'secondary' : 'ghost'}
+            aria-pressed={searchScope === 'here'}
+            onclick={() => chooseSearchScope('here')}
+            >This {series ? 'series' : 'collection'}</Button
+          >{/if}
+        <Button
+          variant={searchScope === 'all' ? 'secondary' : 'ghost'}
+          aria-pressed={searchScope === 'all'}
+          onclick={() => chooseSearchScope('all')}>All Library</Button
+        >
+        <Button
+          variant={searchScope === 'books' ? 'secondary' : 'ghost'}
+          aria-pressed={searchScope === 'books'}
+          onclick={() => chooseSearchScope('books')}>Books</Button
+        >
+        <Button
+          variant={searchScope === 'snippets' ? 'secondary' : 'ghost'}
+          aria-pressed={searchScope === 'snippets'}
+          onclick={() => chooseSearchScope('snippets')}>Snippets</Button
+        >
+      </nav>
+      {#if searchScope !== 'snippets'}<LibrarySearch
+          {query}
+          books={searchableBooks}
+          matches={metadataMatches}
+          {openBook}
+        />{/if}
+      {#if searchScope !== 'books' && !(series && searchScope === 'here')}<section
+          class="my-6"
+          aria-label="Snippet matches"
+        >
+          <h2 class="mb-4 text-xl font-semibold">Snippets</h2>
+          <SnippetShelf
+            {query}
+            members={snippetMembers}
+            returnTo={$page.url.pathname + $page.url.search}
+          />
+        </section>{/if}
     {:else if completedGroups.length && collectionId === 'finished' && !series && currentLayout === 'timeline'}
       <div class="finished-timeline" role="list" aria-label="Finished books">
         {#each completedGroups as group (group.day || 'unknown')}

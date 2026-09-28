@@ -1,4 +1,6 @@
 <script lang="ts">
+  import SnippetCapture from '../snippets/capture.svelte';
+  import { startSnippets } from '../snippets/service';
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import { base } from '$app/paths';
@@ -13,6 +15,7 @@
       ['conflict', 'needs_reconnect', 'permission_required', 'unauthorized'].includes(status.state)
     );
   onMount(() => {
+    const stopSnippets = startSnippets();
     const stopPreferences = startPreferenceSync();
     const stopBooks = startBookSync();
     let lastRefreshStarted = 0;
@@ -30,6 +33,7 @@
     window.addEventListener('online', refreshOnline);
     window.addEventListener('focus', refreshFocus);
     return () => {
+      stopSnippets();
       stopPreferences();
       stopBooks();
       window.removeEventListener('online', refreshOnline);
@@ -37,6 +41,8 @@
     };
   });
 </script>
+
+<SnippetCapture />
 
 {#if needsAttention && $page.url.pathname !== `${base}/connections`}
   <aside role="status">

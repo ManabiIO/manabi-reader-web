@@ -44,6 +44,8 @@ export interface CloudConnection {
   roots: string[];
   needs_reconnect: boolean;
 }
+export const supportedLibraryFile = (name: string) =>
+  supportedBook(name) || name.toLowerCase().endsWith('.manabi-snippet.json');
 export const supportedBook = (name: string) => /\.(epub|txt|htmlz)$/i.test(name);
 const maxBookBytes = 128 * 1024 * 1024;
 const stateDirectory = '.manabi-reader';
@@ -56,7 +58,8 @@ export async function sha256(value: ArrayBuffer | Uint8Array | string): Promise<
     .join('');
 }
 function stateKey(key: string) {
-  if (!/^book_[a-f0-9]{64}$/.test(key)) throw new Error('Invalid managed reading-state key');
+  if (!/^(?:book_[a-f0-9]{64}|snippet_[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$/.test(key))
+    throw new Error('Invalid managed reading-state key');
   return key;
 }
 function jsonObject(value: unknown): value is Record<string, unknown> {
@@ -241,7 +244,8 @@ export class LocalLibrarySource implements LibrarySource {
     const directory = await this.directory(parent);
     const items: LibraryEntry[] = [];
     for await (const [name, handle] of directory.entries()) {
-      if (name === stateDirectory || (handle.kind === 'file' && !supportedBook(name))) continue;
+      if (name === stateDirectory || (handle.kind === 'file' && !supportedLibraryFile(name)))
+        continue;
       items.push({
         id: parent ? `${parent}/${name}` : name,
         name,
