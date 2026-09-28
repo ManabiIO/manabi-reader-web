@@ -226,6 +226,32 @@ class LibraryIdentityBrowser(LibraryBase):
         expect(self.page.locator('.book-content')).to_have_count(0)
         self.assertEqual([], self.stores('books', ['data'])['data'])
 
+    def test_stale_remove_action_cannot_delete_a_now_foreign_owned_book(self):
+        original = self.import_finished()
+        before = self.stores('books', ['bookmark'])['bookmark']
+        self.page.evaluate('''async id => {
+          const db = await new Promise((resolve, reject) => {
+            const request = indexedDB.open('books');
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          const tx = db.transaction('data', 'readwrite');
+          const store = tx.objectStore('data');
+          const request = store.get(id);
+          request.onsuccess = () => store.put({...request.result, libraryOwner: 'other'});
+          await new Promise((resolve, reject) => {
+            tx.oncomplete = resolve; tx.onabort = () => reject(tx.error);
+          });
+          db.close();
+        }''', original['bookId'])
+        self.menu('Traveling volume', 'Remove from this browser…')
+        expect(self.page.get_by_text(re.compile('another account')).first).to_be_visible(timeout=30000)
+        after = self.stores('books', ['data', 'bookmark'])
+        self.assertEqual(before, after['bookmark'])
+        self.assertEqual(1, len(after['data']))
+        self.assertEqual(original['bookId'], after['data'][0]['id'])
+        self.assertEqual('other', after['data'][0]['libraryOwner'])
+
     def organization_snapshot(self):
         rows = self.stores('manabi-reader-integrations', ['metadata'])['metadata']
         return next((row for row in rows if isinstance(row, dict)
