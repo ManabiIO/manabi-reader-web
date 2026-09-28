@@ -7,6 +7,7 @@
 import type { IDBPDatabase } from 'idb';
 import type BooksDb from './versions/books-db';
 import { commitTransaction } from './commit-transaction.mjs';
+import { StorageDataType } from '$lib/data/storage/storage-types';
 import type {
   BooksDbBookData,
   BooksDbContentStatistic,
@@ -253,7 +254,22 @@ export interface StatisticIdentityPlan {
   title: string;
   bookKey: string;
   keys: string[];
+  legacyTitle?: string;
   unresolvedLegacy: boolean;
+}
+
+function statisticLegacyAssignment(
+  receipt: BooksDb['readerStatisticMigration']['value'] | undefined,
+  title: string,
+  keys: ReadonlySet<string>
+): { legacyTitle?: string; unresolvedLegacy: boolean } {
+  if (!receipt) return { unresolvedLegacy: false };
+  if (receipt.state === 'ambiguous') return { unresolvedLegacy: true };
+  if (!receipt.bookKey || !keys.has(receipt.bookKey)) return { unresolvedLegacy: true };
+  if (receipt.state === 'assigned') return { legacyTitle: title, unresolvedLegacy: false };
+  return receipt.legacyAssigned === true
+    ? { legacyTitle: title, unresolvedLegacy: false }
+    : { unresolvedLegacy: true };
 }
 
 /** Resolve every statistics identity owned by one browser book for selection or deletion.
@@ -285,14 +301,136 @@ export async function statisticIdentityPlan(
     throw new Error('The selected statistics book changed. Refresh the Library and try again.');
   const keys = new Set([bookKey]);
   if (local) keys.add(`local:${local.uuid}`);
+  const legacy = statisticLegacyAssignment(receipt, snapshot.title, keys);
   return {
     title: snapshot.title,
     bookKey,
     keys: [...keys],
-    unresolvedLegacy:
-      receipt?.state === 'ambiguous' ||
-      (receipt?.state === 'identity-conflict' && receipt.legacyAssigned !== true)
+    ...legacy
   };
+}
+
+/** Delete exactly the histories represented by a previously resolved plan.
+ * Revalidate both persistent ownership and identity in the same transaction as
+ * the delete so a stale Library selection cannot erase another account/history.
+ */
+export async function deleteStatisticsForIdentityPlan(
+  db: IDBPDatabase<BooksDb>,
+  bookId: number,
+  expected: StatisticIdentityPlan,
+  guard?: StatisticsMigrationGuard
+): Promise<void> {
+  guard?.assertCurrent();
+  guard?.signal.throwIfAborted();
+  if (!Number.isSafeInteger(bookId) || bookId <= 0)
+    throw new Error('The selected statistics book is invalid.');
+  if (expected.unresolvedLegacy)
+    throw new Error(
+      `Older statistics for “${expected.title}” cannot be safely assigned to this copy.`
+    );
+  const stores = [
+    'data',
+    'statistic',
+    'readerStatistic',
+    'readerStatisticMigration',
+    'readerLocalIdentity',
+    'lastModified',
+    ...(guard ? (['readerBookScope'] as const) : [])
+  ] as const;
+  const tx = db.transaction(stores, 'readwrite');
+  const abort = () => {
+    try {
+      tx.abort();
+    } catch {
+      /* Already settled. */
+    }
+  };
+  guard?.signal.addEventListener('abort', abort, { once: true });
+  try {
+    await commitTransaction(tx, async () => {
+      guard?.assertCurrent();
+      guard?.signal.throwIfAborted();
+      const book = await tx.objectStore('data').get(bookId);
+      const owner = guard ? await tx.objectStore('readerBookScope').get(bookId) : undefined;
+      guard?.assertCurrent();
+      guard?.validate(book, owner);
+      if (
+        !book ||
+        book.title !== expected.title
+      )
+        throw new Error('The selected statistics book changed. Refresh the Library and try again.');
+
+      const local = await tx.objectStore('readerLocalIdentity').get(bookId);
+      const bookKey = contentStatisticKey(book) ?? (local ? `local:${local.uuid}` : undefined);
+      if (!bookKey || bookKey !== expected.bookKey)
+        throw new Error('The selected statistics identity changed. Refresh the Library and try again.');
+      const keys = new Set([bookKey]);
+      if (local) keys.add(`local:${local.uuid}`);
+      const expectedKeys = new Set(expected.keys);
+      if (
+        keys.size !== expectedKeys.size ||
+        [...keys].some((key) => !expectedKeys.has(key))
+      )
+        throw new Error('The selected statistics identity changed. Refresh the Library and try again.');
+
+      const receipt = await tx.objectStore('readerStatisticMigration').get(book.title);
+      const legacy = statisticLegacyAssignment(receipt, book.title, keys);
+      if (
+        legacy.unresolvedLegacy ||
+        legacy.legacyTitle !== expected.legacyTitle
+      )
+        throw new Error('The selected statistics history changed. Refresh the Library and try again.');
+
+      if (guard?.validateCopy) {
+        const contentKey = contentStatisticKey(book);
+        if (contentKey) {
+          for (
+            let cursor = await tx.objectStore('data').openCursor();
+            cursor;
+            cursor = await cursor.continue()
+          ) {
+            if (contentStatisticKey(cursor.value) !== contentKey) continue;
+            const copyOwner = await tx.objectStore('readerBookScope').get(cursor.value.id);
+            guard.assertCurrent();
+            guard.validateCopy(cursor.value, copyOwner);
+          }
+        }
+      }
+
+      const modifiedAt = Date.now();
+      const lastModified = tx.objectStore('lastModified');
+      const content = tx.objectStore('readerStatistic');
+      for (const key of keys) {
+        guard?.assertCurrent();
+        guard?.signal.throwIfAborted();
+        const range = statisticRange(key);
+        if ((await content.getKey(range)) === undefined) continue;
+        await content.delete(range);
+        await lastModified.put({
+          title: key,
+          dataType: StorageDataType.STATISTICS,
+          lastModifiedValue: modifiedAt
+        });
+      }
+      if (legacy.legacyTitle) {
+        const title = legacy.legacyTitle;
+        const range = IDBKeyRange.bound([title], [title, []]);
+        const legacyStore = tx.objectStore('statistic');
+        if ((await legacyStore.getKey(range)) !== undefined) {
+          await legacyStore.delete(range);
+          await lastModified.put({
+            title,
+            dataType: StorageDataType.STATISTICS,
+            lastModifiedValue: modifiedAt
+          });
+        }
+      }
+      guard?.assertCurrent();
+      guard?.signal.throwIfAborted();
+    });
+  } finally {
+    guard?.signal.removeEventListener('abort', abort);
+  }
 }
 
 /** A TTU statistics ZIP has only title keys, so it cannot represent this case. */
