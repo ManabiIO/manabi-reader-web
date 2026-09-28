@@ -5,6 +5,9 @@ on:
     paths: [.github/workflows/prepare-parity-blobs.yml]
 permissions:
   contents: write
+concurrency:
+  group: parity-integration-blob-preparation
+  cancel-in-progress: true
 jobs:
   prepare:
     if: github.repository == 'ManabiIO/manabi-reader-web'
@@ -28,7 +31,7 @@ jobs:
             assert(context.ref === 'refs/heads/chore/library-parity-blob-stage-20260928', 'Unexpected source branch');
             assert(git(['rev-parse','HEAD']) === '77947ea646390296418d9ef73a3c331f1c1057a2', 'Wrong source commit');
             assert(git(['rev-parse','HEAD^{tree}']) === 'f21c5752681cca628869bd21478b1b6642a8da8b', 'Wrong source tree');
-            const chunks = [['b3adf69b98bf3b33e8e09c2ae3a02648f2c94d37',8192],['2e1e548496fa96556df8ed79a87a29c7a3b31614',8192],['c9c70dd71e1a7d82a01b4970156d237803b4bb2f',8192],['d5aa117b0ed2f19e149b737b076f192731ea291d',8192],['1e5622f36fea4d4bbe2a17243c02d99bc977c757',3188]];
+            const chunks = [['85b0da2a814856bc0fe41a2a3f2d7ab566e8a553',8192],['2e1e548496fa96556df8ed79a87a29c7a3b31614',8192],['c9c70dd71e1a7d82a01b4970156d237803b4bb2f',8192],['d5aa117b0ed2f19e149b737b076f192731ea291d',8192],['1e5622f36fea4d4bbe2a17243c02d99bc977c757',3160]];
             const bytes = [];
             for (const [sha,size] of chunks) {
               const r = (await github.rest.git.getBlob({...context.repo, file_sha:sha})).data;
@@ -37,13 +40,14 @@ jobs:
               assert(b.length === size && blobHash(b) === sha, 'Chunk integrity failure'); bytes.push(b);
             }
             const packed = Buffer.concat(bytes);
-            assert(hash('sha256',packed) === '3c9fdc5fae16338e9988bd38020fc8dce4e62c2a47503a54fa0311d1b04c2975', 'Packed digest mismatch');
+            assert(hash('sha256',packed) === '8949a2fc7169e53ec7a2f84308550c35a570fcc660c0bfd899772c0656a76ad1', 'Packed digest mismatch');
             fs.writeFileSync('/tmp/parity-delta.xz',packed);
             execFileSync('python3',['-c',"import lzma,pathlib; d=lzma.LZMADecompressor(); b=d.decompress(pathlib.Path('/tmp/parity-delta.xz').read_bytes(),max_length=1048576); assert d.eof and not d.unused_data; pathlib.Path('/tmp/parity-delta.patch').write_bytes(b)"]);
-            assert(hash('sha256',fs.readFileSync('/tmp/parity-delta.patch')) === 'd2d30f88427a322a8a094fb61d7d02bb6fb1ae4024f18950b0e8ee90e79b0b30', 'Patch digest mismatch');
+            assert(hash('sha256',fs.readFileSync('/tmp/parity-delta.patch')) === 'b2b22dfcad8ad9c4102490730eeeb388a93b0e09b8b7dbdec0bb5de3e86c6a87', 'Patch digest mismatch');
             git(['apply','--check','/tmp/parity-delta.patch']); git(['apply','--index','/tmp/parity-delta.patch']);
-            assert(git(['write-tree']) === '6e0dfc5053894b6c2a25df572183e4cbda945296', 'Integrated tree mismatch');
+            assert(git(['write-tree']) === '5b93984e22df191eefe053d74a0aaa4e7ca05e92', 'Integrated tree mismatch');
             const paths = git(['diff','--cached','--name-only','-z']).split('\0').filter(Boolean);
+            assert(paths.length === 28, 'Unexpected changed-path count');
             const manifest = [];
             for (const path of paths) {
               assert(/^(apps\/web\/|tests\/|docs\/|\.github\/workflows\/books-library\.yml$)/.test(path), `Unexpected path ${path}`);
@@ -57,7 +61,7 @@ jobs:
             }
             fs.mkdirSync('/tmp/parity-result',{recursive:true});
             fs.writeFileSync('/tmp/parity-result/entries.json',JSON.stringify(manifest,null,2));
-            fs.writeFileSync('/tmp/parity-result/tree.txt','6e0dfc5053894b6c2a25df572183e4cbda945296\n');
+            fs.writeFileSync('/tmp/parity-result/tree.txt','5b93984e22df191eefe053d74a0aaa4e7ca05e92\n');
             core.info(`VERIFIED_BLOBS=${manifest.length}`);
             await core.summary.addHeading('Verified blob preparation').addRaw('Only immutable blobs were uploaded. No tree, commit or ref mutation was attempted.\n').write();
       - uses: actions/upload-artifact@v4
