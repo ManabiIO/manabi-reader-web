@@ -15,7 +15,7 @@ import {
 } from './reader-statistics';
 import { commitTransaction, explainBookStorageError } from './commit-transaction.mjs';
 import { matchesDirectImportIdentity, normalizedDirectImportHash } from './direct-import-identity';
-import { snapshotBookmarkData } from './book-records';
+import { assertBookPersonalAccess, snapshotBookmarkData } from './book-records';
 import { captureLibraryOperation } from '$lib/manabi/operation-scope';
 import type {
   BooksDbAudioBook,
@@ -423,8 +423,24 @@ export class DatabaseService {
   }
 
   async getBookmark(dataId: number) {
-    const db = await this.db;
-    return db.get('bookmark', dataId);
+    const scope = captureLibraryOperation();
+    try {
+      scope.assertCurrent();
+      const db = await this.db;
+      scope.assertCurrent();
+      const tx = db.transaction(['data', 'bookmark', 'readerBookScope']);
+      return await commitTransaction(tx, async () => {
+        scope.assertCurrent();
+        const book = await tx.objectStore('data').get(dataId);
+        if (!book) return undefined;
+        const readerScope = await tx.objectStore('readerBookScope').get(dataId);
+        assertBookPersonalAccess(book, readerScope, scope.profileId);
+        scope.assertCurrent();
+        return tx.objectStore('bookmark').get(dataId);
+      });
+    } finally {
+      scope.stop();
+    }
   }
 
   async putBookmark(bookmarkData: BooksDbBookmarkData) {
@@ -432,13 +448,39 @@ export class DatabaseService {
     // Snapshot before awaiting the database so later mutation cannot redirect
     // this write to another book or alter the committed position.
     const snapshot = snapshotBookmarkData(bookmarkData);
-    const db = await this.db;
-
-    const tx = db.transaction('bookmark', 'readwrite');
-    return commitTransaction(tx, async () => {
-      const before = await tx.store.get(snapshot.dataId);
-      return tx.store.put(mergeCompletion(before, snapshot));
-    });
+    const scope = captureLibraryOperation();
+    try {
+      scope.assertCurrent();
+      const db = await this.db;
+      scope.assertCurrent();
+      const tx = db.transaction(['data', 'bookmark', 'readerBookScope'], 'readwrite');
+      const abort = () => {
+        try {
+          tx.abort();
+        } catch {
+          /* Already settled. */
+        }
+      };
+      scope.signal.addEventListener('abort', abort, { once: true });
+      try {
+        return await commitTransaction(tx, async () => {
+          scope.assertCurrent();
+          const book = await tx.objectStore('data').get(snapshot.dataId);
+          if (!book) throw new Error('This book is no longer in the library.');
+          const readerScope = await tx.objectStore('readerBookScope').get(snapshot.dataId);
+          assertBookPersonalAccess(book, readerScope, scope.profileId);
+          scope.assertCurrent();
+          const bookmarks = tx.objectStore('bookmark');
+          const before = await bookmarks.get(snapshot.dataId);
+          scope.assertCurrent();
+          return bookmarks.put(mergeCompletion(before, snapshot));
+        });
+      } finally {
+        scope.signal.removeEventListener('abort', abort);
+      }
+    } finally {
+      scope.stop();
+    }
   }
 
   async putAudioBook(audioBook: BooksDbAudioBook) {
