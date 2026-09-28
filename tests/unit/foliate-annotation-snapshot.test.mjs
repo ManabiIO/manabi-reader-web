@@ -30,8 +30,7 @@ function load(url) {
     (name) => {
       if (name === '$lib/data/store') return { database };
       if (name === 'svelte/store') return { get: () => ({ status: 'ready' }) };
-      if (name === '$lib/manabi/client')
-        return { account: {}, localProfileUser: () => profile };
+      if (name === '$lib/manabi/client') return { account: {}, localProfileUser: () => profile };
       if (name === '$lib/reader-location') return load(new URL('reader-location.ts', root));
       throw new Error(`Unexpected dependency: ${name}`);
     },
@@ -66,7 +65,7 @@ function databaseGate() {
     objectStore: (name) => ({
       get: async () => undefined,
       put: async (value) => {
-        if (name === 'readerAnnotation') puts.push(structuredClone(value));
+        if (name === 'readerAnnotation') puts.push(globalThis.structuredClone(value));
       }
     }),
     done: Promise.resolve()
@@ -146,7 +145,6 @@ test('portable annotation validation rejects unsupported locator projections', (
   assert.throws(() => validateImportedAnnotation(annotation), /invalid reading location/i);
 });
 
-
 test('annotation import refuses an ID collision across different books', async () => {
   profile = undefined;
   const existingBook = localBook;
@@ -165,10 +163,7 @@ test('annotation import refuses an ID collision across different books', async (
   let conflicts = 0;
   const tx = {
     objectStore: (name) => ({
-      get: async () =>
-        name === 'readerAnnotation'
-          ? existing
-          : undefined,
+      get: async () => (name === 'readerAnnotation' ? existing : undefined),
       put: async () => {
         if (name === 'readerConflict') conflicts += 1;
       }

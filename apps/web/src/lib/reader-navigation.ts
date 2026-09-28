@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { snapshotReaderLocator, type ReaderLocator } from './reader-location';
+import { snapshotReaderLocator, type ReaderLocator } from './reader-location.ts';
 
 export type ReaderNavigationCause =
   | 'reading'

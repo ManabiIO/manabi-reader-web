@@ -409,10 +409,7 @@ function validate(draft: AnnotationDraft) {
     !['yellow', 'blue', 'green', 'pink', 'purple'].includes(draft.color)
   )
     throw new Error('Invalid annotation color.');
-  if (
-    draft.decoration !== undefined &&
-    !['highlight', 'underline'].includes(draft.decoration)
-  )
+  if (draft.decoration !== undefined && !['highlight', 'underline'].includes(draft.decoration))
     throw new Error('Invalid annotation decoration.');
 }
 
