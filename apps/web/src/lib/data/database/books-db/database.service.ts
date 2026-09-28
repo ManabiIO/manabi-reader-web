@@ -535,12 +535,14 @@ export class DatabaseService {
       | 'readerSearchProjection'
       | 'readerStatistic'
       | 'readerLocalIdentity'
+      | 'readerBookScope'
     )[] = [
       'data',
       'audioBook',
       'subtitle',
       'handle',
       'readerSearchProjection',
+      'readerBookScope',
       'bookmark',
       'lastItem'
     ];
@@ -564,7 +566,12 @@ export class DatabaseService {
         // A batch may span reader writes, renames and other tabs. Decisions must
         // use the current record in the same transaction as its deletion.
         const book = await tx.objectStore('data').get(dataId);
-        if (profileId !== undefined && book?.libraryOwner && book.libraryOwner !== profileId)
+        const owner = await tx.objectStore('readerBookScope').get(dataId);
+        if (
+          profileId !== undefined &&
+          ((book?.libraryOwner && book.libraryOwner !== profileId) ||
+            (owner && owner.accountId !== profileId))
+        )
           throw new Error('This book belongs to another account.');
         const bookTitle = book?.title;
         const titleUsedByAnotherBook = bookTitle
@@ -621,6 +628,7 @@ export class DatabaseService {
         assertCurrent?.();
         throwIfAborted(signal);
         await tx.objectStore('readerSearchProjection').delete(dataId);
+        await tx.objectStore('readerBookScope').delete(dataId);
         await tx.objectStore('data').delete(dataId);
       });
     } catch (error) {
