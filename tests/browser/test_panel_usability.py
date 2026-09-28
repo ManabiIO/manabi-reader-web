@@ -173,6 +173,8 @@ class PanelUsabilityBrowser(LibraryBase):
         self.page.get_by_role('button', name='Filter books', exact=True).click()
         panel = self.page.get_by_role('dialog', name='Filter books', exact=True)
         expect(panel.locator('.filter-panel')).to_have_attribute('data-sticky-chrome', 'true')
+        for bar in ('[data-sticky-header]', '[data-sticky-footer]'):
+            self.assertEqual('sticky', panel.locator(bar).evaluate('e => getComputedStyle(e).position'))
         panel.get_by_role('button', name='Next', exact=True).click()
         first = panel.get_by_role('checkbox').first
         expect(first).to_be_focused()
@@ -191,6 +193,8 @@ class PanelUsabilityBrowser(LibraryBase):
         self.page.set_viewport_size({'width': 320, 'height': 320})
         self.page.evaluate('document.documentElement.style.fontSize = "200%"')
         expect(panel.locator('.filter-panel')).to_have_attribute('data-sticky-chrome', 'false')
+        for bar in ('[data-sticky-header]', '[data-sticky-footer]'):
+            self.assertEqual('static', panel.locator(bar).evaluate('e => getComputedStyle(e).position'))
         first = panel.get_by_role('checkbox').first
         first.focus()
         self.assert_unoccluded(first)

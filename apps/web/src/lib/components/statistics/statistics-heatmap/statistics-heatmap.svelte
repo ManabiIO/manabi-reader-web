@@ -771,9 +771,7 @@
     let daysReadLabel = '';
 
     if (allDaysReadCount) {
-      daysReadLabel = `${daysRead.size} / ${pluralize(allDaysReadCount, 'day')} (${
-        allDaysReadCount ? caluclatePercentage(daysRead.size, allDaysReadCount) : 0
-      }%)`;
+      daysReadLabel = `${daysRead.size} / ${pluralize(allDaysReadCount, 'day')} (${allDaysReadCount ? caluclatePercentage(daysRead.size, allDaysReadCount) : 0}%)`;
     } else {
       daysReadLabel = '0 / 0 days (0%)';
     }
@@ -1204,7 +1202,6 @@
         tabindex={heatmapDay.isCurrentYear && heatmapDay.dateString === activeDay?.dateString
           ? 0
           : -1}
-        role="button"
         disabled={!heatmapDay.isCurrentYear}
         aria-hidden={!heatmapDay.isCurrentYear ? true : undefined}
         aria-haspopup={heatmapDay.isCurrentYear ? 'dialog' : undefined}

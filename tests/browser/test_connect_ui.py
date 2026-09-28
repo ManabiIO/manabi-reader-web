@@ -184,7 +184,7 @@ class ConnectControlsBrowser(previous.AppleControlsBrowser):
         self.page.goto(self.origin + '/reader-web/statistics')
         self.page.get_by_role('button', name='Heatmap', exact=True).click()
         day = self.page.locator('[data-date="2026-09-25"]')
-        expect(day).to_have_attribute('role', 'button')
+        self.assertEqual('BUTTON', day.evaluate('e => e.tagName'))
         expect(day).to_have_attribute('aria-disabled', 'false')
         # The calendar is one Tab stop; directly focusing a day makes it the
         # retained roving stop, regardless of the machine's current date.

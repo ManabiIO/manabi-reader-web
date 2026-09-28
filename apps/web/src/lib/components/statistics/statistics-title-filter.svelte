@@ -199,8 +199,8 @@
     padding-inline: 20px;
     background: var(--popover);
   }
-  .filter-panel[data-sticky-chrome='true'] .filter-header,
-  .filter-panel[data-sticky-chrome='true'] .filter-footer {
+  .filter-panel:global([data-sticky-chrome='true']) .filter-header,
+  .filter-panel:global([data-sticky-chrome='true']) .filter-footer {
     position: sticky;
   }
   .filter-header {
