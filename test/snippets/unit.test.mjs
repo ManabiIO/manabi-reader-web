@@ -849,6 +849,52 @@ test('canceling a metadata write after enqueue aborts its whole IndexedDB transa
   }
 });
 
+test('account switch queues a successor save while an older account flush is in flight', async () => {
+  const previousWindow = globalThis.window,
+    navigation = writable(false);
+  globalThis.window = new EventTarget();
+  changeUser('alice');
+  let stop = () => {},
+    release;
+  const blocked = new Promise((resolve) => (release = resolve));
+  let started;
+  const admitted = new Promise((resolve) => (started = resolve));
+  memory.beforeWrite = async () => {
+    memory.beforeWrite = null;
+    started();
+    await blocked;
+  };
+  const waitFor = async (condition, timeout = 3500) => {
+    const deadline = Date.now() + timeout;
+    while (!(await condition())) {
+      if (Date.now() > deadline) assert.fail('The queued save did not settle.');
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  };
+  try {
+    stop = startSnippets(navigation);
+    const alice = scope(),
+      aliceDoc = document('Alice pending'),
+      aliceDest = { source: source(), parent: '' };
+    await saveDocument(alice.owner, aliceDoc, null, aliceDest, alice.guard);
+    await admitted;
+    changeUser('bob');
+    const bob = scope(),
+      bobDoc = document('Bob pending'),
+      bobDest = { source: source(), parent: '' };
+    await saveDocument(bob.owner, bobDoc, null, bobDest, bob.guard);
+    release();
+    await waitFor(async () => !(await getRecord(bob.owner, bobDoc.id))?.dirty);
+    assert.equal((await getRecord(bob.owner, bobDoc.id)).dirty, false);
+  } finally {
+    release?.();
+    stop();
+    memory.beforeWrite = null;
+    changeUser(null);
+    globalThis.window = previousWindow;
+  }
+});
+
 test('runtime discovers on library entry, not on settings focus or after leaving', async () => {
   const previousWindow = globalThis.window,
     previousSources = memory.sources;
