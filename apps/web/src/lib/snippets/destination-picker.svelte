@@ -3,7 +3,7 @@
   import { resolve } from '$app/paths';
   import { Button } from '$lib/components/ui/button';
   import { Input } from '$lib/components/ui/input';
-  import { FolderIcon } from 'phosphor-svelte';
+  import { FolderOpenIcon as FolderOpen } from 'phosphor-svelte';
   import { sourceDescriptors, type SourceDescriptor } from '../library/catalog';
   import { requestDocumentWriteAccess } from '../manabi/client';
   import { integrationDB } from '../manabi/persistence';
@@ -178,7 +178,7 @@
           disabled={busy}
           onclick={() => navigate(selected!, folder.id, folder.name)}
         >
-          <FolderIcon class="size-4 shrink-0" aria-hidden="true" />
+          <FolderOpen class="size-4 shrink-0" aria-hidden="true" />
           <span class="min-w-0 break-words">{folder.name}</span>
         </Button>
       {:else}
