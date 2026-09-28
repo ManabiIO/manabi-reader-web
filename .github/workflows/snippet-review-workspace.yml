@@ -1,4 +1,4 @@
-name: Snippet post-merge review workspace
+name: Snippet UI refinement source
 on:
   push:
     branches: [codex/snippet-postmerge-review-20260928]
@@ -8,30 +8,26 @@ permissions:
 jobs:
   workspace:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: 46d1656ba694c75593089a651cf570102bf6aff1
           persist-credentials: false
-      - uses: pnpm/action-setup@v6.1.0
-        with:
-          version: '12.3.4'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.21.0'
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --dir apps/web exec svelte-kit sync
-      - name: Package exact workspace
+      - name: Package exact PR 93 files
         run: |
-          mkdir -p /tmp/snippet-review
-          git archive HEAD | tar -x -C /tmp/snippet-review
-          cp -a node_modules /tmp/snippet-review/node_modules
-          cp -a apps/web/node_modules /tmp/snippet-review/apps/web/node_modules
-          cp -a apps/web/.svelte-kit /tmp/snippet-review/apps/web/.svelte-kit
-          git rev-parse HEAD > /tmp/snippet-review/.source-commit
-          tar -czf /tmp/snippet-review-workspace.tar.gz -C /tmp snippet-review
+          mkdir -p /tmp/pr93/apps/web/src/lib/snippets /tmp/pr93/test/snippets
+          cp apps/web/src/lib/snippets/capture.svelte /tmp/pr93/apps/web/src/lib/snippets/
+          cp apps/web/src/lib/snippets/destination-picker.svelte /tmp/pr93/apps/web/src/lib/snippets/
+          cp apps/web/src/lib/snippets/editor.svelte /tmp/pr93/apps/web/src/lib/snippets/
+          cp apps/web/src/lib/snippets/reader.svelte /tmp/pr93/apps/web/src/lib/snippets/
+          cp apps/web/src/lib/snippets/shelf.svelte /tmp/pr93/apps/web/src/lib/snippets/
+          cp apps/web/src/lib/snippets/workspace.svelte /tmp/pr93/apps/web/src/lib/snippets/
+          cp test/snippets/browser.mjs /tmp/pr93/test/snippets/
+          printf '%s\n' 46d1656ba694c75593089a651cf570102bf6aff1 > /tmp/pr93/.source-commit
+          tar -czf /tmp/pr93-files.tar.gz -C /tmp pr93
       - uses: actions/upload-artifact@v4
         with:
-          name: snippet-postmerge-workspace
-          path: /tmp/snippet-review-workspace.tar.gz
+          name: snippet-pr93-files
+          path: /tmp/pr93-files.tar.gz
           retention-days: 1
