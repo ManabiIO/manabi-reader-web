@@ -341,7 +341,7 @@ async function incompatible(name, kind) {
   );
   const restored = await open(name);
   try {
-    assert(restored.version === 11, 'Schema rejection advanced the version');
+    assert(restored.version === version, 'Schema rejection advanced the version');
     same(Array.from(restored.objectStoreNames), ['data'], 'Schema rejection committed new stores');
     same(await snapshot(restored), before, 'Schema rejection changed existing records');
   } finally {
