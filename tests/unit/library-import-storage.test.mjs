@@ -3,6 +3,7 @@ import test from 'node:test';
 import { setImmediate } from 'node:timers';
 import {
   commitLibraryBook as commit,
+  readIndexedBookIdentities,
   readLibraryIdentities
 } from '../../apps/web/src/lib/data/database/books-db/library-import.ts';
 
@@ -37,6 +38,8 @@ function harness(initial, { onAdd, manual = false } = {}) {
   let rows = new Map(initial.map((row) => [row.id, row]));
   const writes = [];
   let opened = 0;
+  let payloadCursors = 0;
+  let payloadGets = 0;
   let complete;
   const db = {
     transaction(name) {
@@ -65,21 +68,34 @@ function harness(initial, { onAdd, manual = false } = {}) {
         abort: () => finish(new DOMException('rollback', 'AbortError')),
         store: {
           async openCursor() {
+            payloadCursors++;
             const values = [...draft.values()];
             const cursor = (i) =>
               i < values.length ? { value: values[i], continue: async () => cursor(i + 1) } : null;
             return cursor(0);
           },
           async get(id) {
+            payloadGets++;
             return draft.get(id);
           },
           index(name) {
-            assert.equal(name, 'title');
-            return {
-              async getKey(title) {
-                return [...draft.values()].find((row) => row.title === title)?.id;
-              }
-            };
+            if (name === 'title')
+              return {
+                async getKey(title) {
+                  return [...draft.values()].find((row) => row.title === title)?.id;
+                }
+              };
+            assert.ok(name === 'contentHash' || name === 'libraryOwner');
+            const values = [...draft.values()].filter((row) => row[name] !== undefined);
+            const cursor = (i) =>
+              i < values.length
+                ? {
+                    key: values[i][name],
+                    primaryKey: values[i].id,
+                    continue: async () => cursor(i + 1)
+                  }
+                : null;
+            return { openKeyCursor: async () => cursor(0) };
           },
           async add(value) {
             const id = value.id ?? Math.max(100, ...draft.keys()) + 1;
@@ -106,6 +122,8 @@ function harness(initial, { onAdd, manual = false } = {}) {
     writes,
     rows: () => [...rows.values()],
     opened: () => opened,
+    payloadCursors: () => payloadCursors,
+    payloadGets: () => payloadGets,
     finish: (error) => complete(error)
   };
 }
@@ -118,6 +136,35 @@ test('identity inspection retains metadata but not every book payload and resour
     { id: 1, title: 'Book', contentHash: hash, libraryOwner: undefined, isPlaceholder: false }
   ]);
   assert.equal(h.writes.length, 0);
+});
+
+test('indexed identity projection never opens a payload cursor or fetches book values', async () => {
+  const h = harness([
+    record(1, { blobs: { huge: new ArrayBuffer(100) }, libraryOwner: 'alice' }),
+    record(2, { contentHash: other, blobs: { huge: new ArrayBuffer(200) } })
+  ]);
+  const values = await readIndexedBookIdentities(h.db);
+  assert.deepEqual(values, [
+    { id: 1, contentHash: hash, libraryOwner: 'alice' },
+    { id: 2, contentHash: other }
+  ]);
+  assert.equal(h.payloadCursors(), 0);
+  assert.equal(h.payloadGets(), 0);
+});
+
+test('commit scans compact identity keys and loads only the selected full book', async () => {
+  const unrelated = Array.from({ length: 40 }, (_, index) =>
+    record(100 + index, {
+      title: `Unrelated ${index}`,
+      contentHash: (index + 1).toString(16).padStart(64, '0'),
+      blobs: { huge: new ArrayBuffer(256) }
+    })
+  );
+  const h = harness([...unrelated, record(1)]);
+  const result = await commit(h.db, [], request(), undefined, current);
+  assert.equal(result.id, 1);
+  assert.equal(h.payloadCursors(), 0);
+  assert.equal(h.payloadGets(), 1);
 });
 
 test('all browser-only histories are checked before any import write', async () => {
