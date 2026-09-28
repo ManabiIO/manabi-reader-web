@@ -48,6 +48,7 @@
   } from '$lib/functions/statistic-util';
   import { caluclatePercentage, limitToRange, pluralize } from '$lib/functions/utils';
   import { onDestroy, onMount, tick } from 'svelte';
+  import { SvelteSet } from 'svelte/reactivity';
   import AppIcon from '$lib/components/app-icon.svelte';
 
   export let heatmapType: HeatmapType = HeatmapType.STATISTICS;
@@ -66,22 +67,26 @@
   let dayElementSize = heatmapDayElementSize;
   let heatmapYear = today.getFullYear();
   let globalHeatmapData: StatisticsHeatmapData | ReadingGoalsHeatmapData;
+  // This cache is explicitly cleared and its derived view is reassigned after updates.
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
   const globalHeatmapDayData = new Map<
     string,
     HeatmapGlobalDayData | ReadingGoalHeatmapGlobalDayData
   >();
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
   const heatmapDataByYear = new Map<number, StatisticsHeatmapData | ReadingGoalsHeatmapData>();
   let currentHeatmapData: StatisticsHeatmapData | ReadingGoalsHeatmapData;
   let currentHeatmapDays: StatisticsHeatmapDayData[] = [];
   let popoverDetails: string[] = [];
   let activeDate = todayKey;
   let popupGeneration = 0;
+  let resizeFrame = 0;
   let alive = true;
   $: activeDay =
     currentHeatmapDays.find((day) => day.isCurrentYear && day.dateString === activeDate) ??
     currentHeatmapDays.find((day) => day.isCurrentYear);
   let selectedStreak = HeatmapStreakType.NONE;
-  let selectedStreakDates = new Set<string>();
+  let selectedStreakDates = new SvelteSet<string>();
 
   $: heatmapLabel = `Reading ${
     heatmapType === HeatmapType.STATISTICS ? '' : 'Goals '
@@ -94,20 +99,20 @@
 
   $: if ($lastStartDayOfWeek$ > -1 || heatmapAggregration) {
     tick().then(() => {
-      updateHeatmapData(heatmapYear);
+      updateHeatmapData();
     });
   }
 
   $: if (statisticsTitleFilters && statisticsData) {
     selectedStreak = HeatmapStreakType.NONE;
-    selectedStreakDates = new Set();
+    selectedStreakDates = new SvelteSet();
 
     updateHeatmapDataAfterFilterChange();
   }
 
   $: if (heatmapAggregration) {
     selectedStreak = HeatmapStreakType.NONE;
-    selectedStreakDates = new Set();
+    selectedStreakDates = new SvelteSet();
   }
 
   onMount(() => {
@@ -121,10 +126,16 @@
       );
     }
 
-    const observer = new ResizeObserver(updateHeatmapDimensions);
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(resizeFrame);
+      resizeFrame = requestAnimationFrame(updateHeatmapDimensions);
+    });
     if (heatmapElement?.parentElement) observer.observe(heatmapElement.parentElement);
     updateHeatmapDimensions();
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(resizeFrame);
+    };
   });
   onDestroy(() => {
     alive = false;
@@ -144,11 +155,12 @@
 
     if (heatmapAggregration === HeatmapDataAggregration.YEAR) {
       selectedStreak = HeatmapStreakType.NONE;
-      selectedStreakDates = new Set();
+      selectedStreakDates = new SvelteSet();
     }
 
     closeHeatmapDetails(false);
     heatmapYear += modifier;
+    updateHeatmapData();
 
     tick().then(() => {
       if (alive && heatmapElement?.isConnected)
@@ -236,7 +248,7 @@
     }
 
     selectedStreak = selectedStreak === streakToSelect ? HeatmapStreakType.NONE : streakToSelect;
-    selectedStreakDates = new Set<string>();
+    selectedStreakDates = new SvelteSet<string>();
 
     if (selectedStreak !== HeatmapStreakType.NONE) {
       for (let index = 0, { length } = streaks; index < length; index += 1) {
@@ -291,25 +303,25 @@
     globalHeatmapDayData.clear();
     heatmapDataByYear.clear();
 
-    updateHeatmapData(heatmapYear);
+    updateHeatmapData();
   }
 
-  function updateHeatmapData(newYear: number) {
+  function updateHeatmapData() {
     if (heatmapType === HeatmapType.STATISTICS) {
-      updateHeatmapDataForStatistics(newYear);
+      updateHeatmapDataForStatistics();
     } else {
-      updateHeatmapDataForReadingGoals(newYear);
+      updateHeatmapDataForReadingGoals();
     }
   }
 
-  function updateHeatmapDataForStatistics(newYear: number) {
+  function updateHeatmapDataForStatistics() {
+    // Local calculation only; the rendered view is assigned below.
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity
     const daysRead = new Set<string>();
     let maxReadingTime = 0;
     let minReadingTime = 0;
     let firstReadingDay;
     let lastReadingDay;
-
-    heatmapYear = newYear;
 
     if (!globalHeatmapDayData.size) {
       const streaks: HeatmapStreak[] = [];
@@ -485,15 +497,15 @@
     updateHeatmapDayData(undefined);
   }
 
-  function updateHeatmapDataForReadingGoals(newYear: number) {
+  function updateHeatmapDataForReadingGoals() {
     const globalDataObject = globalHeatmapDayData as Map<string, ReadingGoalHeatmapGlobalDayData>;
 
     let completedReadingGoalsCount = 0;
     let closedReadingGoalsCount = 0;
 
-    heatmapYear = newYear;
-
     if (!globalDataObject.size) {
+      // Local grouping only; it never drives a template directly.
+      // eslint-disable-next-line svelte/prefer-svelte-reactivity
       const groupsedStatisticsData = new Map<string, HeatmapGlobalDayData>();
       const streaks: HeatmapStreak[] = [];
 
@@ -882,6 +894,8 @@
     const mapDays: StatisticsHeatmapDayData[] = [];
 
     let year = heatmapYear;
+    // Cursor used only while constructing the next immutable day array.
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity
     const dateObject = new Date(year, 0, 1, 0, 0, 0, 0);
     const dayIndex = dateObject.getDay();
     let dateString = '';
@@ -1166,7 +1180,7 @@
     {#each monthLabels as label (label.monthLabel)}
       <div
         class="text-xs md:text-sm"
-        style:grid-row={'1/1'}
+        style:grid-row="1/1"
         style:grid-column={`${label.heatmapColumn}`}
         style:height={`${dayElementSize}px`}
         style:margin-bottom={`${dayElementSize}px`}
@@ -1176,17 +1190,17 @@
     {/each}
     <div
       class="sticky left-0"
-      style:grid-row={'1/1'}
-      style:grid-column={`1/3`}
+      style:grid-row="1/1"
+      style:grid-column="1/3"
       style:height={`${dayElementSize * 2}px`}
-      style:background-color={'var(--background)'}
+      style:background-color="var(--background)"
     ></div>
     {#each dayLabels as dayLabel, index (dayLabel)}
       <div
         class="sticky left-0 text-xs sm:text-sm"
         style:grid-row={`${index + 2}/${index + 2}`}
-        style:grid-column={`1/3`}
-        style:background-color={'var(--background)'}
+        style:grid-column="1/3"
+        style:background-color="var(--background)"
       >
         {dayLabel}
       </div>
@@ -1262,7 +1276,7 @@
   restoreAnchorFocus
   bind:this={heatmapDetailDataPopover}
 >
-  <div slot="content" class="heatmap-details">
+  <div slot="content" class="heatmap-details" role="dialog" aria-label="Reading day details">
     <div class="heatmap-details-header">
       <h2>{popoverDetails[0] ?? 'Reading day'}</h2>
       <CloseButton aria-label="Close heatmap details" onclick={() => closeHeatmapDetails()} />

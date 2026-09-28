@@ -152,7 +152,8 @@ class PanelUsabilityBrowser(LibraryBase):
         self.page.set_viewport_size({'width': 2400, 'height': 1000})
         grid = self.heatmap()
         day = grid.locator('[data-date="2026-09-01"]')
-        self.frames()
+        # The desktop entrance animation scales the visual box from zero.
+        self.page.wait_for_function('e => e.getBoundingClientRect().width > 15', arg=day.element_handle())
         large = day.bounding_box()['width']
         self.page.set_viewport_size({'width': 390, 'height': 844})
         self.page.wait_for_function('e => e.getBoundingClientRect().width <= 15.1', arg=day.element_handle())
