@@ -1206,6 +1206,70 @@ class BooksLibraryBrowser(LibraryBase):
         expect(self.page.get_by_role('button', name='Read Collection book', exact=True)).to_be_visible()
         self.assertEqual(1, len(self.stores('books', ['data'])['data']))
 
+    def test_selected_statistics_delete_only_the_chosen_same_title_book(self):
+        self.import_book('Same title statistics', size=(240, 360))
+        self.import_book('Same title statistics', size=(180, 380))
+        books = [row for row in self.stores('books', ['data'])['data']
+                 if row['title'] == 'Same title statistics']
+        self.assertEqual(2, len(books))
+        first, second = sorted(books, key=lambda row: row['id'])
+        self.assertNotEqual(first['contentHash'], second['contentHash'])
+
+        self.page.evaluate('''async books => {
+          const db = await new Promise((resolve, reject) => {
+            const request = indexedDB.open('books');
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          const tx = db.transaction('readerStatistic', 'readwrite');
+          for (const [index, book] of books.entries()) {
+            tx.objectStore('readerStatistic').put({
+              title: book.title,
+              bookKey: 'content:' + book.contentHash.toLowerCase(),
+              dateKey: '2026-09-' + String(20 + index).padStart(2, '0'),
+              charactersRead: 100 + index,
+              readingTime: 60,
+              minReadingSpeed: 1,
+              altMinReadingSpeed: 1,
+              lastReadingSpeed: 1,
+              maxReadingSpeed: 1,
+              lastStatisticModified: 100 + index
+            });
+          }
+          await new Promise((resolve, reject) => {
+            tx.oncomplete = resolve;
+            tx.onabort = () => reject(tx.error);
+          });
+          db.close();
+        }''', [first, second])
+
+        header = self.page.get_by_role('banner', name='Library toolbar')
+        header.get_by_role('button', name='Library actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
+        target = self.page.locator('[data-book-key="book:%s"]' % first['id'])
+        expect(target).to_be_visible()
+        target.get_by_role('button', name='Read Same title statistics', exact=True).click()
+        expect(self.page.get_by_text('1 selected', exact=True)).to_be_visible()
+
+        header.get_by_role('button', name='Actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Delete Selected Statistics', exact=True).click()
+        dialog = self.dialog()
+        expect(dialog.get_by_role('heading', name='Delete Data', exact=True)).to_be_visible()
+        dialog.get_by_role('button', name='Confirm', exact=True).click()
+
+        deadline = time.monotonic() + 20
+        while True:
+            rows = self.stores('books', ['readerStatistic'])['readerStatistic']
+            if len(rows) == 1:
+                break
+            self.assertLess(time.monotonic(), deadline, 'selected statistics were not deleted')
+            self.page.wait_for_timeout(25)
+        self.assertEqual(
+            'content:' + second['contentHash'].lower(),
+            rows[0]['bookKey']
+        )
+        self.assertEqual(101, rows[0]['charactersRead'])
+
     def test_existing_reader_autosaves_cannot_erase_library_finish_decision(self):
         self.import_book('Open reader')
         self.page.get_by_role('button', name='Read Open reader', exact=True).click()
