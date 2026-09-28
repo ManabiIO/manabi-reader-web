@@ -65,7 +65,8 @@
       bind:value={fontName}
       oninput={() => (currentError = '')}
       onkeydown={(event) => {
-        if (event.key === 'Enter' && (event.isComposing || event.keyCode === 229)) event.preventDefault();
+        if (event.key === 'Enter' && (event.isComposing || event.keyCode === 229))
+          event.preventDefault();
       }}
     />
   </label>
@@ -83,9 +84,12 @@
     />
   </label>
   <p class="text-sm text-muted-foreground">
-    WOFF2, WOFF, TTF, or OTF. The file is saved only in this browser; it is not uploaded to your account.
+    WOFF2, WOFF, TTF, or OTF. The file is saved only in this browser; it is not uploaded to your
+    account.
   </p>
-  {#if currentError}<p role="alert" class="break-words text-sm text-destructive">{currentError}</p>{/if}
+  {#if currentError}<p role="alert" class="break-words text-sm text-destructive">
+      {currentError}
+    </p>{/if}
   <div class="flex flex-wrap items-center justify-end gap-3">
     {#if isLoading}<p role="status" class="text-sm text-muted-foreground">Saving font…</p>{/if}
     <Button class="min-h-11" type="submit" disabled={isLoading}>Save font</Button>

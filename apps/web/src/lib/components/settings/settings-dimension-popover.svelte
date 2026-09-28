@@ -10,7 +10,10 @@
   export let dimensionValue = 0;
 </script>
 
-<Popover label={`Size presets for ${dimensionLabel(isVertical, isFirstDimension).toLowerCase()}`} dialog>
+<Popover
+  label={`Size presets for ${dimensionLabel(isVertical, isFirstDimension).toLowerCase()}`}
+  dialog
+>
   <span slot="icon" class="flex min-h-11 min-w-9 items-center justify-center">
     <AppIcon icon={SlidersHorizontal} class="size-5" />
   </span>

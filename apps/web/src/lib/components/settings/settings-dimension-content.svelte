@@ -41,12 +41,15 @@
 
 <fieldset class="dimension-presets min-w-0 space-y-3 p-3">
   <legend class="max-w-full px-1 text-sm font-semibold">{label}</legend>
-  <p class="text-sm text-muted-foreground">Current: <strong class="text-foreground">{currentValue}</strong></p>
+  <p class="text-sm text-muted-foreground">
+    Current: <strong class="text-foreground">{currentValue}</strong>
+  </p>
   <label class="block text-sm">
     <span class="font-medium">Quick size</span>
     <span class="block text-xs text-muted-foreground">
       {shownPercentage}% of the window{isFirstDimension ? ', split between both sides' : ''}
-      {#if pixels !== null} · {pixels} px{isFirstDimension ? ' per side' : ''}{/if}
+      {#if pixels !== null}
+        · {pixels} px{isFirstDimension ? ' per side' : ''}{/if}
     </span>
     <input
       class="mt-2 block min-h-11 w-full accent-primary"
@@ -65,20 +68,37 @@
     />
   </label>
   <div class="flex flex-wrap gap-2">
-    <Button class="min-h-11" variant="outline" disabled={!extent} onclick={() => setToValue(isFirstDimension ? 25 : 75)}>
+    <Button
+      class="min-h-11"
+      variant="outline"
+      disabled={!extent}
+      onclick={() => setToValue(isFirstDimension ? 25 : 75)}
+    >
       {isFirstDimension ? 25 : 75}%
     </Button>
-    <Button class="min-h-11" variant="outline" disabled={!extent} onclick={() => setToValue(50)}>50%</Button>
+    <Button class="min-h-11" variant="outline" disabled={!extent} onclick={() => setToValue(50)}
+      >50%</Button
+    >
     {#if !isFirstDimension}
-      <Button class="min-h-11" variant="ghost" onclick={() => (dimensionValue = 0)}>Automatic</Button>
+      <Button class="min-h-11" variant="ghost" onclick={() => (dimensionValue = 0)}
+        >Automatic</Button
+      >
     {/if}
   </div>
   <p class="text-xs text-muted-foreground">
-    Choose a size to save it in pixels. Opening this panel or resizing the window does not change your setting.
+    Choose a size to save it in pixels. Opening this panel or resizing the window does not change
+    your setting.
   </p>
 </fieldset>
 
 <style>
-  .dimension-presets { width: min(20rem, calc(90vw - 1rem)); overflow-wrap: anywhere; }
-  input:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: 6px; }
+  .dimension-presets {
+    width: min(20rem, calc(90vw - 1rem));
+    overflow-wrap: anywhere;
+  }
+  input:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
 </style>

@@ -9,7 +9,10 @@ import {
 } from '../../apps/web/src/lib/components/settings/dimension-presets.ts';
 
 for (const [vertical, first, expected] of [
-  [true, true, 1200], [true, false, 800], [false, true, 800], [false, false, 1200]
+  [true, true, 1200],
+  [true, false, 800],
+  [false, true, 800],
+  [false, false, 1200]
 ]) {
   test(`size axis for vertical=${vertical}, margins=${first}`, () => {
     assert.equal(dimensionExtent(vertical, first, 1200, 800), expected);
