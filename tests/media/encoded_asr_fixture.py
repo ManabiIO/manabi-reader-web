@@ -52,7 +52,7 @@ def audio_clock(streams):
     return {'numerator': tick.numerator, 'denominator': tick.denominator}
 
 
-def build_fixture(source, output, language):
+def build_fixture(source, output, language, large=False):
     source, output = Path(source), Path(output)
     manifest = fixture_metadata(source, language)
     with wave.open(str(source / 'speech.wav'), 'rb') as stream:
@@ -73,16 +73,21 @@ def build_fixture(source, output, language):
         stream.setframerate(RATE)
         stream.writeframes(composed)
     duration = len(composed) / (RATE * 2)
+    # Deterministic high-entropy frames make real media exceed the production
+    # reader cache; no padding/sparse virtual offsets can manufacture a range pass.
+    video_input = ('color=c=black:s=640x360:r=10,noise=alls=90:allf=t:all_seed=7'
+                   if large else 'color=c=black:s=160x90:r=10')
     subprocess.run([
         'ffmpeg', '-nostdin', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i',
-        'color=c=black:s=160x90:r=10', '-i', str(output / 'reference.wav'),
+        video_input, '-i', str(output / 'reference.wav'),
         '-t', str(duration), '-c:v', 'libvpx', '-deadline', 'realtime', '-cpu-used', '8',
+        *(['-b:v', '4M', '-crf', '4', '-g', '10'] if large else []),
         '-c:a', 'libopus', '-ar', '48000', '-ac', '2', '-b:a', '96k',
         '-metadata:s:a:0', 'language=' + ('jpn' if language == 'ja' else 'eng'),
         str(output / 'video.webm')
     ], check=True, timeout=120)
     video = output / 'video.webm'
-    if not 0 < video.stat().st_size <= MAX_VIDEO_BYTES:
+    if not (8 * 1024 * 1024 if large else 0) < video.stat().st_size <= (64 * 1024 * 1024 if large else MAX_VIDEO_BYTES):
         raise ValueError('Encoded video exceeds the fixture byte budget')
     probe = json.loads(subprocess.check_output([
         'ffprobe', '-v', 'error', '-select_streams', 'a:0', '-show_entries',
@@ -93,6 +98,7 @@ def build_fixture(source, output, language):
         'version': 1, 'kind': 'two-copy synthetic speech with a gap, not natural dialogue',
         'language': language, 'sourceFingerprint': manifest['fingerprint'],
         'sourceSpeechSha256': manifest['files']['speech.wav'],
+        'large': large, 'videoWidth': 640 if large else 160, 'videoHeight': 360 if large else 90,
         'audioTimeBase': clock, 'duration': duration, 'offsets': list(OFFSETS), 'cues': cues,
         'videoSha256': sha256(video), 'videoBytes': video.stat().st_size,
         'referenceSha256': sha256(output / 'reference.wav'),

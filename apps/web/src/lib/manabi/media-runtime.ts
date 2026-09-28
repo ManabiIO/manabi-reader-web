@@ -6,14 +6,23 @@
 
 import { ALL_FORMATS, Input, BlobSource, CustomSource, AudioBufferSink } from 'mediabunny';
 import type { Bunny, TrackDisposition } from '../media/pipeline';
-import { streamedRange } from '../media/sources';
+import { sourceLifetime, streamedRange } from '../media/sources';
 
 /** Lazy-loaded by the video route; third-party constructors stay behind a typed adapter. */
 export const mediaRuntime: Bunny = {
   create(source, signal) {
+    signal.throwIfAborted();
+    const current = sourceLifetime(source);
+    current(); // Do not construct a cached reader for an already revoked source.
     let backgroundError: unknown;
     const check = () => {
       signal.throwIfAborted();
+      try {
+        current();
+      } catch (error) {
+        input.dispose();
+        throw error;
+      }
       if (backgroundError !== undefined) throw backgroundError;
     };
     const guarded = async <T>(operation: () => T | PromiseLike<T>): Promise<T> => {
@@ -52,6 +61,7 @@ export const mediaRuntime: Bunny = {
           canDecode: () => guarded(() => track.canDecode()),
           getNumberOfChannels: () => guarded(() => track.getNumberOfChannels()),
           buffers: (start: number, end: number) => {
+            check();
             const iterable = new AudioBufferSink(track).buffers(start, end);
             return {
               async *[Symbol.asyncIterator]() {

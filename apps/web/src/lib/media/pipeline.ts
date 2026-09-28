@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import type { ByteSource } from './sources.js';
+import { sourceLifetime, type ByteSource } from './sources.js';
 
 export interface TrackDisposition {
   default: boolean;
@@ -52,12 +52,15 @@ export const MAX_DECODE_PACKETS = 32768;
 
 export class MediaPipeline {
   private input: MediaInput;
+  private currentSource: () => void;
   private controller = new AbortController();
   private parent?: AbortSignal;
   private stopParent = () => this.dispose();
   private closed = false;
   constructor(bunny: Bunny, source: ByteSource, signal?: AbortSignal) {
     signal?.throwIfAborted();
+    this.currentSource = sourceLifetime(source);
+    this.currentSource();
     this.input = bunny.create(source, this.controller.signal);
     this.parent = signal;
     signal?.addEventListener('abort', this.stopParent, { once: true });
@@ -66,6 +69,12 @@ export class MediaPipeline {
   private guard(signal?: AbortSignal) {
     this.controller.signal.throwIfAborted();
     signal?.throwIfAborted();
+    try {
+      this.currentSource();
+    } catch (error) {
+      this.dispose(); // Stop prefetch/decoder work, not merely this cached result.
+      throw error;
+    }
   }
   /** Disposing a decoder is not a promise that its pending callback will settle.
    * Detach callers promptly on abort while still observing any late rejection.

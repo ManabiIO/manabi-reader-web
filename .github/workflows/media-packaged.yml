@@ -119,7 +119,7 @@ jobs:
           python tests/media/encoded-asr.py --fixture "$JA_FIXTURE" --language ja --source file \
             --output test-results/media-packaged/encoded-file-single \
             2>&1 | tee test-results/media-packaged/encoded-file-single.log || status=1
-          python tests/media/encoded-asr.py --fixture "$JA_FIXTURE" --language ja --source range --threaded \
+          python tests/media/encoded-asr.py --fixture "$JA_FIXTURE" --language ja --source range --threaded --large-reload \
             --output test-results/media-packaged/encoded-range-threaded \
             2>&1 | tee test-results/media-packaged/encoded-range-threaded.log || status=1
           exit "$status"

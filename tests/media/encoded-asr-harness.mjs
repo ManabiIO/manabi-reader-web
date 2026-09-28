@@ -22,6 +22,49 @@ let phase = 'unstarted';
 let pausedPrefix, decoderCheck;
 let completedWindows = [];
 let storeName;
+let currentSourceAllowed = true;
+let previousLifetime;
+const pageLifetime = crypto.randomUUID();
+const sourceReads = [];
+const nativeChecks = [];
+async function connectSource(input) {
+  config = input;
+  currentSourceAllowed = true;
+  if (config.source === 'file') {
+    const response = await fetch('/__encoded__/video.webm');
+    check(response.ok, 'Encoded fixture unavailable');
+    source = localSource(
+      new globalThis.File([await response.blob()], 'video.webm', { lastModified: 1 })
+    );
+  } else {
+    const query = new URLSearchParams({
+      id: 'fixture',
+      root: 'fixture-root',
+      user: 'fixture-user',
+      version: config.videoSha256
+    });
+    const remote = cloudSource(
+      {
+        name: 'video.webm',
+        size: config.videoBytes,
+        version: config.videoSha256,
+        url: '/api/reader-web/connections/11111111-1111-4111-8111-111111111111/media/?' + query
+      },
+      'fixture-user',
+      () => currentSourceAllowed
+    );
+    source = {
+      ...remote,
+      async read(start, end, signal) {
+        const read = { start, end, phase, pageLifetime };
+        sourceReads.push(read);
+        const bytes = await remote.read(start, end, signal);
+        read.bytes = bytes.length;
+        return bytes;
+      }
+    };
+  }
+}
 const decodeCalls = [],
   inferenceCalls = [],
   updates = [];
@@ -91,6 +134,10 @@ export const diagnostics = () => ({
   inferenceCalls,
   updates,
   logs,
+  sourceReads,
+  pageLifetime,
+  previousLifetime,
+  nativeChecks,
   crossOriginIsolated: globalThis.crossOriginIsolated,
   userAgent: globalThis.navigator.userAgent
 });
@@ -98,30 +145,8 @@ export const diagnostics = () => ({
 export async function start(input) {
   config = input;
   storeName = 'encoded-asr-' + crypto.randomUUID();
-  if (config.source === 'file') {
-    const response = await fetch('/__encoded__/video.webm');
-    check(response.ok, 'Encoded fixture unavailable');
-    source = localSource(
-      new globalThis.File([await response.blob()], 'video.webm', { lastModified: 1 })
-    );
-  } else {
-    const query = new URLSearchParams({
-      id: 'fixture',
-      root: 'fixture-root',
-      user: 'fixture-user',
-      version: config.videoSha256
-    });
-    source = cloudSource(
-      {
-        name: 'video.webm',
-        size: config.videoBytes,
-        version: config.videoSha256,
-        url: '/api/reader-web/connections/11111111-1111-4111-8111-111111111111/media/?' + query
-      },
-      'fixture-user',
-      () => true
-    );
-  }
+  await connectSource(input);
+  phase = 'identity';
   check(
     (await identify(source, signal)) === 'content:' + config.videoSha256,
     'Full encoded-file identity mismatch'
@@ -131,7 +156,10 @@ export async function start(input) {
     const metadata = await pipeline.metadata();
     duration = metadata.duration;
     check(Math.abs(duration - config.duration) < 0.15, 'Encoded duration/timestamp mismatch');
-    check(metadata.width === 160 && metadata.height === 90, 'Missing real video track');
+    check(
+      metadata.width === config.videoWidth && metadata.height === config.videoHeight,
+      'Missing real video track'
+    );
     const tracks = await pipeline.describeAudioTracks();
     check(
       tracks.length === 1 && tracks[0].decodable,
@@ -140,8 +168,10 @@ export async function start(input) {
     audioTrack = String(tracks[0].id);
     // Check an independent nonzero seek against the same decoded audio interval.
     // This catches omitted pre-roll/shifted packets before involving the model.
-    const wide = await pipeline.decode(Number(audioTrack), 0, 7.003, signal);
-    const narrow = await pipeline.decode(Number(audioTrack), 1.003, 6.003, signal);
+    const base = config.large ? 30 : 0;
+    phase = config.large ? 'decoder-late-seek' : 'decoder-probe';
+    const wide = await pipeline.decode(Number(audioTrack), base, base + 7.003, signal);
+    const narrow = await pipeline.decode(Number(audioTrack), base + 1.003, base + 6.003, signal);
     const offset = Math.round(1.003 * 16000);
     // This WebM fixture has a measured coarse timestamp clock. A single global
     // comparison offset within one tick is allowed, never a change to model PCM.
@@ -165,17 +195,59 @@ export async function start(input) {
       ...comparison,
       sampleOffset: offset,
       samples: narrow.length,
-      widePackets: await packets(0, 7.003),
-      narrowPackets: await packets(1.003, 6.003)
+      widePackets: await packets(base, base + 7.003),
+      narrowPackets: await packets(base + 1.003, base + 6.003)
     };
     check(
       comparison.passed,
       'Independent encoded-audio seek exceeded container precision or changed the waveform: ' +
         JSON.stringify(decoderCheck)
     );
+    if (config.large && config.source === 'range') {
+      check(
+        sourceReads.some(
+          (read) =>
+            read.phase === 'decoder-late-seek' && read.start >= 4 * 1024 * 1024 && read.bytes > 0
+        ),
+        'Late decoding never read a remote offset beyond the production cache'
+      );
+      check(
+        sourceReads.every((read) => read.end - read.start <= 4 * 1024 * 1024),
+        'A remote request exceeded the transport budget'
+      );
+      nativeChecks.push('nonzero late remote decode beyond cache');
+      const [cachedTrack] = await pipeline.audioTracks();
+      const before = sourceReads.length;
+      currentSourceAllowed = false;
+      let rejected = false;
+      try {
+        await pipeline.metadata();
+      } catch (error) {
+        rejected = /source.*current/i.test(String(error));
+      }
+      check(rejected, 'Cached metadata bypassed source revocation');
+      rejected = false;
+      try {
+        await cachedTrack.getName();
+      } catch (error) {
+        rejected = /source.*current|AbortError/i.test(String(error));
+      }
+      check(rejected, 'Retained track metadata bypassed source revocation');
+      check(sourceReads.length === before, 'Revoked cache checks issued a new source read');
+      currentSourceAllowed = true;
+      rejected = false;
+      try {
+        await pipeline.metadata();
+      } catch {
+        rejected = true;
+      }
+      check(rejected, 'Restored predicate revived a revoked pipeline');
+      nativeChecks.push('cached source revocation retires metadata and retained tracks');
+    }
   } finally {
     pipeline.dispose();
   }
+  if (config.large && config.source === 'range') await connectSource(input);
   store = new MediaStore(globalThis.indexedDB, storeName);
   queue = makeQueue(true);
   check(counts.prepare === 0 && counts.inference === 0, 'Browsing prepared the model');
@@ -196,7 +268,7 @@ export async function state() {
   return { job, errors: [...logs], diagnostics: diagnostics() };
 }
 
-export async function reopen() {
+async function pauseCheckpoint() {
   await cancelPromise;
   await queue.dispose();
   const job = await store.local('guest', 'jobs', jobId);
@@ -218,6 +290,63 @@ export async function reopen() {
   }
   check(rejected, 'Incomplete subtitle export was permitted');
   await store.close();
+  return job;
+}
+
+export async function beforeReload() {
+  const job = await pauseCheckpoint();
+  return {
+    config,
+    storeName,
+    jobId,
+    job,
+    pausedPrefix,
+    completedWindows,
+    duration,
+    audioTrack,
+    diagnostics: diagnostics()
+  };
+}
+
+export async function restore(snapshot) {
+  check(snapshot.diagnostics.pageLifetime !== pageLifetime, 'No real page reload occurred');
+  check(snapshot.config.source === 'range', 'Reload qualification requires a reconnectable source');
+  ({ storeName, jobId, pausedPrefix, completedWindows, duration, audioTrack } = snapshot);
+  previousLifetime = snapshot.diagnostics;
+  phase = 'reload-identity';
+  await connectSource(snapshot.config);
+  store = new MediaStore(globalThis.indexedDB, storeName);
+  const recovered = await store.local('guest', 'jobs', jobId);
+  check(same(recovered, snapshot.job), 'Full-page reload changed the durable checkpoint');
+  check(
+    (await identify(source, signal)) === 'content:' + config.videoSha256,
+    'Reloaded remote source changed content identity'
+  );
+  queue = makeQueue(false);
+  await queue.recover();
+  check(
+    same(await store.local('guest', 'jobs', jobId), recovered),
+    'Recovery changed a user pause'
+  );
+  check(
+    counts.prepare === 0 && counts.inference === 0,
+    'Page reload started recognition automatically'
+  );
+  check(
+    (await store.tracks('guest', recovered.mediaKey)).length === 0,
+    'Reload published an incomplete track'
+  );
+  nativeChecks.push('full-page reload retains paused checkpoint without inference');
+}
+
+export async function resumeReloaded() {
+  check(previousLifetime && queue, 'Restore the reloaded checkpoint before Resume');
+  phase = 'resume';
+  await queue.resume(jobId);
+}
+
+export async function reopen() {
+  const job = await pauseCheckpoint();
   store = new MediaStore(globalThis.indexedDB, storeName);
   const recovered = await store.local('guest', 'jobs', jobId);
   check(same(recovered, job), 'Database reopen changed the checkpoint');
@@ -252,7 +381,9 @@ export async function finish() {
     track.cues.some((cue) => cue.start >= 30),
     'Later encoded speech is missing'
   );
-  const ordinary = decodeCalls.filter(({ end, start }) => end - start <= 30);
+  const ordinary = [...(previousLifetime?.decodeCalls ?? []), ...decodeCalls].filter(
+    ({ end, start }) => end - start <= 30
+  );
   for (const index of completedWindows)
     check(
       ordinary.filter(({ start }) => start === Math.max(0, index * 26 - 2)).length === 1,
@@ -276,5 +407,14 @@ export async function finish() {
   return { ...diagnostics(), track, srt, pausedPrefix, duration, source: config.source };
 }
 
-globalThis.encodedASR = { start, state, reopen, finish, diagnostics };
+globalThis.encodedASR = {
+  start,
+  state,
+  reopen,
+  beforeReload,
+  restore,
+  resumeReloaded,
+  finish,
+  diagnostics
+};
 globalThis.encodedReady = true;
