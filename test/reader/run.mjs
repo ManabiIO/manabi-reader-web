@@ -40,6 +40,18 @@ try {
     format: 'esm',
     outfile: typography
   });
+  const importTests = [];
+  for (const name of ['file-drop', 'xml-attribute-references', 'epub-xml']) {
+    const outfile = join(temp, `${name}.test.mjs`);
+    await build({
+      entryPoints: [fileURLToPath(new URL(`./${name}.test.ts`, import.meta.url))],
+      bundle: true,
+      platform: 'node',
+      format: 'esm',
+      outfile
+    });
+    importTests.push(outfile);
+  }
   const result = spawnSync(
     process.execPath,
     [
@@ -48,7 +60,8 @@ try {
       archive,
       restored,
       localMedia,
-      typography
+      typography,
+      ...importTests
     ],
     { stdio: 'inherit' }
   );

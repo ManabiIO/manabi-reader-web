@@ -24,7 +24,7 @@ async function withController(options, run) {
   const frames = new Map();
   let nextFrame = 0;
   const host = new EventTarget();
-  host.visualViewport = { scale: 1 };
+  host.visualViewport = Object.assign(new EventTarget(), { scale: 1 });
   const document = new EventTarget();
   document.hidden = false;
   document.hasFocus = () => true;
@@ -248,3 +248,157 @@ test('genuine document focus loss cancels a pending turn', async () => {
     assert.equal(state.committed, 0);
   });
 });
+
+for (const effect of ['slide', 'none']) {
+  test(`${effect}: a selection acquired during preparation revokes the pending command`, async () => {
+    await withController({}, async ({ controller, paginator, content, state, flush }) => {
+      controller.setEffect(effect);
+      const prepare = paginator.preparePageTurn;
+      let release;
+      paginator.preparePageTurn = async (direction) => {
+        const turn = await prepare(direction);
+        await new Promise((resolve) => {
+          release = resolve;
+        });
+        return turn;
+      };
+      controller.turn(1);
+      await tick();
+      content.getSelection = () => ({ toString: () => '選択' });
+      release();
+      await flush();
+      assert.equal(state.committed, 0);
+    });
+  });
+
+  test(`${effect}: pinch zoom acquired during preparation keeps the current page`, async () => {
+    await withController({}, async ({ controller, paginator, host, state, flush }) => {
+      controller.setEffect(effect);
+      const prepare = paginator.preparePageTurn;
+      let release;
+      paginator.preparePageTurn = async (direction) => {
+        const turn = await prepare(direction);
+        await new Promise((resolve) => {
+          release = resolve;
+        });
+        return turn;
+      };
+      controller.turn(1);
+      await tick();
+      host.visualViewport.scale = 2;
+      release();
+      await flush();
+      assert.equal(state.committed, 0);
+    });
+  });
+}
+
+test('selectionchange cancels a held tail even when selection is later cleared before keyup', async () => {
+  await withController({}, async ({ content, send, state, flush }) => {
+    send(content, 'keydown', { key: 'ArrowRight', code: 'ArrowRight', repeat: true });
+    await flush();
+    content.getSelection = () => ({ toString: () => '選択' });
+    content.dispatchEvent(new Event('selectionchange'));
+    content.getSelection = () => ({ toString: () => '' });
+    send(content, 'keyup', { key: 'ArrowRight', code: 'ArrowRight' });
+    await flush();
+    assert.equal(state.committed, 0);
+    send(content, 'keydown', { key: 'ArrowRight', code: 'ArrowRight' });
+    await flush();
+    assert.equal(state.committed, 1, 'New input is usable after cancellation');
+  });
+});
+
+test('visual viewport resize invalidates held turns without requiring a layout-window resize', async () => {
+  await withController({}, async ({ content, host, send, state, flush }) => {
+    send(content, 'keydown', { key: 'ArrowRight', code: 'ArrowRight', repeat: true });
+    await flush();
+    host.visualViewport.scale = 2;
+    host.visualViewport.dispatchEvent(new Event('resize'));
+    host.visualViewport.scale = 1;
+    send(content, 'keyup', { key: 'ArrowRight', code: 'ArrowRight' });
+    await flush();
+    assert.equal(state.committed, 0);
+  });
+});
+
+test('explicit commands do not turn a zoomed or hidden document', async () => {
+  await withController({}, async ({ controller, host, document, state, flush }) => {
+    host.visualViewport.scale = 2;
+    controller.turn(1);
+    await flush();
+    host.visualViewport.scale = 1;
+    document.hidden = true;
+    controller.turn(1);
+    await flush();
+    assert.deepEqual(state.prepared, []);
+  });
+});
+
+test('gesture settlement respects a rejected paint instead of committing the stale turn', async () => {
+  await withController({}, async ({ paginator, send, state, flush }) => {
+    const prepare = paginator.preparePageTurn;
+    let paints = 0;
+    paginator.preparePageTurn = async (direction) => {
+      const turn = await prepare(direction);
+      return { ...turn, update: () => ++paints < 2 };
+    };
+    send(paginator, 'pointerdown', {
+      isPrimary: true,
+      button: 0,
+      pointerId: 1,
+      pointerType: 'mouse',
+      clientX: 350,
+      clientY: 100
+    });
+    send(paginator, 'pointermove', { pointerId: 1, clientX: 20, clientY: 100 });
+    await tick();
+    send(paginator, 'pointerup', { pointerId: 1 });
+    await flush();
+    assert.equal(state.committed, 0);
+  });
+});
+
+for (const failurePoint of ['prepare', 'paint', 'commit']) {
+  test(`gesture ${failurePoint} errors release ownership and permit a new command`, async () => {
+    await withController({}, async ({ controller, paginator, send, state, flush }) => {
+      const prepare = paginator.preparePageTurn;
+      const failure = new Error('Controlled gesture failure');
+      const errors = [];
+      paginator.addEventListener('pageturnerror', (event) => errors.push(event.detail));
+      let paints = 0;
+      paginator.preparePageTurn = (direction) => {
+        if (failurePoint === 'prepare') throw failure;
+        return prepare(direction).then((turn) => ({
+          ...turn,
+          update: () => {
+            if (failurePoint === 'paint' && ++paints > 1) throw failure;
+            return true;
+          },
+          commit: () => {
+            if (failurePoint === 'commit') throw failure;
+            return turn.commit();
+          }
+        }));
+      };
+      send(paginator, 'pointerdown', {
+        isPrimary: true,
+        button: 0,
+        pointerId: 1,
+        pointerType: 'mouse',
+        clientX: 350,
+        clientY: 100
+      });
+      send(paginator, 'pointermove', { pointerId: 1, clientX: 20, clientY: 100 });
+      await tick();
+      send(paginator, 'pointerup', { pointerId: 1 });
+      await flush();
+      assert.equal(state.committed, 0);
+      assert.deepEqual(errors, [failure]);
+      paginator.preparePageTurn = prepare;
+      controller.turn(1);
+      await flush();
+      assert.equal(state.committed, 1);
+    });
+  });
+}

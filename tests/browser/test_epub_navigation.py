@@ -28,6 +28,44 @@ class EpubNavigationBrowser(FoliateSlide):
         self.page.wait_for_function(f"() => {P}.page === {initial}")
         self.assertEqual(self.pose()['page'], initial)
 
+    def test_selection_cancels_held_horizontal_turn(self):
+        self.check_selection_cancels_tail(False)
+
+    def test_selection_cancels_held_vertical_turn(self):
+        self.check_selection_cancels_tail(True)
+
+    def check_selection_cancels_tail(self, rtl):
+        self.open_slide(rtl, mobile=True)
+        initial = self.pose()['page']
+        key = 'ArrowLeft' if rtl else 'ArrowRight'
+        # Synthetic repeat controls the held-key timing; the production
+        # controller, iframe, Range selection, layout and turn handles are real.
+        self.page.evaluate(f"""key => {{
+          const doc={P}.getContents()[0].doc;
+          doc.dispatchEvent(new doc.defaultView.KeyboardEvent('keydown',{{
+            key,code:key,repeat:true,bubbles:true,cancelable:true
+          }}));
+        }}""", key)
+        self.page.wait_for_function(f"() => {P}.hasAttribute('data-turn-progress')")
+        self.page.evaluate(f"""() => {{
+          const doc={P}.getContents()[0].doc;
+          const range=doc.createRange(); range.selectNodeContents(doc.querySelector('.book-content p'));
+          doc.getSelection().removeAllRanges(); doc.getSelection().addRange(range);
+        }}""")
+        self.page.wait_for_function(f"() => !{P}.hasAttribute('data-turn-progress')")
+        self.page.evaluate(f"""key => {{
+          const doc={P}.getContents()[0].doc; doc.getSelection().removeAllRanges();
+          doc.dispatchEvent(new doc.defaultView.KeyboardEvent('keyup',{{key,code:key,bubbles:true}}));
+        }}""", key)
+        self.assertEqual(initial, self.pose()['page'])
+        # The held-key setup dispatched directly to Document and did not focus
+        # its browsing context. Give the following real key the intended owner.
+        self.page.evaluate(f'{P}.getContents()[0].doc.defaultView.focus()')
+        self.assertTrue(self.page.evaluate(f'{P}.getContents()[0].doc.hasFocus()'))
+        self.page.keyboard.press(key)
+        self.page.wait_for_function(f"() => {P}.page === {initial + 1}")
+        self.assertEqual([], self.errors)
+
     def test_focused_iframe_bookmark_shortcut_and_return_keep_the_saved_page(self):
         self.context.add_init_script("localStorage.setItem('autoBookmark', 'false')")
         self.open_slide(False, mobile=True)

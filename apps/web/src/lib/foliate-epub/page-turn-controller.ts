@@ -52,6 +52,10 @@ export class PageTurnController {
         if (!this.canTurn()) return null;
         const prepared = await this.ownTurnOperation(() => paginator.preparePageTurn(direction));
         if (!prepared) return null;
+        if (!this.canTurn()) {
+          this.ownTurnOperation(() => prepared.cancel());
+          return null;
+        }
         return {
           update: (progress) => {
             if (!this.canTurn()) {
@@ -98,6 +102,11 @@ export class PageTurnController {
       { signal: this.lifetime.signal }
     );
     window.addEventListener('resize', () => this.cancel(), { signal: this.lifetime.signal });
+    // Pinch zoom changes the visual viewport without necessarily resizing the
+    // layout window. Releasing a key after zoom must not revive an old tail.
+    window.visualViewport?.addEventListener('resize', () => this.cancel(), {
+      signal: this.lifetime.signal
+    });
     document.addEventListener(
       'visibilitychange',
       () => {
@@ -130,6 +139,13 @@ export class PageTurnController {
       // Pinch zoom and long-press text selection stay native.
       doc.documentElement.style.touchAction = 'pan-y pinch-zoom';
       this.bind(doc, this.documentEvents.signal);
+      doc.addEventListener(
+        'selectionchange',
+        () => {
+          if (this.selected()) this.cancel();
+        },
+        { signal: this.documentEvents.signal }
+      );
       doc.addEventListener('keyup', (event) => this.commands.release(event.code || event.key), {
         signal: this.documentEvents.signal
       });
@@ -175,7 +191,13 @@ export class PageTurnController {
   }
 
   private canTurn(event?: Event) {
-    return !this.lifetime.signal.aborted && (this.options.canTurn?.(event) ?? true);
+    return (
+      !this.lifetime.signal.aborted &&
+      !document.hidden &&
+      !this.selected() &&
+      (window.visualViewport?.scale ?? 1) <= 1 &&
+      (this.options.canTurn?.(event) ?? true)
+    );
   }
 
   private selected() {
@@ -338,28 +360,54 @@ export class PageTurnController {
     if (this.effect === 'none') return;
     if (!this.pending && !this.prepared) {
       const generation = this.generation;
-      this.ownCancellation = true;
-      const pending = this.paginator.preparePageTurn(direction);
-      this.ownCancellation = false;
+      let pending: Promise<PreparedPageTurn | null>;
+      try {
+        pending = this.ownTurnOperation(() => this.paginator.preparePageTurn(direction));
+      } catch (error) {
+        this.failGesture(error);
+        return;
+      }
       this.pending = pending
         .then((turn) => {
           if (generation !== this.generation) {
-            turn?.cancel();
+            this.ownTurnOperation(() => turn?.cancel());
             return null;
           }
           this.prepared = turn ?? undefined;
-          turn?.update(this.progress);
-          return turn;
+          if (!this.canTurn()) {
+            this.cancel();
+            return null;
+          }
+          this.paintGesture(this.progress);
+          return generation === this.generation ? turn : null;
         })
         .catch((error) => {
           if (generation === this.generation) {
-            this.cancel();
-            this.paginator.dispatchEvent(new CustomEvent('pageturnerror', { detail: error }));
+            this.failGesture(error);
           }
           return null;
         });
     }
-    this.prepared?.update(this.progress);
+    this.paintGesture(this.progress);
+  }
+
+  private failGesture(error: unknown) {
+    this.cancel();
+    this.paginator.dispatchEvent(new CustomEvent('pageturnerror', { detail: error }));
+  }
+
+  private paintGesture(progress: number): boolean {
+    if (!this.prepared) return false;
+    try {
+      if (!this.canTurn() || !this.prepared.update(progress)) {
+        this.cancel();
+        return false;
+      }
+      return true;
+    } catch (error) {
+      this.failGesture(error);
+      return false;
+    }
   }
 
   private ownTurnOperation<T>(operation: () => T): T {
@@ -374,8 +422,8 @@ export class PageTurnController {
 
   turn(direction: TurnDirection, input: PageTurnInput = {}) {
     const allowed = this.canTurn();
-    if (!allowed || this.selected()) {
-      if (!allowed) this.cancel();
+    if (!allowed) {
+      this.cancel();
       return;
     }
     // Only discard a gesture when beginning a new command sequence. Repeated
@@ -399,6 +447,9 @@ export class PageTurnController {
     clearTimeout(this.wheelTimer);
     const generation = this.generation;
     const prepared = this.prepared ?? (await this.pending);
+    // A preparation can resolve before finish(), or after it began waiting.
+    // Both paths must publish the same owned handle before painting.
+    if (generation === this.generation && prepared) this.prepared = prepared;
     if (generation !== this.generation) return;
     if (!prepared) {
       this.cancel();
@@ -412,14 +463,19 @@ export class PageTurnController {
     const step = (now: number) => {
       if (generation !== this.generation) return;
       const t = reduced ? 1 : Math.min(1, (now - started) / PAGE_TURN_DURATION);
-      prepared.update(start + (end - start) * (1 - (1 - t) ** 3));
+      if (!this.paintGesture(start + (end - start) * (1 - (1 - t) ** 3))) return;
+      if (generation !== this.generation) return;
       if (t < 1) this.frame = requestAnimationFrame(step);
       else {
-        this.ownCancellation = true;
-        if (commit && this.canTurn()) prepared.commit();
-        else prepared.cancel();
-        this.ownCancellation = false;
-        this.resetTurn();
+        try {
+          this.ownTurnOperation(() => {
+            if (commit && this.canTurn()) prepared.commit();
+            else prepared.cancel();
+          });
+          if (generation === this.generation) this.resetTurn();
+        } catch (error) {
+          if (generation === this.generation) this.failGesture(error);
+        }
       }
     };
     this.frame = requestAnimationFrame(step);
@@ -429,9 +485,7 @@ export class PageTurnController {
     this.generation += 1;
     cancelAnimationFrame(this.frame);
     clearTimeout(this.wheelTimer);
-    this.ownCancellation = true;
-    this.paginator.cancelPageTurn();
-    this.ownCancellation = false;
+    this.ownTurnOperation(() => this.paginator.cancelPageTurn());
     this.prepared = undefined;
     this.pending = undefined;
     this.progress = 0;

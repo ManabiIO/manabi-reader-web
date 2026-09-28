@@ -80,7 +80,7 @@ test('v9 upgrade adds local feature stores without replacing existing reading re
   const name = 'local-features-v9-upgrade';
   const old = await openDB(name, 9, {
     upgrade(db) {
-      db.createObjectStore('data', { keyPath: 'id' });
+      db.createObjectStore('data', { keyPath: 'id', autoIncrement: true });
       db.createObjectStore('bookmark', { keyPath: 'dataId' });
       db.createObjectStore('readerStatistic', { keyPath: ['bookKey', 'dateKey'] });
     }
@@ -91,7 +91,7 @@ test('v9 upgrade adds local feature stores without replacing existing reading re
   await old.put('bookmark', resume);
   old.close();
   const db = await createBooksDb(name);
-  assert.equal(db.version, 11);
+  assert.equal(db.version, 12);
   assert.deepEqual(await db.get('data', 4), book);
   assert.deepEqual(await db.get('bookmark', 4), resume);
   for (const store of ['readerImportRecord', 'readerExternalSync', 'readerSearchProjection'])

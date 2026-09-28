@@ -11,7 +11,9 @@ import {
   seriesMetadataFilename
 } from '$lib/library/series-metadata';
 import { IntegrationError, currentUser, request } from './client';
-import { validateBookDownloadSize } from '../library/book-download.ts';
+import { validateBookDownloadSize, verifySelectedBook } from '../library/book-download.ts';
+import { commitTransaction } from '../data/database/books-db/commit-transaction.mjs';
+import { withLibraryOperation } from './operation-scope';
 import { maxManagedStateBytes } from './auth-contract';
 import { integrationDB, exclusive, equal, type LocalLibrary } from './persistence';
 
@@ -20,7 +22,7 @@ export interface LibraryEntry {
   name: string;
   kind: 'file' | 'folder';
   size?: number;
-  /** A verified shelf observation, checked against the bytes before import. */
+  /** A verified shelf observation, checked by source reads as well as imports. */
   expectedContentHash?: string;
 }
 export interface StateCopy {
@@ -90,19 +92,23 @@ export class CloudLibrary implements LibrarySource {
     );
   }
   async read(item: LibraryEntry) {
-    if (item.kind !== 'file' || !supportedBook(item.name))
-      throw new IntegrationError('unsupported');
-    validateBookDownloadSize(item.size);
-    const bytes = await request<ArrayBuffer>(this.path('file', { id: item.id }), {
-      userId: this.owner,
-      binary: true,
-      maximumBytes: maxBookBytes
-    });
-    validateBookDownloadSize(item.size, bytes.byteLength);
-    return new File([bytes], item.name, {
-      type: item.name.toLowerCase().endsWith('.epub')
-        ? 'application/epub+zip'
-        : 'application/octet-stream'
+    const selected = { ...item };
+    return withLibraryOperation(this.owner, async () => {
+      if (selected.kind !== 'file' || !supportedBook(selected.name))
+        throw new IntegrationError('unsupported');
+      validateBookDownloadSize(selected.size);
+      const bytes = await request<ArrayBuffer>(this.path('file', { id: selected.id }), {
+        userId: this.owner,
+        binary: true,
+        maximumBytes: maxBookBytes
+      });
+      validateBookDownloadSize(selected.size, bytes.byteLength);
+      const file = new File([bytes], selected.name, {
+        type: selected.name.toLowerCase().endsWith('.epub')
+          ? 'application/epub+zip'
+          : 'application/octet-stream'
+      });
+      return verifySelectedBook(file, selected.expectedContentHash);
     });
   }
   async readSeriesName(item: LibraryEntry) {
@@ -160,21 +166,33 @@ export async function addLocalLibrary(): Promise<LocalLibrary | null> {
   return library;
 }
 export async function reconnectLocalLibrary(library: LocalLibrary, write = false) {
+  const selected = { ...library };
   const mode = write ? 'readwrite' : 'read';
-  // This is an explicit button action; background sync only queries permissions.
-  if ((await library.handle.requestPermission({ mode })) !== 'granted')
+  // Start permission UI in the initiating click, before any storage work.
+  if ((await selected.handle.requestPermission({ mode })) !== 'granted')
     throw new IntegrationError('permission_required');
-  if (write) library.writable = true;
-  await (await integrationDB()).put('localLibraries', library);
+  const db = await integrationDB();
+  const tx = db.transaction('localLibraries', 'readwrite');
+  const writable = await commitTransaction(tx, async () => {
+    const current = await tx.store.get(selected.id);
+    // A late permission result is not permission to recreate a disconnected source.
+    if (!current) throw new IntegrationError('not_found');
+    const next = { ...current, writable: write || current.writable };
+    await tx.store.put(next);
+    return next.writable;
+  });
+  // Callers use this snapshot for the next file operation. Publish only on commit.
+  library.writable = writable;
 }
 export async function removeLocalLibrary(id: string) {
   const db = await integrationDB();
-  const transaction = db.transaction(['localLibraries', 'books'], 'readwrite');
-  await transaction.objectStore('localLibraries').delete(id);
-  for (const link of await transaction.objectStore('books').getAll()) {
-    if (link.sourceId === id) await transaction.objectStore('books').delete(link.id);
-  }
-  await transaction.done;
+  const tx = db.transaction(['localLibraries', 'books'], 'readwrite');
+  await commitTransaction(tx, async () => {
+    await tx.objectStore('localLibraries').delete(id);
+    for (const link of await tx.objectStore('books').getAll()) {
+      if (link.sourceId === id) await tx.objectStore('books').delete(link.id);
+    }
+  });
   // Disconnecting never deletes a book, its original file, or its reading history.
 }
 
@@ -259,15 +277,19 @@ export class LocalLibrarySource implements LibrarySource {
     return { items: page, cursor: remaining.length > 200 ? page[page.length - 1].id : '' };
   }
   async read(item: LibraryEntry) {
-    await this.permission();
-    const path = segments(item.id);
-    const filename = path.pop();
-    if (!filename || !supportedBook(filename)) throw new IntegrationError('unsupported');
-    const file = await (
-      await (await this.directory(path.join('/'))).getFileHandle(filename)
-    ).getFile();
-    if (file.size > maxBookBytes) throw new IntegrationError('too_large');
-    return file;
+    const selected = { ...item };
+    return withLibraryOperation(this.owner, async () => {
+      await this.permission();
+      const path = segments(selected.id);
+      const filename = path.pop();
+      if (selected.kind !== 'file' || !filename || !supportedBook(filename))
+        throw new IntegrationError('unsupported');
+      const file = await (
+        await (await this.directory(path.join('/'))).getFileHandle(filename)
+      ).getFile();
+      if (file.size > maxBookBytes) throw new IntegrationError('too_large');
+      return verifySelectedBook(file, selected.expectedContentHash);
+    });
   }
   private async stateFolder(key: string, create = false) {
     const root = await this.library.handle.getDirectoryHandle(stateDirectory, { create });

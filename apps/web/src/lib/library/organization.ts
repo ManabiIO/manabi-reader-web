@@ -5,6 +5,7 @@
  */
 
 import { writable } from 'svelte/store';
+import { commitTransaction } from '$lib/data/database/books-db/commit-transaction.mjs';
 import { organizationIdentityReplacements, type BookIdentityRecord } from './book-identity.ts';
 import { equal, integrationDB, type BookLink } from '$lib/manabi/persistence';
 import { libraryName } from './series-metadata';
@@ -100,14 +101,18 @@ function notifyOrganizationChange() {
 /** Account sync transports content identity, never another browser's numeric IDs. */
 export const organizationPreference = {
   getValue: () => portableOrganization(currentOrganization),
-  next(value: unknown) {
+  next(value: unknown, signal?: AbortSignal) {
     const normalized = normalizedOrganization(value);
     if (!normalized) return;
-    return updateOrganization((stored) => {
-      const applied = applyPortableOrganization(stored, normalized);
-      stored.collections = applied.collections;
-      stored.books = applied.books;
-    });
+    return updateOrganization(
+      (stored) => {
+        const applied = applyPortableOrganization(stored, normalized);
+        stored.collections = applied.collections;
+        stored.books = applied.books;
+      },
+      undefined,
+      signal
+    );
   },
   subscribe(fn: () => void) {
     const unsubscribe = organization.subscribe(() => fn());
@@ -130,48 +135,90 @@ export async function reloadOrganization() {
 export async function updateOrganization(
   change: (value: Organization) => void,
   receipt?: { key: string; value: string; modified: number },
-  guard: () => void = () => undefined
+  authority?: AbortSignal | (() => void)
 ) {
-  guard();
+  // Preference recovery carries an AbortSignal; snippet operations carry a
+  // live owner guard. Keep both forms of authority at every write checkpoint.
+  const signal = typeof authority === 'function' ? undefined : authority;
+  const guard = typeof authority === 'function' ? authority : () => undefined;
+  const assertCurrent = () => {
+    guard();
+    signal?.throwIfAborted();
+  };
+  assertCurrent();
+  // Capture migration authority before suspension, not a caller-owned object.
+  const admittedReceipt = receipt && { ...receipt };
+  const db = await integrationDB();
+  assertCurrent();
   // IndexedDB serializes cross-tab read/modify/write transactions even without Web Locks.
-  const db = await integrationDB(),
-    tx = db.transaction('metadata', 'readwrite');
-  const value = ((await tx.store.get(key)) as Organization | undefined) ?? emptyOrganization();
-  try {
-    if (receipt) {
-      const previous = (await tx.store.get(receipt.key)) as typeof receipt | undefined;
-      if (previous && (previous.value === receipt.value || previous.modified > receipt.modified)) {
-        await tx.done;
-        return;
-      }
-    }
-    guard();
-    const before = structuredClone(value);
-    change(value);
-    guard();
-    // Migration retry protection commits atomically with collection memberships.
-    if (receipt) await tx.store.put(receipt, receipt.key);
-    if (equal(before, value)) {
-      await tx.done;
-      return;
-    }
-    await tx.store.put(value, key);
-    await tx.done;
-    publish(value);
-    notifyOrganizationChange();
-  } catch (error) {
+  const tx = db.transaction('metadata', 'readwrite');
+  const abort = () => {
     try {
       tx.abort();
     } catch {
-      /* transaction already settled */
+      // An already committed/aborted transaction cannot be revoked retroactively.
     }
-    await tx.done.catch(() => undefined);
+  };
+  signal?.addEventListener('abort', abort, { once: true });
+  let changed: Organization | undefined;
+  try {
+    // Observe tx.done before even the first read can fail. Request success is
+    // not commit, and a failed request has a separate completion rejection.
+    changed = await commitTransaction(tx, async () => {
+      assertCurrent();
+      const value = ((await tx.store.get(key)) as Organization | undefined) ?? emptyOrganization();
+      if (admittedReceipt) {
+        const previous = (await tx.store.get(admittedReceipt.key)) as
+          | typeof admittedReceipt
+          | undefined;
+        if (
+          previous &&
+          (previous.value === admittedReceipt.value || previous.modified > admittedReceipt.modified)
+        )
+          return undefined;
+      }
+      assertCurrent();
+      const before = structuredClone(value);
+      change(value);
+      assertCurrent();
+      // Migration retry protection commits atomically with collection memberships.
+      if (admittedReceipt) await tx.store.put(admittedReceipt, admittedReceipt.key);
+      assertCurrent();
+      if (equal(before, value)) return undefined;
+      await tx.store.put(value, key);
+      assertCurrent();
+      return value;
+    });
+  } catch (error) {
+    if (signal?.aborted) throw signal.reason;
+    // A native abort with an empty message must not look like success in a
+    // dialog. Actual scope cancellation retains its reason instead.
+    if (error && typeof error === 'object' && 'name' in error && error.name === 'AbortError')
+      throw new Error(
+        'The library change could not be saved because local storage aborted the transaction. ' +
+          'Try again. Your existing collections have been kept.',
+        { cause: error }
+      );
     throw error;
+  } finally {
+    signal?.removeEventListener('abort', abort);
+  }
+  // A commit is final. Only publication can be suppressed if its initiating
+  // scope ended after commit; never describe that as a rolled-back write.
+  if (changed && !signal?.aborted) {
+    publish(changed);
+    notifyOrganizationChange();
   }
 }
 export function watchOrganization(onError: (error: unknown) => void = () => undefined) {
   void reloadOrganization().catch(onError);
-  const channel = typeof BroadcastChannel === 'undefined' ? undefined : new BroadcastChannel(key);
+  let channel: BroadcastChannel | undefined;
+  try {
+    if (typeof BroadcastChannel !== 'undefined') channel = new BroadcastChannel(key);
+  } catch {
+    // Cross-tab notifications are optional; denied messaging cannot prevent
+    // this tab from loading or saving its local organization.
+  }
   if (channel)
     channel.onmessage = () => {
       void reloadOrganization().catch(onError);

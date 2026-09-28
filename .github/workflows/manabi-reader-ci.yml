@@ -101,6 +101,10 @@ jobs:
         run: |
           python -m pip install 'playwright==1.63.0'
           python -m playwright install --with-deps ${{ matrix.browser }}
+      - name: Build production database upgrade fixture
+        run: node test/reader/build-schema-fixture.mjs
+      - name: Native database upgrades in ${{ matrix.browser }}
+        run: python tests/browser/test_books_schema_upgrade.py --browser ${{ matrix.browser }}
       - name: Offline worker lifecycle in ${{ matrix.browser }}
         run: python tests/browser/test_offline_worker.py --browser ${{ matrix.browser }}
       - name: Run ${{ matrix.browser }} browser qualification

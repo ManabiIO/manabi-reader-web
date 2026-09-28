@@ -5,138 +5,44 @@
  */
 
 import { currentStorageVersion, type default as BooksDb } from './versions/books-db';
-import { openDB } from 'idb';
+import { openDB, unwrap } from 'idb';
 import upgradeBooksDbFromV2 from './versions/v2/upgrade';
+import { ensureBooksSchema } from './schema';
 
 export function createBooksDb(name = 'books') {
-  return openDB<BooksDb>(name, currentStorageVersion, {
-    async upgrade(oldDb, oldVersion, newVersion, transaction) {
-      switch (oldVersion) {
-        case 0: {
-          const dataStore = oldDb.createObjectStore('data', {
-            keyPath: 'id',
-            autoIncrement: true
-          });
-          dataStore.createIndex('title', 'title');
-
-          oldDb.createObjectStore('bookmark', {
-            keyPath: 'dataId'
-          });
-
-          oldDb.createObjectStore('lastItem');
-
-          oldDb.createObjectStore('storageSource', {
-            keyPath: 'name'
-          });
-
-          const statisticsStore = oldDb.createObjectStore('statistic', {
-            keyPath: ['title', 'dateKey']
-          });
-
-          statisticsStore.createIndex('dateKey', 'dateKey');
-          statisticsStore.createIndex('completedBook', ['completedBook', 'title']);
-
-          const readingGoalsStore = oldDb.createObjectStore('readingGoal', {
-            keyPath: 'goalStartDate'
-          });
-
-          readingGoalsStore.createIndex('goalEndDate', 'goalEndDate');
-
-          oldDb.createObjectStore('lastModified', {
-            keyPath: ['title', 'dataType']
-          });
-
-          oldDb.createObjectStore('audioBook', { keyPath: 'title' });
-
-          oldDb.createObjectStore('subtitle', { keyPath: 'title' });
-
-          oldDb.createObjectStore('handle', { keyPath: ['title', 'dataType'] });
-
-          break;
+  let upgradeFailure: unknown;
+  let failed = false;
+  const opening = openDB<BooksDb>(name, currentStorageVersion, {
+    upgrade(db, oldVersion, newVersion, transaction) {
+      // idb does not await the upgrade callback's return value. Observe both
+      // completion and conversion failure explicitly, before issuing requests.
+      void transaction.done.catch(() => undefined);
+      const abort = (cause: unknown) => {
+        if (!failed) upgradeFailure = cause;
+        failed = true;
+        try {
+          transaction.abort();
+        } catch {
+          // A native request may already have aborted the same transaction.
         }
-        case 2: {
-          await upgradeBooksDbFromV2(oldDb, oldVersion, newVersion, transaction);
-          break;
+      };
+      const install = () => ensureBooksSchema(unwrap(db), unwrap(transaction));
+      try {
+        if (oldVersion === 2) {
+          // Only IndexedDB awaits are allowed here; no Blob, network or timer
+          // work. Parsing/conversion failures must roll back version and data.
+          void upgradeBooksDbFromV2(db, oldVersion, newVersion, transaction)
+            .then(install)
+            .catch(abort);
+        } else {
+          install();
         }
-        case 3: {
-          oldDb.createObjectStore('storageSource', {
-            keyPath: 'name'
-          });
-          break;
-        }
-        case 4: {
-          const statisticsStore = oldDb.createObjectStore('statistic', {
-            keyPath: ['title', 'dateKey']
-          });
-
-          statisticsStore.createIndex('dateKey', 'dateKey');
-          statisticsStore.createIndex('completedBook', ['completedBook', 'title']);
-
-          const readingGoalsStore = oldDb.createObjectStore('readingGoal', {
-            keyPath: 'goalStartDate'
-          });
-
-          readingGoalsStore.createIndex('goalEndDate', 'goalEndDate');
-
-          oldDb.createObjectStore('lastModified', {
-            keyPath: ['title', 'dataType']
-          });
-
-          break;
-        }
-        case 5: {
-          oldDb.createObjectStore('audioBook', { keyPath: 'title' });
-
-          oldDb.createObjectStore('subtitle', { keyPath: 'title' });
-
-          oldDb.createObjectStore('handle', { keyPath: ['title', 'dataType'] });
-
-          break;
-        }
-      }
-      // Existing versions take different upgrade paths. These stores are common
-      // to every path into v7 and require no parsing or network work in the transaction.
-      if (oldVersion < 7) {
-        oldDb.createObjectStore('readerLocalIdentity', { keyPath: 'bookId' });
-        oldDb.createObjectStore('publication', { keyPath: 'bookId' });
-        const annotations = oldDb.createObjectStore('readerAnnotation', { keyPath: 'id' });
-        annotations.createIndex('bookKey', 'bookKey');
-        annotations.createIndex('kind', 'kind');
-        const outbox = oldDb.createObjectStore('readerAnnotationOutbox', { keyPath: 'id' });
-        outbox.createIndex('accountId', 'accountId');
-        outbox.createIndex('bookKey', 'bookKey');
-        oldDb.createObjectStore('readerSyncState', { keyPath: 'accountId' });
-        const conflicts = oldDb.createObjectStore('readerConflict', { keyPath: 'id' });
-        conflicts.createIndex('bookKey', 'bookKey');
-      }
-      if (oldVersion < 8) {
-        oldDb.createObjectStore('readerBookScope', { keyPath: 'bookId' });
-        oldDb.createObjectStore('readerAnnotationScope', { keyPath: 'annotationId' });
-        const records = oldDb.createObjectStore('readerPersonalRecord', { keyPath: 'id' });
-        records.createIndex('accountId', 'accountId');
-        records.createIndex('bookKey', 'bookKey');
-        const outbox = oldDb.createObjectStore('readerPersonalOutbox', { keyPath: 'id' });
-        outbox.createIndex('accountId', 'accountId');
-        outbox.createIndex('bookKey', 'bookKey');
-        const personalConflicts = oldDb.createObjectStore('readerPersonalConflict', {
-          keyPath: 'id'
-        });
-        personalConflicts.createIndex('accountId', 'accountId');
-        personalConflicts.createIndex('bookKey', 'bookKey');
-      }
-      if (oldVersion < 10) {
-        oldDb.createObjectStore('readerSearchProjection', { keyPath: 'bookId' });
-        oldDb.createObjectStore('readerExternalSync', { keyPath: 'id' });
-        const imports = oldDb.createObjectStore('readerImportRecord', { keyPath: 'id' });
-        imports.createIndex('bookKey', 'bookKey');
-      }
-      if (oldVersion < 9) {
-        const statistics = oldDb.createObjectStore('readerStatistic', {
-          keyPath: ['bookKey', 'dateKey']
-        });
-        statistics.createIndex('dateKey', 'dateKey');
-        oldDb.createObjectStore('readerStatisticMigration', { keyPath: 'title' });
+      } catch (cause) {
+        abort(cause);
       }
     }
+  });
+  return opening.catch((cause) => {
+    throw failed ? upgradeFailure : cause;
   });
 }

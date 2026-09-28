@@ -41,6 +41,9 @@ interface IntegrationDB extends DBSchema {
 let promise: ReturnType<typeof openDB<IntegrationDB>> | undefined;
 export function integrationDB() {
   if (promise) return promise;
+  const forget = () => {
+    if (promise === opening) promise = undefined;
+  };
   const opening = openDB<IntegrationDB>('manabi-reader-integrations', 3, {
     upgrade(db, oldVersion, _version, tx) {
       if (oldVersion < 1) {
@@ -76,15 +79,17 @@ export function integrationDB() {
       }
     },
     blocking() {
-      // Another tab may need a later additive schema; do not indefinitely block its upgrade.
-      void opening.then((db) => db.close());
-      if (promise === opening) promise = undefined;
-    }
+      // Let another tab upgrade/delete storage. Never keep returning this
+      // closing handle, and never close a replacement opened by a later caller.
+      forget();
+      void opening.then((db) => db.close()).catch(() => undefined);
+    },
+    terminated: forget
   });
   promise = opening;
-  void opening.catch(() => {
-    if (promise === opening) promise = undefined;
-  });
+  // A denied/failed open is not a permanent connection. The caller still gets
+  // the original rejection; only a later access retries, never an old write.
+  void opening.catch(forget);
   return opening;
 }
 export async function metadata<T>(key: string): Promise<T | undefined> {
