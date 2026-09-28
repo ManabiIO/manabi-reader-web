@@ -1,0 +1,30 @@
+name: Parity latest main source
+on:
+  push:
+    branches: [feat/library-parity-closeout-20260928]
+    paths: [.github/workflows/parity-latest-source.yml]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ManabiIO/manabi-reader-web
+          ref: 17f0cd36973c52ab8fa254f862323563611bd7c6
+          persist-credentials: false
+      - name: Capture exact source
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/latest-main
+          git archive --format=tar HEAD | gzip > /tmp/latest-main/source.tar.gz
+          git rev-parse HEAD > /tmp/latest-main/commit.txt
+          cd /tmp/latest-main && sha256sum source.tar.gz > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: parity-latest-main-source
+          path: /tmp/latest-main
+          retention-days: 1
+          if-no-files-found: error
