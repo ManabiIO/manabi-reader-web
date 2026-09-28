@@ -196,7 +196,7 @@ class CollectionCommitBrowser(LibraryBase):
         expect(self.page.get_by_text('Signed in as', exact=False)).to_contain_text('offline-recovery')
         self.page.get_by_label('Sync reader settings with this Manabi account', exact=True).check()
         expect(self.page.get_by_role('status', name='Settings sync status')).to_contain_text('synced')
-        self.page.evaluate('''async restoreCollection => {
+        self.page.evaluate('''async ({restoreCollection, requireWorker}) => {
           const open = indexedDB.open('manabi-reader-integrations');
           const db = await new Promise((resolve, reject) => {
             open.onsuccess = () => resolve(open.result); open.onerror = () => reject(open.error);
@@ -223,6 +223,7 @@ class CollectionCommitBrowser(LibraryBase):
             };
             await done;
           } finally { db.close(); }
+          if (!requireWorker) return;
           const deadline = Date.now() + 15000;
           while (Date.now() < deadline) {
             const registration = await navigator.serviceWorker.getRegistration('/reader-web/');
@@ -230,7 +231,21 @@ class CollectionCommitBrowser(LibraryBase):
             await new Promise(resolve => setTimeout(resolve, 25));
           }
           throw new Error('Automatic offline worker did not activate');
-        }''', restore_collection)
+        }''', {'restoreCollection': restore_collection, 'requireWorker': self.engine != 'webkit'})
+
+    def enter_preference_outage(self):
+        if self.engine == 'webkit':
+            # WebKit's test browser cannot reliably navigate an uncached static
+            # route offline. Keep the app reachable while its API is unavailable.
+            self.context.route('**/api/reader-web/preferences/', lambda route: route.abort())
+        else:
+            self.context.set_offline(True)
+
+    def leave_preference_outage(self):
+        if self.engine == 'webkit':
+            self.context.unroute('**/api/reader-web/preferences/')
+        else:
+            self.context.set_offline(False)
 
     def read_recovery_metadata(self, key):
         return self.page.evaluate('''async key => {
@@ -259,13 +274,19 @@ class CollectionCommitBrowser(LibraryBase):
             self.page.evaluate('document.dispatchEvent(new Event("visibilitychange"))')
             self.page.wait_for_timeout(100)
 
+    def wait_for_recovery_probe(self, probe):
+        deadline = time.monotonic() + 15
+        while not self.page.evaluate('(name) => window[name] > 0', probe):
+            self.assertLess(time.monotonic(), deadline, f'{probe} did not observe a write')
+            self.page.wait_for_timeout(25)
+
     def test_offline_preference_save_failure_retries_without_another_edit(self):
         old_fixture = StaticHandler.account_fixture
         old_revision = StaticHandler.preference_revision
         old_settings = StaticHandler.preference_settings
         try:
             self.prepare_preference_recovery()
-            self.context.set_offline(True)
+            self.enter_preference_outage()
             self.page.goto(self.origin + '/reader-web/settings')
             expect(self.page.locator('html')).to_have_attribute('data-appearance', 'light')
             self.page.evaluate('''() => {
@@ -291,7 +312,7 @@ class CollectionCommitBrowser(LibraryBase):
             }''')
             self.page.get_by_role('group', name='Appearance mode').get_by_role(
                 'button', name='Dark', exact=True).click()
-            self.page.wait_for_function('window.__preferenceSaveAborts > 0')
+            self.wait_for_recovery_probe('__preferenceSaveAborts')
             expect(self.page.locator('html')).to_have_attribute('data-appearance', 'dark')
             self.assertEqual(self.read_recovery_metadata('preferences/42')['local']['theme'], 'light')
             self.page.evaluate('window.__failPreferenceSave = false')
@@ -305,7 +326,7 @@ class CollectionCommitBrowser(LibraryBase):
             StaticHandler.account_fixture = old_fixture
             StaticHandler.preference_revision = old_revision
             StaticHandler.preference_settings = old_settings
-            self.context.set_offline(False)
+            self.leave_preference_outage()
 
     def test_offline_profile_application_failure_preserves_unrelated_edits_on_retry(self):
         old_fixture = StaticHandler.account_fixture
@@ -335,9 +356,9 @@ class CollectionCommitBrowser(LibraryBase):
                 return request;
               };
             })();''')
-            self.context.set_offline(True)
+            self.enter_preference_outage()
             self.page.goto(self.origin + '/reader-web/settings')
-            self.page.wait_for_function('window.__organizationApplyAborts > 0')
+            self.wait_for_recovery_probe('__organizationApplyAborts')
             expect(self.page.locator('html')).to_have_attribute('data-appearance', 'light')
             self.assertEqual(self.read_recovery_metadata('books-organization-v1')['collections'], [])
             self.page.get_by_role('group', name='Appearance mode').get_by_role(
@@ -363,7 +384,7 @@ class CollectionCommitBrowser(LibraryBase):
             StaticHandler.account_fixture = old_fixture
             StaticHandler.preference_revision = old_revision
             StaticHandler.preference_settings = old_settings
-            self.context.set_offline(False)
+            self.leave_preference_outage()
 
 
 # Each fresh-profile run is independently required; these are not retries.
