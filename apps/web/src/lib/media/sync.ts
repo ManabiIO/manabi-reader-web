@@ -32,10 +32,19 @@ export async function syncMedia(
   signal: AbortSignal,
   publish: (s: SyncStatus) => void = () => {}
 ) {
-  const scope: Scope = `account:${transport.userId}`;
+  const userId = transport.userId;
+  const isCurrent = transport.isCurrent.bind(transport);
+  const scope: Scope = `account:${userId}`;
+  const current = () => {
+    try {
+      return transport.userId === userId && isCurrent();
+    } catch {
+      return false;
+    }
+  };
   const guard = () => {
     signal.throwIfAborted();
-    if (!transport.isCurrent()) throw new Error('The signed-in account changed');
+    if (!current()) throw new Error('The signed-in account changed');
   };
   const work = async () => {
     guard();
@@ -51,7 +60,7 @@ export async function syncMedia(
           items: unknown[];
           next_cursor: number;
           has_more: boolean;
-        }>(`personal/changes/?cursor=${cursor}&limit=3`, { userId: transport.userId })
+        }>(`personal/changes/?cursor=${cursor}&limit=3`, { userId })
       );
       guard();
       if (
@@ -108,7 +117,7 @@ export async function syncMedia(
           }>('personal/mutations/', {
             method: 'POST',
             value: pendingRequest,
-            userId: transport.userId
+            userId
           })
         );
         guard();
@@ -149,10 +158,10 @@ export async function syncMedia(
   };
   try {
     if (navigator.locks)
-      await navigator.locks.request(`manabi-video-sync/${transport.userId}`, { signal }, work);
+      await navigator.locks.request(`manabi-video-sync/${userId}`, { signal }, work);
     else await work();
   } catch (error) {
-    if (!signal.aborted && transport.isCurrent())
+    if (!signal.aborted && current())
       publish({
         state: 'error',
         message: error instanceof Error ? error.message : String(error),
