@@ -14,19 +14,40 @@
   export let xOffset = 0;
   export let yOffset = 10;
   export let label = '';
+  export let restoreAnchorFocus = false;
   const dispatch = createEventDispatcher<{ open: void }>();
   const id = Symbol('popover');
   let isOpen = false;
+  let generation = 0;
+  let alive = true;
+  let shouldRestoreFocus = true;
   let customAnchor: HTMLElement | null = null;
   $: side = placement.split('-')[0] as 'top' | 'right' | 'bottom' | 'left';
   $: align = (placement.split('-')[1] ?? 'center') as 'start' | 'center' | 'end';
   $: if (isOpen && singlePopover && !$popovers.includes(id)) isOpen = false;
   function changed(open: boolean) {
+    const current = ++generation;
     if (open) {
+      shouldRestoreFocus = true;
       if (singlePopover) popovers.replace(id);
       else popovers.add(id);
-      void tick().then(() => dispatch('open'));
+      void tick().then(() => {
+        if (alive && isOpen && current === generation) dispatch('open');
+      });
     } else popovers.remove(id);
+  }
+  // External anchors (for example heatmap days) change their content without
+  // toggling an already open panel shut. Keep normal Trigger toggling unchanged.
+  export function openAt(reference: HTMLElement) {
+    customAnchor = reference;
+    if (isOpen) return;
+    isOpen = true;
+    changed(true);
+  }
+  export function close(restoreFocus = true) {
+    shouldRestoreFocus = restoreFocus;
+    isOpen = false;
+    changed(false);
   }
   export function toggleOpen(reference?: HTMLElement | Event) {
     if (reference instanceof HTMLElement) customAnchor = reference;
@@ -35,18 +56,19 @@
     isOpen = next;
   }
   function externalClose(node: HTMLElement) {
-    const close = () => {
-      isOpen = false;
-      changed(false);
-    };
-    node.addEventListener(CLOSE_POPOVER, close);
+    const handleClose = () => close();
+    node.addEventListener(CLOSE_POPOVER, handleClose);
     return {
       destroy() {
-        node.removeEventListener(CLOSE_POPOVER, close);
+        node.removeEventListener(CLOSE_POPOVER, handleClose);
       }
     };
   }
-  onDestroy(() => popovers.remove(id));
+  onDestroy(() => {
+    alive = false;
+    generation += 1;
+    popovers.remove(id);
+  });
 </script>
 
 <Primitive.Root bind:open={isOpen} onOpenChange={changed}>
@@ -73,6 +95,16 @@
       {side}
       {align}
       {customAnchor}
+      aria-label={label || undefined}
+      onInteractOutside={() => (shouldRestoreFocus = false)}
+      onEscapeKeydown={() => (shouldRestoreFocus = true)}
+      onCloseAutoFocus={(event) => {
+        if (!restoreAnchorFocus) return;
+        event.preventDefault();
+        // A pointer dismissal must not steal focus back from its new target.
+        if (!isOpen && shouldRestoreFocus && customAnchor?.isConnected)
+          customAnchor.focus({ preventScroll: true });
+      }}
       sideOffset={yOffset}
       alignOffset={xOffset}
       avoidCollisions={fallbackPlacements.length > 0}

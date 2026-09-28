@@ -185,9 +185,12 @@ class ConnectControlsBrowser(previous.AppleControlsBrowser):
         self.page.get_by_role('button', name='Heatmap', exact=True).click()
         day = self.page.locator('[data-date="2026-09-25"]')
         expect(day).to_have_attribute('role', 'button')
-        expect(day).to_have_attribute('tabindex', '0')
         expect(day).to_have_attribute('aria-disabled', 'false')
+        # The calendar is one Tab stop; directly focusing a day makes it the
+        # retained roving stop, regardless of the machine's current date.
         day.focus()
+        expect(day).to_have_attribute('tabindex', '0')
+        expect(self.page.locator('.heatmap-calendar button[tabindex="0"]')).to_have_count(1)
         day.press('Enter')
         close = self.page.get_by_role('button', name='Close heatmap details', exact=True)
         expect(close).to_be_visible()
