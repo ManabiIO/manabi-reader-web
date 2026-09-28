@@ -57,9 +57,13 @@ function rememberLocalProfile(user: ManabiUser | null) {
 const ROOT = '/api/reader-web/';
 let generation = 0;
 let refreshSerial = 0;
-let refreshInFlight: { generation: number; promise: Promise<ManabiSession | null> } | undefined;
+interface AccountRefreshFlight {
+  generation: number;
+  promise: Promise<ManabiSession | null>;
+}
+let refreshInFlight: AccountRefreshFlight | undefined;
 let forcedRefreshAfterFlight:
-  | { generation: number; promise: Promise<ManabiSession | null> }
+  | { after: AccountRefreshFlight; promise: Promise<ManabiSession | null> }
   | undefined;
 let lastRefreshFinished = 0;
 let lastRefreshResult: ManabiSession | null = null;
@@ -188,24 +192,35 @@ export function refreshAccount(force = false): Promise<ManabiSession | null> {
   const current = refreshInFlight;
   if (current?.generation === admittedGeneration) {
     if (!force) return current.promise;
-    if (forcedRefreshAfterFlight?.generation === admittedGeneration)
-      return forcedRefreshAfterFlight.promise;
+    if (forcedRefreshAfterFlight?.after === current) return forcedRefreshAfterFlight.promise;
     // A real connectivity recovery must not disappear into a request that was
     // already finishing when the online event arrived. Serialize one forced
     // follow-up instead of issuing concurrent session probes.
     const promise = current.promise
       .then(() => {
         if (generation !== admittedGeneration) return null;
-        if (refreshInFlight?.promise === current.promise) refreshInFlight = undefined;
-        return refreshAccount(true);
+        const next = refreshInFlight;
+        // Another waiter on the completed probe may already have started its
+        // successor. Join that flight directly: recursive refreshAccount(true)
+        // could otherwise return this queued promise and form an adoption cycle.
+        if (next?.generation === admittedGeneration && next !== current) return next.promise;
+        if (next === current) refreshInFlight = undefined;
+        return startAccountRefresh(true);
       })
       .finally(() => {
         if (forcedRefreshAfterFlight?.promise === promise) forcedRefreshAfterFlight = undefined;
       });
-    forcedRefreshAfterFlight = { generation: admittedGeneration, promise };
+    // Queue ownership is the exact flight, not just an account generation. A
+    // later online event during its successor needs a new follow-up of its own.
+    forcedRefreshAfterFlight = { after: current, promise };
     return promise;
   }
   if (!force && Date.now() - lastRefreshFinished < 5000) return Promise.resolve(lastRefreshResult);
+  return startAccountRefresh(force);
+}
+
+function startAccountRefresh(force: boolean): Promise<ManabiSession | null> {
+  const admittedGeneration = generation;
   const attempt = ++refreshAttempt;
   const promise = performAccountRefresh(force)
     .then((result) => {
