@@ -6,7 +6,7 @@
 
 import { LIMITS, finite, onlyKeys, record, type Scope } from './contracts.js';
 import { Sha256 } from './hash.js';
-import type { ByteSource } from './sources.js';
+import { sourceLifetime, type ByteSource } from './sources.js';
 
 /** Device-only hint, deliberately NOT a portable ContentKey or a proof of file equality. */
 export type DeviceKey = `sampled-v1:${string}`;
@@ -36,6 +36,8 @@ export function validateDevicePlayback(value: unknown): DevicePlayback {
 /** At most 96 KiB. Never promoted to account identity, even when sampling agrees. */
 export async function deviceKey(source: ByteSource, signal: AbortSignal): Promise<DeviceKey> {
   if (!Number.isSafeInteger(source.size) || source.size <= 0) throw new Error('Invalid video size');
+  const current = sourceLifetime(source);
+  current();
   const width = Math.min(source.size, 32768);
   const starts = [...new Set([0, Math.floor((source.size - width) / 2), source.size - width])];
   const hash = new Sha256();
@@ -46,11 +48,15 @@ export async function deviceKey(source: ByteSource, signal: AbortSignal): Promis
   );
   for (const start of starts) {
     signal.throwIfAborted();
+    current();
     const bytes = await source.read(start, start + width, signal);
     signal.throwIfAborted();
+    current();
     if (bytes.length !== width) throw new Error('Incomplete video sample');
     hash.update(bytes);
   }
+  signal.throwIfAborted();
+  current();
   return `sampled-v1:${hash.hex()}`;
 }
 export interface DeviceStore {
