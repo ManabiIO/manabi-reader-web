@@ -191,7 +191,8 @@ export async function refreshSnippets(
         const sources = await sourceDescriptors();
         selected.guard();
         const db = await integrationDB();
-        for (const source of sources) {
+        for (let sourceIndex = 0; sourceIndex < sources.length; sourceIndex++) {
+          const source = sources[sourceIndex];
           selected.guard();
           if (source.owner !== null && source.owner !== currentUser()?.id) continue;
           try {
@@ -219,7 +220,19 @@ export async function refreshSnippets(
               );
             }
             const files = checkpoint.catalog.entries.filter((e) => e.kind === 'file');
-            while (checkpoint.index < files.length && processed < 100 && budget > 0) {
+            // Preserve a fair share of each bounded pass for every remaining source.
+            // A large Dropbox folder must not make a small Drive/WebDAV source wait
+            // through dozens of one-second continuation passes before its first body
+            // becomes searchable.
+            const remainingSources = Math.max(1, sources.length - sourceIndex);
+            const sourceLimit = Math.max(1, Math.ceil((100 - processed) / remainingSources));
+            let sourceProcessed = 0;
+            while (
+              checkpoint.index < files.length &&
+              processed < 100 &&
+              sourceProcessed < sourceLimit &&
+              budget > 0
+            ) {
               const file = files[checkpoint.index];
               selected.guard();
               try {
@@ -238,6 +251,7 @@ export async function refreshSnippets(
               }
               checkpoint.index++;
               processed++;
+              sourceProcessed++;
               checkpoint.finished = checkpoint.index === files.length;
               selected.guard();
               await setMetadata(indexKey(selected, source), checkpoint, signal);
