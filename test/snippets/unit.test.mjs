@@ -402,25 +402,26 @@ test('lost create reply plus subsequent edit replays original snapshot without d
     'newer edit'
   );
 });
-test('new edit arriving while upload is in flight remains dirty after acknowledgement', async () => {
+test('new edit arriving while upload is in flight remains dirty without invalidating its base', async () => {
   const s = scope(),
     doc = document(),
     dest = { source: source(), parent: '' };
+  let later;
   await saveDocument(s.owner, doc, null, dest, s.guard);
   memory.beforeWrite = async () => {
     memory.beforeWrite = null;
-    await saveDocument(
-      s.owner,
-      editSnippet(doc, plainContent('later'), ''),
-      doc.revision,
-      dest,
-      s.guard
-    );
+    later = editSnippet(doc, plainContent('later'), '');
+    await saveDocument(s.owner, later, doc.revision, dest, s.guard);
   };
   await flushRecord(doc.id, s);
-  const record = await getRecord(s.owner, doc.id);
+  let record = await getRecord(s.owner, doc.id);
   assert(record.dirty);
   assert.equal(passages(record.document.content)[0].text, 'later');
+  assert.equal(record.document.revision, later.revision);
+  const followup = editSnippet(later, plainContent('still editing'), '');
+  await saveDocument(s.owner, followup, later.revision, dest, s.guard);
+  record = await getRecord(s.owner, doc.id);
+  assert.equal(record.document.revision, followup.revision);
 });
 test('account ABA invalidates a captured operation lifetime', () => {
   changeUser('alice');
