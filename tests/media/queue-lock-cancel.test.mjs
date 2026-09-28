@@ -133,7 +133,9 @@ test('cancelling one queued job keeps the lock request for another local admissi
     assert.equal(locks.pending.length, 1, 'sibling admission lost the shared batch lock request');
     locks.releaseBlocker();
 
-    await until(async () => (await store.local('guest', 'jobs', survivor.id))?.status === 'complete');
+    await until(
+      async () => (await store.local('guest', 'jobs', survivor.id))?.status === 'complete'
+    );
     const first = await store.local('guest', 'jobs', cancelled.id);
     assert.equal(first.status, 'paused');
     assert.equal(first.pauseReason, 'user');
@@ -142,4 +144,34 @@ test('cancelling one queued job keeps the lock request for another local admissi
     assert.equal(counters.transcribe, 1);
     assert.equal((await store.tracks('guest', key('2'))).length, 0);
     assert.equal((await store.tracks('guest', key('3'))).length, 1);
+  }));
+
+
+test('stale Generate admission can persist a queued job but cannot make it runnable', () =>
+  harness('stale-enqueue-admission-', async ({ store, queue, locks, counters }) => {
+    const original = store.enqueueJob.bind(store);
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    let entered = false;
+    store.enqueueJob = async (...args) => {
+      entered = true;
+      await gate;
+      return original(...args);
+    };
+
+    let current = true;
+    const pending = queue.enqueue(key('4'), 'ja', '1', 2, 0, false, undefined, () => current);
+    await until(() => entered);
+    current = false;
+    release();
+    const job = await pending;
+    await tick();
+
+    const saved = await store.local('guest', 'jobs', job.id);
+    assert.equal(saved.status, 'queued');
+    assert.equal(locks.pending.length, 0);
+    assert.equal(locks.grants, 0);
+    assert.deepEqual(counters, { decode: 0, prepare: 0, transcribe: 0, dispose: 0 });
   }));
