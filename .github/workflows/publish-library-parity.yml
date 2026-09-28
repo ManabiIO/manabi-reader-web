@@ -18,7 +18,7 @@ jobs:
       - name: Reconstruct reviewed patch
         run: |
           set -euo pipefail
-          cat .github/parity-upload/chunk-* | base64 -d > /tmp/library-parity.patch
+          cat .github/parity-upload/chunk-* | base64 -d | gzip -d > /tmp/library-parity.patch
           echo 'fe6c0fc10160c6acc78445f3de46fe9c31e6cab5026ef974b0cceaaa7a8cdc95  /tmp/library-parity.patch' | sha256sum -c -
       - name: Publish exact candidate
         run: |
