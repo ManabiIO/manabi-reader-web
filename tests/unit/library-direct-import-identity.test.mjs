@@ -50,6 +50,27 @@ test('persistent account scope is part of direct browser identity', () => {
   );
 });
 
+test('personal sync scope prevents another profile from adopting exact bytes', () => {
+  const existing = {
+    id: 1,
+    title: 'Scoped copy',
+    contentHash: hash,
+    readerOwner: 'alice'
+  };
+  const incoming = { title: 'Renamed exact copy', contentHash: hash };
+  assert.equal(matchesDirectImportIdentity(existing, incoming, 'alice'), true);
+  assert.equal(matchesDirectImportIdentity(existing, incoming, 'bob'), false);
+  assert.equal(matchesDirectImportIdentity(existing, incoming, null), false);
+  assert.equal(
+    matchesDirectImportIdentity(
+      { id: 2, title: 'Unscoped copy', contentHash: hash },
+      incoming,
+      'bob'
+    ),
+    true
+  );
+});
+
 test('legacy hashless imports retain title matching without accepting malformed hashes', () => {
   assert.equal(
     matchesDirectImportIdentity({ id: 1, title: 'Legacy' }, { title: 'Legacy' }),
