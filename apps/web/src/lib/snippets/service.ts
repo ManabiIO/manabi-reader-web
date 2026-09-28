@@ -468,23 +468,32 @@ export function startSnippets(discovery: Readable<boolean>) {
         if (!disposed && run === load) snippetItems.set([]);
       }
     };
-    let syncing = false;
+    let syncing = false,
+      syncQueued = false;
+    const finishSync = (more = false) => {
+      syncing = false;
+      if (disposed) return;
+      if (more || syncQueued) {
+        syncQueued = false;
+        sync();
+      }
+    };
     const sync = () => {
-      if (syncing) return;
+      if (syncing) {
+        syncQueued = true;
+        return;
+      }
       clearTimeout(timer);
       timer = setTimeout(() => {
         try {
           syncing = true;
-          void flushSnippets(scope())
-            .then((more) => {
-              syncing = false;
-              if (more && !disposed) sync();
-            })
-            .catch(() => {
-              syncing = false;
-            });
+          syncQueued = false;
+          const selected = scope();
+          void flushSnippets(selected)
+            .then((more) => finishSync(more))
+            .catch(() => finishSync());
         } catch {
-          syncing = false;
+          finishSync();
         }
       }, 800);
     };
