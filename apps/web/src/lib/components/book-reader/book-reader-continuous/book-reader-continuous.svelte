@@ -372,6 +372,29 @@
     autoScroller = autoScrollerConcrete;
   }
 
+  function layoutScrollPosition(): number | undefined {
+    if (!calculator) return undefined;
+
+    const currentScroll = verticalMode ? window.scrollX : window.scrollY;
+    let intendedCharCount = prevIntendedCharCount;
+
+    // Opening a modal can resize visualViewport without a user navigation.
+    // Chromium may deliver that before the next scroll frame has captured the
+    // reader's intended character. Never translate a stale zero into scrollTo(0).
+    if (!intendedCharCount && Math.abs(currentScroll) > 0.5) {
+      const currentCharCount = calculator.calcExploredCharCount(customReadingPointScrollOffset);
+      if (!currentCharCount) return currentScroll;
+      intendedCharCount = currentCharCount;
+      prevIntendedCharCount = currentCharCount;
+      exploredCharCount = currentCharCount;
+    }
+
+    return (
+      calculator.getScrollPosByCharCount(intendedCharCount) +
+      (verticalMode ? customReadingPointScrollOffset : -customReadingPointScrollOffset)
+    );
+  }
+
   combineLatest([width$, height$])
     .pipe(
       filter(() => autoPositionOnResize),
@@ -383,11 +406,13 @@
       takeUntil(destroy$)
     )
     .subscribe(() => {
-      if (!calculator || !pageManagerConcrete) return;
+      if (!pageManagerConcrete) return;
 
-      const scrollPos =
-        calculator.getScrollPosByCharCount(prevIntendedCharCount) +
-        (verticalMode ? customReadingPointScrollOffset : -customReadingPointScrollOffset);
+      const scrollPos = layoutScrollPosition();
+      if (scrollPos === undefined) return;
+      const currentScroll = verticalMode ? window.scrollX : window.scrollY;
+      if (Math.abs(currentScroll - scrollPos) <= 0.5) return;
+
       isResizeScroll = true;
       pageManagerConcrete.scrollTo(scrollPos);
     });
@@ -599,11 +624,9 @@
         return;
       }
       if (pageManagerConcrete && !scrollWhenReady) {
-        const scrollPos =
-          calculator.getScrollPosByCharCount(prevIntendedCharCount) +
-          (verticalMode ? customReadingPointScrollOffset : -customReadingPointScrollOffset);
+        const scrollPos = layoutScrollPosition();
         const currentScroll = verticalMode ? window.scrollX : window.scrollY;
-        if (Math.abs(currentScroll - scrollPos) > 0.5) {
+        if (scrollPos !== undefined && Math.abs(currentScroll - scrollPos) > 0.5) {
           isResizeScroll = true;
           pageManagerConcrete.scrollTo(scrollPos);
         } else {

@@ -4,6 +4,8 @@ on:
     paths:
       - 'apps/web/src/lib/components/book-reader/book-reader-image-gallery/**'
       - 'apps/web/src/lib/components/book-reader/reactive-elements.ts'
+      - 'apps/web/src/lib/components/book-reader/book-reader-continuous/**'
+      - 'apps/web/src/lib/functions/reader-font-layout.ts'
       - 'apps/web/src/lib/components/html-renderer.svelte'
       - 'tests/browser/test_gallery_reveal_lifetime.py'
       - 'tests/browser/test_gallery_continuity.py'
@@ -49,6 +51,8 @@ jobs:
           cp tests/browser/test_gallery_{reveal_lifetime,continuity}.py test-results/source/
           cp apps/web/src/lib/components/html-renderer.svelte test-results/source/
           cp apps/web/src/lib/components/book-reader/reactive-elements.ts test-results/source/
+          cp apps/web/src/lib/functions/reader-font-layout.ts test-results/source/
+          cp apps/web/src/lib/components/book-reader/book-reader-continuous/book-reader-continuous.svelte test-results/source/
           cp apps/web/src/lib/components/book-reader/book-reader-image-gallery/{book-reader-image-gallery.svelte,reveal-gallery-picture.ts} test-results/source/
       - name: Both real browser engines
         run: |

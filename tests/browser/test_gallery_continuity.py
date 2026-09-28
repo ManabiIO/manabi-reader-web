@@ -176,5 +176,35 @@ class GalleryContinuity(GalleryRevealBase):
         self.close_gallery(panel)
 
 
+    def test_enlarged_short_gallery_keeps_close_reachable_after_viewer_scroll(self):
+        self.page.set_viewport_size({'width': 320, 'height': 568})
+        self.open_book()
+        panel = self.open_gallery()
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        panel.get_by_role('button', name='Show hidden image 1', exact=True).click()
+        panel.get_by_role('button', name='View image 1', exact=True).click()
+        viewer = panel.locator('.gallery-viewer')
+
+        self.page.set_viewport_size({'width': 320, 'height': 320})
+        viewer.focus()
+        viewer.hover()
+        self.page.mouse.wheel(0, 600)
+        self.page.wait_for_function('(element) => element.scrollTop > 0', arg=viewer.element_handle())
+
+        close = panel.get_by_role('button', name='Close Image Gallery', exact=True)
+        self.assert_pointer_target(close)
+        box = close.bounding_box()
+        self.assertGreaterEqual(box['x'], 0)
+        self.assertGreaterEqual(box['y'], 0)
+        self.assertLessEqual(box['x'] + box['width'], 320)
+        self.assertLessEqual(box['y'] + box['height'], 320)
+        self.assertLessEqual(panel.evaluate('element => element.scrollWidth - element.clientWidth'), 1)
+        self.capture('enlarged-short-scrolled-close')
+
+        close.click()
+        expect(panel).to_have_count(0)
+        expect(self.page.get_by_role('button', name='Show reading controls', exact=True)).to_be_focused()
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
