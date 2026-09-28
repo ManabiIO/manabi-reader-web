@@ -1,7 +1,6 @@
 <script lang="ts">
   import DialogTemplate from '$lib/components/dialog-template.svelte';
-  import Ripple from '$lib/components/ripple.svelte';
-  import { buttonClasses } from '$lib/css-classes';
+  import { Button } from '$lib/components/ui/button';
   import { createEventDispatcher, onDestroy } from 'svelte';
 
   export let dialogHeader: string;
@@ -16,10 +15,14 @@
 
   let settled = false;
   onDestroy(() => {
-    if (!settled) resolver(true);
+    if (!settled) {
+      settled = true;
+      resolver(true);
+    }
   });
 
   function closeDialog(wasCanceled = false) {
+    if (settled) return;
     settled = true;
     resolver(wasCanceled);
     dispatch('close');
@@ -29,16 +32,12 @@
 <DialogTemplate>
   <svelte:fragment slot="header">{dialogHeader}</svelte:fragment>
   <svelte:fragment slot="content">
-    <p style={contentStyles}>{dialogMessage}</p>
+    <p class="[overflow-wrap:anywhere]" style={contentStyles}>{dialogMessage}</p>
   </svelte:fragment>
-  <div class="flex grow justify-between" slot="footer">
-    <button class={buttonClasses} class:invisible={!showCancel} on:click={() => closeDialog(true)}>
-      Cancel
-      <Ripple />
-    </button>
-    <button class={buttonClasses} on:click={() => closeDialog()}>
-      Confirm
-      <Ripple />
-    </button>
-  </div>
+  <svelte:fragment slot="footer">
+    {#if showCancel}
+      <Button variant="secondary" class="min-h-11" onclick={() => closeDialog(true)}>Cancel</Button>
+    {/if}
+    <Button class="min-h-11" onclick={() => closeDialog()}>Confirm</Button>
+  </svelte:fragment>
 </DialogTemplate>

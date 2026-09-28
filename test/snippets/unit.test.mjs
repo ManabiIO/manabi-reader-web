@@ -52,7 +52,9 @@ import {
   snippetStatus,
   suggestedDestination,
   rememberDestination,
-  resolveConflict
+  resolveConflict,
+  trashSnippet,
+  appendToSnippet
 } from '../../apps/web/src/lib/snippets/service.ts';
 import {
   moveSnippet,
@@ -845,4 +847,74 @@ test('runtime discovers on library entry, not on settings focus or after leaving
     memory.sources = previousSources;
     globalThis.window = previousWindow;
   }
+});
+
+test('trash after sixteen offline edits retains the last acknowledged server ancestor', async () => {
+  const { selected, doc } = await stored();
+  let current = await getRecord(selected.owner, doc.id);
+  for (let n = 0; n < 16; n++) {
+    const next = editSnippet(current.document, plainContent(`未同期の本文 ${n}`), '手動の題名');
+    await saveDocument(
+      selected.owner,
+      next,
+      current.document.revision,
+      current.destination,
+      selected.guard
+    );
+    current = await getRecord(selected.owner, doc.id);
+  }
+  await trashSnippet(doc.id, false, selected);
+  current = await getRecord(selected.owner, doc.id);
+  assert(current.document.parents.includes(doc.revision));
+  assert.equal(current.document.parents.length, 16);
+  await flushRecord(doc.id, selected);
+  current = await getRecord(selected.owner, doc.id);
+  assert.equal(current.dirty, false);
+  assert.equal(current.conflicts.length, 0);
+  assert.equal(passages(current.document.content)[0].text, '未同期の本文 15');
+  assert.equal(current.document.title.text, '手動の題名');
+});
+
+test('repeated offline trash and restore do not create a false server conflict', async () => {
+  const { selected, doc } = await stored();
+  for (let n = 0; n < 22; n++) await trashSnippet(doc.id, n % 2 === 1, selected);
+  await flushRecord(doc.id, selected);
+  const current = await getRecord(selected.owner, doc.id);
+  assert.equal(current.document.trashedAt, undefined);
+  assert.equal(current.dirty, false);
+  assert.equal(current.remoteRevision, current.document.revision);
+});
+
+test('many offline appends and trash share the bounded acknowledged ancestry contract', async () => {
+  const { selected, doc } = await stored('原本');
+  for (let n = 0; n < 20; n++)
+    await appendToSnippet(doc.id, plainContent(`追記 ${n}`), crypto.randomUUID(), selected);
+  await trashSnippet(doc.id, false, selected);
+  await trashSnippet(doc.id, true, selected);
+  await flushRecord(doc.id, selected);
+  const current = await getRecord(selected.owner, doc.id);
+  assert.equal(current.dirty, false);
+  assert.equal(current.conflicts.length, 0);
+  assert.equal(current.document.captures.length, 20);
+  assert.equal(passages(current.document.content).at(-1).text, '追記 19');
+  assert(current.document.parents.includes(doc.revision));
+});
+
+test('lost create reply followed by repeated trash and restore still drains one file', async () => {
+  const selected = { owner: owner(), guard },
+    src = source(),
+    doc = document('保持する本文');
+  await saveDocument(selected.owner, doc, null, { source: src, parent: '' }, guard);
+  memory.dropReply = true;
+  await assert.rejects(flushRecord(doc.id, selected));
+  for (let n = 0; n < 20; n++) await trashSnippet(doc.id, n % 2 === 1, selected);
+  const pending = await getRecord(selected.owner, doc.id);
+  assert.equal(pending.upload.document.revision, doc.revision);
+  await flushSnippets(selected);
+  const current = await getRecord(selected.owner, doc.id);
+  assert.equal(current.dirty, false);
+  assert.equal(current.upload, undefined);
+  assert.equal(current.conflicts.length, 0);
+  assert.equal(current.document.trashedAt, undefined);
+  assert.equal([...memory.files.values()].filter((x) => x.document.id === doc.id).length, 1);
 });

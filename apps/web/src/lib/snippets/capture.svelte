@@ -143,7 +143,7 @@
         aria-label="Search destination snippets"
         placeholder="Search existing snippets"
         bind:value={query}
-        maxlength="512"
+        maxlength={512}
       />
       <div class="choices">
         <Shelf

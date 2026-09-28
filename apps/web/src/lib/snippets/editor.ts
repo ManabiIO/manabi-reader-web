@@ -34,7 +34,9 @@ export function extensions(): Extensions {
         HTMLAttributes: { target: '_blank', rel: 'noopener noreferrer nofollow', class: null }
       }
     }),
-    RubyText,
+    // Use the guarded annotation form in editor.svelte. Upstream's inline widget
+    // dismisses uncommitted text on blur, outside Save/Keep-draft coordination.
+    RubyText.configure({ allowClickToEdit: false }),
     UniqueID.configure({
       types: [
         'paragraph',
