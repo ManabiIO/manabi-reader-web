@@ -302,20 +302,30 @@ export class DatabaseService {
           oldData = candidate;
         };
         if (incomingHash) {
-          for (let cursor = await store.openCursor(); cursor; cursor = await cursor.continue()) {
+          // Index cursors expose only compact index/primary keys. This preserves
+          // case-insensitive legacy hash matching without cloning every stored
+          // book's HTML/images into JavaScript merely to compare identity.
+          const index = store.index('contentHash');
+          for (let cursor = await index.openKeyCursor(); cursor; cursor = await cursor.continue()) {
             scope.assertCurrent();
             throwIfAborted(signal);
-            await remember(cursor.value);
+            if (normalizedDirectImportHash(cursor.key) !== incomingHash) continue;
+            const candidate = await store.get(cursor.primaryKey);
+            scope.assertCurrent();
+            throwIfAborted(signal);
+            if (candidate) await remember(candidate);
           }
         } else {
-          for (
-            let cursor = await store.index('title').openCursor(stored.title);
-            cursor;
-            cursor = await cursor.continue()
-          ) {
+          // Hashless legacy payloads remain title-scoped, but use primary keys
+          // first so duplicate-title candidates are loaded one at a time.
+          const ids = await store.index('title').getAllKeys(stored.title);
+          for (const id of ids) {
             scope.assertCurrent();
             throwIfAborted(signal);
-            await remember(cursor.value);
+            const candidate = await store.get(id);
+            scope.assertCurrent();
+            throwIfAborted(signal);
+            if (candidate) await remember(candidate);
           }
         }
 
