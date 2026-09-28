@@ -112,10 +112,10 @@ export class BrowserStorageHandler extends BaseStorageHandler {
       scope.assertCurrent();
       if (!current) return;
       this.addBookCard(current.title, {
-      characters: BaseStorageHandler.getBookCharacters(
-        current.characters || 0,
-        current.sections || []
-      ),
+        characters: BaseStorageHandler.getBookCharacters(
+          current.characters || 0,
+          current.sections || []
+        ),
         lastBookModified: current.lastBookModified || 0,
         lastBookOpen: current.lastBookOpen || 0
       });
