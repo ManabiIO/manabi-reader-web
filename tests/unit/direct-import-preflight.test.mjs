@@ -142,9 +142,16 @@ function loadFixture({ reusable, preflightError, countMode = false } = {}) {
     }
   };
   const fileCountData = countMode ? {} : undefined;
+  const document = {
+    createElement(name) {
+      assert.equal(name, 'a');
+      return { href: '', rel: '', download: '', click() {} };
+    }
+  };
   return {
     importData: exports.importData,
     handler,
+    document,
     file: new File(['exact bytes'], 'book.epub', { type: 'application/epub+zip' }),
     signal: new AbortController().signal,
     fileCountData,
@@ -157,7 +164,7 @@ function loadFixture({ reusable, preflightError, countMode = false } = {}) {
 
 test('eligible exact reimport hashes and preflights without parsing or writing', async () => {
   const h = loadFixture({ reusable: 7 });
-  const error = await h.importData({}, h.handler, [h.file], h.signal);
+  const error = await h.importData(h.document, h.handler, [h.file], h.signal);
   assert.equal(error, '');
   assert.deepEqual(h.events, ['hash', 'preflight']);
   assert.deepEqual(h.changed, []);
@@ -166,7 +173,7 @@ test('eligible exact reimport hashes and preflights without parsing or writing',
 
 test('missing exact copy hashes before parser and reuses that digest for storage', async () => {
   const h = loadFixture();
-  const error = await h.importData({}, h.handler, [h.file], h.signal);
+  const error = await h.importData(h.document, h.handler, [h.file], h.signal);
   assert.equal(error, '');
   assert.deepEqual(h.events, ['hash', 'preflight', 'load', 'context', 'save', 'cover']);
   assert.equal(h.changed.length, 1);
@@ -175,7 +182,7 @@ test('missing exact copy hashes before parser and reuses that digest for storage
 test('preflight ambiguity/error stops before parser and preserves the import error', async () => {
   const failure = new Error('multiple exact histories');
   const h = loadFixture({ preflightError: failure });
-  const error = await h.importData({}, h.handler, [h.file], h.signal);
+  const error = await h.importData(h.document, h.handler, [h.file], h.signal);
   assert.match(error, /multiple exact histories/);
   assert.deepEqual(h.events, ['hash', 'preflight']);
   assert.deepEqual(h.changed, []);
@@ -183,7 +190,7 @@ test('preflight ambiguity/error stops before parser and preserves the import err
 
 test('character-count mode still parses without hashing or identity preflight', async () => {
   const h = loadFixture({ reusable: 7, countMode: true });
-  const error = await h.importData({}, h.handler, [h.file], h.signal, h.fileCountData);
+  const error = await h.importData(h.document, h.handler, [h.file], h.signal, h.fileCountData);
   assert.equal(error, '');
   assert.deepEqual(h.events, ['load']);
   assert.equal(h.fileCountData['book.epub'], 12);
