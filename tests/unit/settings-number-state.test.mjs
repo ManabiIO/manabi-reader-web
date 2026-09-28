@@ -126,6 +126,21 @@ test('nullable number subject keeps explicit null and finite numbers', () => {
   assert.equal(backing.value('fontWeight'), 'null');
 });
 
+test('nullable number subject keeps null when its default is a number', () => {
+  const backing = storage({ fontWeight: 'null' });
+  const create = numberFactory(
+    'apps/web/src/lib/data/internal/writable-number-or-null-local-storage-subject.ts',
+    'writableNumberOrNullLocalStorageSubject'
+  );
+  const subject = create(backing)('fontWeight', 400);
+
+  assert.equal(subject.getValue(), null);
+  subject.next(500);
+  subject.next(null);
+  assert.equal(subject.getValue(), null);
+  assert.equal(backing.value('fontWeight'), 'null');
+});
+
 test('nullable number subject normalizes non-finite values to its default', () => {
   const backing = storage();
   const create = numberFactory(

@@ -17,7 +17,14 @@ export function writableStorageSubject<T>(
 ) {
   return (key: string, defaultValue: T) => {
     const normalizeValue = (value: T) => {
-      const candidate = value ?? defaultValue;
+      // Nullable numeric settings intentionally distinguish null from a
+      // cleared input (undefined). Other storage subjects keep their legacy
+      // nullish fallback.
+      const candidate = normalize
+        ? value === undefined
+          ? defaultValue
+          : value
+        : (value ?? defaultValue);
       return normalize ? normalize(candidate, defaultValue) : candidate;
     };
     const initValue = normalizeValue(getStoredOrDefault(storage)(key, defaultValue, mapFromString));
