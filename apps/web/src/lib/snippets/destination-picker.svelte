@@ -13,6 +13,7 @@
   export let initial: Destination | undefined = undefined;
   export let guard: Guard;
   export let choose: (destination: Destination | undefined, remember: boolean) => void;
+  export let onwritebusy: (busy: boolean) => void = () => undefined;
   export let allowDevice = true;
   export let allowUnsetDefault = false;
   let sources: SourceDescriptor[] = [];
@@ -23,6 +24,8 @@
   let capabilities: StorageCapability | undefined;
   let remember = false,
     busy = false,
+    writeBusy = false,
+    alive = false,
     error = '',
     newName = '',
     generation = 0;
@@ -32,12 +35,18 @@
     providerLabels[provider] ??
     (provider === 'local' ? 'Local folder' : provider === 'webdav' ? 'WebDAV' : provider);
   $: parent = trail.at(-1)?.id ?? selected?.root ?? '';
+  function setWriteBusy(value: boolean) {
+    if (writeBusy === value) return;
+    writeBusy = value;
+    onwritebusy(value);
+  }
   async function browse(
     source: SourceDescriptor,
     path = source.root,
     name = source.name,
     reset = false
   ) {
+    if (!alive) return;
     const run = ++generation;
     busy = true;
     error = '';
@@ -45,9 +54,10 @@
       guard();
       const cap = await capability(source, guard);
       guard();
+      if (!alive) return;
       const children = await folders(source, path, guard);
       guard();
-      if (run !== generation) return;
+      if (!alive || run !== generation) return;
       selected = source;
       capabilities = cap;
       entries = children;
@@ -66,13 +76,16 @@
   }
   async function navigate(source: SourceDescriptor, path: string, name: string) {
     await browse(source, path, name);
+    if (!alive) return;
     await tick();
+    if (!alive) return;
     trailNav?.querySelector<HTMLButtonElement>('button:last-of-type')?.focus({ preventScroll: true });
   }
   async function grant() {
-    if (!selected || busy) return;
+    if (!alive || !selected || busy) return;
     const source = selected;
     busy = true;
+    setWriteBusy(true);
     error = '';
     try {
       guard();
@@ -81,35 +94,45 @@
           throw new Error('This provider does not support document writes.');
         await requestDocumentWriteAccess(source.provider, source.id);
         guard();
+        if (!alive) return;
       } else if (source.provider === 'local') {
         const entry = await (await integrationDB()).get('localLibraries', source.id);
         guard();
+        if (!alive) return;
         if (!entry) throw new Error('Reconnect this folder.');
         await reconnectLocalLibrary(entry, true);
         guard();
+        if (!alive) return;
         await browse(source, parent, trail.at(-1)?.name, true);
       }
     } catch (reason) {
       error = reason instanceof Error ? reason.message : 'Permission could not be granted.';
     } finally {
       busy = false;
+      setWriteBusy(false);
     }
   }
   async function mkdir() {
-    if (!selected || !newName.trim() || busy) return;
+    if (!alive || !selected || !newName.trim() || busy) return;
     busy = true;
+    setWriteBusy(true);
     error = '';
     try {
-      const id = await makeFolder({ source: selected, parent }, newName.trim(), guard);
-      await browse(selected, id, newName.trim());
-      newName = '';
+      const folderName = newName.trim();
+      const id = await makeFolder({ source: selected, parent }, folderName, guard);
+      guard();
+      if (!alive) return;
+      await navigate(selected, id, folderName);
+      if (alive) newName = '';
     } catch (reason) {
       error = reason instanceof Error ? reason.message : 'The folder could not be created.';
     } finally {
       busy = false;
+      setWriteBusy(false);
     }
   }
   onMount(() => {
+    alive = true;
     let live = true;
     void (async () => {
       try {
@@ -129,7 +152,9 @@
     })();
     return () => {
       live = false;
+      alive = false;
       generation++;
+      setWriteBusy(false);
     };
   });
 </script>

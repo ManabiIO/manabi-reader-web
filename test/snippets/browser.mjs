@@ -37,7 +37,9 @@ const providers = [
 const files = new Map(),
   states = new Map();
 let serial = 0,
-  failCleanup = false;
+  failCleanup = false,
+  holdMkdir = false,
+  releaseMkdir;
 const counts = { writes: 0, removes: 0, stateWrites: 0 };
 const errors = [];
 const canonical = (v) =>
@@ -127,6 +129,13 @@ async function context(user = null, available = true) {
         reason: ''
       });
     if (action === 'allocate') return respond({ id: 'allocated-' + ++serial });
+    if (action === 'mkdir') {
+      if (holdMkdir)
+        await new Promise((resolve) => {
+          releaseMkdir = resolve;
+        });
+      return respond({ id: 'folder-' + ++serial, kind: 'folder', name: value.name });
+    }
     if (action === 'read') {
       const f = files.get(u.searchParams.get('id'));
       return f && f.connection === connection && f.owner === session.user
@@ -369,6 +378,18 @@ try {
   await expect(rootCrumb).toHaveAttribute('data-slot', 'button');
   await expect(rootCrumb).toHaveAttribute('aria-current', 'page');
   assert((await rootCrumb.boundingBox()).height >= 43.99);
+  holdMkdir = true;
+  await picker.getByLabel('New folder name').fill('Study folder');
+  await picker.getByRole('button', { name: 'Create folder', exact: true }).click();
+  const pickerClose = picker.getByRole('button', { name: 'Close', exact: true });
+  await expect(pickerClose).toBeDisabled();
+  releaseMkdir?.();
+  releaseMkdir = undefined;
+  holdMkdir = false;
+  const createdCrumb = picker.getByRole('button', { name: 'Study folder', exact: true });
+  await expect(createdCrumb).toHaveAttribute('aria-current', 'page');
+  await expect(createdCrumb).toBeFocused();
+  await expect(pickerClose).toBeEnabled();
   await picker.getByRole('checkbox', { name: 'Use this location for new snippets' }).check();
   await picker.getByRole('button', { name: 'Use this folder', exact: true }).click();
   const cloudID = await commit(page);

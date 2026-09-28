@@ -95,6 +95,7 @@
     selected = new Set<string>(),
     visibleIds: string[] = [];
   let pickerOpen = false,
+    pickerWriteBusy = false,
     pickerPurpose: 'save' | 'move' | 'default' = 'save',
     moving: { id: string; revision: string }[] = [];
   let collectionsOpen = false,
@@ -1145,7 +1146,7 @@
   {/if}
 </div>
 {#if pickerOpen && admitted}<Dialog.Root bind:open={pickerOpen}
-    ><Dialog.Content closeDisabled={busy}
+    ><Dialog.Content closeDisabled={busy || pickerWriteBusy}
       ><Dialog.Header
         ><Dialog.Title
           >{pickerPurpose === 'move'
@@ -1161,6 +1162,7 @@
         guard={admitted.guard}
         allowDevice={pickerPurpose === 'save'}
         allowUnsetDefault={pickerPurpose === 'default'}
+        onwritebusy={(value) => (pickerWriteBusy = value)}
         choose={(value, remember) => void action(() => chooseDestination(value, remember))}
       /></Dialog.Content
     ></Dialog.Root
