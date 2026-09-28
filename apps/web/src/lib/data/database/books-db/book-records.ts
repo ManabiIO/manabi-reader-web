@@ -77,24 +77,47 @@ export async function readBookSummaries(db: IDBPDatabase<BooksDb>): Promise<Book
 export async function updateBookLastRead(
   db: IDBPDatabase<BooksDb>,
   id: number,
-  timestamp: number
+  timestamp: number,
+  profileId: string | null,
+  assertCurrent: () => void,
+  signal?: AbortSignal
 ): Promise<BookSummary | undefined> {
   if (!Number.isSafeInteger(id) || id <= 0 || !Number.isFinite(timestamp) || timestamp < 0)
     throw new Error('The book’s last-read update is invalid.');
+  assertCurrent();
+  signal?.throwIfAborted();
   const tx = db.transaction('data', 'readwrite');
-  return commitTransaction(tx, async () => {
-    const current = await tx.store.get(id);
-    if (!current) return undefined;
+  const abort = () => {
+    try {
+      tx.abort();
+    } catch {
+      /* Already settled. */
+    }
+  };
+  signal?.addEventListener('abort', abort, { once: true });
+  try {
+    return await commitTransaction(tx, async () => {
+      assertCurrent();
+      signal?.throwIfAborted();
+      const current = await tx.store.get(id);
+      if (!current) return undefined;
+      if (current.libraryOwner && current.libraryOwner !== profileId)
+        throw new Error('This book belongs to another account.');
     const previous = current.lastBookOpen;
     const lastBookOpen = Math.max(
       typeof previous === 'number' && Number.isFinite(previous) ? previous : 0,
       timestamp
     );
-    if (lastBookOpen === previous) return summarizeBook(current);
-    const updated = { ...current, lastBookOpen };
-    await tx.store.put(updated);
-    return summarizeBook(updated);
-  });
+      if (lastBookOpen === previous) return summarizeBook(current);
+      const updated = { ...current, lastBookOpen };
+      assertCurrent();
+      signal?.throwIfAborted();
+      await tx.store.put(updated);
+      return summarizeBook(updated);
+    });
+  } finally {
+    signal?.removeEventListener('abort', abort);
+  }
 }
 
 /** Local opening may detach a legacy source marker, but is never an import or
