@@ -23,6 +23,7 @@
     statisticsTitleFilterIsOpen$,
     type StatisticsTitleFilterItem,
     preFilteredTitlesForStatistics$,
+    preFilteredBookKeysForStatistics$,
     statisticsDataAggregrationModes,
     exportStatisticsData$,
     exportRawStatistics$,
@@ -65,6 +66,7 @@
     getStartHoursDate,
     secondsToMinutes
   } from '$lib/functions/statistic-util';
+  import { matchesStatisticsBookPrefilter } from './title-filter-model';
   import { pluralize } from '$lib/functions/utils';
   import pLimit from 'p-limit';
   import { tap } from 'rxjs';
@@ -660,6 +662,7 @@
 
     statisticsTitleFilters = newStatisticsTitleFilterData;
     $preFilteredTitlesForStatistics$ = new Set();
+    $preFilteredBookKeysForStatistics$ = new Set();
 
     updateStatisticsData();
   }
@@ -693,6 +696,7 @@
   async function init() {
     try {
       const hasPrefilteredTitlesForStatistics = !!$preFilteredTitlesForStatistics$.size;
+      const bookKeyPrefilter = $preFilteredBookKeysForStatistics$;
 
       [statisticsData, readingGoals] = await Promise.all([
         database.getAllStatistics(),
@@ -701,6 +705,10 @@
         statistics.map((statistic) => {
           if (
             statistic.readingTime &&
+            matchesStatisticsBookPrefilter(
+              'bookKey' in statistic ? statistic.bookKey : undefined,
+              bookKeyPrefilter
+            ) &&
             (!hasPrefilteredTitlesForStatistics ||
               $preFilteredTitlesForStatistics$.has(statistic.title))
           ) {
@@ -863,7 +871,11 @@
       newTitleFilterForStatisticsSet.add(statistic.title);
     }
 
-    return isInDateRange && statisticsTitleFilters.get(statistic.title);
+    return (
+      isInDateRange &&
+      matchesStatisticsBookPrefilter(statistic.bookKey, $preFilteredBookKeysForStatistics$) &&
+      statisticsTitleFilters.get(statistic.title)
+    );
   }
 </script>
 
