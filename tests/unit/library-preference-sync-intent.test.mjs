@@ -490,6 +490,7 @@ test('repeating enable without a new decision retains pending first-sync intent'
   }
 });
 
+
 test('successful retry clears an older server backoff for later background edits', async () => {
   const h = await loadedHarness({ ...saved(), initialized: true, base: { font_size: 24 } });
   let fail = true;
@@ -564,12 +565,7 @@ test('server backoff is isolated to the profile that received it', async () => {
   h.setRequestHandler(({ options }) => {
     if (accountId === 'a') throw new h.IntegrationError('rate_limited', 60);
     const settings = options.method === 'PUT' ? options.value.settings : { font_size: 24 };
-    return {
-      user_id: 'b',
-      schema_version: 1,
-      revision: options.method === 'PUT' ? 3 : 2,
-      settings
-    };
+    return { user_id: 'b', schema_version: 1, revision: options.method === 'PUT' ? 3 : 2, settings };
   });
   try {
     await h.api.syncPreferences();
