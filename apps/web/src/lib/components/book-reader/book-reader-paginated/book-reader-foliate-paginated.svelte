@@ -134,6 +134,8 @@
     return doc?.querySelector<HTMLElement>('.book-content') ?? undefined;
   }
 
+  let bookmarkVisibleRange: Range | undefined;
+
   function runNavigation(operation: (owner: ReaderNavigationOwner) => Promise<boolean>) {
     clearTimeout(bookmarkTimer);
     pageTurns?.cancel();
@@ -168,7 +170,12 @@
       formatBookmarkData(bookId: number) {
         if (!progress || !bookCharCount || navigation.pending || currentIndex() < 0)
           return undefined;
-        return createBookmarkSnapshot(bookId, exploredCharCount, bookCharCount);
+        const current = contentForPaginator();
+        const count =
+          current && bookmarkVisibleRange
+            ? progress.bookmarkCharacterCount(currentIndex(), current, bookmarkVisibleRange)
+            : exploredCharCount;
+        return createBookmarkSnapshot(bookId, count, bookCharCount);
       },
       formatBookmarkDataByRange(bookId: number, range: Range | undefined) {
         if (!progress || !bookCharCount || navigation.pending || currentIndex() < 0)
@@ -177,8 +184,10 @@
         const index = currentIndex();
         const count =
           range && current?.contains(range.commonAncestorContainer)
-            ? progress.exploredCharacterCount(index, current, range)
-            : exploredCharCount;
+            ? progress.bookmarkCharacterCount(index, current, range)
+            : current && bookmarkVisibleRange
+              ? progress.bookmarkCharacterCount(index, current, bookmarkVisibleRange)
+              : exploredCharCount;
         return createBookmarkSnapshot(bookId, count, bookCharCount);
       },
       scrollToBookmark(data: BooksDbBookmarkData) {
@@ -347,6 +356,7 @@
     const current = detail.doc.querySelector<HTMLElement>('.book-content');
     if (!current || destroyed) return;
     visibleLocation.clear();
+    bookmarkVisibleRange = undefined;
     contentEl = current;
     dispatch('contentChange', current);
   }
@@ -367,6 +377,7 @@
     const resource = publicationManifest.resources[detail.index];
     if (!resource || resource.spineIndex !== detail.index) return;
     visibleLocation.update(current, resource, detail.range);
+    bookmarkVisibleRange = detail.range?.cloneRange();
     const fraction = Number.isFinite(detail.fraction) ? detail.fraction! : 0;
     exploredCharCount = progress.exploredCharacterCount(detail.index, current, detail.range);
     updateSectionProgress(detail.index, fraction);
