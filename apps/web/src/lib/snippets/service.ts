@@ -163,7 +163,7 @@ interface IndexCheckpoint {
 const indexKey = (selected: SnippetScope, source: SourceDescriptor) =>
   `snippet-index:${selected.owner}:${sourceKey(source)}`;
 /** Shared folder traversal, but bounded body hydration. The checkpoint advances only after accepting a file. */
-export async function refreshSnippets(selected = scope(), rescan = true) {
+export async function refreshSnippets(selected = scope(), rescan = true, minimumScanAge = 0) {
   return exclusive(`snippet-discovery:${selected.owner}`, async () => {
     selected.guard();
     snippetStatus.set({ ...get(snippetStatus), busy: true });
@@ -182,7 +182,9 @@ export async function refreshSnippets(selected = scope(), rescan = true) {
           let checkpoint = (await db.get('metadata', indexKey(selected, source))) as
             | IndexCheckpoint
             | undefined;
-          if (!checkpoint || (rescan && checkpoint.finished)) {
+          const scanAge = checkpoint ? Date.now() - checkpoint.catalog.scannedAt : Infinity;
+          const recentlyScanned = scanAge >= 0 && scanAge < minimumScanAge;
+          if (!checkpoint || (rescan && checkpoint.finished && !recentlyScanned)) {
             const catalog = await scanCatalog(
               await librarySource(source),
               source,
@@ -451,7 +453,9 @@ export function startSnippets() {
         const selected = scope();
         if (!force && Date.now() - lastScan < 60000) return;
         lastScan = Date.now();
-        void refreshSnippets(selected, !continueIndex)
+        // A page reload starts a new runtime. Reuse its durable discovery
+        // checkpoint briefly instead of traversing every cloud folder again.
+        void refreshSnippets(selected, !continueIndex, 60000)
           .then(() => {
             if (get(snippetStatus).remaining) {
               clearTimeout(indexTimer);
