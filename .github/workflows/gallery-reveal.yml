@@ -10,7 +10,8 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: gallery-reveal-${{ github.ref }}
+  # The preceding tests-only baseline keeps its old group and can finish.
+  group: gallery-reveal-candidate-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   gallery:

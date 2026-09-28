@@ -16,6 +16,8 @@ export enum ReaderImageGalleryAvailableKeybind {
 export interface ReaderImageGalleryPicture {
   url: string;
   unspoilered: boolean;
+  /** Transient user intent, discarded with this loaded publication. */
+  revealedInGallery?: true;
 }
 
 export type ReaderImageGalleryKeybindMap = Record<string, ReaderImageGalleryAvailableKeybind>;

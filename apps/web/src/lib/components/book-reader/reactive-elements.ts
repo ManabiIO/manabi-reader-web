@@ -21,7 +21,11 @@ import {
 import { FuriganaStyle } from '../../data/furigana-style';
 import { nextChapter$ } from '$lib/components/book-reader/book-toc/book-toc';
 import { pulseElement } from '$lib/functions/range-util';
-import { toggleImageGalleryPictureSpoiler$ } from '$lib/components/book-reader/book-reader-image-gallery/book-reader-image-gallery';
+import {
+  readerImageGalleryPictures$,
+  toggleImageGalleryPictureSpoiler$
+} from '$lib/components/book-reader/book-reader-image-gallery/book-reader-image-gallery';
+import { gallerySpoilerObservation } from './book-reader-image-gallery/reveal-gallery-picture';
 
 export function reactiveElements(
   document: Document,
@@ -205,14 +209,16 @@ function openImageInNewTab(
 
 function toggleImageGalleryPictureSpoiler(imageElement: Element | null, unspoilered: boolean) {
   const localName = imageElement?.localName?.toLowerCase();
+  let url: string | undefined;
   if (localName === 'img') {
-    const url =
-      (imageElement as HTMLImageElement).src || imageElement?.getAttribute('src') || undefined;
-    if (url) toggleImageGalleryPictureSpoiler$.next({ url, unspoilered });
+    url = (imageElement as HTMLImageElement).src || imageElement?.getAttribute('src') || undefined;
   } else if (localName === 'image' && imageElement && 'href' in imageElement) {
+    url = (imageElement.href as SVGAnimatedString).baseVal;
+  }
+  if (url) {
     toggleImageGalleryPictureSpoiler$.next({
-      url: (imageElement.href as SVGAnimatedString).baseVal,
-      unspoilered
+      url,
+      unspoilered: gallerySpoilerObservation(readerImageGalleryPictures$.getValue(), url, unspoilered)
     });
   }
 }

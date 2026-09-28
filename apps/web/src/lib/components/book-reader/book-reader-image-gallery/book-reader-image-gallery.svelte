@@ -85,6 +85,15 @@
     );
   }
 
+  function revealSelected() {
+    if (closed || !selectedImage) return;
+    const url = selectedImage.url;
+    // Move focus before removing the activating reveal button. No deferred
+    // callback can steal it from a later gesture, dismissal or another dialog.
+    imageContainer?.focus({ preventScroll: true });
+    if (!closed) reveal(url);
+  }
+
   function select(index: number) {
     if (closed || index < 0 || index >= $readerImageGalleryPictures$.length) return;
     const generation = ++focusGeneration;
@@ -205,7 +214,7 @@
               alt={selectedIsHidden ? '' : `Book illustration ${selectedImageIndex + 1}`}
             />
             {#if selectedIsHidden}
-              <button type="button" class="spoiler-label" on:click={() => reveal(selectedImage.url)}
+              <button type="button" class="spoiler-label" on:click={revealSelected}
                 >Show image · ネタバレ</button
               >
             {/if}
