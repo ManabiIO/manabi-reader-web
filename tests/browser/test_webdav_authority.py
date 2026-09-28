@@ -92,6 +92,26 @@ class WebDavAuthorityBrowser(LocalFeatureBrowser):
         self.assertEqual(remote, self.dav.state['files'][path])
         self.assertEqual(1, self.dav.state['puts'])
 
+    def test_legacy_book_scope_blocks_a_stale_completion_action(self):
+        self.import_book('Legacy completion scope')
+        before = self.stores('books', ['bookmark', 'readerStatistic'])
+        self.page.evaluate('''() => new Promise((resolve, reject) => {
+          const request = indexedDB.open('books');
+          request.onerror = () => reject(request.error);
+          request.onsuccess = () => {
+            const db = request.result, tx = db.transaction(['data', 'readerBookScope'], 'readwrite');
+            tx.objectStore('data').getAll().onsuccess = event => {
+              const book = event.target.result[0];
+              tx.objectStore('readerBookScope').put({bookId: book.id, accountId: 'another-account'});
+            };
+            tx.oncomplete = () => { db.close(); resolve(); };
+            tx.onabort = () => { db.close(); reject(tx.error); };
+          };
+        })''')
+        self.menu('Legacy completion scope', 'Mark as Finished')
+        expect(self.page.get_by_text('This book belongs to another account.', exact=True)).to_be_visible()
+        self.assertEqual(before, self.stores('books', ['bookmark', 'readerStatistic']))
+
 
 def load_tests(loader, _tests, _pattern):
     # Do not duplicate the inherited qualification suite when loaded by unittest.
