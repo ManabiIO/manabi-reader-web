@@ -248,10 +248,9 @@
           // or rendering its editor. A reload at any later point can recover it.
           const url = new URL($page.url);
           url.searchParams.set('draft', session);
-          routeSignature = JSON.stringify([owner, '', session]);
           replaceState(resolve(libraryPath(url.pathname + url.search)), $page.state);
-          await deleteDraft(draft.key, s.guard);
           await openDraft(restored, s);
+          await deleteDraft(draft.key, s.guard);
         } else error = 'This draft is unavailable in the current account.';
       } else await loadRecord(true);
     } catch (reason) {
