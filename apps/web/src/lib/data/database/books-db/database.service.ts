@@ -307,11 +307,7 @@ export class DatabaseService {
           // case-insensitive legacy hash matching without cloning every stored
           // book's HTML/images into JavaScript merely to compare identity.
           const index = store.index('contentHash');
-          for (
-            let cursor = await index.openKeyCursor();
-            cursor;
-            cursor = await cursor.continue()
-          ) {
+          for (let cursor = await index.openKeyCursor(); cursor; cursor = await cursor.continue()) {
             scope.assertCurrent();
             throwIfAborted(signal);
             if (normalizedDirectImportHash(cursor.key) !== incomingHash) continue;
