@@ -9,6 +9,7 @@ import { XMLParser } from 'fast-xml-parser';
 import initZipSettings from '../utils/init-zip-settings';
 import { LimitedArchive, resolveArchivePath, type ArchiveOptions } from '../utils/limited-archive';
 import path from 'path-browserify';
+import { decodeXmlAttributeReferences } from '../utils/xml-attribute-references';
 
 initZipSettings();
 
@@ -19,7 +20,11 @@ export default async function extractEpub(
   const archive = await LimitedArchive.open(blob, options);
   try {
     const result: Record<string, string | Blob> = Object.create(null);
-    const parser = new XMLParser({ ignoreAttributes: false, processEntities: false });
+    const parser = new XMLParser({
+      ignoreAttributes: false,
+      processEntities: false,
+      attributeValueProcessor: (_name, value) => decodeXmlAttributeReferences(value)
+    });
     const containerXml = await archive.readText('META-INF/container.xml', 1024 * 1024);
     const rootFiles = parser.parse(containerXml)?.container?.rootfiles?.rootfile;
     const rootFile = Array.isArray(rootFiles) ? rootFiles[0] : rootFiles;
