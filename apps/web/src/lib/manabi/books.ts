@@ -115,7 +115,8 @@ export async function importLibraryBook(
     const reusableBookId = expectedBookId ?? linkedBookId;
     let stored = reusableBookId ? await database.getData(reusableBookId) : undefined;
     if (expectedBookId !== undefined) {
-      if (!stored) throw new Error('The saved book was removed. Refresh the Library and try again.');
+      if (!stored)
+        throw new Error('The saved book was removed. Refresh the Library and try again.');
       if (stored.contentHash?.toLowerCase() !== contentHash)
         throw new Error('The book contents changed. Refresh the Library and try again.');
     }
