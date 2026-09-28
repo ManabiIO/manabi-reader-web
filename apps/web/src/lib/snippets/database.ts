@@ -9,6 +9,7 @@ import { integrationDB, equal } from '../manabi/persistence';
 import type { SourceDescriptor } from '../library/catalog';
 import {
   canonical,
+  retainRemoteAncestor,
   encodeSnippet,
   parseSnippet,
   SnippetError,
@@ -157,15 +158,7 @@ export async function saveDocument(
       );
     if (current?.transfer)
       throw new SnippetError('busy', 'Finish or cancel the pending move before editing.');
-    if (
-      current?.remoteRevision &&
-      !document.parents.includes(current.remoteRevision) &&
-      document.revision !== current.remoteRevision
-    )
-      document = {
-        ...document,
-        parents: [...new Set([current.remoteRevision, ...document.parents])].slice(0, 16)
-      };
+    document = retainRemoteAncestor(document, current?.remoteRevision);
     if (current && current.conflicts.length)
       throw new SnippetError(
         'conflict',

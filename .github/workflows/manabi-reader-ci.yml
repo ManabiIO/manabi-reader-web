@@ -105,6 +105,22 @@ jobs:
         run: node test/reader/build-schema-fixture.mjs
       - name: Native database upgrades in ${{ matrix.browser }}
         run: python tests/browser/test_books_schema_upgrade.py --browser ${{ matrix.browser }}
+      - name: Build and check statistics deletion against the IndexedDB API
+        run: |
+          node test/reader/build-statistics-deletion-fixture.mjs
+          git rev-parse HEAD > test-results/statistics-deletion/commit.txt
+          git rev-parse HEAD^{tree} > test-results/statistics-deletion/tree.txt
+          node <<'NODE'
+          const fs = require('node:fs');
+          const timer = setTimeout(() => process.exit(1), 30000);
+          require('./test-results/statistics-deletion/fixture.node.cjs').run().then(result => {
+            fs.writeFileSync('test-results/statistics-deletion/node.json', JSON.stringify(result, null, 2));
+            console.log(JSON.stringify(result));
+            if (result.passed !== 14 || result.failed !== 0) process.exitCode = 1;
+          }, error => { console.error(error); process.exitCode = 1; }).finally(() => clearTimeout(timer));
+          NODE
+      - name: Native statistics deletion in ${{ matrix.browser }}
+        run: python tests/browser/test_statistics_deletion_native.py --browser ${{ matrix.browser }}
       - name: Offline worker lifecycle in ${{ matrix.browser }}
         run: python tests/browser/test_offline_worker.py --browser ${{ matrix.browser }}
       - name: Run ${{ matrix.browser }} browser qualification

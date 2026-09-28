@@ -6,7 +6,13 @@
 
 import { librarySource } from '../library/catalog';
 import { sha256 } from '../manabi/sources';
-import { getRecord, mutateRecord, locationKey, type Location } from './database';
+import {
+  getRecord,
+  mutateRecord,
+  locationKey,
+  type Location,
+  type SnippetRecord
+} from './database';
 import { canonical, isUUID, type SnippetLocator } from './document';
 import type { SnippetScope } from './scope';
 
@@ -81,10 +87,29 @@ export async function touchReading(id: string, selected: SnippetScope) {
 export async function syncReading(id: string, selected: SnippetScope, target?: Location) {
   const current = await getRecord(selected.owner, id);
   selected.guard();
-  if (!current) return;
+  // Only the transfer's explicit target may sync while it owns the document.
+  // A concurrent refresh must not acknowledge a save to the departing source.
+  if (!current || (current.transfer && !target)) return;
   const location =
     target ?? current.locations.find((l) => locationKey(l) === current.primary && !l.missing);
   if (!location) return;
+  // Account ownership is not enough: a move can change the storage home while
+  // a read or write is in flight. Its old reply must not clear the new home's
+  // pending position, adopt its remote cursor, or release a successor transfer.
+  const primary = current.primary,
+    transfer = current.transfer;
+  function requireStorage(record: SnippetRecord | undefined): asserts record is SnippetRecord {
+    selected.guard();
+    if (
+      !record ||
+      record.primary !== primary ||
+      record.transfer !== transfer ||
+      (!target && !record.locations.some((l) => locationKey(l) === primary && !l.missing))
+    )
+      throw new Error(
+        'Snippet storage changed while synchronizing its reading position. Retry at the current location.'
+      );
+  }
   const adapter = await librarySource(location.source),
     key = await readingKey(id);
   selected.guard();
@@ -94,6 +119,7 @@ export async function syncReading(id: string, selected: SnippetScope, target?: L
   const here = await getRecord(selected.owner, id);
   selected.guard();
   if (!here) return;
+  requireStorage(here);
   if (here.progress && here.readAt && (here.progressDirty || target)) {
     const value: ReadingState = {
       format: 'manabi-snippet-reading',
@@ -111,34 +137,28 @@ export async function syncReading(id: string, selected: SnippetScope, target?: L
     selected.guard();
     if (canonical(decode(result.value, id)) !== canonical(winner))
       throw new Error('Reading-state write could not be verified.');
-    await mutateRecord(
-      selected.owner,
-      id,
-      selected.guard,
-      (latest) =>
-        latest && {
-          ...latest,
-          ...(latest.readAt === here.readAt
-            ? { progress: winner.locator, readAt: winner.readAt, progressDirty: false }
-            : {}),
-          stateCheckedAt: Date.now(),
-          progressToken: result.revision
-        }
-    );
+    await mutateRecord(selected.owner, id, selected.guard, (latest) => {
+      requireStorage(latest);
+      return {
+        ...latest,
+        ...(latest.readAt === here.readAt
+          ? { progress: winner.locator, readAt: winner.readAt, progressDirty: false }
+          : {}),
+        stateCheckedAt: Date.now(),
+        progressToken: result.revision
+      };
+    });
   } else if (remoteState && (!here.readAt || remoteState.readAt > here.readAt)) {
-    await mutateRecord(
-      selected.owner,
-      id,
-      selected.guard,
-      (latest) =>
-        latest && {
-          ...latest,
-          ...(!latest.progressDirty && (latest.readAt ?? 0) < remoteState.readAt
-            ? { progress: remoteState.locator, readAt: remoteState.readAt }
-            : {}),
-          stateCheckedAt: Date.now(),
-          progressToken: remote.revision
-        }
-    );
+    await mutateRecord(selected.owner, id, selected.guard, (latest) => {
+      requireStorage(latest);
+      return {
+        ...latest,
+        ...(!latest.progressDirty && (latest.readAt ?? 0) < remoteState.readAt
+          ? { progress: remoteState.locator, readAt: remoteState.readAt }
+          : {}),
+        stateCheckedAt: Date.now(),
+        progressToken: remote.revision
+      };
+    });
   }
 }

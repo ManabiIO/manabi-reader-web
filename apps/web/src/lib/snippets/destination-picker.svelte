@@ -19,6 +19,9 @@
   let entries: { id: string; name: string }[] = [];
   let capabilities: StorageCapability | undefined;
   let remember = false,
+    ready = false,
+    permissionRequired = false,
+    granting = false,
     busy = false,
     error = '',
     newName = '',
@@ -26,6 +29,10 @@
   const identity = (source: SourceDescriptor) =>
     JSON.stringify([source.owner, source.id, source.root]);
   $: parent = trail.at(-1)?.id ?? selected?.root ?? '';
+  function current(run: number) {
+    guard();
+    if (run !== generation) throw new Error('The destination selection changed.');
+  }
   async function browse(
     source: SourceDescriptor,
     path = source.root,
@@ -33,65 +40,104 @@
     reset = false
   ) {
     const run = ++generation;
+    // A failed switch must never leave the previous source's write capability active.
+    selected = source;
+    trail = reset
+      ? [
+          { id: source.root, name: source.name },
+          ...(path !== source.root ? [{ id: path, name }] : [])
+        ]
+      : [...trail, { id: path, name }];
+    capabilities = undefined;
+    entries = [];
+    ready = false;
+    permissionRequired = false;
     busy = true;
     error = '';
+    const check = () => current(run);
     try {
-      guard();
-      const cap = await capability(source, guard);
-      guard();
-      const children = await folders(source, path, guard);
-      guard();
-      if (run !== generation) return;
-      selected = source;
+      check();
+      const cap = await capability(source, check);
+      check();
       capabilities = cap;
+      const children = await folders(source, path, check);
+      check();
       entries = children;
-      trail = reset
-        ? [
-            { id: source.root, name: source.name },
-            ...(path !== source.root ? [{ id: path, name }] : [])
-          ]
-        : [...trail, { id: path, name }];
+      ready = true;
     } catch (reason) {
-      if (run === generation)
+      if (run === generation) {
+        permissionRequired =
+          source.provider === 'local' &&
+          reason instanceof Error &&
+          (('code' in reason && reason.code === 'permission_required') ||
+            reason.name === 'NotAllowedError');
         error = reason instanceof Error ? reason.message : 'Cannot browse this source.';
+      }
     } finally {
       if (run === generation) busy = false;
     }
   }
   async function grant() {
-    if (!selected) return;
-    const source = selected;
+    if (!selected || busy) return;
+    const source = selected,
+      path = parent,
+      name = trail.at(-1)?.name ?? source.name;
+    const run = ++generation,
+      check = () => current(run);
+    busy = true;
+    granting = true;
+    error = '';
     try {
-      guard();
+      check();
       if (source.owner) {
         if (!['google', 'dropbox', 'onedrive'].includes(source.provider))
           throw new Error('This provider does not support document writes.');
         await requestDocumentWriteAccess(source.provider, source.id);
-        guard();
+        check();
       } else if (source.provider === 'local') {
         const entry = await (await integrationDB()).get('localLibraries', source.id);
-        guard();
+        check();
         if (!entry) throw new Error('Reconnect this folder.');
         await reconnectLocalLibrary(entry, true);
-        guard();
-        await browse(source, parent, trail.at(-1)?.name, true);
+        check();
+        await browse(source, path, name, true);
       }
     } catch (reason) {
-      error = reason instanceof Error ? reason.message : 'Permission could not be granted.';
+      if (run === generation)
+        error = reason instanceof Error ? reason.message : 'Permission could not be granted.';
+    } finally {
+      granting = false;
+      if (run === generation) busy = false;
     }
   }
   async function mkdir() {
-    if (!selected || !newName.trim() || busy) return;
+    if (!selected || !ready || !capabilities?.write || !newName.trim() || busy) return;
+    const source = selected,
+      path = parent,
+      name = newName.trim();
+    const run = ++generation,
+      check = () => current(run);
     busy = true;
     error = '';
     try {
-      const id = await makeFolder({ source: selected, parent }, newName.trim(), guard);
-      await browse(selected, id, newName.trim());
+      const id = await makeFolder({ source, parent: path }, name, check);
+      check();
+      await browse(source, id, name);
       newName = '';
     } catch (reason) {
-      error = reason instanceof Error ? reason.message : 'The folder could not be created.';
+      if (run === generation)
+        error = reason instanceof Error ? reason.message : 'The folder could not be created.';
     } finally {
-      busy = false;
+      if (run === generation) busy = false;
+    }
+  }
+  function useFolder() {
+    if (!selected || !ready || busy || !capabilities?.write) return;
+    try {
+      guard();
+      choose({ source: selected, parent }, remember);
+    } catch (reason) {
+      error = reason instanceof Error ? reason.message : 'The destination is unavailable.';
     }
   }
   onMount(() => {
@@ -128,6 +174,7 @@
     >Storage source
     <select
       aria-label="Storage source"
+      disabled={granting}
       value={selected ? identity(selected) : ''}
       onchange={(event) => {
         const source = sources.find((item) => identity(item) === event.currentTarget.value);
@@ -157,13 +204,19 @@
       {#each entries as folder (folder.id)}<button
           disabled={busy}
           onclick={() => browse(selected!, folder.id, folder.name)}>📁 {folder.name}</button
-        >{:else}<p>{busy ? 'Loading folders…' : 'No subfolders. You can save here.'}</p>{/each}
+        >{:else}<p>
+          {busy
+            ? 'Loading folders…'
+            : ready
+              ? 'No subfolders.'
+              : 'This folder could not be loaded.'}
+        </p>{/each}
     </div>
     {#if selected.provider === 'local'}<p>
         Close other applications editing these files before saving. This browser cannot lock out
         external file editors.
       </p>{/if}
-    {#if capabilities?.write}
+    {#if capabilities?.write && ready}
       <form
         onsubmit={(event) => {
           event.preventDefault();
@@ -183,22 +236,33 @@
       <label class="remember"
         ><input type="checkbox" bind:checked={remember} /> Use this location for new snippets</label
       >
-      <Button disabled={busy} onclick={() => choose({ source: selected!, parent }, remember)}
-        >Use this folder</Button
-      >
-    {:else if capabilities}
+      <Button disabled={busy} onclick={useFolder}>Use this folder</Button>
+    {:else if capabilities && !capabilities.write}
       <p>
         {capabilities.reason ||
           'This source is read-only. Authorize document editing to save here.'}
       </p>
-      {#if selected.provider !== 'webdav' && !capabilities.reason}<Button onclick={grant}
-          >Allow document editing</Button
+      {#if selected.provider !== 'webdav' && !capabilities.reason && !permissionRequired}<Button
+          disabled={busy}
+          onclick={grant}>Allow document editing</Button
         >{/if}
       {#if selected.provider === 'google'}<p>
           Google will request access to files in your Drive so Manabi can edit documents inside your
           selected library folders.
         </p>{/if}
     {/if}
+  {/if}
+  {#if permissionRequired}
+    <Button disabled={busy} onclick={grant}>Allow folder access</Button>
+  {/if}
+  {#if error && selected && !permissionRequired}
+    <Button
+      variant="secondary"
+      disabled={busy}
+      onclick={() => browse(selected!, parent, trail.at(-1)?.name, true)}
+    >
+      Retry folder
+    </Button>
   {/if}
   {#if allowDevice}<Button variant="ghost" onclick={() => choose(undefined, false)}
       >Keep on this device only</Button

@@ -17,6 +17,7 @@ import {
 import { sourceKey } from '../library/organization-keys';
 import {
   canonical,
+  retainRemoteAncestor,
   createSnippet,
   editSnippet,
   encodeSnippet,
@@ -312,13 +313,10 @@ export async function appendToSnippet(
       throw new Error(
         'This capture was already appended. Your recovered draft is kept; make a new snippet or discard it.'
       );
-    const document = appendSnippet(current.document, content, operation);
-    if (
-      current.remoteRevision &&
-      document.revision !== current.remoteRevision &&
-      !document.parents.includes(current.remoteRevision)
-    )
-      document.parents = [...new Set([current.remoteRevision, ...document.parents])].slice(0, 16);
+    const document = retainRemoteAncestor(
+      appendSnippet(current.document, content, operation),
+      current.remoteRevision
+    );
     return { ...current, document, dirty: !!current.destination, issue: undefined };
   });
   await reloadSnippets(selected);
@@ -347,7 +345,12 @@ export async function trashSnippet(id: string, restore = false, selected = scope
     );
     if (restore) delete document.trashedAt;
     else document.trashedAt = Date.now();
-    return { ...current, document, dirty: !!current.destination, issue: undefined };
+    return {
+      ...current,
+      document: retainRemoteAncestor(document, current.remoteRevision),
+      dirty: !!current.destination,
+      issue: undefined
+    };
   });
   await reloadSnippets(selected);
 }

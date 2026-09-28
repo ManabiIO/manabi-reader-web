@@ -156,6 +156,7 @@
               const next = new SvelteSet(selected);
               if (next.has(item.id)) next.delete(item.id);
               else next.add(item.id);
+              anchor = item.id;
               onselect([...next]);
             }}
           /></label
@@ -171,15 +172,7 @@
         </p>
         {#if item.issue}<p class="issue">{item.issue}</p>{/if}
         {#each hits.get(item.id) ?? [] as hit, index (`${item.revision}:${index}`)}
-          <a
-            class="passage"
-            href={resolve(url(item, hit))}
-            onclick={onchoose
-              ? (event) => {
-                  event.preventDefault();
-                  onchoose?.(item);
-                }
-              : undefined}
+          <a class="passage" href={resolve(url(item, hit))} onclick={(event) => choose(event, item)}
             >{hit.excerpt}{#if hit.reading}<span class="reading-label">Furigana match</span>{/if}</a
           >
         {/each}

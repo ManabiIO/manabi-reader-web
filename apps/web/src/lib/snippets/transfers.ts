@@ -102,7 +102,16 @@ async function execute(operation: SnippetTransfer, selected: SnippetScope) {
       } catch (error) {
         // A lost successful delete reply can be reconciled only by an actual not-found response.
         // Authorization, disconnection and network errors are not deletion evidence.
-        if (!(error instanceof Error && 'code' in error && error.code === 'not_found')) throw error;
+        const missing = error instanceof Error && 'code' in error && error.code === 'not_found';
+        // Local File System Access reports actual absence with a DOMException,
+        // not the cloud adapter's error code. A completed delete followed by a
+        // crash must be resumable, without treating permission loss as deletion.
+        const localMissing =
+          operation.from.source.owner === null &&
+          operation.from.source.provider === 'local' &&
+          error instanceof DOMException &&
+          error.name === 'NotFoundError';
+        if (!missing && !localMissing) throw error;
         const cap = await capability(operation.from.source, selected.guard);
         if (!cap.write) throw error;
       }
