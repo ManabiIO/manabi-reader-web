@@ -89,10 +89,12 @@ function harness() {
           return failWrite ? Promise.reject(failWrite) : Promise.resolve();
         },
         exclusive: (_, work) => {
-          const next = locks.catch(() => undefined).then(() => {
-            if (failLock) throw failLock;
-            return work();
-          });
+          const next = locks
+            .catch(() => undefined)
+            .then(() => {
+              if (failLock) throw failLock;
+              return work();
+            });
           locks = next;
           return next;
         }
@@ -169,9 +171,7 @@ for (const failureAt of ['GET', 'PUT']) {
         fail = false;
         throw new Error('temporary network failure');
       }
-      return options.method === 'PUT'
-        ? reply(options.value.settings, 3)
-        : reply({ font_size: 12 });
+      return options.method === 'PUT' ? reply(options.value.settings, 3) : reply({ font_size: 12 });
     });
     try {
       h.subjects.get('fontSize$').next(31);

@@ -64,7 +64,7 @@ class PreferenceSyncRecovery(LibraryBase):
         font.fill('31')
         font.press('Tab')
         expect(font).to_have_value('31')
-        self.page.get_by_label('When first enabling sync', exact=True).select_option('local')
+        self.page.get_by_label('When first enabling sync').select_option('local')
         original = getattr(StaticHandler, 'do_' + method)
         failures = []
 

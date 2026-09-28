@@ -463,7 +463,7 @@ export async function enablePreferenceSync(enabled: boolean, choice?: 'local' | 
   active = {
     ...active,
     enabled,
-    initialChoice: enabled && !active.initialized ? choice ?? active.initialChoice : undefined
+    initialChoice: enabled && !active.initialized ? (choice ?? active.initialChoice) : undefined
   };
   if (enabled) active.local = { ...active.local, ...capture() };
   const state = active;
