@@ -28,6 +28,7 @@ import { bookKey, contentBookKey, relocatePresentation } from '$lib/library/orga
 import { contentStatisticKey } from '$lib/data/database/books-db/reader-statistics';
 import { throwIfAborted } from '$lib/functions/replication/replication-error';
 import type { BookCardProps } from '$lib/components/book-card/book-card-props';
+import { captureLibraryOperation } from '$lib/manabi/operation-scope';
 
 export class BrowserStorageHandler extends BaseStorageHandler {
   updateSettings(
@@ -98,16 +99,29 @@ export class BrowserStorageHandler extends BaseStorageHandler {
 
   async updateLastRead(book: BooksDbBookData) {
     const { id, lastBookOpen } = book;
-    const current = await updateBookLastRead(await database.db, id, lastBookOpen || 0);
-    if (!current) return;
-    this.addBookCard(current.title, {
+    const scope = captureLibraryOperation(book.libraryOwner ?? null);
+    try {
+      const current = await updateBookLastRead(
+        await database.db,
+        id,
+        lastBookOpen || 0,
+        scope.profileId,
+        scope.assertCurrent,
+        scope.signal
+      );
+      scope.assertCurrent();
+      if (!current) return;
+      this.addBookCard(current.title, {
       characters: BaseStorageHandler.getBookCharacters(
         current.characters || 0,
         current.sections || []
       ),
-      lastBookModified: current.lastBookModified || 0,
-      lastBookOpen: current.lastBookOpen || 0
-    });
+        lastBookModified: current.lastBookModified || 0,
+        lastBookOpen: current.lastBookOpen || 0
+      });
+    } finally {
+      scope.stop();
+    }
   }
 
   async getFilenameForRecentCheck(fileIdentifier: string) {
