@@ -14,7 +14,7 @@ import {
 } from './reader-statistics';
 import { commitTransaction, explainBookStorageError } from './commit-transaction.mjs';
 import { matchesDirectImportIdentity, normalizedDirectImportHash } from './direct-import-identity';
-import { commitOwnedBookmark, snapshotBookmarkData } from './book-records';
+import { commitOwnedBookmark, readOwnedBookmark, snapshotBookmarkData } from './book-records';
 import { captureLibraryOperation } from '$lib/manabi/operation-scope';
 import type {
   BooksDbAudioBook,
@@ -441,8 +441,20 @@ export class DatabaseService {
   }
 
   async getBookmark(dataId: number) {
-    const db = await this.db;
-    return db.get('bookmark', dataId);
+    const scope = captureLibraryOperation();
+    try {
+      scope.assertCurrent();
+      const bookmark = await readOwnedBookmark(
+        await this.db,
+        dataId,
+        scope.profileId,
+        scope.assertCurrent
+      );
+      scope.assertCurrent();
+      return bookmark;
+    } finally {
+      scope.stop();
+    }
   }
 
   async putBookmark(bookmarkData: BooksDbBookmarkData) {
