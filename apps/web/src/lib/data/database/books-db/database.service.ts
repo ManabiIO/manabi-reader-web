@@ -392,7 +392,9 @@ export class DatabaseService {
     dataIds: number[],
     _idsToTitles: Map<number, string>,
     cancelSignal: AbortSignal,
-    keepLocalStatistics: boolean
+    keepLocalStatistics: boolean,
+    profileId?: string | null,
+    assertCurrent?: () => void
   ) {
     // Snapshot the selected IDs, not their mutable title/resume metadata.
     const selectedIds = [...new Set(dataIds)];
@@ -409,9 +411,19 @@ export class DatabaseService {
       tasks.push(
         limiter(async () => {
           try {
+            assertCurrent?.();
             throwIfAborted(cancelSignal);
 
-            deleted.push(await this.deleteSingleData(db, id, !keepLocalStatistics));
+            deleted.push(
+              await this.deleteSingleData(
+                db,
+                id,
+                !keepLocalStatistics,
+                profileId,
+                assertCurrent,
+                cancelSignal
+              )
+            );
           } catch (error) {
             errorMessage = handleErrorDuringReplication(
               error,
@@ -506,7 +518,10 @@ export class DatabaseService {
   private async deleteSingleData(
     db: IDBPDatabase<BooksDb>,
     dataId: number,
-    shouldDeleteStatistics: boolean
+    shouldDeleteStatistics: boolean,
+    profileId?: string | null,
+    assertCurrent?: () => void,
+    signal?: AbortSignal
   ) {
     const storeNames: (
       | 'data'
@@ -534,11 +549,23 @@ export class DatabaseService {
 
     const tx = db.transaction(storeNames, 'readwrite');
     let removedLastItem = false;
+    const abort = () => {
+      try {
+        tx.abort();
+      } catch {
+        /* Already settled. */
+      }
+    };
+    signal?.addEventListener('abort', abort, { once: true });
     try {
       await commitTransaction(tx, async () => {
+        assertCurrent?.();
+        throwIfAborted(signal);
         // A batch may span reader writes, renames and other tabs. Decisions must
         // use the current record in the same transaction as its deletion.
         const book = await tx.objectStore('data').get(dataId);
+        if (profileId !== undefined && book?.libraryOwner && book.libraryOwner !== profileId)
+          throw new Error('This book belongs to another account.');
         const bookTitle = book?.title;
         const titleUsedByAnotherBook = bookTitle
           ? (await tx.objectStore('data').index('title').getAllKeys(bookTitle)).some(
@@ -591,6 +618,8 @@ export class DatabaseService {
           await tx.objectStore('subtitle').delete(bookTitle);
           await tx.objectStore('handle').delete(IDBKeyRange.bound([bookTitle], [bookTitle, []]));
         }
+        assertCurrent?.();
+        throwIfAborted(signal);
         await tx.objectStore('readerSearchProjection').delete(dataId);
         await tx.objectStore('data').delete(dataId);
       });
@@ -604,6 +633,8 @@ export class DatabaseService {
           { cause: error }
         );
       throw error;
+    } finally {
+      signal?.removeEventListener('abort', abort);
     }
     if (removedLastItem) this.lastItemChanged$.next();
     this.bookmarksChanged$.next();
