@@ -1,5 +1,8 @@
 <script lang="ts">
   import { foldSearch } from './search-normalization';
+  import { librarySelection } from './selection-action';
+  import BookOrganizationDialog from './book-organization-dialog.svelte';
+  import type { BookPresentation, PresentationChange } from './organization';
   import { onMount, createEventDispatcher, tick, type Snippet } from 'svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
@@ -54,6 +57,8 @@
     organization,
     watchOrganization,
     presentBook,
+    presentBooks,
+    setMembershipMany,
     setMembership,
     setWantToRead,
     createCollection
@@ -91,6 +96,7 @@
     if ((coverWidths[key] ?? 1) !== fraction) coverWidths = { ...coverWidths, [key]: fraction };
   }
   import { creatorLine, sharedCreatorLine } from './book-metadata';
+  import { presentationFromAliases } from './presentation-compatibility';
   import { coverOverride } from './cover-override';
   import { contentBookKey, sourceKey } from './organization';
   import {
@@ -118,6 +124,7 @@
   export let bookCards: BookCardProps[];
   export let currentBookId: number | undefined;
   export let selectedBookIds: ReadonlySet<number> = new Set();
+  export let selectedPreviewKeys: ReadonlySet<string> = new Set();
   export let selectMode = false;
   export let destinationTitle = 'Library';
   export let menu: LibraryMenuModel | undefined = undefined;
@@ -125,7 +132,9 @@
     bookClick: { id: number };
     prepareBook: { prepare: () => Promise<number>; locator?: ReaderLocator };
     selectionManyClick: { ids: number[] };
-    selectionScopeChange: { key: string; ids: number[] };
+    selectionChange: { ids: number[]; previews: string[] };
+    selectionCancel: void;
+    selectionScopeChange: { key: string; ids: number[]; previews: string[] };
     removeBookClick: { id: number };
   }>();
   let catalogs: Catalog[] = [],
@@ -142,7 +151,16 @@
     scanning = false,
     error = '',
     notice = '';
+  let organizationDialog: 'metadata' | 'series' | 'collections' | undefined;
+  let organizationTargets: ShelfBook[] = [];
+  let organizationSnapshot: Record<string, BookPresentation | undefined> = {};
+  let organizationOwner: string | null = null;
+  let organizationEpoch = 0;
+  $: personalSeriesNames = [
+    ...new Set(books.flatMap((book) => (book.series ? [book.series.name] : [])))
+  ].sort();
   let announcedSelectionScope = '';
+  let organizationScope = '';
   let dialogOpen = false,
     dialog: 'details' | 'rename' | 'date' | 'membership' | 'series-name' | 'new-series' = 'rename';
   let targetBook: ShelfBook | undefined,
@@ -254,7 +272,23 @@
       ? wantToRead
       : customCollections.find((c) => c.id === collectionId);
   $: wantToReadCount = books.filter((book) => collectionContains(wantToRead, book)).length;
-  $: selectedBooks = visibleBooks.filter((book) => book.bookId && selectedBookIds.has(book.bookId));
+  $: selectedKeys = new Set([
+    ...selectedPreviewKeys,
+    ...visibleBooks
+      .filter((book) => book.bookId && selectedBookIds.has(book.bookId))
+      .map((book) => book.key)
+  ]);
+  $: selectedBooks = visibleBooks.filter((book) => selectedKeys.has(book.key));
+  function changeSelectedKeys(keys: ReadonlySet<string>) {
+    const selected = visibleBooks.filter((book) => keys.has(book.key));
+    dispatch('selectionChange', {
+      ids: [...new Set(selected.flatMap((book) => (book.bookId ? [book.bookId] : [])))],
+      previews: selected.filter((book) => !book.bookId).map((book) => book.key)
+    });
+  }
+  export function selectAllVisible() {
+    changeSelectedKeys(new Set(visibleBooks.map((book) => book.key)));
+  }
   $: collectionTitle =
     collectionId === 'finished' ? 'Finished' : selectedCollection?.name || 'Books';
   $: trail = seriesTrail(tree, $page.url.searchParams.get('series') || '');
@@ -303,7 +337,8 @@
         normalizedQuery,
         seriesMatchedKeys
       ),
-    sort
+    sort,
+    !!series?.personal
   );
   $: displayed =
     collectionId === 'finished' && !series
@@ -345,11 +380,26 @@
   $: currentLayout =
     collectionId === 'finished' && !series ? finishedLayout : series ? seriesLayout : layout;
   $: selectableBookIds = visibleBooks.flatMap((book) => (book.bookId ? [book.bookId] : []));
-  $: selectionScopeKey = `${collectionId}:${series?.id || ''}:${notFinished ? 'unfinished' : 'all'}:${normalizedQuery}`;
-  $: selectionSignature = `${selectionScopeKey}:${selectableBookIds.join(',')}`;
+  $: selectionScopeKey = `${viewerId ?? 'local'}:${collectionId}:${series?.id || ''}:${notFinished ? 'unfinished' : 'all'}:${normalizedQuery}`;
+  $: selectablePreviewKeys = visibleBooks.filter((book) => !book.bookId).map((book) => book.key);
+  $: selectionSignature = JSON.stringify([
+    selectionScopeKey,
+    selectableBookIds,
+    selectablePreviewKeys
+  ]);
+  $: if (organizationScope !== selectionScopeKey) {
+    organizationScope = selectionScopeKey;
+    organizationEpoch++;
+    organizationDialog = undefined;
+    organizationTargets = [];
+  }
   $: if (selectionSignature !== announcedSelectionScope) {
     announcedSelectionScope = selectionSignature;
-    dispatch('selectionScopeChange', { key: selectionScopeKey, ids: selectableBookIds });
+    dispatch('selectionScopeChange', {
+      key: selectionScopeKey,
+      ids: selectableBookIds,
+      previews: selectablePreviewKeys
+    });
   }
   const groupKey = (source: SourceDescriptor) =>
     source.owner === null ? source.id : sourceKey(source);
@@ -394,11 +444,21 @@
     finishedOrder: collectionId === 'finished' && !series ? finishedOrder : undefined,
     setFinishedOrder,
     createSeries: newSeries,
-    refreshFolders: () => void action(() => load(true)),
+    selectedActions: {
+      busy,
+      savedCount: selectedBooks.filter((book) => book.bookId).length,
+      collections: () => editOrganization('collections', selectedBooks),
+      series: () => editOrganization('series', selectedBooks),
+      blur: blurSelected,
+      unblur: unblurSelected,
+      canBlur: selectedBooks.some((book) => !book.coverBlur),
+      canUnblur: selectedBooks.some((book) => book.coverBlur)
+    },
+    refreshFolders,
     selectedWantToRead: {
       canAdd: selectedBooks.some((book) => !collectionContains(wantToRead, book)),
       canRemove: selectedBooks.some((book) => collectionContains(wantToRead, book)),
-      set: (included: boolean) => saveWantToRead(selectedBooks, included)
+      set: saveSelectedWantToRead
     }
   } satisfies LibraryMenuModel;
 
@@ -642,6 +702,9 @@
         cloudPlanSource = undefined;
         dialogOpen = false;
       }
+      organizationEpoch++;
+      organizationDialog = undefined;
+      organizationTargets = [];
       previewQueue?.stop();
       previewQueue = new PreviewQueue(() => {
         if (alive) previewFailures++;
@@ -654,6 +717,7 @@
     return () => {
       alive = false;
       clearInterval(seriesPoll);
+      organizationEpoch++;
       ++generation;
       controller?.abort();
       previewQueue?.stop();
@@ -695,6 +759,7 @@
     if (book.bookId && /^content:[a-f0-9]{64}$/.test(book.organizationKey)) return book;
     if (!book.source || !book.file) {
       if (/^content:[a-f0-9]{64}$/.test(book.organizationKey)) return book;
+      if (book.bookId) return book; // Legacy imports remain device-local until verified.
       throw new Error('This book has no accessible source.');
     }
     const owner = localProfileUser()?.id ?? null;
@@ -707,6 +772,90 @@
       organizationKey,
       organizationAliases: [...new Set([...book.organizationAliases, organizationKey])]
     };
+  }
+  function editOrganization(mode: 'metadata' | 'series' | 'collections', targets: ShelfBook[]) {
+    if (busy || !targets.length) return;
+    organizationEpoch++;
+    organizationTargets = structuredClone(targets);
+    organizationOwner = localProfileUser()?.id ?? null;
+    organizationSnapshot = structuredClone($organization.books);
+    organizationDialog = mode;
+  }
+  async function stableBatch(targets: ShelfBook[], current: () => boolean) {
+    const stable: ShelfBook[] = [];
+    for (const book of targets) {
+      if (!current()) throw new Error('The library changed. Reopen this action.');
+      stable.push(await stableOrganizationBook(book));
+    }
+    if (!current()) throw new Error('The library changed. Reopen this action.');
+    return stable;
+  }
+  async function organize(work: (targets: ShelfBook[], current: () => boolean) => Promise<void>) {
+    if (busy) throw new Error('Another library change is in progress.');
+    const epoch = organizationEpoch,
+      owner = organizationOwner,
+      targets = structuredClone(organizationTargets);
+    const current = () =>
+      alive && epoch === organizationEpoch && owner === (localProfileUser()?.id ?? null);
+    busy = true;
+    try {
+      const stable = await stableBatch(targets, current);
+      await work(stable, current);
+      if (current()) organizationTargets = stable;
+    } finally {
+      if (alive) busy = false;
+    }
+  }
+  function saveOrganization(change: PresentationChange) {
+    const preserveSeriesIndex = organizationDialog === 'series';
+    return organize((targets, current) => {
+      const expected =
+        organizationDialog === 'metadata'
+          ? Object.fromEntries(
+              targets.map((book) => [
+                book.organizationKey,
+                presentationFromAliases(organizationSnapshot, book.organizationAliases)
+              ])
+            )
+          : undefined;
+      return presentBooks(targets, change, current, expected, preserveSeriesIndex);
+    });
+  }
+  function saveBatchMembership(id: string, included: boolean) {
+    return organize((targets, current) => setMembershipMany(id, targets, included, current));
+  }
+  async function createBatchCollection(name: string) {
+    await organize(async (targets, current) => {
+      await createCollection(
+        name,
+        targets.map((book) => book.organizationKey),
+        current
+      );
+    });
+  }
+  function saveSelectedWantToRead(included: boolean) {
+    saveWantToRead(selectedBooks, included);
+  }
+  function blurSelected() {
+    blurBooks(selectedBooks, true);
+  }
+  function unblurSelected() {
+    blurBooks(selectedBooks, false);
+  }
+  function refreshFolders() {
+    void action(() => load(true));
+  }
+  function blurBooks(targets: ShelfBook[], coverBlur: boolean) {
+    const owner = localProfileUser()?.id ?? null;
+    const snapshot = structuredClone(targets);
+    const epoch = organizationEpoch;
+    const current = () =>
+      alive && epoch === organizationEpoch && owner === (localProfileUser()?.id ?? null);
+    void action(async () => {
+      const stable = await stableBatch(snapshot, current);
+      await presentBooks(stable, { coverBlur }, current);
+      if (current()) notice = coverBlur ? 'Covers blurred.' : 'Original covers revealed.';
+    });
   }
   function openBook(book: ShelfBook, locator?: ReaderLocator) {
     // Relinking refreshes the book list and can remount this workspace. The
@@ -765,7 +914,7 @@
     );
     groupSource =
       (selected[0]?.source ? groupKey(selected[0].source) : undefined) ||
-      (series ? groupKey(series.source) : locals[0]?.id) ||
+      (series?.source ? groupKey(series.source) : locals[0]?.id) ||
       '';
     groupFiles = selected
       .filter((book) => book.source && groupKey(book.source) === groupSource)
@@ -819,7 +968,7 @@
     const local =
       dialog === 'new-series'
         ? locals.find((l) => l.id === groupSource)
-        : locals.find((l) => l.id === targetSeries?.source.id);
+        : locals.find((l) => l.id === targetSeries?.source?.id);
     // Permission UI must begin in the initiating click, not after database/network work.
     const permission =
       (dialog === 'new-series' || dialog === 'series-name') && local
@@ -836,7 +985,7 @@
       else if (dialog === 'series-name' && targetSeries && local) {
         await renameLocalSeries(local, targetSeries.directoryId, name);
         await load(true);
-      } else if (dialog === 'series-name' && targetSeries?.source.owner) {
+      } else if (dialog === 'series-name' && targetSeries?.source?.owner) {
         const source = targetSeries.source;
         if (!cloudCapabilities[sourceKey(source)]?.can_edit)
           throw new Error('Connect this OneDrive library with series editing access first.');
@@ -849,7 +998,7 @@
         cloudPlanSource = source;
         return;
       } else if (dialog === 'new-series' && local) {
-        const parent = series?.source.id === local.id ? series.directoryId : '';
+        const parent = series?.source?.id === local.id ? series.directoryId : '';
         await createLocalSeries(local, parent, name, groupFiles);
         await load(true);
         notice = 'Series created. Reading progress and collections were kept.';
@@ -861,7 +1010,7 @@
           operation: 'create_series',
           root: source.root,
           parent_id:
-            series && sourceKey(series.source) === sourceKey(source)
+            series?.source && sourceKey(series.source) === sourceKey(source)
               ? series.directoryId
               : source.root,
           folder_name: name,
@@ -1019,8 +1168,19 @@
       <Menu.Item onSelect={() => editBook(book, 'rename')}
         ><PencilSimple aria-hidden="true" />Rename…</Menu.Item
       >
+      <Menu.Item onSelect={() => editOrganization('metadata', [book])}
+        ><PencilSimple aria-hidden="true" />Edit Metadata…</Menu.Item
+      >
       <Menu.Item onSelect={() => editBook(book, 'membership')}
         ><Books aria-hidden="true" />Add to Collection…</Menu.Item
+      >
+      <Menu.Item onSelect={() => editOrganization('series', [book])}
+        ><Books aria-hidden="true" />Add to Series…</Menu.Item
+      >
+      <Menu.Item onSelect={() => blurBooks([book], !book.coverBlur)}
+        ><ImageSquare aria-hidden="true" />{book.coverBlur
+          ? 'Unblur Cover'
+          : 'Blur Cover'}</Menu.Item
       >
       <Menu.Item onSelect={() => finish(book)}
         >{#if isFinished(book)}<BookOpen aria-hidden="true" />Mark as Still Reading{:else}<CircleCheck
@@ -1065,7 +1225,10 @@
       ><Menu.Item onSelect={() => navigate(value.id)}
         ><FolderOpen aria-hidden="true" />Open Series</Menu.Item
       >
-      {#if value.source.owner === null || value.source.provider === 'onedrive'}<Menu.Item
+      {#if value.personal}<Menu.Item onSelect={() => editOrganization('series', value.books)}
+          ><PencilSimple aria-hidden="true" />Edit Series…</Menu.Item
+        >
+      {:else if value.source?.owner === null || value.source?.provider === 'onedrive'}<Menu.Item
           onSelect={() => editSeries(value)}
           ><PencilSimple aria-hidden="true" />Rename Series…</Menu.Item
         >
@@ -1124,6 +1287,14 @@
   </aside>
   <section
     bind:this={shelfElement}
+    use:librarySelection={{
+      enabled: selectMode,
+      busy,
+      scope: selectionScopeKey,
+      selected: selectedKeys,
+      change: changeSelectedKeys,
+      cancel: () => dispatch('selectionCancel')
+    }}
     class="library-workspace"
     tabindex="-1"
     aria-label="Library shelves"
@@ -1189,12 +1360,15 @@
             <article class="continue-card" role="listitem">
               <button
                 class="continue-open"
+                data-selection-key={`continue:${book.key}`}
+                data-selection-ids={JSON.stringify([book.key])}
                 onclick={() => openBook(book)}
                 aria-label={`Continue ${book.title}`}
               >
                 <div class="continue-cover">
                   <BookCover
                     imagePath={book.imagePath}
+                    blurred={book.coverBlur}
                     title={book.title}
                     author={creatorLine(book.creators)}
                     identity={book.key}
@@ -1276,12 +1450,17 @@
                 <article class="finished-row" role="listitem">
                   <button
                     class="finished-open"
+                    data-selection-key={book.key}
+                    data-selection-ids={JSON.stringify([book.key])}
+                    class:selected={selectedKeys.has(book.key)}
+                    aria-pressed={selectMode ? selectedKeys.has(book.key) : undefined}
                     onclick={() => openBook(book)}
                     aria-label={`Read ${book.title}`}
                   >
                     <div class="finished-cover">
                       <BookCover
                         imagePath={book.imagePath}
+                        blurred={book.coverBlur}
                         title={book.title}
                         author={creatorLine(book.creators)}
                         identity={book.key}
@@ -1326,32 +1505,24 @@
             class:series-item={node.kind === 'series'}
           >
             {#if node.kind === 'series'}
-              {@const seriesBookIds = node.books.flatMap((book) =>
-                book.bookId ? [book.bookId] : []
-              )}
-              {@const selectedInSeries = seriesBookIds.filter((id) =>
-                selectedBookIds.has(id)
+              {@const seriesBookKeys = node.books.map((book) => book.key)}
+              {@const selectedInSeries = seriesBookKeys.filter((key) =>
+                selectedKeys.has(key)
               ).length}
               <button
                 class="book-open"
+                data-selection-key={node.id}
+                data-selection-ids={JSON.stringify(seriesBookKeys)}
                 class:selected={selectMode && selectedInSeries > 0}
-                disabled={selectMode && seriesBookIds.length === 0}
-                title={selectMode && seriesBookIds.length === 0
-                  ? 'Save books in this series to the browser before selecting them'
-                  : undefined}
                 aria-pressed={selectMode
                   ? selectedInSeries === 0
                     ? false
-                    : selectedInSeries === seriesBookIds.length
+                    : selectedInSeries === seriesBookKeys.length
                       ? true
                       : 'mixed'
                   : undefined}
                 onclick={() =>
-                  selectMode
-                    ? dispatch('selectionManyClick', {
-                        ids: seriesBookIds
-                      })
-                    : navigate(node.id)}
+                  selectMode ? changeSelectedKeys(new Set(seriesBookKeys)) : navigate(node.id)}
                 aria-label={`${selectMode ? 'Select' : 'Open'} series ${node.name}`}
               >
                 <div class="book-thumbnail">
@@ -1367,43 +1538,35 @@
               </button>
               <div class="book-status">
                 <span class="progress-label">{node.books.length} books</span><SourceIcon
-                  provider={node.source.provider}
-                  name={node.source.name}
+                  provider={node.source?.provider}
+                  name={node.source?.name || 'Personal series'}
                 />{#if !selectMode}{@render seriesMenu(node)}{/if}
               </div>
             {:else}
               {@const book = node.book}
               <button
                 class="book-open"
-                class:selected={!!book.bookId && selectedBookIds.has(book.bookId)}
-                aria-pressed={selectMode
-                  ? !!book.bookId && selectedBookIds.has(book.bookId)
-                  : undefined}
+                data-selection-key={node.id}
+                data-selection-ids={JSON.stringify([book.key])}
+                class:selected={selectedKeys.has(book.key)}
+                aria-pressed={selectMode ? selectedKeys.has(book.key) : undefined}
                 aria-label={`${selectMode ? 'Select' : 'Read'} ${book.title}`}
                 aria-describedby={isFinished(book) && book.bookId
                   ? `finished-description-${book.bookId}`
                   : undefined}
-                disabled={selectMode && !book.bookId}
-                title={selectMode && !book.bookId
-                  ? 'Save this book to the browser before selecting it'
-                  : undefined}
                 onclick={() =>
-                  selectMode && book.bookId
-                    ? dispatch('bookClick', { id: book.bookId })
-                    : !selectMode
-                      ? openBook(book)
-                      : undefined}
+                  selectMode ? changeSelectedKeys(new Set([book.key])) : openBook(book)}
               >
                 <div class="book-thumbnail">
                   <BookCover
                     imagePath={book.imagePath}
+                    blurred={book.coverBlur}
                     title={book.title}
                     author={creatorLine(book.creators)}
                     identity={book.key}
                     direction={book.direction}
                     onWidth={(fraction) => rememberCoverWidth(book.key, fraction)}
-                  />{#if book.bookId && selectedBookIds.has(book.bookId)}<span
-                      class="selection-label">Selected</span
+                  />{#if selectedKeys.has(book.key)}<span class="selection-label">Selected</span
                     >{/if}
                 </div>
                 <div class="book-copy">
@@ -1508,6 +1671,23 @@
     navigate(undefined, id, false);
   }}
 />
+{#if organizationDialog}
+  {#key organizationEpoch}
+    <BookOrganizationDialog
+      mode={organizationDialog}
+      targets={organizationTargets}
+      collections={[wantToRead, ...customCollections]}
+      seriesNames={personalSeriesNames}
+      save={saveOrganization}
+      membership={saveBatchMembership}
+      create={createBatchCollection}
+      close={() => {
+        organizationDialog = undefined;
+        organizationEpoch++;
+      }}
+    />
+  {/key}
+{/if}
 <Dialog.Root bind:open={dialogOpen}>
   <Dialog.Content
     class={`max-h-[85dvh] overflow-y-auto [&_[data-slot=dialog-close]]:top-3 [&_[data-slot=dialog-close]]:right-3 [&_[data-slot=dialog-close]]:size-11 [&_[data-slot=dialog-footer]_button]:min-h-11 ${dialog === 'new-series' ? 'sm:max-w-xl' : ''}`}
@@ -1779,7 +1959,7 @@
             {groupFiles.length} selected · Select at least two books from the same source.
           </p>
         {/if}
-        {#if dialog === 'series-name' && targetSeries?.source.owner && !cloudCapabilities[sourceKey(targetSeries.source)]?.can_edit}
+        {#if dialog === 'series-name' && targetSeries?.source?.owner && !cloudCapabilities[sourceKey(targetSeries.source)]?.can_edit}
           <p class="text-sm text-muted-foreground">
             This OneDrive library needs write access to change its series marker.
           </p>
@@ -1788,7 +1968,7 @@
               variant="outline"
               type="button"
               onclick={() => {
-                void requestSeriesWriteAccess(targetSeries!.source.id).catch(
+                void requestSeriesWriteAccess(targetSeries!.source!.id).catch(
                   (e) =>
                     (error = e instanceof Error ? e.message : 'Could not request OneDrive access.')
                 );
@@ -1812,6 +1992,25 @@
 </Dialog.Root>
 
 <style>
+  :global(.library-selection-marquee) {
+    position: fixed;
+    z-index: 40;
+    pointer-events: none;
+    border: 1px solid var(--ring);
+    background: color-mix(in srgb, var(--ring) 15%, transparent);
+    border-radius: 4px;
+  }
+  :global(.is-drag-selecting),
+  :global(.is-drag-selecting *) {
+    user-select: none;
+  }
+  :global(.drag-selected),
+  .finished-open.selected {
+    outline: 3px solid var(--ring);
+    outline-offset: 3px;
+    border-radius: 8px;
+  }
+
   .library-frame {
     min-width: 0;
   }

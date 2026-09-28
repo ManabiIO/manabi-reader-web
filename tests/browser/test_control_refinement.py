@@ -1,4 +1,5 @@
 """Extends every modal regression with control, worker and busy-state coverage."""
+from reader_controls import reveal_reader_controls
 import test_modal_controls as modal_controls
 from playwright.sync_api import expect
 import unittest
@@ -153,9 +154,7 @@ class ControlRefinementBrowser(modal_controls.ModalControlsBrowser):
     def test_notes_actions_have_distinct_shapes_and_remain_reachable_in_landscape(self):
         self.open_reader()
         self.page.set_viewport_size({'width': 568, 'height': 320})
-        controls = self.page.get_by_role('button', name='Show reading controls', exact=True)
-        if controls.is_visible():
-            controls.click()
+        reveal_reader_controls(self.page)
         self.page.get_by_role('button', name='Bookmarks and Notes', exact=True).click()
         panel = self.page.get_by_role('dialog').last
         add = panel.get_by_role('button', name='Add Bookmark', exact=True)

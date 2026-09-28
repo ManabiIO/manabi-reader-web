@@ -23,6 +23,7 @@ import { resolveEpubLinkTarget } from '../functions/file-loaders/epub/epub-link-
 import { getParagraphNodes } from '../components/book-reader/get-paragraph-nodes';
 import { getCharacterCount } from '../functions/get-character-count';
 import { extractCreators } from '../library/book-metadata';
+import { extractBookMetadata } from '../library/book-presentation';
 import { epubDirection } from '../functions/file-loaders/epub/epub-direction';
 import type { EpubContent } from '../functions/file-loaders/epub/types';
 import type { LoadData } from '../functions/file-loaders/types';
@@ -295,6 +296,24 @@ export async function importEpubPublication(
     imported = {
       title: (text(metadata.title) || file.name).slice(0, 4096),
       creators,
+      metadata: {
+        ...extractBookMetadata({
+          'dc:language': metadata.language,
+          'dc:publisher': values(metadata.publisher).map((entry) =>
+            text(
+              entry && typeof entry === 'object' ? (entry as Record<string, unknown>).name : entry
+            )
+          ),
+          'dc:date': metadata.published,
+          'dc:description': metadata.description,
+          'dc:subject': values(metadata.subject).map((entry) =>
+            text(
+              entry && typeof entry === 'object' ? (entry as Record<string, unknown>).name : entry
+            )
+          )
+        }),
+        creators
+      },
       language,
       sourceFormat: 'epub',
       hasThumb: true,

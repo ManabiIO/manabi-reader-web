@@ -11,6 +11,7 @@ import {
   type EpubPublicationData
 } from '$lib/foliate-epub/publication-data';
 import type { PublicationManifest } from '$lib/reader-location';
+import { validBookMetadata, type BookMetadata } from '$lib/library/book-presentation';
 import type { Section } from '$lib/data/database/books-db/versions/v4/books-db-v4';
 import { LimitedArchive, type ArchiveOptions } from './limited-archive';
 import { validDirectionEvidence, type DirectionEvidence } from '$lib/library/direction';
@@ -24,6 +25,7 @@ export interface RestoredContent {
   htmlBackup?: string;
   language?: string;
   creators?: BookCreator[];
+  metadata?: BookMetadata;
   pageDirection?: DirectionEvidence;
   contentHash?: string;
   sourceFormat?: 'epub' | 'htmlz' | 'txt';
@@ -151,6 +153,7 @@ function readMetadata(value: unknown): Omit<RestoredContent, 'blobs' | 'coverIma
     sections,
     ...(value.htmlBackup === undefined ? {} : { htmlBackup: value.htmlBackup as string }),
     ...(value.language === undefined ? {} : { language: value.language as string }),
+    ...(validBookMetadata(value.metadata) ? { metadata: value.metadata } : {}),
     ...(validCreators(value.creators) ? { creators: value.creators as BookCreator[] } : {}),
     ...(value.pageDirection === undefined
       ? {}

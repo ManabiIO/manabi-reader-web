@@ -330,3 +330,132 @@ test('migration receipt fields are captured before database suspension', async (
   });
   assert.equal(h.records.has('receipt-replaced'), false);
 });
+
+const stableBookKey = 'content:' + 'a'.repeat(64);
+const bookTarget = () => ({
+  organizationKey: stableBookKey,
+  organizationAliases: ['book:7', stableBookKey]
+});
+
+test('a batch presentation edit retains the visible browser-alias metadata', async () => {
+  const previous = {
+    title: 'Keep my title',
+    direction: 'rtl',
+    metadata: { publisher: '出版社' },
+    series: { name: 'Volumes', index: 2.5 },
+    modifiedAt: 1
+  };
+  const h = harness({ initial: { ...empty(), books: { 'book:7': previous } } });
+  const result = h.api.presentBooks([bookTarget()], { coverBlur: true });
+  h.releaseRead();
+  await drain();
+  h.commit();
+  await result;
+  const saved = h.records.get(key).books[stableBookKey];
+  assert.equal(saved.title, previous.title);
+  assert.equal(saved.direction, 'rtl');
+  assert.deepEqual(saved.metadata, previous.metadata);
+  assert.deepEqual(saved.series, previous.series);
+  assert.equal(saved.coverBlur, true);
+  assert.deepEqual(h.records.get(key).books['book:7'], previous, 'retained evidence is not erased');
+});
+
+test('an editor cannot bypass a newer alias edit when the content key is first verified', async () => {
+  const previous = { title: 'Old title', modifiedAt: 1 };
+  const newer = { title: 'New title', modifiedAt: 2 };
+  const initial = { ...empty(), books: { 'book:7': newer } };
+  const h = harness({ initial });
+  const result = h.api.presentBooks([bookTarget()], { metadata: { creators: [] } }, () => true, {
+    [stableBookKey]: previous
+  });
+  const rejected = assert.rejects(result, /edited elsewhere/);
+  h.releaseRead();
+  await rejected;
+  assert.equal(h.writes.length, 0);
+  assert.equal(h.aborted(), 1);
+  assert.deepEqual(h.records.get(key), initial);
+});
+
+test('batch targets, aliases and nested metadata are captured before storage suspension', async () => {
+  const h = harness({
+    initial: { ...empty(), books: { 'book:7': { title: 'Keep', modifiedAt: 1 } } }
+  });
+  const targets = [bookTarget()];
+  const patch = { metadata: { subjects: ['Original'] } };
+  const result = h.api.presentBooks(targets, patch);
+  targets[0].organizationKey = 'book:99';
+  targets[0].organizationAliases.length = 0;
+  patch.metadata.subjects[0] = 'Mutated';
+  h.releaseRead();
+  await drain();
+  h.commit();
+  await result;
+  assert.equal(h.records.get(key).books[stableBookKey].title, 'Keep');
+  assert.deepEqual(h.records.get(key).books[stableBookKey].metadata.subjects, ['Original']);
+  assert.equal(h.records.get(key).books['book:99'], undefined);
+});
+
+test('one stale selected book rolls back the entire presentation batch', async () => {
+  const initial = { ...empty(), books: { 'book:7': { title: 'Latest', modifiedAt: 2 } } };
+  const h = harness({ initial });
+  const result = h.api.presentBooks(
+    [{ organizationKey: 'book:1', organizationAliases: ['book:1'] }, bookTarget()],
+    { coverBlur: true },
+    () => true,
+    { 'book:1': undefined, [stableBookKey]: { title: 'Old', modifiedAt: 1 } }
+  );
+  const rejected = assert.rejects(result, /edited elsewhere/);
+  h.releaseRead();
+  await rejected;
+  assert.equal(h.writes.length, 0);
+  assert.equal(h.aborted(), 1);
+  assert.deepEqual(h.records.get(key), initial);
+});
+
+test('re-adding a personal series retains a fractional volume stored under an alias', async () => {
+  const h = harness({
+    initial: {
+      ...empty(),
+      books: { 'book:7': { series: { name: 'Volumes', index: 2.5 }, modifiedAt: 1 } }
+    }
+  });
+  const result = h.api.presentBooks(
+    [bookTarget()],
+    { series: { name: 'Volumes' } },
+    () => true,
+    undefined,
+    true
+  );
+  h.releaseRead();
+  await drain();
+  h.commit();
+  await result;
+  assert.deepEqual(h.records.get(key).books[stableBookKey].series, { name: 'Volumes', index: 2.5 });
+});
+
+test('book titles use the 1000-character title limit rather than the collection-name limit', async () => {
+  const h = harness();
+  const title = '本'.repeat(500);
+  const result = h.api.presentBook('book:7', { title });
+  h.releaseRead();
+  await drain();
+  h.commit();
+  await result;
+  assert.equal(h.records.get(key).books['book:7'].title, title);
+});
+
+test('organization schema rejection aborts without writing either data or a receipt', async () => {
+  const h = harness();
+  const result = h.api.updateOrganization(
+    (value) => {
+      value.books['book:7'] = { modifiedAt: 1, coverBlur: 'false' };
+    },
+    { key: 'receipt', value: 'input', modified: 1 }
+  );
+  const rejected = assert.rejects(result, /organization is invalid/);
+  h.releaseRead();
+  await rejected;
+  assert.equal(h.aborted(), 1);
+  assert.equal(h.writes.length, 0);
+  assert.deepEqual(h.records.get(key), empty());
+});

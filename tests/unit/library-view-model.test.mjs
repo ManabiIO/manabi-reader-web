@@ -118,6 +118,24 @@ test('identical destinations share one reading identity while remaining separate
   }
 });
 
+test('personal series deduplicate multiple physical copies of one logical book', () => {
+  const storage = source();
+  const scans = [catalog(storage, ['a.epub', 'b.epub'])];
+  const organization = emptyOrganization();
+  organization.books[contentBookKey(hash)] = {
+    modifiedAt: 40,
+    series: { name: 'Series', index: 2 }
+  };
+  const nodes = shelf([card(1)], [link(1, storage, 'old.epub')], scans, undefined, organization);
+  assert.equal(nodes.length, 1);
+  assert.equal(nodes[0].kind, 'series');
+  assert.equal(nodes[0].personal, true);
+  assert.equal(nodes[0].books.length, 1);
+  assert.equal(nodes[0].children.length, 1);
+  assert.equal(nodes[0].books[0].key, bookKey(1));
+  assert.equal(physicalBooks(nodes).length, 1, 'presentation must expose one logical row');
+});
+
 test('two missing saved copies cannot arbitrarily donate one identity to a destination', () => {
   const storage = source();
   const first = link(1, storage, 'old-a.epub');

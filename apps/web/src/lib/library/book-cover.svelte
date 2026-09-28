@@ -4,6 +4,7 @@
   import type { PageDirection } from './direction';
   export let imagePath: string | Blob = '';
   export let title = '';
+  export let blurred = false;
   export let author = '';
   export let identity = '';
   export let direction: PageDirection = 'unknown';
@@ -31,12 +32,15 @@
 <div class="cover-stage" data-direction={direction} aria-hidden="true">
   <div
     class="cover-surface"
+    class:blurred
+    data-cover-blurred={blurred}
     class:right-bound={direction === 'rtl'}
     style:aspect-ratio={ratio}
     style:width={`${Math.min(1, ratio / (2 / 3)) * 100}%`}
   >
     {#if url}
       <img
+        draggable="false"
         src={url}
         alt=""
         loading="lazy"
@@ -91,6 +95,14 @@
     height: 100%;
     object-fit: contain;
     border-radius: 2px;
+  }
+  .blurred {
+    overflow: hidden;
+  }
+  .blurred img,
+  .blurred .placeholder-cover {
+    filter: blur(20px);
+    transform: scale(1.18);
   }
   .placeholder-cover {
     position: absolute;

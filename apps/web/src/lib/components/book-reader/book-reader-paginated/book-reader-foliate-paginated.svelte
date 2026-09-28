@@ -38,6 +38,10 @@
     type ReaderNavigationOwner
   } from '$lib/foliate-epub/reader-navigation-owner';
   import type { Paginator } from '$lib/foliate-epub/paginator.js';
+  import {
+    bindReaderChromeInteractions,
+    type ReaderChromeActivity
+  } from '$lib/reader-chrome-events';
 
   export let htmlContent: string;
   export let styleSheet = '';
@@ -90,6 +94,7 @@
     userNavigation: void;
     pageTurnStart: void;
     toggleControls: void;
+    chromeActivity: ReaderChromeActivity;
   }>();
 
   let host: HTMLDivElement;
@@ -100,6 +105,8 @@
   let sourceSections: Element[] = [];
   let contentEl: HTMLElement | undefined;
   let destroyed = false;
+  let stopChromeInteractions: (() => void) | undefined;
+  let chromeNavigationRevision = 0;
   const navigation = new ReaderNavigationCoordinator();
   const visibleLocation = new VisibleReaderLocation();
   let bookmarkTimer: ReturnType<typeof setTimeout> | undefined;
@@ -346,12 +353,22 @@
     const detail = (event as CustomEvent<{ doc: Document; index: number }>).detail;
     const current = detail.doc.querySelector<HTMLElement>('.book-content');
     if (!current || destroyed) return;
+    stopChromeInteractions?.();
+    stopChromeInteractions = bindReaderChromeInteractions(detail.doc, {
+      activity: (kind) => {
+        if (!destroyed) dispatch('chromeActivity', kind);
+      },
+      navigationRevision: () => chromeNavigationRevision,
+      selection: () => detail.doc.getSelection()?.toString() ?? '',
+      keys: false
+    });
     visibleLocation.clear();
     contentEl = current;
     dispatch('contentChange', current);
   }
 
   function handlePageTurnStart() {
+    chromeNavigationRevision++;
     // Gestures are newer user intent, including while initial bookmark I/O waits.
     navigation.cancel();
     clearTimeout(bookmarkTimer);
@@ -520,6 +537,7 @@
 
   onDestroy(() => {
     destroyed = true;
+    stopChromeInteractions?.();
     visibleLocation.clear();
     navigation.destroy();
     clearTimeout(bookmarkTimer);
