@@ -77,8 +77,9 @@
   let activeDate = todayKey;
   let popupGeneration = 0;
   let alive = true;
-  $: activeDay = currentHeatmapDays.find((day) => day.isCurrentYear && day.dateString === activeDate)
-    ?? currentHeatmapDays.find((day) => day.isCurrentYear);
+  $: activeDay =
+    currentHeatmapDays.find((day) => day.isCurrentYear && day.dateString === activeDate) ??
+    currentHeatmapDays.find((day) => day.isCurrentYear);
   let selectedStreak = HeatmapStreakType.NONE;
   let selectedStreakDates = new Set<string>();
 
@@ -267,7 +268,8 @@
     if (dayElement) {
       const day = dayElement.getBoundingClientRect();
       const grid = heatmapElement.getBoundingClientRect();
-      const middle = heatmapElement.scrollLeft + day.left - grid.left + day.width / 2 - grid.width / 2;
+      const middle =
+        heatmapElement.scrollLeft + day.left - grid.left + day.width / 2 - grid.width / 2;
       heatmapElement.scrollTo(middle, 0);
     }
   }
@@ -276,7 +278,12 @@
     if (!heatmapElement?.isConnected) return;
     // The flex grid's width already excludes both real navigation targets.
     // Recalculate from the minimum, not the previous (possibly desktop) size.
-    dayElementSize = heatmapCellSize(heatmapElement.clientWidth, heatmapDayElementSize, heatmapGridGapValue, 57);
+    dayElementSize = heatmapCellSize(
+      heatmapElement.clientWidth,
+      heatmapDayElementSize,
+      heatmapGridGapValue,
+      57
+    );
   }
 
   function updateHeatmapDataAfterFilterChange() {
@@ -764,7 +771,7 @@
     let daysReadLabel = '';
 
     if (allDaysReadCount) {
-      daysReadLabel = `${daysRead.size} / ${pluralize(allDaysReadCount, 'day')} (${ 
+      daysReadLabel = `${daysRead.size} / ${pluralize(allDaysReadCount, 'day')} (${
         allDaysReadCount ? caluclatePercentage(daysRead.size, allDaysReadCount) : 0
       }%)`;
     } else {
@@ -1194,7 +1201,9 @@
           heatmapDay.dateString === $lastStatisticsEndDate$)}
       <button
         type="button"
-        tabindex={heatmapDay.isCurrentYear && heatmapDay.dateString === activeDay?.dateString ? 0 : -1}
+        tabindex={heatmapDay.isCurrentYear && heatmapDay.dateString === activeDay?.dateString
+          ? 0
+          : -1}
         role="button"
         disabled={!heatmapDay.isCurrentYear}
         aria-hidden={!heatmapDay.isCurrentYear ? true : undefined}
@@ -1226,7 +1235,6 @@
         on:keyup={(event) => event.stopPropagation()}
       ></button>
     {/each}
-
   </div>
   <Button
     variant="ghost"
@@ -1251,7 +1259,12 @@
     <AppIcon icon={faChevronRight} />
   </Button>
 </div>
-<Popover yOffset={5} label="Reading day details" restoreAnchorFocus bind:this={heatmapDetailDataPopover}>
+<Popover
+  yOffset={5}
+  label="Reading day details"
+  restoreAnchorFocus
+  bind:this={heatmapDetailDataPopover}
+>
   <div slot="content" class="heatmap-details">
     <div class="heatmap-details-header">
       <h2>{popoverDetails[0] ?? 'Reading day'}</h2>
