@@ -7,7 +7,6 @@
 import type { IDBPDatabase } from 'idb';
 import type BooksDb from './versions/books-db';
 import { commitTransaction } from './commit-transaction.mjs';
-import { StorageDataType } from '$lib/data/storage/storage-types';
 import type {
   BooksDbBookData,
   BooksDbContentStatistic,
@@ -432,7 +431,7 @@ export async function deleteStatisticsForIdentityPlan(
         await content.delete(range);
         await lastModified.put({
           title: key,
-          dataType: StorageDataType.STATISTICS,
+          dataType: 'statistic',
           lastModifiedValue: modifiedAt
         });
       }
@@ -444,7 +443,7 @@ export async function deleteStatisticsForIdentityPlan(
           await legacyStore.delete(range);
           await lastModified.put({
             title,
-            dataType: StorageDataType.STATISTICS,
+            dataType: 'statistic',
             lastModifiedValue: modifiedAt
           });
         }
