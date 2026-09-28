@@ -364,7 +364,7 @@ try {
   const sourceSelect = picker.getByLabel('Storage source');
   await expect(sourceSelect).toBeVisible();
   assert((await sourceSelect.boundingBox()).height >= 43.99);
-  await sourceSelect.selectOption({ label: 'dropbox · Dropbox snippets' });
+  await sourceSelect.selectOption({ label: 'Dropbox · Dropbox snippets' });
   const rootCrumb = picker.getByRole('button', { name: 'Dropbox snippets', exact: true });
   await expect(rootCrumb).toHaveAttribute('data-slot', 'button');
   await expect(rootCrumb).toHaveAttribute('aria-current', 'page');
@@ -440,7 +440,7 @@ try {
   await page
     .getByRole('dialog')
     .getByLabel('Storage source')
-    .selectOption({ label: 'google · Drive snippets' });
+    .selectOption({ label: 'Google Drive · Drive snippets' });
   await page
     .getByRole('dialog')
     .getByRole('button', { name: 'Use this folder', exact: true })

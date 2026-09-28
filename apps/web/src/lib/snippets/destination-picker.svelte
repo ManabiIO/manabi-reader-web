@@ -5,7 +5,7 @@
   import { Input } from '$lib/components/ui/input';
   import { FolderOpenIcon as FolderOpen } from 'phosphor-svelte';
   import { sourceDescriptors, type SourceDescriptor } from '../library/catalog';
-  import { requestDocumentWriteAccess } from '../manabi/client';
+  import { providerLabels, requestDocumentWriteAccess } from '../manabi/client';
   import { integrationDB } from '../manabi/persistence';
   import { reconnectLocalLibrary } from '../manabi/sources';
   import type { Destination, Guard } from './database';
@@ -28,6 +28,9 @@
     generation = 0;
   const identity = (source: SourceDescriptor) =>
     JSON.stringify([source.owner, source.id, source.root]);
+  const providerName = (provider: string) =>
+    providerLabels[provider] ??
+    (provider === 'local' ? 'Local folder' : provider === 'webdav' ? 'WebDAV' : provider);
   $: parent = trail.at(-1)?.id ?? selected?.root ?? '';
   async function browse(
     source: SourceDescriptor,
@@ -149,7 +152,7 @@
     >
       <option value="" disabled>Choose a source</option>
       {#each sources as source (identity(source))}<option value={identity(source)}
-          >{source.provider} · {source.name}</option
+          >{providerName(source.provider)} · {source.name}</option
         >{/each}
     </select>
   </label>

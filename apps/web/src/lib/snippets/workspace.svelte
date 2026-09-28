@@ -8,7 +8,7 @@
   import { Button } from '$lib/components/ui/button';
   import { Input } from '$lib/components/ui/input';
   import * as Dialog from '$lib/components/ui/dialog';
-  import { account, localUser } from '../manabi/client';
+  import { account, localUser, providerLabels } from '../manabi/client';
   import {
     organization,
     watchOrganization,
@@ -151,7 +151,10 @@
         .filter((item) => item.destination)
         .map((item) => {
           const s = item.destination!.source;
-          return [JSON.stringify([s.owner, s.id, s.root]), `${s.provider} · ${s.name}`];
+          const provider =
+            providerLabels[s.provider] ??
+            (s.provider === 'local' ? 'Local folder' : s.provider === 'webdav' ? 'WebDAV' : s.provider);
+          return [JSON.stringify([s.owner, s.id, s.root]), `${provider} · ${s.name}`];
         })
     ).entries()
   ];
