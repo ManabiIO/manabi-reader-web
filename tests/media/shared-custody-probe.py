@@ -282,7 +282,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.wfile.write(chunk)
 
     def do_GET(self):
-        if self.path == '/':
+        path = self.path.split('?', 1)[0]
+        if path == '/':
             body = PAGE.encode()
             self.send_response(200)
             self.send_header('Content-Type', 'text/html')
@@ -291,7 +292,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-        if self.path == '/dedicated.js':
+        if path == '/dedicated.js':
             body = DEDICATED.encode()
             self.send_response(200)
             self.send_header('Content-Type', 'text/javascript')
@@ -300,7 +301,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-        if self.path == '/dedicated-child.js':
+        if path == '/dedicated-child.js':
             body = DEDICATED_CHILD.encode()
             self.send_response(200)
             self.send_header('Content-Type', 'text/javascript')
@@ -309,7 +310,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-        if self.path == '/broker.js':
+        if path == '/broker.js':
             body = BROKER.replace('__FULL_MODEL__', 'true' if self.model_path else 'false').encode()
             self.send_response(200)
             self.send_header('Content-Type', 'text/javascript')
@@ -318,17 +319,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-        if self.path in {'/moss.mjs', '/moss.wasm'}:
-            item = MOSS / self.path[1:]
+        if path in {'/moss.mjs', '/moss.wasm'}:
+            item = MOSS / path[1:]
             if not item.is_file():
                 self.send_error(404)
                 return
             self.send_path(item, 'text/javascript' if item.suffix == '.mjs' else 'application/wasm')
             return
-        if self.path == '/model.gguf' and self.model_path:
+        if path == '/model.gguf' and self.model_path:
             self.send_path(self.model_path, 'application/octet-stream')
             return
-        if self.path == '/speech.f32' and self.pcm_path:
+        if path == '/speech.f32' and self.pcm_path:
             self.send_path(self.pcm_path, 'application/octet-stream')
             return
         self.send_error(404)
