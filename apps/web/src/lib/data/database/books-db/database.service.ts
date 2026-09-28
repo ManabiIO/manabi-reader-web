@@ -15,6 +15,7 @@ import {
 } from './reader-statistics';
 import { commitTransaction, explainBookStorageError } from './commit-transaction.mjs';
 import { matchesDirectImportIdentity, normalizedDirectImportHash } from './direct-import-identity';
+import { snapshotBookmarkData } from './book-records';
 import type {
   BooksDbAudioBook,
   BooksDbBookData,
@@ -393,7 +394,7 @@ export class DatabaseService {
     // The Reader owns and may reuse its bookmark object after calling us.
     // Snapshot before awaiting the database so later mutation cannot redirect
     // this write to another book or alter the committed position.
-    const snapshot = structuredClone(bookmarkData);
+    const snapshot = snapshotBookmarkData(bookmarkData);
     const db = await this.db;
 
     const tx = db.transaction('bookmark', 'readwrite');
