@@ -197,7 +197,7 @@
           >Unlock or edit {item.name}</Button
         >
         <Button
-          variant="ghost"
+          variant="destructive"
           disabled={busy}
           onclick={() =>
             run(async () => {
@@ -247,6 +247,10 @@
     gap: 0.5rem;
   }
   .choice input {
-    margin-top: 0.3rem;
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    margin-top: 0.15rem;
+    accent-color: var(--primary);
   }
 </style>
