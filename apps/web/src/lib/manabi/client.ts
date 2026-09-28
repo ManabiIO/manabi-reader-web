@@ -255,6 +255,7 @@ export async function request<T>(
     throw new IntegrationError('account_changed', 409);
   const session = get(account).session!;
   const headers = new Headers({ 'X-Manabi-User': scope.userId });
+  if (path === 'preferences/') headers.set('X-Manabi-Library-Items', 'snippets-v1');
   const method = options.method ?? 'GET';
   if (method !== 'GET') headers.set('X-CSRFToken', session.csrf_token);
   if (options.value !== undefined) headers.set('Content-Type', 'application/json');
@@ -366,4 +367,20 @@ if (typeof window !== 'undefined') {
     invalidateAccount(false);
     void refreshAccount(true);
   });
+}
+
+/** Incremental document-write grant; existing connection and selected roots are retained. */
+export async function requestDocumentWriteAccess(provider: string, connectionId: string) {
+  if (
+    !['google', 'dropbox', 'onedrive'].includes(provider) ||
+    !/^[0-9a-f-]{36}$/i.test(connectionId)
+  )
+    throw new Error('Invalid cloud connection.');
+  const result = await request<{ authorize_url: string }>(`oauth/${provider}/connect/`, {
+    method: 'POST',
+    value: { purpose: 'document_edit', connection_id: connectionId }
+  });
+  const url = providerAuthorization(result.authorize_url, provider, location.hostname);
+  if (!url) throw new IntegrationError('invalid_response');
+  location.assign(url.href);
 }

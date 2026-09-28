@@ -237,6 +237,9 @@
   let annotationImportConflicts: AnnotationImportConflict[] = [];
   let annotationSelection: ReaderLocator[] = [];
   let annotationPoint: ReaderLocator | undefined;
+  let snippetCapture:
+    | { html: string; title: string; item: string; owner: string | null }
+    | undefined;
   let annotationError = '';
   let annotationStatus = '';
   let annotationBusy = false;
@@ -1528,6 +1531,12 @@
     const manifest = $rawBookData$?.publicationManifest;
     try {
       // Capture before focus moves into the sheet; the DOM selection is ephemeral.
+      snippetCapture = {
+        html: bookReaderComponent.captureSnippetHTML(lastSelectedRange),
+        title: $rawBookData$?.title ?? '',
+        item: readerBookKey,
+        owner: localProfileUser()?.id ?? null
+      };
       annotationSelection = await bookReaderComponent.captureReaderSelection(
         readerBookKey,
         manifest,
@@ -2411,6 +2420,19 @@
   savedVersion={annotationSavedVersion}
   on:bookmark={() => addAnnotation('bookmark')}
   on:highlight={() => addAnnotation('highlight')}
+  on:snippet={() => {
+    if (
+      !snippetCapture?.html ||
+      snippetCapture.item !== readerBookKey ||
+      snippetCapture.owner !== (localProfileUser()?.id ?? null)
+    ) {
+      annotationError = 'Select the passage again before capturing it.';
+      return;
+    }
+    const captured = snippetCapture;
+    showAnnotations = false;
+    window.dispatchEvent(new CustomEvent('manabi-capture-snippet', { detail: captured }));
+  }}
   on:note={(event) => addAnnotation('note', event.detail)}
   on:openAnnotation={(event) => {
     showAnnotations = false;
