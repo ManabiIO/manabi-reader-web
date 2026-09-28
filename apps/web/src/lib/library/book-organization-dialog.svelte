@@ -69,12 +69,21 @@
         return;
       }
       const sorts = authorSort.split(/\r?\n/);
-      const names = authors.trim() ? authors.split(/\r?\n/) : [];
       const metadata = {
-        creators: names.map((name, index) => ({
-          name: name.replace(/\s+/gu, ' ').trim(),
-          ...(sorts[index]?.trim() ? { sortAs: sorts[index].replace(/\s+/gu, ' ').trim() } : {})
-        })),
+        creators: authors
+          .split(/\r?\n/)
+          .flatMap((rawName, index) => {
+            const name = rawName.replace(/\s+/gu, ' ').trim();
+            if (!name) return [];
+            return [
+              {
+                name,
+                ...(sorts[index]?.trim()
+                  ? { sortAs: sorts[index].replace(/\s+/gu, ' ').trim() }
+                  : {})
+              }
+            ];
+          }),
         language: language.trim(),
         publisher: publisher.trim(),
         published: published.trim(),
@@ -86,9 +95,14 @@
       };
       if (!validBookMetadata(metadata))
         throw new Error(
-          'Check the metadata: up to 32 authors and 64 tags, with no empty author lines.'
+          'Check the metadata: use at most 32 authors and 64 tags within the field limits.'
         );
-      await save({ title, metadata, series, coverBlur });
+      await save({
+        ...(title === book.title ? {} : { title }),
+        metadata,
+        series,
+        coverBlur
+      });
     }, true);
   }
   function members(collection: Collection) {
