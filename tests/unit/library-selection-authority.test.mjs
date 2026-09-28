@@ -94,7 +94,7 @@ function store(value) {
     }
   };
 }
-function sources(owner, request, db = {}) {
+function sources(owner, request, db = {}, exclusive = (_, work) => work()) {
   return load('manabi/sources.ts', {
     '$lib/library/series-metadata': {},
     './client': { ...owner.client, request },
@@ -102,7 +102,7 @@ function sources(owner, request, db = {}) {
     '../data/database/books-db/commit-transaction.mjs': { commitTransaction },
     './operation-scope': owner.scope,
     './auth-contract': { maxManagedStateBytes: 4 * 1024 * 1024 },
-    './persistence': { integrationDB: async () => db, exclusive: (_, work) => work() }
+    './persistence': { integrationDB: async () => db, exclusive }
   });
 }
 function cloud(owner, read) {
@@ -110,12 +110,16 @@ function cloud(owner, read) {
   return new CloudLibrary('00000000-0000-0000-0000-000000000001', 'alice', 'root');
 }
 function local(owner, read, permission = async () => 'granted') {
-  const { LocalLibrarySource } = sources(owner);
-  return new LocalLibrarySource({
+  const library = {
     id: 'local-fixture',
     writable: false,
     handle: { queryPermission: permission, getFileHandle: async () => ({ getFile: read }) }
-  });
+  };
+  const db = {
+    get: async (name, id) => (name === 'localLibraries' && id === library.id ? library : undefined)
+  };
+  const { LocalLibrarySource } = sources(owner, undefined, db);
+  return new LocalLibrarySource(library);
 }
 function dav(owner, read) {
   const configuration = { id: 'webdav-fixture', url: 'https://example.test/', username: '' };
@@ -256,6 +260,9 @@ function memoryDB(initial, options = {}) {
     return name === 'localLibraries' ? { ...row } : globalThis.structuredClone(row);
   };
   const db = {
+    async get(name, key) {
+      return copy(name, tables.get(name)?.get(key));
+    },
     transaction(names) {
       transactions++;
       const selected = typeof names === 'string' ? [names] : names;
@@ -485,6 +492,74 @@ test('permission denial leaves the source and caller unchanged without starting 
   await rejected;
   assert.equal(fixture.db.transactions, 0);
   assert.equal(fixture.library.writable, false);
+});
+
+function serializedExclusive() {
+  const tails = new Map();
+  return async (name, work) => {
+    const previous = tails.get(name) ?? Promise.resolve();
+    const run = previous.catch(() => undefined).then(work);
+    tails.set(name, run);
+    try {
+      return await run;
+    } finally {
+      if (tails.get(name) === run) tails.delete(name);
+    }
+  };
+}
+
+test('a retained local source object cannot read after its integration row is disconnected', async () => {
+  const owner = profile();
+  let fileReads = 0;
+  const library = {
+    id: 'local-retained',
+    name: 'Folder',
+    writable: false,
+    handle: {
+      queryPermission: async () => 'granted',
+      getFileHandle: async () => ({
+        getFile: async () => {
+          fileReads++;
+          return new File([original], 'book.txt');
+        }
+      })
+    }
+  };
+  const db = memoryDB({ localLibraries: [library], books: [] });
+  const api = sources(owner, undefined, db);
+  const source = new api.LocalLibrarySource(library);
+  await api.removeLocalLibrary(library.id);
+  await assert.rejects(source.read(entry()), /not_found/);
+  assert.equal(fileReads, 0);
+});
+
+test('disconnect waits for an admitted local read and prevents later retained-handle reads', async () => {
+  const owner = profile();
+  const held = deferred();
+  const library = {
+    id: 'local-serialized',
+    name: 'Folder',
+    writable: false,
+    handle: {
+      queryPermission: async () => 'granted',
+      getFileHandle: async () => ({
+        getFile: () => held.promise
+      })
+    }
+  };
+  const db = memoryDB({ localLibraries: [library], books: [] });
+  const api = sources(owner, undefined, db, serializedExclusive());
+  const source = new api.LocalLibrarySource(library);
+  const reading = source.read(entry());
+  await new Promise((resolve) => setImmediate(resolve));
+  const removing = api.removeLocalLibrary(library.id);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(db.rows('localLibraries').length, 1, 'disconnect must wait for admitted source work');
+  held.resolve(new File([original], 'book.txt'));
+  assert.equal(await (await reading).text(), 'original');
+  await removing;
+  assert.equal(db.rows('localLibraries').length, 0);
+  await assert.rejects(source.read(entry()), /not_found/);
 });
 
 function linkFixture(records, links) {
