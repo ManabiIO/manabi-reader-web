@@ -164,6 +164,10 @@ export class BrowserStorageHandler extends BaseStorageHandler {
     return fileName;
   }
 
+  async findReusableBookByContentHash(contentHash: string, signal?: AbortSignal) {
+    return database.findReusableDirectImport(contentHash, signal);
+  }
+
   async isBookPresentAndUpToDate(_referenceFilename: string | undefined) {
     // The TTU filename carries a title and timestamps, not source-file
     // identity. A same-titled local copy cannot prove this import is present.
