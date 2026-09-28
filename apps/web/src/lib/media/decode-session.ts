@@ -88,11 +88,6 @@ export class DecodeSessionCache<Job extends { id: string }> {
     return await pipeline.decode(trackId, start, end, entry.controller.signal);
   }
 
-  release(id: string): void {
-    const entry = this.sessions.get(id);
-    if (entry)
-      this.retire(id, entry, new DOMException('Transcription decoder released', 'AbortError'));
-  }
 
   private retire(id: string, entry: Session, reason: unknown): void {
     if (this.sessions.get(id) === entry) this.sessions.delete(id);
