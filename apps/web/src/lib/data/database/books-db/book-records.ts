@@ -35,6 +35,18 @@ export function snapshotBookmarkData(
   return structuredClone({ ...bookmark, dataId });
 }
 
+export function assertBookPersonalAccess(
+  book: Pick<StoredBookData, 'libraryOwner'>,
+  readerScope: { accountId: string } | undefined,
+  profileId: string | null
+): void {
+  if (
+    (book.libraryOwner !== undefined && book.libraryOwner !== profileId) ||
+    (readerScope && readerScope.accountId !== profileId)
+  )
+    throw new Error('This book belongs to another account.');
+}
+
 function summarizeBook(book: StoredBookData, readerOwner?: string): BookSummary {
   return {
     id: book.id,
@@ -81,24 +93,44 @@ export async function readBookSummaries(db: IDBPDatabase<BooksDb>): Promise<Book
 export async function updateBookLastRead(
   db: IDBPDatabase<BooksDb>,
   id: number,
-  timestamp: number
+  timestamp: number,
+  profileId: string | null,
+  signal?: AbortSignal
 ): Promise<BookSummary | undefined> {
   if (!Number.isSafeInteger(id) || id <= 0 || !Number.isFinite(timestamp) || timestamp < 0)
     throw new Error('The book’s last-read update is invalid.');
-  const tx = db.transaction('data', 'readwrite');
-  return commitTransaction(tx, async () => {
-    const current = await tx.store.get(id);
-    if (!current) return undefined;
-    const previous = current.lastBookOpen;
-    const lastBookOpen = Math.max(
-      typeof previous === 'number' && Number.isFinite(previous) ? previous : 0,
-      timestamp
-    );
-    if (lastBookOpen === previous) return summarizeBook(current);
-    const updated = { ...current, lastBookOpen };
-    await tx.store.put(updated);
-    return summarizeBook(updated);
-  });
+  signal?.throwIfAborted();
+  const tx = db.transaction(['data', 'readerBookScope'], 'readwrite');
+  const abort = () => {
+    try {
+      tx.abort();
+    } catch {
+      /* Already settled. */
+    }
+  };
+  signal?.addEventListener('abort', abort, { once: true });
+  try {
+    return await commitTransaction(tx, async () => {
+      signal?.throwIfAborted();
+      const data = tx.objectStore('data');
+      const current = await data.get(id);
+      if (!current) return undefined;
+      const readerScope = await tx.objectStore('readerBookScope').get(id);
+      assertBookPersonalAccess(current, readerScope, profileId);
+      signal?.throwIfAborted();
+      const previous = current.lastBookOpen;
+      const lastBookOpen = Math.max(
+        typeof previous === 'number' && Number.isFinite(previous) ? previous : 0,
+        timestamp
+      );
+      if (lastBookOpen === previous) return summarizeBook(current, readerScope?.accountId);
+      const updated = { ...current, lastBookOpen };
+      await data.put(updated);
+      return summarizeBook(updated, readerScope?.accountId);
+    });
+  } finally {
+    signal?.removeEventListener('abort', abort);
+  }
 }
 
 /** Local opening may detach a legacy source marker, but is never an import or
