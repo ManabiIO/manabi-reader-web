@@ -130,16 +130,15 @@ test('last-read persistence accepts the current owner and never moves time backw
   assert.equal(db.rows('data')[0].lastBookOpen, 30);
 });
 
-test('personal book scope also fences last-read and bookmark writes', async () => {
+test('personal scope hides state and preserves recency without hiding local book content', async () => {
   const db = memoryDB({
     data: [{ id: 1, title: 'Book', lastBookOpen: 10 }],
     bookmark: [{ dataId: 1, progress: 0.25, lastBookmarkModified: 1 }],
     readerBookScope: [{ bookId: 1, accountId: 'bob' }]
   });
-  await assert.rejects(
-    bookRecords.updateBookLastRead(db, 1, 20, 'alice', () => undefined),
-    /another account/
-  );
+  const summary = await bookRecords.updateBookLastRead(db, 1, 20, 'alice', () => undefined);
+  assert.equal(summary.lastBookOpen, 10);
+  assert.equal(await bookRecords.readOwnedBookmark(db, 1, 'alice', () => undefined), undefined);
   await assert.rejects(
     bookRecords.commitOwnedBookmark(
       db,
@@ -151,6 +150,22 @@ test('personal book scope also fences last-read and bookmark writes', async () =
   );
   assert.equal(db.rows('data')[0].lastBookOpen, 10);
   assert.equal(db.rows('bookmark')[0].progress, 0.25);
+});
+
+test('matching personal scope exposes and updates reading state normally', async () => {
+  const db = memoryDB({
+    data: [{ id: 1, title: 'Book', lastBookOpen: 10 }],
+    bookmark: [{ dataId: 1, progress: 0.25, lastBookmarkModified: 1 }],
+    readerBookScope: [{ bookId: 1, accountId: 'alice' }]
+  });
+  assert.equal((await bookRecords.readOwnedBookmark(db, 1, 'alice', () => undefined)).progress, 0.25);
+  await bookRecords.commitOwnedBookmark(
+    db,
+    { dataId: 1, progress: 0.9, lastBookmarkModified: 2 },
+    'alice',
+    () => undefined
+  );
+  assert.equal(db.rows('bookmark')[0].progress, 0.9);
 });
 
 test('bookmark persistence rejects a live foreign owner before touching progress', async () => {
