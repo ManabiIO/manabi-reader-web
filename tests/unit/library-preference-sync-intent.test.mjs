@@ -595,3 +595,43 @@ test('server backoff is isolated to the profile that received it', async () => {
     h.stop();
   }
 });
+
+test('returning to a rate-limited profile does not bypass its server backoff', async () => {
+  const h = await loadedHarness({ ...saved(), initialized: true, base: { font_size: 24 } });
+  let accountId = 'a';
+  let firstA = true;
+  h.setRequestHandler(({ options }) => {
+    if (accountId === 'a' && firstA) {
+      firstA = false;
+      throw new h.IntegrationError('rate_limited', 60);
+    }
+    const settings = options.method === 'PUT' ? options.value.settings : { font_size: 24 };
+    return { user_id: accountId, schema_version: 1, revision: 2, settings };
+  });
+  try {
+    await h.api.syncPreferences();
+    assert.equal(h.requests.length, 1);
+    accountId = 'b';
+    h.account.set({ status: 'available', session: { user: { id: 'b', username: 'B' } } });
+    h.profile.set({ id: 'b', username: 'B' });
+    await drain();
+    h.loads[1].resolve({ ...saved(), enabled: false });
+    await drain();
+    accountId = 'a';
+    h.account.set({ status: 'available', session: { user: { id: 'a', username: 'A' } } });
+    h.profile.set({ id: 'a', username: 'A' });
+    await drain();
+    h.loads[2].resolve({ ...saved(), initialized: true, base: { font_size: 24 } });
+    await drain();
+    await drain();
+    assert.equal(h.requests.length, 1, 'profile restoration bypassed the active Retry-After');
+    h.advanceBy(60000);
+    h.visible();
+    await drain();
+    assert.equal(h.requests.length, 2);
+    assert.equal(h.status().state, 'synced');
+  } finally {
+    h.stop();
+  }
+});
+
