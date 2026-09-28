@@ -26,7 +26,7 @@ class LockQueue {
       const entry = { options, callback, resolve, reject };
       const abort = () => {
         const index = this.pending.indexOf(entry);
-        if (index >= 0) this.pending.splice(index, 1);
+        if (index >= 0) this.pending.splice(entryIndex, 1);
         reject(options.signal.reason);
       };
       entry.abort = abort;
@@ -133,7 +133,9 @@ test('cancelling one queued job keeps the lock request for another local admissi
     assert.equal(locks.pending.length, 1, 'sibling admission lost the shared batch lock request');
     locks.releaseBlocker();
 
-    await until(async () => (await store.local('guest', 'jobs', survivor.id))?.status === 'complete');
+    await until(
+      async () => (await store.local('guest', 'jobs', survivor.id))?.status === 'complete'
+    );
     const first = await store.local('guest', 'jobs', cancelled.id);
     assert.equal(first.status, 'paused');
     assert.equal(first.pauseReason, 'user');
