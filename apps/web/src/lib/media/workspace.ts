@@ -11,7 +11,9 @@ import { trackLanguage } from './track-selection.js';
 import { audioLanguage, chooseTranscriptionAudio, type AudioChoice } from './audio-selection.js';
 import { transcriptionDraft, type TranscriptionDraft } from './transcription-draft.js';
 import { jobCanResume, jobContentKey, validateJob } from './jobs.js';
-import { deviceKey } from './device-checkpoint.js';
+import { deviceKey, type DeviceKey } from './device-checkpoint.js';
+import { audioProof } from './audio-proof.js';
+import { sparseModelPcm } from './sparse-transcription.js';
 import {
   type Scope,
   type ContentKey,
@@ -96,8 +98,10 @@ export class VideoWorkspace {
     key: ContentKey;
     source: ByteSource;
     provisional?: true;
+    sourceSample?: DeviceKey;
   };
   private currentTranscription?: Job;
+  private recoveryPendingGeneration?: number;
   private switchPaused = new Set<string>();
   private player?: VideoPlayer;
   private queue: TranscriptionQueue;
@@ -541,8 +545,10 @@ export class VideoWorkspace {
       });
     void this.loadAudio(source, signal, generation);
     try {
+      let sampledKey: DeviceKey | undefined;
       try {
         const sampled = await deviceKey(source, signal);
+        sampledKey = sampled;
         guard();
         await player.bindDeviceCheckpoint(sampled);
         guard();
@@ -557,13 +563,41 @@ export class VideoWorkspace {
             : this.verifiedCloudOpen.get(source)
           : undefined;
       this.verifiedCloudOpen.delete(source);
+      const recoverable: Job[] = [];
+      if (source.file && sampledKey) {
+        try {
+          for (const raw of await this.store.listLocal<unknown>(this.options.scope, 'jobs')) {
+            if (
+              !raw ||
+              typeof raw !== 'object' ||
+              (raw as Partial<Job>).sourceSample !== sampledKey
+            )
+              continue;
+            try {
+              const job = validateJob(raw);
+              if (
+                job.provisional &&
+                !job.verifiedMediaKey &&
+                (job.status === 'paused' || job.status === 'failed') &&
+                !!job.audioProofs?.length
+              )
+                recoverable.push(job);
+            } catch (error) {
+              this.error(error);
+            }
+          }
+        } catch (error) {
+          this.error(error);
+        }
+      }
+      if (recoverable.length) this.recoveryPendingGeneration = generation;
       // A fresh local File is immutable for this open. Its random key may own
       // device-only checkpoints while the full digest runs; it is never used
       // for portable playback, captions or SRT publication.
       let provisionalKey: ContentKey | undefined;
       let identityController: AbortController | undefined;
       let stopIdentity: (() => void) | undefined;
-      if (source.file && !cached && !expected) {
+      if (source.file && sampledKey && !cached && !expected) {
         provisionalKey = this.provisionalSources.get(source);
         if (!provisionalKey) {
           const random = crypto.getRandomValues(new Uint8Array(32));
@@ -578,14 +612,17 @@ export class VideoWorkspace {
           controller: identityController,
           requested: sameSourceHash?.requested ?? false
         });
-        this.current = { key: provisionalKey, source, provisional: true };
+        this.current = { key: provisionalKey, source, provisional: true, sourceSample: sampledKey };
         player.bindProvisionalGeneration(provisionalKey);
         player.setGenerationAvailable(
-          this.audioChoices.some((track) => track.decodable) &&
+          !recoverable.length &&
+            this.audioChoices.some((track) => track.decodable) &&
             typeof navigator.locks?.request === 'function',
-          typeof navigator.locks?.request === 'function'
-            ? undefined
-            : 'This browser cannot coordinate transcription across tabs (Web Locks unavailable). Playback and existing captions remain available.'
+          recoverable.length
+            ? 'Checking saved transcription windows against this file before starting new work.'
+            : typeof navigator.locks?.request === 'function'
+              ? undefined
+              : 'This browser cannot coordinate transcription across tabs (Web Locks unavailable). Playback and existing captions remain available.'
         );
         void this.refreshJobs().catch((e) => this.error(e));
       }
@@ -650,6 +687,17 @@ export class VideoWorkspace {
       guard();
       if (expected && key !== expected)
         throw new Error('The selected file is not the saved video. Its old progress was kept.');
+      this.sources.set(key, source);
+      if (source.file && recoverable.length && sampledKey)
+        await this.recoverAudioProofs(
+          source,
+          key,
+          recoverable.filter((job) => job.mediaKey !== provisionalKey),
+          sampledKey,
+          signal
+        );
+      guard();
+      if (this.recoveryPendingGeneration === generation) this.recoveryPendingGeneration = undefined;
       if (source.file) this.verifiedSources.set(source, key);
       this.current = { key, source };
       player.setGenerationAvailable(
@@ -659,7 +707,6 @@ export class VideoWorkspace {
           ? undefined
           : 'This browser cannot coordinate transcription across tabs (Web Locks unavailable). Playback and existing captions remain available.'
       );
-      this.sources.set(key, source);
       await this.store.putLocal(this.options.scope, 'aliases', key, {
         key,
         name: source.name,
@@ -721,6 +768,76 @@ export class VideoWorkspace {
         }
         this.error(e);
       }
+    }
+  }
+  private async recoverAudioProofs(
+    source: ByteSource,
+    verified: ContentKey,
+    candidates: Job[],
+    sample: DeviceKey,
+    signal: AbortSignal
+  ) {
+    if (!candidates.length) return;
+    let pipeline: MediaPipeline | undefined;
+    try {
+      const bunny = await abortable(signal, () => this.options.loadBunny());
+      signal.throwIfAborted();
+      pipeline = new MediaPipeline(bunny, source, signal);
+      const metadata = await pipeline.metadata();
+      const checked = new Map<string, string>();
+      for (const saved of candidates) {
+        signal.throwIfAborted();
+        const current = await this.store.local<unknown>(this.options.scope, 'jobs', saved.id);
+        if (!current) continue;
+        const job = validateJob(current);
+        if (
+          !job.provisional ||
+          job.verifiedMediaKey ||
+          (job.status !== 'paused' && job.status !== 'failed') ||
+          job.mediaKey !== saved.mediaKey ||
+          job.sourceSample !== sample ||
+          !job.audioProofs?.length ||
+          Math.abs(metadata.duration - job.duration) > 0.01
+        )
+          continue;
+        try {
+          let matches = true;
+          for (const proof of job.audioProofs) {
+            signal.throwIfAborted();
+            const id = `${job.audioTrack}:${proof.start}:${proof.end}`;
+            let digest = checked.get(id);
+            if (!digest) {
+              const decoded = await pipeline.decode(
+                Number(job.audioTrack),
+                proof.start,
+                proof.end,
+                signal
+              );
+              const pcm = sparseModelPcm(
+                decoded,
+                proof.start,
+                proof.end,
+                proof.end - proof.start > 30 ? 60 : 30
+              );
+              digest = audioProof(proof.start, proof.end, pcm).digest;
+              checked.set(id, digest);
+            }
+            if (digest !== proof.digest) {
+              matches = false;
+              break;
+            }
+          }
+          if (matches) await this.queue.verifyProvisional(job.mediaKey, verified, job.id, job);
+        } catch (error) {
+          signal.throwIfAborted();
+          this.error(error);
+        }
+      }
+    } catch (error) {
+      signal.throwIfAborted();
+      this.error(error);
+    } finally {
+      pipeline?.dispose();
     }
   }
   private async discover(
@@ -819,6 +936,7 @@ export class VideoWorkspace {
       this.audio.value = String(chooseTranscriptionAudio(descriptions, this.lang.value)?.id ?? '');
       this.player?.setGenerationAvailable(
         !!this.current &&
+          this.recoveryPendingGeneration !== generation &&
           descriptions.some((t) => t.decodable) &&
           typeof navigator.locks?.request === 'function',
         typeof navigator.locks?.request === 'function'
@@ -912,6 +1030,8 @@ export class VideoWorkspace {
       player = this.player,
       lang = language(this.lang.value);
     if (!current) throw new Error('The video is still preparing. Playback remains available.');
+    if (this.recoveryPendingGeneration === this.generation)
+      throw new Error('Wait while saved transcription windows are checked against this file.');
     if (current.provisional && !this.localHashes.has(current.key))
       throw new Error('Video verification failed. Retry verification before generating.');
     const selected = this.audioChoices.find(
@@ -945,7 +1065,8 @@ export class VideoWorkspace {
       String(selected.id),
       duration,
       player?.video.currentTime ?? 0,
-      !!current.provisional
+      !!current.provisional,
+      current.sourceSample
     );
     if (current.provisional) {
       const verified = this.verifiedSources.get(current.source);
@@ -1370,12 +1491,15 @@ export class VideoWorkspace {
     for (const job of jobs.slice().sort((a, b) => b.createdAt - a.createdAt)) {
       const row = make('div');
       row.className = 'job-row';
-      row.append(
-        make(
-          'span',
-          `${job.language} · ${job.pauseReason === 'identity' && !job.verifiedMediaKey ? 'verifying video' : job.status}${job.error ? ` — ${job.error}` : ''}`
-        )
-      );
+      const state =
+        job.pauseReason === 'identity' && !job.verifiedMediaKey
+          ? this.localHashes.has(job.mediaKey)
+            ? 'verifying video'
+            : this.sources.has(job.mediaKey)
+              ? 'verification interrupted'
+              : 'waiting for original video'
+          : job.status;
+      row.append(make('span', `${job.language} · ${state}${job.error ? ` — ${job.error}` : ''}`));
       if (['running', 'queued'].includes(job.status))
         row.append(
           action('Cancel', () => void this.queue.cancel(job.id).catch((e) => this.error(e)))

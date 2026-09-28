@@ -18,6 +18,8 @@ import {
   type Cue
 } from './contracts.js';
 import { planWindows } from './moss-output.js';
+import { validateAudioProofs, type AudioProof } from './audio-proof.js';
+import type { DeviceKey } from './device-checkpoint.js';
 import {
   SPARSE_CORE_SECONDS,
   assembleSparse,
@@ -48,6 +50,9 @@ export interface Job {
   /** An unverified, device-only File job uses a random local key until full hashing finishes. */
   provisional?: true;
   verifiedMediaKey?: ContentKey;
+  /** Sample hint narrows recovery candidates; audioProofs are the binding evidence. */
+  sourceSample?: DeviceKey;
+  audioProofs?: AudioProof[];
   language: string;
   audioTrack: string;
   duration: number;
@@ -62,7 +67,7 @@ export interface Job {
   ownerId?: string;
   leaseUntil?: number;
   cancelRequested?: boolean;
-  /** Why a running job was paused; only a video switch may resume automatically. */
+  /** Why a running job was paused; user cancellation never resumes automatically. */
   pauseReason?: 'switch' | 'user' | 'identity';
 }
 export const JOB_LEASE_MS = 90_000;
@@ -93,6 +98,8 @@ export function validateJob(value: unknown): Job {
     'mediaKey',
     'provisional',
     'verifiedMediaKey',
+    'sourceSample',
+    'audioProofs',
     'language',
     'audioTrack',
     'duration',
@@ -126,6 +133,11 @@ export function validateJob(value: unknown): Job {
     (j.provisional !== undefined && j.provisional !== true) ||
     (j.verifiedMediaKey !== undefined && !isContentKey(j.verifiedMediaKey)) ||
     (j.verifiedMediaKey !== undefined && j.provisional !== true) ||
+    (j.sourceSample !== undefined &&
+      (j.provisional !== true ||
+        typeof j.sourceSample !== 'string' ||
+        !/^sampled-v1:[a-f0-9]{64}$/.test(j.sourceSample))) ||
+    (j.audioProofs !== undefined && j.provisional !== true) ||
     (j.provisional === true && j.version !== 3) ||
     (j.provisional === true && j.status === 'complete' && j.verifiedMediaKey === undefined)
   )
@@ -144,6 +156,13 @@ export function validateJob(value: unknown): Job {
     j.cues.length === 0;
   const sparse =
     j.version === 3 && !compactSparse ? validateSparseState(j.sparse, duration) : undefined;
+  const audioProofs =
+    j.audioProofs === undefined
+      ? undefined
+      : sparse
+        ? validateAudioProofs(j.audioProofs, sparse, duration)
+        : undefined;
+  if (j.audioProofs !== undefined && !sparse) throw new Error('Invalid saved audio proofs');
   if (j.version === 1 && j.progressive !== undefined)
     throw new Error('Legacy job cannot change its window policy');
   if (
@@ -269,6 +288,8 @@ export function validateJob(value: unknown): Job {
     mediaKey: j.mediaKey,
     ...(j.provisional === true ? { provisional: true as const } : {}),
     ...(j.verifiedMediaKey === undefined ? {} : { verifiedMediaKey: j.verifiedMediaKey }),
+    ...(j.sourceSample === undefined ? {} : { sourceSample: j.sourceSample as DeviceKey }),
+    ...(audioProofs === undefined ? {} : { audioProofs }),
     language: language(j.language),
     audioTrack,
     duration,

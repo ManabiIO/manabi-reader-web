@@ -510,6 +510,7 @@ export class MediaStore {
                 'mediaKey',
                 'provisional',
                 'verifiedMediaKey',
+                'sourceSample',
                 'language',
                 'audioTrack',
                 'duration',
@@ -521,6 +522,7 @@ export class MediaStore {
               if (
                 fields.some((field) => current![field] !== completed[field]) ||
                 !same(current!.cues, completed.cues) ||
+                !same(current!.audioProofs ?? null, completed.audioProofs ?? null) ||
                 !same(current!.progressive ?? null, completed.progressive ?? null) ||
                 !same(current!.sparse ?? null, completed.sparse ?? null)
               )
@@ -529,7 +531,12 @@ export class MediaStore {
               // Once published, cue pages own the text. Keep only a compact completed-job
               // summary so queue scans do not deserialize every previous full transcript.
               // Failed/paused jobs retain their cue checkpoints for actual resume.
-              const { sparse: _sparse, ...summary } = completed;
+              const {
+                sparse: _sparse,
+                sourceSample: _sourceSample,
+                audioProofs: _audioProofs,
+                ...summary
+              } = completed;
               jobs.put({ ...summary, cues: [] }, jobKey);
             } catch (e) {
               fail(e);

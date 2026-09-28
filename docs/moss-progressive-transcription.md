@@ -183,10 +183,14 @@ generation. Temporary subtitle IDs never enter portable playback state.
 Switching videos keeps a requested local hash running and preserves its saved
 windows. A failed digest can be retried while the workspace still holds the
 same File source, including after switching videos; the saved windows then
-publish without repeating inference. If the tab closes
-before the digest is attached, the provisional windows remain on the device
-but cannot yet be safely matched to a newly selected file. Recovery after that
-interruption remains a release gate for the early-generation flow.
+publish without repeating inference. Each saved sparse window also carries a
+digest of the exact decoded audio passed to MOSS. If the tab closes before the
+full-file digest is attached, reselecting a file with the same device sample
+re-decodes every saved window and compares these digests. Only matching jobs
+receive the new verified content identity; accepted windows remain intact and
+unfinished windows continue without repeating ASR. A mismatch leaves the old
+job unpublished. Older provisional jobs without audio proofs cannot use this
+recovery path.
 
 Version-3 scheduling, early seam repair, accepted-cue preservation, and the
 browser controls have deterministic and Chromium tests. Natural Japanese

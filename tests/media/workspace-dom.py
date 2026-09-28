@@ -37,6 +37,7 @@ def main():
             window.VideoWorkspace=(await import(args.workspace)).VideoWorkspace;
             window.VideoPlayer=(await import(args.player)).VideoPlayer;
             window.MediaStore=(await import(args.store)).MediaStore;
+            window.MediaPipeline=(await import(args.pipeline)).MediaPipeline;
             const doubles=await import(args.doubles);window.TransactionFactory=doubles.TransactionFactory;window.IDBKeyRange=doubles.RangeDouble;
             window.localSource=(await import(args.sources)).localSource;
             window.fixtures=args.fixtures.map(b=>Uint8Array.from(atob(b),c=>c.charCodeAt(0)));
@@ -86,7 +87,7 @@ def main():
                     scope:config.account?'account:test':'guest',booksURL:'/manage',runtimeBase:'/moss',store,engine,loadBunny:async()=>bunny,...connection
                 });
             };
-        }''',dict(workspace=module('workspace.js'),player=module('player.js'),store=module('store.js'),sources=module('sources.js'),
+        }''',dict(workspace=module('workspace.js'),player=module('player.js'),store=module('store.js'),sources=module('sources.js'),pipeline=module('pipeline.js'),
                   doubles='data:text/javascript;base64,'+data(ROOT/'tests/media/transaction-double.mjs'),
                   fixtures=[data(args.fixture/'video.mp4'),data(args.fixture/'embedded.mp4')]))
         def case(name,fn):
@@ -450,6 +451,78 @@ def main():
             assert result==dict(key=result['key'],verified=result['key'],
                                 published=[page.evaluate('reopenedJob')],inferences=1),result
         case('reopening the same File during hashing retains its requested checkpoint',reopen_same_file_during_verification)
+        def recover_after_workspace_close(changed_audio=False, hold_recovery=False):
+            page.evaluate('reset()')
+            page.evaluate(r"""()=>{
+                const file=new File([fixtures[0]],'Closed-tab.mp4',
+                    {type:'video/mp4',lastModified:12345});
+                const source=localSource(file);
+                const read=source.read.bind(source);
+                window.hashGate=new Promise(resolve=>window.releaseHash=resolve);
+                source.read=async(start,end,signal)=>{
+                    if(end-start>32768)await hashGate;
+                    return read(start,end,signal);
+                };
+                window.closedOpen=workspace.openSource(source);
+            }""")
+            page.wait_for_function('workspace.current?.provisional && workspace.player?.generationAvailable')
+            page.evaluate("""async()=>{
+                workspace.audio.value='2';workspace.lang.value='ja';
+                workspace.queue.decode=async(_job,start,end)=>
+                    new Float32Array(Math.ceil(end*16000)-Math.round(start*16000)).fill(.1);
+                window.closedJob=await workspace.generate();
+            }""")
+            page.wait_for_function("store.local('guest','jobs',closedJob).then(j=>j?.pauseReason==='identity'&&j?.audioProofs?.length===1)")
+            saved=page.evaluate("""async()=>{
+                const job=await store.local('guest','jobs',closedJob);
+                window.savedDuration=job.duration;
+                return {sample:job.sourceSample,proof:job.audioProofs[0].digest,windows:job.nextWindow};
+            }""")
+            assert saved['sample'].startswith('sampled-v1:') and len(saved['proof'])==64 and saved['windows']==1,saved
+            page.evaluate('workspace.dispose().then(()=>{releaseHash();return closedOpen})')
+            page.evaluate("""({changed,hold})=>{
+                const options=workspace.options;
+                window.originalPipelineDecode=MediaPipeline.prototype.decode;
+                window.originalPipelineMetadata=MediaPipeline.prototype.metadata;
+                window.recoveryStarted=false;
+                if(hold)window.recoveryGate=new Promise(resolve=>window.releaseRecovery=resolve);
+                MediaPipeline.prototype.metadata=async()=>({duration:savedDuration,width:320,height:180});
+                MediaPipeline.prototype.decode=async function(_track,start,end){
+                    recoveryStarted=true;
+                    if(hold)await recoveryGate;
+                    return new Float32Array(Math.ceil(end*16000)-Math.round(start*16000))
+                        .fill(changed?.2:.1);
+                };
+                window.workspace=new VideoWorkspace(document.querySelector('#host'),options);
+                const file=new File([fixtures[0]],'Closed-tab.mp4',
+                    {type:'video/mp4',lastModified:12345});
+                window.reselected=workspace.openSource(localSource(file));
+            }""",dict(changed=changed_audio,hold=hold_recovery))
+            if hold_recovery:
+                page.wait_for_function('recoveryStarted')
+                page.wait_for_function('workspace.audioChoices.length>0')
+                assert page.evaluate('workspace.player.generationAvailable') is False
+                assert page.evaluate("workspace.generate().then(()=>false,e=>/saved transcription windows/.test(e.message))") is True
+                page.evaluate('releaseRecovery()')
+            page.evaluate('reselected')
+            page.wait_for_function('workspace.current && !workspace.current.provisional')
+            if not changed_audio:
+                page.wait_for_function("store.local('guest','jobs',closedJob).then(j=>j?.status==='complete')")
+            result=page.evaluate("""async()=>{
+                const job=await store.local('guest','jobs',closedJob);
+                return {verified:job.verifiedMediaKey??null,key:workspace.current.key,
+                    status:job.status,inferences,
+                    published:(await store.tracks('guest',workspace.current.key)).map(t=>t.id)};
+            }""")
+            page.evaluate('()=>{MediaPipeline.prototype.decode=originalPipelineDecode;MediaPipeline.prototype.metadata=originalPipelineMetadata}')
+            if changed_audio:
+                assert result['verified'] is None and result['status']=='paused' and result['published']==[] and result['inferences']==1,result
+            else:
+                assert result==dict(verified=result['key'],key=result['key'],status='complete',
+                                    inferences=1,published=[page.evaluate('closedJob')]),result
+        case('reselecting the file after Close recovers only audio-proven windows without another inference',recover_after_workspace_close)
+        case('a matching file sample with changed decoded audio cannot claim saved captions',lambda:recover_after_workspace_close(True))
+        case('Generate stays unavailable while saved audio is being checked',lambda:recover_after_workspace_close(False,True))
         def switch_during_provisional_generation(verify_before_switch=False):
             page.evaluate('reset()')
             page.evaluate(r"""()=>{

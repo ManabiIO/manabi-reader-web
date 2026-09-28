@@ -7,6 +7,8 @@
 import { type ContentKey, type Cue, type Scope, type Track, language } from './contracts.js';
 import { MediaStore } from './store.js';
 import { MOSS, type ModelProgress } from './model-cache.js';
+import { audioProof } from './audio-proof.js';
+import type { DeviceKey } from './device-checkpoint.js';
 import { parseMoss, parseMossPreview, planWindows, ownedCues } from './moss-output.js';
 import { newProgressiveState } from './moss-progressive.js';
 import { transcribeWithPreview } from './moss-preview.js';
@@ -188,7 +190,8 @@ export class TranscriptionQueue {
     audioTrack: string,
     duration: number,
     targetSeconds?: number,
-    provisional = false
+    provisional = false,
+    sourceSample?: DeviceKey
   ): Promise<Job> {
     if (this.closed) throw new Error('The queue is closed');
     this.requireOriginLock();
@@ -200,6 +203,7 @@ export class TranscriptionQueue {
       id: crypto.randomUUID(),
       mediaKey: key,
       ...(provisional ? { provisional: true } : {}),
+      ...(provisional && sourceSample ? { sourceSample, audioProofs: [] } : {}),
       language: language(lang),
       audioTrack,
       duration,
@@ -221,15 +225,36 @@ export class TranscriptionQueue {
   }
   /** The full digest may finish while a window is running. Keep its checkpoint
    * owner and attach only the verified portable key in the same local record. */
-  async verifyProvisional(mediaKey: ContentKey, verified: ContentKey) {
-    for (const raw of await this.store.listLocal<unknown>(this.scope, 'jobs')) {
+  async verifyProvisional(
+    mediaKey: ContentKey,
+    verified: ContentKey,
+    id?: string,
+    recoveredJob?: Job
+  ) {
+    const proofSnapshot = recoveredJob?.audioProofs?.map((proof) => ({ ...proof }));
+    if (recoveredJob && !proofSnapshot?.length)
+      throw new Error('Recovered transcription has no saved audio proof');
+    const records = id
+      ? [await this.store.local<unknown>(this.scope, 'jobs', id)]
+      : await this.store.listLocal<unknown>(this.scope, 'jobs');
+    for (const raw of records) {
+      if (!raw) continue;
       const job = validateJob(raw);
-      if (!job.provisional || job.mediaKey !== mediaKey) continue;
+      if (!job.provisional || job.mediaKey !== mediaKey || (id && job.id !== id)) continue;
       await this.store.updateLocal<Job>(this.scope, 'jobs', job.id, (old) => {
         if (!old) return old;
         const current = validateJob(old);
         if (!current.provisional || current.mediaKey !== mediaKey)
           throw new Error('Provisional transcription identity changed');
+        if (
+          proofSnapshot &&
+          ((current.status !== 'paused' && current.status !== 'failed') ||
+            current.sourceSample !== recoveredJob?.sourceSample ||
+            current.audioTrack !== recoveredJob?.audioTrack ||
+            current.duration !== recoveredJob?.duration ||
+            JSON.stringify(current.audioProofs) !== JSON.stringify(proofSnapshot))
+        )
+          throw new JobOwnershipLost();
         if (current.verifiedMediaKey && current.verifiedMediaKey !== verified)
           throw new Error('Provisional transcription belongs to another video');
         return current.verifiedMediaKey ? old : { ...current, verifiedMediaKey: verified };
@@ -609,6 +634,9 @@ export class TranscriptionQueue {
                   const decoded = await this.decode(job, first.start, second.end, signal);
                   signal.throwIfAborted();
                   const pcm = sparseModelPcm(decoded, first.start, second.end, 60);
+                  const proof = job.audioProofs
+                    ? audioProof(first.start, second.end, pcm)
+                    : undefined;
                   const inputDuration = pcm.length / 16000;
                   const exactSilence = pcm.every((sample) => sample === 0);
                   if (!exactSilence)
@@ -692,7 +720,12 @@ export class TranscriptionQueue {
                     safe = acceptedSparseCues(next, job.duration);
                   }
                   preserveAccepted(job.cues, safe);
-                  job = { ...job, sparse: next, cues: safe };
+                  job = {
+                    ...job,
+                    sparse: next,
+                    cues: safe,
+                    ...(proof ? { audioProofs: [...job.audioProofs!, proof] } : {})
+                  };
                   await checkpoint();
                 };
                 const settleSparseSeams = async () => {
@@ -725,6 +758,9 @@ export class TranscriptionQueue {
                   const decoded = await this.decode(job, bounds.start, bounds.end, signal);
                   signal.throwIfAborted();
                   const pcm = sparseModelPcm(decoded, bounds.start, bounds.end, 30);
+                  const proof = job.audioProofs
+                    ? audioProof(bounds.start, bounds.end, pcm)
+                    : undefined;
                   const inputDuration = pcm.length / 16000;
                   let raw = '';
                   let inferenceMs = performance.now() - decodeStarted;
@@ -762,7 +798,8 @@ export class TranscriptionQueue {
                     ...job,
                     sparse: next,
                     nextWindow: job.nextWindow + 1,
-                    cues: safe
+                    cues: safe,
+                    ...(proof ? { audioProofs: [...job.audioProofs!, proof] } : {})
                   };
                   await checkpoint();
                   this.notify({

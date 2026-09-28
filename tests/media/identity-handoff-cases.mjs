@@ -359,3 +359,72 @@ for (const point of ['queued', 'claim'])
         return { status: 'queued', calls: h.calls() };
       })
   });
+
+cases.push({
+  name: 'audio-proven provisional checkpoint survives a storage close and reopen',
+  run: async (factory) => {
+    const name = 'identity-proof-' + crypto.randomUUID();
+    const firstStore = new MediaStore(factory, name);
+    let secondStore;
+    const queues = [];
+    let calls = 0;
+    const makeQueue = (store) => {
+      const queue = new TranscriptionQueue(
+        store,
+        'guest',
+        {
+          async prepare() {},
+          async transcribe() {
+            calls++;
+            return '[0][S01]保存する字幕[1]';
+          },
+          dispose() {}
+        },
+        async (_job, start, end) =>
+          new Float32Array(Math.ceil(end * 16000) - Math.round(start * 16000)).fill(0.1)
+      );
+      queues.push(queue);
+      return queue;
+    };
+    try {
+      const firstQueue = makeQueue(firstStore);
+      const job = await firstQueue.enqueue(
+        localKey,
+        'ja',
+        '1',
+        2,
+        0,
+        true,
+        'sampled-v1:' + 'd'.repeat(64)
+      );
+      const paused = await until(async () => {
+        const saved = await firstStore.local('guest', 'jobs', job.id);
+        return saved?.pauseReason === 'identity' ? saved : undefined;
+      });
+      equal(paused.audioProofs.length, 1, 'saved PCM proof');
+      await firstQueue.dispose();
+      await firstStore.close();
+      secondStore = new MediaStore(factory, name);
+      const secondQueue = makeQueue(secondStore);
+      const restored = await secondStore.local('guest', 'jobs', job.id);
+      equal(restored.audioProofs, paused.audioProofs, 'proof survives storage reopen');
+      await secondQueue.verifyProvisional(localKey, verifiedKey, job.id, restored);
+      await secondQueue.resume(job.id);
+      await until(
+        async () => (await secondStore.local('guest', 'jobs', job.id))?.status === 'complete'
+      );
+      const tracks = await secondStore.tracks('guest', verifiedKey);
+      equal(
+        tracks.map((track) => track.id),
+        [job.id],
+        'one portable published track'
+      );
+      equal(calls, 1, 'accepted audio is not inferred twice');
+      return { calls, published: tracks.length };
+    } finally {
+      await Promise.all(queues.map((queue) => queue.dispose()));
+      await firstStore.close();
+      await secondStore?.close();
+    }
+  }
+});
