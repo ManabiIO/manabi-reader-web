@@ -54,7 +54,10 @@ const files = [
   'apps/web/src/lib/components/statistics/statistics-header.svelte',
   'apps/web/src/lib/components/popover/popover.svelte',
   'apps/web/src/lib/components/dialog-template.svelte',
-  'apps/web/src/lib/components/app-icon.svelte'
+  'apps/web/src/lib/components/app-icon.svelte',
+  'apps/web/src/lib/components/number-dialog.svelte',
+  'apps/web/src/lib/components/confirm-dialog.svelte',
+  'apps/web/src/lib/components/message-dialog.svelte'
 ];
 const eslint = new ESLint({
   overrideConfigFile: fileURLToPath(new URL('./eslint.config.mjs', import.meta.url))
