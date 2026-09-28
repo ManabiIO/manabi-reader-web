@@ -1,27 +1,50 @@
-name: Snippet follow-up source
+name: Publish reviewed snippet fixes
 on:
   push:
     branches: [fix/snippet-recovery-review-20260928]
     paths: ['.github/workflows/snippet-review-source.yml']
 permissions:
-  contents: read
+  contents: write
+concurrency:
+  group: snippet-review-publication
+  cancel-in-progress: false
 jobs:
-  source:
+  publish:
+    if: github.repository == 'ManabiIO/manabi-reader-web' && github.ref == 'refs/heads/fix/snippet-recovery-review-20260928'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 91db8cbe4e8c9a88fb5d601cac9cea974021dffc
-          persist-credentials: false
-      - run: |
-          mkdir -p /tmp/snippet-review
-          git archive HEAD | gzip > /tmp/snippet-review/source.tar.gz
-          git rev-parse HEAD > /tmp/snippet-review/commit.txt
-          git ls-files -s > /tmp/snippet-review/manifest.txt
-      - uses: actions/upload-artifact@v4
-        with:
-          name: snippet-follow-up-source
-          path: /tmp/snippet-review
-          retention-days: 1
-          if-no-files-found: error
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Apply exact reviewed non-workflow changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64, hashlib, json, lzma, os, subprocess, urllib.request
+          base = '91db8cbe4e8c9a88fb5d601cac9cea974021dffc'
+          helper = '.github/workflows/snippet-review-source.yml'
+          assert subprocess.check_output(['git','diff','--name-only',base,'HEAD']).decode().splitlines() == [helper]
+          sha = 'efdd322f063379f8707c3a5fce5d4e3c8cc08d1e'
+          req = urllib.request.Request('https://api.github.com/repos/ManabiIO/manabi-reader-web/git/blobs/'+sha, headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+          with urllib.request.urlopen(req, timeout=30) as response: item = json.load(response)
+          encoded = base64.b64decode(item['content'])
+          assert hashlib.sha1(b'blob '+str(len(encoded)).encode()+b'\0'+encoded).hexdigest() == sha
+          raw = lzma.decompress(base64.b64decode(encoded, validate=True), memlimit=64*1024*1024)
+          assert len(raw) == 40094
+          assert hashlib.sha256(raw).hexdigest() == '8f3121fb53ea2fa6e719626fc1b0461bae060346c4e7345a8871cf94f0c16ff0'
+          expected = {'apps/web/src/lib/snippets/database.ts','apps/web/src/lib/snippets/destination-picker.svelte','apps/web/src/lib/snippets/document.ts','apps/web/src/lib/snippets/editor.svelte','apps/web/src/lib/snippets/service.ts','apps/web/src/lib/snippets/shelf.svelte','apps/web/src/lib/snippets/workspace.svelte','docs/snippets.md','test/snippets/browser.mjs','test/snippets/unit.test.mjs'}
+          rows = subprocess.check_output(['git','apply','--numstat','-'], input=raw).decode().splitlines()
+          assert {row.split('\t',2)[2] for row in rows} == expected
+          subprocess.run(['git','apply','--check','-'],input=raw,check=True)
+          subprocess.run(['git','apply','--index','-'],input=raw,check=True)
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(snippets): preserve offline history and safe editor destination state'
+          git push origin HEAD:refs/heads/fix/snippet-recovery-review-20260928
