@@ -36,6 +36,42 @@ export function snapshotBookmarkData(
   return structuredClone({ ...bookmark, dataId });
 }
 
+export function assertBookPersonalAccess(
+  book: Pick<StoredBookData, 'libraryOwner'>,
+  readerScope: { accountId: string } | undefined,
+  profileId: string | null
+): void {
+  if (
+    (book.libraryOwner !== undefined && book.libraryOwner !== profileId) ||
+    (readerScope && readerScope.accountId !== profileId)
+  )
+    throw new Error('This book belongs to another account.');
+}
+
+export async function readOwnedBookmark(
+  db: IDBPDatabase<BooksDb>,
+  dataId: number,
+  profileId: string | null,
+  assertCurrent: () => void
+): Promise<BooksDbBookmarkData | undefined> {
+  assertCurrent();
+  const tx = db.transaction(['data', 'bookmark', 'readerBookScope']);
+  return commitTransaction(tx, async () => {
+    assertCurrent();
+    const book = await tx.objectStore('data').get(dataId);
+    if (!book) return undefined;
+    const owner = await tx.objectStore('readerBookScope').get(dataId);
+    assertCurrent();
+    if (book.libraryOwner !== undefined && book.libraryOwner !== profileId)
+      throw new Error('This book belongs to another account.');
+    // Personal scope protects the reading state, not otherwise-public local bytes.
+    if (owner && owner.accountId !== profileId) return undefined;
+    const bookmark = await tx.objectStore('bookmark').get(dataId);
+    assertCurrent();
+    return bookmark;
+  });
+}
+
 export async function commitOwnedBookmark(
   db: IDBPDatabase<BooksDb>,
   snapshot: BooksDbBookmarkData,
@@ -61,11 +97,7 @@ export async function commitOwnedBookmark(
       const book = await tx.objectStore('data').get(snapshot.dataId);
       if (!book) throw new Error('This book is no longer in the library.');
       const owner = await tx.objectStore('readerBookScope').get(snapshot.dataId);
-      if (
-        (book.libraryOwner && book.libraryOwner !== profileId) ||
-        (owner && owner.accountId !== profileId)
-      )
-        throw new Error('This book belongs to another account.');
+      assertBookPersonalAccess(book, owner, profileId);
       const bookmarks = tx.objectStore('bookmark');
       const before = await bookmarks.get(snapshot.dataId);
       assertCurrent();
@@ -144,11 +176,11 @@ export async function updateBookLastRead(
       const current = await tx.store.get(id);
       if (!current) return undefined;
       const owner = await tx.objectStore('readerBookScope').get(id);
-      if (
-        (current.libraryOwner && current.libraryOwner !== profileId) ||
-        (owner && owner.accountId !== profileId)
-      )
+      if (current.libraryOwner !== undefined && current.libraryOwner !== profileId)
         throw new Error('This book belongs to another account.');
+      // A direct local book can remain readable across profiles, but its prior
+      // profile's recency is personal state and must not be overwritten.
+      if (owner && owner.accountId !== profileId) return summarizeBook(current);
       const previous = current.lastBookOpen;
       const lastBookOpen = Math.max(
         typeof previous === 'number' && Number.isFinite(previous) ? previous : 0,
