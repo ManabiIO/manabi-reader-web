@@ -199,6 +199,56 @@ def main():
                 check(player.secondary.value==='','Publication overrode translation Off');
                 return {offPreserved:true};
             }''')
+
+            for reverse in (False, True):
+                case(f'Selected temporary offset wins over duplicate offsets (reverse={reverse})', """async reverse=>{
+                    await makePlayer();const selected=track(),duplicate={...selected,id:crypto.randomUUID()},
+                        saved={...selected,id:crypto.randomUUID()};
+                    player.setTemporaryTracks(reverse?[duplicate,selected]:[selected,duplicate]);
+                    select(player.primary,selected.id);
+                    player.primaryDelay.value='.4';player.primaryDelay.dispatchEvent(new Event('change'));
+                    select(player.primary,duplicate.id);
+                    player.primaryDelay.value='.9';player.primaryDelay.dispatchEvent(new Event('change'));
+                    select(player.primary,selected.id);
+                    await player.bindIdentity(key);player.setTracks([saved]);
+                    check(player.primary.value===saved.id,'Selected track did not hand off');
+                    check(player.delays[saved.id]===.4,'Unselected duplicate overwrote selected offset');
+                    await player.saving;
+                    check((await store.get('guest','video_resume',key)).payload.delays[saved.id]===.4,
+                        'Selected offset was not persisted');
+                    return {delay:player.delays[saved.id]};
+                }""", reverse)
+
+            case('A selected saved offset survives resolution of an old ambiguous temporary track', """async()=>{
+                await makePlayer();const temporary=track(),a={...temporary,id:crypto.randomUUID()},
+                    b={...temporary,id:crypto.randomUUID()};
+                player.setTemporaryTracks([temporary]);select(player.primary,temporary.id);
+                player.primaryDelay.value='.4';player.primaryDelay.dispatchEvent(new Event('change'));
+                await player.bindIdentity(key);player.setTracks([a,b]);
+                select(player.primary,a.id);
+                player.primaryDelay.value='.9';player.primaryDelay.dispatchEvent(new Event('change'));
+                player.setTracks([a]);
+                check(player.primary.value===a.id,'Saved selection changed');
+                check(player.delays[a.id]===.9,'Retired temporary track clobbered newer saved offset');
+                await player.saving;
+                check((await store.get('guest','video_resume',key)).payload.delays[a.id]===.9,
+                    'Newer saved offset was not persisted');
+                return {delay:player.delays[a.id]};
+            }""")
+
+            case('An unselected offset handoff is saved without waiting for another playback event', """async()=>{
+                await makePlayer();const temporary=track(),saved={...temporary,id:crypto.randomUUID()};
+                player.setTemporaryTracks([temporary]);select(player.primary,temporary.id);
+                player.primaryDelay.value='.4';player.primaryDelay.dispatchEvent(new Event('change'));
+                select(player.primary,'');select(player.secondary,'');
+                await player.bindIdentity(key);await player.saving;
+                player.setTracks([saved]);await player.saving;
+                const snapshot=(await store.get('guest','video_resume',key)).payload;
+                check(player.primary.value===''&&player.secondary.value==='','Publication overrode Off');
+                check(snapshot.delays[saved.id]===.4,'Offset-only handoff was not saved');
+                check(!Object.hasOwn(snapshot.delays,temporary.id),'Temporary offset leaked into portable state');
+                return {off:true,delay:snapshot.delays[saved.id]};
+            }""")
             page.evaluate('clean()')
         finally:
             browser.close()

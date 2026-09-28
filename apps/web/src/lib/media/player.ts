@@ -31,7 +31,7 @@ import {
   SPARSE_CONTEXT_SECONDS
 } from './sparse-transcription.js';
 import { cueDigest } from './captions.js';
-import { temporaryTrackReplacements } from './authored-track.js';
+import { remapTemporaryTrackDelays, temporaryTrackReplacements } from './authored-track.js';
 import { TrackCatalog } from './track-catalog.js';
 import { type ByteSource } from './sources.js';
 import { MediaStore } from './store.js';
@@ -855,6 +855,12 @@ export class VideoPlayer {
     const wasDraft =
       this.localDraftIds.has(this.primary.value) && !this.publishedIds.has(this.primary.value);
     const replacements = temporaryTrackReplacements(this.temporaryTracks, tracks, this.key);
+    const delays = remapTemporaryTrackDelays(this.delays, replacements, [
+      this.primary.value,
+      this.secondary.value
+    ]);
+    const delaysChanged = delays !== this.delays;
+    this.delays = delays;
     let remapped = false;
     for (const picker of [this.primary, this.secondary]) {
       const replacement = replacements.get(picker.value);
@@ -866,18 +872,11 @@ export class VideoPlayer {
         remapped = true;
       }
     }
-    for (const [temporary, published] of replacements) {
-      if (temporary === published) continue;
-      if (Object.hasOwn(this.delays, temporary)) {
-        this.delays[published] = this.delays[temporary];
-        delete this.delays[temporary];
-      }
-    }
     this.temporaryTracks = this.temporaryTracks.filter((track) => !replacements.has(track.id));
     this.publishedTracks = [...tracks, ...this.temporaryTracks];
     for (const track of tracks) if (track.complete) this.publishedIds.add(track.id);
     this.applyTracks();
-    if (remapped) this.scheduleSave(true);
+    if (remapped || delaysChanged) this.scheduleSave(true);
     if (wasDraft && tracks.some((t) => t.id === this.primary.value && t.complete)) {
       this.saveDraftSelection();
       this.scheduleSave(true);
