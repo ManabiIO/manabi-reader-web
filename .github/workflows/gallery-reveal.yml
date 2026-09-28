@@ -10,6 +10,7 @@ on:
       - 'apps/web/src/lib/components/html-renderer.svelte'
       - 'tests/browser/test_gallery_reveal_lifetime.py'
       - 'tests/browser/test_gallery_continuity.py'
+      - 'tests/browser/test_rhea_ui.py'
       - 'tests/unit/gallery-reveal*'
       - 'tests/unit/html-renderer-readiness.test.mjs'
       - 'tests/unit/reader-font-layout-late-error.test.mjs'
