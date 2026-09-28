@@ -199,7 +199,8 @@ export class TranscriptionQueue {
     duration: number,
     targetSeconds?: number,
     provisional = false,
-    sourceSample?: DeviceKey
+    sourceSample?: DeviceKey,
+    isCurrent?: () => boolean
   ): Promise<Job> {
     if (this.closed) throw new Error('The queue is closed');
     this.requireOriginLock();
@@ -225,9 +226,19 @@ export class TranscriptionQueue {
     const job = await this.store.enqueueJob(this.scope, draft, () => {
       if (this.closed) throw new Error('The queue is closed');
     });
-    // Multiple tabs may admit one deduplicated queued job. The origin lock and
-    // atomic claim select one runner; either tab can make progress if the other stops.
-    this.admitted.set(job.id, {});
+    // Multiple tabs may persist one deduplicated queued job. Admission is local
+    // authority, however: a Generate call that outlived its video/player must not
+    // make that old job runnable after the storage transaction finally returns.
+    const current = () => {
+      if (this.closed) return false;
+      try {
+        return isCurrent?.() ?? true;
+      } catch {
+        return false;
+      }
+    };
+    if (!current()) return job;
+    this.admitted.set(job.id, isCurrent ? { isCurrent: current } : {});
     this.kick();
     return job;
   }
