@@ -141,7 +141,7 @@ class MigrationBrowser(unittest.TestCase):
             })''', STAMP)
             page.get_by_role('button', name='Library actions', exact=True).click()
             page.get_by_role('menuitem', name='Select Books', exact=True).click()
-            page.get_by_role('button', name='Select all', exact=True).click()
+            page.get_by_role('button', name='Select All Visible', exact=True).click()
             expect(page.get_by_text('2 selected', exact=True)).to_be_visible(timeout=15000)
             page.get_by_role('button', name='Export', exact=True).click()
             page.get_by_role('button', name='Zip File', exact=True).click()

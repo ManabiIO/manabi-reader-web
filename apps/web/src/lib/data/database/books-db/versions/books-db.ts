@@ -14,7 +14,10 @@ export type StoredBookData = Omit<BooksDbV10['data']['value'], 'blobs' | 'coverI
 };
 type BooksDb = {
   [K in keyof BooksDbV10]: K extends 'data'
-    ? Omit<BooksDbV10['data'], 'value'> & { value: StoredBookData }
+    ? Omit<BooksDbV10['data'], 'value' | 'indexes'> & {
+        value: StoredBookData;
+        indexes: BooksDbV10['data']['indexes'] & { contentHash: string; libraryOwner: string };
+      }
     : BooksDbV10[K];
 };
 
@@ -28,9 +31,10 @@ export type BooksDbLastModified = BooksDb['lastModified']['value'];
 export type BooksDbAudioBook = BooksDb['audioBook']['value'];
 export type BooksDbSubtitleData = BooksDb['subtitle']['value'];
 export type BooksDbHandle = BooksDb['handle']['value'];
-// v12 repairs missing stores/indexes in older and already-upgraded local schemas.
-// Payloads and the portable archive wire format are unchanged.
-export const currentDbVersion = 12;
+// v12 repaired missing stores/indexes in older and already-upgraded schemas.
+// v13 adds native content-hash and library-owner indexes so identity checks do
+// not clone every stored book payload into JavaScript. Payloads and portable wire data are unchanged.
+export const currentDbVersion = 13;
 export const currentStorageVersion = currentDbVersion;
 export const ttuWireVersion = 8;
 

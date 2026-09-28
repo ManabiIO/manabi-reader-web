@@ -136,6 +136,8 @@
   );
 
   let selectedBookIds: ReadonlySet<number> = new Set();
+  let selectedPreviewKeys: ReadonlySet<string> = new Set();
+  let libraryWorkspace: LibraryWorkspace | undefined;
   let selectMode = false;
   let libraryHeaderHeight = 64;
   let libraryScrollY = 0;
@@ -156,6 +158,7 @@
   let destinationTitle = 'Library';
   let selectionScopeKey = '';
   let selectableBookIds: number[] = [];
+  let selectablePreviewKeys: string[] = [];
   let libraryMenu: LibraryMenuModel | undefined;
   let pageAlive = true;
   let openGeneration = 0;
@@ -180,6 +183,7 @@
     pickDownload?.abort();
     dialogManager.dialogs$.next([]);
   });
+  let confirmingRemoval = false;
 
   $: activeLibraryCards = visibleLibraryEntries(
     $bookCards$ ?? [],
@@ -193,6 +197,7 @@
 
   $: {
     if (!selectMode) {
+      selectedPreviewKeys = new Set();
       selectedBookIds = new Set();
     }
   }
@@ -604,6 +609,10 @@
   }
 
   function onSelectAllBooks() {
+    if ($storageSource$ === StorageKey.BROWSER && libraryWorkspace) {
+      libraryWorkspace.selectAllVisible();
+      return;
+    }
     selectedBookIds = cloneMutateSet(selectedBookIds, (set) => {
       selectableBookIds.forEach((id) => set.add(id));
     });
@@ -620,13 +629,18 @@
     });
   }
 
-  function updateSelectionScope(key: string, ids: number[]) {
+  function updateSelectionScope(key: string, ids: number[], previews: string[] = []) {
     selectableBookIds = ids;
+    selectablePreviewKeys = previews;
     if (key !== selectionScopeKey) {
       selectionScopeKey = key;
+      selectedPreviewKeys = new Set();
       selectedBookIds = new Set();
     } else {
       const eligible = new Set(ids);
+      selectedPreviewKeys = new Set(
+        [...selectedPreviewKeys].filter((key) => previews.includes(key))
+      );
       selectedBookIds = new Set([...selectedBookIds].filter((id) => eligible.has(id)));
     }
   }
@@ -641,6 +655,50 @@
     gotoBook(currentBookId);
   }
 
+  async function confirmSelectedRemoval() {
+    if (confirmingRemoval || replicationToProgress || libraryMenu?.selectedActions?.busy) return;
+    const owner = localProfileUser()?.id ?? null;
+    const generation = openGeneration;
+    const scope = selectionScopeKey;
+    const source = $storageSource$;
+    const eligible = new Set(selectableBookIds);
+    const ids = [...selectedBookIds].filter(
+      (id) => source !== StorageKey.BROWSER || eligible.has(id)
+    );
+    if (!ids.length) return;
+    confirmingRemoval = true;
+    try {
+      const cancelled = await new Promise<boolean>((resolver) => {
+        dialogManager.dialogs$.next([
+          {
+            component: ConfirmDialog,
+            props: {
+              dialogHeader: `Delete ${ids.length} selected ${ids.length === 1 ? 'book' : 'books'}?`,
+              dialogMessage:
+                source === StorageKey.BROWSER
+                  ? `Remove the selected saved books and their local reading positions from this browser? Original files in connected folders and unopened previews are not deleted. ${$keepLocalStatisticsOnDeletion$ ? 'Reading statistics will be kept.' : 'Local reading statistics will also be deleted.'}`
+                  : 'Delete the selected books from the active storage? This cannot be undone.',
+              resolver
+            }
+          }
+        ]);
+      });
+      if (
+        cancelled ||
+        !pageAlive ||
+        generation !== openGeneration ||
+        scope !== selectionScopeKey ||
+        source !== $storageSource$ ||
+        owner !== (localProfileUser()?.id ?? null)
+      )
+        return;
+      // The confirmed snapshot, never a later selection, owns this destructive operation.
+      await removeBooks(ids);
+    } finally {
+      confirmingRemoval = false;
+    }
+  }
+
   async function removeBooks(bookIds: number[]) {
     if (!operationAllowed()) {
       return;
@@ -650,34 +708,40 @@
 
     initializeReplicationProgressData();
 
-    const currentBookCount = $bookCards$.length;
-    const handler = getStorageHandler(window, $storageSource$, '');
-    const { error, deleted } =
-      handler instanceof BrowserStorageHandler
-        ? await handler.deleteBookIds(bookIds, cancelSignal, $keepLocalStatisticsOnDeletion$)
-        : await handler.deleteBookData(
-            $bookCards$.reduce((toDelete, card) => {
-              if (bookIds.includes(card.id)) toDelete.push(card.title);
-              return toDelete;
-            }, [] as string[]),
-            cancelSignal,
-            $keepLocalStatisticsOnDeletion$
-          );
+    try {
+      const currentBookCount = $bookCards$.length;
+      const handler = getStorageHandler(window, $storageSource$, '');
+      const { error, deleted } =
+        handler instanceof BrowserStorageHandler
+          ? await handler.deleteBookIds(bookIds, cancelSignal, $keepLocalStatisticsOnDeletion$)
+          : await handler.deleteBookData(
+              $bookCards$.reduce((toDelete, card) => {
+                if (bookIds.includes(card.id)) toDelete.push(card.title);
+                return toDelete;
+              }, [] as string[]),
+              cancelSignal,
+              $keepLocalStatisticsOnDeletion$
+            );
 
-    resetProgress();
+      await tick();
 
-    await tick();
+      if (deleted.length === currentBookCount) {
+        selectMode = false;
+      } else {
+        selectedBookIds = cloneMutateSet(selectedBookIds, (set) => {
+          deleted.forEach((deletedBookId) => set.delete(deletedBookId));
+        });
+      }
 
-    if (deleted.length === currentBookCount) {
-      selectMode = false;
-    } else {
-      selectedBookIds = cloneMutateSet(selectedBookIds, (set) => {
-        deleted.forEach((deletedBookId) => set.delete(deletedBookId));
-      });
-    }
-
-    if (error) {
-      showError('Deletion failed', error, 'Error(s) occurred during deletion');
+      if (error) showError('Deletion failed', error, 'Error(s) occurred during deletion');
+    } catch (error) {
+      showError(
+        'Deletion failed',
+        error instanceof Error ? error.message : String(error),
+        'Error(s) occurred during deletion'
+      );
+    } finally {
+      resetProgress();
     }
   }
 
@@ -1115,9 +1179,9 @@
       {libraryMenu}
       collectionsExpanded={collectionsOpen}
       hasBookOpened={currentBookAvailable}
-      selectedCount={selectedBookIds.size}
+      selectedCount={selectedBookIds.size + selectedPreviewKeys.size}
       hasBooks={$storageSource$ === StorageKey.BROWSER
-        ? !!activeLibraryCards.length
+        ? !!(selectableBookIds.length || selectablePreviewKeys.length)
         : !!$bookCards$?.length}
       {cancelTooltip}
       {replicationProgress}
@@ -1128,7 +1192,7 @@
       on:editorsPicksClick={() => (editorsPicksOpen = true)}
       on:selectAllClick={onSelectAllBooks}
       on:backToBookClick={backToCurrentBook}
-      on:removeClick={() => removeBooks(Array.from(selectedBookIds))}
+      on:removeClick={confirmSelectedRemoval}
       on:filesChange={(ev) => onFilesChange(ev.detail)}
       on:domainHintClick={onDomainHintClick}
       on:bugReportClick={onBugReportClick}
@@ -1161,6 +1225,8 @@
       Loading...
     {:else if $storageSource$ === StorageKey.BROWSER}
       <LibraryWorkspace
+        bind:this={libraryWorkspace}
+        {selectedPreviewKeys}
         currentBookId={currentBookAvailable ? $currentBookId$ : undefined}
         {selectedBookIds}
         {selectMode}
@@ -1171,7 +1237,18 @@
         on:prepareBook={(ev) => onBookClick(undefined, ev.detail.prepare, ev.detail.locator)}
         on:bookClick={(ev) => onBookClick(ev.detail.id)}
         on:selectionManyClick={(ev) => toggleSelectedBooks(ev.detail.ids)}
-        on:selectionScopeChange={(ev) => updateSelectionScope(ev.detail.key, ev.detail.ids)}
+        on:selectionChange={(ev) => {
+          if (ev.detail.ids.length || ev.detail.previews.length || selectMode) {
+            selectMode = true;
+            selectedPreviewKeys = new Set(
+              ev.detail.previews.filter((key) => selectablePreviewKeys.includes(key))
+            );
+            selectedBookIds = new Set(ev.detail.ids.filter((id) => selectableBookIds.includes(id)));
+          }
+        }}
+        on:selectionCancel={() => (selectMode = false)}
+        on:selectionScopeChange={(ev) =>
+          updateSelectionScope(ev.detail.key, ev.detail.ids, ev.detail.previews)}
         on:removeBookClick={(ev) => removeBooks([ev.detail.id])}
       >
         {@render emptyLibrary()}
