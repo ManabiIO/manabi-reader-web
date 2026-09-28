@@ -45,7 +45,7 @@ const localFeatures = {
 const preV13 = { ...legacy, ...annotations, ...personal, ...statistics, ...localFeatures };
 const expected = {
   ...preV13,
-  data: ['id', true, { title: 'title', contentHash: 'contentHash' }]
+  data: ['id', true, { title: 'title', contentHash: 'contentHash', libraryOwner: 'libraryOwner' }]
 };
 const prefix = (count) => Object.fromEntries(Object.entries(legacy).slice(0, count));
 const histories = {
@@ -152,7 +152,8 @@ async function seedRows(db, version) {
         elementHtml: '<p>本</p>',
         blobs: { 'image.png': binary },
         coverImage: binary,
-        contentHash: 'a'.repeat(64)
+        contentHash: 'a'.repeat(64),
+        libraryOwner: 'account:retained'
       });
     }
     store.put(value, store.keyPath === null ? 0 : undefined);
@@ -222,6 +223,10 @@ async function upgradeHistory(name, [version, definitions], omitIndexes = false)
           db.transaction('data').objectStore('data').index('contentHash').getAllKeys('a'.repeat(64))
         );
         same(indexed, [42], 'Upgrade did not index retained content identity');
+        const owned = await request(
+          db.transaction('data').objectStore('data').index('libraryOwner').getAllKeys('account:retained')
+        );
+        same(owned, [42], 'Upgrade did not index retained library ownership');
       }
       assert(
         db
