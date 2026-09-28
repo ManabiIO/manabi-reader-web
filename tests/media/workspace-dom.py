@@ -472,7 +472,7 @@ def main():
                     new Float32Array(Math.ceil(end*16000)-Math.round(start*16000)).fill(.1);
                 window.closedJob=await workspace.generate();
             }""")
-            page.wait_for_function("store.local('guest','jobs',closedJob).then(j=>j?.pauseReason==='identity'&&j?.audioProofs?.length===1)")
+            wait_for_async(page, "() => store.local('guest','jobs',closedJob).then(j=>j?.pauseReason==='identity'&&j?.audioProofs?.length===1)")
             saved=page.evaluate("""async()=>{
                 const job=await store.local('guest','jobs',closedJob);
                 window.savedDuration=job.duration;
@@ -507,7 +507,7 @@ def main():
             page.evaluate('reselected')
             page.wait_for_function('workspace.current && !workspace.current.provisional')
             if not changed_audio:
-                page.wait_for_function("store.local('guest','jobs',closedJob).then(j=>j?.status==='complete')")
+                wait_for_async(page, "() => store.local('guest','jobs',closedJob).then(j=>j?.status==='complete')")
             result=page.evaluate("""async()=>{
                 const job=await store.local('guest','jobs',closedJob);
                 return {verified:job.verifiedMediaKey??null,key:workspace.current.key,
