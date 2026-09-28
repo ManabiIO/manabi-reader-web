@@ -17,7 +17,7 @@ const check = (condition, message) => {
 };
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const logs = [];
-let queue, store, engine, source, jobId, duration, audioTrack, config;
+let queue, store, engine, source, jobId, duration, audioTrack, config, decodeCache;
 let cancelPromise;
 let phase = 'unstarted';
 let pausedPrefix, decoderCheck;
@@ -28,6 +28,7 @@ let previousLifetime;
 const pageLifetime = crypto.randomUUID();
 const sourceReads = [];
 const nativeChecks = [];
+const decoderSessionOpens = [];
 async function connectSource(input) {
   config = input;
   currentSourceAllowed = true;
@@ -98,23 +99,24 @@ const makeQueue = (pauseAfterFirst) => {
       await engine.dispose();
     }
   };
+  decodeCache = new DecodeSessionCache(async (job, ownerSignal) => {
+    decoderSessionOpens.push({ job: job.id, phase, pageLifetime });
+    return new MediaPipeline(mediaRuntime, source, ownerSignal);
+  });
   return new TranscriptionQueue(
     store,
     'guest',
     measured,
     async (job, start, end, signal) => {
-      const pipeline = new MediaPipeline(mediaRuntime, source, signal);
-      try {
-        const pcm = await pipeline.decode(Number(job.audioTrack), start, end, signal);
-        check(pcm.length > 0 && pcm.every(Number.isFinite), 'Decoder returned invalid PCM');
-        decodeCalls.push({ start, end, samples: pcm.length, phase });
-        return pcm;
-      } finally {
-        pipeline.dispose();
-      }
+      const pcm = await decodeCache.decode(job, Number(job.audioTrack), start, end, signal);
+      check(pcm.length > 0 && pcm.every(Number.isFinite), 'Decoder returned invalid PCM');
+      decodeCalls.push({ start, end, samples: pcm.length, phase });
+      return pcm;
     },
     (progress) => {
       updates.push({ stage: progress.stage, nextWindow: progress.job.nextWindow });
+      if (['complete', 'paused', 'failed'].includes(progress.stage))
+        decodeCache.release(progress.job.id);
       if (
         pauseAfterFirst &&
         !cancelPromise &&
@@ -139,6 +141,7 @@ export const diagnostics = () => ({
   pageLifetime,
   previousLifetime,
   nativeChecks,
+  decoderSessionOpens,
   crossOriginIsolated: globalThis.crossOriginIsolated,
   userAgent: globalThis.navigator.userAgent
 });
