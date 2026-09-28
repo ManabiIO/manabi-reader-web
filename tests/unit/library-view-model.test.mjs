@@ -83,7 +83,7 @@ test('an unambiguous moved file retains its saved identity, progress and present
   const scans = [catalog(storage, ['after.epub'])];
   const organization = emptyOrganization();
   organization.books[bookKey(1)] = { title: 'My title', modifiedAt: 40 };
-  const inputs = structuredClone({ saved, links, scans, organization });
+  const inputs = globalThis.structuredClone({ saved, links, scans, organization });
   const books = allBooks(shelf([saved], links, scans, undefined, organization));
   assert.equal(books.length, 1);
   assert.equal(books[0].bookId, 1);
@@ -98,7 +98,10 @@ test('an unambiguous moved file retains its saved identity, progress and present
 
 test('two identical destinations cannot both consume one missing saved identity', () => {
   const storage = source();
-  for (const files of [['a.epub', 'b.epub'], ['b.epub', 'a.epub']]) {
+  for (const files of [
+    ['a.epub', 'b.epub'],
+    ['b.epub', 'a.epub']
+  ]) {
     const scans = [catalog(storage, files)];
     const books = allBooks(shelf([card(1)], [link(1, storage, 'old.epub')], scans));
     assert.equal(books.length, 3, 'retain both files and the unmatched saved book');
@@ -116,7 +119,10 @@ test('two missing saved copies cannot arbitrarily donate one identity to a desti
   const storage = source();
   const first = link(1, storage, 'old-a.epub');
   const second = link(2, storage, 'old-b.epub');
-  for (const links of [[first, second], [second, first]]) {
+  for (const links of [
+    [first, second],
+    [second, first]
+  ]) {
     const books = allBooks(
       shelf([card(1), card(2, { progress: 0.8 })], links, [catalog(storage, ['new.epub'])])
     );
@@ -245,9 +251,15 @@ for (const direction of ['asc', 'desc']) {
   test(`series author sorting honors file-as just like individual books (${direction})`, () => {
     const nodes = [series('atwood', atwood), series('camus', camus)];
     const expected = direction === 'asc' ? ['atwood', 'camus'] : ['camus', 'atwood'];
-    assert.deepEqual(sortAuthors(nodes, direction).map((node) => node.id), expected);
+    assert.deepEqual(
+      sortAuthors(nodes, direction).map((node) => node.id),
+      expected
+    );
     const standalone = [bookNode('atwood', atwood), bookNode('camus', camus)];
-    assert.deepEqual(sortAuthors(standalone, direction).map((node) => node.id), expected);
+    assert.deepEqual(
+      sortAuthors(standalone, direction).map((node) => node.id),
+      expected
+    );
   });
 }
 
@@ -256,11 +268,10 @@ test('unknown and mixed-author series remain last in both directions', () => {
   mixed.books[1].creators = camus;
   for (const direction of ['asc', 'desc']) {
     const nodes = [series('unknown', []), mixed, series('known', atwood)];
-    assert.deepEqual(sortAuthors(nodes, direction).map((node) => node.id), [
-      'known',
-      'mixed',
-      'unknown'
-    ]);
+    assert.deepEqual(
+      sortAuthors(nodes, direction).map((node) => node.id),
+      ['known', 'mixed', 'unknown']
+    );
   }
 });
 
@@ -268,9 +279,12 @@ test('author sorting uses visible members without mutating the original series',
   const mixed = series('mixed', camus);
   mixed.books[0].creators = atwood;
   const other = series('other', camus);
-  const before = structuredClone([mixed, other]);
+  const before = globalThis.structuredClone([mixed, other]);
   const sorted = sortAuthors([mixed, other], 'asc', (book) => book.key !== 'mixed-2');
-  assert.deepEqual(sorted.map((node) => node.id), ['mixed', 'other']);
+  assert.deepEqual(
+    sorted.map((node) => node.id),
+    ['mixed', 'other']
+  );
   assert.equal(sorted[0].books.length, 1);
   assert.deepEqual([mixed, other], before);
 });
