@@ -24,7 +24,7 @@ export type BookSummary = Pick<
   | 'pageDirection'
   | 'contentHash'
   | 'libraryOwner'
-> & { isPlaceholder: boolean };
+> & { isPlaceholder: boolean; readerOwner?: string };
 
 export function snapshotBookmarkData(
   bookmark: BooksDbBookmarkData,
@@ -35,7 +35,7 @@ export function snapshotBookmarkData(
   return structuredClone({ ...bookmark, dataId });
 }
 
-function summarizeBook(book: StoredBookData): BookSummary {
+function summarizeBook(book: StoredBookData, readerOwner?: string): BookSummary {
   return {
     id: book.id,
     title: book.title,
@@ -48,6 +48,7 @@ function summarizeBook(book: StoredBookData): BookSummary {
     pageDirection: book.pageDirection,
     contentHash: book.contentHash,
     libraryOwner: book.libraryOwner,
+    readerOwner,
     isPlaceholder: !book.elementHtml
   };
 }
@@ -57,12 +58,15 @@ function summarizeBook(book: StoredBookData): BookSummary {
  * cursor value immediately and keep only card metadata and covers.
  */
 export async function readBookSummaries(db: IDBPDatabase<BooksDb>): Promise<BookSummary[]> {
-  const tx = db.transaction('data');
+  const tx = db.transaction(['data', 'readerBookScope']);
   return commitTransaction(tx, async () => {
     const summaries: BookSummary[] = [];
-    let cursor = await tx.store.openCursor();
+    const data = tx.objectStore('data');
+    const scopes = tx.objectStore('readerBookScope');
+    let cursor = await data.openCursor();
     while (cursor) {
-      summaries.push(summarizeBook(cursor.value));
+      const scope = await scopes.get(cursor.value.id);
+      summaries.push(summarizeBook(cursor.value, scope?.accountId));
       cursor = await cursor.continue();
     }
     return summaries;
