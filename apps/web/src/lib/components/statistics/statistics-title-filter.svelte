@@ -6,6 +6,7 @@
   import { Input } from '$lib/components/ui/input';
   import { stickyPanel } from '$lib/hooks/sticky-panel';
   import {
+    preFilteredBookKeysForStatistics$,
     preFilteredTitlesForStatistics$,
     type StatisticsTitleFilterItem
   } from './statistics-types';
@@ -120,22 +121,19 @@
     >
   </div>
   <div class="flex flex-wrap items-center gap-2">
-    <Button
-      variant="ghost"
-      disabled={!filteredTitles.length}
-      onclick={() => selectMatching(true)}>Select matching</Button
+    <Button variant="ghost" disabled={!filteredTitles.length} onclick={() => selectMatching(true)}
+      >Select matching</Button
     >
-    <Button
-      variant="ghost"
-      disabled={!filteredTitles.length}
-      onclick={() => selectMatching(false)}>Remove matching</Button
+    <Button variant="ghost" disabled={!filteredTitles.length} onclick={() => selectMatching(false)}
+      >Remove matching</Button
     >
-    {#if $preFilteredTitlesForStatistics$.size}
+    {#if $preFilteredTitlesForStatistics$.size || $preFilteredBookKeysForStatistics$.size}
       <Button variant="outline" onclick={() => dispatch('clearPrefilter')}>Remove Prefilter</Button>
     {/if}
   </div>
   <p role="status" class="text-sm text-muted-foreground">
-    {filteredTitles.length} matching titles · {titlesToFilter.filter((item) => item.isSelected).length} selected
+    {filteredTitles.length} matching titles · {titlesToFilter.filter((item) => item.isSelected)
+      .length} selected
   </p>
   {#if current.rows.length}
     <div bind:this={titleList} class="title-list" role="group" aria-label="Book title selection">
