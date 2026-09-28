@@ -7,12 +7,14 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { setImmediate } from 'node:timers';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import * as transactions from '../../apps/web/src/lib/data/database/books-db/commit-transaction.mjs';
 
 const lib = new URL('../../apps/web/src/lib/', import.meta.url);
 const compiled = new Map();
+const { structuredClone } = globalThis;
 
 // Execute complete production modules. Only the account store, binary codec and
 // IDB transport are controlled; unrelated UI/RxJS constructor work is not run.
