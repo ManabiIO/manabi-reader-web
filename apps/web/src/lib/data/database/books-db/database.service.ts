@@ -341,7 +341,8 @@ export class DatabaseService {
     dataIds: number[],
     _idsToTitles: Map<number, string>,
     cancelSignal: AbortSignal,
-    keepLocalStatistics: boolean
+    keepLocalStatistics: boolean,
+    ownership?: { profileId: string | null; signal: AbortSignal }
   ) {
     // Snapshot the selected IDs, not their mutable title/resume metadata.
     const selectedIds = [...new Set(dataIds)];
@@ -360,7 +361,9 @@ export class DatabaseService {
           try {
             throwIfAborted(cancelSignal);
 
-            deleted.push(await this.deleteSingleData(db, id, !keepLocalStatistics));
+            deleted.push(
+              await this.deleteSingleData(db, id, !keepLocalStatistics, ownership)
+            );
           } catch (error) {
             errorMessage = handleErrorDuringReplication(
               error,
@@ -445,7 +448,8 @@ export class DatabaseService {
   private async deleteSingleData(
     db: IDBPDatabase<BooksDb>,
     dataId: number,
-    shouldDeleteStatistics: boolean
+    shouldDeleteStatistics: boolean,
+    ownership?: { profileId: string | null; signal: AbortSignal }
   ) {
     const storeNames: (
       | 'data'
@@ -471,13 +475,30 @@ export class DatabaseService {
     if (shouldDeleteStatistics)
       storeNames.push('statistic', 'lastModified', 'readerStatistic', 'readerLocalIdentity');
 
+    ownership?.signal.throwIfAborted();
     const tx = db.transaction(storeNames, 'readwrite');
+    const abort = () => {
+      try {
+        tx.abort();
+      } catch {
+        /* Already settled. */
+      }
+    };
+    ownership?.signal.addEventListener('abort', abort, { once: true });
     let removedLastItem = false;
     try {
       await commitTransaction(tx, async () => {
+        ownership?.signal.throwIfAborted();
         // A batch may span reader writes, renames and other tabs. Decisions must
         // use the current record in the same transaction as its deletion.
         const book = await tx.objectStore('data').get(dataId);
+        if (
+          ownership &&
+          book?.libraryOwner !== undefined &&
+          book.libraryOwner !== ownership.profileId
+        )
+          throw new Error('This book belongs to another account.');
+        ownership?.signal.throwIfAborted();
         const bookTitle = book?.title;
         const titleUsedByAnotherBook = bookTitle
           ? (await tx.objectStore('data').index('title').getAllKeys(bookTitle)).some(
@@ -543,6 +564,8 @@ export class DatabaseService {
           { cause: error }
         );
       throw error;
+    } finally {
+      ownership?.signal.removeEventListener('abort', abort);
     }
     if (removedLastItem) this.lastItemChanged$.next();
     this.bookmarksChanged$.next();
