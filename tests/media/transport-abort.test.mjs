@@ -266,3 +266,62 @@ test('sync error reporting preserves the network failure if isCurrent throws', a
     (error) => error === network
   );
 });
+
+
+test('throwing sync status observer cannot abort durable synchronization', async () => {
+  const writes = [];
+  const store = {
+    local: async () => 0,
+    putLocal: async (...args) => writes.push(args),
+    accept: async () => {},
+    records: async () => [],
+    prepare: async () => {
+      throw new Error('unexpected prepare');
+    }
+  };
+  const transport = {
+    userId: 'user',
+    isCurrent: () => true,
+    request: async () => ({ items: [], next_cursor: 0, has_more: false })
+  };
+  await syncMedia(
+    store,
+    transport,
+    new AbortController().signal,
+    () => {
+      throw new Error('broken status UI');
+    }
+  );
+  assert.equal(writes.length, 1);
+  assert.deepEqual(writes[0].slice(0, 3), ['account:user', 'sync', 'cursor']);
+});
+
+test('throwing sync error observer cannot replace the transport failure', async () => {
+  const network = new Error('network unavailable');
+  const store = {
+    local: async () => 0,
+    putLocal: async () => {},
+    accept: async () => {},
+    records: async () => [],
+    prepare: async () => {
+      throw new Error('unexpected prepare');
+    }
+  };
+  await assert.rejects(
+    syncMedia(
+      store,
+      {
+        userId: 'user',
+        isCurrent: () => true,
+        request: async () => {
+          throw network;
+        }
+      },
+      new AbortController().signal,
+      () => {
+        throw new Error('broken status UI');
+      }
+    ),
+    (error) => error === network
+  );
+});
