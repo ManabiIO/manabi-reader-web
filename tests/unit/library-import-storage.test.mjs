@@ -114,7 +114,9 @@ const current = () => {};
 test('identity inspection retains metadata but not every book payload and resource buffer', async () => {
   const h = harness([record(1, { blobs: { huge: new ArrayBuffer(100) }, htmlBackup: 'source' })]);
   const values = await readLibraryIdentities(h.db);
-  assert.deepEqual(values, [{ id: 1, title: 'Book', contentHash: hash, isPlaceholder: false }]);
+  assert.deepEqual(values, [
+    { id: 1, title: 'Book', contentHash: hash, libraryOwner: undefined, isPlaceholder: false }
+  ]);
   assert.equal(h.writes.length, 0);
 });
 
@@ -134,6 +136,18 @@ test('a valid exact link is reused without replacing its content or personal met
   assert.equal(result.title, 'Custom');
   assert.equal(h.writes.length, 0);
   assert.equal(h.rows()[0], saved);
+});
+
+test('reopening a legacy cloud copy durably records its account scope', async () => {
+  const saved = record(1, { title: 'Custom', elementHtml: 'Keep', lastBookOpen: 900 });
+  const h = harness([saved]);
+  const alice = request({ source: { ...source, owner: 'alice' } });
+  const links = [link(1, { owner: 'alice', fileId: 'copy.epub' })];
+  const result = await commit(h.db, links, alice, undefined, current);
+  assert.equal(result.id, 1);
+  assert.equal(h.rows()[0].libraryOwner, 'alice');
+  assert.equal(h.rows()[0].elementHtml, 'Keep');
+  assert.equal(h.rows()[0].lastBookOpen, 900);
 });
 
 test('a deleted expected book is never recreated from a previously prepared import', async () => {
@@ -173,6 +187,22 @@ test('same-title and same-hash foreign account records cannot be overwritten by 
   assert.equal(result.title, `Book [${hash.slice(0, 10)}]`);
   assert.equal(h.rows()[0], saved);
   assert.equal(h.writes.filter(([kind]) => kind === 'put').length, 0);
+});
+
+test('a cloud import keeps its owner if link publication fails after book commit', async () => {
+  const h = harness([]);
+  const alice = request({ source: { ...source, owner: 'alice' } });
+  const imported = await commit(h.db, [], alice, prepared(), current);
+  assert.equal(h.rows()[0].libraryOwner, 'alice');
+  const bob = await commit(
+    h.db,
+    [],
+    request({ source: { ...source, owner: 'bob' } }),
+    prepared(),
+    current
+  );
+  assert.notEqual(bob.id, imported.id);
+  assert.equal(h.rows()[0].libraryOwner, 'alice');
 });
 
 test('a matching book inserted while parsing is reused without replacing newer content', async () => {

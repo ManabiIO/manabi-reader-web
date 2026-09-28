@@ -123,6 +123,35 @@ class LibraryIdentityBrowser(LibraryBase):
         self.assertNotEqual(original['bookId'], records[0]['id'])
         self.assertEqual(original['contentHash'], records[0]['contentHash'])
 
+    def test_interrupted_link_publication_keeps_cloud_book_account_scoped(self):
+        original = self.import_finished()
+        saved = self.stores('books', ['data'])['data'][0]
+        self.assertEqual('42', saved['libraryOwner'])
+        self.page.evaluate('''async linkId => {
+          const db = await new Promise((resolve, reject) => {
+            const request = indexedDB.open('manabi-reader-integrations');
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          const tx = db.transaction('books', 'readwrite');
+          tx.objectStore('books').delete(linkId);
+          await new Promise((resolve, reject) => {
+            tx.oncomplete = resolve; tx.onabort = () => reject(tx.error);
+          });
+          db.close();
+        }''', original['id'])
+        CloudRelocationHandler.nodes[GOOGLE] = {}
+        StaticHandler.account_fixture = {
+            'user': {'id': 'other', 'username': 'other'},
+            'csrf_token': 'c' * 64, 'providers': []
+        }
+        self.go_library()
+        saved_tile = self.page.locator('[data-book-key="book:%s"]' % original['bookId'])
+        expect(saved_tile).to_have_count(0)
+        StaticHandler.account_fixture['user'] = {'id': '42', 'username': 'reader'}
+        self.go_library()
+        expect(saved_tile).to_be_visible(timeout=30000)
+
     def test_two_live_histories_at_one_locator_are_not_chosen_by_link_order(self):
         original = self.import_finished()
         duplicate_id = self.page.evaluate('''async link => {

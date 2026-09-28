@@ -34,7 +34,10 @@ export async function findEditorsPickCopy(
       throwIfAborted(signal);
       const book = cursor.value;
       if (book.contentHash?.toLowerCase() !== digest) continue;
-      if (!visibleLibraryEntries([{ id: book.id }], links, owner).cards.length) {
+      if (
+        !visibleLibraryEntries([{ id: book.id, libraryOwner: book.libraryOwner }], links, owner)
+          .cards.length
+      ) {
         foreign = true;
         continue;
       }
@@ -78,7 +81,7 @@ export async function validateEditorsPickCopy(
     book.storageSource
   )
     throw new Error('The local copy changed or was removed. Open the book again from the Library.');
-  if (!visibleLibraryEntries([{ id }], links, owner).cards.length)
+  if (!visibleLibraryEntries([{ id, libraryOwner: book.libraryOwner }], links, owner).cards.length)
     throw new Error('This local book is unavailable for the current account.');
 }
 

@@ -10,6 +10,7 @@ import { bookKey, contentBookKey, sourceBookKey } from './organization-keys.ts';
 export interface BookIdentityRecord {
   id: number;
   contentHash?: string;
+  libraryOwner?: string;
 }
 export type BookIdentitySource = { id: string; owner: string | null; root: string };
 type IdentityLink = Pick<
@@ -46,13 +47,18 @@ export class BookIdentityIndex {
   private readonly books = new Map<number, string>();
   private readonly byContent = new Map<string, Set<number>>();
   private readonly byFile = new Map<string, IdentityLink[]>();
+  private readonly libraryOwners = new Map<number, string>();
 
   constructor(records: readonly BookIdentityRecord[], links: readonly IdentityLink[]) {
     const owners = new Map<number, Set<string | null>>();
     const linked = new Set<number>();
     for (const record of records) {
       const hash = normalizedContentHash(record.contentHash);
-      if (hash && Number.isSafeInteger(record.id) && record.id > 0) this.books.set(record.id, hash);
+      if (hash && Number.isSafeInteger(record.id) && record.id > 0) {
+        this.books.set(record.id, hash);
+        if (record.libraryOwner !== undefined)
+          this.libraryOwners.set(record.id, record.libraryOwner);
+      }
     }
     for (const value of links) {
       const link = { ...value };
@@ -63,16 +69,25 @@ export class BookIdentityIndex {
       linked.add(link.bookId);
       // A stale link cannot grant its account ownership of a live book whose
       // own content hash disagrees with the link's claim.
-      if (this.books.get(link.bookId) !== normalizedContentHash(link.contentHash)) continue;
+      if (
+        this.books.get(link.bookId) !== normalizedContentHash(link.contentHash) ||
+        (this.libraryOwners.has(link.bookId) && this.libraryOwners.get(link.bookId) !== link.owner)
+      )
+        continue;
       const scopes = owners.get(link.bookId) ?? new Set<string | null>();
       scopes.add(link.owner);
       owners.set(link.bookId, scopes);
     }
     for (const [bookId, hash] of this.books) {
-      // Unlinked browser imports belong to the local source scope, not to
-      // whichever cloud account happens to be looking at the library. A
-      // linked book with only stale claims has no safe scope to inherit.
-      for (const owner of owners.get(bookId) ?? (linked.has(bookId) ? [] : [null])) {
+      // Browser imports without an owner belong to the local source scope.
+      // A connected import keeps its recorded owner even if link publication
+      // fails. Legacy books with only stale links have no safe inferred scope.
+      for (const owner of owners.get(bookId) ??
+        (this.libraryOwners.has(bookId)
+          ? [this.libraryOwners.get(bookId)!]
+          : linked.has(bookId)
+            ? []
+            : [null])) {
         const key = contentIdentity(owner, hash);
         const ids = this.byContent.get(key) ?? new Set<number>();
         ids.add(bookId);
@@ -90,6 +105,8 @@ export class BookIdentityIndex {
       if (
         linkedHash &&
         this.books.get(link.bookId) === linkedHash &&
+        (!this.libraryOwners.has(link.bookId) ||
+          this.libraryOwners.get(link.bookId) === link.owner) &&
         (!hash || hash === linkedHash)
       )
         exact.add(link.bookId);

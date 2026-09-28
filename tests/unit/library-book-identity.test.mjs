@@ -118,6 +118,19 @@ test('unlinked local books are not silently adopted by the current cloud account
   assert.equal(resolve([record(1)], [], source, 'copy.epub', hash), 1);
 });
 
+test('an unlinked cloud book retains its owner when publication fails', () => {
+  const alice = { ...source, owner: 'alice' };
+  const bob = { ...source, owner: 'bob' };
+  const pending = { id: 1, contentHash: hash, libraryOwner: 'alice' };
+  assert.equal(resolve([pending], [], alice, 'copy.epub', hash), 1);
+  assert.equal(resolve([pending], [], bob, 'copy.epub', hash), undefined);
+  assert.equal(resolve([pending], [], source, 'copy.epub', hash), undefined);
+  assert.equal(
+    resolve([pending], [link(1, 'copy.epub', { owner: 'bob' })], bob, 'copy.epub', hash),
+    undefined
+  );
+});
+
 test('the exact physical copy remains selectable without merging independent same-byte histories', () => {
   const links = [link(1, 'one.epub'), link(2, 'two.epub')];
   assert.equal(resolve([record(1), record(2)], links, source, 'one.epub', hash), 1);

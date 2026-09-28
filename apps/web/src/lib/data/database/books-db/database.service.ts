@@ -306,6 +306,7 @@ export class DatabaseService {
         const replacement = {
           ...stored,
           id: oldData.id,
+          libraryOwner: oldData.libraryOwner ?? stored.libraryOwner,
           ...(skipTimestampFallback
             ? { lastBookModified: stored.lastBookModified, lastBookOpen: stored.lastBookOpen }
             : {

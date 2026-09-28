@@ -4,9 +4,9 @@
  * All rights reserved.
  */
 
-/** A linked cloud book is visible only to the account that owns a usable link. */
+/** Cloud copies remain scoped even if their separate link write never committed. */
 export function visibleLibraryEntries<
-  C extends { id: number },
+  C extends { id: number; libraryOwner?: string },
   L extends { bookId: number; owner: string | null }
 >(cards: C[], allLinks: L[] | null, viewerId: string | null): { cards: C[]; links: L[] } {
   if (!allLinks) return { cards: [], links: [] };
@@ -18,7 +18,11 @@ export function visibleLibraryEntries<
       .map((link) => link.bookId)
   );
   return {
-    cards: cards.filter((card) => !foreign.has(card.id) || available.has(card.id)),
+    cards: cards.filter(
+      (card) =>
+        (card.libraryOwner === undefined || card.libraryOwner === viewerId) &&
+        (!foreign.has(card.id) || available.has(card.id))
+    ),
     links
   };
 }

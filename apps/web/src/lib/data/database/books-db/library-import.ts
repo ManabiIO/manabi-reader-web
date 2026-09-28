@@ -19,6 +19,7 @@ export interface LibraryBookIdentity {
   id: number;
   title: string;
   contentHash?: string;
+  libraryOwner?: string;
   isPlaceholder: boolean;
 }
 interface IdentityCursor {
@@ -37,6 +38,7 @@ async function readIdentities(store: IdentityStore): Promise<LibraryBookIdentity
       id: book.id,
       title: book.title,
       contentHash: book.contentHash,
+      libraryOwner: book.libraryOwner,
       isPlaceholder: !book.elementHtml
     });
   }
@@ -102,8 +104,11 @@ export async function commitLibraryBook(
       const existing = selected === undefined ? undefined : await tx.store.get(selected);
       assertCurrent();
       signal?.throwIfAborted();
-      if (existing?.elementHtml)
+      if (existing?.elementHtml) {
+        if (request.source.owner !== null && existing.libraryOwner === undefined)
+          await tx.store.put({ ...existing, libraryOwner: request.source.owner });
         return { id: existing.id, title: existing.title, compatibleBookIds: ids };
+      }
       if (!prepared) throw new Error('The saved book changed while opening. Refresh the Library.');
       if (existing) {
         // Only hydrate a still-empty, exact-identity placeholder. Do not reset
@@ -114,7 +119,8 @@ export async function commitLibraryBook(
           id: existing.id,
           title: existing.title,
           lastBookOpen: existing.lastBookOpen ?? prepared.lastBookOpen,
-          storageSource: undefined
+          storageSource: undefined,
+          libraryOwner: existing.libraryOwner ?? request.source.owner ?? undefined
         });
         assertCurrent();
         signal?.throwIfAborted();
@@ -130,7 +136,12 @@ export async function commitLibraryBook(
       }
       assertCurrent();
       signal?.throwIfAborted();
-      const inserted = { ...prepared, title, storageSource: undefined } as Partial<StoredBookData>;
+      const inserted = {
+        ...prepared,
+        title,
+        storageSource: undefined,
+        libraryOwner: request.source.owner ?? undefined
+      } as Partial<StoredBookData>;
       // Parser/import payloads never choose the browser's autoincrement identity.
       delete inserted.id;
       const id = await tx.store.add(inserted as StoredBookData);

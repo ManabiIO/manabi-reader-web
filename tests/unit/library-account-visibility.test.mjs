@@ -37,3 +37,10 @@ test('direct imports remain visible and links must load before saved cards appea
     links: []
   });
 });
+
+test('an account-scoped book remains private if link publication was interrupted', () => {
+  const pending = { id: 6, libraryOwner: 'account-a' };
+  assert.deepEqual(visibleLibraryEntries([pending], [], 'account-a').cards, [pending]);
+  assert.deepEqual(visibleLibraryEntries([pending], [], 'account-b').cards, []);
+  assert.deepEqual(visibleLibraryEntries([pending], [], null).cards, []);
+});
