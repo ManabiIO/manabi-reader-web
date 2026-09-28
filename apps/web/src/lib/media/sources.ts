@@ -170,7 +170,7 @@ export function cloudSource(
   const assertCurrent = () => {
     if (revoked) throw revoked.error;
     try {
-      assertCurrent();
+      if (!current()) throw new Error('Account changed');
     } catch (error) {
       revoked = { error };
       throw error;
@@ -188,7 +188,7 @@ export function cloudSource(
     async read(start, end, signal) {
       signal.throwIfAborted();
       assertRange(start, end, size);
-      if (!current()) throw new Error('Account changed');
+      assertCurrent();
       const response = await abortable(signal, () =>
         fetch(url, {
           signal,
