@@ -6,6 +6,7 @@ import {
   migrateLegacyStatistics,
   preserveCompletedStatistic,
   readStatisticsRecoverySnapshot,
+  statisticDeletionPlan,
   titlesWithMultipleStatisticIdentities,
   visibleStatistics
 } from '../../apps/web/src/lib/data/database/books-db/reader-statistics.ts';
@@ -257,5 +258,90 @@ test('identity conflict never hides a legacy day that was already ambiguous', as
     (await visibleStatistics(db)).map((row) => row.charactersRead).sort((a, b) => a - b),
     [5, 12, 90]
   );
+  db.close();
+});
+
+
+test('statistics deletion plan refuses unresolved same-title legacy history', async () => {
+  const db = await database();
+  const first = book(1, 'Same deletion title', 'a');
+  const second = book(2, 'Same deletion title', 'b');
+  await db.put('data', first);
+  await db.put('data', second);
+  await db.put('statistic', day(first.title, '2026-09-20', 45));
+  await db.put('readerStatistic', {
+    ...day(first.title, '2026-09-21', 72),
+    bookKey: contentStatisticKey(first)
+  });
+
+  const plan = await statisticDeletionPlan(db, first.id);
+  assert.equal(plan.bookKey, contentStatisticKey(first));
+  assert.deepEqual(plan.keys, [contentStatisticKey(first)]);
+  assert.equal(plan.unresolvedLegacy, true);
+  assert.equal((await db.get('readerStatisticMigration', first.title)).state, 'ambiguous');
+  db.close();
+});
+
+test('statistics deletion plan maps assigned legacy history to the selected logical book', async () => {
+  const db = await database();
+  const copy = book(1, 'Assigned deletion', 'c');
+  await db.put('data', copy);
+  await db.put('statistic', day(copy.title, '2026-09-20', 12));
+
+  const plan = await statisticDeletionPlan(db, copy.id);
+  assert.equal(plan.bookKey, contentStatisticKey(copy));
+  assert.deepEqual(plan.keys, [contentStatisticKey(copy)]);
+  assert.equal(plan.unresolvedLegacy, false);
+  assert.equal(
+    (await db.get('readerStatistic', [plan.bookKey, '2026-09-20'])).charactersRead,
+    12
+  );
+  db.close();
+});
+
+test('statistics deletion plan includes retained pre-hash identity after a resolved conflict', async () => {
+  const db = await database();
+  const local = book(1, 'Conflict deletion');
+  await db.put('data', local);
+  await db.put('statistic', day(local.title, '2026-09-20', 12));
+  const localKey = await migrateLegacyStatistics(db, local);
+  const verified = book(1, local.title, 'd');
+  await db.put('data', verified);
+  await db.put('readerStatistic', {
+    ...day(local.title, '2026-09-20', 90),
+    bookKey: contentStatisticKey(verified)
+  });
+  await migrateLegacyStatistics(db, verified);
+
+  const plan = await statisticDeletionPlan(db, verified.id);
+  assert.equal(plan.bookKey, contentStatisticKey(verified));
+  assert.deepEqual(new Set(plan.keys), new Set([contentStatisticKey(verified), localKey]));
+  assert.equal(plan.unresolvedLegacy, false);
+  db.close();
+});
+
+test('statistics deletion plan keeps ambiguous legacy history fail-closed across identity conflict', async () => {
+  const db = await database();
+  const local = book(1, 'Ambiguous conflict deletion');
+  const other = book(2, local.title, 'a');
+  await db.put('data', local);
+  await db.put('data', other);
+  await db.put('statistic', day(local.title, '2026-09-20', 5));
+  const localKey = await migrateLegacyStatistics(db, local);
+  await db.put('readerStatistic', {
+    ...day(local.title, '2026-09-21', 12),
+    bookKey: localKey
+  });
+  const verified = book(1, local.title, 'e');
+  await db.put('data', verified);
+  await db.put('readerStatistic', {
+    ...day(local.title, '2026-09-21', 90),
+    bookKey: contentStatisticKey(verified)
+  });
+  await migrateLegacyStatistics(db, verified);
+
+  const plan = await statisticDeletionPlan(db, verified.id);
+  assert.equal(plan.unresolvedLegacy, true);
+  assert.deepEqual(new Set(plan.keys), new Set([contentStatisticKey(verified), localKey]));
   db.close();
 });
