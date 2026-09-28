@@ -203,6 +203,9 @@ class LibraryParityBrowser(LibraryBase):
         books = StaticHandler.preference_settings['library_organization']['books']
         self.assertIn('Synced publisher', [book.get('metadata', {}).get('publisher')
                                            for book in books.values()])
+        publisher_record = next(book for book in books.values()
+                                if book.get('metadata', {}).get('publisher') == 'Synced publisher')
+        self.assertNotIn('title', publisher_record)
 
     def test_metadata_edit_keeps_source_identity_history_and_plain_text(self):
         self.populate(1)
@@ -211,7 +214,7 @@ class LibraryParityBrowser(LibraryBase):
         panel = self.dialog()
         expect(panel.get_by_label('Authors (one per line)', exact=True)).to_have_value('Original Author')
         panel.get_by_label('Title', exact=True).fill('Edited title')
-        panel.get_by_label('Authors (one per line)', exact=True).fill('New Author\nSecond Author')
+        panel.get_by_label('Authors (one per line)', exact=True).fill('New Author\n\nSecond Author')
         panel.get_by_label('Publisher', exact=True).fill('My publisher')
         panel.get_by_label('Description', exact=True).fill('<script>window.metadataExecuted=true</script>\nLiteral text')
         panel.get_by_label('Tags (one per line)', exact=True).fill('Study\n日本語')
