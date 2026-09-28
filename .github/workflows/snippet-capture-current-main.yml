@@ -1,0 +1,31 @@
+name: Capture current main for snippet integration
+on:
+  push:
+    branches: [feat/cloud-backed-snippets]
+    paths: ['.github/workflows/snippet-capture-current-main.yml']
+permissions:
+  contents: read
+jobs:
+  capture:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 17f0cd36973c52ab8fa254f862323563611bd7c6
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Capture exact source and delta from snippet base
+        run: |
+          mkdir -p /tmp/current-main
+          git archive --format=tar.gz -o /tmp/current-main/source.tar.gz HEAD
+          git diff --binary d0afc6fab0530c597e68b5345ab28ab138d16ac1 HEAD > /tmp/current-main/d0-to-current.patch
+          git rev-parse HEAD > /tmp/current-main/commit.txt
+          git rev-parse d0afc6fab0530c597e68b5345ab28ab138d16ac1 > /tmp/current-main/base.txt
+          sha256sum /tmp/current-main/source.tar.gz /tmp/current-main/d0-to-current.patch
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snippet-current-main-source
+          path: /tmp/current-main
+          retention-days: 2
+          if-no-files-found: error
