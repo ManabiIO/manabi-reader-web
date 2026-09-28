@@ -1,4 +1,5 @@
 """Built-app WebDAV authority checks with real IndexedDB and the HTTP fixture."""
+import threading
 import time
 import unittest
 
@@ -64,11 +65,16 @@ class WebDavAuthorityBrowser(LocalFeatureBrowser):
         path = self.establish_dav_state()
         before = self.stores('books', ['bookmark', 'readerExternalSync'])
         remote = self.dav.state['files'][path]
-        intercepted = []
-
-        def retarget(route):
-            if route.request.method == 'GET':
-                self.page.evaluate('''() => new Promise((resolve, reject) => {
+        gate = threading.Event()
+        started = threading.Event()
+        self.dav.state.update(sync_get_gate=gate, get_started=started)
+        try:
+            self.page.get_by_role('button', name='Sync WebDAV offline book', exact=True).click()
+            deadline = time.monotonic() + 20
+            while not started.is_set():
+                self.assertLess(time.monotonic(), deadline, 'Sync did not reach the WebDAV GET')
+                self.page.wait_for_timeout(25)
+            self.page.evaluate('''() => new Promise((resolve, reject) => {
                   const request = indexedDB.open('manabi-reader-integrations');
                   request.onerror = () => reject(request.error);
                   request.onsuccess = () => {
@@ -81,19 +87,12 @@ class WebDavAuthorityBrowser(LocalFeatureBrowser):
                     tx.onabort = () => { db.close(); reject(tx.error); };
                   };
                 })''')
-                intercepted.append(route.request.url)
-            route.continue_()
-
-        self.page.route('**/.manabi-reader/*.json', retarget)
-        self.page.get_by_role('button', name='Sync WebDAV offline book', exact=True).click()
-        deadline = time.monotonic() + 20
-        while not intercepted:
-            self.assertLess(time.monotonic(), deadline, 'Sync did not reach the intercepted GET')
-            self.page.wait_for_timeout(25)
+        finally:
+            gate.set()
         expect(self.page.get_by_text(
             'This WebDAV sync was disabled or its book changed.', exact=True)).to_be_visible(
                 timeout=15000)
-        self.assertEqual(1, len(intercepted))
+        self.assertTrue(started.is_set())
         self.assertEqual(before, self.stores('books', ['bookmark', 'readerExternalSync']))
         self.assertEqual(remote, self.dav.state['files'][path])
         self.assertEqual(1, self.dav.state['puts'])
