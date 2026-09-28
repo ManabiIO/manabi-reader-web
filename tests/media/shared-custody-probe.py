@@ -1,22 +1,26 @@
 #!/usr/bin/env python3
 """Native browser experiment: keep one model owner outside a frozen page.
 
-This is an ownership/lifecycle probe, not MOSS inference. The SharedWorker owns a
-bounded in-memory model surrogate directly because the tested Chromium SharedWorker
-does not expose a nested Worker constructor. A separate real-runtime qualification
-is required before this architecture can replace production ownership.
+This is an ownership/lifecycle probe, not MOSS inference. The SharedWorker directly
+instantiates the exact checked-in single-thread MOSS WASM runtime because the tested
+Chromium SharedWorker does not expose a nested Worker constructor. It allocates and
+touches bounded WASM memory, but does not load model weights or transcribe speech;
+those remain separate release qualifications.
 """
 import http.server
 import json
 import os
 from pathlib import Path
 import threading
+
+ROOT = Path(__file__).resolve().parents[2]
+MOSS = ROOT / 'apps/web/static/moss/single'
 from playwright.sync_api import sync_playwright
 from browser_poll import wait_for_async
 
 PAGE = '''<!doctype html><title>Model custody probe</title><script>
 window.events=[];
-window.broker=new SharedWorker('/broker.js',{name:'moss-direct-custody-probe'});
+window.broker=new SharedWorker('/broker.js',{name:'moss-direct-custody-probe',type:'module'});
 broker.onerror=event=>events.push({type:'error',phase:'broker-script',message:event.message});
 broker.port.onmessage=({data})=>{
   events.push(data);
@@ -29,26 +33,43 @@ window.shutdown=()=>broker.port.postMessage({type:'shutdown'});
 </script>'''
 
 BROKER = '''const ports=new Set();
-let active, pending=[], serial=0, model, modelToken, modelLoads=0;
+let active, pending=[], serial=0, runtime, allocation=0, modelToken, modelLoads=0;
 let releaseModel, modelLockTask;
+const EXPECTED_ENGINE='190a569c13b4b247450f2fb3b2a431244e84833e+manabi-web-v7';
+const EXPECTED_GGML='eced84c86f8b012c752c016f7fe789adea168e1e';
+const RETAINED_BYTES=64*1024*1024;
 const send=(port,data)=>{try{port.postMessage(data)}catch{}};
 const broadcast=data=>{for(const port of ports)send(port,data)};
 const token=()=>typeof crypto.randomUUID==='function'?crypto.randomUUID():
   Array.from(crypto.getRandomValues(new Uint8Array(16)),n=>n.toString(16).padStart(2,'0')).join('');
 async function ensureModel(){
-  if(model)return;
+  if(runtime)return;
   const acquired={};
   acquired.promise=new Promise(resolve=>acquired.resolve=resolve);
   const lifetime={};
   lifetime.promise=new Promise(resolve=>releaseModel=resolve);
   modelLockTask=navigator.locks.request('moss-probe-model',async()=>{
-    model=new Uint8Array(64*1024*1024);
-    // Commit representative pages and retain the allocation in worker-owned state.
-    for(let i=0;i<model.length;i+=4096)model[i]=(i/4096)&255;
+    const factory=(await import('/moss.mjs')).default;
+    runtime=await factory({locateFile:name=>new URL('/'+name,location.origin).href});
+    if(runtime._moss_web_abi_version?.()!==1)throw Error('Unexpected MOSS ABI');
+    if(runtime.UTF8ToString(runtime._moss_web_engine_revision?.())!==EXPECTED_ENGINE)
+      throw Error('Unexpected MOSS engine revision');
+    if(runtime.UTF8ToString(runtime._moss_web_ggml_revision?.())!==EXPECTED_GGML)
+      throw Error('Unexpected ggml revision');
+    if(!(runtime.HEAP32 instanceof Int32Array) ||
+       (typeof SharedArrayBuffer!=='undefined' && runtime.HEAP32.buffer instanceof SharedArrayBuffer))
+      throw Error('Expected the single-thread runtime');
+    allocation=runtime._malloc(RETAINED_BYTES);
+    if(!allocation)throw Error('Could not allocate retained WASM memory');
+    const heap=runtime.HEAP32,start=allocation/4,end=start+RETAINED_BYTES/4;
+    if(!Number.isSafeInteger(start)||start<0||end>heap.length)throw Error('Invalid WASM allocation');
+    for(let i=start;i<end;i+=1024)heap[i]=(i-start)&0x7fffffff;
     modelToken=token();modelLoads++;
     acquired.resolve();
     await lifetime.promise;
-    model=undefined;
+    runtime._free(allocation);
+    allocation=0;
+    runtime=undefined;
   });
   await acquired.promise;
 }
@@ -59,7 +80,8 @@ async function drain(){
   const owner={port,last:performance.now(),nonce:0,release:undefined};
   active=owner;
   navigator.locks.request('moss-probe-inference',async()=>{
-    send(port,{type:'acquired',token:modelToken,loads:modelLoads,bytes:model.byteLength,
+    send(port,{type:'acquired',token:modelToken,loads:modelLoads,bytes:RETAINED_BYTES,
+      abi:runtime._moss_web_abi_version(),engine:EXPECTED_ENGINE,
       worker:typeof Worker,locks:typeof navigator.locks?.request});
     await new Promise(resolve=>owner.release=resolve);
   }).then(()=>{
@@ -110,13 +132,23 @@ onconnect=({ports:[port]})=>{
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
-        data = {'/': PAGE, '/broker.js': BROKER}.get(self.path)
-        if data is None:
+        inline = {'/': ('text/html', PAGE), '/broker.js': ('text/javascript', BROKER)}
+        if self.path in inline:
+            content_type, data = inline[self.path]
+            body = data.encode()
+        elif self.path in {'/moss.mjs', '/moss.wasm'}:
+            item = MOSS / self.path[1:]
+            if not item.is_file():
+                self.send_error(404)
+                return
+            content_type = 'text/javascript' if item.suffix == '.mjs' else 'application/wasm'
+            body = item.read_bytes()
+        else:
             self.send_error(404)
             return
-        body = data.encode()
         self.send_response(200)
-        self.send_header('Content-Type', 'text/html' if self.path == '/' else 'text/javascript')
+        self.send_header('Content-Type', content_type)
+        self.send_header('Cache-Control', 'no-store')
         self.send_header('Content-Length', str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -163,9 +195,11 @@ def main():
                 owner.evaluate('acquire()')
                 first = acquired(owner)
                 assert first['loads'] == 1 and first['bytes'] == 64 * 1024 * 1024, first
+                assert first['abi'] == 1 and first['engine'].endswith('+manabi-web-v7'), first
                 result.append({
-                    'name': 'SharedWorker directly owns exactly one bounded model allocation',
-                    'passed': True, 'worker': first['worker'], 'token': first['token']
+                    'name': 'SharedWorker directly owns one checked-in MOSS runtime allocation',
+                    'passed': True, 'worker': first['worker'], 'token': first['token'],
+                    'abi': first['abi'], 'engine': first['engine']
                 })
 
                 peer.evaluate('acquire()')
