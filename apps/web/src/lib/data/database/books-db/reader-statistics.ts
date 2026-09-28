@@ -351,16 +351,18 @@ export async function deleteStatisticsForIdentityPlan(
     throw new Error(
       `Older statistics for “${expected.title}” cannot be safely assigned to this copy.`
     );
-  const stores = [
-    'data',
-    'statistic',
-    'readerStatistic',
-    'readerStatisticMigration',
-    'readerLocalIdentity',
-    'lastModified',
-    ...(guard ? (['readerBookScope'] as const) : [])
-  ] as const;
-  const tx = db.transaction(stores, 'readwrite');
+  const tx = db.transaction(
+    [
+      'data',
+      'statistic',
+      'readerStatistic',
+      'readerStatisticMigration',
+      'readerLocalIdentity',
+      'readerBookScope',
+      'lastModified'
+    ],
+    'readwrite'
+  );
   const abort = () => {
     try {
       tx.abort();
