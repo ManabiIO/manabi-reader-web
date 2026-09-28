@@ -11,6 +11,7 @@ from xml.sax.saxutils import escape
 
 from playwright.sync_api import expect
 from test_product_journeys import ProductJourneyBase
+from search_geometry import assert_mark_visible
 
 
 class SearchQuality(ProductJourneyBase):
@@ -154,7 +155,7 @@ class SearchQuality(ProductJourneyBase):
                 hits.first.scroll_into_view_if_needed()
                 hits.first.focus()
                 expect(hits.first).to_be_focused()
-                expect(hits.locator('mark')).to_be_in_viewport()
+                assert_mark_visible(self, hits.locator('mark'))
                 self.assertTrue(panel.evaluate('e => e.scrollWidth <= e.clientWidth + 1'))
                 self.assertTrue(hits.first.evaluate('e => e.scrollWidth <= e.clientWidth + 1'))
                 field.focus()
@@ -175,18 +176,45 @@ class SearchQuality(ProductJourneyBase):
         mark = self.result_buttons(panel).locator('mark')
         expect(mark).to_have_count(1)
         measurements = []
+        settings = self.context.new_page()
+        settings.goto(self.origin + '/reader-web/settings')
+        expect(settings.get_by_label('Search settings', exact=True)).to_be_visible()
+        settings.get_by_role('button', name='All settings', exact=True).click()
         for theme in ('manabi-theme', 'light-theme', 'ecru-theme', 'water-theme', 'gray-theme', 'dark-theme', 'black-theme'):
             for mode in ('light', 'dark'):
                 with self.subTest(theme=theme, mode=mode):
-                    # Native computed styles of the real compiled components,
-                    # not copied token values or a fabricated DOM renderer.
-                    self.page.evaluate("([theme,mode]) => { document.documentElement.setAttribute('data-theme',theme); document.documentElement.setAttribute('data-appearance',mode) }", [theme, mode])
+                    # The app owns inline palette variables. A data-theme
+                    # attribute alone does not select a different real palette.
+                    # Use real settings controls in a second tab and require
+                    # native storage-event propagation into the open Reader.
+                    settings.bring_to_front()
+                    settings.locator('button[title="' + theme + '"]').click()
+                    settings.get_by_role('group', name='Appearance mode').get_by_role(
+                        'button', name=mode.capitalize(), exact=True).click()
+                    expect(settings.locator('html')).to_have_attribute('data-theme', theme)
+                    expect(settings.locator('html')).to_have_attribute('data-appearance', mode)
+                    expect(self.page.locator('html')).to_have_attribute('data-theme', theme)
+                    expect(self.page.locator('html')).to_have_attribute('data-appearance', mode)
+                    self.page.bring_to_front()
+                    # Measure the settled surface, not an intermediate color
+                    # transition. Wait for actual finite animations, not sleep.
+                    panel.evaluate('''async element => {
+                      getComputedStyle(element).backgroundColor;
+                      await Promise.all(element.getAnimations({subtree:true})
+                        .filter(a => a.effect?.getComputedTiming().iterations !== Infinity)
+                        .map(a => a.finished.catch(() => {})));
+                    }''')
                     colors = mark.evaluate("""element => {
                       const canvas=document.createElement('canvas'); canvas.width=canvas.height=1;
                       const context=canvas.getContext('2d', {willReadFrequently:true});
                       const rgb=color => { context.clearRect(0,0,1,1); context.fillStyle=color; context.fillRect(0,0,1,1); return [...context.getImageData(0,0,1,1).data] };
                       const style=getComputedStyle(element);
-                      return {foreground:rgb(style.color),background:rgb(style.backgroundColor),weight:style.fontWeight};
+                      const panel=element.closest('[role="dialog"]');
+                      const surface=getComputedStyle(panel);
+                      const status=getComputedStyle(panel.querySelector('[role="status"]'));
+                      return {foreground:rgb(style.color),background:rgb(style.backgroundColor),weight:style.fontWeight,
+                        panelForeground:rgb(surface.color),panelBackground:rgb(surface.backgroundColor),
+                        statusForeground:rgb(status.color)};
                     }""")
                     self.assertEqual(255, colors['foreground'][3])
                     self.assertEqual(255, colors['background'][3])
@@ -197,9 +225,23 @@ class SearchQuality(ProductJourneyBase):
                     a, b = luminance(colors['foreground']), luminance(colors['background'])
                     ratio = (max(a, b) + .05) / (min(a, b) + .05)
                     self.assertGreaterEqual(ratio, 4.5, colors)
+                    self.assertEqual(255, colors['panelBackground'][3])
+                    for text_color in ('panelForeground', 'statusForeground'):
+                        self.assertEqual(255, colors[text_color][3])
+                        text_lum, surface_lum = luminance(colors[text_color]), luminance(colors['panelBackground'])
+                        text_ratio = (max(text_lum, surface_lum) + .05) / (min(text_lum, surface_lum) + .05)
+                        self.assertGreaterEqual(text_ratio, 4.5, (text_color, colors))
                     self.assertGreaterEqual(int(colors['weight']), 600)
                     measurements.append(dict(theme=theme, mode=mode, contrast=ratio, **colors))
         (self.output / (self._testMethodName + '-contrast.json')).write_text(json.dumps(measurements, indent=2))
+        # Guard the test itself against measuring one inline palette fourteen
+        # times while only labels or attributes change.
+        palette_pairs = {(tuple(row['foreground']), tuple(row['background'])) for row in measurements}
+        self.assertGreaterEqual(len(palette_pairs), 5, measurements)
+        settings.close()
+        self.page.bring_to_front()
+        expect(panel).to_be_visible()
+        expect(mark).to_have_text('猫')
         self.checkpoint('dark-highlight')
 
     def test_search_worker_start_failure_has_a_real_retry(self):

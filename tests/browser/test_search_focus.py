@@ -8,6 +8,7 @@ import unittest
 
 from playwright.sync_api import expect
 from test_product_journeys import ProductJourneyBase
+from search_geometry import assert_mark_visible
 from test_books_library import book
 
 
@@ -31,7 +32,7 @@ class SearchFocusQuality(ProductJourneyBase):
         expect(panel.get_by_label('Match case', exact=True)).to_be_focused()
         self.page.keyboard.press('Tab')
         expect(hits.first).to_be_focused()
-        expect(hits.locator('mark')).to_be_in_viewport()
+        assert_mark_visible(self, hits.locator('mark'))
         close = panel.get_by_role('button', name='Close search', exact=True)
         expect(close).to_be_in_viewport(ratio=1)
         self.checkpoint('keyboard-visible-match')
@@ -73,7 +74,7 @@ class SearchFocusQuality(ProductJourneyBase):
         more.click()
         expect(self.result_buttons(panel)).to_have_count(101)
         expect(self.result_buttons(panel).nth(100)).to_be_focused()
-        expect(self.result_buttons(panel).nth(100).locator('mark')).to_be_in_viewport()
+        assert_mark_visible(self, self.result_buttons(panel).nth(100).locator('mark'))
         expect(more).to_have_count(0)
         self.checkpoint('last-pointer-result')
 
@@ -95,6 +96,7 @@ class SearchFocusQuality(ProductJourneyBase):
     def test_large_title_keeps_close_control_reachable_after_scrolling(self):
         title = '長い日本語の題名・' * 10
         panel, field = self.open_search_book(title, '<p>' + '冒頭の文章。' * 20 + '猫' + '続く文章。' * 20 + '</p>')
+        close = panel.get_by_role('button', name='Close search', exact=True)
         for width, height in ((320, 568), (667, 320)):
             with self.subTest(width=width, height=height):
                 self.page.set_viewport_size({'width': width, 'height': height})
@@ -104,7 +106,7 @@ class SearchFocusQuality(ProductJourneyBase):
                 expect(hits).to_have_count(1)
                 hits.first.focus()
                 expect(hits.first).to_be_focused()
-                expect(hits.locator('mark')).to_be_in_viewport()
+                assert_mark_visible(self, hits.locator('mark'))
                 close = panel.get_by_role('button', name='Close search', exact=True)
                 expect(close).to_be_in_viewport(ratio=1)
                 geometry = close.bounding_box()

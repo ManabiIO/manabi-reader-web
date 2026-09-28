@@ -1,8 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  import { buttonClasses } from '$lib/css-classes';
+  import { Button } from '$lib/components/ui/button';
   import DialogTemplate from '$lib/components/dialog-template.svelte';
-  import Ripple from '$lib/components/ripple.svelte';
 
   export let title: string;
 
@@ -16,12 +15,9 @@
 <DialogTemplate>
   <svelte:fragment slot="header">{title}</svelte:fragment>
   <svelte:fragment slot="content">
-    <p>{message}</p>
+    <p class="[overflow-wrap:anywhere]">{message}</p>
   </svelte:fragment>
   <svelte:fragment slot="footer">
-    <button class={buttonClasses} on:click={() => dispatch('close')}>
-      Close
-      <Ripple />
-    </button>
+    <Button variant="secondary" class="min-h-11" onclick={() => dispatch('close')}>Close</Button>
   </svelte:fragment>
 </DialogTemplate>
