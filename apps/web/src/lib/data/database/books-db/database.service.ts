@@ -436,7 +436,9 @@ export class DatabaseService {
         const readerScope = await tx.objectStore('readerBookScope').get(dataId);
         assertBookPersonalAccess(book, readerScope, scope.profileId);
         scope.assertCurrent();
-        return tx.objectStore('bookmark').get(dataId);
+        const bookmark = await tx.objectStore('bookmark').get(dataId);
+        scope.assertCurrent();
+        return bookmark;
       });
     } finally {
       scope.stop();
