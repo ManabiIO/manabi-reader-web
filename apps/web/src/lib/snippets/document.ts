@@ -379,6 +379,20 @@ export function editSnippet(
     })
   );
 }
+/** Keep the acknowledged provider revision in bounded local history until its successor is saved.
+ * Apply only to local edits, never to a document received from a provider. */
+export function retainRemoteAncestor(
+  document: SnippetDocument,
+  remoteRevision: string | undefined
+): SnippetDocument {
+  if (
+    !remoteRevision ||
+    document.revision === remoteRevision ||
+    document.parents.includes(remoteRevision)
+  )
+    return document;
+  return { ...document, parents: [remoteRevision, ...document.parents].slice(0, 16) };
+}
 export function appendSnippet(
   document: SnippetDocument,
   content: TextNode,

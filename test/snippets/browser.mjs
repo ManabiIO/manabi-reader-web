@@ -37,7 +37,8 @@ const providers = [
 const files = new Map(),
   states = new Map();
 let serial = 0,
-  failCleanup = false;
+  failCleanup = false,
+  deniedFolderSource = '';
 const counts = { writes: 0, removes: 0, stateWrites: 0 };
 const errors = [];
 const canonical = (v) =>
@@ -89,6 +90,8 @@ async function context(user = null, available = true) {
     if (!provider || !provider.roots.includes(u.searchParams.get('root')))
       return respond({ error: 'forbidden' }, 403);
     const parent = u.searchParams.get('parent') ?? provider.roots[0];
+    if (operation === 'files' && deniedFolderSource === connection)
+      return respond({ error: 'forbidden' }, 403);
     if (operation === 'files')
       return respond({
         items: [...files.values()]
@@ -247,6 +250,15 @@ try {
   await openLibrary(page);
   await page.getByRole('searchbox', { name: 'Search snippets' }).fill('珍しい言葉');
   await expect(page.locator('.snippet-shelf .title')).toHaveText(['散歩の記録']);
+  await page.getByRole('button', { name: 'Select', exact: true }).click();
+  await page.locator('.snippet-shelf .passage').first().click();
+  await expect(
+    page.getByRole('checkbox', { name: 'Select 散歩の記録', exact: true })
+  ).toBeChecked();
+  await expect(page.getByRole('searchbox', { name: 'Search snippets' })).toHaveValue('珍しい言葉');
+  await expect(page.getByRole('article', { name: 'Snippet content' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Done selecting', exact: true }).click();
+  passed('search passages honor selection mode without navigating away');
   await page.locator('.snippet-shelf .passage').first().click();
   await expect(page.getByRole('article', { name: 'Snippet content' })).toContainText('珍しい言葉');
   await page.getByRole('link', { name: '← Back to library', exact: true }).click();
@@ -313,6 +325,37 @@ try {
   await expect(page.getByRole('button', { name: 'Restore snippet', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Restore snippet', exact: true }).click();
   passed('shared collections and recoverable trash/restore');
+  const imported = structuredClone(
+    (await records(page)).find((r) => r.document.id === id).document
+  );
+  imported.id = crypto.randomUUID();
+  imported.revision = crypto.randomUUID();
+  imported.parents = [];
+  imported.captures = [];
+  imported.title = { mode: 'custom', text: '持ち込んだ原本' };
+  delete imported.trashedAt;
+  await openLibrary(page);
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'original.manabi-snippet.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify(imported))
+  });
+  await expect(page.getByRole('textbox', { name: 'Snippet title', exact: true })).toHaveValue(
+    '持ち込んだ原本'
+  );
+  await page.getByRole('textbox', { name: 'Snippet title', exact: true }).fill('編集した持ち込み');
+  await page
+    .getByRole('textbox', { name: 'Snippet text', exact: true })
+    .fill('持ち込み後の編集も別の版です。');
+  assert.equal(await commit(page, true), imported.id);
+  const importedSaved = (await records(page)).find((r) => r.document.id === imported.id).document;
+  assert.notEqual(importedSaved.revision, imported.revision);
+  assert(importedSaved.parents.includes(imported.revision));
+  assert.equal(importedSaved.title.text, '編集した持ち込み');
+  await expect(page.getByRole('article', { name: 'Snippet content' })).toContainText(
+    '持ち込み後の編集も別の版です。'
+  );
+  passed('editing a portable import preserves identity but creates a successor revision');
   await local.ctx.close();
 
   const cloud = await context('alice');
@@ -334,6 +377,24 @@ try {
   const picker = page.getByRole('dialog');
   await expect(picker.getByLabel('Storage source')).toBeVisible();
   await picker.getByLabel('Storage source').selectOption({ label: 'dropbox · Dropbox snippets' });
+  await expect(picker.getByRole('button', { name: 'Use this folder', exact: true })).toBeEnabled();
+  const writesBeforeDestinationFailure = counts.writes;
+  deniedFolderSource = providers[1].id;
+  await picker.getByLabel('Storage source').selectOption({ label: 'google · Drive snippets' });
+  await expect(picker.getByRole('alert')).toBeVisible();
+  await expect(
+    picker.locator('button:enabled').filter({ hasText: /^Use this folder$/ })
+  ).toHaveCount(0);
+  assert.equal(counts.writes, writesBeforeDestinationFailure);
+  deniedFolderSource = '';
+  await picker.getByRole('button', { name: 'Retry folder', exact: true }).click();
+  await expect(picker.getByRole('button', { name: 'Use this folder', exact: true })).toBeEnabled();
+  await expect(picker.getByLabel('Storage source')).toHaveValue(
+    JSON.stringify(['alice', providers[1].id, providers[1].roots[0]])
+  );
+  await picker.getByLabel('Storage source').selectOption({ label: 'dropbox · Dropbox snippets' });
+  await expect(picker.getByRole('button', { name: 'Use this folder', exact: true })).toBeEnabled();
+  passed('failed destination switch cannot reuse the previously writable folder');
   await picker.getByRole('checkbox', { name: 'Use this location for new snippets' }).check();
   await picker.getByRole('button', { name: 'Use this folder', exact: true }).click();
   const cloudID = await commit(page);
@@ -382,11 +443,51 @@ try {
   await page.getByRole('button', { name: 'Furigana', exact: true }).click();
   const reading = page.getByRole('textbox', { name: 'Furigana reading', exact: true });
   await reading.fill('いどう');
+  await expect(page.getByRole('button', { name: 'Save snippet', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Keep draft', exact: true })).toBeDisabled();
   await reading.dispatchEvent('compositionstart');
+  await expect(page.getByRole('button', { name: 'Apply', exact: true })).toBeDisabled();
   await reading.press('Enter');
+  await reading.press('Escape');
   await expect(reading).toBeVisible();
   await reading.dispatchEvent('compositionend');
   await page.getByRole('button', { name: 'Apply', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Save snippet', exact: true })).toBeEnabled();
+  passed('unapplied annotation cannot be silently omitted by Save or Keep draft');
+  // The upstream blur-to-dismiss editor must not bypass the guarded annotation form.
+  await textbox.locator('ruby rt').first().click();
+  await expect(textbox.locator('rt input')).toHaveCount(0);
+  // Place an actual DOM caret inside an existing mark. Editing it must replace the whole reading.
+  await textbox
+    .locator('ruby')
+    .first()
+    .evaluate((ruby) => {
+      const walker = document.createTreeWalker(ruby, window.NodeFilter.SHOW_TEXT);
+      let node;
+      while ((node = walker.nextNode())) {
+        if (!node.parentElement?.closest('rt, rp') && node.textContent?.length) {
+          ruby.closest('[contenteditable]').focus();
+          const selection = window.getSelection();
+          selection.removeAllRanges();
+          const range = document.createRange();
+          range.setStart(node, Math.min(1, node.textContent.length));
+          range.collapse(true);
+          selection.addRange(range);
+          document.dispatchEvent(new Event('selectionchange'));
+          return;
+        }
+      }
+      throw new Error('The existing ruby has no base text.');
+    });
+  await page.getByRole('button', { name: 'Furigana', exact: true }).click();
+  await expect(reading).toHaveValue('とうきょう');
+  await reading.fill('トウキョウ');
+  await page.getByRole('button', { name: 'Apply', exact: true }).click();
+  await expect(textbox.locator('ruby rt').first()).toHaveText('トウキョウ');
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(textbox.locator('ruby rt').first()).toHaveText('とうきょう');
+  await expect(page.getByRole('button', { name: 'Redo', exact: true })).toBeEnabled();
+  passed('caret edits the existing ruby mark and toolbar undo restores its reading');
   await commit(page);
   await expect
     .poll(async () => (await records(page)).find((r) => r.document.id === cloudID)?.dirty)

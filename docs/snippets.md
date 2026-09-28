@@ -23,6 +23,17 @@ updates the reload URL before publishing the editor. Navigation ownership is ind
 reactive UI state: a late draft/record load cannot replace the next route, even after leaving
 and returning to the same URL. Concurrent edits are rejected by revision, not silently overwritten.
 An append operation captures its destination and receipt identity before asynchronous work.
+Local editing, appending, trashing and restoring share the same bounded ancestry rule: the last
+acknowledged provider revision remains a parent until its successor is saved, even after many
+offline changes. Editing a portable import preserves its document ID but creates a new revision.
+
+Furigana/link controls edit the whole existing mark when invoked at a caret. The toolbar exposes
+active formatting and available undo/redo. The upstream blur-to-dismiss inline ruby widget is
+replaced by that single guarded form, not a second untracked annotation editor. Apply and Escape
+respect Japanese composition; Save
+and Keep draft cannot silently omit an annotation still being entered outside the document.
+Search passage links use the same selection handler as titles, so batch-selection mode does not
+unexpectedly navigate away.
 
 The reader supports horizontal/vertical reading, typography size, source attribution and
 capture to a new/existing snippet. Book selection capture copies the selected authored DOM
@@ -47,6 +58,9 @@ asks when there are multiple eligible sources. Clearing the default never moves 
 required to start: choosing this-device-only is explicit and labeled, and Move publishes such
 a document later. Native local-folder and strong-ETag WebDAV adapters are included. Local folder
 writes cannot atomically exclude external applications; the picker warns users to close them.
+Switching source/folder immediately invalidates the previous destination's write capability.
+Only a successfully loaded folder can be chosen. Failed folder loads offer Retry, expired local
+permissions offer renewal, and delayed folder creation cannot retarget a newer picker selection.
 
 The backend supports Google Drive, Dropbox and qualified OneDrive Personal document writes.
 OneDrive Business/SharePoint writes are not advertised: its final conditional-commit contract
