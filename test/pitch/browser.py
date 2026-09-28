@@ -22,12 +22,22 @@ html = '''<!doctype html><html><head><meta charset="utf-8"><title>Pitch native h
 <script type="module">
 import {createPitchController} from './browser.mjs';
 import {pitchPaths} from './model.mjs';
-window.workersCreated = 0;
+window.workersCreated = 0; window.workerReady = 0; window.contexts = []; window.audioEvents = [];
 const OriginalWorker = window.Worker;
-window.Worker = class extends OriginalWorker { constructor(...args) { super(...args); this.addEventListener('error', event => console.error('Worker error:', event.message, event.filename)); window.workersCreated++; } };
+window.Worker = class extends OriginalWorker { constructor(...args) { super(...args); this.addEventListener('error', event => console.error('Worker error:', event.message, event.filename)); this.addEventListener('message', event => { if (event.data?.type === 'ready') window.workerReady++; }); window.workersCreated++; } };
 window.states = []; window.captured = []; window.routes = []; window.contextCloses = 0;
 const Original = window.AudioContext;
 window.AudioContext = class extends Original {
+  constructor(...args) {
+    super(...args); window.contexts.push(this);
+    this.addEventListener('statechange', () => window.audioEvents.push('state:' + this.state));
+  }
+  resume() {
+    window.audioEvents.push('resume:' + this.state);
+    const promise = super.resume();
+    promise.then(() => window.audioEvents.push('resumed:' + this.state), error => window.audioEvents.push('resume-error:' + error.message));
+    return promise;
+  }
   createMediaElementSource(audio) {
     const source = super.createMediaElementSource(audio); window.captured.push(source);
     const connections = new Set(); window.routes.push(connections);
@@ -77,7 +87,11 @@ try:
         assert not any('voice-pitch.worker' in url for url in requests), 'worker fetched while disabled'
         page.click('#show')
         page.wait_for_function("['ready','error'].includes(window.state?.status)")
-        assert page.evaluate("state.status === 'ready'"), page.evaluate('JSON.stringify(state)')
+        diagnostics = page.evaluate('''() => ({state, workerReady, workersCreated, audioEvents,
+            contexts: contexts.map(context => ({state: context.state, time: context.currentTime,
+                sampleRate: context.sampleRate})), userActivation: navigator.userActivation?.hasBeenActive})''')
+        (root / 'startup.json').write_text(json.dumps(diagnostics, indent=2))
+        assert page.evaluate("state.status === 'ready'"), json.dumps(diagnostics)
         assert page.evaluate('workersCreated === 1')
         assert any('voice-pitch.worker' in url for url in requests), 'worker was not loaded on demand'
         assert 'loading' in page.evaluate('window.states')
