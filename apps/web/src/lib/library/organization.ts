@@ -15,6 +15,8 @@ import {
   isPortableText,
   portableOrganization
 } from './organization-portability';
+import type { BookMetadata, BookSeries } from './book-presentation';
+import { latestBookPresentation } from './presentation-compatibility';
 import type { PageDirection } from './direction';
 import { changeWantToRead, WANT_TO_READ_ID, type CollectionBook } from './want-to-read';
 
@@ -29,6 +31,9 @@ export interface BookPresentation {
   title?: string;
   direction?: PageDirection;
   cover?: string;
+  metadata?: BookMetadata;
+  series?: BookSeries | null;
+  coverBlur?: boolean;
   modifiedAt: number;
 }
 export interface Organization {
@@ -67,6 +72,11 @@ function normalizedOrganization(value: unknown): Organization | undefined {
     new Set(collections.map((collection) => collection.id)).size !== collections.length
   )
     return;
+  const memberships = collections.reduce(
+    (count, collection) => count + collection.members.length,
+    0
+  );
+  if (memberships > 50000) return;
   const entries = Object.entries(item.books);
   if (
     entries.length > 50000 ||
@@ -181,6 +191,8 @@ export async function updateOrganization(
       const before = structuredClone(value);
       change(value);
       assertCurrent();
+      if (!normalizedOrganization(value))
+        throw new Error('The library organization is invalid or exceeds its size limit.');
       // Migration retry protection commits atomically with collection memberships.
       if (admittedReceipt) await tx.store.put(admittedReceipt, admittedReceipt.key);
       assertCurrent();
@@ -233,7 +245,7 @@ export function watchOrganization(onError: (error: unknown) => void = () => unde
 export async function createCollection(
   name: string,
   members: string[] = [],
-  guard: () => void = () => undefined
+  currentOrGuard: () => boolean | void = () => undefined
 ) {
   const collection = {
     id: crypto.randomUUID(),
@@ -242,10 +254,14 @@ export async function createCollection(
   };
   await updateOrganization(
     (value) => {
+      if (value.collections.length >= 1000)
+        throw new Error('The collection limit has been reached.');
       value.collections.push(collection);
     },
     undefined,
-    guard
+    () => {
+      if (currentOrGuard() === false) throw new Error('The library changed. Reopen this action.');
+    }
   );
   return collection.id;
 }
@@ -285,45 +301,95 @@ export async function setMembership(
 /** Change a batch in one organization transaction, including mixed book/snippet collections. */
 export async function setMembershipMany(
   id: string,
-  members: string[],
+  members: (CollectionBook | string)[],
   included: boolean,
-  guard: () => void = () => undefined
+  currentOrGuard: () => boolean | void = () => undefined
 ) {
-  const unique = [...new Set(members)];
-  if (unique.length > 50000) throw new Error('Too many collection members.');
+  const targets = structuredClone(
+    members.map((member) =>
+      typeof member === 'string' ? { organizationKey: member, organizationAliases: [] } : member
+    )
+  );
+  if (targets.length > 50000) throw new Error('Too many collection members.');
   await updateOrganization(
     (value) => {
       if (id === WANT_TO_READ_ID) {
-        changeWantToRead(
-          value,
-          unique.map((member) => ({ organizationKey: member, organizationAliases: [] })),
-          included
-        );
+        changeWantToRead(value, targets, included);
         return;
       }
       const collection = value.collections.find((item) => item.id === id);
       if (!collection) throw new Error('This collection no longer exists.');
-      const keys = new Set(unique),
-        retained = collection.members.filter((key) => !keys.has(key));
-      collection.members = included ? [...retained, ...unique] : retained;
+      const replaced = new Set(
+        targets.flatMap((member) => [member.organizationKey, ...member.organizationAliases])
+      );
+      const retained = collection.members.filter((key) => !replaced.has(key));
+      collection.members = [
+        ...new Set(
+          included ? [...retained, ...targets.map((member) => member.organizationKey)] : retained
+        )
+      ];
     },
     undefined,
-    guard
+    () => {
+      if (currentOrGuard() === false) throw new Error('The library changed. Reopen this action.');
+    }
   );
 }
-export async function presentBook(
-  id: string,
-  change: { title?: string; direction?: PageDirection; cover?: string }
-) {
-  if (change.title !== undefined) change.title = libraryName(change.title);
-  await updateOrganization((value) => {
-    const presentation = { ...value.books[id], ...change, modifiedAt: Date.now() };
-    if (!isPortablePresentation(presentation))
-      throw new Error('The book presentation override is invalid or too large.');
-    value.books[id] = presentation;
-  });
+function presentationTitle(value: string): string {
+  const title = value.trim();
+  if (!isPortableText(title, 1000)) throw new Error('Enter a title of 1–1000 characters.');
+  return title;
 }
 
+export type PresentationChange = Partial<Omit<BookPresentation, 'modifiedAt'>>;
+export async function presentBook(id: string, change: PresentationChange) {
+  return presentBooks([id], change);
+}
+/** Commit a batch once. Validation failure rolls back every selected book. */
+export async function presentBooks(
+  ids: string[],
+  change: PresentationChange,
+  current: () => boolean = () => true,
+  expected?: Record<string, BookPresentation | undefined>,
+  preserveSeriesIndex = false
+) {
+  const patch = structuredClone(change);
+  const targets = [...new Set(ids)];
+  const baseline = expected && structuredClone(expected);
+  if (patch.title !== undefined) patch.title = presentationTitle(patch.title);
+  await updateOrganization(
+    (value) => {
+      for (const id of targets) {
+        if (baseline && !equal(value.books[id], baseline[id]))
+          throw new Error('This book was edited elsewhere. Reopen its metadata before saving.');
+        const presentation = { ...value.books[id], ...patch, modifiedAt: Date.now() };
+        // A batch membership edit never erases a book's existing volume number in that series.
+        // The metadata editor can still explicitly clear or change the number.
+        const previousSeries = value.books[id]?.series;
+        if (
+          preserveSeriesIndex &&
+          patch.series &&
+          previousSeries?.name === patch.series.name &&
+          patch.series.index === undefined &&
+          previousSeries.index !== undefined
+        ) {
+          presentation.series = { ...patch.series, index: previousSeries.index };
+        }
+        // Explicit undefined resets a field; never serialize undefined to the wire.
+        for (const field of Object.keys(presentation))
+          if (presentation[field as keyof BookPresentation] === undefined)
+            delete presentation[field as keyof BookPresentation];
+        if (!isPortablePresentation(presentation))
+          throw new Error('The book presentation override is invalid or too large.');
+        value.books[id] = presentation;
+      }
+    },
+    undefined,
+    () => {
+      if (!current()) throw new Error('The library changed. Reopen this action.');
+    }
+  );
+}
 /** Replace browser- and provider-specific locators with content identity once it is known. */
 export async function stabilizeOrganization(
   links: BookLink[],
@@ -339,7 +405,7 @@ export async function stabilizeOrganization(
     for (const [before, after] of replacements) {
       const prior = value.books[before],
         current = value.books[after];
-      if (prior && (!current || prior.modifiedAt > current.modifiedAt)) value.books[after] = prior;
+      if (prior) value.books[after] = latestBookPresentation([current, prior])!;
       if (before !== after) delete value.books[before];
     }
   });
@@ -354,7 +420,7 @@ export async function relocatePresentation(before: string, after: string) {
       ];
     const prior = value.books[before],
       current = value.books[after];
-    if (prior && (!current || prior.modifiedAt > current.modifiedAt)) value.books[after] = prior;
+    if (prior) value.books[after] = latestBookPresentation([current, prior])!;
     delete value.books[before];
   });
 }

@@ -106,6 +106,28 @@ test('one intersecting node retains the historical whole-node count contract', (
   assert.equal(progress.exploredCharacterCount(0, content, range(nodes, 5, 5, 1, 3)), 20);
 });
 
+test('bookmark count restores a visible point inside a long text node', () => {
+  const node = text('日本語の本を読みます。文章を丁寧に読んで、次のページに進みます。');
+  const content = element('div', [element('p', [node])]);
+  content.contains = (candidate) => candidate === node;
+  let restored;
+  content.ownerDocument = {
+    createRange: () => ({
+      setStart: (target, offset) => {
+        restored = { target, offset };
+      },
+      collapse: () => {}
+    })
+  };
+  const progress = new FoliateCharacterProgress([content]);
+  const visible = range([node], 0, 0, 15, 30);
+  assert.equal(progress.exploredCharacterCount(0, content, visible), 0);
+  const bookmark = progress.bookmarkCharacterCount(0, content, visible);
+  assert.equal(bookmark, 14);
+  progress.rangeForCharacterCount(0, content, bookmark);
+  assert.deepEqual(restored, { target: node, offset: 15 });
+});
+
 test('a range starting at a text-node end does not claim that preceding node as visible', () => {
   const { nodes, content, progress } = fixture(3);
   assert.equal(progress.exploredCharacterCount(0, content, range(nodes, 0, 1, 4, 3)), 4);

@@ -3,6 +3,7 @@
 No mocked storage, replaced picker, imported substitute UI or request interception.
 Filesystem cases run on Chromium; the browser-only cases also run on WebKit.
 """
+from reader_controls import reveal_reader_controls
 import base64
 import hashlib
 import io
@@ -120,7 +121,9 @@ class LibraryBase(unittest.TestCase):
         self.profile = tempfile.TemporaryDirectory()
         self.engine = os.environ.get('LIBRARY_BROWSER', 'chromium')
         self.context = getattr(self.playwright, self.engine).launch_persistent_context(
-            self.profile.name, viewport={'width': 1200, 'height': 900})
+            self.profile.name, viewport={'width': 1200, 'height': 900},
+            has_touch=getattr(self, 'touch', False),
+            executable_path=os.environ.get('LIBRARY_EXECUTABLE_PATH') or None)
         self.context.add_init_script(
             "try { localStorage.setItem('manabi-reader-dictionary-setup-v1', 'skip') } catch {}")
         self.page = self.context.pages[0]
@@ -342,7 +345,8 @@ class BooksLibraryBrowser(LibraryBase):
             self.page.get_by_role('button', name='Read Overwrite-before', exact=True)
         ).to_be_visible(timeout=30000)
         before = self.stores('books', ['data'])['data'][0]
-        self.page.wait_for_function('(timestamp) => Date.now() > timestamp', before['lastBookModified'])
+        self.page.wait_for_function(
+            '(timestamp) => Date.now() > timestamp', arg=before['lastBookModified'])
 
         picker.set_input_files({
             'name': 'Overwrite-after.txt',
@@ -352,7 +356,13 @@ class BooksLibraryBrowser(LibraryBase):
         expect(
             self.page.get_by_role('button', name='Read Overwrite-before', exact=True)
         ).to_be_visible(timeout=30000)
-        rows = self.stores('books', ['data'])['data']
+        deadline = time.monotonic() + 10
+        while True:
+            rows = self.stores('books', ['data'])['data']
+            if rows and rows[0]['lastBookModified'] > before['lastBookModified']:
+                break
+            self.assertLess(time.monotonic(), deadline, 'Overwrite did not reprocess the exact file')
+            self.page.wait_for_timeout(50)
         self.assertEqual(1, len(rows))
         self.assertEqual(before['id'], rows[0]['id'])
         self.assertGreater(
@@ -505,8 +515,7 @@ class BooksLibraryBrowser(LibraryBase):
         controls = self.page.locator('button[data-reader-controls]')
 
         def tool(name):
-            if controls.get_attribute('aria-expanded') != 'true':
-                controls.click()
+            reveal_reader_controls(self.page)
             self.page.get_by_role('button', name='Reading tools').click()
             self.page.get_by_role('menuitem', name=name, exact=True).click()
 
@@ -569,7 +578,7 @@ class BooksLibraryBrowser(LibraryBase):
         })
         self.page.get_by_role('button', name='Read Projection checks', exact=True).click()
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=35000)
-        self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+        reveal_reader_controls(self.page)
         self.page.get_by_role('button', name='Reading tools').click()
         self.page.get_by_role('menuitem', name='Search Book', exact=True).click()
         search = self.page.get_by_role('searchbox', name='Search within book')
@@ -577,7 +586,8 @@ class BooksLibraryBrowser(LibraryBase):
                              ('かん', 0), ('が', 1), ('𠮷', 1),
                              ('HIDDEN_SENTINEL', 0), ('STYLE_HIDDEN_SENTINEL', 0)]:
             search.fill(query)
-            expect(self.page.get_by_text(f'{count} results', exact=True)).to_be_visible(timeout=15000)
+            status = self.page.get_by_role('dialog').last.get_by_role('status')
+            expect(status).to_have_text(f"{count} {'result' if count == 1 else 'results'}", timeout=15000)
 
     def test_touch_menus_and_dark_reflow_keep_actions_accessible(self):
         profile = tempfile.TemporaryDirectory()
@@ -897,7 +907,7 @@ class BooksLibraryBrowser(LibraryBase):
                 self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), width + 1)
         header.get_by_role('button', name='Library actions', exact=True).click()
         self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
-        header.get_by_role('button', name='Select all', exact=True).click()
+        header.get_by_role('button', name='Select All Visible', exact=True).click()
         expect(self.page.get_by_text('1 selected', exact=True)).to_be_visible()
         self.page.set_viewport_size({'width': 320, 'height': 568})
         expect(header.get_by_role('button', name='Export', exact=True)).to_be_visible()
@@ -978,13 +988,13 @@ class BooksLibraryBrowser(LibraryBase):
         self.choose_collection('One book only')
         self.page.get_by_role('button', name='Library actions', exact=True).click()
         self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
-        self.page.get_by_role('button', name='Select all', exact=True).click()
+        self.page.get_by_role('button', name='Select All Visible', exact=True).click()
         expect(self.page.get_by_text('1 selected', exact=True)).to_be_visible()
         self.page.get_by_placeholder('Search library').fill('no result')
         expect(self.page.get_by_text('0 selected', exact=True)).to_be_visible()
         expect(self.page.get_by_role('heading', name='No matching books', exact=True)).to_be_visible()
         self.page.get_by_placeholder('Search library').fill('Beta')
-        self.page.get_by_role('button', name='Select all', exact=True).click()
+        self.page.get_by_role('button', name='Select All Visible', exact=True).click()
         expect(self.page.get_by_text('1 selected', exact=True)).to_be_visible()
         self.choose_collection('Books')
         expect(self.page.get_by_text('0 selected', exact=True)).to_be_visible()
@@ -1245,6 +1255,226 @@ class BooksLibraryBrowser(LibraryBase):
         expect(self.page.get_by_role('button', name='Read Collection book', exact=True)).to_be_visible()
         self.assertEqual(1, len(self.stores('books', ['data'])['data']))
 
+    def test_selected_statistics_view_keeps_same_title_book_identities_distinct(self):
+        self.import_book('Same title statistics view', size=(240, 360))
+        self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
+            'name': 'Same title statistics view.epub',
+            'mimeType': 'application/epub+zip',
+            'buffer': book('Same title statistics view', size=(180, 380))
+        })
+        expect(self.page.get_by_role(
+            'button', name='Read Same title statistics view', exact=True)).to_have_count(2, timeout=30000)
+        books = [row for row in self.stores('books', ['data'])['data']
+                 if row['title'] == 'Same title statistics view']
+        self.assertEqual(2, len(books))
+        first, second = sorted(books, key=lambda row: row['id'])
+        self.assertNotEqual(first['contentHash'], second['contentHash'])
+        date_key = self.page.evaluate("""() => {
+          const d = new Date();
+          return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'),
+            String(d.getDate()).padStart(2, '0')].join('-');
+        }""")
+        self.page.evaluate('''async ({books, dateKey}) => {
+          const db = await new Promise((resolve, reject) => {
+            const request = indexedDB.open('books');
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          const tx = db.transaction('readerStatistic', 'readwrite');
+          for (const [index, book] of books.entries()) {
+            tx.objectStore('readerStatistic').put({
+              title: book.title,
+              bookKey: 'content:' + book.contentHash.toLowerCase(),
+              dateKey,
+              charactersRead: 100 + index,
+              readingTime: 60,
+              minReadingSpeed: 1,
+              altMinReadingSpeed: 1,
+              lastReadingSpeed: 1,
+              maxReadingSpeed: 1,
+              lastStatisticModified: 100 + index
+            });
+          }
+          await new Promise((resolve, reject) => {
+            tx.oncomplete = resolve;
+            tx.onabort = () => reject(tx.error);
+          });
+          db.close();
+        }''', {'books': [first, second], 'dateKey': date_key})
+
+        header = self.page.get_by_role('banner', name='Library toolbar')
+        header.get_by_role('button', name='Library actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
+        target = self.page.locator('[data-book-key="book:%s"]' % first['id'])
+        target.get_by_role('button', name='Select Same title statistics view', exact=True).click()
+        expect(self.page.get_by_text('1 selected', exact=True)).to_be_visible()
+
+        header.get_by_role('button', name='Selected book actions', exact=True).click()
+        self.page.get_by_role(
+            'menuitem', name='Statistics for Selected Books', exact=True).click()
+        expect(self.page).to_have_url(re.compile(r'/reader-web/statistics(?:[/?#]|$)'), timeout=30000)
+        toolbar = self.page.get_by_role('banner', name='Statistics toolbar')
+        toolbar.get_by_role('button', name='Summary', exact=True).click()
+        rows = self.page.get_by_role(
+            'button', name='Delete row Same title statistics view', exact=True)
+        expect(rows).to_have_count(1, timeout=30000)
+        expect(self.page.get_by_text('Same title statistics view', exact=True)).to_have_count(1)
+
+        toolbar.get_by_role('button', name='Statistics options', exact=True).click()
+        self.page.get_by_role('menuitem', name='Statistics Settings', exact=True).click()
+        settings = self.page.get_by_role('dialog')
+        settings.get_by_role('button', name='Delete Selection', exact=True).click()
+        confirm = self.dialog()
+        expect(confirm.get_by_role('heading', name='Delete Data', exact=True)).to_be_visible()
+        confirm.get_by_role('button', name='Confirm', exact=True).click()
+
+        deadline = time.monotonic() + 20
+        while True:
+            stored = self.stores('books', ['readerStatistic'])['readerStatistic']
+            if len(stored) == 1:
+                break
+            self.assertLess(time.monotonic(), deadline,
+                            'Statistics-page selection deletion did not settle')
+            self.page.wait_for_timeout(25)
+        self.assertEqual('content:' + second['contentHash'].lower(), stored[0]['bookKey'])
+        self.assertEqual(101, stored[0]['charactersRead'])
+
+    def test_selected_statistics_delete_only_the_chosen_same_title_book(self):
+        self.import_book('Same title statistics', size=(240, 360))
+        self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
+            'name': 'Same title statistics.epub',
+            'mimeType': 'application/epub+zip',
+            'buffer': book('Same title statistics', size=(180, 380))
+        })
+        expect(self.page.get_by_role(
+            'button', name='Read Same title statistics', exact=True)).to_have_count(2, timeout=30000)
+        books = [row for row in self.stores('books', ['data'])['data']
+                 if row['title'] == 'Same title statistics']
+        self.assertEqual(2, len(books))
+        first, second = sorted(books, key=lambda row: row['id'])
+        self.assertNotEqual(first['contentHash'], second['contentHash'])
+
+        self.page.evaluate('''async books => {
+          const db = await new Promise((resolve, reject) => {
+            const request = indexedDB.open('books');
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          const tx = db.transaction('readerStatistic', 'readwrite');
+          for (const [index, book] of books.entries()) {
+            tx.objectStore('readerStatistic').put({
+              title: book.title,
+              bookKey: 'content:' + book.contentHash.toLowerCase(),
+              dateKey: '2026-09-' + String(20 + index).padStart(2, '0'),
+              charactersRead: 100 + index,
+              readingTime: 60,
+              minReadingSpeed: 1,
+              altMinReadingSpeed: 1,
+              lastReadingSpeed: 1,
+              maxReadingSpeed: 1,
+              lastStatisticModified: 100 + index
+            });
+          }
+          await new Promise((resolve, reject) => {
+            tx.oncomplete = resolve;
+            tx.onabort = () => reject(tx.error);
+          });
+          db.close();
+        }''', [first, second])
+
+        header = self.page.get_by_role('banner', name='Library toolbar')
+        header.get_by_role('button', name='Library actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
+        target = self.page.locator('[data-book-key="book:%s"]' % first['id'])
+        expect(target).to_be_visible()
+        target.get_by_role('button', name='Select Same title statistics', exact=True).click()
+        expect(self.page.get_by_text('1 selected', exact=True)).to_be_visible()
+
+        header.get_by_role('button', name='Selected book actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Delete Selected Statistics', exact=True).click()
+        dialog = self.dialog()
+        expect(dialog.get_by_role('heading', name='Delete Data', exact=True)).to_be_visible()
+        dialog.get_by_role('button', name='Confirm', exact=True).click()
+
+        deadline = time.monotonic() + 20
+        while True:
+            rows = self.stores('books', ['readerStatistic'])['readerStatistic']
+            if len(rows) == 1:
+                break
+            self.assertLess(time.monotonic(), deadline, 'selected statistics were not deleted')
+            self.page.wait_for_timeout(25)
+        self.assertEqual(
+            'content:' + second['contentHash'].lower(),
+            rows[0]['bookKey']
+        )
+        self.assertEqual(101, rows[0]['charactersRead'])
+
+    def test_statistics_delete_confirmation_cannot_retarget_replacement_content(self):
+        self.import_book('Statistics confirmation race')
+        stored = next(row for row in self.stores('books', ['data'])['data']
+                      if row['title'] == 'Statistics confirmation race')
+        original_key = 'content:' + stored['contentHash'].lower()
+        self.page.evaluate('''async ({book, key}) => {
+          const db = await new Promise((resolve, reject) => {
+            const request = indexedDB.open('books');
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          const tx = db.transaction('readerStatistic', 'readwrite');
+          tx.objectStore('readerStatistic').put({
+            title: book.title,
+            bookKey: key,
+            dateKey: '2026-09-20',
+            charactersRead: 73,
+            readingTime: 60,
+            minReadingSpeed: 1,
+            altMinReadingSpeed: 1,
+            lastReadingSpeed: 1,
+            maxReadingSpeed: 1,
+            lastStatisticModified: 100
+          });
+          await new Promise((resolve, reject) => {
+            tx.oncomplete = resolve; tx.onabort = () => reject(tx.error);
+          });
+          db.close();
+        }''', {'book': stored, 'key': original_key})
+
+        header = self.page.get_by_role('banner', name='Library toolbar')
+        header.get_by_role('button', name='Library actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
+        self.page.locator('[data-book-key="book:%s"]' % stored['id']).get_by_role(
+            'button', name='Select Statistics confirmation race', exact=True).click()
+        header.get_by_role('button', name='Selected book actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Delete Selected Statistics', exact=True).click()
+        dialog = self.dialog()
+        expect(dialog.get_by_role('heading', name='Delete Data', exact=True)).to_be_visible()
+
+        replacement_hash = 'f' * 64 if stored['contentHash'].lower() != 'f' * 64 else 'e' * 64
+        self.page.evaluate('''async ({id, hash}) => {
+          const db = await new Promise((resolve, reject) => {
+            const request = indexedDB.open('books');
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          const tx = db.transaction('data', 'readwrite');
+          const request = tx.objectStore('data').get(id);
+          request.onsuccess = () => tx.objectStore('data').put({
+            ...request.result, contentHash: hash
+          });
+          await new Promise((resolve, reject) => {
+            tx.oncomplete = resolve; tx.onabort = () => reject(tx.error);
+          });
+          db.close();
+        }''', {'id': stored['id'], 'hash': replacement_hash})
+
+        dialog.get_by_role('button', name='Confirm', exact=True).click()
+        expect(self.page.get_by_text(
+            'Unable to delete statistics of 1 Book', exact=True)).to_be_visible(timeout=30000)
+        rows = self.stores('books', ['readerStatistic'])['readerStatistic']
+        self.assertEqual(1, len(rows))
+        self.assertEqual(original_key, rows[0]['bookKey'])
+        self.assertEqual(73, rows[0]['charactersRead'])
+
     def test_existing_reader_autosaves_cannot_erase_library_finish_decision(self):
         self.import_book('Open reader')
         self.page.get_by_role('button', name='Read Open reader', exact=True).click()
@@ -1303,7 +1533,7 @@ class BooksLibraryBrowser(LibraryBase):
         before = self.stores('books', ['bookmark','statistic','data'])
         self.page.get_by_role('button', name='Library actions', exact=True).click()
         self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
-        self.page.get_by_role('button', name='Select all', exact=True).click()
+        self.page.get_by_role('button', name='Select All Visible', exact=True).click()
         expect(self.page.get_by_text('1 selected', exact=True)).to_be_visible()
         self.page.get_by_role('button', name='Export', exact=True).click()
         self.page.get_by_role('button', name='Zip File', exact=True).click()
@@ -1344,7 +1574,7 @@ class BooksLibraryBrowser(LibraryBase):
                 self.assertEqual(before['data'][0]['pageDirection'], migrated['data'][0]['pageDirection'])
                 self.assertEqual(before['data'][0]['creators'], migrated['data'][0]['creators'])
                 self.assertEqual(before['data'][0]['contentHash'], migrated['data'][0]['contentHash'])
-                self.page.get_by_role('button', name='Select all', exact=True).click()
+                self.page.get_by_role('button', name='Select All Visible', exact=True).click()
                 import_selected.click()
                 expect(imported.get_by_role('status')).to_contain_text('Already imported', timeout=30000)
                 self.assertEqual(migrated['bookmark'], self.stores('books', ['bookmark'])['bookmark'])
@@ -1373,7 +1603,7 @@ class BooksLibraryBrowser(LibraryBase):
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=30000)
         toolbar = self.page.get_by_role('banner', name='Reader toolbar')
         if not toolbar.is_visible():
-            self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+            reveal_reader_controls(self.page)
         toolbar.get_by_role('button', name='Reading tools', exact=True).click()
         self.page.get_by_role('menuitem', name='Complete Book', exact=True).click()
         self.page.get_by_role('dialog').get_by_role('button', name='Confirm', exact=True).click()

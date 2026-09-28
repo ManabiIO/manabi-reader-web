@@ -249,6 +249,227 @@ export async function visibleStatistics(db: IDBPDatabase<BooksDb>): Promise<Book
   return [...content, ...legacy.filter((row) => !assigned.has(row.title))];
 }
 
+export interface StatisticIdentityPlan {
+  title: string;
+  bookKey: string;
+  keys: string[];
+  legacyTitle?: string;
+  unresolvedLegacy: boolean;
+}
+
+function statisticLegacyAssignment(
+  receipt: BooksDb['readerStatisticMigration']['value'] | undefined,
+  title: string,
+  keys: ReadonlySet<string>
+): { legacyTitle?: string; unresolvedLegacy: boolean } {
+  if (!receipt) return { unresolvedLegacy: false };
+  if (receipt.state === 'ambiguous') return { unresolvedLegacy: true };
+  if (!receipt.bookKey) return { unresolvedLegacy: true };
+  if (receipt.state === 'assigned')
+    return keys.has(receipt.bookKey)
+      ? { legacyTitle: title, unresolvedLegacy: false }
+      : { unresolvedLegacy: false };
+  if (receipt.legacyAssigned !== true) return { unresolvedLegacy: true };
+  return keys.has(receipt.bookKey)
+    ? { legacyTitle: title, unresolvedLegacy: false }
+    : { unresolvedLegacy: false };
+}
+
+/** Resolve every statistics identity owned by one browser book for selection or deletion.
+ * The primary key follows the current verified content identity. A retained
+ * pre-hash local key may still hold conflicting rows and therefore belongs to
+ * the same selected book. Title-only legacy rows are never guessed when their
+ * migration receipt remains ambiguous.
+ */
+export async function statisticIdentityPlan(
+  db: IDBPDatabase<BooksDb>,
+  bookId: number,
+  guard?: StatisticsMigrationGuard,
+  expected?: Pick<StatisticBook, 'title' | 'contentHash'>
+): Promise<StatisticIdentityPlan> {
+  guard?.assertCurrent();
+  guard?.signal.throwIfAborted();
+  if (!Number.isSafeInteger(bookId) || bookId <= 0)
+    throw new Error('The selected statistics book is invalid.');
+  const book = await db.get('data', bookId);
+  guard?.assertCurrent();
+  guard?.signal.throwIfAborted();
+  if (!book) throw new Error('The selected statistics book no longer exists.');
+  if (
+    expected &&
+    (book.title !== expected.title ||
+      contentStatisticKey(book) !==
+        contentStatisticKey({
+          id: book.id,
+          title: expected.title,
+          contentHash: expected.contentHash
+        }))
+  )
+    throw new Error('The selected statistics book changed. Refresh the Library and try again.');
+  const snapshot = { id: book.id, title: book.title, contentHash: book.contentHash };
+  const migrationGuard = guard
+    ? {
+        ...guard,
+        validate(
+          current: BooksDb['data']['value'] | undefined,
+          owner: BooksDb['readerBookScope']['value'] | undefined
+        ) {
+          guard.validate(current, owner);
+          if (
+            current &&
+            (current.title !== snapshot.title || current.contentHash !== snapshot.contentHash)
+          )
+            throw new Error(
+              'The selected statistics book changed. Refresh the Library and try again.'
+            );
+        }
+      }
+    : undefined;
+  const bookKey = await migrateLegacyStatistics(db, snapshot, migrationGuard);
+  const [current, local, receipt, owner] = await Promise.all([
+    db.get('data', bookId),
+    db.get('readerLocalIdentity', bookId),
+    db.get('readerStatisticMigration', snapshot.title),
+    guard ? db.get('readerBookScope', bookId) : Promise.resolve(undefined)
+  ]);
+  guard?.assertCurrent();
+  guard?.signal.throwIfAborted();
+  guard?.validate(current, owner);
+  if (!current || current.title !== snapshot.title || current.contentHash !== snapshot.contentHash)
+    throw new Error('The selected statistics book changed. Refresh the Library and try again.');
+  const keys = new Set([bookKey]);
+  if (local) keys.add(`local:${local.uuid}`);
+  const legacy = statisticLegacyAssignment(receipt, snapshot.title, keys);
+  return {
+    title: snapshot.title,
+    bookKey,
+    keys: [...keys],
+    ...legacy
+  };
+}
+
+/** Delete exactly the histories represented by a previously resolved plan.
+ * Revalidate both persistent ownership and identity in the same transaction as
+ * the delete so a stale Library selection cannot erase another account/history.
+ */
+export async function deleteStatisticsForIdentityPlan(
+  db: IDBPDatabase<BooksDb>,
+  bookId: number,
+  expected: StatisticIdentityPlan,
+  guard?: StatisticsMigrationGuard
+): Promise<void> {
+  guard?.assertCurrent();
+  guard?.signal.throwIfAborted();
+  if (!Number.isSafeInteger(bookId) || bookId <= 0)
+    throw new Error('The selected statistics book is invalid.');
+  if (expected.unresolvedLegacy)
+    throw new Error(
+      `Older statistics for “${expected.title}” cannot be safely assigned to this copy.`
+    );
+  const tx = db.transaction(
+    [
+      'data',
+      'statistic',
+      'readerStatistic',
+      'readerStatisticMigration',
+      'readerLocalIdentity',
+      'readerBookScope',
+      'lastModified'
+    ],
+    'readwrite'
+  );
+  const abort = () => {
+    try {
+      tx.abort();
+    } catch {
+      /* Already settled. */
+    }
+  };
+  guard?.signal.addEventListener('abort', abort, { once: true });
+  try {
+    await commitTransaction(tx, async () => {
+      guard?.assertCurrent();
+      guard?.signal.throwIfAborted();
+      const book = await tx.objectStore('data').get(bookId);
+      const owner = guard ? await tx.objectStore('readerBookScope').get(bookId) : undefined;
+      guard?.assertCurrent();
+      guard?.validate(book, owner);
+      if (!book || book.title !== expected.title)
+        throw new Error('The selected statistics book changed. Refresh the Library and try again.');
+
+      const local = await tx.objectStore('readerLocalIdentity').get(bookId);
+      const bookKey = contentStatisticKey(book) ?? (local ? `local:${local.uuid}` : undefined);
+      if (!bookKey || bookKey !== expected.bookKey)
+        throw new Error(
+          'The selected statistics identity changed. Refresh the Library and try again.'
+        );
+      const keys = new Set([bookKey]);
+      if (local) keys.add(`local:${local.uuid}`);
+      const expectedKeys = new Set(expected.keys);
+      if (keys.size !== expectedKeys.size || [...keys].some((key) => !expectedKeys.has(key)))
+        throw new Error(
+          'The selected statistics identity changed. Refresh the Library and try again.'
+        );
+
+      const receipt = await tx.objectStore('readerStatisticMigration').get(book.title);
+      const legacy = statisticLegacyAssignment(receipt, book.title, keys);
+      if (legacy.unresolvedLegacy || legacy.legacyTitle !== expected.legacyTitle)
+        throw new Error(
+          'The selected statistics history changed. Refresh the Library and try again.'
+        );
+
+      if (guard?.validateCopy) {
+        const contentKey = contentStatisticKey(book);
+        if (contentKey) {
+          for (
+            let cursor = await tx.objectStore('data').openCursor();
+            cursor;
+            cursor = await cursor.continue()
+          ) {
+            if (contentStatisticKey(cursor.value) !== contentKey) continue;
+            const copyOwner = await tx.objectStore('readerBookScope').get(cursor.value.id);
+            guard.assertCurrent();
+            guard.validateCopy(cursor.value, copyOwner);
+          }
+        }
+      }
+
+      const modifiedAt = Date.now();
+      const lastModified = tx.objectStore('lastModified');
+      const content = tx.objectStore('readerStatistic');
+      for (const key of keys) {
+        guard?.assertCurrent();
+        guard?.signal.throwIfAborted();
+        const range = statisticRange(key);
+        if ((await content.getKey(range)) === undefined) continue;
+        await content.delete(range);
+        await lastModified.put({
+          title: key,
+          dataType: 'statistic',
+          lastModifiedValue: modifiedAt
+        });
+      }
+      if (legacy.legacyTitle) {
+        const title = legacy.legacyTitle;
+        const range = IDBKeyRange.bound([title], [title, []]);
+        const legacyStore = tx.objectStore('statistic');
+        if ((await legacyStore.getKey(range)) !== undefined) {
+          await legacyStore.delete(range);
+          await lastModified.put({
+            title,
+            dataType: 'statistic',
+            lastModifiedValue: modifiedAt
+          });
+        }
+      }
+      guard?.assertCurrent();
+      guard?.signal.throwIfAborted();
+    });
+  } finally {
+    guard?.signal.removeEventListener('abort', abort);
+  }
+}
+
 /** A TTU statistics ZIP has only title keys, so it cannot represent this case. */
 export function titlesWithMultipleStatisticIdentities(
   rows: readonly (BooksDbStatistic | BooksDbContentStatistic)[]

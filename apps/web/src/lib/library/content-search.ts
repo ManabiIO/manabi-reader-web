@@ -20,6 +20,8 @@ export interface ContentHit {
   bookId: number;
   locator: ReaderLocator;
   excerpt: string;
+  /** UTF-16 boundaries in the ORIGINAL excerpt, not the normalized query. */
+  excerptMatch: { start: number; end: number };
 }
 export interface SearchBook {
   id: number;
@@ -184,9 +186,14 @@ export async function findContent(
         if (cancelled()) return { hits: [], truncated: false };
         const slice = (from: number, to: number) =>
           text.slice(offsets[Math.max(0, from)], offsets[Math.min(point, to)]);
+        const excerptStart = Math.max(0, start - 48);
         hits.push({
           bookId: book.id,
-          excerpt: slice(start - 48, end + 72),
+          excerpt: slice(excerptStart, end + 72),
+          excerptMatch: {
+            start: offsets[start] - offsets[excerptStart],
+            end: offsets[end] - offsets[excerptStart]
+          },
           locator: {
             version: 1,
             bookKey: book.key,

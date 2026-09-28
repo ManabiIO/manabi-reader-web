@@ -10,6 +10,11 @@ function database(current, done = Promise.resolve()) {
   const transaction = {
     done,
     abort() {},
+    objectStore(name) {
+      if (name === 'data') return this.store;
+      assert.equal(name, 'readerBookScope');
+      return { get: async () => undefined };
+    },
     store: {
       async get(id) {
         assert.equal(id, 1);
@@ -27,7 +32,7 @@ function database(current, done = Promise.resolve()) {
     },
     transaction(store, mode) {
       calls++;
-      assert.equal(store, 'data');
+      assert.deepEqual(store, ['data', 'readerBookScope']);
       assert.equal(mode, 'readwrite');
       return transaction;
     }
@@ -118,8 +123,22 @@ function browserLastRead() {
     .split('\n  async getFilenameForRecentCheck')[0]
     .replace(/\n {2}}\s*$/, '');
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-  return new AsyncFunction('book', 'database', 'updateBookLastRead', 'BaseStorageHandler', body);
+  return new AsyncFunction(
+    'book',
+    'database',
+    'updateBookLastRead',
+    'BaseStorageHandler',
+    'captureLibraryOperation',
+    body
+  );
 }
+
+const captureLocalScope = () => ({
+  profileId: null,
+  signal: new AbortController().signal,
+  assertCurrent() {},
+  stop() {}
+});
 
 test('the actual browser handler uses only current identity and metadata for last-read', async () => {
   const invoke = browserLastRead();
@@ -130,7 +149,8 @@ test('the actual browser handler uses only current identity and metadata for las
     { ...currentBook(), title: 'Stale title', elementHtml: '<p>Stale</p>', lastBookOpen: 200 },
     { db: Promise.resolve(db) },
     updateBookLastRead,
-    { getBookCharacters: () => 10 }
+    { getBookCharacters: () => 10 },
+    captureLocalScope
   );
   assert.equal(cards[0][0], 'Current title');
   assert.equal(cards[0][1].lastBookOpen, 200);
@@ -149,7 +169,8 @@ test('the handler captures the selected ID and timestamp before waiting for its 
     async (db, id, timestamp) => {
       calls.push({ db, id, timestamp });
     },
-    {}
+    {},
+    captureLocalScope
   );
   book.id = 2;
   book.lastBookOpen = 900;

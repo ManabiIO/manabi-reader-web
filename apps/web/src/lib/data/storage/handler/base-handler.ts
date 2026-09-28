@@ -380,6 +380,7 @@ export abstract class BaseStorageHandler {
       'sections',
       'language',
       'creators',
+      'metadata',
       'pageDirection',
       'contentHash',
       'sourceFormat',

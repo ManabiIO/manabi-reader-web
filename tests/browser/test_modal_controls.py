@@ -3,6 +3,7 @@
 Only the resource digest is held/rejected in the lifetime fault tests. The UI,
 EPUB importer, search worker, locator calculation and IndexedDB are production.
 """
+from reader_controls import reveal_reader_controls
 from pathlib import Path
 import unittest
 from playwright.sync_api import expect
@@ -75,9 +76,7 @@ class ModalControlsBrowser(LibraryBase):
             'aria-busy', 'false', timeout=35000)
 
     def open_tool(self, name):
-        controls = self.page.get_by_role('button', name='Show reading controls', exact=True)
-        if controls.is_visible():
-            controls.click()
+        reveal_reader_controls(self.page)
         self.page.get_by_role('button', name='Reading tools', exact=True).click()
         self.page.get_by_role('menuitem', name=name, exact=True).click()
         panel = self.page.get_by_role('dialog').last

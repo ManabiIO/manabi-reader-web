@@ -1,4 +1,5 @@
 """Organization sync must update an already-open Library in another tab."""
+from reader_controls import reveal_reader_controls
 import copy
 import time
 import unittest
@@ -356,7 +357,7 @@ class LibraryOrganizationSync(LibraryBase):
           if (!navigator.serviceWorker.controller) await new Promise(resolve =>
             navigator.serviceWorker.addEventListener('controllerchange', resolve, {once:true}));}''')
         self.context.set_offline(True)
-        self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+        reveal_reader_controls(self.page)
         self.page.get_by_role('button', name='Bookmarks and Notes', exact=True).click()
         self.page.get_by_role('button', name='Add Bookmark', exact=True).click()
         expect(self.page.get_by_label('Saved annotations').get_by_role(
@@ -368,7 +369,7 @@ class LibraryOrganizationSync(LibraryBase):
             self.page.get_by_role('dialog', name='Bookmarks & Notes').get_by_role('button', name='Close').click()
             self.page.reload()
             expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=35000)
-            self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+            reveal_reader_controls(self.page)
             self.page.get_by_role('button', name='Bookmarks and Notes', exact=True).click()
             expect(self.page.get_by_label('Saved annotations').get_by_role(
                 'button', name='Bookmark · Section')).to_be_visible()

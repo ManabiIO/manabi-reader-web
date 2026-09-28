@@ -1,9 +1,73 @@
 """Search/Return and configured shortcuts in the actual framed EPUB reader."""
 import unittest
+import json
+from pathlib import Path
 from test_foliate_slide import FoliateSlide, P
 
 
 class EpubNavigationBrowser(FoliateSlide):
+    def open_slide(self, *args, **kwargs):
+        super().open_slide(*args, **kwargs)
+        self.page.evaluate("""() => {
+          const p = document.querySelector('foliate-paginator')
+          const evidence = window.readerNavigationEvidence = {events:[]}
+          const point = (node, offset) => ({
+            offset, type:node?.nodeType, parent:node?.parentElement?.localName,
+            id:node?.parentElement?.id, text:node?.textContent?.slice(0,100)
+          })
+          const record = (type, detail) => {
+            const range = detail?.range
+            evidence.events.push({type, time:performance.now(), key:detail?.key,
+              reason:detail?.reason, index:p.getContents()[0]?.index,
+              page:p.getContents().length ? p.page : null,
+              pages:p.getContents().length ? p.pages : null,
+              start:range ? point(range.startContainer,range.startOffset) : null,
+              end:range ? point(range.endContainer,range.endOffset) : null})
+            if (evidence.events.length > 80) evidence.events.shift()
+          }
+          const bindKeys = doc => doc.addEventListener('keydown', event =>
+            record('keydown', {key:event.key}), {capture:true})
+          bindKeys(p.getContents()[0].doc)
+          p.addEventListener('load', event => {bindKeys(event.detail.doc);record('load',event.detail)})
+          p.addEventListener('relocate', event => record('relocate',event.detail))
+          p.addEventListener('navigationerror', () => record('navigationerror'))
+          record('initial')
+        }""")
+
+    def tearDown(self):
+        try:
+            evidence = self.page.evaluate("""async () => {
+              const evidence = window.readerNavigationEvidence ?? {events:[]}
+              const p = document.querySelector('foliate-paginator')
+              evidence.final = p?.getContents().length ? {
+                page:p.page,pages:p.pages,index:p.getContents()[0].index,
+                focused:p.getContents()[0].doc.hasFocus()
+              } : null
+              evidence.bookmarks = await new Promise((resolve,reject) => {
+                const request = indexedDB.open('books')
+                request.onerror = () => reject(request.error)
+                request.onsuccess = () => {
+                  const db = request.result
+                  if (!db.objectStoreNames.contains('bookmark')) {db.close();resolve([]);return}
+                  const tx = db.transaction('bookmark')
+                  const read = tx.objectStore('bookmark').getAll()
+                  tx.oncomplete = () => {db.close();resolve(read.result)}
+                  tx.onabort = () => {db.close();reject(tx.error)}
+                }
+              })
+              return evidence
+            }""")
+        except Exception as error:
+            evidence = {'diagnosticError': str(error)}
+        try:
+            folder = Path('test-results')
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / (self._testMethodName + '-navigation.json')).write_text(
+                json.dumps(evidence, ensure_ascii=False, indent=2), encoding='utf-8')
+        finally:
+            # Retain the original screenshot/page-error cleanup and every assertion.
+            super().tearDown()
+
     def test_search_return_restores_later_horizontal_page(self):
         self.check_search_return(False)
 

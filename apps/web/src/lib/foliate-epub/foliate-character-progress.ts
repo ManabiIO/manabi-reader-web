@@ -5,6 +5,10 @@
  */
 
 import { getCharacterCount } from '$lib/functions/get-character-count';
+import {
+  countReadingCharacters,
+  isReadingCharacter
+} from '$lib/functions/count-reading-characters';
 import { getParagraphNodes } from '$lib/components/book-reader/get-paragraph-nodes';
 
 export {
@@ -66,6 +70,26 @@ export class FoliateCharacterProgress {
     return start;
   }
 
+  /** Bookmarks need the visible point inside a long text node; tracker progress stays whole-node. */
+  bookmarkCharacterCount(
+    sectionIndex: number,
+    content: Element,
+    visibleRange?: Range | null
+  ): number {
+    const count = this.exploredCharacterCount(sectionIndex, content, visibleRange);
+    const node = visibleRange?.startContainer;
+    if (
+      !visibleRange ||
+      node?.nodeType !== 3 ||
+      !content.contains(node) ||
+      visibleRange.startOffset >= (node.textContent?.length ?? 0)
+    )
+      return count;
+    return (
+      count + countReadingCharacters(node.textContent?.slice(0, visibleRange.startOffset) ?? '')
+    );
+  }
+
   rangeForCharacterCount(
     sectionIndex: number,
     content: Element,
@@ -76,14 +100,31 @@ export class FoliateCharacterProgress {
     const local = Math.max(0, characterCount - this.sectionStart(sectionIndex));
     let accumulated = 0;
     let target = paragraphs[0];
+    let within = 0;
     for (const paragraph of paragraphs) {
       target = paragraph;
-      accumulated += getCharacterCount(paragraph);
-      if (local < accumulated) break;
+      const length = getCharacterCount(paragraph);
+      if (local < accumulated + length) {
+        within = local - accumulated;
+        break;
+      }
+      accumulated += length;
     }
     const range = content.ownerDocument.createRange();
-    range.selectNodeContents(target);
-    range.collapse(true);
+    if (target.nodeType === 3) {
+      let offset = 0;
+      let remaining = within;
+      for (const character of target.textContent ?? '') {
+        if (remaining <= 0) break;
+        offset += character.length;
+        if (isReadingCharacter(character)) remaining--;
+      }
+      range.setStart(target, offset);
+      range.collapse(true);
+    } else {
+      range.selectNodeContents(target);
+      range.collapse(true);
+    }
     return range;
   }
 }

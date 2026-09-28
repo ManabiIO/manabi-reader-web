@@ -7,6 +7,7 @@
 import assert from 'node:assert/strict';
 import { File } from 'node:buffer';
 import { readFileSync } from 'node:fs';
+import { clearTimeout, setTimeout } from 'node:timers';
 import test from 'node:test';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
@@ -76,9 +77,9 @@ function loadFixture({ reusable, preflightError, countMode = false } = {}) {
       database: { dataListChanged$: { next: (value) => changed.push(value) } },
       requestPersistentStorage$: { getValue: () => false }
     },
-    '$lib/functions/file-loaders/epub/load-epub': { default: loaders.epub },
-    '$lib/functions/file-loaders/htmlz/load-htmlz': { default: loaders.htmlz },
-    '$lib/functions/file-loaders/txt/load-txt': { default: loaders.txt },
+    '$lib/functions/file-loaders/epub/load-epub': { __esModule: true, default: loaders.epub },
+    '$lib/functions/file-loaders/htmlz/load-htmlz': { __esModule: true, default: loaders.htmlz },
+    '$lib/functions/file-loaders/txt/load-txt': { __esModule: true, default: loaders.txt },
     '$lib/manabi/sources': {
       sha256: async () => {
         events.push('hash');
