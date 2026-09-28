@@ -85,9 +85,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
         pass
 
 
-def probe(pw, url, mode):
+def probe(pw, url, mode, report=lambda _result: None):
     result = {'profileMode': mode, 'passed': False, 'events': []}
     events = result['events']
+
+    def record_event(event):
+        events.append(event)
+        report(result)
+
+    report(result)
     options = dict(executable_path=os.environ.get('CHROMIUM', '/usr/bin/chromium'),
                    headless=True, args=['--no-sandbox'])
     with tempfile.TemporaryDirectory(prefix='native-handle-profile-') as profile:
@@ -102,11 +108,11 @@ def probe(pw, url, mode):
                 browser = pw.chromium.launch(**options)
                 context = browser.new_context()
             result['browserVersion'] = browser.version
-            browser.on('disconnected', lambda: events.append({'event': 'browser-disconnected'}))
+            browser.on('disconnected', lambda: record_event({'event': 'browser-disconnected'}))
             page = context.new_page()
-            page.on('console', lambda m: events.append({'event': 'console', 'text': m.text}))
-            page.on('crash', lambda: events.append({'event': 'page-crash'}))
-            page.on('pageerror', lambda e: events.append({'event': 'page-error', 'text': str(e)}))
+            page.on('console', lambda m: record_event({'event': 'console', 'text': m.text}))
+            page.on('crash', lambda: record_event({'event': 'page-crash'}))
+            page.on('pageerror', lambda e: record_event({'event': 'page-error', 'text': str(e)}))
             page.goto(url, timeout=30000)
             return page
 
@@ -128,7 +134,7 @@ def probe(pw, url, mode):
             page.reload()
             result['reload'] = page.evaluate(SCRIPT, {'stage': 'read', 'name': name})
             if mode == 'persistent':
-                events.append({'event': 'intentional-browser-restart'})
+                record_event({'event': 'intentional-browser-restart'})
                 close()
                 page = launch()
                 result['restart'] = page.evaluate(SCRIPT, {'stage': 'read', 'name': name})
@@ -147,22 +153,27 @@ def probe(pw, url, mode):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--profile-mode', choices=('both', 'persistent', 'incognito'), default='both')
     args = parser.parse_args()
+    modes = ('persistent', 'incognito') if args.profile_mode == 'both' else (args.profile_mode,)
     args.output.mkdir(parents=True, exist_ok=True)
     server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     results = []
     try:
         with sync_playwright() as pw:
-            for mode in ('persistent', 'incognito'):
-                result = probe(pw, f'http://127.0.0.1:{server.server_port}/', mode)
+            for mode in modes:
+                result = probe(
+                    pw, f'http://127.0.0.1:{server.server_port}/', mode,
+                    lambda partial: (args.output / 'results.json').write_text(
+                        json.dumps([*results, partial], indent=2)))
                 results.append(result)
                 (args.output / 'results.json').write_text(json.dumps(results, indent=2))
                 print('PASS' if result['passed'] else 'FAIL', mode, result.get('error', ''), flush=True)
     finally:
         server.shutdown()
         server.server_close()
-    if len(results) != 2 or not all(result['passed'] for result in results):
+    if len(results) != len(modes) or not all(result['passed'] for result in results):
         raise SystemExit(1)
 
 

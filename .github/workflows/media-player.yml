@@ -113,11 +113,6 @@ jobs:
           python tests/media/progressive-optimization-browser.py --output test-results/media/progressive-optimization
           python tests/media/browser.py --fixture "$(cat fixture-path.txt)" --output test-results/media/native-browser
           python tests/media/sparse-browser.py --fixture "$(cat fixture-path.txt)" --output test-results/media/sparse-native
-      - name: Native filesystem handles without application code
-        if: ${{ !cancelled() && steps.fixture.outcome == 'success' }}
-        run: |
-          export CHROMIUM="$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
-          python tests/media/native-handle-profile.py --output test-results/media/native-handle-profile
       - name: Incognito import compatibility (independent hard gate)
         if: ${{ !cancelled() && steps.fixture.outcome == 'success' }}
         run: |
@@ -140,4 +135,48 @@ jobs:
           name: video-player-evidence
           path: test-results/media/
           if-no-files-found: warn
+          retention-days: 7
+
+  # This probe imports no application code and must still run when compilation,
+  # core tests, or another browser suite fails. Each profile owns an independent
+  # runner so a hung/crashed browser cannot hide the other profile's evidence.
+  native-handle-profiles:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [persistent, incognito]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Record tested source and install the pinned browser
+        run: |
+          mkdir -p test-results/native-handle-profile
+          git rev-parse HEAD > test-results/native-handle-profile/tested-commit.txt
+          git rev-parse HEAD^{tree} > test-results/native-handle-profile/tested-tree.txt
+          python -m pip install playwright==1.63.0
+          python -m playwright install --with-deps chromium
+          python - <<'PYTHON' >> "$GITHUB_ENV"
+          from playwright.sync_api import sync_playwright
+          with sync_playwright() as p:
+              print('CHROMIUM=' + p.chromium.executable_path)
+          PYTHON
+      - name: Native handle roundtrip without application code
+        env:
+          PROFILE_MODE: ${{ matrix.profile }}
+        run: |
+          timeout --signal=TERM --kill-after=10s 120s \
+            python tests/media/native-handle-profile.py --profile-mode "$PROFILE_MODE" \
+            --output test-results/native-handle-profile
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-handle-profile-${{ matrix.profile }}
+          path: test-results/native-handle-profile/
+          if-no-files-found: error
           retention-days: 7
