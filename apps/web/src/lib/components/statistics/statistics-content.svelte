@@ -123,13 +123,9 @@
     tap(async (exportAllData) => {
       try {
         const statisticsDataToExport = new Map<string, BooksDbStatistic[]>();
-        const selectedRows = statisticsData.filter(
-          ({ title, dateKey }) =>
-            exportAllData ||
-            (statisticsTitleFilters.get(title) &&
-              dateKey >= $lastStatisticsStartDate$ &&
-              dateKey <= $lastStatisticsEndDate$)
-        );
+        // Explicit “All” remains global. “Selection” uses the same date/title/book
+        // identity projection the user is looking at.
+        const selectedRows = exportAllData ? statisticsData : statisticsForSelection;
         const ambiguousTitles = titlesWithMultipleStatisticIdentities(selectedRows);
         const selectedTitles = new Set(selectedRows.map((row) => row.title));
         const unresolvedTitles = (await (await database.db).getAll('readerStatisticMigration'))
@@ -274,7 +270,9 @@
         startDate: deleteAllData ? '' : $lastStatisticsStartDate$,
         endDate: deleteAllData ? '' : $lastStatisticsEndDate$,
         titlesToCheck: new Set<string>(),
-        takeAsIs: true
+        // “Delete All” is intentionally global. Selection is already narrowed by
+        // date, title and logical book identity and must not be expanded by title.
+        takeAsIs: deleteAllData
       };
 
       for (let index = 0, { length } = dataList; index < length; index += 1) {
@@ -293,9 +291,10 @@
       }
 
       let startDate = '';
+      const available = statisticsForBookPrefilter();
 
-      for (let index = 0, { length } = statisticsData; index < length; index += 1) {
-        const statistic = statisticsData[index];
+      for (let index = 0, { length } = available; index < length; index += 1) {
+        const statistic = available[index];
 
         if (statisticsTitleFilters.get(statistic.title)) {
           startDate = statistic.dateKey;
@@ -307,8 +306,8 @@
         return;
       }
 
-      for (let index = statisticsData.length - 1; index >= 0; index -= 1) {
-        const statistic = statisticsData[index];
+      for (let index = available.length - 1; index >= 0; index -= 1) {
+        const statistic = available[index];
 
         if (statisticsTitleFilters.get(statistic.title)) {
           $lastStatisticsStartDate$ = startDate;
@@ -746,6 +745,12 @@
     }
   }
 
+  function statisticsForBookPrefilter() {
+    return statisticsData.filter((statistic) =>
+      matchesStatisticsBookPrefilter(statistic.bookKey, $preFilteredBookKeysForStatistics$)
+    );
+  }
+
   function updateStatisticsData() {
     const newTitleFilterForStatisticsSet = new Set<string>();
 
@@ -892,7 +897,7 @@
 {:else}
   {#if $lastStatisticsTab$ === StatisticsTab.OVERVIEW}
     <StatisticsHeatmap
-      {statisticsData}
+      statisticsData={statisticsForBookPrefilter()}
       {readingGoals}
       {statisticsTitleFilters}
       {today}
@@ -902,7 +907,7 @@
     {#if readingGoals.length}
       <div class="mt-8 sm:mt-16">
         <StatisticsHeatmap
-          {statisticsData}
+          statisticsData={statisticsForBookPrefilter()}
           {readingGoals}
           {statisticsTitleFilters}
           {today}
