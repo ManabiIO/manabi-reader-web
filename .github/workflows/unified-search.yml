@@ -1,0 +1,21 @@
+name: Unified search contract
+on:
+  pull_request:
+    paths:
+      - 'apps/web/src/lib/search/**'
+      - 'apps/web/src/lib/library/library-workspace.svelte'
+      - 'tests/unit/unified-search.test.mjs'
+      - '.github/workflows/unified-search.yml'
+permissions:
+  contents: read
+jobs:
+  lifetime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+      - run: node --test tests/unit/unified-search.test.mjs
