@@ -53,6 +53,22 @@ def resource_epub(malformed=False):
     return output.getvalue()
 
 
+def numeric_epub():
+    """Escaped author text must not become markup during Extended repair."""
+    extra = ('<p id="literal-html">&#60;em&#62;literal&#60;/em&#62;</p>'
+             '<p id="literal-entity">&#x26;#60; | &#38;lt;</p>'
+             '<p id="literal-quote" title="before&#34; hidden=&#34;after">visible</p>'
+             '<p id="literal-unicode">&#128; &#x20000; &#0;</p>')
+    output = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(resource_epub())) as source, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as target:
+        for entry in source.infolist():
+            data = source.read(entry)
+            if entry.filename == 'EPUB/one.xhtml':
+                data = data.replace(b'</body>', extra.encode() + b'</body>')
+            target.writestr(entry, data)
+    return output.getvalue()
+
+
 class EpubPublicationBrowser(ReaderBrowser):
     @classmethod
     def setUpClass(cls):
@@ -63,7 +79,7 @@ class EpubPublicationBrowser(ReaderBrowser):
         cls.playwright = sync_playwright().start()
         cls.browser = getattr(cls.playwright, os.environ.get('SLIDE_BROWSER', 'chromium')).launch()
 
-    def open_resource_book(self, view='paginated', malformed=False):
+    def open_resource_book(self, view='paginated', malformed=False, payload=None):
         settings = {
             'manabi-dev-foliate-epub': 'true', 'viewMode': view, 'writingMode': 'horizontal-tb',
             'hideFurigana': 'false', 'hideSpoilerImage': 'false'
@@ -73,13 +89,42 @@ class EpubPublicationBrowser(ReaderBrowser):
         self.page.goto(self.origin + '/reader-web/manage')
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
-            'name': 'resources.epub', 'mimeType': 'application/epub+zip', 'buffer': resource_epub(malformed)
+            'name': 'resources.epub', 'mimeType': 'application/epub+zip', 'buffer': resource_epub(malformed) if payload is None else payload
         })
         self.page.get_by_role('button', name='Read ' + TITLE, exact=True).click(timeout=30000)
         if view == 'paginated':
             self.page.wait_for_function(f"() => {P}?.getContents?.()[0]?.doc?.querySelector('#same')")
         else:
             expect(self.page.locator('#ttu-epub-0 .text')).to_be_visible(timeout=30000)
+
+    def test_extended_numeric_repair_preserves_paginated_author_text(self):
+        self.check_numeric_repair('paginated')
+
+    def test_extended_numeric_repair_preserves_continuous_author_text(self):
+        self.check_numeric_repair('continuous')
+
+    def check_numeric_repair(self, view):
+        self.context.add_init_script("localStorage.setItem('importHTMLFixMode', 'Extended')")
+        self.open_resource_book(view=view, payload=numeric_epub())
+        for reload in (False, True):
+            if reload:
+                self.page.reload()
+            selector = (f"{P}?.getContents?.()[0]?.doc" if view == 'paginated' else 'document')
+            self.page.wait_for_function(f"() => {selector}?.querySelector('#literal-html')")
+            actual = self.page.evaluate(f"""() => {{
+              const doc={selector}, quote=doc.querySelector('#literal-quote');
+              return {{text:doc.querySelector('#literal-html').textContent,
+                children:doc.querySelector('#literal-html').children.length,
+                entity:doc.querySelector('#literal-entity').textContent,
+                title:quote.getAttribute('title'),hidden:quote.hasAttribute('hidden'),
+                unicode:doc.querySelector('#literal-unicode').textContent}};
+            }}""")
+            self.assertEqual({
+                'text':'<em>literal</em>', 'children':0, 'entity':'&#60; | &lt;',
+                'title':'before" hidden="after', 'hidden':False, 'unicode':'€ 𠀀 \ufffd'
+            }, actual)
+            self.assertEqual([], StaticHandler.probes)
+            self.assertEqual([], self.errors)
 
     def metadata(self):
         return self.page.evaluate('''() => new Promise((resolve,reject) => {

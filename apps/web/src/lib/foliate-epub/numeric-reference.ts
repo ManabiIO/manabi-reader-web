@@ -16,3 +16,15 @@ export function epubNumericReference(value: string, radix: 10 | 16): string {
     return '\uFFFD';
   return String.fromCodePoint(codePoint);
 }
+
+/** Repair invalid scalars without changing the surrounding HTML tokenization.
+ * Leave valid references to the parser: decoding quotes/angles early creates
+ * markup, decoding ampersands twice changes text, and C1 references have HTML
+ * mappings that raw Unicode substitution does not reproduce.
+ */
+export function repairEpubNumericReferences(source: string): string {
+  return source.replace(/&#(?:x([0-9a-f]+)|(\d+));/gi, (reference, hex, decimal) => {
+    const decoded = epubNumericReference(hex ?? decimal, hex === undefined ? 10 : 16);
+    return decoded === '\uFFFD' ? decoded : reference;
+  });
+}
