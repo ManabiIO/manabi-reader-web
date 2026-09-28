@@ -14,6 +14,7 @@
   } from '$lib/data/store';
   import { createEventDispatcher, onMount, tick } from 'svelte';
   import { Button } from '$lib/components/ui/button';
+  import CloseButton from '$lib/components/ui/close-button.svelte';
   import * as Dialog from '$lib/components/ui/dialog';
 
   const dispatch = createEventDispatcher<{ close: void }>();
@@ -124,14 +125,14 @@
       document.querySelector<HTMLButtonElement>('[aria-label="Show reading controls"]')?.focus();
     }}
   >
-    <header class="flex items-center justify-between gap-3 border-b px-4 py-3">
-      <div>
+    <header class="gallery-header border-b">
+      <div class="min-w-0">
         <Dialog.Title>Image gallery</Dialog.Title>
         <Dialog.Description
           >{$readerImageGalleryPictures$.length} book images. Select an image to view it.</Dialog.Description
         >
       </div>
-      <Button variant="outline" onclick={close}>Close Image Gallery</Button>
+      <CloseButton aria-label="Close Image Gallery" onclick={close} />
     </header>
     <div class="gallery-layout" class:has-selection={!!selectedImage}>
       <div class="gallery-list bg-muted/40" bind:this={contentContainer}>
@@ -162,17 +163,17 @@
         bind:this={imageContainer}
       >
         {#if selectedImage}
-          <div class="flex flex-wrap items-center justify-between gap-2 border-b p-3">
-            {#if !desktop}<Button variant="outline" onclick={backToImages}>All images</Button>{/if}
-            <div class="flex items-center gap-2">
-              <Button variant="outline" disabled={selectedImageIndex === 0} onclick={previousImage}>
+          <div class="gallery-toolbar flex flex-wrap items-center justify-between gap-2 border-b p-3">
+            {#if !desktop}<Button variant="ghost" onclick={backToImages}>All images</Button>{/if}
+            <div class="gallery-navigation">
+              <Button variant="secondary" disabled={selectedImageIndex === 0} onclick={previousImage}>
                 <ChevronLeft /> Previous
               </Button>
               <span class="text-sm tabular-nums" aria-live="polite"
                 >{selectedImageIndex + 1} / {$readerImageGalleryPictures$.length}</span
               >
               <Button
-                variant="outline"
+                variant="secondary"
                 disabled={selectedImageIndex === $readerImageGalleryPictures$.length - 1}
                 onclick={nextImage}
               >
@@ -198,6 +199,25 @@
 </Dialog.Root>
 
 <style>
+  .gallery-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 44px;
+    align-items: start;
+    gap: 12px;
+    padding: 12px 16px;
+  }
+  .gallery-navigation {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .gallery-toolbar {
+    min-width: 0;
+  }
   .gallery-layout {
     min-height: 0;
     display: grid;
@@ -233,7 +253,11 @@
     display: none;
     min-width: 0;
     min-height: 0;
-    grid-template-rows: auto minmax(0, 1fr);
+    /* Keep a usable image row when enlarged controls fill a short viewport.
+       The viewer scrolls as one region instead of collapsing the image to zero. */
+    grid-template-rows: auto minmax(128px, 1fr);
+    overflow-y: auto;
+    overscroll-behavior: contain;
     outline: none;
   }
   .has-selection .gallery-viewer {
@@ -274,7 +298,10 @@
     color: var(--popover-foreground);
     border: 1px solid var(--border);
     font-size: 0.875rem;
-    white-space: nowrap;
+    max-width: calc(100% - 24px);
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: center;
   }
   @media (min-width: 1024px) {
     .gallery-layout {
