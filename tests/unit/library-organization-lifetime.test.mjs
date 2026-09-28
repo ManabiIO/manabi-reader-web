@@ -210,12 +210,9 @@ test('idempotent receipts and no-op mutations still await commit', async () => {
 test('migration receipt and organization publish in the same commit', async () => {
   const h = harness();
   const receipt = { key: 'import-receipt', value: 'new', modified: 9 };
-  const result = h.api.updateOrganization(
-    (value) => {
-      value.collections.push({ id: 'migrated', name: 'Imported', members: ['book:7'] });
-    },
-    receipt
-  );
+  const result = h.api.updateOrganization((value) => {
+    value.collections.push({ id: 'migrated', name: 'Imported', members: ['book:7'] });
+  }, receipt);
   h.releaseRead();
   await drain();
   assert.deepEqual(
@@ -249,8 +246,10 @@ test('scope cancellation before storage opens starts no transaction', async () =
   const controller = new globalThis.AbortController();
   const reason = new Error('profile ended');
   controller.abort(reason);
-  await assert.rejects(h.api.updateOrganization(() => assert.fail('changed'), undefined, controller.signal),
-    (error) => error === reason);
+  await assert.rejects(
+    h.api.updateOrganization(() => assert.fail('changed'), undefined, controller.signal),
+    (error) => error === reason
+  );
   assert.equal(h.transactions(), 0);
 });
 
@@ -258,7 +257,11 @@ test('scope cancellation during first read aborts and drains without publication
   const h = harness();
   const controller = new globalThis.AbortController();
   const reason = new Error('profile changed');
-  const result = h.api.updateOrganization(() => assert.fail('stale mutation'), undefined, controller.signal);
+  const result = h.api.updateOrganization(
+    () => assert.fail('stale mutation'),
+    undefined,
+    controller.signal
+  );
   const rejected = assert.rejects(result, (error) => error === reason);
   await drain();
   controller.abort(reason);
@@ -291,9 +294,13 @@ test('revoking a settings apply while commit is pending retains existing collect
 test('committed local operations detach cancellation without pretending to undo a commit', async () => {
   const h = harness();
   const controller = new globalThis.AbortController();
-  const result = h.api.updateOrganization((value) => {
-    value.collections.push({ id: 'done', name: 'Committed', members: [] });
-  }, undefined, controller.signal);
+  const result = h.api.updateOrganization(
+    (value) => {
+      value.collections.push({ id: 'done', name: 'Committed', members: [] });
+    },
+    undefined,
+    controller.signal
+  );
   h.releaseRead();
   await drain();
   h.commit();
@@ -316,6 +323,10 @@ test('migration receipt fields are captured before database suspension', async (
   await drain();
   h.commit();
   await result;
-  assert.deepEqual(h.records.get('receipt-original'), { key: 'receipt-original', value: 'original', modified: 3 });
+  assert.deepEqual(h.records.get('receipt-original'), {
+    key: 'receipt-original',
+    value: 'original',
+    modified: 3
+  });
   assert.equal(h.records.has('receipt-replaced'), false);
 });

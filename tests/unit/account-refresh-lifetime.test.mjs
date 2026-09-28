@@ -64,11 +64,7 @@ test('forced refresh cannot cycle when an earlier waiter starts the next probe',
   h.reply(1);
   await overtaking;
   await drain();
-  assert.equal(
-    queued.settled,
-    true,
-    'queued refresh remained pending after both probes completed'
-  );
+  assert.equal(queued.settled, true, 'queued refresh remained pending after both probes completed');
   assert.equal(queued.error, undefined);
 });
 
@@ -169,11 +165,7 @@ test('account revocation fences old responses and queued force', async () => {
   h.reply(1, { id: 'alice', username: 'Alice' });
   assert.equal(await old, null);
   assert.equal(await oldQueued, null);
-  assert.equal(
-    h.api.refreshAccount(true),
-    newQueued,
-    'old cleanup must not clear the new queue'
-  );
+  assert.equal(h.api.refreshAccount(true), newQueued, 'old cleanup must not clear the new queue');
   h.reply(2);
   await current;
   await drain();

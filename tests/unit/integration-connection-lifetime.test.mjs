@@ -10,7 +10,12 @@ function harness() {
       idb: {
         openDB(name, version, callbacks) {
           const opening = deferred();
-          const connection = { closed: 0, close() { this.closed++; } };
+          const connection = {
+            closed: 0,
+            close() {
+              this.closed++;
+            }
+          };
           opens.push({ name, version, callbacks, connection, ...opening });
           return opening.promise;
         }
