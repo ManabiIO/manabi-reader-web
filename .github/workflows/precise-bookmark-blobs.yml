@@ -1,0 +1,64 @@
+name: Precise bookmark verified blobs
+on:
+  push:
+    branches: [chore/precise-bookmark-blobs-20260928]
+permissions:
+  contents: write
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ae15e3de8faff9cbd2209234a10f0226d9b532ce
+          persist-credentials: false
+      - name: Verify exact parent and transport only the reviewed blobs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PYVERIFY'
+          import base64, gzip, hashlib, json, os, pathlib, subprocess, urllib.request
+          parent = 'ae15e3de8faff9cbd2209234a10f0226d9b532ce'
+          expected_patch = '0a6f7cfeba7fd16fff1f02c254e331ada440c490c26834218a09ac71fb8b68a9'
+          parts = ['b575a96964eda43cd9a6cb4db81c7629fbe3750b', '6d9796e7a0e416f10f796f2535b30057d2c7b33b', 'ce23d2ea53f703b1665044dbbd45423c183bdb07', 'ba7842c6277fd0d74f655db296109e08fae841a9']
+          expected_paths = ['.github/workflows/foliate-slide.yml', 'apps/web/src/lib/components/book-reader/book-reader-paginated/book-reader-foliate-paginated.svelte', 'apps/web/src/lib/components/book-reader/book-reader.svelte', 'apps/web/src/lib/components/book-reader/types.ts', 'apps/web/src/lib/data/database/books-db/versions/books-db.ts', 'apps/web/src/lib/data/storage/handler/browser-handler.ts', 'apps/web/src/lib/foliate-epub/visible-reader-location.ts', 'apps/web/src/lib/reader-bookmark-position.ts', 'apps/web/src/lib/webdav/sync.ts', 'apps/web/src/routes/b/+page.svelte', 'tests/browser/test_foliate_bookmark_position.py', 'tests/unit/foliate-bookmark-position.test.mjs', 'tests/unit/library-webdav-authority.test.mjs']
+          api = 'https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']
+          headers = {'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','Content-Type':'application/json'}
+          def call(path, data=None):
+              request=urllib.request.Request(api+path,headers=headers,data=None if data is None else json.dumps(data).encode())
+              with urllib.request.urlopen(request,timeout=30) as response:
+                  return json.load(response)
+          assert subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip() == parent
+          encoded=''.join(base64.b64decode(call('/git/blobs/'+sha)['content']).decode() for sha in parts)
+          patch=gzip.decompress(base64.b64decode(encoded))
+          assert hashlib.sha256(patch).hexdigest() == expected_patch
+          entries=[]
+          for block in patch.decode().split('diff --git ')[1:]:
+              lines=block.splitlines()
+              path=lines[0].split(' b/',1)[1]
+              old,new=next(line for line in lines if line.startswith('index ')).split()[1].split('..')
+              read=subprocess.run(['git','rev-parse','--verify','HEAD:'+path],capture_output=True,text=True)
+              before=read.stdout.strip() if read.returncode==0 else None
+              assert before == (None if set(old)=={'0'} else old), path
+              entries.append({'path':path,'before':before,'after':new})
+          assert sorted(item['path'] for item in entries) == expected_paths
+          pathlib.Path('/tmp/precise-bookmark.patch').write_bytes(patch)
+          subprocess.run(['git','apply','--check','--index','/tmp/precise-bookmark.patch'],check=True)
+          subprocess.run(['git','apply','--index','/tmp/precise-bookmark.patch'],check=True)
+          assert subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines() == expected_paths
+          for item in entries:
+              data=pathlib.Path(item['path']).read_bytes()
+              item['sha256']=hashlib.sha256(data).hexdigest()
+              assert subprocess.check_output(['git','hash-object',item['path']],text=True).strip()==item['after']
+              result=call('/git/blobs',{'content':base64.b64encode(data).decode(),'encoding':'base64'})
+              assert result['sha']==item['after'], item['path']
+          result={'parent':parent,'patch_sha256':expected_patch,'files':entries,'result_tree':subprocess.check_output(['git','write-tree'],text=True).strip()}
+          pathlib.Path('precise-bookmark-blobs.json').write_text(json.dumps(result,indent=2))
+          print(json.dumps({'verified_files':len(entries),'result_tree':result['result_tree']}))
+          PYVERIFY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: precise-bookmark-blobs
+          path: precise-bookmark-blobs.json
+          retention-days: 3
