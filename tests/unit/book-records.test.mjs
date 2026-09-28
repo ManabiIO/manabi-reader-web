@@ -15,7 +15,7 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-function harness(records, { manual = false, fail = false } = {}) {
+function harness(records, { manual = false, fail = false, scopes = {} } = {}) {
   const completion = deferred();
   const writes = [];
   let opened = 0;
@@ -45,11 +45,22 @@ function harness(records, { manual = false, fail = false } = {}) {
       }
     }
   };
+  tx.objectStore = (name) => {
+    if (name === 'data') return tx.store;
+    if (name === 'readerBookScope')
+      return {
+        async get(id) {
+          return scopes[id];
+        }
+      };
+    assert.fail(`unexpected store ${name}`);
+  };
   if (!manual) completion.resolve();
   return {
     db: {
       transaction(name) {
-        assert.equal(name, 'data');
+        if (Array.isArray(name)) assert.deepEqual(name, ['data', 'readerBookScope']);
+        else assert.equal(name, 'data');
         opened++;
         return tx;
       }
@@ -76,12 +87,16 @@ test('library summaries use a cursor and retain neither book text nor image buff
   a.coverImage = new Blob(['cover']);
   a.styleSheet = 'large CSS';
   const b = { ...stored(), id: 4, elementHtml: '' };
-  const h = harness([a, b]);
+  const h = harness([a, b], {
+    scopes: { [a.id]: { bookId: a.id, accountId: 'account-a' } }
+  });
   const summaries = await readBookSummaries(h.db);
   assert.equal(summaries.length, 2);
   assert.equal(summaries[0].coverImage, a.coverImage);
   assert.equal(summaries[0].title, a.title);
+  assert.equal(summaries[0].readerOwner, 'account-a');
   assert.equal(summaries[0].isPlaceholder, false);
+  assert.equal(summaries[1].readerOwner, undefined);
   assert.equal(summaries[1].isPlaceholder, true);
   for (const summary of summaries) {
     for (const key of ['blobs', 'elementHtml', 'styleSheet', 'htmlBackup', 'manabiTtuImport'])
