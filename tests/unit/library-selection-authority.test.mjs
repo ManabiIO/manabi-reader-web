@@ -470,6 +470,25 @@ test('a stale read-only reconnect preserves newer name and write consent', async
   assert.equal(fixture.db.rows('localLibraries')[0].writable, true);
   assert.equal(fixture.library.writable, true);
 });
+
+test('a permission grant cannot transfer to a different directory handle reusing the source ID', async () => {
+  const replacementHandle = {
+    requestPermission: async () => 'granted',
+    queryPermission: async () => 'granted',
+    isSameEntry: async () => false
+  };
+  const fixture = permissionFixture({ handle: replacementHandle });
+  fixture.library.handle.isSameEntry = async () => false;
+  const rejected = assert.rejects(
+    fixture.api.reconnectLocalLibrary(fixture.library, true),
+    /not_found/
+  );
+  fixture.grant.resolve('granted');
+  await rejected;
+  assert.equal(fixture.db.rows('localLibraries')[0].handle, replacementHandle);
+  assert.equal(fixture.db.rows('localLibraries')[0].writable, false);
+  assert.equal(fixture.library.writable, false);
+});
 test('failed permission persistence does not authorize the caller snapshot', async () => {
   const failure = new DOMException('full', 'QuotaExceededError');
   const fixture = permissionFixture({}, { commitError: failure });
