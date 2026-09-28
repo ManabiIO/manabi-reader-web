@@ -97,7 +97,7 @@ function subject(name: string): Subject {
 }
 interface Binding {
   read(): unknown;
-  apply(value: unknown): void | Promise<void>;
+  apply(value: unknown, signal?: AbortSignal): void | Promise<void>;
   source: Subject;
 }
 const bindings: Record<string, Binding> = {};
@@ -120,8 +120,8 @@ function bind(
 bindings.library_organization = {
   source: organizationPreference,
   read: () => structuredClone(organizationPreference.getValue()),
-  apply(value) {
-    return organizationPreference.next(value);
+  apply(value, signal) {
+    return organizationPreference.next(value, signal);
   }
 };
 bind('theme', 'appearance', (v) => ['light', 'dark', 'system'].includes(v as string));
@@ -223,12 +223,18 @@ function expand(value: Flat): Record<string, unknown> {
   return result;
 }
 let applying = false;
-function apply(value: Flat) {
+function apply(value: Flat, isCurrent: () => boolean, signal: AbortSignal) {
   const pending: (void | Promise<void>)[] = [];
   applying = true;
   try {
-    for (const [key, binding] of Object.entries(bindings))
-      if (Object.hasOwn(value, key)) pending.push(binding.apply(value[key]));
+    for (const [key, binding] of Object.entries(bindings)) {
+      if (!isCurrent() || signal.aborted) break;
+      if (Object.hasOwn(value, key)) pending.push(binding.apply(value[key], signal));
+    }
+  } catch (error) {
+    // A synchronous preference setter must not orphan an already-started
+    // asynchronous organization write. Observe every enrolled promise.
+    pending.push(Promise.reject(error));
   } finally {
     applying = false;
   }
@@ -242,6 +248,13 @@ let writes: Promise<unknown> = Promise.resolve();
 let debounce: ReturnType<typeof setTimeout> | undefined;
 let retryAt = 0;
 let activation = 0;
+let applyLifetime = new AbortController();
+function advanceActivation() {
+  activation += 1;
+  applyLifetime.abort();
+  applyLifetime = new AbortController();
+  return activation;
+}
 function persist(user: string, state: SavedPreferences) {
   const copy = structuredClone(state);
   writes = writes.catch(() => undefined).then(() => setMetadata(`preferences/${user}`, copy));
@@ -257,6 +270,7 @@ export async function syncPreferences(choice?: 'local' | 'remote'): Promise<void
   if (!user || user !== activeUser || !active?.enabled) return;
   const state = active;
   const admitted = activation;
+  const signal = applyLifetime.signal;
   const isCurrent = () =>
     active === state && activation === admitted && state.enabled && currentUser()?.id === user;
   await exclusive(`preferences/${user}`, async () => {
@@ -324,7 +338,7 @@ export async function syncPreferences(choice?: 'local' | 'remote'): Promise<void
       state.local = newer.merged;
       state.revision = accepted.revision;
       state.initialized = true;
-      await apply(state.local);
+      await apply(state.local, isCurrent, signal);
       if (!isCurrent()) return;
       await persist(user, state);
       if (!isCurrent()) return;
@@ -348,7 +362,7 @@ export async function syncPreferences(choice?: 'local' | 'remote'): Promise<void
 export async function enablePreferenceSync(enabled: boolean, choice?: 'local' | 'remote') {
   const user = currentUser()?.id;
   if (!user || user !== activeUser || !active) throw new IntegrationError('sign_in_required');
-  activation += 1;
+  advanceActivation();
   active = { ...active, enabled };
   if (enabled) active.local = { ...active.local, ...capture() };
   const state = active;
@@ -358,38 +372,90 @@ export async function enablePreferenceSync(enabled: boolean, choice?: 'local' | 
   if (enabled) await syncPreferences(state.initialized ? undefined : choice);
 }
 
+/** Report optional sync/storage failure without discarding local settings or consent. */
+function reportPreferenceFailure(error: unknown, enabled: boolean) {
+  const failure = error instanceof IntegrationError ? error : new IntegrationError('unavailable');
+  retryAt = Date.now() + Math.max(failure.retryAfter * 1000, 5000);
+  preferenceStatus.set({ enabled, state: failure.code, conflicts: [] });
+}
+
 function startPreferenceSyncReady() {
   let stopped = false;
+  let loadingActivation: number | undefined;
   async function switchUser() {
+    if (stopped) return;
     const user = localProfileUser()?.id ?? null;
-    if (user === activeUser) return;
-    activation += 1;
+    if (user === activeUser && (active || loadingActivation === activation)) return;
+    const admitted = advanceActivation();
+    const signal = applyLifetime.signal;
     activeUser = user;
     active = null;
+    loadingActivation = admitted;
     clearTimeout(debounce);
     preferenceStatus.set({ enabled: false, state: 'off', conflicts: [] });
-    if (!user) return;
-    await writes.catch(() => undefined);
-    const saved = await metadata<SavedPreferences>(`preferences/${user}`);
-    if (stopped || user !== activeUser) return;
-    active = saved
-      ? { ...saved, local: flatten(expand(saved.local)), base: flatten(expand(saved.base)) }
-      : {
-          enabled: false,
-          initialized: false,
-          local: capture(),
-          base: {},
-          revision: 0
-        };
-    if (active.enabled) {
-      await apply(active.local);
-      if (stopped || user !== activeUser) return;
-      await syncPreferences();
+    const isCurrent = () => !stopped && activation === admitted && user === activeUser;
+    try {
+      if (!user) return;
+      await writes.catch(() => undefined);
+      if (!isCurrent()) return;
+      const saved = await metadata<SavedPreferences>(`preferences/${user}`);
+      // Identity alone is insufficient: a delayed A load must not survive A→B→A.
+      if (!isCurrent()) return;
+      active = saved
+        ? { ...saved, local: flatten(expand(saved.local)), base: flatten(expand(saved.base)) }
+        : {
+            enabled: false,
+            initialized: false,
+            local: capture(),
+            base: {},
+            revision: 0
+          };
+      preferenceStatus.set({
+        enabled: active.enabled,
+        state: active.enabled ? 'pending' : 'off',
+        conflicts: []
+      });
+      if (active.enabled) {
+        await apply(active.local, isCurrent, signal);
+        if (!isCurrent()) return;
+        await syncPreferences();
+      }
+    } catch (error) {
+      if (isCurrent()) reportPreferenceFailure(error, active?.enabled ?? false);
+    } finally {
+      if (loadingActivation === admitted) loadingActivation = undefined;
     }
   }
   const accountSubscription = localUser.subscribe(() => {
-    void switchUser().catch(() => undefined);
+    void switchUser();
   });
+  const refresh = async () => {
+    if (stopped || document.visibilityState !== 'visible' || Date.now() < retryAt) return;
+    // Retry a failed local profile read even offline. This cannot enable sync:
+    // the persisted consent still has to load successfully first.
+    const previous = active;
+    await switchUser();
+    // A newly loaded profile already performed its initial sync in switchUser.
+    if (active !== previous) return;
+    if (
+      stopped ||
+      Date.now() < retryAt ||
+      get(preferenceStatus).state === 'conflict' ||
+      get(account).status !== 'available'
+    )
+      return;
+    const state = active;
+    const admitted = activation;
+    try {
+      await syncPreferences();
+    } catch (error) {
+      // Lock acquisition and a failed recovery write can reject outside the
+      // transport's catch. Observe them without publishing into a later scope.
+      if (!stopped && activation === admitted && active === state)
+        reportPreferenceFailure(error, state?.enabled ?? false);
+    }
+  };
+  const tick = () => void refresh();
   const subscriptions = Object.values(bindings).map((binding) => {
     let initial = true;
     return binding.source.subscribe(() => {
@@ -397,52 +463,91 @@ function startPreferenceSyncReady() {
         initial = false;
         return;
       }
-      if (applying || !activeUser || !active?.enabled) return;
-      active.local = { ...active.local, ...capture() };
-      void persist(activeUser, active);
+      if (stopped || applying || !activeUser || !active?.enabled) return;
+      const state = active;
+      const admitted = activation;
+      state.local = { ...state.local, ...capture() };
+      const pending = persist(activeUser, state);
+      void pending.catch((error) => {
+        if (!stopped && activation === admitted && active === state && writes === pending)
+          reportPreferenceFailure(error, state.enabled);
+      });
       preferenceStatus.set({ enabled: true, state: 'pending', conflicts: [] });
       clearTimeout(debounce);
-      debounce = setTimeout(() => {
-        void syncPreferences();
-      }, 1500);
+      debounce = setTimeout(tick, 1500);
     });
   });
-  const tick = () => {
-    if (
-      Date.now() >= retryAt &&
-      get(preferenceStatus).state !== 'conflict' &&
-      get(account).status === 'available' &&
-      document.visibilityState === 'visible'
-    )
-      void syncPreferences();
-  };
   const timer = setInterval(tick, 30000);
   window.addEventListener('online', tick);
+  document.addEventListener('visibilitychange', tick);
   return () => {
+    if (stopped) return;
     stopped = true;
-    activation += 1;
+    advanceActivation();
     clearInterval(timer);
     clearTimeout(debounce);
     accountSubscription();
     subscriptions.forEach((sub) => sub.unsubscribe());
     window.removeEventListener('online', tick);
+    document.removeEventListener('visibilitychange', tick);
     active = null;
     activeUser = null;
   };
 }
 
 export function startPreferenceSync() {
-  let stopped = false,
-    stop: () => void = () => undefined,
-    stopWatching: () => void = () => undefined;
-  void reloadOrganization().then(() => {
-    if (!stopped) {
-      stopWatching = watchOrganization();
+  let stopped = false;
+  let pending = false;
+  let ready = false;
+  let retryBootstrapAt = 0;
+  let stop: () => void = () => undefined;
+  let stopWatching: () => void = () => undefined;
+  const bootstrap = async () => {
+    if (
+      stopped ||
+      ready ||
+      pending ||
+      document.visibilityState !== 'visible' ||
+      Date.now() < retryBootstrapAt
+    )
+      return;
+    pending = true;
+    try {
+      // Organization must be loaded before capturing it for account sync. A
+      // transient read failure is not an empty library to upload to the server.
+      await reloadOrganization();
+      if (stopped) return;
+      stopWatching = watchOrganization((error) => {
+        if (!stopped) reportPreferenceFailure(error, get(preferenceStatus).enabled);
+      });
       stop = startPreferenceSyncReady();
+      ready = true;
+      stopBootstrap();
+    } catch (error) {
+      stopWatching();
+      stopWatching = () => undefined;
+      if (!stopped) {
+        retryBootstrapAt = Date.now() + 5000;
+        reportPreferenceFailure(error, false);
+      }
+    } finally {
+      pending = false;
     }
-  });
+  };
+  const tick = () => void bootstrap();
+  const timer = setInterval(tick, 30000);
+  function stopBootstrap() {
+    clearInterval(timer);
+    window.removeEventListener('online', tick);
+    document.removeEventListener('visibilitychange', tick);
+  }
+  window.addEventListener('online', tick);
+  document.addEventListener('visibilitychange', tick);
+  void bootstrap();
   return () => {
+    if (stopped) return;
     stopped = true;
+    stopBootstrap();
     stopWatching();
     stop();
   };

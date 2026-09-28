@@ -72,10 +72,7 @@ test('personal sync scope prevents another profile from adopting exact bytes', (
 });
 
 test('legacy hashless imports retain title matching without accepting malformed hashes', () => {
-  assert.equal(
-    matchesDirectImportIdentity({ id: 1, title: 'Legacy' }, { title: 'Legacy' }),
-    true
-  );
+  assert.equal(matchesDirectImportIdentity({ id: 1, title: 'Legacy' }, { title: 'Legacy' }), true);
   assert.equal(
     matchesDirectImportIdentity({ id: 1, title: 'Legacy' }, { title: 'Renamed' }),
     false

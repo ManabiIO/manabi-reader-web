@@ -88,6 +88,10 @@ jobs:
             if [ "$result" -ne 0 ]; then status=1; fi
             if [ -d test-results ]; then mv test-results artifacts/library/$engine/screenshots; fi
           done
+          LIBRARY_BROWSER=chromium python tests/browser/test_local_move_recovery.py 2>&1 | tee artifacts/library/local-move-recovery.log
+          result=${PIPESTATUS[0]}
+          if [ "$result" -ne 0 ]; then status=1; fi
+          if [ -d test-results ]; then mv test-results artifacts/library/local-move-recovery-screenshots; fi
           LIBRARY_BROWSER=chromium python tests/browser/test_library_preview_cache.py 2>&1 | tee artifacts/library/preview-cache.log
           result=${PIPESTATUS[0]}
           if [ "$result" -ne 0 ]; then status=1; fi
