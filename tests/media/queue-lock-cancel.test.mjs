@@ -146,7 +146,6 @@ test('cancelling one queued job keeps the lock request for another local admissi
     assert.equal((await store.tracks('guest', key('3'))).length, 1);
   }));
 
-
 test('stale Generate admission can persist a queued job but cannot make it runnable', () =>
   harness('stale-enqueue-admission-', async ({ store, queue, locks, counters }) => {
     const original = store.enqueueJob.bind(store);
