@@ -281,6 +281,44 @@ class LibraryBase(unittest.TestCase):
 
 
 class BooksLibraryBrowser(LibraryBase):
+    def test_renamed_identical_text_reuses_reading_identity_and_completion(self):
+        payload = b'\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e same direct import bytes\nsecond line\n'
+        picker = self.page.locator('input[type=file][accept*=".epub"]').first
+        picker.set_input_files({
+            'name': 'Before.txt',
+            'mimeType': 'text/plain',
+            'buffer': payload
+        })
+        expect(self.page.get_by_role('button', name='Read Before', exact=True)).to_be_visible(
+            timeout=30000)
+        first = self.stores('books', ['data'])['data']
+        self.assertEqual(1, len(first))
+        book_id = first[0]['id']
+        content_hash = first[0]['contentHash']
+
+        self.menu('Before', 'Mark as Finished')
+        before_bookmark = self.wait_bookmark(
+            book_id, lambda row: row.get('completion', {}).get('state') == 'finished')
+        before_completion = before_bookmark['completion']
+
+        picker.set_input_files({
+            'name': 'After.txt',
+            'mimeType': 'text/plain',
+            'buffer': payload
+        })
+        expect(self.page.get_by_role('button', name='Read After', exact=True)).to_be_visible(
+            timeout=30000)
+        expect(self.page.get_by_role('button', name='Read Before', exact=True)).to_have_count(0)
+
+        rows = self.stores('books', ['data', 'bookmark'])
+        self.assertEqual(1, len(rows['data']), 'renaming identical bytes must not fork a book')
+        self.assertEqual(book_id, rows['data'][0]['id'])
+        self.assertEqual(content_hash, rows['data'][0]['contentHash'])
+        self.assertEqual(
+            before_completion,
+            next(row for row in rows['bookmark'] if row['dataId'] == book_id)['completion']
+        )
+
     def test_yatsu_backup_collection_is_visible_on_phone_and_desktop(self):
         fixture = Path(__file__).resolve().parents[1] / 'fixtures' / 'yatsu' / 'complete-local-backup-v11.zip'
         self.page.goto(self.origin + '/reader-web/import-ttu?source=yatsu')
