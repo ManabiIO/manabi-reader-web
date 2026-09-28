@@ -123,6 +123,8 @@ export class TranscriptionQueue {
   private admitted = new Map<string, { isCurrent?: () => boolean }>();
   private targets = new Map<string, number>();
   private batch?: AbortController;
+  /** Set only while this batch is queued for the origin inference lock. */
+  private lockWait?: AbortController;
   private closing?: Promise<void>;
   private task?: Promise<void>;
   private rerun = false;
@@ -323,6 +325,7 @@ export class TranscriptionQueue {
   }
   async cancel(id: string) {
     this.targets.delete(id);
+    const admission = this.admitted.get(id);
     const active = this.active?.id === id ? this.active : undefined;
     let pending: Promise<Job | undefined>;
     try {
@@ -339,7 +342,14 @@ export class TranscriptionQueue {
           : { ...releasedJob(job, 'paused'), pauseReason: 'user' };
       });
     } finally {
+      // Revoke only the admission that existed when Cancel began. A newer
+      // Resume may already have installed a successor token for the same ID.
+      if (admission && this.admitted.get(id) === admission) this.admitted.delete(id);
       active?.controller.abort(new DOMException('Generation cancelled', 'AbortError'));
+      // If this tab has no other work and has not acquired the origin lock yet,
+      // withdraw its Web Locks request instead of later cutting ahead for no work.
+      if (!this.active && !this.admitted.size && this.lockWait === this.batch)
+        this.batch?.abort(new DOMException('No local transcription jobs remain', 'AbortError'));
     }
     await pending;
   }
@@ -1014,16 +1024,19 @@ export class TranscriptionQueue {
             .catch((error) => this.report(error));
         }, 10_000);
         try {
+          this.lockWait = batch;
           await navigator.locks.request(
             'manabi-moss-inference',
             { signal: batch.signal },
             async () => {
+              if (this.lockWait === batch) this.lockWait = undefined;
               acquired = true;
               clearTimeout(waiting);
               await drain();
             }
           );
         } finally {
+          if (this.lockWait === batch) this.lockWait = undefined;
           clearTimeout(waiting);
         }
       } else {
