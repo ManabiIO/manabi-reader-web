@@ -1307,8 +1307,11 @@ export class VideoWorkspace {
     }
   }
   private async resumeSwitchedJobs(snapshot?: Job[]) {
-    const key = this.current?.key;
+    const key = this.current?.key,
+      generation = this.generation;
     if (!key || !this.switchPaused.size) return;
+    const isCurrent = () =>
+      !this.closed && this.generation === generation && this.current?.key === key;
     const jobs =
       snapshot ??
       (await this.store.listLocal<unknown>(this.options.scope, 'jobs')).map(validateJob);
@@ -1329,14 +1332,27 @@ export class VideoWorkspace {
       ) {
         // A switch can finish aborting after the new video's identity is known.
         // Store notifications retry this when that final pause is durable.
-        this.switchPaused.delete(job.id);
-        if (this.current?.key === key) await this.queue.resume(job.id);
+        if (!isCurrent()) return;
+        const resumed = await this.queue.resume(job.id, {
+          mediaKey: key,
+          expected:
+            job.status === 'queued'
+              ? 'queued'
+              : job.pauseReason === 'switch'
+                ? 'switch'
+                : 'identity',
+          isCurrent
+        });
+        if (resumed) this.switchPaused.delete(job.id);
       }
     }
   }
   private async resumeVerifiedIdentityJobs(jobs: Job[]) {
-    const key = this.current?.key;
+    const key = this.current?.key,
+      generation = this.generation;
     if (!key || this.current?.provisional) return;
+    const isCurrent = () =>
+      !this.closed && this.generation === generation && this.current?.key === key;
     for (const job of jobs) {
       if (
         job.provisional &&
@@ -1345,7 +1361,7 @@ export class VideoWorkspace {
         job.pauseReason === 'identity' &&
         jobCanResume(job)
       )
-        await this.queue.resume(job.id);
+        await this.queue.resume(job.id, { mediaKey: key, expected: 'identity', isCurrent });
     }
   }
   private renderJobs(jobs: Job[]) {

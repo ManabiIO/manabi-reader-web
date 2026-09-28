@@ -91,6 +91,15 @@ export interface Engine {
   ): Promise<string>;
   dispose(): void | Promise<void>;
 }
+/** Automatic continuation is conditional, unlike an explicit user Resume.
+ * The saved pause reason and viewed media are checked in the write transaction;
+ * isCurrent also fences a replaced workspace after that transaction commits.
+ */
+export interface AutomaticResume {
+  readonly mediaKey: ContentKey;
+  readonly expected: 'queued' | 'switch' | 'identity';
+  readonly isCurrent: () => boolean;
+}
 export interface QueueProgress {
   /** Uncommitted, operation-scoped output. Never written to caption pages or synced. */
   provisional?: Cue[];
@@ -107,7 +116,7 @@ export interface QueueProgress {
  */
 export class TranscriptionQueue {
   private running = false;
-  private admitted = new Map<string, symbol>();
+  private admitted = new Map<string, { isCurrent?: () => boolean }>();
   private targets = new Map<string, number>();
   private batch?: AbortController;
   private closing?: Promise<void>;
@@ -206,7 +215,7 @@ export class TranscriptionQueue {
     });
     // Multiple tabs may admit one deduplicated queued job. The origin lock and
     // atomic claim select one runner; either tab can make progress if the other stops.
-    this.admitted.set(job.id, Symbol());
+    this.admitted.set(job.id, {});
     this.kick();
     return job;
   }
@@ -232,17 +241,38 @@ export class TranscriptionQueue {
     if (!Number.isFinite(seconds) || seconds < 0 || this.closed) return;
     this.targets.set(id, seconds);
   }
-  async resume(id: string): Promise<Job> {
+  resume(id: string): Promise<Job>;
+  resume(id: string, automatic: AutomaticResume): Promise<Job | undefined>;
+  async resume(id: string, automatic?: AutomaticResume): Promise<Job | undefined> {
+    // Snapshot the caller's authority before awaiting storage. The predicate
+    // may observe a changing lifetime; replacing the options object may not.
+    const condition = automatic && { ...automatic };
+    const current = () => !this.closed && (!condition || condition.isCurrent());
+    if (condition && !current()) return undefined;
     if (this.closed) throw new Error('The queue is closed');
     this.requireOriginLock();
+    let admitted = false;
     const resumed = await this.store.updateLocal<Job>(this.scope, 'jobs', id, (old) => {
+      if (condition && (!old || !current())) return old;
       if (!old) throw new Error('The saved transcription no longer exists');
       const job = validateJob(old);
       if (job.id !== id) throw new Error('Wrong saved job identity');
+      if (
+        condition &&
+        (jobContentKey(job) !== condition.mediaKey ||
+          job.cancelRequested ||
+          (condition.expected === 'queued'
+            ? job.status !== 'queued'
+            : job.status !== 'paused' || job.pauseReason !== condition.expected))
+      )
+        return old; // A newer user action, owner or identity wins without a write.
       if (job.status === 'complete') throw new Error('This transcript is already complete');
       if (job.pauseReason === 'identity' && !job.verifiedMediaKey)
         throw new Error('Wait for full video verification before resuming this transcript.');
-      if (job.status === 'queued') return old;
+      if (job.status === 'queued') {
+        admitted = true;
+        return old;
+      }
       if (job.status === 'running' && (job.leaseUntil ?? 0) > Date.now())
         throw new Error('This job is still active in another tab. Cancel it before resuming.');
       if ((job.status === 'paused' || job.status === 'failed') && !jobCanResume(job))
@@ -253,10 +283,14 @@ export class TranscriptionQueue {
       if (this.closed) throw new Error('The queue is closed');
       const next = releasedJob(job, 'queued');
       delete next.error;
+      admitted = true;
       return next;
     });
+    // A committed queued record is harmless without this queue's admission.
+    // A newer tab or explicit Resume may still pick it up; never cancel it here.
+    if (condition && (!admitted || !current())) return undefined;
     if (!resumed) throw new Error('The saved transcription no longer exists');
-    this.admitted.set(id, Symbol());
+    this.admitted.set(id, condition ? { isCurrent: current } : {});
     this.kick();
     return validateJob(resumed);
   }
@@ -287,7 +321,12 @@ export class TranscriptionQueue {
     if (this.closed) return [];
     const pending: Job[] = [];
     for (const raw of await this.store.listLocal<unknown>(this.scope, 'jobs')) {
-      if (!raw || typeof raw !== 'object' || (raw as Job).mediaKey !== mediaKey) continue;
+      if (
+        !raw ||
+        typeof raw !== 'object' ||
+        ((raw as Job).mediaKey !== mediaKey && (raw as Job).verifiedMediaKey !== mediaKey)
+      )
+        continue;
       const job = validateJob(raw);
       const local =
         job.status === 'queued'
@@ -427,6 +466,10 @@ export class TranscriptionQueue {
           let candidate: Job | undefined;
           for (const [id, token] of admitted) {
             if (this.admitted.get(id) !== token) continue;
+            if (token.isCurrent && !token.isCurrent()) {
+              this.admitted.delete(id);
+              continue;
+            }
             const job = jobs.get(id);
             if (job?.status === 'queued') {
               // A video being watched should start before queued batch work.
@@ -441,6 +484,7 @@ export class TranscriptionQueue {
           if (this.closed || !candidate) break;
           // Remove before running so a later explicit resume/enqueue
           // can independently admit the same id during completion.
+          const admission = this.admitted.get(candidate.id)!;
           this.admitted.delete(candidate.id);
           const controller = new AbortController(),
             ownerId = crypto.randomUUID();
@@ -456,7 +500,8 @@ export class TranscriptionQueue {
                 if (!old) return old;
                 const job = validateJob(old);
                 if (job.id !== candidate.id) throw new Error('Wrong saved job identity');
-                if (job.status !== 'queued') return old;
+                if (job.status !== 'queued' || (admission.isCurrent && !admission.isCurrent()))
+                  return old;
                 signal.throwIfAborted();
                 return {
                   ...job,
@@ -833,7 +878,9 @@ export class TranscriptionQueue {
                   if (!old || old.ownerId !== ownerId || old.status !== 'running') return old;
                   const next = releasedJob(validateJob(old), paused ? 'paused' : 'failed');
                   if (awaitingIdentity) {
-                    next.pauseReason = 'identity';
+                    // Verification is not a newer playback intent. A Cancel or
+                    // video switch committed while this catch was pending wins.
+                    next.pauseReason ??= 'identity';
                     delete next.error;
                   } else
                     next.error =

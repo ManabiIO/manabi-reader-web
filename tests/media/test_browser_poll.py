@@ -35,9 +35,10 @@ class BrowserPollingTest(unittest.TestCase):
                     continue
                 expression = node.args[0]
                 if (isinstance(expression, ast.Constant) and isinstance(expression.value, str)
-                        and re.match(r'^\s*async\b', expression.value)):
+                        and (re.match(r'^\s*async\b', expression.value) or
+                             re.search(r'\.then\s*\(', expression.value))):
                     bad.append(f'{path.name}:{node.lineno}')
-        self.assertEqual(bad, [], 'Use wait_for_async for resolved asynchronous predicates')
+        self.assertEqual(bad, [], 'Use wait_for_async for async or Promise-returning predicates')
 
 
 if __name__ == '__main__':

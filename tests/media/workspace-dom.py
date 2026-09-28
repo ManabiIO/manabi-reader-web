@@ -7,6 +7,7 @@ this opaque in-memory test document; no browser security policy is changed.
 """
 import argparse, base64, functools, json, os, pathlib, re, traceback
 from playwright.sync_api import sync_playwright
+from browser_poll import wait_for_async
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 def main():
@@ -130,7 +131,7 @@ def main():
             }""")
             page.wait_for_function("secondSparseStarted && workspace.currentTranscription?.id===oldJob.id")
             page.evaluate("workspace.openSource(makeSource('Other.mp4',1))")
-            page.wait_for_function("workspace.current?.key!==oldKey && workspace.current && Promise.all([store.local('guest','jobs',oldJob.id),store.local('guest','jobs',otherOldJob.id)]).then(([active,queued])=>active?.status==='paused'&&queued?.status==='queued')")
+            wait_for_async(page, "() => (workspace.current?.key!==oldKey && workspace.current && Promise.all([store.local('guest','jobs',oldJob.id),store.local('guest','jobs',otherOldJob.id)]).then(([active,queued])=>active?.status==='paused'&&queued?.status==='queued'))")
             result=page.evaluate("""async()=>{
                 const saved=await store.local('guest','jobs',oldJob.id);
                 const other=await store.local('guest','jobs',otherOldJob.id);
@@ -146,7 +147,7 @@ def main():
                 };
                 await workspace.openSource(makeSource('Captioned.mp4'));
             }""")
-            page.wait_for_function("store.local('guest','jobs',oldJob.id).then(j=>j?.status==='complete')")
+            wait_for_async(page, "() => (store.local('guest','jobs',oldJob.id).then(j=>j?.status==='complete'))")
             complete=page.evaluate("""async()=>{
                 const tracks=await store.tracks('guest',oldKey);
                 const original=tracks.find(track=>track.id===oldJob.id);
@@ -185,9 +186,9 @@ def main():
                 });
                 window.cancelledAfterSwitch=await q.enqueue(originalKey,'ja','2',52,0);
             }""")
-            page.wait_for_function("store.local('guest','jobs',cancelledAfterSwitch.id).then(j=>j?.status==='running')")
+            wait_for_async(page, "() => (store.local('guest','jobs',cancelledAfterSwitch.id).then(j=>j?.status==='running'))")
             page.evaluate("workspace.openSource(makeSource('Second.mp4',1))")
-            page.wait_for_function("store.local('guest','jobs',cancelledAfterSwitch.id).then(j=>j?.status==='paused')")
+            wait_for_async(page, "() => (store.local('guest','jobs',cancelledAfterSwitch.id).then(j=>j?.status==='paused'))")
             page.evaluate("workspace.queue.cancel(cancelledAfterSwitch.id)")
             page.evaluate("workspace.openSource(makeSource('First.mp4'))")
             page.wait_for_function('workspace.current?.key===originalKey')
@@ -277,9 +278,9 @@ def main():
                     new Float32Array(Math.ceil(end*16000)-Math.round(start*16000)).fill(.1);
             }""")
             page.get_by_role('button',name='Generate transcript',exact=True).click()
-            page.wait_for_function("store.listLocal('guest','jobs').then(j=>j.length===1)")
+            wait_for_async(page, "() => (store.listLocal('guest','jobs').then(j=>j.length===1))")
             page.evaluate("store.listLocal('guest','jobs').then(j=>window.earlyJob=j[0].id)")
-            page.wait_for_function("store.local('guest','jobs',earlyJob).then(j=>j?.pauseReason==='identity'&&j.status==='paused')")
+            wait_for_async(page, "() => (store.local('guest','jobs',earlyJob).then(j=>j?.pauseReason==='identity'&&j.status==='paused'))")
             before=page.evaluate("""async()=>({
                 provisional:workspace.current.provisional===true,
                 portable:workspace.player.key??null,
@@ -289,7 +290,7 @@ def main():
             })""")
             assert before==dict(provisional=True,portable=None,windows=1,tracks=0,inferences=1),before
             page.evaluate('releaseHash();opened')
-            page.wait_for_function("store.local('guest','jobs',earlyJob).then(j=>j?.status==='complete')")
+            wait_for_async(page, "() => (store.local('guest','jobs',earlyJob).then(j=>j?.status==='complete'))")
             after=page.evaluate("""async()=>({
                 key:workspace.current.key,
                 provisional:workspace.current.provisional??false,
@@ -327,7 +328,7 @@ def main():
             page.wait_for_function('workspace.current && !workspace.current.provisional')
             page.evaluate('releaseAdmission()')
             page.evaluate('admitted.then(id=>window.lateJob=id)')
-            page.wait_for_function("store.local('guest','jobs',lateJob).then(j=>j?.status==='complete')")
+            wait_for_async(page, "() => (store.local('guest','jobs',lateJob).then(j=>j?.status==='complete'))")
             result=page.evaluate("""async()=>{
                 const job=await store.local('guest','jobs',lateJob);
                 return {count:(await store.listLocal('guest','jobs')).length,
@@ -357,10 +358,10 @@ def main():
                     new Float32Array(Math.ceil(end*16000)-Math.round(start*16000)).fill(.1);
                 window.cancelIdentityJob=await workspace.generate();
             }""")
-            page.wait_for_function("store.local('guest','jobs',cancelIdentityJob).then(j=>j?.pauseReason==='identity')")
+            wait_for_async(page, "() => (store.local('guest','jobs',cancelIdentityJob).then(j=>j?.pauseReason==='identity'))")
             page.evaluate('workspace.queue.cancel(cancelIdentityJob)')
             page.evaluate('releaseHash();opened')
-            page.wait_for_function("store.local('guest','jobs',cancelIdentityJob).then(j=>!!j?.verifiedMediaKey)")
+            wait_for_async(page, "() => (store.local('guest','jobs',cancelIdentityJob).then(j=>!!j?.verifiedMediaKey))")
             result=page.evaluate("""async()=>{
                 const job=await store.local('guest','jobs',cancelIdentityJob);
                 return {status:job.status,reason:job.pauseReason,windows:job.nextWindow,
@@ -393,7 +394,7 @@ def main():
                     new Float32Array(Math.ceil(end*16000)-Math.round(start*16000)).fill(.1);
                 window.retryJob=await workspace.generate();
             }""")
-            page.wait_for_function("store.local('guest','jobs',retryJob).then(j=>j?.pauseReason==='identity')")
+            wait_for_async(page, "() => (store.local('guest','jobs',retryJob).then(j=>j?.pauseReason==='identity'))")
             page.evaluate('releaseHash();opened')
             page.wait_for_function('workspace.player?.generationAvailable===false')
             assert page.evaluate('inferences')==1
@@ -401,7 +402,7 @@ def main():
             page.evaluate("workspace.openSource(makeSource('After-failed-verification.mp4',1))")
             page.wait_for_function("workspace.current?.source.name==='After-failed-verification.mp4'")
             page.get_by_role('button',name='Retry video verification').click()
-            page.wait_for_function("store.local('guest','jobs',retryJob).then(j=>j?.status==='complete')")
+            wait_for_async(page, "() => (store.local('guest','jobs',retryJob).then(j=>j?.status==='complete'))")
             page.wait_for_function('workspace.current && !workspace.current.provisional && workspace.current.source===retrySource')
             result=page.evaluate("""async()=>{
                 const job=await store.local('guest','jobs',retryJob);
@@ -433,13 +434,13 @@ def main():
                     new Float32Array(Math.ceil(end*16000)-Math.round(start*16000)).fill(.1);
                 window.reopenedJob=await workspace.generate();
             }""")
-            page.wait_for_function("store.local('guest','jobs',reopenedJob).then(j=>j?.pauseReason==='identity')")
+            wait_for_async(page, "() => (store.local('guest','jobs',reopenedJob).then(j=>j?.pauseReason==='identity'))")
             key=page.evaluate('workspace.current.key')
             page.evaluate('window.oldHashController=workspace.localHashes.get(workspace.current.key).controller')
             page.evaluate('()=>{window.secondOpen=workspace.openSource(reopenedSource)}')
             page.wait_for_function('(key)=>workspace.current?.key===key && workspace.localHashes.get(key)?.requested===true && workspace.localHashes.get(key).controller!==oldHashController',arg=key)
             page.evaluate('releaseHash();Promise.all([firstOpen,secondOpen])')
-            page.wait_for_function("store.local('guest','jobs',reopenedJob).then(j=>j?.status==='complete')")
+            wait_for_async(page, "() => (store.local('guest','jobs',reopenedJob).then(j=>j?.status==='complete'))")
             result=page.evaluate("""async()=>({
                 key:workspace.current.key,
                 verified:(await store.local('guest','jobs',reopenedJob)).verifiedMediaKey,
@@ -449,7 +450,7 @@ def main():
             assert result==dict(key=result['key'],verified=result['key'],
                                 published=[page.evaluate('reopenedJob')],inferences=1),result
         case('reopening the same File during hashing retains its requested checkpoint',reopen_same_file_during_verification)
-        def switch_during_provisional_generation():
+        def switch_during_provisional_generation(verify_before_switch=False):
             page.evaluate('reset()')
             page.evaluate(r"""()=>{
                 window.originalSource=makeSource('Provisional-switch.mp4');
@@ -483,10 +484,13 @@ def main():
                 window.provisionalJob=await q.enqueue(provisionalKey,'ja','2',52,0,true);
             }""")
             page.wait_for_function('secondStarted')
+            if verify_before_switch:
+                page.evaluate('releaseHash();opened')
+                page.wait_for_function('workspace.current && !workspace.current.provisional')
             page.evaluate("workspace.openSource(makeSource('After-switch.mp4',1))")
-            page.wait_for_function("store.local('guest','jobs',provisionalJob.id).then(j=>j?.status==='paused'&&j.nextWindow===1)")
+            wait_for_async(page, "() => (store.local('guest','jobs',provisionalJob.id).then(j=>j?.status==='paused'&&j.nextWindow===1))")
             page.evaluate('releaseHash();opened')
-            page.wait_for_function("store.local('guest','jobs',provisionalJob.id).then(j=>!!j?.verifiedMediaKey)")
+            wait_for_async(page, "() => (store.local('guest','jobs',provisionalJob.id).then(j=>!!j?.verifiedMediaKey))")
             held=page.evaluate("""async()=>{
                 const job=await store.local('guest','jobs',provisionalJob.id);
                 return {reason:job.pauseReason,windows:job.nextWindow,cues:job.cues.length,
@@ -499,7 +503,7 @@ def main():
                 await workspace.openSource(originalSource,[],
                     (await store.local('guest','jobs',provisionalJob.id)).verifiedMediaKey);
             }""")
-            page.wait_for_function("store.local('guest','jobs',provisionalJob.id).then(j=>j?.status==='complete')")
+            wait_for_async(page, "() => (store.local('guest','jobs',provisionalJob.id).then(j=>j?.status==='complete'))")
             finished=page.evaluate("""async()=>{
                 const job=await store.local('guest','jobs',provisionalJob.id);
                 const [track]=await store.tracks('guest',job.verifiedMediaKey);
@@ -509,6 +513,49 @@ def main():
             assert finished==dict(calls=3,key=held['verified'],verified=held['verified'],
                                   cues=['最初です。','続きです。']),finished
         case('switching videos keeps provisional checkpoints and resumes after full verification',switch_during_provisional_generation)
+        case('a switch after verification still pauses and resumes the original provisional job',lambda:switch_during_provisional_generation(True))
+        def cancelled_automatic_identity_resume():
+            page.evaluate('reset()')
+            page.evaluate(r"""()=>{
+                const source=makeSource('Automatic-identity.mp4');
+                const read=source.read.bind(source);
+                window.hashGate=new Promise(resolve=>window.releaseHash=resolve);
+                source.read=async(start,end,signal)=>{
+                    if(end-start>32768)await hashGate;
+                    return read(start,end,signal);
+                };
+                window.opened=workspace.openSource(source);
+            }""")
+            page.wait_for_function('workspace.current?.provisional && workspace.player?.generationAvailable')
+            page.evaluate("""async()=>{
+                workspace.audio.value='2';workspace.lang.value='ja';
+                workspace.queue.decode=async(_job,start,end)=>
+                    new Float32Array(Math.ceil(end*16000)-Math.round(start*16000)).fill(.1);
+                window.automaticJob=await workspace.generate();
+            }""")
+            wait_for_async(page, "() => store.local('guest','jobs',automaticJob).then(j=>j?.pauseReason==='identity'&&j.status==='paused')")
+            page.evaluate("""()=>{
+                const resume=workspace.queue.resume.bind(workspace.queue);
+                window.autoBlocked=false;
+                const gate=new Promise(resolve=>window.releaseAuto=resolve);
+                workspace.queue.resume=async(...args)=>{
+                    autoBlocked=true;await gate;return resume(...args);
+                };
+                releaseHash();
+            }""")
+            page.wait_for_function('autoBlocked')
+            try:
+                page.evaluate('workspace.queue.cancel(automaticJob)')
+            finally:
+                page.evaluate('releaseAuto();opened')
+            result=page.evaluate("""async()=>{
+                await workspace.refreshJobs();
+                const job=await store.local('guest','jobs',automaticJob);
+                return {status:job.status,reason:job.pauseReason,windows:job.nextWindow,
+                    published:(await store.tracks('guest',job.verifiedMediaKey)).length,inferences};
+            }""")
+            assert result==dict(status='paused',reason='user',windows=1,published=0,inferences=1),result
+        case('Cancel supersedes the workspace automatic identity-resume request after its snapshot',cancelled_automatic_identity_resume)
         def account_replaced_at_identity_boundary():
             page.evaluate('reset()')
             page.evaluate("""async()=>{
