@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { retainMissingBookExtensions } from './presentation-compatibility.ts';
+import { validBookMetadata, validBookSeries } from './book-presentation.ts';
 import type { BookPresentation, Organization } from './organization';
 import { WANT_TO_READ_ID, wantToReadCollection } from './want-to-read.ts';
 
@@ -29,13 +31,26 @@ export function isPortableText(value: unknown, maximum: number): value is string
 export function isPortablePresentation(value: unknown): value is BookPresentation {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const item = value as Record<string, unknown>;
-  if (Object.keys(item).some((key) => !['title', 'direction', 'cover', 'modifiedAt'].includes(key)))
+  if (
+    Object.keys(item).some(
+      (key) =>
+        !['title', 'direction', 'cover', 'modifiedAt', 'coverBlur', 'metadata', 'series'].includes(
+          key
+        )
+    )
+  )
     return false;
   if (
     !Number.isSafeInteger(item.modifiedAt) ||
     (item.modifiedAt as number) < 0 ||
     (item.title !== undefined && !isPortableText(item.title, 1000)) ||
     (item.direction !== undefined && !['ltr', 'rtl', 'unknown'].includes(item.direction as string))
+  )
+    return false;
+  if (
+    (item.coverBlur !== undefined && typeof item.coverBlur !== 'boolean') ||
+    (item.metadata !== undefined && !validBookMetadata(item.metadata)) ||
+    (item.series !== undefined && !validBookSeries(item.series))
   )
     return false;
   if (item.cover === undefined) return true;
@@ -97,13 +112,13 @@ export function applyPortableOrganization(local: Organization, remote: Organizat
         ])
       ]
     })),
-    books: {
+    books: retainMissingBookExtensions(local.books, {
       ...Object.fromEntries(
         Object.entries(local.books)
           .filter(([key]) => !isPortableBookKey(key))
           .map(([key, presentation]) => [key, structuredClone(presentation)])
       ),
       ...shared.books
-    }
+    })
   };
 }

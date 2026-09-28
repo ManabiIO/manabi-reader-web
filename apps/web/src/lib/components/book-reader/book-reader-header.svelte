@@ -15,6 +15,7 @@
     CheckCircle,
     MapPin,
     ArrowsOut,
+    ArrowsIn,
     Gear,
     BookOpen,
     ChartBar,
@@ -35,6 +36,8 @@
   export let autoScrollMultiplier: number;
   export let hasCustomReadingPoint: boolean;
   export let showFullscreenButton: boolean;
+  export let fullscreenActive = false;
+  export let fullscreenBusy = false;
   export let hasBookmarkData: boolean;
 
   const dispatch = createEventDispatcher<{
@@ -115,6 +118,22 @@
       ><TextAa class="size-5" aria-hidden="true" /><span class="hidden md:inline">Appearance</span
       ></Button
     >
+    {#if showFullscreenButton}
+      <Button
+        variant="ghost"
+        size="icon"
+        class="min-h-11 min-w-11"
+        aria-label={fullscreenActive ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+        title={fullscreenActive ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+        disabled={fullscreenBusy}
+        onclick={() => dispatch('fullscreenClick')}
+      >
+        {#if fullscreenActive}<ArrowsIn class="size-5" aria-hidden="true" />{:else}<ArrowsOut
+            class="size-5"
+            aria-hidden="true"
+          />{/if}
+      </Button>
+    {/if}
     <Menu.Root>
       <Menu.Trigger
         >{#snippet child({ props })}<Button
@@ -173,9 +192,6 @@
           <Menu.Separator /><Menu.Label>Autoscroll speed: {autoScrollMultiplier}×</Menu.Label>
         {/if}
         <Menu.Separator />
-        {#if showFullscreenButton}<Menu.Item onSelect={() => dispatch('fullscreenClick')}
-            ><ArrowsOut aria-hidden="true" />Toggle Fullscreen</Menu.Item
-          >{/if}
         <Menu.Item onSelect={() => dispatch('settingsClick')}
           ><Gear aria-hidden="true" />Settings</Menu.Item
         >

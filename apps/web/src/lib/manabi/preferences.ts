@@ -23,6 +23,11 @@ import {
   watchOrganization
 } from '$lib/library/organization';
 import { parsePreferenceReply } from './auth-contract';
+import {
+  preferenceWireSnapshot,
+  retainMissingPreferenceExtensions,
+  hasPresentationExtensions
+} from '$lib/library/presentation-compatibility';
 
 type Flat = Record<string, unknown>;
 interface SavedPreferences {
@@ -376,23 +381,32 @@ async function performPreferenceSync(
       )
         resolution = state.initialChoice;
       const remote = parsePreferenceReply(
-        await request<unknown>('preferences/', { userId: user }),
+        await request<unknown>('preferences/?book_presentation_version=1', { userId: user }),
         user
       );
       if (!isCurrent()) return;
       unchangedUser(user);
       if (!remote) throw new IntegrationError('invalid_response');
-      const there = flatten(remote.settings);
+      const supportsExtensions = remote.book_presentation_version === 1;
+      const wire = (value: Flat) => preferenceWireSnapshot(value, supportsExtensions);
+      const capturedWire = wire(captured);
+      const thereRaw = wire(flatten(remote.settings));
+      // Absence is how an older client represents unknown fields, not a reset.
+      const there = supportsExtensions
+        ? retainMissingPreferenceExtensions(state.base, thereRaw)
+        : thereRaw;
       let merged: Flat;
       if (
         resolution === 'remote' ||
         (!state.initialized && remote.revision > 0 && resolution !== 'local')
       ) {
-        merged = { ...captured, ...there };
+        merged = supportsExtensions
+          ? retainMissingPreferenceExtensions(capturedWire, { ...capturedWire, ...there })
+          : { ...capturedWire, ...there };
       } else if (resolution === 'local' || !state.initialized) {
-        merged = { ...there, ...captured };
+        merged = { ...there, ...capturedWire };
       } else {
-        const combined = mergeRecords(state.base, captured, there);
+        const combined = mergeRecords(wire(state.base), capturedWire, there);
         if (combined.conflicts.length) {
           preferenceStatus.set({ enabled: true, state: 'conflict', conflicts: combined.conflicts });
           return;
@@ -400,9 +414,9 @@ async function performPreferenceSync(
         merged = combined.merged;
       }
       let accepted = remote;
-      if (!equal(merged, there)) {
+      if (!equal(merged, thereRaw)) {
         const response = parsePreferenceReply(
-          await request<unknown>('preferences/', {
+          await request<unknown>('preferences/?book_presentation_version=1', {
             method: 'PUT',
             value: { settings: expand(merged) },
             revision: `"${remote.revision}"`,
@@ -415,12 +429,13 @@ async function performPreferenceSync(
         if (
           !response ||
           response.revision !== remote.revision + 1 ||
+          (response.book_presentation_version === 1) !== supportsExtensions ||
           !equal(flatten(response.settings), merged)
         )
           throw new IntegrationError('invalid_response');
         accepted = response;
       }
-      const newer = mergeRecords(captured, state.local, merged);
+      const newer = mergeRecords(capturedWire, wire(state.local), merged);
       if (newer.conflicts.length) {
         // Preserve the last mutually accepted baseline. Otherwise a retry would
         // treat the conflicting local value as uncontested and overwrite remote.
@@ -430,8 +445,12 @@ async function performPreferenceSync(
       }
       // A preference changed locally while the network request was running.
       // Preserve it and let the next pass send it, rather than applying stale UI.
-      state.base = merged;
-      state.local = newer.merged;
+      // The legacy wire baseline acknowledges only legacy fields. Keep extension
+      // intent separate so a later supporting server receives it automatically.
+      state.base = supportsExtensions
+        ? merged
+        : retainMissingPreferenceExtensions(state.base, merged);
+      state.local = retainMissingPreferenceExtensions(state.local, newer.merged);
       state.revision = accepted.revision;
       state.initialized = true;
       delete state.initialChoice;
@@ -442,7 +461,11 @@ async function performPreferenceSync(
       unchangedUser(user);
       preferenceStatus.set({
         enabled: true,
-        state: equal(state.local, state.base) ? 'synced' : 'pending',
+        state: !equal(wire(state.local), wire(state.base))
+          ? 'pending'
+          : !supportsExtensions && hasPresentationExtensions(state.local)
+            ? 'synced-local-metadata'
+            : 'synced',
         conflicts: []
       });
     } catch (error) {

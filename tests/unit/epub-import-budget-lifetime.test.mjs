@@ -120,6 +120,7 @@ function fixture({ sources = [], sheets = {}, chapters = 1, close, readFailure }
     getParagraphNodes: (node) => [node],
     getCharacterCount: () => 3,
     extractCreators: () => [],
+    extractBookMetadata: () => ({}),
     epubDirection: () => 'ltr',
     DOMParser: class {
       parseFromString() {

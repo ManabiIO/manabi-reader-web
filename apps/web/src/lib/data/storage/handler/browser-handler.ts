@@ -60,6 +60,7 @@ export class BrowserStorageHandler extends BaseStorageHandler {
               ? book.coverImage || ''
               : decodeBookBinary(book.coverImage),
           creators: book.creators,
+          metadata: book.metadata,
           characters: BaseStorageHandler.getBookCharacters(
             book.characters || 0,
             book.sections || []

@@ -18,6 +18,7 @@ export type BookSummary = Pick<
   | 'title'
   | 'coverImage'
   | 'creators'
+  | 'metadata'
   | 'characters'
   | 'sections'
   | 'lastBookModified'
@@ -115,6 +116,7 @@ function summarizeBook(book: StoredBookData): BookSummary {
     title: book.title,
     coverImage: book.coverImage,
     creators: book.creators,
+    metadata: book.metadata,
     characters: book.characters,
     sections: book.sections,
     lastBookModified: book.lastBookModified,
