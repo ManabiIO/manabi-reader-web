@@ -66,6 +66,17 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
                 search.fill('')
                 expect(self.page.locator('#settings-content').get_by_role('heading', name='Fonts & text', exact=True)).to_be_visible()
 
+    def test_primary_workspace_navigation_appears_at_standard_desktop_width(self):
+        self.page.set_viewport_size({'width': 1024, 'height': 768})
+        self.page.goto(self.origin + '/reader-web/settings')
+        primary = self.page.get_by_role('navigation', name='Primary navigation')
+        for destination in ('Library', 'Snippets', 'Statistics', 'Settings'):
+            expect(primary.get_by_role('link', name=destination, exact=True)).to_be_visible()
+        expect(primary.get_by_role('link', name='Settings', exact=True)).to_have_attribute(
+            'aria-current', 'page'
+        )
+        self.assert_no_horizontal_overflow(self.page.locator('html'))
+
     def test_settings_section_links_follow_url_history_without_scrolling(self):
         self.page.set_viewport_size({'width': 1200, 'height': 844})
         self.page.goto(self.origin + '/reader-web/settings')
