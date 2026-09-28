@@ -73,6 +73,37 @@ class GalleryContinuity(GalleryRevealBase):
         expect(content).to_have_attribute('aria-busy', 'false')
         expect(content).to_have_css('writing-mode', 'horizontal-tb')
         self.page.wait_for_function("() => document.fonts.check('20px \"Klee One\"', '日本語')")
+        # Preserve native methods and their exact arguments; log the caller of
+        # any programmatic scroll rather than assuming return-focus caused it.
+        self.page.evaluate('''() => {
+          window.galleryScrollAudit = [];
+          const record = (kind, details = {}) => {
+            if (window.galleryScrollAudit.length < 200) window.galleryScrollAudit.push({
+              kind, ...details, x: scrollX, y: scrollY, time: performance.now(),
+              width: innerWidth, clientWidth: document.documentElement.clientWidth
+            });
+          };
+          const restores = [];
+          for (const [owner, name] of [[window, 'scrollTo'], [Element.prototype, 'scrollTo'],
+                                      [HTMLElement.prototype, 'focus']]) {
+            const original = owner[name];
+            owner[name] = function(...args) {
+              record(name, {target: this?.tagName ?? 'window',
+                args, stack: new Error().stack});
+              return Reflect.apply(original, this, args);
+            };
+            restores.push(() => { owner[name] = original; });
+          }
+          const onScroll = () => record('scroll');
+          const onResize = () => record('resize');
+          addEventListener('scroll', onScroll, {passive: true});
+          addEventListener('resize', onResize);
+          window.stopGalleryScrollAudit = () => {
+            restores.forEach(restore => restore());
+            removeEventListener('scroll', onScroll);
+            removeEventListener('resize', onResize);
+          };
+        }''')
         anchor = content.get_by_text('READING_ANCHOR_060', exact=False)
         anchor.scroll_into_view_if_needed()
         self.page.wait_for_function('() => window.scrollY > 500')
@@ -86,7 +117,12 @@ class GalleryContinuity(GalleryRevealBase):
         self.close_gallery(panel)
         positions['immediateReturn'] = self.page.evaluate('({x:scrollX, y:scrollY})')
         (self.output / 'scroll-transition.json').write_text(json.dumps(positions, indent=2))
-        self.page.wait_for_function('''({x,y}) => Math.abs(scrollX-x) <= 2 && Math.abs(scrollY-y) <= 2''', arg=before)
+        try:
+            self.page.wait_for_function('''({x,y}) => Math.abs(scrollX-x) <= 2 && Math.abs(scrollY-y) <= 2''', arg=before)
+        finally:
+            (self.output / 'scroll-call-audit.json').write_text(json.dumps(
+                self.page.evaluate('() => window.galleryScrollAudit'), indent=2))
+            self.page.evaluate('() => window.stopGalleryScrollAudit()')
         after = self.page.evaluate('({x:scrollX, y:scrollY})')
         anchor_after = anchor.bounding_box()
         self.assertAlmostEqual(anchor_before['y'], anchor_after['y'], delta=2)

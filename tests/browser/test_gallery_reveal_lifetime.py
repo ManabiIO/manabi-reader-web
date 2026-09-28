@@ -178,13 +178,20 @@ class GalleryRevealLifetime(GalleryRevealBase):
             self.close_gallery(panel)
             self.page.evaluate('''() => {
               window.galleryRebinds = 0;
+              window.galleryRebindRecords = [];
               window.galleryObserver = new MutationObserver(records => {
-                window.galleryRebinds += records.filter(r =>
-                  r.target.parentElement?.closest('[data-ttu-spoiler-img]') ||
-                  r.target.closest?.('[data-ttu-spoiler-img]')).length;
+                const rebinds = records.filter(r => r.type === 'attributes'
+                  ? r.target.matches?.('[data-ttu-spoiler-img] > .spoiler-label')
+                  : r.target.parentElement?.closest('[data-ttu-spoiler-img]') ||
+                    r.target.closest?.('[data-ttu-spoiler-img]'));
+                window.galleryRebinds += rebinds.length;
+                window.galleryRebindRecords.push(...rebinds.map(r => ({
+                  type: r.type, attribute: r.attributeName, time: performance.now()
+                })));
               });
               window.galleryObserver.observe(document.querySelector('.book-content'),
-                {subtree: true, childList: true, characterData: true});
+                {subtree: true, childList: true, characterData: true,
+                 attributes: true, attributeFilter: ['title', 'aria-hidden']});
             }''')
             gate.release.set()
             self.page.wait_for_function('''() => [...document.fonts].some(
@@ -205,6 +212,10 @@ class GalleryRevealLifetime(GalleryRevealBase):
             (self.output / 'font-response-gate.json').write_text(json.dumps({
                 'paths': gate.paths, 'started': gate.started.is_set(), 'expired': gate.expired
             }, indent=2))
+            (self.output / 'font-rebind-observations.json').write_text(json.dumps(
+                self.page.evaluate("() => ({records: window.galleryRebindRecords ?? [], "
+                                   "faces: [...document.fonts].map(f => ({family:f.family, status:f.status}))})"),
+                indent=2))
             self.page.evaluate('window.galleryObserver?.disconnect()')
 
     def test_reveal_does_not_leak_into_another_imported_book(self):
