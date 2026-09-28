@@ -86,13 +86,12 @@ export function listingFrom(value: unknown): { items: CloudEntry[]; cursor: stri
   return { items, cursor: value.cursor };
 }
 
-/** Account authority is checked after every await as well as before admission. */
-export async function cloudRequest<T>(
+async function cloudRequestForUser<T>(
   transport: SyncTransport,
   path: string,
-  signal: AbortSignal
+  signal: AbortSignal,
+  userId: string
 ): Promise<T> {
-  const userId = transport.userId;
   const isCurrent = transport.isCurrent.bind(transport);
   const guard = () => {
     signal.throwIfAborted();
@@ -104,6 +103,15 @@ export async function cloudRequest<T>(
   return result;
 }
 
+/** Account authority is checked after every await as well as before admission. */
+export function cloudRequest<T>(
+  transport: SyncTransport,
+  path: string,
+  signal: AbortSignal
+): Promise<T> {
+  return cloudRequestForUser(transport, path, signal, transport.userId);
+}
+
 export async function listCloudFolder(
   transport: SyncTransport,
   connection: CloudConnection,
@@ -113,16 +121,18 @@ export async function listCloudFolder(
 ): Promise<CloudEntry[]> {
   if (!connection.roots.includes(root) || connection.needs_reconnect)
     throw new Error('Reconnect this selected folder first');
+  const userId = transport.userId;
   const cursors = new Set<string>(),
     ids = new Set<string>(),
     items: CloudEntry[] = [];
   let cursor = '';
   for (let pageNumber = 0; pageNumber < 200; pageNumber++) {
     const page = listingFrom(
-      await cloudRequest(
+      await cloudRequestForUser(
         transport,
         `connections/${encodeURIComponent(connection.id)}/media-files/?${new URLSearchParams({ root, parent, cursor })}`,
-        signal
+        signal,
+        userId
       )
     );
     for (const item of page.items) {
