@@ -620,6 +620,34 @@
     selected = new Set(ids);
     if (ids.length) selecting = true;
   }
+  function resetTransientAccountState() {
+    editing = undefined;
+    instance = undefined;
+    current = undefined;
+    content = plainContent('');
+    title = '';
+    destination = undefined;
+    locationChosen = false;
+    storedDrafts = [];
+    selected = new Set();
+    selecting = false;
+    visibleIds = [];
+    pickerOpen = false;
+    pickerWriteBusy = false;
+    moving = [];
+    collectionsOpen = false;
+    collectionTargets = [];
+    newCollection = '';
+    deleteOpen = false;
+    deleteIds = [];
+    leaveOpen = false;
+    leaveTarget = '';
+    transferIssue = '';
+    draftStatus = '';
+    draftError = false;
+    notice = '';
+    error = '';
+  }
   function updateQuery() {
     void goto(resolve(libraryPath(listURL({ q: query }))), {
       replaceState: true,
@@ -658,13 +686,7 @@
         owner = s.owner;
         admitted = s;
         routeGeneration++;
-        editing = undefined;
-        instance = undefined;
-        current = undefined;
-        storedDrafts = [];
-        selected = new Set();
-        pickerOpen = false;
-        collectionsOpen = false;
+        resetTransientAccountState();
         collectionStop();
         collectionStop = watchOrganization((reason) => {
           if (!stopped) error = report(reason);
@@ -676,12 +698,7 @@
         routeGeneration++;
         owner = '';
         admitted = undefined;
-        editing = undefined;
-        current = undefined;
-        storedDrafts = [];
-        pickerOpen = false;
-        collectionsOpen = false;
-        selected = new Set();
+        resetTransientAccountState();
       }
     };
     const stopA = account.subscribe(onAccount),

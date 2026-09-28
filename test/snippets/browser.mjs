@@ -499,11 +499,20 @@ try {
     await movedPage.screenshot({ path: screen, fullPage: true });
   }
   await moved.ctx.close();
+  await openLibrary(page);
+  const accountSwitchTitle = page
+    .locator('.snippet-shelf .title')
+    .filter({ hasText: '日本語の抜粋' });
+  await accountSwitchTitle.click({ modifiers: ['Control'] });
+  await page.getByRole('button', { name: 'Move to Trash', exact: true }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
   cloud.session.user = 'bob';
   await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByLabel('Selected snippet actions')).toHaveCount(0);
   await expect(page.getByRole('article', { name: 'Snippet content' })).toHaveCount(0);
   await expect(page.locator('.snippet-shelf .title')).toHaveCount(0);
-  passed('account switch hides the prior account’s documents');
+  passed('account switch hides documents and clears old-account transient UI');
   assert.deepEqual(errors, [], 'Uncaught production-page errors');
   console.log(
     `${checks} assembled ${engine} cases passed; fixture HTTP, not live OAuth/provider acceptance.`
