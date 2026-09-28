@@ -318,6 +318,19 @@ test('content-hash index matching retains legacy hash casing without payload sca
   h.assertReleased();
 });
 
+test('mixed-case duplicate content keys remain ambiguous instead of first-match winning', async () => {
+  const rows = [
+    original,
+    { ...original, id: 8, title: 'Uppercase independent copy', contentHash: hash.toUpperCase() }
+  ];
+  const h = fixture({ rows });
+  await assert.rejects(h.save(), /matches multiple local copies/);
+  assert.deepEqual(h.rows, rows);
+  assert.equal(h.valueReads, 2);
+  assert.equal(h.writes, 0);
+  h.assertReleased();
+});
+
 test('a different personal owner keeps an independent same-byte history', async () => {
   const h = fixture({ rows: [original], scopes: [{ bookId: 7, accountId: 'B' }] });
   assert.equal((await h.save()).id, 8);
