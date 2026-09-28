@@ -10,46 +10,15 @@ import buildDummyBookImage from '../utils/build-dummy-book-image';
 import clearAllBadImageRef from '../utils/clear-all-bad-image-ref';
 import fixXHtmlHref from '../utils/fix-xhtml-href';
 import { importHTMLFixMode$, restrictImportFixToAnchor$ } from '$lib/data/store';
-import { ImportHTMLFixMode } from '$lib/data/import-html-fix-mode';
 import { getCharacterCount } from '$lib/functions/get-character-count';
 import { getParagraphNodes } from '../../../components/book-reader/get-paragraph-nodes';
 import { resolveArchivePath } from '../utils/limited-archive';
 import { sanitizeBookHtml } from '../../book-security/book-content-security';
 import type { PublicationResource } from '$lib/reader-location';
 import { resolveEpubLinkTarget } from './epub-link-target';
-import { epubNumericReference } from '$lib/foliate-epub/numeric-reference';
+import { repairEpubHtml } from '$lib/foliate-epub/html-repair';
 
 export const prependValue = 'ttu-';
-
-// eslint-disable-next-line no-control-regex
-const controlCharactersRegex = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/gim;
-const htmlHexEntitiesRegex = /&#x([0-9A-Fa-f]+);/gim;
-const htmlDecEntitiesRegex = /&#(\d+);/gim;
-const selfClosingTagsRegex = /><\/(meta|link)>/gim;
-const selfClosingContentTags = [
-  'a',
-  'body',
-  'code',
-  'div',
-  'h1',
-  'h2',
-  'h3',
-  'h4',
-  'h5',
-  'h6',
-  'header',
-  'ol',
-  'ops:default',
-  'p',
-  'rb',
-  'rt',
-  'ruby',
-  'script',
-  'span',
-  'td',
-  'th',
-  'title'
-];
 
 export default function generateEpubHtml(
   data: Record<string, string | Blob>,
@@ -60,9 +29,6 @@ export default function generateEpubHtml(
   const fallbackData = new Map<string, string>();
   const importHTMLFixMode = importHTMLFixMode$.getValue();
   const restrictImportFixToAnchor = restrictImportFixToAnchor$.getValue();
-  const applyImportFixes = importHTMLFixMode !== ImportHTMLFixMode.OFF;
-  const selfClosingContentTagsToFix =
-    applyImportFixes && !restrictImportFixToAnchor ? selfClosingContentTags : [];
 
   let tocData = { type: 3, content: '' };
   let navKey = '';
@@ -135,10 +101,6 @@ export default function generateEpubHtml(
 
   let mainChapters: Section[] = [];
   let firstChapterMatchIndex = -1;
-
-  if (applyImportFixes && restrictImportFixToAnchor) {
-    selfClosingContentTagsToFix.push('a');
-  }
 
   if (tocData.type && tocData.content) {
     let parsedToc = parser.parseFromString(
@@ -220,23 +182,11 @@ export default function generateEpubHtml(
       htmlHref = itemIdToHtmlRef[itemIdRef];
     }
 
-    let contentToParse = (data[htmlHref] as string) || '';
-
-    for (const tagMatch of selfClosingContentTagsToFix) {
-      contentToParse = contentToParse.replace(new RegExp(`<${tagMatch}[^>]+?>`, 'gim'), (match) =>
-        match.endsWith('/>') ? `${match.slice(0, -2)}></${tagMatch}>` : match
-      );
-    }
-
-    if (importHTMLFixMode === ImportHTMLFixMode.EXTENDED) {
-      contentToParse = contentToParse
-        .replace(controlCharactersRegex, '')
-        .replace(selfClosingTagsRegex, '>')
-        .replace(htmlHexEntitiesRegex, (_, hex) => epubNumericReference(hex, 16))
-        .replace(htmlDecEntitiesRegex, (_, dec) => epubNumericReference(dec, 10))
-        .replace('<!DOCTYPE html []>', '<!DOCTYPE html>')
-        .trim();
-    }
+    let contentToParse = repairEpubHtml(
+      (data[htmlHref] as string) || '',
+      importHTMLFixMode,
+      restrictImportFixToAnchor
+    );
 
     const chapterOwner = resolveArchivePath(manifestOwner, htmlHref);
     contentToParse = sanitizeBookHtml(contentToParse, {

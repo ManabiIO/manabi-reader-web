@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { epubNumericReference } from './numeric-reference';
+import { repairEpubNumericReferences } from './numeric-reference.ts';
 
 /** Preserve the existing explicit import-repair preferences before sanitization. */
 export function repairEpubHtml(source: string, mode: string, anchorsOnly: boolean): string {
@@ -42,12 +42,10 @@ export function repairEpubHtml(source: string, mode: string, anchorsOnly: boolea
     );
   }
   if (mode === 'Extended') {
-    result = result
+    result = repairEpubNumericReferences(result)
       // eslint-disable-next-line no-control-regex
       .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
       .replace(/><\/(meta|link)>/gi, '>')
-      .replace(/&#x([0-9a-f]+);/gi, (_, value) => epubNumericReference(value, 16))
-      .replace(/&#(\d+);/g, (_, value) => epubNumericReference(value, 10))
       .replace('<!DOCTYPE html []>', '<!DOCTYPE html>')
       .trim();
   }
