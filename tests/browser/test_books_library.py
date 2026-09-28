@@ -1208,7 +1208,13 @@ class BooksLibraryBrowser(LibraryBase):
 
     def test_selected_statistics_view_keeps_same_title_book_identities_distinct(self):
         self.import_book('Same title statistics view', size=(240, 360))
-        self.import_book('Same title statistics view', size=(180, 380))
+        self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
+            'name': 'Same title statistics view.epub',
+            'mimeType': 'application/epub+zip',
+            'buffer': book('Same title statistics view', size=(180, 380))
+        })
+        expect(self.page.get_by_role(
+            'button', name='Read Same title statistics view', exact=True)).to_have_count(2, timeout=30000)
         books = [row for row in self.stores('books', ['data'])['data']
                  if row['title'] == 'Same title statistics view']
         self.assertEqual(2, len(books))
@@ -1286,7 +1292,13 @@ class BooksLibraryBrowser(LibraryBase):
 
     def test_selected_statistics_delete_only_the_chosen_same_title_book(self):
         self.import_book('Same title statistics', size=(240, 360))
-        self.import_book('Same title statistics', size=(180, 380))
+        self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
+            'name': 'Same title statistics.epub',
+            'mimeType': 'application/epub+zip',
+            'buffer': book('Same title statistics', size=(180, 380))
+        })
+        expect(self.page.get_by_role(
+            'button', name='Read Same title statistics', exact=True)).to_have_count(2, timeout=30000)
         books = [row for row in self.stores('books', ['data'])['data']
                  if row['title'] == 'Same title statistics']
         self.assertEqual(2, len(books))
