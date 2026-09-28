@@ -5,6 +5,7 @@
  */
 
 import { writable } from 'svelte/store';
+import { bookKey, contentBookKey, sourceBookKey } from './organization-keys.ts';
 import { equal, integrationDB, type BookLink } from '$lib/manabi/persistence';
 import { libraryName } from './series-metadata';
 import {
@@ -15,6 +16,8 @@ import {
 } from './organization-portability';
 import type { PageDirection } from './direction';
 import { changeWantToRead, WANT_TO_READ_ID, type CollectionBook } from './want-to-read';
+
+export { bookKey, contentBookKey, sourceKey, sourceBookKey } from './organization-keys.ts';
 
 export interface Collection {
   id: string;
@@ -37,14 +40,6 @@ export const emptyOrganization = (): Organization => ({ version: 1, collections:
 let currentOrganization = emptyOrganization();
 let publicationRevision = 0;
 export const organization = writable<Organization>(currentOrganization);
-export const bookKey = (id: number) => `book:${id}`;
-export const contentBookKey = (hash: string) => `content:${hash}`;
-export const sourceKey = (source: { id: string; owner: string | null; root: string }) =>
-  JSON.stringify([source.owner, source.id, source.root]);
-export const sourceBookKey = (
-  source: { id: string; owner: string | null; root: string },
-  fileId: string
-) => `source:${JSON.stringify([source.owner, source.id, source.root, fileId])}`;
 
 function normalizedOrganization(value: unknown): Organization | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return;

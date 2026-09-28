@@ -10,11 +10,11 @@ import type { Catalog, SourceDescriptor } from './catalog';
 import type { Organization } from './organization';
 import type { PageDirection } from './direction';
 import type { Preview } from './previews';
-import { bookKey, contentBookKey, sourceKey, sourceBookKey } from './organization';
-import { directoryTree, type DirectoryEntry, type LibraryNode } from './tree';
-import { isFinished } from './completion';
+import { bookKey, contentBookKey, sourceKey, sourceBookKey } from './organization-keys.ts';
+import { directoryTree, type DirectoryEntry, type LibraryNode } from './tree.ts';
+import { isFinished } from './completion.ts';
 import type { SortOption } from '$lib/data/sort-types';
-import { creatorSortKey, sharedCreatorLine } from './book-metadata';
+import { creatorSortKey, sharedCreatorLine } from './book-metadata.ts';
 
 export interface ShelfBook extends Omit<BookCardProps, 'id'> {
   key: string;
@@ -61,7 +61,9 @@ export function buildShelf(
         .map((entry) => sourceBookKey(catalog.source, entry.id))
     )
   );
-  const missingLinksByContent = new Map<string, BookLink>();
+  // Equal bytes do not identify which copy moved. Infer a move only when both
+  // the missing link and the freshly previewed destination are unique per owner.
+  const missingLinksByContent = new Map<string, BookLink | null>();
   for (const link of links) {
     const locator = sourceBookKey(
       { id: link.sourceId, owner: link.owner, root: link.root },
@@ -75,8 +77,32 @@ export function buildShelf(
           catalog.source.owner === link.owner &&
           catalog.source.root === link.root
       )
-    )
-      missingLinksByContent.set(JSON.stringify([link.owner, link.contentHash]), link);
+    ) {
+      const content = JSON.stringify([link.owner, link.contentHash]);
+      missingLinksByContent.set(content, missingLinksByContent.has(content) ? null : link);
+    }
+  }
+  const moveTargetsByContent = new Map<string, string | null>();
+  for (const catalog of catalogs) {
+    for (const file of catalog.entries) {
+      if (file.kind !== 'file') continue;
+      const locator = sourceBookKey(catalog.source, file.id),
+        preview = previews[locator];
+      if (
+        linksByFile.has(locator) ||
+        preview?.scannedAt !== catalog.scannedAt ||
+        !preview.contentHash
+      )
+        continue;
+      const content = JSON.stringify([catalog.source.owner, preview.contentHash]);
+      if (!missingLinksByContent.get(content)) continue;
+      moveTargetsByContent.set(content, moveTargetsByContent.has(content) ? null : locator);
+    }
+  }
+  const inferredMoves = new Map<string, BookLink>();
+  for (const [content, locator] of moveTargetsByContent) {
+    const link = missingLinksByContent.get(content);
+    if (locator && link) inferredMoves.set(locator, link);
   }
   const revisions = new Map(
     catalogs.map((catalog) => [sourceKey(catalog.source), catalog.scannedAt])
@@ -154,13 +180,8 @@ export function buildShelf(
       catalog.entries,
       source.root,
       (file) => {
-        const link = matches.get(file.id),
-          preview = previews[sourceBookKey(source, file.id)],
-          moved =
-            !link && preview?.scannedAt === catalog.scannedAt && preview.contentHash
-              ? missingLinksByContent.get(JSON.stringify([source.owner, preview.contentHash]))
-              : undefined,
-          card = link ? byId.get(link.bookId) : moved ? byId.get(moved.bookId) : undefined;
+        const link = matches.get(file.id) ?? inferredMoves.get(sourceBookKey(source, file.id)),
+          card = link ? byId.get(link.bookId) : undefined;
         if (card) represented.add(card.id);
         return decorate(card, source, file);
       },
@@ -218,10 +239,15 @@ export function visibleShelf(
   const natural = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
   function value(node: ShelfNode): string | number {
     if (sort.property === 'title') return node.kind === 'series' ? node.name : node.book.title;
-    if (sort.property === 'author')
-      return node.kind === 'series'
-        ? sharedCreatorLine(node.books) || ''
-        : creatorSortKey(node.book.creators) || '';
+    if (sort.property === 'author') {
+      const creators =
+        node.kind === 'series'
+          ? sharedCreatorLine(node.books)
+            ? node.books[0]?.creators
+            : undefined
+          : node.book.creators;
+      return creatorSortKey(creators) || '';
+    }
     const property = sort.property as Exclude<SortOption['property'], 'author' | 'title'>;
     const books = node.kind === 'series' ? node.books : [node.book];
     return books.reduce(
