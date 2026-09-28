@@ -15,10 +15,13 @@
   import LogReportDialog from '$lib/components/log-report-dialog.svelte';
   import { mergeEntries } from '$lib/components/merged-header-icon/merged-entries';
   import MessageDialog from '$lib/components/message-dialog.svelte';
-  import { preFilteredTitlesForStatistics$ } from '$lib/components/statistics/statistics-types';
+  import {
+    preFilteredBookKeysForStatistics$,
+    preFilteredTitlesForStatistics$
+  } from '$lib/components/statistics/statistics-types';
   import { pxScreen } from '$lib/css-classes';
   import type { BooksDbBookmarkData } from '$lib/data/database/books-db/versions/books-db';
-  import { statisticDeletionPlan } from '$lib/data/database/books-db/reader-statistics';
+  import { statisticIdentityPlan } from '$lib/data/database/books-db/reader-statistics';
   import { dialogManager } from '$lib/data/dialog-manager';
   import { pagePath } from '$lib/data/env';
   import { logger } from '$lib/data/logger';
@@ -754,6 +757,27 @@
     dialogManager.dialogs$.next([{ component: BookExportDialog, disableCloseOnClick: true }]);
   }
 
+  async function openSelectedStatistics() {
+    const selectedBooks = $bookCards$
+      .filter((card) => selectedBookIds.has(card.id))
+      .map(({ id, title }) => ({ id, title }));
+    if (!selectedBooks.length) return;
+    try {
+      const db = await database.db;
+      const plans = [];
+      for (const book of selectedBooks) plans.push(await statisticIdentityPlan(db, book.id));
+      $preFilteredTitlesForStatistics$ = new Set(plans.map((plan) => plan.title));
+      $preFilteredBookKeysForStatistics$ = new Set(plans.flatMap((plan) => plan.keys));
+      await goto(`${pagePath}${mergeEntries.STATISTICS.routeId}`);
+    } catch (error) {
+      showError(
+        'Statistics unavailable',
+        error instanceof Error ? error.message : String(error),
+        'The selected statistics could not be opened.'
+      );
+    }
+  }
+
   async function onDeleteStatistics() {
     const selectedBooks = $bookCards$
       .filter((card) => selectedBookIds.has(card.id))
@@ -801,7 +825,7 @@
         limiter(async () => {
           try {
             throwIfAborted(cancelSignal);
-            const plan = await statisticDeletionPlan(await database.db, book.id);
+            const plan = await statisticIdentityPlan(await database.db, book.id);
             throwIfAborted(cancelSignal);
             if (plan.unresolvedLegacy)
               throw new Error(
@@ -1056,13 +1080,7 @@
           replicationProgressRemaining = 'Canceling ...';
         }
       }}
-      on:selectionToStatistics={() => {
-        $preFilteredTitlesForStatistics$ = new Set(
-          $bookCards$.filter((card) => selectedBookIds.has(card.id)).map((book) => book.title)
-        );
-
-        goto(`${pagePath}${mergeEntries.STATISTICS.routeId}`);
-      }}
+      on:selectionToStatistics={() => void openSelectedStatistics()}
       on:deleteStatistics={onDeleteStatistics}
       on:replicateData={onReplicateData}
       on:importBackup={(ev) => onImportBackup(ev.detail)}
