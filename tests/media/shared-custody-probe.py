@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import threading
 from playwright.sync_api import sync_playwright
+from browser_poll import wait_for_async
 
 PAGE = '''<!doctype html><title>Model custody probe</title><script>
 window.events=[];
@@ -203,7 +204,7 @@ def main():
                 assert not [event for event in shutdown_events if event['type'] == 'error'], shutdown_events
                 done = [event for event in shutdown_events if event['type'] == 'shutdown-complete'][-1]
                 assert done['loads'] == 1, done
-                peer.wait_for_function("""async()=>!(await navigator.locks.query()).held.some(
+                wait_for_async(peer, """async()=>!(await navigator.locks.query()).held.some(
                     lock=>lock.name==='moss-probe-model'||lock.name==='moss-probe-inference')""")
                 result.append({
                     'name': 'explicit worker shutdown releases model and inference origin locks',
