@@ -254,6 +254,68 @@ class EditorsPicksBrowser(unittest.TestCase):
         self.assertFalse(any(path.endswith('/opds/feeds/all.xml') for path in PicksHandler.requests))
         expect(self.page.get_by_role('heading', name='Want to Read', exact=True)).to_be_visible()
 
+    def test_local_import_cancels_pending_optional_catalog_cleanly(self):
+        self.context.add_init_script(
+            "localStorage.setItem('manabi-reader-dictionary-setup-v1', 'skip')"
+        )
+        PicksHandler.index_started = threading.Event()
+        PicksHandler.index_gate = threading.Event()
+        self.page.goto(self.origin + '/reader-web/manage')
+        expect(self.page.get_by_role('heading', name='Make room for a good book')).to_be_visible()
+        self.assertTrue(PicksHandler.index_started.wait(timeout=5))
+
+        with self.page.expect_event(
+            'requestfailed',
+            predicate=lambda request: request.url.endswith('/opds/index.xml')
+        ):
+            self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
+                'name': 'local-during-catalog.epub',
+                'mimeType': 'application/epub+zip',
+                'buffer': book('Local during catalog')
+            })
+        expect(
+            self.page.get_by_role('button', name='Read Local during catalog', exact=True)
+        ).to_be_visible()
+        PicksHandler.index_gate.set()
+        self.assertFalse(
+            any(path.endswith('/opds/feeds/all.xml') for path in PicksHandler.requests),
+            PicksHandler.requests
+        )
+
+        self.page.get_by_role('button', name='Read Local during catalog', exact=True).click()
+        expect(self.page).to_have_url(re.compile('/reader-web/b\\?id='))
+        expect(self.page.locator('.book-content').first).to_have_attribute('aria-busy', 'false')
+        self.assertEqual([], self.errors)
+
+    def test_offline_transition_cancels_pending_optional_catalog_and_recovers(self):
+        PicksHandler.index_started = threading.Event()
+        PicksHandler.index_gate = threading.Event()
+        self.page.goto(self.origin + '/reader-web/manage')
+        expect(self.page.get_by_role('heading', name='Make room for a good book')).to_be_visible()
+        self.assertTrue(PicksHandler.index_started.wait(timeout=5))
+
+        with self.page.expect_event(
+            'requestfailed',
+            predicate=lambda request: request.url.endswith('/opds/index.xml')
+        ):
+            self.context.set_offline(True)
+            PicksHandler.index_gate.set()
+
+        expect(self.page.get_by_role('button', name='Try Again', exact=True)).to_be_visible()
+        folder = Path('test-results')
+        folder.mkdir(exist_ok=True)
+        self.page.screenshot(
+            path=str(folder / f'{self.engine}-offline-pending-catalog.png'),
+            full_page=True
+        )
+        self.assertEqual([], self.errors)
+
+        self.context.set_offline(False)
+        self.page.get_by_role('button', name='Try Again', exact=True).click()
+        expect(self.page.get_by_role('region', name="Editor's Picks books")).to_be_visible()
+        expect(self.page.get_by_role('button', name='Open').first).to_be_visible()
+        self.assertEqual([], self.errors)
+
     def guest_session(self):
         return {'user': None, 'csrf_token': 'c' * 64, 'providers': []}
 
