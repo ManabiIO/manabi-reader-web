@@ -805,10 +805,15 @@
       .filter((card) => selectedBookIds.has(card.id))
       .map(({ id, title }) => ({ id, title }));
     if (!selectedBooks.length) return;
+    const scope = captureLibraryOperation();
+    const authority = statisticsAuthority(scope);
     try {
       const db = await database.db;
+      authority.guard.assertCurrent();
       const plans = [];
-      for (const book of selectedBooks) plans.push(await statisticIdentityPlan(db, book.id));
+      for (const book of selectedBooks)
+        plans.push(await statisticIdentityPlan(db, book.id, authority.guard));
+      authority.guard.assertCurrent();
       const previousTitles = $preFilteredTitlesForStatistics$;
       const previousKeys = $preFilteredBookKeysForStatistics$;
       $preFilteredTitlesForStatistics$ = new Set(plans.map((plan) => plan.title));
@@ -826,6 +831,9 @@
         error instanceof Error ? error.message : String(error),
         'The selected statistics could not be opened.'
       );
+    } finally {
+      authority.stop();
+      scope.stop();
     }
   }
 
@@ -833,80 +841,93 @@
     const selectedBooks = $bookCards$
       .filter((card) => selectedBookIds.has(card.id))
       .map(({ id, title }) => ({ id, title }));
+    if (!selectedBooks.length) return;
 
-    let wasCanceled = false;
+    const scope = captureLibraryOperation();
+    let progressStarted = false;
+    try {
+      let wasCanceled = false;
 
-    if ($confirmStatisticsDeletion$) {
-      wasCanceled = await new Promise((resolver) => {
-        dialogManager.dialogs$.next([
-          {
-            component: ConfirmDialog,
-            props: {
-              dialogHeader: 'Delete Data',
-              dialogMessage: `This will delete all Statistics for the selected ${pluralize(
-                selectedBooks.length,
-                'Book',
-                false
-              )} (which may include start and/or completion Data)\n\nExecute a one time Sync with an export behavior of "replace" and/or statistics merge mode of "replace" to apply deletions to other devices`,
-              contentStyles: 'white-space: pre-line;',
-              resolver
+      if ($confirmStatisticsDeletion$) {
+        wasCanceled = await new Promise((resolver) => {
+          dialogManager.dialogs$.next([
+            {
+              component: ConfirmDialog,
+              props: {
+                dialogHeader: 'Delete Data',
+                dialogMessage: `This will delete all Statistics for the selected ${pluralize(
+                  selectedBooks.length,
+                  'Book',
+                  false
+                )} (which may include start and/or completion Data)\n\nExecute a one time Sync with an export behavior of "replace" and/or statistics merge mode of "replace" to apply deletions to other devices`,
+                contentStyles: 'white-space: pre-line;',
+                resolver
+              }
             }
-          }
-        ]);
-      });
-    }
+          ]);
+        });
+      }
 
-    if (wasCanceled) {
-      return;
-    }
+      if (wasCanceled) return;
+      scope.assertCurrent();
+      cancelTooltip = `Cancels the current Process`;
+      initializeReplicationProgressData();
+      progressStarted = true;
 
-    cancelTooltip = `Cancels the current Process`;
+      const authority = statisticsAuthority(scope, cancelSignal);
+      try {
+        const limiter = pLimit(1);
+        const tasks: Promise<void>[] = [];
+        let failed = 0;
+        const db = await database.db;
+        authority.guard.assertCurrent();
 
-    initializeReplicationProgressData();
+        replicationProgress$.next({ progressBase: 1, maxProgress: selectedBooks.length });
 
-    const limiter = pLimit(1);
-    const tasks: Promise<void>[] = [];
+        selectedBooks.forEach((book) => {
+          tasks.push(
+            limiter(async () => {
+              try {
+                authority.guard.assertCurrent();
+                const plan = await statisticIdentityPlan(db, book.id, authority.guard);
+                if (plan.unresolvedLegacy)
+                  throw new Error(
+                    `Older statistics for “${plan.title}” cannot be safely assigned to this copy. ` +
+                      'Open Statistics and export the raw history before resolving the duplicate title.'
+                  );
+                await deleteStatisticsForIdentityPlan(db, book.id, plan, authority.guard);
+                replicationProgress$.next({ progressToAdd: 1 });
+              } catch (error) {
+                handleErrorDuringReplication(
+                  error,
+                  `Error on deleting statistics for ${book.title}: `,
+                  [limiter]
+                );
+                failed += 1;
+              }
+            })
+          );
+        });
 
-    let failed = 0;
+        await Promise.all(tasks).catch(() => {});
 
-    replicationProgress$.next({ progressBase: 1, maxProgress: selectedBooks.length });
-
-    selectedBooks.forEach((book) => {
-      tasks.push(
-        limiter(async () => {
-          try {
-            throwIfAborted(cancelSignal);
-            const plan = await statisticIdentityPlan(await database.db, book.id);
-            throwIfAborted(cancelSignal);
-            if (plan.unresolvedLegacy)
-              throw new Error(
-                `Older statistics for “${plan.title}” cannot be safely assigned to this copy. ` +
-                  'Open Statistics and export the raw history before resolving the duplicate title.'
-              );
-            await database.deleteStatisticEntries([], true, '', '', plan.keys);
-
-            replicationProgress$.next({ progressToAdd: 1 });
-          } catch (error) {
-            handleErrorDuringReplication(
-              error,
-              `Error on deleting statistics for ${book.title}: `,
-              [limiter]
-            );
-
-            failed += 1;
-          }
-        })
-      );
-    });
-
-    await Promise.all(tasks).catch(() => {});
-
-    resetProgress();
-
-    if (failed) {
-      const errorMessage = `Unable to delete statistics of ${pluralize(failed, 'Book')}`;
-
-      showError('Deletion Failed', errorMessage, errorMessage);
+        if (failed) {
+          const errorMessage = `Unable to delete statistics of ${pluralize(failed, 'Book')}`;
+          showError('Deletion Failed', errorMessage, errorMessage);
+        }
+      } finally {
+        authority.stop();
+      }
+    } catch (error) {
+      if (!cancelSignal.aborted)
+        showError(
+          'Deletion Failed',
+          error instanceof Error ? error.message : String(error),
+          'The selected statistics were not changed.'
+        );
+    } finally {
+      if (progressStarted) resetProgress();
+      scope.stop();
     }
   }
 
