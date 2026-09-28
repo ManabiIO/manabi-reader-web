@@ -65,9 +65,12 @@
 </script>
 
 <div class="statistics-options">
-  <div class="flex items-start justify-between gap-3">
-    <Sheet.Title class="min-w-0 text-xl font-semibold">Statistics options</Sheet.Title>
+  <!-- Wrap the dismiss control above the title when enlarged text no longer
+       leaves room for both. Keep words intact without shrinking the font. -->
+  <div class="flex flex-wrap-reverse items-start justify-between gap-3">
+    <Sheet.Title class="min-w-min flex-auto break-normal text-xl font-semibold">Statistics options</Sheet.Title>
     <CloseButton
+      class="ms-auto"
       aria-label="Close statistics options"
       disabled={$statisticsActionInProgress$}
       onclick={() => dispatch('close')}

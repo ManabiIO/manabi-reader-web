@@ -171,3 +171,79 @@ test('contextual case matching agrees with grapheme offsets without changing Mat
     assert.equal((await harness().search(1, [text], query, matchCase)).total, expected);
   }
 });
+
+test('each repeated normalized hit highlights its own original occurrence', async () => {
+  const worker = harness();
+  const text = 'É e\u0301 É';
+  const done = await worker.search(20, [text], 'é');
+  assert.equal(done.total, 3);
+  assert.deepEqual(
+    hits(worker).map((hit) => hit.excerptMatch),
+    [
+      { start: 0, end: 1 },
+      { start: 2, end: 4 },
+      { start: 5, end: 6 }
+    ]
+  );
+  assert.deepEqual(
+    hits(worker).map((hit) => hit.excerpt.slice(hit.excerptMatch.start, hit.excerptMatch.end)),
+    ['É', 'e\u0301', 'É']
+  );
+});
+
+test('highlight coordinates preserve whole source graphemes and case expansions', async () => {
+  for (const [text, query, expected] of [
+    ['前 İ 後', 'i', 'İ'],
+    ['前 か\u3099 後', 'が', 'か\u3099'],
+    ['前 👩‍💻 後', '💻', '👩‍💻'],
+    ['前 𠮷 後', '𠮷', '𠮷']
+  ]) {
+    const worker = harness();
+    assert.equal((await worker.search(21, [text], query)).total, 1);
+    const [hit] = hits(worker);
+    assert.equal(hit.excerpt.slice(hit.excerptMatch.start, hit.excerptMatch.end), expected);
+    assert.equal(Array.from(text).slice(hit.start, hit.end).join(''), expected);
+  }
+});
+
+test('streaming buffer recycling retains excerpt-relative UTF-16 coordinates', async () => {
+  const worker = harness();
+  const text = 'x'.repeat(70000) + ' 𠮷 e\u0301 👩‍💻 ' + 'y'.repeat(40000);
+  assert.equal((await worker.search(22, [text], 'É')).total, 1);
+  const [hit] = hits(worker);
+  assert.equal(hit.excerpt.slice(hit.excerptMatch.start, hit.excerptMatch.end), 'e\u0301');
+  assert.ok(hit.excerptMatch.start < 100);
+  assert.ok(hit.excerpt.includes('𠮷'));
+  assert.ok(hit.excerpt.includes('👩‍💻'));
+});
+
+test('literal markup-like excerpts and metacharacters remain original text', async () => {
+  const worker = harness();
+  const text = '<script>[a+b].*? & </script>';
+  assert.equal((await worker.search(23, [text], '[a+b].*?')).total, 1);
+  const [hit] = hits(worker);
+  assert.equal(hit.excerpt, text);
+  assert.equal(hit.excerpt.slice(hit.excerptMatch.start, hit.excerptMatch.end), '[a+b].*?');
+});
+
+test('512 supplementary characters receive the complete highlighted range', async () => {
+  const worker = harness();
+  const query = '𠮷'.repeat(512);
+  assert.equal((await worker.search(24, ['前 ' + query + ' 後'], query)).total, 1);
+  const [hit] = hits(worker);
+  assert.equal(hit.excerpt.slice(hit.excerptMatch.start, hit.excerptMatch.end), query);
+  assert.equal(hit.excerptMatch.end - hit.excerptMatch.start, 1024);
+});
+
+test('overlapping literal results retain distinct selected intervals', async () => {
+  const worker = harness();
+  assert.equal((await worker.search(25, ['aaaa'], 'aa')).total, 3);
+  assert.deepEqual(
+    hits(worker).map((hit) => hit.excerptMatch),
+    [
+      { start: 0, end: 2 },
+      { start: 1, end: 3 },
+      { start: 2, end: 4 }
+    ]
+  );
+});

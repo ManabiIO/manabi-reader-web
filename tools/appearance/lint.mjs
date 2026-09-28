@@ -24,6 +24,7 @@ const files = [
   'apps/web/src/lib/components/ui/dialog/dialog-content.svelte',
   'apps/web/src/lib/components/ui/dialog/dialog-footer.svelte',
   'apps/web/src/lib/components/book-reader/reader-search.svelte',
+  'apps/web/src/lib/components/search-excerpt.svelte',
   'apps/web/src/lib/components/book-reader/reader-scrubber.svelte',
   'apps/web/src/lib/components/book-reader/reader-annotations.svelte',
   'apps/web/src/lib/library/book-cover.svelte',
