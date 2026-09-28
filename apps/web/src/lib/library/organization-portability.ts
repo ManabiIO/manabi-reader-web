@@ -7,8 +7,12 @@
 import type { BookPresentation, Organization } from './organization';
 import { WANT_TO_READ_ID, wantToReadCollection } from './want-to-read.ts';
 
+import { isSnippetKey } from '../snippets/document.ts';
+
 /** A browser ID, provider locator or filename is not a cross-device book identity. */
 export const isPortableBookKey = (key: string) => /^content:[a-f0-9]{64}$/.test(key);
+
+export const isPortableItemKey = (key: string) => isPortableBookKey(key) || isSnippetKey(key);
 
 export function isPortableText(value: unknown, maximum: number): value is string {
   return (
@@ -52,7 +56,7 @@ export function portableOrganization(value: Organization): Organization {
     collections: value.collections.map(({ id, name, members }) => ({
       id,
       name,
-      members: [...new Set(members.filter(isPortableBookKey))]
+      members: [...new Set(members.filter(isPortableItemKey))]
     })),
     books: Object.fromEntries(
       Object.entries(value.books)
@@ -73,7 +77,7 @@ export function applyPortableOrganization(local: Organization, remote: Organizat
   // unsynced references: the built-in collection itself is never deleted.
   if (
     !shared.collections.some((collection) => collection.id === WANT_TO_READ_ID) &&
-    localCollections.get(WANT_TO_READ_ID)?.members.some((member) => !isPortableBookKey(member))
+    localCollections.get(WANT_TO_READ_ID)?.members.some((member) => !isPortableItemKey(member))
   ) {
     shared.collections.push(wantToReadCollection(shared));
   }
@@ -88,7 +92,7 @@ export function applyPortableOrganization(local: Organization, remote: Organizat
         ...new Set([
           ...collection.members,
           ...(localCollections.get(collection.id)?.members ?? []).filter(
-            (member) => !isPortableBookKey(member)
+            (member) => !isPortableItemKey(member)
           )
         ])
       ]

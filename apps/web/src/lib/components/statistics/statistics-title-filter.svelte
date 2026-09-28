@@ -4,6 +4,7 @@
   import { Button } from '$lib/components/ui/button';
   import CloseButton from '$lib/components/ui/close-button.svelte';
   import { Input } from '$lib/components/ui/input';
+  import { stickyPanel } from '$lib/hooks/sticky-panel';
   import {
     preFilteredTitlesForStatistics$,
     type StatisticsTitleFilterItem
@@ -82,8 +83,8 @@
   }
 </script>
 
-<div class="filter-panel">
-  <div class="filter-header">
+<div class="filter-panel" use:stickyPanel>
+  <div class="filter-header" data-sticky-header>
     <Sheet.Title class="min-w-0 text-xl font-semibold">Filter books</Sheet.Title>
     <CloseButton aria-label="Close title filter" onclick={() => dispatch('close')} />
   </div>
@@ -170,7 +171,7 @@
       >
     </div>
   {/if}
-  <div class="filter-footer">
+  <div class="filter-footer" data-sticky-footer>
     <Button variant="ghost" onclick={() => dispatch('close')}>Cancel</Button>
     <Button
       variant="secondary"
@@ -193,11 +194,14 @@
   }
   .filter-header,
   .filter-footer {
-    position: sticky;
     z-index: 2;
     margin-inline: -20px;
     padding-inline: 20px;
     background: var(--popover);
+  }
+  .filter-panel:global([data-sticky-chrome='true']) .filter-header,
+  .filter-panel:global([data-sticky-chrome='true']) .filter-footer {
+    position: sticky;
   }
   .filter-header {
     top: 0;

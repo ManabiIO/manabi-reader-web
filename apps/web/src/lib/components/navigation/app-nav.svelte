@@ -21,7 +21,13 @@
       path: '/manage',
       label: 'Library',
       icon: BookOpen,
-      detail: 'Books on this device and connected storage'
+      detail: 'Books and snippets across your connected storage'
+    },
+    {
+      path: '/snippets',
+      label: 'Snippets',
+      icon: BookOpenText,
+      detail: 'Read, edit, and collect short texts'
     },
     {
       path: '/statistics',
@@ -54,7 +60,7 @@
       detail: 'Bring books, bookmarks, and reading data'
     }
   ] as const;
-  const primaryDestinations = destinations.slice(0, 3);
+  const primaryDestinations = destinations.slice(0, 4);
 </script>
 
 <div class="flex items-center gap-1">
@@ -74,74 +80,74 @@
       {/each}
     </nav>
   {/if}
-<Sheet.Root bind:open>
-  <Sheet.Trigger>
-    {#snippet child({ props })}
-      <Button
-        {...props}
-        variant="ghost"
-        size={iconOnly ? 'icon' : 'default'}
-        class={iconOnly ? 'size-11 shrink-0 rounded-full' : 'min-h-9'}
-        aria-label={iconOnly ? 'Main menu' : 'Navigate'}
-        title={iconOnly ? 'Main menu' : undefined}
-      >
-        <MenuIcon
-          class={iconOnly ? 'size-5' : 'size-4'}
-          aria-hidden="true"
-        />{#if !iconOnly}Navigate{/if}
-      </Button>
-    {/snippet}
-  </Sheet.Trigger>
-  <Sheet.Content
-    side={iconOnly ? 'left' : 'right'}
-    class="data-[side=left]:w-[min(24rem,calc(100vw-1rem))] data-[side=right]:w-[min(24rem,calc(100vw-1rem))] overflow-y-auto"
-  >
-    <Sheet.Header>
-      <Sheet.Title>Manabi Reader</Sheet.Title>
-      <Sheet.Description>Your books. Your reading space.</Sheet.Description>
-    </Sheet.Header>
-    <nav aria-label="Main navigation" class="grid gap-1 p-3">
-      {#each destinations as destination (destination.path)}
+  <Sheet.Root bind:open>
+    <Sheet.Trigger>
+      {#snippet child({ props })}
+        <Button
+          {...props}
+          variant="ghost"
+          size={iconOnly ? 'icon' : 'default'}
+          class={iconOnly ? 'size-11 shrink-0 rounded-full' : 'min-h-9'}
+          aria-label={iconOnly ? 'Main menu' : 'Navigate'}
+          title={iconOnly ? 'Main menu' : undefined}
+        >
+          <MenuIcon
+            class={iconOnly ? 'size-5' : 'size-4'}
+            aria-hidden="true"
+          />{#if !iconOnly}Navigate{/if}
+        </Button>
+      {/snippet}
+    </Sheet.Trigger>
+    <Sheet.Content
+      side={iconOnly ? 'left' : 'right'}
+      class="data-[side=left]:w-[min(24rem,calc(100vw-1rem))] data-[side=right]:w-[min(24rem,calc(100vw-1rem))] overflow-y-auto"
+    >
+      <Sheet.Header>
+        <Sheet.Title>Manabi Reader</Sheet.Title>
+        <Sheet.Description>Your books. Your reading space.</Sheet.Description>
+      </Sheet.Header>
+      <nav aria-label="Main navigation" class="grid gap-1 p-3">
+        {#each destinations as destination (destination.path)}
+          <a
+            aria-label={destination.label}
+            href={resolve(destination.path)}
+            onclick={() => (open = false)}
+            class="flex items-start gap-3 rounded-2xl p-3 text-sm hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
+            class:bg-accent={$page.url.pathname === base + destination.path}
+            aria-current={$page.url.pathname === base + destination.path ? 'page' : undefined}
+          >
+            <svelte:component
+              this={destination.icon}
+              class="mt-0.5 size-4 shrink-0"
+              aria-hidden="true"
+            />
+            <span
+              ><span class="block font-medium">{destination.label}</span><span
+                class="mt-1 block text-xs text-muted-foreground">{destination.detail}</span
+              ></span
+            >
+          </a>
+        {/each}
+        <div class="my-1 border-t border-border" role="separator"></div>
+        <!-- The guide is served outside SvelteKit's /reader-web base. -->
+        <!-- eslint-disable svelte/no-navigation-without-resolve -->
         <a
-          aria-label={destination.label}
-          href={resolve(destination.path)}
+          aria-label="User guide"
+          href={USER_GUIDE_URL}
+          target="_blank"
+          rel="noopener noreferrer"
           onclick={() => (open = false)}
           class="flex items-start gap-3 rounded-2xl p-3 text-sm hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
-          class:bg-accent={$page.url.pathname === base + destination.path}
-          aria-current={$page.url.pathname === base + destination.path ? 'page' : undefined}
         >
-          <svelte:component
-            this={destination.icon}
-            class="mt-0.5 size-4 shrink-0"
-            aria-hidden="true"
-          />
+          <BookOpenText class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
           <span
-            ><span class="block font-medium">{destination.label}</span><span
-              class="mt-1 block text-xs text-muted-foreground">{destination.detail}</span
+            ><span class="block font-medium">User guide</span><span
+              class="mt-1 block text-xs text-muted-foreground">Reading, libraries, and data</span
             ></span
           >
         </a>
-      {/each}
-      <div class="my-1 border-t border-border" role="separator"></div>
-      <!-- The guide is served outside SvelteKit's /reader-web base. -->
-      <!-- eslint-disable svelte/no-navigation-without-resolve -->
-      <a
-        aria-label="User guide"
-        href={USER_GUIDE_URL}
-        target="_blank"
-        rel="noopener noreferrer"
-        onclick={() => (open = false)}
-        class="flex items-start gap-3 rounded-2xl p-3 text-sm hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
-      >
-        <BookOpenText class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-        <span
-          ><span class="block font-medium">User guide</span><span
-            class="mt-1 block text-xs text-muted-foreground">Reading, libraries, and data</span
-          ></span
-        >
-      </a>
-      <!-- eslint-enable svelte/no-navigation-without-resolve -->
-    </nav>
-  </Sheet.Content>
-</Sheet.Root>
+        <!-- eslint-enable svelte/no-navigation-without-resolve -->
+      </nav>
+    </Sheet.Content>
+  </Sheet.Root>
 </div>

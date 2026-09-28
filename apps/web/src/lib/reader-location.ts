@@ -44,6 +44,60 @@ export interface ProjectedResource {
   runs: TextRun[];
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * Reader locations cross async, storage and sync boundaries. Treat them as
+ * immutable values: validate the supported coordinate contract and return a
+ * deep identity snapshot before any caller can retarget pending work.
+ */
+export function snapshotReaderLocator(
+  value: unknown,
+  expectedBookKey?: string
+): ReaderLocator | undefined {
+  if (!isRecord(value) || value.version !== 1 || typeof value.bookKey !== 'string') return;
+  if (expectedBookKey !== undefined && value.bookKey !== expectedBookKey) return;
+  if (
+    !isRecord(value.resource) ||
+    typeof value.resource.href !== 'string' ||
+    !value.resource.href ||
+    typeof value.resource.sectionId !== 'string' ||
+    !value.resource.sectionId ||
+    !Number.isSafeInteger(value.resource.spineIndex) ||
+    Number(value.resource.spineIndex) < 0 ||
+    !Number.isSafeInteger(value.projectionVersion) ||
+    Number(value.projectionVersion) < 1 ||
+    Number(value.projectionVersion) > readerProjectionVersion ||
+    typeof value.resourceDigest !== 'string' ||
+    !Number.isSafeInteger(value.start) ||
+    Number(value.start) < 0 ||
+    !Number.isSafeInteger(value.end) ||
+    Number(value.end) < Number(value.start) ||
+    typeof value.quote !== 'string' ||
+    typeof value.prefix !== 'string' ||
+    typeof value.suffix !== 'string'
+  )
+    return;
+  return {
+    version: 1,
+    bookKey: value.bookKey,
+    resource: {
+      href: value.resource.href,
+      spineIndex: Number(value.resource.spineIndex),
+      sectionId: value.resource.sectionId
+    },
+    projectionVersion: Number(value.projectionVersion),
+    resourceDigest: value.resourceDigest,
+    start: Number(value.start),
+    end: Number(value.end),
+    quote: value.quote,
+    prefix: value.prefix,
+    suffix: value.suffix
+  };
+}
+
 const ELEMENT_NODE = 1;
 const TEXT_NODE = 3;
 const excludedTags = new Set(['rt', 'rp', 'rtc', 'script', 'style', 'template', 'noscript']);
@@ -180,6 +234,14 @@ export function rangeAt(
   start: number,
   end = start
 ): Range | undefined {
+  if (
+    !Number.isSafeInteger(start) ||
+    !Number.isSafeInteger(end) ||
+    start < 0 ||
+    end < start ||
+    end > codePointLength(resource.text)
+  )
+    return undefined;
   if (!resource.runs.length && start === 0 && end === 0) {
     const range = resource.element.ownerDocument.createRange();
     range.selectNodeContents(resource.element);
@@ -244,7 +306,7 @@ export async function makeLocator(
   return {
     version: 1,
     bookKey,
-    resource: projected.resource,
+    resource: { ...projected.resource },
     projectionVersion: readerProjectionVersion,
     resourceDigest: await resourceDigest(text),
     start,
@@ -261,52 +323,53 @@ export async function resolveLocator(
   projected: ProjectedResource,
   bookKey: string
 ): Promise<{ start: number; end: number } | undefined> {
+  const request = snapshotReaderLocator(locator, bookKey);
   if (
-    locator.version !== 1 ||
-    locator.bookKey !== bookKey ||
-    locator.resource.spineIndex !== projected.resource.spineIndex ||
-    locator.resource.href !== projected.resource.href
+    !request ||
+    request.resource.spineIndex !== projected.resource.spineIndex ||
+    request.resource.href !== projected.resource.href
   )
     return undefined;
-  const digest = await resourceDigest(projected.text);
+  // Own caller coordinates before hashing yields. A saved locator is a value,
+  // not authority for the caller to retarget a pending resolution by mutation.
+  locator = request;
+  const text = projected.text;
+  const digest = await resourceDigest(text);
   if (
-    Number.isSafeInteger(locator.projectionVersion) &&
-    locator.projectionVersion > 0 &&
-    digest === locator.resourceDigest &&
-    locator.start >= 0 &&
-    locator.end >= locator.start &&
-    locator.end <= codePointLength(projected.text)
+    projected.text !== text ||
+    projected.resource.spineIndex !== locator.resource.spineIndex ||
+    projected.resource.href !== locator.resource.href
   )
+    return undefined;
+  if (digest === locator.resourceDigest && locator.end <= codePointLength(text))
     return { start: locator.start, end: locator.end };
   const candidates: number[] = [];
   if (!locator.quote) {
     if (!locator.prefix && !locator.suffix)
-      return projected.text.length === 0 ? { start: 0, end: 0 } : undefined;
+      return text.length === 0 ? { start: 0, end: 0 } : undefined;
     if (locator.suffix) {
       let index = -1;
-      while ((index = projected.text.indexOf(locator.suffix, index + 1)) >= 0) {
-        if (
-          projected.text.slice(Math.max(0, index - locator.prefix.length), index) === locator.prefix
-        )
+      while ((index = text.indexOf(locator.suffix, index + 1)) >= 0) {
+        if (text.slice(Math.max(0, index - locator.prefix.length), index) === locator.prefix)
           candidates.push(index);
         if (candidates.length > 1) return undefined;
       }
     } else {
       let index = -1;
-      while ((index = projected.text.indexOf(locator.prefix, index + 1)) >= 0) {
+      while ((index = text.indexOf(locator.prefix, index + 1)) >= 0) {
         candidates.push(index + locator.prefix.length);
         if (candidates.length > 1) return undefined;
       }
     }
     if (candidates.length !== 1) return undefined;
-    const point = codePointLength(projected.text.slice(0, candidates[0]));
+    const point = codePointLength(text.slice(0, candidates[0]));
     return { start: point, end: point };
   }
   let index = -1;
-  while ((index = projected.text.indexOf(locator.quote, index + 1)) >= 0) {
+  while ((index = text.indexOf(locator.quote, index + 1)) >= 0) {
     if (
-      projected.text.slice(Math.max(0, index - locator.prefix.length), index) === locator.prefix &&
-      projected.text.slice(
+      text.slice(Math.max(0, index - locator.prefix.length), index) === locator.prefix &&
+      text.slice(
         index + locator.quote.length,
         index + locator.quote.length + locator.suffix.length
       ) === locator.suffix
@@ -315,6 +378,6 @@ export async function resolveLocator(
     if (candidates.length > 1) return undefined;
   }
   if (candidates.length !== 1) return undefined;
-  const start = codePointLength(projected.text.slice(0, candidates[0]));
+  const start = codePointLength(text.slice(0, candidates[0]));
   return { start, end: start + codePointLength(locator.quote) };
 }
