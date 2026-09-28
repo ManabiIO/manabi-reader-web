@@ -29,6 +29,7 @@
   const dispatch = createEventDispatcher<{
     bookmark: void;
     highlight: void;
+    snippet: void;
     note: string;
     openAnnotation: ReaderAnnotation;
     remove: string;
@@ -65,6 +66,11 @@
         disabled={busy || !hasSelection}
         onclick={() => dispatch('highlight')}
         ><Highlighter aria-hidden="true" />Highlight Selection</Button
+      >
+      <Button
+        variant="secondary"
+        disabled={busy || !hasSelection}
+        onclick={() => dispatch('snippet')}>Add to Snippet…</Button
       >
     </div>
     <div class="mt-3 flex shrink-0 flex-wrap items-center gap-2">

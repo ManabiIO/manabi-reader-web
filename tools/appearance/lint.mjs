@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { ESLint } from 'eslint';
 
 const files = [
+  'apps/web/src/lib/components/statistics/statistics-heatmap/statistics-heatmap.svelte',
   'apps/web/src/lib/library/library-search.svelte',
   'apps/web/src/lib/components/book-reader/imported-yatsu-notes.svelte',
   'apps/web/src/lib/webdav/connections.svelte',

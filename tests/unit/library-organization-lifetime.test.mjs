@@ -310,6 +310,29 @@ test('committed local operations detach cancellation without pretending to undo 
   assert.equal(h.records.get(key).collections[0].name, 'Committed');
 });
 
+test('owner change after commit suppresses stale organization publication', async () => {
+  const h = harness();
+  let current = true;
+  const result = h.api.updateOrganization(
+    (value) => {
+      value.collections.push({ id: 'owned', name: 'Former owner', members: [] });
+    },
+    undefined,
+    () => {
+      if (!current) throw new Error('owner changed');
+    }
+  );
+  h.releaseRead();
+  await drain();
+  assert.equal(h.writes.length, 1);
+  h.commit();
+  current = false;
+  await result;
+  assert.equal(h.records.get(key).collections[0].name, 'Former owner');
+  assert.equal(h.published.length, 1);
+  assert.equal(h.broadcasts.length, 0);
+});
+
 test('migration receipt fields are captured before database suspension', async () => {
   const h = harness();
   const receipt = { key: 'receipt-original', value: 'original', modified: 3 };

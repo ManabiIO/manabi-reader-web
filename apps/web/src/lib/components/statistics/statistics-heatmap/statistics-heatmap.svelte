@@ -1,12 +1,15 @@
 <script lang="ts">
   import faChevronLeft from '@lucide/svelte/icons/chevron-left';
   import faChevronRight from '@lucide/svelte/icons/chevron-right';
-  import faClose from '@lucide/svelte/icons/x';
   import faLayerGroup from '@lucide/svelte/icons/layers';
   import faRepeat from '@lucide/svelte/icons/repeat';
   import { ReadingGoalFrequency } from '$lib/components/book-reader/book-reading-tracker/book-reading-tracker';
   import Popover from '$lib/components/popover/popover.svelte';
   import { Button } from '$lib/components/ui/button';
+  import CloseButton from '$lib/components/ui/close-button.svelte';
+  import { observeElementWidth } from '$lib/hooks/observe-element-width';
+  import { SvelteDate, SvelteMap, SvelteSet } from 'svelte/reactivity';
+  import { heatmapCellSize, heatmapMonthLabels, heatmapNavigationDate } from './heatmap-navigation';
   import {
     type HeatmapMonthLabel,
     type HeatmapStreak,
@@ -37,7 +40,6 @@
     lastStatisticsEndDate$,
     lastStatisticsStartDate$
   } from '$lib/data/store';
-  import { reduceToEmptyString } from '$lib/functions/rxjs/reduce-to-empty-string';
   import {
     advanceDateDays,
     getDate,
@@ -47,8 +49,7 @@
     secondsToMinutes
   } from '$lib/functions/statistic-util';
   import { caluclatePercentage, limitToRange, pluralize } from '$lib/functions/utils';
-  import { debounceTime, fromEvent, tap } from 'rxjs';
-  import { onMount, tick } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import AppIcon from '$lib/components/app-icon.svelte';
 
   export let heatmapType: HeatmapType = HeatmapType.STATISTICS;
@@ -59,12 +60,6 @@
   export let today: Date;
   export let todayKey: string;
 
-  const resizeHandler$ = fromEvent(window, 'resize').pipe(
-    debounceTime(250),
-    tap(updateHeatmapDimensions),
-    reduceToEmptyString()
-  );
-
   const colorRanges: HeatmapColorRange[] = [];
 
   let heatmapElement: HTMLElement;
@@ -73,16 +68,23 @@
   let dayElementSize = heatmapDayElementSize;
   let heatmapYear = today.getFullYear();
   let globalHeatmapData: StatisticsHeatmapData | ReadingGoalsHeatmapData;
-  const globalHeatmapDayData = new Map<
+  const globalHeatmapDayData = new SvelteMap<
     string,
     HeatmapGlobalDayData | ReadingGoalHeatmapGlobalDayData
   >();
-  const heatmapDataByYear = new Map<number, StatisticsHeatmapData | ReadingGoalsHeatmapData>();
+  const heatmapDataByYear = new SvelteMap<number, StatisticsHeatmapData | ReadingGoalsHeatmapData>();
   let currentHeatmapData: StatisticsHeatmapData | ReadingGoalsHeatmapData;
   let currentHeatmapDays: StatisticsHeatmapDayData[] = [];
   let popoverDetails: string[] = [];
+  let detailsOpen = false;
+  let activeDate = todayKey;
+  let popupGeneration = 0;
+  let alive = true;
+  $: activeDay =
+    currentHeatmapDays.find((day) => day.isCurrentYear && day.dateString === activeDate) ??
+    currentHeatmapDays.find((day) => day.isCurrentYear);
   let selectedStreak = HeatmapStreakType.NONE;
-  let selectedStreakDates = new Set<string>();
+  let selectedStreakDates = new SvelteSet<string>();
 
   $: heatmapLabel = `Reading ${
     heatmapType === HeatmapType.STATISTICS ? '' : 'Goals '
@@ -93,36 +95,33 @@
     ...($lastStartDayOfWeek$ ? daysOfWeekShort.slice(0, $lastStartDayOfWeek$) : [])
   ];
 
-  $: if ($lastStartDayOfWeek$ > -1 || heatmapAggregration) {
-    tick().then(() => {
-      updateHeatmapData(heatmapYear);
-    });
+  // The displayed year is input, never written by either calculation branch.
+  // Explicit dependencies also rebuild goals/today when their inputs change.
+  $: if ($lastStartDayOfWeek$ >= 0 && heatmapAggregration && heatmapYear) {
+    closeHeatmapDetails(false);
+    updateHeatmapData();
   }
 
-  $: if (statisticsTitleFilters && statisticsData) {
+  $: if (statisticsTitleFilters && statisticsData && readingGoals && todayKey && heatmapType) {
     selectedStreak = HeatmapStreakType.NONE;
-    selectedStreakDates = new Set();
+    selectedStreakDates = new SvelteSet<string>();
 
     updateHeatmapDataAfterFilterChange();
   }
 
   $: if (heatmapAggregration) {
     selectedStreak = HeatmapStreakType.NONE;
-    selectedStreakDates = new Set();
+    selectedStreakDates = new SvelteSet<string>();
   }
 
-  onMount(() => {
-    if (heatmapType === HeatmapType.READING_GOALS) {
-      colorRanges.push(
-        {
-          limit: 100,
-          color: `#${heatmapMaxValueColor}`
-        },
-        ...getColorRanges(1, 100, 100)
-      );
-    }
-
-    updateHeatmapDimensions();
+  onMount(() =>
+    observeElementWidth(heatmapElement, (width) => {
+      dayElementSize = heatmapCellSize(width, heatmapDayElementSize, heatmapGridGapValue, 57);
+    })
+  );
+  onDestroy(() => {
+    alive = false;
+    popupGeneration += 1;
   });
 
   function checkIsStatisticsHeatmapData(
@@ -138,31 +137,55 @@
 
     if (heatmapAggregration === HeatmapDataAggregration.YEAR) {
       selectedStreak = HeatmapStreakType.NONE;
-      selectedStreakDates = new Set();
+      selectedStreakDates = new SvelteSet<string>();
     }
 
+    closeHeatmapDetails(false);
     heatmapYear += modifier;
 
     tick().then(() => {
-      heatmapElement.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      if (alive && heatmapElement?.isConnected)
+        heatmapElement.scrollTo({ top: 0, left: 0, behavior: 'auto' });
     });
+  }
+
+  function closeHeatmapDetails(restoreFocus = true) {
+    popupGeneration += 1;
+    heatmapDetailDataPopover?.close(restoreFocus);
   }
 
   function openHeatmapDay(target: HTMLElement, heatmapDay: StatisticsHeatmapDayData) {
     if (!heatmapDay.isCurrentYear) return;
-    popoverDetails = heatmapDay.dayDetails;
+    const generation = ++popupGeneration;
+    activeDate = heatmapDay.dateString;
+    popoverDetails = [...heatmapDay.dayDetails];
     void tick().then(() => {
-      if (target.isConnected) heatmapDetailDataPopover.toggleOpen(target);
+      if (alive && generation === popupGeneration && target.isConnected)
+        heatmapDetailDataPopover.openAt(target);
     });
   }
 
-  function handleHeatmapDayKeydown(
-    event: KeyboardEvent,
-    heatmapDay: StatisticsHeatmapDayData
-  ) {
-    if (event.key !== 'Enter' && event.key !== ' ') return;
+  function handleHeatmapDayKeydown(event: KeyboardEvent, day: StatisticsHeatmapDayData) {
+    if (event.altKey || event.metaKey || event.shiftKey) return;
+    // Native buttons own Enter/Space activation. Ignore held activation keys.
+    if (event.repeat && (event.key === 'Enter' || event.key === ' ')) {
+      event.preventDefault();
+      return;
+    }
+    const nextDate = heatmapNavigationDate(
+      currentHeatmapDays,
+      day.dateString,
+      event.key,
+      getComputedStyle(heatmapElement).direction === 'rtl',
+      event.ctrlKey
+    );
+    if (!nextDate) return;
     event.preventDefault();
-    if (event.currentTarget instanceof HTMLElement) openHeatmapDay(event.currentTarget, heatmapDay);
+    event.stopPropagation();
+    activeDate = nextDate;
+    const next = heatmapElement.querySelector<HTMLButtonElement>(`button[data-date="${nextDate}"]`);
+    next?.focus({ preventScroll: true });
+    next?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
 
   async function highlightStreaks(streaks: HeatmapStreak[], streakToSelect: HeatmapStreakType) {
@@ -206,7 +229,7 @@
     }
 
     selectedStreak = selectedStreak === streakToSelect ? HeatmapStreakType.NONE : streakToSelect;
-    selectedStreakDates = new Set<string>();
+    selectedStreakDates = new SvelteSet<string>();
 
     if (selectedStreak !== HeatmapStreakType.NONE) {
       for (let index = 0, { length } = streaks; index < length; index += 1) {
@@ -232,59 +255,46 @@
     }
 
     const dayElement = heatmapElement.querySelector(
-      `div[data-date="${referenceDateString}"]`
+      `[data-date="${referenceDateString}"]`
     ) as HTMLElement | null;
 
     if (dayElement) {
-      const absoluteElementLeft = dayElement.offsetLeft + dayElement.clientWidth / 2;
-      const middle = absoluteElementLeft - heatmapElement.clientWidth / 2;
-
+      const day = dayElement.getBoundingClientRect();
+      const grid = heatmapElement.getBoundingClientRect();
+      const middle =
+        heatmapElement.scrollLeft + day.left - grid.left + day.width / 2 - grid.width / 2;
       heatmapElement.scrollTo(middle, 0);
     }
   }
 
-  function updateHeatmapDimensions() {
-    if (!heatmapElement?.parentElement) {
-      return;
-    }
-
-    const containerWidth = heatmapElement.parentElement.clientWidth;
-    const arrowElementsWidth = 30;
-    const gridGap = heatmapGridGapValue * 2;
-    const gridColumnsPerYear = 54;
-    const gridColumnsWidth = gridColumnsPerYear * gridGap;
-    const dayGridColums = 3;
-    const allGridColumns = gridColumnsPerYear + dayGridColums;
-
-    dayElementSize = Math.max(
-      dayElementSize,
-      Math.ceil((containerWidth - arrowElementsWidth - gridColumnsWidth) / allGridColumns)
-    );
-  }
-
   function updateHeatmapDataAfterFilterChange() {
+    closeHeatmapDetails(false);
     globalHeatmapDayData.clear();
     heatmapDataByYear.clear();
-
-    updateHeatmapData(heatmapYear);
+    colorRanges.length = 0;
+    if (heatmapType === HeatmapType.READING_GOALS) {
+      colorRanges.push(
+        { limit: 100, color: `#${heatmapMaxValueColor}` },
+        ...getColorRanges(1, 100, 100)
+      );
+    }
+    updateHeatmapData();
   }
 
-  function updateHeatmapData(newYear: number) {
+  function updateHeatmapData() {
     if (heatmapType === HeatmapType.STATISTICS) {
-      updateHeatmapDataForStatistics(newYear);
+      updateHeatmapDataForStatistics();
     } else {
-      updateHeatmapDataForReadingGoals(newYear);
+      updateHeatmapDataForReadingGoals();
     }
   }
 
-  function updateHeatmapDataForStatistics(newYear: number) {
-    const daysRead = new Set<string>();
+  function updateHeatmapDataForStatistics() {
+    const daysRead = new SvelteSet<string>();
     let maxReadingTime = 0;
     let minReadingTime = 0;
     let firstReadingDay;
     let lastReadingDay;
-
-    heatmapYear = newYear;
 
     if (!globalHeatmapDayData.size) {
       const streaks: HeatmapStreak[] = [];
@@ -460,16 +470,14 @@
     updateHeatmapDayData(undefined);
   }
 
-  function updateHeatmapDataForReadingGoals(newYear: number) {
+  function updateHeatmapDataForReadingGoals() {
     const globalDataObject = globalHeatmapDayData as Map<string, ReadingGoalHeatmapGlobalDayData>;
 
     let completedReadingGoalsCount = 0;
     let closedReadingGoalsCount = 0;
 
-    heatmapYear = newYear;
-
     if (!globalDataObject.size) {
-      const groupsedStatisticsData = new Map<string, HeatmapGlobalDayData>();
+      const groupsedStatisticsData = new SvelteMap<string, HeatmapGlobalDayData>();
       const streaks: HeatmapStreak[] = [];
 
       let lastDayString = todayKey;
@@ -526,7 +534,7 @@
             normalizedCharactersReadPercentage: 0,
             readingGoalCompletedPercentage: 0,
             normalizedReadingGoalCompletedPercentage: 0,
-            titles: new Set<string>()
+            titles: new SvelteSet<string>()
           };
 
           let currentReadingGoalDay = currentReadingGoalWindow.readingGoalStartDate;
@@ -727,7 +735,7 @@
   }
 
   function getDefaultHeatmapGlobalDayData(): HeatmapGlobalDayData {
-    return { readingTime: 0, charactersRead: 0, titles: new Set<string>() };
+    return { readingTime: 0, charactersRead: 0, titles: new SvelteSet<string>() };
   }
 
   function sortStreaks(streak1: HeatmapStreak, streak2: HeatmapStreak) {
@@ -746,9 +754,7 @@
     let daysReadLabel = '';
 
     if (allDaysReadCount) {
-      daysReadLabel = `${daysRead.size} / ${pluralize(allDaysReadCount, 'day')} (${
-        allDaysReadCount ? caluclatePercentage(daysRead.size, allDaysReadCount) : 0
-      }%)`;
+      daysReadLabel = `${daysRead.size} / ${pluralize(allDaysReadCount, 'day')} (${allDaysReadCount ? caluclatePercentage(daysRead.size, allDaysReadCount) : 0}%)`;
     } else {
       daysReadLabel = '0 / 0 days (0%)';
     }
@@ -859,7 +865,7 @@
     const mapDays: StatisticsHeatmapDayData[] = [];
 
     let year = heatmapYear;
-    const dateObject = new Date(year, 0, 1, 0, 0, 0, 0);
+    const dateObject = new SvelteDate(year, 0, 1, 0, 0, 0, 0);
     const dayIndex = dateObject.getDay();
     let dateString = '';
     let daysToFill = 0;
@@ -899,16 +905,7 @@
     let initialReadingGoalUsed = false;
 
     while (year === heatmapYear) {
-      const monthIndex = dateObject.getMonth();
-
       dateString = getDateString(dateObject);
-
-      if (!monthLabels[monthIndex].heatmapColumn) {
-        monthLabels[monthIndex] = {
-          ...monthLabels[monthIndex],
-          ...{ heatmapColumn: `${heatmapColumn + 1}/${heatmapColumn + 3}` }
-        };
-      }
 
       if (heatmapType === HeatmapType.STATISTICS) {
         mapDays.push(getStatisticsHeatmapDayData(dateString, heatmapRow, heatmapColumn));
@@ -958,11 +955,11 @@
       heatmapRow += 1;
     }
 
-    monthLabels = [...monthLabels];
+    monthLabels = heatmapMonthLabels(mapDays, monthLabelList);
     currentHeatmapDays = mapDays;
 
     tick().then(() => {
-      if (heatmapYear === today.getFullYear()) {
+      if (alive && heatmapElement?.isConnected && heatmapYear === today.getFullYear()) {
         scrollToDay(todayKey);
       }
     });
@@ -1089,34 +1086,38 @@
   }
 </script>
 
-{$resizeHandler$ ?? ''}
-<div class="mb-4 flex items-center justify-center gap-1">
-  <span class="min-w-0 text-center">{heatmapLabel}</span>
-  <Button
-    variant="ghost"
-    size="icon"
-    shape="circle"
-    aria-label="Return to current year"
-    title="Return to current year"
-    onclick={() => changeHeatmapYear(today.getFullYear() - heatmapYear)}
-  >
-    <AppIcon icon={faRepeat} />
-  </Button>
-  <Button
-    variant={heatmapAggregration === HeatmapDataAggregration.ALL_TIME ? 'secondary' : 'ghost'}
-    size="icon"
-    shape="circle"
-    aria-label="Use all-time streak data"
-    aria-pressed={heatmapAggregration === HeatmapDataAggregration.ALL_TIME}
-    title="Switch streak data between all time and current year"
-    onclick={() =>
-      (heatmapAggregration =
-        heatmapAggregration === HeatmapDataAggregration.ALL_TIME
-          ? HeatmapDataAggregration.YEAR
-          : HeatmapDataAggregration.ALL_TIME)}
-  >
-    <AppIcon icon={faLayerGroup} />
-  </Button>
+<div class="heatmap-toolbar">
+  <h2 class="heatmap-toolbar-label">
+    Reading {heatmapType === HeatmapType.STATISTICS ? '' : 'Goals '}Data for
+    <span class="heatmap-year">{heatmapYear}</span>
+  </h2>
+  <div class="heatmap-toolbar-actions">
+    <Button
+      variant="ghost"
+      size="icon"
+      shape="circle"
+      aria-label="Return to current year"
+      title="Return to current year"
+      onclick={() => changeHeatmapYear(today.getFullYear() - heatmapYear)}
+    >
+      <AppIcon icon={faRepeat} />
+    </Button>
+    <Button
+      variant={heatmapAggregration === HeatmapDataAggregration.ALL_TIME ? 'secondary' : 'ghost'}
+      size="icon"
+      shape="circle"
+      aria-label="Use all-time streak data"
+      aria-pressed={heatmapAggregration === HeatmapDataAggregration.ALL_TIME}
+      title="Switch streak data between all time and current year"
+      onclick={() =>
+        (heatmapAggregration =
+          heatmapAggregration === HeatmapDataAggregration.ALL_TIME
+            ? HeatmapDataAggregration.YEAR
+            : HeatmapDataAggregration.ALL_TIME)}
+    >
+      <AppIcon icon={faLayerGroup} />
+    </Button>
+  </div>
 </div>
 <div class="flex items-center justify-between">
   <Button
@@ -1140,17 +1141,20 @@
     <AppIcon icon={faChevronLeft} />
   </Button>
   <div
-    class="grid items-center overflow-x-auto py-1"
+    class="heatmap-calendar grid min-w-0 flex-1 items-center overflow-x-auto py-1"
+    role="group"
+    aria-label={`${heatmapLabel}. Use arrow keys for days and weeks; Home and End for week boundaries.`}
     style:grid-auto-columns={`${dayElementSize}px`}
     style:grid-auto-rows={`${dayElementSize}px`}
     style:gap={`${heatmapGridGapValue}px`}
     style:margin={`0 ${heatmapDayMargins}px`}
+    style:scroll-padding-inline-start={`${dayElementSize * 2 + heatmapGridGapValue * 2 + 4}px`}
     bind:this={heatmapElement}
   >
     {#each monthLabels as label (label.monthLabel)}
       <div
         class="text-xs md:text-sm"
-        style:grid-row={'1/1'}
+        style:grid-row="1/1"
         style:grid-column={`${label.heatmapColumn}`}
         style:height={`${dayElementSize}px`}
         style:margin-bottom={`${dayElementSize}px`}
@@ -1160,17 +1164,17 @@
     {/each}
     <div
       class="sticky left-0"
-      style:grid-row={'1/1'}
-      style:grid-column={`1/3`}
+      style:grid-row="1/1"
+      style:grid-column="1/3"
       style:height={`${dayElementSize * 2}px`}
-      style:background-color={'var(--background-color)'}
+      style:background-color="var(--background)"
     ></div>
     {#each dayLabels as dayLabel, index (dayLabel)}
       <div
         class="sticky left-0 text-xs sm:text-sm"
         style:grid-row={`${index + 2}/${index + 2}`}
-        style:grid-column={`1/3`}
-        style:background-color={'var(--background-color)'}
+        style:grid-column="1/3"
+        style:background-color="var(--background)"
       >
         {dayLabel}
       </div>
@@ -1181,12 +1185,20 @@
         !isToday &&
         (heatmapDay.dateString === $lastStatisticsStartDate$ ||
           heatmapDay.dateString === $lastStatisticsEndDate$)}
-      <div
-        tabindex={heatmapDay.isCurrentYear ? 0 : -1}
-        role="button"
+      <button
+        type="button"
+        tabindex={heatmapDay.isCurrentYear && heatmapDay.dateString === activeDay?.dateString
+          ? 0
+          : -1}
+        disabled={!heatmapDay.isCurrentYear}
+        aria-hidden={!heatmapDay.isCurrentYear ? true : undefined}
+        aria-haspopup={heatmapDay.isCurrentYear ? 'dialog' : undefined}
+        aria-expanded={heatmapDay.isCurrentYear
+          ? detailsOpen && popoverDetails[0] === heatmapDay.dateString
+          : undefined}
         aria-disabled={!heatmapDay.isCurrentYear}
         aria-label={heatmapDay.isCurrentYear ? heatmapDay.dayDetails.join('. ') : undefined}
-        class="justify-self-center fadeIn"
+        class="heatmap-day justify-self-center fadeIn"
         class:cursor-pointer={heatmapDay.isCurrentYear}
         class:bg-heatmap-empty={heatmapDay.isCurrentYear}
         class:bg-heatmap-outside={!heatmapDay.isCurrentYear}
@@ -1206,34 +1218,11 @@
           if (event.currentTarget instanceof HTMLElement)
             openHeatmapDay(event.currentTarget, heatmapDay);
         }}
+        on:focus={() => (activeDate = heatmapDay.dateString)}
         on:keydown={(event) => handleHeatmapDayKeydown(event, heatmapDay)}
-      ></div>
+        on:keyup={(event) => event.stopPropagation()}
+      ></button>
     {/each}
-    {#if popoverDetails.length}
-      <Popover yOffset={5} bind:this={heatmapDetailDataPopover}>
-        <div
-          slot="content"
-          class="p-2"
-          class:w-36={heatmapType === HeatmapType.STATISTICS}
-          class:w-42={heatmapType === HeatmapType.READING_GOALS}
-        >
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            shape="circle"
-            class="absolute right-2 top-2"
-            aria-label="Close heatmap details"
-            title="Close heatmap details"
-            onclick={() => (popoverDetails = [])}
-          >
-            <AppIcon icon={faClose} />
-          </Button>
-          {#each popoverDetails as popoverDetail (popoverDetail)}
-            <div class="mb-2 last:mb-0">{popoverDetail}</div>
-          {/each}
-        </div>
-      </Popover>
-    {/if}
   </div>
   <Button
     variant="ghost"
@@ -1258,6 +1247,24 @@
     <AppIcon icon={faChevronRight} />
   </Button>
 </div>
+<Popover
+  yOffset={5}
+  label="Reading day details"
+  dialog
+  bind:isOpen={detailsOpen}
+  restoreAnchorFocus
+  bind:this={heatmapDetailDataPopover}
+>
+  <div slot="content" class="heatmap-details">
+    <div class="heatmap-details-header">
+      <h2>{popoverDetails[0] ?? 'Reading day'}</h2>
+      <CloseButton aria-label="Close heatmap details" onclick={() => closeHeatmapDetails()} />
+    </div>
+    {#each popoverDetails.slice(1) as detail, index (index)}
+      <p>{detail}</p>
+    {/each}
+  </div>
+</Popover>
 {#if currentHeatmapData}
   {@const isAllTime = heatmapAggregration === HeatmapDataAggregration.ALL_TIME}
   {@const mapAggregationlabel = `(${isAllTime ? 'All Time' : heatmapYear})`}
@@ -1414,11 +1421,70 @@
 {/if}
 
 <style>
+  .heatmap-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .heatmap-toolbar-label {
+    flex: 1 1 16rem;
+    min-width: 0;
+    text-align: center;
+    text-wrap: balance;
+  }
+  .heatmap-year {
+    white-space: nowrap;
+  }
+  .heatmap-toolbar-actions {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .heatmap-day {
+    padding: 0;
+    border-style: solid;
+    border-radius: 3px;
+    scroll-margin-inline: 8px;
+  }
+  .heatmap-day:focus-visible {
+    position: relative;
+    z-index: 1;
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  .heatmap-details {
+    box-sizing: border-box;
+    width: min(320px, calc(90vw - 2px));
+    padding: 16px;
+    overflow-wrap: anywhere;
+  }
+  .heatmap-details-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 44px;
+    align-items: start;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .heatmap-details-header h2 {
+    align-self: center;
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+  }
+  .heatmap-details p + p {
+    margin-top: 8px;
+  }
+
   .highlight {
     box-shadow: 0 0 0 2px var(--primary);
   }
 
-  @media (min-width: 1024px) {
+  @media (min-width: 1024px) and (prefers-reduced-motion: no-preference) {
     .fadeIn {
       animation: fadeIn 0.1s ease-in backwards;
     }

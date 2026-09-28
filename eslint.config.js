@@ -108,10 +108,13 @@ module.exports = (async () => {
       }
     },
     {
-      files: ['test/whispersync/**/*.{cjs,js,mjs}'],
+      files: ['test/whispersync/**/*.{cjs,js,mjs}', 'test/snippets/**/*.{cjs,js,mjs}'],
       languageOptions: {
         globals: {
           CSS: 'readonly',
+          TextEncoder: 'readonly',
+          Buffer: 'readonly',
+          crypto: 'readonly',
           AbortController: 'readonly',
           Audio: 'readonly',
           Blob: 'readonly',

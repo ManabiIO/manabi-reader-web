@@ -135,13 +135,21 @@ export async function reloadOrganization() {
 export async function updateOrganization(
   change: (value: Organization) => void,
   receipt?: { key: string; value: string; modified: number },
-  signal?: AbortSignal
+  authority?: AbortSignal | (() => void)
 ) {
-  signal?.throwIfAborted();
+  // Preference recovery carries an AbortSignal; snippet operations carry a
+  // live owner guard. Keep both forms of authority at every write checkpoint.
+  const signal = typeof authority === 'function' ? undefined : authority;
+  const guard = typeof authority === 'function' ? authority : () => undefined;
+  const assertCurrent = () => {
+    guard();
+    signal?.throwIfAborted();
+  };
+  assertCurrent();
   // Capture migration authority before suspension, not a caller-owned object.
   const admittedReceipt = receipt && { ...receipt };
   const db = await integrationDB();
-  signal?.throwIfAborted();
+  assertCurrent();
   // IndexedDB serializes cross-tab read/modify/write transactions even without Web Locks.
   const tx = db.transaction('metadata', 'readwrite');
   const abort = () => {
@@ -157,7 +165,7 @@ export async function updateOrganization(
     // Observe tx.done before even the first read can fail. Request success is
     // not commit, and a failed request has a separate completion rejection.
     changed = await commitTransaction(tx, async () => {
-      signal?.throwIfAborted();
+      assertCurrent();
       const value = ((await tx.store.get(key)) as Organization | undefined) ?? emptyOrganization();
       if (admittedReceipt) {
         const previous = (await tx.store.get(admittedReceipt.key)) as
@@ -169,14 +177,16 @@ export async function updateOrganization(
         )
           return undefined;
       }
-      signal?.throwIfAborted();
+      assertCurrent();
       const before = structuredClone(value);
       change(value);
-      signal?.throwIfAborted();
+      assertCurrent();
       // Migration retry protection commits atomically with collection memberships.
       if (admittedReceipt) await tx.store.put(admittedReceipt, admittedReceipt.key);
+      assertCurrent();
       if (equal(before, value)) return undefined;
       await tx.store.put(value, key);
+      assertCurrent();
       return value;
     });
   } catch (error) {
@@ -195,7 +205,12 @@ export async function updateOrganization(
   }
   // A commit is final. Only publication can be suppressed if its initiating
   // scope ended after commit; never describe that as a rolled-back write.
-  if (changed && !signal?.aborted) {
+  if (changed) {
+    try {
+      assertCurrent();
+    } catch {
+      return;
+    }
     publish(changed);
     notifyOrganizationChange();
   }
@@ -215,15 +230,23 @@ export function watchOrganization(onError: (error: unknown) => void = () => unde
     };
   return () => channel?.close();
 }
-export async function createCollection(name: string, members: string[] = []) {
+export async function createCollection(
+  name: string,
+  members: string[] = [],
+  guard: () => void = () => undefined
+) {
   const collection = {
     id: crypto.randomUUID(),
     name: libraryName(name),
     members: [...new Set(members)]
   };
-  await updateOrganization((value) => {
-    value.collections.push(collection);
-  });
+  await updateOrganization(
+    (value) => {
+      value.collections.push(collection);
+    },
+    undefined,
+    guard
+  );
   return collection.id;
 }
 export async function renameCollection(id: string, name: string) {
@@ -258,6 +281,35 @@ export async function setMembership(
     const retained = collection.members.filter((key) => key !== member && !aliases.includes(key));
     collection.members = included ? [...retained, member] : retained;
   });
+}
+/** Change a batch in one organization transaction, including mixed book/snippet collections. */
+export async function setMembershipMany(
+  id: string,
+  members: string[],
+  included: boolean,
+  guard: () => void = () => undefined
+) {
+  const unique = [...new Set(members)];
+  if (unique.length > 50000) throw new Error('Too many collection members.');
+  await updateOrganization(
+    (value) => {
+      if (id === WANT_TO_READ_ID) {
+        changeWantToRead(
+          value,
+          unique.map((member) => ({ organizationKey: member, organizationAliases: [] })),
+          included
+        );
+        return;
+      }
+      const collection = value.collections.find((item) => item.id === id);
+      if (!collection) throw new Error('This collection no longer exists.');
+      const keys = new Set(unique),
+        retained = collection.members.filter((key) => !keys.has(key));
+      collection.members = included ? [...retained, ...unique] : retained;
+    },
+    undefined,
+    guard
+  );
 }
 export async function presentBook(
   id: string,
@@ -305,4 +357,32 @@ export async function relocatePresentation(before: string, after: string) {
     if (prior && (!current || prior.modifiedAt > current.modifiedAt)) value.books[after] = prior;
     delete value.books[before];
   });
+}
+
+/** Restore only additive portable snippet membership; never clear unrelated books or rename a collection. */
+export async function importSnippetCollections(
+  collections: Collection[],
+  guard: () => void = () => undefined
+) {
+  await updateOrganization(
+    (value) => {
+      for (const incoming of collections) {
+        if (
+          !isPortableText(incoming.id, 128) ||
+          !incoming.members.every((member) => /^snippet:[0-9a-f-]{36}$/.test(member))
+        )
+          throw new Error('Invalid restored collection.');
+        const current = value.collections.find((c) => c.id === incoming.id);
+        if (current) current.members = [...new Set([...current.members, ...incoming.members])];
+        else
+          value.collections.push({
+            ...incoming,
+            name: libraryName(incoming.name),
+            members: [...new Set(incoming.members)]
+          });
+      }
+    },
+    undefined,
+    guard
+  );
 }

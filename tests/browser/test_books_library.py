@@ -1527,7 +1527,7 @@ class BooksLibraryFilesystem(LibraryBase):
           const handle=await (await navigator.storage.getDirectory()).getDirectoryHandle('Library fixture',{create:true});
           for(const [path,data] of Object.entries(files)) {const parts=path.split('/'),name=parts.pop();let dir=handle;for(const part of parts)dir=await dir.getDirectoryHandle(part,{create:true});const file=await dir.getFileHandle(name,{create:true});const w=await file.createWritable();await w.write(Uint8Array.from(atob(data),c=>c.charCodeAt(0)));await w.close();}
           const id='local-'+crypto.randomUUID();
-          await new Promise((resolve,reject)=>{const r=indexedDB.open('manabi-reader-integrations',1);r.onsuccess=()=>{const db=r.result,tx=db.transaction('localLibraries','readwrite');tx.objectStore('localLibraries').put({id,name:'Library fixture',handle,writable:true});tx.oncomplete=()=>{db.close();resolve()};tx.onerror=()=>reject(tx.error)};r.onerror=()=>reject(r.error)});
+          await new Promise((resolve,reject)=>{const r=indexedDB.open('manabi-reader-integrations');r.onupgradeneeded=()=>{r.transaction.abort();reject(Error('Integration storage was not initialized'))};r.onsuccess=()=>{const db=r.result,tx=db.transaction('localLibraries','readwrite');tx.objectStore('localLibraries').put({id,name:'Library fixture',handle,writable:true});tx.oncomplete=()=>{db.close();resolve()};tx.onerror=()=>reject(tx.error)};r.onerror=()=>reject(r.error)});
           return id;
         }''', {path: base64.b64encode(data).decode() for path,data in files.items()})
         self.go_library()
@@ -1643,7 +1643,7 @@ class BooksLibraryFilesystem(LibraryBase):
           for(const name of ['One.epub','Two.epub']) {const original=await(await root.getFileHandle(name)).getFile();const w=await(await folder.getFileHandle(name,{create:true})).createWritable();await w.write(original);await w.close();const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await original.arrayBuffer()))).map(n=>n.toString(16).padStart(2,'0')).join('');files.push({from:name,to:'Recovered/'+name,hash});}
           for(const [name,text] of [['.manabi-reader-operation-'+id,id],['.Manabi-Reader.yaml','name: "Recovered"\\n']]) {const w=await(await folder.getFileHandle(name,{create:true})).createWritable();await w.write(text);await w.close();}
           await root.removeEntry('One.epub');
-          await new Promise((resolve,reject)=>{const r=indexedDB.open('manabi-reader-integrations',1);r.onsuccess=()=>{const db=r.result,tx=db.transaction('metadata','readwrite');tx.objectStore('metadata').put({version:1,id,sourceId,parent:'',folder:'Recovered',name:'Recovered',files,phase:'copied'},'library-file-operation:'+sourceId);tx.oncomplete=()=>{db.close();resolve()};tx.onerror=()=>reject(tx.error)}});
+          await new Promise((resolve,reject)=>{const r=indexedDB.open('manabi-reader-integrations');r.onupgradeneeded=()=>{r.transaction.abort();reject(Error('Integration storage was not initialized'))};r.onsuccess=()=>{const db=r.result,tx=db.transaction('metadata','readwrite');tx.objectStore('metadata').put({version:1,id,sourceId,parent:'',folder:'Recovered',name:'Recovered',files,phase:'copied'},'library-file-operation:'+sourceId);tx.oncomplete=()=>{db.close();resolve()};tx.onerror=()=>reject(tx.error)}});
         }''',self.source_id)
         self.page.reload()
         self.page.get_by_role('button',name='Resume Folder Change',exact=True).click()
