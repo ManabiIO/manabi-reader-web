@@ -28,7 +28,14 @@ function load(file, imports = {}) {
   );
   return module.exports;
 }
-const persistence = load('manabi/persistence.ts', { idb: {} });
+const persistence = load('manabi/persistence.ts', {
+  idb: {},
+  '../snippets/summary': {
+    summarize: () => {
+      throw new Error('Snippet summaries are outside the WebDAV book fixture.');
+    }
+  }
+});
 const statistics = load('data/database/books-db/reader-statistics.ts', {
   './commit-transaction.mjs': transactions
 });
