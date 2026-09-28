@@ -138,6 +138,8 @@
   import { takeLibraryLocation } from '$lib/library/search-navigation';
   import type { ReaderLocator } from '$lib/reader-location';
   import { readerBookKeyFor } from '$lib/reader-identity';
+  import { BookmarkSaveCoordinator } from '$lib/reader-bookmark-position';
+  import { captureLibraryOperation } from '$lib/manabi/operation-scope';
   import { readerSourceFormat } from '$lib/reader-source-format';
   import { TextAlignLeft, X } from 'phosphor-svelte';
   import {
@@ -255,6 +257,9 @@
   let revealingReaderLocator = false;
   let previewTrackerWasPaused = false;
   let readerBookKey = '';
+  let readerBookIdentity: Promise<string> = Promise.resolve('');
+  let readerIdentitySource: { id: number; contentHash?: string } | undefined;
+  const bookmarkSaves = new BookmarkSaveCoordinator();
   let readerProtectedOwners: string[] = [];
   const stopReaderOwner = localUser.subscribe((user) => {
     if (
@@ -278,10 +283,19 @@
     !libraryNavigationTask
   )
     void openLibraryTarget();
-  $: if (browser && $rawBookData$?.id) {
+  $: if (
+    browser &&
+    $rawBookData$?.id &&
+    (readerIdentitySource?.id !== $rawBookData$.id ||
+      readerIdentitySource?.contentHash !== $rawBookData$.contentHash)
+  ) {
     const book = $rawBookData$;
-    void readerBookKeyFor(book.id, book.contentHash).then((key) => {
-      if ($rawBookData$?.id === book.id) readerBookKey = key;
+    readerIdentitySource = { id: book.id, contentHash: book.contentHash };
+    readerBookKey = '';
+    const identity = readerBookKeyFor(book.id, book.contentHash);
+    readerBookIdentity = identity;
+    void identity.then((key) => {
+      if (readerBookIdentity === identity && $rawBookData$?.id === book.id) readerBookKey = key;
     });
   }
   $: if (browser && readerBookKey && $account.status) {
@@ -747,6 +761,7 @@
   /** Experimental Code - May be removed any time without warning */
 
   onDestroy(() => {
+    bookmarkSaves.destroy();
     stopReaderOwner();
     readerLeaseLifetime.abort();
     libraryNavigationEpoch++;
@@ -843,6 +858,7 @@
   }
 
   async function completeBook() {
+    bookmarkSaves.invalidate();
     if (!$rawBookData$) {
       return;
     }
@@ -1342,13 +1358,17 @@
     const bookId = getBookIdSync();
     if (!bookId || !bookmarkManager) return;
 
+    const manager = bookmarkManager;
+    const reader = bookReaderComponent;
+    const identity = readerBookIdentity;
+    let bookmarkRange: Range | undefined;
     let data: BooksDbBookmarkData | undefined;
 
     if (isPaginated) {
       const userSelectedRange = $selectionToBookmarkEnabled$
         ? getRangeForUserSelection(window, lastSelectedRange)
         : undefined;
-      const bookmarkRange = userSelectedRange || customReadingPointRange;
+      bookmarkRange = userSelectedRange || customReadingPointRange;
 
       pulseElement(bookmarkRange?.endContainer?.parentElement, 'add', 0.5, 500);
 
@@ -1364,11 +1384,28 @@
     // Keep the last good bookmark rather than saving a sentinel or zero progress.
     if (!data) return;
 
-    await database.putBookmark(data);
-
-    bookmarkData = Promise.resolve(data);
-
-    scheduleReplication(StorageDataType.PROGRESS);
+    const scope = captureLibraryOperation();
+    try {
+      const saved = await bookmarkSaves.save(data, {
+        locate: manager.captureBookmarkLocation
+          ? () => manager.captureBookmarkLocation!(bookmarkRange)
+          : undefined,
+        write: (value) => database.putBookmark(value),
+        signal: scope.signal,
+        isCurrent: () =>
+          getBookIdSync() === bookId &&
+          bookmarkManager === manager &&
+          bookReaderComponent === reader &&
+          readerBookIdentity === identity &&
+          !readerNavigation.previewing &&
+          !suppressResumeSave
+      });
+      if (!saved) return;
+      bookmarkData = Promise.resolve(saved);
+      scheduleReplication(StorageDataType.PROGRESS);
+    } finally {
+      scope.stop();
+    }
   }
 
   async function scrollToBookmark() {
@@ -2294,6 +2331,7 @@
     epubResources={$bookData$.epubResources}
     styleSheet={$bookData$.styleSheet}
     publicationManifest={$rawBookData$.publicationManifest}
+    {readerBookIdentity}
     sourceFormat={readerSourceFormat($rawBookData$)}
     width={$containerViewportWidth$ ?? 0}
     height={$containerViewportHeight$ ?? 0}

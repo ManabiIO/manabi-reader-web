@@ -7,6 +7,7 @@
 import type BooksDbV10 from '$lib/data/database/books-db/versions/v10/books-db-v10';
 
 import type { StoredBinary } from '../book-binary';
+import type { ReaderBookmarkPosition } from '$lib/reader-bookmark-position';
 
 export type StoredBookData = Omit<BooksDbV10['data']['value'], 'blobs' | 'coverImage'> & {
   blobs: Record<string, Blob | StoredBinary>;
@@ -15,7 +16,11 @@ export type StoredBookData = Omit<BooksDbV10['data']['value'], 'blobs' | 'coverI
 type BooksDb = {
   [K in keyof BooksDbV10]: K extends 'data'
     ? Omit<BooksDbV10['data'], 'value'> & { value: StoredBookData }
-    : BooksDbV10[K];
+    : K extends 'bookmark'
+      ? Omit<BooksDbV10['bookmark'], 'value'> & {
+          value: BooksDbV10['bookmark']['value'] & { readerPosition?: ReaderBookmarkPosition };
+        }
+      : BooksDbV10[K];
 };
 
 export type BooksDbBookData = BooksDbV10['data']['value'];

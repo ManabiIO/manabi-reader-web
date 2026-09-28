@@ -4,6 +4,8 @@ import { test } from 'node:test';
 import { setImmediate } from 'node:timers';
 import { compileFunction } from 'node:vm';
 import ts from 'typescript';
+import { withBookmarkPosition } from '../../apps/web/src/lib/reader-bookmark-position.ts';
+import { makeLocator } from '../../apps/web/src/lib/reader-location.ts';
 import * as transactions from '../../apps/web/src/lib/data/database/books-db/commit-transaction.mjs';
 
 const clone = (value) => globalThis.structuredClone(value);
@@ -549,4 +551,29 @@ test('an account round trip during the final IDB request cannot publish a checkp
   await f.run();
   assert.equal(f.status().state, 'error');
   f.unchanged(before);
+});
+
+test('WebDAV snapshot exports unchanged legacy resume while preserving local precision', async () => {
+  const f = fixture();
+  const original = { dataId: 1, progress: 0.2, exploredCharCount: 8, lastBookmarkModified: 10 };
+  const point = await makeLocator(
+    `content:${hash}`,
+    {
+      resource: { href: 'chapter.xhtml', spineIndex: 0, sectionId: 'chapter' },
+      text: 'A long paragraph used to preserve an exact local reading point.',
+      runs: []
+    },
+    12
+  );
+  const saved = withBookmarkPosition(original, point);
+  f.db.seed('bookmark', saved);
+  await f.run();
+  assert.equal(f.status().state, 'synced');
+  assert.equal(f.calls.uploads.length, 1);
+  assert.deepEqual(f.calls.uploads[0].value.records.resume, {
+    progress: 0.2,
+    exploredCharCount: 8,
+    lastBookmarkModified: 10
+  });
+  assert.deepEqual(f.db.rows('bookmark'), [saved]);
 });

@@ -78,6 +78,7 @@ jobs:
           python tests/browser/test_foliate_fast_turns.py 2>&1 | tee foliate-fast-turns.log
           python tests/browser/test_foliate_style_lifetime.py 2>&1 | tee foliate-style-lifetime.log
           python tests/browser/test_foliate_navigation_lifetime.py 2>&1 | tee foliate-navigation-lifetime.log
+          python tests/browser/test_foliate_bookmark_position.py 2>&1 | tee foliate-bookmark-position.log
       - name: Qualify resource imports, continuous reading and legacy records
         env:
           SLIDE_BROWSER: ${{ matrix.browser }}
@@ -133,6 +134,7 @@ jobs:
             foliate-fast-turns.log
             foliate-style-lifetime.log
             foliate-navigation-lifetime.log
+            foliate-bookmark-position.log
             slide-demo.log
             demos/apple-books-slide-poc/index.html
             catalog-lifetime.log

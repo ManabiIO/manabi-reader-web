@@ -162,7 +162,7 @@ async function snapshot(tx: Tx, link: BookLink, operation: Operation) {
     records: Record<string, unknown> = Object.create(null);
   const mark = await tx.objectStore('bookmark').get(book.id);
   if (mark) {
-    const { dataId: _id, ...value } = mark;
+    const { dataId: _id, readerPosition: _localPosition, ...value } = mark;
     records.resume = value;
   }
   for (const row of await tx.objectStore('readerStatistic').getAll(statisticRange(bookKey))) {

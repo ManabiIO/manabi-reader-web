@@ -351,6 +351,7 @@
   export let multiplier: number;
 
   export let bookmarkData: Promise<BooksDbBookmarkData | undefined>;
+  export let readerBookIdentity: Promise<string> = Promise.resolve('');
 
   export let autoScroller: AutoScroller | undefined;
 
@@ -589,6 +590,7 @@
     />
   {:else if useFoliatePaginator && publicationManifest}
     <BookReaderFoliatePaginated
+      {readerBookIdentity}
       bind:this={foliatePaginatedReader}
       {htmlContent}
       {styleSheet}

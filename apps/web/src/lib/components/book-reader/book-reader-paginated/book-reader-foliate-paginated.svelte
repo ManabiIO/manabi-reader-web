@@ -25,6 +25,7 @@
     type StoredFoliateBook
   } from '$lib/foliate-epub/stored-foliate-book';
   import { VisibleReaderLocation } from '$lib/foliate-epub/visible-reader-location';
+  import { bookmarkPosition } from '$lib/reader-bookmark-position';
   import { relayReaderKeydown } from '$lib/foliate-epub/reader-keyboard';
   import { readerUIOwnsEvent } from '$lib/functions/reader-ui-events';
   import { disableWheelNavigation$, skipKeyDownListener$ } from '$lib/data/store';
@@ -75,6 +76,7 @@
   export let autoBookmark: boolean;
   export let autoBookmarkTime: number;
   export let bookmarkData: Promise<BooksDbBookmarkData | undefined>;
+  export let readerBookIdentity: Promise<string> = Promise.resolve('');
   export let exploredCharCount = 0;
   export let bookCharCount = 0;
   export let isBookmarkScreen = false;
@@ -165,6 +167,12 @@
 
   function makeBookmarkManager(): BookmarkManager {
     return {
+      captureBookmarkLocation(range?: Range) {
+        const current = contentForPaginator();
+        const selected =
+          range && current?.contains(range.commonAncestorContainer) ? range : undefined;
+        return visibleLocation.snapshot(readerBookIdentity, selected);
+      },
       formatBookmarkData(bookId: number) {
         if (!progress || !bookCharCount || navigation.pending || currentIndex() < 0)
           return undefined;
@@ -182,9 +190,10 @@
         return createBookmarkSnapshot(bookId, count, bookCharCount);
       },
       scrollToBookmark(data: BooksDbBookmarkData) {
-        void runNavigation((owner) =>
-          restoreCharacterCount(data.exploredCharCount ?? 0, owner)
-        ).catch(reportNavigationError);
+        const snapshot = structuredClone(data);
+        void runNavigation((owner) => restoreBookmark(snapshot, owner)).catch(
+          reportNavigationError
+        );
       }
     };
   }
@@ -309,37 +318,54 @@
     `;
   }
 
-  export async function revealLocator(locator: ReaderLocator, bookKey: string): Promise<boolean> {
+  async function revealOwnedLocator(
+    locator: ReaderLocator,
+    bookKey: string,
+    owner: ReaderNavigationOwner
+  ): Promise<boolean> {
     const renderer = paginator;
-    if (!renderer || destroyed) return false;
+    if (!renderer || destroyed || !owner.isCurrent()) return false;
     const resource = resourceForReaderLocator(publicationManifest.resources, locator);
     const section = resource && sourceSections[resource.spineIndex];
     if (!resource || !section) return false;
 
-    return runNavigation(async (owner) => {
-      // Resolve before moving the visible reader. One goTo owns the entire reveal;
-      // a delayed digest cannot enqueue a second jump over a newer user request.
-      const projected = projectResource(section, resource);
-      const offsets = await resolveLocator(locator, projected, bookKey);
-      if (!offsets || !owner.isCurrent()) return false;
-      const accepted = await renderer.goTo({
-        index: resource.spineIndex,
-        anchor: (doc: Document) => {
-          if (!owner.isCurrent()) throw new DOMException('Navigation superseded.', 'AbortError');
-          const current = doc.querySelector('.book-content');
-          if (!current) throw new Error('The requested EPUB section is unavailable.');
-          const live = projectResource(current, resource);
-          if (live.text !== projected.text)
-            throw new Error('The EPUB text changed while resolving its saved location.');
-          const range = rangeAt(live, offsets.start, offsets.end);
-          if (!range) throw new Error('The saved EPUB location could not be resolved.');
-          return range;
-        }
-      });
-      if (accepted !== true || !owner.isCurrent()) return false;
-      await tick();
-      return owner.isCurrent() && currentIndex() === resource.spineIndex;
+    // Resolve before moving the visible reader. One goTo owns the entire reveal;
+    // a delayed digest cannot enqueue a second jump over a newer user request.
+    const projected = projectResource(section, resource);
+    const offsets = await resolveLocator(locator, projected, bookKey);
+    if (!offsets || !owner.isCurrent()) return false;
+    const accepted = await renderer.goTo({
+      index: resource.spineIndex,
+      anchor: (doc: Document) => {
+        if (!owner.isCurrent()) throw new DOMException('Navigation superseded.', 'AbortError');
+        const current = doc.querySelector('.book-content');
+        if (!current) throw new Error('The requested EPUB section is unavailable.');
+        const live = projectResource(current, resource);
+        if (live.text !== projected.text)
+          throw new Error('The EPUB text changed while resolving its saved location.');
+        const range = rangeAt(live, offsets.start, offsets.end);
+        if (!range) throw new Error('The saved EPUB location could not be resolved.');
+        return range;
+      }
     });
+    if (accepted !== true || !owner.isCurrent()) return false;
+    await tick();
+    return owner.isCurrent() && currentIndex() === resource.spineIndex;
+  }
+
+  export function revealLocator(locator: ReaderLocator, bookKey: string): Promise<boolean> {
+    return runNavigation((owner) => revealOwnedLocator(locator, bookKey, owner));
+  }
+
+  async function restoreBookmark(data: BooksDbBookmarkData, owner: ReaderNavigationOwner) {
+    if (data.readerPosition) {
+      const bookKey = await readerBookIdentity;
+      if (!owner.isCurrent()) return false;
+      const locator = bookmarkPosition(data, bookKey);
+      if (locator && (await revealOwnedLocator(locator, bookKey, owner))) return true;
+      if (!owner.isCurrent()) return false;
+    }
+    return restoreCharacterCount(data.exploredCharCount ?? 0, owner);
   }
 
   function handleLoad(event: Event) {
@@ -514,7 +540,7 @@
       if ((await renderer.goTo({ index: 0 })) !== true || !owner.isCurrent()) return false;
       const saved = await bookmarkData;
       if (!owner.isCurrent()) return false;
-      return saved ? restoreCharacterCount(saved.exploredCharCount ?? 0, owner) : true;
+      return saved ? restoreBookmark(structuredClone(saved), owner) : true;
     }).catch(reportNavigationError);
   });
 

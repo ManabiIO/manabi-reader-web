@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 
+import { withoutBookmarkPosition } from '$lib/reader-bookmark-position';
 import { decodeBookBinary } from '$lib/data/database/books-db/book-binary';
 import {
   prepareBookForLocalReading,
@@ -272,7 +273,7 @@ export class BrowserStorageHandler extends BaseStorageHandler {
 
     const progress = dataId ? await database.getBookmark(dataId) : undefined;
 
-    return progress;
+    return progress ? withoutBookmarkPosition(progress) : undefined;
   }
 
   async getStatistics() {
@@ -387,7 +388,7 @@ export class BrowserStorageHandler extends BaseStorageHandler {
     if (dataId) {
       // Replication/source handlers retain ownership of their decoded object.
       // Do not mutate it merely to retarget the browser copy.
-      await database.putBookmark({ ...data, dataId });
+      await database.putBookmark(withoutBookmarkPosition({ ...data, dataId }));
     }
   }
 

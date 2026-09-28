@@ -5,6 +5,7 @@
  */
 
 import type { BehaviorSubject } from 'rxjs';
+import type { ReaderLocator } from '$lib/reader-location';
 import type { BooksDbBookmarkData } from '$lib/data/database/books-db/versions/books-db';
 
 export interface AutoScroller {
@@ -14,6 +15,8 @@ export interface AutoScroller {
 }
 
 export interface BookmarkManager {
+  captureBookmarkLocation?: (range?: Range) => Promise<ReaderLocator | undefined>;
+
   formatBookmarkData: (
     bookId: number,
     customReadingPointScrollOffset: number
