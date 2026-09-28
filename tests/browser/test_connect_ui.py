@@ -253,6 +253,70 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
             )
             self.capture(f'connect-import-ttu-{mode}-320')
 
+    def test_reading_goals_use_labeled_fields_and_native_sync_controls(self):
+        self.page.set_viewport_size({'width': 320, 'height': 844})
+        self.page.goto(self.origin + '/reader-web/settings#tracking')
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+
+        statistics = self.page.get_by_role('switch', name='Enable Statistics', exact=True)
+        if not statistics.is_checked():
+            statistics.check()
+
+        goals = self.page.locator('[data-setting="reading-goals"]')
+        expect(goals).to_be_visible()
+        expect(goals.get_by_role('heading', name='Reading goals', exact=True)).to_have_count(1)
+        self.assert_no_horizontal_overflow(self.page.locator('html'))
+
+        sync = goals.get_by_role('button', name='Sync', exact=True)
+        edit = goals.get_by_role('button', name='Edit', exact=True)
+        reset = goals.get_by_role('button', name='Reset', exact=True)
+        expect(sync).to_have_attribute('data-variant', 'outline')
+        expect(edit).to_have_attribute('data-variant', 'secondary')
+        expect(reset).to_have_attribute('data-variant', 'destructive')
+        expect(reset).to_be_disabled()
+
+        fields = (
+            ('Time goal (minutes)', 'spinbutton'),
+            ('Character goal', 'spinbutton'),
+            ('Frequency', 'combobox'),
+            ('Start date', None)
+        )
+        for label, role in fields:
+            field = goals.get_by_label(label, exact=True)
+            expect(field).to_be_visible()
+            self.assertGreaterEqual(field.bounding_box()['height'], 43.99)
+            expect(field).to_be_disabled()
+
+        edit.click()
+        for label, _ in fields:
+            expect(goals.get_by_label(label, exact=True)).to_be_enabled()
+        expect(goals.get_by_role('button', name='Save', exact=True)).to_have_attribute(
+            'data-variant', 'default'
+        )
+        cancel = goals.get_by_role('button', name='Cancel', exact=True)
+        expect(cancel).to_have_attribute('data-variant', 'ghost')
+        cancel.click()
+
+        sync.click()
+        dialog = self.page.locator('[data-slot="dialog-content"]')
+        expect(dialog).to_be_visible()
+        expect(dialog.get_by_text('Sync Reading Goals', exact=True)).to_be_visible()
+        source = dialog.get_by_label('Source', exact=True)
+        target = dialog.get_by_label('Target', exact=True)
+        self.assertGreaterEqual(source.bounding_box()['height'], 43.99)
+        self.assertGreaterEqual(target.bounding_box()['height'], 43.99)
+        swap = dialog.get_by_role('button', name='Swap sync source and target', exact=True)
+        self.assertEqual('BUTTON', swap.evaluate('e => e.tagName'))
+        expect(swap).to_be_disabled()
+        expect(dialog.get_by_role('button', name='Cancel', exact=True)).to_have_attribute(
+            'data-variant', 'ghost'
+        )
+        expect(dialog.get_by_role('button', name='Confirm', exact=True)).to_have_attribute(
+            'data-variant', 'default'
+        )
+        dialog.get_by_role('button', name='Cancel', exact=True).click()
+        expect(dialog).to_have_count(0)
+
     def test_statistics_toolbar_and_options_reflow_and_keep_unique_form_labels(self):
         self.page.goto(self.origin + '/reader-web/statistics')
         for width, scale in ((1200, '100%'), (390, '100%'), (320, '200%')):

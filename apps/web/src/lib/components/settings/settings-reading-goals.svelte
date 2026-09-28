@@ -11,7 +11,8 @@
   import MessageDialog from '$lib/components/message-dialog.svelte';
   import SettingsReadingGoalsMerge from '$lib/components/settings/settings-reading-goals-merge.svelte';
   import SettingsSyncDialog from '$lib/components/settings/settings-sync-dialog.svelte';
-  import { buttonClasses } from '$lib/css-classes';
+  import { Button } from '$lib/components/ui/button';
+  import { Input } from '$lib/components/ui/input';
   import type {
     BooksDbReadingGoal,
     BooksDbStorageSource
@@ -366,24 +367,16 @@
   }
 </script>
 
-<div class="mb-8 sm:col-span-2 lg:col-span-3">
-  <div class="flex flex-grow">
-    <h1 class="mb-2 text-xl font-medium w-full">
-      <span class="capitalize">Reading Goals</span>
-    </h1>
+<div class="mb-8 min-w-0 sm:col-span-2 lg:col-span-3">
+  <div class="flex flex-wrap items-center justify-end gap-2">
     {#if isInEditMode}
-      <button class={`${buttonClasses} mr-4`} disabled={saveDisabled} on:click={saveReadingGoal}>
-        <div
-          class="flex items-center justify-center hover:opacity-50"
-          class:cursor-not-allowed={saveDisabled}
-        >
-          <span class="mr-2">Save</span>
-          <AppIcon icon={faSave} />
-        </div>
-      </button>
-      <button
-        class={buttonClasses}
-        on:click={() => {
+      <Button variant="default" disabled={saveDisabled} onclick={saveReadingGoal}>
+        <span>Save</span>
+        <AppIcon icon={faSave} />
+      </Button>
+      <Button
+        variant="ghost"
+        onclick={() => {
           ({
             timeGoal: currentTimeGoal,
             characterGoal: currentCharacterGoal,
@@ -394,68 +387,54 @@
           isInEditMode = false;
         }}
       >
-        <div class="flex items-center justify-center hover:opacity-50">
-          <span class="mr-2">Cancel</span>
-          <AppIcon icon={faCancel} />
-        </div>
-      </button>
+        <span>Cancel</span>
+        <AppIcon icon={faCancel} />
+      </Button>
     {:else}
-      <button class={buttonClasses} on:click={syncReadingGoals}>
-        <div class="flex items-center justify-center hover:opacity-50">
-          <span class="mr-2">Sync</span>
-          <AppIcon icon={faRotate} />
-        </div>
-      </button>
-      <button class={buttonClasses} on:click={() => (isInEditMode = true)}>
-        <div class="flex items-center justify-center hover:opacity-50">
-          <span class="mr-2">Edit</span>
-          <AppIcon icon={faEdit} />
-        </div>
-      </button>
-      <button
-        class={buttonClasses}
+      <Button variant="outline" onclick={syncReadingGoals}>
+        <span>Sync</span>
+        <AppIcon icon={faRotate} />
+      </Button>
+      <Button variant="secondary" onclick={() => (isInEditMode = true)}>
+        <span>Edit</span>
+        <AppIcon icon={faEdit} />
+      </Button>
+      <Button
+        variant="destructive"
         disabled={!readingGoals.length}
-        on:click={() => deleteReadingGoals()}
+        title="Delete all Reading Goals"
+        onclick={() => deleteReadingGoals()}
       >
-        <div
-          title="Delete all Reading Goals"
-          class="flex items-center justify-center hover:opacity-50"
-          class:cursor-not-allowed={!readingGoals.length}
-        >
-          <span class="mr-2">Reset</span>
-          <AppIcon icon={faTrash} />
-        </div>
-      </button>
+        <span>Reset</span>
+        <AppIcon icon={faTrash} />
+      </Button>
     {/if}
   </div>
-  <hr class="border border-border" />
-  <div class="grid grid-cols-1 gap-4 justify-between items-end mt-4 md:grid-cols-4">
-    <div class="flex flex-col">
-      Time Goal (Min)
-      <input
+  <div class="mt-4 grid grid-cols-1 items-end justify-between gap-4 md:grid-cols-4">
+    <label class="grid min-w-0 gap-2 text-sm font-medium">
+      <span>Time goal (minutes)</span>
+      <Input
         type="number"
         min="0"
-        class:cursor-not-allowed={!isInEditMode}
         disabled={!isInEditMode}
         bind:value={currentTimeGoalInMin}
-        on:blur={(event) => handleReadingGoalChange(event, true)}
+        onblur={(event) => handleReadingGoalChange(event, true)}
       />
-    </div>
-    <div class="flex flex-col">
-      Character Goal
-      <input
+    </label>
+    <label class="grid min-w-0 gap-2 text-sm font-medium">
+      <span>Character goal</span>
+      <Input
         type="number"
         min="0"
-        class:cursor-not-allowed={!isInEditMode}
         disabled={!isInEditMode}
         bind:value={currentCharacterGoal}
-        on:blur={(event) => handleReadingGoalChange(event, false)}
+        onblur={(event) => handleReadingGoalChange(event, false)}
       />
-    </div>
-    <div class="flex flex-col">
-      Frequency
+    </label>
+    <label class="grid min-w-0 gap-2 text-sm font-medium">
+      <span>Frequency</span>
       <select
-        class:cursor-not-allowed={!isInEditMode}
+        class="min-h-11 min-w-0 rounded-[10px] border border-input bg-background px-3 py-2 text-base text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
         disabled={!isInEditMode}
         bind:value={currentReadingGoalFrequency}
       >
@@ -465,36 +444,38 @@
           </option>
         {/each}
       </select>
-    </div>
-    <div class="flex flex-col">
-      Start Date
-      <input
+    </label>
+    <label class="grid min-w-0 gap-2 text-sm font-medium">
+      <span>Start date</span>
+      <Input
         type="date"
-        class:cursor-not-allowed={!isInEditMode}
         disabled={!isInEditMode}
         bind:value={currentReadingGoalStartDate}
       />
-    </div>
+    </label>
   </div>
   <details class="mt-6 cursor-pointer">
     <summary>Reading Goal History ({pluralize(readingGoals.length, 'Item')})</summary>
     {#if readingGoals.length}
-      <div class="grid-cols-[repeat(4,1fr)_0.1fr] hidden sm:grid">
+      <div class="grid-cols-[repeat(4,minmax(0,1fr))_auto] hidden items-center gap-2 sm:grid">
         {#each historyReadingGoals as historyGoal (historyGoal.goalStartDate)}
           {@const dateRangeLabel = getDateRangeLabel(
             historyGoal.goalStartDate,
             historyGoal.goalEndDate
           )}
-          <div>{dateRangeLabel}</div>
+          <div class="min-w-0 break-words">{dateRangeLabel}</div>
           <div>{secondsToMinutes(historyGoal.timeGoal)} min</div>
           <div>{historyGoal.characterGoal} characters</div>
           <div>{historyGoal.goalFrequency}</div>
-          <button
-            on:click={() => deleteReadingGoals(historyGoal, dateRangeLabel)}
+          <Button
+            variant="destructive"
+            size="sm"
             title="Delete Reading Goal"
+            onclick={() => deleteReadingGoals(historyGoal, dateRangeLabel)}
           >
-            <AppIcon icon={faTrash} /> <span>Delete Reading Goal</span>
-          </button>
+            <AppIcon icon={faTrash} />
+            <span>Delete Reading Goal</span>
+          </Button>
         {/each}
       </div>
       <div class="sm:hidden">
@@ -503,40 +484,50 @@
             historyGoal.goalStartDate,
             historyGoal.goalEndDate
           )}
-          <div class="my-2">
-            {dateRangeLabel} / {secondsToMinutes(historyGoal.timeGoal)} min / {historyGoal.characterGoal}
-            characters / {historyGoal.goalFrequency}
-            <button
-              on:click={() => deleteReadingGoals(historyGoal, dateRangeLabel)}
+          <div class="my-3 grid gap-2 rounded-xl border border-border p-3">
+            <div>
+              {dateRangeLabel} / {secondsToMinutes(historyGoal.timeGoal)} min / {historyGoal.characterGoal}
+              characters / {historyGoal.goalFrequency}
+            </div>
+            <Button
+              variant="destructive"
+              size="sm"
+              class="justify-self-start"
               title="Delete Reading Goal"
+              onclick={() => deleteReadingGoals(historyGoal, dateRangeLabel)}
             >
-              <AppIcon icon={faTrash} /> <span>Delete Reading Goal</span>
-            </button>
+              <AppIcon icon={faTrash} />
+              <span>Delete Reading Goal</span>
+            </Button>
           </div>
         {/each}
       </div>
-      <div class="mt-3 flex justify-between">
-        <button
-          title={currentHistoryIndex === 0 ? '' : 'Previous Page'}
+      <div class="mt-3 flex justify-between gap-2">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          shape="circle"
+          aria-label="Previous reading goal"
+          title="Previous Page"
           disabled={currentHistoryIndex === 0}
-          class:opacity-50={currentHistoryIndex === 0}
-          class:cursor-not-allowed={currentHistoryIndex === 0}
-          on:click={() => (historyIndex -= 1)}
+          onclick={() => (historyIndex -= 1)}
         >
           <AppIcon icon={faChevronLeft} />
-        </button>
-        <button
-          title={hasNextHistoryPage ? 'Next Page' : ''}
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          shape="circle"
+          aria-label="Next reading goal"
+          title="Next Page"
           disabled={!hasNextHistoryPage}
-          class:opacity-50={!hasNextHistoryPage}
-          class:cursor-not-allowed={!hasNextHistoryPage}
-          on:click={() => (historyIndex += 1)}
+          onclick={() => (historyIndex += 1)}
         >
           <AppIcon icon={faChevronRight} />
-        </button>
+        </Button>
       </div>
     {:else}
-      <div>You have no archived Reading Goals yet</div>
+      <div class="mt-3 text-sm text-muted-foreground">You have no archived Reading Goals yet</div>
     {/if}
   </details>
 </div>

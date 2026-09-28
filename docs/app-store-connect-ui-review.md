@@ -80,3 +80,8 @@ The Ttu/Yatsu migration route follows the same management-page hierarchy:
 one contextual return to Library, shared primary/quiet/destructive actions, and
 touch-safe file/select controls. Its import semantics and migration format are
 unchanged.
+
+Reading Goals now follows the same Settings control language: labeled 44px form
+fields, a distinct primary Save action, quiet Sync/Edit actions, and an explicit
+destructive Reset. Its sync chooser uses native select labels and a native
+disabled-aware swap button rather than emulating a button with a focusable div.
