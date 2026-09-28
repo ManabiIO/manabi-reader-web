@@ -95,6 +95,7 @@ function fixture({
   const state = {
     rows: structuredClone(rows),
     writes: 0,
+    valueReads: 0,
     transactions: 0,
     phase: 'idle',
     listeners,
@@ -150,14 +151,15 @@ function fixture({
         if (state.phase !== 'active') throw abortError;
         return value;
       };
-      const cursor = (values, index = 0, stage = 'cursor') =>
+      const keyCursor = (values, index = 0, stage = 'keyCursor') =>
         request(
           stage,
           index >= values.length
             ? null
             : {
-                value: structuredClone(values[index]),
-                continue: () => cursor(values, index + 1, 'continue')
+                key: values[index].contentHash,
+                primaryKey: values[index].id,
+                continue: () => keyCursor(values, index + 1, 'keyContinue')
               }
         );
       const write = (value, add) => {
@@ -167,11 +169,26 @@ function fixture({
         return request(add ? 'add' : 'put', id);
       };
       const data = {
-        openCursor: () => cursor([...staged.values()]),
+        openCursor: () => assert.fail('direct import must not clone every stored book'),
+        get: async (id) => {
+          state.valueReads++;
+          return request('get', structuredClone(staged.get(id)));
+        },
         index(name) {
+          if (name === 'contentHash')
+            return {
+              openKeyCursor: () =>
+                keyCursor(
+                  [...staged.values()].filter((row) => typeof row.contentHash === 'string')
+                )
+            };
           assert.equal(name, 'title');
           return {
-            openCursor: (title) => cursor([...staged.values()].filter((row) => row.title === title))
+            getAllKeys: (title) =>
+              request(
+                'titleKeys',
+                [...staged.values()].filter((row) => row.title === title).map((row) => row.id)
+              )
           };
         },
         add: (value) => write(value, true),
@@ -277,6 +294,30 @@ test('an exact-byte reimport retains its logical ID and title', async () => {
   h.assertReleased();
 });
 
+test('content matching reads only same-hash candidate payloads', async () => {
+  const unrelated = Array.from({ length: 40 }, (_, index) => ({
+    ...original,
+    id: 100 + index,
+    title: `Unrelated ${index}`,
+    contentHash: (index + 1).toString(16).padStart(64, '0')
+  }));
+  const h = fixture({ rows: [...unrelated, original] });
+  const result = await h.save();
+  assert.equal(result.id, original.id);
+  assert.equal(h.valueReads, 1);
+  assert.equal(h.rows.length, unrelated.length + 1);
+  h.assertReleased();
+});
+
+test('content-hash index matching retains legacy hash casing without payload scans', async () => {
+  const upper = { ...original, contentHash: hash.toUpperCase() };
+  const h = fixture({ rows: [upper] });
+  const result = await h.save();
+  assert.equal(result.id, original.id);
+  assert.equal(h.valueReads, 1);
+  h.assertReleased();
+});
+
 test('a different personal owner keeps an independent same-byte history', async () => {
   const h = fixture({ rows: [original], scopes: [{ bookId: 7, accountId: 'B' }] });
   assert.equal((await h.save()).id, 8);
@@ -294,7 +335,7 @@ test('NewOnly preserves an already newer record without a write', async () => {
   h.assertReleased();
 });
 
-for (const stage of ['cursor', 'scope', 'continue', 'put', 'beforeCommit']) {
+for (const stage of ['keyCursor', 'get', 'scope', 'keyContinue', 'put', 'beforeCommit']) {
   test(`account round trip during ${stage} revokes reimport and preserves old data`, async () => {
     const h = fixture({
       rows: [original],
