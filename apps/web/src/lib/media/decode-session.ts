@@ -7,12 +7,7 @@
 import { abortable } from './abort.js';
 
 export interface DecodePipeline {
-  decode(
-    trackId: number,
-    start: number,
-    end: number,
-    signal: AbortSignal
-  ): Promise<Float32Array>;
+  decode(trackId: number, start: number, end: number, signal: AbortSignal): Promise<Float32Array>;
   dispose(): void;
 }
 
@@ -33,22 +28,20 @@ interface Session {
 export class DecodeSessionCache<Job extends { id: string }> {
   private sessions = new Map<string, Session>();
 
-  constructor(
-    private open: (job: Job, signal: AbortSignal) => Promise<DecodePipeline>
-  ) {}
+  constructor(private open: (job: Job, signal: AbortSignal) => Promise<DecodePipeline>) {}
 
   private create(job: Job, signal: AbortSignal): Session {
     const controller = new AbortController();
-    let entry!: Session;
+    const entry = {} as Session;
     const externalAbort = () => this.retire(job.id, entry, signal.reason);
     const stop = () => signal.removeEventListener('abort', externalAbort);
-    entry = {
+    Object.assign(entry, {
       signal,
       controller,
       stop,
       raw: Promise.resolve().then(() => this.open(job, controller.signal)),
       ready: undefined as unknown as Promise<DecodePipeline>
-    };
+    });
     this.sessions.set(job.id, entry);
     signal.addEventListener('abort', externalAbort, { once: true });
     if (signal.aborted) externalAbort();
@@ -67,8 +60,7 @@ export class DecodeSessionCache<Job extends { id: string }> {
     );
     entry.ready = abortable(controller.signal, () => entry.raw);
     void entry.ready.catch((error) => {
-      if (this.sessions.get(job.id) === entry)
-        this.retire(job.id, entry, error);
+      if (this.sessions.get(job.id) === entry) this.retire(job.id, entry, error);
     });
     return entry;
   }
