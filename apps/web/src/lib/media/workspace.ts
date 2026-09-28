@@ -1169,6 +1169,11 @@ export class VideoWorkspace {
         throw new Error(
           'Reopen this video to reconnect its local file, or sign in to reconnect its cloud folder.'
         );
+      // Snapshot the authenticated transport identity for the entire reconnect.
+      // A mutable transport object must not attach an old locator under a newer user.
+      const userId = transport.userId;
+      const transportCurrent = transport.isCurrent.bind(transport);
+      const isCurrent = () => transport.userId === userId && transportCurrent();
       // Account/profile transitions abort this scope even if the underlying
       // transport promise ignores cancellation. A late result cannot cache a
       // source from the retired connection.
@@ -1179,7 +1184,8 @@ export class VideoWorkspace {
           operation
         );
         operation.throwIfAborted();
-        const source = cloudSource(manifest, transport.userId, transport.isCurrent);
+        if (!isCurrent()) throw new Error('Account changed');
+        const source = cloudSource(manifest, userId, isCurrent);
         // A saved locator grants no authority and is not content identity. The
         // server rechecks the selected root; bytes must match before attachment.
         if ((await identify(source, operation)) !== key)
@@ -1187,7 +1193,7 @@ export class VideoWorkspace {
             'A video file changed. Reopen it before generating captions. Its previous progress was kept.'
           );
         operation.throwIfAborted();
-        if (!transport.isCurrent() || (source.isCurrent && !source.isCurrent()))
+        if (!isCurrent() || (source.isCurrent && !source.isCurrent()))
           throw new Error('Account changed');
         if (forOpen) this.verifiedCloudOpen.set(source, key);
         this.sources.set(key, source);
