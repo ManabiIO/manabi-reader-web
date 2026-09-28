@@ -226,6 +226,9 @@ export class TranscriptionQueue {
     const job = await this.store.enqueueJob(this.scope, draft, () => {
       if (this.closed) throw new Error('The queue is closed');
     });
+    // A deduplicated running job is already owned by some runner. Observe it,
+    // but never install a second local admission token for the same durable ID.
+    if (job.status !== 'queued') return job;
     // Multiple tabs may persist one deduplicated queued job. Admission is local
     // authority, however: a Generate call that outlived its video/player must not
     // make that old job runnable after the storage transaction finally returns.
