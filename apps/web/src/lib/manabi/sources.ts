@@ -165,35 +165,53 @@ export async function addLocalLibrary(): Promise<LocalLibrary | null> {
   await db.put('localLibraries', library);
   return library;
 }
+const localLibraryLock = <T>(id: string, work: () => Promise<T>) =>
+  exclusive(`local-library-source:${id}`, work);
+async function sameLocalHandle(
+  left: FileSystemDirectoryHandle,
+  right: FileSystemDirectoryHandle
+) {
+  return left === right || (await left.isSameEntry(right));
+}
 export async function reconnectLocalLibrary(library: LocalLibrary, write = false) {
   const selected = { ...library };
   const mode = write ? 'readwrite' : 'read';
   // Start permission UI in the initiating click, before any storage work.
   if ((await selected.handle.requestPermission({ mode })) !== 'granted')
     throw new IntegrationError('permission_required');
-  const db = await integrationDB();
-  const tx = db.transaction('localLibraries', 'readwrite');
-  const writable = await commitTransaction(tx, async () => {
-    const current = await tx.store.get(selected.id);
-    // A late permission result is not permission to recreate a disconnected source.
-    if (!current) throw new IntegrationError('not_found');
-    const next = { ...current, writable: write || current.writable };
-    await tx.store.put(next);
-    return next.writable;
+  const writable = await localLibraryLock(selected.id, async () => {
+    const db = await integrationDB();
+    const admitted = await db.get('localLibraries', selected.id);
+    // A permission grant is for this exact directory entry, not merely a reused ID.
+    if (!admitted || !(await sameLocalHandle(admitted.handle, selected.handle)))
+      throw new IntegrationError('not_found');
+    const tx = db.transaction('localLibraries', 'readwrite');
+    return commitTransaction(tx, async () => {
+      const current = await tx.store.get(selected.id);
+      // The source lock prevents supported disconnect/reconnect changes between
+      // the handle check and this transaction.
+      if (!current) throw new IntegrationError('not_found');
+      const next = { ...current, writable: write || current.writable };
+      await tx.store.put(next);
+      return next.writable;
+    });
   });
   // Callers use this snapshot for the next file operation. Publish only on commit.
   library.writable = writable;
 }
 export async function removeLocalLibrary(id: string) {
-  const db = await integrationDB();
-  const tx = db.transaction(['localLibraries', 'books'], 'readwrite');
-  await commitTransaction(tx, async () => {
-    await tx.objectStore('localLibraries').delete(id);
-    for (const link of await tx.objectStore('books').getAll()) {
-      if (link.sourceId === id) await tx.objectStore('books').delete(link.id);
-    }
+  await localLibraryLock(id, async () => {
+    const db = await integrationDB();
+    const tx = db.transaction(['localLibraries', 'books'], 'readwrite');
+    await commitTransaction(tx, async () => {
+      await tx.objectStore('localLibraries').delete(id);
+      for (const link of await tx.objectStore('books').getAll()) {
+        if (link.sourceId === id) await tx.objectStore('books').delete(link.id);
+      }
+    });
   });
-  // Disconnecting never deletes a book, its original file, or its reading history.
+  // Disconnecting waits for admitted source work, then prevents later work from
+  // using a retained FileSystem handle. It never deletes original files/history.
 }
 
 function segments(path: string) {
@@ -222,17 +240,24 @@ export class LocalLibrarySource implements LibrarySource {
   constructor(public readonly library: LocalLibrary) {
     this.id = library.id;
   }
-  private async permission(write = false) {
-    if (
-      (write && !this.library.writable) ||
-      (await this.library.handle.queryPermission({ mode: write ? 'readwrite' : 'read' })) !==
-        'granted'
-    ) {
-      throw new IntegrationError('permission_required');
-    }
+  private async withConnection<T>(
+    write: boolean,
+    work: (library: LocalLibrary) => Promise<T>
+  ): Promise<T> {
+    return localLibraryLock(this.id, async () => {
+      const current = await (await integrationDB()).get('localLibraries', this.id);
+      if (!current || !(await sameLocalHandle(current.handle, this.library.handle)))
+        throw new IntegrationError('not_found');
+      if (
+        (write && !current.writable) ||
+        (await current.handle.queryPermission({ mode: write ? 'readwrite' : 'read' })) !== 'granted'
+      )
+        throw new IntegrationError('permission_required');
+      return work(current);
+    });
   }
-  private async directory(path: string) {
-    let result = this.library.handle;
+  private async directory(root: FileSystemDirectoryHandle, path: string) {
+    let result = root;
     for (const part of segments(path)) {
       if (part === stateDirectory) throw new IntegrationError('forbidden');
       result = await result.getDirectoryHandle(part);
@@ -241,64 +266,67 @@ export class LocalLibrarySource implements LibrarySource {
   }
   async seriesName(parent: string): Promise<string | undefined> {
     if (!parent) return undefined;
-    await this.permission();
-    const directory = await this.directory(parent);
-    let handle: FileSystemFileHandle | undefined;
-    for (const filename of [seriesMetadataFilename, legacySeriesMetadataFilename]) {
-      try {
-        handle = await directory.getFileHandle(filename);
-        break;
-      } catch (error) {
-        if (!(error instanceof DOMException && error.name === 'NotFoundError')) throw error;
+    return this.withConnection(false, async (library) => {
+      const directory = await this.directory(library.handle, parent);
+      let handle: FileSystemFileHandle | undefined;
+      for (const filename of [seriesMetadataFilename, legacySeriesMetadataFilename]) {
+        try {
+          handle = await directory.getFileHandle(filename);
+          break;
+        } catch (error) {
+          if (!(error instanceof DOMException && error.name === 'NotFoundError')) throw error;
+        }
       }
-    }
-    if (!handle) return undefined;
-    const file = await handle.getFile();
-    if (file.size > 4096) throw new Error('Series metadata is too large.');
-    return decodeSeriesMetadata(await file.text());
+      if (!handle) return undefined;
+      const file = await handle.getFile();
+      if (file.size > 4096) throw new Error('Series metadata is too large.');
+      return decodeSeriesMetadata(await file.text());
+    });
   }
   async list(parent = '', cursor = '') {
-    await this.permission();
-    const directory = await this.directory(parent);
-    const items: LibraryEntry[] = [];
-    for await (const [name, handle] of directory.entries()) {
-      if (name === stateDirectory || (handle.kind === 'file' && !supportedLibraryFile(name)))
-        continue;
-      items.push({
-        id: parent ? `${parent}/${name}` : name,
-        name,
-        kind: handle.kind === 'directory' ? 'folder' : 'file'
-      });
-      if (items.length > 20000) throw new IntegrationError('too_large');
-    }
-    items.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-    const remaining = cursor ? items.filter((item) => item.id > cursor) : items;
-    const page = remaining.slice(0, 200);
-    return { items: page, cursor: remaining.length > 200 ? page[page.length - 1].id : '' };
+    return this.withConnection(false, async (library) => {
+      const directory = await this.directory(library.handle, parent);
+      const items: LibraryEntry[] = [];
+      for await (const [name, handle] of directory.entries()) {
+        if (name === stateDirectory || (handle.kind === 'file' && !supportedLibraryFile(name)))
+          continue;
+        items.push({
+          id: parent ? `${parent}/${name}` : name,
+          name,
+          kind: handle.kind === 'directory' ? 'folder' : 'file'
+        });
+        if (items.length > 20000) throw new IntegrationError('too_large');
+      }
+      items.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+      const remaining = cursor ? items.filter((item) => item.id > cursor) : items;
+      const page = remaining.slice(0, 200);
+      return { items: page, cursor: remaining.length > 200 ? page[page.length - 1].id : '' };
+    });
   }
   async read(item: LibraryEntry) {
     const selected = { ...item };
-    return withLibraryOperation(this.owner, async () => {
-      await this.permission();
-      const path = segments(selected.id);
-      const filename = path.pop();
-      if (selected.kind !== 'file' || !filename || !supportedBook(filename))
-        throw new IntegrationError('unsupported');
-      const file = await (
-        await (await this.directory(path.join('/'))).getFileHandle(filename)
-      ).getFile();
-      if (file.size > maxBookBytes) throw new IntegrationError('too_large');
-      return verifySelectedBook(file, selected.expectedContentHash);
-    });
+    return withLibraryOperation(this.owner, () =>
+      this.withConnection(false, async (library) => {
+        const path = segments(selected.id);
+        const filename = path.pop();
+        if (selected.kind !== 'file' || !filename || !supportedBook(filename))
+          throw new IntegrationError('unsupported');
+        const file = await (
+          await (await this.directory(library.handle, path.join('/'))).getFileHandle(filename)
+        ).getFile();
+        if (file.size > maxBookBytes) throw new IntegrationError('too_large');
+        return verifySelectedBook(file, selected.expectedContentHash);
+      })
+    );
   }
-  private async stateFolder(key: string, create = false) {
-    const root = await this.library.handle.getDirectoryHandle(stateDirectory, { create });
-    return root.getDirectoryHandle(stateKey(key), { create });
+  private async stateFolder(root: FileSystemDirectoryHandle, key: string, create = false) {
+    const state = await root.getDirectoryHandle(stateDirectory, { create });
+    return state.getDirectoryHandle(stateKey(key), { create });
   }
-  private async revisions(key: string): Promise<RevisionDocument[]> {
+  private async revisions(root: FileSystemDirectoryHandle, key: string): Promise<RevisionDocument[]> {
     let directory: FileSystemDirectoryHandle;
     try {
-      directory = await this.stateFolder(key);
+      directory = await this.stateFolder(root, key);
     } catch (error) {
       if (error instanceof DOMException && error.name === 'NotFoundError') return [];
       throw error;
@@ -324,17 +352,15 @@ export class LocalLibrarySource implements LibrarySource {
         typeof value.createdAt !== 'string' ||
         !Number.isFinite(Date.parse(value.createdAt)) ||
         !jsonObject(value.value)
-      ) {
+      )
         throw new IntegrationError('invalid_response');
-      }
       boundState(value.value);
       documents.push(value);
     }
     return documents;
   }
-  async state(key: string): Promise<StateCopy> {
-    await this.permission();
-    const documents = await this.revisions(key);
+  private async stateFor(root: FileSystemDirectoryHandle, key: string): Promise<StateCopy> {
+    const documents = await this.revisions(root, key);
     const ids = new Set(documents.map((doc) => doc.id));
     const superseded = new Set(documents.flatMap((doc) => doc.parents));
     // A cloud client may deliver the newest file before its parents. Do not apply
@@ -356,36 +382,40 @@ export class LocalLibrarySource implements LibrarySource {
       branches: heads.map(({ id, value, createdAt }) => ({ id, value, createdAt }))
     };
   }
+  async state(key: string): Promise<StateCopy> {
+    return this.withConnection(false, (library) => this.stateFor(library.handle, key));
+  }
   async write(key: string, value: Record<string, unknown>, revision: string): Promise<StateCopy> {
-    await this.permission(true);
     boundState(value);
-    return exclusive(`local-state/${this.id}/${key}`, async () => {
-      const current = await this.state(key);
-      if (current.revision !== revision) throw new IntegrationError('conflict', 412);
-      const parents = current.headIds;
-      if (!parents) throw new IntegrationError('invalid_response');
-      if (parents.length > 100) throw new IntegrationError('too_large');
-      const document: RevisionDocument = {
-        version: 1,
-        id: crypto.randomUUID(),
-        parents,
-        createdAt: new Date().toISOString(),
-        value
-      };
-      const directory = await this.stateFolder(key, true);
-      const file = await directory.getFileHandle(`${document.id}.json`, { create: true });
-      const writer = await file.createWritable();
-      try {
-        await writer.write(JSON.stringify(document));
-        await writer.close();
-      } catch (error) {
-        await writer.abort().catch(() => undefined);
-        throw error;
-      }
-      const result = await this.state(key);
-      if (result.branches) throw new IntegrationError('conflict', 412);
-      return result;
-    });
+    return this.withConnection(true, (library) =>
+      exclusive(`local-state/${this.id}/${key}`, async () => {
+        const current = await this.stateFor(library.handle, key);
+        if (current.revision !== revision) throw new IntegrationError('conflict', 412);
+        const parents = current.headIds;
+        if (!parents) throw new IntegrationError('invalid_response');
+        if (parents.length > 100) throw new IntegrationError('too_large');
+        const document: RevisionDocument = {
+          version: 1,
+          id: crypto.randomUUID(),
+          parents,
+          createdAt: new Date().toISOString(),
+          value
+        };
+        const directory = await this.stateFolder(library.handle, key, true);
+        const file = await directory.getFileHandle(`${document.id}.json`, { create: true });
+        const writer = await file.createWritable();
+        try {
+          await writer.write(JSON.stringify(document));
+          await writer.close();
+        } catch (error) {
+          await writer.abort().catch(() => undefined);
+          throw error;
+        }
+        const result = await this.stateFor(library.handle, key);
+        if (result.branches) throw new IntegrationError('conflict', 412);
+        return result;
+      })
+    );
   }
 }
 
