@@ -26,7 +26,7 @@ class LockQueue {
       const entry = { options, callback, resolve, reject };
       const abort = () => {
         const index = this.pending.indexOf(entry);
-        if (index >= 0) this.pending.splice(entryIndex, 1);
+        if (index >= 0) this.pending.splice(index, 1);
         reject(options.signal.reason);
       };
       entry.abort = abort;
