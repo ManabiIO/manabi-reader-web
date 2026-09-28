@@ -226,9 +226,6 @@ export class TranscriptionQueue {
     const job = await this.store.enqueueJob(this.scope, draft, () => {
       if (this.closed) throw new Error('The queue is closed');
     });
-    // A deduplicated running job is already owned by some runner. Observe it,
-    // but never install a second local admission token for the same durable ID.
-    if (job.status !== 'queued') return job;
     // Multiple tabs may persist one deduplicated queued job. Admission is local
     // authority, however: a Generate call that outlived its video/player must not
     // make that old job runnable after the storage transaction finally returns.
@@ -241,6 +238,19 @@ export class TranscriptionQueue {
       }
     };
     if (!current()) return job;
+    if (job.status !== 'queued') {
+      // Observing another owner's running job grants no local execution rights.
+      // A fresh request for our own live runner supersedes older switch intent,
+      // without adding a second runnable admission or restarting the drain.
+      const active = this.active;
+      if (
+        active?.id === job.id &&
+        ownsJob(job, active.ownerId) &&
+        !active.controller.signal.aborted
+      )
+        active.admission = isCurrent ? { isCurrent: current } : {};
+      return job;
+    }
     this.admitted.set(job.id, isCurrent ? { isCurrent: current } : {});
     this.kick();
     return job;
@@ -454,11 +464,19 @@ export class TranscriptionQueue {
         this.batch?.abort(new DOMException('No local transcription jobs remain', 'AbortError'));
       return revoked;
     }
+    const activeAdmission = active.admission;
     let paused = false,
       writeFailed = true;
     try {
       await this.store.updateLocal<Job>(this.scope, 'jobs', id, (old) => {
-        if (!old || !current() || this.active !== active || this.admitted.has(id)) return old;
+        if (
+          !old ||
+          !current() ||
+          this.active !== active ||
+          active.admission !== activeAdmission ||
+          this.admitted.has(id)
+        )
+          return old;
         const job = validateJob(old);
         if (sparseOnly && !job.sparse) return old;
         // A claimed job may still be awaiting its queued -> running write. Its
@@ -482,7 +500,13 @@ export class TranscriptionQueue {
       // Storage failure cannot retain a model owned by a revoked source/view.
       // Preserve that failure for the caller, but still cancel the exact runner.
       // A newer same-ID admission or replaced view retains its own authority.
-      if ((paused || writeFailed) && current() && this.active === active && !this.admitted.has(id))
+      if (
+        (paused || writeFailed) &&
+        current() &&
+        this.active === active &&
+        active.admission === activeAdmission &&
+        !this.admitted.has(id)
+      )
         active.controller.abort(new DOMException('Generation paused', 'AbortError'));
     }
     return revoked || paused;

@@ -6,6 +6,7 @@
 
 import { LIMITS, finite, onlyKeys, record, type Scope } from './contracts.js';
 import { Sha256 } from './hash.js';
+import { abortable } from './abort.js';
 import { sourceLifetime, type ByteSource } from './sources.js';
 
 /** Device-only hint, deliberately NOT a portable ContentKey or a proof of file equality. */
@@ -49,7 +50,7 @@ export async function deviceKey(source: ByteSource, signal: AbortSignal): Promis
   for (const start of starts) {
     signal.throwIfAborted();
     current();
-    const bytes = await source.read(start, start + width, signal);
+    const bytes = await abortable(signal, () => source.read(start, start + width, signal));
     signal.throwIfAborted();
     current();
     if (bytes.length !== width) throw new Error('Incomplete video sample');

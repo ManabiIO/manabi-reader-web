@@ -486,6 +486,22 @@ export const nativeCases = [
     run: (factory) =>
       harness(factory, async (store, other) => {
         const phase = (name) => console.info('media-native-handle: ' + name);
+        // Observe the existing synchronous transaction callback without adding
+        // an await or replacing the native handle/read/write operations.
+        const updateLocal = store.updateLocal.bind(store);
+        store.updateLocal = (scope, kind, id, change) => {
+          if (kind !== 'aliases') return updateLocal(scope, kind, id, change);
+          phase('alias-update-admitted');
+          return updateLocal(scope, kind, id, (old) => {
+            phase(old?.handle ? 'alias-existing-handle-read' : 'alias-without-handle-read');
+            const next = change(old);
+            phase(next === old ? 'alias-noop-ready' : 'alias-write-ready');
+            return next;
+          }).then((value) => {
+            phase('alias-update-committed');
+            return value;
+          });
+        };
         phase('get-directory');
         const root = await navigator.storage.getDirectory(),
           name = 'media-import-' + crypto.randomUUID() + '.mp4';

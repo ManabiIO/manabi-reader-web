@@ -175,7 +175,6 @@ test('stale Generate admission can persist a queued job but cannot make it runna
     assert.deepEqual(counters, { decode: 0, prepare: 0, transcribe: 0, dispose: 0 });
   }));
 
-
 test('switching away from the only queued job withdraws the pending origin lock', () =>
   harness('switch-lock-only-', async ({ store, queue, locks, counters }) => {
     const mediaKey = key('5');

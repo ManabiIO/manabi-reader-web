@@ -60,7 +60,11 @@ export function localSource(file: File): ByteSource {
     async read(start, end, signal) {
       signal.throwIfAborted();
       assertRange(start, end, file.size);
-      const result = new Uint8Array(await file.slice(start, end).arrayBuffer());
+      // Blob reads have no AbortSignal API. Detach the caller without claiming
+      // to stop the underlying filesystem read; observe its eventual result.
+      const result = new Uint8Array(
+        await abortable(signal, () => file.slice(start, end).arrayBuffer())
+      );
       signal.throwIfAborted();
       return result;
     },
@@ -235,7 +239,7 @@ export async function identify(
     signal.throwIfAborted();
     current();
     const end = Math.min(source.size, start + requestBytes);
-    const bytes = await source.read(start, end, signal);
+    const bytes = await abortable(signal, () => source.read(start, end, signal));
     signal.throwIfAborted();
     current();
     if (bytes.length !== end - start) throw new Error('Incomplete media identity read');
@@ -285,7 +289,7 @@ export function streamedRange(
           return;
         }
         const next = Math.min(end, at + 1024 * 1024);
-        const bytes = await source.read(at, next, abort.signal);
+        const bytes = await abortable(abort.signal, () => source.read(at, next, abort.signal));
         if (cancelled) return;
         abort.signal.throwIfAborted();
         current();
