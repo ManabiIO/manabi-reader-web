@@ -73,7 +73,8 @@ export function validBookSeries(value: unknown): value is BookSeries | null {
   return (
     Object.keys(item).every((key) => ['name', 'index'].includes(key)) &&
     boundedMetadataText(item.name, 240) &&
-    !!item.name.trim() &&
+    item.name.length > 0 &&
+    item.name === item.name.replace(/\s+/gu, ' ').trim() &&
     (item.index === undefined ||
       (typeof item.index === 'number' &&
         Number.isFinite(item.index) &&
