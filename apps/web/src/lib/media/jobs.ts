@@ -26,6 +26,7 @@ import {
   acceptedSparseCues,
   sparseBounds,
   pendingSparseSeam,
+  unsafeSparseRepairTiming,
   sparseCoverage,
   validateSparseState,
   type SparseState
@@ -78,6 +79,7 @@ export function jobCanResume(job: Job): boolean {
   if (job.status !== 'paused' && job.status !== 'failed') return false;
   if (job.pauseReason === 'identity' && !job.verifiedMediaKey) return false;
   if (job.sparse) {
+    if (unsafeSparseRepairTiming(job.sparse) !== undefined) return false;
     const seam = pendingSparseSeam(job.sparse);
     if (
       seam !== undefined &&

@@ -16,6 +16,7 @@ import { transcribeWithPreview } from './moss-preview.js';
 import { transcribeProgressively } from './progressive-transcription.js';
 import {
   newSparseState,
+  assertSparseRepairTiming,
   pendingSparseSeam,
   sparseModelPcm,
   sparseBounds,
@@ -560,6 +561,7 @@ export class TranscriptionQueue {
             const checkpoint = async () => {
               signal.throwIfAborted();
               const snapshot = validateJob(job);
+              if (snapshot.sparse) assertSparseRepairTiming(snapshot.sparse);
               const saved = await this.store.updateLocal<Job>(this.scope, 'jobs', job.id, (old) => {
                 if (!ownsJob(old, ownerId)) throw new JobOwnershipLost();
                 signal.throwIfAborted();
@@ -614,6 +616,7 @@ export class TranscriptionQueue {
                 });
               }
               if (job.version === 3) {
+                assertSparseRepairTiming(job.sparse!);
                 const repairSparseSeam = async (seam: number) => {
                   signal.throwIfAborted();
                   if (job.sparse!.repairs[seam])

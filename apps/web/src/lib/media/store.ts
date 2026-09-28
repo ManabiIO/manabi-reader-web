@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 
+import { assertSparseRepairTiming } from './sparse-transcription.js';
 import {
   validateJob,
   ownsJob,
@@ -483,6 +484,7 @@ export class MediaStore {
     const snapshot = validateTrack(track),
       pieces = splitTrack(snapshot);
     const completed = completion ? validateJob(completion.job) : undefined;
+    if (completed?.sparse) assertSparseRepairTiming(completed.sparse);
     if (
       completed &&
       (completed.id !== snapshot.id ||

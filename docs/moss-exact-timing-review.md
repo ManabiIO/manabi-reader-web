@@ -25,6 +25,22 @@ relative to unmatched repair speech. Exact restoration now sorts the resulting
 array by start and end, as the grouped path already did. Accepted cue objects
 and input hypotheses remain unchanged.
 
+## Overlapping repaired windows
+
+A second fixed-drift comparison existed when two repaired windows overlapped.
+It could make the same false agreement, including cumulative drift through three
+repairs after an earlier join had restored older cue timestamps. A read-only
+observer now checks the effective accumulated component, not merely adjacent raw
+pairs. New checkpoints, resumed processing and direct completed-track publication
+reject those unsafe combinations. Existing conflicting checkpoints stay readable
+and unchanged, but do not advertise an unchanged Resume that would repeat the
+same conflict. They require a new transcription instead of a fabricated join.
+
+The observer deliberately does not change historical cache derivation. There is
+no speculative migration, no deletion of hypotheses, and no retroactive rewrite
+of already published subtitle tracks. Valid overlapping repairs still publish
+without repeating recognition.
+
 ## Saved-state scope
 
 No migration or validation relaxation is included. An initially suspected old
@@ -36,11 +52,11 @@ cache validation and completed tracks are not rewritten by this follow-up.
 
 ## Verification before publication
 
-- Fixture-enabled strict media TypeScript/Node suite: 644 passed, no failures or skips.
+- Fixture-enabled strict media TypeScript/Node suite: 650 passed, no failures or skips.
 - Python/native-helper suite: 80 passed.
-- Seven new unit cases and four additional shared queue/store cases. Seven of
-  these eleven cases fail against the unmodified base; all pass after the fix.
-- The existing native repair runner now contains 15 scenarios. It uses the same
+- Seven new unit cases and ten additional shared queue/store cases. Twelve of
+  these seventeen cases fail against the unmodified base; all pass after the fix.
+- The existing native repair runner now contains 21 scenarios. It uses the same
   cases as Node, with actual Chromium IndexedDB and Web Locks in CI.
 - Prettier 3.6.2 and diff whitespace checks passed for the changed TS/MJS sources.
 

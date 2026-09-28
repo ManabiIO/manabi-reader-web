@@ -6,6 +6,7 @@
 
 import { finite, onlyKeys, record, validateCue, type Cue } from './contracts.js';
 import { joinBoundary, SAMPLE_RATE } from './moss-progressive.js';
+import { sameCueTiming } from './moss-cue-agreement.js';
 
 /** A fixed 26-second core keeps each input within MOSS's 30-second budget. */
 export const SPARSE_CORE_SECONDS = 26;
@@ -219,7 +220,10 @@ interface SparseComponent {
  * A repair is one two-core input; its superseded raw windows never decide its
  * outer seams. The cursor advances by time, not an arbitrary last-N cue slice.
  */
-function sparseComponents(state: SparseState): SparseComponent[] {
+function sparseComponents(
+  state: SparseState,
+  unsafeTiming?: (seam: number) => void
+): SparseComponent[] {
   const components: SparseComponent[] = [];
   let active: SparseComponent | undefined;
   let cursor = 0;
@@ -264,6 +268,17 @@ function sparseComponents(state: SparseState): SparseComponent[] {
               Math.abs(cue.end - other.end) <= 0.35
             );
           }));
+      // Keep historical cache derivation stable. New repair admission and
+      // publication separately reject its fixed-drift false positives. Observe
+      // the effective accumulated component, not just adjacent raw pairs: prior
+      // joins may have restored even earlier immutable timestamps.
+      if (
+        unsafeTiming &&
+        overlap &&
+        agreed &&
+        leftEarly.some((cue, index) => !sameCueTiming(cue, rightEarly[index], 0.35))
+      )
+        unsafeTiming(segment.first - 1);
       const current = overlap ? segment.cues.filter((cue) => cue.end > start) : segment.cues;
       const joined = agreed
         ? joinSparseBoundary(active.cues.slice(cursor), current, seam)
@@ -371,4 +386,22 @@ export function assembleSparse(state: SparseState): { cues?: Cue[]; repair?: num
   const components = sparseComponents(state);
   if (components.length > 1) return { repair: components[1].first - 1 };
   return { cues: components[0]?.cues.sort((a, b) => a.start - b.start) ?? [] };
+}
+
+/** Old derived caches remain readable, but disjoint speech in an overlapping
+ * repair pair is not authority to checkpoint new acceptance or publish a track.
+ * The source hypotheses and already published tracks are never rewritten here.
+ */
+export function unsafeSparseRepairTiming(state: SparseState): number | undefined {
+  let conflict: number | undefined;
+  sparseComponents(state, (seam) => {
+    conflict ??= seam;
+  });
+  return conflict;
+}
+export function assertSparseRepairTiming(state: SparseState): void {
+  if (unsafeSparseRepairTiming(state) !== undefined)
+    throw new Error(
+      'Overlapping repair hypotheses disagree about the timing of repeated speech. Saved captions were kept; start a new transcription instead of repeating this repair.'
+    );
 }
