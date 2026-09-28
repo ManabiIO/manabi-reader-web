@@ -1,13 +1,40 @@
-"""Real EPUB gallery intent/focus journeys; only a real font request is delayed."""
+"""Real EPUB gallery intent/focus journeys; only a real HTTP font response is delayed."""
 import io
 import json
 import re
+import threading
 import unittest
 import zipfile
 from pathlib import Path
 
 from playwright.sync_api import expect
 from test_books_library import LibraryBase, book, raster
+from test_static_reader import StaticHandler
+
+
+FONT_PATH = re.compile(r"/NotoSerifJP-Regular[^/]*\.woff2(?:\?.*)?$")
+
+
+class FontResponseGate:
+    def __init__(self):
+        self.started = threading.Event()
+        self.release = threading.Event()
+        self.paths = []
+        self.expired = False
+
+
+class GalleryStaticHandler(StaticHandler):
+    def do_GET(self):
+        gate = getattr(self.server, "font_gate", None)
+        if gate is not None and FONT_PATH.search(self.path):
+            gate.paths.append(self.path)
+            gate.started.set()
+            # A failed test cannot leave a server thread or browser request hung.
+            if not gate.release.wait(20):
+                gate.expired = True
+                self.send_error(504, "The test did not release the font response")
+                return
+        super().do_GET()
 
 
 def illustrated_book(title):
@@ -27,6 +54,13 @@ def illustrated_book(title):
 
 
 class GalleryRevealLifetime(LibraryBase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # Reuse the real static server and its security probes. Only this suite's
+        # explicitly gated font response differs from the ordinary handler.
+        cls.server.RequestHandlerClass = GalleryStaticHandler
+
     def setUp(self):
         super().setUp()
         self.output = Path('test-results') / 'gallery-reveal' / self.engine / self._testMethodName
@@ -114,18 +148,19 @@ class GalleryRevealLifetime(LibraryBase):
 
     def test_delayed_real_font_cannot_rehide_an_explicit_gallery_reveal(self):
         self.open_book()
-        held = []
-        pattern = re.compile(r'/NotoSerifJP-Regular[^/]*\.woff2(?:\?.*)?$')
-        self.page.route(pattern, lambda route: held.append(route))
+        gate = FontResponseGate()
+        self.server.font_gate = gate
         try:
             self.page.get_by_role('button', name='Show reading controls', exact=True).click()
             self.page.get_by_role('button', name='Themes & Settings', exact=True).click()
             appearance = self.page.get_by_role('dialog', name='Themes & Settings', exact=True)
             appearance.get_by_label('Reading font', exact=True).select_option('Noto Serif JP')
-            # The actual selected font is pending, not a replacement font/renderer.
+            # WebKit did not intercept this font through page.route. Hold it at
+            # the actual HTTP server and require evidence that the request began.
+            self.assertTrue(gate.started.wait(5), 'The real font request must reach the server')
             self.page.wait_for_function('''() => [...document.fonts].some(
               f => f.family.includes('Noto Serif JP') && f.status === 'loading')''')
-            self.assertGreater(len(held), 0, 'The real bundled font request must be held')
+            self.assertFalse(gate.release.is_set())
             self.page.keyboard.press('Escape')
             expect(appearance).to_have_count(0)
             self.page.get_by_role('button', name='Hide reading controls', exact=True).click()
@@ -142,12 +177,11 @@ class GalleryRevealLifetime(LibraryBase):
               window.galleryObserver.observe(document.querySelector('.book-content'),
                 {subtree: true, childList: true, characterData: true});
             }''')
-            for route in held:
-                route.continue_()
-            held.clear()
+            gate.release.set()
             self.page.wait_for_function('''() => [...document.fonts].some(
               f => f.family.includes('Noto Serif JP') && f.status === 'loaded')''')
             self.page.wait_for_function('window.galleryRebinds > 0')
+            self.assertFalse(gate.expired, 'The server must release by user action, not expiry')
             # A negative assertion must outlive the route's 250ms observation queue.
             # This is one settlement window, not a retry-until-green loop.
             self.page.wait_for_timeout(350)
@@ -157,9 +191,11 @@ class GalleryRevealLifetime(LibraryBase):
             self.capture('after-real-font-rebind')
             self.close_gallery(panel)
         finally:
-            for route in held:
-                route.continue_()
-            self.page.unroute(pattern)
+            gate.release.set()
+            self.server.font_gate = None
+            (self.output / 'font-response-gate.json').write_text(json.dumps({
+                'paths': gate.paths, 'started': gate.started.is_set(), 'expired': gate.expired
+            }, indent=2))
             self.page.evaluate('window.galleryObserver?.disconnect()')
 
     def test_reveal_does_not_leak_into_another_imported_book(self):

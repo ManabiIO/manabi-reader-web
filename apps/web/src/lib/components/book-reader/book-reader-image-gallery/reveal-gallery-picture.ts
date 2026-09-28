@@ -20,7 +20,10 @@ export function gallerySpoilerObservation(
   url: string,
   observed: boolean
 ): boolean {
-  return observed || pictures.some((picture) => picture.url === url && picture.revealedInGallery === true);
+  return (
+    observed ||
+    pictures.some((picture) => picture.url === url && picture.revealedInGallery === true)
+  );
 }
 
 /**

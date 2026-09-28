@@ -218,7 +218,11 @@ function toggleImageGalleryPictureSpoiler(imageElement: Element | null, unspoile
   if (url) {
     toggleImageGalleryPictureSpoiler$.next({
       url,
-      unspoilered: gallerySpoilerObservation(readerImageGalleryPictures$.getValue(), url, unspoilered)
+      unspoilered: gallerySpoilerObservation(
+        readerImageGalleryPictures$.getValue(),
+        url,
+        unspoilered
+      )
     });
   }
 }
