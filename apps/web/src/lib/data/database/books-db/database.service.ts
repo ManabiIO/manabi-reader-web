@@ -275,7 +275,9 @@ export class DatabaseService {
       };
       signal?.addEventListener('abort', abort, { once: true });
       scope.signal.addEventListener('abort', abort, { once: true });
-      return commitTransaction(tx, async () => {
+      // Await inside this try so the profile watcher survives every request
+      // and tx.done, including an account leave-and-return during commit.
+      const result = await commitTransaction(tx, async () => {
         scope.assertCurrent();
         throwIfAborted(signal);
         const store = tx.objectStore('data');
@@ -377,6 +379,11 @@ export class DatabaseService {
           signal?.removeEventListener('abort', abort);
           scope.signal.removeEventListener('abort', abort);
         });
+      // A commit already completed cannot be undone, but revoked work must not
+      // acknowledge a result to the next profile or a cancelled caller.
+      scope.assertCurrent();
+      throwIfAborted(signal);
+      return result;
     } finally {
       scope.stop();
     }
