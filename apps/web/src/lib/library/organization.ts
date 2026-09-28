@@ -72,6 +72,8 @@ function normalizedOrganization(value: unknown): Organization | undefined {
     new Set(collections.map((collection) => collection.id)).size !== collections.length
   )
     return;
+  const memberships = collections.reduce((count, collection) => count + collection.members.length, 0);
+  if (memberships > 50000) return;
   const entries = Object.entries(item.books);
   if (
     entries.length > 50000 ||
@@ -330,6 +332,12 @@ export async function setMembershipMany(
     }
   );
 }
+function presentationTitle(value: string): string {
+  const title = value.trim();
+  if (!isPortableText(title, 1000)) throw new Error('Enter a title of 1–1000 characters.');
+  return title;
+}
+
 export type PresentationChange = Partial<Omit<BookPresentation, 'modifiedAt'>>;
 export async function presentBook(id: string, change: PresentationChange) {
   return presentBooks([id], change);
@@ -345,7 +353,7 @@ export async function presentBooks(
   const patch = structuredClone(change);
   const targets = [...new Set(ids)];
   const baseline = expected && structuredClone(expected);
-  if (patch.title !== undefined) patch.title = libraryName(patch.title);
+  if (patch.title !== undefined) patch.title = presentationTitle(patch.title);
   await updateOrganization(
     (value) => {
       for (const id of targets) {
