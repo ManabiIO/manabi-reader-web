@@ -157,7 +157,53 @@ export async function start(input) {
     }
     const relativeRmsError = Math.sqrt(square / referenceSquare);
     const correlation = dot / Math.sqrt(referenceSquare * actualSquare);
-    decoderCheck = { relativeRmsError, correlation, sampleOffset: offset, samples: narrow.length };
+    // Diagnose timing without compensating or changing the pass condition.
+    const lagCorrelation = (lag, from, to) => {
+      let aa = 0,
+        bb = 0,
+        ab = 0;
+      for (let i = from; i < to; i += 16) {
+        const a = wide[offset + i + lag],
+          b = narrow[i];
+        aa += a * a;
+        bb += b * b;
+        ab += a * b;
+      }
+      return ab / Math.sqrt(aa * bb);
+    };
+    const lag = (from, to) => {
+      let best = { samples: 0, correlation: -Infinity };
+      for (let shift = -512; shift <= 512; shift++) {
+        const correlation = lagCorrelation(shift, from, to);
+        if (correlation > best.correlation) best = { samples: shift, correlation };
+      }
+      return { from, to, best, unshifted: lagCorrelation(0, from, to) };
+    };
+    const packets = async (start, end) => {
+      const out = [];
+      const track = (await pipeline.audioTracks()).find((item) => item.id === Number(audioTrack));
+      for await (const { buffer, timestamp, duration } of track.buffers(start, end)) {
+        out.push({
+          timestamp,
+          duration,
+          frames: buffer.length,
+          rate: buffer.sampleRate,
+          channels: buffer.numberOfChannels
+        });
+        if (out.length === 12) break;
+      }
+      return out;
+    };
+    decoderCheck = {
+      relativeRmsError,
+      correlation,
+      sampleOffset: offset,
+      samples: narrow.length,
+      lag: lag(800, narrow.length - 800),
+      regions: [4000, 32000, 64000].map((from) => lag(from, from + 8000)),
+      widePackets: await packets(0, 7.003),
+      narrowPackets: await packets(1.003, 6.003)
+    };
     check(
       referenceSquare > 0 && actualSquare > 0 && correlation >= 0.98 && relativeRmsError < 0.1,
       'Independent encoded-audio seek changed the waveform: ' + JSON.stringify(decoderCheck)
@@ -237,10 +283,7 @@ export async function finish() {
     track.cues.every((cue, i) => !i || cue.start >= track.cues[i - 1].start),
     'Unordered captions'
   );
-  check(
-    track.cues.some((cue) => cue.start >= 30),
-    'Later encoded speech is missing'
-  );
+  check(track.cues.some((cue) => cue.start >= 30), 'Later encoded speech is missing');
   const ordinary = decodeCalls.filter(({ end, start }) => end - start <= 30);
   for (const index of completedWindows)
     check(

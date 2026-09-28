@@ -103,6 +103,35 @@ jobs:
           (evidence / 'runtime-sha256.txt').write_text('\n'.join(sums) + '\n')
           print('Verified checked-in single/threaded runtime pair; no rebuild performed')
           PY
+      - name: Bundle the actual media adapter and retain its dependency evidence
+        if: ${{ !cancelled() && steps.identity.outcome == 'success' }}
+        run: |
+          pnpm exec esbuild apps/web/src/lib/manabi/media-runtime.ts --bundle --platform=browser --format=esm \
+            --outfile=.cache/media-test-build/encoded-media-adapter.js \
+            --metafile=test-results/media-packaged/encoded-adapter-meta.json
+          sha256sum apps/web/src/lib/manabi/media-runtime.ts pnpm-lock.yaml \
+            .cache/media-test-build/encoded-media-adapter.js > test-results/media-packaged/encoded-adapter-sha256.txt
+          python -m unittest discover -s tests/media -p 'test_encoded_asr.py' -v
+      - name: Real encoded Japanese video through decoder, resumable queue and subtitle publication
+        if: ${{ !cancelled() && steps.identity.outcome == 'success' }}
+        run: |
+          status=0
+          python tests/media/encoded-asr.py --fixture "$JA_FIXTURE" --language ja --source file \
+            --output test-results/media-packaged/encoded-file-single \
+            2>&1 | tee test-results/media-packaged/encoded-file-single.log || status=1
+          python tests/media/encoded-asr.py --fixture "$JA_FIXTURE" --language ja --source range --threaded \
+            --output test-results/media-packaged/encoded-range-threaded \
+            2>&1 | tee test-results/media-packaged/encoded-range-threaded.log || status=1
+          exit "$status"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: media-encoded-path-evidence
+          path: |
+            test-results/media-packaged/encoded-*
+            test-results/media-packaged/tested-*.txt
+          if-no-files-found: warn
+          retention-days: 7
       - name: Recognize both languages using the checked-in single and threaded runtimes
         run: |
           status=0
@@ -130,26 +159,6 @@ jobs:
             --upstream-jfk --language en --threaded --max-cer 0.20 \
             --output test-results/media-packaged/asr-natural-jfk.json \
             2>&1 | tee test-results/media-packaged/asr-natural-jfk.log
-      - name: Bundle the actual media adapter and retain its dependency evidence
-        if: ${{ !cancelled() && steps.identity.outcome == 'success' }}
-        run: |
-          pnpm exec esbuild apps/web/src/lib/manabi/media-runtime.ts --bundle --platform=browser --format=esm \
-            --outfile=.cache/media-test-build/encoded-media-adapter.js \
-            --metafile=test-results/media-packaged/encoded-adapter-meta.json
-          sha256sum apps/web/src/lib/manabi/media-runtime.ts pnpm-lock.yaml \
-            .cache/media-test-build/encoded-media-adapter.js > test-results/media-packaged/encoded-adapter-sha256.txt
-          python -m unittest discover -s tests/media -p 'test_encoded_asr.py' -v
-      - name: Real encoded Japanese video through decoder, resumable queue and subtitle publication
-        if: ${{ !cancelled() && steps.identity.outcome == 'success' }}
-        run: |
-          status=0
-          python tests/media/encoded-asr.py --fixture "$JA_FIXTURE" --language ja --source file \
-            --output test-results/media-packaged/encoded-file-single \
-            2>&1 | tee test-results/media-packaged/encoded-file-single.log || status=1
-          python tests/media/encoded-asr.py --fixture "$JA_FIXTURE" --language ja --source range --threaded \
-            --output test-results/media-packaged/encoded-range-threaded \
-            2>&1 | tee test-results/media-packaged/encoded-range-threaded.log || status=1
-          exit "$status"
       - name: Confirm qualification did not replace the packaged runtime bytes
         if: ${{ !cancelled() && steps.identity.outcome == 'success' }}
         run: |
