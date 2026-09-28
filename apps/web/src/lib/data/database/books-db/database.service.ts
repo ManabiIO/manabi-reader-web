@@ -5,7 +5,6 @@
  */
 
 import { encodeBook, decodeBook } from './book-binary';
-import { mergeCompletion } from '$lib/library/completion';
 import {
   contentStatisticKey,
   migrateLegacyStatistics,
