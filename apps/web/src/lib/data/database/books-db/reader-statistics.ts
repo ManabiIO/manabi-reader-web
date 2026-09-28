@@ -264,11 +264,15 @@ function statisticLegacyAssignment(
 ): { legacyTitle?: string; unresolvedLegacy: boolean } {
   if (!receipt) return { unresolvedLegacy: false };
   if (receipt.state === 'ambiguous') return { unresolvedLegacy: true };
-  if (!receipt.bookKey || !keys.has(receipt.bookKey)) return { unresolvedLegacy: true };
-  if (receipt.state === 'assigned') return { legacyTitle: title, unresolvedLegacy: false };
-  return receipt.legacyAssigned === true
+  if (!receipt.bookKey) return { unresolvedLegacy: true };
+  if (receipt.state === 'assigned')
+    return keys.has(receipt.bookKey)
+      ? { legacyTitle: title, unresolvedLegacy: false }
+      : { unresolvedLegacy: false };
+  if (receipt.legacyAssigned !== true) return { unresolvedLegacy: true };
+  return keys.has(receipt.bookKey)
     ? { legacyTitle: title, unresolvedLegacy: false }
-    : { unresolvedLegacy: true };
+    : { unresolvedLegacy: false };
 }
 
 /** Resolve every statistics identity owned by one browser book for selection or deletion.
