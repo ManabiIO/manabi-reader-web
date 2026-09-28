@@ -79,6 +79,7 @@ export class FoliateCharacterProgress {
     const count = this.exploredCharacterCount(sectionIndex, content, visibleRange);
     const node = visibleRange?.startContainer;
     if (
+      !visibleRange ||
       node?.nodeType !== 3 ||
       !content.contains(node) ||
       visibleRange.startOffset >= (node.textContent?.length ?? 0)
