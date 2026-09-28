@@ -131,6 +131,7 @@
     refreshAccount
   } from '$lib/manabi/client';
   import { integrationDB } from '$lib/manabi/persistence';
+  import { readerAccessOwners } from '$lib/library/account-visibility';
   import { legacyReplicationTypes } from '$lib/manabi/legacy-replication';
   import type { ReaderAnnotation } from '$lib/data/database/books-db/versions/v7/books-db-v7';
   import { ReaderNavigation } from '$lib/reader-navigation';
@@ -402,14 +403,14 @@
           return bookData;
         }
 
-        const links = (await (await integrationDB()).getAll('books')).filter(
-          (link) => link.bookId === id
-        );
-        const protectedOwners = bookData.libraryOwner
-          ? [bookData.libraryOwner]
-          : links.some((link) => link.owner === null)
-            ? []
-            : links.flatMap((link) => (link.owner ? [link.owner] : []));
+        const integration = await integrationDB();
+        const booksDb = await database.db;
+        const [links, readerScope] = await Promise.all([
+          integration.getAll('books').then((items) => items.filter((link) => link.bookId === id)),
+          booksDb.get('readerBookScope', id)
+        ]);
+        const protectedOwners = readerAccessOwners(bookData, readerScope, links);
+        if (!protectedOwners) return undefined;
         if (protectedOwners.length && $account.status === 'loading') await refreshAccount();
         if (protectedOwners.length && !protectedOwners.includes(localProfileUser()?.id ?? ''))
           return undefined;
