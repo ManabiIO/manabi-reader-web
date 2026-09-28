@@ -538,10 +538,15 @@ function startPreferenceSyncReady() {
       if (!isCurrent()) return;
       if (restoration === value) restoration = undefined;
       preferenceStatus.set({ enabled: value.state.enabled, state: 'pending', conflicts: [] });
+      const user = activeUser;
+      // Restoration is automatic work. Returning to a profile must not turn a
+      // previous Retry-After into an implicit immediate retry. Explicit user
+      // sync actions still bypass background backoff through syncPreferences().
+      if (!user || Date.now() < retryAt(syncRetryAt, user)) return;
       try {
         await syncPreferences();
       } catch (error) {
-        if (isCurrent() && activeUser) reportSyncFailure(activeUser, error, value.state.enabled);
+        if (isCurrent()) reportSyncFailure(user, error, value.state.enabled);
       }
     })().finally(() => {
       if (value.pending === pending) value.pending = undefined;
