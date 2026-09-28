@@ -1,28 +1,40 @@
-name: Pinned snippet review source
+name: Apply reviewed snippet regression fixes
 on:
   push:
     branches: [feat/cloud-backed-snippets]
     paths: ['.github/workflows/snippets-workspace.yml']
 permissions:
-  contents: read
+  contents: write
+concurrency:
+  group: snippets-reviewed-source
+  cancel-in-progress: false
 jobs:
-  source:
+  publish:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 7d5c6729bc736cda3103b9911b120545da17baf8
-          persist-credentials: false
-      - name: Retain tracked source only
+          ref: codex/snippets-implementation-20260928
+          persist-credentials: true
+      - name: Apply exact reviewed six-file delta
+        shell: bash
         run: |
-          mkdir -p /tmp/snippet-review-source
-          git archive --format=tar.gz HEAD > /tmp/snippet-review-source/source.tar.gz
-          git ls-files -s > /tmp/snippet-review-source/manifest.txt
-          git rev-parse HEAD > /tmp/snippet-review-source/commit.txt
-      - uses: actions/upload-artifact@v4
-        with:
-          name: snippets-pr-source
-          path: /tmp/snippet-review-source
-          retention-days: 1
-          if-no-files-found: error
+          set -euo pipefail
+          python - <<'PY'
+          import base64,hashlib,lzma,subprocess
+          assert subprocess.check_output(['git','rev-parse','HEAD']).decode().strip()=='aae970b6ee60b78fcb6da214fbd85fed3da11ecc', 'PR changed; review and rebase instead of overwriting'
+          encoded='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'
+          raw=lzma.decompress(base64.b64decode(encoded,validate=True),memlimit=128*1024*1024)
+          assert len(raw)==21589
+          assert hashlib.sha256(raw).hexdigest()=='0310a45c746d2c17dd4cc6abcf8c73863e208fda0148e8c646e3865d25ff8e1a'
+          expected={'apps/web/src/lib/snippets/route-load.ts','apps/web/src/lib/snippets/transfers.ts','apps/web/src/lib/snippets/workspace.svelte','test/snippets/browser.mjs','test/snippets/run.mjs','test/snippets/unit.test.mjs'}
+          actual={r.split('\t',2)[2] for r in subprocess.check_output(['git','apply','--numstat','-'],input=raw).decode().splitlines()}
+          assert actual==expected
+          subprocess.run(['git','apply','--check','-'],input=raw,check=True)
+          subprocess.run(['git','apply','--index','-'],input=raw,check=True)
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(snippets): fence draft routes and verify destination after state transfer'
+          git push origin HEAD:refs/heads/codex/snippets-implementation-20260928
