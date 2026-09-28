@@ -46,13 +46,13 @@ export class FoliateCharacterProgress {
     return sectionIndexForCharacterCount(this.sectionEnds, characterCount);
   }
 
-  exploredCharacterCount(
+  private firstVisiblePoint(
     sectionIndex: number,
     content: Element,
     visibleRange?: Range | null
-  ): number {
+  ): { count: number; node?: Node } {
     const start = this.sectionStart(sectionIndex);
-    if (!visibleRange) return start;
+    if (!visibleRange) return { count: start };
     let count = start;
     // A viewport can intersect many nodes. An arbitrary binary-search match
     // advances progress into unread text and changes when the chapter grows.
@@ -64,10 +64,18 @@ export class FoliateCharacterProgress {
         ((visibleRange.startContainer === node &&
           visibleRange.startOffset === (node.textContent?.length ?? 0)) ||
           (visibleRange.endContainer === node && visibleRange.endOffset === 0));
-      if (!touchesTextBoundary && visibleRange.intersectsNode(node)) return count;
+      if (!touchesTextBoundary && visibleRange.intersectsNode(node)) return { count, node };
       count += getCharacterCount(node);
     }
-    return start;
+    return { count: start };
+  }
+
+  exploredCharacterCount(
+    sectionIndex: number,
+    content: Element,
+    visibleRange?: Range | null
+  ): number {
+    return this.firstVisiblePoint(sectionIndex, content, visibleRange).count;
   }
 
   /** Bookmarks need the visible point inside a long text node; tracker progress stays whole-node. */
@@ -76,15 +84,10 @@ export class FoliateCharacterProgress {
     content: Element,
     visibleRange?: Range | null
   ): number {
-    const count = this.exploredCharacterCount(sectionIndex, content, visibleRange);
-    const node = visibleRange?.startContainer;
-    if (
-      !visibleRange ||
-      node?.nodeType !== 3 ||
-      !content.contains(node) ||
-      visibleRange.startOffset >= (node.textContent?.length ?? 0)
-    )
-      return count;
+    const { count, node } = this.firstVisiblePoint(sectionIndex, content, visibleRange);
+    // The range may start in ruby annotations or hidden text that the reader
+    // does not count. Only refine the same admitted node as the base count.
+    if (!visibleRange || node?.nodeType !== 3 || visibleRange.startContainer !== node) return count;
     return (
       count + countReadingCharacters(node.textContent?.slice(0, visibleRange.startOffset) ?? '')
     );
@@ -95,29 +98,37 @@ export class FoliateCharacterProgress {
     content: Element,
     characterCount: number
   ): Range | undefined {
+    if (!Number.isFinite(characterCount)) return undefined;
     const paragraphs = getParagraphNodes(content);
     if (!paragraphs.length) return undefined;
     const local = Math.max(0, characterCount - this.sectionStart(sectionIndex));
     let accumulated = 0;
     let target = paragraphs[0];
     let within = 0;
+    let atEnd = true;
     for (const paragraph of paragraphs) {
       target = paragraph;
       const length = getCharacterCount(paragraph);
       if (local < accumulated + length) {
         within = local - accumulated;
+        atEnd = false;
         break;
       }
       accumulated += length;
     }
     const range = content.ownerDocument.createRange();
     if (target.nodeType === 3) {
-      let offset = 0;
+      const text = target.textContent ?? '';
+      // A count at/beyond section end must not reset to the start of its last
+      // paragraph. The source end also includes trailing uncounted punctuation.
+      let offset = atEnd ? text.length : 0;
       let remaining = within;
-      for (const character of target.textContent ?? '') {
-        if (remaining <= 0) break;
-        offset += character.length;
-        if (isReadingCharacter(character)) remaining--;
+      if (!atEnd) {
+        for (const character of text) {
+          if (remaining <= 0) break;
+          offset += character.length;
+          if (isReadingCharacter(character)) remaining--;
+        }
       }
       range.setStart(target, offset);
       range.collapse(true);
