@@ -399,6 +399,27 @@ try {
     '持ち込み後の編集も別の版です。'
   );
   passed('editing a portable import preserves identity but creates a successor revision');
+  const conflictingImport = structuredClone(importedSaved);
+  conflictingImport.revision = crypto.randomUUID();
+  conflictingImport.parents = [imported.revision];
+  conflictingImport.title = { mode: 'custom', text: '別の端末の版' };
+  conflictingImport.content.content[0].content[0].text = '別の端末で編集した本文です。';
+  await openLibrary(page);
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'conflicting.manabi-snippet.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify(conflictingImport))
+  });
+  await expect(page.locator('section.conflicts')).toBeVisible();
+  await expect(
+    page.getByText('A different version was imported. Both versions are kept until you choose one.')
+  ).toBeVisible();
+  const conflictedRecord = (await records(page)).find((r) => r.document.id === imported.id);
+  assert.equal(conflictedRecord.document.revision, importedSaved.revision);
+  assert(
+    conflictedRecord.conflicts.some((version) => version.revision === conflictingImport.revision)
+  );
+  passed('single-document conflicting import keeps both versions instead of rejecting the file');
   await local.ctx.close();
 
   const cloud = await context('alice');
