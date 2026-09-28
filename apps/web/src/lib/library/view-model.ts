@@ -62,17 +62,23 @@ export function buildShelf(
   // one account may reuse one established browser book/progress record. Keep
   // each copy as its own shelf node, but refuse to choose when legacy data has
   // more than one distinct bookId for the same content identity.
-  const logicalLinksByContent = new Map<string, BookLink | null>();
-  for (const link of links) {
-    const content = contentIdentity(link.owner, link.contentHash);
-    if (!content) continue;
-    if (!logicalLinksByContent.has(content)) {
-      logicalLinksByContent.set(content, link);
-      continue;
+  const logicalBooksByContent = new Map<string, number | null>();
+  const rememberLogicalBook = (owner: string | null, contentHash: string, bookId: number) => {
+    const content = contentIdentity(owner, contentHash);
+    if (!content) return;
+    if (!logicalBooksByContent.has(content)) {
+      logicalBooksByContent.set(content, bookId);
+      return;
     }
-    const existing = logicalLinksByContent.get(content);
-    if (existing && existing.bookId !== link.bookId) logicalLinksByContent.set(content, null);
-  }
+    const existing = logicalBooksByContent.get(content);
+    if (existing !== null && existing !== bookId) logicalBooksByContent.set(content, null);
+  };
+  for (const link of links) rememberLogicalBook(link.owner, link.contentHash, link.bookId);
+  // A browser-only import has no BookLink yet. It can safely establish identity
+  // for another local (owner-null) exact copy without depending on title/path.
+  for (const card of cards)
+    if (!linksByBook.has(card.id) && card.contentHash)
+      rememberLogicalBook(null, card.contentHash, card.id);
   const revisions = new Map(
     catalogs.map((catalog) => [sourceKey(catalog.source), catalog.scannedAt])
   );
@@ -156,9 +162,9 @@ export function buildShelf(
           content = currentPreview?.contentHash
             ? contentIdentity(source.owner, currentPreview.contentHash)
             : undefined,
-          shared = content ? logicalLinksByContent.get(content) : undefined,
-          link = matches.get(file.id) ?? shared ?? undefined,
-          card = link ? byId.get(link.bookId) : undefined;
+          sharedBookId = content ? logicalBooksByContent.get(content) : undefined,
+          bookId = matches.get(file.id)?.bookId ?? sharedBookId ?? undefined,
+          card = bookId ? byId.get(bookId) : undefined;
         if (card) represented.add(card.id);
         return decorate(card, source, file);
       },
