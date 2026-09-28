@@ -1037,6 +1037,12 @@ export class TranscriptionQueue {
           } catch (e) {
             if (!signal.aborted || e !== signal.reason) throw e;
           } finally {
+            // The controller is the lifetime token for every resource owned by
+            // this runner, including cached decoder/container state. End that
+            // lifetime even after normal completion so cleanup does not depend
+            // on a later UI progress callback.
+            if (!controller.signal.aborted)
+              controller.abort(new DOMException('Transcription owner finished', 'AbortError'));
             this.targets.delete(candidate.id);
             this.active = undefined;
           }
