@@ -13,6 +13,39 @@ concurrency:
   group: voice-pitch-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  formatting:
+    name: Pitch formatting
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: 12.3.4
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Produce formatter patch without changing the branch
+        run: |
+          mkdir -p test-results
+          pnpm exec prettier --write 'apps/web/src/lib/features/whispersync/pitch/*.{ts,svelte}' 'test/pitch/*.mjs' apps/web/src/service-worker.ts
+          git diff --binary > test-results/pitch-format.patch
+          git diff --exit-code
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: voice-pitch-formatting
+          path: |
+            test-results/pitch-format.patch
+            apps/web/src/lib/features/whispersync/pitch/
+            apps/web/src/service-worker.ts
+            test/pitch/*.mjs
+          retention-days: 3
   native:
     name: Pitch ${{ matrix.browser }}
     runs-on: ubuntu-24.04
@@ -37,6 +70,13 @@ jobs:
         run: |
           python -m pip install 'playwright==1.63.0'
           python -m playwright install --with-deps ${{ matrix.browser }}
+      - name: Provide a native output device on the headless runner
+        run: |
+          sudo apt-get install -y --no-install-recommends pulseaudio pulseaudio-utils
+          pulseaudio --start --exit-idle-time=-1
+          pactl load-module module-null-sink sink_name=pitch_ci rate=48000
+          pactl set-default-sink pitch_ci
+          pactl info
       - name: Native audio and lazy worker
         run: |
           set -o pipefail
