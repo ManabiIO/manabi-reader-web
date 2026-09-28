@@ -1060,6 +1060,8 @@ export class VideoWorkspace {
       const hash = this.localHashes.get(current.key);
       if (hash) hash.requested = true;
     }
+    const admissionCurrent = () =>
+      !this.closed && this.current?.source === current.source && this.player === player;
     let job = await this.queue.enqueue(
       current.key,
       lang === 'und' ? selected.language : lang,
@@ -1067,7 +1069,8 @@ export class VideoWorkspace {
       duration,
       player?.video.currentTime ?? 0,
       !!current.provisional,
-      current.sourceSample
+      current.sourceSample,
+      admissionCurrent
     );
     if (current.provisional) {
       const verified = this.verifiedSources.get(current.source);
