@@ -214,7 +214,7 @@ class OfflineReader(unittest.TestCase):
                         })
                         if abort_once or abort_bytes_once:
                             stage = 'failed import rollback and retry'
-                            expect(page.get_by_text('Bookimport failed', exact=True)).to_be_visible(timeout=15000)
+                            expect(page.get_by_text('Book import failed', exact=True)).to_be_visible(timeout=15000)
                             message = (
                                 r'The book’s image bytes could not be read' if abort_bytes_once else
                                 r'The book could not be saved because its local storage transaction was aborted'

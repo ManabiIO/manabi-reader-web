@@ -13,6 +13,7 @@ const config = {
           'Hiragino Sans',
           'Yu Gothic',
           'Meiryo',
+          'Noto Sans JP',
           'sans-serif'
         ],
         serif: ['Hiragino Mincho ProN', 'Yu Mincho', 'YuMincho', 'serif']

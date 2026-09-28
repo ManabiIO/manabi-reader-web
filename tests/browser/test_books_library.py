@@ -538,7 +538,8 @@ class BooksLibraryBrowser(LibraryBase):
                              ('かん', 0), ('が', 1), ('𠮷', 1),
                              ('HIDDEN_SENTINEL', 0), ('STYLE_HIDDEN_SENTINEL', 0)]:
             search.fill(query)
-            expect(self.page.get_by_text(f'{count} results', exact=True)).to_be_visible(timeout=15000)
+            status = self.page.get_by_role('dialog').last.get_by_role('status')
+            expect(status).to_have_text(f"{count} {'result' if count == 1 else 'results'}", timeout=15000)
 
     def test_touch_menus_and_dark_reflow_keep_actions_accessible(self):
         profile = tempfile.TemporaryDirectory()

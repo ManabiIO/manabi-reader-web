@@ -27,8 +27,8 @@ import { StorageDataType } from '$lib/data/storage/storage-types';
 import { bookKey, contentBookKey, relocatePresentation } from '$lib/library/organization';
 import { contentStatisticKey } from '$lib/data/database/books-db/reader-statistics';
 import { throwIfAborted } from '$lib/functions/replication/replication-error';
-import type { BookCardProps } from '$lib/components/book-card/book-card-props';
 import { captureLibraryOperation } from '$lib/manabi/operation-scope';
+import type { BookCardProps } from '$lib/components/book-card/book-card-props';
 
 export class BrowserStorageHandler extends BaseStorageHandler {
   updateSettings(
@@ -99,10 +99,13 @@ export class BrowserStorageHandler extends BaseStorageHandler {
 
   async updateLastRead(book: BooksDbBookData) {
     const { id, lastBookOpen } = book;
-    const scope = captureLibraryOperation(book.libraryOwner ?? null);
+    const scope = captureLibraryOperation();
     try {
+      scope.assertCurrent();
+      const db = await database.db;
+      scope.assertCurrent();
       const current = await updateBookLastRead(
-        await database.db,
+        db,
         id,
         lastBookOpen || 0,
         scope.profileId,

@@ -10,6 +10,11 @@ function database(current, done = Promise.resolve()) {
   const transaction = {
     done,
     abort() {},
+    objectStore(name) {
+      if (name === 'data') return this.store;
+      assert.equal(name, 'readerBookScope');
+      return { get: async () => undefined };
+    },
     store: {
       async get(id) {
         assert.equal(id, 1);
@@ -18,11 +23,6 @@ function database(current, done = Promise.resolve()) {
       async put(value) {
         writes.push(value);
       }
-    },
-    objectStore(name) {
-      if (name === 'data') return this.store;
-      assert.equal(name, 'readerBookScope');
-      return { get: async () => undefined };
     }
   };
   return {
@@ -133,6 +133,13 @@ function browserLastRead() {
   );
 }
 
+const captureLocalScope = () => ({
+  profileId: null,
+  signal: new AbortController().signal,
+  assertCurrent() {},
+  stop() {}
+});
+
 test('the actual browser handler uses only current identity and metadata for last-read', async () => {
   const invoke = browserLastRead();
   const db = database(currentBook());
@@ -143,12 +150,7 @@ test('the actual browser handler uses only current identity and metadata for las
     { db: Promise.resolve(db) },
     updateBookLastRead,
     { getBookCharacters: () => 10 },
-    () => ({
-      profileId: null,
-      signal: new AbortController().signal,
-      assertCurrent() {},
-      stop() {}
-    })
+    captureLocalScope
   );
   assert.equal(cards[0][0], 'Current title');
   assert.equal(cards[0][1].lastBookOpen, 200);
@@ -168,12 +170,7 @@ test('the handler captures the selected ID and timestamp before waiting for its 
       calls.push({ db, id, timestamp });
     },
     {},
-    () => ({
-      profileId: null,
-      signal: new AbortController().signal,
-      assertCurrent() {},
-      stop() {}
-    })
+    captureLocalScope
   );
   book.id = 2;
   book.lastBookOpen = 900;

@@ -56,6 +56,10 @@
   import type { WritingMode } from '$lib/data/writing-mode';
   import { secondsToMinutes } from '$lib/functions/statistic-util';
   import {
+    MAX_TRACKER_IDLE_MINUTES,
+    trackerIdleSecondsFromMinutes
+  } from '$lib/components/settings/settings-number-policy';
+  import {
     ReplicationSaveBehavior,
     AutoReplicationType
   } from '$lib/functions/replication/replication-options';
@@ -1489,15 +1493,10 @@
           class={inputClasses}
           step="0.5"
           min="0"
+          max={MAX_TRACKER_IDLE_MINUTES}
           bind:value={trackerIdleTimeInMin}
           onblur={() => {
-            if (!trackerIdleTimeInMin || trackerIdleTimeInMin < 0) {
-              trackerIdleTime = 0;
-            } else if (trackerIdleTimeInMin > 43200) {
-              trackerIdleTime = 900;
-            } else {
-              trackerIdleTime = Math.floor(trackerIdleTimeInMin * 60);
-            }
+            trackerIdleTime = trackerIdleSecondsFromMinutes(trackerIdleTimeInMin);
           }}
         />
       </SettingsItemGroup>
