@@ -1,0 +1,27 @@
+name: Snippet follow-up source
+on:
+  push:
+    branches: [fix/snippet-recovery-review-20260928]
+    paths: ['.github/workflows/snippet-review-source.yml']
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 91db8cbe4e8c9a88fb5d601cac9cea974021dffc
+          persist-credentials: false
+      - run: |
+          mkdir -p /tmp/snippet-review
+          git archive HEAD | gzip > /tmp/snippet-review/source.tar.gz
+          git rev-parse HEAD > /tmp/snippet-review/commit.txt
+          git ls-files -s > /tmp/snippet-review/manifest.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snippet-follow-up-source
+          path: /tmp/snippet-review
+          retention-days: 1
+          if-no-files-found: error
