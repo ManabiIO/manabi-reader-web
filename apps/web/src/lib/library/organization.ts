@@ -72,7 +72,10 @@ function normalizedOrganization(value: unknown): Organization | undefined {
     new Set(collections.map((collection) => collection.id)).size !== collections.length
   )
     return;
-  const memberships = collections.reduce((count, collection) => count + collection.members.length, 0);
+  const memberships = collections.reduce(
+    (count, collection) => count + collection.members.length,
+    0
+  );
   if (memberships > 50000) return;
   const entries = Object.entries(item.books);
   if (
