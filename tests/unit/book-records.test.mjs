@@ -45,11 +45,17 @@ function harness(records, { manual = false, fail = false } = {}) {
       }
     }
   };
+  tx.objectStore = (name) => {
+    if (name === 'data') return tx.store;
+    if (name === 'readerBookScope') return { get: async () => undefined };
+    assert.fail(`unexpected store ${name}`);
+  };
   if (!manual) completion.resolve();
   return {
     db: {
       transaction(name) {
-        assert.equal(name, 'data');
+        if (Array.isArray(name)) assert.deepEqual(name, ['data', 'readerBookScope']);
+        else assert.equal(name, 'data');
         opened++;
         return tx;
       }
