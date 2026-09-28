@@ -44,7 +44,7 @@ window.addEventListener('pagehide',()=>{
 
 BROKER = '''const ports=new Set();
 let active, pending=[], serial=0, runtime, allocation=0, modelToken, modelLoads=0;
-let releaseModel, modelLockTask;
+let releaseModel, modelLockTask, modelReady, draining=false;
 const EXPECTED_ENGINE='190a569c13b4b247450f2fb3b2a431244e84833e+manabi-web-v7';
 const EXPECTED_GGML='eced84c86f8b012c752c016f7fe789adea168e1e';
 const RETAINED_BYTES=64*1024*1024;
@@ -56,6 +56,7 @@ const token=()=>typeof crypto.randomUUID==='function'?crypto.randomUUID():
   Array.from(crypto.getRandomValues(new Uint8Array(16)),n=>n.toString(16).padStart(2,'0')).join('');
 async function ensureModel(){
   if(runtime)return;
+  if(modelReady)return modelReady;
   const acquired={};
   acquired.promise=new Promise((resolve,reject)=>{acquired.resolve=resolve;acquired.reject=reject});
   const lifetime={};
@@ -102,16 +103,29 @@ async function ensureModel(){
     acquired.reject(error);
     throw error;
   });
-  await acquired.promise;
+  const starting=acquired.promise;
+  modelReady=starting;
+  try{
+    await starting;
+  }catch(error){
+    if(modelReady===starting)modelReady=undefined;
+    throw error;
+  }
 }
 async function drain(){
-  if(active||!pending.length)return;
-  const port=pending.shift();
+  if(draining||active||!pending.length)return;
+  draining=true;
+  const port=pending[0];
   try {
     await ensureModel();
+    if(active||pending[0]!==port)return;
+    pending.shift();
   } catch(error) {
+    if(pending[0]===port)pending.shift();
     send(port,{type:'error',phase:'runtime-startup',message:String(error)});
     return;
+  } finally {
+    draining=false;
   }
   const owner={port,last:performance.now(),nonce:0,release:undefined};
   active=owner;
@@ -317,8 +331,13 @@ def main():
                 return grants[-1]
 
             try:
+                # Queue a successor before initial model startup finishes. Only one
+                # startup may run; the second port must remain queued for inference.
                 owner.evaluate('acquire()')
+                peer.evaluate('acquire()')
                 first = acquired(owner)
+                peer.wait_for_timeout(50)
+                assert not [event for event in events(peer) if event['type'] == 'acquired'], events(peer)
                 expected_bytes = 648174592 if full_model else 64 * 1024 * 1024
                 assert first['loads'] == 1 and first['bytes'] == expected_bytes, first
                 assert first['fullModel'] is full_model, first
@@ -344,7 +363,6 @@ def main():
                         'transcriptBytes': len(first_transcript.encode())
                     })
 
-                peer.evaluate('acquire()')
                 peer.wait_for_function("events.some(e=>e.type==='capabilities')")
                 phase = 'freeze-event-handoff'
                 # CDP's headless lifecycle override does not dispatch a reliable
