@@ -26,6 +26,8 @@ export interface ReaderSearchHit {
   start: number;
   end: number;
   excerpt: string;
+  /** UTF-16 boundaries in the ORIGINAL excerpt, not the normalized query. */
+  excerptMatch: { start: number; end: number };
 }
 
 const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
@@ -92,7 +94,16 @@ async function search(request: SearchRequest) {
         // spelling, normalization and complete graphemes, not that index text.
         const excerptStart = sourceStarts[Math.max(0, at - 64)];
         const excerptEnd = sourceEnds[Math.min(buffer.length - 1, at + needle.length + 63)];
-        batch.push({ resource, start, end, excerpt: text.slice(excerptStart, excerptEnd) });
+        batch.push({
+          resource,
+          start,
+          end,
+          excerpt: text.slice(excerptStart, excerptEnd),
+          excerptMatch: {
+            start: sourceStarts[at] - excerptStart,
+            end: sourceEnds[at + needle.length - 1] - excerptStart
+          }
+        });
         total += 1;
         if (batch.length >= batchSize) emit();
         if (total >= maxResults) {

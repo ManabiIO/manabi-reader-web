@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { Button } from '$lib/components/ui/button';
+  import SearchExcerpt from '$lib/components/search-excerpt.svelte';
   import { localProfileUser, localUser } from '$lib/manabi/client';
   import { readerBookKeyFor } from '$lib/reader-identity';
   import type { ContentHit } from './content-search';
@@ -20,8 +21,11 @@
     scanned = 0,
     truncated = false;
   let worker: Worker | undefined, timer: ReturnType<typeof setTimeout> | undefined;
+  let metadataElement: HTMLElement | undefined;
+  let revealingMetadata = false;
   let hits: ContentHit[] = [],
     error = '',
+    queryError = '',
     signature = '',
     metadataLimit = 30;
   $: owner = $localUser?.id ?? null;
@@ -53,6 +57,7 @@
     stop();
     hits = [];
     error = '';
+    queryError = '';
     failed = 0;
     scanned = 0;
     truncated = false;
@@ -61,7 +66,7 @@
     if (!searching) return;
     if ([...query].length > 512) {
       searching = false;
-      error = 'Use a search of 512 characters or fewer.';
+      queryError = 'Use a search of 512 characters or fewer.';
       return;
     }
     const run = serial,
@@ -139,6 +144,24 @@
       }
     }
   }
+  async function showMoreBooks(event: MouseEvent) {
+    const trigger = event.currentTarget;
+    if (!(trigger instanceof HTMLElement) || revealingMetadata) return;
+    const run = serial;
+    const firstNew = metadataLimit;
+    trigger.focus({ preventScroll: true });
+    revealingMetadata = true;
+    metadataLimit += 30;
+    try {
+      await tick();
+      if (!mounted || run !== serial || document.activeElement !== trigger) return;
+      const next =
+        metadataElement?.querySelectorAll<HTMLButtonElement>('button.book-match')[firstNew];
+      next?.focus();
+    } finally {
+      revealingMetadata = false;
+    }
+  }
   function choose(book: ShelfBook, hit?: ContentHit) {
     stop();
     searching = false;
@@ -154,7 +177,7 @@
 </script>
 
 <div class="library-search" aria-label="Library search results">
-  <section aria-labelledby="library-book-matches">
+  <section bind:this={metadataElement} aria-labelledby="library-book-matches">
     <h2 id="library-book-matches">Books <span>{matches.length}</span></h2>
     <p class="description">Titles, authors, series and collections</p>
     {#each matches.slice(0, metadataLimit) as book (book.key)}
@@ -175,9 +198,9 @@
         >
       </button>
     {:else}<p class="description">No matching book metadata.</p>{/each}
-    {#if matches.length > metadataLimit}<Button
+    {#if matches.length > metadataLimit || revealingMetadata}<Button
         variant="ghost"
-        onclick={() => (metadataLimit += 30)}>Show more books</Button
+        onclick={showMoreBooks}>Show more books</Button
       >{/if}
   </section>
   <section aria-labelledby="library-content-matches">
@@ -190,8 +213,10 @@
       {:else if truncated}Showing up to 24 passages per book and 300 overall. Refine your search for
         more specific results.
       {:else if !saved.length}Save a book to this browser to search its content.
-      {:else if !hits.length && !error}No content matches.{:else if !error}{hits.length} matching passages.{/if}
+      {:else if !hits.length && !error && !queryError}No content matches.{:else if !error && !queryError}{hits.length}
+        matching {hits.length === 1 ? 'passage' : 'passages'}.{/if}
     </p>
+    {#if queryError}<p role="alert">{queryError}</p>{/if}
     {#if error}<p role="alert">{error}</p>
       <Button variant="secondary" onclick={schedule}>Retry content search</Button>{/if}
     {#if failed}<p class="description">
@@ -206,9 +231,9 @@
             onclick={() => choose(group.book, hit)}
             aria-label={`Open passage in ${group.book.title}: ${hit.locator.quote}`}
           >
-            <span class="excerpt">{hit.excerpt}</span><span class="description"
-              >Section {hit.locator.resource.spineIndex + 1}</span
-            >
+            <span class="excerpt"
+              ><SearchExcerpt text={hit.excerpt} match={hit.excerptMatch} /></span
+            ><span class="description">Section {hit.locator.resource.spineIndex + 1}</span>
           </button>
         {/each}
       </div>

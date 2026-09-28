@@ -10,6 +10,7 @@ import type { BooksDbBookmarkData, StoredBookData } from './versions/books-db';
 import { commitTransaction } from './commit-transaction.mjs';
 import { throwIfAborted } from '../../../functions/replication/replication-error.ts';
 import { uniqueSharedCopy } from '../../../manabi/shared-title-selection.ts';
+import { mergeCompletion } from '../../../library/completion.ts';
 
 export type BookSummary = Pick<
   StoredBookData,
@@ -33,6 +34,79 @@ export function snapshotBookmarkData(
   if (!Number.isSafeInteger(dataId) || dataId <= 0)
     throw new Error('The bookmark target is invalid.');
   return structuredClone({ ...bookmark, dataId });
+}
+
+export function assertBookPersonalAccess(
+  book: Pick<StoredBookData, 'libraryOwner'>,
+  readerScope: { accountId: string } | undefined,
+  profileId: string | null
+): void {
+  if (
+    (book.libraryOwner !== undefined && book.libraryOwner !== profileId) ||
+    (readerScope && readerScope.accountId !== profileId)
+  )
+    throw new Error('This book belongs to another account.');
+}
+
+export async function readOwnedBookmark(
+  db: IDBPDatabase<BooksDb>,
+  dataId: number,
+  profileId: string | null,
+  assertCurrent: () => void
+): Promise<BooksDbBookmarkData | undefined> {
+  assertCurrent();
+  const tx = db.transaction(['data', 'bookmark', 'readerBookScope']);
+  return commitTransaction(tx, async () => {
+    assertCurrent();
+    const book = await tx.objectStore('data').get(dataId);
+    if (!book) return undefined;
+    const owner = await tx.objectStore('readerBookScope').get(dataId);
+    assertCurrent();
+    if (book.libraryOwner !== undefined && book.libraryOwner !== profileId)
+      throw new Error('This book belongs to another account.');
+    // Personal scope protects the reading state, not otherwise-public local bytes.
+    if (owner && owner.accountId !== profileId) return undefined;
+    const bookmark = await tx.objectStore('bookmark').get(dataId);
+    assertCurrent();
+    return bookmark;
+  });
+}
+
+export async function commitOwnedBookmark(
+  db: IDBPDatabase<BooksDb>,
+  snapshot: BooksDbBookmarkData,
+  profileId: string | null = null,
+  assertCurrent: () => void = () => undefined,
+  signal?: AbortSignal
+) {
+  assertCurrent();
+  signal?.throwIfAborted();
+  const tx = db.transaction(['data', 'bookmark', 'readerBookScope'], 'readwrite');
+  const abort = () => {
+    try {
+      tx.abort();
+    } catch {
+      /* Already settled. */
+    }
+  };
+  signal?.addEventListener('abort', abort, { once: true });
+  try {
+    return await commitTransaction(tx, async () => {
+      assertCurrent();
+      signal?.throwIfAborted();
+      const book = await tx.objectStore('data').get(snapshot.dataId);
+      if (!book) throw new Error('This book is no longer in the library.');
+      const owner = await tx.objectStore('readerBookScope').get(snapshot.dataId);
+      assertBookPersonalAccess(book, owner, profileId);
+      const bookmarks = tx.objectStore('bookmark');
+      const before = await bookmarks.get(snapshot.dataId);
+      assertCurrent();
+      signal?.throwIfAborted();
+      return bookmarks.put(mergeCompletion(before, snapshot));
+    });
+  } finally {
+    signal?.removeEventListener('abort', abort);
+  }
 }
 
 function summarizeBook(book: StoredBookData): BookSummary {
@@ -77,24 +151,52 @@ export async function readBookSummaries(db: IDBPDatabase<BooksDb>): Promise<Book
 export async function updateBookLastRead(
   db: IDBPDatabase<BooksDb>,
   id: number,
-  timestamp: number
+  timestamp: number,
+  profileId: string | null = null,
+  assertCurrent: () => void = () => undefined,
+  signal?: AbortSignal
 ): Promise<BookSummary | undefined> {
   if (!Number.isSafeInteger(id) || id <= 0 || !Number.isFinite(timestamp) || timestamp < 0)
     throw new Error('The book’s last-read update is invalid.');
-  const tx = db.transaction('data', 'readwrite');
-  return commitTransaction(tx, async () => {
-    const current = await tx.store.get(id);
-    if (!current) return undefined;
-    const previous = current.lastBookOpen;
-    const lastBookOpen = Math.max(
-      typeof previous === 'number' && Number.isFinite(previous) ? previous : 0,
-      timestamp
-    );
-    if (lastBookOpen === previous) return summarizeBook(current);
-    const updated = { ...current, lastBookOpen };
-    await tx.store.put(updated);
-    return summarizeBook(updated);
-  });
+  assertCurrent();
+  signal?.throwIfAborted();
+  const tx = db.transaction(['data', 'readerBookScope'], 'readwrite');
+  const abort = () => {
+    try {
+      tx.abort();
+    } catch {
+      /* Already settled. */
+    }
+  };
+  signal?.addEventListener('abort', abort, { once: true });
+  try {
+    return await commitTransaction(tx, async () => {
+      assertCurrent();
+      signal?.throwIfAborted();
+      const data = tx.objectStore('data');
+      const current = await data.get(id);
+      if (!current) return undefined;
+      const owner = await tx.objectStore('readerBookScope').get(id);
+      if (current.libraryOwner !== undefined && current.libraryOwner !== profileId)
+        throw new Error('This book belongs to another account.');
+      // A direct local book can remain readable across profiles, but its prior
+      // profile's recency is personal state and must not be overwritten.
+      if (owner && owner.accountId !== profileId) return summarizeBook(current);
+      const previous = current.lastBookOpen;
+      const lastBookOpen = Math.max(
+        typeof previous === 'number' && Number.isFinite(previous) ? previous : 0,
+        timestamp
+      );
+      if (lastBookOpen === previous) return summarizeBook(current);
+      const updated = { ...current, lastBookOpen };
+      assertCurrent();
+      signal?.throwIfAborted();
+      await data.put(updated);
+      return summarizeBook(updated);
+    });
+  } finally {
+    signal?.removeEventListener('abort', abort);
+  }
 }
 
 /** Local opening may detach a legacy source marker, but is never an import or

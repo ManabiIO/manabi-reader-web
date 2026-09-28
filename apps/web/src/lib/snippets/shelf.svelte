@@ -72,6 +72,7 @@
     visibleSignature = nextVisibleSignature;
     onvisible(visible.map((item) => item.id));
   }
+  $: if (!selecting && anchor) anchor = '';
   function start() {
     stop();
     hits = new Map();
@@ -115,8 +116,12 @@
     if (event.shiftKey && anchor) {
       const a = visible.findIndex((i) => i.id === anchor),
         b = visible.findIndex((i) => i.id === item.id);
-      if (a >= 0 && b >= 0)
+      if (a >= 0 && b >= 0) {
         for (const entry of visible.slice(Math.min(a, b), Math.max(a, b) + 1)) next.add(entry.id);
+      } else {
+        next.add(item.id);
+        anchor = item.id;
+      }
     } else {
       if (next.has(item.id)) next.delete(item.id);
       else next.add(item.id);
@@ -143,12 +148,14 @@
 <div
   class:grid={layout === 'grid'}
   class="snippet-shelf"
+  role="list"
   aria-label={query ? 'Snippet search results' : 'Snippets'}
 >
   {#each visible.slice(0, limit) as item (item.key)}
-    <div class="snippet-card" class:selected={selected.has(item.id)}>
+    <div class="snippet-card" class:selected={selected.has(item.id)} role="listitem">
       {#if selecting}<label class="select"
           ><input
+            class="size-5 accent-primary"
             type="checkbox"
             checked={selected.has(item.id)}
             aria-label={`Select ${item.title}`}
@@ -216,6 +223,7 @@
   .snippet-card.selected {
     outline: 2px solid var(--ring);
     outline-offset: 1px;
+    background: var(--muted);
   }
   .content {
     min-width: 0;
@@ -230,6 +238,12 @@
   }
   .title:hover {
     text-decoration: underline;
+  }
+  .title:focus-visible,
+  .passage:focus-visible {
+    border-radius: 0.5rem;
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
   }
   .excerpt {
     margin-top: 0.4rem;

@@ -42,7 +42,7 @@ jobs:
           python tests/unit/test_library_release_gate.py
           python tests/unit/test_library_release_diagnostics.py
           set -o pipefail
-          node --experimental-strip-types --test tests/unit/library*.test.mjs 2>&1 | tee artifacts/library/units.log
+          node --experimental-strip-types --test tests/unit/library*.test.mjs tests/unit/content-statistics.test.mjs tests/unit/statistics-title-filter.test.mjs 2>&1 | tee artifacts/library/units.log
       - name: Build static application
         env:
           BASE_PATH: /reader-web
@@ -81,6 +81,9 @@ jobs:
             result=${PIPESTATUS[0]}
             if [ "$result" -ne 0 ]; then status=1; fi
             LIBRARY_BROWSER=$engine python tests/browser/test_collection_commit.py 2>&1 | tee artifacts/library/$engine/collection-commit.log
+            result=${PIPESTATUS[0]}
+            if [ "$result" -ne 0 ]; then status=1; fi
+            LIBRARY_BROWSER=$engine python tests/browser/test_preference_sync_recovery.py 2>&1 | tee artifacts/library/$engine/preference-sync-recovery.log
             result=${PIPESTATUS[0]}
             if [ "$result" -ne 0 ]; then status=1; fi
             LIBRARY_BROWSER=$engine python tests/browser/test_import_hydration.py 2>&1 | tee artifacts/library/$engine/import-hydration.log

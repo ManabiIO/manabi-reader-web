@@ -26,3 +26,21 @@ export function visibleLibraryEntries<
     links
   };
 }
+
+/** Reading-data scope may be created for an otherwise public local book.
+ * Content ownership comes from the imported book or its source links.
+ * Contradictory explicit ownership fails closed; [] means public content.
+ */
+export function readerAccessOwners(
+  book: { libraryOwner?: string },
+  scope: { accountId: string } | undefined,
+  links: { owner: string | null }[]
+): string[] | undefined {
+  const durable = new Set<string>();
+  if (book.libraryOwner) durable.add(book.libraryOwner);
+  if (book.libraryOwner && scope?.accountId) durable.add(scope.accountId);
+  if (durable.size > 1) return undefined;
+  if (durable.size === 1) return [...durable];
+  if (links.some((link) => link.owner === null)) return [];
+  return [...new Set(links.flatMap((link) => (link.owner ? [link.owner] : [])))];
+}

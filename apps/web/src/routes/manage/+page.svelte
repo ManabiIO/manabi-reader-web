@@ -15,9 +15,17 @@
   import LogReportDialog from '$lib/components/log-report-dialog.svelte';
   import { mergeEntries } from '$lib/components/merged-header-icon/merged-entries';
   import MessageDialog from '$lib/components/message-dialog.svelte';
-  import { preFilteredTitlesForStatistics$ } from '$lib/components/statistics/statistics-types';
+  import {
+    preFilteredBookKeysForStatistics$,
+    preFilteredTitlesForStatistics$
+  } from '$lib/components/statistics/statistics-types';
   import { pxScreen } from '$lib/css-classes';
   import type { BooksDbBookmarkData } from '$lib/data/database/books-db/versions/books-db';
+  import {
+    deleteStatisticsForIdentityPlan,
+    statisticIdentityPlan,
+    type StatisticsMigrationGuard
+  } from '$lib/data/database/books-db/reader-statistics';
   import { dialogManager } from '$lib/data/dialog-manager';
   import { pagePath } from '$lib/data/env';
   import { logger } from '$lib/data/logger';
@@ -67,13 +75,13 @@
     validateEditorsPickCopy
   } from '$lib/library/editors-pick-storage';
   import { account, currentUser, localProfileUser, localUser } from '$lib/manabi/client';
+  import { captureLibraryOperation } from '$lib/manabi/operation-scope';
   import type { ReaderLocator } from '$lib/reader-location';
   import { clearLibraryLocation, queueLibraryLocation } from '$lib/library/search-navigation';
   import { allLinkedBooks } from '$lib/manabi/books';
   import { sha256 } from '$lib/manabi/sources';
   import type { LibraryMenuModel } from '$lib/library/library-menu';
   import { reduceToEmptyString } from '$lib/functions/rxjs/reduce-to-empty-string';
-  import pLimit from 'p-limit';
   import {
     combineLatest,
     distinctUntilChanged,
@@ -442,7 +450,7 @@
 
     initializeReplicationProgressData();
 
-    const errorTitle = 'Bookimport failed';
+    const errorTitle = 'Book import failed';
     let files: File[];
     try {
       files = await prepareBookImportFiles(fileList, cancelSignal);
@@ -487,7 +495,7 @@
     resetProgress();
 
     if (error) {
-      showError(errorTitle, error, 'Error(s) occurred during bookimport');
+      showError(errorTitle, error, 'The selected book could not be imported');
     }
   }
 
@@ -642,34 +650,40 @@
 
     initializeReplicationProgressData();
 
-    const currentBookCount = $bookCards$.length;
-    const handler = getStorageHandler(window, $storageSource$, '');
-    const { error, deleted } =
-      handler instanceof BrowserStorageHandler
-        ? await handler.deleteBookIds(bookIds, cancelSignal, $keepLocalStatisticsOnDeletion$)
-        : await handler.deleteBookData(
-            $bookCards$.reduce((toDelete, card) => {
-              if (bookIds.includes(card.id)) toDelete.push(card.title);
-              return toDelete;
-            }, [] as string[]),
-            cancelSignal,
-            $keepLocalStatisticsOnDeletion$
-          );
+    try {
+      const currentBookCount = $bookCards$.length;
+      const handler = getStorageHandler(window, $storageSource$, '');
+      const { error, deleted } =
+        handler instanceof BrowserStorageHandler
+          ? await handler.deleteBookIds(bookIds, cancelSignal, $keepLocalStatisticsOnDeletion$)
+          : await handler.deleteBookData(
+              $bookCards$.reduce((toDelete, card) => {
+                if (bookIds.includes(card.id)) toDelete.push(card.title);
+                return toDelete;
+              }, [] as string[]),
+              cancelSignal,
+              $keepLocalStatisticsOnDeletion$
+            );
 
-    resetProgress();
+      await tick();
 
-    await tick();
+      if (deleted.length === currentBookCount) {
+        selectMode = false;
+      } else {
+        selectedBookIds = cloneMutateSet(selectedBookIds, (set) => {
+          deleted.forEach((deletedBookId) => set.delete(deletedBookId));
+        });
+      }
 
-    if (deleted.length === currentBookCount) {
-      selectMode = false;
-    } else {
-      selectedBookIds = cloneMutateSet(selectedBookIds, (set) => {
-        deleted.forEach((deletedBookId) => set.delete(deletedBookId));
-      });
-    }
-
-    if (error) {
-      showError('Deletion failed', error, 'Error(s) occurred during deletion');
+      if (error) showError('Deletion failed', error, 'Error(s) occurred during deletion');
+    } catch (error) {
+      showError(
+        'Deletion failed',
+        error instanceof Error ? error.message : String(error),
+        'Error(s) occurred during deletion'
+      );
+    } finally {
+      resetProgress();
     }
   }
 
@@ -753,75 +767,160 @@
     dialogManager.dialogs$.next([{ component: BookExportDialog, disableCloseOnClick: true }]);
   }
 
-  async function onDeleteStatistics() {
-    const titles = $bookCards$
+  function statisticsAuthority(
+    scope: ReturnType<typeof captureLibraryOperation>,
+    cancellation?: AbortSignal
+  ) {
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    if (scope.signal.aborted || cancellation?.aborted) controller.abort();
+    scope.signal.addEventListener('abort', abort);
+    cancellation?.addEventListener('abort', abort);
+    const assertCurrent = () => {
+      scope.assertCurrent();
+      cancellation?.throwIfAborted();
+      controller.signal.throwIfAborted();
+    };
+    const validate: StatisticsMigrationGuard['validate'] = (book, owner) => {
+      assertCurrent();
+      if (!book) return;
+      if (
+        (book.libraryOwner !== undefined && book.libraryOwner !== scope.profileId) ||
+        (owner && owner.accountId !== scope.profileId)
+      )
+        throw new Error('This book belongs to another account.');
+    };
+    const guard: StatisticsMigrationGuard = {
+      assertCurrent,
+      signal: controller.signal,
+      validate,
+      validateCopy: validate
+    };
+    return {
+      guard,
+      stop() {
+        scope.signal.removeEventListener('abort', abort);
+        cancellation?.removeEventListener('abort', abort);
+      }
+    };
+  }
+
+  async function openSelectedStatistics() {
+    const selectedBooks = $bookCards$
       .filter((card) => selectedBookIds.has(card.id))
-      .map((book) => book.title);
+      .map(({ id, title, contentHash }) => ({ id, title, contentHash }));
+    if (!selectedBooks.length) return;
+    const scope = captureLibraryOperation();
+    const authority = statisticsAuthority(scope);
+    try {
+      const db = await database.db;
+      authority.guard.assertCurrent();
+      const plans = [];
+      for (const book of selectedBooks)
+        plans.push(await statisticIdentityPlan(db, book.id, authority.guard, book));
+      authority.guard.assertCurrent();
+      const previousTitles = $preFilteredTitlesForStatistics$;
+      const previousKeys = $preFilteredBookKeysForStatistics$;
+      $preFilteredTitlesForStatistics$ = new Set(plans.map((plan) => plan.title));
+      $preFilteredBookKeysForStatistics$ = new Set(plans.flatMap((plan) => plan.keys));
+      try {
+        await goto(`${pagePath}${mergeEntries.STATISTICS.routeId}`);
+      } catch (error) {
+        $preFilteredTitlesForStatistics$ = previousTitles;
+        $preFilteredBookKeysForStatistics$ = previousKeys;
+        throw error;
+      }
+    } catch (error) {
+      showError(
+        'Statistics unavailable',
+        error instanceof Error ? error.message : String(error),
+        'The selected statistics could not be opened.'
+      );
+    } finally {
+      authority.stop();
+      scope.stop();
+    }
+  }
 
-    let wasCanceled = false;
+  async function onDeleteStatistics() {
+    const selectedBooks = $bookCards$
+      .filter((card) => selectedBookIds.has(card.id))
+      .map(({ id, title, contentHash }) => ({ id, title, contentHash }));
+    if (!selectedBooks.length) return;
 
-    if ($confirmStatisticsDeletion$) {
-      wasCanceled = await new Promise((resolver) => {
-        dialogManager.dialogs$.next([
-          {
-            component: ConfirmDialog,
-            props: {
-              dialogHeader: 'Delete Data',
-              dialogMessage: `This will delete all Statistics for the selected ${pluralize(
-                titles.length,
-                'Title',
-                false
-              )} (which may include start and/or completion Data)\n\nExecute a one time Sync with an export behavior of "replace" and/or statistics merge mode of "replace" to apply deletions to other devices`,
-              contentStyles: 'white-space: pre-line;',
-              resolver
+    const scope = captureLibraryOperation();
+    let progressStarted = false;
+    try {
+      let wasCanceled = false;
+
+      if ($confirmStatisticsDeletion$) {
+        wasCanceled = await new Promise((resolver) => {
+          dialogManager.dialogs$.next([
+            {
+              component: ConfirmDialog,
+              props: {
+                dialogHeader: 'Delete Data',
+                dialogMessage: `This will delete all Statistics for the selected ${pluralize(
+                  selectedBooks.length,
+                  'Book',
+                  false
+                )} (which may include start and/or completion Data)\n\nExecute a one time Sync with an export behavior of "replace" and/or statistics merge mode of "replace" to apply deletions to other devices`,
+                contentStyles: 'white-space: pre-line;',
+                resolver
+              }
             }
-          }
-        ]);
-      });
-    }
+          ]);
+        });
+      }
 
-    if (wasCanceled) {
-      return;
-    }
+      if (wasCanceled) return;
+      scope.assertCurrent();
+      cancelTooltip = `Cancels the current Process`;
+      initializeReplicationProgressData();
+      progressStarted = true;
 
-    cancelTooltip = `Cancels the current Process`;
+      const authority = statisticsAuthority(scope, cancelSignal);
+      try {
+        let failed = 0;
+        const db = await database.db;
+        authority.guard.assertCurrent();
 
-    initializeReplicationProgressData();
+        replicationProgress$.next({ progressBase: 1, maxProgress: selectedBooks.length });
 
-    const limiter = pLimit(1);
-    const tasks: Promise<void>[] = [];
-
-    let failed = 0;
-
-    replicationProgress$.next({ progressBase: 1, maxProgress: titles.length });
-
-    titles.forEach((title) => {
-      tasks.push(
-        limiter(async () => {
+        for (const book of selectedBooks) {
           try {
-            throwIfAborted(cancelSignal);
-            await database.deleteStatisticEntries([title], true);
-
+            authority.guard.assertCurrent();
+            const plan = await statisticIdentityPlan(db, book.id, authority.guard, book);
+            if (plan.unresolvedLegacy)
+              throw new Error(
+                `Older statistics for “${plan.title}” cannot be safely assigned to this copy. ` +
+                  'Open Statistics and export the raw history before resolving the duplicate title.'
+              );
+            await deleteStatisticsForIdentityPlan(db, book.id, plan, authority.guard);
             replicationProgress$.next({ progressToAdd: 1 });
           } catch (error) {
-            handleErrorDuringReplication(error, `Error on deleting statistics for ${title}: `, [
-              limiter
-            ]);
-
+            handleErrorDuringReplication(error, `Error on deleting statistics for ${book.title}: `);
             failed += 1;
           }
-        })
-      );
-    });
+        }
 
-    await Promise.all(tasks).catch(() => {});
-
-    resetProgress();
-
-    if (failed) {
-      const errorMessage = `Unable to delete statistics of ${pluralize(failed, 'Title')}`;
-
-      showError('Deletion Failed', errorMessage, errorMessage);
+        if (failed) {
+          const errorMessage = `Unable to delete statistics of ${pluralize(failed, 'Book')}`;
+          showError('Deletion Failed', errorMessage, errorMessage);
+        }
+      } finally {
+        authority.stop();
+      }
+    } catch (error) {
+      if (!cancelSignal.aborted)
+        showError(
+          'Deletion Failed',
+          error instanceof Error ? error.message : String(error),
+          'The selected statistics were not changed.'
+        );
+    } finally {
+      if (progressStarted) resetProgress();
+      scope.stop();
     }
   }
 
@@ -1046,13 +1145,7 @@
           replicationProgressRemaining = 'Canceling ...';
         }
       }}
-      on:selectionToStatistics={() => {
-        $preFilteredTitlesForStatistics$ = new Set(
-          $bookCards$.filter((card) => selectedBookIds.has(card.id)).map((book) => book.title)
-        );
-
-        goto(`${pagePath}${mergeEntries.STATISTICS.routeId}`);
-      }}
+      on:selectionToStatistics={() => void openSelectedStatistics()}
       on:deleteStatistics={onDeleteStatistics}
       on:replicateData={onReplicateData}
       on:importBackup={(ev) => onImportBackup(ev.detail)}

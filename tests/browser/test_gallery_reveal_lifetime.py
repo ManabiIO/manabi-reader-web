@@ -189,7 +189,7 @@ class GalleryRevealLifetime(GalleryRevealBase):
             gate.release.set()
             self.page.wait_for_function('''() => [...document.fonts].some(
               f => f.family.includes('Noto Serif JP') && f.status === 'loaded')''')
-            self.page.wait_for_function('window.galleryRebinds > 0')
+            self.page.wait_for_function('() => window.galleryRebinds > 0')
             self.assertFalse(gate.expired, 'The server must release by user action, not expiry')
             # A negative assertion must outlive the route's 250ms observation queue.
             # This is one settlement window, not a retry-until-green loop.

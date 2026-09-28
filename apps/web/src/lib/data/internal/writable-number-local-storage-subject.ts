@@ -11,6 +11,7 @@ export function writableNumberLocalStorageSubject(storage = localStorage) {
   return writableStorageSubject(
     storage,
     (x) => +x,
-    (x) => `${x}`
+    (x) => `${x}`,
+    (value, defaultValue) => (Number.isFinite(value) ? value : defaultValue)
   );
 }

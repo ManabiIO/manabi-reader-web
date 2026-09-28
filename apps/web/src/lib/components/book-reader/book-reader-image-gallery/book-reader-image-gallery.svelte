@@ -114,8 +114,14 @@
   }
 
   function move(offset: number) {
-    focusGeneration += 1;
-    selectedImageIndex += offset;
+    const nextIndex = selectedImageIndex + offset;
+    if (closed || nextIndex < 0 || nextIndex >= $readerImageGalleryPictures$.length) return;
+    const generation = ++focusGeneration;
+    // Paging can disable the focused end control or remove a reveal button.
+    // Hand ownership to the stable viewer before updating either one.
+    imageContainer?.focus({ preventScroll: true });
+    if (closed || generation !== focusGeneration) return;
+    selectedImageIndex = nextIndex;
     const thumbnail = contentContainer?.querySelector<HTMLElement>(
       `button[data-image-index="${selectedImageIndex}"]`
     );
@@ -148,7 +154,9 @@
     class="top-0 left-0 h-dvh max-h-dvh w-full max-w-none translate-x-0 translate-y-0 grid-rows-[auto_minmax(0,1fr)] gap-0 rounded-none p-0 sm:max-w-none writing-horizontal-tb"
     onCloseAutoFocus={(event) => {
       event.preventDefault();
-      document.querySelector<HTMLButtonElement>('[aria-label="Show reading controls"]')?.focus();
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="Show reading controls"]')
+        ?.focus({ preventScroll: true });
     }}
   >
     <header class="gallery-header border-b">

@@ -102,7 +102,7 @@
   });
 </script>
 
-<div class="reading-tools" aria-label="Snippet reading controls">
+<div class="reading-tools" role="toolbar" aria-label="Snippet reading controls">
   <Button
     variant="ghost"
     size="sm"
