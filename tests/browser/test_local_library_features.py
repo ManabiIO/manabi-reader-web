@@ -134,7 +134,8 @@ class DavHandler(BaseHTTPRequestHandler):
         body = self.state['files'].get(path)
         if body is None:
             self.send(404); return
-        gate = self.state.get('book_get_gate') if path.endswith('.epub') else None
+        gate = (self.state.get('book_get_gate') if path.endswith('.epub') else
+                self.state.get('sync_get_gate') if path.startswith('/Books/.manabi-reader/') and path.endswith('.json') else None)
         if gate:
             self.state['get_started'].set()
             gate.wait(15)

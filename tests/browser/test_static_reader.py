@@ -117,6 +117,7 @@ class StaticHandler(SimpleHTTPRequestHandler):
     account_requests = []
     preference_revision = 0
     preference_settings = {}
+    presentation_enabled = False
     personal_enabled = False
     personal_mutations = []
 
@@ -126,6 +127,8 @@ class StaticHandler(SimpleHTTPRequestHandler):
         type(self).account_requests.append({
             'method': self.command,
             'path': urlsplit(self.path).path,
+            'query': urlsplit(self.path).query,
+            'library_items': self.headers.get('X-Manabi-Library-Items'),
             'user': self.headers.get('X-Manabi-User'),
             'csrf': self.headers.get('X-CSRFToken'),
             'if_match': self.headers.get('If-Match'),
@@ -168,7 +171,11 @@ class StaticHandler(SimpleHTTPRequestHandler):
                     'user_id': identity,
                     'schema_version': 1,
                     'revision': type(self).preference_revision,
-                    'settings': type(self).preference_settings
+                    'settings': type(self).preference_settings,
+                    **({'book_presentation_version': 1} if
+                       type(self).presentation_enabled and
+                       parse_qs(urlsplit(self.path).query).get('book_presentation_version') == ['1']
+                       else {})
                 }, user=identity)
             elif path.endswith('/connections/'):
                 gate = type(self).connections_gate
@@ -202,7 +209,11 @@ class StaticHandler(SimpleHTTPRequestHandler):
                 'user_id': identity,
                 'schema_version': 1,
                 'revision': type(self).preference_revision,
-                'settings': type(self).preference_settings
+                'settings': type(self).preference_settings,
+                **({'book_presentation_version': 1} if
+                   type(self).presentation_enabled and
+                   parse_qs(urlsplit(self.path).query).get('book_presentation_version') == ['1']
+                   else {})
             }, user=identity)
             return
         self.send_error(404)

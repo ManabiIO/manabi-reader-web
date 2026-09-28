@@ -386,11 +386,9 @@ export class BrowserStorageHandler extends BaseStorageHandler {
     BaseStorageHandler.reportProgress(0.5);
 
     if (dataId) {
-      const bookmarkData = data;
-
-      bookmarkData.dataId = dataId;
-
-      await database.putBookmark(bookmarkData);
+      // Replication/source handlers retain ownership of their decoded object.
+      // Do not mutate it merely to retarget the browser copy.
+      await database.putBookmark({ ...data, dataId });
     }
   }
 

@@ -103,6 +103,19 @@
   export function openBackupPicker() {
     backupImportElm?.click();
   }
+  function enterSelectionMode() {
+    selectMode = true;
+    // The menu trigger disappears when the selection toolbar replaces it.
+    // Focus a surviving book after the menu finishes restoring trigger focus.
+    void tick().then(() =>
+      requestAnimationFrame(() => {
+        if (selectMode)
+          document
+            .querySelector<HTMLButtonElement>('.library-workspace [data-selection-key]')
+            ?.focus();
+      })
+    );
+  }
   let countImportElm: HTMLInputElement;
   $: isOldUrl = browser && isOnOldUrl(window);
   $: showLoadCount = browser && new URLSearchParams(window.location.search).has('count');
@@ -316,7 +329,7 @@
                 >
                 <Menu.Separator />
               {/if}
-              <Menu.Item disabled={!hasBooks} onSelect={() => (selectMode = true)}
+              <Menu.Item disabled={!hasBooks} onSelect={enterSelectionMode}
                 ><SelectionAll aria-hidden="true" />Select Books</Menu.Item
               >
               <Menu.Sub>
@@ -781,7 +794,7 @@
             </Menu.RadioGroup>
           </ActionMenu>
         {/if}
-        <Button variant="ghost" disabled={!hasBooks} onclick={() => (selectMode = true)}
+        <Button variant="ghost" disabled={!hasBooks} onclick={enterSelectionMode}
           >Select books</Button
         >
         <ActionMenu label="Help">

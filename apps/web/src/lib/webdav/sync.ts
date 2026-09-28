@@ -18,6 +18,8 @@ import {
   statisticRange
 } from '$lib/data/database/books-db/reader-statistics';
 import { currentUser } from '$lib/manabi/client';
+import { captureLibraryOperation } from '$lib/manabi/operation-scope';
+import { commitTransaction } from '$lib/data/database/books-db/commit-transaction.mjs';
 import { unlocatedImportRecord } from '$lib/manabi/imported-notes';
 import {
   integrationDB,
@@ -51,15 +53,85 @@ const stores = [
   'lastModified'
 ] as const;
 type Tx = IDBPTransaction<BooksDb, typeof stores, 'readwrite'>;
-const currentScope = () => currentUser()?.id ?? null;
+type Operation = ReturnType<typeof captureLibraryOperation>;
+
+// No network/other-database awaits inside this boundary. Revocation rolls back
+// pending writes; a successful request is not acknowledgement of a commit.
+async function scopedTransaction<T>(
+  tx: { done: Promise<unknown>; abort(): void },
+  operation: Operation,
+  work: () => Promise<T>
+): Promise<T> {
+  const abort = () => {
+    try {
+      tx.abort();
+    } catch {
+      /* Already settled. */
+    }
+  };
+  operation.signal.addEventListener('abort', abort, { once: true });
+  try {
+    return await commitTransaction(tx, async () => {
+      operation.assertCurrent();
+      const result = await work();
+      operation.assertCurrent();
+      return result;
+    });
+  } finally {
+    operation.signal.removeEventListener('abort', abort);
+  }
+}
+
+function assertBook(
+  link: BookLink,
+  book: BooksDb['data']['value'] | undefined,
+  scope: BooksDb['readerBookScope']['value'] | undefined
+): asserts book is BooksDb['data']['value'] {
+  if (
+    !book ||
+    book.id !== link.bookId ||
+    !/^[a-f0-9]{64}$/.test(link.contentHash) ||
+    book.contentHash?.toLowerCase() !== link.contentHash ||
+    (book.libraryOwner !== undefined && book.libraryOwner !== link.davAccountId) ||
+    (scope && scope.accountId !== link.davAccountId)
+  )
+    throw new Error('This WebDAV book is unavailable in the active account.');
+}
+
+async function readBook(tx: Tx, link: BookLink) {
+  const book = await tx.objectStore('data').get(link.bookId);
+  const scope = await tx.objectStore('readerBookScope').get(link.bookId);
+  assertBook(link, book, scope);
+  // Statistics and legacy unscoped annotations use content keys, not numeric
+  // book IDs. A foreign same-byte copy makes those shared records unsafe to
+  // export, even when the particular physical link belongs to this account.
+  for (
+    let cursor = await tx.objectStore('data').openCursor();
+    cursor;
+    cursor = await cursor.continue()
+  ) {
+    const copy = cursor.value;
+    if (copy.id === book.id || copy.contentHash?.toLowerCase() !== link.contentHash) continue;
+    const owner = await tx.objectStore('readerBookScope').get(copy.id);
+    if (
+      (copy.libraryOwner !== undefined && copy.libraryOwner !== link.davAccountId) ||
+      (owner && owner.accountId !== link.davAccountId)
+    )
+      throw new Error(
+        'These book copies have conflicting account ownership. WebDAV sync is paused.'
+      );
+  }
+  return book;
+}
 function status(id: string, value: DavSyncStatus) {
   davSyncStatus.update((map) => ({ ...map, [id]: value }));
 }
 export function readerIsOpen() {
   return typeof window !== 'undefined' && /\/b\/?$/.test(window.location.pathname);
 }
-function guard(link: BookLink) {
-  if (link.davAccountId === undefined || link.davAccountId !== currentScope())
+function guard(link: BookLink, operation: Operation) {
+  operation.assertCurrent();
+  if (link.davAccountId === undefined || link.davAccountId !== operation.profileId)
     throw new Error(
       'WebDAV reading sync is bound to a different account session. Review this book’s sync choice.'
     );
@@ -76,29 +148,16 @@ function checkSourceRoot(link: BookLink, root: string) {
       'This book belongs to a different WebDAV folder. Reimport it from the selected folder before enabling sync.'
     );
 }
-async function active(link: BookLink) {
-  guard(link);
+async function active(link: BookLink, operation: Operation) {
+  guard(link, operation);
   const now = await (await integrationDB()).get('books', link.id);
-  if (
-    !now ||
-    !now.syncEnabled ||
-    now.davAccountId !== link.davAccountId ||
-    now.contentHash !== link.contentHash ||
-    now.root !== link.root
-  )
+  if (!now || !now.syncEnabled || !equal(now, link))
     throw new Error('This WebDAV sync was disabled or its book changed.');
-  guard(link);
+  guard(link, operation);
 }
-async function snapshot(tx: Tx, link: BookLink) {
-  guard(link);
-  const book = await tx.objectStore('data').get(link.bookId),
-    scope = await tx.objectStore('readerBookScope').get(link.bookId);
-  if (
-    !book ||
-    book.contentHash !== link.contentHash ||
-    (scope && scope.accountId !== link.davAccountId)
-  )
-    throw new Error('This WebDAV book is unavailable in the active account.');
+async function snapshot(tx: Tx, link: BookLink, operation: Operation) {
+  guard(link, operation);
+  const book = await readBook(tx, link);
   const bookKey = `content:${link.contentHash}`,
     records: Record<string, unknown> = Object.create(null);
   const mark = await tx.objectStore('bookmark').get(book.id);
@@ -128,7 +187,7 @@ async function snapshot(tx: Tx, link: BookLink) {
       checkpoint.accountId !== link.davAccountId)
   )
     throw new Error('WebDAV acknowledgement belongs to another source.');
-  guard(link);
+  guard(link, operation);
   return { book, records: documentFor(bookKey, wireCopy(records)).records, checkpoint };
 }
 async function apply(
@@ -136,13 +195,14 @@ async function apply(
   link: BookLink,
   here: Record<string, unknown>,
   next: Record<string, unknown>,
-  title: string
+  title: string,
+  operation: Operation
 ) {
   const bookKey = `content:${link.contentHash}`,
     time = new Date().toISOString();
   for (const key of new Set([...Object.keys(here), ...Object.keys(next)])) {
     if (equal(here[key], next[key])) continue;
-    guard(link);
+    guard(link, operation);
     if (key === 'resume') {
       const value = next[key] as Omit<BooksDb['bookmark']['value'], 'dataId'> | undefined;
       if (value) await tx.objectStore('bookmark').put({ ...value, dataId: link.bookId });
@@ -236,221 +296,224 @@ async function apply(
   }
 }
 export async function setDavBookSync(id: string, enabled: boolean) {
-  const scope = currentScope();
-  const db = await integrationDB(),
-    link = await db.get('books', id);
-  if (!link || !link.sourceId.startsWith('webdav-')) throw new Error('WebDAV book not found.');
-  return withDavSourceLock(link.sourceId, async () => {
-    const source = await davSource(link.sourceId);
-    checkSourceRoot(link, source.root);
-    const bookScope = await (await database.db).get('readerBookScope', link.bookId);
-    if (enabled && bookScope && bookScope.accountId !== scope)
-      throw new Error('This book belongs to another account.');
-    if (enabled && !source.configuration.writable)
-      throw new Error('Allow reading-data write-back in the WebDAV connection first.');
-    if (scope !== currentScope()) throw new Error('Account changed.');
-    // Consent cannot resurrect a disconnected or replaced link after a picker/account await.
-    const tx = db.transaction(['books', 'metadata'], 'readwrite');
-    try {
-      const latest = await tx.objectStore('books').get(id);
-      const configuration = await tx.objectStore('metadata').get(`webdav-source:${link.sourceId}`);
-      if (
-        scope !== currentScope() ||
-        !equal(latest, link) ||
-        !equal(configuration, source.configuration)
-      )
-        throw new Error('The account or WebDAV book changed. Review its sync choice again.');
-      await tx.objectStore('books').put({ ...link, syncEnabled: enabled, davAccountId: scope });
-      await tx.done;
-    } catch (error) {
-      try {
-        tx.abort();
-      } catch {
-        /* The transaction may already have failed. */
-      }
-      await tx.done.catch(() => undefined);
-      throw error;
-    }
-    status(id, {
-      state: enabled ? 'idle' : 'off',
-      message: enabled
-        ? 'WebDAV reading sync enabled for this account session.'
-        : 'WebDAV reading sync is off.'
-    });
-  });
+  const operation = captureLibraryOperation(currentUser()?.id ?? null);
+  try {
+    const db = await integrationDB(),
+      link = await db.get('books', id);
+    operation.assertCurrent();
+    if (!link || link.owner !== null || !link.sourceId.startsWith('webdav-'))
+      throw new Error('WebDAV book not found.');
+    return await withDavSourceLock(
+      link.sourceId,
+      async () => {
+        operation.assertCurrent();
+        const source = await davSource(link.sourceId);
+        checkSourceRoot(link, source.root);
+        if (enabled) {
+          const books = await database.db;
+          const read = books.transaction(stores, 'readwrite');
+          await scopedTransaction(read, operation, () =>
+            readBook(read, { ...link, davAccountId: operation.profileId })
+          );
+          if (!source.configuration.writable)
+            throw new Error('Allow reading-data write-back in the WebDAV connection first.');
+        }
+        operation.assertCurrent();
+        // Revocation remains possible for a stale/removed book. Enabling requires
+        // live content/ownership; every actual sync validates them again.
+        const tx = db.transaction(['books', 'metadata'], 'readwrite');
+        await scopedTransaction(tx, operation, async () => {
+          const latest = await tx.objectStore('books').get(id);
+          const configuration = await tx
+            .objectStore('metadata')
+            .get(`webdav-source:${link.sourceId}`);
+          if (!equal(latest, link) || !equal(configuration, source.configuration))
+            throw new Error('The account or WebDAV book changed. Review its sync choice again.');
+          operation.assertCurrent();
+          await tx.objectStore('books').put({
+            ...link,
+            syncEnabled: enabled,
+            davAccountId: operation.profileId
+          });
+        });
+        status(id, {
+          state: enabled ? 'idle' : 'off',
+          message: enabled
+            ? 'WebDAV reading sync enabled for this account session.'
+            : 'WebDAV reading sync is off.'
+        });
+      },
+      operation.signal
+    );
+  } finally {
+    operation.stop();
+  }
 }
 /** Three-way field merge. A remote acceptance and local edits are reconciled in one local transaction. */
 export async function syncDavBook(id: string, choice?: 'local' | 'remote') {
-  const scope = currentScope();
-  return exclusive(`webdav-sync:${id}`, async () => {
-    try {
-      const link = await (await integrationDB()).get('books', id);
-      if (!link) {
-        status(id, { state: 'off', message: 'This WebDAV source is disconnected.' });
-        return;
-      }
-      return await withDavSourceLock(link.sourceId, () => {
-        if (scope !== currentScope() || link.davAccountId !== scope)
-          throw new Error('Account changed while WebDAV sync was waiting. Review its sync choice.');
-        return withWebDavApplyLease(() => performDavSync(id, choice));
-      });
-    } catch (error) {
-      status(id, {
-        state: 'error',
-        message: error instanceof Error ? error.message : 'WebDAV sync failed; local data was kept.'
-      });
-    }
-  });
-}
-async function performDavSync(id: string, choice?: 'local' | 'remote') {
-  let link: BookLink | undefined;
+  const operation = captureLibraryOperation(currentUser()?.id ?? null);
   try {
-    link = await (await integrationDB()).get('books', id);
+    // Pin the link before waiting on either lock. Do not reread a replacement
+    // link under a lock acquired for a different source or reading history.
+    const link = await (await integrationDB()).get('books', id);
+    operation.assertCurrent();
     if (!link || !link.syncEnabled) {
       status(id, { state: 'off', message: 'Enable WebDAV reading sync for this book first.' });
       return;
     }
-    await active(link);
-    status(id, { state: 'syncing', message: 'Syncing directly with WebDAV…' });
-    const source = await davSource(link.sourceId),
-      db = await database.db,
-      bookKey = `content:${link.contentHash}`;
-    checkSourceRoot(link, source.root);
-    const book = await db.get('data', link.bookId);
-    if (!book) throw new Error('Book no longer exists.');
-    const scope = await db.get('readerBookScope', link.bookId);
-    if (scope && scope.accountId !== link.davAccountId)
-      throw new Error('Book belongs to another account.');
-    await migrateLegacyStatistics(db, book);
-    await active(link);
-    const read = db.transaction(stores, 'readwrite');
-    let observed: Awaited<ReturnType<typeof snapshot>>;
-    try {
-      observed = await snapshot(read, link);
-      await read.done;
-    } catch (error) {
-      try {
-        read.abort();
-      } catch {
-        /* Already committed or aborted. */
-      }
-      await read.done.catch(() => undefined);
-      throw error;
-    }
-    const remote = await source.state(`book_${link.contentHash}`);
-    await active(link);
-    const base = observed.checkpoint?.base ?? {};
-    if (remote.value === null && Object.keys(base).length && choice !== 'local') {
-      status(id, {
-        state: 'conflict',
-        message:
-          'The previously synced WebDAV file is missing. Local data was kept. Restore it explicitly; a missing file is not a reset.',
-        conflicts: ['missing remote file'],
-        missing: true
-      });
-      return;
-    }
-    const remoteRecords =
-      remote.value === null ? {} : validateDavDocument(remote.value, bookKey).records;
-    const result =
-      remote.value === null
-        ? { merged: observed.records, conflicts: [] }
-        : mergeRecords(base, observed.records, remoteRecords);
-    const conflicts = [
-      ...new Set([
-        ...result.conflicts,
-        ...(observed.checkpoint?.conflicts ?? []).filter(
-          (key) => !equal(observed.records[key], remoteRecords[key])
-        )
-      ])
-    ];
-    if (conflicts.length && !choice) {
-      status(id, {
-        state: 'conflict',
-        message: `${conflicts.length} WebDAV field(s) changed in both places. Review before choosing a copy.`,
-        conflicts
-      });
-      return;
-    }
-    for (const key of conflicts) {
-      const selected = (choice === 'local' ? observed.records : remoteRecords)[key];
-      if (selected === undefined) delete result.merged[key];
-      else result.merged[key] = selected;
-    }
-    const document = documentFor(bookKey, result.merged);
-    await active(link);
-    if (remote.value === null || !equal(remoteRecords, document.records))
-      await source.write(
-        `book_${link.contentHash}`,
-        document as unknown as Record<string, unknown>,
-        remote.revision
-      );
-    await active(link);
-    const tx = db.transaction(stores, 'readwrite');
-    let lateConflicts: string[] = [];
-    try {
-      const current = await snapshot(tx, link);
-      if (!equal(current.checkpoint, observed.checkpoint))
-        throw new Error('Another tab completed a WebDAV sync. Refresh and retry.');
-      const late = mergeRecords(observed.records, current.records, document.records);
-      lateConflicts = late.conflicts;
-      await apply(tx, link, current.records, late.merged, current.book.title);
-      const checkpoint: ExternalSyncState = {
-        id: stateId(link),
-        bookId: link.bookId,
-        sourceId: link.sourceId,
-        root: link.root,
-        accountId: link.davAccountId!,
-        base: document.records,
-        conflicts: lateConflicts
-      };
-      await tx.objectStore('readerExternalSync').put(checkpoint);
-      guard(link);
-      await tx.done;
-    } catch (error) {
-      try {
-        tx.abort();
-      } catch {
-        /* Already committed or aborted. */
-      }
-      await tx.done.catch(() => undefined);
-      throw error;
-    }
-    database.bookmarksChanged$.next();
-    database.dataListChanged$.next(undefined);
-    status(
-      id,
-      lateConflicts.length
-        ? {
-            state: 'conflict',
-            message:
-              'Local edits arrived during sync. They were kept; review before the next upload.',
-            conflicts: lateConflicts
-          }
-        : {
-            state: 'synced',
-            message:
-              'Reading position, statistics, annotations and imported notes synced directly with WebDAV.'
-          }
+    if (link.owner !== null || !link.sourceId.startsWith('webdav-'))
+      throw new Error('WebDAV book not found.');
+    await exclusive(
+      `webdav-sync:${id}`,
+      () =>
+        withDavSourceLock(
+          link.sourceId,
+          () => {
+            guard(link, operation);
+            return withWebDavApplyLease(() => performDavSync(link, operation, choice));
+          },
+          operation.signal
+        ),
+      operation.signal
     );
   } catch (error) {
     status(id, {
       state: error instanceof DavError && error.code === 'conflict' ? 'conflict' : 'error',
       message: error instanceof Error ? error.message : 'WebDAV sync failed; local data was kept.'
     });
+  } finally {
+    operation.stop();
   }
+}
+async function performDavSync(link: BookLink, operation: Operation, choice?: 'local' | 'remote') {
+  const id = link.id;
+  await active(link, operation);
+  status(id, { state: 'syncing', message: 'Syncing directly with WebDAV…' });
+  const source = await davSource(link.sourceId),
+    db = await database.db,
+    bookKey = `content:${link.contentHash}`;
+  checkSourceRoot(link, source.root);
+  const preflight = db.transaction(stores, 'readwrite');
+  const book = await scopedTransaction(preflight, operation, () => readBook(preflight, link));
+  await migrateLegacyStatistics(db, book, {
+    assertCurrent: operation.assertCurrent,
+    signal: operation.signal,
+    validate: (current, owner) => assertBook(link, current, owner),
+    validateCopy: (copy, owner) => assertBook({ ...link, bookId: copy.id }, copy, owner)
+  });
+  await active(link, operation);
+  const read = db.transaction(stores, 'readwrite');
+  const observed = await scopedTransaction(read, operation, () => snapshot(read, link, operation));
+  const remote = await source.state(`book_${link.contentHash}`);
+  await active(link, operation);
+  const base = observed.checkpoint?.base ?? {};
+  if (remote.value === null && Object.keys(base).length && choice !== 'local') {
+    status(id, {
+      state: 'conflict',
+      message:
+        'The previously synced WebDAV file is missing. Local data was kept. Restore it explicitly; a missing file is not a reset.',
+      conflicts: ['missing remote file'],
+      missing: true
+    });
+    return;
+  }
+  const remoteRecords =
+    remote.value === null ? {} : validateDavDocument(remote.value, bookKey).records;
+  const result =
+    remote.value === null
+      ? { merged: observed.records, conflicts: [] }
+      : mergeRecords(base, observed.records, remoteRecords);
+  const conflicts = [
+    ...new Set([
+      ...result.conflicts,
+      ...(observed.checkpoint?.conflicts ?? []).filter(
+        (key) => !equal(observed.records[key], remoteRecords[key])
+      )
+    ])
+  ];
+  if (conflicts.length && !choice) {
+    status(id, {
+      state: 'conflict',
+      message: `${conflicts.length} WebDAV field(s) changed in both places. Review before choosing a copy.`,
+      conflicts
+    });
+    return;
+  }
+  for (const key of conflicts) {
+    const selected = (choice === 'local' ? observed.records : remoteRecords)[key];
+    if (selected === undefined) delete result.merged[key];
+    else result.merged[key] = selected;
+  }
+  const document = documentFor(bookKey, result.merged);
+  await active(link, operation);
+  // Ownership/content can change while the remote GET is in flight. Recheck
+  // before sending any locally captured personal data to the server.
+  const authorize = db.transaction(stores, 'readwrite');
+  await scopedTransaction(authorize, operation, () => readBook(authorize, link));
+  guard(link, operation);
+  if (remote.value === null || !equal(remoteRecords, document.records))
+    await source.write(
+      `book_${link.contentHash}`,
+      document as unknown as Record<string, unknown>,
+      remote.revision
+    );
+  await active(link, operation);
+  const tx = db.transaction(stores, 'readwrite');
+  const lateConflicts = await scopedTransaction(tx, operation, async () => {
+    const current = await snapshot(tx, link, operation);
+    if (!equal(current.checkpoint, observed.checkpoint))
+      throw new Error('Another tab completed a WebDAV sync. Refresh and retry.');
+    const late = mergeRecords(observed.records, current.records, document.records);
+    await apply(tx, link, current.records, late.merged, current.book.title, operation);
+    const checkpoint: ExternalSyncState = {
+      id: stateId(link),
+      bookId: link.bookId,
+      sourceId: link.sourceId,
+      root: link.root,
+      accountId: link.davAccountId!,
+      base: document.records,
+      conflicts: late.conflicts
+    };
+    await tx.objectStore('readerExternalSync').put(checkpoint);
+    guard(link, operation);
+    return late.conflicts;
+  });
+  database.bookmarksChanged$.next();
+  database.dataListChanged$.next(undefined);
+  status(
+    id,
+    lateConflicts.length
+      ? {
+          state: 'conflict',
+          message:
+            'Local edits arrived during sync. They were kept; review before the next upload.',
+          conflicts: lateConflicts
+        }
+      : {
+          state: 'synced',
+          message:
+            'Reading position, statistics, annotations and imported notes synced directly with WebDAV.'
+        }
+  );
 }
 export async function syncEnabledDavBooks() {
   if (readerIsOpen() || (typeof document !== 'undefined' && document.visibilityState === 'hidden'))
     return;
-  const links = await (await integrationDB()).getAll('books');
-  for (const link of links) {
-    if (
-      link.sourceId.startsWith('webdav-') &&
-      link.syncEnabled &&
-      link.davAccountId === currentScope() &&
-      get(davSyncStatus)[link.id]?.state !== 'conflict'
-    )
-      await syncDavBook(link.id);
+  const operation = captureLibraryOperation(currentUser()?.id ?? null);
+  try {
+    const links = await (await integrationDB()).getAll('books');
+    for (const link of links) {
+      // A batch must not switch accounts halfway through its saved link list.
+      operation.assertCurrent();
+      if (
+        link.sourceId.startsWith('webdav-') &&
+        link.syncEnabled &&
+        link.davAccountId === operation.profileId &&
+        get(davSyncStatus)[link.id]?.state !== 'conflict'
+      )
+        await syncDavBook(link.id);
+    }
+  } finally {
+    operation.stop();
   }
 }

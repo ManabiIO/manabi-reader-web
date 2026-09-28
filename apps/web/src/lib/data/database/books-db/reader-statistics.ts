@@ -6,6 +6,7 @@
 
 import type { IDBPDatabase } from 'idb';
 import type BooksDb from './versions/books-db';
+import { commitTransaction } from './commit-transaction.mjs';
 import type {
   BooksDbBookData,
   BooksDbContentStatistic,
@@ -73,6 +74,21 @@ function sameDay(left: BooksDbStatistic, right: BooksDbStatistic): boolean {
   );
 }
 
+/** Optional authority retained by a caller across asynchronous sync preparation.
+ * Validation runs against live records inside the migration transaction. */
+export interface StatisticsMigrationGuard {
+  assertCurrent(): void;
+  signal: AbortSignal;
+  validate(
+    book: BooksDb['data']['value'] | undefined,
+    owner: BooksDb['readerBookScope']['value'] | undefined
+  ): void;
+  validateCopy?(
+    book: BooksDb['data']['value'],
+    owner: BooksDb['readerBookScope']['value'] | undefined
+  ): void;
+}
+
 /**
  * Assign an inherited title-keyed row only when every currently known copy
  * under that title has the same verified content identity. Once a title was
@@ -80,83 +96,138 @@ function sameDay(left: BooksDbStatistic, right: BooksDbStatistic): boolean {
  */
 export async function migrateLegacyStatistics(
   db: IDBPDatabase<BooksDb>,
-  book: StatisticBook
+  book: StatisticBook,
+  guard?: StatisticsMigrationGuard
 ): Promise<string> {
+  book = { id: book.id, title: book.title, contentHash: book.contentHash };
+  guard?.assertCurrent();
+  guard?.signal.throwIfAborted();
   const tx = db.transaction(
-    ['data', 'statistic', 'readerStatistic', 'readerStatisticMigration', 'readerLocalIdentity'],
+    [
+      'data',
+      'statistic',
+      'readerStatistic',
+      'readerStatisticMigration',
+      'readerLocalIdentity',
+      ...(guard ? (['readerBookScope'] as const) : [])
+    ],
     'readwrite'
   );
-  const identity = tx.objectStore('readerLocalIdentity');
-  const keyFor = async (copy: StatisticBook) => {
-    const contentKey = contentStatisticKey(copy);
-    if (contentKey) return contentKey;
-    let local = await identity.get(copy.id);
-    if (!local) {
-      local = { bookId: copy.id, uuid: crypto.randomUUID() };
-      await identity.put(local);
+  const abort = () => {
+    try {
+      tx.abort();
+    } catch {
+      /* Already settled. */
     }
-    return `local:${local.uuid}`;
   };
-  const bookKey = await keyFor(book);
-  const migration = tx.objectStore('readerStatisticMigration');
-  const priorLocal = contentStatisticKey(book) ? await identity.get(book.id) : undefined;
-  if (priorLocal) {
-    const localKey = `local:${priorLocal.uuid}`;
-    const content = tx.objectStore('readerStatistic');
-    const localRows = await content.getAll(statisticRange(localKey));
-    const existing = await Promise.all(localRows.map((row) => content.get([bookKey, row.dateKey])));
-    if (localRows.some((row, index) => existing[index] && !sameDay(row, existing[index]!))) {
-      const previous = await migration.get(book.title);
-      await migration.put({
-        title: book.title,
-        state: 'identity-conflict',
-        bookKey: localKey,
-        legacyAssigned:
-          previous?.state === 'assigned' ||
-          (previous?.state === 'identity-conflict' && previous.legacyAssigned === true)
-      });
-      await tx.done;
-      return bookKey;
-    }
-    for (const row of localRows) {
-      if (!(await content.get([bookKey, row.dateKey]))) await content.put({ ...row, bookKey });
-      await content.delete([localKey, row.dateKey]);
-    }
-    const receipt = await migration.get(book.title);
-    if (receipt?.state === 'assigned' && receipt.bookKey === localKey)
-      await migration.put({ title: book.title, state: 'assigned', bookKey });
-  }
-  if (!(await migration.get(book.title))) {
-    const legacy = await tx
-      .objectStore('statistic')
-      .getAll(IDBKeyRange.bound([book.title], [book.title, []]));
-    if (legacy.length) {
-      const copies = await tx.objectStore('data').index('title').getAll(book.title);
-      const identities = new Set(await Promise.all(copies.map(keyFor)));
-      if (identities.size !== 1 || !identities.has(bookKey)) {
-        await migration.put({ title: book.title, state: 'ambiguous' });
-      } else {
-        const content = tx.objectStore('readerStatistic');
-        // A renamed copy can have a second legacy title with the same day.
-        // Do not hide either title's history if their values disagree.
-        const existing = await Promise.all(
-          legacy.map((row) => content.get([bookKey, row.dateKey]))
-        );
-        if (legacy.some((row, index) => existing[index] && !sameDay(row, existing[index]!))) {
-          await migration.put({ title: book.title, state: 'ambiguous' });
-          await tx.done;
-          return bookKey;
+  guard?.signal.addEventListener('abort', abort, { once: true });
+  try {
+    return await commitTransaction(tx, async () => {
+      guard?.assertCurrent();
+      if (guard) {
+        const current = await tx.objectStore('data').get(book.id);
+        const owner = await tx.objectStore('readerBookScope').get(book.id);
+        guard.assertCurrent();
+        guard.validate(current, owner);
+        if (!current) throw new Error('The statistics book no longer exists.');
+        // Use the current title too, not a pre-network/pre-lock snapshot.
+        book = current;
+        if (guard.validateCopy) {
+          const contentKey = contentStatisticKey(book);
+          for (
+            let cursor = await tx.objectStore('data').openCursor();
+            cursor;
+            cursor = await cursor.continue()
+          ) {
+            if (!contentKey || contentStatisticKey(cursor.value) !== contentKey) continue;
+            const copyOwner = await tx.objectStore('readerBookScope').get(cursor.value.id);
+            guard.assertCurrent();
+            guard.validateCopy(cursor.value, copyOwner);
+          }
         }
-        for (const row of legacy) {
-          const existing = await content.get([bookKey, row.dateKey]);
-          if (!existing) await content.put({ ...row, bookKey } satisfies BooksDbContentStatistic);
-        }
-        await migration.put({ title: book.title, state: 'assigned', bookKey });
       }
-    }
+      const migrate = async () => {
+        const identity = tx.objectStore('readerLocalIdentity');
+        const keyFor = async (copy: StatisticBook) => {
+          const contentKey = contentStatisticKey(copy);
+          if (contentKey) return contentKey;
+          let local = await identity.get(copy.id);
+          if (!local) {
+            local = { bookId: copy.id, uuid: crypto.randomUUID() };
+            await identity.put(local);
+          }
+          return `local:${local.uuid}`;
+        };
+        const bookKey = await keyFor(book);
+        const migration = tx.objectStore('readerStatisticMigration');
+        const priorLocal = contentStatisticKey(book) ? await identity.get(book.id) : undefined;
+        if (priorLocal) {
+          const localKey = `local:${priorLocal.uuid}`;
+          const content = tx.objectStore('readerStatistic');
+          const localRows = await content.getAll(statisticRange(localKey));
+          const existing = await Promise.all(
+            localRows.map((row) => content.get([bookKey, row.dateKey]))
+          );
+          if (localRows.some((row, index) => existing[index] && !sameDay(row, existing[index]!))) {
+            const previous = await migration.get(book.title);
+            await migration.put({
+              title: book.title,
+              state: 'identity-conflict',
+              bookKey: localKey,
+              legacyAssigned:
+                previous?.state === 'assigned' ||
+                (previous?.state === 'identity-conflict' && previous.legacyAssigned === true)
+            });
+            return bookKey;
+          }
+          for (const row of localRows) {
+            if (!(await content.get([bookKey, row.dateKey])))
+              await content.put({ ...row, bookKey });
+            await content.delete([localKey, row.dateKey]);
+          }
+          const receipt = await migration.get(book.title);
+          if (receipt?.state === 'assigned' && receipt.bookKey === localKey)
+            await migration.put({ title: book.title, state: 'assigned', bookKey });
+        }
+        if (!(await migration.get(book.title))) {
+          const legacy = await tx
+            .objectStore('statistic')
+            .getAll(IDBKeyRange.bound([book.title], [book.title, []]));
+          if (legacy.length) {
+            const copies = await tx.objectStore('data').index('title').getAll(book.title);
+            const identities = new Set(await Promise.all(copies.map(keyFor)));
+            if (identities.size !== 1 || !identities.has(bookKey)) {
+              await migration.put({ title: book.title, state: 'ambiguous' });
+            } else {
+              const content = tx.objectStore('readerStatistic');
+              // A renamed copy can have a second legacy title with the same day.
+              // Do not hide either title's history if their values disagree.
+              const existing = await Promise.all(
+                legacy.map((row) => content.get([bookKey, row.dateKey]))
+              );
+              if (legacy.some((row, index) => existing[index] && !sameDay(row, existing[index]!))) {
+                await migration.put({ title: book.title, state: 'ambiguous' });
+                return bookKey;
+              }
+              for (const row of legacy) {
+                const existing = await content.get([bookKey, row.dateKey]);
+                if (!existing)
+                  await content.put({ ...row, bookKey } satisfies BooksDbContentStatistic);
+              }
+              await migration.put({ title: book.title, state: 'assigned', bookKey });
+            }
+          }
+        }
+        return bookKey;
+      };
+      const result = await migrate();
+      guard?.assertCurrent();
+      guard?.signal.throwIfAborted();
+      return result;
+    });
+  } finally {
+    guard?.signal.removeEventListener('abort', abort);
   }
-  await tx.done;
-  return bookKey;
 }
 
 /** Legacy rows with an assignment receipt are represented by readerStatistic. */

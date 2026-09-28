@@ -1,7 +1,11 @@
 <script lang="ts">
+  import SnippetCapture from '../snippets/capture.svelte';
+  import { startSnippets } from '../snippets/service';
+  import { isSnippetLibraryPath } from '../snippets/discovery';
+  import { derived } from 'svelte/store';
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
-  import { base } from '$app/paths';
+  import { base, resolve } from '$app/paths';
   import { refreshAccount } from './client';
   import { startPreferenceSync } from './preferences';
   import { bookSyncStatus, startBookSync } from './books';
@@ -13,6 +17,9 @@
       ['conflict', 'needs_reconnect', 'permission_required', 'unauthorized'].includes(status.state)
     );
   onMount(() => {
+    const stopSnippets = startSnippets(
+      derived(page, (current) => isSnippetLibraryPath(current.url.pathname, base))
+    );
     const stopPreferences = startPreferenceSync();
     const stopBooks = startBookSync();
     let lastRefreshStarted = 0;
@@ -30,6 +37,7 @@
     window.addEventListener('online', refreshOnline);
     window.addEventListener('focus', refreshFocus);
     return () => {
+      stopSnippets();
       stopPreferences();
       stopBooks();
       window.removeEventListener('online', refreshOnline);
@@ -38,9 +46,13 @@
   });
 </script>
 
+<SnippetCapture />
+
 {#if needsAttention && $page.url.pathname !== `${base}/connections`}
   <aside role="status">
-    <a href="{base}/connections">Reading sync needs attention. Your local reading data is safe.</a>
+    <a href={resolve('/connections')}
+      >Reading sync needs attention. Your local reading data is safe.</a
+    >
   </aside>
 {/if}
 

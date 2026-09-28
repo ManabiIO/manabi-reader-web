@@ -308,6 +308,11 @@ export class WebDavClient {
         throw new DavError('folder', 'The WebDAV metadata path is not a directory.');
     }
   }
+  async remove(path: string, revision: string) {
+    if (!strongEtag(revision))
+      throw new DavError('etag', 'A strong ETag is required for conditional deletion.');
+    return this.request(path, 'DELETE', undefined, { 'If-Match': revision }, 65536, [200, 204]);
+  }
   async put(path: string, body: string | Blob, revision: string) {
     if (revision !== 'missing' && !strongEtag(revision))
       throw new DavError(

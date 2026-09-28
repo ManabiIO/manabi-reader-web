@@ -21,6 +21,13 @@ from reader_controls import reveal_reader_controls
 
 
 class LibraryParityBrowser(LibraryBase):
+    def tearDown(self):
+        try:
+            super().tearDown()
+        finally:
+            StaticHandler.presentation_enabled = False
+            StaticHandler.account_fixture = None
+
     def populate(self, count=5):
         for index in range(count):
             self.import_book(f'Parity {index}', creators=('Original Author',))
@@ -36,7 +43,7 @@ class LibraryParityBrowser(LibraryBase):
             f'{count} selected', exact=True)).to_be_visible()
 
     def batch_action(self, name):
-        self.page.get_by_role('button', name='Actions', exact=True).click()
+        self.page.get_by_role('button', name='Selected book actions', exact=True).click()
         self.page.get_by_role('menuitem', name=name, exact=True).click()
 
     def organization(self):
@@ -89,15 +96,33 @@ class LibraryParityBrowser(LibraryBase):
     def start_drag(self, layout):
         first, second = self.items().nth(0).bounding_box(), self.items().nth(1).bounding_box()
         if layout == 'Grid':
-            start = ((first['x'] + first['width'] + second['x']) / 2, first['y'] + 8)
+            gap = (first['x'] + first['width'] + second['x']) / 2
+            candidates = [
+                (gap, first['y'] + 8),
+                (gap, first['y'] + first['height'] / 2),
+                (first['x'] - 12, first['y'] + 8),
+            ]
             end = (first['x'] + 5, first['y'] + first['height'] - 5)
         else:
-            start = (first['x'] + 8, (first['y'] + first['height'] + second['y']) / 2)
+            gap = (first['y'] + first['height'] + second['y']) / 2
+            candidates = [
+                (first['x'] + 8, gap),
+                (first['x'] + first['width'] / 2, gap),
+                (first['x'] + 8, first['y'] - 12),
+                (first['x'] + first['width'] / 2, first['y'] - 12),
+            ]
             end = (first['x'] + first['width'] - 5, first['y'] + 5)
-        self.assertTrue(self.page.evaluate('''([x,y]) => {
+        empty = '''([x,y]) => {
           const e=document.elementFromPoint(x,y);
-          return !!e?.closest('.library-workspace') && !e.closest('button,a,input,textarea,select');
-        }''', start))
+          return !!e?.closest('.library-workspace') &&
+            !e.closest('button,a,input,textarea,select');
+        }'''
+        self.page.wait_for_function('''points => points.some(([x,y]) => {
+          const e=document.elementFromPoint(x,y);
+          return !!e?.closest('.library-workspace') &&
+            !e.closest('button,a,input,textarea,select');
+        })''', arg=candidates)
+        start = next(point for point in candidates if self.page.evaluate(empty, point))
         self.page.mouse.move(*start)
         self.page.mouse.down()
         self.page.mouse.move(*end, steps=12)
@@ -108,6 +133,7 @@ class LibraryParityBrowser(LibraryBase):
         for layout in ('Grid', 'List'):
             with self.subTest(layout=layout):
                 self.choose_view(layout)
+                expect(self.page.get_by_role('menu')).to_have_count(0)
                 self.start_drag(layout)
                 self.page.keyboard.press('Escape')
                 self.page.mouse.up()
@@ -144,6 +170,39 @@ class LibraryParityBrowser(LibraryBase):
         metadata = self.stores('books',['data'])['data'][0]['metadata']
         self.assertEqual('出版社', metadata['publisher'])
         self.assertEqual(['日本語'], metadata['subjects'])
+
+    def test_negotiated_metadata_sync_keeps_snippets_capability(self):
+        self.populate(1)
+        StaticHandler.account_fixture = {
+            'user': {'id': '42', 'username': 'reader'},
+            'csrf_token': 'c' * 64, 'providers': []
+        }
+        StaticHandler.presentation_enabled = True
+        StaticHandler.account_requests = []
+        StaticHandler.preference_revision = 0
+        StaticHandler.preference_settings = {}
+        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.get_by_label('Sync reader settings with this Manabi account', exact=True).check()
+        status = self.page.get_by_role('status', name='Settings sync status')
+        expect(status).to_contain_text('synced')
+        self.go_library()
+        self.menu('Parity 0', 'Edit Metadata…')
+        self.dialog().get_by_label('Publisher', exact=True).fill('Synced publisher')
+        self.dialog().get_by_role('button', name='Save', exact=True).click()
+        expect(self.dialog()).to_have_count(0)
+        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.get_by_role('button', name='Sync settings now', exact=True).click()
+        expect(status).to_contain_text('synced')
+        preferences = [request for request in StaticHandler.account_requests
+                       if request['path'].endswith('/preferences/')]
+        self.assertTrue(any(request['method'] == 'GET' for request in preferences))
+        self.assertTrue(any(request['method'] == 'PUT' for request in preferences))
+        self.assertTrue(all(request['query'] == 'book_presentation_version=1' and
+                            request['library_items'] == 'snippets-v1'
+                            for request in preferences))
+        books = StaticHandler.preference_settings['library_organization']['books']
+        self.assertIn('Synced publisher', [book.get('metadata', {}).get('publisher')
+                                           for book in books.values()])
 
     def test_metadata_edit_keeps_source_identity_history_and_plain_text(self):
         self.populate(1)
@@ -293,11 +352,11 @@ class LibraryParityBrowser(LibraryBase):
             expect(enter).to_have_count(0)
             return
         enter.click()
-        self.page.wait_for_function('(document.fullscreenElement ?? document.webkitFullscreenElement) === document.documentElement')
+        self.page.wait_for_function('() => (document.fullscreenElement ?? document.webkitFullscreenElement) === document.documentElement')
         leave = self.page.get_by_role('button', name='Exit Fullscreen', exact=True)
         expect(leave).to_be_visible()
         leave.click()
-        self.page.wait_for_function('!(document.fullscreenElement ?? document.webkitFullscreenElement)')
+        self.page.wait_for_function('() => !(document.fullscreenElement ?? document.webkitFullscreenElement)')
         expect(enter).to_be_visible()
 
 
@@ -354,7 +413,7 @@ class LibraryPreviewParityBrowser(LibraryBase):
             self.page.get_by_role('menuitem',name='Select Books',exact=True).click()
             self.page.get_by_role('button',name='Select All Visible',exact=True).click()
             expect(self.page.get_by_role('banner',name='Library toolbar').get_by_text('1 selected',exact=True)).to_be_visible()
-            self.page.get_by_role('button',name='Actions',exact=True).click()
+            self.page.get_by_role('button',name='Selected book actions',exact=True).click()
             expect(self.page.get_by_role('menuitem',name='Delete Selected Books',exact=True)).to_be_disabled()
             self.page.get_by_role('menuitem',name='Blur Covers' if layout == 'Grid' else 'Unblur Covers',exact=True).click()
             self.page.get_by_role('button',name='Cancel selection',exact=True).click()

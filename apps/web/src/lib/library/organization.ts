@@ -5,6 +5,7 @@
  */
 
 import { writable } from 'svelte/store';
+import { commitTransaction } from '$lib/data/database/books-db/commit-transaction.mjs';
 import { organizationIdentityReplacements, type BookIdentityRecord } from './book-identity.ts';
 import { equal, integrationDB, type BookLink } from '$lib/manabi/persistence';
 import { libraryName } from './series-metadata';
@@ -105,14 +106,18 @@ function notifyOrganizationChange() {
 /** Account sync transports content identity, never another browser's numeric IDs. */
 export const organizationPreference = {
   getValue: () => portableOrganization(currentOrganization),
-  next(value: unknown) {
+  next(value: unknown, signal?: AbortSignal) {
     const normalized = normalizedOrganization(value);
     if (!normalized) return;
-    return updateOrganization((stored) => {
-      const applied = applyPortableOrganization(stored, normalized);
-      stored.collections = applied.collections;
-      stored.books = applied.books;
-    });
+    return updateOrganization(
+      (stored) => {
+        const applied = applyPortableOrganization(stored, normalized);
+        stored.collections = applied.collections;
+        stored.books = applied.books;
+      },
+      undefined,
+      signal
+    );
   },
   subscribe(fn: () => void) {
     const unsubscribe = organization.subscribe(() => fn());
@@ -134,47 +139,98 @@ export async function reloadOrganization() {
 }
 export async function updateOrganization(
   change: (value: Organization) => void,
-  receipt?: { key: string; value: string; modified: number }
+  receipt?: { key: string; value: string; modified: number },
+  authority?: AbortSignal | (() => void)
 ) {
+  // Preference recovery carries an AbortSignal; snippet operations carry a
+  // live owner guard. Keep both forms of authority at every write checkpoint.
+  const signal = typeof authority === 'function' ? undefined : authority;
+  const guard = typeof authority === 'function' ? authority : () => undefined;
+  const assertCurrent = () => {
+    guard();
+    signal?.throwIfAborted();
+  };
+  assertCurrent();
+  // Capture migration authority before suspension, not a caller-owned object.
+  const admittedReceipt = receipt && { ...receipt };
+  const db = await integrationDB();
+  assertCurrent();
   // IndexedDB serializes cross-tab read/modify/write transactions even without Web Locks.
-  const db = await integrationDB(),
-    tx = db.transaction('metadata', 'readwrite');
-  try {
-    const value = ((await tx.store.get(key)) as Organization | undefined) ?? emptyOrganization();
-    if (receipt) {
-      const previous = (await tx.store.get(receipt.key)) as typeof receipt | undefined;
-      if (previous && (previous.value === receipt.value || previous.modified > receipt.modified)) {
-        await tx.done;
-        return;
-      }
-    }
-    const before = structuredClone(value);
-    change(value);
-    if (!normalizedOrganization(value))
-      throw new Error('The library organization is invalid or exceeds its size limit.');
-    // Migration retry protection commits atomically with collection memberships.
-    if (receipt) await tx.store.put(receipt, receipt.key);
-    if (equal(before, value)) {
-      await tx.done;
-      return;
-    }
-    await tx.store.put(value, key);
-    await tx.done;
-    publish(value);
-    notifyOrganizationChange();
-  } catch (error) {
+  const tx = db.transaction('metadata', 'readwrite');
+  const abort = () => {
     try {
       tx.abort();
     } catch {
-      /* transaction already settled */
+      // An already committed/aborted transaction cannot be revoked retroactively.
     }
-    await tx.done.catch(() => undefined);
+  };
+  signal?.addEventListener('abort', abort, { once: true });
+  let changed: Organization | undefined;
+  try {
+    // Observe tx.done before even the first read can fail. Request success is
+    // not commit, and a failed request has a separate completion rejection.
+    changed = await commitTransaction(tx, async () => {
+      assertCurrent();
+      const value = ((await tx.store.get(key)) as Organization | undefined) ?? emptyOrganization();
+      if (admittedReceipt) {
+        const previous = (await tx.store.get(admittedReceipt.key)) as
+          | typeof admittedReceipt
+          | undefined;
+        if (
+          previous &&
+          (previous.value === admittedReceipt.value || previous.modified > admittedReceipt.modified)
+        )
+          return undefined;
+      }
+      assertCurrent();
+      const before = structuredClone(value);
+      change(value);
+      assertCurrent();
+      if (!normalizedOrganization(value))
+        throw new Error('The library organization is invalid or exceeds its size limit.');
+      // Migration retry protection commits atomically with collection memberships.
+      if (admittedReceipt) await tx.store.put(admittedReceipt, admittedReceipt.key);
+      assertCurrent();
+      if (equal(before, value)) return undefined;
+      await tx.store.put(value, key);
+      assertCurrent();
+      return value;
+    });
+  } catch (error) {
+    if (signal?.aborted) throw signal.reason;
+    // A native abort with an empty message must not look like success in a
+    // dialog. Actual scope cancellation retains its reason instead.
+    if (error && typeof error === 'object' && 'name' in error && error.name === 'AbortError')
+      throw new Error(
+        'The library change could not be saved because local storage aborted the transaction. ' +
+          'Try again. Your existing collections have been kept.',
+        { cause: error }
+      );
     throw error;
+  } finally {
+    signal?.removeEventListener('abort', abort);
+  }
+  // A commit is final. Only publication can be suppressed if its initiating
+  // scope ended after commit; never describe that as a rolled-back write.
+  if (changed) {
+    try {
+      assertCurrent();
+    } catch {
+      return;
+    }
+    publish(changed);
+    notifyOrganizationChange();
   }
 }
 export function watchOrganization(onError: (error: unknown) => void = () => undefined) {
   void reloadOrganization().catch(onError);
-  const channel = typeof BroadcastChannel === 'undefined' ? undefined : new BroadcastChannel(key);
+  let channel: BroadcastChannel | undefined;
+  try {
+    if (typeof BroadcastChannel !== 'undefined') channel = new BroadcastChannel(key);
+  } catch {
+    // Cross-tab notifications are optional; denied messaging cannot prevent
+    // this tab from loading or saving its local organization.
+  }
   if (channel)
     channel.onmessage = () => {
       void reloadOrganization().catch(onError);
@@ -184,18 +240,24 @@ export function watchOrganization(onError: (error: unknown) => void = () => unde
 export async function createCollection(
   name: string,
   members: string[] = [],
-  current: () => boolean = () => true
+  currentOrGuard: () => boolean | void = () => undefined
 ) {
   const collection = {
     id: crypto.randomUUID(),
     name: libraryName(name),
     members: [...new Set(members)]
   };
-  await updateOrganization((value) => {
-    if (!current()) throw new Error('The library changed. Reopen this action.');
-    if (value.collections.length >= 1000) throw new Error('The collection limit has been reached.');
-    value.collections.push(collection);
-  });
+  await updateOrganization(
+    (value) => {
+      if (value.collections.length >= 1000)
+        throw new Error('The collection limit has been reached.');
+      value.collections.push(collection);
+    },
+    undefined,
+    () => {
+      if (currentOrGuard() === false) throw new Error('The library changed. Reopen this action.');
+    }
+  );
   return collection.id;
 }
 export async function renameCollection(id: string, name: string) {
@@ -231,6 +293,43 @@ export async function setMembership(
     collection.members = included ? [...retained, member] : retained;
   });
 }
+/** Change a batch in one organization transaction, including mixed book/snippet collections. */
+export async function setMembershipMany(
+  id: string,
+  members: (CollectionBook | string)[],
+  included: boolean,
+  currentOrGuard: () => boolean | void = () => undefined
+) {
+  const targets = structuredClone(
+    members.map((member) =>
+      typeof member === 'string' ? { organizationKey: member, organizationAliases: [] } : member
+    )
+  );
+  if (targets.length > 50000) throw new Error('Too many collection members.');
+  await updateOrganization(
+    (value) => {
+      if (id === WANT_TO_READ_ID) {
+        changeWantToRead(value, targets, included);
+        return;
+      }
+      const collection = value.collections.find((item) => item.id === id);
+      if (!collection) throw new Error('This collection no longer exists.');
+      const replaced = new Set(
+        targets.flatMap((member) => [member.organizationKey, ...member.organizationAliases])
+      );
+      const retained = collection.members.filter((key) => !replaced.has(key));
+      collection.members = [
+        ...new Set(
+          included ? [...retained, ...targets.map((member) => member.organizationKey)] : retained
+        )
+      ];
+    },
+    undefined,
+    () => {
+      if (currentOrGuard() === false) throw new Error('The library changed. Reopen this action.');
+    }
+  );
+}
 export type PresentationChange = Partial<Omit<BookPresentation, 'modifiedAt'>>;
 export async function presentBook(id: string, change: PresentationChange) {
   return presentBooks([id], change);
@@ -247,61 +346,39 @@ export async function presentBooks(
   const targets = [...new Set(ids)];
   const baseline = expected && structuredClone(expected);
   if (patch.title !== undefined) patch.title = libraryName(patch.title);
-  await updateOrganization((value) => {
-    if (!current()) throw new Error('The library changed. Reopen this action.');
-    for (const id of targets) {
-      if (baseline && !equal(value.books[id], baseline[id]))
-        throw new Error('This book was edited elsewhere. Reopen its metadata before saving.');
-      const presentation = { ...value.books[id], ...patch, modifiedAt: Date.now() };
-      // A batch membership edit never erases a book's existing volume number in that series.
-      // The metadata editor can still explicitly clear or change the number.
-      const previousSeries = value.books[id]?.series;
-      if (
-        preserveSeriesIndex &&
-        patch.series &&
-        previousSeries?.name === patch.series.name &&
-        patch.series.index === undefined &&
-        previousSeries.index !== undefined
-      ) {
-        presentation.series = { ...patch.series, index: previousSeries.index };
+  await updateOrganization(
+    (value) => {
+      for (const id of targets) {
+        if (baseline && !equal(value.books[id], baseline[id]))
+          throw new Error('This book was edited elsewhere. Reopen its metadata before saving.');
+        const presentation = { ...value.books[id], ...patch, modifiedAt: Date.now() };
+        // A batch membership edit never erases a book's existing volume number in that series.
+        // The metadata editor can still explicitly clear or change the number.
+        const previousSeries = value.books[id]?.series;
+        if (
+          preserveSeriesIndex &&
+          patch.series &&
+          previousSeries?.name === patch.series.name &&
+          patch.series.index === undefined &&
+          previousSeries.index !== undefined
+        ) {
+          presentation.series = { ...patch.series, index: previousSeries.index };
+        }
+        // Explicit undefined resets a field; never serialize undefined to the wire.
+        for (const field of Object.keys(presentation))
+          if (presentation[field as keyof BookPresentation] === undefined)
+            delete presentation[field as keyof BookPresentation];
+        if (!isPortablePresentation(presentation))
+          throw new Error('The book presentation override is invalid or too large.');
+        value.books[id] = presentation;
       }
-      // Explicit undefined resets a field; never serialize undefined to the wire.
-      for (const field of Object.keys(presentation))
-        if (presentation[field as keyof BookPresentation] === undefined)
-          delete presentation[field as keyof BookPresentation];
-      if (!isPortablePresentation(presentation))
-        throw new Error('The book presentation override is invalid or too large.');
-      value.books[id] = presentation;
+    },
+    undefined,
+    () => {
+      if (!current()) throw new Error('The library changed. Reopen this action.');
     }
-  });
+  );
 }
-export async function setMembershipMany(
-  id: string,
-  books: CollectionBook[],
-  included: boolean,
-  current: () => boolean = () => true
-) {
-  const targets = structuredClone(books);
-  await updateOrganization((value) => {
-    if (!current()) throw new Error('The library changed. Reopen this action.');
-    if (id === WANT_TO_READ_ID) {
-      changeWantToRead(value, targets, included);
-      return;
-    }
-    const collection = value.collections.find((entry) => entry.id === id);
-    if (!collection) throw new Error('This collection no longer exists.');
-    const replaced = new Set(
-      targets.flatMap((book) => [book.organizationKey, ...book.organizationAliases])
-    );
-    const retained = collection.members.filter((key) => !replaced.has(key));
-    collection.members = [
-      ...new Set(
-        included ? [...retained, ...targets.map((book) => book.organizationKey)] : retained
-      )
-    ];
-  });
-}
-
 /** Replace browser- and provider-specific locators with content identity once it is known. */
 export async function stabilizeOrganization(
   links: BookLink[],
@@ -335,4 +412,32 @@ export async function relocatePresentation(before: string, after: string) {
     if (prior) value.books[after] = latestBookPresentation([current, prior])!;
     delete value.books[before];
   });
+}
+
+/** Restore only additive portable snippet membership; never clear unrelated books or rename a collection. */
+export async function importSnippetCollections(
+  collections: Collection[],
+  guard: () => void = () => undefined
+) {
+  await updateOrganization(
+    (value) => {
+      for (const incoming of collections) {
+        if (
+          !isPortableText(incoming.id, 128) ||
+          !incoming.members.every((member) => /^snippet:[0-9a-f-]{36}$/.test(member))
+        )
+          throw new Error('Invalid restored collection.');
+        const current = value.collections.find((c) => c.id === incoming.id);
+        if (current) current.members = [...new Set([...current.members, ...incoming.members])];
+        else
+          value.collections.push({
+            ...incoming,
+            name: libraryName(incoming.name),
+            members: [...new Set(incoming.members)]
+          });
+      }
+    },
+    undefined,
+    guard
+  );
 }

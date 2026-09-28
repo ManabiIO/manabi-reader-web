@@ -6,7 +6,7 @@
 
 import type { IDBPDatabase } from 'idb';
 import type BooksDb from './versions/books-db';
-import type { StoredBookData } from './versions/books-db';
+import type { BooksDbBookmarkData, StoredBookData } from './versions/books-db';
 import { commitTransaction } from './commit-transaction.mjs';
 import { throwIfAborted } from '../../../functions/replication/replication-error.ts';
 import { uniqueSharedCopy } from '../../../manabi/shared-title-selection.ts';
@@ -26,6 +26,15 @@ export type BookSummary = Pick<
   | 'contentHash'
   | 'libraryOwner'
 > & { isPlaceholder: boolean };
+
+export function snapshotBookmarkData(
+  bookmark: BooksDbBookmarkData,
+  dataId = bookmark.dataId
+): BooksDbBookmarkData {
+  if (!Number.isSafeInteger(dataId) || dataId <= 0)
+    throw new Error('The bookmark target is invalid.');
+  return structuredClone({ ...bookmark, dataId });
+}
 
 function summarizeBook(book: StoredBookData): BookSummary {
   return {

@@ -187,6 +187,20 @@
     return undefined;
   }
 
+  /** Capture authored markup before opening a sheet can change the DOM selection. */
+  export function captureSnippetHTML(savedRange?: Range): string {
+    const root = activeContentElement();
+    const range = savedRange?.cloneRange();
+    if (!root || !range || range.collapsed || !root.contains(range.commonAncestorContainer))
+      return '';
+    const container = root.ownerDocument.createElement('div');
+    container.append(range.cloneContents());
+    container
+      .querySelectorAll('script,style,[data-manabi-overlay]')
+      .forEach((item) => item.remove());
+    return container.innerHTML;
+  }
+
   export async function captureReaderSelection(
     bookKey: string,
     manifest?: PublicationManifest,

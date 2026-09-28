@@ -261,6 +261,9 @@
   let annotationImportConflicts: AnnotationImportConflict[] = [];
   let annotationSelection: ReaderLocator[] = [];
   let annotationPoint: ReaderLocator | undefined;
+  let snippetCapture:
+    | { html: string; title: string; item: string; owner: string | null }
+    | undefined;
   let annotationError = '';
   let annotationStatus = '';
   let annotationBusy = false;
@@ -1467,7 +1470,13 @@
     locator: ReaderLocator,
     source: 'search' | 'scrubber' | 'annotations' = 'search'
   ) {
-    if (!bookReaderComponent || !readerBookKey) return;
+    const reader = bookReaderComponent;
+    const bookKey = readerBookKey;
+    if (!reader || !bookKey) return;
+    const request = readerNavigation.beginRequest();
+    const current = () =>
+      request.isCurrent() && reader === bookReaderComponent && bookKey === readerBookKey;
+
     // Capturing the origin can await layout. Fence resume autosaves before that
     // first await, so a page-change fired while a sheet closes cannot replace it.
     suppressResumeSave = true;
@@ -1478,10 +1487,8 @@
     const origin =
       readerNavigation.returnPoint ??
       sheetOrigin ??
-      (await bookReaderComponent.captureReaderPoint(
-        readerBookKey,
-        $rawBookData$?.publicationManifest
-      ));
+      (await reader.captureReaderPoint(bookKey, $rawBookData$?.publicationManifest));
+    if (!current()) return;
     if (!origin) {
       suppressResumeSave = false;
       return;
@@ -1501,8 +1508,10 @@
     revealingReaderLocator = true;
     try {
       await tick();
-      revealed = await bookReaderComponent.revealReaderLocator(locator, readerBookKey);
+      if (!current()) return;
+      revealed = await reader.revealReaderLocator(locator, bookKey);
     } catch (error) {
+      if (!current()) return;
       logger.error(
         `Could not open reader location: ${error instanceof Error ? error.message : String(error)}`
       );
@@ -1512,6 +1521,7 @@
       if (!wasPaused) isTrackerPaused$.next(false);
       return;
     }
+    if (!current()) return;
     if (!revealed) {
       suppressResumeSave = false;
       revealingReaderLocator = false;
@@ -1520,7 +1530,7 @@
       return;
     }
     readerNavigation.preview(origin, locator);
-    activeSearchLocator = source === 'search' ? locator : undefined;
+    activeSearchLocator = source === 'search' ? readerNavigation.visiblePoint : undefined;
     navigationPreviewing = true;
     suppressResumeSave = false;
     revealingReaderLocator = false;
@@ -1605,6 +1615,12 @@
     const manifest = $rawBookData$?.publicationManifest;
     try {
       // Capture before focus moves into the sheet; the DOM selection is ephemeral.
+      snippetCapture = {
+        html: bookReaderComponent.captureSnippetHTML(lastSelectedRange),
+        title: $rawBookData$?.title ?? '',
+        item: readerBookKey,
+        owner: localProfileUser()?.id ?? null
+      };
       annotationSelection = await bookReaderComponent.captureReaderSelection(
         readerBookKey,
         manifest,
@@ -2497,6 +2513,19 @@
   savedVersion={annotationSavedVersion}
   on:bookmark={() => addAnnotation('bookmark')}
   on:highlight={() => addAnnotation('highlight')}
+  on:snippet={() => {
+    if (
+      !snippetCapture?.html ||
+      snippetCapture.item !== readerBookKey ||
+      snippetCapture.owner !== (localProfileUser()?.id ?? null)
+    ) {
+      annotationError = 'Select the passage again before capturing it.';
+      return;
+    }
+    const captured = snippetCapture;
+    showAnnotations = false;
+    window.dispatchEvent(new CustomEvent('manabi-capture-snippet', { detail: captured }));
+  }}
   on:note={(event) => addAnnotation('note', event.detail)}
   on:openAnnotation={(event) => {
     showAnnotations = false;
