@@ -27,6 +27,7 @@ import { validateImportedAnnotation } from '$lib/reader-annotations';
 import { isCompletedStatistics } from './completed-statistics.js';
 import { account, currentUser, IntegrationError, request } from './client';
 import { equal, exclusive } from './persistence';
+import { captureLibraryOperation } from './operation-scope';
 import {
   matchesAcknowledgedFeed,
   mergePayload,
@@ -80,8 +81,25 @@ export const personalSyncStatus = writable<{
 function key(accountId: string, kind: PersonalKind, entityId: string) {
   return JSON.stringify([accountId, kind, entityId]);
 }
+let activeSyncGuard: (() => void) | undefined;
+
 function scoped(accountId: string) {
   if (currentUser()?.id !== accountId) throw new IntegrationError('account_changed', 409);
+  activeSyncGuard?.();
+}
+
+async function withPersonalSyncOperation<T>(accountId: string, work: () => Promise<T>): Promise<T> {
+  return exclusive('personal-sync', async () => {
+    const scope = captureLibraryOperation(accountId);
+    activeSyncGuard = scope.assertCurrent;
+    try {
+      scope.assertCurrent();
+      return await work();
+    } finally {
+      if (activeSyncGuard === scope.assertCurrent) activeSyncGuard = undefined;
+      scope.stop();
+    }
+  });
 }
 async function annotationOwner(annotationId: string, bookKey: string): Promise<string | undefined> {
   const db = await database.db;
@@ -1057,7 +1075,7 @@ async function flushAnnotations(accountId: string, books: Map<string, StoredBook
 export async function syncPersonalState() {
   const accountId = currentUser()?.id;
   if (!accountId) return;
-  await exclusive('personal-sync', async () => {
+  await withPersonalSyncOperation(accountId, async () => {
     try {
       scoped(accountId);
       personalSyncStatus.set({
@@ -1093,7 +1111,12 @@ export async function syncPersonalState() {
         }
       }
     } catch (error) {
-      if (currentUser()?.id !== accountId) return;
+      if (error instanceof IntegrationError && error.code === 'account_changed') return;
+      try {
+        scoped(accountId);
+      } catch {
+        return;
+      }
       await publish(
         accountId,
         error instanceof IntegrationError ? error.code : 'unavailable',
@@ -1112,7 +1135,7 @@ export async function syncPersonalState() {
 export async function resolvePersonalConflict(id: string, choice: 'local' | 'remote') {
   const accountId = currentUser()?.id;
   if (!accountId) throw new IntegrationError('sign_in_required');
-  await exclusive('personal-sync', async () => {
+  await withPersonalSyncOperation(accountId, async () => {
     const db = await database.db;
     const conflict = await db.get('readerPersonalConflict', id);
     if (!conflict || conflict.accountId !== accountId) throw new IntegrationError('not_found');
