@@ -5,7 +5,7 @@
  */
 
 import { writable } from 'svelte/store';
-import { bookKey, contentBookKey, sourceBookKey } from './organization-keys.ts';
+import { organizationIdentityReplacements, type BookIdentityRecord } from './book-identity.ts';
 import { equal, integrationDB, type BookLink } from '$lib/manabi/persistence';
 import { libraryName } from './series-metadata';
 import {
@@ -232,16 +232,12 @@ export async function presentBook(
 }
 
 /** Replace browser- and provider-specific locators with content identity once it is known. */
-export async function stabilizeOrganization(links: BookLink[]) {
-  const replacements = new Map<string, string>();
-  for (const link of links) {
-    const stable = contentBookKey(link.contentHash);
-    replacements.set(bookKey(link.bookId), stable);
-    replacements.set(
-      sourceBookKey({ id: link.sourceId, owner: link.owner, root: link.root }, link.fileId),
-      stable
-    );
-  }
+export async function stabilizeOrganization(
+  links: BookLink[],
+  records: readonly BookIdentityRecord[] = []
+) {
+  // Conflicting revision claims cannot choose a migration destination by order.
+  const replacements = organizationIdentityReplacements(links, records);
   await updateOrganization((value) => {
     for (const collection of value.collections)
       collection.members = [
