@@ -5,6 +5,12 @@
  */
 
 import { type Cue, finite, onlyKeys, record, validateCue } from './contracts.js';
+import {
+  cueTextKey as key,
+  cueBounds as bounds,
+  cueGroupSignature as signature,
+  sameCueSpeech as sameSpeech
+} from './moss-cue-agreement.js';
 
 export const SAMPLE_RATE = 16000;
 export const CONTEXT_SAMPLES = 2 * SAMPLE_RATE;
@@ -143,74 +149,6 @@ export function absoluteCues(cues: Cue[], window: ProgressiveWindow, repairStart
     end: cue.end + offset,
     ...(cue.speaker ? { speaker: `w${window.index}/${cue.speaker}` } : {})
   }));
-}
-
-// Matching representation only. NFC does not fold compatibility characters. Keep
-// lexical/numeric boundaries: removing every space/comma/period makes "1.5" equal
-// "15", or "a part" equal "apart". Japanese cue boundaries need no added spaces.
-const wordCharacter = /[\p{Script=Latin}\p{N}]/u;
-const ignorablePunctuation = /[。、,.!?！？]/u;
-function key(cues: readonly Cue[]): string {
-  let text = '';
-  for (const cue of cues) {
-    const next = cue.text.trim();
-    if (wordCharacter.test(text.slice(-1)) && wordCharacter.test(next.slice(0, 1))) text += ' ';
-    text += next;
-  }
-  const characters = Array.from(text.normalize('NFC').replace(/\s+/gu, ' '));
-  const spaced = characters.filter(
-    (char, i) =>
-      char !== ' ' ||
-      (wordCharacter.test(characters[i - 1] ?? '') && wordCharacter.test(characters[i + 1] ?? ''))
-  );
-  return spaced
-    .filter((char, i) => {
-      if (!ignorablePunctuation.test(char)) return true;
-      const before = spaced[i - 1] ?? '',
-        after = spaced[i + 1] ?? '';
-      return wordCharacter.test(before) && wordCharacter.test(after);
-    })
-    .join('');
-}
-const bounds = (cues: readonly Cue[]) => ({
-  start: Math.min(...cues.map((c) => c.start)),
-  end: Math.max(...cues.map((c) => c.end))
-});
-interface SpeechSignature {
-  text: string;
-  start: number;
-  end: number;
-  tolerance: number;
-  singleVoice: boolean;
-}
-function signature(cues: readonly Cue[]): SpeechSignature {
-  const text = key(cues);
-  return {
-    text,
-    ...bounds(cues),
-    tolerance: Array.from(text).length < 4 ? 0.35 : 2,
-    // Independent windows have independent speaker names. We cannot identify a
-    // voice across windows, but can reject merging distinct turns within either.
-    singleVoice: cues.every(
-      (cue, i) => cue.speaker === cues[0].speaker && (!i || cue.start >= cues[i - 1].end - 0.05)
-    )
-  };
-}
-function sameSpeech(a: SpeechSignature, b: SpeechSignature): boolean {
-  const shorter = Math.min(a.end - a.start, b.end - b.start);
-  const overlap = Math.min(a.end, b.end) - Math.max(a.start, b.start);
-  const tolerance = Math.min(a.tolerance, b.tolerance, shorter / 2);
-  return (
-    !!a.text &&
-    a.text.length <= 8192 &&
-    a.text === b.text &&
-    a.singleVoice &&
-    b.singleVoice &&
-    shorter > 0 &&
-    overlap >= shorter / 2 &&
-    Math.abs(a.start - b.start) <= tolerance &&
-    Math.abs(a.end - b.end) <= tolerance
-  );
 }
 
 /** Suffix/prefix agreement at WHOLE cue boundaries, including one-to-many segmentation.

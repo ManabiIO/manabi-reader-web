@@ -11,6 +11,7 @@ import { audioProof } from './audio-proof.js';
 import type { DeviceKey } from './device-checkpoint.js';
 import { parseMoss, parseMossPreview, planWindows, ownedCues } from './moss-output.js';
 import { newProgressiveState } from './moss-progressive.js';
+import { retainAcceptedRepair } from './moss-repair.js';
 import { transcribeWithPreview } from './moss-preview.js';
 import { transcribeProgressively } from './progressive-transcription.js';
 import {
@@ -644,7 +645,7 @@ export class TranscriptionQueue {
                   const raw = exactSilence
                     ? ''
                     : await transcribeWithPreview(this.engine, pcm, signal);
-                  const repair = parseMoss(raw, inputDuration).map((cue, n) => ({
+                  const hypothesis = parseMoss(raw, inputDuration).map((cue, n) => ({
                     ...cue,
                     id: `w${seam}/repair-${n}`,
                     start: cue.start + first.start,
@@ -652,34 +653,25 @@ export class TranscriptionQueue {
                     ...(cue.speaker ? { speaker: `w${seam}/${cue.speaker}` } : {})
                   }));
                   if (
-                    !repair.length &&
+                    !hypothesis.length &&
                     (job.sparse!.windows[seam]!.cues.length ||
                       job.sparse!.windows[seam + 1]!.cues.length)
                   )
                     throw new Error(
                       'Seam repair returned no speech while the original windows contain speech; saved hypotheses were kept.'
                     );
-                  // Previously accepted cues are immutable. A repair may improve
-                  // the unsettled region, but it must recognize each accepted cue
-                  // at the same time before the larger hypothesis can replace it.
-                  const matched = new Set<number>();
-                  for (const accepted of job.cues) {
-                    if (accepted.start < first.start || accepted.end > second.end) continue;
-                    const candidates = repair.flatMap((cue, index) =>
-                      !matched.has(index) &&
-                      cue.text === accepted.text &&
-                      Math.abs(cue.start - accepted.start) <= 0.35 &&
-                      Math.abs(cue.end - accepted.end) <= 0.35
-                        ? [index]
-                        : []
+                  // Equivalent whole-cue resegmentation may preserve the accepted
+                  // originals; different speech or ambiguous repeated matches may not.
+                  const repair = retainAcceptedRepair(
+                    job.cues,
+                    hypothesis,
+                    first.start,
+                    second.end
+                  );
+                  if (!repair)
+                    throw new Error(
+                      'Seam repair conflicts with an accepted caption; saved hypotheses were kept.'
                     );
-                    if (candidates.length !== 1)
-                      throw new Error(
-                        'Seam repair conflicts with an accepted caption; saved hypotheses were kept.'
-                      );
-                    repair[candidates[0]] = accepted;
-                    matched.add(candidates[0]);
-                  }
                   const next = { ...job.sparse!, repairs: [...job.sparse!.repairs] };
                   next.repairs[seam] = repair;
                   let safe = acceptedSparseCues(next, job.duration);
