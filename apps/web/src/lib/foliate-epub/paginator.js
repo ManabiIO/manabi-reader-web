@@ -792,8 +792,8 @@ export class Paginator extends HTMLElement {
         //
         // To make them the same, we start by shrinking the outer padding
         // setting to `b`, but keep the column gap setting the same at `a`. Then
-        // the actual size for the column gap will be (1 - b) * a. Repeating the
-        // process again and again, we get the sequence
+        // the actual percentage for the column gap will be (1 - b) * a. Repeating
+        // the process again and again, we get the sequence
         //     x₁ = (1 - b) * a
         //     x₂ = (1 - x₁) * a
         //     ...
@@ -1102,6 +1102,13 @@ export class Paginator extends HTMLElement {
                 const $style = doc.createElement('style')
                 doc.head.append($style)
                 this.#styleMap.set(doc, [$styleBefore, $style])
+                // Initial layout and anchor resolution must use the same reader
+                // styles as background measurements and prepared page turns.
+                const styles = this.#styles
+                if (Array.isArray(styles)) {
+                    $styleBefore.textContent = styles[0] ?? ''
+                    $style.textContent = styles[1] ?? ''
+                } else $style.textContent = styles ?? ''
             }
             let loaded
             try {
@@ -1565,9 +1572,12 @@ export class Paginator extends HTMLElement {
         const [$beforeStyle, $style] = $$styles
         if (Array.isArray(styles)) {
             const [beforeStyle, style] = styles
-            $beforeStyle.textContent = beforeStyle
-            $style.textContent = style
-        } else $style.textContent = styles
+            $beforeStyle.textContent = beforeStyle ?? ''
+            $style.textContent = style ?? ''
+        } else {
+            $beforeStyle.textContent = ''
+            $style.textContent = styles ?? ''
+        }
 
         // NOTE: needs `requestAnimationFrame` in Chromium
         requestAnimationFrame(() => {
