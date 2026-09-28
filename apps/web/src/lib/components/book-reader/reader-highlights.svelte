@@ -7,6 +7,7 @@
     type ReaderLocator
   } from '$lib/reader-location';
   import type { ReaderAnnotation } from '$lib/data/database/books-db/versions/v7/books-db-v7';
+  import { clipReaderHighlightRect } from './reader-highlight-geometry';
 
   export let contentEl: HTMLElement | undefined;
   export let annotations: ReaderAnnotation[] = [];
@@ -28,6 +29,8 @@
   let generation = 0;
   let frame = 0;
   let observer: ResizeObserver | undefined;
+  let turnObserver: MutationObserver | undefined;
+  let observedTurnHost: Element | undefined;
   let observedScrollHost: HTMLElement | undefined;
 
   $: if (contentEl !== observedScrollHost) {
@@ -54,8 +57,28 @@
     generation += 1;
     observedScrollHost?.removeEventListener('scroll', schedule);
     observer?.disconnect();
+    turnObserver?.disconnect();
     cancelAnimationFrame(frame);
   });
+
+  function observeTurnTransform(range?: Range) {
+    const frameElement = range?.startContainer.ownerDocument?.defaultView?.frameElement;
+    const root = frameElement?.getRootNode();
+    const turnHost =
+      root && typeof root === 'object' && 'host' in root ? (root as ShadowRoot).host : undefined;
+    if (turnHost === observedTurnHost) return;
+    turnObserver?.disconnect();
+    observedTurnHost = turnHost;
+    if (!turnHost) return;
+    turnObserver = new MutationObserver(schedule);
+    // Foliate publishes one host attribute on every animated page-turn frame.
+    // Watching that signal keeps top-level highlight geometry attached to text
+    // while its iframe's ancestor sheet is translating.
+    turnObserver.observe(turnHost, {
+      attributes: true,
+      attributeFilter: ['data-turn-progress']
+    });
+  }
 
   async function resolveVisible() {
     const host = contentEl;
@@ -95,6 +118,7 @@
     }
     if (run !== generation) return;
     ranges = resolved;
+    observeTurnTransform(resolved[0]?.range);
     schedule();
   }
 
@@ -104,39 +128,42 @@
   }
 
   function paint() {
-    const next: Box[] = [];
-    for (const item of ranges) {
-      const frameElement = item.range.startContainer.ownerDocument?.defaultView?.frameElement;
+    const saved: Box[] = [];
+    const activeBoxes: Box[] = [];
+    // Resolve the active search/lookup target first so a dense page of saved
+    // highlights cannot consume the geometry budget before the user's target.
+    const ordered = [
+      ...ranges.filter((item) => item.kind === 'active'),
+      ...ranges.filter((item) => item.kind === 'saved')
+    ];
+    let painted = 0;
+    for (const item of ordered) {
+      const ownerDocument = item.range.startContainer.ownerDocument;
+      const frameElement = ownerDocument?.defaultView?.frameElement as HTMLElement | null;
       const frameRect = frameElement?.getBoundingClientRect();
       const offsetLeft = frameRect?.left ?? 0;
       const offsetTop = frameRect?.top ?? 0;
+      const hostRect =
+        contentEl?.ownerDocument === ownerDocument ? contentEl.getBoundingClientRect() : undefined;
+      const target = item.kind === 'active' ? activeBoxes : saved;
       for (const rect of item.range.getClientRects()) {
-        const left = rect.left + offsetLeft;
-        const top = rect.top + offsetTop;
-        const right = rect.right + offsetLeft;
-        const bottom = rect.bottom + offsetTop;
-        if (
-          rect.width < 1 ||
-          rect.height < 1 ||
-          right <= 0 ||
-          bottom <= 0 ||
-          left >= innerWidth ||
-          top >= innerHeight
-        )
-          continue;
-        next.push({
-          left,
-          top,
-          width: rect.width,
-          height: rect.height,
-          kind: item.kind,
-          color: item.color
+        const clipped = clipReaderHighlightRect(rect, {
+          offsetLeft,
+          offsetTop,
+          localClip: hostRect,
+          outerClip: frameRect,
+          viewportWidth: innerWidth,
+          viewportHeight: innerHeight
         });
-        if (next.length >= 500) break;
+        if (!clipped) continue;
+        target.push({ ...clipped, kind: item.kind, color: item.color });
+        painted += 1;
+        if (painted >= 500) break;
       }
-      if (next.length >= 500) break;
+      if (painted >= 500) break;
     }
-    boxes = next;
+    // Saved colors are the base layer; active geometry is always last/on top.
+    boxes = [...saved, ...activeBoxes];
   }
 </script>
 

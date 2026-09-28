@@ -4,7 +4,6 @@
  * All rights reserved.
  */
 
-import { binarySearchNodeInRange } from '$lib/functions/binary-search';
 import { getCharacterCount } from '$lib/functions/get-character-count';
 import { getParagraphNodes } from '$lib/components/book-reader/get-paragraph-nodes';
 
@@ -12,10 +11,7 @@ export {
   exploredCountAtParagraph,
   sectionIndexForCharacterCount
 } from './foliate-character-progress-core';
-import {
-  exploredCountAtParagraph,
-  sectionIndexForCharacterCount
-} from './foliate-character-progress-core';
+import { sectionIndexForCharacterCount } from './foliate-character-progress-core';
 
 /**
  * Preserve the existing TTU paragraph-character progress contract while a
@@ -51,16 +47,23 @@ export class FoliateCharacterProgress {
     content: Element,
     visibleRange?: Range | null
   ): number {
-    const paragraphs = getParagraphNodes(content);
-    if (!visibleRange || !paragraphs.length) return this.sectionStart(sectionIndex);
-    const paragraphIndex = binarySearchNodeInRange(paragraphs, visibleRange);
-    if (paragraphIndex < 0) return this.sectionStart(sectionIndex);
-    let accumulated = 0;
-    const counts = paragraphs.map((paragraph) => {
-      accumulated += getCharacterCount(paragraph);
-      return accumulated;
-    });
-    return exploredCountAtParagraph(this.sectionStart(sectionIndex), counts, paragraphIndex);
+    const start = this.sectionStart(sectionIndex);
+    if (!visibleRange) return start;
+    let count = start;
+    // A viewport can intersect many nodes. An arbitrary binary-search match
+    // advances progress into unread text and changes when the chapter grows.
+    // Stop at the first overlap in source order, keeping TTU's whole-node count.
+    for (const node of getParagraphNodes(content)) {
+      const touchesTextBoundary =
+        !visibleRange.collapsed &&
+        node.nodeType === 3 &&
+        ((visibleRange.startContainer === node &&
+          visibleRange.startOffset === (node.textContent?.length ?? 0)) ||
+          (visibleRange.endContainer === node && visibleRange.endOffset === 0));
+      if (!touchesTextBoundary && visibleRange.intersectsNode(node)) return count;
+      count += getCharacterCount(node);
+    }
+    return start;
   }
 
   rangeForCharacterCount(
