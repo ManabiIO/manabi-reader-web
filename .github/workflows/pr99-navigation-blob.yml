@@ -1,0 +1,82 @@
+name: PR99 verified navigation blobs
+on:
+  push:
+    branches: [chore/pr99-navigation-blob-20260928]
+    paths: [.github/workflows/pr99-navigation-blob.yml]
+permissions:
+  contents: write
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 87723690afa10e0d33ce195f6b220a2036b9e96a
+          persist-credentials: false
+      - name: Verify exact patch and create only its four file blobs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import base64, gzip, hashlib, json, os, pathlib, subprocess, tempfile, urllib.request
+          repo = 'ManabiIO/manabi-reader-web'
+          assert os.environ['GITHUB_REPOSITORY'] == repo
+          parent = '87723690afa10e0d33ce195f6b220a2036b9e96a'
+          assert subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == parent
+          def git_hash(data):
+              return hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+          def api(path, body=None):
+              data = None if body is None else json.dumps(body).encode()
+              request = urllib.request.Request('https://api.github.com/repos/' + repo + path, data=data,
+                  headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+                           'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json',
+                           'X-GitHub-Api-Version': '2022-11-28'})
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  return json.load(response)
+          transport = api('/git/blobs/ad4f0e7b21d5a280ff37c6c2e69ad460fea1ef40')
+          text = base64.b64decode(transport['content']).decode()
+          assert git_hash(text.encode()) == 'ad4f0e7b21d5a280ff37c6c2e69ad460fea1ef40'
+          # Correct one verified transport-character insertion before decompression.
+          assert text.count('BIhpeVtzb4zRcv') == 1
+          text = text.replace('BIhpeVtzb4zRcv', 'BIhpeVzb4zRcv')
+          assert git_hash(text.encode()) == 'c8c5a3068633f2461b02b5e541924e6810ff7581'
+          patch = gzip.decompress(base64.b64decode(text, validate=True))
+          patch_hash = hashlib.sha256(patch).hexdigest()
+          assert patch_hash == 'ca30f278e170ebf23a44cad6966b646ef09f6a9cb4a16af75b9741e9941480cc'
+          manifest = {
+              'apps/web/src/lib/foliate-epub/paginator.js': ['58bc43fae9c0bc9f1b449c5112264e7148a9e788', '867289bbf46e9b28cfcf43d0b1b14b86de63ed9d'],
+              'tests/browser/test_epub_navigation.py': ['079fbfa6b12ed60a8f1857a74e28b2242a3d1fc8', 'a1fb49ad9f658133f74d11c4d7a1791a4fe2afc3'],
+              'tests/browser/test_foliate_navigation_lifetime.py': [None, '5dd0e1ffb457a77caa9152852fcfe4f8fc6caf01'],
+              '.github/workflows/foliate-slide.yml': ['8b517d4b4d8bba99906e5b2f66254aa06ce58e11', '5f4d01f17d7968694bf1fd144216c6a5c6bb62ae']
+          }
+          for path, (before, after) in manifest.items():
+              file = pathlib.Path(path)
+              assert (git_hash(file.read_bytes()) if file.exists() else None) == before, path
+          with tempfile.NamedTemporaryFile(suffix='.patch') as file:
+              file.write(patch)
+              file.flush()
+              subprocess.run(['git', 'apply', '--check', '--index', file.name], check=True)
+              subprocess.run(['git', 'apply', '--index', file.name], check=True)
+          changed = set(subprocess.check_output(['git', 'diff', '--cached', '--name-only'], text=True).splitlines())
+          assert changed == set(manifest), changed
+          subprocess.run(['git', 'diff', '--cached', '--check'], check=True)
+          results = {}
+          for path, (before, after) in manifest.items():
+              data = pathlib.Path(path).read_bytes()
+              assert git_hash(data) == after, path
+              result = api('/git/blobs', {'content': base64.b64encode(data).decode(), 'encoding': 'base64'})
+              assert result['sha'] == after, path
+              results[path] = {'before': before, 'after': after, 'sha256': hashlib.sha256(data).hexdigest()}
+          record = {'parent': parent, 'patch_sha256': patch_hash, 'files': results,
+                    'scope': 'Git blobs only; no ref, commit, pull request or main mutation by this job'}
+          pathlib.Path('navigation-blobs.json').write_text(json.dumps(record, indent=2) + '\n')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write('Verified four navigation follow-up blobs.\n\n```json\n' + json.dumps(record, indent=2) + '\n```\n')
+          print(json.dumps(record, indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pr99-navigation-blobs
+          path: navigation-blobs.json
+          retention-days: 3
