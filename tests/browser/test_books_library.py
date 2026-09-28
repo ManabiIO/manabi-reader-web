@@ -295,6 +295,7 @@ class BooksLibraryBrowser(LibraryBase):
         self.assertEqual(1, len(first))
         book_id = first[0]['id']
         content_hash = first[0]['contentHash']
+        stored_modified = first[0]['lastBookModified']
 
         self.menu('Before', 'Mark as Finished')
         before_bookmark = self.wait_bookmark(
@@ -319,9 +320,47 @@ class BooksLibraryBrowser(LibraryBase):
         self.assertEqual(content_hash, rows['data'][0]['contentHash'])
         self.assertEqual('Before', rows['data'][0]['title'])
         self.assertEqual(
+            stored_modified, rows['data'][0]['lastBookModified'],
+            'NewOnly exact reimport should not replace the stored parsed snapshot')
+        self.assertEqual(
             before_completion,
             next(row for row in rows['bookmark'] if row['dataId'] == book_id)['completion']
         )
+
+    def test_overwrite_exact_reimport_still_reprocesses_the_selected_file(self):
+        self.page.evaluate(
+            "() => localStorage.setItem('replicationSaveBehavior', 'overwrite')")
+        self.go_library()
+        payload = b'overwrite exact bytes\n'
+        picker = self.page.locator('input[type=file][accept*=".epub"]').first
+        picker.set_input_files({
+            'name': 'Overwrite-before.txt',
+            'mimeType': 'text/plain',
+            'buffer': payload
+        })
+        expect(
+            self.page.get_by_role('button', name='Read Overwrite-before', exact=True)
+        ).to_be_visible(timeout=30000)
+        before = self.stores('books', ['data'])['data'][0]
+        self.page.wait_for_function('(timestamp) => Date.now() > timestamp', before['lastBookModified'])
+
+        picker.set_input_files({
+            'name': 'Overwrite-after.txt',
+            'mimeType': 'text/plain',
+            'buffer': payload
+        })
+        expect(
+            self.page.get_by_role('button', name='Read Overwrite-before', exact=True)
+        ).to_be_visible(timeout=30000)
+        rows = self.stores('books', ['data'])['data']
+        self.assertEqual(1, len(rows))
+        self.assertEqual(before['id'], rows[0]['id'])
+        self.assertGreater(
+            rows[0]['lastBookModified'], before['lastBookModified'],
+            'Overwrite must bypass the exact-copy parser short circuit')
+        self.assertEqual(
+            'Overwrite-before', rows[0]['title'],
+            'reprocessing exact bytes must retain the established logical title')
 
     def test_direct_reimport_does_not_choose_between_independent_same_byte_histories(self):
         payload = b'same bytes with two intentionally independent histories\n'
