@@ -90,8 +90,31 @@ export function integrationDB() {
 export async function metadata<T>(key: string): Promise<T | undefined> {
   return (await integrationDB()).get('metadata', key) as Promise<T | undefined>;
 }
-export async function setMetadata(key: string, value: unknown) {
-  return (await integrationDB()).put('metadata', value, key);
+export async function setMetadata(key: string, value: unknown, signal?: AbortSignal) {
+  signal?.throwIfAborted();
+  const db = await integrationDB();
+  signal?.throwIfAborted();
+  const tx = db.transaction('metadata', 'readwrite');
+  const cancel = () => {
+    try {
+      tx.abort();
+    } catch {
+      /* Already settled. */
+    }
+  };
+  signal?.addEventListener('abort', cancel, { once: true });
+  try {
+    const result = await tx.store.put(value, key);
+    signal?.throwIfAborted();
+    await tx.done;
+    return result;
+  } catch (error) {
+    cancel();
+    await tx.done.catch(() => undefined);
+    throw error;
+  } finally {
+    signal?.removeEventListener('abort', cancel);
+  }
 }
 
 const queues = new Map<string, Promise<unknown>>();

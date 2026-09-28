@@ -5,6 +5,7 @@
  */
 
 import { isSnippetFile } from '../snippets/document';
+import { boundLibrarySource } from './source-binding';
 import { currentUser, localProfileUser, request } from '$lib/manabi/client';
 import { integrationDB, metadata, setMetadata } from '$lib/manabi/persistence';
 import {
@@ -73,12 +74,12 @@ export async function librarySource(source: SourceDescriptor): Promise<LibrarySo
   if (source.owner !== null) {
     if (source.owner !== currentUser()?.id)
       throw new Error('Reconnect this library with its original account.');
-    return new CloudLibrary(source.id, source.owner, source.root);
+    return boundLibrarySource(source, new CloudLibrary(source.id, source.owner, source.root));
   }
-  if (source.provider === 'webdav') return davSource(source.id);
+  if (source.provider === 'webdav') return boundLibrarySource(source, await davSource(source.id));
   const local = await (await integrationDB()).get('localLibraries', source.id);
   if (!local) throw new Error('This folder is no longer connected.');
-  return new LocalLibrarySource(local);
+  return boundLibrarySource(source, new LocalLibrarySource(local));
 }
 export async function cachedCatalog(source: SourceDescriptor, kind: 'book' | 'snippet' = 'book') {
   return metadata<Catalog>(
@@ -171,7 +172,8 @@ export async function scanCatalog(
   const catalog = { source: descriptor, entries, names, warnings, scannedAt: Date.now() };
   await setMetadata(
     `${kind === 'book' ? 'library-catalog' : 'snippet-catalog'}:${sourceKey(descriptor)}`,
-    catalog
+    catalog,
+    signal
   );
   return catalog;
 }

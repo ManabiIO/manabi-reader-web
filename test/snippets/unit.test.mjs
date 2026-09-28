@@ -37,7 +37,7 @@ import {
   putTransfer,
   transfers
 } from '../../apps/web/src/lib/snippets/database.ts';
-import { integrationDB } from '../../apps/web/src/lib/manabi/persistence.ts';
+import { integrationDB, setMetadata } from '../../apps/web/src/lib/manabi/persistence.ts';
 import {
   readerHTML,
   parseLocator,
@@ -48,6 +48,8 @@ import {
   flushRecord,
   flushSnippets,
   refreshSnippets,
+  startSnippets,
+  snippetStatus,
   suggestedDestination,
   rememberDestination,
   resolveConflict
@@ -64,6 +66,9 @@ import {
   syncReading
 } from '../../apps/web/src/lib/snippets/reading-state.ts';
 import { memory, changeUser } from 'snippet-fixture';
+import { get, writable } from 'svelte/store';
+import { isSnippetLibraryPath } from '../../apps/web/src/lib/snippets/discovery.ts';
+import { boundLibrarySource } from '../../apps/web/src/lib/library/source-binding.ts';
 import { createRouteLoads } from '../../apps/web/src/lib/snippets/route-load.ts';
 const guard = () => undefined;
 const owner = () => crypto.randomUUID();
@@ -701,5 +706,143 @@ test('destination edits during reading-state transfer block original cleanup', a
     assert.equal((await getRecord(selected.owner, doc.id)).conflicts.length, 1);
   } finally {
     memory.beforeStateWrite = null;
+  }
+});
+
+test('automatic discovery belongs to library routes, not connections or an open book', () => {
+  for (const base of ['', '/reader-web']) {
+    for (const suffix of ['/', '/manage', '/manage/', '/snippets', '/snippets/'])
+      assert(isSnippetLibraryPath(base + suffix, base));
+    for (const suffix of ['/connections', '/b', '/b/42', '/settings', '/snippets-old'])
+      assert(!isSnippetLibraryPath(base + suffix, base));
+  }
+  assert(!isSnippetLibraryPath('/reader-web-other/snippets', '/reader-web'));
+});
+
+test('source resolution rejects changed roots, identities and owners before any I/O', async () => {
+  const descriptor = { ...source(), provider: 'webdav', root: 'https://dav.invalid/Books/' };
+  let reads = 0;
+  const adapter = {
+    ...descriptor,
+    state: async () => {
+      reads++;
+    }
+  };
+  assert.equal(boundLibrarySource(descriptor, adapter), adapter);
+  for (const changed of [
+    { root: 'https://dav.invalid/Other/' },
+    { id: 'replacement' },
+    { owner: 'another-account' }
+  ]) {
+    await assert.rejects(
+      async () => boundLibrarySource(descriptor, { ...adapter, ...changed }).state(),
+      /source changed/
+    );
+  }
+  assert.equal(reads, 0);
+});
+
+test('discovery reuses a recent finished checkpoint but explicit Refresh still scans', async () => {
+  const s = { owner: owner(), guard },
+    previous = memory.sources;
+  memory.sources = [source()];
+  try {
+    const before = memory.scanCount;
+    await refreshSnippets(s);
+    await refreshSnippets(s, true, 60000);
+    assert.equal(memory.scanCount, before + 1);
+    await refreshSnippets(s, true);
+    assert.equal(memory.scanCount, before + 2);
+  } finally {
+    memory.sources = previous;
+  }
+});
+
+test('canceled discovery cannot publish a partial checkpoint or hydrate documents', async () => {
+  const s = { owner: owner(), guard },
+    previous = memory.sources,
+    src = source(),
+    controller = new AbortController();
+  memory.sources = [src];
+  let release, began;
+  const started = new Promise((resolve) => {
+    began = resolve;
+  });
+  memory.beforeScan = () => {
+    began();
+    return new Promise((resolve) => {
+      release = resolve;
+    });
+  };
+  try {
+    const before = memory.readCount;
+    const work = refreshSnippets(s, true, 0, controller.signal);
+    await started;
+    const rejection = assert.rejects(work, { name: 'AbortError' });
+    controller.abort();
+    release();
+    await rejection;
+    assert.equal(memory.readCount, before);
+    const values = await (await integrationDB()).getAll('metadata');
+    assert(!values.some((v) => v?.catalog?.source?.id === src.id));
+  } finally {
+    memory.beforeScan = null;
+    memory.sources = previous;
+  }
+});
+
+test('canceling a metadata write after enqueue aborts its whole IndexedDB transaction', async () => {
+  const key = 'snippet-cancel-test:' + owner(),
+    controller = new AbortController();
+  const original = globalThis.IDBObjectStore.prototype.put;
+  globalThis.IDBObjectStore.prototype.put = function (value, selectedKey) {
+    const request = original.call(this, value, selectedKey);
+    if (this.name === 'metadata' && selectedKey === key) controller.abort();
+    return request;
+  };
+  try {
+    await assert.rejects(setMetadata(key, { incomplete: true }, controller.signal), {
+      name: 'AbortError'
+    });
+    assert.equal(await (await integrationDB()).get('metadata', key), undefined);
+  } finally {
+    globalThis.IDBObjectStore.prototype.put = original;
+  }
+});
+
+test('runtime discovers on library entry, not on settings focus or after leaving', async () => {
+  const previousWindow = globalThis.window,
+    previousSources = memory.sources;
+  const navigation = writable(false),
+    src = source();
+  globalThis.window = new EventTarget();
+  memory.sources = [src];
+  let stop = () => {};
+  const waitFor = async (condition) => {
+    const deadline = Date.now() + 1500;
+    while (!condition()) {
+      if (Date.now() > deadline) assert.fail('The runtime did not settle.');
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  };
+  try {
+    const before = memory.scanCount;
+    stop = startSnippets(navigation);
+    window.dispatchEvent(new Event('focus'));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(memory.scanCount, before);
+    navigation.set(true);
+    await waitFor(() => memory.scanCount === before + 1 && !get(snippetStatus).busy);
+    navigation.set(false);
+    memory.sources = [source()];
+    window.dispatchEvent(new Event('focus'));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(memory.scanCount, before + 1);
+    navigation.set(true);
+    await waitFor(() => memory.scanCount === before + 2 && !get(snippetStatus).busy);
+  } finally {
+    stop();
+    memory.sources = previousSources;
+    globalThis.window = previousWindow;
   }
 });

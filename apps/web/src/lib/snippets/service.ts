@@ -4,9 +4,9 @@
  * All rights reserved.
  */
 
-import { get, writable } from 'svelte/store';
+import { get, writable, type Readable } from 'svelte/store';
 import { account, currentUser, localUser } from '../manabi/client';
-import { integrationDB, exclusive } from '../manabi/persistence';
+import { integrationDB, exclusive, setMetadata } from '../manabi/persistence';
 import {
   librarySource,
   scanCatalog,
@@ -163,86 +163,108 @@ interface IndexCheckpoint {
 const indexKey = (selected: SnippetScope, source: SourceDescriptor) =>
   `snippet-index:${selected.owner}:${sourceKey(source)}`;
 /** Shared folder traversal, but bounded body hydration. The checkpoint advances only after accepting a file. */
-export async function refreshSnippets(selected = scope(), rescan = true, minimumScanAge = 0) {
-  return exclusive(`snippet-discovery:${selected.owner}`, async () => {
-    selected.guard();
-    snippetStatus.set({ ...get(snippetStatus), busy: true });
-    const issues: string[] = [];
-    let remaining = 0,
-      budget = 16 * 1024 * 1024,
-      processed = 0;
-    try {
-      const sources = await sourceDescriptors();
-      selected.guard();
-      const db = await integrationDB();
-      for (const source of sources) {
-        selected.guard();
-        if (source.owner !== null && source.owner !== currentUser()?.id) continue;
-        try {
-          let checkpoint = (await db.get('metadata', indexKey(selected, source))) as
-            | IndexCheckpoint
-            | undefined;
-          const scanAge = checkpoint ? Date.now() - checkpoint.catalog.scannedAt : Infinity;
-          const recentlyScanned = scanAge >= 0 && scanAge < minimumScanAge;
-          if (!checkpoint || (rescan && checkpoint.finished && !recentlyScanned)) {
-            const catalog = await scanCatalog(
-              await librarySource(source),
-              source,
-              undefined,
-              'snippet'
-            );
-            selected.guard();
-            checkpoint = { catalog, index: 0, failed: [], finished: false };
-            await db.put('metadata', checkpoint, indexKey(selected, source));
-            selected.guard();
-            await reconcileSourceListing(
-              selected.owner,
-              source,
-              new Set(catalog.entries.filter((e) => e.kind === 'file').map((e) => e.id)),
-              selected.guard
-            );
-          }
-          const files = checkpoint.catalog.entries.filter((e) => e.kind === 'file');
-          while (checkpoint.index < files.length && processed < 100 && budget > 0) {
-            const file = files[checkpoint.index];
-            selected.guard();
-            try {
-              const remote = await readDocument(source, file, selected.guard);
-              selected.guard();
-              budget -= new TextEncoder().encode(encodeSnippet(remote.document)).length;
-              await acceptRemote(selected.owner, remote.document, remote.location, selected.guard);
-            } catch (error) {
-              selected.guard();
-              checkpoint.failed.push({ id: file.id, name: file.name, message: message(error) });
-            }
-            checkpoint.index++;
-            processed++;
-            checkpoint.finished = checkpoint.index === files.length;
-            selected.guard();
-            await db.put('metadata', checkpoint, indexKey(selected, source));
-          }
-          if (!files.length) {
-            checkpoint.finished = true;
-            await db.put('metadata', checkpoint, indexKey(selected, source));
-          }
-          remaining += files.length - checkpoint.index;
-          for (const failure of checkpoint.failed.slice(0, 5))
-            issues.push(`${source.name} · ${failure.name}: ${failure.message}`);
-          if (checkpoint.failed.length > 5)
-            issues.push(
-              `${checkpoint.failed.length - 5} more files in ${source.name} could not be indexed.`
-            );
-        } catch (error) {
-          selected.guard();
-          issues.push(`${source.provider} · ${source.name}: ${message(error)}`);
-        }
-      }
-      await reloadSnippets(selected);
-    } finally {
-      selected.guard();
-      snippetStatus.set({ busy: false, remaining, issues });
+export async function refreshSnippets(
+  selected = scope(),
+  rescan = true,
+  minimumScanAge = 0,
+  signal?: AbortSignal
+) {
+  const admitted = selected;
+  selected = {
+    owner: admitted.owner,
+    guard() {
+      admitted.guard();
+      signal?.throwIfAborted();
     }
-  });
+  };
+  return exclusive(
+    `snippet-discovery:${selected.owner}`,
+    async () => {
+      selected.guard();
+      snippetStatus.set({ ...get(snippetStatus), busy: true });
+      const issues: string[] = [];
+      let remaining = 0,
+        budget = 16 * 1024 * 1024,
+        processed = 0;
+      try {
+        const sources = await sourceDescriptors();
+        selected.guard();
+        const db = await integrationDB();
+        for (const source of sources) {
+          selected.guard();
+          if (source.owner !== null && source.owner !== currentUser()?.id) continue;
+          try {
+            let checkpoint = (await db.get('metadata', indexKey(selected, source))) as
+              | IndexCheckpoint
+              | undefined;
+            const scanAge = checkpoint ? Date.now() - checkpoint.catalog.scannedAt : Infinity;
+            const recentlyScanned = scanAge >= 0 && scanAge < minimumScanAge;
+            if (!checkpoint || (rescan && checkpoint.finished && !recentlyScanned)) {
+              const catalog = await scanCatalog(
+                await librarySource(source),
+                source,
+                signal,
+                'snippet'
+              );
+              selected.guard();
+              checkpoint = { catalog, index: 0, failed: [], finished: false };
+              await setMetadata(indexKey(selected, source), checkpoint, signal);
+              selected.guard();
+              await reconcileSourceListing(
+                selected.owner,
+                source,
+                new Set(catalog.entries.filter((e) => e.kind === 'file').map((e) => e.id)),
+                selected.guard
+              );
+            }
+            const files = checkpoint.catalog.entries.filter((e) => e.kind === 'file');
+            while (checkpoint.index < files.length && processed < 100 && budget > 0) {
+              const file = files[checkpoint.index];
+              selected.guard();
+              try {
+                const remote = await readDocument(source, file, selected.guard);
+                selected.guard();
+                budget -= new TextEncoder().encode(encodeSnippet(remote.document)).length;
+                await acceptRemote(
+                  selected.owner,
+                  remote.document,
+                  remote.location,
+                  selected.guard
+                );
+              } catch (error) {
+                selected.guard();
+                checkpoint.failed.push({ id: file.id, name: file.name, message: message(error) });
+              }
+              checkpoint.index++;
+              processed++;
+              checkpoint.finished = checkpoint.index === files.length;
+              selected.guard();
+              await setMetadata(indexKey(selected, source), checkpoint, signal);
+            }
+            if (!files.length) {
+              checkpoint.finished = true;
+              await setMetadata(indexKey(selected, source), checkpoint, signal);
+            }
+            remaining += files.length - checkpoint.index;
+            for (const failure of checkpoint.failed.slice(0, 5))
+              issues.push(`${source.name} · ${failure.name}: ${failure.message}`);
+            if (checkpoint.failed.length > 5)
+              issues.push(
+                `${checkpoint.failed.length - 5} more files in ${source.name} could not be indexed.`
+              );
+          } catch (error) {
+            selected.guard();
+            issues.push(`${source.provider} · ${source.name}: ${message(error)}`);
+          }
+        }
+        await reloadSnippets(selected);
+      } finally {
+        admitted.guard();
+        if (!signal?.aborted) snippetStatus.set({ busy: false, remaining, issues });
+      }
+    },
+    signal
+  );
 }
 export async function suggestedDestination(
   selected = scope(),
@@ -408,9 +430,11 @@ export async function rememberDestination(
 }
 let runtimeUsers = 0,
   runtimeStop: (() => void) | undefined;
-export function startSnippets() {
+export function startSnippets(discovery: Readable<boolean>) {
   if (++runtimeUsers === 1) {
     let disposed = false,
+      discovering = false,
+      scanController: AbortController | undefined,
       load = 0,
       owner = '',
       timer: ReturnType<typeof setTimeout> | undefined,
@@ -448,21 +472,26 @@ export function startSnippets() {
       }, 800);
     };
     const scan = (force = false, continueIndex = false) => {
-      if (disposed) return;
+      if (disposed || !discovering || (scanController && !scanController.signal.aborted)) return;
       try {
         const selected = scope();
         if (!force && Date.now() - lastScan < 60000) return;
         lastScan = Date.now();
+        const controller = (scanController = new AbortController());
         // A page reload starts a new runtime. Reuse its durable discovery
         // checkpoint briefly instead of traversing every cloud folder again.
-        void refreshSnippets(selected, !continueIndex, 60000)
+        void refreshSnippets(selected, !continueIndex, 60000, controller.signal)
           .then(() => {
+            if (disposed || controller.signal.aborted || scanController !== controller) return;
             if (get(snippetStatus).remaining) {
               clearTimeout(indexTimer);
               indexTimer = setTimeout(() => scan(true, true), 1000);
             }
           })
-          .catch(() => undefined);
+          .catch(() => undefined)
+          .finally(() => {
+            if (scanController === controller) scanController = undefined;
+          });
       } catch {
         /* Retain local state; the next explicit refresh can retry. */
       }
@@ -475,6 +504,8 @@ export function startSnippets() {
       try {
         const next = scope().owner;
         if (next !== owner) {
+          scanController?.abort();
+          clearTimeout(indexTimer);
           owner = next;
           load++;
           snippetItems.set([]);
@@ -491,6 +522,16 @@ export function startSnippets() {
     };
     const stopUser = localUser.subscribe(onAccount),
       stopAccount = account.subscribe(onAccount);
+    const stopDiscovery = discovery.subscribe((enabled) => {
+      if (discovering === enabled) return;
+      discovering = enabled;
+      scanController?.abort();
+      clearTimeout(indexTimer);
+      if (enabled) {
+        lastScan = 0;
+        scan(true);
+      } else snippetStatus.update((status) => ({ ...status, busy: false }));
+    });
     const onFocus = () => {
       void publish();
       scan();
@@ -508,11 +549,13 @@ export function startSnippets() {
     }
     runtimeStop = () => {
       disposed = true;
+      scanController?.abort();
       load++;
       clearTimeout(timer);
       clearTimeout(indexTimer);
       stopUser();
       stopAccount();
+      stopDiscovery();
       channel?.close();
       window.removeEventListener('manabi-snippets-changed', onChange);
       window.removeEventListener('online', onFocus);

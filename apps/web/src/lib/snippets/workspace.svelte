@@ -558,7 +558,7 @@
       await rememberDestination(value, s);
       notice = value
         ? 'Default snippet location updated.'
-        : 'New snippets will ask for a location.';
+        : 'Default cleared. New snippets use the only writable source or ask when there are several.';
     } else {
       destination = value;
       locationChosen = true;

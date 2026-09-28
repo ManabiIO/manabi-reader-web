@@ -183,6 +183,7 @@ export async function capability(
   if (source.provider === 'webdav') {
     const adapter = await davSource(source.id);
     guard();
+    if (adapter.root !== source.root) throw new Error('The WebDAV root changed.');
     return {
       write: adapter.configuration.writable,
       reason: adapter.configuration.writable

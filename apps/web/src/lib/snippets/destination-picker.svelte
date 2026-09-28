@@ -204,7 +204,7 @@
       >Keep on this device only</Button
     >{/if}
   {#if allowUnsetDefault}<Button variant="ghost" onclick={() => choose(undefined, false)}
-      >Ask for a location each time</Button
+      >Clear default location</Button
     >{/if}
   <a href={resolve('/connections')}>Manage connected libraries</a>
   {#if error}<p role="alert">{error}</p>{/if}
