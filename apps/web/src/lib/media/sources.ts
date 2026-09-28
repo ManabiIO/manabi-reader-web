@@ -171,13 +171,15 @@ export function cloudSource(
       signal.throwIfAborted();
       assertRange(start, end, size);
       if (!current()) throw new Error('Account changed');
-      const response = await abortable(signal, () => fetch(url, {
-        signal,
-        credentials: 'same-origin',
-        redirect: 'error',
-        cache: 'no-store',
-        headers: { Range: `bytes=${start}-${end - 1}`, 'X-Manabi-User': userId }
-      }));
+      const response = await abortable(signal, () =>
+        fetch(url, {
+          signal,
+          credentials: 'same-origin',
+          redirect: 'error',
+          cache: 'no-store',
+          headers: { Range: `bytes=${start}-${end - 1}`, 'X-Manabi-User': userId }
+        })
+      );
       const discard = () => {
         try {
           void Promise.resolve(response.body?.cancel()).catch(() => {});
