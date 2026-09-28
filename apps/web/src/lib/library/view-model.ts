@@ -54,55 +54,24 @@ export function buildShelf(
     ])
   );
   const result: ShelfNode[] = [];
-  const catalogFiles = new Set(
-    catalogs.flatMap((catalog) =>
-      catalog.entries
-        .filter((entry) => entry.kind === 'file')
-        .map((entry) => sourceBookKey(catalog.source, entry.id))
-    )
-  );
-  // Equal bytes do not identify which copy moved. Infer a move only when both
-  // the missing link and the freshly previewed destination are unique per owner.
-  const missingLinksByContent = new Map<string, BookLink | null>();
+  const contentIdentity = (owner: string | null, contentHash: string) =>
+    /^[a-f0-9]{64}$/i.test(contentHash)
+      ? JSON.stringify([owner, contentHash.toLowerCase()])
+      : undefined;
+  // A physical locator is not the reading identity. Every exact-byte copy for
+  // one account may reuse one established browser book/progress record. Keep
+  // each copy as its own shelf node, but refuse to choose when legacy data has
+  // more than one distinct bookId for the same content identity.
+  const logicalLinksByContent = new Map<string, BookLink | null>();
   for (const link of links) {
-    const locator = sourceBookKey(
-      { id: link.sourceId, owner: link.owner, root: link.root },
-      link.fileId
-    );
-    if (
-      !catalogFiles.has(locator) &&
-      catalogs.some(
-        (catalog) =>
-          catalog.source.id === link.sourceId &&
-          catalog.source.owner === link.owner &&
-          catalog.source.root === link.root
-      )
-    ) {
-      const content = JSON.stringify([link.owner, link.contentHash]);
-      missingLinksByContent.set(content, missingLinksByContent.has(content) ? null : link);
+    const content = contentIdentity(link.owner, link.contentHash);
+    if (!content) continue;
+    if (!logicalLinksByContent.has(content)) {
+      logicalLinksByContent.set(content, link);
+      continue;
     }
-  }
-  const moveTargetsByContent = new Map<string, string | null>();
-  for (const catalog of catalogs) {
-    for (const file of catalog.entries) {
-      if (file.kind !== 'file') continue;
-      const locator = sourceBookKey(catalog.source, file.id),
-        preview = previews[locator];
-      if (
-        linksByFile.has(locator) ||
-        preview?.scannedAt !== catalog.scannedAt ||
-        !preview.contentHash
-      )
-        continue;
-      const content = JSON.stringify([catalog.source.owner, preview.contentHash]);
-      if (!missingLinksByContent.get(content)) continue;
-      moveTargetsByContent.set(content, moveTargetsByContent.has(content) ? null : locator);
-    }
-  }
-  const inferredMoves = new Map<string, BookLink>();
-  for (const [content, locator] of moveTargetsByContent) {
-    const link = missingLinksByContent.get(content);
-    if (locator && link) inferredMoves.set(locator, link);
+    const existing = logicalLinksByContent.get(content);
+    if (existing && existing.bookId !== link.bookId) logicalLinksByContent.set(content, null);
   }
   const revisions = new Map(
     catalogs.map((catalog) => [sourceKey(catalog.source), catalog.scannedAt])
@@ -180,7 +149,15 @@ export function buildShelf(
       catalog.entries,
       source.root,
       (file) => {
-        const link = matches.get(file.id) ?? inferredMoves.get(sourceBookKey(source, file.id)),
+        const locator = sourceBookKey(source, file.id),
+          cachedPreview = previews[locator],
+          currentPreview =
+            cachedPreview?.scannedAt === catalog.scannedAt ? cachedPreview : undefined,
+          content = currentPreview?.contentHash
+            ? contentIdentity(source.owner, currentPreview.contentHash)
+            : undefined,
+          shared = content ? logicalLinksByContent.get(content) : undefined,
+          link = matches.get(file.id) ?? shared ?? undefined,
           card = link ? byId.get(link.bookId) : undefined;
         if (card) represented.add(card.id);
         return decorate(card, source, file);
