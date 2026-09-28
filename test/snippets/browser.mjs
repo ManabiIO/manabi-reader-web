@@ -245,6 +245,19 @@ try {
   await expect(page.getByRole('article', { name: 'Snippet content' })).toContainText('京都');
   passed('create, durable native IndexedDB save and reader reload');
   await openLibrary(page);
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '200%';
+  });
+  assert(
+    (await page.locator('html').evaluate((node) => node.scrollWidth - node.clientWidth)) <= 1,
+    'Snippets workspace must not overflow horizontally at 320px / 200% text'
+  );
+  await expect(page.getByRole('button', { name: 'Navigate', exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '';
+  });
   const localTitle = page.locator('.snippet-shelf .title').filter({ hasText: '散歩の記録' });
   await localTitle.click({ modifiers: ['Control'] });
   await expect(page.getByLabel('Selected snippet actions')).toBeVisible();

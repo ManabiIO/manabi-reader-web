@@ -1240,14 +1240,17 @@
   }
   .top {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
     align-items: center;
     gap: 1rem;
     padding: 0.5rem 0 2rem;
   }
   .brand {
+    min-width: 0;
     font-weight: 700;
     font-size: 1.1rem;
+    overflow-wrap: anywhere;
   }
   .heading {
     display: flex;
@@ -1483,8 +1486,14 @@
     .filters {
       gap: 0.5rem;
     }
+    .filters label {
+      flex: 1 1 10rem;
+      min-width: 0;
+      max-width: 100%;
+    }
     .filters select {
-      max-width: 12rem;
+      width: 100%;
+      max-width: 100%;
     }
   }
 </style>
