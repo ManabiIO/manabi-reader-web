@@ -249,23 +249,23 @@ export async function visibleStatistics(db: IDBPDatabase<BooksDb>): Promise<Book
   return [...content, ...legacy.filter((row) => !assigned.has(row.title))];
 }
 
-export interface StatisticDeletionPlan {
+export interface StatisticIdentityPlan {
   title: string;
   bookKey: string;
   keys: string[];
   unresolvedLegacy: boolean;
 }
 
-/** Resolve every statistics identity owned by one browser book before deletion.
+/** Resolve every statistics identity owned by one browser book for selection or deletion.
  * The primary key follows the current verified content identity. A retained
  * pre-hash local key may still hold conflicting rows and therefore belongs to
  * the same selected book. Title-only legacy rows are never guessed when their
  * migration receipt remains ambiguous.
  */
-export async function statisticDeletionPlan(
+export async function statisticIdentityPlan(
   db: IDBPDatabase<BooksDb>,
   bookId: number
-): Promise<StatisticDeletionPlan> {
+): Promise<StatisticIdentityPlan> {
   if (!Number.isSafeInteger(bookId) || bookId <= 0)
     throw new Error('The selected statistics book is invalid.');
   const book = await db.get('data', bookId);
