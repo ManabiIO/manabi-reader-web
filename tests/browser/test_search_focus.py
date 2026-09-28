@@ -8,7 +8,7 @@ import unittest
 
 from playwright.sync_api import expect
 from test_product_journeys import ProductJourneyBase
-from search_geometry import assert_mark_visible
+from search_geometry import assert_control_reachable, assert_mark_visible
 from test_books_library import book
 
 
@@ -34,7 +34,7 @@ class SearchFocusQuality(ProductJourneyBase):
         expect(hits.first).to_be_focused()
         assert_mark_visible(self, hits.locator('mark'))
         close = panel.get_by_role('button', name='Close search', exact=True)
-        expect(close).to_be_in_viewport(ratio=1)
+        assert_control_reachable(self, close)
         self.checkpoint('keyboard-visible-match')
         # A trusted pointer click must reach dismissal, not a clipped control.
         close.click()
@@ -108,7 +108,7 @@ class SearchFocusQuality(ProductJourneyBase):
                 expect(hits.first).to_be_focused()
                 assert_mark_visible(self, hits.locator('mark'))
                 close = panel.get_by_role('button', name='Close search', exact=True)
-                expect(close).to_be_in_viewport(ratio=1)
+                assert_control_reachable(self, close)
                 geometry = close.bounding_box()
                 self.assertGreaterEqual(geometry['width'], 44)
                 self.assertGreaterEqual(geometry['height'], 44)

@@ -83,3 +83,24 @@ def assert_mark_visible(case, mark):
     finally:
         if handle:
             handle.dispose()
+
+
+def assert_control_reachable(case, control):
+    """Require a full-size, unobstructed pointer target in the visual viewport."""
+    expect(control).to_be_visible()
+    handle = control.element_handle()
+    try:
+        case.page.wait_for_function('''element => {
+          const r = element.getBoundingClientRect();
+          const v = window.visualViewport;
+          const left = v?.offsetLeft ?? 0, top = v?.offsetTop ?? 0;
+          const right = left + (v?.width ?? innerWidth);
+          const bottom = top + (v?.height ?? innerHeight);
+          const center = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return r.width >= 44 && r.height >= 44 &&
+            r.left >= left && r.right <= right && r.top >= top && r.bottom <= bottom &&
+            !!center && element.contains(center);
+        }''', arg=handle, timeout=5000)
+    finally:
+        if handle:
+            handle.dispose()

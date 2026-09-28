@@ -198,11 +198,18 @@
     focusFrame = requestAnimationFrame(() => {
       if (!mounted || !open || id !== requestId || !button.isConnected) return;
       if (document.activeElement !== button) return;
-      const scroller = button.closest<HTMLElement>('[data-search-scroll]');
       const match = button.querySelector<HTMLElement>('mark');
-      const target =
-        scroller && match && button.offsetHeight > scroller.clientHeight ? match : button;
-      target.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+      const scroller = button.closest<HTMLElement>('[data-search-scroll]');
+      if (match && scroller) {
+        // WebKit may leave an inline mark below the scrollport when asked to
+        // scrollIntoView. Position the actual match using the sole scroll owner.
+        const markRect = match.getBoundingClientRect();
+        const scrollRect = scroller.getBoundingClientRect();
+        scroller.scrollTop +=
+          markRect.top + markRect.height / 2 - (scrollRect.top + scrollRect.height / 2);
+      } else {
+        button.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+      }
     });
   }
 
@@ -219,9 +226,9 @@
     try {
       await tick();
       if (!mounted || !open || id !== requestId || document.activeElement !== trigger) return;
-      const next = resultsElement?.querySelectorAll<HTMLButtonElement>('button[data-search-result]')[
-        firstNew
-      ];
+      const next = resultsElement?.querySelectorAll<HTMLButtonElement>(
+        'button[data-search-result]'
+      )[firstNew];
       next?.focus({ preventScroll: true });
     } finally {
       revealingResults = false;
