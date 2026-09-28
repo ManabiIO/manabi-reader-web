@@ -164,6 +164,71 @@ class LibraryIdentityBrowser(LibraryBase):
         self.go_library()
         expect(saved_tile).to_be_visible(timeout=30000)
 
+    def test_direct_exact_import_does_not_adopt_another_accounts_personal_scope(self):
+        payload = b'account scoped direct import bytes\nsecond line\n'
+        picker = self.page.locator('input[type=file][accept*=".epub"]').first
+        picker.set_input_files({
+            'name': 'Scoped.txt',
+            'mimeType': 'text/plain',
+            'buffer': payload
+        })
+        expect(self.page.get_by_role('button', name='Read Scoped', exact=True)).to_be_visible(
+            timeout=30000)
+        original = next(row for row in self.stores('books', ['data'])['data']
+                        if row['title'] == 'Scoped')
+        self.page.evaluate('''async id => {
+          const db = await new Promise((resolve, reject) => {
+            const request = indexedDB.open('books');
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          const tx = db.transaction('readerBookScope', 'readwrite');
+          tx.objectStore('readerBookScope').put({
+            bookId: id, accountId: '42', hydrated: true
+          });
+          await new Promise((resolve, reject) => {
+            tx.oncomplete = resolve; tx.onabort = () => reject(tx.error);
+          });
+          db.close();
+        }''', original['id'])
+        self.menu('Scoped', 'Mark as Finished')
+        before = self.wait_bookmark(
+            original['id'], lambda row: row.get('completion', {}).get('state') == 'finished')
+        original_completion = before['completion']
+
+        StaticHandler.account_fixture = {
+            'user': {'id': 'other', 'username': 'other'},
+            'csrf_token': 'c' * 64, 'providers': []
+        }
+        self.go_library()
+        picker = self.page.locator('input[type=file][accept*=".epub"]').first
+        picker.set_input_files({
+            'name': 'Scoped-other-name.txt',
+            'mimeType': 'text/plain',
+            'buffer': payload
+        })
+
+        deadline = __import__('time').monotonic() + 20
+        while True:
+            rows = self.stores('books', ['data', 'bookmark', 'readerBookScope'])
+            if len(rows['data']) == 2:
+                break
+            self.assertLess(__import__('time').monotonic(), deadline,
+                            'second account did not receive an independent local record')
+            self.page.wait_for_timeout(25)
+        self.assertEqual(
+            {original['id']},
+            {row['bookId'] for row in rows['readerBookScope'] if row['accountId'] == '42'}
+        )
+        second = next(row for row in rows['data'] if row['id'] != original['id'])
+        self.assertEqual(original['contentHash'], second['contentHash'])
+        self.assertIsNone(second.get('libraryOwner'))
+        self.assertEqual(
+            original_completion,
+            next(row for row in rows['bookmark'] if row['dataId'] == original['id'])['completion']
+        )
+        self.assertFalse(any(row['dataId'] == second['id'] for row in rows['bookmark']))
+
     def test_two_live_histories_at_one_locator_are_not_chosen_by_link_order(self):
         original = self.import_finished()
         duplicate_id = self.page.evaluate('''async link => {

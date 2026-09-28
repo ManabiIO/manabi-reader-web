@@ -281,6 +281,95 @@ class LibraryBase(unittest.TestCase):
 
 
 class BooksLibraryBrowser(LibraryBase):
+    def test_renamed_identical_text_reuses_reading_identity_and_completion(self):
+        payload = b'\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e same direct import bytes\nsecond line\n'
+        picker = self.page.locator('input[type=file][accept*=".epub"]').first
+        picker.set_input_files({
+            'name': 'Before.txt',
+            'mimeType': 'text/plain',
+            'buffer': payload
+        })
+        expect(self.page.get_by_role('button', name='Read Before', exact=True)).to_be_visible(
+            timeout=30000)
+        first = self.stores('books', ['data'])['data']
+        self.assertEqual(1, len(first))
+        book_id = first[0]['id']
+        content_hash = first[0]['contentHash']
+
+        self.menu('Before', 'Mark as Finished')
+        before_bookmark = self.wait_bookmark(
+            book_id, lambda row: row.get('completion', {}).get('state') == 'finished')
+        before_completion = before_bookmark['completion']
+
+        picker.set_input_files({
+            'name': 'After.txt',
+            'mimeType': 'text/plain',
+            'buffer': payload
+        })
+        # Exact bytes retain the established logical title as well as the ID.
+        # TXT derives its parsed title from the filename, but title-keyed legacy
+        # side stores must not be orphaned by a physical rename.
+        expect(self.page.get_by_role('button', name='Read Before', exact=True)).to_be_visible(
+            timeout=30000)
+        expect(self.page.get_by_role('button', name='Read After', exact=True)).to_have_count(0)
+
+        rows = self.stores('books', ['data', 'bookmark'])
+        self.assertEqual(1, len(rows['data']), 'renaming identical bytes must not fork a book')
+        self.assertEqual(book_id, rows['data'][0]['id'])
+        self.assertEqual(content_hash, rows['data'][0]['contentHash'])
+        self.assertEqual('Before', rows['data'][0]['title'])
+        self.assertEqual(
+            before_completion,
+            next(row for row in rows['bookmark'] if row['dataId'] == book_id)['completion']
+        )
+
+    def test_direct_reimport_does_not_choose_between_independent_same_byte_histories(self):
+        payload = b'same bytes with two intentionally independent histories\n'
+        picker = self.page.locator('input[type=file][accept*=".epub"]').first
+        picker.set_input_files({
+            'name': 'Original.txt',
+            'mimeType': 'text/plain',
+            'buffer': payload
+        })
+        expect(self.page.get_by_role('button', name='Read Original', exact=True)).to_be_visible(
+            timeout=30000)
+        original = self.stores('books', ['data'])['data'][0]
+        duplicate_id = original['id'] + 1000000
+        self.page.evaluate('''async ({id}) => {
+          const db = await new Promise((resolve, reject) => {
+            const request = indexedDB.open('books');
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          const tx = db.transaction('data', 'readwrite');
+          const get = tx.objectStore('data').get(id);
+          get.onsuccess = () => tx.objectStore('data').put({
+            ...get.result,
+            id: id + 1000000,
+            title: 'Independent history'
+          });
+          await new Promise((resolve, reject) => {
+            tx.oncomplete = resolve;
+            tx.onabort = () => reject(tx.error);
+          });
+          db.close();
+        }''', {'id': original['id']})
+        before = self.stores('books', ['data', 'bookmark'])
+
+        picker.set_input_files({
+            'name': 'Third-name.txt',
+            'mimeType': 'text/plain',
+            'buffer': payload
+        })
+        expect(self.page.get_by_text(re.compile('matches multiple local copies'))).to_be_visible(
+            timeout=30000)
+        after = self.stores('books', ['data', 'bookmark'])
+        self.assertEqual(before, after)
+        self.assertEqual(
+            {original['id'], duplicate_id},
+            {row['id'] for row in after['data']}
+        )
+
     def test_yatsu_backup_collection_is_visible_on_phone_and_desktop(self):
         fixture = Path(__file__).resolve().parents[1] / 'fixtures' / 'yatsu' / 'complete-local-backup-v11.zip'
         self.page.goto(self.origin + '/reader-web/import-ttu?source=yatsu')
