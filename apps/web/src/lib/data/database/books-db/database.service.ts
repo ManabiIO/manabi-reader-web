@@ -317,6 +317,11 @@ export class DatabaseService {
         const replacement = {
           ...stored,
           id: oldData.id,
+          // Exact-byte direct reimports may arrive under a different filename
+          // (TXT derives its parsed title from that filename). The established
+          // logical title also keys legacy side stores, so do not silently
+          // rename those records as a side effect of identity reuse.
+          title: oldData.title,
           libraryOwner: oldData.libraryOwner ?? stored.libraryOwner,
           ...(skipTimestampFallback
             ? { lastBookModified: stored.lastBookModified, lastBookOpen: stored.lastBookOpen }
