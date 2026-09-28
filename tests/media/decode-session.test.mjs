@@ -94,8 +94,10 @@ test('late non-cooperating open is detached promptly and its pipeline is dispose
       disposed++;
     }
   });
-  await Promise.resolve();
-  await Promise.resolve();
+  // The ignored open can resume in a later microtask turn before the raw-promise
+  // observer disposes its returned pipeline. Wait one task turn so every queued
+  // promise continuation drains without assuming a fixed microtask count.
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(disposed, 1);
 });
 
