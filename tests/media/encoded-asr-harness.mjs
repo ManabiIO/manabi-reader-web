@@ -115,8 +115,6 @@ const makeQueue = (pauseAfterFirst) => {
     },
     (progress) => {
       updates.push({ stage: progress.stage, nextWindow: progress.job.nextWindow });
-      if (['complete', 'paused', 'failed'].includes(progress.stage))
-        decodeCache.release(progress.job.id);
       if (
         pauseAfterFirst &&
         !cancelPromise &&
