@@ -353,3 +353,33 @@ test('migration receipt fields are captured before database suspension', async (
   });
   assert.equal(h.records.has('receipt-replaced'), false);
 });
+
+
+test('organization rejects more than 50,000 total memberships before writing', async () => {
+  const h = harness();
+  const result = h.api.updateOrganization((value) => {
+    value.collections.push({
+      id: 'too-many',
+      name: 'Too many',
+      members: Array.from({ length: 50_001 }, (_, index) => `member-${index}`)
+    });
+  });
+  const rejected = assert.rejects(result, /invalid or exceeds its size limit/);
+  h.releaseRead();
+  await rejected;
+  assert.equal(h.writes.length, 0);
+  assert.equal(h.aborted(), 1);
+  assert.deepEqual(h.records.get(key), empty());
+});
+
+test('book presentation titles use the 1,000-character presentation limit, not collection-name limits', async () => {
+  const h = harness();
+  const title = '長'.repeat(500);
+  const result = h.api.presentBook('book:long-title', { title });
+  h.releaseRead();
+  await drain();
+  assert.equal(h.writes.length, 1);
+  h.commit();
+  await result;
+  assert.equal(h.records.get(key).books['book:long-title'].title, title);
+});
