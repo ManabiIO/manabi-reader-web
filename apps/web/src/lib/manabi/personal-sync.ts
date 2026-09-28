@@ -228,15 +228,17 @@ async function localBooks(accountId: string): Promise<Map<string, StoredBookData
   const ownersByBook = new Map<string, Set<string>>();
   for (const book of allBooks) {
     if (!book.contentHash || !/^[a-f0-9]{64}$/i.test(book.contentHash)) continue;
-    const scope = scopes.get(book.id);
-    if (!scope) continue;
     const bookKey = `content:${book.contentHash.toLowerCase()}`;
     const owners = ownersByBook.get(bookKey) ?? new Set<string>();
-    owners.add(scope.accountId);
+    const scope = scopes.get(book.id);
+    if (scope) owners.add(scope.accountId);
+    if (book.libraryOwner) owners.add(book.libraryOwner);
+    if (!owners.size) continue;
     ownersByBook.set(bookKey, owners);
   }
   for (const book of allBooks) {
     if (!book.contentHash || !/^[a-f0-9]{64}$/i.test(book.contentHash)) continue;
+    if (book.libraryOwner && book.libraryOwner !== accountId) continue;
     scoped(accountId);
     const bookKey = `content:${book.contentHash.toLowerCase()}`;
     const explicitOwners = ownersByBook.get(bookKey) ?? new Set<string>();

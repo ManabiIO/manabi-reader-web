@@ -67,6 +67,7 @@ export class BrowserStorageHandler extends BaseStorageHandler {
           lastBookOpen: book.lastBookOpen || 0,
           pageDirection: book.pageDirection,
           contentHash: book.contentHash,
+          libraryOwner: book.libraryOwner,
           isPlaceholder: book.isPlaceholder
         });
         // The inherited TTU cache is keyed by title. Retain its legacy lookup
@@ -361,6 +362,7 @@ export class BrowserStorageHandler extends BaseStorageHandler {
         lastBookOpen: storedBookData.lastBookOpen || 0,
         pageDirection: storedBookData.pageDirection,
         contentHash: storedBookData.contentHash,
+        libraryOwner: storedBookData.libraryOwner,
         isPlaceholder: !storedBookData.elementHtml
       });
     }

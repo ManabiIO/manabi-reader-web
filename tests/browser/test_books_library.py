@@ -1262,6 +1262,44 @@ class BooksLibraryBrowser(LibraryBase):
 
 
 class BooksLibraryFilesystem(LibraryBase):
+    def test_browser_import_and_exact_folder_copy_keep_one_reading_record(self):
+        original = book('Browser identity')
+        self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
+            'name': 'Original.epub',
+            'mimeType': 'application/epub+zip',
+            'buffer': original
+        })
+        expect(self.page.get_by_role('button', name='Read Browser identity', exact=True)).to_be_visible(
+            timeout=30000)
+        self.menu('Browser identity', 'Mark as Finished')
+        expect(self.tile('Browser identity').locator('.progress-label')).to_have_text('Finished')
+        before_data = self.stores('books', ['data'])['data']
+        self.assertEqual(1, len(before_data))
+        book_id = before_data[0]['id']
+        before_completion = self.stores('books', ['bookmark'])['bookmark'][0]['completion']
+
+        self.seed_files({'Different/Nested/Renamed.epub': original})
+        local = self.page.locator('.shelf-item').filter(
+            has=self.page.get_by_role('img', name='Local folder: Library fixture', exact=True))
+        button = local.get_by_role('button', name='Read Browser identity', exact=True)
+        expect(button).to_be_visible(timeout=30000)
+        expect(self.page.get_by_role('button', name='Read Browser identity', exact=True)).to_have_count(1)
+        expect(local.locator('.progress-label')).to_have_text('Finished')
+        button.click()
+        expect(self.page.locator('.book-content')).to_have_attribute(
+            'aria-busy', 'false', timeout=30000)
+
+        data = self.stores('books', ['data'])['data']
+        self.assertEqual(1, len(data), 'opening the exact folder copy must not create another book')
+        self.assertEqual(book_id, data[0]['id'])
+        links = self.stores('manabi-reader-integrations', ['books'])['books']
+        self.assertEqual(1, len(links))
+        self.assertEqual(book_id, links[0]['bookId'])
+        self.assertEqual('Different/Nested/Renamed.epub', links[0]['fileId'])
+        bookmark = self.stores('books', ['bookmark'])['bookmark'][0]
+        self.assertEqual(book_id, bookmark['dataId'])
+        self.assertEqual(before_completion, bookmark['completion'])
+
     def test_external_relocation_rebinds_content_identity_and_presentation(self):
         self.check_external_relocation_open()
 

@@ -61,6 +61,7 @@ async function bookAccount(bookKey: string): Promise<string | null | undefined> 
     if (`content:${book.contentHash?.toLowerCase()}` !== bookKey) continue;
     const scope = await db.get('readerBookScope', book.id);
     if (scope) owners.add(scope.accountId);
+    if (book.libraryOwner) owners.add(book.libraryOwner);
   }
   return owners.size === 1 ? [...owners][0] : owners.size === 0 ? null : undefined;
 }

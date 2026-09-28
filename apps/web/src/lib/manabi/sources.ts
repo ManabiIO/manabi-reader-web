@@ -11,6 +11,7 @@ import {
   seriesMetadataFilename
 } from '$lib/library/series-metadata';
 import { IntegrationError, currentUser, request } from './client';
+import { validateBookDownloadSize } from '../library/book-download.ts';
 import { maxManagedStateBytes } from './auth-contract';
 import { integrationDB, exclusive, equal, type LocalLibrary } from './persistence';
 
@@ -19,6 +20,8 @@ export interface LibraryEntry {
   name: string;
   kind: 'file' | 'folder';
   size?: number;
+  /** A verified shelf observation, checked against the bytes before import. */
+  expectedContentHash?: string;
 }
 export interface StateCopy {
   value: Record<string, unknown> | null;
@@ -86,12 +89,13 @@ export class CloudLibrary implements LibrarySource {
   async read(item: LibraryEntry) {
     if (item.kind !== 'file' || !supportedBook(item.name))
       throw new IntegrationError('unsupported');
-    if (item.size !== undefined && item.size > maxBookBytes)
-      throw new IntegrationError('too_large');
+    validateBookDownloadSize(item.size);
     const bytes = await request<ArrayBuffer>(this.path('file', { id: item.id }), {
       userId: this.owner,
-      binary: true
+      binary: true,
+      maximumBytes: maxBookBytes
     });
+    validateBookDownloadSize(item.size, bytes.byteLength);
     return new File([bytes], item.name, {
       type: item.name.toLowerCase().endsWith('.epub')
         ? 'application/epub+zip'

@@ -77,6 +77,9 @@ jobs:
             LIBRARY_BROWSER=$engine python tests/browser/test_library_cloud_relocation.py 2>&1 | tee artifacts/library/$engine/cloud-relocation.log
             result=${PIPESTATUS[0]}
             if [ "$result" -ne 0 ]; then status=1; fi
+            LIBRARY_BROWSER=$engine python tests/browser/test_library_identity.py 2>&1 | tee artifacts/library/$engine/identity.log
+            result=${PIPESTATUS[0]}
+            if [ "$result" -ne 0 ]; then status=1; fi
             LIBRARY_BROWSER=$engine python tests/browser/test_collection_commit.py 2>&1 | tee artifacts/library/$engine/collection-commit.log
             result=${PIPESTATUS[0]}
             if [ "$result" -ne 0 ]; then status=1; fi

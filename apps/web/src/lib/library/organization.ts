@@ -5,6 +5,7 @@
  */
 
 import { writable } from 'svelte/store';
+import { organizationIdentityReplacements, type BookIdentityRecord } from './book-identity.ts';
 import { equal, integrationDB, type BookLink } from '$lib/manabi/persistence';
 import { libraryName } from './series-metadata';
 import {
@@ -15,6 +16,8 @@ import {
 } from './organization-portability';
 import type { PageDirection } from './direction';
 import { changeWantToRead, WANT_TO_READ_ID, type CollectionBook } from './want-to-read';
+
+export { bookKey, contentBookKey, sourceKey, sourceBookKey } from './organization-keys.ts';
 
 export interface Collection {
   id: string;
@@ -37,14 +40,6 @@ export const emptyOrganization = (): Organization => ({ version: 1, collections:
 let currentOrganization = emptyOrganization();
 let publicationRevision = 0;
 export const organization = writable<Organization>(currentOrganization);
-export const bookKey = (id: number) => `book:${id}`;
-export const contentBookKey = (hash: string) => `content:${hash}`;
-export const sourceKey = (source: { id: string; owner: string | null; root: string }) =>
-  JSON.stringify([source.owner, source.id, source.root]);
-export const sourceBookKey = (
-  source: { id: string; owner: string | null; root: string },
-  fileId: string
-) => `source:${JSON.stringify([source.owner, source.id, source.root, fileId])}`;
 
 function normalizedOrganization(value: unknown): Organization | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return;
@@ -237,16 +232,12 @@ export async function presentBook(
 }
 
 /** Replace browser- and provider-specific locators with content identity once it is known. */
-export async function stabilizeOrganization(links: BookLink[]) {
-  const replacements = new Map<string, string>();
-  for (const link of links) {
-    const stable = contentBookKey(link.contentHash);
-    replacements.set(bookKey(link.bookId), stable);
-    replacements.set(
-      sourceBookKey({ id: link.sourceId, owner: link.owner, root: link.root }, link.fileId),
-      stable
-    );
-  }
+export async function stabilizeOrganization(
+  links: BookLink[],
+  records: readonly BookIdentityRecord[] = []
+) {
+  // Conflicting revision claims cannot choose a migration destination by order.
+  const replacements = organizationIdentityReplacements(links, records);
   await updateOrganization((value) => {
     for (const collection of value.collections)
       collection.members = [

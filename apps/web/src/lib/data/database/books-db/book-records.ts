@@ -23,6 +23,7 @@ export type BookSummary = Pick<
   | 'lastBookOpen'
   | 'pageDirection'
   | 'contentHash'
+  | 'libraryOwner'
 > & { isPlaceholder: boolean };
 
 function summarizeBook(book: StoredBookData): BookSummary {
@@ -37,6 +38,7 @@ function summarizeBook(book: StoredBookData): BookSummary {
     lastBookOpen: book.lastBookOpen,
     pageDirection: book.pageDirection,
     contentHash: book.contentHash,
+    libraryOwner: book.libraryOwner,
     isPlaceholder: !book.elementHtml
   };
 }

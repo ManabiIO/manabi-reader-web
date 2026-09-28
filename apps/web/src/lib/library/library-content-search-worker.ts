@@ -81,7 +81,12 @@ async function search(request: SearchRequest) {
           tx.objectStore('readerLocalIdentity').get(descriptor.id)
         ]);
         await done;
-        if (!book || (scope && scope.accountId !== request.owner)) continue;
+        if (
+          !book ||
+          (scope && scope.accountId !== request.owner) ||
+          (book.libraryOwner && book.libraryOwner !== request.owner)
+        )
+          continue;
         const actualKey = book.contentHash
           ? `content:${book.contentHash.toLowerCase()}`
           : `local:${identity?.uuid}`;
@@ -128,7 +133,8 @@ async function search(request: SearchRequest) {
                 present?.elementHtml === book.elementHtml &&
                 JSON.stringify(present.publicationManifest ?? null) ===
                   JSON.stringify(book.publicationManifest ?? null) &&
-                (!presentScope || presentScope.accountId === request.owner)
+                (!presentScope || presentScope.accountId === request.owner) &&
+                (!present?.libraryOwner || present.libraryOwner === request.owner)
               ) {
                 await save
                   .objectStore('readerSearchProjection')

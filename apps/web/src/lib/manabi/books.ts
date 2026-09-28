@@ -8,23 +8,28 @@ import { WebDavSource } from '$lib/webdav/source';
 import { davSyncStatus, syncDavBook, syncEnabledDavBooks } from '$lib/webdav/sync';
 import { get, writable } from 'svelte/store';
 import { database } from '$lib/data/store';
-import {
-  bookKey,
-  contentBookKey,
-  sourceBookKey,
-  relocatePresentation,
-  stabilizeOrganization
-} from '$lib/library/organization';
+import { stabilizeOrganization } from '$lib/library/organization';
 import { StorageKey } from '$lib/data/storage/storage-types';
 import { storageSource$ } from '$lib/data/storage/storage-view';
 import { getStorageHandler } from '$lib/data/storage/storage-handler-factory';
-import { ReplicationSaveBehavior } from '$lib/functions/replication/replication-options';
+import type { StoredBookData } from '$lib/data/database/books-db/versions/books-db';
+import { encodeBook } from '$lib/data/database/books-db/book-binary';
+import { commitTransaction } from '$lib/data/database/books-db/commit-transaction.mjs';
+import {
+  commitLibraryBook,
+  readLibraryIdentities
+} from '$lib/data/database/books-db/library-import';
+import {
+  normalizedContentHash,
+  resolveImportedBook,
+  selectBookLink
+} from '$lib/library/book-identity';
 import loadEpub from '$lib/functions/file-loaders/epub/load-epub';
 import loadTxt from '$lib/functions/file-loaders/txt/load-txt';
 import loadHtmlz from '$lib/functions/file-loaders/htmlz/load-htmlz';
-import { currentUser, localProfileUser, localUser, IntegrationError } from './client';
+import { accountScope, currentUser, localProfileUser, localUser, IntegrationError } from './client';
 import { integrationDB, exclusive, type BookLink } from './persistence';
-import { sha256, type LibraryEntry, type LibrarySource } from './sources';
+import { LocalLibrarySource, sha256, type LibraryEntry, type LibrarySource } from './sources';
 import {
   personalSyncStatus,
   resolvePersonalConflict,
@@ -48,100 +53,201 @@ function ensureOwner(link: BookLink) {
   if (link.owner !== null && currentUser()?.id !== link.owner)
     throw new IntegrationError('account_changed');
 }
+let linkRefreshGeneration = 0;
 export async function refreshLinkedBooks() {
-  const books = await (await integrationDB()).getAll('books');
-  allLinkedBooks.set(books);
+  const generation = ++linkRefreshGeneration;
   const owner = localProfileUser()?.id ?? null;
+  const current = () =>
+    generation === linkRefreshGeneration && (localProfileUser()?.id ?? null) === owner;
+  const books = await (await integrationDB()).getAll('books');
+  if (!current()) return;
   const visible = books.filter((book) => book.owner === null || book.owner === owner);
-  await stabilizeOrganization(visible);
-  if ((localProfileUser()?.id ?? null) !== owner) return;
+  const records = await readLibraryIdentities(await database.db);
+  if (!current()) return;
+  await stabilizeOrganization(visible, records);
+  if (!current()) return;
+  allLinkedBooks.set(books);
   linkedBooks.set(visible);
+}
+
+/** Capture before waiting for import admission. A logout/login round trip must
+ * not restore an old import's authority just because the user ID is equal. */
+function importScope(source: LibrarySource) {
+  const profile = localProfileUser()?.id ?? null;
+  const authenticated = source.owner === null ? undefined : accountScope();
+  if (authenticated && authenticated.userId !== source.owner)
+    throw new IntegrationError('account_changed');
+  const controller = new AbortController();
+  const stop = localUser.subscribe((user) => {
+    if ((user?.id ?? null) !== profile) controller.abort();
+  });
+  const assertCurrent = () => {
+    if (controller.signal.aborted) throw new IntegrationError('account_changed');
+    if (authenticated) {
+      const current = accountScope();
+      if (
+        current.userId !== authenticated.userId ||
+        current.generation !== authenticated.generation
+      )
+        throw new IntegrationError('account_changed');
+    }
+  };
+  return { assertCurrent, signal: controller.signal, stop };
 }
 
 export async function importLibraryBook(
   source: LibrarySource,
   item: LibraryEntry,
-  syncEnabled = false
+  syncEnabled = false,
+  expectedBookId?: number
 ): Promise<BookLink> {
-  return exclusive('import-library-book', async () => {
-    if (source.owner !== null && source.owner !== currentUser()?.id)
-      throw new IntegrationError('account_changed');
-    const file = await source.read(item);
-    const contentHash = await sha256(await file.arrayBuffer());
-    const id = await sha256(
-      JSON.stringify([source.owner, source.id, source.root, item.id, contentHash])
+  const scope = importScope(source);
+  const selectedFile = { ...item };
+  const sourceIdentity = { id: source.id, owner: source.owner, root: source.root };
+  try {
+    return await exclusive(
+      'import-library-book',
+      async () => {
+        scope.assertCurrent();
+        const file = await source.read(selectedFile);
+        scope.assertCurrent();
+        const contentHash = await sha256(await file.arrayBuffer());
+        if (
+          selectedFile.expectedContentHash !== undefined &&
+          normalizedContentHash(selectedFile.expectedContentHash) !== contentHash
+        )
+          throw new Error('The source book changed. Refresh the Library before opening it again.');
+        const integration = await integrationDB();
+        const db = await database.db;
+        const links = await integration.getAll('books');
+        const records = await readLibraryIdentities(db);
+        scope.assertCurrent();
+        const selected = resolveImportedBook(
+          records,
+          links,
+          sourceIdentity,
+          selectedFile.id,
+          contentHash,
+          expectedBookId
+        );
+        const cached = records.find((record) => record.id === selected);
+        let prepared: Omit<StoredBookData, 'id'> | undefined;
+        if (!cached || cached.isPlaceholder) {
+          const suffix = file.name.split('.').pop()?.toLowerCase();
+          const now = Date.now();
+          const content =
+            suffix === 'epub'
+              ? await loadEpub(file, document, now)
+              : suffix === 'txt'
+                ? await loadTxt(file, now)
+                : await loadHtmlz(file, document, now);
+          scope.assertCurrent();
+          content.contentHash = contentHash;
+          prepared = await encodeBook(content);
+        }
+        scope.assertCurrent();
+        const id = await sha256(
+          JSON.stringify([
+            sourceIdentity.owner,
+            sourceIdentity.id,
+            sourceIdentity.root,
+            selectedFile.id,
+            contentHash
+          ])
+        );
+        // Normal links retain their old encoding; only a moved/occupied row ID
+        // needs a new opaque ID. Compute non-IDB work before the transaction.
+        const fallbackId = await sha256(`${id}:${crypto.randomUUID()}`);
+        const currentLinks = await integration.getAll('books');
+        const stored = await commitLibraryBook(
+          db,
+          currentLinks,
+          {
+            source: sourceIdentity,
+            fileId: selectedFile.id,
+            contentHash,
+            expectedBookId: expectedBookId ?? selected
+          },
+          prepared,
+          scope.assertCurrent,
+          scope.signal
+        );
+        const proposed: BookLink = {
+          id,
+          sourceId: sourceIdentity.id,
+          owner: sourceIdentity.owner,
+          root: sourceIdentity.root,
+          fileId: selectedFile.id,
+          name: selectedFile.name,
+          contentHash,
+          bookId: stored.id,
+          title: stored.title,
+          syncEnabled
+        };
+        scope.assertCurrent();
+        let savedLink: BookLink;
+        if (source instanceof WebDavSource) {
+          const candidate = selectBookLink(
+            await integration.getAll('books'),
+            proposed,
+            stored.compatibleBookIds,
+            fallbackId
+          );
+          scope.assertCurrent();
+          // This path retains WebDAV's connection/configuration and consent checks.
+          savedLink = await source.persistLink(candidate);
+        } else {
+          const tx = integration.transaction(['books', 'localLibraries'], 'readwrite');
+          const abort = () => {
+            try {
+              tx.abort();
+            } catch {
+              /* Already settled. */
+            }
+          };
+          scope.signal.addEventListener('abort', abort, { once: true });
+          try {
+            savedLink = await commitTransaction(tx, async () => {
+              scope.assertCurrent();
+              if (
+                source instanceof LocalLibrarySource &&
+                !(await tx.objectStore('localLibraries').get(sourceIdentity.id))
+              )
+                throw new IntegrationError('not_found');
+              const latest = await tx.objectStore('books').getAll();
+              const candidate = selectBookLink(
+                latest,
+                proposed,
+                stored.compatibleBookIds,
+                fallbackId
+              );
+              scope.assertCurrent();
+              // add, never put: an occupied ID cannot silently replace another locator.
+              if (!latest.some((link) => link.id === candidate.id))
+                await tx.objectStore('books').add(candidate);
+              scope.assertCurrent();
+              return candidate;
+            });
+          } finally {
+            scope.signal.removeEventListener('abort', abort);
+          }
+        }
+        scope.assertCurrent();
+        // Promotion validates all retained claims; an old path alias cannot
+        // migrate to a replacement revision merely because its link appeared last.
+        await refreshLinkedBooks();
+        scope.assertCurrent();
+        getStorageHandler(window, StorageKey.BROWSER).clearData();
+        storageSource$.next(StorageKey.BROWSER);
+        database.dataListChanged$.next(undefined);
+        if (syncEnabled) await syncBook(savedLink.id);
+        return savedLink;
+      },
+      scope.signal
     );
-    const integration = await integrationDB();
-    const existing =
-      (await integration.get('books', id)) ??
-      (await integration.getAll('books')).find(
-        (link) =>
-          link.owner === source.owner &&
-          link.sourceId === source.id &&
-          link.root === source.root &&
-          link.fileId === item.id &&
-          link.contentHash === contentHash
-      );
-    if (existing && (await database.getData(existing.bookId))) {
-      await relocatePresentation(
-        sourceBookKey(source, item.id),
-        contentBookKey(existing.contentHash)
-      );
-      await relocatePresentation(bookKey(existing.bookId), contentBookKey(existing.contentHash));
-      return existing;
-    }
-    const same = (await integration.getAll('books')).find(
-      (book) => book.contentHash === contentHash && book.owner === source.owner
-    );
-    let stored = same ? await database.getData(same.bookId) : undefined;
-    if (!stored) {
-      const suffix = file.name.split('.').pop()?.toLowerCase();
-      const now = Date.now();
-      const content =
-        suffix === 'epub'
-          ? await loadEpub(file, document, now)
-          : suffix === 'txt'
-            ? await loadTxt(file, now)
-            : await loadHtmlz(file, document, now);
-      let title = content.title;
-      // Upstream's primary logical identity is the title. Never overwrite an
-      // unrelated local book, another account's book, or a duplicate filename.
-      if (await database.getDataByTitle(title))
-        title = `${content.title} [${contentHash.slice(0, 10)}]`;
-      let attempt = 1;
-      while (await database.getDataByTitle(title))
-        title = `${content.title} [${contentHash.slice(0, 10)}-${++attempt}]`;
-      content.title = title;
-      content.contentHash = contentHash;
-      if (source.owner !== null && source.owner !== currentUser()?.id)
-        throw new IntegrationError('account_changed');
-      stored = await database.upsertData(content, ReplicationSaveBehavior.NewOnly, false, true);
-    }
-    const link: BookLink = {
-      id,
-      sourceId: source.id,
-      owner: source.owner,
-      root: source.root,
-      fileId: item.id,
-      name: item.name,
-      contentHash,
-      bookId: stored.id,
-      title: stored.title,
-      syncEnabled
-    };
-    const savedLink =
-      source instanceof WebDavSource
-        ? await source.persistLink(link)
-        : (await integration.put('books', link), link);
-    await relocatePresentation(sourceBookKey(source, item.id), contentBookKey(contentHash));
-    await relocatePresentation(bookKey(stored.id), contentBookKey(contentHash));
-    getStorageHandler(window, StorageKey.BROWSER).clearData();
-    storageSource$.next(StorageKey.BROWSER);
-    database.dataListChanged$.next(undefined);
-    await refreshLinkedBooks();
-    if (syncEnabled) await syncBook(savedLink.id);
-    return savedLink;
-  });
+  } finally {
+    scope.stop();
+  }
 }
 
 export async function syncBook(id: string, choice?: 'local' | 'remote'): Promise<void> {

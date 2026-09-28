@@ -10,6 +10,8 @@ export interface DirectoryEntry {
   parent: string;
   name: string;
   kind: 'file' | 'folder';
+  /** Captured by the shelf from verified bytes, not inferred from the filename. */
+  expectedContentHash?: string;
 }
 export interface LibraryBook<T> {
   kind: 'book';

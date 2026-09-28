@@ -10,11 +10,12 @@ import type { Catalog, SourceDescriptor } from './catalog';
 import type { Organization } from './organization';
 import type { PageDirection } from './direction';
 import type { Preview } from './previews';
-import { bookKey, contentBookKey, sourceKey, sourceBookKey } from './organization';
-import { directoryTree, type DirectoryEntry, type LibraryNode } from './tree';
-import { isFinished } from './completion';
+import { bookKey, contentBookKey, sourceKey, sourceBookKey } from './organization-keys.ts';
+import { directoryTree, type DirectoryEntry, type LibraryNode } from './tree.ts';
+import { isFinished } from './completion.ts';
 import type { SortOption } from '$lib/data/sort-types';
-import { creatorSortKey, sharedCreatorLine } from './book-metadata';
+import { creatorSortKey, sharedCreatorLine } from './book-metadata.ts';
+import { BookIdentityIndex, normalizedContentHash } from './book-identity.ts';
 
 export interface ShelfBook extends Omit<BookCardProps, 'id'> {
   key: string;
@@ -46,63 +47,25 @@ export function buildShelf(
 ): ShelfNode[] {
   const byId = new Map(cards.map((card) => [card.id, card])),
     represented = new Set<number>();
-  const linksByBook = new Map(links.map((link) => [link.bookId, link]));
-  const linksByFile = new Map(
-    links.map((link) => [
-      sourceBookKey({ id: link.sourceId, owner: link.owner, root: link.root }, link.fileId),
-      link
-    ])
-  );
+  const identities = new BookIdentityIndex(cards, links);
   const result: ShelfNode[] = [];
-  const catalogFiles = new Set(
-    catalogs.flatMap((catalog) =>
-      catalog.entries
-        .filter((entry) => entry.kind === 'file')
-        .map((entry) => sourceBookKey(catalog.source, entry.id))
-    )
-  );
-  const missingLinksByContent = new Map<string, BookLink>();
-  for (const link of links) {
-    const locator = sourceBookKey(
-      { id: link.sourceId, owner: link.owner, root: link.root },
-      link.fileId
-    );
-    if (
-      !catalogFiles.has(locator) &&
-      catalogs.some(
-        (catalog) =>
-          catalog.source.id === link.sourceId &&
-          catalog.source.owner === link.owner &&
-          catalog.source.root === link.root
-      )
-    )
-      missingLinksByContent.set(JSON.stringify([link.owner, link.contentHash]), link);
-  }
-  const revisions = new Map(
-    catalogs.map((catalog) => [sourceKey(catalog.source), catalog.scannedAt])
-  );
   const decorate = (
     card: BookCardProps | undefined,
     source?: SourceDescriptor,
-    file?: DirectoryEntry
+    file?: DirectoryEntry,
+    preview?: Preview
   ): ShelfBook => {
-    const key = card ? bookKey(card.id) : sourceBookKey(source!, file!.id);
-    const linked = card ? linksByBook.get(card.id) : linksByFile.get(key);
-    const cachedPreview = source && file ? previews[sourceBookKey(source, file.id)] : undefined;
-    const preview =
-      source && cachedPreview?.scannedAt === revisions.get(sourceKey(source))
-        ? cachedPreview
-        : undefined;
+    const locator = source && file ? sourceBookKey(source, file.id) : undefined;
+    const key = card ? bookKey(card.id) : locator!;
     const contentHash =
-      card?.contentHash && /^[a-f0-9]{64}$/.test(card.contentHash)
-        ? card.contentHash
-        : linked?.contentHash || preview?.contentHash;
+      normalizedContentHash(card?.contentHash) ?? normalizedContentHash(preview?.contentHash);
     const organizationKey = contentHash ? contentBookKey(contentHash) : key;
+    const sourceAliasAllowed =
+      source && file && identities.allowsSourceAlias(source, file.id, contentHash);
     const organizationAliases = [
-      organizationKey,
-      key,
-      ...(linked ? [bookKey(linked.bookId)] : []),
-      ...(source && file ? [sourceBookKey(source, file.id)] : [])
+      ...(contentHash ? [organizationKey] : []),
+      ...(card ? [key] : []),
+      ...(locator && sourceAliasAllowed ? [locator] : [])
     ].filter((value, index, values) => values.indexOf(value) === index);
     const presentation = organizationAliases
       .map((alias) => organization.books[alias])
@@ -136,33 +99,28 @@ export function buildShelf(
       organizationAliases,
       bookId: card?.id,
       source,
-      file
+      file: file ? { ...file, expectedContentHash: contentHash } : undefined
     };
   };
   for (const catalog of catalogs) {
     const source = catalog.source,
       namespace = sourceKey(source);
-    const matches = new Map(
-      links
-        .filter(
-          (link) =>
-            link.sourceId === source.id && link.owner === source.owner && link.root === source.root
-        )
-        .map((link) => [link.fileId, link])
-    );
     const nodes = directoryTree(
       catalog.entries,
       source.root,
       (file) => {
-        const link = matches.get(file.id),
-          preview = previews[sourceBookKey(source, file.id)],
-          moved =
-            !link && preview?.scannedAt === catalog.scannedAt && preview.contentHash
-              ? missingLinksByContent.get(JSON.stringify([source.owner, preview.contentHash]))
+        const locator = sourceBookKey(source, file.id),
+          cachedPreview = previews[locator],
+          preview =
+            cachedPreview?.key === locator &&
+            cachedPreview.scannedAt === catalog.scannedAt &&
+            normalizedContentHash(cachedPreview.contentHash)
+              ? cachedPreview
               : undefined,
-          card = link ? byId.get(link.bookId) : moved ? byId.get(moved.bookId) : undefined;
+          match = identities.resolve(source, file.id, preview?.contentHash),
+          card = match.kind === 'matched' ? byId.get(match.bookId) : undefined;
         if (card) represented.add(card.id);
-        return decorate(card, source, file);
+        return decorate(card, source, file, preview);
       },
       catalog.names
     );
@@ -189,16 +147,20 @@ export function buildShelf(
           (s) => s.id === link.sourceId && s.owner === link.owner && s.root === link.root
         )
       : undefined;
-    const file: DirectoryEntry | undefined =
-      link && source
-        ? { id: link.fileId, parent: source.root, name: link.name, kind: 'file' }
-        : undefined;
-    result.push({ kind: 'book', id: bookKey(card.id), book: decorate(card, source, file) });
+    // A retained browser copy is still readable, but an absent/replaced source
+    // is not an available physical file for move/group actions or new imports.
+    result.push({ kind: 'book', id: bookKey(card.id), book: decorate(card, source) });
   }
   return result;
 }
+/** File operations must enumerate physical copies before any logical deduplication. */
+export function physicalBooks(nodes: ShelfNode[]): ShelfBook[] {
+  return nodes.flatMap((node) =>
+    node.kind === 'book' ? [node.book] : physicalBooks(node.children)
+  );
+}
 export function allBooks(nodes: ShelfNode[]): ShelfBook[] {
-  const books = nodes.flatMap((node) => (node.kind === 'book' ? [node.book] : node.books));
+  const books = physicalBooks(nodes);
   return [...new Map(books.map((book) => [book.key, book])).values()];
 }
 export function seriesTrail(nodes: ShelfNode[], id: string): ShelfSeries[] {
@@ -218,10 +180,15 @@ export function visibleShelf(
   const natural = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
   function value(node: ShelfNode): string | number {
     if (sort.property === 'title') return node.kind === 'series' ? node.name : node.book.title;
-    if (sort.property === 'author')
-      return node.kind === 'series'
-        ? sharedCreatorLine(node.books) || ''
-        : creatorSortKey(node.book.creators) || '';
+    if (sort.property === 'author') {
+      const creators =
+        node.kind === 'series'
+          ? sharedCreatorLine(node.books)
+            ? node.books[0]?.creators
+            : undefined
+          : node.book.creators;
+      return creatorSortKey(creators) || '';
+    }
     const property = sort.property as Exclude<SortOption['property'], 'author' | 'title'>;
     const books = node.kind === 'series' ? node.books : [node.book];
     return books.reduce(

@@ -45,6 +45,8 @@ interface BooksDbV6BookData {
   sourceFormat?: 'epub' | 'htmlz' | 'txt';
   /** SHA-256 of the original imported file, independent of title and location. */
   contentHash?: string;
+  /** Account that imported a connected-library copy, even before its link commits. */
+  libraryOwner?: string;
   styleSheet: string;
   elementHtml: string;
   blobs: Record<string, Blob>;
