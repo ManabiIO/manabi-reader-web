@@ -75,7 +75,9 @@ navigator.locks.request('moss-probe-dedicated-resource',async()=>{
   });
   postMessage({type:'ready',label,worker:typeof Worker});
   await new Promise(()=>{});
-});'''
+}).catch(error=>postMessage({
+  type:'error',label,phase:'dedicated-resource',message:String(error)
+}));'''
 DEDICATED_CHILD = '''navigator.locks.request('moss-probe-dedicated-child',async()=>{
   postMessage({type:'ready'});
   await new Promise(()=>{});
