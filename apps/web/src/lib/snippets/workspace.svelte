@@ -497,13 +497,22 @@
       const existing = await getRecord(s.owner, document.id);
       s.guard();
       if (existing) {
-        if (canonical(existing.document) === canonical(document)) {
-          await goto(resolve(`/snippets?id=${document.id}`));
-          return;
+        if (canonical(existing.document) !== canonical(document)) {
+          await restoreBackup(
+            canonical({
+              format: 'manabi-snippets-export',
+              version: 1,
+              items: [document],
+              collections: []
+            }),
+            s
+          );
+          s.guard();
+          await reloadSnippets(s);
+          notice = 'A different version was imported. Both versions are kept until you choose one.';
         }
-        throw new Error(
-          'A different version of this snippet already exists. Import a backup to retain both versions, or paste the text into a new snippet.'
-        );
+        await goto(resolve(`/snippets?id=${document.id}`));
+        return;
       }
       const session = crypto.randomUUID(),
         dest = await suggestedDestination(s);
