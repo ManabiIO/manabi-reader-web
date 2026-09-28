@@ -4,6 +4,7 @@
 import { compareEncodedWaveform } from './encoded-waveform.mjs';
 import { mediaRuntime } from '../../.cache/media-test-build/encoded-media-adapter.js';
 import { MediaPipeline } from '../../.cache/media-test-build/pipeline.js';
+import { DecodeSessionCache } from '../../.cache/media-test-build/decode-session.js';
 import { MossClient } from '../../.cache/media-test-build/moss-client.js';
 import { TranscriptionQueue } from '../../.cache/media-test-build/queue.js';
 import { MediaStore } from '../../.cache/media-test-build/store.js';
@@ -198,6 +199,48 @@ export async function start(input) {
       widePackets: await packets(base, base + 7.003),
       narrowPackets: await packets(base + 1.003, base + 6.003)
     };
+
+    // Exercise the production owner-scoped decoder cache over the actual
+    // adapter/encoded source, independently from the queue's recognition calls.
+    let cacheCreates = 0;
+    const cache = new DecodeSessionCache(async (_job, ownerSignal) => {
+      cacheCreates++;
+      return new MediaPipeline(mediaRuntime, source, ownerSignal);
+    });
+    const firstOwner = new AbortController();
+    const cacheJob = { id: 'encoded-cache-probe' };
+    try {
+      const one = await cache.decode(
+        cacheJob,
+        Number(audioTrack),
+        base,
+        base + 1.25,
+        firstOwner.signal
+      );
+      const two = await cache.decode(
+        cacheJob,
+        Number(audioTrack),
+        base + 1.25,
+        base + 2.5,
+        firstOwner.signal
+      );
+      check(one.length > 0 && two.length > 0, 'Cached decoder returned empty PCM');
+      check(cacheCreates === 1, 'One owner rebuilt the encoded decoder between windows');
+      firstOwner.abort(new DOMException('probe owner retired', 'AbortError'));
+      const successor = new AbortController();
+      const three = await cache.decode(
+        cacheJob,
+        Number(audioTrack),
+        base + 2.5,
+        base + 3.5,
+        successor.signal
+      );
+      check(three.length > 0, 'Successor decoder returned empty PCM');
+      check(cacheCreates === 2, 'Successor owner inherited the previous decoder session');
+      nativeChecks.push('real encoded decoder session reused within one owner and fenced at successor');
+    } finally {
+      cache.dispose();
+    }
     check(
       comparison.passed,
       'Independent encoded-audio seek exceeded container precision or changed the waveform: ' +
