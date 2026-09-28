@@ -275,7 +275,14 @@ let activeUser: string | null = null;
 let active: SavedPreferences | null = null;
 let writes: Promise<unknown> = Promise.resolve();
 let debounce: ReturnType<typeof setTimeout> | undefined;
-let retryAt = 0;
+const syncRetryAt = new Map<string, number>();
+const storageRetryAt = new Map<string, number>();
+function retryAt(retries: Map<string, number>, user: string | null | undefined) {
+  return user ? (retries.get(user) ?? 0) : 0;
+}
+function clearRetry(retries: Map<string, number>, user: string) {
+  retries.delete(user);
+}
 let activation = 0;
 let applyLifetime = new AbortController();
 function advanceActivation() {
@@ -364,14 +371,17 @@ async function performPreferenceSync(
     unchangedUser(user);
     preferenceStatus.set({ enabled: true, state: 'syncing', conflicts: [] });
     const captured = structuredClone(state.local);
+    let failureKind: 'sync' | 'storage' = 'sync';
     try {
       // The first-sync decision is user intent, not a one-request hint. A lost
       // GET/PUT reply must not change "use this device" into "use the server"
       // on recovery. Persist explicit intent before issuing any HTTP request.
       if (!state.initialized && choice && state.initialChoice !== choice) {
         state.initialChoice = choice;
+        failureKind = 'storage';
         await persist(user, state);
         if (!isCurrent()) return;
+        failureKind = 'sync';
       }
       let resolution = choice;
       if (
@@ -408,6 +418,7 @@ async function performPreferenceSync(
       } else {
         const combined = mergeRecords(wire(state.base), capturedWire, there);
         if (combined.conflicts.length) {
+          clearRetry(syncRetryAt, user);
           preferenceStatus.set({ enabled: true, state: 'conflict', conflicts: combined.conflicts });
           return;
         }
@@ -435,11 +446,16 @@ async function performPreferenceSync(
           throw new IntegrationError('invalid_response');
         accepted = response;
       }
+      // The server path has completed successfully. Local application/storage
+      // failures below must not preserve an older Retry-After or be mistaken
+      // for a reason to contact the server early.
+      clearRetry(syncRetryAt, user);
       const newer = mergeRecords(capturedWire, wire(state.local), merged);
       if (newer.conflicts.length) {
         // Preserve the last mutually accepted baseline. Otherwise a retry would
         // treat the conflicting local value as uncontested and overwrite remote.
         preferenceStatus.set({ enabled: true, state: 'conflict', conflicts: newer.conflicts });
+        failureKind = 'storage';
         await persist(user, state);
         return;
       }
@@ -454,6 +470,7 @@ async function performPreferenceSync(
       state.revision = accepted.revision;
       state.initialized = true;
       delete state.initialChoice;
+      failureKind = 'storage';
       await apply(state.local, isCurrent, signal);
       if (!isCurrent()) return;
       await persist(user, state);
@@ -470,11 +487,14 @@ async function performPreferenceSync(
       });
     } catch (error) {
       if (!isCurrent()) return;
-      const failure =
-        error instanceof IntegrationError ? error : new IntegrationError('unavailable');
-      retryAt = Date.now() + Math.max(failure.retryAfter * 1000, 5000);
-      preferenceStatus.set({ enabled: true, state: failure.code, conflicts: [] });
-      await persist(user, state);
+      if (failureKind === 'sync') reportSyncFailure(user, error, true);
+      else reportStorageFailure(user, error, true);
+      try {
+        await persist(user, state);
+      } catch (saveError) {
+        if (isCurrent()) reportStorageFailure(user, saveError, true);
+        throw saveError;
+      }
     }
   });
 }
@@ -494,7 +514,7 @@ export async function enablePreferenceSync(enabled: boolean, choice?: 'local' | 
     await persist(user, state);
   } catch (error) {
     if (active === state && currentUser()?.id === user)
-      reportPreferenceFailure(error, state.enabled);
+      reportStorageFailure(user, error, state.enabled);
     throw error;
   }
   if (active !== state || currentUser()?.id !== user) return;
@@ -502,10 +522,23 @@ export async function enablePreferenceSync(enabled: boolean, choice?: 'local' | 
   if (enabled) await syncPreferences(state.initialized ? undefined : choice);
 }
 
-/** Report optional sync/storage failure without discarding local settings or consent. */
+function preferenceFailure(error: unknown) {
+  return error instanceof IntegrationError ? error : new IntegrationError('unavailable');
+}
+/** Report a cloud-sync failure and retain only its profile's server backoff. */
+function reportSyncFailure(user: string, error: unknown, enabled: boolean) {
+  const failure = preferenceFailure(error);
+  syncRetryAt.set(user, Date.now() + Math.max(failure.retryAfter * 1000, 5000));
+  preferenceStatus.set({ enabled, state: failure.code, conflicts: [] });
+}
+/** Local durability/recovery is independent of server Retry-After policy. */
+function reportStorageFailure(user: string, error: unknown, enabled: boolean) {
+  const failure = preferenceFailure(error);
+  storageRetryAt.set(user, Date.now() + 5000);
+  preferenceStatus.set({ enabled, state: failure.code, conflicts: [] });
+}
 function reportPreferenceFailure(error: unknown, enabled: boolean) {
-  const failure = error instanceof IntegrationError ? error : new IntegrationError('unavailable');
-  retryAt = Date.now() + Math.max(failure.retryAfter * 1000, 5000);
+  const failure = preferenceFailure(error);
   preferenceStatus.set({ enabled, state: failure.code, conflicts: [] });
 }
 
@@ -521,12 +554,22 @@ function startPreferenceSyncReady() {
     const pending = (async () => {
       try {
         await apply(value.state.local, isCurrent, value.signal);
-        if (!isCurrent()) return;
-        if (restoration === value) restoration = undefined;
-        preferenceStatus.set({ enabled: value.state.enabled, state: 'pending', conflicts: [] });
+      } catch (error) {
+        if (isCurrent() && activeUser) reportStorageFailure(activeUser, error, value.state.enabled);
+        return;
+      }
+      if (!isCurrent()) return;
+      if (restoration === value) restoration = undefined;
+      preferenceStatus.set({ enabled: value.state.enabled, state: 'pending', conflicts: [] });
+      const user = activeUser;
+      // Restoration is automatic work. Returning to a profile must not turn a
+      // previous Retry-After into an implicit immediate retry. Explicit user
+      // sync actions still bypass background backoff through syncPreferences().
+      if (!user || Date.now() < retryAt(syncRetryAt, user)) return;
+      try {
         await syncPreferences();
       } catch (error) {
-        if (isCurrent()) reportPreferenceFailure(error, value.state.enabled);
+        if (isCurrent()) reportSyncFailure(user, error, value.state.enabled);
       }
     })().finally(() => {
       if (value.pending === pending) value.pending = undefined;
@@ -543,7 +586,7 @@ function startPreferenceSyncReady() {
       if (
         restoration?.state === active &&
         restoration.activation === activation &&
-        Date.now() >= retryAt
+        Date.now() >= retryAt(storageRetryAt, user)
       )
         await restoreProfile(restoration);
       return;
@@ -588,7 +631,7 @@ function startPreferenceSyncReady() {
         await restoreProfile(restoration);
       }
     } catch (error) {
-      if (isCurrent()) reportPreferenceFailure(error, active?.enabled ?? false);
+      if (isCurrent() && user) reportStorageFailure(user, error, active?.enabled ?? false);
     } finally {
       if (loadingActivation === admitted) loadingActivation = undefined;
     }
@@ -597,7 +640,7 @@ function startPreferenceSyncReady() {
     void switchUser();
   });
   const refresh = async () => {
-    if (stopped || document.visibilityState !== 'visible' || Date.now() < retryAt) return;
+    if (stopped || document.visibilityState !== 'visible') return;
     const previous = active;
     const previousRestoration =
       restoration?.state === active && restoration?.activation === activation
@@ -606,17 +649,17 @@ function startPreferenceSyncReady() {
     await switchUser();
     // New/retried restoration owns its application and first sync attempt.
     if (active !== previous || restoration || previousRestoration) return;
-    if (stopped || Date.now() < retryAt) return;
+    if (stopped) return;
     const state = active;
     const user = activeUser;
     const admitted = activation;
     const isCurrent = () =>
       !stopped && activation === admitted && active === state && activeUser === user;
     const save = user && unsavedPreferences.get(user);
-    if (user && save) {
+    if (user && save && Date.now() >= retryAt(storageRetryAt, user)) {
       try {
-        // Local durability must recover even offline or after disabling sync.
-        // Concurrent recovery events share the exact pending snapshot write.
+        // Local durability must recover independently of server backoff or
+        // whether cloud sync is enabled.
         await writePreferenceSnapshot(user, save);
         if (!isCurrent()) return;
         if (!unsavedPreferences.has(user) && get(preferenceStatus).state === 'unavailable')
@@ -627,13 +670,14 @@ function startPreferenceSyncReady() {
           });
       } catch (error) {
         if (isCurrent() && unsavedPreferences.get(user) === save)
-          reportPreferenceFailure(error, state?.enabled ?? false);
+          reportStorageFailure(user, error, state?.enabled ?? false);
         return;
       }
     }
     if (
       !isCurrent() ||
-      Date.now() < retryAt ||
+      !user ||
+      Date.now() < retryAt(syncRetryAt, user) ||
       get(preferenceStatus).state === 'conflict' ||
       get(account).status !== 'available'
     )
@@ -641,7 +685,7 @@ function startPreferenceSyncReady() {
     try {
       await syncPreferences();
     } catch (error) {
-      if (isCurrent()) reportPreferenceFailure(error, state?.enabled ?? false);
+      if (isCurrent()) reportSyncFailure(user, error, state?.enabled ?? false);
     }
   };
   const tick = () => void refresh();
@@ -654,6 +698,7 @@ function startPreferenceSyncReady() {
       }
       if (stopped || applying || !activeUser || !active?.enabled) return;
       const state = active;
+      const user = activeUser;
       const admitted = activation;
       // Capture only the binding that changed. Capturing the entire UI here
       // could replace a pending saved organization with the old visible one
@@ -661,10 +706,10 @@ function startPreferenceSyncReady() {
       const value = binding.read();
       if (value === undefined) return;
       state.local = { ...state.local, [key]: value };
-      const pending = persist(activeUser, state);
+      const pending = persist(user, state);
       void pending.catch((error) => {
         if (!stopped && activation === admitted && active === state && writes === pending)
-          reportPreferenceFailure(error, state.enabled);
+          reportStorageFailure(user, error, state.enabled);
       });
       preferenceStatus.set({ enabled: true, state: 'pending', conflicts: [] });
       clearTimeout(debounce);
