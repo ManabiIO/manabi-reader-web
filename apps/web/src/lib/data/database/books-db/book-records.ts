@@ -150,10 +150,10 @@ export async function updateBookLastRead(
       )
         throw new Error('This book belongs to another account.');
       const previous = current.lastBookOpen;
-    const lastBookOpen = Math.max(
-      typeof previous === 'number' && Number.isFinite(previous) ? previous : 0,
-      timestamp
-    );
+      const lastBookOpen = Math.max(
+        typeof previous === 'number' && Number.isFinite(previous) ? previous : 0,
+        timestamp
+      );
       if (lastBookOpen === previous) return summarizeBook(current);
       const updated = { ...current, lastBookOpen };
       assertCurrent();
