@@ -614,6 +614,8 @@
     stopFontLayout = observeReaderFontLayout(contentEl, () => {
       if (!contentEl || !calculator) return;
 
+      const currentScroll = verticalMode ? window.scrollX : window.scrollY;
+      const previousTarget = previewNavigationActive ? undefined : layoutScrollPosition();
       calculator.updateParagraphPos();
       updateCustomReadingPointPosition();
       // A font load must not restore the saved reading position over a search,
@@ -624,8 +626,15 @@
         return;
       }
       if (pageManagerConcrete && !scrollWhenReady) {
-        const scrollPos = layoutScrollPosition();
-        const currentScroll = verticalMode ? window.scrollX : window.scrollY;
+        const nextTarget = layoutScrollPosition();
+        // Keep the reader's exact offset within its current paragraph. Font
+        // reflow moves that paragraph by the difference between the old and
+        // new targets; an unchanged layout must not quantize a 1627px scroll
+        // back to the paragraph's 1624px boundary when a dialog opens.
+        const scrollPos =
+          previousTarget === undefined || nextTarget === undefined
+            ? nextTarget
+            : currentScroll + nextTarget - previousTarget;
         if (scrollPos !== undefined && Math.abs(currentScroll - scrollPos) > 0.5) {
           isResizeScroll = true;
           pageManagerConcrete.scrollTo(scrollPos);
