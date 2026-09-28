@@ -8,6 +8,7 @@ import { decodeBookBinary } from '$lib/data/database/books-db/book-binary';
 import {
   prepareBookForLocalReading,
   readBookSummaries,
+  snapshotBookmarkData,
   updateBookLastRead
 } from '$lib/data/database/books-db/book-records';
 import { BaseStorageHandler, FilePrefix } from '$lib/data/storage/handler/base-handler';
@@ -387,7 +388,7 @@ export class BrowserStorageHandler extends BaseStorageHandler {
     if (dataId) {
       // Replication/source handlers retain ownership of their decoded object.
       // Do not mutate it merely to retarget the browser copy.
-      await database.putBookmark({ ...data, dataId });
+      await database.putBookmark(snapshotBookmarkData(data, dataId));
     }
   }
 
