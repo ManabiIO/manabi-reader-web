@@ -30,7 +30,7 @@ export async function setCompletion(
   try {
     const db = await database.db;
     scope.assertCurrent();
-    const tx = db.transaction(['data', 'bookmark'], 'readwrite');
+    const tx = db.transaction(['data', 'bookmark', 'readerBookScope'], 'readwrite');
     const abort = () => {
       try {
         tx.abort();
@@ -44,7 +44,11 @@ export async function setCompletion(
         scope.assertCurrent();
         const book = await tx.objectStore('data').get(bookId);
         if (!book) throw new Error('This book is no longer in the library.');
-        if (book.libraryOwner !== undefined && book.libraryOwner !== scope.profileId)
+        const owner = await tx.objectStore('readerBookScope').get(bookId);
+        if (
+          (book.libraryOwner !== undefined && book.libraryOwner !== scope.profileId) ||
+          (owner && owner.accountId !== scope.profileId)
+        )
           throw new Error('This book belongs to another account.');
         const bookmarks = tx.objectStore('bookmark');
         const before = (await bookmarks.get(bookId)) ?? {

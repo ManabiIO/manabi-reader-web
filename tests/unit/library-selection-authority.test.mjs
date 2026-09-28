@@ -323,7 +323,8 @@ function completionFixture(options = {}) {
   const db = memoryDB(
     {
       data: [{ id: 1, libraryOwner: options.bookOwner ?? 'alice' }],
-      bookmark: [{ dataId: 1, progress: 0.4, lastBookmarkModified: 50 }]
+      bookmark: [{ dataId: 1, progress: 0.4, lastBookmarkModified: 50 }],
+      readerBookScope: []
     },
     options
   );
