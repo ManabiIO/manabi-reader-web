@@ -425,6 +425,66 @@ class FoliateSlide(ReaderBrowser):
         }}""")
         self.assertEqual(result, {'navigated': False, 'invalid': [False, False], 'unchanged': True, 'recovered': True, 'errors': 1})
 
+    def test_cross_chapter_iframe_load_is_staged_and_supersedable(self):
+        self.open_numbered_book()
+        result = self.page.evaluate(f"""async () => {{
+          const p={P}, section=p.sections[1], unload=section.unload;
+          let releases=0; section.unload=()=>{{releases++;unload()}};
+          const proto=HTMLIFrameElement.prototype;
+          const descriptor=Object.getOwnPropertyDescriptor(proto,'src');
+          const active=p.getContents()[0].doc.defaultView.frameElement;
+          let heldFrame, heldValue, start;
+          let intercepted=false;
+          const started=new Promise(resolve=>start=resolve);
+          Object.defineProperty(proto,'src',{{
+            configurable:descriptor.configurable,enumerable:descriptor.enumerable,get:descriptor.get,
+            set(value){{
+              if(!intercepted && this!==active && !this.closest('.slide-sheet,.page-measure')){{
+                intercepted=true;heldFrame=this;heldValue=value;start();return;
+              }}
+              descriptor.set.call(this,value);
+            }}
+          }});
+          try {{
+            const first=p.goTo({{index:1}});
+            await started;
+            const during={{
+              oldConnected:active.isConnected,
+              index:p.getContents()[0]?.index ?? null,
+              frames:window.slideRoot.querySelectorAll('#top iframe').length
+            }};
+            const second=p.goTo({{index:2}});
+            const prompt=await Promise.race([
+              first.then(value=>({{settled:true,value}})),
+              new Promise(resolve=>setTimeout(()=>resolve({{settled:false}}),50))
+            ]);
+            descriptor.set.call(heldFrame,heldValue);
+            const firstResult=prompt.settled ? prompt.value : await first;
+            const secondResult=await second;
+            section.unload=unload;
+            return {{
+              during,prompt:firstResult===false && prompt.settled,
+              results:[firstResult,secondResult],
+              index:p.getContents()[0].index,
+              oldConnectedAfter:active.isConnected,
+              releases,
+              extraFrames:window.slideRoot.querySelectorAll('#top iframe').length
+            }};
+          }} finally {{
+            Object.defineProperty(proto,'src',descriptor);
+            section.unload=unload;
+          }}
+        }}""")
+        self.assertEqual(result, {
+            'during': {'oldConnected': True, 'index': 0, 'frames': 2},
+            'prompt': True,
+            'results': [False, True],
+            'index': 2,
+            'oldConnectedAfter': False,
+            'releases': 1,
+            'extraFrames': 1
+        })
+
     def test_destroy_during_navigation_releases_late_source_without_recreating_view(self):
         self.open_numbered_book()
         result = self.page.evaluate(f"""async () => {{
