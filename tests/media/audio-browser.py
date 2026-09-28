@@ -7,9 +7,11 @@ The in-memory document does not require an invented secure origin.
 """
 import argparse
 import base64
+import functools
 import json
 import os
 import pathlib
+import re
 from playwright.sync_api import sync_playwright
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -20,8 +22,19 @@ def main():
     parser.add_argument('--output', type=pathlib.Path, default=ROOT / '.cache/media-audio-browser')
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
-    source = ROOT / '.cache/media-test-build/pipeline.js'
-    module = 'data:text/javascript;base64,' + base64.b64encode(source.read_bytes()).decode()
+    build = ROOT / '.cache/media-test-build'
+
+    @functools.cache
+    def module(name):
+        # Keep real production dependencies (including source-lifetime guards)
+        # when loading the compiled graph into this in-memory test document.
+        source = (build / name).read_text()
+        source = re.sub(
+            r"""(['"])(\./[^'"\n]+\.js)\1""",
+            lambda match: match[1] + module(match[2][2:]) + match[1],
+            source,
+        )
+        return 'data:text/javascript;base64,' + base64.b64encode(source.encode()).decode()
     with sync_playwright() as p:
         browser = p.chromium.launch(executable_path=os.environ.get('CHROMIUM','/usr/bin/chromium'), headless=True, args=['--no-sandbox'])
         page = browser.new_page()
@@ -95,7 +108,7 @@ def main():
             return {scope:'Production MediaPipeline with real Chromium OfflineAudioContext and AudioBuffer; only decoded-packet delivery is injected',
                 notCovered:['Mediabunny/WebCodecs encoded-file decoding','Japanese synthesis','MOSS recognition','Safari/iOS','native IndexedDB'],
                 userAgent:navigator.userAgent,tests,passed:tests.filter(t=>t.passed).length,failed:tests.filter(t=>!t.passed).length};
-        }''', module)
+        }''', module('pipeline.js'))
         browser.close()
     (args.output / 'results.json').write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n')
     for test in result['tests']:
