@@ -49,26 +49,33 @@ export class BookIdentityIndex {
 
   constructor(records: readonly BookIdentityRecord[], links: readonly IdentityLink[]) {
     const owners = new Map<number, Set<string | null>>();
+    const linked = new Set<number>();
+    for (const record of records) {
+      const hash = normalizedContentHash(record.contentHash);
+      if (hash && Number.isSafeInteger(record.id) && record.id > 0) this.books.set(record.id, hash);
+    }
     for (const value of links) {
       const link = { ...value };
       const key = sourceBookKey(linkSource(link), link.fileId);
       const atFile = this.byFile.get(key) ?? [];
       atFile.push(link);
       this.byFile.set(key, atFile);
+      linked.add(link.bookId);
+      // A stale link cannot grant its account ownership of a live book whose
+      // own content hash disagrees with the link's claim.
+      if (this.books.get(link.bookId) !== normalizedContentHash(link.contentHash)) continue;
       const scopes = owners.get(link.bookId) ?? new Set<string | null>();
       scopes.add(link.owner);
       owners.set(link.bookId, scopes);
     }
-    for (const record of records) {
-      const hash = normalizedContentHash(record.contentHash);
-      if (!hash || !Number.isSafeInteger(record.id) || record.id <= 0) continue;
-      this.books.set(record.id, hash);
+    for (const [bookId, hash] of this.books) {
       // Unlinked browser imports belong to the local source scope, not to
-      // whichever cloud account happens to be looking at the library.
-      for (const owner of owners.get(record.id) ?? [null]) {
+      // whichever cloud account happens to be looking at the library. A
+      // linked book with only stale claims has no safe scope to inherit.
+      for (const owner of owners.get(bookId) ?? (linked.has(bookId) ? [] : [null])) {
         const key = contentIdentity(owner, hash);
         const ids = this.byContent.get(key) ?? new Set<number>();
-        ids.add(record.id);
+        ids.add(bookId);
         this.byContent.set(key, ids);
       }
     }

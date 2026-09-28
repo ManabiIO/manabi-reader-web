@@ -104,6 +104,14 @@ test('an expected numeric ID cannot grant another account ownership of equal byt
   assert.equal(resolve([record(1)], links, alice, 'copy.epub', hash), undefined);
 });
 
+test('a stale link with the wrong hash cannot grant its account a live book identity', () => {
+  const bob = { ...source, owner: 'bob' };
+  const stale = link(1, 'old.epub', { owner: 'bob', contentHash: other });
+  assert.equal(resolve([record(1)], [stale], bob, 'copy.epub', hash), undefined);
+  assert.throws(() => resolve([record(1)], [stale], bob, 'copy.epub', hash, 1), /changed/);
+  assert.equal(resolve([record(1)], [stale], source, 'local.epub', hash), undefined);
+});
+
 test('unlinked local books are not silently adopted by the current cloud account', () => {
   const alice = { ...source, owner: 'alice' };
   assert.equal(resolve([record(1)], [], alice, 'copy.epub', hash), undefined);
