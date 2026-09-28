@@ -647,6 +647,8 @@
     transferIssue = '';
     draftStatus = '';
     draftError = false;
+    annotationPending = false;
+    recordSignature = '';
     notice = '';
     error = '';
   }
