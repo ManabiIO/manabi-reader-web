@@ -160,7 +160,9 @@
     </Dialog.Content>
   </Dialog.Root>
 {:else if error}<div role="alert" class="capture-error">
-    <span>{error}</span><Button variant="ghost" size="sm" onclick={() => (error = '')}>Dismiss</Button>
+    <span>{error}</span><Button variant="ghost" size="sm" onclick={() => (error = '')}
+      >Dismiss</Button
+    >
   </div>{/if}
 
 <style>

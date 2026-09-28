@@ -128,7 +128,8 @@
       await navigate(selected, id, folderName);
       if (alive) newName = '';
     } catch (reason) {
-      if (alive) error = reason instanceof Error ? reason.message : 'The folder could not be created.';
+      if (alive)
+        error = reason instanceof Error ? reason.message : 'The folder could not be created.';
     } finally {
       if (alive) busy = false;
       setWriteBusy(false);
@@ -267,8 +268,11 @@
   {#if allowUnsetDefault}<Button variant="ghost" onclick={() => choose(undefined, false)}
       >Clear default location</Button
     >{/if}
-  <Button href={resolve('/connections')} variant="link" size="sm" class="min-h-11 justify-start px-0"
-    >Manage connected libraries</Button
+  <Button
+    href={resolve('/connections')}
+    variant="link"
+    size="sm"
+    class="min-h-11 justify-start px-0">Manage connected libraries</Button
   >
   {#if error}<p role="alert">{error}</p>{/if}
 </div>
