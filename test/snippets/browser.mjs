@@ -417,9 +417,7 @@ try {
   const conflictedRecord = (await records(page)).find((r) => r.document.id === imported.id);
   assert.equal(conflictedRecord.document.revision, importedSaved.revision);
   assert(
-    conflictedRecord.conflicts.some(
-      (version) => version.revision === conflictingImport.revision
-    )
+    conflictedRecord.conflicts.some((version) => version.revision === conflictingImport.revision)
   );
   passed('single-document conflicting import keeps both versions instead of rejecting the file');
   await local.ctx.close();
