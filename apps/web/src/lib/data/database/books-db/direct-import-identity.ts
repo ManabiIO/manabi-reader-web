@@ -9,6 +9,7 @@ export interface DirectImportIdentity {
   title: string;
   contentHash?: string;
   libraryOwner?: string;
+  readerOwner?: string;
 }
 
 export interface DirectImportCandidate {
@@ -29,9 +30,12 @@ export function normalizedDirectImportHash(value: unknown): string | undefined {
  */
 export function matchesDirectImportIdentity(
   existing: DirectImportIdentity,
-  incoming: DirectImportCandidate
+  incoming: DirectImportCandidate,
+  profileId?: string | null
 ): boolean {
   if (existing.libraryOwner !== incoming.libraryOwner) return false;
+  if (existing.readerOwner !== undefined && profileId !== undefined && existing.readerOwner !== profileId)
+    return false;
   const hash = normalizedDirectImportHash(incoming.contentHash);
   if (hash) return normalizedDirectImportHash(existing.contentHash) === hash;
   return !incoming.contentHash && !existing.contentHash && existing.title === incoming.title;
