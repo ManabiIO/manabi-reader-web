@@ -12,6 +12,7 @@ import {
   type EpubResourceData
 } from './publication-data';
 import { epubCompatibilityStyles } from './resource-styles';
+import { EpubStyleBudget } from './style-budget';
 import { repairEpubHtml } from './html-repair';
 import {
   sanitizeBookHtml,
@@ -170,9 +171,11 @@ export async function importEpubPublication(
         onEmbeddedStyle: (css) => styleSources.push({ css }),
         onStyleSheetReference: (href) => styleSources.push({ href })
       });
-      const styles: string[] = [];
+      // Repeated links reuse cached source text. Bound the expanded cascade
+      // before joining it, not only when the sanitizer receives the final string.
+      const styles = new EpubStyleBudget();
       for (const source of styleSources) {
-        if ('css' in source) styles.push(source.css);
+        if ('css' in source) styles.append(source.css);
         else {
           let href: string;
           try {
@@ -180,7 +183,7 @@ export async function importEpubPublication(
           } catch {
             continue; // External/unsafe stylesheets are never fetched.
           }
-          if (byHref.get(href)?.mediaType === 'text/css') styles.push(await readText(href));
+          if (byHref.get(href)?.mediaType === 'text/css') styles.append(await readText(href));
         }
       }
       const chapter = new DOMParser().parseFromString(safe, 'text/html');
@@ -247,7 +250,7 @@ export async function importEpubPublication(
         imageUrls,
         preserveReaderLinks: true
       });
-      resource.styleSheet = sanitizeBookStyleSheet(styles.join('\n'), document);
+      resource.styleSheet = sanitizeBookStyleSheet(styles.toString(), document);
     }
     const { elementHtml, epubPublication } = packEpubResources(resources);
     const metadata = book.metadata ?? {};
@@ -317,5 +320,6 @@ export async function importEpubPublication(
   }
   // A successful import is not acknowledged before its archive closes.
   await publication.close();
+  signal?.throwIfAborted();
   return imported;
 }
