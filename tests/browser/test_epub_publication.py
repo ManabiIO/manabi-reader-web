@@ -126,6 +126,53 @@ class EpubPublicationBrowser(ReaderBrowser):
             self.assertEqual([], StaticHandler.probes)
             self.assertEqual([], self.errors)
 
+    def test_same_route_book_switch_replaces_the_publication_owner(self):
+        self.open_resource_book()
+        first_url = self.page.url
+        other_title = 'Other resource publication'
+        output = io.BytesIO()
+        with zipfile.ZipFile(io.BytesIO(resource_epub())) as source, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as target:
+            for entry in source.infolist():
+                data = source.read(entry)
+                if entry.filename == 'EPUB/book.opf':
+                    data = data.replace(TITLE.encode(), other_title.encode())
+                elif entry.filename == 'EPUB/one.xhtml':
+                    data = data.replace(b'<ruby>', 'SECOND PUBLICATION <ruby>'.encode(), 1)
+                target.writestr(entry, data)
+        self.page.goto(self.origin + '/reader-web/manage')
+        expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
+        self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
+            'name':'second.epub','mimeType':'application/epub+zip','buffer':output.getvalue()
+        })
+        self.page.get_by_role('button', name='Read ' + other_title, exact=True).click(timeout=30000)
+        self.page.wait_for_function(f"() => {P}?.getContents?.()[0]?.doc?.querySelector('.text')?.textContent.includes('SECOND PUBLICATION')")
+        second_url = self.page.url
+        # Use a real same-origin link so SvelteKit performs same-route navigation.
+        # Keep an identity witness proving this was not a full document reload.
+        self.page.evaluate(f"""url => {{
+          window.previousPublication={P};window.readerRouteWitness={{}};
+          const a=document.createElement('a');a.href=url;a.textContent='First publication';
+          document.body.append(a);a.click();a.remove();
+        }}""", first_url)
+        self.page.wait_for_url(first_url)
+        self.page.wait_for_function(f"""() => {{
+          const p={P}, text=p?.getContents?.()[0]?.doc?.querySelector('.text')?.textContent;
+          return p && p!==window.previousPublication && text && !text.includes('SECOND PUBLICATION');
+        }}""")
+        self.assertTrue(self.page.evaluate('!!window.readerRouteWitness'))
+        self.assertFalse(self.page.evaluate('window.previousPublication.isConnected'))
+        self.page.evaluate(f'window.previousPublication={P}')
+        self.page.go_back()
+        self.page.wait_for_url(second_url)
+        self.page.wait_for_function(f"""() => {{
+          const p={P};return p && p!==window.previousPublication &&
+            p.getContents?.()[0]?.doc?.querySelector('.text')?.textContent.includes('SECOND PUBLICATION');
+        }}""")
+        self.assertTrue(self.page.evaluate('!!window.readerRouteWitness'))
+        self.assertFalse(self.page.evaluate('window.previousPublication.isConnected'))
+        self.assertEqual([], StaticHandler.probes)
+        self.assertEqual([], self.errors)
+
     def metadata(self):
         return self.page.evaluate('''() => new Promise((resolve,reject) => {
           const open=indexedDB.open('books');open.onerror=()=>reject(open.error);

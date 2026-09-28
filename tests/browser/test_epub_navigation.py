@@ -58,6 +58,10 @@ class EpubNavigationBrowser(FoliateSlide):
           doc.dispatchEvent(new doc.defaultView.KeyboardEvent('keyup',{{key,code:key,bubbles:true}}));
         }}""", key)
         self.assertEqual(initial, self.pose()['page'])
+        # The held-key setup dispatched directly to Document and did not focus
+        # its browsing context. Give the following real key the intended owner.
+        self.page.evaluate(f'{P}.getContents()[0].doc.defaultView.focus()')
+        self.assertTrue(self.page.evaluate(f'{P}.getContents()[0].doc.hasFocus()'))
         self.page.keyboard.press(key)
         self.page.wait_for_function(f"() => {P}.page === {initial + 1}")
         self.assertEqual([], self.errors)
