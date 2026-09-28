@@ -10,6 +10,16 @@ on:
       - 'apps/web/src/lib/media/moss-*.ts'
       - 'apps/web/src/lib/media/model-cache.ts'
       - 'tests/media/asr*'
+      - 'tests/media/encoded*'
+      - 'tests/media/test_encoded_asr.py'
+      - 'apps/web/src/lib/manabi/media-runtime.ts'
+      - 'apps/web/src/lib/media/pipeline.ts'
+      - 'apps/web/src/lib/media/queue.ts'
+      - 'apps/web/src/lib/media/sources.ts'
+      - 'apps/web/src/lib/media/store.ts'
+      - 'apps/web/src/lib/media/sparse-*.ts'
+      - 'pnpm-lock.yaml'
+      - 'apps/web/package.json'
       - 'tools/media/runtime_artifacts.py'
 permissions:
   contents: read
@@ -19,7 +29,7 @@ concurrency:
 jobs:
   checked-in-cpu:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     defaults:
       run:
         shell: bash
@@ -27,12 +37,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
       - uses: actions/setup-node@v4
         with:
           node-version: '24.21.0'
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - name: Install the repository-pinned media adapter dependencies
+        run: pnpm install --frozen-lockfile
       - name: Provision speech fixtures and browser, without a WASM compiler
         run: |
           mkdir -p test-results/media-packaged
@@ -40,8 +55,6 @@ jobs:
           sudo apt-get install -y ffmpeg espeak-ng open-jtalk open-jtalk-mecab-naist-jdic hts-voice-nitech-jp-atr503-m001
           python -m pip install playwright==1.63.0
           python -m playwright install --with-deps chromium
-          npm install --prefix "$RUNNER_TEMP/media-typescript" --ignore-scripts --no-audit --no-fund typescript@6.0.3
-          echo "$RUNNER_TEMP/media-typescript/node_modules/.bin" >> "$GITHUB_PATH"
           python - <<'PY' >> "$GITHUB_ENV"
           from playwright.sync_api import sync_playwright
           with sync_playwright() as p:
@@ -53,7 +66,7 @@ jobs:
           JA_FIXTURE="$(python tools/media/generate-fixtures.py --language ja 2>test-results/media-packaged/voice-ja.log)"
           echo "EN_FIXTURE=$EN_FIXTURE" >> "$GITHUB_ENV"
           echo "JA_FIXTURE=$JA_FIXTURE" >> "$GITHUB_ENV"
-          MEDIA_FIXTURE="$EN_FIXTURE" node tools/media/test.mjs 2>&1 | tee test-results/media-packaged/core.log
+          MEDIA_FIXTURE="$EN_FIXTURE" pnpm exec node tools/media/test.mjs 2>&1 | tee test-results/media-packaged/core.log
           node --input-type=module -e "import {MOSS} from './.cache/media-test-build/model-cache.js'; console.log(JSON.stringify(MOSS))" > test-results/media-packaged/model.json
       - name: Validate and record the exact committed runtime bytes
         id: identity
@@ -117,6 +130,26 @@ jobs:
             --upstream-jfk --language en --threaded --max-cer 0.20 \
             --output test-results/media-packaged/asr-natural-jfk.json \
             2>&1 | tee test-results/media-packaged/asr-natural-jfk.log
+      - name: Bundle the actual media adapter and retain its dependency evidence
+        if: ${{ !cancelled() && steps.identity.outcome == 'success' }}
+        run: |
+          pnpm exec esbuild apps/web/src/lib/manabi/media-runtime.ts --bundle --platform=browser --format=esm \
+            --outfile=.cache/media-test-build/encoded-media-adapter.js \
+            --metafile=test-results/media-packaged/encoded-adapter-meta.json
+          sha256sum apps/web/src/lib/manabi/media-runtime.ts pnpm-lock.yaml \
+            .cache/media-test-build/encoded-media-adapter.js > test-results/media-packaged/encoded-adapter-sha256.txt
+          python -m unittest discover -s tests/media -p 'test_encoded_asr.py' -v
+      - name: Real encoded Japanese video through decoder, resumable queue and subtitle publication
+        if: ${{ !cancelled() && steps.identity.outcome == 'success' }}
+        run: |
+          status=0
+          python tests/media/encoded-asr.py --fixture "$JA_FIXTURE" --language ja --source file \
+            --output test-results/media-packaged/encoded-file-single \
+            2>&1 | tee test-results/media-packaged/encoded-file-single.log || status=1
+          python tests/media/encoded-asr.py --fixture "$JA_FIXTURE" --language ja --source range --threaded \
+            --output test-results/media-packaged/encoded-range-threaded \
+            2>&1 | tee test-results/media-packaged/encoded-range-threaded.log || status=1
+          exit "$status"
       - name: Confirm qualification did not replace the packaged runtime bytes
         if: ${{ !cancelled() && steps.identity.outcome == 'success' }}
         run: |
