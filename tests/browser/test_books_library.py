@@ -306,14 +306,18 @@ class BooksLibraryBrowser(LibraryBase):
             'mimeType': 'text/plain',
             'buffer': payload
         })
-        expect(self.page.get_by_role('button', name='Read After', exact=True)).to_be_visible(
+        # Exact bytes retain the established logical title as well as the ID.
+        # TXT derives its parsed title from the filename, but title-keyed legacy
+        # side stores must not be orphaned by a physical rename.
+        expect(self.page.get_by_role('button', name='Read Before', exact=True)).to_be_visible(
             timeout=30000)
-        expect(self.page.get_by_role('button', name='Read Before', exact=True)).to_have_count(0)
+        expect(self.page.get_by_role('button', name='Read After', exact=True)).to_have_count(0)
 
         rows = self.stores('books', ['data', 'bookmark'])
         self.assertEqual(1, len(rows['data']), 'renaming identical bytes must not fork a book')
         self.assertEqual(book_id, rows['data'][0]['id'])
         self.assertEqual(content_hash, rows['data'][0]['contentHash'])
+        self.assertEqual('Before', rows['data'][0]['title'])
         self.assertEqual(
             before_completion,
             next(row for row in rows['bookmark'] if row['dataId'] == book_id)['completion']
