@@ -76,6 +76,7 @@
     locationChosen = false;
   let instance: Editor | undefined,
     busy = false,
+    annotationPending = false,
     error = '',
     notice = '',
     draftStatus = '',
@@ -286,6 +287,7 @@
     draftStatus = 'Draft saved on this device';
     draftError = false;
     instance = undefined;
+    annotationPending = false;
     const run = ++renderGeneration;
     const view = await import('./editor.svelte');
     s.guard();
@@ -392,6 +394,7 @@
   }
   async function save() {
     if (!editing || !admitted) return;
+    if (annotationPending) throw new Error('Apply or cancel the furigana or link before saving.');
     if (instance?.view.composing) throw new Error('Finish Japanese text conversion before saving.');
     if (!passages(content).some((p) => p.text.trim()))
       throw new Error('Add some text before saving.');
@@ -402,20 +405,14 @@
     }
     await persist();
     const draft = editing,
-      s = admitted,
-      doc =
-        draft.mode === 'edit'
-          ? editSnippet(draft.document, content, title)
-          : parseSnippet(
-              canonical({
-                ...draft.document,
-                content: identifyBlocks(content),
-                title: { mode: title.trim() ? 'custom' : 'automatic', text: title.trim() }
-              })
-            );
+      s = admitted;
     if (draft.mode === 'append')
       await appendToSnippet(draft.id, content, draft.operation ?? draft.session, s);
-    else await commitSnippet(doc, draft.base, destination, s);
+    else {
+      // Imported documents keep their ID, but edited contents must not reuse the original revision.
+      const document = editSnippet(draft.document, content, title);
+      await commitSnippet(document, draft.base, destination, s);
+    }
     const returning = backURL();
     editing = undefined;
     instance = undefined;
@@ -433,6 +430,8 @@
   }
   async function closeEditor(discard = false) {
     if (!editing || !admitted) return;
+    if (!discard && annotationPending)
+      throw new Error('Apply or cancel the furigana or link first.');
     const key = editing.key,
       s = admitted,
       target = editorReturn();
@@ -629,6 +628,8 @@
     leaveOpen = true;
   });
   async function leave(discard: boolean) {
+    if (!discard && annotationPending)
+      throw new Error('Apply or cancel the furigana or link first.');
     const target = leaveTarget;
     if (discard) {
       await draftQueue.catch(() => undefined);
@@ -724,8 +725,10 @@
           </h1>
         </div>
         <div class="actions">
-          <Button variant="ghost" disabled={busy} onclick={() => action(() => closeEditor(false))}
-            >Keep draft</Button
+          <Button
+            variant="ghost"
+            disabled={busy || annotationPending}
+            onclick={() => action(() => closeEditor(false))}>Keep draft</Button
           ><Button
             variant="ghost"
             disabled={busy}
@@ -733,7 +736,7 @@
               leaveTarget = editorReturn();
               leaveOpen = true;
             }}>Cancel</Button
-          ><Button disabled={busy || !EditorView} onclick={() => action(save)}
+          ><Button disabled={busy || !EditorView || annotationPending} onclick={() => action(save)}
             >{editing.mode === 'append' ? 'Append text' : 'Save snippet'}</Button
           >
         </div>
@@ -757,6 +760,7 @@
             {content}
             disabled={busy}
             onchange={changedContent}
+            onpendingchange={(pending) => (annotationPending = pending)}
             onready={(editor) => {
               instance = editor;
             }}
@@ -1205,7 +1209,7 @@
         ><Dialog.Title>Keep this draft?</Dialog.Title><Dialog.Description
           >The saved snippet has not changed. Keep the draft on this device or discard these edits.</Dialog.Description
         ></Dialog.Header
-      ><Button disabled={busy} onclick={() => action(() => leave(false))}
+      ><Button disabled={busy || annotationPending} onclick={() => action(() => leave(false))}
         >Keep draft and leave</Button
       ><Button variant="secondary" disabled={busy} onclick={() => action(() => leave(true))}
         >Discard draft and leave</Button
