@@ -3,12 +3,13 @@ from reader_controls import reveal_reader_controls
 import unittest
 from playwright.sync_api import expect
 import test_apple_controls as previous
+from test_reader_navigation_panels import ReaderNavigationPanels
 
 # Retain the existing catalog and continuation suites exactly once.
 CatalogLifetimeBrowser = previous.CatalogLifetimeBrowser
 
 
-class ConnectControlsBrowser(previous.AppleControlsBrowser):
+class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrowser):
     def assert_no_horizontal_overflow(self, root):
         # The root's clientWidth excludes a native vertical scrollbar. Compare
         # it with the full viewport, but keep real horizontal overflow visible.

@@ -354,7 +354,6 @@ test('migration receipt fields are captured before database suspension', async (
   assert.equal(h.records.has('receipt-replaced'), false);
 });
 
-
 test('organization rejects more than 50,000 total memberships before writing', async () => {
   const h = harness();
   const result = h.api.updateOrganization((value) => {

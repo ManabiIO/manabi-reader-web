@@ -15,7 +15,7 @@ import {
 } from './reader-statistics';
 import { commitTransaction, explainBookStorageError } from './commit-transaction.mjs';
 import { matchesDirectImportIdentity, normalizedDirectImportHash } from './direct-import-identity';
-import { snapshotBookmarkData } from './book-records';
+import { assertBookPersonalAccess, snapshotBookmarkData } from './book-records';
 import { captureLibraryOperation } from '$lib/manabi/operation-scope';
 import type {
   BooksDbAudioBook,
@@ -29,13 +29,7 @@ import type {
 } from '$lib/data/database/books-db/versions/books-db';
 import { Observable, Subject, from } from 'rxjs';
 import { StorageDataType, StorageKey } from '$lib/data/storage/storage-types';
-import {
-  advanceDateDays,
-  getDate,
-  getDateKey,
-  mergeStatistics,
-  updateStatisticToStore
-} from '$lib/functions/statistic-util';
+import { getDateKey, mergeStatistics, updateStatisticToStore } from '$lib/functions/statistic-util';
 import { catchError, map, shareReplay, startWith, switchMap, tap } from 'rxjs/operators';
 import {
   getCurrentReadingGoal,
@@ -275,7 +269,9 @@ export class DatabaseService {
       };
       signal?.addEventListener('abort', abort, { once: true });
       scope.signal.addEventListener('abort', abort, { once: true });
-      return commitTransaction(tx, async () => {
+      // Await inside this try so the profile watcher survives every request
+      // and tx.done, including an account leave-and-return during commit.
+      const result = await commitTransaction(tx, async () => {
         scope.assertCurrent();
         throwIfAborted(signal);
         const store = tx.objectStore('data');
@@ -377,6 +373,11 @@ export class DatabaseService {
           signal?.removeEventListener('abort', abort);
           scope.signal.removeEventListener('abort', abort);
         });
+      // A commit already completed cannot be undone, but revoked work must not
+      // acknowledge a result to the next profile or a cancelled caller.
+      scope.assertCurrent();
+      throwIfAborted(signal);
+      return result;
     } finally {
       scope.stop();
     }
@@ -423,8 +424,31 @@ export class DatabaseService {
   }
 
   async getBookmark(dataId: number) {
-    const db = await this.db;
-    return db.get('bookmark', dataId);
+    const scope = captureLibraryOperation();
+    try {
+      scope.assertCurrent();
+      const db = await this.db;
+      scope.assertCurrent();
+      const tx = db.transaction(['data', 'bookmark', 'readerBookScope']);
+      const bookmark = await commitTransaction(tx, async () => {
+        scope.assertCurrent();
+        const book = await tx.objectStore('data').get(dataId);
+        if (!book) return undefined;
+        const readerScope = await tx.objectStore('readerBookScope').get(dataId);
+        scope.assertCurrent();
+        if (book.libraryOwner !== undefined && book.libraryOwner !== scope.profileId)
+          throw new Error('This book belongs to another account.');
+        if (readerScope && readerScope.accountId !== scope.profileId) return undefined;
+        scope.assertCurrent();
+        const bookmark = await tx.objectStore('bookmark').get(dataId);
+        scope.assertCurrent();
+        return bookmark;
+      });
+      scope.assertCurrent();
+      return bookmark;
+    } finally {
+      scope.stop();
+    }
   }
 
   async putBookmark(bookmarkData: BooksDbBookmarkData) {
@@ -432,13 +456,43 @@ export class DatabaseService {
     // Snapshot before awaiting the database so later mutation cannot redirect
     // this write to another book or alter the committed position.
     const snapshot = snapshotBookmarkData(bookmarkData);
-    const db = await this.db;
-
-    const tx = db.transaction('bookmark', 'readwrite');
-    return commitTransaction(tx, async () => {
-      const before = await tx.store.get(snapshot.dataId);
-      return tx.store.put(mergeCompletion(before, snapshot));
-    });
+    const scope = captureLibraryOperation();
+    try {
+      scope.assertCurrent();
+      const db = await this.db;
+      scope.assertCurrent();
+      const tx = db.transaction(['data', 'bookmark', 'readerBookScope'], 'readwrite');
+      const abort = () => {
+        try {
+          tx.abort();
+        } catch {
+          /* Already settled. */
+        }
+      };
+      scope.signal.addEventListener('abort', abort, { once: true });
+      try {
+        const result = await commitTransaction(tx, async () => {
+          scope.assertCurrent();
+          const book = await tx.objectStore('data').get(snapshot.dataId);
+          if (!book) throw new Error('This book is no longer in the library.');
+          const readerScope = await tx.objectStore('readerBookScope').get(snapshot.dataId);
+          assertBookPersonalAccess(book, readerScope, scope.profileId);
+          scope.assertCurrent();
+          const bookmarks = tx.objectStore('bookmark');
+          const before = await bookmarks.get(snapshot.dataId);
+          scope.assertCurrent();
+          return bookmarks.put(mergeCompletion(before, snapshot));
+        });
+        // A finished write cannot be undone, but a revoked profile must not
+        // receive its result after a switch during transaction completion.
+        scope.assertCurrent();
+        return result;
+      } finally {
+        scope.signal.removeEventListener('abort', abort);
+      }
+    } finally {
+      scope.stop();
+    }
   }
 
   async putAudioBook(audioBook: BooksDbAudioBook) {
@@ -506,6 +560,7 @@ export class DatabaseService {
       | 'subtitle'
       | 'handle'
       | 'readerSearchProjection'
+      | 'readerBookScope'
       | 'readerStatistic'
       | 'readerLocalIdentity'
     )[] = [
@@ -514,6 +569,7 @@ export class DatabaseService {
       'subtitle',
       'handle',
       'readerSearchProjection',
+      'readerBookScope',
       'bookmark',
       'lastItem'
     ];
@@ -539,6 +595,10 @@ export class DatabaseService {
           removedLastItem = true;
         }
         await tx.objectStore('bookmark').delete(dataId);
+        // Personal sync records are content/account keyed and may outlive the
+        // cached copy. The numeric book ownership row cannot: once this dataId
+        // is gone it must not survive as an orphaned authorization artifact.
+        await tx.objectStore('readerBookScope').delete(dataId);
 
         if (shouldDeleteStatistics && book) {
           const keys = new Set<string>();
@@ -1023,131 +1083,63 @@ export class DatabaseService {
     endDateString = '',
     bookKeys: string[] = []
   ) {
-    if ((!bookTitles.length && !bookKeys.length) || (startDateString && !endDateString)) {
+    const hasDateRange = startDateString !== '' || endDateString !== '';
+    const validDateKey = (value: unknown): value is string => {
+      if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+      const date = new Date(`${value}T00:00:00.000Z`);
+      return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+    };
+    if (
+      !Array.isArray(bookTitles) ||
+      !Array.isArray(bookKeys) ||
+      (!bookTitles.length && !bookKeys.length) ||
+      (hasDateRange &&
+        (!validDateKey(startDateString) ||
+          !validDateKey(endDateString) ||
+          startDateString > endDateString))
+    ) {
       throw new Error('Received invalid Arguments for deleteStatisticEntries');
     }
 
+    // Snapshot and validate every target before waiting for the database. Only
+    // two explicitly empty date bounds authorize removal of the whole history.
+    const rangeFor = (key: string): IDBKeyRange => {
+      if (typeof key !== 'string')
+        throw new Error('Received invalid Arguments for deleteStatisticEntries');
+      return hasDateRange
+        ? IDBKeyRange.bound([key, startDateString], [key, endDateString])
+        : statisticRange(key);
+    };
+    const targets = [
+      ...[...new Set(bookTitles)].map((title) => ({
+        store: 'statistic' as const,
+        title,
+        range: rangeFor(title)
+      })),
+      ...[...new Set(bookKeys)].map((title) => ({
+        store: 'readerStatistic' as const,
+        title,
+        range: rangeFor(title)
+      }))
+    ];
     const db = await this.db;
     const tx = db.transaction(['statistic', 'readerStatistic', 'lastModified'], 'readwrite');
-
-    try {
-      const statisticsStore = tx.objectStore('statistic');
-      const lastModifiedStore = tx.objectStore('lastModified');
-      const limiter = pLimit(1);
-      const tasks: Promise<void>[] = [];
-      const dates: string[] = [];
+    await commitTransaction(tx, async () => {
+      const modified = tx.objectStore('lastModified');
       const lastModifiedValue = Date.now();
-      const hadDataMap = new Map<string, boolean>();
-
-      if (startDateString) {
-        // eslint-disable-next-line prefer-const
-        let { referenceDate, dateString } = advanceDateDays(getDate(startDateString), 0);
-
-        while (dateString <= endDateString) {
-          dates.push(dateString);
-          ({ dateString } = advanceDateDays(referenceDate));
-        }
+      for (const target of targets) {
+        const store = tx.objectStore(target.store);
+        // Check the same inclusive range that will be deleted, in this write
+        // transaction. Date-limited deletions must publish their change too.
+        if (checkExistingData && (await store.getKey(target.range)) === undefined) continue;
+        await store.delete(target.range);
+        await modified.put({
+          title: target.title,
+          dataType: StorageDataType.STATISTICS,
+          lastModifiedValue
+        });
       }
-
-      bookTitles.forEach((bookTitle) => {
-        if (dates.length) {
-          dates.forEach((dateKey) => {
-            tasks.push(
-              limiter(async () => {
-                try {
-                  await statisticsStore.delete([bookTitle, dateKey]);
-                } catch (error: any) {
-                  limiter.clearQueue();
-
-                  throw error;
-                }
-              })
-            );
-          });
-        } else {
-          tasks.push(
-            limiter(async () => {
-              try {
-                const keyRange = IDBKeyRange.bound([bookTitle], [bookTitle, []]);
-
-                if (checkExistingData && !hadDataMap.has(bookTitle)) {
-                  const hadData = !!(await statisticsStore.getKey(keyRange));
-
-                  hadDataMap.set(bookTitle, hadData);
-                }
-
-                await statisticsStore.delete(keyRange);
-              } catch (error: any) {
-                limiter.clearQueue();
-
-                throw error;
-              }
-            })
-          );
-        }
-
-        tasks.push(
-          limiter(async () => {
-            try {
-              if (!checkExistingData || hadDataMap.get(bookTitle)) {
-                await lastModifiedStore.put({
-                  title: bookTitle,
-                  dataType: StorageDataType.STATISTICS,
-                  lastModifiedValue
-                });
-              }
-            } catch (error: any) {
-              limiter.clearQueue();
-
-              throw error;
-            }
-          })
-        );
-      });
-
-      bookKeys.forEach((bookKey) => {
-        if (dates.length) {
-          dates.forEach((dateKey) => {
-            tasks.push(
-              limiter(async () => {
-                await tx.objectStore('readerStatistic').delete([bookKey, dateKey]);
-              })
-            );
-          });
-        } else {
-          tasks.push(
-            limiter(async () => {
-              const range = statisticRange(bookKey);
-              if (checkExistingData)
-                hadDataMap.set(bookKey, !!(await tx.objectStore('readerStatistic').getKey(range)));
-              await tx.objectStore('readerStatistic').delete(range);
-            })
-          );
-        }
-        tasks.push(
-          limiter(async () => {
-            if (!checkExistingData || hadDataMap.get(bookKey))
-              await lastModifiedStore.put({
-                title: bookKey,
-                dataType: StorageDataType.STATISTICS,
-                lastModifiedValue
-              });
-          })
-        );
-      });
-
-      await Promise.all(tasks);
-      await tx.done;
-    } catch (error: any) {
-      try {
-        tx.abort();
-        await tx.done;
-      } catch (_) {
-        // no-op
-      }
-
-      throw error;
-    }
+    });
   }
 
   async getReadingGoals() {

@@ -6,8 +6,9 @@
   import { beforeNavigate, goto, replaceState } from '$app/navigation';
   import AppNav from '$lib/components/navigation/app-nav.svelte';
   import { Button } from '$lib/components/ui/button';
+  import { Input } from '$lib/components/ui/input';
   import * as Dialog from '$lib/components/ui/dialog';
-  import { account, localUser } from '../manabi/client';
+  import { account, localUser, providerLabels } from '../manabi/client';
   import {
     organization,
     watchOrganization,
@@ -76,6 +77,7 @@
     locationChosen = false;
   let instance: Editor | undefined,
     busy = false,
+    annotationPending = false,
     error = '',
     notice = '',
     draftStatus = '',
@@ -94,6 +96,7 @@
     selected = new Set<string>(),
     visibleIds: string[] = [];
   let pickerOpen = false,
+    pickerWriteBusy = false,
     pickerPurpose: 'save' | 'move' | 'default' = 'save',
     moving: { id: string; revision: string }[] = [];
   let collectionsOpen = false,
@@ -150,7 +153,10 @@
         .filter((item) => item.destination)
         .map((item) => {
           const s = item.destination!.source;
-          return [JSON.stringify([s.owner, s.id, s.root]), `${s.provider} · ${s.name}`];
+          return [
+            JSON.stringify([s.owner, s.id, s.root]),
+            `${providerName(s.provider)} · ${s.name}`
+          ];
         })
     ).entries()
   ];
@@ -170,6 +176,9 @@
   }
   const report = (reason: unknown) =>
     reason instanceof Error ? reason.message : 'The operation could not finish. Your text is kept.';
+  const providerName = (provider: string) =>
+    providerLabels[provider] ??
+    (provider === 'local' ? 'Local folder' : provider === 'webdav' ? 'WebDAV' : provider);
   function listURL(values: Record<string, string> = {}) {
     const q = new URLSearchParams(params);
     for (const key of ['id', 'draft', 'locator', 'returnTo']) q.delete(key);
@@ -286,6 +295,7 @@
     draftStatus = 'Draft saved on this device';
     draftError = false;
     instance = undefined;
+    annotationPending = false;
     const run = ++renderGeneration;
     const view = await import('./editor.svelte');
     s.guard();
@@ -392,6 +402,7 @@
   }
   async function save() {
     if (!editing || !admitted) return;
+    if (annotationPending) throw new Error('Apply or cancel the furigana or link before saving.');
     if (instance?.view.composing) throw new Error('Finish Japanese text conversion before saving.');
     if (!passages(content).some((p) => p.text.trim()))
       throw new Error('Add some text before saving.');
@@ -402,20 +413,14 @@
     }
     await persist();
     const draft = editing,
-      s = admitted,
-      doc =
-        draft.mode === 'edit'
-          ? editSnippet(draft.document, content, title)
-          : parseSnippet(
-              canonical({
-                ...draft.document,
-                content: identifyBlocks(content),
-                title: { mode: title.trim() ? 'custom' : 'automatic', text: title.trim() }
-              })
-            );
+      s = admitted;
     if (draft.mode === 'append')
       await appendToSnippet(draft.id, content, draft.operation ?? draft.session, s);
-    else await commitSnippet(doc, draft.base, destination, s);
+    else {
+      // Imported documents keep their ID, but edited contents must not reuse the original revision.
+      const document = editSnippet(draft.document, content, title);
+      await commitSnippet(document, draft.base, destination, s);
+    }
     const returning = backURL();
     editing = undefined;
     instance = undefined;
@@ -433,6 +438,8 @@
   }
   async function closeEditor(discard = false) {
     if (!editing || !admitted) return;
+    if (!discard && annotationPending)
+      throw new Error('Apply or cancel the furigana or link first.');
     const key = editing.key,
       s = admitted,
       target = editorReturn();
@@ -611,6 +618,38 @@
     selected = new Set(ids);
     if (ids.length) selecting = true;
   }
+  function resetTransientAccountState() {
+    editing = undefined;
+    instance = undefined;
+    current = undefined;
+    content = plainContent('');
+    title = '';
+    destination = undefined;
+    locationChosen = false;
+    storedDrafts = [];
+    draftQueue = Promise.resolve();
+    draftClock = 0;
+    draftSerial++;
+    selected = new Set();
+    selecting = false;
+    visibleIds = [];
+    source = '';
+    pickerOpen = false;
+    pickerWriteBusy = false;
+    moving = [];
+    collectionsOpen = false;
+    collectionTargets = [];
+    newCollection = '';
+    deleteOpen = false;
+    deleteIds = [];
+    leaveOpen = false;
+    leaveTarget = '';
+    transferIssue = '';
+    draftStatus = '';
+    draftError = false;
+    notice = '';
+    error = '';
+  }
   function updateQuery() {
     void goto(resolve(libraryPath(listURL({ q: query }))), {
       replaceState: true,
@@ -629,6 +668,8 @@
     leaveOpen = true;
   });
   async function leave(discard: boolean) {
+    if (!discard && annotationPending)
+      throw new Error('Apply or cancel the furigana or link first.');
     const target = leaveTarget;
     if (discard) {
       await draftQueue.catch(() => undefined);
@@ -649,13 +690,7 @@
         owner = s.owner;
         admitted = s;
         routeGeneration++;
-        editing = undefined;
-        instance = undefined;
-        current = undefined;
-        storedDrafts = [];
-        selected = new Set();
-        pickerOpen = false;
-        collectionsOpen = false;
+        resetTransientAccountState();
         collectionStop();
         collectionStop = watchOrganization((reason) => {
           if (!stopped) error = report(reason);
@@ -667,12 +702,7 @@
         routeGeneration++;
         owner = '';
         admitted = undefined;
-        editing = undefined;
-        current = undefined;
-        storedDrafts = [];
-        pickerOpen = false;
-        collectionsOpen = false;
-        selected = new Set();
+        resetTransientAccountState();
       }
     };
     const stopA = account.subscribe(onAccount),
@@ -724,8 +754,10 @@
           </h1>
         </div>
         <div class="actions">
-          <Button variant="ghost" disabled={busy} onclick={() => action(() => closeEditor(false))}
-            >Keep draft</Button
+          <Button
+            variant="ghost"
+            disabled={busy || annotationPending}
+            onclick={() => action(() => closeEditor(false))}>Keep draft</Button
           ><Button
             variant="ghost"
             disabled={busy}
@@ -733,18 +765,18 @@
               leaveTarget = editorReturn();
               leaveOpen = true;
             }}>Cancel</Button
-          ><Button disabled={busy || !EditorView} onclick={() => action(save)}
+          ><Button disabled={busy || !EditorView || annotationPending} onclick={() => action(save)}
             >{editing.mode === 'append' ? 'Append text' : 'Save snippet'}</Button
           >
         </div>
       </div>
       {#if editing.mode !== 'append'}<label class="title-label"
-          >Title <span>Optional · leave empty for an automatic title</span><input
-            class="title-input"
+          >Title <span>Optional · leave empty for an automatic title</span><Input
+            class="title-input min-h-11"
             aria-label="Snippet title"
             bind:value={title}
             placeholder={automaticTitle}
-            maxlength="1000"
+            maxlength={1000}
             disabled={busy}
             oninput={(event) => {
               title = event.currentTarget.value;
@@ -757,6 +789,7 @@
             {content}
             disabled={busy}
             onchange={changedContent}
+            onpendingchange={(pending) => (annotationPending = pending)}
             onready={(editor) => {
               instance = editor;
             }}
@@ -771,7 +804,7 @@
               pickerOpen = true;
             }}
             >{destination
-              ? `Save to: ${destination.source.provider} › ${destination.source.name} › ${destination.parent || 'Root'}`
+              ? `Save to: ${providerName(destination.source.provider)} › ${destination.source.name} › ${destination.parent || 'Root'}`
               : locationChosen
                 ? 'Save on this device only'
                 : 'Choose storage location…'}</Button
@@ -804,7 +837,12 @@
     </section>
   {:else if current && admitted}
     <section class="reading" aria-label="Snippet reader">
-      <a class="back" href={resolve(libraryPath(params.get('returnTo')))}>← Back to library</a>
+      <Button
+        class="back min-h-11 px-0"
+        href={resolve(libraryPath(params.get('returnTo')))}
+        variant="link"
+        size="sm">← Back to library</Button
+      >
       <div class="heading">
         <div>
           <p class="eyebrow">{current.document.trashedAt ? 'IN TRASH' : 'SNIPPET'}</p>
@@ -923,12 +961,11 @@
           <summary>Storage location{current.locations.length > 1 ? 's' : ''}</summary
           >{#each current.locations as location (JSON.stringify( [location.source.id, location.source.root, location.fileId] ))}<p
             >
-              {location.source.provider} › {location.source.name} › {location.parent || 'Root'} › {location.name}{location.missing
-                ? ' · missing'
-                : ''}
+              {providerName(location.source.provider)} › {location.source.name} › {location.parent ||
+                'Root'} › {location.name}{location.missing ? ' · missing' : ''}
             </p>{/each}{#if !current.locations.length}<p>
-              Pending: {current.destination.source.provider} › {current.destination.parent ||
-                'Root'}
+              Pending: {providerName(current.destination.source.provider)} › {current.destination
+                .parent || 'Root'}
             </p>{/if}
         </details>{/if}
       {#key current.document.id + current.document.revision}<Reader
@@ -969,11 +1006,12 @@
         </p>{/if}
       <div class="search-row">
         <label class="search-label"
-          ><span class="sr-only">Search snippets</span><input
+          ><span class="sr-only">Search snippets</span><Input
+            class="min-h-11 w-full px-4 text-base"
             type="search"
             aria-label="Search snippets"
             placeholder="Search titles and content"
-            maxlength="512"
+            maxlength={512}
             bind:value={query}
             oninput={(event) => {
               query = event.currentTarget.value;
@@ -1030,7 +1068,7 @@
               {problem}
             </p>{/each}
         </details>{/if}
-      {#if selecting}<div class="batch" aria-label="Selected snippet actions">
+      {#if selecting}<div class="batch" role="toolbar" aria-label="Selected snippet actions">
           <strong>{selected.size} selected</strong><Button
             variant="secondary"
             onclick={() => (selected = new Set(visibleIds))}>Select all visible</Button
@@ -1124,13 +1162,15 @@
             pickerPurpose = 'default';
             pickerOpen = true;
           }}>Default save location…</Button
-        ><a href={resolve('/connections')}>Manage connected libraries</a>
+        ><Button href={resolve('/connections')} variant="link" size="sm" class="min-h-11 px-0"
+          >Manage connected libraries</Button
+        >
       </footer>
     </section>
   {/if}
 </div>
 {#if pickerOpen && admitted}<Dialog.Root bind:open={pickerOpen}
-    ><Dialog.Content closeDisabled={busy}
+    ><Dialog.Content closeDisabled={busy || pickerWriteBusy}
       ><Dialog.Header
         ><Dialog.Title
           >{pickerPurpose === 'move'
@@ -1146,6 +1186,7 @@
         guard={admitted.guard}
         allowDevice={pickerPurpose === 'save'}
         allowUnsetDefault={pickerPurpose === 'default'}
+        onwritebusy={(value) => (pickerWriteBusy = value)}
         choose={(value, remember) => void action(() => chooseDestination(value, remember))}
       /></Dialog.Content
     ></Dialog.Root
@@ -1158,6 +1199,7 @@
         ></Dialog.Header
       >{#each $organization.collections as collection (collection.id)}<label class="membership"
           ><input
+            class="size-5 accent-primary"
             type="checkbox"
             checked={collectionTargets.every((id) => collection.members.includes(id))}
             disabled={busy}
@@ -1172,14 +1214,16 @@
         }}
       >
         <label
-          >New collection<input
+          >New collection<Input
+            class="min-h-11"
             aria-label="New collection name"
             bind:value={newCollection}
-            maxlength="240"
+            maxlength={240}
           /></label
         ><Button type="submit" disabled={busy || !newCollection.trim()}>Create collection</Button>
       </form>
-      <Button variant="secondary" onclick={() => (collectionsOpen = false)}>Done</Button
+      <Button variant="secondary" disabled={busy} onclick={() => (collectionsOpen = false)}
+        >Done</Button
       ></Dialog.Content
     ></Dialog.Root
   >{/if}
@@ -1192,10 +1236,9 @@
           >This saves a recoverable trash state in each document. Collections and other copies are
           not deleted.</Dialog.Description
         ></Dialog.Header
-      ><Button disabled={busy} onclick={() => action(removeSelected)}>Move to Trash</Button><Button
-        variant="ghost"
-        disabled={busy}
-        onclick={() => (deleteOpen = false)}>Cancel</Button
+      ><Button variant="destructive" disabled={busy} onclick={() => action(removeSelected)}
+        >Move to Trash</Button
+      ><Button variant="ghost" disabled={busy} onclick={() => (deleteOpen = false)}>Cancel</Button
       ></Dialog.Content
     ></Dialog.Root
   >{/if}
@@ -1205,9 +1248,9 @@
         ><Dialog.Title>Keep this draft?</Dialog.Title><Dialog.Description
           >The saved snippet has not changed. Keep the draft on this device or discard these edits.</Dialog.Description
         ></Dialog.Header
-      ><Button disabled={busy} onclick={() => action(() => leave(false))}
+      ><Button disabled={busy || annotationPending} onclick={() => action(() => leave(false))}
         >Keep draft and leave</Button
-      ><Button variant="secondary" disabled={busy} onclick={() => action(() => leave(true))}
+      ><Button variant="destructive" disabled={busy} onclick={() => action(() => leave(true))}
         >Discard draft and leave</Button
       ><Button variant="ghost" disabled={busy} onclick={() => (leaveOpen = false)}
         >Continue editing</Button
@@ -1224,14 +1267,17 @@
   }
   .top {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
     align-items: center;
     gap: 1rem;
     padding: 0.5rem 0 2rem;
   }
   .brand {
+    min-width: 0;
     font-weight: 700;
     font-size: 1.1rem;
+    overflow-wrap: anywhere;
   }
   .heading {
     display: flex;
@@ -1286,11 +1332,6 @@
   .search-label {
     flex: 1;
   }
-  .search-label input {
-    width: 100%;
-    padding: 0.8rem 1rem;
-    font-size: 1rem;
-  }
   .filters {
     display: flex;
     flex-wrap: wrap;
@@ -1304,16 +1345,15 @@
     font-size: 0.78rem;
     color: var(--muted-foreground);
   }
-  input,
   select {
-    border: 1px solid var(--border);
-    border-radius: 0.6rem;
+    min-height: 44px;
+    border: 1px solid var(--input);
+    border-radius: 10px;
     background: var(--background);
     color: var(--foreground);
     padding: 0.55rem 0.7rem;
     min-width: 0;
   }
-  input:focus-visible,
   select:focus-visible {
     outline: 2px solid var(--ring);
     outline-offset: 2px;
@@ -1335,12 +1375,9 @@
   .error {
     border-inline-start: 3px solid var(--destructive);
   }
-  .back {
+  .snippet-workspace :global(.back) {
     color: var(--muted-foreground);
     font-size: 0.85rem;
-  }
-  .back:hover {
-    text-decoration: underline;
   }
   .title-label {
     display: grid;
@@ -1353,7 +1390,7 @@
     font-weight: 400;
     color: var(--muted-foreground);
   }
-  .title-input {
+  .snippet-workspace :global(.title-input) {
     font-size: 1.3rem;
     font-weight: 500;
     width: 100%;
@@ -1388,6 +1425,8 @@
   .batch {
     position: sticky;
     top: 0.4rem;
+    max-height: min(50dvh, 24rem);
+    overflow-y: auto;
     z-index: 10;
     display: flex;
     flex-wrap: wrap;
@@ -1474,8 +1513,14 @@
     .filters {
       gap: 0.5rem;
     }
+    .filters label {
+      flex: 1 1 10rem;
+      min-width: 0;
+      max-width: 100%;
+    }
     .filters select {
-      max-width: 12rem;
+      width: 100%;
+      max-width: 100%;
     }
   }
 </style>

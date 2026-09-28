@@ -36,6 +36,8 @@ interface SavedPreferences {
   base: Flat;
   local: Flat;
   revision: number;
+  /** First-sync intent stays local and survives transient failures/reopening. */
+  initialChoice?: 'local' | 'remote';
 }
 export const preferenceStatus = writable<{ enabled: boolean; state: string; conflicts: string[] }>({
   enabled: false,
@@ -315,12 +317,46 @@ function unchangedUser(user: string) {
     throw new IntegrationError('account_changed');
 }
 
-export async function syncPreferences(choice?: 'local' | 'remote'): Promise<void> {
+interface PreferenceSyncFlight {
+  state: SavedPreferences;
+  activation: number;
+  choice: 'local' | 'remote' | undefined;
+  promise: Promise<void>;
+}
+let preferenceSyncFlight: PreferenceSyncFlight | undefined;
+
+export function syncPreferences(choice?: 'local' | 'remote'): Promise<void> {
   const user = currentUser()?.id;
-  if (!user || user !== activeUser || !active?.enabled) return;
+  if (!user || user !== activeUser || !active?.enabled) return Promise.resolve();
   const state = active;
   const admitted = activation;
   const signal = applyLifetime.signal;
+  const flight = preferenceSyncFlight;
+  if (
+    flight?.state === state &&
+    flight.activation === admitted &&
+    (choice === undefined || choice === flight.choice)
+  )
+    return flight.promise;
+  // Coalesce before requesting a lock: queued recovery notifications must not
+  // become a train of HTTP attempts that ignores the first failure's backoff.
+  // An explicit, different conflict choice still gets its own serialized pass.
+  const promise = Promise.resolve()
+    .then(() => performPreferenceSync(user, state, admitted, signal, choice))
+    .finally(() => {
+      if (preferenceSyncFlight?.promise === promise) preferenceSyncFlight = undefined;
+    });
+  preferenceSyncFlight = { state, activation: admitted, choice, promise };
+  return promise;
+}
+
+async function performPreferenceSync(
+  user: string,
+  state: SavedPreferences,
+  admitted: number,
+  signal: AbortSignal,
+  choice?: 'local' | 'remote'
+): Promise<void> {
   const isCurrent = () =>
     active === state && activation === admitted && state.enabled && currentUser()?.id === user;
   await exclusive(`preferences/${user}`, async () => {
@@ -329,6 +365,21 @@ export async function syncPreferences(choice?: 'local' | 'remote'): Promise<void
     preferenceStatus.set({ enabled: true, state: 'syncing', conflicts: [] });
     const captured = structuredClone(state.local);
     try {
+      // The first-sync decision is user intent, not a one-request hint. A lost
+      // GET/PUT reply must not change "use this device" into "use the server"
+      // on recovery. Persist explicit intent before issuing any HTTP request.
+      if (!state.initialized && choice && state.initialChoice !== choice) {
+        state.initialChoice = choice;
+        await persist(user, state);
+        if (!isCurrent()) return;
+      }
+      let resolution = choice;
+      if (
+        !state.initialized &&
+        resolution === undefined &&
+        (state.initialChoice === 'local' || state.initialChoice === 'remote')
+      )
+        resolution = state.initialChoice;
       const remote = parsePreferenceReply(
         await request<unknown>('preferences/?book_presentation_version=1', { userId: user }),
         user
@@ -346,13 +397,13 @@ export async function syncPreferences(choice?: 'local' | 'remote'): Promise<void
         : thereRaw;
       let merged: Flat;
       if (
-        choice === 'remote' ||
-        (!state.initialized && remote.revision > 0 && choice !== 'local')
+        resolution === 'remote' ||
+        (!state.initialized && remote.revision > 0 && resolution !== 'local')
       ) {
         merged = supportsExtensions
           ? retainMissingPreferenceExtensions(capturedWire, { ...capturedWire, ...there })
           : { ...capturedWire, ...there };
-      } else if (choice === 'local' || !state.initialized) {
+      } else if (resolution === 'local' || !state.initialized) {
         merged = { ...there, ...capturedWire };
       } else {
         const combined = mergeRecords(wire(state.base), capturedWire, there);
@@ -402,6 +453,7 @@ export async function syncPreferences(choice?: 'local' | 'remote'): Promise<void
       state.local = retainMissingPreferenceExtensions(state.local, newer.merged);
       state.revision = accepted.revision;
       state.initialized = true;
+      delete state.initialChoice;
       await apply(state.local, isCurrent, signal);
       if (!isCurrent()) return;
       await persist(user, state);
@@ -431,7 +483,11 @@ export async function enablePreferenceSync(enabled: boolean, choice?: 'local' | 
   const user = currentUser()?.id;
   if (!user || user !== activeUser || !active) throw new IntegrationError('sign_in_required');
   advanceActivation();
-  active = { ...active, enabled };
+  active = {
+    ...active,
+    enabled,
+    initialChoice: enabled && !active.initialized ? (choice ?? active.initialChoice) : undefined
+  };
   if (enabled) active.local = { ...active.local, ...capture() };
   const state = active;
   try {

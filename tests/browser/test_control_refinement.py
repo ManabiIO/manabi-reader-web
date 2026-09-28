@@ -146,6 +146,11 @@ class ControlRefinementBrowser(modal_controls.ModalControlsBrowser):
         }''')
         expect(panel.get_by_role('button').filter(has_text='Section 1')).to_have_count(0)
         self.page.keyboard.press('Escape')
+        # Escape belongs to the active input method; explicit dismissal still
+        # ends composition and must not disable the next real search.
+        expect(panel).to_be_visible()
+        expect(panel.get_by_role('searchbox')).to_be_focused()
+        panel.get_by_role('button', name='Close search', exact=True).click()
         expect(panel).to_have_count(0)
         panel = self.open_tool('Search Book')
         expect(panel.get_by_role('searchbox')).to_have_value('文章')

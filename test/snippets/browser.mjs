@@ -37,7 +37,10 @@ const providers = [
 const files = new Map(),
   states = new Map();
 let serial = 0,
-  failCleanup = false;
+  failCleanup = false,
+  holdMkdir = false,
+  releaseMkdir,
+  deniedFolderSource = '';
 const counts = { writes: 0, removes: 0, stateWrites: 0 };
 const errors = [];
 const canonical = (v) =>
@@ -89,6 +92,8 @@ async function context(user = null, available = true) {
     if (!provider || !provider.roots.includes(u.searchParams.get('root')))
       return respond({ error: 'forbidden' }, 403);
     const parent = u.searchParams.get('parent') ?? provider.roots[0];
+    if (operation === 'files' && deniedFolderSource === connection)
+      return respond({ error: 'forbidden' }, 403);
     if (operation === 'files')
       return respond({
         items: [...files.values()]
@@ -127,6 +132,13 @@ async function context(user = null, available = true) {
         reason: ''
       });
     if (action === 'allocate') return respond({ id: 'allocated-' + ++serial });
+    if (action === 'mkdir') {
+      if (holdMkdir)
+        await new Promise((resolve) => {
+          releaseMkdir = resolve;
+        });
+      return respond({ id: 'folder-' + ++serial, kind: 'folder', name: value.name });
+    }
     if (action === 'read') {
       const f = files.get(u.searchParams.get('id'));
       return f && f.connection === connection && f.owner === session.user
@@ -245,8 +257,47 @@ try {
   await expect(page.getByRole('article', { name: 'Snippet content' })).toContainText('京都');
   passed('create, durable native IndexedDB save and reader reload');
   await openLibrary(page);
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '200%';
+  });
+  assert(
+    (await page.locator('html').evaluate((node) => node.scrollWidth - node.clientWidth)) <= 1,
+    'Snippets workspace must not overflow horizontally at 320px / 200% text'
+  );
+  await expect(page.getByRole('button', { name: 'Navigate', exact: true })).toBeVisible();
+  const largeTextEvidence = process.env.SNIPPETS_SCREENSHOT;
+  if (largeTextEvidence) {
+    const largeTextPath = largeTextEvidence.replace(/\.png$/i, '-large-text.png');
+    await mkdir(dirname(largeTextPath), { recursive: true });
+    await page.screenshot({ path: largeTextPath, fullPage: true });
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '';
+  });
+  const localTitle = page.locator('.snippet-shelf .title').filter({ hasText: '散歩の記録' });
+  // Control-click opens the native context menu on macOS; Command is its
+  // normal multiselect modifier. Linux/Windows use Control.
+  await localTitle.click({ modifiers: [process.platform === 'darwin' ? 'Meta' : 'Control'] });
+  await expect(
+    page.getByRole('toolbar', { name: 'Selected snippet actions', exact: true })
+  ).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Snippets', exact: true })).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: 'Select 散歩の記録' })).toBeChecked();
+  await page.getByRole('button', { name: 'Done selecting', exact: true }).click();
+  passed('modifier-click enters visible selection mode');
   await page.getByRole('searchbox', { name: 'Search snippets' }).fill('珍しい言葉');
   await expect(page.locator('.snippet-shelf .title')).toHaveText(['散歩の記録']);
+  await page.getByRole('button', { name: 'Select', exact: true }).click();
+  await page.locator('.snippet-shelf .passage').first().click();
+  await expect(
+    page.getByRole('checkbox', { name: 'Select 散歩の記録', exact: true })
+  ).toBeChecked();
+  await expect(page.getByRole('searchbox', { name: 'Search snippets' })).toHaveValue('珍しい言葉');
+  await expect(page.getByRole('article', { name: 'Snippet content' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Done selecting', exact: true }).click();
+  passed('search passages honor selection mode without navigating away');
   await page.locator('.snippet-shelf .passage').first().click();
   await expect(page.getByRole('article', { name: 'Snippet content' })).toContainText('珍しい言葉');
   await page.getByRole('link', { name: '← Back to library', exact: true }).click();
@@ -263,7 +314,9 @@ try {
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
   await page.getByRole('textbox', { name: 'Snippet text', exact: true }).fill('保存しない編集');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.getByRole('button', { name: 'Discard draft and leave', exact: true }).click();
+  const discardDraft = page.getByRole('button', { name: 'Discard draft and leave', exact: true });
+  await expect(discardDraft).toHaveAttribute('data-variant', 'destructive');
+  await discardDraft.click();
   await expect(page.getByRole('article', { name: 'Snippet content' })).toContainText(
     '追加した文章です。'
   );
@@ -309,10 +362,43 @@ try {
     )
   );
   await page.getByRole('button', { name: 'Trash', exact: true }).click();
-  await page.getByRole('button', { name: 'Move to Trash', exact: true }).click();
+  const confirmTrash = page.getByRole('button', { name: 'Move to Trash', exact: true });
+  await expect(confirmTrash).toHaveAttribute('data-variant', 'destructive');
+  await confirmTrash.click();
   await expect(page.getByRole('button', { name: 'Restore snippet', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Restore snippet', exact: true }).click();
   passed('shared collections and recoverable trash/restore');
+  const imported = structuredClone(
+    (await records(page)).find((r) => r.document.id === id).document
+  );
+  imported.id = crypto.randomUUID();
+  imported.revision = crypto.randomUUID();
+  imported.parents = [];
+  imported.captures = [];
+  imported.title = { mode: 'custom', text: '持ち込んだ原本' };
+  delete imported.trashedAt;
+  await openLibrary(page);
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'original.manabi-snippet.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify(imported))
+  });
+  await expect(page.getByRole('textbox', { name: 'Snippet title', exact: true })).toHaveValue(
+    '持ち込んだ原本'
+  );
+  await page.getByRole('textbox', { name: 'Snippet title', exact: true }).fill('編集した持ち込み');
+  await page
+    .getByRole('textbox', { name: 'Snippet text', exact: true })
+    .fill('持ち込み後の編集も別の版です。');
+  assert.equal(await commit(page, true), imported.id);
+  const importedSaved = (await records(page)).find((r) => r.document.id === imported.id).document;
+  assert.notEqual(importedSaved.revision, imported.revision);
+  assert(importedSaved.parents.includes(imported.revision));
+  assert.equal(importedSaved.title.text, '編集した持ち込み');
+  await expect(page.getByRole('article', { name: 'Snippet content' })).toContainText(
+    '持ち込み後の編集も別の版です。'
+  );
+  passed('editing a portable import preserves identity but creates a successor revision');
   await local.ctx.close();
 
   const cloud = await context('alice');
@@ -332,8 +418,44 @@ try {
   await page.getByRole('textbox', { name: 'Snippet title' }).fill('日本語の抜粋');
   await page.getByRole('button', { name: 'Save snippet', exact: true }).click();
   const picker = page.getByRole('dialog');
-  await expect(picker.getByLabel('Storage source')).toBeVisible();
-  await picker.getByLabel('Storage source').selectOption({ label: 'dropbox · Dropbox snippets' });
+  const sourceSelect = picker.getByLabel('Storage source');
+  await expect(sourceSelect).toBeVisible();
+  assert((await sourceSelect.boundingBox()).height >= 43.5);
+  await sourceSelect.selectOption({ label: 'Dropbox · Dropbox snippets' });
+  const rootCrumb = picker.getByRole('button', { name: 'Dropbox snippets', exact: true });
+  await expect(rootCrumb).toHaveAttribute('data-slot', 'button');
+  await expect(rootCrumb).toHaveAttribute('aria-current', 'page');
+  assert((await rootCrumb.boundingBox()).height >= 43.5);
+  holdMkdir = true;
+  await picker.getByLabel('New folder name').fill('Study folder');
+  await picker.getByRole('button', { name: 'Create folder', exact: true }).click();
+  const pickerClose = picker.getByRole('button', { name: 'Close', exact: true });
+  await expect(pickerClose).toBeDisabled();
+  releaseMkdir?.();
+  releaseMkdir = undefined;
+  holdMkdir = false;
+  const createdCrumb = picker.getByRole('button', { name: 'Study folder', exact: true });
+  await expect(createdCrumb).toHaveAttribute('aria-current', 'page');
+  await expect(createdCrumb).toBeFocused();
+  await expect(pickerClose).toBeEnabled();
+  await expect(picker.getByRole('button', { name: 'Use this folder', exact: true })).toBeEnabled();
+  const writesBeforeDestinationFailure = counts.writes;
+  deniedFolderSource = providers[1].id;
+  await sourceSelect.selectOption({ label: 'Google Drive · Drive snippets' });
+  await expect(picker.getByRole('alert')).toBeVisible();
+  await expect(
+    picker.locator('button:enabled').filter({ hasText: /^Use this folder$/ })
+  ).toHaveCount(0);
+  assert.equal(counts.writes, writesBeforeDestinationFailure);
+  deniedFolderSource = '';
+  await picker.getByRole('button', { name: 'Retry folder', exact: true }).click();
+  await expect(picker.getByRole('button', { name: 'Use this folder', exact: true })).toBeEnabled();
+  await expect(sourceSelect).toHaveValue(
+    JSON.stringify(['alice', providers[1].id, providers[1].roots[0]])
+  );
+  await sourceSelect.selectOption({ label: 'Dropbox · Dropbox snippets' });
+  await expect(picker.getByRole('button', { name: 'Use this folder', exact: true })).toBeEnabled();
+  passed('failed destination switch cannot reuse the previously writable folder');
   await picker.getByRole('checkbox', { name: 'Use this location for new snippets' }).check();
   await picker.getByRole('button', { name: 'Use this folder', exact: true }).click();
   const cloudID = await commit(page);
@@ -376,17 +498,67 @@ try {
   await fresh.ctx.close();
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
   const textbox = page.getByRole('textbox', { name: 'Snippet text', exact: true });
-  await textbox.click();
-  await textbox.press('ControlOrMeta+End');
-  await textbox.press('Shift+Home');
+  await textbox
+    .locator('p')
+    .filter({ hasText: '移動しても読み続けます。' })
+    .first()
+    .evaluate((paragraph) => {
+      paragraph.closest('[contenteditable]').focus();
+      const range = document.createRange();
+      range.selectNodeContents(paragraph);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      document.dispatchEvent(new Event('selectionchange'));
+    });
   await page.getByRole('button', { name: 'Furigana', exact: true }).click();
   const reading = page.getByRole('textbox', { name: 'Furigana reading', exact: true });
   await reading.fill('いどう');
+  await expect(page.getByRole('button', { name: 'Save snippet', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Keep draft', exact: true })).toBeDisabled();
   await reading.dispatchEvent('compositionstart');
+  await expect(page.getByRole('button', { name: 'Apply', exact: true })).toBeDisabled();
   await reading.press('Enter');
+  await reading.press('Escape');
   await expect(reading).toBeVisible();
   await reading.dispatchEvent('compositionend');
   await page.getByRole('button', { name: 'Apply', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Save snippet', exact: true })).toBeEnabled();
+  passed('unapplied annotation cannot be silently omitted by Save or Keep draft');
+  // The upstream blur-to-dismiss editor must not bypass the guarded annotation form.
+  await textbox.locator('ruby rt').first().click();
+  await expect(textbox.locator('rt input')).toHaveCount(0);
+  // Place an actual DOM caret inside an existing mark. Editing it must replace the whole reading.
+  await textbox
+    .locator('ruby')
+    .first()
+    .evaluate((ruby) => {
+      const walker = document.createTreeWalker(ruby, window.NodeFilter.SHOW_TEXT);
+      let node;
+      while ((node = walker.nextNode())) {
+        if (!node.parentElement?.closest('rt, rp') && node.textContent?.length) {
+          ruby.closest('[contenteditable]').focus();
+          const selection = window.getSelection();
+          selection.removeAllRanges();
+          const range = document.createRange();
+          range.setStart(node, Math.min(1, node.textContent.length));
+          range.collapse(true);
+          selection.addRange(range);
+          document.dispatchEvent(new Event('selectionchange'));
+          return;
+        }
+      }
+      throw new Error('The existing ruby has no base text.');
+    });
+  await page.getByRole('button', { name: 'Furigana', exact: true }).click();
+  await expect(reading).toHaveValue('とうきょう');
+  await reading.fill('トウキョウ');
+  await page.getByRole('button', { name: 'Apply', exact: true }).click();
+  await expect(textbox.locator('ruby rt').first()).toHaveText('トウキョウ');
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(textbox.locator('ruby rt').first()).toHaveText('とうきょう');
+  await expect(page.getByRole('button', { name: 'Redo', exact: true })).toBeEnabled();
+  passed('caret edits the existing ruby mark and toolbar undo restores its reading');
   await commit(page);
   await expect
     .poll(async () => (await records(page)).find((r) => r.document.id === cloudID)?.dirty)
@@ -405,7 +577,7 @@ try {
   await page
     .getByRole('dialog')
     .getByLabel('Storage source')
-    .selectOption({ label: 'google · Drive snippets' });
+    .selectOption({ label: 'Google Drive · Drive snippets' });
   await page
     .getByRole('dialog')
     .getByRole('button', { name: 'Use this folder', exact: true })
@@ -443,11 +615,22 @@ try {
     await movedPage.screenshot({ path: screen, fullPage: true });
   }
   await moved.ctx.close();
+  await openLibrary(page);
+  const accountSwitchTitle = page
+    .locator('.snippet-shelf .title')
+    .filter({ hasText: '日本語の抜粋' });
+  await accountSwitchTitle.click({
+    modifiers: [process.platform === 'darwin' ? 'Meta' : 'Control']
+  });
+  await page.getByRole('button', { name: 'Move to Trash', exact: true }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
   cloud.session.user = 'bob';
   await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByLabel('Selected snippet actions')).toHaveCount(0);
   await expect(page.getByRole('article', { name: 'Snippet content' })).toHaveCount(0);
   await expect(page.locator('.snippet-shelf .title')).toHaveCount(0);
-  passed('account switch hides the prior account’s documents');
+  passed('account switch hides documents and clears old-account transient UI');
   assert.deepEqual(errors, [], 'Uncaught production-page errors');
   console.log(
     `${checks} assembled ${engine} cases passed; fixture HTTP, not live OAuth/provider acceptance.`

@@ -27,6 +27,7 @@ import { StorageDataType } from '$lib/data/storage/storage-types';
 import { bookKey, contentBookKey, relocatePresentation } from '$lib/library/organization';
 import { contentStatisticKey } from '$lib/data/database/books-db/reader-statistics';
 import { throwIfAborted } from '$lib/functions/replication/replication-error';
+import { captureLibraryOperation } from '$lib/manabi/operation-scope';
 import type { BookCardProps } from '$lib/components/book-card/book-card-props';
 
 export class BrowserStorageHandler extends BaseStorageHandler {
@@ -99,16 +100,31 @@ export class BrowserStorageHandler extends BaseStorageHandler {
 
   async updateLastRead(book: BooksDbBookData) {
     const { id, lastBookOpen } = book;
-    const current = await updateBookLastRead(await database.db, id, lastBookOpen || 0);
-    if (!current) return;
-    this.addBookCard(current.title, {
-      characters: BaseStorageHandler.getBookCharacters(
-        current.characters || 0,
-        current.sections || []
-      ),
-      lastBookModified: current.lastBookModified || 0,
-      lastBookOpen: current.lastBookOpen || 0
-    });
+    const scope = captureLibraryOperation();
+    try {
+      scope.assertCurrent();
+      const db = await database.db;
+      scope.assertCurrent();
+      const current = await updateBookLastRead(
+        db,
+        id,
+        lastBookOpen || 0,
+        scope.profileId,
+        scope.signal
+      );
+      scope.assertCurrent();
+      if (!current) return;
+      this.addBookCard(current.title, {
+        characters: BaseStorageHandler.getBookCharacters(
+          current.characters || 0,
+          current.sections || []
+        ),
+        lastBookModified: current.lastBookModified || 0,
+        lastBookOpen: current.lastBookOpen || 0
+      });
+    } finally {
+      scope.stop();
+    }
   }
 
   async getFilenameForRecentCheck(fileIdentifier: string) {

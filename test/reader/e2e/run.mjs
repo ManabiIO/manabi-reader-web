@@ -702,7 +702,7 @@ try {
         const count = (await books()).length;
         await importBook(filename);
         await expect(
-          page.getByText(/Bookimport failed|Error\(s\) occurred during bookimport/).first()
+          page.getByText(/Book import failed|The selected book could not be imported/).first()
         ).toBeVisible();
         assert.equal((await books()).length, count);
       });

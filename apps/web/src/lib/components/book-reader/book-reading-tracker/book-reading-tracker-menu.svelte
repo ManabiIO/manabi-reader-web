@@ -17,6 +17,7 @@
     getChapterData,
     type SectionWithProgress
   } from '$lib/components/book-reader/book-toc/book-toc';
+  import { chapterCharacters } from '$lib/components/book-reader/book-toc/chapter-model';
   import type { BooksDbStatistic } from '$lib/data/database/books-db/versions/books-db';
   import type { ReadingGoal } from '$lib/data/reading-goal';
   import { lastBlurredTrackerItems$, skipKeyDownListener$ } from '$lib/data/store';
@@ -71,7 +72,7 @@
   const trackingItemsPerPage = 15;
 
   let trackingHistoryIndex = 0;
-  let timeToFinishChapter = '';
+  let timeToFinishChapter = 'N/A';
 
   $: allStatistics = autoScrollerStatistics
     ? [
@@ -107,19 +108,12 @@
     if (sectionData) {
       const [mainChapters, chapterIndex] = getChapterData(sectionData);
       const currentChapter = mainChapters[chapterIndex];
-      const remainingCharacters =
-        (currentChapter.startCharacter ?? 0) +
-        (currentChapter.characters ?? 0) -
-        (exploredCharCount ?? 0);
-
-      timeToFinishChapter = sessionStatistics.lastReadingSpeed
-        ? toTimeString(
-            Math.max(
-              0,
-              Math.floor(remainingCharacters / (sessionStatistics.lastReadingSpeed / 3600))
-            )
-          )
-        : 'N/A';
+      const characters = chapterCharacters(currentChapter, exploredCharCount);
+      const speed = sessionStatistics.lastReadingSpeed;
+      if (characters && Number.isFinite(speed) && speed > 0) {
+        const seconds = Math.floor((characters.total - characters.read) / (speed / 3600));
+        if (Number.isFinite(seconds)) timeToFinishChapter = toTimeString(seconds);
+      }
     }
 
     return () => {

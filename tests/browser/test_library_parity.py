@@ -494,7 +494,9 @@ class LibraryPreferenceParityBrowser(LibraryBase):
         status = self.page.get_by_role('status',name='Settings sync status')
         expect(status).to_contain_text('book metadata saved locally',timeout=15000)
         server_books = PresentationServer.preference_settings['library_organization']['books']
-        self.assertTrue(server_books)
+        # This edit contains only extension fields, so the legacy wire format
+        # has no book presentation to send.
+        self.assertEqual({}, server_books)
         self.assertTrue(all('metadata' not in value and 'coverBlur' not in value and 'series' not in value for value in server_books.values()))
         self.page.reload()
         expect(status).to_contain_text('book metadata saved locally',timeout=15000)

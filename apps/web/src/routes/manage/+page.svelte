@@ -447,7 +447,7 @@
 
     initializeReplicationProgressData();
 
-    const errorTitle = 'Bookimport failed';
+    const errorTitle = 'Book import failed';
     let files: File[];
     try {
       files = await prepareBookImportFiles(fileList, cancelSignal);
@@ -492,7 +492,7 @@
     resetProgress();
 
     if (error) {
-      showError(errorTitle, error, 'Error(s) occurred during bookimport');
+      showError(errorTitle, error, 'The selected book could not be imported');
     }
   }
 
