@@ -132,12 +132,12 @@ export async function syncMedia(
           throw new Error('Invalid sync acknowledgement');
         await store.ack(scope, r.kind, r.id, response.mutation_id, response.record);
       } catch (e) {
-        guard();
-        const error = e as {
-          status?: number;
-          current?: unknown;
-        };
-        if (error.status === 412 && error.current) {
+        // Preserve the operation's failure, including falsy abort reasons.
+        // Account observation gates conflict writes, not the identity of an
+        // already-rejected upload. It can itself fail after disconnection.
+        const error = e as { status?: number; current?: unknown } | null | undefined;
+        if (error?.status === 412 && error.current) {
+          if (signal.aborted || !current()) throw e;
           await store.conflict(
             scope,
             r.kind,

@@ -1,9 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  cloudRequest,
-  listCloudFolder
-} from '../../.cache/media-test-build/cloud-listing.js';
+import { cloudRequest, listCloudFolder } from '../../.cache/media-test-build/cloud-listing.js';
 import { syncMedia } from '../../.cache/media-test-build/sync.js';
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -148,7 +145,6 @@ test('sync mutation abort does not wait for a stalled upload or acknowledge it l
   assert.equal(acknowledgements, 0, 'retired upload was acknowledged after sign-out');
 });
 
-
 test('cloud request keeps the admitted user identity across a delayed response', async () => {
   const response = deferred();
   const transport = {
@@ -240,15 +236,17 @@ test('sync snapshots its user before a stalled feed resolves', async () => {
 
 test('sync error reporting preserves the network failure if isCurrent throws', async () => {
   const network = new Error('network failed');
-  let checks = 0;
+  let requestFailed = false;
+  let requests = 0;
   const transport = {
     userId: 'user',
     isCurrent() {
-      checks++;
-      if (checks > 1) throw new Error('current-account predicate failed');
+      if (requestFailed) throw new Error('current-account predicate failed');
       return true;
     },
     request: async () => {
+      requests++;
+      requestFailed = true;
       throw network;
     }
   };
@@ -265,8 +263,8 @@ test('sync error reporting preserves the network failure if isCurrent throws', a
     syncMedia(store, transport, new AbortController().signal),
     (error) => error === network
   );
+  assert.equal(requests, 1, 'the network failure must actually be reached');
 });
-
 
 test('throwing sync status observer cannot abort durable synchronization', async () => {
   const writes = [];
@@ -284,14 +282,9 @@ test('throwing sync status observer cannot abort durable synchronization', async
     isCurrent: () => true,
     request: async () => ({ items: [], next_cursor: 0, has_more: false })
   };
-  await syncMedia(
-    store,
-    transport,
-    new AbortController().signal,
-    () => {
-      throw new Error('broken status UI');
-    }
-  );
+  await syncMedia(store, transport, new AbortController().signal, () => {
+    throw new Error('broken status UI');
+  });
   assert.equal(writes.length, 1);
   assert.deepEqual(writes[0].slice(0, 3), ['account:user', 'sync', 'cursor']);
 });
