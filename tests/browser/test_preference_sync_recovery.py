@@ -118,6 +118,72 @@ class PreferenceSyncRecovery(LibraryBase):
             self.assertNotIn('initialChoice', StaticHandler.preference_settings)
             self.assertEqual([], self.errors)
 
+
+    def preference_request_count(self):
+        return sum(1 for request in StaticHandler.account_requests
+                   if request['path'].endswith('/preferences/'))
+
+    def test_successful_manual_recovery_clears_previous_retry_after(self):
+        self.page.goto(self.origin + '/reader-web/connections')
+        expect(self.page.get_by_text('preference-recovery', exact=True)).to_be_visible()
+        font = self.page.get_by_label('Font size', exact=True)
+        font.fill('31')
+        font.press('Tab')
+        self.page.get_by_label('When first enabling sync').select_option('local')
+        toggle = self.page.get_by_label(
+            'Sync reader settings with this Manabi account', exact=True)
+        status = self.page.get_by_role('status', name='Settings sync status')
+        toggle.check()
+        expect(status).to_contain_text('synced', timeout=15000)
+        self.assertEqual(31, StaticHandler.preference_settings['font_size'])
+
+        original = StaticHandler.do_GET
+        failures = []
+
+        def rate_limit_once(handler):
+            if not failures and urlsplit(handler.path).path == '/api/reader-web/preferences/':
+                handler.api_request()
+                failures.append('GET')
+                body = json.dumps({'error': 'rate_limited'}).encode()
+                handler.send_response(429)
+                handler.send_header('Content-Type', 'application/json')
+                handler.send_header('Content-Length', str(len(body)))
+                handler.send_header('Cache-Control', 'no-store')
+                handler.send_header('Retry-After', '30')
+                handler.send_header('X-Manabi-User', '42')
+                handler.end_headers()
+                handler.wfile.write(body)
+                return
+            return original(handler)
+
+        with patch.object(StaticHandler, 'do_GET', rate_limit_once):
+            font.fill('32')
+            font.press('Tab')
+            self.page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+            expect(status).to_contain_text('rate_limited', timeout=10000)
+            self.assertEqual(['GET'], failures)
+
+        # An explicit disable/re-enable is allowed to try immediately. Once that
+        # succeeds, the obsolete Retry-After must not throttle later edits.
+        toggle.uncheck()
+        expect(status).to_contain_text('Off')
+        toggle.check()
+        expect(status).to_contain_text('synced', timeout=10000)
+        self.assertEqual(32, StaticHandler.preference_settings['font_size'])
+        before = self.preference_request_count()
+
+        font.fill('33')
+        font.press('Tab')
+        deadline = time.monotonic() + 5
+        while StaticHandler.preference_settings.get('font_size') != 33:
+            self.assertLess(
+                time.monotonic(), deadline,
+                'Successful recovery left the previous server Retry-After active')
+            self.page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+            self.page.wait_for_timeout(50)
+        self.assertGreater(self.preference_request_count(), before)
+        self.assertEqual([], self.errors)
+
     def test_first_sync_local_choice_recovers_get_failure(self):
         self.exercise('GET')
 
