@@ -75,8 +75,8 @@ export async function readOwnedBookmark(
 export async function commitOwnedBookmark(
   db: IDBPDatabase<BooksDb>,
   snapshot: BooksDbBookmarkData,
-  profileId: string | null,
-  assertCurrent: () => void,
+  profileId: string | null = null,
+  assertCurrent: () => void = () => undefined,
   signal?: AbortSignal
 ) {
   assertCurrent();
@@ -173,7 +173,8 @@ export async function updateBookLastRead(
     return await commitTransaction(tx, async () => {
       assertCurrent();
       signal?.throwIfAborted();
-      const current = await tx.store.get(id);
+      const data = tx.objectStore('data');
+      const current = await data.get(id);
       if (!current) return undefined;
       const owner = await tx.objectStore('readerBookScope').get(id);
       if (current.libraryOwner !== undefined && current.libraryOwner !== profileId)
@@ -190,7 +191,7 @@ export async function updateBookLastRead(
       const updated = { ...current, lastBookOpen };
       assertCurrent();
       signal?.throwIfAborted();
-      await tx.store.put(updated);
+      await data.put(updated);
       return summarizeBook(updated);
     });
   } finally {
