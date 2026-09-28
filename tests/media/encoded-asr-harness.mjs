@@ -217,22 +217,25 @@ export async function start(input) {
       );
       nativeChecks.push('nonzero late remote decode beyond cache');
       const [cachedTrack] = await pipeline.audioTracks();
+      await cachedTrack.getName(); // Warm the retained adapter method before revocation.
       const before = sourceReads.length;
       currentSourceAllowed = false;
       let rejected = false;
+      try {
+        // Test the adapter directly before the pipeline's abort/dispose can
+        // accidentally make a missing adapter lifetime check appear correct.
+        await cachedTrack.getName();
+      } catch (error) {
+        rejected = /source.*current/i.test(String(error));
+      }
+      check(rejected, 'Retained track metadata bypassed source revocation');
+      rejected = false;
       try {
         await pipeline.metadata();
       } catch (error) {
         rejected = /source.*current/i.test(String(error));
       }
       check(rejected, 'Cached metadata bypassed source revocation');
-      rejected = false;
-      try {
-        await cachedTrack.getName();
-      } catch (error) {
-        rejected = /source.*current|AbortError/i.test(String(error));
-      }
-      check(rejected, 'Retained track metadata bypassed source revocation');
       check(sourceReads.length === before, 'Revoked cache checks issued a new source read');
       currentSourceAllowed = true;
       rejected = false;
