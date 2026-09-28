@@ -229,6 +229,53 @@ class LibraryIdentityBrowser(LibraryBase):
         )
         self.assertFalse(any(row['dataId'] == second['id'] for row in rows['bookmark']))
 
+    def test_personal_scope_hides_local_book_and_blocks_direct_reader_url(self):
+        payload = b'private personal reading scope bytes\n'
+        picker = self.page.locator('input[type=file][accept*=".epub"]').first
+        picker.set_input_files({
+            'name': 'Private-scope.txt',
+            'mimeType': 'text/plain',
+            'buffer': payload
+        })
+        expect(self.page.get_by_role('button', name='Read Private-scope', exact=True)).to_be_visible(
+            timeout=30000)
+        saved = next(row for row in self.stores('books', ['data'])['data']
+                     if row['title'] == 'Private-scope')
+        self.page.evaluate('''async id => {
+          const db = await new Promise((resolve, reject) => {
+            const request = indexedDB.open('books');
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          const tx = db.transaction('readerBookScope', 'readwrite');
+          tx.objectStore('readerBookScope').put({
+            bookId: id, accountId: '42', hydrated: true
+          });
+          await new Promise((resolve, reject) => {
+            tx.oncomplete = resolve; tx.onabort = () => reject(tx.error);
+          });
+          db.close();
+        }''', saved['id'])
+
+        StaticHandler.account_fixture = {
+            'user': {'id': 'other', 'username': 'other'},
+            'csrf_token': 'c' * 64, 'providers': []
+        }
+        self.go_library()
+        expect(self.page.get_by_role(
+            'button', name='Read Private-scope', exact=True)).to_have_count(0)
+        self.page.goto(self.origin + '/reader-web/b?id=' + str(saved['id']))
+        expect(self.page).to_have_url(re.compile(r'/reader-web/manage(?:[/?#]|$)'))
+        expect(self.page.locator('.book-content')).to_have_count(0)
+
+        StaticHandler.account_fixture = {
+            'user': {'id': '42', 'username': 'reader'},
+            'csrf_token': 'c' * 64, 'providers': []
+        }
+        self.go_library()
+        expect(self.page.get_by_role(
+            'button', name='Read Private-scope', exact=True)).to_be_visible(timeout=30000)
+
     def test_two_live_histories_at_one_locator_are_not_chosen_by_link_order(self):
         original = self.import_finished()
         duplicate_id = self.page.evaluate('''async link => {
