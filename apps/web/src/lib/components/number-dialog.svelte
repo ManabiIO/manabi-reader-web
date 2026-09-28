@@ -51,7 +51,7 @@
   }
 </script>
 
-<form on:submit|preventDefault={submit} novalidate>
+<form class="min-w-0 w-full" on:submit|preventDefault={submit} novalidate>
   <DialogTemplate>
     <svelte:fragment slot="header">{dialogHeader}</svelte:fragment>
     <div class="flex flex-col gap-3 text-sm sm:text-base" slot="content">

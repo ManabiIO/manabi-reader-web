@@ -9,6 +9,21 @@ from test_static_reader import TITLE
 
 
 class ReaderNavigationPanels:
+    def assert_box_in_viewport(self, target):
+        self.assertTrue(target.evaluate('''e => {
+          const r = e.getBoundingClientRect();
+          return r.width > 0 && r.height > 0 && r.left >= 0 && r.right <= innerWidth &&
+            r.top >= 0 && r.bottom <= innerHeight && getComputedStyle(e).visibility === 'visible';
+        }'''))
+
+    def assert_hit_target_in_viewport(self, target):
+        self.assertTrue(target.evaluate('''e => {
+          const r = e.getBoundingClientRect();
+          const x = r.left + r.width / 2, y = r.top + r.height / 2;
+          return x >= 0 && x < innerWidth && y >= 0 && y < innerHeight &&
+            e.contains(document.elementFromPoint(x, y));
+        }'''))
+
     def open_chaptered_reader(self):
         self.page.evaluate('''() => {
           localStorage.setItem('fontFamilyGroupOne', 'Klee One');
@@ -51,11 +66,11 @@ class ReaderNavigationPanels:
                   return e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));
                 }'''))
             footer = panel.get_by_role('button', name='Next Chapter', exact=True)
-            footer.scroll_into_view_if_needed()
-            expect(footer).to_be_in_viewport()
+            panel.evaluate('e => e.scrollTop = e.scrollHeight')
+            self.assert_box_in_viewport(footer)
             close = panel.get_by_role('button', name='Close Table of Contents', exact=True)
-            close.scroll_into_view_if_needed()
-            expect(close).to_be_in_viewport()
+            panel.evaluate('e => e.scrollTop = 0')
+            self.assert_hit_target_in_viewport(close)
             expect(close).to_have_attribute('data-shape', 'circle')
             self.capture(f'contents-refined-{width}-{height}')
             close.click()
@@ -95,11 +110,11 @@ class ReaderNavigationPanels:
             expect(panel.get_by_role('alert')).to_be_visible()
             self.assertLessEqual(panel.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
             self.assertGreaterEqual(field.bounding_box()['height'], 44)
+            panel.evaluate('e => e.scrollTop = e.scrollHeight')
             for name, variant in (('Cancel', 'secondary'), ('Confirm', 'default')):
                 control = panel.get_by_role('button', name=name, exact=True)
                 expect(control).to_have_attribute('data-variant', variant)
-                control.scroll_into_view_if_needed()
-                expect(control).to_be_in_viewport()
+                self.assert_hit_target_in_viewport(control)
                 self.assertGreaterEqual(control.bounding_box()['height'], 44)
             self.capture('reader-position-dialog-' + mode)
             panel.get_by_role('button', name='Cancel', exact=True).click()
@@ -161,7 +176,7 @@ class ReaderNavigationPanels:
         }''')
         panel.get_by_role('navigation', name='Chapters').get_by_role(
             'button', name='A new morning', exact=True).click()
-        self.page.wait_for_function('window.contentsPageEvents.length > 0')
+        self.page.wait_for_function('() => window.contentsPageEvents.length > 0')
         expect(panel).to_be_visible()
         panel.get_by_role('button', name='Close Table of Contents', exact=True).click()
         expect(panel).to_have_count(0)
