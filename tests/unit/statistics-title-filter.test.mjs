@@ -62,7 +62,6 @@ test('bulk title selection changes only the current matching set', () => {
   assert.deepEqual(setMatchingStatisticsTitleSelection(updated, [], true), updated);
 });
 
-
 test('book-key prefilter keeps same-title histories distinct', () => {
   const first = 'content:' + 'a'.repeat(64);
   const second = 'content:' + 'b'.repeat(64);

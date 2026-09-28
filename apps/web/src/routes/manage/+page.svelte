@@ -839,7 +839,7 @@
   async function onDeleteStatistics() {
     const selectedBooks = $bookCards$
       .filter((card) => selectedBookIds.has(card.id))
-      .map(({ id, title }) => ({ id, title }));
+      .map(({ id, title, contentHash }) => ({ id, title, contentHash }));
     if (!selectedBooks.length) return;
 
     const scope = captureLibraryOperation();
@@ -893,10 +893,7 @@
             await deleteStatisticsForIdentityPlan(db, book.id, plan, authority.guard);
             replicationProgress$.next({ progressToAdd: 1 });
           } catch (error) {
-            handleErrorDuringReplication(
-              error,
-              `Error on deleting statistics for ${book.title}: `
-            );
+            handleErrorDuringReplication(error, `Error on deleting statistics for ${book.title}: `);
             failed += 1;
           }
         }

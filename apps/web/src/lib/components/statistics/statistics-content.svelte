@@ -705,7 +705,9 @@
           if (
             statistic.readingTime &&
             matchesStatisticsBookPrefilter(
-              'bookKey' in statistic ? statistic.bookKey : undefined,
+              'bookKey' in statistic && typeof statistic.bookKey === 'string'
+                ? statistic.bookKey
+                : undefined,
               bookKeyPrefilter
             ) &&
             (!hasPrefilteredTitlesForStatistics ||

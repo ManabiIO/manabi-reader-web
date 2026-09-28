@@ -1257,10 +1257,10 @@ class BooksLibraryBrowser(LibraryBase):
         header.get_by_role('button', name='Library actions', exact=True).click()
         self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
         target = self.page.locator('[data-book-key="book:%s"]' % first['id'])
-        target.get_by_role('button', name='Read Same title statistics view', exact=True).click()
+        target.get_by_role('button', name='Select Same title statistics view', exact=True).click()
         expect(self.page.get_by_text('1 selected', exact=True)).to_be_visible()
 
-        header.get_by_role('button', name='Actions', exact=True).click()
+        header.get_by_role('button', name='Selected book actions', exact=True).click()
         self.page.get_by_role(
             'menuitem', name='Statistics for Selected Books', exact=True).click()
         expect(self.page).to_have_url(re.compile(r'/reader-web/statistics(?:[/?#]|$)'), timeout=30000)
@@ -1271,7 +1271,7 @@ class BooksLibraryBrowser(LibraryBase):
         expect(rows).to_have_count(1, timeout=30000)
         expect(self.page.get_by_text('Same title statistics view', exact=True)).to_have_count(1)
 
-        toolbar.get_by_role('button', name='Options', exact=True).click()
+        toolbar.get_by_role('button', name='Statistics options', exact=True).click()
         self.page.get_by_role('menuitem', name='Statistics Settings', exact=True).click()
         settings = self.page.get_by_role('dialog')
         settings.get_by_role('button', name='Delete Selection', exact=True).click()
@@ -1338,10 +1338,10 @@ class BooksLibraryBrowser(LibraryBase):
         self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
         target = self.page.locator('[data-book-key="book:%s"]' % first['id'])
         expect(target).to_be_visible()
-        target.get_by_role('button', name='Read Same title statistics', exact=True).click()
+        target.get_by_role('button', name='Select Same title statistics', exact=True).click()
         expect(self.page.get_by_text('1 selected', exact=True)).to_be_visible()
 
-        header.get_by_role('button', name='Actions', exact=True).click()
+        header.get_by_role('button', name='Selected book actions', exact=True).click()
         self.page.get_by_role('menuitem', name='Delete Selected Statistics', exact=True).click()
         dialog = self.dialog()
         expect(dialog.get_by_role('heading', name='Delete Data', exact=True)).to_be_visible()
@@ -1394,8 +1394,8 @@ class BooksLibraryBrowser(LibraryBase):
         header.get_by_role('button', name='Library actions', exact=True).click()
         self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
         self.page.locator('[data-book-key="book:%s"]' % stored['id']).get_by_role(
-            'button', name='Read Statistics confirmation race', exact=True).click()
-        header.get_by_role('button', name='Actions', exact=True).click()
+            'button', name='Select Statistics confirmation race', exact=True).click()
+        header.get_by_role('button', name='Selected book actions', exact=True).click()
         self.page.get_by_role('menuitem', name='Delete Selected Statistics', exact=True).click()
         dialog = self.dialog()
         expect(dialog.get_by_role('heading', name='Delete Data', exact=True)).to_be_visible()

@@ -299,14 +299,21 @@ export async function statisticIdentityPlan(
     expected &&
     (book.title !== expected.title ||
       contentStatisticKey(book) !==
-        contentStatisticKey({ id: book.id, title: expected.title, contentHash: expected.contentHash }))
+        contentStatisticKey({
+          id: book.id,
+          title: expected.title,
+          contentHash: expected.contentHash
+        }))
   )
     throw new Error('The selected statistics book changed. Refresh the Library and try again.');
   const snapshot = { id: book.id, title: book.title, contentHash: book.contentHash };
   const migrationGuard = guard
     ? {
         ...guard,
-        validate(current: BooksDb['data']['value'] | undefined, owner: BooksDb['readerBookScope']['value'] | undefined) {
+        validate(
+          current: BooksDb['data']['value'] | undefined,
+          owner: BooksDb['readerBookScope']['value'] | undefined
+        ) {
           guard.validate(current, owner);
           if (
             current &&
@@ -328,11 +335,7 @@ export async function statisticIdentityPlan(
   guard?.assertCurrent();
   guard?.signal.throwIfAborted();
   guard?.validate(current, owner);
-  if (
-    !current ||
-    current.title !== snapshot.title ||
-    current.contentHash !== snapshot.contentHash
-  )
+  if (!current || current.title !== snapshot.title || current.contentHash !== snapshot.contentHash)
     throw new Error('The selected statistics book changed. Refresh the Library and try again.');
   const keys = new Set([bookKey]);
   if (local) keys.add(`local:${local.uuid}`);
@@ -391,32 +394,29 @@ export async function deleteStatisticsForIdentityPlan(
       const owner = guard ? await tx.objectStore('readerBookScope').get(bookId) : undefined;
       guard?.assertCurrent();
       guard?.validate(book, owner);
-      if (
-        !book ||
-        book.title !== expected.title
-      )
+      if (!book || book.title !== expected.title)
         throw new Error('The selected statistics book changed. Refresh the Library and try again.');
 
       const local = await tx.objectStore('readerLocalIdentity').get(bookId);
       const bookKey = contentStatisticKey(book) ?? (local ? `local:${local.uuid}` : undefined);
       if (!bookKey || bookKey !== expected.bookKey)
-        throw new Error('The selected statistics identity changed. Refresh the Library and try again.');
+        throw new Error(
+          'The selected statistics identity changed. Refresh the Library and try again.'
+        );
       const keys = new Set([bookKey]);
       if (local) keys.add(`local:${local.uuid}`);
       const expectedKeys = new Set(expected.keys);
-      if (
-        keys.size !== expectedKeys.size ||
-        [...keys].some((key) => !expectedKeys.has(key))
-      )
-        throw new Error('The selected statistics identity changed. Refresh the Library and try again.');
+      if (keys.size !== expectedKeys.size || [...keys].some((key) => !expectedKeys.has(key)))
+        throw new Error(
+          'The selected statistics identity changed. Refresh the Library and try again.'
+        );
 
       const receipt = await tx.objectStore('readerStatisticMigration').get(book.title);
       const legacy = statisticLegacyAssignment(receipt, book.title, keys);
-      if (
-        legacy.unresolvedLegacy ||
-        legacy.legacyTitle !== expected.legacyTitle
-      )
-        throw new Error('The selected statistics history changed. Refresh the Library and try again.');
+      if (legacy.unresolvedLegacy || legacy.legacyTitle !== expected.legacyTitle)
+        throw new Error(
+          'The selected statistics history changed. Refresh the Library and try again.'
+        );
 
       if (guard?.validateCopy) {
         const contentKey = contentStatisticKey(book);

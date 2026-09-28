@@ -264,7 +264,6 @@ test('identity conflict never hides a legacy day that was already ambiguous', as
   db.close();
 });
 
-
 test('statistics deletion plan refuses unresolved same-title legacy history', async () => {
   const db = await database();
   const first = book(1, 'Same deletion title', 'a');
@@ -297,10 +296,7 @@ test('statistics identity planning refuses a replacement that appeared during co
   const expected = { title: selected.title, contentHash: selected.contentHash };
   await db.put('data', book(selected.id, selected.title, 'b'));
 
-  await assert.rejects(
-    statisticIdentityPlan(db, selected.id, undefined, expected),
-    /book changed/
-  );
+  await assert.rejects(statisticIdentityPlan(db, selected.id, undefined, expected), /book changed/);
   assert.equal((await db.getAll('readerStatistic')).length, 1);
   assert.equal((await db.getAll('readerStatisticMigration')).length, 0);
   db.close();
@@ -329,7 +325,10 @@ test('statistics deletion plan can delete a same-title sibling while legacy is a
     (await db.get('readerStatistic', [contentStatisticKey(first), '2026-09-20'])).charactersRead,
     12
   );
-  assert.equal(await db.get('readerStatistic', [contentStatisticKey(second), '2026-09-21']), undefined);
+  assert.equal(
+    await db.get('readerStatistic', [contentStatisticKey(second), '2026-09-21']),
+    undefined
+  );
   assert.equal((await db.get('statistic', [first.title, '2026-09-20'])).charactersRead, 12);
   db.close();
 });
@@ -345,10 +344,7 @@ test('statistics deletion plan maps assigned legacy history to the selected logi
   assert.deepEqual(plan.keys, [contentStatisticKey(copy)]);
   assert.equal(plan.legacyTitle, copy.title);
   assert.equal(plan.unresolvedLegacy, false);
-  assert.equal(
-    (await db.get('readerStatistic', [plan.bookKey, '2026-09-20'])).charactersRead,
-    12
-  );
+  assert.equal((await db.get('readerStatistic', [plan.bookKey, '2026-09-20'])).charactersRead, 12);
   db.close();
 });
 
@@ -401,7 +397,6 @@ test('statistics deletion plan keeps ambiguous legacy history fail-closed across
   db.close();
 });
 
-
 test('identity deletion removes keyed history and its safely assigned legacy source', async () => {
   const db = await database();
   const copy = book(1, 'Delete assigned legacy', 'f');
@@ -441,10 +436,7 @@ test('identity deletion refuses a stale plan without removing either history', a
     bookKey: contentStatisticKey(replacement)
   });
 
-  await assert.rejects(
-    deleteStatisticsForIdentityPlan(db, first.id, plan),
-    /identity changed/
-  );
+  await assert.rejects(deleteStatisticsForIdentityPlan(db, first.id, plan), /identity changed/);
   assert.deepEqual(
     new Set((await db.getAll('readerStatistic')).map((row) => row.charactersRead)),
     new Set([30, 40])
