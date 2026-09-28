@@ -429,7 +429,7 @@ export class DatabaseService {
       const db = await this.db;
       scope.assertCurrent();
       const tx = db.transaction(['data', 'bookmark', 'readerBookScope']);
-      return await commitTransaction(tx, async () => {
+      const bookmark = await commitTransaction(tx, async () => {
         scope.assertCurrent();
         const book = await tx.objectStore('data').get(dataId);
         if (!book) return undefined;
@@ -443,6 +443,8 @@ export class DatabaseService {
         scope.assertCurrent();
         return bookmark;
       });
+      scope.assertCurrent();
+      return bookmark;
     } finally {
       scope.stop();
     }
@@ -468,7 +470,7 @@ export class DatabaseService {
       };
       scope.signal.addEventListener('abort', abort, { once: true });
       try {
-        return await commitTransaction(tx, async () => {
+        const result = await commitTransaction(tx, async () => {
           scope.assertCurrent();
           const book = await tx.objectStore('data').get(snapshot.dataId);
           if (!book) throw new Error('This book is no longer in the library.');
@@ -480,6 +482,10 @@ export class DatabaseService {
           scope.assertCurrent();
           return bookmarks.put(mergeCompletion(before, snapshot));
         });
+        // A finished write cannot be undone, but a revoked profile must not
+        // receive its result after a switch during transaction completion.
+        scope.assertCurrent();
+        return result;
       } finally {
         scope.signal.removeEventListener('abort', abort);
       }
