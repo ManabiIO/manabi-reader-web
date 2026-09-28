@@ -73,6 +73,8 @@ const atFile = (books, storage, fileId) =>
     (book) =>
       book.source && sourceKey(book.source) === sourceKey(storage) && book.file?.id === fileId
   );
+const physicalBooks = (nodes) =>
+  nodes.flatMap((node) => (node.kind === 'book' ? [node.book] : physicalBooks(node.children)));
 
 // These fixtures call the same production projection used by the library, not a
 // second implementation of its matching/sorting rules or mocked database reads.
@@ -96,22 +98,23 @@ test('an unambiguous moved file retains its saved identity, progress and present
   assert.deepEqual({ saved, links, scans, organization }, inputs);
 });
 
-test('two identical destinations cannot both consume one missing saved identity', () => {
+test('identical destinations share one reading identity while remaining separate physical copies', () => {
   const storage = source();
   for (const files of [
     ['a.epub', 'b.epub'],
     ['b.epub', 'a.epub']
   ]) {
     const scans = [catalog(storage, files)];
-    const books = allBooks(shelf([card(1)], [link(1, storage, 'old.epub')], scans));
-    assert.equal(books.length, 3, 'retain both files and the unmatched saved book');
+    const nodes = shelf([card(1)], [link(1, storage, 'old.epub')], scans);
+    const copies = physicalBooks(nodes);
+    assert.equal(copies.length, 2);
+    assert.equal(allBooks(nodes).length, 1, 'aggregate views count one logical book');
     for (const file of files) {
-      const book = atFile(books, storage, file);
-      assert.equal(book.bookId, undefined);
-      assert.equal(book.key, sourceBookKey(storage, file));
-      assert.equal(book.progress, 0);
+      const book = atFile(copies, storage, file);
+      assert.equal(book.bookId, 1);
+      assert.equal(book.key, bookKey(1));
+      assert.equal(book.progress, 0.4);
     }
-    assert.equal(books.find((book) => book.bookId === 1).file.id, 'old.epub');
   }
 });
 
@@ -133,15 +136,30 @@ test('two missing saved copies cannot arbitrarily donate one identity to a desti
   }
 });
 
-test('duplicate destinations in different local sources are still ambiguous', () => {
+test('multiple physical links to the same logical book are not a history conflict', () => {
+  const first = source('first');
+  const second = source('second');
+  const third = source('third');
+  const scans = [catalog(first, []), catalog(second, []), catalog(third, ['copy.epub'])];
+  const books = allBooks(
+    shelf([card(1)], [link(1, first, 'old-a.epub'), link(1, second, 'old-b.epub')], scans)
+  );
+  assert.equal(books.length, 1);
+  assert.equal(atFile(books, third, 'copy.epub').bookId, 1);
+  assert.equal(atFile(books, third, 'copy.epub').progress, 0.4);
+});
+
+test('identical destinations in different local sources share progress but keep both locators', () => {
   const first = source('first');
   const second = source('second');
   const scans = [catalog(first, ['new-a.epub']), catalog(second, ['new-b.epub'])];
   for (const order of [scans, [...scans].reverse()]) {
-    const books = allBooks(shelf([card(1)], [link(1, first, 'old.epub')], order));
-    assert.equal(books.length, 3);
-    assert.equal(atFile(books, first, 'new-a.epub').bookId, undefined);
-    assert.equal(atFile(books, second, 'new-b.epub').bookId, undefined);
+    const nodes = shelf([card(1)], [link(1, first, 'old.epub')], order);
+    const copies = physicalBooks(nodes);
+    assert.equal(copies.length, 2);
+    assert.equal(allBooks(nodes).length, 1);
+    assert.equal(atFile(copies, first, 'new-a.epub').bookId, 1);
+    assert.equal(atFile(copies, second, 'new-b.epub').bookId, 1);
   }
 });
 
@@ -175,13 +193,13 @@ test('a move is never inferred across an account boundary', () => {
   assert.equal(atFile(books, bob, 'new.epub').bookId, undefined);
 });
 
-test('an unscanned original source is not evidence of a missing file', () => {
+test('an exact-byte copy can reuse established progress even while the original source is unscanned', () => {
   const original = source('offline');
   const target = source('online');
   const scans = [catalog(target, ['copy.epub'])];
   const books = allBooks(shelf([card(1)], [link(1, original, 'old.epub')], scans));
-  assert.equal(books.length, 2);
-  assert.equal(atFile(books, target, 'copy.epub').bookId, undefined);
+  assert.equal(books.length, 1);
+  assert.equal(atFile(books, target, 'copy.epub').bookId, 1);
 });
 
 test('stale previews cannot identify a move or make a fresh target ambiguous', () => {
@@ -195,7 +213,7 @@ test('stale previews cannot identify a move or make a fresh target ambiguous', (
   assert.equal(atFile(books, storage, 'stale.epub').bookId, undefined);
 });
 
-test('an exact existing link wins and is not counted as an unlinked move target', () => {
+test('an exact link remains valid when another same-content history makes an unlinked copy ambiguous', () => {
   const storage = source();
   const scans = [catalog(storage, ['new.epub', 'existing.epub'])];
   const books = allBooks(
@@ -205,18 +223,21 @@ test('an exact existing link wins and is not counted as an unlinked move target'
       scans
     )
   );
-  assert.equal(books.length, 2);
-  assert.equal(atFile(books, storage, 'new.epub').bookId, 1);
+  assert.equal(books.length, 3);
+  assert.equal(atFile(books, storage, 'new.epub').bookId, undefined);
   assert.equal(atFile(books, storage, 'existing.epub').bookId, 2);
+  assert.equal(books.find((book) => book.bookId === 1).progress, 0.4);
 });
 
-test('a still-present original does not donate its identity to an identical copy', () => {
+test('a still-present original and its identical copy share progress without hiding either locator', () => {
   const storage = source();
   const scans = [catalog(storage, ['old.epub', 'copy.epub'])];
-  const books = allBooks(shelf([card(1)], [link(1, storage, 'old.epub')], scans));
-  assert.equal(books.length, 2);
-  assert.equal(atFile(books, storage, 'old.epub').bookId, 1);
-  assert.equal(atFile(books, storage, 'copy.epub').bookId, undefined);
+  const nodes = shelf([card(1)], [link(1, storage, 'old.epub')], scans);
+  const copies = physicalBooks(nodes);
+  assert.equal(copies.length, 2);
+  assert.equal(allBooks(nodes).length, 1);
+  assert.equal(atFile(copies, storage, 'old.epub').bookId, 1);
+  assert.equal(atFile(copies, storage, 'copy.epub').bookId, 1);
 });
 
 const shelfBook = (key, creators) => ({
