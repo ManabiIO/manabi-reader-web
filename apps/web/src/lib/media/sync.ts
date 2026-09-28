@@ -46,9 +46,16 @@ export async function syncMedia(
     signal.throwIfAborted();
     if (!current()) throw new Error('The signed-in account changed');
   };
+  const notify = (status: SyncStatus) => {
+    try {
+      publish(status);
+    } catch {
+      /* UI status is not synchronization authority. */
+    }
+  };
   const work = async () => {
     guard();
-    publish({ state: 'syncing', message: 'Syncing video progress and subtitles…', conflicts: [] });
+    notify({ state: 'syncing', message: 'Syncing video progress and subtitles…', conflicts: [] });
     let cursor = (await store.local<number>(scope, 'sync', 'cursor')) ?? 0;
     if (!Number.isSafeInteger(cursor) || cursor < 0) throw new Error('Invalid saved sync cursor');
     // Drain before pushing: never overwrite unknown cloud history from a fresh browser.
@@ -146,7 +153,7 @@ export async function syncMedia(
     const conflicts = remaining.filter((r) => r.conflict);
     const stillPending = remaining.some((r) => !r.conflict && (r.dirty || r.pending));
     guard();
-    publish({
+    notify({
       state: conflicts.length ? 'conflict' : stillPending ? 'pending' : 'synced',
       message: conflicts.length
         ? 'Both copies changed. Choose which version to keep.'
@@ -162,7 +169,7 @@ export async function syncMedia(
     else await work();
   } catch (error) {
     if (!signal.aborted && current())
-      publish({
+      notify({
         state: 'error',
         message: error instanceof Error ? error.message : String(error),
         conflicts: []
