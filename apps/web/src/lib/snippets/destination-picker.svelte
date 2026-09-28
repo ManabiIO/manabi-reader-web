@@ -79,7 +79,9 @@
     if (!alive) return;
     await tick();
     if (!alive) return;
-    trailNav?.querySelector<HTMLButtonElement>('button:last-of-type')?.focus({ preventScroll: true });
+    trailNav
+      ?.querySelector<HTMLButtonElement>('button:last-of-type')
+      ?.focus({ preventScroll: true });
   }
   async function grant() {
     if (!alive || !selected || busy) return;
@@ -106,9 +108,10 @@
         await browse(source, parent, trail.at(-1)?.name, true);
       }
     } catch (reason) {
-      error = reason instanceof Error ? reason.message : 'Permission could not be granted.';
+      if (alive)
+        error = reason instanceof Error ? reason.message : 'Permission could not be granted.';
     } finally {
-      busy = false;
+      if (alive) busy = false;
       setWriteBusy(false);
     }
   }
@@ -125,9 +128,9 @@
       await navigate(selected, id, folderName);
       if (alive) newName = '';
     } catch (reason) {
-      error = reason instanceof Error ? reason.message : 'The folder could not be created.';
+      if (alive) error = reason instanceof Error ? reason.message : 'The folder could not be created.';
     } finally {
-      busy = false;
+      if (alive) busy = false;
       setWriteBusy(false);
     }
   }

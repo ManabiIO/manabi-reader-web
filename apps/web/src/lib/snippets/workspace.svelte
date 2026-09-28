@@ -154,7 +154,11 @@
           const s = item.destination!.source;
           const provider =
             providerLabels[s.provider] ??
-            (s.provider === 'local' ? 'Local folder' : s.provider === 'webdav' ? 'WebDAV' : s.provider);
+            (s.provider === 'local'
+              ? 'Local folder'
+              : s.provider === 'webdav'
+                ? 'WebDAV'
+                : s.provider);
           return [JSON.stringify([s.owner, s.id, s.root]), `${provider} · ${s.name}`];
         })
     ).entries()
@@ -1198,7 +1202,8 @@
           /></label
         ><Button type="submit" disabled={busy || !newCollection.trim()}>Create collection</Button>
       </form>
-      <Button variant="secondary" onclick={() => (collectionsOpen = false)}>Done</Button
+      <Button variant="secondary" disabled={busy} onclick={() => (collectionsOpen = false)}
+        >Done</Button
       ></Dialog.Content
     ></Dialog.Root
   >{/if}
