@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { setImmediate } from 'node:timers';
 import {
+  assertBookPersonalAccess,
   readBookSummaries,
   updateBookLastRead
 } from '../../apps/web/src/lib/data/database/books-db/book-records.ts';
@@ -123,6 +124,34 @@ test('a delayed last-read update never resurrects a deleted book or lowers a new
   const h = harness([stored()]);
   assert.equal((await updateBookLastRead(h.db, 3, 50)).lastBookOpen, 100);
   assert.equal(h.writes.length, 0);
+});
+
+test('last-read updates obey persistent book and personal scope ownership', async () => {
+  const scoped = stored();
+  const matching = harness([scoped], {
+    scopes: { [scoped.id]: { bookId: scoped.id, accountId: 'account-a' } }
+  });
+  const updated = await updateBookLastRead(matching.db, scoped.id, 400, 'account-a');
+  assert.equal(updated.lastBookOpen, 400);
+  assert.equal(updated.readerOwner, 'account-a');
+  assert.equal(matching.writes.length, 1);
+
+  const foreign = harness([stored()], {
+    scopes: { 3: { bookId: 3, accountId: 'account-a' } }
+  });
+  await assert.rejects(updateBookLastRead(foreign.db, 3, 400, 'account-b'), /another account/);
+  assert.equal(foreign.writes.length, 0);
+
+  const connected = harness([{ ...stored(), libraryOwner: 'account-a' }]);
+  await assert.rejects(updateBookLastRead(connected.db, 3, 400, 'account-b'), /another account/);
+  assert.equal(connected.writes.length, 0);
+});
+
+test('contradictory durable owners fail for every profile', () => {
+  const book = { libraryOwner: 'account-a' };
+  const scope = { accountId: 'account-b' };
+  assert.throws(() => assertBookPersonalAccess(book, scope, 'account-a'), /another account/);
+  assert.throws(() => assertBookPersonalAccess(book, scope, 'account-b'), /another account/);
 });
 
 test('metadata-only updates do not try to read unavailable legacy Blob backing', async () => {
