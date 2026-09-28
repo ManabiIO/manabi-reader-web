@@ -123,7 +123,12 @@ class ProductJourneys(LibraryBase):
         self.checkpoint('pagination-reset')
         self.page.keyboard.press('Escape')
         expect(panel).to_have_count(0)
-        expect(self.page.get_by_role('button', name='Reading tools', exact=True)).to_be_focused()
+        # Opening Search intentionally collapses the toolbar and removes its
+        # menu trigger. Dismissal must restore the surviving reveal control.
+        controls = self.page.get_by_role('button', name='Show reading controls', exact=True)
+        expect(controls).to_be_focused()
+        self.page.keyboard.press('Enter')
+        expect(self.page.get_by_role('button', name='Reading tools', exact=True)).to_be_visible()
 
     def test_reader_pagination_reset_horizontal_desktop(self):
         self.pagination(width=1280, height=900, writing='horizontal-tb')
@@ -197,9 +202,13 @@ class ProductJourneys(LibraryBase):
              'buffer': book(title, body='<p>' + escape(title) + ' unique body.</p>', size=(12, 18))}
             for title in titles
         ])
-        # The last card may be below the Library's own lazy-rendered window.
-        # Search heading verifies the completed real import without DOM seeding.
-        self.library_search('Catalog QA')
+        # The real bulk import reloads the Library workspace. Wait for its
+        # completed count and hydration before entering the post-import query;
+        # typing into the old workspace exercises a different lifetime race.
+        expect(self.page.get_by_role('button', name='Books 61', exact=True)).to_be_visible(timeout=60000)
+        expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute('data-hydrated', 'true')
+        expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute('aria-busy', 'false')
+        expect(self.library_search('Catalog QA')).to_have_value('Catalog QA')
         expect(self.page.get_by_role('heading', name='Books 61', exact=True)).to_be_visible(timeout=60000)
         matches = self.page.locator('[aria-label="Library search results"]').get_by_role('button', name=re.compile('^Read Catalog QA '))
         expect(matches).to_have_count(30)
@@ -270,6 +279,49 @@ class ProductJourneys(LibraryBase):
         expect(self.page.locator('.book-content').first).to_have_attribute('aria-busy', 'false')
         expect(self.page.locator('.book-content').first).to_have_css('font-size', '28px')
         self.assertEqual(1, len(self.stores('books', ['data'])['data']))
+
+    def test_statistics_heading_keeps_words_whole_at_large_text(self):
+        self.page.get_by_role('button', name='Library actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Statistics', exact=True).click()
+        toolbar = self.page.get_by_role('banner', name='Statistics toolbar')
+        for width, height, scale in ((320, 568, '200%'), (390, 844, '100%'), (1280, 900, '100%')):
+            with self.subTest(width=width, scale=scale):
+                self.page.set_viewport_size({'width': width, 'height': height})
+                self.page.evaluate('scale => document.documentElement.style.fontSize = scale', scale)
+                trigger = toolbar.get_by_role('button', name='Statistics options', exact=True)
+                trigger.click()
+                self.page.get_by_role('menuitem', name='Statistics Settings', exact=True).click()
+                panel = self.page.get_by_role('dialog', name='Statistics options', exact=True)
+                title = panel.get_by_role('heading', name='Statistics options', exact=True)
+                close = panel.get_by_role('button', name='Close statistics options', exact=True)
+                expect(title).to_be_in_viewport()
+                expect(close).to_be_in_viewport()
+                self.page.evaluate('() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+                # Range rectangles inspect the real word layout, not screenshot
+                # pixels or a style spelling that could pass while still broken.
+                rects = title.evaluate("""element => {
+                  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+                  let node;
+                  while ((node = walker.nextNode())) {
+                    const at = node.data.indexOf('Statistics');
+                    if (at < 0) continue;
+                    const range = document.createRange();
+                    range.setStart(node, at); range.setEnd(node, at + 'Statistics'.length);
+                    return [...range.getClientRects()].map(r => ({x:r.x,y:r.y,width:r.width,height:r.height}));
+                  }
+                  throw new Error('Statistics heading text not found');
+                }""")
+                self.assertEqual(1, len(rects), 'Statistics splits in the middle of the word')
+                word, dismiss = rects[0], close.bounding_box()
+                overlap = (min(word['x'] + word['width'], dismiss['x'] + dismiss['width']) > max(word['x'], dismiss['x']) and
+                           min(word['y'] + word['height'], dismiss['y'] + dismiss['height']) > max(word['y'], dismiss['y']))
+                self.assertFalse(overlap, 'Unbroken heading must not overlap dismissal')
+                self.assertGreaterEqual(word['x'], 0)
+                self.assertLessEqual(word['x'] + word['width'], width + 1)
+                self.checkpoint(f'statistics-{width}')
+                close.click()
+                expect(panel).to_have_count(0)
+                expect(trigger).to_be_focused()
 
 
 if __name__ == '__main__':

@@ -4,6 +4,7 @@
   import * as Sheet from '$lib/components/ui/sheet';
   import { Button } from '$lib/components/ui/button';
   import {
+    codePointLength,
     makeLocator,
     projectPublication,
     type ProjectedResource,
@@ -23,6 +24,7 @@
   let worker: Worker | undefined;
   let mounted = false;
   let searchError = '';
+  let queryError = '';
   let requestId = 0;
   let bookGeneration = 0;
   let resources: ProjectedResource[] = [];
@@ -145,7 +147,15 @@
     visibleCount = 50;
     selectionError = '';
     searchError = '';
-    if (!mounted || !open || !query.trim() || composing || !ensureWorker()) return;
+    queryError = '';
+    if (!mounted || !open || !query.trim() || composing) return;
+    // Match the worker's code-point limit; UTF-16 length rejects valid Japanese
+    // supplementary characters. A validation error is not a failed worker.
+    if (codePointLength(query) > 512) {
+      queryError = 'Use a search of 512 characters or fewer.';
+      return;
+    }
+    if (!ensureWorker()) return;
     const id = requestId;
     searching = true;
     debounce = setTimeout(() => {
@@ -188,6 +198,15 @@
   <Sheet.Content
     side="left"
     showCloseButton
+    onCloseAutoFocus={(event) => {
+      // Search collapses the toolbar, so its menu item no longer exists.
+      // Restore the surviving reader control instead of leaving focus on body.
+      const controls = document.querySelector<HTMLButtonElement>('button[data-reader-controls]');
+      if (controls) {
+        event.preventDefault();
+        controls.focus();
+      }
+    }}
     class="writing-horizontal-tb p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] data-[side=left]:w-full data-[side=left]:sm:max-w-md"
   >
     <Sheet.Header class="shrink-0 p-0">
@@ -199,6 +218,8 @@
         class="min-h-11 min-w-0 flex-1 rounded-lg border border-input bg-background px-3 text-base text-foreground sm:text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
         type="search"
         aria-label="Search within book"
+        aria-invalid={queryError ? true : undefined}
+        aria-describedby={queryError ? 'reader-search-query-error' : undefined}
         placeholder="Search this book"
         bind:value={query}
         on:input={(event) => {
@@ -224,10 +245,14 @@
       >
     </div>
     <p class="my-4 shrink-0 text-sm text-muted-foreground" aria-live="polite">
-      {#if searchError}Search unavailable.{:else if composing}Finish entering text to search.{:else if searching}Searching…{:else if query.trim()}{truncated ? 'At least ' : ''}{total} results{:else}Enter
+      {#if queryError}Search too long.{:else if searchError}Search unavailable.{:else if composing}Finish entering text to search.{:else if searching}Searching…{:else if query.trim()}{truncated ? 'At least ' : ''}{total} results{:else}Enter
         a word or phrase.{/if}
     </p>
-    {#if searchError}
+    {#if queryError}
+      <p id="reader-search-query-error" role="alert" class="mb-3 text-sm text-destructive">
+        {queryError}
+      </p>
+    {:else if searchError}
       <div class="mb-3 grid shrink-0 gap-2">
         <p role="alert" class="text-sm text-destructive">{searchError}</p>
         <Button variant="secondary" onclick={schedule}>Retry Search</Button>
