@@ -181,7 +181,8 @@ export async function migrateLegacyStatistics(
             return bookKey;
           }
           for (const row of localRows) {
-            if (!(await content.get([bookKey, row.dateKey]))) await content.put({ ...row, bookKey });
+            if (!(await content.get([bookKey, row.dateKey])))
+              await content.put({ ...row, bookKey });
             await content.delete([localKey, row.dateKey]);
           }
           const receipt = await migration.get(book.title);

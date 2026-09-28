@@ -156,9 +156,7 @@ function memoryDB(initial = {}) {
             }
           };
           const all = (query) =>
-            [...rows]
-              .filter(([key]) => inRange(JSON.parse(key), query))
-              .map(([, value]) => value);
+            [...rows].filter(([key]) => inRange(JSON.parse(key), query)).map(([, value]) => value);
           return {
             get: (key) => request('get', key, () => rows.get(encoded(key))),
             getAll: (query) => request('getAll', query, () => all(query)),
@@ -214,8 +212,7 @@ function memoryDB(initial = {}) {
       return tx;
     }
   };
-  for (const [name, rows] of Object.entries(initial))
-    for (const row of rows) api.seed(name, row);
+  for (const [name, rows] of Object.entries(initial)) for (const row of rows) api.seed(name, row);
   return api;
 }
 const hash = 'a'.repeat(64);
@@ -422,7 +419,10 @@ for (const property of ['bookId', 'sourceId', 'fileId']) {
       f.db.seed('data', book({ id: 2 }));
       const before = f.db.rows('bookmark');
       f.hooks[stage] = () =>
-        f.integration.seed('books', link({ [property]: property === 'bookId' ? 2 : 'replacement' }));
+        f.integration.seed(
+          'books',
+          link({ [property]: property === 'bookId' ? 2 : 'replacement' })
+        );
       await f.run();
       assert.equal(f.status().state, 'error');
       assert.equal(f.calls.uploads.length, 0);
