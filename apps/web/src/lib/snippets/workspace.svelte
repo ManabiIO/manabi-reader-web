@@ -1145,6 +1145,7 @@
         initial={destination ?? current?.destination}
         guard={admitted.guard}
         allowDevice={pickerPurpose === 'save'}
+        allowUnsetDefault={pickerPurpose === 'default'}
         choose={(value, remember) => void action(() => chooseDestination(value, remember))}
       /></Dialog.Content
     ></Dialog.Root

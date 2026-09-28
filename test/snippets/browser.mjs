@@ -351,7 +351,7 @@ try {
   await page.getByRole('button', { name: 'Default save location…', exact: true }).click();
   await page
     .getByRole('dialog')
-    .getByRole('button', { name: 'Keep on this device only', exact: true })
+    .getByRole('button', { name: 'Ask for a location each time', exact: true })
     .click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.getByRole('button', { name: 'New snippet', exact: true }).click();

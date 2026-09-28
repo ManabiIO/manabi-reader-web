@@ -12,6 +12,7 @@
   export let guard: Guard;
   export let choose: (destination: Destination | undefined, remember: boolean) => void;
   export let allowDevice = true;
+  export let allowUnsetDefault = false;
   let sources: SourceDescriptor[] = [];
   let selected: SourceDescriptor | undefined;
   let trail: { id: string; name: string }[] = [];
@@ -201,6 +202,9 @@
   {/if}
   {#if allowDevice}<Button variant="ghost" onclick={() => choose(undefined, false)}
       >Keep on this device only</Button
+    >{/if}
+  {#if allowUnsetDefault}<Button variant="ghost" onclick={() => choose(undefined, false)}
+      >Ask for a location each time</Button
     >{/if}
   <a href={resolve('/connections')}>Manage connected libraries</a>
   {#if error}<p role="alert">{error}</p>{/if}
