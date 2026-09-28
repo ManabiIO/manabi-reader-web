@@ -35,7 +35,7 @@ export function cases({ VideoPlayer, newSparseState, transcriptionDraft }) {
       onImport() {},
       onExport() {}
     });
-    document.body.append(player.root);
+    globalThis.document.body.append(player.root);
     try {
       player.generationProgress(job);
       return await run({ player, job, draft: () => transcriptionDraft(job) });
