@@ -165,6 +165,9 @@ export class BrowserStorageHandler extends BaseStorageHandler {
   }
 
   async findReusableBookByContentHash(contentHash: string, signal?: AbortSignal) {
+    // Overwrite is explicit reprocessing intent: the same source bytes may
+    // produce different normalized output after importer/repair changes.
+    if (this.saveBehavior === ReplicationSaveBehavior.Overwrite) return undefined;
     return database.findReusableDirectImport(contentHash, signal);
   }
 
