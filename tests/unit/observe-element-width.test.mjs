@@ -12,21 +12,19 @@ import { observeElementWidth } from '../../apps/web/src/lib/hooks/observe-elemen
 // This does not claim native layout or native ResizeObserver execution.
 function harness(t, changed = () => {}) {
   const original = Object.getOwnPropertyDescriptor(globalThis, 'ResizeObserver');
-  let observer;
+  const observer = { callback: undefined, disconnected: false, target: undefined };
   const frames = new Map();
   let nextFrame = 0;
   const calls = [];
   globalThis.ResizeObserver = class {
     constructor(callback) {
-      this.callback = callback;
-      this.disconnected = false;
-      observer = this;
+      observer.callback = callback;
     }
     observe(target) {
-      this.target = target;
+      observer.target = target;
     }
     disconnect() {
-      this.disconnected = true;
+      observer.disconnected = true;
     }
   };
   t.after(() => {
