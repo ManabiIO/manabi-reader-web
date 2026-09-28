@@ -45,7 +45,7 @@ test('one active job owner reuses its decoder across ordinary windows', async ()
   assert.equal(h.opens(), 1);
   assert.equal(h.pipelines.length, 1);
   assert.equal(h.pipelines[0].decodes, 2);
-  h.cache.release('job');
+  controller.abort(new DOMException('owner complete', 'AbortError'));
   assert.equal(h.pipelines[0].disposed, 1);
 });
 
@@ -126,7 +126,7 @@ test('different jobs keep independent decoder sessions', async () => {
   await h.cache.decode(job('one'), 1, 0, 1, one.signal);
   await h.cache.decode(job('two'), 1, 0, 1, two.signal);
   assert.equal(h.opens(), 2);
-  h.cache.release('one');
+  one.abort(new DOMException('first owner complete', 'AbortError'));
   assert.equal(h.pipelines[0].disposed, 1);
   assert.equal(h.pipelines[1].disposed, 0);
   h.cache.dispose();
