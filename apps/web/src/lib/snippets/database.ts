@@ -306,8 +306,14 @@ export async function acknowledge(
     return {
       ...current,
       upload: undefined,
+      // A normal edit made while this immutable upload was in flight already
+      // descends from the uploaded revision. Preserve that newer revision so an
+      // open editor whose base is still valid does not conflict with its own
+      // acknowledgement. Only synthesize ancestry for the bounded-history edge
+      // case where the uploaded revision has already fallen out of parents.
       document:
-        current.document.revision !== uploaded.revision
+        current.document.revision !== uploaded.revision &&
+        !current.document.parents.includes(uploaded.revision)
           ? {
               ...current.document,
               revision: crypto.randomUUID(),
