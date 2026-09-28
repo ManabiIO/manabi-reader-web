@@ -28,9 +28,18 @@
       {:else if state.status === 'error'}
         <p role="status">{state.message} <button type="button" on:click={onRetry}>Retry</button></p>
       {:else if !state.points.length}
-        <p role="status">{available ? 'Play audio to see the live pitch contour.' : 'Choose an audio file to see pitch.'}</p>
+        <p role="status">
+          {available
+            ? 'Play audio to see the live pitch contour.'
+            : 'Choose an audio file to see pitch.'}
+        </p>
       {:else}
-        <svg viewBox="0 0 640 72" preserveAspectRatio="none" role="img" aria-label="Live waveform with yellow voice pitch contour, last eight seconds">
+        <svg
+          viewBox="0 0 640 72"
+          preserveAspectRatio="none"
+          role="img"
+          aria-label="Live waveform with yellow voice pitch contour, last eight seconds"
+        >
           <path class="grid" d="M8 10H632M8 23H632M8 36H632M8 49H632M8 62H632" />
           <path class="waveform" d={paths.waveform} />
           <path class="outline" d={paths.pitch} />
@@ -51,22 +60,105 @@
     background: var(--background);
     color: var(--foreground);
   }
-  .heading { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
-  .label { font-size: 0.875rem; font-weight: 600; }
-  button { min-height: 2.25rem; padding: 0.25rem 0.75rem; border: 1px solid var(--border); border-radius: 0.375rem; background: transparent; color: inherit; cursor: pointer; }
-  button[aria-pressed='true'] { border-color: currentColor; }
-  button:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
-  button:disabled { opacity: 0.5; cursor: default; }
-  .plot { min-height: 4.5rem; display: grid; align-items: center; margin-top: 0.5rem; }
-  .plot p { font-size: 0.8125rem; margin: 0; overflow-wrap: anywhere; }
-  svg { display: block; width: 100%; height: 4.5rem; overflow: hidden; }
-  path { fill: none; vector-effect: non-scaling-stroke; }
-  .grid { stroke: var(--foreground); stroke-width: 0.5; opacity: 0.12; }
-  .waveform { stroke: var(--foreground); stroke-width: 2.2; stroke-linecap: round; opacity: 0.32; }
-  .outline { stroke: #463800; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; opacity: 0.65; }
-  .pitch { stroke: #ffd83d; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-  .hint { margin: 0.35rem 0 0; font-size: 0.75rem; opacity: 0.75; }
-  .spinner { display: inline-block; width: 0.9rem; height: 0.9rem; margin-inline-end: 0.5rem; vertical-align: -0.1rem; border: 2px solid currentColor; border-inline-end-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+  .heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+  .label {
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+  button {
+    min-height: 2.25rem;
+    padding: 0.25rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 0.375rem;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+  }
+  button[aria-pressed='true'] {
+    border-color: currentColor;
+  }
+  button:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 3px;
+  }
+  button:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .plot {
+    min-height: 4.5rem;
+    display: grid;
+    align-items: center;
+    margin-top: 0.5rem;
+  }
+  .plot p {
+    font-size: 0.8125rem;
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+  svg {
+    display: block;
+    width: 100%;
+    height: 4.5rem;
+    overflow: hidden;
+  }
+  path {
+    fill: none;
+    vector-effect: non-scaling-stroke;
+  }
+  .grid {
+    stroke: var(--foreground);
+    stroke-width: 0.5;
+    opacity: 0.12;
+  }
+  .waveform {
+    stroke: var(--foreground);
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    opacity: 0.32;
+  }
+  .outline {
+    stroke: #463800;
+    stroke-width: 3.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    opacity: 0.65;
+  }
+  .pitch {
+    stroke: #ffd83d;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .hint {
+    margin: 0.35rem 0 0;
+    font-size: 0.75rem;
+    opacity: 0.75;
+  }
+  .spinner {
+    display: inline-block;
+    width: 0.9rem;
+    height: 0.9rem;
+    margin-inline-end: 0.5rem;
+    vertical-align: -0.1rem;
+    border: 2px solid currentColor;
+    border-inline-end-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .spinner {
+      animation: none;
+    }
+  }
 </style>

@@ -13,8 +13,14 @@ export const MAX_HZ = 520;
  * Input is one bounded 40 ms frame, not a decoded audiobook. Runs in a worker. */
 export function analyseFrame(input: Float32Array, rate: number): Measurement {
   const empty: Measurement = { hz: null, confidence: 0, rms: 0, amplitude: 0 };
-  if (!Number.isFinite(rate) || rate < 8000 || rate > 192000 ||
-      input.length < rate * 3 / MIN_HZ || input.length > 16384) return empty;
+  if (
+    !Number.isFinite(rate) ||
+    rate < 8000 ||
+    rate > 192000 ||
+    input.length < (rate * 3) / MIN_HZ ||
+    input.length > 16384
+  )
+    return empty;
   const factor = Math.max(1, Math.ceil(rate / 12000));
   const samples = new Float32Array(Math.ceil(input.length / factor));
   for (let i = 0; i < samples.length; i++) {
@@ -31,7 +37,7 @@ export function analyseFrame(input: Float32Array, rate: number): Measurement {
     const value = samples[i] - mean;
     peak = Math.max(peak, Math.abs(value));
     energy += value * value;
-    samples[i] = value * (0.5 - 0.5 * Math.cos(2 * Math.PI * i / (samples.length - 1)));
+    samples[i] = value * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (samples.length - 1)));
   }
   const rms = Math.sqrt(energy / samples.length);
   const result = { ...empty, rms, amplitude: peak * 0.68 + rms * 0.32 };
@@ -46,7 +52,7 @@ export function analyseFrame(input: Float32Array, rate: number): Measurement {
       correlation += samples[i] * samples[i + lag];
       pairedEnergy += samples[i] ** 2 + samples[i + lag] ** 2;
     }
-    scores[lag] = pairedEnergy > 0 ? 2 * correlation / pairedEnergy : 0;
+    scores[lag] = pairedEnergy > 0 ? (2 * correlation) / pairedEnergy : 0;
   }
   const isPeak = (lag: number) => scores[lag] >= scores[lag - 1] && scores[lag] >= scores[lag + 1];
   let best = -1;
@@ -56,11 +62,16 @@ export function analyseFrame(input: Float32Array, rate: number): Measurement {
   if (best < 0 || scores[best] < 0.52) return result;
   const threshold = Math.max(0.52, scores[best] * 0.88);
   for (let lag = minLag; lag <= maxLag; lag++) {
-    if (isPeak(lag) && scores[lag] >= threshold) { best = lag; break; }
+    if (isPeak(lag) && scores[lag] >= threshold) {
+      best = lag;
+      break;
+    }
   }
   const denominator = scores[best - 1] - 2 * scores[best] + scores[best + 1];
-  const offset = Math.abs(denominator) > 0.000001
-    ? Math.max(-0.45, Math.min(0.45, 0.5 * (scores[best - 1] - scores[best + 1]) / denominator)) : 0;
+  const offset =
+    Math.abs(denominator) > 0.000001
+      ? Math.max(-0.45, Math.min(0.45, (0.5 * (scores[best - 1] - scores[best + 1])) / denominator))
+      : 0;
   const hz = rate / (best + offset);
   return { ...result, hz: hz >= MIN_HZ && hz <= MAX_HZ ? hz : null, confidence: scores[best] };
 }

@@ -9,7 +9,11 @@ let recent: number[] = [];
 let levels: number[] = [];
 scope.onmessage = ({ data }) => {
   if (!(data.samples instanceof Float32Array)) return;
-  if (data.epoch !== epoch) { epoch = data.epoch; recent = []; levels = []; }
+  if (data.epoch !== epoch) {
+    epoch = data.epoch;
+    recent = [];
+    levels = [];
+  }
   const result = analyseFrame(data.samples, data.rate);
   levels.push(result.rms);
   if (levels.length > 50) levels.shift();
