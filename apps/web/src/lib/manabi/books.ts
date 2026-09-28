@@ -61,7 +61,8 @@ export async function refreshLinkedBooks() {
 export async function importLibraryBook(
   source: LibrarySource,
   item: LibraryEntry,
-  syncEnabled = false
+  syncEnabled = false,
+  expectedBookId?: number
 ): Promise<BookLink> {
   return exclusive('import-library-book', async () => {
     if (source.owner !== null && source.owner !== currentUser()?.id)
@@ -72,9 +73,10 @@ export async function importLibraryBook(
       JSON.stringify([source.owner, source.id, source.root, item.id, contentHash])
     );
     const integration = await integrationDB();
+    const allLinks = await integration.getAll('books');
     const existing =
       (await integration.get('books', id)) ??
-      (await integration.getAll('books')).find(
+      allLinks.find(
         (link) =>
           link.owner === source.owner &&
           link.sourceId === source.id &&
@@ -82,18 +84,41 @@ export async function importLibraryBook(
           link.fileId === item.id &&
           link.contentHash === contentHash
       );
-    if (existing && (await database.getData(existing.bookId))) {
-      await relocatePresentation(
-        sourceBookKey(source, item.id),
-        contentBookKey(existing.contentHash)
-      );
-      await relocatePresentation(bookKey(existing.bookId), contentBookKey(existing.contentHash));
-      return existing;
+    if (existing) {
+      if (expectedBookId !== undefined && existing.bookId !== expectedBookId)
+        throw new Error('The book identity changed. Refresh the Library and try again.');
+      if (await database.getData(existing.bookId)) {
+        await relocatePresentation(
+          sourceBookKey(source, item.id),
+          contentBookKey(existing.contentHash)
+        );
+        await relocatePresentation(bookKey(existing.bookId), contentBookKey(existing.contentHash));
+        return existing;
+      }
     }
-    const same = (await integration.getAll('books')).find(
-      (book) => book.contentHash === contentHash && book.owner === source.owner
+    const matchingBookIds = new Set(
+      allLinks
+        .filter((book) => book.contentHash === contentHash && book.owner === source.owner)
+        .map((book) => book.bookId)
     );
-    let stored = same ? await database.getData(same.bookId) : undefined;
+    if (matchingBookIds.size > 1)
+      throw new Error(
+        'This file matches multiple saved reading histories. Resolve the duplicate books before opening this copy.'
+      );
+    const linkedBookId = matchingBookIds.values().next().value as number | undefined;
+    if (
+      expectedBookId !== undefined &&
+      linkedBookId !== undefined &&
+      linkedBookId !== expectedBookId
+    )
+      throw new Error('The book identity changed. Refresh the Library and try again.');
+    const reusableBookId = expectedBookId ?? linkedBookId;
+    let stored = reusableBookId ? await database.getData(reusableBookId) : undefined;
+    if (expectedBookId !== undefined) {
+      if (!stored) throw new Error('The saved book was removed. Refresh the Library and try again.');
+      if (stored.contentHash?.toLowerCase() !== contentHash)
+        throw new Error('The book contents changed. Refresh the Library and try again.');
+    }
     if (!stored) {
       const suffix = file.name.split('.').pop()?.toLowerCase();
       const now = Date.now();
