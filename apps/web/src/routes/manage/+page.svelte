@@ -802,7 +802,7 @@
   async function openSelectedStatistics() {
     const selectedBooks = $bookCards$
       .filter((card) => selectedBookIds.has(card.id))
-      .map(({ id, title }) => ({ id, title }));
+      .map(({ id, title, contentHash }) => ({ id, title, contentHash }));
     if (!selectedBooks.length) return;
     const scope = captureLibraryOperation();
     const authority = statisticsAuthority(scope);
@@ -811,7 +811,7 @@
       authority.guard.assertCurrent();
       const plans = [];
       for (const book of selectedBooks)
-        plans.push(await statisticIdentityPlan(db, book.id, authority.guard));
+        plans.push(await statisticIdentityPlan(db, book.id, authority.guard, book));
       authority.guard.assertCurrent();
       const previousTitles = $preFilteredTitlesForStatistics$;
       const previousKeys = $preFilteredBookKeysForStatistics$;
@@ -884,7 +884,7 @@
         for (const book of selectedBooks) {
           try {
             authority.guard.assertCurrent();
-            const plan = await statisticIdentityPlan(db, book.id, authority.guard);
+            const plan = await statisticIdentityPlan(db, book.id, authority.guard, book);
             if (plan.unresolvedLegacy)
               throw new Error(
                 `Older statistics for “${plan.title}” cannot be safely assigned to this copy. ` +
