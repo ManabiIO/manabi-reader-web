@@ -21,7 +21,7 @@ const schema: Record<StoreNames<BooksDb>, StoreSchema> = {
   data: {
     keyPath: 'id',
     autoIncrement: true,
-    indexes: { title: 'title', contentHash: 'contentHash' }
+    indexes: { title: 'title', contentHash: 'contentHash', libraryOwner: 'libraryOwner' }
   },
   bookmark: { keyPath: 'dataId' },
   lastItem: { keyPath: null },
