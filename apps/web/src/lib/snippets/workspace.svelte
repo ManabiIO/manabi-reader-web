@@ -152,14 +152,10 @@
         .filter((item) => item.destination)
         .map((item) => {
           const s = item.destination!.source;
-          const provider =
-            providerLabels[s.provider] ??
-            (s.provider === 'local'
-              ? 'Local folder'
-              : s.provider === 'webdav'
-                ? 'WebDAV'
-                : s.provider);
-          return [JSON.stringify([s.owner, s.id, s.root]), `${provider} · ${s.name}`];
+          return [
+            JSON.stringify([s.owner, s.id, s.root]),
+            `${providerName(s.provider)} · ${s.name}`
+          ];
         })
     ).entries()
   ];
@@ -179,6 +175,13 @@
   }
   const report = (reason: unknown) =>
     reason instanceof Error ? reason.message : 'The operation could not finish. Your text is kept.';
+  const providerName = (provider: string) =>
+    providerLabels[provider] ??
+    (provider === 'local'
+      ? 'Local folder'
+      : provider === 'webdav'
+        ? 'WebDAV'
+        : provider);
   function listURL(values: Record<string, string> = {}) {
     const q = new URLSearchParams(params);
     for (const key of ['id', 'draft', 'locator', 'returnTo']) q.delete(key);
@@ -801,7 +804,7 @@
               pickerOpen = true;
             }}
             >{destination
-              ? `Save to: ${destination.source.provider} › ${destination.source.name} › ${destination.parent || 'Root'}`
+              ? `Save to: ${providerName(destination.source.provider)} › ${destination.source.name} › ${destination.parent || 'Root'}`
               : locationChosen
                 ? 'Save on this device only'
                 : 'Choose storage location…'}</Button
@@ -958,11 +961,11 @@
           <summary>Storage location{current.locations.length > 1 ? 's' : ''}</summary
           >{#each current.locations as location (JSON.stringify( [location.source.id, location.source.root, location.fileId] ))}<p
             >
-              {location.source.provider} › {location.source.name} › {location.parent || 'Root'} › {location.name}{location.missing
+              {providerName(location.source.provider)} › {location.source.name} › {location.parent || 'Root'} › {location.name}{location.missing
                 ? ' · missing'
                 : ''}
             </p>{/each}{#if !current.locations.length}<p>
-              Pending: {current.destination.source.provider} › {current.destination.parent ||
+              Pending: {providerName(current.destination.source.provider)} › {current.destination.parent ||
                 'Root'}
             </p>{/if}
         </details>{/if}
