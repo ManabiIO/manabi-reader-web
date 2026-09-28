@@ -95,6 +95,9 @@ export async function syncMedia(
       if (candidate.conflict) continue;
       const r = await store.prepare(scope, candidate.kind, candidate.id);
       if (!r.pending) continue;
+      // Snapshot the admitted mutation before any asynchronous transport work.
+      // The closure must not depend on a later re-read of optional pending state.
+      const pendingRequest = r.pending.request;
       guard();
       try {
         const response = await abortable(signal, () =>
@@ -104,12 +107,12 @@ export async function syncMedia(
             record: unknown;
           }>('personal/mutations/', {
             method: 'POST',
-            value: r.pending.request,
+            value: pendingRequest,
             userId: transport.userId
           })
         );
         guard();
-        if (response.accepted !== true || response.mutation_id !== r.pending.request.mutation_id)
+        if (response.accepted !== true || response.mutation_id !== pendingRequest.mutation_id)
           throw new Error('Invalid sync acknowledgement');
         await store.ack(scope, r.kind, r.id, response.mutation_id, response.record);
       } catch (e) {
@@ -124,7 +127,7 @@ export async function syncMedia(
             r.kind,
             r.id,
             remote(error.current),
-            r.pending.request.mutation_id
+            pendingRequest.mutation_id
           );
         } else throw e;
       }
