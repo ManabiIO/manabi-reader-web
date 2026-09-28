@@ -246,7 +246,7 @@ class LibraryIdentityBrowser(LibraryBase):
         )
         self.assertFalse(any(row['dataId'] == second['id'] for row in rows['bookmark']))
 
-    def test_personal_scope_hides_local_book_and_blocks_direct_reader_url(self):
+    def test_owned_book_hides_local_copy_and_blocks_direct_reader_url(self):
         payload = b'private personal reading scope bytes\n'
         picker = self.page.locator('input[type=file][accept*=".epub"]').first
         picker.set_input_files({
@@ -264,7 +264,14 @@ class LibraryIdentityBrowser(LibraryBase):
             request.onsuccess = () => resolve(request.result);
             request.onerror = () => reject(request.error);
           });
-          const tx = db.transaction('readerBookScope', 'readwrite');
+          const tx = db.transaction(['data', 'readerBookScope'], 'readwrite');
+          const data = tx.objectStore('data');
+          const record = await new Promise((resolve, reject) => {
+            const request = data.get(id);
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          data.put({...record, libraryOwner: '42'});
           tx.objectStore('readerBookScope').put({
             bookId: id, accountId: '42', hydrated: true
           });

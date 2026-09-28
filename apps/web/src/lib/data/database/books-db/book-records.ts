@@ -24,7 +24,7 @@ export type BookSummary = Pick<
   | 'pageDirection'
   | 'contentHash'
   | 'libraryOwner'
-> & { isPlaceholder: boolean; readerOwner?: string };
+> & { isPlaceholder: boolean };
 
 export function snapshotBookmarkData(
   bookmark: BooksDbBookmarkData,
@@ -47,7 +47,7 @@ export function assertBookPersonalAccess(
     throw new Error('This book belongs to another account.');
 }
 
-function summarizeBook(book: StoredBookData, readerOwner?: string): BookSummary {
+function summarizeBook(book: StoredBookData): BookSummary {
   return {
     id: book.id,
     title: book.title,
@@ -60,7 +60,6 @@ function summarizeBook(book: StoredBookData, readerOwner?: string): BookSummary 
     pageDirection: book.pageDirection,
     contentHash: book.contentHash,
     libraryOwner: book.libraryOwner,
-    readerOwner,
     isPlaceholder: !book.elementHtml
   };
 }
@@ -70,15 +69,12 @@ function summarizeBook(book: StoredBookData, readerOwner?: string): BookSummary 
  * cursor value immediately and keep only card metadata and covers.
  */
 export async function readBookSummaries(db: IDBPDatabase<BooksDb>): Promise<BookSummary[]> {
-  const tx = db.transaction(['data', 'readerBookScope']);
+  const tx = db.transaction('data');
   return commitTransaction(tx, async () => {
     const summaries: BookSummary[] = [];
-    const data = tx.objectStore('data');
-    const scopes = tx.objectStore('readerBookScope');
-    let cursor = await data.openCursor();
+    let cursor = await tx.store.openCursor();
     while (cursor) {
-      const scope = await scopes.get(cursor.value.id);
-      summaries.push(summarizeBook(cursor.value, scope?.accountId));
+      summaries.push(summarizeBook(cursor.value));
       cursor = await cursor.continue();
     }
     return summaries;
@@ -116,17 +112,21 @@ export async function updateBookLastRead(
       const current = await data.get(id);
       if (!current) return undefined;
       const readerScope = await tx.objectStore('readerBookScope').get(id);
-      assertBookPersonalAccess(current, readerScope, profileId);
       signal?.throwIfAborted();
+      if (current.libraryOwner !== undefined && current.libraryOwner !== profileId)
+        throw new Error('This book belongs to another account.');
+      // The bytes of a direct import remain public after its reading-data
+      // scope is signed out. Keep the prior account's last-read value intact.
+      if (readerScope && readerScope.accountId !== profileId) return summarizeBook(current);
       const previous = current.lastBookOpen;
       const lastBookOpen = Math.max(
         typeof previous === 'number' && Number.isFinite(previous) ? previous : 0,
         timestamp
       );
-      if (lastBookOpen === previous) return summarizeBook(current, readerScope?.accountId);
+      if (lastBookOpen === previous) return summarizeBook(current);
       const updated = { ...current, lastBookOpen };
       await data.put(updated);
-      return summarizeBook(updated, readerScope?.accountId);
+      return summarizeBook(updated);
     });
   } finally {
     signal?.removeEventListener('abort', abort);

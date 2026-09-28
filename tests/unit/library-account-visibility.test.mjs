@@ -48,17 +48,18 @@ test('an account-scoped book remains private if link publication was interrupted
   assert.deepEqual(visibleLibraryEntries([pending], [], null).cards, []);
 });
 
-test('personal reading scope hides a local book from every other profile', () => {
-  const scoped = { id: 9, readerOwner: 'account-a' };
+test('personal reading-data scope does not hide an otherwise public local book', () => {
+  const scoped = { id: 9 };
   assert.deepEqual(visibleLibraryEntries([scoped], [], 'account-a').cards, [scoped]);
-  assert.deepEqual(visibleLibraryEntries([scoped], [], 'account-b').cards, []);
-  assert.deepEqual(visibleLibraryEntries([scoped], [], null).cards, []);
+  assert.deepEqual(visibleLibraryEntries([scoped], [], 'account-b').cards, [scoped]);
+  assert.deepEqual(visibleLibraryEntries([scoped], [], null).cards, [scoped]);
+  assert.deepEqual(readerAccessOwners({}, { accountId: 'account-a' }, []), []);
 });
 
-test('durable reader ownership outranks links and contradictory claims fail closed', () => {
+test('content ownership outranks links and contradictory private claims fail closed', () => {
   assert.deepEqual(
     readerAccessOwners({}, { accountId: 'account-a' }, [{ owner: null }, { owner: 'account-b' }]),
-    ['account-a']
+    []
   );
   assert.equal(
     readerAccessOwners({ libraryOwner: 'account-a' }, { accountId: 'account-b' }, [

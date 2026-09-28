@@ -434,7 +434,10 @@ export class DatabaseService {
         const book = await tx.objectStore('data').get(dataId);
         if (!book) return undefined;
         const readerScope = await tx.objectStore('readerBookScope').get(dataId);
-        assertBookPersonalAccess(book, readerScope, scope.profileId);
+        scope.assertCurrent();
+        if (book.libraryOwner !== undefined && book.libraryOwner !== scope.profileId)
+          throw new Error('This book belongs to another account.');
+        if (readerScope && readerScope.accountId !== scope.profileId) return undefined;
         scope.assertCurrent();
         const bookmark = await tx.objectStore('bookmark').get(dataId);
         scope.assertCurrent();

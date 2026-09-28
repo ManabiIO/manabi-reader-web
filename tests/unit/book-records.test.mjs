@@ -88,16 +88,12 @@ test('library summaries use a cursor and retain neither book text nor image buff
   a.coverImage = new Blob(['cover']);
   a.styleSheet = 'large CSS';
   const b = { ...stored(), id: 4, elementHtml: '' };
-  const h = harness([a, b], {
-    scopes: { [a.id]: { bookId: a.id, accountId: 'account-a' } }
-  });
+  const h = harness([a, b]);
   const summaries = await readBookSummaries(h.db);
   assert.equal(summaries.length, 2);
   assert.equal(summaries[0].coverImage, a.coverImage);
   assert.equal(summaries[0].title, a.title);
-  assert.equal(summaries[0].readerOwner, 'account-a');
   assert.equal(summaries[0].isPlaceholder, false);
-  assert.equal(summaries[1].readerOwner, undefined);
   assert.equal(summaries[1].isPlaceholder, true);
   for (const summary of summaries) {
     for (const key of ['blobs', 'elementHtml', 'styleSheet', 'htmlBackup', 'manabiTtuImport'])
@@ -126,20 +122,19 @@ test('a delayed last-read update never resurrects a deleted book or lowers a new
   assert.equal(h.writes.length, 0);
 });
 
-test('last-read updates obey persistent book and personal scope ownership', async () => {
+test('last-read updates preserve a foreign personal scope without hiding public content', async () => {
   const scoped = stored();
   const matching = harness([scoped], {
     scopes: { [scoped.id]: { bookId: scoped.id, accountId: 'account-a' } }
   });
   const updated = await updateBookLastRead(matching.db, scoped.id, 400, 'account-a');
   assert.equal(updated.lastBookOpen, 400);
-  assert.equal(updated.readerOwner, 'account-a');
   assert.equal(matching.writes.length, 1);
 
   const foreign = harness([stored()], {
     scopes: { 3: { bookId: 3, accountId: 'account-a' } }
   });
-  await assert.rejects(updateBookLastRead(foreign.db, 3, 400, 'account-b'), /another account/);
+  assert.equal((await updateBookLastRead(foreign.db, 3, 400, 'account-b')).lastBookOpen, 100);
   assert.equal(foreign.writes.length, 0);
 
   const connected = harness([{ ...stored(), libraryOwner: 'account-a' }]);

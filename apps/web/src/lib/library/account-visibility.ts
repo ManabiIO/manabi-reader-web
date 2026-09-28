@@ -6,7 +6,7 @@
 
 /** Cloud copies remain scoped even if their separate link write never committed. */
 export function visibleLibraryEntries<
-  C extends { id: number; libraryOwner?: string; readerOwner?: string },
+  C extends { id: number; libraryOwner?: string },
   L extends { bookId: number; owner: string | null }
 >(cards: C[], allLinks: L[] | null, viewerId: string | null): { cards: C[]; links: L[] } {
   if (!allLinks) return { cards: [], links: [] };
@@ -21,16 +21,15 @@ export function visibleLibraryEntries<
     cards: cards.filter(
       (card) =>
         (card.libraryOwner === undefined || card.libraryOwner === viewerId) &&
-        (card.readerOwner === undefined || card.readerOwner === viewerId) &&
         (!foreign.has(card.id) || available.has(card.id))
     ),
     links
   };
 }
 
-/** Resolve who may open a local reader record. Durable book/sync ownership
- * outranks historical physical links. Undefined means contradictory durable
- * ownership and fails closed; [] means no account protection.
+/** Reading-data scope may be created for an otherwise public local book.
+ * Content ownership comes from the imported book or its source links.
+ * Contradictory explicit ownership fails closed; [] means public content.
  */
 export function readerAccessOwners(
   book: { libraryOwner?: string },
@@ -39,7 +38,7 @@ export function readerAccessOwners(
 ): string[] | undefined {
   const durable = new Set<string>();
   if (book.libraryOwner) durable.add(book.libraryOwner);
-  if (scope?.accountId) durable.add(scope.accountId);
+  if (book.libraryOwner && scope?.accountId) durable.add(scope.accountId);
   if (durable.size > 1) return undefined;
   if (durable.size === 1) return [...durable];
   if (links.some((link) => link.owner === null)) return [];

@@ -22,6 +22,4 @@ export interface BookCardProps {
   pageDirection?: DirectionEvidence;
   contentHash?: string;
   libraryOwner?: string;
-  /** Account that owns this book's personal resume/statistics scope. */
-  readerOwner?: string;
 }
