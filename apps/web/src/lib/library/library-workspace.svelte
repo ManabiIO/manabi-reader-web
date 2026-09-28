@@ -683,7 +683,12 @@
     }
     notice = `Adding “${book.title}” to this browser…`;
     // Sync remains opt-in on Accounts and libraries; opening a file never enables remote writes.
-    const link = await importLibraryBook(await librarySource(book.source), book.file, false);
+    const link = await importLibraryBook(
+      await librarySource(book.source),
+      book.file,
+      false,
+      book.bookId
+    );
     return link.bookId;
   }
   async function stableOrganizationBook(book: ShelfBook): Promise<ShelfBook> {
