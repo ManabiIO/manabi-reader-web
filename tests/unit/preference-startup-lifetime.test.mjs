@@ -11,7 +11,12 @@ const saved = (size = 24) => ({
   base: {},
   local: { font_size: size }
 });
-function harness({ gatedBoot = false, gatedOrganization = false } = {}) {
+function harness({
+  gatedBoot = false,
+  gatedOrganization = false,
+  gatedWrites = false,
+  deferredAbort = false
+} = {}) {
   const stores = storeBoundary();
   const profile = stores.writable({ id: 'a', username: 'A' });
   const account = stores.writable({ status: 'offline', session: null });
@@ -26,6 +31,7 @@ function harness({ gatedBoot = false, gatedOrganization = false } = {}) {
     watchStops = 0,
     bootCount = 0;
   let failWrite, failLock;
+  const setterFailures = new Map();
   const boot = deferred();
   const window = new globalThis.EventTarget();
   const document = Object.assign(new globalThis.EventTarget(), { visibilityState: 'visible' });
@@ -34,7 +40,10 @@ function harness({ gatedBoot = false, gatedOrganization = false } = {}) {
       const store = stores.writable(initial);
       subjects.set(key, {
         getValue: () => stores.get(store),
-        next: store.set,
+        next(value) {
+          if (setterFailures.has(key)) throw setterFailures.get(key);
+          store.set(value);
+        },
         subscribe(fn) {
           return { unsubscribe: store.subscribe(fn) };
         }
@@ -80,8 +89,13 @@ function harness({ gatedBoot = false, gatedOrganization = false } = {}) {
           return pending.promise;
         },
         setMetadata(key, value) {
-          writes.push({ key, value: globalThis.structuredClone(value) });
-          return failWrite ? Promise.reject(failWrite) : Promise.resolve();
+          const pending = deferred();
+          writes.push({ key, value: globalThis.structuredClone(value), ...pending });
+          return failWrite
+            ? Promise.reject(failWrite)
+            : gatedWrites
+              ? pending.promise
+              : Promise.resolve();
         },
         exclusive: async (_, work) => {
           if (failLock) throw failLock;
@@ -95,7 +109,10 @@ function harness({ gatedBoot = false, gatedOrganization = false } = {}) {
             const pending = deferred();
             applies.push({ value, signal, ...pending });
             if (!gatedOrganization) return Promise.resolve();
-            signal?.addEventListener('abort', () => pending.reject(signal.reason), { once: true });
+            if (!deferredAbort) {
+              const abort = () => pending.reject(signal.reason);
+              signal?.addEventListener('abort', abort, { once: true });
+            }
             return pending.promise;
           }
         },
@@ -150,6 +167,10 @@ function harness({ gatedBoot = false, gatedOrganization = false } = {}) {
     },
     online: () => window.dispatchEvent(new globalThis.Event('online')),
     visible: () => document.dispatchEvent(new globalThis.Event('visibilitychange')),
+    setSetterFailure: (key, value) => {
+      if (value) setterFailures.set(key, value);
+      else setterFailures.delete(key);
+    },
     setWriteFailure: (value) => {
       failWrite = value;
     },
@@ -335,4 +356,309 @@ test('background lock denial is observed without changing saved consent', async 
   assert.equal(h.status().enabled, true);
   assert.equal(h.writes.length, 0);
   stop();
+});
+
+test('an offline save failure retries the latest snapshot without contacting the server', async () => {
+  const h = harness();
+  const stop = h.api.startPreferenceSync();
+  try {
+    await drain();
+    h.loads[0].resolve(saved(24));
+    await drain();
+    h.setWriteFailure(new Error('temporary storage failure'));
+    h.subjects.get('fontSize$').next(31);
+    await drain();
+    assert.equal(h.writes.length, 1);
+    assert.equal(h.status().state, 'unavailable');
+    h.setWriteFailure(undefined);
+    h.advance();
+    for (let i = 0; i < 20; i++) h.visible();
+    await drain();
+    assert.equal(h.writes.length, 2, 'offline recovery never retried the local save');
+    assert.equal(h.writes.at(-1).value.local.font_size, 31);
+    assert.equal(h.status().state, 'pending');
+    assert.equal(h.loads.length, 1, 'retry must not restore older disk preferences');
+  } finally {
+    stop();
+  }
+});
+
+test('a failed disable-consent save is retried even though sync is now disabled', async () => {
+  const h = harness();
+  const stop = h.api.startPreferenceSync();
+  try {
+    await drain();
+    h.loads[0].resolve(saved());
+    await drain();
+    h.account.set({ status: 'available', session: { user: { id: 'a', username: 'A' } } });
+    h.setWriteFailure(new Error('temporary storage failure'));
+    await assert.rejects(h.api.enablePreferenceSync(false), /temporary storage failure/);
+    h.account.set({ status: 'offline', session: null });
+    h.setWriteFailure(undefined);
+    h.advance();
+    h.visible();
+    await drain();
+    assert.equal(h.writes.length, 2, 'disabled consent remained stale on disk');
+    assert.equal(h.writes.at(-1).value.enabled, false);
+    assert.equal(h.status().enabled, false);
+    assert.equal(h.status().state, 'off');
+  } finally {
+    stop();
+  }
+});
+
+test('successive failed edits recover only their newest complete preference snapshot', async () => {
+  const h = harness();
+  const stop = h.api.startPreferenceSync();
+  try {
+    await drain();
+    h.loads[0].resolve(saved(24));
+    await drain();
+    h.setWriteFailure(new Error('disk full'));
+    h.subjects.get('fontSize$').next(31);
+    await drain();
+    h.subjects.get('fontSize$').next(37);
+    await drain();
+    assert.equal(h.writes.length, 2);
+    h.setWriteFailure(undefined);
+    h.advance();
+    h.visible();
+    h.online();
+    await drain();
+    assert.equal(h.writes.length, 3);
+    assert.equal(h.writes.at(-1).value.local.font_size, 37);
+    h.advance();
+    h.visible();
+    await drain();
+    assert.equal(h.writes.length, 3, 'a committed snapshot must not be replayed');
+  } finally {
+    stop();
+  }
+});
+
+test('returning to a profile retains its failed save rather than restoring old disk state', async () => {
+  const h = harness();
+  const stop = h.api.startPreferenceSync();
+  try {
+    await drain();
+    h.loads[0].resolve(saved(24));
+    await drain();
+    h.setWriteFailure(new Error('disk full'));
+    h.subjects.get('fontSize$').next(31);
+    await drain();
+    h.profile.set({ id: 'b', username: 'B' });
+    await drain();
+    h.loads[1].resolve({ ...saved(20), enabled: false });
+    await drain();
+    h.advance();
+    h.visible();
+    await drain();
+    assert.equal(h.writes.length, 1, 'the next profile must not retry the previous profile write');
+    h.profile.set({ id: 'a', username: 'A' });
+    await drain();
+    // A pre-fix implementation asks for the old durable snapshot again.
+    h.loads[2]?.resolve(saved(24));
+    await drain();
+    assert.equal(h.subjects.get('fontSize$').getValue(), 31);
+  } finally {
+    stop();
+  }
+});
+
+test('failed profile application recovers offline without discarding edits made during storage work', async () => {
+  const h = harness({ gatedOrganization: true });
+  const stop = h.api.startPreferenceSync();
+  const organization = {
+    version: 1,
+    collections: [{ id: 'saved', name: 'Retained', members: [] }],
+    books: {}
+  };
+  try {
+    await drain();
+    h.loads[0].resolve({
+      ...saved(24),
+      local: { font_size: 24, library_organization: organization }
+    });
+    await drain();
+    h.subjects.get('fontSize$').next(31);
+    await drain();
+    h.applies[0].reject(new Error('temporary organization write failure'));
+    await drain();
+    assert.equal(h.status().state, 'unavailable');
+    h.advance();
+    h.visible();
+    await drain();
+    assert.equal(h.applies.length, 2, 'a loaded profile was incorrectly treated as fully applied');
+    assert.deepEqual(
+      h.applies[1].value,
+      organization,
+      'an unrelated edit captured old organization'
+    );
+    assert.equal(h.subjects.get('fontSize$').getValue(), 31);
+    h.applies[1].resolve();
+    await drain();
+    assert.equal(h.status().state, 'pending');
+    assert.equal(h.loads.length, 1, 'application retry must not reread obsolete disk state');
+  } finally {
+    stop();
+  }
+});
+
+test('a synchronous preference failure revokes already-enrolled organization work before retry', async () => {
+  const h = harness({ gatedOrganization: true });
+  const stop = h.api.startPreferenceSync();
+  try {
+    await drain();
+    h.setSetterFailure('fontSize$', new Error('font setter failed'));
+    h.loads[0].resolve({
+      ...saved(24),
+      local: {
+        font_size: 24,
+        library_organization: { version: 1, collections: [], books: {} }
+      }
+    });
+    await drain();
+    assert.equal(h.applies.length, 1);
+    assert.equal(
+      h.applies[0].signal.aborted,
+      true,
+      'failed application left its organization write live'
+    );
+    assert.equal(h.status().state, 'unavailable');
+    h.setSetterFailure('fontSize$', undefined);
+    h.advance();
+    h.visible();
+    await drain();
+    assert.equal(h.applies.length, 2);
+    assert.equal(
+      h.applies[1].signal.aborted,
+      false,
+      'one failed attempt must not poison its whole profile'
+    );
+    h.applies[1].resolve();
+    await drain();
+    assert.equal(h.subjects.get('fontSize$').getValue(), 24);
+  } finally {
+    stop();
+  }
+});
+
+test('disabling during restoration retires that attempt and still recovers a failed consent save', async () => {
+  const h = harness({ gatedOrganization: true });
+  const stop = h.api.startPreferenceSync();
+  try {
+    await drain();
+    h.loads[0].resolve({
+      ...saved(),
+      local: { library_organization: { version: 1, collections: [], books: {} } }
+    });
+    await drain();
+    h.account.set({ status: 'available', session: { user: { id: 'a', username: 'A' } } });
+    h.setWriteFailure(new Error('temporary save denial'));
+    await assert.rejects(h.api.enablePreferenceSync(false), /temporary save denial/);
+    assert.equal(h.applies[0].signal.aborted, true);
+    h.account.set({ status: 'offline', session: null });
+    h.setWriteFailure(undefined);
+    h.advance();
+    h.visible();
+    await drain();
+    assert.equal(h.writes.length, 2);
+    assert.equal(h.writes.at(-1).value.enabled, false);
+    assert.equal(h.applies.length, 1, 'a disabled restoration must never restart');
+    assert.equal(h.status().state, 'off');
+  } finally {
+    stop();
+  }
+});
+
+test('changing profile revokes a pending application retry and ignores its late failure', async () => {
+  const h = harness({ gatedOrganization: true });
+  const stop = h.api.startPreferenceSync();
+  try {
+    await drain();
+    h.loads[0].resolve({
+      ...saved(),
+      local: { library_organization: { version: 1, collections: [], books: {} } }
+    });
+    await drain();
+    h.applies[0].reject(new Error('first failure'));
+    await drain();
+    h.advance();
+    for (let i = 0; i < 20; i++) h.visible();
+    await drain();
+    assert.equal(h.applies.length, 2, 'application recovery must coalesce repeated notifications');
+    h.profile.set({ id: 'b', username: 'B' });
+    await drain();
+    assert.equal(h.applies[1].signal.aborted, true);
+    h.loads[1].resolve({ ...saved(20), enabled: false });
+    await drain();
+    assert.equal(h.status().state, 'off');
+    assert.equal(h.status().enabled, false);
+  } finally {
+    stop();
+  }
+});
+
+test('application failure waits for aborted organization work to settle', async () => {
+  const h = harness({ gatedOrganization: true, deferredAbort: true });
+  const stop = h.api.startPreferenceSync();
+  try {
+    await drain();
+    h.setSetterFailure('fontSize$', new Error('setter failed'));
+    h.loads[0].resolve({
+      ...saved(),
+      local: {
+        font_size: 24,
+        library_organization: { version: 1, collections: [], books: {} }
+      }
+    });
+    await drain();
+    assert.equal(h.applies[0].signal.aborted, true);
+    assert.equal(h.status().state, 'pending', 'failure was reported before transaction settlement');
+    h.applies[0].reject(h.applies[0].signal.reason);
+    await drain();
+    assert.equal(h.status().state, 'unavailable');
+  } finally {
+    h.applies[0]?.reject(new Error('test cleanup'));
+    stop();
+  }
+});
+
+test('completion of an older in-flight save cannot discard a newer failed snapshot', async () => {
+  const h = harness({ gatedWrites: true });
+  const stop = h.api.startPreferenceSync();
+  try {
+    await drain();
+    h.loads[0].resolve(saved());
+    await drain();
+    h.subjects.get('fontSize$').next(31);
+    await drain();
+    h.subjects.get('fontSize$').next(37);
+    await drain();
+    assert.equal(h.writes.length, 1, 'writes should serialize');
+    h.writes[0].resolve();
+    await drain();
+    assert.equal(h.writes.length, 2);
+    assert.equal(h.writes[1].value.local.font_size, 37);
+    h.writes[1].reject(new Error('commit failed'));
+    await drain();
+    h.visible();
+    await drain();
+    assert.equal(h.writes.length, 2, 'failed storage must respect retry backoff');
+    h.advance();
+    h.visible();
+    await drain();
+    assert.equal(h.writes.length, 3);
+    assert.equal(h.writes[2].value.local.font_size, 37);
+    h.writes[2].resolve();
+    await drain();
+    assert.equal(h.status().state, 'pending');
+    h.advance();
+    h.visible();
+    await drain();
+    assert.equal(h.writes.length, 3);
+  } finally {
+    for (const write of h.writes) write.resolve();
+    stop();
+  }
 });
