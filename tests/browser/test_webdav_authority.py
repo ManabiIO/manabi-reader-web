@@ -1,4 +1,5 @@
 """Built-app WebDAV authority checks with real IndexedDB and the HTTP fixture."""
+import time
 import unittest
 
 from playwright.sync_api import expect
@@ -85,8 +86,13 @@ class WebDavAuthorityBrowser(LocalFeatureBrowser):
 
         self.page.route('**/.manabi-reader/*.json', retarget)
         self.page.get_by_role('button', name='Sync WebDAV offline book', exact=True).click()
+        deadline = time.monotonic() + 20
+        while not intercepted:
+            self.assertLess(time.monotonic(), deadline, 'Sync did not reach the intercepted GET')
+            self.page.wait_for_timeout(25)
         expect(self.page.get_by_text(
-            'This WebDAV sync was disabled or its book changed.', exact=True)).to_be_visible()
+            'This WebDAV sync was disabled or its book changed.', exact=True)).to_be_visible(
+                timeout=15000)
         self.assertEqual(1, len(intercepted))
         self.assertEqual(before, self.stores('books', ['bookmark', 'readerExternalSync']))
         self.assertEqual(remote, self.dav.state['files'][path])
