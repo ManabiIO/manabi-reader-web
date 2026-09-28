@@ -766,9 +766,17 @@
       const db = await database.db;
       const plans = [];
       for (const book of selectedBooks) plans.push(await statisticIdentityPlan(db, book.id));
+      const previousTitles = $preFilteredTitlesForStatistics$;
+      const previousKeys = $preFilteredBookKeysForStatistics$;
       $preFilteredTitlesForStatistics$ = new Set(plans.map((plan) => plan.title));
       $preFilteredBookKeysForStatistics$ = new Set(plans.flatMap((plan) => plan.keys));
-      await goto(`${pagePath}${mergeEntries.STATISTICS.routeId}`);
+      try {
+        await goto(`${pagePath}${mergeEntries.STATISTICS.routeId}`);
+      } catch (error) {
+        $preFilteredTitlesForStatistics$ = previousTitles;
+        $preFilteredBookKeysForStatistics$ = previousKeys;
+        throw error;
+      }
     } catch (error) {
       showError(
         'Statistics unavailable',
