@@ -38,13 +38,19 @@ export class PitchController {
   private visible = false;
   private disposed = false;
   private workerReady = false;
+  private buffering = false;
+  private sampleAfter = 0;
+  private breakBefore = true;
 
   constructor(environment: PitchEnvironment, changed: (state: PitchState) => void) {
     this.environment = environment;
     this.changed = changed;
   }
   private publish(patch: Partial<PitchState> = {}) {
-    this.state = { ...this.state, ...patch };
+    const audio = this.audio;
+    const activity = !audio ? 'idle' : audio.ended ? 'ended' : audio.paused ? 'paused' :
+      this.buffering || audio.seeking ? 'buffering' : 'playing';
+    this.state = { ...this.state, ...patch, activity };
     if (!this.disposed) this.changed(this.state);
   }
   setAudio(audio?: HTMLAudioElement) {
@@ -55,6 +61,7 @@ export class PitchController {
     this.source?.disconnect();
     this.source = undefined;
     this.audio = audio;
+    this.buffering = false;
     this.reset();
     if (audio) {
       const listen = (event: string, callback: () => void) => {
@@ -63,6 +70,9 @@ export class PitchController {
       };
       // Keep native Play working even after pitch has been switched off.
       listen('play', () => {
+        this.buffering = false;
+        this.invalidateSamples();
+        this.publish();
         if (this.source && this.context) {
           const context = this.context;
           void context
@@ -76,19 +86,40 @@ export class PitchController {
                   'Audio processing could not resume. Retry pitch or reopen the audio file.'
                 );
             });
-        }
-        this.schedule();
+        } else this.schedule();
+      });
+      listen('playing', () => {
+        this.buffering = false;
+        this.publish();
+        if (this.context?.state === 'running') this.schedule();
+      });
+      listen('waiting', () => {
+        this.buffering = true;
+        this.invalidateSamples();
+        this.cancelFrame();
+        this.publish();
       });
       listen('pause', () => {
-        this.epoch++;
+        this.buffering = false;
+        this.invalidateSamples();
         this.cancelFrame();
+        this.publish();
       });
-      listen('ended', () => this.cancelFrame());
+      listen('ended', () => {
+        this.invalidateSamples();
+        this.cancelFrame();
+        this.publish();
+      });
       listen('seeking', () => {
         this.reset();
         this.cancelFrame();
       });
-      listen('seeked', () => this.schedule());
+      listen('seeked', () => {
+        this.buffering = false;
+        this.invalidateSamples();
+        this.publish();
+        this.schedule();
+      });
       listen('ratechange', () => {
         this.reset();
         this.schedule();
@@ -113,12 +144,19 @@ export class PitchController {
   retry() {
     if (this.state.enabled) this.setEnabled(true);
   }
-  private reset() {
+  // Retire both the reply and its watchdog at every playback discontinuity.
+  // Keep the paused trace, but never draw a line through the resume boundary.
+  private invalidateSamples() {
     this.epoch++;
     this.pending = undefined;
     if (this.replyTimer !== undefined) this.environment.clearTimer(this.replyTimer);
     this.replyTimer = undefined;
     this.lastSample = -Infinity;
+    this.sampleAfter = (this.context?.currentTime ?? 0) + 0.04;
+    this.breakBefore = true;
+  }
+  private reset() {
+    this.invalidateSamples();
     this.lastAudioTime = -Infinity;
     this.publish({ points: [], time: this.audio?.currentTime ?? 0 });
   }
@@ -156,6 +194,7 @@ export class PitchController {
           this.analyserConnected = true;
           if (this.loadTimer !== undefined) this.environment.clearTimer(this.loadTimer);
           this.loadTimer = undefined;
+          this.sampleAfter = context.currentTime + 0.04;
           this.publish({ status: 'ready', message: '' });
           this.schedule();
         } catch {
@@ -171,7 +210,10 @@ export class PitchController {
             this.workerReady = true;
             begin();
           }
-        } else if (event.data?.type === 'result' && event.data.id === this.pending?.id) {
+        } else if (
+          event.data?.type === 'result' && this.pending && event.data.id === this.pending.id &&
+          !audio.paused && !audio.seeking && !this.buffering
+        ) {
           const pending = this.pending!;
           this.pending = undefined;
           if (this.replyTimer !== undefined) this.environment.clearTimer(this.replyTimer);
@@ -191,10 +233,12 @@ export class PitchController {
             points: appendPoint(this.state.points, {
               time: pending.time,
               hz: result.hz,
-              amplitude: result.amplitude
+              amplitude: result.amplitude,
+              breakBefore: this.breakBefore
             }),
             time: audio.currentTime
           });
+          this.breakBefore = false;
         }
       };
       worker.onerror = () => {
@@ -206,7 +250,9 @@ export class PitchController {
       };
       this.loadTimer = this.environment.setTimer(() => {
         if (current())
-          this.fail('Pitch visualization took too long to load. Check your connection and retry.');
+          this.fail(this.workerReady
+            ? 'Audio analysis could not start. Check your audio output, then retry.'
+            : 'Pitch could not load. Check your connection, then retry.');
       }, 15000);
       void resumed
         .then(() => {
@@ -237,7 +283,8 @@ export class PitchController {
       !this.audio ||
       this.audio.paused ||
       this.audio.ended ||
-      this.audio.seeking
+      this.audio.seeking ||
+      this.buffering
     )
       return;
     const generation = this.generation;
@@ -260,6 +307,8 @@ export class PitchController {
         !audio.paused &&
         !audio.seeking &&
         !this.pending &&
+        context.currentTime >= this.sampleAfter &&
+        audio.readyState >= 2 &&
         now - this.lastSample >= 40 &&
         audio.currentTime !== this.lastAudioTime
       ) {

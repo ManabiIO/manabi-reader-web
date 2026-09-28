@@ -70,6 +70,7 @@ function fixture(options = {}) {
   const context = {
     state: 'running',
     sampleRate: 48000,
+    currentTime: 0,
     destination: {},
     closes: 0,
     resumes: 0,
@@ -158,6 +159,7 @@ function fixture(options = {}) {
       ended: false,
       seeking: false,
       currentTime: 1,
+      readyState: 4,
       playbackRate: 1
     });
   }
@@ -190,6 +192,7 @@ function fixture(options = {}) {
       a.dispatchEvent(new Event('play'));
     },
     frame(now = 100) {
+      context.currentTime = now / 1000;
       const queued = [...frames.values()];
       frames.clear();
       queued.forEach((callback) => callback(now));
@@ -368,4 +371,114 @@ test('paused playback stops sampling; native Play still resumes retained routing
   f.controller.dispose();
   f.controller.dispose();
   assert.equal(f.context.closes, 1);
+});
+
+test('pause drops a pending result and watchdog while retaining the completed trace', async () => {
+  const f = await running();
+  f.frame(100);
+  f.result();
+  const completed = f.state.points;
+  f.a.currentTime += 0.1;
+  f.frame(200);
+  f.a.paused = true;
+  f.a.dispatchEvent(new Event('pause'));
+  assert.equal(f.state.activity, 'paused');
+  assert.equal(f.frames.size, 0);
+  assert.equal(f.timers.size, 0);
+  f.result();
+  assert.deepEqual(f.state.points, completed);
+  f.play();
+  await flush();
+  f.a.currentTime += 0.1;
+  f.frame(300);
+  f.result();
+  assert.equal(f.state.points.length, 2);
+  assert.equal(f.state.points[1].breakBefore, true);
+  assert.equal((pitchPaths(f.state.points, f.state.time).pitch.match(/M/g) || []).length, 2);
+  f.controller.dispose();
+});
+test('ended retires in-flight work rather than firing a false error after five seconds', async () => {
+  const f = await running();
+  f.frame();
+  f.a.ended = true;
+  f.a.dispatchEvent(new Event('ended'));
+  f.result();
+  assert.equal(f.state.activity, 'ended');
+  assert.equal(f.state.points.length, 0);
+  assert.equal(f.timers.size, 0);
+  assert.equal(f.frames.size, 0);
+  f.controller.dispose();
+});
+test('buffering stops work and resumption starts a new smoothing epoch', async () => {
+  const f = await running();
+  f.frame();
+  const epoch = f.workers[0].sent[0].epoch;
+  f.a.dispatchEvent(new Event('waiting'));
+  f.result();
+  assert.equal(f.state.activity, 'buffering');
+  assert.equal(f.timers.size, 0);
+  assert.equal(f.frames.size, 0);
+  assert.equal(f.state.points.length, 0);
+  f.a.currentTime += 0.1;
+  f.a.dispatchEvent(new Event('playing'));
+  f.frame(300);
+  assert.ok(f.workers[0].sent[1].epoch > epoch);
+  f.result();
+  assert.equal(f.state.activity, 'playing');
+  f.controller.dispose();
+});
+test('wait for a fresh audio window and media data before sampling', async () => {
+  const f = await running();
+  f.frame(10);
+  assert.equal(f.workers[0].sent.length, 0);
+  f.a.readyState = 1;
+  f.frame(100);
+  assert.equal(f.workers[0].sent.length, 0);
+  f.a.readyState = 4;
+  f.frame(200);
+  assert.equal(f.workers[0].sent.length, 1);
+  f.controller.dispose();
+});
+test('an unsolicited result without an id is ignored, not dereferenced as pending work', async () => {
+  const f = await running();
+  f.workers[0].onmessage({ data: { type: 'result' } });
+  assert.equal(f.state.status, 'ready');
+  assert.equal(f.state.points.length, 0);
+  f.controller.dispose();
+});
+test('native Play waits for suspended output to resume before scheduling analysis', async () => {
+  const f = await running();
+  f.a.paused = true;
+  f.a.dispatchEvent(new Event('pause'));
+  f.context.state = 'suspended';
+  let resume;
+  f.context.resume = () => new Promise((resolve) => { resume = resolve; });
+  f.play();
+  f.frame(200);
+  assert.equal(f.state.status, 'ready');
+  assert.equal(f.frames.size, 0);
+  f.context.state = 'running';
+  resume();
+  await flush();
+  assert.equal(f.frames.size, 1);
+  f.controller.dispose();
+});
+test('startup timeout distinguishes ready worker from unavailable audio output', async () => {
+  const f = fixture({ resume: () => new Promise(() => {}) });
+  f.controller.setEnabled(true);
+  f.ready();
+  f.timer(15000);
+  assert.equal(f.state.status, 'error');
+  assert.match(f.state.message, /audio output/);
+  assert.equal(f.sources.length, 0);
+  f.controller.dispose();
+});
+test('rolling graph puts current audio on the right and separates octave jumps and gaps', () => {
+  const point = { time: 2, hz: 100, amplitude: 0.5 };
+  const current = pitchPaths([point], 2);
+  assert.equal(current.marker.x, 624);
+  assert.ok(current.waveform.endsWith('Z'));
+  const plot = pitchPaths([point, { ...point, time: 2.04, hz: 400 }], 2.04);
+  assert.equal((plot.pitch.match(/M/g) || []).length, 2);
+  assert.deepEqual(pitchPaths([point], 11), { waveform: '', pitch: '' });
 });

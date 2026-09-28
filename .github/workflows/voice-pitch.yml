@@ -5,6 +5,7 @@ on:
       - 'apps/web/src/lib/features/whispersync/**'
       - 'apps/web/src/service-worker.ts'
       - 'test/pitch/**'
+      - 'tests/browser/test_voice_pitch.py'
       - '.github/workflows/voice-pitch.yml'
   workflow_dispatch:
 permissions:
@@ -56,4 +57,55 @@ jobs:
         with:
           name: voice-pitch-${{ matrix.browser }}
           path: test-results/
+          retention-days: 3
+  application:
+    name: Pitch actual app and appearance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - run: pnpm --dir apps/web check
+      - name: Build the committed application
+        env:
+          BASE_PATH: /reader-web
+        run: pnpm build
+      - name: Install native browser and audio output
+        run: |
+          python -m pip install 'playwright==1.63.0'
+          python -m playwright install --with-deps chromium
+          sudo apt-get install -y --no-install-recommends pulseaudio pulseaudio-utils
+          pulseaudio --start --exit-idle-time=-1
+          pactl load-module module-null-sink sink_name=pitch_ci rate=48000
+          pactl set-default-sink pitch_ci
+      - name: Real transcript, lazy download, playback, light and dark
+        run: python tests/browser/test_voice_pitch.py
+      - name: Check formatting and retain an actionable patch
+        if: always()
+        run: |
+          mkdir -p test-results
+          pnpm exec prettier --write 'apps/web/src/lib/features/whispersync/pitch/*.{ts,svelte}' 'test/pitch/*.mjs' > test-results/pitch-format.log
+          git diff --binary > test-results/pitch-format.patch
+          git diff --exit-code
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: voice-pitch-application
+          path: |
+            test-results/
+            apps/web/src/lib/features/whispersync/pitch/
+            test/pitch/*.mjs
           retention-days: 3
