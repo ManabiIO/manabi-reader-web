@@ -151,8 +151,7 @@ export function validateMovePlan(plan: MovePlan) {
     !['prepared', 'copied', 'done'].includes(plan.phase)
   )
     throw new Error('Invalid move recovery record.');
-  if (directoryName(plan.folder) !== plan.folder)
-    throw new Error('Invalid move recovery folder.');
+  if (directoryName(plan.folder) !== plan.folder) throw new Error('Invalid move recovery folder.');
   encodeSeriesMetadata(plan.name);
   safePath(plan.parent);
   if (plan.files.length < 2 || plan.files.length > 500)
