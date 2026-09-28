@@ -25,10 +25,7 @@ async function harness(body) {
   Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined });
   const store = new MediaStore(new TransactionFactory(), 'lifecycle-closeout');
   const queues = [];
-  const make = (
-    engine,
-    decode = async () => new Float32Array(32000).fill(0.1)
-  ) => {
+  const make = (engine, decode = async () => new Float32Array(32000).fill(0.1)) => {
     const q = new TranscriptionQueue(store, 'guest', engine, decode);
     queues.push(q);
     return q;
