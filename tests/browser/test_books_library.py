@@ -1265,6 +1265,25 @@ class BooksLibraryBrowser(LibraryBase):
         expect(rows).to_have_count(1, timeout=30000)
         expect(self.page.get_by_text('Same title statistics view', exact=True)).to_have_count(1)
 
+        toolbar.get_by_role('button', name='Options', exact=True).click()
+        self.page.get_by_role('menuitem', name='Statistics Settings', exact=True).click()
+        settings = self.page.get_by_role('dialog')
+        settings.get_by_role('button', name='Delete Selection', exact=True).click()
+        confirm = self.dialog()
+        expect(confirm.get_by_role('heading', name='Delete Data', exact=True)).to_be_visible()
+        confirm.get_by_role('button', name='Confirm', exact=True).click()
+
+        deadline = time.monotonic() + 20
+        while True:
+            stored = self.stores('books', ['readerStatistic'])['readerStatistic']
+            if len(stored) == 1:
+                break
+            self.assertLess(time.monotonic(), deadline,
+                            'Statistics-page selection deletion did not settle')
+            self.page.wait_for_timeout(25)
+        self.assertEqual('content:' + second['contentHash'].lower(), stored[0]['bookKey'])
+        self.assertEqual(101, stored[0]['charactersRead'])
+
     def test_selected_statistics_delete_only_the_chosen_same_title_book(self):
         self.import_book('Same title statistics', size=(240, 360))
         self.import_book('Same title statistics', size=(180, 380))
