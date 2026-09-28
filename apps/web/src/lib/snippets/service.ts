@@ -226,11 +226,14 @@ export async function refreshSnippets(
             // becomes searchable.
             const remainingSources = Math.max(1, sources.length - sourceIndex);
             const sourceLimit = Math.max(1, Math.ceil((100 - processed) / remainingSources));
-            let sourceProcessed = 0;
+            const sourceByteLimit = Math.max(1, Math.ceil(budget / remainingSources));
+            let sourceProcessed = 0,
+              sourceBytes = 0;
             while (
               checkpoint.index < files.length &&
               processed < 100 &&
               sourceProcessed < sourceLimit &&
+              (sourceProcessed === 0 || sourceBytes < sourceByteLimit) &&
               budget > 0
             ) {
               const file = files[checkpoint.index];
@@ -238,7 +241,9 @@ export async function refreshSnippets(
               try {
                 const remote = await readDocument(source, file, selected.guard);
                 selected.guard();
-                budget -= new TextEncoder().encode(encodeSnippet(remote.document)).length;
+                const bytes = new TextEncoder().encode(encodeSnippet(remote.document)).length;
+                budget -= bytes;
+                sourceBytes += bytes;
                 await acceptRemote(
                   selected.owner,
                   remote.document,
