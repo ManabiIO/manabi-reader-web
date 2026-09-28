@@ -79,15 +79,14 @@ export function observeReaderFontLayout(
 
   const trackPendingFaces = () => {
     if (!fonts || disposed) return;
-    const activeFamilies = view.getComputedStyle(element).fontFamily;
+    let activeFamilies: string | undefined;
 
     fonts.forEach((face) => {
       if (face.status === 'loading') {
         trackLoadingFace(face);
-      } else if (
-        face.status === 'error' &&
-        activeFamilies.includes(normalizedFamily(face))
-      ) {
+      } else if (face.status === 'error') {
+        activeFamilies ??= view.getComputedStyle(element).fontFamily;
+        if (!activeFamilies.includes(normalizedFamily(face))) return;
         // WebKit can expose a selected face as "error" while its real HTTP
         // response is still pending, then flip directly to "loaded" without a
         // FontFaceSet loadingdone event. Poll only the family this reader uses;
