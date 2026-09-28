@@ -28,7 +28,6 @@ export function visibleLibraryEntries<
   };
 }
 
-
 /** Resolve who may open a local reader record. Durable book/sync ownership
  * outranks historical physical links. Undefined means contradictory durable
  * ownership and fails closed; [] means no account protection.
