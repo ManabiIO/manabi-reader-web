@@ -12,20 +12,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: feddee626c6a95bc7a62ebc3fd6a09d50a94109a
+          ref: 18084d91e539839b229037a6d013017de2fb6246
           fetch-depth: 0
           persist-credentials: false
-      - name: Exact baseline delta and source manifest
+      - name: Exact merged-main delta and source manifest
         run: |
           mkdir -p /tmp/snippet-review-snapshot
-          git diff --binary 329dcec43bcfeaadaf6b028182584214b0f37558 HEAD > /tmp/snippet-review-snapshot/source.patch
+          git diff --binary feddee626c6a95bc7a62ebc3fd6a09d50a94109a HEAD > /tmp/snippet-review-snapshot/source.patch
           git ls-files -s > /tmp/snippet-review-snapshot/source-manifest
           git rev-parse HEAD > /tmp/snippet-review-snapshot/commit.txt
           git rev-parse HEAD^{tree} > /tmp/snippet-review-snapshot/tree.txt
           sha256sum /tmp/snippet-review-snapshot/source.patch
       - uses: actions/upload-artifact@v4
         with:
-          name: snippets-review-feddee62
+          name: snippets-review-main18084d91
           path: /tmp/snippet-review-snapshot
           retention-days: 1
           if-no-files-found: error
