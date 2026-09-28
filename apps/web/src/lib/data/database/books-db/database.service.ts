@@ -439,13 +439,40 @@ export class DatabaseService {
     // Snapshot before awaiting the database so later mutation cannot redirect
     // this write to another book or alter the committed position.
     const snapshot = snapshotBookmarkData(bookmarkData);
-    const db = await this.db;
-
-    const tx = db.transaction('bookmark', 'readwrite');
-    return commitTransaction(tx, async () => {
-      const before = await tx.store.get(snapshot.dataId);
-      return tx.store.put(mergeCompletion(before, snapshot));
-    });
+    const scope = captureLibraryOperation();
+    try {
+      scope.assertCurrent();
+      const db = await this.db;
+      scope.assertCurrent();
+      const tx = db.transaction(['data', 'bookmark'], 'readwrite');
+      const abort = () => {
+        try {
+          tx.abort();
+        } catch {
+          /* Already settled. */
+        }
+      };
+      scope.signal.addEventListener('abort', abort, { once: true });
+      try {
+        return await commitTransaction(tx, async () => {
+          scope.assertCurrent();
+          scope.signal.throwIfAborted();
+          const book = await tx.objectStore('data').get(snapshot.dataId);
+          if (!book) throw new Error('This book is no longer in the library.');
+          if (book.libraryOwner && book.libraryOwner !== scope.profileId)
+            throw new Error('This book belongs to another account.');
+          const bookmarks = tx.objectStore('bookmark');
+          const before = await bookmarks.get(snapshot.dataId);
+          scope.assertCurrent();
+          scope.signal.throwIfAborted();
+          return bookmarks.put(mergeCompletion(before, snapshot));
+        });
+      } finally {
+        scope.signal.removeEventListener('abort', abort);
+      }
+    } finally {
+      scope.stop();
+    }
   }
 
   async putAudioBook(audioBook: BooksDbAudioBook) {
