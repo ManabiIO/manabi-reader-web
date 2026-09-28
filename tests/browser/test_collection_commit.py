@@ -6,9 +6,11 @@ storage operation is substituted, and a later success cannot waive a failure.
 import json
 from pathlib import Path
 import unittest
+import time
 
 from playwright.sync_api import expect
 from test_books_library import LibraryBase
+from test_static_reader import StaticHandler
 
 
 TRACE = r'''() => {
@@ -179,6 +181,210 @@ class CollectionCommitBrowser(LibraryBase):
         self.choose_collection('Local shelf')
         expect(self.page.get_by_role('button', name='Read Local messaging book', exact=True)).to_be_visible()
         self.assertEqual([], self.errors)
+
+
+    def prepare_preference_recovery(self, *, restore_collection=False):
+        # Establish consent normally, then model an existing saved profile.
+        StaticHandler.preference_revision = 0
+        StaticHandler.preference_settings = {}
+        StaticHandler.account_fixture = {
+            'user': {'id': '42', 'username': 'offline-recovery'},
+            'csrf_token': 'c' * 64,
+            'providers': []
+        }
+        self.page.goto(self.origin + '/reader-web/connections')
+        expect(self.page.get_by_text('Signed in as', exact=False)).to_contain_text('offline-recovery')
+        self.page.get_by_label('Sync reader settings with this Manabi account', exact=True).check()
+        expect(self.page.get_by_role('status', name='Settings sync status')).to_contain_text('synced')
+        self.page.evaluate('''async ({restoreCollection, requireWorker}) => {
+          const open = indexedDB.open('manabi-reader-integrations');
+          const db = await new Promise((resolve, reject) => {
+            open.onsuccess = () => resolve(open.result); open.onerror = () => reject(open.error);
+          });
+          try {
+            const tx = db.transaction('metadata', 'readwrite');
+            const done = new Promise((resolve, reject) => {
+              tx.oncomplete = resolve; tx.onabort = () => reject(tx.error);
+            });
+            const request = tx.objectStore('metadata').get('preferences/42');
+            request.onsuccess = () => {
+              const value = request.result;
+              value.local.theme = 'light';
+              if (restoreCollection) {
+                value.local.library_organization = {
+                  version: 1,
+                  collections: [{id: 'offline-restored', name: 'Offline restored', members: []}],
+                  books: {}
+                };
+                tx.objectStore('metadata').put(
+                  {version: 1, collections: [], books: {}}, 'books-organization-v1');
+              }
+              tx.objectStore('metadata').put(value, 'preferences/42');
+            };
+            await done;
+          } finally { db.close(); }
+          if (!requireWorker) return;
+          const deadline = Date.now() + 15000;
+          while (Date.now() < deadline) {
+            const registration = await navigator.serviceWorker.getRegistration('/reader-web/');
+            if (registration?.active?.state === 'activated') return;
+            await new Promise(resolve => setTimeout(resolve, 25));
+          }
+          throw new Error('Automatic offline worker did not activate');
+        }''', {'restoreCollection': restore_collection, 'requireWorker': self.engine != 'webkit'})
+
+    def enter_preference_outage(self):
+        if self.engine == 'webkit':
+            # WebKit's test browser cannot reliably navigate an uncached static
+            # route offline. Keep the app reachable while its API is unavailable.
+            self.context.route('**/api/reader-web/preferences/', lambda route: route.abort())
+        else:
+            self.context.set_offline(True)
+
+    def leave_preference_outage(self):
+        if self.engine == 'webkit':
+            self.context.unroute('**/api/reader-web/preferences/')
+        else:
+            self.context.set_offline(False)
+
+    def read_recovery_metadata(self, key):
+        return self.page.evaluate('''async key => {
+          const open = indexedDB.open('manabi-reader-integrations');
+          const db = await new Promise((resolve, reject) => {
+            open.onsuccess = () => resolve(open.result); open.onerror = () => reject(open.error);
+          });
+          try {
+            return await new Promise((resolve, reject) => {
+              const request = db.transaction('metadata').objectStore('metadata').get(key);
+              request.onsuccess = () => resolve(request.result);
+              request.onerror = () => reject(request.error);
+            });
+          } finally { db.close(); }
+        }''', key)
+
+    def recover_preference_until(self, key, predicate):
+        deadline = time.monotonic() + 15
+        while True:
+            value = self.read_recovery_metadata(key)
+            if predicate(value):
+                return value
+            self.assertLess(time.monotonic(), deadline, 'Offline preference recovery did not commit')
+            # Exercise real event-driven recovery and its real five-second backoff.
+            # This is predicate polling, not a retry of the edit/import action.
+            self.page.evaluate('document.dispatchEvent(new Event("visibilitychange"))')
+            self.page.wait_for_timeout(100)
+
+    def wait_for_recovery_probe(self, probe):
+        deadline = time.monotonic() + 15
+        while not self.page.evaluate('(name) => window[name] > 0', probe):
+            self.assertLess(time.monotonic(), deadline, f'{probe} did not observe a write')
+            self.page.wait_for_timeout(25)
+
+    def test_offline_preference_save_failure_retries_without_another_edit(self):
+        old_fixture = StaticHandler.account_fixture
+        old_revision = StaticHandler.preference_revision
+        old_settings = StaticHandler.preference_settings
+        try:
+            self.prepare_preference_recovery()
+            self.enter_preference_outage()
+            self.page.goto(self.origin + '/reader-web/settings')
+            expect(self.page.locator('html')).to_have_attribute('data-appearance', 'light')
+            self.page.evaluate('''() => {
+              window.__failPreferenceSave = true;
+              window.__preferenceSaveAborts = 0;
+              window.__preferenceRecoveryEvents = [];
+              const put = IDBObjectStore.prototype.put;
+              IDBObjectStore.prototype.put = function(value, key) {
+                const request = put.apply(this, arguments);
+                if (this.transaction.db.name !== 'manabi-reader-integrations' ||
+                    this.name !== 'metadata' || key !== 'preferences/42') return request;
+                const tx = this.transaction;
+                window.__preferenceRecoveryEvents.push({kind: 'put', theme: value.local.theme});
+                tx.addEventListener('complete', () =>
+                  window.__preferenceRecoveryEvents.push({kind: 'complete', theme: value.local.theme}),
+                  {once: true});
+                if (window.__failPreferenceSave) {
+                  window.__preferenceSaveAborts++;
+                  tx.abort();
+                }
+                return request;
+              };
+            }''')
+            self.page.get_by_role('group', name='Appearance mode').get_by_role(
+                'button', name='Dark', exact=True).click()
+            self.wait_for_recovery_probe('__preferenceSaveAborts')
+            expect(self.page.locator('html')).to_have_attribute('data-appearance', 'dark')
+            self.assertEqual(self.read_recovery_metadata('preferences/42')['local']['theme'], 'light')
+            self.page.evaluate('window.__failPreferenceSave = false')
+            recovered = self.recover_preference_until(
+                'preferences/42', lambda value: value['local']['theme'] == 'dark')
+            self.assertTrue(recovered['enabled'])
+            self.trace_before_reload = self.page.evaluate('window.__preferenceRecoveryEvents')
+            self.page.reload()
+            expect(self.page.locator('html')).to_have_attribute('data-appearance', 'dark')
+        finally:
+            StaticHandler.account_fixture = old_fixture
+            StaticHandler.preference_revision = old_revision
+            StaticHandler.preference_settings = old_settings
+            self.leave_preference_outage()
+
+    def test_offline_profile_application_failure_preserves_unrelated_edits_on_retry(self):
+        old_fixture = StaticHandler.account_fixture
+        old_revision = StaticHandler.preference_revision
+        old_settings = StaticHandler.preference_settings
+        try:
+            self.prepare_preference_recovery(restore_collection=True)
+            self.context.add_init_script('''(() => {
+              window.__failOrganizationApply = true;
+              window.__organizationApplyAborts = 0;
+              window.__preferenceRecoveryEvents = [];
+              const put = IDBObjectStore.prototype.put;
+              IDBObjectStore.prototype.put = function(value, key) {
+                const request = put.apply(this, arguments);
+                if (this.transaction.db.name !== 'manabi-reader-integrations' ||
+                    this.name !== 'metadata' || key !== 'books-organization-v1' ||
+                    !value.collections.some(item => item.id === 'offline-restored')) return request;
+                const tx = this.transaction;
+                window.__preferenceRecoveryEvents.push({kind: 'organization-put'});
+                tx.addEventListener('complete', () =>
+                  window.__preferenceRecoveryEvents.push({kind: 'organization-complete'}),
+                  {once: true});
+                if (window.__failOrganizationApply) {
+                  window.__organizationApplyAborts++;
+                  tx.abort();
+                }
+                return request;
+              };
+            })();''')
+            self.enter_preference_outage()
+            self.page.goto(self.origin + '/reader-web/settings')
+            self.wait_for_recovery_probe('__organizationApplyAborts')
+            expect(self.page.locator('html')).to_have_attribute('data-appearance', 'light')
+            self.assertEqual(self.read_recovery_metadata('books-organization-v1')['collections'], [])
+            self.page.get_by_role('group', name='Appearance mode').get_by_role(
+                'button', name='Dark', exact=True).click()
+            expect(self.page.locator('html')).to_have_attribute('data-appearance', 'dark')
+            self.page.evaluate('window.__failOrganizationApply = false')
+            self.recover_preference_until(
+                'books-organization-v1',
+                lambda value: any(item['id'] == 'offline-restored' for item in value['collections']))
+            preferences = self.recover_preference_until(
+                'preferences/42', lambda value: value['local']['theme'] == 'dark')
+            self.assertTrue(any(
+                item['id'] == 'offline-restored'
+                for item in preferences['local']['library_organization']['collections']))
+            expect(self.page.locator('html')).to_have_attribute('data-appearance', 'dark')
+            self.trace_before_reload = self.page.evaluate('window.__preferenceRecoveryEvents')
+            self.page.reload()
+            expect(self.page.locator('html')).to_have_attribute('data-appearance', 'dark')
+            self.assertTrue(any(
+                item['id'] == 'offline-restored'
+                for item in self.read_recovery_metadata('books-organization-v1')['collections']))
+        finally:
+            StaticHandler.account_fixture = old_fixture
+            StaticHandler.preference_revision = old_revision
+            StaticHandler.preference_settings = old_settings
+            self.leave_preference_outage()
 
 
 # Each fresh-profile run is independently required; these are not retries.
