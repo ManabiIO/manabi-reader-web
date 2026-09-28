@@ -17,7 +17,7 @@ import { encodeBook } from '$lib/data/database/books-db/book-binary';
 import { commitTransaction } from '$lib/data/database/books-db/commit-transaction.mjs';
 import {
   commitLibraryBook,
-  readLibraryIdentities
+  readIndexedBookIdentities
 } from '$lib/data/database/books-db/library-import';
 import {
   normalizedContentHash,
@@ -63,7 +63,7 @@ export async function refreshLinkedBooks() {
   const books = await (await integrationDB()).getAll('books');
   if (!current()) return;
   const visible = books.filter((book) => book.owner === null || book.owner === owner);
-  const records = await readLibraryIdentities(await database.db);
+  const records = await readIndexedBookIdentities(await database.db);
   if (!current()) return;
   await stabilizeOrganization(visible, records);
   if (!current()) return;
@@ -109,7 +109,7 @@ export async function importLibraryBook(
         const integration = await integrationDB();
         const db = await database.db;
         const links = await integration.getAll('books');
-        const records = await readLibraryIdentities(db);
+        const records = await readIndexedBookIdentities(db);
         scope.assertCurrent();
         const selected = resolveImportedBook(
           records,
@@ -119,9 +119,10 @@ export async function importLibraryBook(
           contentHash,
           expectedBookId
         );
-        const cached = records.find((record) => record.id === selected);
+        const cached = selected === undefined ? undefined : await db.get('data', selected);
+        scope.assertCurrent();
         let prepared: Omit<StoredBookData, 'id'> | undefined;
-        if (!cached || cached.isPlaceholder) {
+        if (!cached?.elementHtml) {
           const suffix = file.name.split('.').pop()?.toLowerCase();
           const now = Date.now();
           const content =
