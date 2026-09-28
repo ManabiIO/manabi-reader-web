@@ -85,6 +85,15 @@
     );
   }
 
+  function revealSelected() {
+    if (closed || !selectedImage) return;
+    const url = selectedImage.url;
+    // Move focus before removing the activating reveal button. No deferred
+    // callback can steal it from a later gesture, dismissal or another dialog.
+    imageContainer?.focus({ preventScroll: true });
+    if (!closed) reveal(url);
+  }
+
   function select(index: number) {
     if (closed || index < 0 || index >= $readerImageGalleryPictures$.length) return;
     const generation = ++focusGeneration;
@@ -105,8 +114,14 @@
   }
 
   function move(offset: number) {
-    focusGeneration += 1;
-    selectedImageIndex += offset;
+    const nextIndex = selectedImageIndex + offset;
+    if (closed || nextIndex < 0 || nextIndex >= $readerImageGalleryPictures$.length) return;
+    const generation = ++focusGeneration;
+    // Paging can disable the focused end control or remove a reveal button.
+    // Hand ownership to the stable viewer before updating either one.
+    imageContainer?.focus({ preventScroll: true });
+    if (closed || generation !== focusGeneration) return;
+    selectedImageIndex = nextIndex;
     const thumbnail = contentContainer?.querySelector<HTMLElement>(
       `button[data-image-index="${selectedImageIndex}"]`
     );
@@ -137,9 +152,12 @@
     bind:ref={gallery}
     showCloseButton={false}
     class="top-0 left-0 h-dvh max-h-dvh w-full max-w-none translate-x-0 translate-y-0 grid-rows-[auto_minmax(0,1fr)] gap-0 rounded-none p-0 sm:max-w-none writing-horizontal-tb"
+    style="inset: 0; width: auto; height: auto; max-width: none; max-height: none; transform: none;"
     onCloseAutoFocus={(event) => {
       event.preventDefault();
-      document.querySelector<HTMLButtonElement>('[aria-label="Show reading controls"]')?.focus();
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="Show reading controls"]')
+        ?.focus({ preventScroll: true });
     }}
   >
     <header class="gallery-header border-b">
@@ -205,7 +223,7 @@
               alt={selectedIsHidden ? '' : `Book illustration ${selectedImageIndex + 1}`}
             />
             {#if selectedIsHidden}
-              <button type="button" class="spoiler-label" on:click={() => reveal(selectedImage.url)}
+              <button type="button" class="spoiler-label" on:click={revealSelected}
                 >Show image · ネタバレ</button
               >
             {/if}
@@ -219,7 +237,7 @@
 <style>
   .gallery-header {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 44px;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: start;
     gap: 12px;
     padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
