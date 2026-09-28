@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'tests/media/shared-custody-probe.py'
+      - 'apps/web/static/moss/single/moss.mjs'
+      - 'apps/web/static/moss/single/moss.wasm'
       - '.github/workflows/moss-shared-custody.yml'
 permissions:
   contents: read

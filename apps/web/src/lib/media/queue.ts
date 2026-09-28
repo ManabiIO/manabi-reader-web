@@ -131,6 +131,8 @@ export class TranscriptionQueue {
   private admitted = new Map<string, Admission>();
   private targets = new Map<string, number>();
   private batch?: AbortController;
+  /** Set only while this batch is queued for the origin inference lock. */
+  private lockWait?: AbortController;
   private closing?: Promise<void>;
   private task?: Promise<void>;
   private rerun = false;
@@ -327,6 +329,7 @@ export class TranscriptionQueue {
   }
   async cancel(id: string) {
     this.targets.delete(id);
+    const admission = this.admitted.get(id);
     const active = this.active?.id === id ? this.active : undefined;
     let pending: Promise<Job | undefined>;
     try {
@@ -343,13 +346,31 @@ export class TranscriptionQueue {
           : { ...releasedJob(job, 'paused'), pauseReason: 'user' };
       });
     } finally {
+      // Revoke only the admission that existed when Cancel began. A newer
+      // Resume may already have installed a successor token for the same ID.
+      if (admission && this.admitted.get(id) === admission) this.admitted.delete(id);
       active?.controller.abort(new DOMException('Generation cancelled', 'AbortError'));
+      // If this tab has no other work and has not acquired the origin lock yet,
+      // withdraw its Web Locks request instead of later cutting ahead for no work.
+      if (!this.active && !this.admitted.size && this.lockWait === this.batch)
+        this.batch?.abort(new DOMException('No local transcription jobs remain', 'AbortError'));
     }
     await pending;
   }
   /** Leaving a video pauses owned inference and revokes local queued admissions. */
-  async pauseSparseForMedia(
+  pauseSparseForMedia(
     mediaKey: ContentKey,
+    isCurrent: () => boolean = () => true
+  ): Promise<string[]> {
+    return this.pauseOwnedForMedia(mediaKey, true, isCurrent);
+  }
+  /** A revoked source also pauses locally owned bulk jobs, never another tab's work. */
+  pauseForMedia(mediaKey: ContentKey): Promise<string[]> {
+    return this.pauseOwnedForMedia(mediaKey, false);
+  }
+  private async pauseOwnedForMedia(
+    mediaKey: ContentKey,
+    sparseOnly: boolean,
     isCurrent: () => boolean = () => true
   ): Promise<string[]> {
     const current = () => !this.closed && isCurrent();
@@ -378,7 +399,7 @@ export class TranscriptionQueue {
           (job.status === 'running' &&
             this.active?.id === job.id &&
             this.active.ownerId === job.ownerId));
-      if (job.sparse && local) pending.push(job);
+      if ((!sparseOnly || job.sparse) && local) pending.push(job);
     }
     // Stop queued alternatives before aborting the current inference, so the
     // drain cannot claim another old-video job in between transactions.
@@ -388,7 +409,9 @@ export class TranscriptionQueue {
       ...pending.filter((job) => job.status === 'running')
     ]) {
       if (!current()) break;
-      if (await this.pauseLocalSparse(job.id, admissions.get(job.id)!, activeAtStart, current))
+      if (
+        await this.pauseLocal(job.id, sparseOnly, admissions.get(job.id)!, activeAtStart, current)
+      )
         paused.push(job.id);
     }
     return paused;
@@ -396,8 +419,9 @@ export class TranscriptionQueue {
   private localAdmission(id: string): Admission | undefined {
     return this.admitted.get(id) ?? (this.active?.id === id ? this.active.admission : undefined);
   }
-  private async pauseLocalSparse(
+  private async pauseLocal(
     id: string,
+    sparseOnly: boolean,
     token: Admission,
     activeAtStart: ActiveJob | undefined,
     current: () => boolean
@@ -412,29 +436,37 @@ export class TranscriptionQueue {
         ? this.active
         : undefined;
     if (!active) return revoked;
-    let paused = false;
-    await this.store.updateLocal<Job>(this.scope, 'jobs', id, (old) => {
-      if (!old || !current() || this.active !== active || this.admitted.has(id)) return old;
-      const job = validateJob(old);
-      if (!job.sparse) return old;
-      // A claimed job may still be awaiting its queued -> running write. Its
-      // controller fences that write; another tab's owner is never cancelled.
-      if (job.status === 'queued') {
-        paused = true;
+    let paused = false,
+      writeFailed = true;
+    try {
+      await this.store.updateLocal<Job>(this.scope, 'jobs', id, (old) => {
+        if (!old || !current() || this.active !== active || this.admitted.has(id)) return old;
+        const job = validateJob(old);
+        if (sparseOnly && !job.sparse) return old;
+        // A claimed job may still be awaiting its queued -> running write. Its
+        // controller fences that write; another tab's owner is never cancelled.
+        if (job.status === 'queued') {
+          paused = true;
+          return old;
+        }
+        if (
+          job.status === 'running' &&
+          active.ownerId === job.ownerId &&
+          job.pauseReason !== 'user'
+        ) {
+          paused = true;
+          return { ...job, cancelRequested: true, pauseReason: 'switch' };
+        }
         return old;
-      }
-      if (
-        job.status === 'running' &&
-        active.ownerId === job.ownerId &&
-        job.pauseReason !== 'user'
-      ) {
-        paused = true;
-        return { ...job, cancelRequested: true, pauseReason: 'switch' };
-      }
-      return old;
-    });
-    if (paused && current() && this.active === active && !this.admitted.has(id))
-      active.controller.abort(new DOMException('Generation paused', 'AbortError'));
+      });
+      writeFailed = false;
+    } finally {
+      // Storage failure cannot retain a model owned by a revoked source/view.
+      // Preserve that failure for the caller, but still cancel the exact runner.
+      // A newer same-ID admission or replaced view retains its own authority.
+      if ((paused || writeFailed) && current() && this.active === active && !this.admitted.has(id))
+        active.controller.abort(new DOMException('Generation paused', 'AbortError'));
+    }
     return revoked || paused;
   }
   recover(): Promise<void> {
@@ -1026,16 +1058,19 @@ export class TranscriptionQueue {
             .catch((error) => this.report(error));
         }, 10_000);
         try {
+          this.lockWait = batch;
           await navigator.locks.request(
             'manabi-moss-inference',
             { signal: batch.signal },
             async () => {
+              if (this.lockWait === batch) this.lockWait = undefined;
               acquired = true;
               clearTimeout(waiting);
               await drain();
             }
           );
         } finally {
+          if (this.lockWait === batch) this.lockWait = undefined;
           clearTimeout(waiting);
         }
       } else {

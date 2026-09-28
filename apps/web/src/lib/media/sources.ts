@@ -7,6 +7,7 @@
 import { LIMITS, type ContentKey } from './contracts.js';
 import { Sha256 } from './hash.js';
 import { validateCloudLocator, type CloudLocator } from './cloud-locator.js';
+import { abortable } from './abort.js';
 export interface ByteSource {
   name: string;
   size: number;
@@ -88,7 +89,7 @@ export async function boundedResponse(
   try {
     for (;;) {
       signal.throwIfAborted();
-      const { value, done } = await reader.read();
+      const { value, done } = await abortable(signal, () => reader.read());
       signal.throwIfAborted();
       if (done) break;
       size += value.length;
@@ -113,7 +114,12 @@ export async function boundedResponse(
     throw e;
   } finally {
     signal.removeEventListener('abort', cancel);
-    reader.releaseLock();
+    try {
+      reader.releaseLock();
+    } catch {
+      // Some stream implementations reject/throw while an earlier read is
+      // still pending. Cleanup must never replace the authoritative read/abort error.
+    }
   }
 }
 export interface CloudManifest {
@@ -170,13 +176,15 @@ export function cloudSource(
       signal.throwIfAborted();
       assertRange(start, end, size);
       if (!current()) throw new Error('Account changed');
-      const response = await fetch(url, {
-        signal,
-        credentials: 'same-origin',
-        redirect: 'error',
-        cache: 'no-store',
-        headers: { Range: `bytes=${start}-${end - 1}`, 'X-Manabi-User': userId }
-      });
+      const response = await abortable(signal, () =>
+        fetch(url, {
+          signal,
+          credentials: 'same-origin',
+          redirect: 'error',
+          cache: 'no-store',
+          headers: { Range: `bytes=${start}-${end - 1}`, 'X-Manabi-User': userId }
+        })
+      );
       const discard = () => {
         try {
           void Promise.resolve(response.body?.cancel()).catch(() => {});
