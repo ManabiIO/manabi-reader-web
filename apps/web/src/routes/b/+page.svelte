@@ -1326,6 +1326,7 @@
     chromeVisible = false;
   }
 
+  let chromeMousePointer = false;
   function chromeProtected() {
     return (
       showSpinner ||
@@ -1338,13 +1339,20 @@
       $skipKeyDownListener$ ||
       !!document.querySelector('[role="dialog"], [role="menu"]') ||
       !!document.activeElement?.closest('[data-reader-chrome]') ||
-      !!document.querySelector('[data-reader-chrome]:hover') ||
+      (chromeMousePointer && !!document.querySelector('[data-reader-chrome]:hover')) ||
       !!window.getSelection()?.toString() ||
       !!guideContentEl?.ownerDocument.getSelection()?.toString()
     );
   }
   onMount(() => {
     readerAlive = true;
+    // Touch emulation can leave :hover stuck on the newly mounted controls.
+    // Protect an actual mouse hover without extending the initial touch reveal.
+    const noteChromePointer = (event: PointerEvent) => {
+      chromeMousePointer = event.pointerType === 'mouse';
+    };
+    window.addEventListener('pointermove', noteChromePointer, true);
+    window.addEventListener('pointerdown', noteChromePointer, true);
     readerChrome = new ReaderChrome((mode) => {
       chromeVisible = mode !== 'hidden';
       showHeader = chromeVisible;
@@ -1373,6 +1381,8 @@
     return () => {
       readerAlive = false;
       readerChrome?.dispose();
+      window.removeEventListener('pointermove', noteChromePointer, true);
+      window.removeEventListener('pointerdown', noteChromePointer, true);
       stopChromeInteractions();
       document.removeEventListener('fullscreenchange', fullscreenChanged);
       document.removeEventListener('webkitfullscreenchange', fullscreenChanged);
