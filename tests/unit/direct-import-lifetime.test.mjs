@@ -40,7 +40,10 @@ function load(path, dependencies = {}) {
         return new Proxy(
           {},
           {
-            get() {
+            get(_target, property) {
+              // TypeScript's CommonJS default-import helper probes this marker
+              // before any application code uses the dependency.
+              if (property === '__esModule') return false;
               throw new Error(`Unexpected dependency use: ${name}`);
             }
           }
