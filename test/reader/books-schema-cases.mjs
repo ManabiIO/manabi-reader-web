@@ -312,11 +312,14 @@ async function legacyV2(name, invalid) {
   }
 }
 async function incompatible(name, kind) {
-  const old = await open(name, 11, (db) => {
+  const version = kind === 'content-index' ? 12 : 11;
+  const old = await open(name, version, (db) => {
     if (kind === 'store') db.createObjectStore('data', { keyPath: 'wrong' });
     else {
       const store = db.createObjectStore('data', { keyPath: 'id', autoIncrement: true });
-      store.createIndex('title', 'title', { unique: true });
+      store.createIndex('title', 'title', { unique: kind === 'index' });
+      if (kind === 'content-index')
+        store.createIndex('contentHash', 'wrongContentHash', { unique: true });
     }
   });
   const tx = old.transaction('data', 'readwrite');
@@ -352,7 +355,8 @@ export const caseNames = [
   'v2-malformed-json-rollback-retry',
   'v2-invalid-record-rollback-retry',
   'incompatible-store-rollback',
-  'incompatible-index-rollback'
+  'incompatible-index-rollback',
+  'incompatible-content-index-rollback'
 ];
 export async function runCase(caseName) {
   assert(caseNames.includes(caseName), 'Unknown schema test');
@@ -370,7 +374,15 @@ export async function runCase(caseName) {
             ? 'record'
             : undefined
       );
-    else await incompatible(name, caseName.includes('-store-') ? 'store' : 'index');
+    else
+      await incompatible(
+        name,
+        caseName.includes('content-index')
+          ? 'content-index'
+          : caseName.includes('-store-')
+            ? 'store'
+            : 'index'
+      );
     return { name: caseName, version: 13, state: 'passed', stores: Object.keys(expected).length };
   } finally {
     await remove(name);
