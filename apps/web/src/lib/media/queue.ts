@@ -353,10 +353,7 @@ export class TranscriptionQueue {
   pauseForMedia(mediaKey: ContentKey): Promise<string[]> {
     return this.pauseOwnedForMedia(mediaKey, false);
   }
-  private async pauseOwnedForMedia(
-    mediaKey: ContentKey,
-    sparseOnly: boolean
-  ): Promise<string[]> {
+  private async pauseOwnedForMedia(mediaKey: ContentKey, sparseOnly: boolean): Promise<string[]> {
     if (this.closed) return [];
     // Capture this invocation's authority before storage yields. A successor can
     // reuse the same job ID; a delayed source revocation must not pause it.
