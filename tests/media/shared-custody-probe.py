@@ -30,6 +30,14 @@ broker.port.start();
 window.acquire=()=>broker.port.postMessage({type:'acquire'});
 window.release=()=>broker.port.postMessage({type:'release'});
 window.shutdown=()=>broker.port.postMessage({type:'shutdown'});
+document.addEventListener('freeze',()=>{
+  events.push({type:'page-freeze'});
+  broker.port.postMessage({type:'release'});
+},{capture:true});
+window.addEventListener('pagehide',()=>{
+  events.push({type:'pagehide'});
+  broker.port.postMessage({type:'release'});
+},{capture:true});
 </script>'''
 
 BROKER = '''const ports=new Set();
@@ -256,9 +264,11 @@ def main():
                 cdp.send('Page.setWebLifecycleState', {'state': 'active'})
                 frozen = False
                 owner.wait_for_timeout(300)
-                assert sum(event['type'] == 'acquired' for event in events(owner)) == 1
+                owner_events = events(owner)
+                assert any(event['type'] == 'page-freeze' for event in owner_events), owner_events
+                assert sum(event['type'] == 'acquired' for event in owner_events) == 1
                 result.append({
-                    'name': 'thaw does not replay acquisition or allocate another model',
+                    'name': 'freeze event released inference before suspension; thaw does not replay it',
                     'passed': True
                 })
             except Exception as error:
