@@ -159,6 +159,17 @@ jobs:
             --upstream-jfk --language en --threaded --max-cer 0.20 \
             --output test-results/media-packaged/asr-natural-jfk.json \
             2>&1 | tee test-results/media-packaged/asr-natural-jfk.log
+      - name: Recognize pinned public-domain natural Japanese using the checked-in threaded runtime
+        if: ${{ !cancelled() && steps.identity.outcome == 'success' }}
+        run: |
+          mkdir -p .cache/media-fixtures/natural-ja-kokoro
+          curl --fail --location --retry 3 \
+            'https://raw.githubusercontent.com/kaiidams/Kokoro-Speech-Dataset/0c03174b9d7d90aa1da03a21dba93eb6059278f6/kokoro-by-soseki-natsume-02359.wav' \
+            --output .cache/media-fixtures/natural-ja-kokoro/speech.wav
+          python tests/media/asr.py --fixture .cache/media-fixtures/natural-ja-kokoro \
+            --kokoro-japanese --language ja --threaded --max-cer 0.35 \
+            --output test-results/media-packaged/asr-natural-ja-kokoro.json \
+            2>&1 | tee test-results/media-packaged/asr-natural-ja-kokoro.log
       - name: Confirm qualification did not replace the packaged runtime bytes
         if: ${{ !cancelled() && steps.identity.outcome == 'success' }}
         run: |

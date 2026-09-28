@@ -6,6 +6,8 @@ from urllib.parse import urlsplit
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 JFK_SHA256='59dfb9a4acb36fe2a2affc14bacbee2920ff435cb13cc314a08c13f66ba7860e'
 JFK_REFERENCE='And so, my fellow Americans, ask not what your country can do for you, ask what you can do for your country.'
+KOKORO_JA_GIT_BLOB='de24bc10ef845ef4bc418b1d14a850ddbdd56eae'
+KOKORO_JA_REFERENCE='私 は 今度 も あるいは そう なる か も 知れ ない と 思っ た 。 しかし 医者 は'
 class Handler(http.server.SimpleHTTPRequestHandler):
     threaded=False
     fixture=None
@@ -57,6 +59,25 @@ def natural_upstream_fixture(path, language):
     return {'fingerprint': JFK_SHA256, 'engine': {'name': 'upstream-natural-jfk', 'language': 'en'},
             'files': {'speech.wav': JFK_SHA256}, 'cues': [{'text': JFK_REFERENCE}]}
 
+def natural_kokoro_fixture(path, language):
+    """Pinned public-domain Kokoro/LibriVox Japanese reading and transcript."""
+    if language != 'ja':
+        raise ValueError('The pinned Kokoro fixture is Japanese')
+    wave = pathlib.Path(path)/'speech.wav'
+    if wave.is_symlink():
+        raise ValueError('Pinned Kokoro speech must be a regular file')
+    data = wave.read_bytes()
+    # GitHub's immutable source tree identifies this binary with the canonical
+    # Git blob hash; retain SHA-256 separately in result evidence.
+    header = b'blob ' + str(len(data)).encode() + b'\\0'
+    if hashlib.sha1(header + data).hexdigest() != KOKORO_JA_GIT_BLOB:
+        raise ValueError('Pinned Kokoro Japanese speech hash does not match')
+    fingerprint = hashlib.sha256(data).hexdigest()
+    return {'fingerprint': fingerprint,
+            'engine': {'name': 'kokoro-public-domain-librivox', 'language': 'ja'},
+            'files': {'speech.wav': fingerprint},
+            'cues': [{'text': KOKORO_JA_REFERENCE}]}
+
 def validate_streaming_metrics(result):
     """Real runtime evidence must include actual callbacks, not only final recognition."""
     if type(result) is not dict:
@@ -82,9 +103,14 @@ def validate_streaming_metrics(result):
         raise ValueError('Preview cue precedes the first output callback')
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--fixture',required=True,type=pathlib.Path);parser.add_argument('--language',choices=['en','ja'],required=True);parser.add_argument('--threaded',action='store_true');parser.add_argument('--repeat',type=int,choices=[1,2],default=1);parser.add_argument('--max-cer',type=float,default=.35);parser.add_argument('--upstream-jfk',action='store_true');parser.add_argument('--output',type=pathlib.Path,required=True);args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--fixture',required=True,type=pathlib.Path);parser.add_argument('--language',choices=['en','ja'],required=True);parser.add_argument('--threaded',action='store_true');parser.add_argument('--repeat',type=int,choices=[1,2],default=1);parser.add_argument('--max-cer',type=float,default=.35);natural=parser.add_mutually_exclusive_group();natural.add_argument('--upstream-jfk',action='store_true');natural.add_argument('--kokoro-japanese',action='store_true');parser.add_argument('--output',type=pathlib.Path,required=True);args=parser.parse_args()
     valid_cer(args.max_cer)
-    fixture=natural_upstream_fixture(args.fixture,args.language) if args.upstream_jfk else fixture_metadata(args.fixture,args.language)
+    if args.upstream_jfk:
+        fixture=natural_upstream_fixture(args.fixture,args.language)
+    elif args.kokoro_japanese:
+        fixture=natural_kokoro_fixture(args.fixture,args.language)
+    else:
+        fixture=fixture_metadata(args.fixture,args.language)
     mode='threaded' if args.threaded else 'single'
     for suffix in ['mjs','wasm']:
         if not (ROOT/f'apps/web/static/moss/{mode}/moss.{suffix}').exists():raise SystemExit('Real WASM runtime is missing; build tools/media/build-moss.py before running this gate.')

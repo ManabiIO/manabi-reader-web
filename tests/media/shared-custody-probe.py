@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Native browser experiment: keep one model owner outside a frozen page.
+"""Native browser experiment: keep one MOSS owner outside a frozen page.
 
-This is an ownership/lifecycle probe, not MOSS inference. The SharedWorker directly
-instantiates the exact checked-in single-thread MOSS WASM runtime because the tested
-Chromium SharedWorker does not expose a nested Worker constructor. It allocates and
-touches bounded WASM memory, but does not load model weights or transcribe speech;
-those remain separate release qualifications.
+The fast mode instantiates the exact checked-in single-thread runtime and retains a
+bounded allocation. With --model/--pcm, the same SharedWorker loads the real Q5_0
+weights and performs actual inference before and after ownership handoff. This is
+lifecycle qualification, not a replacement for the normal ASR quality suite.
 """
+import argparse
+import hashlib
 import http.server
 import json
 import os
@@ -30,6 +31,7 @@ broker.port.start();
 window.acquire=()=>broker.port.postMessage({type:'acquire'});
 window.release=()=>broker.port.postMessage({type:'release'});
 window.shutdown=()=>broker.port.postMessage({type:'shutdown'});
+window.transcribe=()=>broker.port.postMessage({type:'transcribe'});
 document.addEventListener('freeze',()=>{
   events.push({type:'page-freeze'});
   broker.port.postMessage({type:'release'});
@@ -42,16 +44,19 @@ window.addEventListener('pagehide',()=>{
 
 BROKER = '''const ports=new Set();
 let active, pending=[], serial=0, runtime, allocation=0, modelToken, modelLoads=0;
-let releaseModel, modelLockTask;
+let releaseModel, modelLockTask, modelReady, draining=false;
 const EXPECTED_ENGINE='190a569c13b4b247450f2fb3b2a431244e84833e+manabi-web-v7';
 const EXPECTED_GGML='eced84c86f8b012c752c016f7fe789adea168e1e';
 const RETAINED_BYTES=64*1024*1024;
+const FULL_MODEL=__FULL_MODEL__,MODEL_BYTES=648174592;
+let ctx=0,inferenceBusy=false,operation=0;
 const send=(port,data)=>{try{port.postMessage(data)}catch{}};
 const broadcast=data=>{for(const port of ports)send(port,data)};
 const token=()=>typeof crypto.randomUUID==='function'?crypto.randomUUID():
   Array.from(crypto.getRandomValues(new Uint8Array(16)),n=>n.toString(16).padStart(2,'0')).join('');
 async function ensureModel(){
   if(runtime)return;
+  if(modelReady)return modelReady;
   const acquired={};
   acquired.promise=new Promise((resolve,reject)=>{acquired.resolve=resolve;acquired.reject=reject});
   const lifetime={};
@@ -67,36 +72,67 @@ async function ensureModel(){
     if(!(runtime.HEAP32 instanceof Int32Array) ||
        (typeof SharedArrayBuffer!=='undefined' && runtime.HEAP32.buffer instanceof SharedArrayBuffer))
       throw Error('Expected the single-thread runtime');
-    allocation=runtime._malloc(RETAINED_BYTES);
-    if(!allocation)throw Error('Could not allocate retained WASM memory');
-    const heap=runtime.HEAP32,start=allocation/4,end=start+RETAINED_BYTES/4;
-    if(!Number.isSafeInteger(start)||start<0||end>heap.length)throw Error('Invalid WASM allocation');
-    for(let i=start;i<end;i+=1024)heap[i]=(i-start)&0x7fffffff;
+    if(FULL_MODEL){
+      const response=await fetch('/model.gguf',{cache:'no-store'});
+      if(!response.ok||Number(response.headers.get('Content-Length'))!==MODEL_BYTES)
+        throw Error('Invalid shared-custody model response');
+      const blob=await response.blob();
+      if(blob.size!==MODEL_BYTES)throw Error('Incomplete shared-custody model');
+      runtime.FS.mkdir('/models');
+      runtime.FS.mount(runtime.WORKERFS,{blobs:[{name:'model.gguf',data:blob}]},'/models');
+      try{
+        ctx=runtime.ccall('moss_web_load','number',['string','number'],['/models/model.gguf',1]);
+      }finally{
+        runtime.FS.unmount('/models');
+      }
+      if(!ctx)throw Error('SharedWorker could not load MOSS model');
+    }else{
+      allocation=runtime._malloc(RETAINED_BYTES);
+      if(!allocation)throw Error('Could not allocate retained WASM memory');
+      const heap=runtime.HEAP32,start=allocation/4,end=start+RETAINED_BYTES/4;
+      if(!Number.isSafeInteger(start)||start<0||end>heap.length)throw Error('Invalid WASM allocation');
+      for(let i=start;i<end;i+=1024)heap[i]=(i-start)&0x7fffffff;
+    }
     modelToken=token();modelLoads++;
     acquired.resolve();
     await lifetime.promise;
-    runtime._free(allocation);
-    allocation=0;
+    if(ctx){runtime._moss_transcribe_capi_free(ctx);ctx=0;}
+    if(allocation){runtime._free(allocation);allocation=0;}
     runtime=undefined;
   }).catch(error=>{
     acquired.reject(error);
     throw error;
   });
-  await acquired.promise;
+  const starting=acquired.promise;
+  modelReady=starting;
+  try{
+    await starting;
+  }catch(error){
+    if(modelReady===starting)modelReady=undefined;
+    throw error;
+  }
 }
 async function drain(){
-  if(active||!pending.length)return;
-  const port=pending.shift();
+  if(draining||active||!pending.length)return;
+  draining=true;
+  const port=pending[0];
   try {
     await ensureModel();
+    if(active||pending[0]!==port)return;
+    pending.shift();
   } catch(error) {
-    send(port,{type:'error',phase:'runtime-startup',message:String(error)});
+    const waiters=pending.splice(0);
+    for(const waiting of waiters)
+      send(waiting,{type:'error',phase:'runtime-startup',message:String(error)});
     return;
+  } finally {
+    draining=false;
   }
   const owner={port,last:performance.now(),nonce:0,release:undefined};
   active=owner;
   navigator.locks.request('moss-probe-inference',async()=>{
-    send(port,{type:'acquired',token:modelToken,loads:modelLoads,bytes:RETAINED_BYTES,
+    send(port,{type:'acquired',token:modelToken,loads:modelLoads,
+      bytes:FULL_MODEL?MODEL_BYTES:RETAINED_BYTES,fullModel:FULL_MODEL,
       abi:runtime._moss_web_abi_version(),engine:EXPECTED_ENGINE,
       worker:typeof Worker,locks:typeof navigator.locks?.request});
     await new Promise(resolve=>owner.release=resolve);
@@ -111,11 +147,52 @@ async function drain(){
   });
 }
 setInterval(()=>{
-  if(!active)return;
+  if(!active||active.busy)return;
   if(performance.now()-active.last>1200){active.release?.();return;}
   active.nonce=++serial;
   send(active.port,{type:'ping',nonce:active.nonce});
 },100);
+async function transcribe(port){
+  if(!FULL_MODEL||!ctx||active?.port!==port){
+    send(port,{type:'error',phase:'transcribe',message:'Real model is not owned by this port'});
+    return;
+  }
+  if(inferenceBusy){
+    send(port,{type:'error',phase:'transcribe',message:'Shared MOSS inference is already active'});
+    return;
+  }
+  inferenceBusy=true;active.busy=true;active.last=performance.now();
+  let pcmPtr=0,result=0;
+  try{
+    const response=await fetch('/speech.f32',{cache:'no-store'});
+    if(!response.ok)throw Error('Missing shared-custody PCM');
+    const bytes=await response.arrayBuffer(),pcm=new Float32Array(bytes);
+    if(!pcm.length||pcm.length>16000*64||pcm.some(value=>!Number.isFinite(value)))
+      throw Error('Invalid shared-custody PCM');
+    runtime._moss_web_begin(++operation);
+    pcmPtr=runtime._malloc(pcm.byteLength);
+    if(!pcmPtr)throw Error('Not enough shared MOSS memory');
+    const at=pcmPtr/4,heap=runtime.HEAPF32;
+    if(!Number.isSafeInteger(at)||at<0||at+pcm.length>heap.length)
+      throw Error('Invalid shared MOSS PCM allocation');
+    heap.set(pcm,at);
+    runtime.onMossOutput=()=>{};
+    result=runtime._moss_transcribe_capi_transcribe_pcm(ctx,pcmPtr,pcm.length,16000,2048);
+    if(!result)
+      throw Error(runtime.UTF8ToString(runtime._moss_transcribe_capi_last_error(ctx))||'Shared MOSS failed');
+    const value=runtime.UTF8ToString(result);
+    if(!value||value.length>1024*1024)throw Error('Invalid shared MOSS transcript');
+    send(port,{type:'transcript',value});
+  }catch(error){
+    send(port,{type:'error',phase:'transcribe',message:String(error)});
+  }finally{
+    runtime.onMossOutput=undefined;
+    if(pcmPtr)runtime._free(pcmPtr);
+    if(result)runtime._moss_transcribe_capi_free_string(result);
+    inferenceBusy=false;
+    if(active){active.busy=false;active.last=performance.now();}
+  }
+}
 onconnect=({ports:[port]})=>{
   ports.add(port);
   port.start();
@@ -129,6 +206,7 @@ onconnect=({ports:[port]})=>{
       pending.push(port);void drain();
     }
     if(data.type==='release'&&active?.port===port)active.release?.();
+    if(data.type==='transcribe')void transcribe(port);
     if(data.type==='shutdown'){
       if(active||pending.length){
         send(port,{type:'error',phase:'shutdown',message:'Ownership is still active'});
@@ -147,37 +225,82 @@ onconnect=({ports:[port]})=>{
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
+    model_path = None
+    pcm_path = None
+
+    def send_path(self, item, content_type):
+        size = item.stat().st_size
+        self.send_response(200)
+        self.send_header('Content-Type', content_type)
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Content-Length', str(size))
+        self.end_headers()
+        with item.open('rb') as source:
+            while True:
+                chunk = source.read(1024 * 1024)
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+
     def do_GET(self):
-        inline = {'/': ('text/html', PAGE), '/broker.js': ('text/javascript', BROKER)}
-        if self.path in inline:
-            content_type, data = inline[self.path]
-            body = data.encode()
-        elif self.path in {'/moss.mjs', '/moss.wasm'}:
+        if self.path == '/':
+            body = PAGE.encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html')
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path == '/broker.js':
+            body = BROKER.replace('__FULL_MODEL__', 'true' if self.model_path else 'false').encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/javascript')
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path in {'/moss.mjs', '/moss.wasm'}:
             item = MOSS / self.path[1:]
             if not item.is_file():
                 self.send_error(404)
                 return
-            content_type = 'text/javascript' if item.suffix == '.mjs' else 'application/wasm'
-            body = item.read_bytes()
-        else:
-            self.send_error(404)
+            self.send_path(item, 'text/javascript' if item.suffix == '.mjs' else 'application/wasm')
             return
-        self.send_response(200)
-        self.send_header('Content-Type', content_type)
-        self.send_header('Cache-Control', 'no-store')
-        self.send_header('Content-Length', str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        if self.path == '/model.gguf' and self.model_path:
+            self.send_path(self.model_path, 'application/octet-stream')
+            return
+        if self.path == '/speech.f32' and self.pcm_path:
+            self.send_path(self.pcm_path, 'application/octet-stream')
+            return
+        self.send_error(404)
 
     def log_message(self, *args):
         pass
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--model', type=Path)
+    parser.add_argument('--pcm', type=Path)
+    parser.add_argument('--output', type=Path,
+                        default=Path('test-results/media/shared-custody-probe.json'))
+    args = parser.parse_args()
+    if (args.model is None) != (args.pcm is None):
+        parser.error('--model and --pcm must be supplied together')
+    if args.model:
+        if args.model.stat().st_size != 648174592:
+            raise ValueError('Unexpected MOSS model size')
+        if args.pcm.stat().st_size <= 0 or args.pcm.stat().st_size > 16000 * 64 * 4:
+            raise ValueError('Invalid shared-custody PCM size')
+    Handler.model_path = args.model
+    Handler.pcm_path = args.pcm
+    full_model = args.model is not None
     result = []
     server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    out = Path('test-results/media/shared-custody-probe.json')
+    out = args.output
     out.parent.mkdir(parents=True, exist_ok=True)
     try:
         with sync_playwright() as p:
@@ -189,7 +312,7 @@ def main():
             peer = context.new_page()
             successor = context.new_page()
             for page in (owner, peer, successor):
-                page.set_default_timeout(15000)
+                page.set_default_timeout(5 * 60 * 1000 if full_model else 15000)
                 page.goto(f'http://127.0.0.1:{server.server_port}/')
                 page.wait_for_function("events.some(e=>e.type==='capabilities'||e.type==='error')")
             cdp = context.new_cdp_session(owner)
@@ -209,17 +332,38 @@ def main():
                 return grants[-1]
 
             try:
+                # Queue a successor before initial model startup finishes. Only one
+                # startup may run; the second port must remain queued for inference.
                 owner.evaluate('acquire()')
+                peer.evaluate('acquire()')
                 first = acquired(owner)
-                assert first['loads'] == 1 and first['bytes'] == 64 * 1024 * 1024, first
+                peer.wait_for_timeout(50)
+                assert not [event for event in events(peer) if event['type'] == 'acquired'], events(peer)
+                expected_bytes = 648174592 if full_model else 64 * 1024 * 1024
+                assert first['loads'] == 1 and first['bytes'] == expected_bytes, first
+                assert first['fullModel'] is full_model, first
                 assert first['abi'] == 1 and first['engine'].endswith('+manabi-web-v7'), first
                 result.append({
                     'name': 'SharedWorker directly owns one checked-in MOSS runtime allocation',
                     'passed': True, 'worker': first['worker'], 'token': first['token'],
-                    'abi': first['abi'], 'engine': first['engine']
+                    'abi': first['abi'], 'engine': first['engine'], 'fullModel': full_model
                 })
+                first_transcript = None
+                if full_model:
+                    owner.evaluate('transcribe()')
+                    owner.wait_for_function("events.some(e=>e.type==='transcript'||e.type==='error')")
+                    owner_seen = events(owner)
+                    errors = [event for event in owner_seen if event['type'] == 'error']
+                    assert not errors, json.dumps(owner_seen)
+                    first_transcript = [event['value'] for event in owner_seen
+                                        if event['type'] == 'transcript'][-1]
+                    result.append({
+                        'name': 'SharedWorker real MOSS inference succeeds before handoff',
+                        'passed': True,
+                        'transcriptSha256': hashlib.sha256(first_transcript.encode()).hexdigest(),
+                        'transcriptBytes': len(first_transcript.encode())
+                    })
 
-                peer.evaluate('acquire()')
                 peer.wait_for_function("events.some(e=>e.type==='capabilities')")
                 phase = 'freeze-event-handoff'
                 # CDP's headless lifecycle override does not dispatch a reliable
@@ -240,6 +384,20 @@ def main():
                     'name': 'freeze-event handoff lets a peer reuse the same MOSS runtime allocation',
                     'passed': True, 'loads': second['loads'], 'sameToken': True
                 })
+                if full_model:
+                    peer.evaluate('transcribe()')
+                    peer.wait_for_function("events.some(e=>e.type==='transcript'||e.type==='error')")
+                    peer_seen = events(peer)
+                    errors = [event for event in peer_seen if event['type'] == 'error']
+                    assert not errors, json.dumps(peer_seen)
+                    second_transcript = [event['value'] for event in peer_seen
+                                         if event['type'] == 'transcript'][-1]
+                    assert second_transcript == first_transcript
+                    result.append({
+                        'name': 'same loaded MOSS model transcribes identically after freeze handoff',
+                        'passed': True,
+                        'transcriptSha256': hashlib.sha256(second_transcript.encode()).hexdigest()
+                    })
 
                 phase = 'peer-release'
                 peer.evaluate('release()')

@@ -98,3 +98,26 @@ failure diagnosed and repaired. Natural Japanese/long-video quality, physical
 Safari/iOS, representative-device resources, frozen-owner recovery and live
 account/provider composition remain separate gates. No activation or merge is
 included in this review.
+
+## Integration with the newer parent d52b7579
+
+After publishing the eight-file repair as `77a043f3`, reconcile parent
+`d52b75799b0180576471d5adff36a8ea39d6295a` without discarding either side.
+Its source archive is artifact 10989409386 from Video run 36465995628, with ZIP
+SHA-256 `96f544d059181b854d2669ca95408d28c0692fbff4008479f07017522ac7cdbe`.
+Its actual tree is `e206d94be0433d7a793befc1fbb5e4c0f6b9fd38`.
+
+The integrated production media files are byte-identical to `77a043f3`: its
+queue/workspace already contain the parent's fixes with the newer-intent repair.
+The integration adds the parent's updated ASR inputs, SharedWorker probe and
+read-only qualification workflows. All parent pause-authority assertions remain;
+only an extra blank line in that test is formatted. No new inference result is
+claimed for the added natural-Japanese or SharedWorker real-model gates.
+
+The combined strict TypeScript/core suite passes **797 cases**, zero failures,
+cancellations or skips. The Python/tooling/native-helper suite passes **98 cases**.
+These totals supersede, rather than add to, the 796/96 source checkpoint above.
+The unchanged production files retain the local player79/workspace44/transition10
+results. Full dependency-installed and native-origin CI on this actual combined
+head remains required, including the unresolved genuine-handle crash. This is a
+branch integration only, not merging the PR into main or activating production.

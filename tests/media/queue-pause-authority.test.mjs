@@ -148,3 +148,57 @@ test('delayed source revocation cannot abort a successor owner with the same job
       await queue.dispose();
     }
   }));
+
+test('queued admission that becomes active while revocation is scanning is still paused', () =>
+  withStore('pause-claim-transition-', async (store) => {
+    const started = deferred();
+    let calls = 0;
+    const queue = new TranscriptionQueue(
+      store,
+      'guest',
+      {
+        async prepare() {},
+        async transcribe(_pcm, signal) {
+          calls++;
+          started.resolve();
+          return await new Promise((_, reject) => {
+            if (signal.aborted) reject(signal.reason);
+            else signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+          });
+        },
+        dispose() {}
+      },
+      async (_job, start, end) => new Float32Array(Math.ceil((end - start) * 16000)).fill(0.1)
+    );
+    const realKick = queue.kick.bind(queue);
+    queue.kick = () => {};
+    try {
+      const job = await queue.enqueue(key, 'ja', '1', 2);
+      const gate = deferred();
+      const original = store.listLocal.bind(store);
+      let scans = 0;
+      store.listLocal = async (...args) => {
+        scans++;
+        if (scans === 1) await gate.promise;
+        return original(...args);
+      };
+
+      const pausing = queue.pauseForMedia(key);
+      await until(() => scans === 1);
+      queue.kick = realKick;
+      realKick();
+      await started.promise;
+      gate.resolve();
+
+      assert.deepEqual(await pausing, [job.id]);
+      await until(async () => (await store.local('guest', 'jobs', job.id))?.status === 'paused');
+      const saved = await store.local('guest', 'jobs', job.id);
+      assert.equal(saved.pauseReason, 'switch');
+      assert.equal(saved.nextWindow, 0);
+      assert.equal(calls, 1);
+      assert.equal((await store.tracks('guest', key)).length, 0);
+    } finally {
+      queue.kick = realKick;
+      await queue.dispose();
+    }
+  }));
