@@ -163,9 +163,14 @@ jobs:
         if: ${{ !cancelled() && steps.identity.outcome == 'success' }}
         run: |
           mkdir -p .cache/media-fixtures/natural-ja-kokoro
-          curl --fail --location --retry 3 \
-            'https://raw.githubusercontent.com/kaiidams/Kokoro-Speech-Dataset/0c03174b9d7d90aa1da03a21dba93eb6059278f6/kokoro-by-soseki-natsume-02359.wav' \
-            --output .cache/media-fixtures/natural-ja-kokoro/speech.wav
+          rm -rf "$RUNNER_TEMP/kokoro-source"
+          git init -q "$RUNNER_TEMP/kokoro-source"
+          git -C "$RUNNER_TEMP/kokoro-source" fetch --quiet --depth=1 \
+            https://github.com/kaiidams/Kokoro-Speech-Dataset.git \
+            0c03174b9d7d90aa1da03a21dba93eb6059278f6
+          git -C "$RUNNER_TEMP/kokoro-source" show \
+            FETCH_HEAD:kokoro-by-soseki-natsume-02359.wav \
+            > .cache/media-fixtures/natural-ja-kokoro/speech.wav
           python tests/media/asr.py --fixture .cache/media-fixtures/natural-ja-kokoro \
             --kokoro-japanese --language ja --threaded --max-cer 0.35 \
             --output test-results/media-packaged/asr-natural-ja-kokoro.json \
