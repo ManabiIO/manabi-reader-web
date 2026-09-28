@@ -240,7 +240,9 @@ export async function start(input) {
       );
       check(three.length > 0, 'Successor decoder returned empty PCM');
       check(cacheCreates === 2, 'Successor owner inherited the previous decoder session');
-      nativeChecks.push('real encoded decoder session reused within one owner and fenced at successor');
+      nativeChecks.push(
+        'real encoded decoder session reused within one owner and fenced at successor'
+      );
     } finally {
       cache.dispose();
     }
