@@ -110,6 +110,7 @@ export class BrowserStorageHandler extends BaseStorageHandler {
         id,
         lastBookOpen || 0,
         scope.profileId,
+        scope.assertCurrent,
         scope.signal
       );
       scope.assertCurrent();
@@ -533,19 +534,37 @@ export class BrowserStorageHandler extends BaseStorageHandler {
 
   /** The personal Library selects books by ID; titles are not unique. */
   async deleteBookIds(bookIds: number[], cancelSignal: AbortSignal, keepLocalStatistics: boolean) {
-    const db = await database.db;
-    const idToTitle = new Map<number, string>();
-    for (const id of bookIds) {
-      const book = await db.get('data', id);
-      if (book) idToTitle.set(id, book.title);
+    const scope = captureLibraryOperation();
+    try {
+      scope.assertCurrent();
+      const db = await database.db;
+      const idToTitle = new Map<number, string>();
+      for (const id of bookIds) {
+        scope.assertCurrent();
+        cancelSignal.throwIfAborted();
+        const book = await db.get('data', id);
+        if (book?.libraryOwner && book.libraryOwner !== scope.profileId)
+          throw new Error('This book belongs to another account.');
+        if (book) idToTitle.set(id, book.title);
+      }
+      const { error, deleted } = await database
+        .deleteData(
+          [...idToTitle.keys()],
+          idToTitle,
+          cancelSignal,
+          keepLocalStatistics,
+          scope.profileId,
+          scope.assertCurrent
+        )
+        .catch((caught: Error) => ({ error: caught.message, deleted: [] }));
+      scope.assertCurrent();
+      if (deleted.length) {
+        this.clearData();
+        database.dataListChanged$.next(this);
+      }
+      return { error, deleted };
+    } finally {
+      scope.stop();
     }
-    const { error, deleted } = await database
-      .deleteData([...idToTitle.keys()], idToTitle, cancelSignal, keepLocalStatistics)
-      .catch((caught: Error) => ({ error: caught.message, deleted: [] }));
-    if (deleted.length) {
-      this.clearData();
-      database.dataListChanged$.next(this);
-    }
-    return { error, deleted };
   }
 }
