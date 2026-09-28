@@ -550,6 +550,7 @@ export class DatabaseService {
       | 'subtitle'
       | 'handle'
       | 'readerSearchProjection'
+      | 'readerBookScope'
       | 'readerStatistic'
       | 'readerLocalIdentity'
     )[] = [
@@ -558,6 +559,7 @@ export class DatabaseService {
       'subtitle',
       'handle',
       'readerSearchProjection',
+      'readerBookScope',
       'bookmark',
       'lastItem'
     ];
@@ -583,6 +585,10 @@ export class DatabaseService {
           removedLastItem = true;
         }
         await tx.objectStore('bookmark').delete(dataId);
+        // Personal sync records are content/account keyed and may outlive the
+        // cached copy. The numeric book ownership row cannot: once this dataId
+        // is gone it must not survive as an orphaned authorization artifact.
+        await tx.objectStore('readerBookScope').delete(dataId);
 
         if (shouldDeleteStatistics && book) {
           const keys = new Set<string>();
