@@ -167,6 +167,12 @@ export async function addLocalLibrary(): Promise<LocalLibrary | null> {
 }
 const localLibraryLock = <T>(id: string, work: () => Promise<T>) =>
   exclusive(`local-library-source:${id}`, work);
+async function sameLocalHandle(
+  left: FileSystemDirectoryHandle,
+  right: FileSystemDirectoryHandle
+) {
+  return left === right || (await left.isSameEntry(right));
+}
 export async function reconnectLocalLibrary(library: LocalLibrary, write = false) {
   const selected = { ...library };
   const mode = write ? 'readwrite' : 'read';
@@ -175,10 +181,15 @@ export async function reconnectLocalLibrary(library: LocalLibrary, write = false
     throw new IntegrationError('permission_required');
   const writable = await localLibraryLock(selected.id, async () => {
     const db = await integrationDB();
+    const admitted = await db.get('localLibraries', selected.id);
+    // A permission grant is for this exact directory entry, not merely a reused ID.
+    if (!admitted || !(await sameLocalHandle(admitted.handle, selected.handle)))
+      throw new IntegrationError('not_found');
     const tx = db.transaction('localLibraries', 'readwrite');
     return commitTransaction(tx, async () => {
       const current = await tx.store.get(selected.id);
-      // A late permission result is not permission to recreate a disconnected source.
+      // The source lock prevents supported disconnect/reconnect changes between
+      // the handle check and this transaction.
       if (!current) throw new IntegrationError('not_found');
       const next = { ...current, writable: write || current.writable };
       await tx.store.put(next);
@@ -235,7 +246,8 @@ export class LocalLibrarySource implements LibrarySource {
   ): Promise<T> {
     return localLibraryLock(this.id, async () => {
       const current = await (await integrationDB()).get('localLibraries', this.id);
-      if (!current) throw new IntegrationError('not_found');
+      if (!current || !(await sameLocalHandle(current.handle, this.library.handle)))
+        throw new IntegrationError('not_found');
       if (
         (write && !current.writable) ||
         (await current.handle.queryPermission({ mode: write ? 'readwrite' : 'read' })) !== 'granted'
