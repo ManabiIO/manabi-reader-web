@@ -31,6 +31,7 @@ import {
   SPARSE_CONTEXT_SECONDS
 } from './sparse-transcription.js';
 import { cueDigest } from './captions.js';
+import { temporaryTrackReplacements } from './authored-track.js';
 import { TrackCatalog } from './track-catalog.js';
 import { type ByteSource } from './sources.js';
 import { MediaStore } from './store.js';
@@ -412,6 +413,9 @@ export class VideoPlayer {
     this.video.addEventListener(
       'play',
       () => {
+        // play is queued: a later caption wait/pause can win before dispatch.
+        // That obsolete event is not a fresh native-control bypass request.
+        if (this.video.paused) return;
         // Native video controls also let the viewer bypass a caption wait.
         if (this.waitForCaptions) {
           this.followGeneratedCaptions = false;
@@ -850,32 +854,26 @@ export class VideoPlayer {
     if (this.closed) return;
     const wasDraft =
       this.localDraftIds.has(this.primary.value) && !this.publishedIds.has(this.primary.value);
-    const previous = this.temporaryTracks.find((track) => track.id === this.primary.value);
+    const replacements = temporaryTrackReplacements(this.temporaryTracks, tracks, this.key);
     let remapped = false;
-    if (previous) {
-      const replacement = tracks.find(
-        (track) =>
-          track.origin === previous.origin &&
-          track.label === previous.label &&
-          cueDigest(track.cues) === cueDigest(previous.cues)
-      );
-      if (replacement) {
+    for (const picker of [this.primary, this.secondary]) {
+      const replacement = replacements.get(picker.value);
+      if (replacement && replacement !== picker.value) {
         const waiting = element('option');
-        waiting.value = replacement.id;
-        this.primary.append(waiting);
-        this.primary.value = replacement.id;
+        waiting.value = replacement;
+        picker.append(waiting);
+        picker.value = replacement;
         remapped = true;
       }
     }
-    this.temporaryTracks = this.temporaryTracks.filter(
-      (temporary) =>
-        !tracks.some(
-          (track) =>
-            track.origin === temporary.origin &&
-            track.label === temporary.label &&
-            cueDigest(track.cues) === cueDigest(temporary.cues)
-        )
-    );
+    for (const [temporary, published] of replacements) {
+      if (temporary === published) continue;
+      if (Object.hasOwn(this.delays, temporary)) {
+        this.delays[published] = this.delays[temporary];
+        delete this.delays[temporary];
+      }
+    }
+    this.temporaryTracks = this.temporaryTracks.filter((track) => !replacements.has(track.id));
     this.publishedTracks = [...tracks, ...this.temporaryTracks];
     for (const track of tracks) if (track.complete) this.publishedIds.add(track.id);
     this.applyTracks();
@@ -890,12 +888,11 @@ export class VideoPlayer {
   setTemporaryTracks(tracks: Track[]) {
     if (this.closed) return;
     const oldIds = new Set(this.temporaryTracks.map((track) => track.id));
+    const published = this.publishedTracks.filter((track) => !oldIds.has(track.id));
     this.temporaryTracks = tracks;
-    this.publishedTracks = [
-      ...this.publishedTracks.filter((track) => !oldIds.has(track.id)),
-      ...tracks
-    ];
-    this.applyTracks();
+    // A later discovery result may repeat an earlier temporary item whose saved
+    // version is already visible. Do not resurrect its old UUID/duplicate row.
+    this.setTracks(published);
   }
   generationProgress(job: Job, stage?: string) {
     if (this.closed || this.generationKey !== jobContentKey(job)) return;

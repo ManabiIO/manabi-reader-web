@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 
+import { authoredTrackIdentity } from './authored-track.js';
 import { assertSparseRepairTiming } from './sparse-transcription.js';
 import {
   validateJob,
@@ -561,7 +562,8 @@ export class MediaStore {
     if (!snapshot.complete || (snapshot.origin !== 'embedded' && snapshot.origin !== 'sidecar'))
       throw new Error('Only complete authored captions can be imported');
     const pieces = splitTrack(snapshot),
-      wanted = pieces.at(-1)!.payload;
+      wanted = pieces.at(-1)!.payload,
+      identity = authoredTrackIdentity(snapshot, wanted.digest as string);
     await this.tx<void>(
       'records',
       'readwrite',
@@ -579,10 +581,7 @@ export class MediaStore {
               if (
                 row.payload.digest === wanted.digest &&
                 row.payload.count === wanted.count &&
-                metadata.origin === snapshot.origin &&
-                metadata.kind === snapshot.kind &&
-                metadata.language === snapshot.language &&
-                metadata.forced === snapshot.forced
+                authoredTrackIdentity(metadata, row.payload.digest as string) === identity
               )
                 candidates.push(row);
             }

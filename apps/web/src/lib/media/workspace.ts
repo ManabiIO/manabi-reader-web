@@ -443,7 +443,9 @@ export class VideoWorkspace {
     this.openAbort?.abort();
     const controller = (this.openAbort = new AbortController()),
       signal = controller.signal;
-    this.player?.video.pause();
+    const outgoingPlayer = this.player;
+    outgoingPlayer?.video.pause();
+    const openingCurrent = () => !this.closed && generation === this.generation && !signal.aborted;
     const outgoing = this.current;
     const sameSourceHash =
       outgoing?.source === source ? this.localHashes.get(outgoing.key) : undefined;
@@ -452,19 +454,21 @@ export class VideoWorkspace {
     if (!expected) sameSourceHash?.controller.abort();
     if (outgoing && outgoing.source !== source && outgoing.key !== expected) {
       // Keep accepted windows, but free inference for the newly opened video.
-      for (const id of await this.queue.pauseSparseForMedia(outgoing.key))
+      for (const id of await this.queue.pauseSparseForMedia(outgoing.key, openingCurrent))
         this.switchPaused.add(id);
       const pendingHash = this.localHashes.get(outgoing.key);
-      if (pendingHash && !pendingHash.requested) pendingHash.controller.abort();
+      if (openingCurrent() && pendingHash && !pendingHash.requested) pendingHash.controller.abort();
     }
-    await this.player?.dispose();
-    if (this.closed || generation !== this.generation) return;
+    // Retire the captured outgoing player, never a successor installed while
+    // this opening was awaiting its queue pause/checkpoint.
+    await outgoingPlayer?.dispose();
+    if (!openingCurrent()) return;
     this.current = undefined;
     this.currentTranscription = undefined;
     this.audioChoices = [];
     this.audio.replaceChildren();
     this.audio.disabled = true;
-    const active = () => !this.closed && generation === this.generation && !signal.aborted;
+    const active = openingCurrent;
     const guard = () => {
       if (!active()) throw new DOMException('Video opening was replaced', 'AbortError');
       if (source.isCurrent && !source.isCurrent()) throw new Error('Account changed');
