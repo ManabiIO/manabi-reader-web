@@ -50,7 +50,7 @@ export class PitchController {
   setAudio(audio?: HTMLAudioElement) {
     if (this.disposed || audio === this.audio) return;
     this.stopWork();
-    this.listeners.forEach(remove => remove());
+    this.listeners.forEach((remove) => remove());
     this.listeners = [];
     this.source?.disconnect();
     this.source = undefined;
@@ -65,20 +65,34 @@ export class PitchController {
       listen('play', () => {
         if (this.source && this.context) {
           const context = this.context;
-          void context.resume().then(() => {
-            if (!this.disposed && this.audio === audio) this.schedule();
-          }).catch(() => {
-            if (!this.disposed && this.audio === audio && this.context === context)
-              this.fail('Audio processing could not resume. Retry pitch or reopen the audio file.');
-          });
+          void context
+            .resume()
+            .then(() => {
+              if (!this.disposed && this.audio === audio) this.schedule();
+            })
+            .catch(() => {
+              if (!this.disposed && this.audio === audio && this.context === context)
+                this.fail(
+                  'Audio processing could not resume. Retry pitch or reopen the audio file.'
+                );
+            });
         }
         this.schedule();
       });
-      listen('pause', () => { this.epoch++; this.cancelFrame(); });
+      listen('pause', () => {
+        this.epoch++;
+        this.cancelFrame();
+      });
       listen('ended', () => this.cancelFrame());
-      listen('seeking', () => { this.reset(); this.cancelFrame(); });
+      listen('seeking', () => {
+        this.reset();
+        this.cancelFrame();
+      });
       listen('seeked', () => this.schedule());
-      listen('ratechange', () => { this.reset(); this.schedule(); });
+      listen('ratechange', () => {
+        this.reset();
+        this.schedule();
+      });
     }
     if (this.state.enabled && this.visible) this.start();
   }
@@ -96,7 +110,9 @@ export class PitchController {
     this.reset();
     if (visible && this.state.enabled) this.start();
   }
-  retry() { if (this.state.enabled) this.setEnabled(true); }
+  retry() {
+    if (this.state.enabled) this.setEnabled(true);
+  }
   private reset() {
     this.epoch++;
     this.pending = undefined;
@@ -109,13 +125,16 @@ export class PitchController {
   private start() {
     if (this.disposed || !this.state.enabled || !this.visible || this.worker) return;
     const audio = this.audio;
-    if (!audio) { this.publish({ status: 'ready', message: 'Choose an audio file to see pitch.' }); return; }
+    if (!audio) {
+      this.publish({ status: 'ready', message: 'Choose an audio file to see pitch.' });
+      return;
+    }
     const generation = this.generation;
     const current = () => !this.disposed && generation === this.generation && this.audio === audio;
     this.publish({ status: 'loading', message: 'Loading pitch visualization…' });
     try {
       // resume() is invoked in the toggle's user gesture, before any download.
-      const context = this.context ??= this.environment.createContext();
+      const context = (this.context ??= this.environment.createContext());
       const resumed = context.resume();
       // Observe rejection even if Worker construction throws synchronously.
       void resumed.catch(() => {});
@@ -139,69 +158,136 @@ export class PitchController {
           this.loadTimer = undefined;
           this.publish({ status: 'ready', message: '' });
           this.schedule();
-        } catch { this.fail('Pitch visualization is unavailable. Reopen the audio file if playback is affected.'); }
+        } catch {
+          this.fail(
+            'Pitch visualization is unavailable. Reopen the audio file if playback is affected.'
+          );
+        }
       };
       worker.onmessage = (event: MessageEvent) => {
         if (!current()) return;
         if (event.data?.type === 'ready') {
-          if (!this.workerReady) { this.workerReady = true; begin(); }
+          if (!this.workerReady) {
+            this.workerReady = true;
+            begin();
+          }
         } else if (event.data?.type === 'result' && event.data.id === this.pending?.id) {
           const pending = this.pending!;
           this.pending = undefined;
           if (this.replyTimer !== undefined) this.environment.clearTimer(this.replyTimer);
           this.replyTimer = undefined;
           const result = event.data.result as Measurement;
-          if (!result || !Number.isFinite(result.amplitude) || result.amplitude < 0 ||
-              (result.hz !== null && (!Number.isFinite(result.hz) || result.hz < 85 || result.hz > 520))) {
-            this.fail('Pitch analysis returned invalid data. Retry to reload it.'); return;
+          if (
+            !result ||
+            !Number.isFinite(result.amplitude) ||
+            result.amplitude < 0 ||
+            (result.hz !== null &&
+              (!Number.isFinite(result.hz) || result.hz < 85 || result.hz > 520))
+          ) {
+            this.fail('Pitch analysis returned invalid data. Retry to reload it.');
+            return;
           }
-          this.publish({ points: appendPoint(this.state.points, {
-            time: pending.time, hz: result.hz, amplitude: result.amplitude
-          }), time: audio.currentTime });
+          this.publish({
+            points: appendPoint(this.state.points, {
+              time: pending.time,
+              hz: result.hz,
+              amplitude: result.amplitude
+            }),
+            time: audio.currentTime
+          });
         }
       };
-      worker.onerror = () => { if (current()) this.fail('Pitch analysis could not load or run. Check your connection and retry.'); };
-      worker.onmessageerror = () => { if (current()) this.fail('Pitch analysis could not communicate. Retry to reload it.'); };
+      worker.onerror = () => {
+        if (current())
+          this.fail('Pitch analysis could not load or run. Check your connection and retry.');
+      };
+      worker.onmessageerror = () => {
+        if (current()) this.fail('Pitch analysis could not communicate. Retry to reload it.');
+      };
       this.loadTimer = this.environment.setTimer(() => {
-        if (current()) this.fail('Pitch visualization took too long to load. Check your connection and retry.');
+        if (current())
+          this.fail('Pitch visualization took too long to load. Check your connection and retry.');
       }, 15000);
-      void resumed.then(() => {
-        if (!current()) return;
-        if (context.state !== 'running') { this.fail('Press Retry to allow audio analysis in this browser.'); return; }
-        contextReady = true;
-        begin();
-      }).catch(() => { if (current()) this.fail('Press Retry to allow audio analysis in this browser.'); });
-    } catch { this.fail('Voice pitch requires browser Web Audio and worker support.'); }
+      void resumed
+        .then(() => {
+          if (!current()) return;
+          if (context.state !== 'running') {
+            this.fail('Press Retry to allow audio analysis in this browser.');
+            return;
+          }
+          contextReady = true;
+          begin();
+        })
+        .catch(() => {
+          if (current()) this.fail('Press Retry to allow audio analysis in this browser.');
+        });
+    } catch {
+      this.fail('Voice pitch requires browser Web Audio and worker support.');
+    }
   }
   private schedule() {
-    if (this.disposed || this.frame !== undefined || !this.visible || !this.state.enabled ||
-        this.state.status !== 'ready' || !this.analyser || !this.worker || !this.audio ||
-        this.audio.paused || this.audio.ended || this.audio.seeking) return;
+    if (
+      this.disposed ||
+      this.frame !== undefined ||
+      !this.visible ||
+      !this.state.enabled ||
+      this.state.status !== 'ready' ||
+      !this.analyser ||
+      !this.worker ||
+      !this.audio ||
+      this.audio.paused ||
+      this.audio.ended ||
+      this.audio.seeking
+    )
+      return;
     const generation = this.generation;
     const frameGeneration = this.frameGeneration;
-    this.frame = this.environment.requestFrame(now => {
-      if (generation !== this.generation || frameGeneration !== this.frameGeneration || this.disposed) return;
+    this.frame = this.environment.requestFrame((now) => {
+      if (
+        generation !== this.generation ||
+        frameGeneration !== this.frameGeneration ||
+        this.disposed
+      )
+        return;
       this.frame = undefined;
       const audio = this.audio!;
       const context = this.context!;
       if (context.state !== 'running') {
-        this.fail('Audio analysis was interrupted. Press Retry to resume it.'); return;
+        this.fail('Audio analysis was interrupted. Press Retry to resume it.');
+        return;
       }
-      if (!audio.paused && !audio.seeking && !this.pending && now - this.lastSample >= 40 && audio.currentTime !== this.lastAudioTime) {
+      if (
+        !audio.paused &&
+        !audio.seeking &&
+        !this.pending &&
+        now - this.lastSample >= 40 &&
+        audio.currentTime !== this.lastAudioTime
+      ) {
         this.lastSample = now;
         this.lastAudioTime = audio.currentTime;
         try {
           this.analyser!.getFloatTimeDomainData(this.samples!);
           const count = Math.ceil(context.sampleRate * 0.04);
           const samples = this.samples!.slice(-count);
-          const time = Math.max(0, audio.currentTime - samples.length / context.sampleRate * audio.playbackRate / 2);
+          const time = Math.max(
+            0,
+            audio.currentTime - ((samples.length / context.sampleRate) * audio.playbackRate) / 2
+          );
           const id = ++this.sequence;
           this.pending = { id, time };
-          this.worker!.postMessage({ samples, rate: context.sampleRate, id, epoch: this.epoch }, [samples.buffer]);
+          this.worker!.postMessage({ samples, rate: context.sampleRate, id, epoch: this.epoch }, [
+            samples.buffer
+          ]);
           this.replyTimer = this.environment.setTimer(() => {
-            if (this.pending?.id === id) this.fail('Pitch analysis stopped responding. Retry to restart it.');
+            if (this.pending?.id === id)
+              this.fail('Pitch analysis stopped responding. Retry to restart it.');
           }, 5000);
-        } catch { this.fail('Pitch analysis could not read this audio. Playback controls remain available.'); return; }
+        } catch {
+          this.fail(
+            'Pitch analysis could not read this audio. Playback controls remain available.'
+          );
+          return;
+        }
       }
       this.schedule();
     });
@@ -238,7 +324,7 @@ export class PitchController {
     if (this.disposed) return;
     this.disposed = true;
     this.stopWork();
-    this.listeners.forEach(remove => remove());
+    this.listeners.forEach((remove) => remove());
     this.listeners = [];
     this.source?.disconnect();
     this.source = undefined;

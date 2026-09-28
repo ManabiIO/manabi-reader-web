@@ -9,4 +9,11 @@ const lazyAssets = build.filter((path) => /\/voice-pitch\.worker-[^/]+\.js$/.tes
 
 // eslint-disable-next-line no-restricted-globals
 const worker = self as unknown as ServiceWorkerGlobalScope;
-registerReaderServiceWorker(worker, { build, files, prerendered, version, userFontsCacheName, lazyAssets });
+registerReaderServiceWorker(worker, {
+  build,
+  files,
+  prerendered,
+  version,
+  userFontsCacheName,
+  lazyAssets
+});
