@@ -173,6 +173,88 @@ def main():
             """)
             assert 'Web Locks' in result['message'] and result['jobs']==0,result
         case('browsers without Web Locks cannot admit concurrent model inference',no_web_locks)
+        def connection_revocation_pauses_cloud_work():
+            page.evaluate('reset({account:true})')
+            page.evaluate("""()=>{
+                window.cloudValid=true;
+                const bytes=fixtures[0];
+                window.cloudSourceDouble={
+                    name:'Connected.mp4',size:bytes.length,version:'a'.repeat(64),
+                    cloud:{connectionId:'00000000-0000-4000-8000-000000000001',root:'root',id:'video'},
+                    isCurrent(){return cloudValid},
+                    async read(start,end,signal){signal.throwIfAborted();return bytes.slice(start,end)},
+                    playback(){
+                        const url=URL.createObjectURL(new Blob([bytes],{type:'video/mp4'}));
+                        return {url,release:()=>URL.revokeObjectURL(url)};
+                    }
+                };
+            }""")
+            page.evaluate("workspace.openSource(cloudSourceDouble)")
+            page.wait_for_function('workspace.current?.source===cloudSourceDouble')
+            page.evaluate("""async()=>{
+                window.cloudKey=workspace.current.key;
+                const q=workspace.queue;
+                window.cloudDecodeStarted=false;window.cloudDecodeAborted=false;
+                q.decode=async(_job,_start,_end,signal)=>{
+                    cloudDecodeStarted=true;
+                    return await new Promise((_,reject)=>{
+                        const stop=()=>{cloudDecodeAborted=true;reject(signal.reason)};
+                        if(signal.aborted)stop();
+                        else signal.addEventListener('abort',stop,{once:true});
+                    });
+                };
+                window.cloudJob=await q.enqueue(cloudKey,'ja','2',20);
+            }""")
+            wait_for_async(page, "() => cloudDecodeStarted && store.local('account:test','jobs',cloudJob.id).then(j=>j?.status==='running')")
+            page.evaluate("cloudValid=false;workspace.setConnection(undefined)")
+            wait_for_async(page, "() => store.local('account:test','jobs',cloudJob.id).then(j=>j?.status==='paused')")
+            result=page.evaluate("""async()=>({
+                aborted:cloudDecodeAborted,
+                current:workspace.current,
+                player:workspace.player,
+                cached:workspace.sources.has(cloudKey),
+                sourceRows:[...workspace.sources.values()].filter(source=>source.cloud).length,
+                prepares,inferences,
+                viewing:document.querySelector('.manabi-video-player')!==null,
+                job:await store.local('account:test','jobs',cloudJob.id)
+            })""")
+            assert result['aborted'] is True,result
+            assert result['current'] is None and result['player'] is None,result
+            assert result['cached'] is False and result['sourceRows']==0,result
+            assert result['prepares']==0 and result['inferences']==0,result
+            assert result['viewing'] is False,result
+            assert result['job']['status']=='paused' and result['job']['pauseReason']=='switch',result
+        case('connection revocation evicts cloud media and pauses progressive work',connection_revocation_pauses_cloud_work)
+        def connection_revocation_detaches_pending_reconnect():
+            page.evaluate('reset({account:true})')
+            page.evaluate("""async()=>{
+                window.savedCloudKey=syntheticKey('c');
+                await store.putLocal('account:test','aliases',savedCloudKey,{
+                    key:savedCloudKey,name:'Saved cloud.mp4',
+                    cloud:{connectionId:'00000000-0000-4000-8000-000000000002',root:'root',id:'saved'}
+                });
+                window.cloudRequestStarted=false;window.cloudRequestRelease=undefined;
+                const hanging={
+                    userId:'test',isCurrent:()=>true,
+                    request:()=>{cloudRequestStarted=true;return new Promise(resolve=>cloudRequestRelease=resolve)}
+                };
+                workspace.setConnection({transport:hanging,chooseConnected:async()=>{}});
+                window.reopenState='pending';
+                window.pendingCloudReopen=workspace.reopen(savedCloudKey).then(
+                    ()=>reopenState='resolved',
+                    error=>reopenState=error?.name||String(error)
+                );
+            }""")
+            page.wait_for_function('cloudRequestStarted')
+            page.evaluate('workspace.setConnection(undefined)')
+            page.wait_for_function("reopenState!=='pending'")
+            result=page.evaluate("()=>({state:reopenState,cached:workspace.sources.has(savedCloudKey),current:workspace.current})")
+            assert result['state']=='AbortError',result
+            assert result['cached'] is False and result['current'] is None,result
+            page.evaluate("cloudRequestRelease({late:true})")
+            page.evaluate("pendingCloudReopen")
+            assert page.evaluate('workspace.sources.has(savedCloudKey)') is False
+        case('connection revocation detaches a stalled cloud reconnect and ignores its late result',connection_revocation_detaches_pending_reconnect)
         def explicit_cancel_overrides_switch():
             page.evaluate('reset()')
             page.evaluate("workspace.openSource(makeSource('First.mp4'))")

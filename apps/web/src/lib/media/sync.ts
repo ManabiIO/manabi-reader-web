@@ -7,6 +7,7 @@
 import { kinds, remote, type Replica } from './replica.js';
 import { type Scope } from './contracts.js';
 import { MediaStore } from './store.js';
+import { abortable } from './abort.js';
 export interface SyncTransport {
   userId: string;
   isCurrent(): boolean;
@@ -45,11 +46,13 @@ export async function syncMedia(
     for (let pages = 0; ; pages++) {
       guard();
       if (pages > 10000) throw new Error('Sync feed is unexpectedly large');
-      const feed = await transport.request<{
-        items: unknown[];
-        next_cursor: number;
-        has_more: boolean;
-      }>(`personal/changes/?cursor=${cursor}&limit=3`, { userId: transport.userId });
+      const feed = await abortable(signal, () =>
+        transport.request<{
+          items: unknown[];
+          next_cursor: number;
+          has_more: boolean;
+        }>(`personal/changes/?cursor=${cursor}&limit=3`, { userId: transport.userId })
+      );
       guard();
       if (
         !feed ||
@@ -94,15 +97,17 @@ export async function syncMedia(
       if (!r.pending) continue;
       guard();
       try {
-        const response = await transport.request<{
-          accepted: boolean;
-          mutation_id: string;
-          record: unknown;
-        }>('personal/mutations/', {
-          method: 'POST',
-          value: r.pending.request,
-          userId: transport.userId
-        });
+        const response = await abortable(signal, () =>
+          transport.request<{
+            accepted: boolean;
+            mutation_id: string;
+            record: unknown;
+          }>('personal/mutations/', {
+            method: 'POST',
+            value: r.pending.request,
+            userId: transport.userId
+          })
+        );
         guard();
         if (response.accepted !== true || response.mutation_id !== r.pending.request.mutation_id)
           throw new Error('Invalid sync acknowledgement');

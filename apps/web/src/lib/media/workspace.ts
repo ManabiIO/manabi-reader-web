@@ -1148,38 +1148,64 @@ export class VideoWorkspace {
   ): Promise<ByteSource> {
     signal.throwIfAborted();
     const available = this.sources.get(key);
-    if (available && (!available.isCurrent || available.isCurrent())) return available;
+    if (available) {
+      try {
+        if (!available.isCurrent || available.isCurrent()) return available;
+      } catch (error) {
+        if (available.cloud) this.sources.delete(key);
+        throw error;
+      }
+      if (available.cloud) this.sources.delete(key);
+    }
     const alias = await abortable(signal, () =>
       this.store.local<Alias>(this.options.scope, 'aliases', key)
     );
     signal.throwIfAborted();
-    let source: ByteSource | undefined;
-    if (alias?.handle) source = localSource(await abortable(signal, () => alias.handle!.getFile()));
-    else if (alias?.cloud && this.options.transport) {
+    if (alias?.cloud) {
       const transport = this.options.transport;
-      const manifest = await cloudRequest<CloudManifest>(
-        transport,
-        cloudInfoPath(alias.cloud),
-        signal
-      );
-      source = cloudSource(manifest, transport.userId, transport.isCurrent);
+      if (!transport)
+        throw new Error(
+          'Reopen this video to reconnect its local file, or sign in to reconnect its cloud folder.'
+        );
+      // Account/profile transitions abort this scope even if the underlying
+      // transport promise ignores cancellation. A late result cannot cache a
+      // source from the retired connection.
+      return await inAbortScope([signal, this.cloudAbort.signal], async (operation) => {
+        const manifest = await cloudRequest<CloudManifest>(
+          transport,
+          cloudInfoPath(alias.cloud),
+          operation
+        );
+        operation.throwIfAborted();
+        const source = cloudSource(manifest, transport.userId, transport.isCurrent);
+        // A saved locator grants no authority and is not content identity. The
+        // server rechecks the selected root; bytes must match before attachment.
+        if ((await identify(source, operation)) !== key)
+          throw new Error(
+            'A video file changed. Reopen it before generating captions. Its previous progress was kept.'
+          );
+        operation.throwIfAborted();
+        if (!transport.isCurrent() || (source.isCurrent && !source.isCurrent()))
+          throw new Error('Account changed');
+        if (forOpen) this.verifiedCloudOpen.set(source, key);
+        this.sources.set(key, source);
+        return source;
+      });
     }
-    if (!source)
-      throw new Error(
-        'Reopen this video to reconnect its local file, or sign in to reconnect its cloud folder.'
-      );
-    // A saved locator grants no authority and is not content identity. The server
-    // rechecks the selected root; byte verification must match before attaching data.
-    if ((await abortable(signal, () => identify(source!, signal))) !== key)
-      throw new Error(
-        'A video file changed. Reopen it before generating captions. Its previous progress was kept.'
-      );
-    signal.throwIfAborted();
-    if (source.isCurrent && !source.isCurrent()) throw new Error('Account changed');
-    if (source.file) this.verifiedSources.set(source, key);
-    else if (source.cloud && forOpen) this.verifiedCloudOpen.set(source, key);
-    this.sources.set(key, source);
-    return source;
+    if (alias?.handle) {
+      const source = localSource(await abortable(signal, () => alias.handle!.getFile()));
+      if ((await abortable(signal, () => identify(source, signal))) !== key)
+        throw new Error(
+          'A video file changed. Reopen it before generating captions. Its previous progress was kept.'
+        );
+      signal.throwIfAborted();
+      this.verifiedSources.set(source, key);
+      this.sources.set(key, source);
+      return source;
+    }
+    throw new Error(
+      'Reopen this video to reconnect its local file, or sign in to reconnect its cloud folder.'
+    );
   }
   private async reopen(key: ContentKey) {
     const intent = ++this.openIntent;
@@ -1547,10 +1573,48 @@ export class VideoWorkspace {
     this.syncInFlight = false;
     clearTimeout(this.syncTimer);
   }
+  private revokeConnectedMedia() {
+    const keys = new Set<ContentKey>();
+    for (const [key, source] of this.sources) {
+      if (!source.cloud) continue;
+      keys.add(key);
+      this.verifiedCloudOpen.delete(source);
+      this.sources.delete(key);
+    }
+    const current = this.current;
+    if (current?.source.cloud) {
+      keys.add(current.key);
+      this.verifiedCloudOpen.delete(current.source);
+      ++this.generation;
+      this.openAbort?.abort(
+        new DOMException('Connected media access changed', 'AbortError')
+      );
+      const player = this.player;
+      this.player = undefined;
+      this.current = undefined;
+      this.currentTranscription = undefined;
+      this.audioChoices = [];
+      this.audio.replaceChildren();
+      this.audio.disabled = true;
+      this.progress.hidden = true;
+      this.viewing.replaceChildren();
+      player?.video.pause();
+      void player?.dispose().catch((error) => this.error(error));
+      this.notice('Connected media access changed. Reopen the video after reconnecting.');
+    }
+    for (const key of keys)
+      void this.queue.pauseForMedia(key).catch((error) => this.error(error));
+  }
   setConnection(connection: WorkspaceConnection | undefined) {
-    this.cloudAbort.abort();
+    const changed =
+      this.options.transport !== connection?.transport ||
+      this.options.chooseConnected !== connection?.chooseConnected;
+    this.cloudAbort.abort(
+      new DOMException('Connected media access changed', 'AbortError')
+    );
     this.cloudAbort = new AbortController();
     this.stopSync();
+    if (changed) this.revokeConnectedMedia();
     this.options.transport = connection?.transport;
     this.options.chooseConnected = connection?.chooseConnected;
     this.cloudButton.hidden = !connection;

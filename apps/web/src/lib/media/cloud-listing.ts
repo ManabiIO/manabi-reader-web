@@ -5,6 +5,7 @@
  */
 
 import type { SyncTransport } from './sync.js';
+import { abortable } from './abort.js';
 
 export interface CloudEntry {
   id: string;
@@ -96,7 +97,9 @@ export async function cloudRequest<T>(
     if (!transport.isCurrent()) throw new Error('Account changed');
   };
   guard();
-  const result = await transport.request<T>(path, { userId: transport.userId });
+  const result = await abortable(signal, () =>
+    transport.request<T>(path, { userId: transport.userId })
+  );
   guard();
   return result;
 }

@@ -343,8 +343,20 @@ export class TranscriptionQueue {
     }
     await pending;
   }
-  /** Leaving a video pauses owned inference and revokes local queued admissions. */
-  async pauseSparseForMedia(mediaKey: ContentKey): Promise<string[]> {
+  /** Leaving a video pauses this workspace's sparse inference only. */
+  pauseSparseForMedia(mediaKey: ContentKey): Promise<string[]> {
+    return this.pauseOwnedForMedia(mediaKey, true);
+  }
+  /** Revoking a media source pauses every locally admitted job for it, including
+   * bulk progressive jobs. Other tabs' queued/running ownership is untouched.
+   */
+  pauseForMedia(mediaKey: ContentKey): Promise<string[]> {
+    return this.pauseOwnedForMedia(mediaKey, false);
+  }
+  private async pauseOwnedForMedia(
+    mediaKey: ContentKey,
+    sparseOnly: boolean
+  ): Promise<string[]> {
     if (this.closed) return [];
     const pending: Job[] = [];
     for (const raw of await this.store.listLocal<unknown>(this.scope, 'jobs')) {
@@ -361,17 +373,17 @@ export class TranscriptionQueue {
           : job.status === 'running' &&
             this.active?.id === job.id &&
             this.active.ownerId === job.ownerId;
-      if (job.sparse && local) pending.push(job);
+      if ((!sparseOnly || job.sparse) && local) pending.push(job);
     }
-    // Stop queued alternatives before aborting the current inference, so the
-    // drain cannot claim another old-video job in between transactions.
+    // Revoke queued admissions before aborting the current inference so the
+    // drain cannot claim another job for the retired source between writes.
     for (const job of pending.filter((job) => job.status === 'queued'))
-      await this.pauseLocalSparse(job.id);
+      await this.pauseLocal(job.id, sparseOnly);
     for (const job of pending.filter((job) => job.status === 'running'))
-      await this.pauseLocalSparse(job.id);
+      await this.pauseLocal(job.id, sparseOnly);
     return pending.map((job) => job.id);
   }
-  private async pauseLocalSparse(id: string) {
+  private async pauseLocal(id: string, sparseOnly: boolean) {
     this.targets.delete(id);
     // Revoking admission before the transaction fences a drain that has read
     // a stale queued snapshot but has not claimed it yet.
@@ -380,7 +392,7 @@ export class TranscriptionQueue {
     await this.store.updateLocal<Job>(this.scope, 'jobs', id, (old) => {
       if (!old) return old;
       const job = validateJob(old);
-      if (!job.sparse) return old;
+      if (sparseOnly && !job.sparse) return old;
       // The queued record can also be admitted by another tab. Revoke only
       // this queue's token; the other tab remains free to claim it.
       if (job.status === 'queued') return old;
