@@ -34,14 +34,20 @@ const schema: Record<StoreNames<BooksDb>, StoreSchema> = {
   readerLocalIdentity: { keyPath: 'bookId' },
   publication: { keyPath: 'bookId' },
   readerAnnotation: { keyPath: 'id', indexes: { bookKey: 'bookKey', kind: 'kind' } },
-  readerAnnotationOutbox: { keyPath: 'id', indexes: { accountId: 'accountId', bookKey: 'bookKey' } },
+  readerAnnotationOutbox: {
+    keyPath: 'id',
+    indexes: { accountId: 'accountId', bookKey: 'bookKey' }
+  },
   readerSyncState: { keyPath: 'accountId' },
   readerConflict: { keyPath: 'id', indexes: { bookKey: 'bookKey' } },
   readerBookScope: { keyPath: 'bookId' },
   readerAnnotationScope: { keyPath: 'annotationId' },
   readerPersonalRecord: { keyPath: 'id', indexes: { accountId: 'accountId', bookKey: 'bookKey' } },
   readerPersonalOutbox: { keyPath: 'id', indexes: { accountId: 'accountId', bookKey: 'bookKey' } },
-  readerPersonalConflict: { keyPath: 'id', indexes: { accountId: 'accountId', bookKey: 'bookKey' } },
+  readerPersonalConflict: {
+    keyPath: 'id',
+    indexes: { accountId: 'accountId', bookKey: 'bookKey' }
+  },
   readerSearchProjection: { keyPath: 'bookId' },
   readerExternalSync: { keyPath: 'id' },
   readerImportRecord: { keyPath: 'id', indexes: { bookKey: 'bookKey' } },
