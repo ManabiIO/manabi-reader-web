@@ -75,3 +75,8 @@ URL without scrolling the workspace, and browser Back/Forward restores the
 corresponding section. This follows the 2026 App Store Connect pattern of stable
 top-level workspace navigation plus addressable in-workspace state while keeping
 Manabi's own information architecture and visual tokens.
+
+The Ttu/Yatsu migration route follows the same management-page hierarchy:
+one contextual return to Library, shared primary/quiet/destructive actions, and
+touch-safe file/select controls. Its import semantics and migration format are
+unchanged.

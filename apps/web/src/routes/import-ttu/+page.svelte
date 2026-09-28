@@ -1,5 +1,6 @@
 <script lang="ts">
   import AppNav from '$lib/components/navigation/app-nav.svelte';
+  import { Button } from '$lib/components/ui/button';
   import { onDestroy, onMount } from 'svelte';
   import { beforeNavigate } from '$app/navigation';
   import { resolve } from '$app/paths';
@@ -195,9 +196,9 @@
 >
 
 <main class="migration-page">
-  <nav aria-label="Reader navigation">
-    <a href={resolve('/manage')}>Books</a><a href={resolve('/connections')}
-      >Accounts and libraries</a
+  <nav aria-label="Context navigation" class="page-navigation">
+    <Button href={resolve('/manage')} variant="link" size="sm" aria-label="Back to Library"
+      >← Library</Button
     >
   </nav>
   <h1>Import from {yatsu ? 'Yatsu Reader' : 'Ttu Ebook Reader'}</h1>
@@ -278,22 +279,26 @@
       </div>
     </details>
     <div class="actions">
-      <button
+      <Button
+        variant="ghost"
         disabled={busy}
-        on:click={() => {
+        onclick={() => {
           rows = rows.map((row) => ({ ...row, selected: !row.error }));
-        }}>Select all</button
+        }}>Select all</Button
       >
-      <button
+      <Button
+        variant="ghost"
         disabled={busy}
-        on:click={() => {
+        onclick={() => {
           rows = rows.map((row) => ({ ...row, selected: false }));
-        }}>Select none</button
+        }}>Select none</Button
       >
-      <button disabled={busy || !selected.length || !parts.length} on:click={() => run(selected)}
-        >Import selected ({selected.length})</button
+      <Button
+        variant="default"
+        disabled={busy || !selected.length || !parts.length}
+        onclick={() => run(selected)}>Import selected ({selected.length})</Button
       >
-      <button disabled={busy} on:click={clear}>Clear list</button>
+      <Button variant="ghost" disabled={busy} onclick={clear}>Clear list</Button>
     </div>
     {#if ignored}<p>
         {ignored} files are not covered by this importer and will be kept only in the original ZIP. Storage
@@ -303,16 +308,25 @@
       <div class="actions">
         <progress value={completed} max={Math.max(total, 1)} aria-label="Import progress"
         ></progress>
-        <button on:click={cancel}>Stop importing</button>
+        <Button variant="outline" onclick={cancel}>Stop importing</Button>
       </div>
     {/if}
     {#if rows.length > pageSize}
       <nav aria-label="Import pages">
-        <button disabled={page === 0} on:click={() => page--}>Previous</button>
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={page === 0}
+          onclick={() => page--}>Previous</Button
+        >
         <span
           >{page * pageSize + 1}–{Math.min((page + 1) * pageSize, rows.length)} of {rows.length}</span
         >
-        <button disabled={(page + 1) * pageSize >= rows.length} on:click={() => page++}>Next</button
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={(page + 1) * pageSize >= rows.length}
+          onclick={() => page++}>Next</Button
         >
       </nav>
     {/if}
@@ -353,17 +367,21 @@
           {#if row.message}<p role="status">{row.message}</p>{/if}
           {#if row.status === 'conflict'}
             <p>Using imported data replaces conflicting reading records, not the book itself.</p>
-            <button disabled={busy} on:click={() => run([row], true)}
-              >Use imported data for {row.title}</button
+            <Button variant="destructive" disabled={busy} onclick={() => run([row], true)}
+              >Use imported data for {row.title}</Button
             >
           {/if}
-          {#if row.bookId}<a href={resolve(`/b?id=${row.bookId}`)}>Read {row.title}</a>{/if}
+          {#if row.bookId}<Button
+              href={resolve(`/b?id=${row.bookId}`)}
+              variant="link"
+              size="sm">Read {row.title}</Button
+            >{/if}
         </article>
       {/each}
     </div>
   {:else if busy}
     <p role="status">Inspecting ZIPs…</p>
-    <button on:click={cancel}>Stop inspecting</button>
+    <Button variant="outline" onclick={cancel}>Stop inspecting</Button>
   {/if}
 </main>
 
@@ -371,13 +389,17 @@
   .migration-page {
     max-width: 60rem;
     margin: auto;
-    padding: 1.25rem;
+    padding: 24px 16px;
     line-height: 1.55;
     writing-mode: horizontal-tb;
   }
+  .page-navigation {
+    margin-inline: -8px;
+  }
   h1 {
-    font-size: 1.8rem;
+    font-size: clamp(1.75rem, 5vw, 2rem);
     font-weight: 700;
+    line-height: 1.1;
     margin: 1rem 0;
   }
   h2 {
@@ -394,10 +416,12 @@
   }
   section,
   article {
-    border: 1px solid var(--border, #8886);
-    border-radius: 0.6rem;
-    padding: 1rem;
-    margin: 1rem 0;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px;
+    margin: 16px 0;
+    background: var(--card);
+    color: var(--card-foreground);
   }
   ol {
     list-style: decimal;
@@ -415,7 +439,13 @@
     flex-wrap: wrap;
   }
   .file-picker {
-    margin: 1rem 0;
+    display: grid;
+    gap: 10px;
+    margin: 16px 0;
+    border: 1px dashed var(--border);
+    border-radius: 16px;
+    padding: 16px;
+    background: var(--card);
     font-weight: 600;
   }
   .book-choice {
@@ -433,32 +463,51 @@
   summary {
     cursor: pointer;
   }
-  button,
   select {
-    padding: 0.4rem 0.65rem;
-    border: 1px solid #8888;
-    border-radius: 0.3rem;
-    background: transparent;
+    min-height: 2.75rem;
+    max-width: 100%;
+    border: 1px solid var(--input);
+    border-radius: 10px;
+    padding: 8px 10px;
+    background: var(--background);
+    color: var(--foreground);
   }
-  button:disabled {
-    opacity: 0.5;
-  }
-  button:not(:disabled) {
-    cursor: pointer;
-  }
-  a {
-    text-decoration: underline;
-    text-underline-offset: 0.15em;
+  input[type='checkbox'] {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    accent-color: var(--primary);
   }
   input[type='file'] {
+    min-height: 2.75rem;
     max-width: 100%;
     font-weight: normal;
+  }
+  input[type='file']::file-selector-button {
+    min-height: 2.25rem;
+    margin-inline-end: 10px;
+    border: 0;
+    border-radius: 999px;
+    padding: 6px 12px;
+    background: var(--secondary);
+    color: var(--secondary-foreground);
+    font: inherit;
+    cursor: pointer;
   }
   progress {
     width: min(24rem, 70vw);
   }
   :focus-visible {
-    outline: 2px solid currentColor;
+    outline: 2px solid var(--ring);
     outline-offset: 3px;
+  }
+  @media (max-width: 36rem) {
+    .migration-page {
+      padding: 16px 12px;
+    }
+    section,
+    article {
+      padding: 16px;
+    }
   }
 </style>

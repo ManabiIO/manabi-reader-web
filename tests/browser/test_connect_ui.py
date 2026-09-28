@@ -213,6 +213,46 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
                 ).to_have_attribute('data-variant', 'outline')
             self.capture(f'connect-shared-library-{mode}-320')
 
+    def test_import_workspace_uses_management_hierarchy_at_enlarged_text(self):
+        for mode in ('light', 'dark'):
+            self.page.evaluate('v => localStorage.setItem("appearance", v)', mode)
+            self.page.set_viewport_size({'width': 320, 'height': 844})
+            self.page.goto(self.origin + '/reader-web/import-ttu')
+            self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+
+            heading = self.page.get_by_role(
+                'heading', name='Import from Ttu Ebook Reader', exact=True
+            )
+            expect(heading).to_be_visible()
+            context = self.page.get_by_role('navigation', name='Context navigation')
+            expect(context.get_by_role('link', name='Back to Library', exact=True)).to_be_visible()
+            expect(context.get_by_role('link')).to_have_count(1)
+            file_input = self.page.get_by_label('Choose Ttu export ZIPs', exact=True)
+            expect(file_input).to_be_visible()
+            self.assertGreaterEqual(file_input.bounding_box()['height'], 43.99)
+            self.assert_no_horizontal_overflow(self.page.locator('html'))
+            self.assertEqual(
+                [1, 1, 1],
+                heading.evaluate('''e => {
+                  const node = e.firstChild;
+                  const value = node.textContent;
+                  return ['Import', 'Ebook', 'Reader'].map(word => {
+                    const start = value.indexOf(word);
+                    const range = document.createRange();
+                    range.setStart(node, start);
+                    range.setEnd(node, start + word.length);
+                    return range.getClientRects().length;
+                  });
+                }''')
+            )
+            instructions = self.page.locator('.migration-page > section').first
+            self.assertAlmostEqual(
+                instructions.evaluate('e => parseFloat(getComputedStyle(e).borderTopLeftRadius)'),
+                16,
+                delta=0.1
+            )
+            self.capture(f'connect-import-ttu-{mode}-320')
+
     def test_statistics_toolbar_and_options_reflow_and_keep_unique_form_labels(self):
         self.page.goto(self.origin + '/reader-web/statistics')
         for width, scale in ((1200, '100%'), (390, '100%'), (320, '200%')):
