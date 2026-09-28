@@ -26,6 +26,7 @@ test('bounded response detaches from a reader whose cancellation never settles',
         },
         releaseLock: () => {
           releases++;
+          throw new TypeError('pending read still owns the reader');
         }
       })
     }

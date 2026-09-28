@@ -114,7 +114,12 @@ export async function boundedResponse(
     throw e;
   } finally {
     signal.removeEventListener('abort', cancel);
-    reader.releaseLock();
+    try {
+      reader.releaseLock();
+    } catch {
+      // Some stream implementations reject/throw while an earlier read is
+      // still pending. Cleanup must never replace the authoritative read/abort error.
+    }
   }
 }
 export interface CloudManifest {
