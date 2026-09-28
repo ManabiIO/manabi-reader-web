@@ -90,3 +90,8 @@ The advanced Ttu storage editor now uses the same labeled field and action
 hierarchy as the surrounding Settings workspace. Its Source Default label is
 bound to the correct checkbox (rather than toggling Sync Target), destructive
 source removal is explicit, and repeated inner headings were removed.
+
+The Reading Goal conflict dialog now treats cancellation/error as terminal rather
+than continuing into a second result construction after closing. Its archive
+dates and boundary options are explicitly labeled and use the same touch-sized
+form geometry as the parent Settings workspace.
