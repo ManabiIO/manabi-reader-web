@@ -45,7 +45,7 @@ const token=()=>typeof crypto.randomUUID==='function'?crypto.randomUUID():
 async function ensureModel(){
   if(runtime)return;
   const acquired={};
-  acquired.promise=new Promise(resolve=>acquired.resolve=resolve);
+  acquired.promise=new Promise((resolve,reject)=>{acquired.resolve=resolve;acquired.reject=reject});
   const lifetime={};
   lifetime.promise=new Promise(resolve=>releaseModel=resolve);
   modelLockTask=navigator.locks.request('moss-probe-model',async()=>{
@@ -70,13 +70,21 @@ async function ensureModel(){
     runtime._free(allocation);
     allocation=0;
     runtime=undefined;
+  }).catch(error=>{
+    acquired.reject(error);
+    throw error;
   });
   await acquired.promise;
 }
 async function drain(){
   if(active||!pending.length)return;
   const port=pending.shift();
-  await ensureModel();
+  try {
+    await ensureModel();
+  } catch(error) {
+    send(port,{type:'error',phase:'runtime-startup',message:String(error)});
+    return;
+  }
   const owner={port,last:performance.now(),nonce:0,release:undefined};
   active=owner;
   navigator.locks.request('moss-probe-inference',async()=>{
