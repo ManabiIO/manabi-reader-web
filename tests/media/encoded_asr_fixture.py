@@ -3,9 +3,11 @@
 Two copies at offsets 0 and 30 seconds exercise multiple sparse windows. This is
 an artificial timing/recovery fixture, never claimed to be continuous dialogue.
 """
+from fractions import Fraction
 import hashlib
 import json
 from pathlib import Path
+import re
 import subprocess
 import wave
 
@@ -33,6 +35,21 @@ def compose_pcm(pcm, cues):
         out[at:at + len(pcm)] = pcm
         expected.extend({**cue, 'start': cue['start'] + offset, 'end': cue['end'] + offset} for cue in cues)
     return bytes(out), expected
+
+
+def audio_clock(streams):
+    if not isinstance(streams, list) or len(streams) != 1:
+        raise ValueError('Encoded fixture must contain one audio stream')
+    stream = streams[0]
+    value = stream.get('time_base')
+    if (stream.get('codec_name') != 'opus' or stream.get('sample_rate') != '48000'
+            or stream.get('channels') != 2 or not isinstance(value, str)
+            or not re.fullmatch(r'[1-9]\d{0,8}/[1-9]\d{0,8}', value)):
+        raise ValueError('Unexpected encoded audio format or timestamp precision')
+    tick = Fraction(value)
+    if tick > Fraction(1, 1000):
+        raise ValueError('Encoded fixture timestamp tick exceeds one millisecond')
+    return {'numerator': tick.numerator, 'denominator': tick.denominator}
 
 
 def build_fixture(source, output, language):
@@ -67,11 +84,16 @@ def build_fixture(source, output, language):
     video = output / 'video.webm'
     if not 0 < video.stat().st_size <= MAX_VIDEO_BYTES:
         raise ValueError('Encoded video exceeds the fixture byte budget')
+    probe = json.loads(subprocess.check_output([
+        'ffprobe', '-v', 'error', '-select_streams', 'a:0', '-show_entries',
+        'stream=codec_name,sample_rate,channels,time_base', '-of', 'json', str(video)
+    ], text=True, timeout=30))
+    clock = audio_clock(probe.get('streams'))
     result = {
         'version': 1, 'kind': 'two-copy synthetic speech with a gap, not natural dialogue',
         'language': language, 'sourceFingerprint': manifest['fingerprint'],
         'sourceSpeechSha256': manifest['files']['speech.wav'],
-        'duration': duration, 'offsets': list(OFFSETS), 'cues': cues,
+        'audioTimeBase': clock, 'duration': duration, 'offsets': list(OFFSETS), 'cues': cues,
         'videoSha256': sha256(video), 'videoBytes': video.stat().st_size,
         'referenceSha256': sha256(output / 'reference.wav'),
         'encoder': subprocess.check_output(['ffmpeg', '-version'], text=True).splitlines()[0]

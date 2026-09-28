@@ -3,7 +3,7 @@ import importlib.util
 from pathlib import Path
 import unittest
 
-from encoded_asr_fixture import compose_pcm, OFFSETS, RATE
+from encoded_asr_fixture import compose_pcm, audio_clock, OFFSETS, RATE
 
 spec = importlib.util.spec_from_file_location('encoded_asr_gate', Path(__file__).with_name('encoded-asr.py'))
 gate = importlib.util.module_from_spec(spec)
@@ -30,6 +30,21 @@ class EncodedFixtureTest(unittest.TestCase):
         for cues in [[], [{'start': -1, 'end': 1}], [{'start': 0, 'end': 2}], [{'start': 1, 'end': 1}]]:
             with self.subTest(cues=cues), self.assertRaises(ValueError):
                 compose_pcm(b'\0\0' * RATE, cues)
+
+
+class EncodedClockTest(unittest.TestCase):
+    def test_reads_measured_clock_not_an_assumed_default(self):
+        stream = {'codec_name': 'opus', 'sample_rate': '48000', 'channels': 2, 'time_base': '1/1000'}
+        self.assertEqual(audio_clock([stream]), {'numerator': 1, 'denominator': 1000})
+        self.assertEqual(audio_clock([{**stream, 'time_base': '2/96000'}]), {'numerator': 1, 'denominator': 48000})
+
+    def test_wrong_codec_missing_and_coarse_clock_fail(self):
+        stream = {'codec_name': 'opus', 'sample_rate': '48000', 'channels': 2, 'time_base': '1/1000'}
+        bad = [None, [], [stream, stream], [{**stream, 'codec_name': 'aac'}]]
+        bad += [[{**stream, 'time_base': value}] for value in [None, '', '1/0', '-1/1000', '1/100', '1/1000junk']]
+        for value in bad:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                audio_clock(value)
 
 
 class EncodedRangeTest(unittest.TestCase):

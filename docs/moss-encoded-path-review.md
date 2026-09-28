@@ -26,9 +26,24 @@ HTTP 206 responses and strict user/version/range headers from a loopback fixture
 server. That server is not a live account/provider integration.
 
 Before recognition, independently decoding a nonzero audio interval must agree
-with the corresponding interval of a larger decode (correlation >= 0.98 and
-relative RMS error < 0.1, excluding 50 ms resampler edges). Decoder readiness
-must not prepare or run the model.
+with the corresponding interval of a larger decode. FFprobe reads the encoded
+stream's actual time base; one global comparison displacement of at most one
+declared tick (hard-capped at 1 ms) is permitted. Correlation must remain >= 0.98
+and relative RMS error < 0.1 over the complete interval and each third, excluding
+50 ms resampler edges. Production audio and caption timestamps are never shifted.
+Decoder readiness must not prepare or run the model.
+
+The first run incorrectly demanded sample-exact timing from a millisecond WebM
+clock and failed before model preparation in both source modes. The diagnostic
+follow-up found a constant -16 samples at 16 kHz (exactly 1 ms) with correlation
+0.99999 after that offset, in every sampled region. Independently seeking the
+pinned decoder establishes a new first-packet timestamp and then accumulates
+sample durations, so this test must respect container precision. This is a
+correction to the test, not a production decoder fix or permission to hide packet
+loss. Fifteen waveform tests reject a displacement beyond the measured tick,
+region-dependent drift, missing packets, gain changes and absent/coarse clocks;
+comparison never mutates either audio buffer. Two Python cases validate measured
+clock extraction. The original failed diagnostics are retained.
 
 The actual queue is cancelled after its first accepted window. No complete track
 or export is allowed. Closing and reopening real IndexedDB must preserve the
@@ -40,8 +55,8 @@ Failures preserve diagnostics and remain failures; timing is not a pass criterio
 
 ## Evidence boundary
 
-The local source-subset run passes 677 Node tests and 89 Python tests, including
-nine new fixture/range/qualification-validator tests. The local browser is blocked
+The local source-subset run passes 692 Node tests and 91 Python tests, including
+fifteen waveform cases and eleven fixture/range/qualification-validator tests. The local browser is blocked
 from navigating to loopback origins, so the encoded browser and actual-model
 result must be read from the published head's CI; no local native pass is claimed.
 The workflow preserves its pre/post committed-runtime hash checks and records the
@@ -57,3 +72,6 @@ Primary references:
 - https://mediabunny.dev/api/AudioBufferSink
 - https://mediabunny.dev/api/CustomSourceOptions
 - https://esbuild.github.io/api/#bundle
+
+- https://www.rfc-editor.org/rfc/rfc9559.html#section-11
+- https://mediabunny.dev/api/InputTrack#gettimeresolution

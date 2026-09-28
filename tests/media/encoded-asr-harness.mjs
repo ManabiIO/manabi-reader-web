@@ -1,6 +1,7 @@
 /** Real encoded-video -> production decoder -> real MOSS -> durable sparse queue.
  * Only the fixture HTTP endpoint is a test server; no decoder/ASR/storage doubles.
  */
+import { compareEncodedWaveform } from './encoded-waveform.mjs';
 import { mediaRuntime } from '../../.cache/media-test-build/encoded-media-adapter.js';
 import { MediaPipeline } from '../../.cache/media-test-build/pipeline.js';
 import { MossClient } from '../../.cache/media-test-build/moss-client.js';
@@ -141,44 +142,10 @@ export async function start(input) {
     // This catches omitted pre-roll/shifted packets before involving the model.
     const wide = await pipeline.decode(Number(audioTrack), 0, 7.003, signal);
     const narrow = await pipeline.decode(Number(audioTrack), 1.003, 6.003, signal);
-    let square = 0,
-      referenceSquare = 0,
-      actualSquare = 0,
-      dot = 0;
     const offset = Math.round(1.003 * 16000);
-    // Exclude the native resampler's edge transients, not a packet-sized gap.
-    for (let i = 800; i < narrow.length - 800; i++) {
-      const reference = wide[offset + i],
-        actual = narrow[i];
-      square += (actual - reference) ** 2;
-      referenceSquare += reference ** 2;
-      actualSquare += actual ** 2;
-      dot += actual * reference;
-    }
-    const relativeRmsError = Math.sqrt(square / referenceSquare);
-    const correlation = dot / Math.sqrt(referenceSquare * actualSquare);
-    // Diagnose timing without compensating or changing the pass condition.
-    const lagCorrelation = (lag, from, to) => {
-      let aa = 0,
-        bb = 0,
-        ab = 0;
-      for (let i = from; i < to; i += 16) {
-        const a = wide[offset + i + lag],
-          b = narrow[i];
-        aa += a * a;
-        bb += b * b;
-        ab += a * b;
-      }
-      return ab / Math.sqrt(aa * bb);
-    };
-    const lag = (from, to) => {
-      let best = { samples: 0, correlation: -Infinity };
-      for (let shift = -512; shift <= 512; shift++) {
-        const correlation = lagCorrelation(shift, from, to);
-        if (correlation > best.correlation) best = { samples: shift, correlation };
-      }
-      return { from, to, best, unshifted: lagCorrelation(0, from, to) };
-    };
+    // This WebM fixture has a measured coarse timestamp clock. A single global
+    // comparison offset within one tick is allowed, never a change to model PCM.
+    const comparison = compareEncodedWaveform(wide, narrow, offset, config.audioTimeBase);
     const packets = async (start, end) => {
       const out = [];
       const track = (await pipeline.audioTracks()).find((item) => item.id === Number(audioTrack));
@@ -195,18 +162,16 @@ export async function start(input) {
       return out;
     };
     decoderCheck = {
-      relativeRmsError,
-      correlation,
+      ...comparison,
       sampleOffset: offset,
       samples: narrow.length,
-      lag: lag(800, narrow.length - 800),
-      regions: [4000, 32000, 64000].map((from) => lag(from, from + 8000)),
       widePackets: await packets(0, 7.003),
       narrowPackets: await packets(1.003, 6.003)
     };
     check(
-      referenceSquare > 0 && actualSquare > 0 && correlation >= 0.98 && relativeRmsError < 0.1,
-      'Independent encoded-audio seek changed the waveform: ' + JSON.stringify(decoderCheck)
+      comparison.passed,
+      'Independent encoded-audio seek exceeded container precision or changed the waveform: ' +
+        JSON.stringify(decoderCheck)
     );
   } finally {
     pipeline.dispose();
@@ -283,7 +248,10 @@ export async function finish() {
     track.cues.every((cue, i) => !i || cue.start >= track.cues[i - 1].start),
     'Unordered captions'
   );
-  check(track.cues.some((cue) => cue.start >= 30), 'Later encoded speech is missing');
+  check(
+    track.cues.some((cue) => cue.start >= 30),
+    'Later encoded speech is missing'
+  );
   const ordinary = decodeCalls.filter(({ end, start }) => end - start <= 30);
   for (const index of completedWindows)
     check(
