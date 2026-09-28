@@ -148,6 +148,9 @@ class LibraryIdentityBrowser(LibraryBase):
         self.go_library()
         saved_tile = self.page.locator('[data-book-key="book:%s"]' % original['bookId'])
         expect(saved_tile).to_have_count(0)
+        self.page.goto(self.origin + '/reader-web/b?id=' + str(original['bookId']))
+        expect(self.page).to_have_url(re.compile(r'/reader-web/manage(?:[/?#]|$)'))
+        expect(self.page.locator('.book-content')).to_have_count(0)
         StaticHandler.account_fixture['user'] = {'id': '42', 'username': 'reader'}
         self.go_library()
         expect(saved_tile).to_be_visible(timeout=30000)

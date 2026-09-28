@@ -402,9 +402,11 @@
         const links = (await (await integrationDB()).getAll('books')).filter(
           (link) => link.bookId === id
         );
-        const protectedOwners = links.some((link) => link.owner === null)
-          ? []
-          : links.flatMap((link) => (link.owner ? [link.owner] : []));
+        const protectedOwners = bookData.libraryOwner
+          ? [bookData.libraryOwner]
+          : links.some((link) => link.owner === null)
+            ? []
+            : links.flatMap((link) => (link.owner ? [link.owner] : []));
         if (protectedOwners.length && $account.status === 'loading') await refreshAccount();
         if (protectedOwners.length && !protectedOwners.includes(localProfileUser()?.id ?? ''))
           return undefined;
