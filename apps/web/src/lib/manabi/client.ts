@@ -255,7 +255,7 @@ export async function request<T>(
     throw new IntegrationError('account_changed', 409);
   const session = get(account).session!;
   const headers = new Headers({ 'X-Manabi-User': scope.userId });
-  if (path === 'preferences/' || path.startsWith('preferences/?'))
+  if (path.split('?', 1)[0] === 'preferences/')
     headers.set('X-Manabi-Library-Items', 'snippets-v1');
   const method = options.method ?? 'GET';
   if (method !== 'GET') headers.set('X-CSRFToken', session.csrf_token);
