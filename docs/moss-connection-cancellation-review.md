@@ -32,3 +32,17 @@ scope checks remain authoritative.
 
 This does not implement frozen-page model takeover, live provider authentication,
 or physical Safari/iOS qualification.
+
+
+## Successor-owner fence
+
+A delayed media revocation previously scanned durable jobs after an asynchronous
+storage read and then consulted the queue's *current* admission/active owner. A
+new Resume using the same durable job ID could therefore be mistaken for the
+owner captured by the old source lifetime.
+
+Pause now snapshots both the admission-token object and active-owner object
+before storage yields. It deletes/aborts only if those exact authorities are
+still current. Two regressions hold the source-revocation scan while replacing a
+queued admission or replacing a failed active owner; releasing the stale scan
+must not remove or abort either successor.

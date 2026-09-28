@@ -358,7 +358,15 @@ export class TranscriptionQueue {
     sparseOnly: boolean
   ): Promise<string[]> {
     if (this.closed) return [];
-    const pending: Job[] = [];
+    // Capture this invocation's authority before storage yields. A successor can
+    // reuse the same job ID; a delayed source revocation must not pause it.
+    const admitted = new Map(this.admitted);
+    const active = this.active;
+    const pending: {
+      job: Job;
+      admission?: { isCurrent?: () => boolean };
+      active?: typeof active;
+    }[] = [];
     for (const raw of await this.store.listLocal<unknown>(this.scope, 'jobs')) {
       if (
         !raw ||
@@ -367,40 +375,57 @@ export class TranscriptionQueue {
       )
         continue;
       const job = validateJob(raw);
+      const admission = admitted.get(job.id);
+      const capturedActive = active?.id === job.id ? active : undefined;
       const local =
         job.status === 'queued'
-          ? this.admitted.has(job.id) || this.active?.id === job.id
+          ? (!!admission && this.admitted.get(job.id) === admission) ||
+            (!!capturedActive && this.active === capturedActive)
           : job.status === 'running' &&
-            this.active?.id === job.id &&
-            this.active.ownerId === job.ownerId;
-      if ((!sparseOnly || job.sparse) && local) pending.push(job);
+            !!capturedActive &&
+            this.active === capturedActive &&
+            capturedActive.ownerId === job.ownerId;
+      if ((!sparseOnly || job.sparse) && local)
+        pending.push({ job, admission, active: capturedActive });
     }
     // Revoke queued admissions before aborting the current inference so the
     // drain cannot claim another job for the retired source between writes.
-    for (const job of pending.filter((job) => job.status === 'queued'))
-      await this.pauseLocal(job.id, sparseOnly);
-    for (const job of pending.filter((job) => job.status === 'running'))
-      await this.pauseLocal(job.id, sparseOnly);
-    return pending.map((job) => job.id);
+    for (const item of pending.filter(({ job }) => job.status === 'queued'))
+      await this.pauseLocal(item.job.id, sparseOnly, item.admission, item.active);
+    for (const item of pending.filter(({ job }) => job.status === 'running'))
+      await this.pauseLocal(item.job.id, sparseOnly, item.admission, item.active);
+    return pending.map(({ job }) => job.id);
   }
-  private async pauseLocal(id: string, sparseOnly: boolean) {
+  private async pauseLocal(
+    id: string,
+    sparseOnly: boolean,
+    admission?: { isCurrent?: () => boolean },
+    active?: NonNullable<typeof this.active>
+  ) {
+    const admittedHere = !!admission && this.admitted.get(id) === admission;
+    const activeHere = !!active && this.active === active;
+    if (!admittedHere && !activeHere) return;
     this.targets.delete(id);
-    // Revoking admission before the transaction fences a drain that has read
-    // a stale queued snapshot but has not claimed it yet.
-    this.admitted.delete(id);
-    const active = this.active?.id === id ? this.active : undefined;
+    // Delete only the captured admission; a later Resume may already have
+    // installed a distinct token for the same durable job ID.
+    if (admittedHere) this.admitted.delete(id);
     await this.store.updateLocal<Job>(this.scope, 'jobs', id, (old) => {
       if (!old) return old;
       const job = validateJob(old);
       if (sparseOnly && !job.sparse) return old;
-      // The queued record can also be admitted by another tab. Revoke only
-      // this queue's token; the other tab remains free to claim it.
+      // The queued record can also be admitted by another tab or by a newer
+      // local Resume. Revocation is local authority, not a durable cancellation.
       if (job.status === 'queued') return old;
-      if (job.status === 'running' && active?.ownerId === job.ownerId && job.pauseReason !== 'user')
+      if (
+        job.status === 'running' &&
+        activeHere &&
+        active?.ownerId === job.ownerId &&
+        job.pauseReason !== 'user'
+      )
         return { ...job, cancelRequested: true, pauseReason: 'switch' };
       return old;
     });
-    if (active && this.active === active)
+    if (activeHere && this.active === active)
       active.controller.abort(new DOMException('Generation paused', 'AbortError'));
   }
   recover(): Promise<void> {
