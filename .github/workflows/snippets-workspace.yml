@@ -1,50 +1,40 @@
-name: Snippets qualification workspace
+name: Recover snippet implementation
 on:
   push:
     branches: [feat/cloud-backed-snippets]
     paths: ['.github/workflows/snippets-workspace.yml']
 permissions:
   contents: read
-concurrency:
-  group: snippets-workspace-${{ github.ref }}
-  cancel-in-progress: true
 jobs:
-  workspace:
+  recover:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: 329dcec43bcfeaadaf6b028182584214b0f37558
-          persist-credentials: false
-      - uses: pnpm/action-setup@v6.1.0
-        with:
-          version: '12.3.4'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.21.0'
-      - name: Resolve editor dependency set for qualification
+      - name: Recover exact uploaded objects without modifying the repository
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          pnpm --dir apps/web add --save-exact @tiptap/core@3.31.3 @tiptap/pm@3.31.3 @tiptap/starter-kit@3.31.3 @tiptap/extension-ruby-text@3.31.3 @tiptap/extension-unique-id@3.31.3 @tiptap/markdown@3.31.3
-          pnpm --dir apps/web exec svelte-kit sync
-      - name: Package reproducible review workspace without credentials
-        run: |
-          git archive HEAD | tar -x -C /tmp --one-top-level=snippet-review
-          cp pnpm-lock.yaml /tmp/snippet-review/pnpm-lock.yaml
-          cp apps/web/package.json /tmp/snippet-review/apps/web/package.json
-          cp -a node_modules /tmp/snippet-review/node_modules
-          cp -a apps/web/node_modules /tmp/snippet-review/apps/web/node_modules
-          cp -a apps/web/.svelte-kit /tmp/snippet-review/apps/web/.svelte-kit
-          mkdir -p /tmp/snippet-review/.review-tools
-          cp "$(command -v node)" /tmp/snippet-review/.review-tools/node
-          git rev-parse HEAD > /tmp/snippet-review/.review-tools/source-commit
-          git ls-files -s > /tmp/snippet-review/.review-tools/source-manifest
-          tar -czf /tmp/snippets-workspace.tar.gz -C /tmp snippet-review
-          git diff -- pnpm-lock.yaml apps/web/package.json > /tmp/snippets-dependencies.patch
+          python - <<'PY'
+          import base64,hashlib,json,lzma,os,pathlib,urllib.request
+          out=pathlib.Path('/tmp/snippet-recovery');out.mkdir()
+          chunks=[]
+          shas=['c0512130ca5e21bf43e78fe07d718c872942b7a6','5e55d48abf1d5359d25041c89faa18920665903d','f99caa362c8a8f012ae83eb3535f342e84d99874']
+          for n,sha in enumerate(shas):
+              req=urllib.request.Request('https://api.github.com/repos/ManabiIO/manabi-reader-web/git/blobs/'+sha,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+              with urllib.request.urlopen(req,timeout=30) as response: item=json.load(response)
+              data=base64.b64decode(item['content'])
+              assert hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()==sha
+              (out/f'part-{n:02d}.txt').write_bytes(data);chunks.append(data)
+          encoded=b''.join(chunks)
+          dec=lzma.LZMADecompressor(memlimit=128*1024*1024)
+          raw=dec.decompress(base64.b64decode(encoded+b'='*((-len(encoded))%4)),max_length=2*1024*1024)
+          (out/'recovered-prefix.patch').write_bytes(raw)
+          (out/'manifest.json').write_text(json.dumps({'blobs':shas,'encodedBytes':len(encoded),'decompressedBytes':len(raw),'complete':dec.eof,'sha256':hashlib.sha256(raw).hexdigest()},indent=2))
+          print((out/'manifest.json').read_text())
+          PY
       - uses: actions/upload-artifact@v4
         with:
-          name: snippets-review-workspace
-          path: |
-            /tmp/snippets-workspace.tar.gz
-            /tmp/snippets-dependencies.patch
-          retention-days: 1
+          name: recovered-snippet-implementation
+          path: /tmp/snippet-recovery
+          retention-days: 7
+          if-no-files-found: error
