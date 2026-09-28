@@ -4,7 +4,6 @@ The initial copied journal and concurrent source removal are explicit fixtures.
 The actual Rename, Resume and Move actions execute the production application.
 """
 import hashlib
-import re
 import time
 import unittest
 
@@ -55,7 +54,8 @@ class LocalMoveRecoveryBrowser(library.LibraryBase):
         self.page.get_by_role('menuitem', name='Rename Series…', exact=True).click()
         self.dialog().get_by_label('Name', exact=True).fill('Different name')
         self.dialog().get_by_role('button', name='Save', exact=True).click()
-        expect(self.page.get_by_text(re.compile('Resume the unfinished folder change'))).to_be_visible()
+        expect(self.dialog().get_by_role('alert')).to_contain_text(
+            'Resume the unfinished folder change')
         self.assertEqual(before, self.disk())
         self.page.keyboard.press('Escape')
         expect(self.dialog()).to_have_count(0)
@@ -112,7 +112,8 @@ class LocalMoveRecoveryBrowser(library.LibraryBase):
           window.releaseMoveLock();
           await window.moveLockTask;
         }''', self.source_id)
-        expect(self.page.get_by_text(re.compile('local folder was disconnected or replaced'))).to_be_visible()
+        expect(self.dialog().get_by_role('alert')).to_contain_text(
+            'local folder was disconnected or replaced')
         self.assertEqual(before, self.disk())
         self.assertFalse(any(row.get('sourceId') == self.source_id and 'phase' in row
                              for row in self.stores('manabi-reader-integrations', ['metadata'])['metadata']
