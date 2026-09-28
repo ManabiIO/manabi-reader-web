@@ -1,0 +1,84 @@
+name: Qualify unified search proposal
+on:
+  push:
+    branches: [review/unified-search-source-20260928]
+    paths: [.github/workflows/review-unified-search-proposal.yml, .review/reader.patch.2.b64]
+permissions:
+  contents: write
+jobs:
+  proposal:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: proposal
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 3a8e5239a93bd9b4e10b7a7b96e37c2fc1225607
+          path: product
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+      - name: Apply exact reviewed patch
+        working-directory: product
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/search-evidence"
+          cp ../proposal/.review/reader.patch.*.b64 "$RUNNER_TEMP/search-evidence/"
+          python3 - <<'PY'
+          import base64, gzip, hashlib, os, pathlib
+          data = ''.join(pathlib.Path(f'../proposal/.review/reader.patch.{i}.b64').read_text().strip() for i in [1, 2])
+          patch = gzip.decompress(base64.b64decode(data, validate=True))
+          assert hashlib.sha256(patch).hexdigest() == '505a8a7935e72aa928fcf9cc4e4fdc6d0397e7cf0e892542c4a07d9a8c127584'
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'reader.patch').write_bytes(patch)
+          PY
+          git apply --check "$RUNNER_TEMP/reader.patch"
+          git apply "$RUNNER_TEMP/reader.patch"
+          git add -A
+      - run: pnpm install --frozen-lockfile
+        working-directory: product
+      - run: pnpm --dir apps/web exec svelte-kit sync
+        working-directory: product
+      - name: Format changed source only
+        working-directory: product
+        run: |
+          git diff --cached --name-only -z -- '*.js' '*.mjs' '*.ts' '*.mts' '*.svelte' '*.md' '*.json' | xargs -0 pnpm exec prettier --write > "$RUNNER_TEMP/search-evidence/format.txt" 2>&1
+          node --test tests/unit/unified-search.test.mjs | tee "$RUNNER_TEMP/search-evidence/unit.txt"
+      - name: Publish bounded product branch
+        working-directory: product
+        run: |
+          set -euo pipefail
+          git add -A
+          git config user.name 'Manabi development'
+          git config user.email 'development@manabi.io'
+          git switch -c feat/unified-dictionary-search-20260928
+          HUSKY=0 git commit -m 'feat(search): unify dictionary titles and local content search'
+          git rev-parse HEAD > "$RUNNER_TEMP/search-evidence/product-head.txt"
+          git diff 3a8e5239a93bd9b4e10b7a7b96e37c2fc1225607 HEAD > "$RUNNER_TEMP/search-evidence/product.patch"
+          git push origin HEAD:refs/heads/feat/unified-dictionary-search-20260928
+      - name: Type and lint evidence
+        working-directory: product
+        run: |
+          set +e
+          pnpm --dir apps/web check > "$RUNNER_TEMP/search-evidence/check.txt" 2>&1
+          echo "check_exit=$?" >> "$RUNNER_TEMP/search-evidence/status.txt"
+          pnpm check > "$RUNNER_TEMP/search-evidence/lint.txt" 2>&1
+          echo "lint_exit=$?" >> "$RUNNER_TEMP/search-evidence/status.txt"
+      - name: Build exact pinned runtime and Reader
+        working-directory: product
+        env:
+          BASE_PATH: /reader-web
+        run: |
+          set -o pipefail
+          pnpm build 2>&1 | tee "$RUNNER_TEMP/search-evidence/build.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unified-search-proposal-evidence
+          path: ${{ runner.temp }}/search-evidence
+          retention-days: 3
