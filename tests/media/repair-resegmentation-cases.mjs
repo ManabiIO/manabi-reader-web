@@ -77,7 +77,8 @@ async function run(
     fail = false,
     proofs = false,
     adjacent = false,
-    retry = false
+    retry = false,
+    expectedReplies
   }
 ) {
   const db = 'repair-alignment-' + crypto.randomUUID();
@@ -140,6 +141,12 @@ async function run(
         'accepted IDs/text/timing/speakers changed'
       );
       same(new Set(track.cues.map((c) => c.id)).size, track.cues.length, 'duplicate captions');
+      if (expectedReplies)
+        same(
+          track.cues.filter((cue) => cue.text === 'はい').map((cue) => [cue.start, cue.end]),
+          expectedReplies,
+          'separate short replies were not preserved'
+        );
       same(calls, 1, 'saved ordinary windows or repaired output were recognized again');
       await store.close();
       store = new MediaStore(factory, db);
@@ -206,3 +213,28 @@ for (const [name, accepted, raw] of [
     name: `${name} still fails without losing accepted captions`,
     run: (factory) => run(factory, { accepted, raw: raw + seam, fail: true })
   });
+for (const policy of ['overlap-sparse-v1', 'overlap-sparse-v2']) {
+  cases.push({
+    name: `${policy}: a separate identical short reply cannot impersonate an accepted anchor`,
+    run: (factory) =>
+      run(factory, {
+        policy,
+        accepted: [cue('w0/cue-0', 'はい', 2, 2.2)],
+        raw: '[2.21][S01]はい[2.41]' + seam,
+        fail: true
+      })
+  });
+  cases.push({
+    name: `${policy}: repair keeps the true short anchor and a separate identical reply`,
+    run: (factory) =>
+      run(factory, {
+        policy,
+        accepted: [cue('w0/cue-0', 'はい', 2, 2.2)],
+        raw: '[2][S01]はい[2.2][2.21][S01]はい[2.41]' + seam,
+        expectedReplies: [
+          [2, 2.2],
+          [2.21, 2.41]
+        ]
+      })
+  });
+}

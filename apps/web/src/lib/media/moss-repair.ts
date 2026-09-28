@@ -5,7 +5,12 @@
  */
 
 import type { Cue } from './contracts.js';
-import { cueGroupSignature, sameCueSpeech, type SpeechSignature } from './moss-cue-agreement.js';
+import {
+  cueGroupSignature,
+  sameCueSpeech,
+  sameCueTiming,
+  type SpeechSignature
+} from './moss-cue-agreement.js';
 
 const DRIFT = 0.35;
 const GROUP = 16;
@@ -13,7 +18,7 @@ const LIMIT = 128;
 const COMPARISONS = 100000;
 
 /** Match a repair to immutable accepted captions without inventing word timing.
- * Exact one-to-one matches retain their historical behavior. When segmentation
+ * Exact one-to-one matches must agree on the same audio interval. When segmentation
  * changed, only one unique set of whole repair cues may account for all accepted
  * speech. Alternative partitions of that SAME set are equivalent, not ambiguity.
  * Unmatched repair cues remain intact; text is never clipped or synthesized.
@@ -33,10 +38,7 @@ export function retainAcceptedRepair(
   let complete = true;
   for (const anchor of anchors) {
     const candidates = repair.flatMap((cue, index) =>
-      !used.has(index) &&
-      cue.text === anchor.text &&
-      Math.abs(cue.start - anchor.start) <= DRIFT &&
-      Math.abs(cue.end - anchor.end) <= DRIFT
+      !used.has(index) && cue.text === anchor.text && sameCueTiming(cue, anchor, DRIFT)
         ? [index]
         : []
     );
@@ -47,7 +49,9 @@ export function retainAcceptedRepair(
     exact[candidates[0]] = anchor;
     used.add(candidates[0]);
   }
-  if (complete) return exact;
+  // Restoring immutable timestamps can change the order relative to unmatched
+  // speech. All downstream boundary cursors require chronological input.
+  if (complete) return exact.sort((a, b) => a.start - b.start || a.end - b.end);
 
   // Bound fallback work independently of input duration or token count. The
   // exact path above still supports dense windows beyond the alignment budget.

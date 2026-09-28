@@ -57,23 +57,36 @@ export function cueGroupSignature(cues: readonly Cue[]): SpeechSignature {
     )
   };
 }
+/** Timestamp agreement for a whole utterance, including the exact-text fast path.
+ * A fixed drift alone can consume a separate short reply. Require shared audio
+ * and scale the tolerated displacement to the shorter utterance as well.
+ */
+export function sameCueTiming(
+  a: Pick<Cue, 'start' | 'end'>,
+  b: Pick<Cue, 'start' | 'end'>,
+  maximumDrift: number
+): boolean {
+  const shorter = Math.min(a.end - a.start, b.end - b.start);
+  const overlap = Math.min(a.end, b.end) - Math.max(a.start, b.start);
+  const tolerance = Math.min(shorter / 2, maximumDrift);
+  return (
+    shorter > 0 &&
+    overlap >= shorter / 2 &&
+    Math.abs(a.start - b.start) <= tolerance &&
+    Math.abs(a.end - b.end) <= tolerance
+  );
+}
 export function sameCueSpeech(
   a: SpeechSignature,
   b: SpeechSignature,
   maximumDrift = Infinity
 ): boolean {
-  const shorter = Math.min(a.end - a.start, b.end - b.start);
-  const overlap = Math.min(a.end, b.end) - Math.max(a.start, b.start);
-  const tolerance = Math.min(a.tolerance, b.tolerance, shorter / 2, maximumDrift);
   return (
     !!a.text &&
     a.text.length <= 8192 &&
     a.text === b.text &&
     a.singleVoice &&
     b.singleVoice &&
-    shorter > 0 &&
-    overlap >= shorter / 2 &&
-    Math.abs(a.start - b.start) <= tolerance &&
-    Math.abs(a.end - b.end) <= tolerance
+    sameCueTiming(a, b, Math.min(a.tolerance, b.tolerance, maximumDrift))
   );
 }
