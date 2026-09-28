@@ -121,8 +121,9 @@ async function drain(){
     if(active||pending[0]!==port)return;
     pending.shift();
   } catch(error) {
-    if(pending[0]===port)pending.shift();
-    send(port,{type:'error',phase:'runtime-startup',message:String(error)});
+    const waiters=pending.splice(0);
+    for(const waiting of waiters)
+      send(waiting,{type:'error',phase:'runtime-startup',message:String(error)});
     return;
   } finally {
     draining=false;
