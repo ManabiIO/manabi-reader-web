@@ -286,6 +286,26 @@ test('statistics deletion plan refuses unresolved same-title legacy history', as
   db.close();
 });
 
+test('statistics identity planning refuses a replacement that appeared during confirmation', async () => {
+  const db = await database();
+  const selected = book(1, 'Confirmation replacement', 'a');
+  await db.put('data', selected);
+  await db.put('readerStatistic', {
+    ...day(selected.title, '2026-09-20', 31),
+    bookKey: contentStatisticKey(selected)
+  });
+  const expected = { title: selected.title, contentHash: selected.contentHash };
+  await db.put('data', book(selected.id, selected.title, 'b'));
+
+  await assert.rejects(
+    statisticIdentityPlan(db, selected.id, undefined, expected),
+    /book changed/
+  );
+  assert.equal((await db.getAll('readerStatistic')).length, 1);
+  assert.equal((await db.getAll('readerStatisticMigration')).length, 0);
+  db.close();
+});
+
 test('statistics deletion plan can delete a same-title sibling while legacy is assigned elsewhere', async () => {
   const db = await database();
   const first = book(1, 'Assigned sibling title', 'a');
