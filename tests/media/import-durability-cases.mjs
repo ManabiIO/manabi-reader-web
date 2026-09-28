@@ -485,28 +485,44 @@ export const nativeCases = [
     name: 'Retained native file handle survives a plain import and database connection reopening',
     run: (factory) =>
       harness(factory, async (store, other) => {
+        const phase = (name) => console.info('media-native-handle: ' + name);
+        phase('get-directory');
         const root = await navigator.storage.getDirectory(),
           name = 'media-import-' + crypto.randomUUID() + '.mp4';
         try {
+          phase('get-file-handle');
           const handle = await root.getFileHandle(name, { create: true });
+          phase('create-writable');
           const writer = await handle.createWritable();
+          phase('write-fixture');
           await writer.write('same verified video bytes');
+          phase('close-writer');
           await writer.close();
           const source = movie(),
             key = await keyFor(source);
-          await workspace(store).register(localSource(await handle.getFile()), [], handle);
+          phase('get-native-file');
+          const file = await handle.getFile();
+          phase('register-native-handle');
+          await workspace(store).register(localSource(file), [], handle);
+          phase('register-transient-file');
           await workspace(store).register(source, []);
+          phase('close-database-connection');
           await store.close();
+          phase('read-alias-new-connection');
           const alias = await other.local(scope, 'aliases', key);
+          phase('compare-native-handle');
           if (!alias?.handle || !(await alias.handle.isSameEntry(handle)))
             throw Error('Native handle lost across reconnection');
+          phase('verify-reconnected-bytes');
           equal(
             await identify(localSource(await alias.handle.getFile()), new AbortController().signal),
             key,
             'Reopened handle points to different bytes'
           );
+          phase('complete');
           return { nativeHandle: true, reopenedConnection: true };
         } finally {
+          phase('remove-fixture');
           await root.removeEntry(name);
         }
       })

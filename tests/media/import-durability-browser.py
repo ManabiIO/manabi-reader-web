@@ -45,6 +45,7 @@ def main():
         ('127.0.0.1', 0), functools.partial(Handler, directory=str(ROOT)))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     results = []
+    diagnostics = []
     try:
         with sync_playwright() as pw:
             browser = pw.chromium.launch(
@@ -52,6 +53,12 @@ def main():
                 headless=True, args=['--no-sandbox'])
             try:
                 page = browser.new_page()
+                page.on('console', lambda message: diagnostics.append(
+                    {'event': 'console', 'text': message.text}))
+                page.on('crash', lambda: diagnostics.append({'event': 'page-crash'}))
+                page.on('pageerror', lambda error: diagnostics.append(
+                    {'event': 'page-error', 'text': str(error)}))
+                browser.on('disconnected', lambda: diagnostics.append({'event': 'browser-disconnected'}))
                 page.set_default_timeout(30000)
                 page.goto(f'http://127.0.0.1:{server.server_port}/__import_durability__/')
                 page.wait_for_function('Array.isArray(window.scenarios)')
@@ -70,6 +77,7 @@ def main():
             finally:
                 browser.close()
     finally:
+        (args.output / 'diagnostics.json').write_text(json.dumps(diagnostics, indent=2))
         (args.output / 'results.json').write_text(json.dumps(results, ensure_ascii=False, indent=2))
         server.shutdown()
         server.server_close()
