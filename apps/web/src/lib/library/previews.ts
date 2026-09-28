@@ -17,6 +17,7 @@ import { sourceBookKey } from './organization';
 import type { DirectoryEntry } from './tree';
 import { validDirectionEvidence, type DirectionEvidence } from './direction';
 import { extractCreators, validCreators, type BookCreator } from './book-metadata';
+import { extractBookMetadata, validBookMetadata, type BookMetadata } from './book-presentation';
 
 export interface Preview {
   key: string;
@@ -25,6 +26,7 @@ export interface Preview {
   contentHash: string;
   title: string;
   creators?: BookCreator[];
+  metadata?: BookMetadata;
   imagePath?: Blob;
   pageDirection: DirectionEvidence;
 }
@@ -64,6 +66,7 @@ function restore(saved: SavedPreview | undefined, key: string, scannedAt: number
     !saved.title ||
     saved.title.length > 1000 ||
     (saved.creators !== undefined && !validCreators(saved.creators)) ||
+    (saved.metadata !== undefined && !validBookMetadata(saved.metadata)) ||
     !validDirectionEvidence(saved.pageDirection) ||
     'imagePath' in saved ||
     (saved.imageData === undefined
@@ -81,6 +84,7 @@ function restore(saved: SavedPreview | undefined, key: string, scannedAt: number
     contentHash: saved.contentHash,
     title: saved.title,
     ...(saved.creators?.length ? { creators: saved.creators } : {}),
+    ...(saved.metadata ? { metadata: saved.metadata } : {}),
     pageDirection: saved.pageDirection,
     ...(saved.imageData
       ? { imagePath: new Blob([saved.imageData], { type: saved.imageType }) }
@@ -151,6 +155,7 @@ async function readPreview(
     if (title) value.title = title.trim().slice(0, 1000);
     const creators = extractCreators(metadata as unknown as Record<string, unknown>);
     if (creators.length) value.creators = creators;
+    value.metadata = extractBookMetadata(metadata as unknown as Record<string, unknown>);
     const blobs = Object.fromEntries(
       Object.entries(result).filter((entry): entry is [string, Blob] => entry[1] instanceof Blob)
     );
@@ -168,6 +173,7 @@ async function readPreview(
     contentHash: value.contentHash,
     title: value.title,
     ...(value.creators?.length ? { creators: value.creators } : {}),
+    ...(value.metadata ? { metadata: value.metadata } : {}),
     pageDirection: value.pageDirection,
     ...(imagePath ? { imageData: await imagePath.arrayBuffer(), imageType: imagePath.type } : {})
   };

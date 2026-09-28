@@ -53,18 +53,44 @@ async function visibleAnnotations(records: ReaderAnnotation[]): Promise<ReaderAn
   );
 }
 
+interface BookOwnerCursor {
+  value: { id: number; contentHash?: string; libraryOwner?: string };
+  continue(): Promise<BookOwnerCursor | null>;
+}
+interface BookOwnerStore {
+  openCursor(): Promise<BookOwnerCursor | null>;
+}
+interface BookScopeStore {
+  get(id: number): Promise<{ accountId: string } | undefined>;
+}
+
 /** Undefined means copies belong to multiple accounts, so access is ambiguous. */
-async function bookAccount(bookKey: string): Promise<string | null | undefined> {
+async function bookAccountFromStores(
+  bookKey: string,
+  books: BookOwnerStore,
+  scopes: BookScopeStore
+): Promise<string | null | undefined> {
   if (!bookKey.startsWith('content:')) return null;
-  const db = await database.db;
   const owners = new Set<string>();
-  for (const book of await db.getAll('data')) {
+  for (let cursor = await books.openCursor(); cursor; cursor = await cursor.continue()) {
+    const book = cursor.value;
     if (`content:${book.contentHash?.toLowerCase()}` !== bookKey) continue;
-    const scope = await db.get('readerBookScope', book.id);
+    const scope = await scopes.get(book.id);
     if (scope) owners.add(scope.accountId);
     if (book.libraryOwner) owners.add(book.libraryOwner);
   }
   return owners.size === 1 ? [...owners][0] : owners.size === 0 ? null : undefined;
+}
+async function bookAccount(bookKey: string): Promise<string | null | undefined> {
+  const db = await database.db;
+  const tx = db.transaction(['data', 'readerBookScope']);
+  const owner = await bookAccountFromStores(
+    bookKey,
+    tx.objectStore('data'),
+    tx.objectStore('readerBookScope')
+  );
+  await tx.done;
+  return owner;
 }
 
 export interface ReaderAnnotationArchive {
@@ -305,11 +331,21 @@ export async function resolveAnnotationImportConflict(
   if (!id.startsWith('import:')) throw new Error('Invalid archive conflict.');
   const db = await database.db;
   const tx = db.transaction(
-    ['readerAnnotation', 'readerAnnotationOutbox', 'readerConflict', 'readerAnnotationScope'],
+    [
+      'data',
+      'readerBookScope',
+      'readerAnnotation',
+      'readerAnnotationOutbox',
+      'readerConflict',
+      'readerAnnotationScope'
+    ],
     'readwrite'
   );
   const conflict = await tx.objectStore('readerConflict').get(id);
-  if (!conflict) return;
+  if (!conflict) {
+    await tx.done;
+    return;
+  }
   if (id !== `import:${conflict.local.id}`) throw new Error('Invalid archive conflict.');
   const existingOwner = await tx.objectStore('readerAnnotationScope').get(conflict.local.id);
   assertCurrentAccount(accountId);
@@ -317,6 +353,17 @@ export async function resolveAnnotationImportConflict(
     throw new Error('This annotation belongs to another account.');
   const current = await tx.objectStore('readerAnnotation').get(conflict.local.id);
   assertCurrentAccount(accountId);
+  if (current) {
+    const bookOwner = await bookAccountFromStores(
+      current.bookKey,
+      tx.objectStore('data'),
+      tx.objectStore('readerBookScope')
+    );
+    if (bookOwner === undefined)
+      throw new Error('This annotation has ambiguous account ownership.');
+    if (bookOwner && bookOwner !== accountId)
+      throw new Error('This annotation belongs to another account.');
+  }
   if (
     !current ||
     current.revision !== conflict.local.revision ||
@@ -508,16 +555,33 @@ export async function removeReaderAnnotation(
   assertCurrentAccount(accountId);
   const db = await database.db;
   const tx = db.transaction(
-    ['readerAnnotation', 'readerAnnotationOutbox', 'readerAnnotationScope'],
+    [
+      'data',
+      'readerBookScope',
+      'readerAnnotation',
+      'readerAnnotationOutbox',
+      'readerAnnotationScope'
+    ],
     'readwrite'
   );
   const current = await tx.objectStore('readerAnnotation').get(id);
-  if (!current || current.deletedAt) return;
+  if (!current || current.deletedAt) {
+    await tx.done;
+    return;
+  }
   const owner = await tx.objectStore('readerAnnotationScope').get(id);
+  const bookOwner = await bookAccountFromStores(
+    current.bookKey,
+    tx.objectStore('data'),
+    tx.objectStore('readerBookScope')
+  );
   assertCurrentAccount(accountId);
   if (owner && owner.accountId !== accountId)
     throw new Error('This annotation belongs to another account.');
-  const boundAccount = owner?.accountId ?? accountId;
+  if (bookOwner === undefined) throw new Error('This annotation has ambiguous account ownership.');
+  const boundAccount = owner?.accountId ?? bookOwner ?? accountId;
+  if (boundAccount && boundAccount !== accountId)
+    throw new Error('This annotation belongs to another account.');
   const modifiedAt = new Date().toISOString();
   const value = {
     ...current,

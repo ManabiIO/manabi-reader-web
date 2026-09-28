@@ -21,7 +21,7 @@ function database(value) {
       return stored;
     },
     transaction(name, mode) {
-      assert.equal(name, 'data');
+      assert.deepEqual(name, ['data', 'readerBookScope']);
       assert.equal(mode, 'readwrite');
       let resolve, reject, pending;
       const tx = {
@@ -34,6 +34,11 @@ function database(value) {
           put: async (next) => {
             pending = next;
           }
+        },
+        objectStore(name) {
+          if (name === 'data') return this.store;
+          assert.equal(name, 'readerBookScope');
+          return { get: async () => undefined };
         },
         commit() {
           if (pending) stored = pending;

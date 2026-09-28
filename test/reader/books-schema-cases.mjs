@@ -224,7 +224,11 @@ async function upgradeHistory(name, [version, definitions], omitIndexes = false)
         );
         same(indexed, [42], 'Upgrade did not index retained content identity');
         const owned = await request(
-          db.transaction('data').objectStore('data').index('libraryOwner').getAllKeys('account:retained')
+          db
+            .transaction('data')
+            .objectStore('data')
+            .index('libraryOwner')
+            .getAllKeys('account:retained')
         );
         same(owned, [42], 'Upgrade did not index retained library ownership');
       }

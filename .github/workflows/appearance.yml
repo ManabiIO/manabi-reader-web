@@ -99,7 +99,8 @@ jobs:
           set +e
           status=0
           for engine in chromium webkit; do
-            mkdir -p artifacts/appearance/$engine
+            mkdir -p artifacts/appearance/$engine test-results
+            printf '%s\n' "$engine" > test-results/active-engine.txt
             APPEARANCE_BROWSER=$engine timeout -v -k 10s 300s python tests/browser/test_rhea_ui.py 2>&1 | tee artifacts/appearance/$engine/results.log
             result=${PIPESTATUS[0]}
             if [ "$result" -ne 0 ]; then status=1; fi
@@ -130,5 +131,6 @@ jobs:
             appearance-types.log
             appearance-build.log
             artifacts/appearance/
+            test-results/
           if-no-files-found: ignore
           retention-days: 7

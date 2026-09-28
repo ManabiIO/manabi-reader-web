@@ -178,9 +178,7 @@ function fixture({
           if (name === 'contentHash')
             return {
               openKeyCursor: () =>
-                keyCursor(
-                  [...staged.values()].filter((row) => typeof row.contentHash === 'string')
-                )
+                keyCursor([...staged.values()].filter((row) => typeof row.contentHash === 'string'))
             };
           assert.equal(name, 'title');
           return {

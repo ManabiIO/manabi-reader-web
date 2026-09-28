@@ -5,6 +5,7 @@
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import { Button } from '$lib/components/ui/button';
+  import { Input } from '$lib/components/ui/input';
   import * as Dialog from '$lib/components/ui/dialog';
   import { scope, snippetItems, flushSnippets, appendToSnippet } from './service';
   import { saveDraft, deleteDraft, recordKey } from './database';
@@ -137,11 +138,12 @@
         ></Dialog.Header
       >
       <Button disabled={busy} onclick={create}>Create new snippet</Button>
-      <input
+      <Input
+        class="min-h-11"
         aria-label="Search destination snippets"
         placeholder="Search existing snippets"
         bind:value={query}
-        maxlength="512"
+        maxlength={512}
       />
       <div class="choices">
         <Shelf
@@ -157,16 +159,13 @@
       >
     </Dialog.Content>
   </Dialog.Root>
-{:else if error}<p role="alert" class="capture-error">{error}</p>{/if}
+{:else if error}<div role="alert" class="capture-error">
+    <span>{error}</span><Button variant="ghost" size="sm" onclick={() => (error = '')}
+      >Dismiss</Button
+    >
+  </div>{/if}
 
 <style>
-  input {
-    background: var(--background);
-    color: var(--foreground);
-    border: 1px solid var(--border);
-    padding: 0.6rem;
-    border-radius: 0.6rem;
-  }
   .choices {
     display: grid;
     max-height: 18rem;
@@ -176,10 +175,18 @@
   .capture-error {
     position: fixed;
     inset-inline: 1rem;
-    bottom: 1rem;
+    bottom: max(1rem, env(safe-area-inset-bottom));
     z-index: 60;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    max-width: 40rem;
+    margin-inline: auto;
     padding: 1rem;
-    background: var(--card);
     border: 1px solid var(--border);
+    border-radius: 1rem;
+    background: var(--card);
+    box-shadow: 0 8px 30px #0002;
   }
 </style>

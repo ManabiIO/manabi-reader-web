@@ -6,6 +6,7 @@
 
 import type { Completion } from '$lib/library/completion';
 import type { DirectionEvidence } from '$lib/library/direction';
+import type { BookMetadata } from '$lib/library/book-presentation';
 import type { BookCreator } from '$lib/library/book-metadata';
 import type { PublicationManifest } from '$lib/reader-location';
 import type { EpubPublicationData } from '$lib/foliate-epub/publication-data';
@@ -40,6 +41,7 @@ interface BooksDbV6BookData {
   title: string;
   language?: string;
   creators?: BookCreator[];
+  metadata?: BookMetadata;
   pageDirection?: DirectionEvidence;
   /** Loader identity for new imports. Older records infer EPUB from their publication manifest. */
   sourceFormat?: 'epub' | 'htmlz' | 'txt';

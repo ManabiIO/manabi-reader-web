@@ -45,15 +45,25 @@ const animate = (a, b, duration, ease, render) => new Promise(resolve => {
 // try make get a non-collapsed range or element
 const uncollapse = range => {
     if (!range?.collapsed) return range
+    // Geometry needs a visible glyph, but must not rewrite the caller's caret.
+    range = range.cloneRange()
     const { endOffset, endContainer } = range
     if (endContainer.nodeType === 1) {
         const node = endContainer.childNodes[endOffset]
         if (node?.nodeType === 1) return node
         return endContainer
     }
-    if (endOffset + 1 < endContainer.length) range.setEnd(endContainer, endOffset + 1)
-    else if (endOffset > 1) range.setStart(endContainer, endOffset - 1)
-    else return endContainer.parentNode
+    if (endOffset < endContainer.length) {
+        const length = endContainer.data.codePointAt(endOffset) > 0xFFFF ? 2 : 1
+        range.setEnd(endContainer, endOffset + length)
+    } else if (endOffset > 0) {
+        let start = endOffset - 1
+        const last = endContainer.data.charCodeAt(start)
+        const previous = endContainer.data.charCodeAt(start - 1)
+        if (last >= 0xDC00 && last <= 0xDFFF && previous >= 0xD800 && previous <= 0xDBFF)
+            start -= 1
+        range.setStart(endContainer, start)
+    } else return endContainer.parentNode
     return range
 }
 
@@ -709,9 +719,17 @@ export class Paginator extends HTMLElement {
                     this.#scrollToAnchor(selRange)
                 }
             })
-            doc.addEventListener('focusin', e => this.scrolled ? null :
-                // NOTE: `requestAnimationFrame` is needed in WebKit
-                requestAnimationFrame(() => this.#scrollToAnchor(e.target)))
+            doc.addEventListener('focusin', e => {
+                if (this.scrolled) return
+                const generation = this.#navigationGeneration
+                // WebKit needs a frame, but its source chapter or navigation may
+                // have been replaced before that frame is delivered.
+                requestAnimationFrame(() => {
+                    if (!this.scrolled && generation === this.#navigationGeneration
+                        && this.#view?.document === doc && e.target.isConnected)
+                        this.#scrollToAnchor(e.target)
+                })
+            })
         })
 
         this.#mediaQueryListener = () => {
@@ -792,8 +810,8 @@ export class Paginator extends HTMLElement {
         //
         // To make them the same, we start by shrinking the outer padding
         // setting to `b`, but keep the column gap setting the same at `a`. Then
-        // the actual size for the column gap will be (1 - b) * a. Repeating the
-        // process again and again, we get the sequence
+        // the actual percentage for the column gap will be (1 - b) * a. Repeating
+        // the process again and again, we get the sequence
         //     x₁ = (1 - b) * a
         //     x₂ = (1 - x₁) * a
         //     ...
@@ -1102,6 +1120,13 @@ export class Paginator extends HTMLElement {
                 const $style = doc.createElement('style')
                 doc.head.append($style)
                 this.#styleMap.set(doc, [$styleBefore, $style])
+                // Initial layout and anchor resolution must use the same reader
+                // styles as background measurements and prepared page turns.
+                const styles = this.#styles
+                if (Array.isArray(styles)) {
+                    $styleBefore.textContent = styles[0] ?? ''
+                    $style.textContent = styles[1] ?? ''
+                } else $style.textContent = styles ?? ''
             }
             let loaded
             try {
@@ -1241,14 +1266,18 @@ export class Paginator extends HTMLElement {
         this.cancelPageTurn()
         if (this.#locked) return
         this.#locked = true
-        const prev = dir === -1
-        const shouldGo = await (prev ? this.#scrollPrev(distance) : this.#scrollNext(distance))
-        if (shouldGo) await this.#goTo({
-            index: this.#adjacentIndex(dir),
-            anchor: prev ? () => 1 : () => 0,
-        })
-        if (shouldGo || !this.hasAttribute('animated')) await wait(100)
-        this.#locked = false
+        try {
+            const prev = dir === -1
+            const shouldGo = await (prev ? this.#scrollPrev(distance) : this.#scrollNext(distance))
+            if (shouldGo) await this.#goTo({
+                index: this.#adjacentIndex(dir),
+                anchor: prev ? () => 1 : () => 0,
+            })
+            if (shouldGo || !this.hasAttribute('animated')) await wait(100)
+        } finally {
+            // A rejected render must not disable every later navigation/retry.
+            this.#locked = false
+        }
     }
     prev(distance) {
         return this.#turnPage(-1, distance)
@@ -1565,9 +1594,12 @@ export class Paginator extends HTMLElement {
         const [$beforeStyle, $style] = $$styles
         if (Array.isArray(styles)) {
             const [beforeStyle, style] = styles
-            $beforeStyle.textContent = beforeStyle
-            $style.textContent = style
-        } else $style.textContent = styles
+            $beforeStyle.textContent = beforeStyle ?? ''
+            $style.textContent = style ?? ''
+        } else {
+            $beforeStyle.textContent = ''
+            $style.textContent = styles ?? ''
+        }
 
         // NOTE: needs `requestAnimationFrame` in Chromium
         requestAnimationFrame(() => {

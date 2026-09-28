@@ -388,6 +388,7 @@ export class TtuMigration {
           sections: data.sections,
           language: data.language,
           creators: data.creators,
+          metadata: data.metadata,
           pageDirection: data.pageDirection,
           characters,
           media,

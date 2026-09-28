@@ -35,6 +35,16 @@ export interface LibraryMenuModel {
   setFinishedOrder(value: string): void;
   createSeries(): void;
   refreshFolders(): void;
+  selectedActions?: {
+    busy: boolean;
+    savedCount: number;
+    collections(): void;
+    series(): void;
+    blur(): void;
+    unblur(): void;
+    canBlur: boolean;
+    canUnblur: boolean;
+  };
   selectedWantToRead: {
     canAdd: boolean;
     canRemove: boolean;
