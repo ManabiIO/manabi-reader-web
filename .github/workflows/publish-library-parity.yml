@@ -1,0 +1,33 @@
+name: Publish library parity candidate
+on:
+  push:
+    branches: [feat/library-parity-closeout-20260928]
+    paths:
+      - '.github/parity-upload/READY'
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 1
+      - name: Reconstruct reviewed patch
+        run: |
+          set -euo pipefail
+          cat .github/parity-upload/chunk-* | base64 -d > /tmp/library-parity.patch
+          echo 'fe6c0fc10160c6acc78445f3de46fe9c31e6cab5026ef974b0cceaaa7a8cdc95  /tmp/library-parity.patch' | sha256sum -c -
+      - name: Publish exact candidate
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin 17f0cd36973c52ab8fa254f862323563611bd7c6
+          git checkout -B feat/library-parity-20260928-final 17f0cd36973c52ab8fa254f862323563611bd7c6
+          git apply --index /tmp/library-parity.patch
+          git diff --cached --check
+          git config user.name 'Manabi parity publisher'
+          git config user.email 'actions@users.noreply.github.com'
+          git commit -m 'feat(library): add selection metadata and reader chrome parity'
+          git push origin HEAD:refs/heads/feat/library-parity-20260928-final --force
