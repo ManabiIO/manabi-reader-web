@@ -67,6 +67,16 @@ export abstract class BaseStorageHandler {
 
   abstract isBookPresentAndUpToDate(referenceFilename: string | undefined): Promise<boolean>;
 
+  /** Direct-file import preflight. Remote/legacy handlers do not have a portable
+   * browser content identity, so their default is deliberately no match. */
+  async findReusableBookByContentHash(
+    _contentHash: string,
+    signal?: AbortSignal
+  ): Promise<number | undefined> {
+    throwIfAborted(signal);
+    return undefined;
+  }
+
   abstract isProgressPresentAndUpToDate(referenceFilename: string | undefined): Promise<boolean>;
 
   abstract areStatisticsPresentAndUpToDate(referenceFilename: string | undefined): Promise<boolean>;
