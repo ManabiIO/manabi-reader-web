@@ -95,9 +95,26 @@ class LibraryIdentityBrowser(LibraryBase):
 
     def test_removed_browser_records_do_not_leave_a_permanent_import_conflict(self):
         original = self.import_finished()
+        self.page.evaluate('''async id => {
+          const db = await new Promise((resolve, reject) => {
+            const request = indexedDB.open('books');
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          const tx = db.transaction('readerBookScope', 'readwrite');
+          tx.objectStore('readerBookScope').put({
+            bookId: id, accountId: '42', hydrated: true
+          });
+          await new Promise((resolve, reject) => {
+            tx.oncomplete = resolve; tx.onabort = () => reject(tx.error);
+          });
+          db.close();
+        }''', original['bookId'])
         self.menu('Traveling volume', 'Remove from this browser…')
         expect(self.page.locator('[data-book-key="book:%s"]' % original['bookId'])).to_have_count(0)
-        self.assertEqual([], self.stores('books', ['data'])['data'])
+        stores = self.stores('books', ['data', 'readerBookScope'])
+        self.assertEqual([], stores['data'])
+        self.assertEqual([], stores['readerBookScope'])
         self.page.evaluate('''async link => {
           const db = await new Promise((resolve, reject) => {
             const r = indexedDB.open('manabi-reader-integrations');
