@@ -17,7 +17,14 @@ interface ParsedCreator extends BookCreator {
 function boundedText(value: unknown): string | undefined {
   if (typeof value !== 'string') return;
   const text = value.replace(/\s+/gu, ' ').trim();
-  return text ? text.slice(0, 512) : undefined;
+  let bounded = '';
+  for (const char of text) {
+    const code = char.codePointAt(0)!;
+    if (code < 32 || code === 127 || (code >= 0xd800 && code <= 0xdfff)) return;
+    if (bounded.length + char.length > 512) break;
+    bounded += char;
+  }
+  return bounded || undefined;
 }
 
 export function extractCreators(metadata: Record<string, unknown> | undefined): BookCreator[] {

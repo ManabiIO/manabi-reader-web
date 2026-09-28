@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { setImmediate } from 'node:timers/promises';
 import test from 'node:test';
-import { commitTransaction } from '../../apps/web/src/lib/data/database/books-db/commit-transaction.mjs';
+import {
+  commitOwnedBookmark,
+  readOwnedBookmark
+} from '../../apps/web/src/lib/data/database/books-db/book-records.ts';
 
 const source = readFileSync(
   new URL('../../apps/web/src/lib/data/database/books-db/database.service.ts', import.meta.url),
@@ -67,9 +70,9 @@ test('bookmark read rejects a profile switch during transaction completion', asy
   const read = method('getBookmark', 'putBookmark', 'dataId: number', [
     'dataId',
     'captureLibraryOperation',
-    'commitTransaction'
+    'readOwnedBookmark'
   ]);
-  const pending = read.call({ db: Promise.resolve(h.db) }, 1, () => h.scope, commitTransaction);
+  const pending = read.call({ db: Promise.resolve(h.db) }, 1, () => h.scope, readOwnedBookmark);
   await setImmediate();
   h.revoke();
   h.complete();
@@ -83,18 +86,14 @@ test('bookmark write withholds acknowledgment after a post-request profile switc
     'bookmarkData',
     'snapshotBookmarkData',
     'captureLibraryOperation',
-    'commitTransaction',
-    'assertBookPersonalAccess',
-    'mergeCompletion'
+    'commitOwnedBookmark'
   ]);
   const pending = write.call(
     { db: Promise.resolve(h.db) },
     { dataId: 1, progress: 0.5 },
     (value) => structuredClone(value),
     () => h.scope,
-    commitTransaction,
-    () => undefined,
-    (_before, value) => value
+    commitOwnedBookmark
   );
   await setImmediate();
   h.revoke();

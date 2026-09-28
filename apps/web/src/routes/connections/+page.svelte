@@ -244,11 +244,8 @@
 
 <main class="connections-page">
   <nav aria-label="Context navigation" class="page-navigation">
-    <Button
-      href={resolve('/manage')}
-      variant="link"
-      size="sm"
-      aria-label="Back to Library">← Library</Button
+    <Button href={resolve('/manage')} variant="link" size="sm" aria-label="Back to Library"
+      >← Library</Button
     >
   </nav>
   <header>
@@ -290,8 +287,17 @@
           </label>
         {/if}
         <p role="status" aria-label="Settings sync status">
-          Settings sync: {$preferenceStatus.state}
+          Settings sync: {$preferenceStatus.state === 'synced-local-metadata'
+            ? 'synced (book metadata saved locally)'
+            : $preferenceStatus.state}
         </p>
+        {#if $preferenceStatus.state === 'synced-local-metadata'}
+          <p>
+            This server does not yet support syncing edited book metadata, personal series or cover
+            blur. Those edits remain saved in this browser and will sync automatically when the
+            server supports them. Other settings and collections are synced.
+          </p>
+        {/if}
         {#if $preferenceStatus.state === 'conflict'}
           <p>These preferences changed in both places: {$preferenceStatus.conflicts.join(', ')}.</p>
           <button disabled={busy} on:click={() => action(() => syncPreferences('local'))}

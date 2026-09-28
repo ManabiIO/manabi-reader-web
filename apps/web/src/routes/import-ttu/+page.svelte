@@ -313,11 +313,8 @@
     {/if}
     {#if rows.length > pageSize}
       <nav aria-label="Import pages">
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={page === 0}
-          onclick={() => page--}>Previous</Button
+        <Button variant="ghost" size="sm" disabled={page === 0} onclick={() => page--}
+          >Previous</Button
         >
         <span
           >{page * pageSize + 1}–{Math.min((page + 1) * pageSize, rows.length)} of {rows.length}</span
@@ -371,10 +368,8 @@
               >Use imported data for {row.title}</Button
             >
           {/if}
-          {#if row.bookId}<Button
-              href={resolve(`/b?id=${row.bookId}`)}
-              variant="link"
-              size="sm">Read {row.title}</Button
+          {#if row.bookId}<Button href={resolve(`/b?id=${row.bookId}`)} variant="link" size="sm"
+              >Read {row.title}</Button
             >{/if}
         </article>
       {/each}
@@ -440,6 +435,7 @@
   }
   .file-picker {
     display: grid;
+    min-width: 0;
     gap: 10px;
     margin: 16px 0;
     border: 1px dashed var(--border);
@@ -480,6 +476,8 @@
   }
   input[type='file'] {
     min-height: 2.75rem;
+    min-width: 0;
+    width: 100%;
     max-width: 100%;
     font-weight: normal;
   }

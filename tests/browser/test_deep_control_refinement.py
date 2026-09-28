@@ -1,4 +1,5 @@
 """Additional regressions against the actual app; retain all prior control cases."""
+from reader_controls import reveal_reader_controls
 import unittest
 from playwright.sync_api import expect
 import test_control_refinement as control_refinement
@@ -6,9 +7,7 @@ import test_control_refinement as control_refinement
 
 class DeepControlRefinementBrowser(control_refinement.ControlRefinementBrowser):
     def open_notes(self):
-        controls = self.page.get_by_role('button', name='Show reading controls', exact=True)
-        if controls.is_visible():
-            controls.click()
+        reveal_reader_controls(self.page)
         self.page.get_by_role('button', name='Bookmarks and Notes', exact=True).click()
         panel = self.page.get_by_role('dialog', name='Bookmarks & Notes', exact=True)
         expect(panel).to_be_visible()

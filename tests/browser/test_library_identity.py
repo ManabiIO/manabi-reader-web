@@ -93,6 +93,37 @@ class LibraryIdentityBrowser(LibraryBase):
         self.assertEqual(1, len(self.stores('books', ['data'])['data']))
         self.assertEqual(before, self.stores('books', ['bookmark'])['bookmark'][0]['completion'])
 
+    def test_stale_remove_action_cannot_delete_a_newly_foreign_owned_book(self):
+        original = self.import_finished()
+        book_id = original['bookId']
+        self.page.evaluate('''async id => {
+          const db = await new Promise((resolve, reject) => {
+            const request = indexedDB.open('books');
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          const tx = db.transaction('data', 'readwrite');
+          const store = tx.objectStore('data');
+          const current = await new Promise((resolve, reject) => {
+            const request = store.get(id);
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          store.put({...current, libraryOwner: 'other-account'});
+          await new Promise((resolve, reject) => {
+            tx.oncomplete = resolve;
+            tx.onabort = () => reject(tx.error);
+            tx.onerror = () => reject(tx.error);
+          });
+          db.close();
+        }''', book_id)
+
+        self.menu('Traveling volume', 'Remove from this browser…')
+        expect(self.page.get_by_text(re.compile('belongs to another account'))).to_be_visible()
+        self.assertEqual([book_id], [row['id'] for row in self.stores('books', ['data'])['data']])
+        self.assertTrue(any(row['dataId'] == book_id
+                            for row in self.stores('books', ['bookmark'])['bookmark']))
+
     def test_removed_browser_records_do_not_leave_a_permanent_import_conflict(self):
         original = self.import_finished()
         self.page.evaluate('''async id => {

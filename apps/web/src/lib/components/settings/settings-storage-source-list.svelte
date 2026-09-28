@@ -58,7 +58,6 @@
     return name === referenceName;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   function isStorageSourceDefault(name: string, type: StorageKey, _sources: string[] = []) {
     let configuredIsSourceDefault = false;
 
@@ -218,7 +217,7 @@
       </Popover>
       {#if $autoReplication$ !== AutoReplicationType.Off && !$syncTarget$}
         <Popover
-          contentText={'Auto import/export enabled but no source as sync target from list selected'}
+          contentText="Auto import/export enabled but no source as sync target from list selected"
           contentStyles="padding: 0.25rem;"
         >
           <AppIcon icon={faTriangleExclamation} slot="icon" class="mx-1" />
@@ -262,15 +261,16 @@
               <div class="min-w-0 break-words font-medium">{storageSource.name}</div>
             </div>
             <div class="flex flex-wrap gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                class:hidden={isDefault}
-                onclick={() => modifyStorageSource(storageSource)}
-              >
-                <AppIcon icon={faPenToSquare} />
-                <span>Edit</span>
-              </Button>
+              {#if !isDefault}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onclick={() => modifyStorageSource(storageSource)}
+                >
+                  <AppIcon icon={faPenToSquare} />
+                  <span>Edit</span>
+                </Button>
+              {/if}
               <Button
                 variant={storageSourceIsSyncTarget ? 'secondary' : 'ghost'}
                 size="sm"
@@ -294,20 +294,21 @@
                 <AppIcon icon={faTableList} />
                 <span>Use by default</span>
               </Button>
-              <Button
-                variant="destructive"
-                size="sm"
-                class:hidden={isDefault}
-                onclick={() =>
-                  deleteStorageSource(
-                    storageSource,
-                    storageSourceIsSyncTarget,
-                    storageSourceIsSourceDefault
-                  )}
-              >
-                <AppIcon icon={faTrash} />
-                <span>Remove</span>
-              </Button>
+              {#if !isDefault}
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onclick={() =>
+                    deleteStorageSource(
+                      storageSource,
+                      storageSourceIsSyncTarget,
+                      storageSourceIsSourceDefault
+                    )}
+                >
+                  <AppIcon icon={faTrash} />
+                  <span>Remove</span>
+                </Button>
+              {/if}
             </div>
           </article>
         {/each}

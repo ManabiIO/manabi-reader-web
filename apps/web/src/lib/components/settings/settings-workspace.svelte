@@ -1,6 +1,7 @@
 <script lang="ts">
   import { setContext, onMount, tick } from 'svelte';
   import { afterNavigate, goto } from '$app/navigation';
+  import { resolve } from '$app/paths';
   import { writable } from 'svelte/store';
   import { Input } from '$lib/components/ui/input';
   import { Button } from '$lib/components/ui/button';
@@ -53,7 +54,8 @@
   afterNavigate(({ to }) => {
     const category = to?.url.hash.slice(1);
     filter.set({
-      category: category && categories.some((item) => item.id === category) ? category : 'appearance',
+      category:
+        category && categories.some((item) => item.id === category) ? category : 'appearance',
       query: ''
     });
   });
@@ -83,15 +85,14 @@
   function choose(category: string) {
     filter.set({ category, query: '' });
     if (typeof window === 'undefined' || window.location.hash === `#${category}`) return;
-    const url = new URL(window.location.href);
-    url.hash = category;
-    void goto(`${url.pathname}${url.search}${url.hash}`, {
+    void goto(resolve(`/settings#${category}`), {
       keepFocus: true,
       noScroll: true
     });
   }
   function handleCategoryClick(event: MouseEvent, category: string) {
-    if (event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    if (event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey)
+      return;
     event.preventDefault();
     choose(category);
   }

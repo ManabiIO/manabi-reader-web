@@ -1,4 +1,5 @@
 """App Store Connect-inspired workspace refinement against the real static app."""
+from reader_controls import reveal_reader_controls
 import unittest
 from playwright.sync_api import expect
 import test_apple_controls as previous
@@ -522,9 +523,7 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
 
     def test_reader_appearance_state_controls_and_themes_remain_reachable_when_enlarged(self):
         self.open_reader()
-        reveal = self.page.get_by_role('button', name='Show reading controls', exact=True)
-        if reveal.is_visible():
-            reveal.click()
+        reveal_reader_controls(self.page)
         self.page.get_by_role('button', name='Themes & Settings', exact=True).click()
         panel = self.page.get_by_role('dialog', name='Themes & Settings', exact=True)
         self.page.set_viewport_size({'width': 320, 'height': 568})
