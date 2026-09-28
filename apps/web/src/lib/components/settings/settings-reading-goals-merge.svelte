@@ -1,8 +1,8 @@
 <script lang="ts">
   import faSpinner from '@lucide/svelte/icons/loader-circle';
   import DialogTemplate from '$lib/components/dialog-template.svelte';
-  import Ripple from '$lib/components/ripple.svelte';
-  import { buttonClasses } from '$lib/css-classes';
+  import { Button } from '$lib/components/ui/button';
+  import { Input } from '$lib/components/ui/input';
   import type { BooksDbReadingGoal } from '$lib/data/database/books-db/versions/books-db';
   import {
     getDateRangeLabel,
@@ -109,6 +109,7 @@
     if (exitEarly) {
       resolver(resultObject);
       dispatch('close');
+      return;
     }
 
     await tick();
@@ -267,88 +268,104 @@
 
 {#if showSpinner}
   <div class="tap-highlight-transparent absolute inset-0 bg-black/[.2]"></div>
-  <div class="fixed inset-0 flex h-full w-full items-center justify-center text-7xl">
+  <div
+    role="status"
+    aria-label="Preparing reading goal"
+    class="fixed inset-0 flex h-full w-full items-center justify-center text-7xl"
+  >
     <AppIcon icon={faSpinner} spin />
   </div>
 {/if}
 <DialogTemplate>
   <svelte:fragment slot="header">Save Reading Goal</svelte:fragment>
   <svelte:fragment slot="content">
-    {#if newReadingGoal.goalStartDate}
-      <div>
-        <span>New Reading Goal starts from</span>
-        <input
-          disabled
-          class="mb-4 sm:ml-1"
-          type="date"
-          min={newReadingGoal.goalStartDate}
-          bind:value={newStartDate}
-        />
-      </div>
-    {/if}
-    {#if archivalOptions.length}
-      <input type="checkbox" bind:checked={archiveReadingGoal} on:change={checkDates} />
-      <span class:opacity-50={!archiveReadingGoal}>
-        <span class="mr-2">Archive Reading Goal from</span>
-        <input
-          class="w-full mt-2 sm:mt-0 md:w-[initial]"
-          type="date"
-          disabled={!archiveReadingGoal || !archiveDateEditable}
-          bind:value={archivalStartDate}
-          on:change={checkDates}
-        />
-        <span class="mx-2">-</span>
-        <input
-          class="w-full md:w-[initial]"
-          type="date"
-          disabled={!archiveReadingGoal || !archiveDateEditable}
-          bind:value={archivalEndDate}
-          on:change={checkDates}
-        />
-      </span>
-      <div
-        class="flex flex-col justify-between mt-2 md:flex-row"
-        class:md:flex-col={archivalOptions?.length > 3}
-      >
-        {#each archivalOptions as archivalOption (archivalOption.label)}
-          <div class="flex items-center">
-            <input
-              type="radio"
-              name="action"
-              class="my-2 mr-1"
-              class:cursor-not-allowed={!archiveReadingGoal}
-              disabled={!archiveReadingGoal}
-              value={archivalOption.label}
-              bind:group={selectedArchiveOption}
-              on:change={checkDates}
-            />
-            <span class:opacity-50={!archiveReadingGoal}>{archivalOption.label}</span>
+    <div class="grid min-w-0 gap-4">
+      {#if newReadingGoal.goalStartDate}
+        <label class="grid min-w-0 gap-2 text-sm font-medium">
+          <span>New reading goal starts from</span>
+          <Input
+            disabled
+            type="date"
+            min={newReadingGoal.goalStartDate}
+            bind:value={newStartDate}
+          />
+        </label>
+      {/if}
+
+      {#if archivalOptions.length}
+        <label class="flex min-h-11 items-center gap-2 text-sm font-medium">
+          <input
+            type="checkbox"
+            class="size-5 shrink-0 accent-primary"
+            bind:checked={archiveReadingGoal}
+            on:change={checkDates}
+          />
+          <span>Archive current reading goal</span>
+        </label>
+
+        <div
+          class="grid gap-3"
+          class:opacity-50={!archiveReadingGoal}
+        >
+          <div class="grid gap-3 sm:grid-cols-2">
+            <label class="grid min-w-0 gap-2 text-sm font-medium">
+              <span>Archive from</span>
+              <Input
+                type="date"
+                disabled={!archiveReadingGoal || !archiveDateEditable}
+                bind:value={archivalStartDate}
+                onchange={checkDates}
+              />
+            </label>
+            <label class="grid min-w-0 gap-2 text-sm font-medium">
+              <span>Archive through</span>
+              <Input
+                type="date"
+                disabled={!archiveReadingGoal || !archiveDateEditable}
+                bind:value={archivalEndDate}
+                onchange={checkDates}
+              />
+            </label>
           </div>
-        {/each}
-      </div>
-    {/if}
-    {#if readingGoalToReplaceMessage}
-      <details class="cursor-pointer max-h-[6rem] sm:max-h-[10rem] overflow-auto mt-4">
-        <summary>{readingGoalToReplaceMessage}</summary>
-        {#each readingGoalsToReplace as goalToReplace (goalToReplace.goalStartDate)}
-          <div class="my-2 p-1">
-            {getDateRangeLabel(goalToReplace.goalStartDate, goalToReplace.goalEndDate)} / {secondsToMinutes(
-              goalToReplace.timeGoal
-            )} min / {goalToReplace.characterGoal}
-            characters / {goalToReplace.goalFrequency}
-          </div>
-        {/each}
-      </details>
-    {/if}
+
+          <fieldset class="grid gap-2" disabled={!archiveReadingGoal}>
+            <legend class="text-sm font-medium">Archive boundary</legend>
+            <div class="grid gap-1">
+              {#each archivalOptions as archivalOption (archivalOption.label)}
+                <label class="flex min-h-11 items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="action"
+                    class="size-5 shrink-0 accent-primary"
+                    value={archivalOption.label}
+                    bind:group={selectedArchiveOption}
+                    on:change={checkDates}
+                  />
+                  <span>{archivalOption.label}</span>
+                </label>
+              {/each}
+            </div>
+          </fieldset>
+        </div>
+      {/if}
+
+      {#if readingGoalToReplaceMessage}
+        <details class="max-h-[10rem] cursor-pointer overflow-auto rounded-xl border border-border p-3">
+          <summary>{readingGoalToReplaceMessage}</summary>
+          {#each readingGoalsToReplace as goalToReplace (goalToReplace.goalStartDate)}
+            <div class="my-2 break-words text-sm">
+              {getDateRangeLabel(goalToReplace.goalStartDate, goalToReplace.goalEndDate)} / {secondsToMinutes(
+                goalToReplace.timeGoal
+              )} min / {goalToReplace.characterGoal}
+              characters / {goalToReplace.goalFrequency}
+            </div>
+          {/each}
+        </details>
+      {/if}
+    </div>
   </svelte:fragment>
-  <div class="flex grow justify-between" slot="footer">
-    <button class={buttonClasses} on:click={() => closeDialog(true)}>
-      Cancel
-      <Ripple />
-    </button>
-    <button class={buttonClasses} on:click={() => closeDialog()}>
-      Confirm
-      <Ripple />
-    </button>
+  <div class="flex grow flex-wrap justify-between gap-2" slot="footer">
+    <Button variant="ghost" onclick={() => closeDialog(true)}>Cancel</Button>
+    <Button variant="default" onclick={() => closeDialog()}>Confirm</Button>
   </div>
 </DialogTemplate>

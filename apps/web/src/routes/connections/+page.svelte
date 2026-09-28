@@ -243,9 +243,10 @@
 <svelte:head><title>Accounts and libraries · Manabi Reader</title></svelte:head>
 
 <main class="connections-page">
-  <nav aria-label="Reader navigation" class="page-navigation">
-    <Button href={resolve('/manage')} variant="link" size="sm">← Books</Button>
-    <Button href={resolve('/settings')} variant="link" size="sm">Reader settings</Button>
+  <nav aria-label="Context navigation" class="page-navigation">
+    <Button href={resolve('/manage')} variant="link" size="sm" aria-label="Back to Library"
+      >← Library</Button
+    >
   </nav>
   <header>
     <h1>Accounts and libraries</h1>
@@ -676,14 +677,14 @@
   }
   .page-navigation {
     margin-inline: -8px;
-    gap: 2px;
   }
   header {
     margin: 24px 0;
   }
   h1 {
-    font-size: 2rem;
+    font-size: clamp(1.75rem, 5vw, 2rem);
     font-weight: 700;
+    line-height: 1.1;
   }
   h2 {
     font-size: 1.35rem;
