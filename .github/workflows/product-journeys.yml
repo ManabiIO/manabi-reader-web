@@ -27,7 +27,7 @@ jobs:
           mkdir -p test-results/product-journeys
           git rev-parse HEAD > test-results/product-journeys/commit.txt
           git ls-tree -r HEAD > test-results/product-journeys/tree.txt
-          cp tests/browser/test_product_journeys.py test-results/product-journeys/
+          cp tests/browser/test_product_journeys.py tests/browser/test_search_quality.py test-results/product-journeys/
       - uses: pnpm/action-setup@v6.1.0
         with:
           version: '12.3.4'
@@ -55,6 +55,9 @@ jobs:
           status=0
           for engine in chromium webkit; do
             LIBRARY_BROWSER=$engine timeout -v -k 10s 360s python tests/browser/test_product_journeys.py 2>&1 | tee test-results/product-journeys/$engine.log
+            result=${PIPESTATUS[0]}
+            if [ "$result" -ne 0 ]; then status=1; fi
+            LIBRARY_BROWSER=$engine timeout -v -k 10s 360s python tests/browser/test_search_quality.py 2>&1 | tee test-results/product-journeys/$engine-search-quality.log
             result=${PIPESTATUS[0]}
             if [ "$result" -ne 0 ]; then status=1; fi
           done

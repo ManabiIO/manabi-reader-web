@@ -13,7 +13,7 @@ from playwright.sync_api import expect
 from test_books_library import LibraryBase, book
 
 
-class ProductJourneys(LibraryBase):
+class ProductJourneyBase(LibraryBase):
     def setUp(self):
         try:
             super().setUp()
@@ -88,6 +88,8 @@ class ProductJourneys(LibraryBase):
         field.fill(query)
         return field
 
+
+class ProductJourneys(ProductJourneyBase):
     def pagination(self, *, width, height, writing):
         # Explicit counts come from authored paragraphs, not the worker output.
         body = ''.join(f'<p>PAGE_TOKEN passage {index:03d}. 日本語の本文。</p>' for index in range(127))
@@ -114,7 +116,7 @@ class ProductJourneys(LibraryBase):
         self.assertIn('passage 126', texts[-1])
         self.assertEqual(127, len(set(texts)), 'Pagination repeated results')
         field.fill('ONLY_ONE_RESULT')
-        expect(panel.get_by_text('1 results', exact=True)).to_be_visible()
+        expect(panel.get_by_text('1 result', exact=True)).to_be_visible()
         expect(hits).to_have_count(1)
         field.fill('PAGE_TOKEN')
         expect(panel.get_by_text('127 results', exact=True)).to_be_visible()
@@ -142,7 +144,7 @@ class ProductJourneys(LibraryBase):
         self.read('Reader query boundary')
         panel, field = self.reader_search()
         field.fill(boundary)
-        expect(panel.get_by_text('1 results', exact=True)).to_be_visible()
+        expect(panel.get_by_text('1 result', exact=True)).to_be_visible()
         expect(self.result_buttons(panel)).to_have_count(1)
         field.fill(boundary + '𠮷')
         expect(panel.get_by_role('alert')).to_have_text('Use a search of 512 characters or fewer.')
@@ -151,7 +153,7 @@ class ProductJourneys(LibraryBase):
         expect(panel.get_by_role('button', name='Retry Search', exact=True)).to_have_count(0)
         self.checkpoint('over-limit')
         field.fill('RECOVER_ME')
-        expect(panel.get_by_text('1 results', exact=True)).to_be_visible()
+        expect(panel.get_by_text('1 result', exact=True)).to_be_visible()
         expect(panel.get_by_role('alert')).to_have_count(0)
         expect(field).not_to_have_attribute('aria-invalid', 'true')
         expect(self.result_buttons(panel)).to_have_count(1)
@@ -165,7 +167,7 @@ class ProductJourneys(LibraryBase):
         panel, field = self.reader_search()
         for query in ('[a+b].*?', '𠮷猫🍵'):
             field.fill(query)
-            expect(panel.get_by_text('1 results', exact=True)).to_be_visible()
+            expect(panel.get_by_text('1 result', exact=True)).to_be_visible()
             expect(self.result_buttons(panel)).to_have_count(1)
             expect(self.result_buttons(panel).first).to_contain_text(query)
         field.fill('NOT_PRESENT_IN_BOOK')
@@ -175,7 +177,7 @@ class ProductJourneys(LibraryBase):
         expect(panel.get_by_text('Enter a word or phrase.', exact=True)).to_be_visible()
         expect(self.result_buttons(panel)).to_have_count(0)
         field.fill('[a+b].*?')
-        expect(panel.get_by_text('1 results', exact=True)).to_be_visible()
+        expect(panel.get_by_text('1 result', exact=True)).to_be_visible()
         expect(self.result_buttons(panel)).to_have_count(1)
         self.checkpoint('literal-result')
 
@@ -183,10 +185,11 @@ class ProductJourneys(LibraryBase):
         boundary = '𠮷' * 512
         self.import_book('Library query boundary', body='<p>' + boundary + '</p><p>RECOVER_ME</p>')
         self.library_search(boundary)
+        results = self.page.get_by_label('Library search results', exact=True)
         expect(self.page.get_by_role('button', name='Open passage in Library query boundary: ' + boundary, exact=True)).to_be_visible()
         self.library_search(boundary + '𠮷')
-        results = self.page.locator('[aria-label="Library search results"]')
         expect(results.get_by_role('alert')).to_have_text('Use a search of 512 characters or fewer.')
+        expect(self.page.get_by_role('button', name='Retry content search', exact=True)).to_have_count(0)
         expect(self.page.get_by_role('button', name=re.compile('^Open passage in '))).to_have_count(0)
         self.checkpoint('library-over-limit')
         self.library_search('RECOVER_ME')
@@ -239,11 +242,11 @@ class ProductJourneys(LibraryBase):
         before = self.stores('books', ['data'])['data']
         picker = self.page.locator('input[type=file][accept*=".epub"]').first
         picker.set_input_files({'name': 'retry.epub', 'mimeType': 'application/epub+zip', 'buffer': b'not a zip archive'})
-        expect(self.page.get_by_text('Bookimport failed', exact=True)).to_be_visible()
+        expect(self.page.get_by_text('Book import failed', exact=True)).to_be_visible()
         self.checkpoint('corrupt-import')
         self.assertEqual(before, self.stores('books', ['data'])['data'])
         self.page.keyboard.press('Escape')
-        expect(self.page.get_by_text('Bookimport failed', exact=True)).to_have_count(0)
+        expect(self.page.get_by_text('Book import failed', exact=True)).to_have_count(0)
         picker.set_input_files({'name': 'retry.epub', 'mimeType': 'application/epub+zip',
                                 'buffer': book('Recovered import', body='<p>A corrected file now reads.</p>')})
         expect(self.page.get_by_role('button', name='Read Recovered import', exact=True)).to_be_visible()
