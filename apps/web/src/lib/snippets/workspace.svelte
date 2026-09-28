@@ -629,9 +629,13 @@
     destination = undefined;
     locationChosen = false;
     storedDrafts = [];
+    draftQueue = Promise.resolve();
+    draftClock = 0;
+    draftSerial++;
     selected = new Set();
     selecting = false;
     visibleIds = [];
+    source = '';
     pickerOpen = false;
     pickerWriteBusy = false;
     moving = [];
