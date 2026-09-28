@@ -21,7 +21,11 @@
   } from '$lib/components/statistics/statistics-types';
   import { pxScreen } from '$lib/css-classes';
   import type { BooksDbBookmarkData } from '$lib/data/database/books-db/versions/books-db';
-  import { statisticIdentityPlan } from '$lib/data/database/books-db/reader-statistics';
+  import {
+    deleteStatisticsForIdentityPlan,
+    statisticIdentityPlan,
+    type StatisticsMigrationGuard
+  } from '$lib/data/database/books-db/reader-statistics';
   import { dialogManager } from '$lib/data/dialog-manager';
   import { pagePath } from '$lib/data/env';
   import { logger } from '$lib/data/logger';
@@ -71,6 +75,7 @@
     validateEditorsPickCopy
   } from '$lib/library/editors-pick-storage';
   import { account, currentUser, localProfileUser, localUser } from '$lib/manabi/client';
+  import { captureLibraryOperation } from '$lib/manabi/operation-scope';
   import type { ReaderLocator } from '$lib/reader-location';
   import { clearLibraryLocation, queueLibraryLocation } from '$lib/library/search-navigation';
   import { allLinkedBooks } from '$lib/manabi/books';
@@ -755,6 +760,44 @@
 
   function onReplicateData() {
     dialogManager.dialogs$.next([{ component: BookExportDialog, disableCloseOnClick: true }]);
+  }
+
+  function statisticsAuthority(
+    scope: ReturnType<typeof captureLibraryOperation>,
+    cancellation?: AbortSignal
+  ) {
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    if (scope.signal.aborted || cancellation?.aborted) controller.abort();
+    scope.signal.addEventListener('abort', abort);
+    cancellation?.addEventListener('abort', abort);
+    const assertCurrent = () => {
+      scope.assertCurrent();
+      cancellation?.throwIfAborted();
+      controller.signal.throwIfAborted();
+    };
+    const validate: StatisticsMigrationGuard['validate'] = (book, owner) => {
+      assertCurrent();
+      if (!book) return;
+      if (
+        (book.libraryOwner !== undefined && book.libraryOwner !== scope.profileId) ||
+        (owner && owner.accountId !== scope.profileId)
+      )
+        throw new Error('This book belongs to another account.');
+    };
+    const guard: StatisticsMigrationGuard = {
+      assertCurrent,
+      signal: controller.signal,
+      validate,
+      validateCopy: validate
+    };
+    return {
+      guard,
+      stop() {
+        scope.signal.removeEventListener('abort', abort);
+        cancellation?.removeEventListener('abort', abort);
+      }
+    };
   }
 
   async function openSelectedStatistics() {
