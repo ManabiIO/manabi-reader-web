@@ -1723,6 +1723,16 @@ export class VideoWorkspace {
     if (this.closing) return this.closing;
     this.closed = true;
     this.generation++;
+    // Revoke the queue owner synchronously before the broader workspace signal.
+    // Otherwise a decoder waiting on workspace lifetime can reject as a failure
+    // before the queue has marked the operation as an intentional shutdown.
+    let queue: Promise<void>;
+    try {
+      queue = this.queue.dispose();
+    } catch (error) {
+      queue = Promise.reject(error);
+    }
+    this.decoderCache.dispose();
     this.lifetime.abort();
     this.cloudAbort.abort();
     this.openAbort?.abort();
@@ -1734,10 +1744,8 @@ export class VideoWorkspace {
     // or slow storage. Neither drain is allowed to skip the other on failure.
     this.root.remove();
     this.player?.video.pause();
-    const queue = Promise.resolve().then(() => this.queue.dispose());
     const player = Promise.resolve().then(() => this.player?.dispose());
     this.closing = Promise.allSettled([queue, player]).then(async (results) => {
-      this.decoderCache.dispose();
       const failures = results
         .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
         .map((result) => result.reason);
