@@ -1069,7 +1069,7 @@
               {problem}
             </p>{/each}
         </details>{/if}
-      {#if selecting}<div class="batch" aria-label="Selected snippet actions">
+      {#if selecting}<div class="batch" role="toolbar" aria-label="Selected snippet actions">
           <strong>{selected.size} selected</strong><Button
             variant="secondary"
             onclick={() => (selected = new Set(visibleIds))}>Select all visible</Button

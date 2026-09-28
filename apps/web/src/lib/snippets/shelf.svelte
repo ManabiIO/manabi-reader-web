@@ -148,10 +148,11 @@
 <div
   class:grid={layout === 'grid'}
   class="snippet-shelf"
+  role="list"
   aria-label={query ? 'Snippet search results' : 'Snippets'}
 >
   {#each visible.slice(0, limit) as item (item.key)}
-    <div class="snippet-card" class:selected={selected.has(item.id)}>
+    <div class="snippet-card" class:selected={selected.has(item.id)} role="listitem">
       {#if selecting}<label class="select"
           ><input
             class="size-5 accent-primary"

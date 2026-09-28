@@ -275,7 +275,10 @@ try {
   });
   const localTitle = page.locator('.snippet-shelf .title').filter({ hasText: '散歩の記録' });
   await localTitle.click({ modifiers: ['Control'] });
-  await expect(page.getByLabel('Selected snippet actions')).toBeVisible();
+  await expect(
+    page.getByRole('toolbar', { name: 'Selected snippet actions', exact: true })
+  ).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Snippets', exact: true })).toBeVisible();
   await expect(page.getByRole('checkbox', { name: 'Select 散歩の記録' })).toBeChecked();
   await page.getByRole('button', { name: 'Done selecting', exact: true }).click();
   passed('modifier-click enters visible selection mode');
