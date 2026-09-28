@@ -142,6 +142,8 @@ export async function importLibraryBook(
         throw new IntegrationError('account_changed');
       stored = await database.upsertData(content, ReplicationSaveBehavior.NewOnly, false, true);
     }
+    if (source.owner !== null && source.owner !== currentUser()?.id)
+      throw new IntegrationError('account_changed');
     const link: BookLink = {
       id,
       sourceId: source.id,
