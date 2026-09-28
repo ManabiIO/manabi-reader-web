@@ -235,7 +235,7 @@
               type="search"
               disabled={!hydrated || !libraryMenu}
               class="min-w-0 w-full border-0 bg-transparent p-0 shadow-none outline-none focus:border-transparent focus:shadow-none focus:ring-0"
-              placeholder="Search library"
+              placeholder="Search dictionary and library"
               value={libraryMenu?.search.query || ''}
               oninput={(event) => {
                 if (!('isComposing' in event && event.isComposing))
@@ -243,6 +243,7 @@
               }}
               oncompositionend={(event) => libraryMenu?.search.setQuery(event.currentTarget.value)}
               onkeydown={(event) => {
+                if (event.isComposing || event.keyCode === 229) return;
                 if (event.key === 'Escape') {
                   event.preventDefault();
                   void closeSearch();
@@ -546,7 +547,7 @@
                 class="min-w-0 w-full border-0 bg-transparent p-0 shadow-none outline-none focus:border-transparent focus:shadow-none focus:ring-0"
                 type="search"
                 disabled={!hydrated || !libraryMenu}
-                placeholder="Search library"
+                placeholder="Search dictionary and library"
                 value={libraryMenu?.search.query || ''}
                 oninput={(event) => {
                   if (!('isComposing' in event && event.isComposing))
