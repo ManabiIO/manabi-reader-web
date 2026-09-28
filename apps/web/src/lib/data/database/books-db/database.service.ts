@@ -13,7 +13,11 @@ import {
   visibleStatistics
 } from './reader-statistics';
 import { commitTransaction, explainBookStorageError } from './commit-transaction.mjs';
-import { matchesDirectImportIdentity, normalizedDirectImportHash } from './direct-import-identity';
+import {
+  matchesDirectImportIdentity,
+  normalizedDirectImportHash,
+  type DirectImportCandidate
+} from './direct-import-identity';
 import { commitOwnedBookmark, readOwnedBookmark, snapshotBookmarkData } from './book-records';
 import { captureLibraryOperation } from '$lib/manabi/operation-scope';
 import type {
@@ -58,6 +62,82 @@ import { storageSource$ } from '$lib/data/storage/storage-view';
 import { throwIfAborted } from '$lib/functions/replication/replication-error';
 
 const LAST_ITEM_KEY = 0;
+
+interface DirectImportKeyCursor {
+  key: IDBValidKey;
+  primaryKey: IDBValidKey;
+  continue(): Promise<DirectImportKeyCursor | null>;
+}
+interface DirectImportIndex {
+  openKeyCursor(): Promise<DirectImportKeyCursor | null>;
+  getAllKeys(query: string): Promise<IDBValidKey[]>;
+}
+interface DirectImportDataStore {
+  index(name: 'contentHash' | 'title'): DirectImportIndex;
+  get(id: number): Promise<StoredBookData | undefined>;
+}
+interface DirectImportScopeStore {
+  get(id: number): Promise<{ bookId: number; accountId: string; hydrated?: boolean } | undefined>;
+}
+
+async function selectDirectImportRecord(
+  store: DirectImportDataStore,
+  ownerStore: DirectImportScopeStore,
+  incoming: DirectImportCandidate,
+  profileId: string | null,
+  assertCurrent: () => void,
+  signal?: AbortSignal
+): Promise<StoredBookData | undefined> {
+  const incomingHash = normalizedDirectImportHash(incoming.contentHash);
+  let oldData: StoredBookData | undefined;
+  const remember = async (candidate: StoredBookData) => {
+    if (!matchesDirectImportIdentity(candidate, incoming)) return;
+    const readerOwner = await ownerStore.get(candidate.id);
+    assertCurrent();
+    throwIfAborted(signal);
+    if (
+      !matchesDirectImportIdentity(
+        { ...candidate, readerOwner: readerOwner?.accountId },
+        incoming,
+        profileId
+      )
+    )
+      return;
+    if (oldData)
+      throw new Error(
+        'This import matches multiple local copies. Resolve the copies in the Library ' +
+          'before importing again. No book was changed.'
+      );
+    oldData = candidate;
+  };
+
+  if (incomingHash) {
+    const index = store.index('contentHash');
+    for (let cursor = await index.openKeyCursor(); cursor; cursor = await cursor.continue()) {
+      assertCurrent();
+      throwIfAborted(signal);
+      if (normalizedDirectImportHash(cursor.key) !== incomingHash) continue;
+      if (typeof cursor.primaryKey !== 'number' || !Number.isSafeInteger(cursor.primaryKey))
+        continue;
+      const candidate = await store.get(cursor.primaryKey);
+      assertCurrent();
+      throwIfAborted(signal);
+      if (candidate) await remember(candidate);
+    }
+  } else {
+    const ids = await store.index('title').getAllKeys(incoming.title);
+    for (const id of ids) {
+      assertCurrent();
+      throwIfAborted(signal);
+      if (typeof id !== 'number' || !Number.isSafeInteger(id)) continue;
+      const candidate = await store.get(id);
+      assertCurrent();
+      throwIfAborted(signal);
+      if (candidate) await remember(candidate);
+    }
+  }
+  return oldData;
+}
 
 export class DatabaseService {
   private db$: Observable<Awaited<typeof this.db>>;
@@ -239,6 +319,60 @@ export class DatabaseService {
     return [dateKey, true];
   }
 
+  async findReusableDirectImport(contentHash: string, signal?: AbortSignal) {
+    const hash = normalizedDirectImportHash(contentHash);
+    if (!hash) throw new Error('The imported book content identity is invalid.');
+    const scope = captureLibraryOperation();
+    try {
+      scope.assertCurrent();
+      throwIfAborted(signal);
+      const db = await this.db;
+      scope.assertCurrent();
+      throwIfAborted(signal);
+      const tx = db.transaction(['data', 'readerBookScope']);
+      const abort = () => {
+        try {
+          tx.abort();
+        } catch {
+          /* Already settled. */
+        }
+      };
+      signal?.addEventListener('abort', abort, { once: true });
+      scope.signal.addEventListener('abort', abort, { once: true });
+      try {
+        const result = await commitTransaction(tx, async () => {
+          scope.assertCurrent();
+          throwIfAborted(signal);
+          const candidate = await selectDirectImportRecord(
+            tx.objectStore('data'),
+            tx.objectStore('readerBookScope'),
+            { title: '', contentHash: hash },
+            scope.profileId,
+            scope.assertCurrent,
+            signal
+          );
+          scope.assertCurrent();
+          throwIfAborted(signal);
+          return candidate?.elementHtml ? candidate.id : undefined;
+        });
+        scope.assertCurrent();
+        throwIfAborted(signal);
+        return result;
+      } catch (error) {
+        // Native transaction aborts can settle before the scope or caller
+        // assertion runs. Report the revocation that caused the abort.
+        scope.assertCurrent();
+        throwIfAborted(signal);
+        throw error;
+      } finally {
+        signal?.removeEventListener('abort', abort);
+        scope.signal.removeEventListener('abort', abort);
+      }
+    } finally {
+      scope.stop();
+    }
+  }
+
   async upsertData(
     data: Omit<BooksDbBookData, 'id'>,
     saveBehavior: ReplicationSaveBehavior,
@@ -276,58 +410,17 @@ export class DatabaseService {
         const store = tx.objectStore('data');
         const ownerStore = tx.objectStore('readerBookScope');
         // Exact bytes, not a mutable filename/title, identify a direct browser
-        // re-import. Scan in the write transaction so another tab cannot insert a
-        // second same-content history between selection and publication. Retain
-        // the narrower title index only for pre-hash legacy payloads.
-        let oldData: StoredBookData | undefined;
-        const incomingHash = normalizedDirectImportHash(stored.contentHash);
-        const remember = async (candidate: StoredBookData) => {
-          if (!matchesDirectImportIdentity(candidate, stored)) return;
-          const readerOwner = await ownerStore.get(candidate.id);
-          scope.assertCurrent();
-          throwIfAborted(signal);
-          if (
-            !matchesDirectImportIdentity(
-              { ...candidate, readerOwner: readerOwner?.accountId },
-              stored,
-              scope.profileId
-            )
-          )
-            return;
-          if (oldData)
-            throw new Error(
-              'This import matches multiple local copies. Resolve the copies in the Library ' +
-                'before importing again. No book was changed.'
-            );
-          oldData = candidate;
-        };
-        if (incomingHash) {
-          // Index cursors expose only compact index/primary keys. This preserves
-          // case-insensitive legacy hash matching without cloning every stored
-          // book's HTML/images into JavaScript merely to compare identity.
-          const index = store.index('contentHash');
-          for (let cursor = await index.openKeyCursor(); cursor; cursor = await cursor.continue()) {
-            scope.assertCurrent();
-            throwIfAborted(signal);
-            if (normalizedDirectImportHash(cursor.key) !== incomingHash) continue;
-            const candidate = await store.get(cursor.primaryKey);
-            scope.assertCurrent();
-            throwIfAborted(signal);
-            if (candidate) await remember(candidate);
-          }
-        } else {
-          // Hashless legacy payloads remain title-scoped, but use primary keys
-          // first so duplicate-title candidates are loaded one at a time.
-          const ids = await store.index('title').getAllKeys(stored.title);
-          for (const id of ids) {
-            scope.assertCurrent();
-            throwIfAborted(signal);
-            const candidate = await store.get(id);
-            scope.assertCurrent();
-            throwIfAborted(signal);
-            if (candidate) await remember(candidate);
-          }
-        }
+        // re-import. The shared selector uses compact index keys and loads only
+        // matching candidate records; the final choice remains inside this write
+        // transaction so another tab cannot race selection and publication.
+        const oldData = await selectDirectImportRecord(
+          store,
+          ownerStore,
+          stored,
+          scope.profileId,
+          scope.assertCurrent,
+          signal
+        );
 
         if (oldData) {
           if (

@@ -133,7 +133,7 @@ function fixture({
   const db = {
     transaction(stores, mode) {
       assert.deepEqual(Array.from(stores), ['data', 'readerBookScope']);
-      assert.equal(mode, 'readwrite');
+      assert.ok(mode === undefined || mode === 'readwrite');
       state.transactions++;
       state.phase = 'active';
       const staged = new Map(state.rows.map((row) => [row.id, structuredClone(row)]));
@@ -252,6 +252,8 @@ function fixture({
   service.db = databaseError ? Promise.reject(databaseError) : Promise.resolve(db);
   state.save = (data = incoming, saveBehavior = behavior.Overwrite, signal) =>
     service.upsertData(data, saveBehavior, true, true, signal);
+  state.find = (contentHash = hash, signal) =>
+    service.findReusableDirectImport(contentHash, signal);
   state.assertReleased = () => {
     assert.equal(listeners.size, 0);
     assert.equal(state.stops, 1);
@@ -279,6 +281,69 @@ test('the profile watcher remains enrolled through final transaction completion'
   });
   await h.save();
   assert.equal(subscribersAtCommit, 1);
+  h.assertReleased();
+});
+
+test('preflight returns a complete exact copy without writing it', async () => {
+  const h = fixture({ rows: [original], scopes: [{ bookId: 7, accountId: 'A' }] });
+  assert.equal(await h.find(), 7);
+  assert.equal(h.writes, 0);
+  assert.equal(h.valueReads, 1);
+  assert.deepEqual(h.rows, [original]);
+  h.assertReleased();
+});
+
+test('preflight leaves exact placeholders for parser hydration', async () => {
+  const placeholder = { ...original, elementHtml: '' };
+  const h = fixture({ rows: [placeholder] });
+  assert.equal(await h.find(), undefined);
+  assert.equal(h.writes, 0);
+  assert.deepEqual(h.rows, [placeholder]);
+  h.assertReleased();
+});
+
+test('preflight does not adopt an exact copy owned by another personal scope', async () => {
+  const h = fixture({ rows: [original], scopes: [{ bookId: 7, accountId: 'B' }] });
+  assert.equal(await h.find(), undefined);
+  assert.equal(h.writes, 0);
+  h.assertReleased();
+});
+
+test('preflight rejects competing exact histories before parsing can choose one', async () => {
+  const rows = [original, { ...original, id: 8, title: 'Independent history' }];
+  const h = fixture({ rows });
+  await assert.rejects(h.find(), /matches multiple local copies/);
+  assert.equal(h.writes, 0);
+  assert.deepEqual(h.rows, rows);
+  h.assertReleased();
+});
+
+for (const stage of ['keyCursor', 'get', 'scope', 'keyContinue', 'beforeCommit']) {
+  test(`preflight account round trip during ${stage} permanently revokes the lookup`, async () => {
+    const h = fixture({
+      rows: [original],
+      hook(at, state) {
+        if (at === stage) state.roundTrip();
+      }
+    });
+    await assert.rejects(h.find(), accountChanged);
+    assert.equal(h.writes, 0);
+    assert.deepEqual(h.rows, [original]);
+    h.assertReleased();
+  });
+}
+
+test('preflight caller cancellation preserves the caller reason', async () => {
+  const controller = new AbortController();
+  const reason = new Error('Selection replaced');
+  const h = fixture({
+    rows: [original],
+    hook(stage) {
+      if (stage === 'get') controller.abort(reason);
+    }
+  });
+  await assert.rejects(h.find(hash, controller.signal), (error) => error === reason);
+  assert.equal(h.writes, 0);
   h.assertReleased();
 });
 
