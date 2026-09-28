@@ -533,18 +533,24 @@ export class BrowserStorageHandler extends BaseStorageHandler {
         idToTitle.set(id, book.title);
       }
       const signal = AbortSignal.any([cancelSignal, scope.signal]);
-      const { error, deleted } = await database
-        .deleteData([...idToTitle.keys()], idToTitle, signal, keepLocalStatistics, {
-          profileId: scope.profileId,
-          signal
-        })
-        .catch((caught: Error) => ({ error: caught.message, deleted: [] }));
+      const { error, deleted } = await database.deleteData(
+        [...idToTitle.keys()],
+        idToTitle,
+        signal,
+        keepLocalStatistics,
+        { profileId: scope.profileId, signal }
+      );
       scope.assertCurrent();
       if (deleted.length) {
         this.clearData();
         database.dataListChanged$.next(this);
       }
       return { error, deleted };
+    } catch (caught) {
+      return {
+        error: caught instanceof Error ? caught.message : 'The book could not be removed.',
+        deleted: []
+      };
     } finally {
       scope.stop();
     }
