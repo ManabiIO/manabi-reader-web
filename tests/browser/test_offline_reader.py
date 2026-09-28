@@ -315,7 +315,7 @@ class OfflineReader(unittest.TestCase):
                             };
                           };
                         })""")
-                        self.assertEqual(stored['version'], 11)
+                        self.assertEqual(stored['version'], 12)
                         self.assertGreater(stored['images'], 0)
                         self.assertTrue(stored['byteRecords'])
                     else:

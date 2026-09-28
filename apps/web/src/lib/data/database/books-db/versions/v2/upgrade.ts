@@ -36,13 +36,13 @@ export default async function upgradeBooksDbFromV2(
     scrollX: Record<string, string>;
     lastItem?: string;
   } = {
-    data: {},
-    scrollX: {}
+    data: Object.create(null),
+    scrollX: Object.create(null)
   };
   {
     let cursor = await transactionV2.objectStore('keyvaluepairs').openCursor();
     while (cursor) {
-      const regexResult = /([^-]+)-(.+)/.exec(cursor.key);
+      const regexResult = /^([^-]+)-(.+)$/.exec(cursor.key);
       if (regexResult) {
         switch (regexResult[1]) {
           case 'data':
@@ -61,44 +61,46 @@ export default async function upgradeBooksDbFromV2(
   await Promise.all(
     Object.entries(oldValues.data).map(async ([key, valueString]) => {
       const parsedData = JSON.parse(valueString);
-      if (isFormattedDbV2Data(parsedData)) {
-        // Until https://github.com/jakearchibald/idb/issues/150 resolves
-        const bookDataWithoutKey: Omit<BooksDbBookData, 'id'> = {
-          ...parsedData,
-          blobs: {},
-          hasThumb: false,
-          characters: 0,
-          lastBookModified: 0,
-          lastBookOpen: 0
-        };
-        const dataId = await transaction
-          .objectStore('data')
-          .add(bookDataWithoutKey as BooksDbBookData);
+      if (!isFormattedDbV2Data(parsedData)) {
+        throw new Error('A legacy book record is invalid. The original database was kept.');
+      }
+      // Until https://github.com/jakearchibald/idb/issues/150 resolves
+      const bookDataWithoutKey: Omit<BooksDbBookData, 'id'> = {
+        ...parsedData,
+        blobs: {},
+        hasThumb: false,
+        characters: 0,
+        lastBookModified: 0,
+        lastBookOpen: 0
+      };
+      const dataId = await transaction
+        .objectStore('data')
+        .add(bookDataWithoutKey as BooksDbBookData);
 
-        const scrollX = oldValues.scrollX[key];
-        if (scrollX) {
-          await transaction.objectStore('bookmark').put({
-            dataId,
-            scrollX: +scrollX,
-            progress: '0%',
-            lastBookmarkModified: 0
-          });
-        }
+      const scrollX = oldValues.scrollX[key];
+      if (scrollX) {
+        await transaction.objectStore('bookmark').put({
+          dataId,
+          scrollX: +scrollX,
+          progress: '0%',
+          lastBookmarkModified: 0
+        });
+      }
 
-        if (oldValues.lastItem === key) {
-          transaction.objectStore('lastItem').put(
-            {
-              dataId
-            },
-            0
-          );
-        }
+      if (oldValues.lastItem === key) {
+        await transaction.objectStore('lastItem').put(
+          {
+            dataId
+          },
+          0
+        );
       }
     })
   );
 
   oldDbV2.deleteObjectStore('keyvaluepairs');
-  oldDbV2.deleteObjectStore('local-forage-detect-blob-support');
+  if (oldDbV2.objectStoreNames.contains('local-forage-detect-blob-support'))
+    oldDbV2.deleteObjectStore('local-forage-detect-blob-support');
 }
 
 interface DbV2Data {
