@@ -166,12 +166,25 @@ export function cloudSource(
     root: url.searchParams.get('root'),
     id: url.searchParams.get('id')
   });
+  let revoked: { error: unknown } | undefined;
+  const assertCurrent = () => {
+    if (revoked) throw revoked.error;
+    try {
+      assertCurrent();
+    } catch (error) {
+      revoked = { error };
+      throw error;
+    }
+  };
   return {
     name,
     size,
     version,
     cloud,
-    isCurrent: current,
+    isCurrent() {
+      assertCurrent();
+      return true;
+    },
     async read(start, end, signal) {
       signal.throwIfAborted();
       assertRange(start, end, size);
@@ -192,9 +205,11 @@ export function cloudSource(
           /* Reject with the account/range error, not cleanup failure. */
         }
       };
-      if (!current()) {
+      try {
+        assertCurrent();
+      } catch (error) {
         discard();
-        throw new Error('Account changed');
+        throw error;
       }
       if (
         response.status !== 206 ||
@@ -206,12 +221,12 @@ export function cloudSource(
         throw new Error('Cloud media changed or its range response was invalid');
       }
       const bytes = await boundedResponse(response, end - start, signal);
-      if (bytes.length !== end - start || !current())
-        throw new Error('Incomplete or stale cloud media range');
+      if (bytes.length !== end - start) throw new Error('Incomplete cloud media range');
+      assertCurrent();
       return bytes;
     },
     playback() {
-      if (!current()) throw new Error('Account changed');
+      assertCurrent();
       return { url: url.href, release() {} };
     }
   };
