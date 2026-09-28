@@ -14,6 +14,7 @@ import {
   visibleStatistics
 } from './reader-statistics';
 import { commitTransaction, explainBookStorageError } from './commit-transaction.mjs';
+import { matchesDirectImportIdentity, normalizedDirectImportHash } from './direct-import-identity';
 import type {
   BooksDbAudioBook,
   BooksDbBookData,
@@ -270,29 +271,35 @@ export class DatabaseService {
     return commitTransaction(tx, async () => {
       throwIfAborted(signal);
       const { store } = tx;
-      // Keep only the matching record rather than materializing every same-title
-      // book's images. More than one match is ambiguous, even with equal hashes.
+      // Exact bytes, not a mutable filename/title, identify a direct browser
+      // re-import. Scan in the write transaction so another tab cannot insert a
+      // second same-content history between selection and publication. Retain
+      // the narrower title index only for pre-hash legacy payloads.
       let oldData: StoredBookData | undefined;
-      for (
-        let cursor = await store.index('title').openCursor(stored.title);
-        cursor;
-        cursor = await cursor.continue()
-      ) {
-        throwIfAborted(signal);
-        const candidate = cursor.value;
-        // A direct import must not replace an account-scoped cached copy of
-        // identical bytes while its separate physical link is unavailable.
-        if (candidate.libraryOwner !== stored.libraryOwner) continue;
-        const matches = stored.contentHash
-          ? candidate.contentHash?.toLowerCase() === stored.contentHash.toLowerCase()
-          : !candidate.contentHash;
-        if (!matches) continue;
+      const incomingHash = normalizedDirectImportHash(stored.contentHash);
+      const remember = (candidate: StoredBookData) => {
+        if (!matchesDirectImportIdentity(candidate, stored)) return;
         if (oldData)
           throw new Error(
             'This import matches multiple local copies. Resolve the copies in the Library ' +
               'before importing again. No book was changed.'
           );
         oldData = candidate;
+      };
+      if (incomingHash) {
+        for (let cursor = await store.openCursor(); cursor; cursor = await cursor.continue()) {
+          throwIfAborted(signal);
+          remember(cursor.value);
+        }
+      } else {
+        for (
+          let cursor = await store.index('title').openCursor(stored.title);
+          cursor;
+          cursor = await cursor.continue()
+        ) {
+          throwIfAborted(signal);
+          remember(cursor.value);
+        }
       }
 
       if (oldData) {
@@ -383,12 +390,16 @@ export class DatabaseService {
   }
 
   async putBookmark(bookmarkData: BooksDbBookmarkData) {
+    // The Reader owns and may reuse its bookmark object after calling us.
+    // Snapshot before awaiting the database so later mutation cannot redirect
+    // this write to another book or alter the committed position.
+    const snapshot = structuredClone(bookmarkData);
     const db = await this.db;
 
     const tx = db.transaction('bookmark', 'readwrite');
     return commitTransaction(tx, async () => {
-      const before = await tx.store.get(bookmarkData.dataId);
-      return tx.store.put(mergeCompletion(before, bookmarkData));
+      const before = await tx.store.get(snapshot.dataId);
+      return tx.store.put(mergeCompletion(before, snapshot));
     });
   }
 
