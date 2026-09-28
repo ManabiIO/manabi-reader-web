@@ -4,13 +4,14 @@ on:
     paths:
       - 'apps/web/src/lib/components/book-reader/book-reader-image-gallery/**'
       - 'apps/web/src/lib/components/book-reader/reactive-elements.ts'
+      - 'apps/web/src/lib/components/html-renderer.svelte'
       - 'tests/browser/test_gallery_reveal_lifetime.py'
       - 'tests/unit/gallery-reveal*'
+      - 'tests/unit/html-renderer-readiness.test.mjs'
       - '.github/workflows/gallery-reveal.yml'
 permissions:
   contents: read
 concurrency:
-  # The preceding tests-only baseline keeps its old group and can finish.
   group: gallery-reveal-candidate-${{ github.ref }}
   cancel-in-progress: true
 jobs:
@@ -34,7 +35,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --dir apps/web exec svelte-kit sync
       - run: pnpm --dir apps/web check
-      - run: node --experimental-strip-types --test tests/unit/gallery-reveal*.test.mjs
+      - run: node --experimental-strip-types --test tests/unit/gallery-reveal*.test.mjs tests/unit/html-renderer-readiness.test.mjs
       - name: Build the real subpath application
         env:
           BASE_PATH: /reader-web
@@ -45,6 +46,7 @@ jobs:
           git rev-parse HEAD > test-results/source/commit.txt
           git ls-tree -r HEAD > test-results/source/tree.txt
           cp tests/browser/test_gallery_reveal_lifetime.py test-results/source/
+          cp apps/web/src/lib/components/html-renderer.svelte test-results/source/
           cp apps/web/src/lib/components/book-reader/reactive-elements.ts test-results/source/
           cp apps/web/src/lib/components/book-reader/book-reader-image-gallery/{book-reader-image-gallery.svelte,reveal-gallery-picture.ts} test-results/source/
       - name: Both real browser engines
