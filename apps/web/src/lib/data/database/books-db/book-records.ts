@@ -10,6 +10,7 @@ import type { BooksDbBookmarkData, StoredBookData } from './versions/books-db';
 import { commitTransaction } from './commit-transaction.mjs';
 import { throwIfAborted } from '../../../functions/replication/replication-error.ts';
 import { uniqueSharedCopy } from '../../../manabi/shared-title-selection.ts';
+import { mergeCompletion } from '../../../library/completion.ts';
 
 export type BookSummary = Pick<
   StoredBookData,
@@ -33,6 +34,43 @@ export function snapshotBookmarkData(
   if (!Number.isSafeInteger(dataId) || dataId <= 0)
     throw new Error('The bookmark target is invalid.');
   return structuredClone({ ...bookmark, dataId });
+}
+
+export async function commitOwnedBookmark(
+  db: IDBPDatabase<BooksDb>,
+  snapshot: BooksDbBookmarkData,
+  profileId: string | null,
+  assertCurrent: () => void,
+  signal?: AbortSignal
+) {
+  assertCurrent();
+  signal?.throwIfAborted();
+  const tx = db.transaction(['data', 'bookmark'], 'readwrite');
+  const abort = () => {
+    try {
+      tx.abort();
+    } catch {
+      /* Already settled. */
+    }
+  };
+  signal?.addEventListener('abort', abort, { once: true });
+  try {
+    return await commitTransaction(tx, async () => {
+      assertCurrent();
+      signal?.throwIfAborted();
+      const book = await tx.objectStore('data').get(snapshot.dataId);
+      if (!book) throw new Error('This book is no longer in the library.');
+      if (book.libraryOwner && book.libraryOwner !== profileId)
+        throw new Error('This book belongs to another account.');
+      const bookmarks = tx.objectStore('bookmark');
+      const before = await bookmarks.get(snapshot.dataId);
+      assertCurrent();
+      signal?.throwIfAborted();
+      return bookmarks.put(mergeCompletion(before, snapshot));
+    });
+  } finally {
+    signal?.removeEventListener('abort', abort);
+  }
 }
 
 function summarizeBook(book: StoredBookData): BookSummary {
