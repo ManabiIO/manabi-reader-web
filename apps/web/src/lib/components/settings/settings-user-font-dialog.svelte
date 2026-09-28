@@ -1,154 +1,148 @@
 <script lang="ts">
   import DialogTemplate from '$lib/components/dialog-template.svelte';
-  import SvelteUserFontAdd from '$lib/components/settings/settings-user-font-add.svelte';
-  import { dialogManager } from '$lib/data/dialog-manager';
-  import { userFontsCacheName } from '$lib/data/fonts';
-  import { logger } from '$lib/data/logger';
+  import SettingsUserFontAdd from '$lib/components/settings/settings-user-font-add.svelte';
+  import { Button } from '$lib/components/ui/button';
+  import { userFontsCacheName, type UserFont } from '$lib/data/fonts';
   import { userFonts$ } from '$lib/data/store';
-  import faSpinner from '@lucide/svelte/icons/loader-circle';
-  import faTrashCan from '@lucide/svelte/icons/trash-2';
   import type { BehaviorSubject } from 'rxjs';
-  import { onMount } from 'svelte';
-  import AppIcon from '$lib/components/app-icon.svelte';
+  import { createEventDispatcher, onMount } from 'svelte';
+  import { fontActionError, removeUserFont, sameUserFont, storedFontPaths } from './user-font-actions';
 
   export let fontFamily: BehaviorSubject<string>;
 
-  const tabs = ['Stored', 'Add'];
-
+  const dispatch = createEventDispatcher<{ close: void }>();
   let isLoading = false;
   let cacheLoaded = false;
   let currentTab = 'Stored';
   let fontCache: Cache | undefined;
+  let availablePaths = new Set<string>();
+  let error = '';
+  let alive = false;
+  let loadGeneration = 0;
 
-  onMount(async () => {
-    try {
-      fontCache = await caches.open(userFontsCacheName);
-
-      const fonts = (await fontCache.keys()).map(
-        (request: Request) => new URL(request.url).pathname
-      );
-
-      $userFonts$ = $userFonts$.filter((userFont) => fonts.includes(userFont.path));
-
-      for (let index = 0, { length } = fonts; index < length; index += 1) {
-        const font = fonts[index];
-        const cachedFont = $userFonts$.find((userFont) => userFont.path === font);
-
-        if (!cachedFont) {
-          fontCache.delete(font).catch(() => {
-            // no-op
-          });
-        }
-      }
-    } catch (error: any) {
-      logger.error(`Error loading font cache: ${error.message}`);
-      fontCache = undefined;
-    }
-
-    cacheLoaded = true;
+  onMount(() => {
+    alive = true;
+    void loadCache();
+    return () => { alive = false; loadGeneration += 1; };
   });
 
-  function selectFont(fontName: string) {
-    fontFamily.next(fontName);
-    dialogManager.dialogs$.next([]);
+  async function loadCache() {
+    const generation = ++loadGeneration;
+    cacheLoaded = false;
+    error = '';
+    try {
+      const cache = await caches.open(userFontsCacheName);
+      const paths = await storedFontPaths(cache);
+      if (!alive || generation !== loadGeneration) return;
+      fontCache = cache;
+      availablePaths = paths;
+    } catch (cause) {
+      if (!alive || generation !== loadGeneration) return;
+      fontCache = undefined;
+      error = fontActionError(cause);
+    } finally {
+      if (alive && generation === loadGeneration) cacheLoaded = true;
+    }
+  }
+
+  async function selectFont(target: UserFont) {
+    if (!alive || isLoading || !fontCache) return;
+    const font = { ...target };
+    const family = fontFamily;
+    isLoading = true;
+    error = '';
+    try {
+      const present = await fontCache.match(font.path);
+      if (!alive || family !== fontFamily) return;
+      if (!present || !$userFonts$.some((entry) => sameUserFont(entry, font))) {
+        error = 'This font file is no longer available. Add it again to use it.';
+        availablePaths = new Set([...availablePaths].filter((path) => path !== font.path));
+        return;
+      }
+      family.next(font.name);
+      dispatch('close');
+    } catch (cause) {
+      if (alive) error = fontActionError(cause);
+    } finally {
+      if (alive) isLoading = false;
+    }
   }
 
   async function removeFont(path: string) {
-    if (!fontCache) {
-      return;
-    }
-
+    const target = $userFonts$.find((entry) => entry.path === path);
+    if (!target) return;
+    if (!alive || isLoading || !fontCache) return;
+    const family = fontFamily;
     isLoading = true;
-
+    error = '';
     try {
-      await fontCache.delete(path);
-
-      $userFonts$ = $userFonts$.filter((userFont) => userFont.path !== path);
-
-      const currentFontName = fontFamily.getValue();
-
-      if (!$userFonts$.find((userFont) => userFont.name === currentFontName)) {
-        fontFamily.next('');
-      }
-    } catch (error: any) {
-      logger.error(`Error deleting Font: ${error.message}`);
+      await removeUserFont(
+        fontCache,
+        { read: () => userFonts$.getValue(), write: (fonts) => userFonts$.next(fonts) },
+        target,
+        { read: () => family.getValue(), write: (name) => family.next(name) }
+      );
+      if (alive) await loadCache();
+    } catch (cause) {
+      if (alive) error = fontActionError(cause);
+    } finally {
+      if (alive) isLoading = false;
     }
-
-    isLoading = false;
   }
 </script>
 
 <DialogTemplate>
-  <div slot="content">
-    {#if cacheLoaded}
-      <div class="border-b border-b-gray-200">
-        <ul class="-mb-px flex items-center gap-4 text-sm font-medium">
-          {#each tabs as tab (tab)}
-            <li class="flex-1">
-              <button
-                class="relative flex items-center justify-center gap-2 px-1 py-3 hover:text-primary"
-                class:text-primary={currentTab === tab}
-                class:after:absolute={currentTab === tab}
-                class:after:left-0={currentTab === tab}
-                class:after:bottom-0={currentTab === tab}
-                class:after:h-0.5={currentTab === tab}
-                class:after:w-full={currentTab === tab}
-                class:after:bg-primary={currentTab === tab}
-                class:text-muted-foreground={currentTab !== tab}
-                on:click={() => (currentTab = tab)}
-              >
-                {tab}
-              </button>
+  <svelte:fragment slot="header">Custom fonts</svelte:fragment>
+  <div slot="content" class="font-manager min-w-0 space-y-4" aria-busy={isLoading || !cacheLoaded}>
+    <p class="text-sm text-muted-foreground">Manage fonts stored in this browser. Choose a font to use it for this text style.</p>
+    <div class="section-navigation" role="group" aria-label="Custom font views">
+      {#each ['Stored', 'Add'] as tab (tab)}
+        <Button
+          variant="ghost"
+          shape="rounded"
+          data-section-link
+          class="min-h-11"
+          aria-pressed={currentTab === tab}
+          disabled={isLoading || !fontCache}
+          onclick={() => (currentTab = tab)}>{tab === 'Add' ? 'Add font' : 'Stored fonts'}</Button>
+      {/each}
+    </div>
+    {#if error}<p role="alert" class="break-words text-sm text-destructive">{error}</p>{/if}
+    {#if !cacheLoaded}
+      <p role="status" class="text-sm text-muted-foreground">Checking font storage…</p>
+    {:else if !fontCache}
+      <p class="text-sm text-muted-foreground">Your saved font list has not been changed.</p>
+      <Button variant="outline" onclick={loadCache}>Retry font storage</Button>
+    {:else if currentTab === 'Stored'}
+      {#if $userFonts$.length}
+        <ul class="divide-y divide-border" aria-label="Stored custom fonts">
+          {#each $userFonts$ as userFont (userFont.path)}
+            <li class="flex min-w-0 flex-wrap items-center gap-3 py-3">
+              <div class="min-w-0 flex-1 basis-40">
+                <p class="break-words font-medium">{userFont.name}</p>
+                <p class="break-words text-xs text-muted-foreground">{userFont.fileName}</p>
+                {#if !availablePaths.has(userFont.path)}
+                  <p class="mt-1 text-xs text-muted-foreground">File unavailable. Remove this entry, then add the file again.</p>
+                {/if}
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <Button variant="outline" class="min-h-11" disabled={isLoading || !availablePaths.has(userFont.path)} aria-label={`Use ${userFont.name}`} onclick={() => selectFont(userFont)}>Use font</Button>
+                <Button variant="destructive" class="min-h-11" disabled={isLoading} aria-label={`Remove ${userFont.name}`} onclick={() => removeFont(userFont.path)}>Remove</Button>
+              </div>
             </li>
           {/each}
         </ul>
-      </div>
-      <div class="mt-5">
-        {#if currentTab === 'Stored'}
-          {#if $userFonts$.length}
-            <div
-              class="grid grid-cols-[repeat(3,auto)] items-center gap-y-4 gap-x-4 max-h-[50vh] overflow-auto break-all md:gap-x-14"
-            >
-              {#each $userFonts$ as userFont (userFont.path)}
-                <button
-                  type="button"
-                  title="Click to select Font"
-                  class="hover:text-primary"
-                  on:click={() => selectFont(userFont.name)}
-                >
-                  {userFont.name}
-                </button>
-                <button
-                  type="button"
-                  title="Click to select Font"
-                  class="hover:text-primary"
-                  on:click={() => selectFont(userFont.name)}
-                >
-                  {userFont.fileName}
-                </button>
-                <button
-                  type="button"
-                  title="Remove Font"
-                  class="hover:text-primary gap-2 rounded-xl px-2 py-1.5 text-sm"
-                  on:click={() => removeFont(userFont.path)}
-                >
-                  <AppIcon icon={faTrashCan} />
-                  <span>Remove Font</span></button
-                >
-              {/each}
-            </div>
-          {:else}
-            <div>You have currently no stored Fonts</div>
-          {/if}
-        {:else if fontCache}
-          <SvelteUserFontAdd {fontCache} bind:isLoading />
-        {/if}
-      </div>
-    {/if}
-    {#if !cacheLoaded || isLoading}
-      <div class="fixed inset-0 flex h-full w-full items-center justify-center text-7xl">
-        <AppIcon icon={faSpinner} spin />
-      </div>
+      {:else}
+        <p class="rounded-2xl bg-muted p-4 text-sm text-muted-foreground">No custom fonts yet. Add a font file to make it available here.</p>
+      {/if}
+      {#if isLoading}<p role="status" class="text-sm text-muted-foreground">Updating fonts…</p>{/if}
+    {:else}
+      <SettingsUserFontAdd {fontCache} bind:isLoading on:saved={() => { currentTab = 'Stored'; void loadCache(); }} />
     {/if}
   </div>
+  <svelte:fragment slot="footer"><Button variant="ghost" class="min-h-11" onclick={() => dispatch('close')}>Done</Button></svelte:fragment>
 </DialogTemplate>
+
+<style>
+  .font-manager { overflow-wrap: anywhere; }
+</style>

@@ -4,6 +4,10 @@ import { fileURLToPath } from 'node:url';
 import { ESLint } from 'eslint';
 
 const files = [
+  'apps/web/src/lib/components/settings/settings-dimension-content.svelte',
+  'apps/web/src/lib/components/settings/settings-dimension-popover.svelte',
+  'apps/web/src/lib/components/settings/settings-user-font-add.svelte',
+  'apps/web/src/lib/components/settings/settings-user-font-dialog.svelte',
   'apps/web/src/lib/components/statistics/statistics-heatmap/statistics-heatmap.svelte',
   'apps/web/src/lib/library/library-search.svelte',
   'apps/web/src/lib/components/book-reader/imported-yatsu-notes.svelte',

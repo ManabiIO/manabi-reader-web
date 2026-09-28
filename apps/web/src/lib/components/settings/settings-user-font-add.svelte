@@ -1,139 +1,93 @@
 <script lang="ts">
-  import { inputClasses } from '$lib/css-classes';
+  import { createEventDispatcher, onDestroy } from 'svelte';
+  import { Button } from '$lib/components/ui/button';
+  import { Input } from '$lib/components/ui/input';
   import { reservedFontNames } from '$lib/data/fonts';
   import { userFonts$ } from '$lib/data/store';
-  import { dummyFn } from '$lib/functions/utils';
-  import faFloppyDisk from '@lucide/svelte/icons/save';
-  import AppIcon from '$lib/components/app-icon.svelte';
+  import { fontActionError, saveUserFont } from './user-font-actions';
 
-  export let isLoading: boolean;
+  export let isLoading = false;
   export let fontCache: Cache;
 
-  let fileElement: HTMLInputElement;
+  const dispatch = createEventDispatcher<{ saved: void }>();
+  const formId = `custom-font-${crypto.randomUUID()}`;
+  let fileElement: HTMLInputElement | null = null;
   let fontName = '';
   let fontFile: File | undefined;
-  let currentError = 'no error';
+  let currentError = '';
+  let alive = true;
 
-  $: canSave = !!fontName && !!fontFile && currentError === 'no error';
+  onDestroy(() => {
+    alive = false;
+  });
 
   function handleFileChange(event: Event) {
-    const elm = event.target as HTMLInputElement;
-    const file = elm.files?.[0];
-
-    currentError = 'no error';
-
-    if (!file) {
-      resetFileElement();
-      return;
-    }
-
-    if (
-      !(
-        file.name.endsWith('.woff2') ||
-        file.name.endsWith('.woff') ||
-        file.name.endsWith('.ttf') ||
-        file.name.endsWith('.otf')
-      )
-    ) {
-      currentError = 'only woff2, woff, ttf and otf fonts are supported';
-      resetFileElement();
-      return;
-    }
-
-    if (
-      reservedFontNames.has(fontName) ||
-      $userFonts$.find((userFont) => userFont.fileName === file.name || userFont.name === fontName)
-    ) {
-      currentError = 'a font file with this name is already stored';
-      resetFileElement();
-      return;
-    } else if (!fontName) {
-      currentError = 'Enter a font name to continue';
-    }
-
-    fontFile = file;
-  }
-
-  function resetFileElement() {
-    fileElement.value = '';
-    fontFile = undefined;
+    fontFile = (event.currentTarget as HTMLInputElement).files?.[0];
+    currentError = '';
   }
 
   async function addFont() {
-    if (!fontFile) {
-      return;
-    }
-
+    if (isLoading || !alive) return;
     isLoading = true;
-
+    currentError = '';
     try {
-      const path = `/userfonts/${encodeURIComponent(fontFile.name)}`;
-      await fontCache.put(
-        path,
-        new Response(fontFile, {
-          headers: {
-            'Content-Type': `font/${fontFile.name.split('.').pop()}`,
-            'Content-Length': `${fontFile.size}`
-          }
-        })
+      await saveUserFont(
+        fontCache,
+        { read: () => userFonts$.getValue(), write: (fonts) => userFonts$.next(fonts) },
+        fontName,
+        fontFile,
+        reservedFontNames
       );
-
-      $userFonts$ = [...$userFonts$, { name: fontName, path, fileName: fontFile.name }];
+      if (!alive) return;
       fontName = '';
-      resetFileElement();
-    } catch (error: any) {
-      currentError = error.message;
+      fontFile = undefined;
+      if (fileElement) fileElement.value = '';
+      isLoading = false;
+      dispatch('saved');
+    } catch (error) {
+      if (alive) currentError = fontActionError(error);
+    } finally {
+      if (alive) isLoading = false;
     }
-
-    isLoading = false;
   }
 </script>
 
-<div class="flex flex-col min-w-[15rem] md:min-w-[20rem]">
-  <span>Font Name</span>
-  <input
-    class="mt-2"
-    type="text"
-    bind:value={fontName}
-    on:blur={() => {
-      currentError = 'no error';
-
-      if (
-        reservedFontNames.has(fontName) ||
-        $userFonts$.find((userFont) => userFont.name === fontName)
-      ) {
-        currentError = 'a font file with this name is already stored';
-      } else if (!!fontFile && !fontName) {
-        currentError = 'Enter a font name to continue';
-      }
-    }}
-  />
-  <div class:invisible={currentError === 'no error'} class="my-2 text-red-500">{currentError}</div>
-  <div class="flex items-center just justify-between">
-    <label class={`${inputClasses} w-40 text-center py-2 hover:opacity-25 mr-2`}>
-      <input
-        type="file"
-        accept=".woff2,.woff,.ttf,.otf,application/font-woff2,application/font-woff,application/font-ttf,application/font-otf,font/woff2,font/woff,font/ttf,font/otf,font/opentype,font/truetype"
-        class="hidden"
-        bind:this={fileElement}
-        on:change={handleFileChange}
-      />
-      {fontFile ? 'File selected' : 'Choose File (and click Save)'}
-    </label>
-    <div
-      tabindex="0"
-      role="button"
-      title={canSave ? 'Save' : 'Select a File and Font name to save'}
-      class:text-muted-foreground={!canSave}
-      class:cursor-not-allowed={!canSave}
-      on:click={() => {
-        if (canSave) {
-          addFont();
-        }
+<form class="min-w-0 space-y-4" on:submit|preventDefault={addFont} aria-busy={isLoading}>
+  <label for={`${formId}-name`} class="block min-w-0 text-sm font-medium">
+    Font name
+    <Input
+      id={`${formId}-name`}
+      class="mt-2"
+      type="text"
+      required
+      maxlength={200}
+      disabled={isLoading}
+      bind:value={fontName}
+      oninput={() => (currentError = '')}
+      onkeydown={(event) => {
+        if (event.key === 'Enter' && (event.isComposing || event.keyCode === 229)) event.preventDefault();
       }}
-      on:keyup={dummyFn}
-    >
-      <AppIcon class="text-xl mx-2" icon={faFloppyDisk} />
-    </div>
+    />
+  </label>
+  <label for={`${formId}-file`} class="block min-w-0 text-sm font-medium">
+    Font file
+    <Input
+      id={`${formId}-file`}
+      class="mt-2"
+      type="file"
+      required
+      disabled={isLoading}
+      accept=".woff2,.woff,.ttf,.otf,font/woff2,font/woff,font/ttf,font/otf"
+      bind:ref={fileElement}
+      onchange={handleFileChange}
+    />
+  </label>
+  <p class="text-sm text-muted-foreground">
+    WOFF2, WOFF, TTF, or OTF. The file is saved only in this browser; it is not uploaded to your account.
+  </p>
+  {#if currentError}<p role="alert" class="break-words text-sm text-destructive">{currentError}</p>{/if}
+  <div class="flex flex-wrap items-center justify-end gap-3">
+    {#if isLoading}<p role="status" class="text-sm text-muted-foreground">Saving font…</p>{/if}
+    <Button class="min-h-11" type="submit" disabled={isLoading}>Save font</Button>
   </div>
-</div>
+</form>
