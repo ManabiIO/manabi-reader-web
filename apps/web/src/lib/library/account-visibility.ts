@@ -27,3 +27,22 @@ export function visibleLibraryEntries<
     links
   };
 }
+
+
+/** Resolve who may open a local reader record. Durable book/sync ownership
+ * outranks historical physical links. Undefined means contradictory durable
+ * ownership and fails closed; [] means no account protection.
+ */
+export function readerAccessOwners(
+  book: { libraryOwner?: string },
+  scope: { accountId: string } | undefined,
+  links: { owner: string | null }[]
+): string[] | undefined {
+  const durable = new Set<string>();
+  if (book.libraryOwner) durable.add(book.libraryOwner);
+  if (scope?.accountId) durable.add(scope.accountId);
+  if (durable.size > 1) return undefined;
+  if (durable.size === 1) return [...durable];
+  if (links.some((link) => link.owner === null)) return [];
+  return [...new Set(links.flatMap((link) => (link.owner ? [link.owner] : [])))];
+}
