@@ -102,6 +102,8 @@ export const statisticsTitleFilterIsOpen$ = writableSubject<boolean>(false);
 
 export const preFilteredTitlesForStatistics$ = writableSubject<Set<string>>(new Set());
 
+export const preFilteredBookKeysForStatistics$ = writableSubject<Set<string>>(new Set());
+
 export const statisticsDataAggregrationModes = [
   StatisticsReadingDataAggregationMode.NONE,
   StatisticsReadingDataAggregationMode.DATE,

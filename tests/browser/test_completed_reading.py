@@ -3,6 +3,7 @@
 Only the local-folder capability is initialized as a fixture. Completion rows,
 ZIPs, and migration receipts are produced by the actual static application's UI.
 """
+from reader_controls import reveal_reader_controls
 import io
 import json
 from pathlib import Path
@@ -29,7 +30,7 @@ class CompletedReadingBrowser(LocalLibraryBrowser):
         self.import_book()
         self.page.get_by_role('link', name='Read local-book', exact=True).click()
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy','false',timeout=35000)
-        self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+        reveal_reader_controls(self.page)
         self.page.get_by_role('button', name='Reading tools', exact=True).click()
         self.page.get_by_role('menuitem', name='Complete Book', exact=True).click()
         self.page.get_by_role('button', name='Confirm', exact=True).click()
@@ -58,7 +59,7 @@ class CompletedReadingBrowser(LocalLibraryBrowser):
         self.page.goto(self.origin+'/reader-web/manage')
         self.page.get_by_role('button', name='Library actions', exact=True).click()
         self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
-        self.page.get_by_role('button', name='Select all', exact=True).click()
+        self.page.get_by_role('button', name='Select All Visible', exact=True).click()
         expect(self.page.get_by_text('1 selected', exact=True)).to_be_visible()
         self.page.get_by_role('button', name='Export', exact=True).click()
         self.page.get_by_role('button',name='Zip File',exact=True).click()

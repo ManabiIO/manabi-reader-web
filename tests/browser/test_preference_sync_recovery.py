@@ -166,7 +166,7 @@ class PreferenceSyncRecovery(LibraryBase):
         # An explicit disable/re-enable is allowed to try immediately. Once that
         # succeeds, the obsolete Retry-After must not throttle later edits.
         toggle.uncheck()
-        expect(status).to_contain_text('Off')
+        expect(status).to_contain_text('off')
         toggle.check()
         expect(status).to_contain_text('synced', timeout=10000)
         self.assertEqual(32, StaticHandler.preference_settings['font_size'])

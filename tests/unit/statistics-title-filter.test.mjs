@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   filterStatisticsTitles,
+  matchesStatisticsBookPrefilter,
   setMatchingStatisticsTitleSelection,
   statisticsTitlePage,
   TITLE_FILTER_PAGE_SIZE
@@ -59,4 +60,18 @@ test('bulk title selection changes only the current matching set', () => {
   assert.equal(updated[0], rows[0]);
   assert.equal(updated[2], rows[2]);
   assert.deepEqual(setMatchingStatisticsTitleSelection(updated, [], true), updated);
+});
+
+test('book-key prefilter keeps same-title histories distinct', () => {
+  const first = 'content:' + 'a'.repeat(64);
+  const second = 'content:' + 'b'.repeat(64);
+  assert.equal(matchesStatisticsBookPrefilter(first, new Set()), true);
+  assert.equal(matchesStatisticsBookPrefilter(undefined, new Set()), true);
+  assert.equal(matchesStatisticsBookPrefilter(first, new Set([first])), true);
+  assert.equal(matchesStatisticsBookPrefilter(second, new Set([first])), false);
+  assert.equal(
+    matchesStatisticsBookPrefilter(undefined, new Set([first])),
+    false,
+    'legacy title-only history cannot be guessed as the selected book'
+  );
 });

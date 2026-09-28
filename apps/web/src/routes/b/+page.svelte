@@ -1,5 +1,7 @@
 <script lang="ts">
   import type { Paginator } from '$lib/foliate-epub/paginator.js';
+  import { ReaderChrome } from '$lib/reader-chrome';
+  import { bindReaderChromeInteractions } from '$lib/reader-chrome-events';
   import AudiobookLauncher from '$lib/features/whispersync/audiobook-launcher.svelte';
   import * as Sheet from '$lib/components/ui/sheet';
   import { setCompletion } from '$lib/library/commands';
@@ -176,6 +178,7 @@
   import { pagePath } from '$lib/data/env';
   import { DB_VERSION, PAGE_CHANGE, SKIPKEYLISTENER, SYNCED } from '$lib/data/events';
   import { fullscreenManager } from '$lib/data/fullscreen-manager';
+  import { ReaderFullscreen } from '$lib/reader-fullscreen';
   import { logger } from '$lib/data/logger';
   import { MergeMode } from '$lib/data/merge-mode';
   import { getStorageHandler } from '$lib/data/storage/storage-handler-factory';
@@ -226,8 +229,29 @@
   } from '$lib/functions/range-util';
 
   let showSpinner = true;
-  let showHeader = false;
   let foliatePagination = false;
+  let showHeader = true;
+  let chromeVisible = true;
+  let readerChrome: ReaderChrome | undefined;
+  let readerAlive = false;
+  let fullscreenActive = false;
+  let fullscreenAvailable = false;
+  let fullscreenBusy = false;
+  let fullscreenError = '';
+  let readerFullscreen: ReaderFullscreen | undefined;
+  let chromeBookId: number | undefined;
+  let chromeNavigationRevision = 0;
+  $: if (readerAlive && $rawBookData$?.id !== chromeBookId) {
+    chromeBookId = $rawBookData$?.id;
+    readerChrome?.dispose();
+    chromeVisible = true;
+    showHeader = true;
+    readerChrome = new ReaderChrome((mode) => {
+      chromeVisible = mode !== 'hidden';
+      showHeader = chromeVisible;
+    }, chromeProtected);
+  }
+
   let showAppearance = false;
   let showBookSearch = false;
   let showScrubber = false;
@@ -851,7 +875,7 @@
     const wasAutoscrollerEnabled = autoScroller?.wasAutoScrollerEnabled$.getValue();
     const wasTrackerPausedBefore = $statisticsEnabled$ ? $isTrackerPaused$ : true;
 
-    showHeader = false;
+    hideReaderChrome();
     autoScroller?.off();
 
     if ($statisticsEnabled$) {
@@ -1296,6 +1320,76 @@
     }
   }
 
+  function hideReaderChrome() {
+    readerChrome?.hide();
+    showHeader = false;
+    chromeVisible = false;
+  }
+
+  let chromeMousePointer = false;
+  function chromeProtected() {
+    return (
+      showSpinner ||
+      showAppearance ||
+      showBookSearch ||
+      showScrubber ||
+      showAnnotations ||
+      showReaderImageGallery ||
+      $tocIsOpen$ ||
+      $skipKeyDownListener$ ||
+      !!document.querySelector('[role="dialog"], [role="menu"]') ||
+      !!document.activeElement?.closest('[data-reader-chrome]') ||
+      (chromeMousePointer && !!document.querySelector('[data-reader-chrome]:hover')) ||
+      !!window.getSelection()?.toString() ||
+      !!guideContentEl?.ownerDocument.getSelection()?.toString()
+    );
+  }
+  onMount(() => {
+    readerAlive = true;
+    // Touch emulation can leave :hover stuck on the newly mounted controls.
+    // Protect an actual mouse hover without extending the initial touch reveal.
+    const noteChromePointer = (event: PointerEvent) => {
+      chromeMousePointer = event.pointerType === 'mouse';
+    };
+    window.addEventListener('pointermove', noteChromePointer, true);
+    window.addEventListener('pointerdown', noteChromePointer, true);
+    readerChrome = new ReaderChrome((mode) => {
+      chromeVisible = mode !== 'hidden';
+      showHeader = chromeVisible;
+    }, chromeProtected);
+    const stopChromeInteractions = bindReaderChromeInteractions(window, {
+      activity: (kind) => readerChrome?.[kind](),
+      navigationRevision: () => chromeNavigationRevision,
+      selection: () => window.getSelection()?.toString() ?? ''
+    });
+    readerFullscreen = new ReaderFullscreen(
+      fullscreenManager,
+      document.documentElement,
+      (state) => {
+        fullscreenAvailable = state.available;
+        fullscreenActive = state.active;
+        fullscreenBusy = state.busy;
+        fullscreenError = state.error;
+      }
+    );
+    const fullscreenChanged = () => {
+      readerFullscreen?.sync();
+      readerChrome?.pin();
+    };
+    document.addEventListener('fullscreenchange', fullscreenChanged);
+    document.addEventListener('webkitfullscreenchange', fullscreenChanged);
+    return () => {
+      readerAlive = false;
+      readerChrome?.dispose();
+      window.removeEventListener('pointermove', noteChromePointer, true);
+      window.removeEventListener('pointerdown', noteChromePointer, true);
+      stopChromeInteractions();
+      document.removeEventListener('fullscreenchange', fullscreenChanged);
+      document.removeEventListener('webkitfullscreenchange', fullscreenChanged);
+      readerFullscreen?.dispose();
+    };
+  });
+
   function onKeydown(ev: KeyboardEvent) {
     if (readerUIOwnsEvent(ev)) return;
     if ($skipKeyDownListener$ || ev.altKey || ev.ctrlKey || ev.shiftKey || ev.metaKey) {
@@ -1332,7 +1426,7 @@
   }
 
   function bookmarkPage() {
-    showHeader = false;
+    hideReaderChrome();
     return saveBookmark();
   }
 
@@ -1511,7 +1605,7 @@
         readerBookKey,
         $rawBookData$?.publicationManifest
       ));
-    showHeader = false;
+    hideReaderChrome();
     showBookSearch = true;
   }
 
@@ -1521,7 +1615,7 @@
       readerBookKey,
       $rawBookData$?.publicationManifest
     );
-    showHeader = false;
+    hideReaderChrome();
     showScrubber = true;
   }
 
@@ -1546,7 +1640,7 @@
       annotationPoint = await bookReaderComponent.captureReaderPoint(readerBookKey, manifest);
       annotations = await listReaderAnnotations(readerBookKey);
       annotationImportConflicts = await listAnnotationImportConflicts(readerBookKey);
-      showHeader = false;
+      hideReaderChrome();
       showAnnotations = true;
     } catch (error) {
       annotationError = error instanceof Error ? error.message : String(error);
@@ -1693,13 +1787,8 @@
   }
 
   function onFullscreenClick() {
-    showHeader = false;
-
-    if (!fullscreenManager.fullscreenElement) {
-      fullscreenManager.requestFullscreen(document.documentElement);
-      return;
-    }
-    fullscreenManager.exitFullscreen();
+    readerChrome?.pin();
+    void readerFullscreen?.toggle();
   }
 
   function onDomainHintClick() {
@@ -1992,7 +2081,7 @@
       customReadingPointLeft = window.innerWidth / 2 - 2;
     }
 
-    showHeader = false;
+    hideReaderChrome();
     isSelectingCustomReadingPoint = true;
     document.body.classList.add('cursor-crosshair');
 
@@ -2134,41 +2223,37 @@
 {$handleUpdateImageGalleryPictureSpoilers$ ?? ''}
 <div
   class="reader-context writing-horizontal-tb"
+  class:chrome-hidden={!chromeVisible}
   aria-hidden="true"
   style:color={$themeOption$?.tooltipTextFontColor}
 >
   {$rawBookData$?.title ?? ''}
 </div>
-{#if !foliatePagination || showHeader}
-  <button
-    type="button"
-    aria-label={showHeader ? 'Hide reading controls' : 'Show reading controls'}
-    aria-expanded={showHeader}
-    data-reader-controls
-    class="reader-controls writing-horizontal-tb fixed z-20 flex size-11 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-sm"
-    on:click={() => (showHeader = !showHeader)}
-    >{#if showHeader}<X class="size-5" aria-hidden="true" />{:else}<TextAlignLeft
-        class="size-5"
-        aria-hidden="true"
-      />{/if}</button
-  >
-{/if}
+<button
+  type="button"
+  aria-label={showHeader ? 'Hide reading controls' : 'Show reading controls'}
+  aria-expanded={showHeader}
+  class:chrome-hidden={!chromeVisible}
+  data-reader-chrome
+  data-reader-controls
+  class="reader-controls writing-horizontal-tb fixed z-20 flex size-11 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-sm"
+  on:focus={(event) => {
+    if (event.currentTarget.matches(':focus-visible')) readerChrome?.pin();
+  }}
+  on:click={() => {
+    if (showHeader) readerChrome?.hide();
+    else readerChrome?.pin();
+  }}
+  >{#if showHeader}<X class="size-5" aria-hidden="true" />{:else}<TextAlignLeft
+      class="size-5"
+      aria-hidden="true"
+    />{/if}</button
+>
 {#if showHeader}
   <div
     class="writing-horizontal-tb fixed inset-x-0 top-0 z-20 w-full"
+    data-reader-chrome
     transition:fly|local={{ y: -80, duration: foliatePagination ? 0 : 160, easing: quintInOut }}
-    use:clickOutside={(event) => {
-      const target = event.target;
-      if (target instanceof Element) {
-        if (target.closest('[data-reader-controls]')) return;
-        if (
-          target.matches('foliate-paginator') &&
-          (target as Paginator).isPageNumberControlAt(event.clientX, event.clientY)
-        )
-          return;
-      }
-      showHeader = false;
-    }}
   >
     <BookReaderHeader
       bookTitle={$rawBookData$?.title ?? ''}
@@ -2180,13 +2265,15 @@
         ((isPaginated && customReadingPointRange) ||
           (!isPaginated && customReadingPointLeft > -1 && customReadingPointTop > -1))
       )}
-      showFullscreenButton={fullscreenManager.fullscreenEnabled}
+      showFullscreenButton={fullscreenAvailable}
+      {fullscreenActive}
+      {fullscreenBusy}
       autoScrollMultiplier={$multiplier$}
       {hasBookmarkData}
       on:tocClick={() => {
         pauseTracker();
 
-        showHeader = false;
+        hideReaderChrome();
         tocIsOpen$.next(true);
       }}
       on:jumpClick={handleJump}
@@ -2195,17 +2282,17 @@
       }}
       on:scrubClick={openScrubber}
       on:lineGuideClick={() => {
-        showHeader = false;
+        hideReaderChrome();
         lineGuideEnabled = !lineGuideEnabled;
       }}
       on:completeBook={completeBook}
       on:setCustomReadingPoint={handleSetCustomReadingPoint}
       on:showCustomReadingPoint={() => {
-        showHeader = false;
+        hideReaderChrome();
         showCustomReadingPoint = true;
       }}
       on:resetCustomReadingPoint={() => {
-        showHeader = false;
+        hideReaderChrome();
 
         if ($pauseTrackerOnCustomPointChange$) {
           pauseTracker();
@@ -2229,7 +2316,7 @@
       on:bookmarkClick={bookmarkPage}
       on:annotationsClick={openAnnotations}
       on:scrollToBookmarkClick={() => {
-        showHeader = false;
+        hideReaderChrome();
         scrollToBookmark();
       }}
       on:statisticsClick={() => {
@@ -2240,7 +2327,7 @@
         leaveReader(mergeEntries.STATISTICS.routeId, false);
       }}
       on:readerImageGalleryClick={() => {
-        showHeader = false;
+        hideReaderChrome();
         showReaderImageGallery = true;
       }}
       on:settingsClick={() => leaveReader(mergeEntries.SETTINGS.routeId, false)}
@@ -2288,8 +2375,22 @@
     bind:this={bookReaderComponent}
     bind:sheetPagination={foliatePagination}
     controlsVisible={showHeader}
-    on:pageTurnStart={() => (showHeader = false)}
-    on:toggleControls={() => (showHeader = !showHeader)}
+    on:pageTurnStart={() => {
+      chromeNavigationRevision++;
+      hideReaderChrome();
+    }}
+    on:toggleControls={() => {
+      // The page indicator lives in a closed shadow root: invalidate the app-window
+      // click candidate so its retargeted click cannot toggle twice.
+      chromeNavigationRevision++;
+      if (showHeader) readerChrome?.hide();
+      else readerChrome?.pin();
+    }}
+    on:chromeActivity={(event) => {
+      if (event.detail === 'pointer') readerChrome?.pointer();
+      else if (event.detail === 'pin') readerChrome?.pin();
+      else if (event.detail === 'toggle') readerChrome?.toggle();
+    }}
     previewNavigationActive={navigationPreviewing || suppressResumeSave}
     htmlContent={$bookData$.htmlContent}
     epubResources={$bookData$.epubResources}
@@ -2345,6 +2446,8 @@
     on:trackerPause={() => pauseTracker(true)}
     on:selectionChange={(ev) => noteReaderSelection(ev.detail)}
     on:userNavigation={() => {
+      chromeNavigationRevision++;
+      readerChrome?.reading();
       if (readerNavigation.previewing) pendingPreviewAdoption = true;
     }}
     on:contentChange={(event) => {
@@ -2532,6 +2635,9 @@
 
 <footer
   id="ttu-page-footer"
+  data-reader-chrome
+  inert={!chromeVisible}
+  class:chrome-hidden={!chromeVisible}
   class="reader-footer writing-horizontal-tb fixed bottom-0 left-0 z-10 flex w-full items-center justify-between text-xs leading-none"
   class:controls-expanded={showHeader}
   class:foliate-chrome-hidden={foliatePagination && !showHeader}
@@ -2635,6 +2741,13 @@
   {/if}
 </footer>
 
+{#if fullscreenError}<p
+    role="alert"
+    class="fixed inset-x-4 top-20 z-50 rounded-xl bg-background p-3 text-foreground"
+  >
+    {fullscreenError}
+  </p>{/if}
+
 {#if bookCompleted}
   <BookCompletionConfetti {confettiWidthModifier} {confettiMaxRuns} {window} />
 {/if}
@@ -2656,6 +2769,22 @@
 />
 
 <style>
+  .chrome-hidden {
+    opacity: 0;
+    pointer-events: none !important;
+  }
+  .reader-controls.chrome-hidden:focus-visible {
+    opacity: 1;
+    pointer-events: auto !important;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .reader-context,
+    .reader-controls,
+    .reader-footer {
+      transition: opacity 180ms ease;
+    }
+  }
+
   .reader-context {
     position: fixed;
     top: calc(1.5rem + env(safe-area-inset-top));
