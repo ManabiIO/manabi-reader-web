@@ -174,3 +174,19 @@ test('stale Generate admission can persist a queued job but cannot make it runna
     assert.equal(locks.grants, 0);
     assert.deepEqual(counters, { decode: 0, prepare: 0, transcribe: 0, dispose: 0 });
   }));
+
+
+test('switching away from the only queued job withdraws the pending origin lock', () =>
+  harness('switch-lock-only-', async ({ store, queue, locks, counters }) => {
+    const mediaKey = key('5');
+    const job = await queue.enqueue(mediaKey, 'ja', '1', 2, 0);
+    await until(() => locks.pending.length === 1);
+
+    assert.deepEqual(await queue.pauseSparseForMedia(mediaKey), [job.id]);
+    await until(() => locks.pending.length === 0 && queue.running === false);
+
+    const saved = await store.local('guest', 'jobs', job.id);
+    assert.equal(saved.status, 'queued');
+    assert.equal(locks.grants, 0);
+    assert.deepEqual(counters, { decode: 0, prepare: 0, transcribe: 0, dispose: 0 });
+  }));
