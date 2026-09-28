@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { Button } from '$lib/components/ui/button';
   import SearchExcerpt from '$lib/components/search-excerpt.svelte';
   import { localProfileUser, localUser } from '$lib/manabi/client';
@@ -21,6 +21,8 @@
     scanned = 0,
     truncated = false;
   let worker: Worker | undefined, timer: ReturnType<typeof setTimeout> | undefined;
+  let metadataElement: HTMLElement | undefined;
+  let revealingMetadata = false;
   let hits: ContentHit[] = [],
     error = '',
     queryError = '',
@@ -142,6 +144,24 @@
       }
     }
   }
+  async function showMoreBooks(event: MouseEvent) {
+    const trigger = event.currentTarget;
+    if (!(trigger instanceof HTMLElement) || revealingMetadata) return;
+    const run = serial;
+    const firstNew = metadataLimit;
+    trigger.focus({ preventScroll: true });
+    revealingMetadata = true;
+    metadataLimit += 30;
+    try {
+      await tick();
+      if (!mounted || run !== serial || document.activeElement !== trigger) return;
+      const next =
+        metadataElement?.querySelectorAll<HTMLButtonElement>('button.book-match')[firstNew];
+      next?.focus();
+    } finally {
+      revealingMetadata = false;
+    }
+  }
   function choose(book: ShelfBook, hit?: ContentHit) {
     stop();
     searching = false;
@@ -157,7 +177,7 @@
 </script>
 
 <div class="library-search" aria-label="Library search results">
-  <section aria-labelledby="library-book-matches">
+  <section bind:this={metadataElement} aria-labelledby="library-book-matches">
     <h2 id="library-book-matches">Books <span>{matches.length}</span></h2>
     <p class="description">Titles, authors, series and collections</p>
     {#each matches.slice(0, metadataLimit) as book (book.key)}
@@ -178,9 +198,9 @@
         >
       </button>
     {:else}<p class="description">No matching book metadata.</p>{/each}
-    {#if matches.length > metadataLimit}<Button
+    {#if matches.length > metadataLimit || revealingMetadata}<Button
         variant="ghost"
-        onclick={() => (metadataLimit += 30)}>Show more books</Button
+        onclick={showMoreBooks}>Show more books</Button
       >{/if}
   </section>
   <section aria-labelledby="library-content-matches">
