@@ -62,6 +62,9 @@
 
   function onWheel(event: WheelEvent) {
     if (document.activeElement !== imageContainer) return;
+    // Enlarged controls may make the viewer scrollable. Do not turn a scroll
+    // gesture into an image change when the user needs to reach those controls.
+    if (imageContainer.scrollHeight > imageContainer.clientHeight + 1) return;
     if (event.deltaY < 0) previousImage();
     else if (event.deltaY > 0) nextImage();
     event.preventDefault();

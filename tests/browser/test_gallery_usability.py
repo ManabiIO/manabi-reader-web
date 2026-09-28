@@ -37,6 +37,11 @@ class GalleryUsabilityBrowser(LibraryBase):
         self.page.get_by_role('menuitem', name='Image Gallery', exact=True).click()
         panel = self.page.get_by_role('dialog', name='Image gallery', exact=True)
         expect(panel).to_be_visible()
+        panel.evaluate('''async e => {
+          await Promise.all(e.getAnimations({subtree:true})
+            .filter(a => a.effect?.getComputedTiming().iterations !== Infinity)
+            .map(a => a.finished.catch(() => {})));
+        }''')
         return panel
 
     def hit_test(self, control):
@@ -61,6 +66,12 @@ class GalleryUsabilityBrowser(LibraryBase):
             panel.get_by_role('button', name='View image 1', exact=True).click()
             self.page.set_viewport_size({'width': 320, 'height': 320})
             self.assertLessEqual(panel.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
+            viewer = panel.locator('.gallery-viewer')
+            viewer.focus()
+            viewer.hover()
+            self.page.mouse.wheel(0, 600)
+            self.page.wait_for_function('e => e.scrollTop > 0', arg=viewer.element_handle())
+            expect(viewer.locator('img')).to_have_attribute('alt', 'Book illustration 1')
             for name in ('Next', 'Previous'):
                 control = panel.get_by_role('button', name=name, exact=True)
                 expect(control).to_have_attribute('data-variant', 'secondary')
