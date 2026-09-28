@@ -135,6 +135,7 @@ export function validateImportedAnnotation(value: unknown): ReaderAnnotation {
     value.deletedAt !== undefined
   )
     throw new Error('The archive contains an invalid annotation.');
+  const bookKey = value.bookKey;
   const targets = value.targets.map((target) => {
     if (
       !isRecord(target) ||
@@ -147,7 +148,7 @@ export function validateImportedAnnotation(value: unknown): ReaderAnnotation {
       !boundedString(target.resource.sectionId, 256)
     )
       throw new Error('The archive contains an invalid reading location.');
-    const snapshot = snapshotReaderLocator(target, value.bookKey);
+    const snapshot = snapshotReaderLocator(target, bookKey);
     if (!snapshot) throw new Error('The archive contains an invalid reading location.');
     return snapshot;
   });
