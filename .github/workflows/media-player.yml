@@ -108,6 +108,7 @@ jobs:
           python tests/media/browser-poll.py --output test-results/media/polling
           python tests/media/publication-cancellation-browser.py --output test-results/media/publication-cancellation
           python tests/media/identity-handoff-browser.py --output test-results/media/identity-handoff
+          python tests/media/import-durability-browser.py --output test-results/media/import-durability
           python tests/media/repair-resegmentation-browser.py --output test-results/media/repair-resegmentation
           python tests/media/progressive-optimization-browser.py --output test-results/media/progressive-optimization
           python tests/media/browser.py --fixture "$(cat fixture-path.txt)" --output test-results/media/native-browser

@@ -23,13 +23,18 @@ import {
   language
 } from './contracts.js';
 import { MediaStore } from './store.js';
+import {
+  ensureVideoInfo,
+  rememberSourceAlias,
+  type SourceAlias as Alias
+} from './import-records.js';
 import { type ByteSource, localSource, supportedVideo, identify } from './sources.js';
 import { type Bunny, MediaPipeline } from './pipeline.js';
 import { VideoPlayer } from './player.js';
-import { matchSidecar, parseSubtitles, cueDigest } from './captions.js';
+import { matchSidecar, parseSubtitles } from './captions.js';
 import { discoverEmbedded } from './embedded.js';
 import { missingTranscriptDecision } from './discovery-policy.js';
-import { cloudInfoPath, type CloudLocator } from './cloud-locator.js';
+import { cloudInfoPath } from './cloud-locator.js';
 import { cloudRequest } from './cloud-listing.js';
 import { cloudSource, type CloudManifest } from './sources.js';
 import { TranscriptionQueue, type Job, type Engine } from './queue.js';
@@ -47,12 +52,6 @@ const action = (text: string, fn: () => void) => {
   b.addEventListener('click', fn);
   return b;
 };
-interface Alias {
-  key: ContentKey;
-  name: string;
-  handle?: FileSystemFileHandle;
-  cloud?: CloudLocator;
-}
 export interface WorkspaceConnection {
   transport: SyncTransport;
   chooseConnected: (
@@ -404,21 +403,31 @@ export class VideoWorkspace {
     if (this.closed) return;
     if (source.file) this.verifiedSources.set(source, key);
     this.sources.set(key, source);
-    await this.store.putLocal(this.options.scope, 'aliases', key, {
+    await rememberSourceAlias(
+      this.store,
+      this.options.scope,
+      {
+        key,
+        name: source.name,
+        ...(handle ? { handle } : {}),
+        ...(source.cloud ? { cloud: source.cloud } : {})
+      },
+      this.lifetime.signal
+    );
+    await ensureVideoInfo(
+      this.store,
+      this.options.scope,
       key,
-      name: source.name,
-      ...(handle ? { handle } : {}),
-      ...(source.cloud ? { cloud: source.cloud } : {})
-    } satisfies Alias);
-    if (!(await this.store.get(this.options.scope, 'video_info', key)))
-      await this.store.edit(this.options.scope, 'video_info', key, key, {
+      {
         version: 1,
         title: source.name,
         duration: 0,
         width: 0,
         height: 0,
         addedAt: Date.now()
-      });
+      },
+      signal
+    );
     for (const sub of subs)
       if (matchSidecar(source.name, sub.name)) await this.saveSubtitle(key, source.name, sub);
     await this.refresh();
@@ -662,20 +671,30 @@ export class VideoWorkspace {
           // The user switched videos during hashing. Keep the verified source
           // and its completed windows available in this workspace's library.
           if (!this.closed) {
-            await this.store.putLocal(this.options.scope, 'aliases', key, {
+            await rememberSourceAlias(
+              this.store,
+              this.options.scope,
+              {
+                key,
+                name: source.name,
+                ...(handle ? { handle } : {})
+              },
+              this.lifetime.signal
+            );
+            await ensureVideoInfo(
+              this.store,
+              this.options.scope,
               key,
-              name: source.name,
-              ...(handle ? { handle } : {})
-            } satisfies Alias);
-            if (!(await this.store.get(this.options.scope, 'video_info', key)))
-              await this.store.edit(this.options.scope, 'video_info', key, key, {
+              {
                 version: 1,
                 title: source.name,
                 duration: 0,
                 width: 0,
                 height: 0,
                 addedAt: Date.now()
-              });
+              },
+              this.lifetime.signal
+            );
             for (const sub of subs)
               if (matchSidecar(source.name, sub.name))
                 await this.saveSubtitle(key, source.name, sub);
@@ -707,34 +726,34 @@ export class VideoWorkspace {
           ? undefined
           : 'This browser cannot coordinate transcription across tabs (Web Locks unavailable). Playback and existing captions remain available.'
       );
-      await this.store.putLocal(this.options.scope, 'aliases', key, {
+      await rememberSourceAlias(
+        this.store,
+        this.options.scope,
+        {
+          key,
+          name: source.name,
+          ...(handle ? { handle } : {}),
+          ...(source.cloud ? { cloud: source.cloud } : {})
+        },
+        signal
+      );
+      guard();
+      const v = player.video;
+      await ensureVideoInfo(
+        this.store,
+        this.options.scope,
         key,
-        name: source.name,
-        ...(handle ? { handle } : {}),
-        ...(source.cloud ? { cloud: source.cloud } : {})
-      } satisfies Alias);
+        {
+          version: 1,
+          title: source.name,
+          duration: Number.isFinite(v.duration) ? v.duration : 0,
+          width: v.videoWidth || 0,
+          height: v.videoHeight || 0,
+          addedAt: Date.now()
+        },
+        signal
+      );
       guard();
-      const existing = await this.store.get(this.options.scope, 'video_info', key);
-      guard();
-      if (!existing) {
-        const v = player.video;
-        await this.store.edit(
-          this.options.scope,
-          'video_info',
-          key,
-          key,
-          {
-            version: 1,
-            title: source.name,
-            duration: Number.isFinite(v.duration) ? v.duration : 0,
-            width: v.videoWidth || 0,
-            height: v.videoHeight || 0,
-            addedAt: Date.now()
-          },
-          null
-        );
-        guard();
-      }
       await player.bindIdentity(key);
       guard();
       for (const sub of subs) {
@@ -870,20 +889,9 @@ export class VideoWorkspace {
     tracks: Awaited<ReturnType<typeof discoverEmbedded>>['tracks'],
     signal: AbortSignal
   ) {
-    const existing = await this.store.tracks(this.options.scope, key);
     for (const t of tracks) {
       signal.throwIfAborted();
       if (this.closed) return;
-      if (
-        existing.some(
-          (old) =>
-            old.origin === 'embedded' &&
-            old.language === t.language &&
-            old.forced === t.forced &&
-            cueDigest(old.cues) === cueDigest(t.cues)
-        )
-      )
-        continue;
       const track: Track = {
         ...t,
         version: 1,
@@ -894,8 +902,7 @@ export class VideoWorkspace {
         complete: true,
         createdAt: Date.now()
       };
-      await this.store.saveTrack(this.options.scope, track);
-      existing.push(track);
+      await this.store.saveImportedTrack(this.options.scope, track, signal);
     }
   }
   private async loadAudio(source: ByteSource, signal: AbortSignal, generation: number) {
@@ -960,40 +967,30 @@ export class VideoWorkspace {
     await this.refreshTracks();
   }
   private async saveSubtitle(key: ContentKey, name: string, file: File) {
+    const signal = this.lifetime.signal;
+    signal.throwIfAborted();
     if (file.size > 5 * 1024 * 1024) throw new Error('Subtitles must be at most 5 MiB');
     const found = matchSidecar(name, file.name),
-      cues = parseSubtitles(await file.text()),
+      cues = parseSubtitles(await abortable(signal, () => file.text())),
       lang = trackLanguage({ language: found?.language ?? 'und', cues });
-    const existing = await this.store.tracks(this.options.scope, key);
-    const kind = 'transcription'; // Role is the viewer's selection, not a language-based guess.
-    const forced = found?.forced ?? false,
-      digest = cueDigest(cues);
-    // The timing/text alone do not identify a track's role. A forced or
-    // generated copy must not swallow the user's authored full sidecar.
-    if (
-      existing.some(
-        (t) =>
-          t.origin === 'sidecar' &&
-          t.language === lang &&
-          t.kind === kind &&
-          t.forced === forced &&
-          cueDigest(t.cues) === digest
-      )
-    )
-      return;
-    await this.store.saveTrack(this.options.scope, {
-      version: 1,
-      id: crypto.randomUUID(),
-      mediaKey: key,
-      label: `${lang} · ${file.name}`,
-      language: lang,
-      kind,
-      origin: 'sidecar',
-      complete: true,
-      forced,
-      createdAt: Date.now(),
-      cues
-    });
+    signal.throwIfAborted();
+    await this.store.saveImportedTrack(
+      this.options.scope,
+      {
+        version: 1,
+        id: crypto.randomUUID(),
+        mediaKey: key,
+        label: `${lang} · ${file.name}`,
+        language: lang,
+        kind: 'transcription',
+        origin: 'sidecar',
+        complete: true,
+        forced: found?.forced ?? false,
+        createdAt: Date.now(),
+        cues
+      },
+      signal
+    );
   }
   private pickSubtitle() {
     const current = this.current,

@@ -57,6 +57,7 @@ def main():
                 window.bound=[];window.prepares=0;window.inferences=0;window.writes=[];window.aliasBlocked=false;
                 window.factory=new TransactionFactory();window.store=new MediaStore(factory,'workspace-test');
                 const originalPut=store.putLocal.bind(store),originalLocal=store.local.bind(store);
+                const originalUpdate=store.updateLocal.bind(store);
                 const originalEnqueue=store.enqueueJob.bind(store);
                 store.enqueueJob=async(...args)=>{
                     if(config.holdAdmission){
@@ -66,10 +67,14 @@ def main():
                     return originalEnqueue(...args);
                 };
                 store.putLocal=async(scope,kind,id,value)=>{
-                    if(config.holdFirstAlias&&kind==='aliases'&&value.name==='First.mp4'){
+                    writes.push({kind,id,value:structuredClone(value)});return originalPut(scope,kind,id,value);
+                };
+                // Hold atomic alias admission, not its synchronous transaction callback.
+                store.updateLocal=async(scope,kind,id,change)=>{
+                    if(config.holdFirstAlias&&kind==='aliases'&&!aliasBlocked){
                         aliasBlocked=true;await new Promise(resolve=>window.releaseAlias=resolve);
                     }
-                    writes.push({kind,id,value:structuredClone(value)});return originalPut(scope,kind,id,value);
+                    return originalUpdate(scope,kind,id,change);
                 };
                 store.local=async(scope,kind,id)=>{
                     if(config.holdSync&&kind==='settings'&&id==='sync')return await new Promise(resolve=>window.releaseSync=resolve);

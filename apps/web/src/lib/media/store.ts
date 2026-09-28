@@ -545,45 +545,137 @@ export class MediaStore {
             }
           };
         }
-        for (const piece of pieces) {
-          const storageKey = key(scope, piece.kind, piece.id);
-          const request = store.get(storageKey);
-          request.onsuccess = () => {
-            try {
-              const old: Replica | undefined = request.result;
-              if (old) {
-                if (
-                  old.scope !== scope ||
-                  old.mediaKey !== piece.key ||
-                  old.kind !== piece.kind ||
-                  old.id !== piece.id ||
-                  !same(old.payload, piece.payload)
-                )
-                  throw new ImmutableTrackConflict();
-                return;
-              }
-              store.put(
-                edit(
-                  undefined,
-                  scope,
-                  piece.kind,
-                  piece.id,
-                  piece.key,
-                  piece.payload,
-                  crypto.randomUUID()
-                ),
-                storageKey
-              );
-            } catch (e) {
-              fail(e);
-            }
-          };
-        }
+        this.writeTrackPieces(store, scope, pieces, fail);
       },
       true,
       signal
     );
   }
+  /** Import deduplication and publication share ONE read/write transaction.
+   * Two tabs cannot both observe absence and publish different random IDs.
+   * Only a complete, verified matching track may suppress a new import.
+   */
+  async saveImportedTrack(scope: Scope, input: Track, signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted();
+    const snapshot = validateTrack(input);
+    if (!snapshot.complete || (snapshot.origin !== 'embedded' && snapshot.origin !== 'sidecar'))
+      throw new Error('Only complete authored captions can be imported');
+    const pieces = splitTrack(snapshot),
+      wanted = pieces.at(-1)!.payload;
+    await this.tx<void>(
+      'records',
+      'readwrite',
+      (store, _done, fail) => {
+        const request = store.getAll(range(scope, 'video_track'));
+        request.onsuccess = () => {
+          try {
+            const candidates: Replica[] = [];
+            for (const row of request.result as Replica[]) {
+              if (row?.scope !== scope || row.kind !== 'video_track')
+                throw new Error('Invalid local subtitle manifest scope');
+              if (row.mediaKey !== snapshot.mediaKey || row.payload === null) continue;
+              validatePayload(row.kind, row.id, row.mediaKey, row.payload);
+              const metadata = row.payload.track as Omit<Track, 'cues'>;
+              if (
+                row.payload.digest === wanted.digest &&
+                row.payload.count === wanted.count &&
+                metadata.origin === snapshot.origin &&
+                metadata.kind === snapshot.kind &&
+                metadata.language === snapshot.language &&
+                metadata.forced === snapshot.forced
+              )
+                candidates.push(row);
+            }
+            const pages: Replica[] = [];
+            const ids = new Set(
+              candidates.flatMap((row) =>
+                (row.payload!.pages as { id: string }[]).map((page) => page.id)
+              )
+            );
+            let remaining = ids.size;
+            const finish = () => {
+              if (!candidates.some((row) => assembleTrack(row, pages)))
+                this.writeTrackPieces(store, scope, pieces, fail);
+            };
+            if (!remaining) {
+              finish();
+              return;
+            }
+            for (const id of ids) {
+              const page = store.get(key(scope, 'video_chunk', id));
+              page.onsuccess = () => {
+                try {
+                  const row: Replica | undefined = page.result;
+                  if (row) {
+                    if (
+                      row.scope !== scope ||
+                      row.kind !== 'video_chunk' ||
+                      row.id !== id ||
+                      row.mediaKey !== snapshot.mediaKey
+                    )
+                      throw new Error('Invalid local subtitle page identity');
+                    validatePayload(row.kind, row.id, row.mediaKey, row.payload);
+                    pages.push(row);
+                  }
+                  if (--remaining === 0) finish();
+                } catch (error) {
+                  fail(error);
+                }
+              };
+            }
+          } catch (error) {
+            fail(error);
+          }
+        };
+      },
+      true,
+      signal
+    );
+  }
+
+  /** Shared immutable publication path for imports and fenced MOSS completion. */
+  private writeTrackPieces(
+    store: IDBObjectStore,
+    scope: Scope,
+    pieces: ReturnType<typeof splitTrack>,
+    fail: (error: unknown) => void
+  ) {
+    for (const piece of pieces) {
+      const storageKey = key(scope, piece.kind, piece.id);
+      const request = store.get(storageKey);
+      request.onsuccess = () => {
+        try {
+          const old: Replica | undefined = request.result;
+          if (old) {
+            if (
+              old.scope !== scope ||
+              old.mediaKey !== piece.key ||
+              old.kind !== piece.kind ||
+              old.id !== piece.id ||
+              !same(old.payload, piece.payload)
+            )
+              throw new ImmutableTrackConflict();
+            return;
+          }
+          store.put(
+            edit(
+              undefined,
+              scope,
+              piece.kind,
+              piece.id,
+              piece.key,
+              piece.payload,
+              crypto.randomUUID()
+            ),
+            storageKey
+          );
+        } catch (e) {
+          fail(e);
+        }
+      };
+    }
+  }
+
   /** Read a consistent manifest/page snapshot for ONE video. Do not fetch all
    * of the account's transcript bodies on every playback/library notification.
    * Requests created inside onsuccess keep the native IDB transaction active;
