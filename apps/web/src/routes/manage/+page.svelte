@@ -18,6 +18,7 @@
   import { preFilteredTitlesForStatistics$ } from '$lib/components/statistics/statistics-types';
   import { pxScreen } from '$lib/css-classes';
   import type { BooksDbBookmarkData } from '$lib/data/database/books-db/versions/books-db';
+  import { statisticDeletionPlan } from '$lib/data/database/books-db/reader-statistics';
   import { dialogManager } from '$lib/data/dialog-manager';
   import { pagePath } from '$lib/data/env';
   import { logger } from '$lib/data/logger';
@@ -754,9 +755,9 @@
   }
 
   async function onDeleteStatistics() {
-    const titles = $bookCards$
+    const selectedBooks = $bookCards$
       .filter((card) => selectedBookIds.has(card.id))
-      .map((book) => book.title);
+      .map(({ id, title }) => ({ id, title }));
 
     let wasCanceled = false;
 
@@ -768,8 +769,8 @@
             props: {
               dialogHeader: 'Delete Data',
               dialogMessage: `This will delete all Statistics for the selected ${pluralize(
-                titles.length,
-                'Title',
+                selectedBooks.length,
+                'Book',
                 false
               )} (which may include start and/or completion Data)\n\nExecute a one time Sync with an export behavior of "replace" and/or statistics merge mode of "replace" to apply deletions to other devices`,
               contentStyles: 'white-space: pre-line;',
@@ -793,20 +794,29 @@
 
     let failed = 0;
 
-    replicationProgress$.next({ progressBase: 1, maxProgress: titles.length });
+    replicationProgress$.next({ progressBase: 1, maxProgress: selectedBooks.length });
 
-    titles.forEach((title) => {
+    selectedBooks.forEach((book) => {
       tasks.push(
         limiter(async () => {
           try {
             throwIfAborted(cancelSignal);
-            await database.deleteStatisticEntries([title], true);
+            const plan = await statisticDeletionPlan(await database.db, book.id);
+            throwIfAborted(cancelSignal);
+            if (plan.unresolvedLegacy)
+              throw new Error(
+                `Older statistics for “${plan.title}” cannot be safely assigned to this copy. ` +
+                  'Open Statistics and export the raw history before resolving the duplicate title.'
+              );
+            await database.deleteStatisticEntries([], true, '', '', plan.keys);
 
             replicationProgress$.next({ progressToAdd: 1 });
           } catch (error) {
-            handleErrorDuringReplication(error, `Error on deleting statistics for ${title}: `, [
-              limiter
-            ]);
+            handleErrorDuringReplication(
+              error,
+              `Error on deleting statistics for ${book.title}: `,
+              [limiter]
+            );
 
             failed += 1;
           }
@@ -819,7 +829,7 @@
     resetProgress();
 
     if (failed) {
-      const errorMessage = `Unable to delete statistics of ${pluralize(failed, 'Title')}`;
+      const errorMessage = `Unable to delete statistics of ${pluralize(failed, 'Book')}`;
 
       showError('Deletion Failed', errorMessage, errorMessage);
     }
