@@ -286,6 +286,34 @@ test('statistics deletion plan refuses unresolved same-title legacy history', as
   db.close();
 });
 
+test('statistics deletion plan can delete a same-title sibling while legacy is assigned elsewhere', async () => {
+  const db = await database();
+  const first = book(1, 'Assigned sibling title', 'a');
+  await db.put('data', first);
+  await db.put('statistic', day(first.title, '2026-09-20', 12));
+  const firstPlan = await statisticIdentityPlan(db, first.id);
+  assert.equal(firstPlan.legacyTitle, first.title);
+
+  const second = book(2, first.title, 'b');
+  await db.put('data', second);
+  await db.put('readerStatistic', {
+    ...day(second.title, '2026-09-21', 44),
+    bookKey: contentStatisticKey(second)
+  });
+  const secondPlan = await statisticIdentityPlan(db, second.id);
+  assert.equal(secondPlan.unresolvedLegacy, false);
+  assert.equal(secondPlan.legacyTitle, undefined);
+
+  await deleteStatisticsForIdentityPlan(db, second.id, secondPlan);
+  assert.equal(
+    (await db.get('readerStatistic', [contentStatisticKey(first), '2026-09-20'])).charactersRead,
+    12
+  );
+  assert.equal(await db.get('readerStatistic', [contentStatisticKey(second), '2026-09-21']), undefined);
+  assert.equal((await db.get('statistic', [first.title, '2026-09-20'])).charactersRead, 12);
+  db.close();
+});
+
 test('statistics deletion plan maps assigned legacy history to the selected logical book', async () => {
   const db = await database();
   const copy = book(1, 'Assigned deletion', 'c');
