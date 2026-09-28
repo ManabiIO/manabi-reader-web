@@ -50,13 +50,13 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
                         'aria-current', 'page'
                     )
                 nav = self.page.get_by_role('navigation', name='Settings categories')
-                typography = nav.get_by_role('button', name='Fonts & text', exact=True)
+                typography = nav.get_by_role('link', name='Fonts & text', exact=True)
                 typography.click()
-                expect(typography).to_have_attribute('aria-pressed', 'true')
+                expect(typography).to_have_attribute('aria-current', 'page')
                 expect(self.page.locator('#settings-content').get_by_role('heading', name='Fonts & text', exact=True)).to_be_visible()
                 self.assert_no_horizontal_overflow(self.page.locator('html'))
                 # Activate with the keyboard before checking its focus ring.
-                # Do not assume Safari is configured to Tab through buttons.
+                # Do not assume Safari is configured to Tab through links.
                 typography.press('Enter')
                 expect(typography).to_be_focused()
                 self.assertNotEqual('none', typography.evaluate('e => getComputedStyle(e).outlineStyle'))
@@ -66,6 +66,52 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
                 search.fill('')
                 expect(self.page.locator('#settings-content').get_by_role('heading', name='Fonts & text', exact=True)).to_be_visible()
 
+    def test_settings_section_links_follow_url_history_without_scrolling(self):
+        self.page.set_viewport_size({'width': 1200, 'height': 844})
+        self.page.goto(self.origin + '/reader-web/settings')
+        nav = self.page.get_by_role('navigation', name='Settings categories')
+        typography = nav.get_by_role('link', name='Fonts & text', exact=True)
+        layout = nav.get_by_role('link', name='Page layout', exact=True)
+
+        start_scroll = self.page.evaluate('scrollY')
+        typography.click()
+        expect(self.page).to_have_url(self.origin + '/reader-web/settings#typography')
+        expect(typography).to_have_attribute('aria-current', 'page')
+        expect(
+            self.page.locator('#settings-content').get_by_role(
+                'heading', name='Fonts & text', exact=True
+            )
+        ).to_be_visible()
+        self.assertEqual(start_scroll, self.page.evaluate('scrollY'))
+
+        layout.click()
+        expect(self.page).to_have_url(self.origin + '/reader-web/settings#layout')
+        expect(layout).to_have_attribute('aria-current', 'page')
+        expect(
+            self.page.locator('#settings-content').get_by_role(
+                'heading', name='Page layout', exact=True
+            )
+        ).to_be_visible()
+
+        self.page.go_back()
+        expect(self.page).to_have_url(self.origin + '/reader-web/settings#typography')
+        expect(typography).to_have_attribute('aria-current', 'page')
+        expect(
+            self.page.locator('#settings-content').get_by_role(
+                'heading', name='Fonts & text', exact=True
+            )
+        ).to_be_visible()
+
+        self.page.go_back()
+        expect(self.page).to_have_url(self.origin + '/reader-web/settings')
+        appearance = nav.get_by_role('link', name='Appearance', exact=True)
+        expect(appearance).to_have_attribute('aria-current', 'page')
+        expect(
+            self.page.locator('#settings-content').get_by_role(
+                'heading', name='Appearance', exact=True
+            )
+        ).to_be_visible()
+
     def test_connections_workspace_uses_shared_action_hierarchy(self):
         for mode in ('light', 'dark'):
             self.page.evaluate('v => localStorage.setItem("appearance", v)', mode)
@@ -73,7 +119,11 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
                 self.page.set_viewport_size({'width': width, 'height': 844})
                 self.page.goto(self.origin + '/reader-web/connections')
                 self.page.evaluate('v => document.documentElement.style.fontSize = v', scale)
-                expect(self.page.get_by_role('heading', name='Accounts and libraries', exact=True)).to_be_visible()
+                heading = self.page.get_by_role('heading', name='Accounts and libraries', exact=True)
+                expect(heading).to_be_visible()
+                context = self.page.get_by_role('navigation', name='Context navigation')
+                expect(context.get_by_role('link', name='Back to Library', exact=True)).to_be_visible()
+                expect(context.get_by_role('link')).to_have_count(1)
                 sign_in = self.page.get_by_role('link', name='Sign in to Manabi', exact=True)
                 create = self.page.get_by_role('link', name='Create a Manabi account', exact=True)
                 expect(sign_in).to_have_attribute('data-variant', 'default')
@@ -83,6 +133,21 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
                     'data-variant', 'ghost'
                 )
                 self.assert_no_horizontal_overflow(self.page.locator('html'))
+                if scale == '200%':
+                    self.assertEqual(
+                        [1, 1],
+                        heading.evaluate('''e => {
+                          const node = e.firstChild;
+                          const value = node.textContent;
+                          return ['Accounts', 'libraries'].map(word => {
+                            const start = value.indexOf(word);
+                            const range = document.createRange();
+                            range.setStart(node, start);
+                            range.setEnd(node, start + word.length);
+                            return range.getClientRects().length;
+                          });
+                        }''')
+                    )
                 first_section = self.page.locator('.connections-page > section').first
                 self.assertAlmostEqual(
                     first_section.evaluate('e => parseFloat(getComputedStyle(e).borderTopLeftRadius)'),
@@ -97,10 +162,30 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
             self.page.set_viewport_size({'width': 320, 'height': 844})
             self.page.goto(self.origin + '/reader-web/shared-library')
             self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+            heading = self.page.get_by_role(
+                'heading', name='Shared Ttu Ebook Reader libraries', exact=True
+            )
+            expect(heading).to_be_visible()
+            context = self.page.get_by_role('navigation', name='Context navigation')
             expect(
-                self.page.get_by_role('heading', name='Shared Ttu Ebook Reader libraries', exact=True)
+                context.get_by_role('link', name='Back to Accounts and libraries', exact=True)
             ).to_be_visible()
+            expect(context.get_by_role('link')).to_have_count(1)
             self.assert_no_horizontal_overflow(self.page.locator('html'))
+            self.assertEqual(
+                [1, 1, 1],
+                heading.evaluate('''e => {
+                  const node = e.firstChild;
+                  const value = node.textContent;
+                  return ['Shared', 'Ebook', 'libraries'].map(word => {
+                    const start = value.indexOf(word);
+                    const range = document.createRange();
+                    range.setStart(node, start);
+                    range.setEnd(node, start + word.length);
+                    return range.getClientRects().length;
+                  });
+                }''')
+            )
             first_section = self.page.locator('main > section').first
             self.assertAlmostEqual(
                 first_section.evaluate('e => parseFloat(getComputedStyle(e).borderTopLeftRadius)'),

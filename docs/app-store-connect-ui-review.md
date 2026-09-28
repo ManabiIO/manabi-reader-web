@@ -62,3 +62,16 @@ The top-level Manabi workspace now reflects that May homepage change on wide
 screens: Library, Statistics, and Settings are directly visible in the header.
 The existing full navigation sheet remains available for secondary destinations
 and remains the compact navigation on phones.
+
+## Workspace navigation follow-up
+
+Management pages lean on the persistent application navigation instead of
+repeating several destination links above every page. A subordinate workspace
+keeps one contextual back link, preserving orientation without competing with
+the top-level Library / Snippets / Statistics / Settings navigation.
+
+Settings sections are real hash destinations. Selecting a section updates the
+URL without scrolling the workspace, and browser Back/Forward restores the
+corresponding section. This follows the 2026 App Store Connect pattern of stable
+top-level workspace navigation plus addressable in-workspace state while keeping
+Manabi's own information architecture and visual tokens.

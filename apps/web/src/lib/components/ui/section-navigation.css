@@ -23,7 +23,8 @@
   color: var(--foreground);
   background: var(--muted);
 }
-.section-navigation [data-section-link][aria-pressed='true'] {
+.section-navigation [data-section-link][aria-pressed='true'],
+.section-navigation [data-section-link][aria-current='page'] {
   color: var(--primary);
   border-bottom-color: currentColor;
 }
@@ -44,13 +45,15 @@
     border-bottom: 0;
     border-radius: 8px;
   }
-  .section-navigation-sidebar [data-section-link][aria-pressed='true'] {
+  .section-navigation-sidebar [data-section-link][aria-pressed='true'],
+  .section-navigation-sidebar [data-section-link][aria-current='page'] {
     color: var(--foreground);
     background: var(--secondary);
   }
 }
 @media (forced-colors: active) {
-  .section-navigation [data-section-link][aria-pressed='true'] {
+  .section-navigation [data-section-link][aria-pressed='true'],
+  .section-navigation [data-section-link][aria-current='page'] {
     outline: 2px solid Highlight;
     outline-offset: -2px;
     color: Highlight;

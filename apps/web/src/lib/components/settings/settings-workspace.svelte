@@ -1,6 +1,6 @@
 <script lang="ts">
   import { setContext, onMount, tick } from 'svelte';
-  import { afterNavigate } from '$app/navigation';
+  import { afterNavigate, goto } from '$app/navigation';
   import { writable } from 'svelte/store';
   import { Input } from '$lib/components/ui/input';
   import { Button } from '$lib/components/ui/button';
@@ -52,8 +52,10 @@
   $: selected = categories.find((category) => category.id === $filter.category) ?? categories[0];
   afterNavigate(({ to }) => {
     const category = to?.url.hash.slice(1);
-    if (category && categories.some((item) => item.id === category))
-      filter.set({ category, query: '' });
+    filter.set({
+      category: category && categories.some((item) => item.id === category) ? category : 'appearance',
+      query: ''
+    });
   });
   onMount(() => {
     const countVisibleSettings = () => {
@@ -80,6 +82,18 @@
   });
   function choose(category: string) {
     filter.set({ category, query: '' });
+    if (typeof window === 'undefined' || window.location.hash === `#${category}`) return;
+    const url = new URL(window.location.href);
+    url.hash = category;
+    void goto(`${url.pathname}${url.search}${url.hash}`, {
+      keepFocus: true,
+      noScroll: true
+    });
+  }
+  function handleCategoryClick(event: MouseEvent, category: string) {
+    if (event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    event.preventDefault();
+    choose(category);
   }
 </script>
 
@@ -104,12 +118,13 @@
     >
       {#each categories as category (category.id)}
         <Button
+          href={`#${category.id}`}
           variant="ghost"
           shape="rounded"
           data-section-link
           class="justify-start"
-          aria-pressed={$filter.category === category.id && !$filter.query}
-          onclick={() => choose(category.id)}>{category.label}</Button
+          aria-current={$filter.category === category.id && !$filter.query ? 'page' : undefined}
+          onclick={(event) => handleCategoryClick(event, category.id)}>{category.label}</Button
         >
       {/each}
     </nav>
