@@ -45,7 +45,7 @@ export async function commitOwnedBookmark(
 ) {
   assertCurrent();
   signal?.throwIfAborted();
-  const tx = db.transaction(['data', 'bookmark'], 'readwrite');
+  const tx = db.transaction(['data', 'bookmark', 'readerBookScope'], 'readwrite');
   const abort = () => {
     try {
       tx.abort();
@@ -60,7 +60,11 @@ export async function commitOwnedBookmark(
       signal?.throwIfAborted();
       const book = await tx.objectStore('data').get(snapshot.dataId);
       if (!book) throw new Error('This book is no longer in the library.');
-      if (book.libraryOwner && book.libraryOwner !== profileId)
+      const owner = await tx.objectStore('readerBookScope').get(snapshot.dataId);
+      if (
+        (book.libraryOwner && book.libraryOwner !== profileId) ||
+        (owner && owner.accountId !== profileId)
+      )
         throw new Error('This book belongs to another account.');
       const bookmarks = tx.objectStore('bookmark');
       const before = await bookmarks.get(snapshot.dataId);
@@ -124,7 +128,7 @@ export async function updateBookLastRead(
     throw new Error('The book’s last-read update is invalid.');
   assertCurrent();
   signal?.throwIfAborted();
-  const tx = db.transaction('data', 'readwrite');
+  const tx = db.transaction(['data', 'readerBookScope'], 'readwrite');
   const abort = () => {
     try {
       tx.abort();
@@ -139,9 +143,13 @@ export async function updateBookLastRead(
       signal?.throwIfAborted();
       const current = await tx.store.get(id);
       if (!current) return undefined;
-      if (current.libraryOwner && current.libraryOwner !== profileId)
+      const owner = await tx.objectStore('readerBookScope').get(id);
+      if (
+        (current.libraryOwner && current.libraryOwner !== profileId) ||
+        (owner && owner.accountId !== profileId)
+      )
         throw new Error('This book belongs to another account.');
-    const previous = current.lastBookOpen;
+      const previous = current.lastBookOpen;
     const lastBookOpen = Math.max(
       typeof previous === 'number' && Number.isFinite(previous) ? previous : 0,
       timestamp
