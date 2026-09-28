@@ -166,25 +166,32 @@ export function cloudSource(
     root: url.searchParams.get('root'),
     id: url.searchParams.get('id')
   });
-  let revoked: { error: unknown } | undefined;
-  const assertCurrent = () => {
-    if (revoked) throw revoked.error;
+  let revoked: { error: unknown; thrown: boolean } | undefined;
+  const stillCurrent = () => {
+    if (revoked) {
+      if (revoked.thrown) throw revoked.error;
+      return false;
+    }
     try {
-      if (!current()) throw new Error('Account changed');
+      if (!current()) {
+        revoked = { error: new Error('Account changed'), thrown: false };
+        return false;
+      }
+      return true;
     } catch (error) {
-      revoked = { error };
+      revoked = { error, thrown: true };
       throw error;
     }
+  };
+  const assertCurrent = () => {
+    if (!stillCurrent()) throw revoked!.error;
   };
   return {
     name,
     size,
     version,
     cloud,
-    isCurrent() {
-      assertCurrent();
-      return true;
-    },
+    isCurrent: stillCurrent,
     async read(start, end, signal) {
       signal.throwIfAborted();
       assertRange(start, end, size);
