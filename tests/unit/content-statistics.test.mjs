@@ -6,7 +6,7 @@ import {
   migrateLegacyStatistics,
   preserveCompletedStatistic,
   readStatisticsRecoverySnapshot,
-  statisticDeletionPlan,
+  statisticIdentityPlan,
   titlesWithMultipleStatisticIdentities,
   visibleStatistics
 } from '../../apps/web/src/lib/data/database/books-db/reader-statistics.ts';
@@ -274,7 +274,7 @@ test('statistics deletion plan refuses unresolved same-title legacy history', as
     bookKey: contentStatisticKey(first)
   });
 
-  const plan = await statisticDeletionPlan(db, first.id);
+  const plan = await statisticIdentityPlan(db, first.id);
   assert.equal(plan.bookKey, contentStatisticKey(first));
   assert.deepEqual(plan.keys, [contentStatisticKey(first)]);
   assert.equal(plan.unresolvedLegacy, true);
@@ -288,7 +288,7 @@ test('statistics deletion plan maps assigned legacy history to the selected logi
   await db.put('data', copy);
   await db.put('statistic', day(copy.title, '2026-09-20', 12));
 
-  const plan = await statisticDeletionPlan(db, copy.id);
+  const plan = await statisticIdentityPlan(db, copy.id);
   assert.equal(plan.bookKey, contentStatisticKey(copy));
   assert.deepEqual(plan.keys, [contentStatisticKey(copy)]);
   assert.equal(plan.unresolvedLegacy, false);
@@ -313,7 +313,7 @@ test('statistics deletion plan includes retained pre-hash identity after a resol
   });
   await migrateLegacyStatistics(db, verified);
 
-  const plan = await statisticDeletionPlan(db, verified.id);
+  const plan = await statisticIdentityPlan(db, verified.id);
   assert.equal(plan.bookKey, contentStatisticKey(verified));
   assert.deepEqual(new Set(plan.keys), new Set([contentStatisticKey(verified), localKey]));
   assert.equal(plan.unresolvedLegacy, false);
@@ -340,7 +340,7 @@ test('statistics deletion plan keeps ambiguous legacy history fail-closed across
   });
   await migrateLegacyStatistics(db, verified);
 
-  const plan = await statisticDeletionPlan(db, verified.id);
+  const plan = await statisticIdentityPlan(db, verified.id);
   assert.equal(plan.unresolvedLegacy, true);
   assert.deepEqual(new Set(plan.keys), new Set([contentStatisticKey(verified), localKey]));
   db.close();
