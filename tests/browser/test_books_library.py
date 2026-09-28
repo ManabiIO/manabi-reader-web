@@ -1206,6 +1206,65 @@ class BooksLibraryBrowser(LibraryBase):
         expect(self.page.get_by_role('button', name='Read Collection book', exact=True)).to_be_visible()
         self.assertEqual(1, len(self.stores('books', ['data'])['data']))
 
+    def test_selected_statistics_view_keeps_same_title_book_identities_distinct(self):
+        self.import_book('Same title statistics view', size=(240, 360))
+        self.import_book('Same title statistics view', size=(180, 380))
+        books = [row for row in self.stores('books', ['data'])['data']
+                 if row['title'] == 'Same title statistics view']
+        self.assertEqual(2, len(books))
+        first, second = sorted(books, key=lambda row: row['id'])
+        self.assertNotEqual(first['contentHash'], second['contentHash'])
+        date_key = self.page.evaluate("""() => {
+          const d = new Date();
+          return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'),
+            String(d.getDate()).padStart(2, '0')].join('-');
+        }""")
+        self.page.evaluate('''async ({books, dateKey}) => {
+          const db = await new Promise((resolve, reject) => {
+            const request = indexedDB.open('books');
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          const tx = db.transaction('readerStatistic', 'readwrite');
+          for (const [index, book] of books.entries()) {
+            tx.objectStore('readerStatistic').put({
+              title: book.title,
+              bookKey: 'content:' + book.contentHash.toLowerCase(),
+              dateKey,
+              charactersRead: 100 + index,
+              readingTime: 60,
+              minReadingSpeed: 1,
+              altMinReadingSpeed: 1,
+              lastReadingSpeed: 1,
+              maxReadingSpeed: 1,
+              lastStatisticModified: 100 + index
+            });
+          }
+          await new Promise((resolve, reject) => {
+            tx.oncomplete = resolve;
+            tx.onabort = () => reject(tx.error);
+          });
+          db.close();
+        }''', {'books': [first, second], 'dateKey': date_key})
+
+        header = self.page.get_by_role('banner', name='Library toolbar')
+        header.get_by_role('button', name='Library actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
+        target = self.page.locator('[data-book-key="book:%s"]' % first['id'])
+        target.get_by_role('button', name='Read Same title statistics view', exact=True).click()
+        expect(self.page.get_by_text('1 selected', exact=True)).to_be_visible()
+
+        header.get_by_role('button', name='Actions', exact=True).click()
+        self.page.get_by_role(
+            'menuitem', name='Statistics for Selected Books', exact=True).click()
+        expect(self.page).to_have_url(re.compile(r'/reader-web/statistics(?:[/?#]|$)'), timeout=30000)
+        toolbar = self.page.get_by_role('banner', name='Statistics toolbar')
+        toolbar.get_by_role('button', name='Summary', exact=True).click()
+        rows = self.page.get_by_role(
+            'button', name='Delete row Same title statistics view', exact=True)
+        expect(rows).to_have_count(1, timeout=30000)
+        expect(self.page.get_by_text('Same title statistics view', exact=True)).to_have_count(1)
+
     def test_selected_statistics_delete_only_the_chosen_same_title_book(self):
         self.import_book('Same title statistics', size=(240, 360))
         self.import_book('Same title statistics', size=(180, 380))
