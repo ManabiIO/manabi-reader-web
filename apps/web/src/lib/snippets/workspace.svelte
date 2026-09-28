@@ -6,6 +6,7 @@
   import { beforeNavigate, goto, replaceState } from '$app/navigation';
   import AppNav from '$lib/components/navigation/app-nav.svelte';
   import { Button } from '$lib/components/ui/button';
+  import { Input } from '$lib/components/ui/input';
   import * as Dialog from '$lib/components/ui/dialog';
   import { account, localUser } from '../manabi/client';
   import {
@@ -739,8 +740,8 @@
         </div>
       </div>
       {#if editing.mode !== 'append'}<label class="title-label"
-          >Title <span>Optional · leave empty for an automatic title</span><input
-            class="title-input"
+          >Title <span>Optional · leave empty for an automatic title</span><Input
+            class="title-input min-h-11"
             aria-label="Snippet title"
             bind:value={title}
             placeholder={automaticTitle}
@@ -804,7 +805,12 @@
     </section>
   {:else if current && admitted}
     <section class="reading" aria-label="Snippet reader">
-      <a class="back" href={resolve(libraryPath(params.get('returnTo')))}>← Back to library</a>
+      <Button
+        class="back min-h-11 px-0"
+        href={resolve(libraryPath(params.get('returnTo')))}
+        variant="link"
+        size="sm">← Back to library</Button
+      >
       <div class="heading">
         <div>
           <p class="eyebrow">{current.document.trashedAt ? 'IN TRASH' : 'SNIPPET'}</p>
@@ -969,7 +975,8 @@
         </p>{/if}
       <div class="search-row">
         <label class="search-label"
-          ><span class="sr-only">Search snippets</span><input
+          ><span class="sr-only">Search snippets</span><Input
+            class="min-h-11 w-full px-4 text-base"
             type="search"
             aria-label="Search snippets"
             placeholder="Search titles and content"
@@ -1124,7 +1131,12 @@
             pickerPurpose = 'default';
             pickerOpen = true;
           }}>Default save location…</Button
-        ><a href={resolve('/connections')}>Manage connected libraries</a>
+        ><Button
+          href={resolve('/connections')}
+          variant="link"
+          size="sm"
+          class="min-h-11 px-0">Manage connected libraries</Button
+        >
       </footer>
     </section>
   {/if}
@@ -1158,6 +1170,7 @@
         ></Dialog.Header
       >{#each $organization.collections as collection (collection.id)}<label class="membership"
           ><input
+            class="size-5 accent-primary"
             type="checkbox"
             checked={collectionTargets.every((id) => collection.members.includes(id))}
             disabled={busy}
@@ -1172,7 +1185,8 @@
         }}
       >
         <label
-          >New collection<input
+          >New collection<Input
+            class="min-h-11"
             aria-label="New collection name"
             bind:value={newCollection}
             maxlength="240"
@@ -1192,7 +1206,9 @@
           >This saves a recoverable trash state in each document. Collections and other copies are
           not deleted.</Dialog.Description
         ></Dialog.Header
-      ><Button disabled={busy} onclick={() => action(removeSelected)}>Move to Trash</Button><Button
+      ><Button variant="destructive" disabled={busy} onclick={() => action(removeSelected)}
+        >Move to Trash</Button
+      ><Button
         variant="ghost"
         disabled={busy}
         onclick={() => (deleteOpen = false)}>Cancel</Button
@@ -1207,7 +1223,7 @@
         ></Dialog.Header
       ><Button disabled={busy} onclick={() => action(() => leave(false))}
         >Keep draft and leave</Button
-      ><Button variant="secondary" disabled={busy} onclick={() => action(() => leave(true))}
+      ><Button variant="destructive" disabled={busy} onclick={() => action(() => leave(true))}
         >Discard draft and leave</Button
       ><Button variant="ghost" disabled={busy} onclick={() => (leaveOpen = false)}
         >Continue editing</Button
@@ -1286,11 +1302,6 @@
   .search-label {
     flex: 1;
   }
-  .search-label input {
-    width: 100%;
-    padding: 0.8rem 1rem;
-    font-size: 1rem;
-  }
   .filters {
     display: flex;
     flex-wrap: wrap;
@@ -1304,16 +1315,15 @@
     font-size: 0.78rem;
     color: var(--muted-foreground);
   }
-  input,
   select {
-    border: 1px solid var(--border);
-    border-radius: 0.6rem;
+    min-height: 44px;
+    border: 1px solid var(--input);
+    border-radius: 10px;
     background: var(--background);
     color: var(--foreground);
     padding: 0.55rem 0.7rem;
     min-width: 0;
   }
-  input:focus-visible,
   select:focus-visible {
     outline: 2px solid var(--ring);
     outline-offset: 2px;
@@ -1338,9 +1348,6 @@
   .back {
     color: var(--muted-foreground);
     font-size: 0.85rem;
-  }
-  .back:hover {
-    text-decoration: underline;
   }
   .title-label {
     display: grid;
@@ -1388,6 +1395,8 @@
   .batch {
     position: sticky;
     top: 0.4rem;
+    max-height: min(50dvh, 24rem);
+    overflow-y: auto;
     z-index: 10;
     display: flex;
     flex-wrap: wrap;

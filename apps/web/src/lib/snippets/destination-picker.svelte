@@ -1,7 +1,9 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { resolve } from '$app/paths';
   import { Button } from '$lib/components/ui/button';
+  import { Input } from '$lib/components/ui/input';
+  import { FolderIcon } from 'phosphor-svelte';
   import { sourceDescriptors, type SourceDescriptor } from '../library/catalog';
   import { requestDocumentWriteAccess } from '../manabi/client';
   import { integrationDB } from '../manabi/persistence';
@@ -15,6 +17,7 @@
   export let allowUnsetDefault = false;
   let sources: SourceDescriptor[] = [];
   let selected: SourceDescriptor | undefined;
+  let trailNav: HTMLElement | null = null;
   let trail: { id: string; name: string }[] = [];
   let entries: { id: string; name: string }[] = [];
   let capabilities: StorageCapability | undefined;
@@ -58,9 +61,16 @@
       if (run === generation) busy = false;
     }
   }
+  async function navigate(source: SourceDescriptor, path: string, name: string) {
+    await browse(source, path, name);
+    await tick();
+    trailNav?.querySelector<HTMLButtonElement>('button:last-of-type')?.focus({ preventScroll: true });
+  }
   async function grant() {
-    if (!selected) return;
+    if (!selected || busy) return;
     const source = selected;
+    busy = true;
+    error = '';
     try {
       guard();
       if (source.owner) {
@@ -78,6 +88,8 @@
       }
     } catch (reason) {
       error = reason instanceof Error ? reason.message : 'Permission could not be granted.';
+    } finally {
+      busy = false;
     }
   }
   async function mkdir() {
@@ -127,6 +139,7 @@
   <label
     >Storage source
     <select
+      class="control-select"
       aria-label="Storage source"
       value={selected ? identity(selected) : ''}
       onchange={(event) => {
@@ -141,23 +154,36 @@
     </select>
   </label>
   {#if selected}
-    <nav aria-label="Destination folder">
+    <nav aria-label="Destination folder" class="breadcrumbs" bind:this={trailNav}>
       {#each trail as part, index (part.id)}
-        <button
+        <Button
+          variant="link"
+          size="sm"
+          class="min-h-11 px-1"
           disabled={busy}
           onclick={() => {
             trail = trail.slice(0, index);
-            void browse(selected!, part.id, part.name);
-          }}>{part.name || 'Root'}</button
+            void navigate(selected!, part.id, part.name);
+          }}>{part.name || 'Root'}</Button
         >
-        {#if index < trail.length - 1}<span aria-hidden="true"> › </span>{/if}
+        {#if index < trail.length - 1}<span aria-hidden="true">›</span>{/if}
       {/each}
     </nav>
-    <div class="folder-list">
-      {#each entries as folder (folder.id)}<button
+    <div class="folder-list" aria-busy={busy}>
+      {#each entries as folder (folder.id)}
+        <Button
+          variant="ghost"
+          shape="rounded"
+          class="min-h-11 w-full justify-start px-3 text-left"
           disabled={busy}
-          onclick={() => browse(selected!, folder.id, folder.name)}>📁 {folder.name}</button
-        >{:else}<p>{busy ? 'Loading folders…' : 'No subfolders. You can save here.'}</p>{/each}
+          onclick={() => navigate(selected!, folder.id, folder.name)}
+        >
+          <FolderIcon class="size-4 shrink-0" aria-hidden="true" />
+          <span class="min-w-0 break-words">{folder.name}</span>
+        </Button>
+      {:else}
+        <p>{busy ? 'Loading folders…' : 'No subfolders. You can save here.'}</p>
+      {/each}
     </div>
     {#if selected.provider === 'local'}<p>
         Close other applications editing these files before saving. This browser cannot lock out
@@ -170,8 +196,9 @@
           void mkdir();
         }}
       >
-        <input
+        <Input
           aria-label="New folder name"
+          class="min-h-11"
           placeholder="New folder name"
           bind:value={newName}
           maxlength="100"
@@ -181,7 +208,8 @@
         >
       </form>
       <label class="remember"
-        ><input type="checkbox" bind:checked={remember} /> Use this location for new snippets</label
+        ><input class="size-5 accent-primary" type="checkbox" bind:checked={remember} /> Use this
+        location for new snippets</label
       >
       <Button disabled={busy} onclick={() => choose({ source: selected!, parent }, remember)}
         >Use this folder</Button
@@ -206,7 +234,9 @@
   {#if allowUnsetDefault}<Button variant="ghost" onclick={() => choose(undefined, false)}
       >Clear default location</Button
     >{/if}
-  <a href={resolve('/connections')}>Manage connected libraries</a>
+  <Button href={resolve('/connections')} variant="link" size="sm" class="min-h-11 justify-start px-0"
+    >Manage connected libraries</Button
+  >
   {#if error}<p role="alert">{error}</p>{/if}
 </div>
 
@@ -219,18 +249,25 @@
     display: grid;
     gap: 0.4rem;
   }
-  select,
-  input:not([type='checkbox']) {
+  .control-select {
+    min-height: 44px;
+    width: 100%;
+    border: 1px solid var(--input);
+    border-radius: 10px;
     background: var(--background);
     color: var(--foreground);
-    border: 1px solid var(--border);
-    border-radius: 0.5rem;
-    padding: 0.65rem;
-    width: 100%;
+    padding: 0.6rem 0.75rem;
   }
-  nav button,
-  a {
-    text-decoration: underline;
+  .control-select:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  .breadcrumbs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.15rem;
+    min-width: 0;
   }
   .folder-list {
     max-height: 14rem;
@@ -238,11 +275,8 @@
     display: grid;
     gap: 0.3rem;
   }
-  .folder-list button {
-    text-align: start;
-    padding: 0.7rem;
-    border: 1px solid var(--border);
-    border-radius: 0.5rem;
+  .folder-list p {
+    padding: 0.7rem 0;
   }
   .remember {
     display: flex;
@@ -251,7 +285,12 @@
   }
   form {
     display: flex;
+    flex-wrap: wrap;
     gap: 0.6rem;
+  }
+  form :global(input) {
+    min-width: min(100%, 12rem);
+    flex: 1 1 12rem;
   }
   p {
     color: var(--muted-foreground);

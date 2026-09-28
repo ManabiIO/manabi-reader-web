@@ -2,6 +2,7 @@
   import { onMount, tick } from 'svelte';
   import type { Editor } from '@tiptap/core';
   import { Button } from '$lib/components/ui/button';
+  import { Input } from '$lib/components/ui/input';
   import { createEditor } from './editor';
   import { safeLink, type TextNode } from './document';
   export let content: TextNode;
@@ -15,7 +16,7 @@
   let error = '';
   let selection = { from: 0, to: 0 };
   let composing = false;
-  let annotationInput: HTMLInputElement;
+  let annotationInput: HTMLInputElement | null = null;
   $: if (editor) editor.setEditable(!disabled && !tool);
   function open(kind: 'ruby' | 'link') {
     if (!editor || editor.view.composing) return;
@@ -121,8 +122,9 @@
   >
     <label
       >{tool === 'ruby' ? 'Furigana reading' : 'Link URL'}
-      <input
-        bind:this={annotationInput}
+      <Input
+        bind:ref={annotationInput}
+        class="min-h-11"
         bind:value
         maxlength={tool === 'ruby' ? 1000 : 4096}
         oncompositionstart={() => (composing = true)}
@@ -173,13 +175,6 @@
   label {
     display: grid;
     gap: 0.2rem;
-  }
-  input {
-    color: var(--foreground);
-    background: var(--background);
-    border: 1px solid var(--border);
-    border-radius: 0.5rem;
-    padding: 0.5rem;
   }
   .editor-host {
     min-height: 18rem;
