@@ -148,16 +148,20 @@ class SettingsControlsBrowser(LibraryBase):
             return put.call(this,request,response);
           };
         }''')
-        dialog.get_by_role('button', name='Save font', exact=True).press('Enter')
-        self.page.wait_for_function('window.__fontPutStarted === true')
-        expect(dialog.get_by_role('button', name='Save font', exact=True)).to_be_disabled()
+        save = dialog.get_by_role('button', name='Save font', exact=True)
+        save.press('Enter')
+        # Disabled is set synchronously before Cache.put suspends. This proves the
+        # real submit handler owns the pending operation without CSP-unsafe eval.
+        expect(save).to_be_disabled()
+        self.assertTrue(self.page.evaluate('() => window.__fontPutStarted === true'))
         dialog.get_by_role('button', name='Done', exact=True).click()
         expect(dialog).to_have_count(0)
-        self.page.evaluate('window.__releaseFontPut()')
-        self.page.wait_for_function('JSON.parse(localStorage.getItem("userfonts") || "[]").length === 1')
-        self.assertEqual(self.catalog(), [FONT])
+        self.page.evaluate('() => window.__releaseFontPut()')
         dialog = self.fonts()
+        # Reopening waits for native CacheStorage enumeration, which also gives the
+        # explicit save time to publish its metadata after the held put completes.
         expect(dialog.get_by_role('button', name='Use ' + FONT['name'], exact=True)).to_be_visible()
+        self.assertEqual(self.catalog(), [FONT])
 
     def test_compact_large_text_panels_keep_targets_and_labels_reachable(self):
         for mode in ('light', 'dark'):
