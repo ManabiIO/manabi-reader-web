@@ -462,6 +462,42 @@ test('index checkpoints continue past 100 bodies without restarting completed so
   assert.equal(memory.readCount - before, 125);
   memory.sources = [];
 });
+test('bounded indexing gives each connected source a fair first-pass turn', async () => {
+  const s = scope(),
+    first = source(),
+    second = source(),
+    secondDoc = document('二つ目の保存先');
+  memory.sources = [first, second];
+  for (let i = 0; i < 125; i++) {
+    const doc = document('大きい保存先 ' + i);
+    memory.files.set(doc.id, {
+      document: doc,
+      location: {
+        source: first,
+        fileId: doc.id,
+        name: doc.id + '.manabi-snippet.json',
+        parent: '',
+        token: '1'
+      }
+    });
+  }
+  memory.files.set(secondDoc.id, {
+    document: secondDoc,
+    location: {
+      source: second,
+      fileId: secondDoc.id,
+      name: secondDoc.id + '.manabi-snippet.json',
+      parent: '',
+      token: '1'
+    }
+  });
+  const before = memory.readCount;
+  await refreshSnippets(s, true);
+  assert((await summaries(s.owner)).some((item) => item.id === secondDoc.id));
+  assert(memory.readCount - before <= 100);
+  memory.sources = [];
+});
+
 test('move reservation and journal are atomic, stale reservations fail', async () => {
   const who = owner(),
     doc = document();
