@@ -8,6 +8,16 @@ import type { StatisticsTitleFilterItem } from './statistics-types';
 
 export const TITLE_FILTER_PAGE_SIZE = 25;
 
+/** A Library selection may narrow statistics below title granularity. Legacy
+ * title-only rows cannot be safely assigned when an identity prefilter exists.
+ */
+export function matchesStatisticsBookPrefilter(
+  bookKey: string | undefined,
+  keys: ReadonlySet<string>
+): boolean {
+  return !keys.size || (!!bookKey && keys.has(bookKey));
+}
+
 export function filterStatisticsTitles(
   items: readonly StatisticsTitleFilterItem[],
   query: string,

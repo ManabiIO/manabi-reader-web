@@ -5,6 +5,7 @@
   import {
     StatisticsRangeTemplate,
     type StatisticsDateChange,
+    preFilteredBookKeysForStatistics$,
     preFilteredTitlesForStatistics$,
     statisticsActionInProgress$
   } from '$lib/components/statistics/statistics-types';
@@ -38,7 +39,10 @@
     tick().then(() => setSelectedStatisticsDays());
   }
 
-  onDestroy(() => ($preFilteredTitlesForStatistics$ = new Set()));
+  onDestroy(() => {
+    $preFilteredTitlesForStatistics$ = new Set();
+    $preFilteredBookKeysForStatistics$ = new Set();
+  });
 
   function handleSelectedStatisticsDateChange({
     detail: { dateString, isStartDate }
