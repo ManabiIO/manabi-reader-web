@@ -1586,9 +1586,7 @@ export class VideoWorkspace {
       keys.add(current.key);
       this.verifiedCloudOpen.delete(current.source);
       ++this.generation;
-      this.openAbort?.abort(
-        new DOMException('Connected media access changed', 'AbortError')
-      );
+      this.openAbort?.abort(new DOMException('Connected media access changed', 'AbortError'));
       const player = this.player;
       this.player = undefined;
       this.current = undefined;
@@ -1609,9 +1607,7 @@ export class VideoWorkspace {
     const changed =
       this.options.transport !== connection?.transport ||
       this.options.chooseConnected !== connection?.chooseConnected;
-    this.cloudAbort.abort(
-      new DOMException('Connected media access changed', 'AbortError')
-    );
+    this.cloudAbort.abort(new DOMException('Connected media access changed', 'AbortError'));
     this.cloudAbort = new AbortController();
     this.stopSync();
     if (changed) this.revokeConnectedMedia();
