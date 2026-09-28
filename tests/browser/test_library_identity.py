@@ -151,6 +151,15 @@ class LibraryIdentityBrowser(LibraryBase):
         self.page.goto(self.origin + '/reader-web/b?id=' + str(original['bookId']))
         expect(self.page).to_have_url(re.compile(r'/reader-web/manage(?:[/?#]|$)'))
         expect(self.page.locator('.book-content')).to_have_count(0)
+        self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files(
+            {'name': 'Traveling volume.epub', 'mimeType': 'application/epub+zip', 'buffer': BYTES})
+        expect(self.page.get_by_role('button', name='Read Traveling volume', exact=True)).to_be_visible()
+        copies = self.stores('books', ['data'])['data']
+        self.assertEqual(2, len(copies))
+        self.assertEqual('42', next(row['libraryOwner'] for row in copies
+                                    if row['id'] == original['bookId']))
+        self.assertTrue(any(row['id'] != original['bookId'] and
+                            row.get('libraryOwner') is None for row in copies))
         StaticHandler.account_fixture['user'] = {'id': '42', 'username': 'reader'}
         self.go_library()
         expect(saved_tile).to_be_visible(timeout=30000)

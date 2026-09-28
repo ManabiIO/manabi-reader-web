@@ -280,6 +280,9 @@ export class DatabaseService {
       ) {
         throwIfAborted(signal);
         const candidate = cursor.value;
+        // A direct import must not replace an account-scoped cached copy of
+        // identical bytes while its separate physical link is unavailable.
+        if (candidate.libraryOwner !== stored.libraryOwner) continue;
         const matches = stored.contentHash
           ? candidate.contentHash?.toLowerCase() === stored.contentHash.toLowerCase()
           : !candidate.contentHash;
