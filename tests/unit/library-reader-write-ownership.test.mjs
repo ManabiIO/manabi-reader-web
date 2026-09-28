@@ -108,7 +108,8 @@ const bookRecords = load('data/database/books-db/book-records.ts', {
 
 test('last-read persistence rejects a live foreign owner without changing the timestamp', async () => {
   const db = memoryDB({
-    data: [{ id: 1, title: 'Book', libraryOwner: 'bob', lastBookOpen: 10 }]
+    data: [{ id: 1, title: 'Book', libraryOwner: 'bob', lastBookOpen: 10 }],
+    readerBookScope: []
   });
   await assert.rejects(
     bookRecords.updateBookLastRead(db, 1, 20, 'alice', () => undefined),
@@ -119,7 +120,8 @@ test('last-read persistence rejects a live foreign owner without changing the ti
 
 test('last-read persistence accepts the current owner and never moves time backwards', async () => {
   const db = memoryDB({
-    data: [{ id: 1, title: 'Book', libraryOwner: 'alice', lastBookOpen: 20 }]
+    data: [{ id: 1, title: 'Book', libraryOwner: 'alice', lastBookOpen: 20 }],
+    readerBookScope: []
   });
   const current = await bookRecords.updateBookLastRead(db, 1, 10, 'alice', () => undefined);
   assert.equal(current.lastBookOpen, 20);
@@ -128,10 +130,34 @@ test('last-read persistence accepts the current owner and never moves time backw
   assert.equal(db.rows('data')[0].lastBookOpen, 30);
 });
 
+test('personal book scope also fences last-read and bookmark writes', async () => {
+  const db = memoryDB({
+    data: [{ id: 1, title: 'Book', lastBookOpen: 10 }],
+    bookmark: [{ dataId: 1, progress: 0.25, lastBookmarkModified: 1 }],
+    readerBookScope: [{ bookId: 1, accountId: 'bob' }]
+  });
+  await assert.rejects(
+    bookRecords.updateBookLastRead(db, 1, 20, 'alice', () => undefined),
+    /another account/
+  );
+  await assert.rejects(
+    bookRecords.commitOwnedBookmark(
+      db,
+      { dataId: 1, progress: 0.9, lastBookmarkModified: 2 },
+      'alice',
+      () => undefined
+    ),
+    /another account/
+  );
+  assert.equal(db.rows('data')[0].lastBookOpen, 10);
+  assert.equal(db.rows('bookmark')[0].progress, 0.25);
+});
+
 test('bookmark persistence rejects a live foreign owner before touching progress', async () => {
   const db = memoryDB({
     data: [{ id: 1, title: 'Book', libraryOwner: 'bob' }],
-    bookmark: [{ dataId: 1, progress: 0.25, lastBookmarkModified: 1 }]
+    bookmark: [{ dataId: 1, progress: 0.25, lastBookmarkModified: 1 }],
+    readerBookScope: []
   });
   await assert.rejects(
     bookRecords.commitOwnedBookmark(
@@ -148,7 +174,8 @@ test('bookmark persistence rejects a live foreign owner before touching progress
 test('bookmark persistence requires the book to still exist', async () => {
   const db = memoryDB({
     data: [],
-    bookmark: [{ dataId: 1, progress: 0.25, lastBookmarkModified: 1 }]
+    bookmark: [{ dataId: 1, progress: 0.25, lastBookmarkModified: 1 }],
+    readerBookScope: []
   });
   await assert.rejects(
     bookRecords.commitOwnedBookmark(
