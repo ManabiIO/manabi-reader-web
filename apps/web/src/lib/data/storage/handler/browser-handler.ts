@@ -28,6 +28,7 @@ import { bookKey, contentBookKey, relocatePresentation } from '$lib/library/orga
 import { contentStatisticKey } from '$lib/data/database/books-db/reader-statistics';
 import { throwIfAborted } from '$lib/functions/replication/replication-error';
 import type { BookCardProps } from '$lib/components/book-card/book-card-props';
+import { captureLibraryOperation } from '$lib/manabi/operation-scope';
 
 export class BrowserStorageHandler extends BaseStorageHandler {
   updateSettings(
@@ -518,19 +519,34 @@ export class BrowserStorageHandler extends BaseStorageHandler {
 
   /** The personal Library selects books by ID; titles are not unique. */
   async deleteBookIds(bookIds: number[], cancelSignal: AbortSignal, keepLocalStatistics: boolean) {
-    const db = await database.db;
-    const idToTitle = new Map<number, string>();
-    for (const id of bookIds) {
-      const book = await db.get('data', id);
-      if (book) idToTitle.set(id, book.title);
+    const scope = captureLibraryOperation();
+    try {
+      scope.assertCurrent();
+      const db = await database.db;
+      scope.assertCurrent();
+      const idToTitle = new Map<number, string>();
+      for (const id of bookIds) {
+        const book = await db.get('data', id);
+        if (!book) continue;
+        if (book.libraryOwner !== undefined && book.libraryOwner !== scope.profileId)
+          throw new Error('This book belongs to another account.');
+        idToTitle.set(id, book.title);
+      }
+      const signal = AbortSignal.any([cancelSignal, scope.signal]);
+      const { error, deleted } = await database
+        .deleteData([...idToTitle.keys()], idToTitle, signal, keepLocalStatistics, {
+          profileId: scope.profileId,
+          signal
+        })
+        .catch((caught: Error) => ({ error: caught.message, deleted: [] }));
+      scope.assertCurrent();
+      if (deleted.length) {
+        this.clearData();
+        database.dataListChanged$.next(this);
+      }
+      return { error, deleted };
+    } finally {
+      scope.stop();
     }
-    const { error, deleted } = await database
-      .deleteData([...idToTitle.keys()], idToTitle, cancelSignal, keepLocalStatistics)
-      .catch((caught: Error) => ({ error: caught.message, deleted: [] }));
-    if (deleted.length) {
-      this.clearData();
-      database.dataListChanged$.next(this);
-    }
-    return { error, deleted };
   }
 }
