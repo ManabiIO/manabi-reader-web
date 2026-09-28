@@ -49,6 +49,7 @@ import {
   flushSnippets,
   refreshSnippets,
   suggestedDestination,
+  rememberDestination,
   resolveConflict
 } from '../../apps/web/src/lib/snippets/service.ts';
 import {
@@ -63,6 +64,7 @@ import {
   syncReading
 } from '../../apps/web/src/lib/snippets/reading-state.ts';
 import { memory, changeUser } from 'snippet-fixture';
+import { createRouteLoads } from '../../apps/web/src/lib/snippets/route-load.ts';
 const guard = () => undefined;
 const owner = () => crypto.randomUUID();
 const source = (id = crypto.randomUUID()) => ({
@@ -577,4 +579,127 @@ test('conflict resolution makes a new revision descending from both versions', a
   assert.notEqual(current.document.revision, here.revision);
   assert.equal(current.conflicts.length, 0);
   assert.equal(current.remoteRevision, there.revision);
+});
+
+test('route recovery replaces its URL without starting another load', () => {
+  const routes = createRouteLoads();
+  const first = routes.begin('local:draft:old');
+  assert(first.current());
+  assert.equal(routes.begin('local:draft:old'), undefined);
+  first.replace('local:draft:recovered');
+  assert.equal(routes.begin('local:draft:recovered'), undefined);
+  assert.doesNotThrow(first.guard);
+});
+test('leaving a pending draft prevents its late editor or URL publication', async () => {
+  const routes = createRouteLoads();
+  const first = routes.begin('local:draft:old');
+  let finish;
+  const waiting = new Promise((resolve) => (finish = resolve));
+  let published = false;
+  const load = (async () => {
+    await waiting;
+    first.guard();
+    first.replace('local:draft:recovered');
+    published = true;
+  })();
+  const rejected = assert.rejects(load, { name: 'AbortError' });
+  const second = routes.begin('local:snippet:next');
+  finish();
+  await rejected;
+  assert.equal(published, false);
+  assert(second.current());
+  assert.equal(routes.begin('local:snippet:next'), undefined);
+});
+test('same-route ABA never revives an earlier asynchronous load', () => {
+  const routes = createRouteLoads();
+  const first = routes.begin('local:draft:first');
+  routes.begin('local:library');
+  const returned = routes.begin('local:draft:first');
+  assert.equal(first.current(), false);
+  assert.throws(() => first.replace('local:draft:stale'), { name: 'AbortError' });
+  assert(returned.current());
+  assert.equal(routes.begin('local:draft:first'), undefined);
+});
+test('teardown and account resets revoke all previous route ownership', () => {
+  const routes = createRouteLoads();
+  const first = routes.begin('account:alice:draft:one');
+  routes.reset();
+  assert.throws(first.guard, { name: 'AbortError' });
+  const second = routes.begin('account:alice:draft:one');
+  assert(second.current());
+  const third = routes.begin('account:bob:library');
+  assert.throws(second.guard, { name: 'AbortError' });
+  assert(third.current());
+});
+test('an obsolete recovery cannot change the replacement load signature', () => {
+  const routes = createRouteLoads();
+  const first = routes.begin('draft:one');
+  const second = routes.begin('draft:two');
+  assert.throws(() => first.replace('draft:late'), { name: 'AbortError' });
+  second.replace('draft:restored-two');
+  assert.equal(routes.begin('draft:restored-two'), undefined);
+});
+test('clearing a remembered destination durably restores choice across multiple sources', async () => {
+  const selected = scope();
+  const previousSources = memory.sources;
+  const sources = [source(), source()];
+  memory.sources = sources;
+  try {
+    const destination = { source: sources[0], parent: 'Study' };
+    await rememberDestination(destination, selected);
+    assert.deepEqual(await suggestedDestination(selected), destination);
+    await rememberDestination(undefined, selected);
+    assert.equal(await suggestedDestination(selected), undefined);
+  } finally {
+    memory.sources = previousSources;
+  }
+});
+
+test('destination edits during reading-state transfer block original cleanup', async () => {
+  const { selected, doc } = await stored();
+  const from = (await getRecord(selected.owner, doc.id)).locations[0];
+  const destination = { source: source(), parent: '' };
+  const block = passages(doc.content)[0];
+  await saveProgress(
+    doc.id,
+    {
+      blockId: block.blockId,
+      quote: block.text,
+      before: '',
+      offset: 0,
+      revision: doc.revision
+    },
+    selected
+  );
+  memory.beforeStateWrite = async (src) => {
+    if (src.id !== destination.source.id) return;
+    memory.beforeStateWrite = null;
+    const entry = [...memory.files.values()].find(
+      (value) => value.document.id === doc.id && value.location.source.id === src.id
+    );
+    entry.document = editSnippet(entry.document, plainContent('External destination edit'), '');
+    entry.location.token = crypto.randomUUID();
+  };
+  try {
+    await assert.rejects(
+      () => moveSnippet(doc.id, destination, doc.revision, selected),
+      /destination.*changed|destination.*edited/i
+    );
+    assert(memory.files.has(from.fileId), 'The original must survive an edit during state I/O');
+    const transfer = await currentTransfer(doc.id, selected);
+    assert.equal(transfer.phase, 'copied');
+    assert.equal(
+      passages(memory.files.get(transfer.copied.fileId).document.content)[0].text,
+      'External destination edit'
+    );
+    await assert.rejects(
+      () => resumeTransfer(doc.id, selected),
+      /destination.*changed|destination.*edited/i
+    );
+    assert(memory.files.has(from.fileId));
+    await keepBoth(doc.id, selected);
+    assert.equal((await getRecord(selected.owner, doc.id)).conflicts.length, 1);
+  } finally {
+    memory.beforeStateWrite = null;
+  }
 });

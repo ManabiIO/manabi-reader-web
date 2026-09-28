@@ -21,12 +21,12 @@ let generation=0;
 export const changeUser=(id)=>{generation++;account.set({status:'available',session:id?{user:{id,username:id}}:null});};
 export const accountScope=()=>({userId:currentUser()?.id,generation});
 export class IntegrationError extends Error {constructor(code,status=0){super(code);this.code=code;this.status=status;}}
-export const memory={files:new Map(),writes:[],states:new Map(),sources:[],dropReply:false,beforeWrite:null,failRemove:false,readCount:0};
+export const memory={files:new Map(),writes:[],states:new Map(),sources:[],dropReply:false,beforeWrite:null,beforeStateWrite:null,failRemove:false,readCount:0};
 export function sameSource(a,b){return a.id===b.id&&a.owner===b.owner&&a.root===b.root;}
 export const capability=async()=>({write:true});
 export const sourceDescriptors=async()=>memory.sources;
 export const scanCatalog=async(_adapter,source)=>({source,entries:[...memory.files].filter(([,x])=>sameSource(x.location.source,source)).map(([id,x])=>({id,name:x.location.name,kind:'file'})),names:{},warnings:[],scannedAt:Date.now()});
-export const librarySource=async(source)=>({source,state:async(key)=>memory.states.get(source.id+key)??{value:null,revision:'0'},write:async(key,value,revision)=>{const name=source.id+key,current=memory.states.get(name)??{revision:'0'};if(current.revision!==revision)throw new IntegrationError('conflict');const result={value:structuredClone(value),revision:String(Number(revision)+1)};memory.states.set(name,result);return result;}});
+export const librarySource=async(source)=>({source,state:async(key)=>memory.states.get(source.id+key)??{value:null,revision:'0'},write:async(key,value,revision)=>{if(memory.beforeStateWrite)await memory.beforeStateWrite(source,key,value);const name=source.id+key,current=memory.states.get(name)??{revision:'0'};if(current.revision!==revision)throw new IntegrationError('conflict');const result={value:structuredClone(value),revision:String(Number(revision)+1)};memory.states.set(name,result);return result;}});
 export const prepareDestination=async(dest,doc)=>({...dest,name:doc.id+'.manabi-snippet.json',createId:dest.createId??crypto.randomUUID()});
 export const readDocument=async(source,item,guard)=>{guard();memory.readCount++;const id=typeof item==='string'?item:item.id,result=memory.files.get(id);if(!result)throw new IntegrationError('not_found',404);return structuredClone(result);};
 export const writeDocument=async(dest,document,expected,guard)=>{guard();if(memory.beforeWrite)await memory.beforeWrite();const id=expected?.fileId??dest.createId;

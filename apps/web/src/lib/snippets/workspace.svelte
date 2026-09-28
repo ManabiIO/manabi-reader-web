@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { createRouteLoads, type RouteLoad } from './route-load';
   import { page } from '$app/stores';
   import { base, resolve } from '$app/paths';
   import { beforeNavigate, goto, replaceState } from '$app/navigation';
@@ -100,8 +101,8 @@
     newCollection = '',
     deleteOpen = false,
     deleteIds: string[] = [];
+  const routeLoads = createRouteLoads();
   let importInput: HTMLInputElement,
-    routeSignature = '',
     recordSignature = '',
     routeGeneration = 0,
     collectionStop: () => void = () => undefined;
@@ -122,9 +123,9 @@
     query = nextQueryURL;
   }
   $: desiredRoute = JSON.stringify([owner, id, draftId]);
-  $: if (mounted && admitted && routeSignature !== desiredRoute) {
-    routeSignature = desiredRoute;
-    void loadRoute();
+  $: if (mounted && admitted) {
+    const request = routeLoads.begin(desiredRoute);
+    if (request) void loadRoute(request);
   }
   $: selectedSummary = $snippetItems.find((item) => item.id === id);
   $: nextRecordSignature = JSON.stringify([
@@ -201,39 +202,56 @@
       busy = false;
     }
   }
-  async function loadRecord(remote: boolean) {
-    const run = ++routeGeneration;
+  async function loadRecord(remote: boolean, request?: RouteLoad) {
+    const run = ++routeGeneration,
+      selectedId = id;
     try {
       const selectedScope = scope();
-      if (!isUUID(id)) {
+      if (!isUUID(selectedId)) {
         current = undefined;
         return;
       }
       const item = remote
-        ? await refreshSnippet(id, selectedScope)
-        : await getRecord(selectedScope.owner, id);
+        ? await refreshSnippet(selectedId, selectedScope)
+        : await getRecord(selectedScope.owner, selectedId);
       selectedScope.guard();
-      if (run !== routeGeneration || editing) return;
-      current = item;
-      transferIssue = item?.transfer
-        ? ((await currentTransfer(id, selectedScope))?.issue ?? '')
+      request?.guard();
+      if (run !== routeGeneration || editing || !mounted || selectedId !== id) return;
+      const issue = item?.transfer
+        ? ((await currentTransfer(selectedId, selectedScope))?.issue ?? '')
         : '';
       selectedScope.guard();
+      request?.guard();
+      if (run !== routeGeneration || editing || !mounted || selectedId !== id) return;
+      current = item;
+      transferIssue = issue;
     } catch (reason) {
-      if (run === routeGeneration) error = report(reason);
+      if (run === routeGeneration && mounted && (!request || request.current()))
+        error = report(reason);
     }
   }
-  async function loadRoute() {
+  async function loadRoute(request: RouteLoad) {
     if (editing) return;
+    const selectedDraftId = draftId,
+      selectedId = id,
+      url = new URL($page.url);
     current = undefined;
     error = '';
     notice = '';
     try {
-      const s = scope();
-      storedDrafts = await drafts(s.owner);
+      const selected = scope();
+      const s: SnippetScope = {
+        owner: selected.owner,
+        guard() {
+          selected.guard();
+          request.guard();
+        }
+      };
+      const found = await drafts(s.owner);
       s.guard();
-      if (draftId && isUUID(draftId)) {
-        const draft = storedDrafts.find((d) => d.session === draftId);
+      storedDrafts = found;
+      if (selectedDraftId && isUUID(selectedDraftId)) {
+        const draft = found.find((d) => d.session === selectedDraftId);
         if (draft) {
           const session = crypto.randomUUID();
           const restored = {
@@ -244,17 +262,18 @@
           };
           await saveDraft(restored, s.guard);
           s.guard();
-          // Publish the durable replacement URL before deleting the old session
-          // or rendering its editor. A reload at any later point can recover it.
-          const url = new URL($page.url);
+          // A recovery handoff keeps the same request owner. Publish its durable
+          // URL before deleting the previous session or mounting the editor.
           url.searchParams.set('draft', session);
+          request.replace(JSON.stringify([s.owner, selectedId, session]));
           replaceState(resolve(libraryPath(url.pathname + url.search)), $page.state);
-          await openDraft(restored, s);
           await deleteDraft(draft.key, s.guard);
+          s.guard();
+          await openDraft(restored, s);
         } else error = 'This draft is unavailable in the current account.';
-      } else await loadRecord(true);
+      } else await loadRecord(true, request);
     } catch (reason) {
-      error = report(reason);
+      if (request.current() && mounted) error = report(reason);
     }
   }
   async function openDraft(draft: SnippetDraft, s: SnippetScope) {
@@ -267,9 +286,11 @@
     draftStatus = 'Draft saved on this device';
     draftError = false;
     instance = undefined;
-    renderGeneration++;
-    EditorView = (await import('./editor.svelte')).default;
+    const run = ++renderGeneration;
+    const view = await import('./editor.svelte');
     s.guard();
+    if (run === renderGeneration && editing?.session === draft.session && mounted)
+      EditorView = view.default;
   }
   function snapshot(): SnippetDraft | undefined {
     if (!editing || !admitted) return;
@@ -534,7 +555,7 @@
         : 'Moved without changing document identities or collections.';
       if (failures.length) error = failures.join('\n');
     } else if (pickerPurpose === 'default') {
-      if (value) await rememberDestination(value, s);
+      await rememberDestination(value, s);
       notice = value
         ? 'Default snippet location updated.'
         : 'New snippets will ask for a location.';
@@ -543,7 +564,7 @@
       locationChosen = true;
       await persist();
     }
-    if (remember) await rememberDestination(value, s);
+    if (remember && pickerPurpose !== 'default') await rememberDestination(value, s);
     pickerOpen = false;
     await loadRecord(false);
   }
@@ -639,9 +660,11 @@
         collectionStop = watchOrganization((reason) => {
           if (!stopped) error = report(reason);
         });
-        routeSignature = '';
+        routeLoads.reset();
         void reloadSnippets(s).catch(() => undefined);
       } catch {
+        routeLoads.reset();
+        routeGeneration++;
         owner = '';
         admitted = undefined;
         editing = undefined;
@@ -656,6 +679,7 @@
       stopB = localUser.subscribe(onAccount);
     return () => {
       stopped = true;
+      routeLoads.reset();
       mounted = false;
       routeGeneration++;
       stopA();

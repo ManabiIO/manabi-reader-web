@@ -285,8 +285,16 @@ try {
   await expect(page.getByRole('textbox', { name: 'Snippet title', exact: true })).toHaveValue(
     '復元した下書き'
   );
+  // A second handoff must not reopen or resurrect either discarded session.
+  const recoveredURL = page.url();
+  page.once('dialog', (d) => d.accept());
+  await page.reload();
+  await expect(page.getByRole('textbox', { name: 'Snippet title', exact: true })).toHaveValue(
+    '復元した下書き'
+  );
+  assert.notEqual(page.url(), recoveredURL);
   await commit(page);
-  passed('draft recovery survives another reload');
+  passed('draft recovery survives repeated reloads without stale session URLs');
   await page.getByRole('button', { name: 'Collections…', exact: true }).click();
   await page
     .getByRole('textbox', { name: 'New collection name', exact: true })
@@ -339,6 +347,22 @@ try {
     page.getByRole('article', { name: 'Snippet content' }).locator('ruby rt')
   ).toHaveText('とうきょう');
   passed('HTML ruby import through actual TipTap and chosen Dropbox document save');
+  await openLibrary(page);
+  await page.getByRole('button', { name: 'Default save location…', exact: true }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Keep on this device only', exact: true })
+    .click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.getByRole('button', { name: 'New snippet', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: 'Choose storage location…', exact: true })
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Discard draft and leave', exact: true }).click();
+  await page.locator('.snippet-shelf .title').filter({ hasText: '日本語の抜粋' }).click();
+  await expect(page.getByRole('article', { name: 'Snippet content' })).toBeVisible();
+  passed('cleared default does not silently select the previous cloud destination');
   const fresh = await context('alice'),
     freshPage = await fresh.ctx.newPage();
   await openLibrary(freshPage);

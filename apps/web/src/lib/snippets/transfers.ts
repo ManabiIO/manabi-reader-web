@@ -42,6 +42,22 @@ export async function currentTransfer(id: string, selected = scope()) {
     recordKey(selected.owner, record.transfer)
   );
 }
+/** Verify the saved copy at each asynchronous boundary before destructive cleanup. */
+async function verifyDestination(operation: SnippetTransfer, selected: SnippetScope) {
+  if (!operation.copied) throw new Error('The verified destination receipt is missing.');
+  const destination = await readDocument(
+    operation.copied.source,
+    operation.copied.fileId,
+    selected.guard
+  );
+  if (
+    canonical(destination.document) !== canonical(operation.document) ||
+    destination.location.token !== operation.copied.token
+  )
+    throw new Error(
+      'The destination was edited after copying. Keep both versions or resolve it before cleanup.'
+    );
+}
 /** Caller holds the per-document Web Lock. The journal, not the active UI, owns every locator. */
 async function execute(operation: SnippetTransfer, selected: SnippetScope) {
   selected.guard();
@@ -70,20 +86,12 @@ async function execute(operation: SnippetTransfer, selected: SnippetScope) {
       await putTransfer(operation, selected.guard);
     }
     if (!operation.copied) throw new Error('The verified destination receipt is missing.');
-    const destination = await readDocument(
-      operation.copied.source,
-      operation.copied.fileId,
-      selected.guard
-    );
-    if (
-      canonical(destination.document) !== canonical(operation.document) ||
-      destination.location.token !== operation.copied.token
-    )
-      throw new Error(
-        'The destination was edited after copying. Keep both versions or resolve it before cleanup.'
-      );
+    await verifyDestination(operation, selected);
     // Reading state is small, separately revision checked, and must travel before the original is removed.
     await syncReading(operation.snippetId, selected, operation.copied);
+    // State I/O may outlive the earlier verification. An external writer must
+    // not turn that delay into permission to delete the only original revision.
+    await verifyDestination(operation, selected);
     if (
       operation.from &&
       !operation.native &&
