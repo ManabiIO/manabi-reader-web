@@ -67,9 +67,7 @@ function harness(initial, { onAdd, manual = false } = {}) {
           async openCursor() {
             const values = [...draft.values()];
             const cursor = (i) =>
-              i < values.length
-                ? { value: values[i], continue: async () => cursor(i + 1) }
-                : null;
+              i < values.length ? { value: values[i], continue: async () => cursor(i + 1) } : null;
             return cursor(0);
           },
           async get(id) {
@@ -225,7 +223,10 @@ test('revocation during an IDB request rolls back the newly added book', async (
   const check = () => {
     if (!valid) throw failure;
   };
-  await assert.rejects(commit(h.db, [], request(), prepared(), check), (error) => error === failure);
+  await assert.rejects(
+    commit(h.db, [], request(), prepared(), check),
+    (error) => error === failure
+  );
   assert.equal(h.writes.length, 1, 'the rollback covers a write that actually occurred');
   assert.deepEqual(h.rows(), []);
 });

@@ -27,13 +27,7 @@ import {
 import loadEpub from '$lib/functions/file-loaders/epub/load-epub';
 import loadTxt from '$lib/functions/file-loaders/txt/load-txt';
 import loadHtmlz from '$lib/functions/file-loaders/htmlz/load-htmlz';
-import {
-  accountScope,
-  currentUser,
-  localProfileUser,
-  localUser,
-  IntegrationError
-} from './client';
+import { accountScope, currentUser, localProfileUser, localUser, IntegrationError } from './client';
 import { integrationDB, exclusive, type BookLink } from './persistence';
 import { LocalLibrarySource, sha256, type LibraryEntry, type LibrarySource } from './sources';
 import {
