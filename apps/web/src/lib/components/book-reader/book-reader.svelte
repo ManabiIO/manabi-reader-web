@@ -44,12 +44,15 @@
     type ReaderLocator
   } from '$lib/reader-location';
 
+  import type { ReaderChromeActivity } from '$lib/reader-chrome-events';
+
   const dispatch = createEventDispatcher<{
     contentChange: HTMLElement;
     userNavigation: void;
     selectionChange: Range | undefined;
     pageTurnStart: void;
     toggleControls: void;
+    chromeActivity: ReaderChromeActivity;
   }>();
   let currentContentEl: HTMLElement | undefined;
   let selectionDocument: Document | undefined;
@@ -586,6 +589,7 @@
       {controlsVisible}
       on:pageTurnStart
       on:toggleControls
+      on:chromeActivity
       {verticalMode}
       {fontFeatureSettings}
       {verticalTextOrientation}

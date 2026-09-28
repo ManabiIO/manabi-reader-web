@@ -3,6 +3,7 @@
 No UI replacements, request interception, or fake font availability. Book and
 wallpaper fixtures are generated locally by the existing acceptance harness.
 """
+from reader_controls import reveal_reader_controls
 from pathlib import Path
 import io
 import zipfile
@@ -49,9 +50,7 @@ class RheaReader(previous.RefinedAppearance):
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
         expect(self.page.locator('button[data-reader-controls]')).to_be_visible()
         toolbar = self.page.get_by_role('banner', name='Reader toolbar')
-        reveal = self.page.get_by_role('button', name='Show reading controls', exact=True)
-        if reveal.is_visible():
-            reveal.click()
+        reveal_reader_controls(self.page)
         toolbar.get_by_role('button', name='Themes & Settings', exact=True).click()
         panel = self.page.get_by_role('dialog', name='Themes & Settings', exact=True)
         expect(panel).to_be_visible()
@@ -65,7 +64,8 @@ class RheaReader(previous.RefinedAppearance):
                 self.page.set_viewport_size({'width': width, 'height': height})
                 self.page.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
                 expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
-                trigger = self.page.get_by_role('button', name='Show reading controls', exact=True)
+                reveal_reader_controls(self.page)
+                trigger = self.page.locator('button[data-reader-controls]')
                 box = trigger.bounding_box()
                 self.assertGreaterEqual(box['width'], 44)
                 self.assertGreaterEqual(box['height'], 44)
@@ -79,7 +79,7 @@ class RheaReader(previous.RefinedAppearance):
                 self.assertLessEqual(content['y'] + content['height'], box['y'])
                 footer = self.page.locator('#ttu-page-footer').bounding_box()
                 self.assertLessEqual(box['y'] + box['height'], footer['y'] + 1)
-                trigger.click()
+                reveal_reader_controls(self.page)
                 toolbar = self.page.get_by_role('banner', name='Reader toolbar')
                 for name in ['Library', 'Bookmarks and Notes', 'Themes & Settings', 'Reading tools']:
                     bounds = toolbar.get_by_role('button', name=name, exact=True).bounding_box()
@@ -160,7 +160,7 @@ class RheaReader(previous.RefinedAppearance):
         self.page.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))
         try:
             self.open_book(font='Klee One')
-            self.page.get_by_role('button', name='Show reading controls', exact=True).tap()
+            reveal_reader_controls(self.page)
             self.page.get_by_role('button', name='Themes & Settings', exact=True).tap()
             panel = self.page.get_by_role('dialog', name='Themes & Settings', exact=True)
             expect(panel).to_be_visible()
@@ -172,8 +172,8 @@ class RheaReader(previous.RefinedAppearance):
             self.page.wait_for_function('localStorage.getItem("fontSize") === "21"')
             self.page.touchscreen.tap(20, 20)
             expect(panel).to_have_count(0)
-            expect(self.page.get_by_role('button', name='Show reading controls', exact=True)).to_be_focused()
-            self.page.get_by_role('button', name='Show reading controls', exact=True).tap()
+            expect(self.page.locator('button[data-reader-controls]')).to_be_focused()
+            reveal_reader_controls(self.page)
             self.page.get_by_role('button', name='Themes & Settings', exact=True).tap()
             close = panel.get_by_role('button', name='Close reading appearance', exact=True)
             expect(close).to_have_attribute('data-modal-dismiss', '')
@@ -197,7 +197,7 @@ class RheaReader(previous.RefinedAppearance):
         self.wait_for_fonts()
         for width in (320, 390, 1440):
             self.page.set_viewport_size({'width': width, 'height': 844})
-            self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+            reveal_reader_controls(self.page)
             self.page.get_by_role('button', name='Contents', exact=True).click()
             panel = self.page.get_by_role('dialog', name='Table of contents', exact=True)
             expect(panel).to_be_visible()
@@ -218,7 +218,7 @@ class RheaReader(previous.RefinedAppearance):
             chapters.get_by_role('button', name='A new morning', exact=True).click()
             expect(panel).to_have_count(0)
             expect(self.page.locator('.book-content')).to_contain_text('A new morning')
-            expect(self.page.get_by_role('button', name='Show reading controls', exact=True)).to_be_focused()
+            expect(self.page.locator('button[data-reader-controls]')).to_be_focused()
             panel = self.open_reading_appearance()
             panel.get_by_role('button', name='Increase text size', exact=True).click()
             self.page.keyboard.press('Escape')
@@ -262,7 +262,7 @@ class RheaReader(previous.RefinedAppearance):
                 self.page.set_viewport_size({'width': width, 'height': 844})
                 toolbar = self.page.get_by_role('banner', name='Reader toolbar')
                 if not toolbar.is_visible():
-                    self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+                    reveal_reader_controls(self.page)
                 tools = toolbar.get_by_role('button', name='Reading tools', exact=True)
                 tools.click()
                 menu = self.page.get_by_role('menu')
@@ -452,7 +452,7 @@ class RheaReader(previous.RefinedAppearance):
     def test_reader_tools_do_not_turn_pages_and_keep_ttu_commands(self):
         self.open_book(font='Klee One')
         self.wait_for_fonts()
-        self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+        reveal_reader_controls(self.page)
         toolbar = self.page.get_by_role('banner', name='Reader toolbar')
         expect(toolbar.get_by_role('button', name='Library', exact=True)).to_be_visible()
         expect(toolbar.get_by_role('button', name='Bookmarks and Notes', exact=True)).to_be_visible()
@@ -476,7 +476,7 @@ class RheaReader(previous.RefinedAppearance):
     def test_real_outside_pointer_dismisses_toolbar_after_menu_escape(self):
         self.open_book(font='Klee One')
         self.wait_for_fonts()
-        self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+        reveal_reader_controls(self.page)
         toolbar = self.page.get_by_role('banner', name='Reader toolbar')
         toolbar.get_by_role('button', name='Reading tools', exact=True).click()
         expect(self.page.get_by_role('menu')).to_be_visible()
@@ -487,7 +487,7 @@ class RheaReader(previous.RefinedAppearance):
         self.page.mouse.click(viewport['width'] / 2, viewport['height'] / 2)
         expect(toolbar).to_have_count(0)
         expect(self.page.locator('.book-content')).to_be_visible()
-        self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+        reveal_reader_controls(self.page)
         expect(toolbar).to_be_visible()
 
     def test_autobookmark_does_not_dismiss_an_open_reader_menu(self):
@@ -496,7 +496,7 @@ class RheaReader(previous.RefinedAppearance):
         self.wait_for_fonts()
         started = self.page.evaluate('Date.now()')
         self.page.keyboard.press('PageDown')
-        self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+        reveal_reader_controls(self.page)
         tools = self.page.get_by_role('button', name='Reading tools', exact=True)
         tools.click()
         menu = self.page.get_by_role('menu')
@@ -562,7 +562,7 @@ class RheaReader(previous.RefinedAppearance):
         self.page.keyboard.press('Escape')
         self.page.get_by_role('button', name='Library actions', exact=True).click()
         self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
-        self.page.get_by_role('button', name='Select all', exact=True).click()
+        self.page.get_by_role('button', name='Select All Visible', exact=True).click()
         expect(self.page.get_by_text('1 selected', exact=True)).to_be_visible()
         self.page.get_by_role('button', name='Export', exact=True).click()
         dialog = self.page.locator('[data-slot="dialog-content"]')
@@ -584,9 +584,7 @@ class RheaReader(previous.RefinedAppearance):
         self.open_book(font='Klee One')
         book_id = int(self.page.evaluate('new URL(location.href).searchParams.get("id")'))
         toolbar = self.page.get_by_role('banner', name='Reader toolbar')
-        reveal = self.page.get_by_role('button', name='Show reading controls', exact=True)
-        if reveal.is_visible():
-            reveal.click()
+        reveal_reader_controls(self.page)
         toolbar.get_by_role('button', name='Reading tools', exact=True).click()
         self.page.get_by_role('menuitem', name='Save Reading Position', exact=True).click()
 
@@ -741,7 +739,7 @@ class RheaReader(previous.RefinedAppearance):
         for action in ['Jump to Position', 'Complete Book']:
             toolbar = self.page.get_by_role('banner', name='Reader toolbar')
             if not toolbar.is_visible():
-                self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+                reveal_reader_controls(self.page)
             self.page.get_by_role('button', name='Reading tools', exact=True).click()
             self.page.get_by_role('menuitem', name=action, exact=True).click()
             dialog = self.page.get_by_role('dialog')
@@ -750,7 +748,7 @@ class RheaReader(previous.RefinedAppearance):
             self.page.keyboard.press('Escape')
             expect(dialog).to_have_count(0)
             expect(self.page.locator('.book-content')).to_be_visible()
-        self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+        reveal_reader_controls(self.page)
         expect(self.page.get_by_role('banner', name='Reader toolbar')).to_be_visible()
 
     def test_tracking_panel_owns_focus_and_preserves_controls(self):
@@ -809,7 +807,7 @@ class RheaReader(previous.RefinedAppearance):
         self.wait_for_fonts()
 
     def open_gallery(self):
-        self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+        reveal_reader_controls(self.page)
         self.page.get_by_role('button', name='Reading tools', exact=True).click()
         self.page.get_by_role('menuitem', name='Image Gallery', exact=True).click()
         gallery = self.page.get_by_role('dialog', name='Image gallery', exact=True)
@@ -839,7 +837,7 @@ class RheaReader(previous.RefinedAppearance):
         self.page.screenshot(path='test-results/rhea-image-gallery-desktop.png', full_page=True)
         self.page.keyboard.press('Escape')
         expect(gallery).to_have_count(0)
-        expect(self.page.get_by_role('button', name='Show reading controls', exact=True)).to_be_focused()
+        expect(self.page.locator('button[data-reader-controls]')).to_be_focused()
 
     def test_gallery_mobile_image_view_and_return_to_list(self):
         self.page.set_viewport_size({'width':390, 'height':844})

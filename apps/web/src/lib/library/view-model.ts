@@ -7,6 +7,8 @@
 import type { BookCardProps } from '$lib/components/book-card/book-card-props';
 import type { BookLink } from '$lib/manabi/persistence';
 import type { Catalog, SourceDescriptor } from './catalog';
+import type { BookSeries } from './book-presentation';
+import { latestBookPresentation } from './presentation-compatibility.ts';
 import type { Organization } from './organization';
 import type { PageDirection } from './direction';
 import type { Preview } from './previews';
@@ -24,6 +26,8 @@ export interface ShelfBook extends Omit<BookCardProps, 'id'> {
   canonicalTitle: string;
   bookId?: number;
   direction: PageDirection;
+  coverBlur?: boolean;
+  series?: BookSeries | null;
   source?: SourceDescriptor;
   file?: DirectoryEntry;
 }
@@ -32,7 +36,8 @@ export interface ShelfSeries {
   id: string;
   directoryId: string;
   name: string;
-  source: SourceDescriptor;
+  source?: SourceDescriptor;
+  personal?: boolean;
   children: ShelfNode[];
   books: ShelfBook[];
 }
@@ -67,10 +72,9 @@ export function buildShelf(
       ...(card ? [key] : []),
       ...(locator && sourceAliasAllowed ? [locator] : [])
     ].filter((value, index, values) => values.indexOf(value) === index);
-    const presentation = organizationAliases
-      .map((alias) => organization.books[alias])
-      .filter((value): value is NonNullable<typeof value> => !!value)
-      .sort((left, right) => right.modifiedAt - left.modifiedAt)[0];
+    const presentation = latestBookPresentation(
+      organizationAliases.map((alias) => organization.books[alias])
+    );
     const canonicalTitle =
       card?.title ||
       preview?.title ||
@@ -79,7 +83,10 @@ export function buildShelf(
     return {
       title: presentation?.title || canonicalTitle,
       canonicalTitle,
-      creators: card?.creators || preview?.creators,
+      creators: presentation?.metadata?.creators ?? card?.creators ?? preview?.creators,
+      metadata: { ...preview?.metadata, ...card?.metadata, ...presentation?.metadata },
+      coverBlur: presentation?.coverBlur ?? false,
+      series: presentation?.series,
       imagePath: presentation?.cover || card?.imagePath || preview?.imagePath || '',
       characters: card?.characters || 0,
       lastBookModified: card?.lastBookModified || 0,
@@ -151,7 +158,7 @@ export function buildShelf(
     // is not an available physical file for move/group actions or new imports.
     result.push({ kind: 'book', id: bookKey(card.id), book: decorate(card, source) });
   }
-  return result;
+  return groupPersonalSeries(result);
 }
 /** File operations must enumerate physical copies before any logical deduplication. */
 export function physicalBooks(nodes: ShelfNode[]): ShelfBook[] {
@@ -175,7 +182,8 @@ export function seriesTrail(nodes: ShelfNode[], id: string): ShelfSeries[] {
 export function visibleShelf(
   nodes: ShelfNode[],
   include: (book: ShelfBook) => boolean,
-  sort: SortOption
+  sort: SortOption,
+  preserveVolumeOrder = false
 ): ShelfNode[] {
   const natural = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
   function value(node: ShelfNode): string | number {
@@ -201,10 +209,21 @@ export function visibleShelf(
       if (node.kind === 'book') return include(node.book) ? [node] : [];
       const books = node.books.filter(include);
       return books.length
-        ? [{ ...node, books, children: visibleShelf(node.children, include, sort) }]
+        ? [
+            {
+              ...node,
+              books,
+              children: visibleShelf(node.children, include, sort, !!node.personal)
+            }
+          ]
         : [];
     })
     .sort((a, b) => {
+      if (preserveVolumeOrder && a.kind === 'book' && b.kind === 'book') {
+        const aIndex = a.book.series?.index ?? Infinity;
+        const bIndex = b.book.series?.index ?? Infinity;
+        if (aIndex !== bIndex) return aIndex < bIndex ? -1 : 1;
+      }
       if (a.kind !== b.kind) return a.kind === 'series' ? -1 : 1;
       const av = value(a),
         bv = value(b);
@@ -230,4 +249,44 @@ export function visibleShelf(
 export function continueBook(books: ShelfBook[]): ShelfBook | undefined {
   const unfinished = books.filter((book) => !isFinished(book));
   return [...unfinished].sort((a, b) => b.lastBookOpen - a.lastBookOpen)[0];
+}
+
+/** Personal series are organization, not provider moves. Original folder editing stays explicit. */
+export function groupPersonalSeries(nodes: ShelfNode[]): ShelfNode[] {
+  const grouped = new Map<string, ShelfBook[]>();
+  function retain(items: ShelfNode[]): ShelfNode[] {
+    return items.flatMap((node): ShelfNode[] => {
+      if (node.kind === 'series') {
+        const children = retain(node.children);
+        return children.length ? [{ ...node, children, books: physicalBooks(children) }] : [];
+      }
+      const series = node.book.series;
+      if (!series) return [node];
+      const name = series.name.trim().normalize('NFC');
+      const group = grouped.get(name);
+      if (group) group.push(node.book);
+      else grouped.set(name, [node.book]);
+      return [];
+    });
+  }
+  const retained = retain(nodes);
+  for (const [name, books] of grouped) {
+    books.sort(
+      (a, b) =>
+        (a.series?.index ?? Infinity) - (b.series?.index ?? Infinity) ||
+        a.title.localeCompare(b.title, undefined, { numeric: true }) ||
+        a.key.localeCompare(b.key)
+    );
+    const id = `personal-series:${encodeURIComponent(name)}`;
+    retained.push({
+      kind: 'series',
+      id,
+      directoryId: '',
+      name,
+      personal: true,
+      books,
+      children: books.map((book) => ({ kind: 'book', id: book.key, book }))
+    });
+  }
+  return retained;
 }

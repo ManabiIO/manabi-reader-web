@@ -15,6 +15,7 @@
     <div class="stack-item" class:front={index === 0} style:--index={index}>
       <BookCover
         imagePath={book.imagePath}
+        blurred={book.coverBlur}
         title={book.title}
         author={creatorLine(book.creators)}
         identity={book.key}

@@ -567,34 +567,86 @@
         class="mx-auto flex min-h-14 max-w-6xl flex-wrap items-center gap-2 border-t border-border/60 px-4 py-2 sm:px-6"
         aria-label="Book selection"
       >
-        <Button variant="ghost" onclick={() => (selectMode = false)}>Cancel selection</Button>
+        <Button
+          variant="ghost"
+          disabled={libraryMenu?.selectedActions?.busy}
+          onclick={() => (selectMode = false)}>Cancel selection</Button
+        >
         <span class="whitespace-nowrap text-sm" aria-live="polite">{selectedCount} selected</span>
-        <Button variant="outline" onclick={() => dispatch('selectAllClick')}>Select all</Button>
+        <Button
+          variant="outline"
+          disabled={libraryMenu?.selectedActions?.busy}
+          onclick={() => dispatch('selectAllClick')}
+          >{modernLibrary ? 'Select All Visible' : 'Select all'}</Button
+        >
         {#if selectedCount > 0}
-          <Button variant="secondary" onclick={() => dispatch('replicateData')}>Export</Button>
+          <Button
+            variant="secondary"
+            disabled={libraryMenu?.selectedActions?.busy ||
+              libraryMenu?.selectedActions?.savedCount === 0}
+            onclick={() => dispatch('replicateData')}>Export</Button
+          >
           <ActionMenu label="Actions" title="Selected book actions">
+            {#if libraryMenu?.selectedActions}
+              <Menu.Item
+                disabled={libraryMenu.selectedActions.busy}
+                onSelect={libraryMenu.selectedActions.collections}>Add to Collection…</Menu.Item
+              >
+              <Menu.Item
+                disabled={libraryMenu.selectedActions.busy}
+                onSelect={libraryMenu.selectedActions.series}>Add to Series…</Menu.Item
+              >
+              {#if libraryMenu.selectedActions.canBlur}<Menu.Item
+                  disabled={libraryMenu.selectedActions.busy}
+                  onSelect={libraryMenu.selectedActions.blur}>Blur Covers</Menu.Item
+                >{/if}
+              {#if libraryMenu.selectedActions.canUnblur}<Menu.Item
+                  disabled={libraryMenu.selectedActions.busy}
+                  onSelect={libraryMenu.selectedActions.unblur}>Unblur Covers</Menu.Item
+                >{/if}
+              <Menu.Separator />
+            {/if}
             {#if libraryMenu?.selectedWantToRead.canAdd}
-              <Menu.Item onSelect={() => libraryMenu?.selectedWantToRead.set(true)}
+              <Menu.Item
+                disabled={libraryMenu?.selectedActions?.busy}
+                onSelect={() => libraryMenu?.selectedWantToRead.set(true)}
                 ><BookmarkSimple aria-hidden="true" />Add to Want to Read</Menu.Item
               >
             {/if}
             {#if libraryMenu?.selectedWantToRead.canRemove}
-              <Menu.Item onSelect={() => libraryMenu?.selectedWantToRead.set(false)}
+              <Menu.Item
+                disabled={libraryMenu?.selectedActions?.busy}
+                onSelect={() => libraryMenu?.selectedWantToRead.set(false)}
                 ><BookmarkSimple weight="fill" aria-hidden="true" />Remove from Want to Read</Menu.Item
               >
             {/if}
             <Menu.Separator />
-            <Menu.Item onSelect={() => dispatch('selectionToStatistics')}
+            <Menu.Item
+              disabled={libraryMenu?.selectedActions?.busy ||
+                libraryMenu?.selectedActions?.savedCount === 0}
+              onSelect={() => dispatch('selectionToStatistics')}
               >Statistics for Selected Books</Menu.Item
             >
-            <Menu.Item variant="destructive" onSelect={() => dispatch('deleteStatistics')}
-              >Delete Selected Statistics</Menu.Item
+            <Menu.Item
+              variant="destructive"
+              disabled={libraryMenu?.selectedActions?.busy ||
+                libraryMenu?.selectedActions?.savedCount === 0}
+              onSelect={() => dispatch('deleteStatistics')}>Delete Selected Statistics</Menu.Item
             >
             <Menu.Separator />
-            <Menu.Item variant="destructive" onSelect={() => dispatch('removeClick')}
-              >Delete Selected Books</Menu.Item
+            <Menu.Item
+              variant="destructive"
+              disabled={libraryMenu?.selectedActions?.busy ||
+                libraryMenu?.selectedActions?.savedCount === 0}
+              onSelect={() => dispatch('removeClick')}>Delete Selected Books</Menu.Item
             >
           </ActionMenu>
+        {/if}
+        {#if selectedCount > (libraryMenu?.selectedActions?.savedCount ?? selectedCount)}
+          <p class="basis-full text-sm text-muted-foreground">
+            Unopened previews can be organized without importing. Export, statistics and deletion
+            apply only to saved browser copies.
+          </p>
         {/if}
       </div>
     {/if}
@@ -635,9 +687,18 @@
         ></progress>
         <span role="status" class="whitespace-nowrap text-sm">{replicationProgressRemaining}</span>
       {:else if selectMode}
-        <Button variant="ghost" onclick={() => (selectMode = false)}>Cancel selection</Button>
+        <Button
+          variant="ghost"
+          disabled={libraryMenu?.selectedActions?.busy}
+          onclick={() => (selectMode = false)}>Cancel selection</Button
+        >
         <span class="whitespace-nowrap text-sm" aria-live="polite">{selectedCount} selected</span>
-        <Button variant="outline" onclick={() => dispatch('selectAllClick')}>Select all</Button>
+        <Button
+          variant="outline"
+          disabled={libraryMenu?.selectedActions?.busy}
+          onclick={() => dispatch('selectAllClick')}
+          >{modernLibrary ? 'Select All Visible' : 'Select all'}</Button
+        >
         {#if selectedCount > 0}
           <Button
             variant="secondary"
@@ -646,16 +707,23 @@
           >
           <ActionMenu label="Actions" title="Selected book actions">
             {#if $storageSource$ === StorageKey.BROWSER}
-              <Menu.Item onSelect={() => dispatch('selectionToStatistics')}
+              <Menu.Item
+                disabled={libraryMenu?.selectedActions?.busy}
+                onSelect={() => dispatch('selectionToStatistics')}
                 >Statistics for selected books</Menu.Item
               >
-              <Menu.Item variant="destructive" onSelect={() => dispatch('deleteStatistics')}
-                >Delete selected statistics</Menu.Item
+              <Menu.Item
+                variant="destructive"
+                disabled={libraryMenu?.selectedActions?.busy}
+                onSelect={() => dispatch('deleteStatistics')}>Delete selected statistics</Menu.Item
               >
               <Menu.Separator />
             {/if}
-            <Menu.Item variant="destructive" onSelect={() => dispatch('removeClick')}
-              >Delete selected books</Menu.Item
+            <Menu.Item
+              variant="destructive"
+              disabled={libraryMenu?.selectedActions?.busy ||
+                libraryMenu?.selectedActions?.savedCount === 0}
+              onSelect={() => dispatch('removeClick')}>Delete selected books</Menu.Item
             >
           </ActionMenu>
         {/if}

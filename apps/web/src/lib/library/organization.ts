@@ -14,6 +14,8 @@ import {
   isPortableText,
   portableOrganization
 } from './organization-portability';
+import type { BookMetadata, BookSeries } from './book-presentation';
+import { latestBookPresentation } from './presentation-compatibility';
 import type { PageDirection } from './direction';
 import { changeWantToRead, WANT_TO_READ_ID, type CollectionBook } from './want-to-read';
 
@@ -28,6 +30,9 @@ export interface BookPresentation {
   title?: string;
   direction?: PageDirection;
   cover?: string;
+  metadata?: BookMetadata;
+  series?: BookSeries | null;
+  coverBlur?: boolean;
   modifiedAt: number;
 }
 export interface Organization {
@@ -134,8 +139,8 @@ export async function updateOrganization(
   // IndexedDB serializes cross-tab read/modify/write transactions even without Web Locks.
   const db = await integrationDB(),
     tx = db.transaction('metadata', 'readwrite');
-  const value = ((await tx.store.get(key)) as Organization | undefined) ?? emptyOrganization();
   try {
+    const value = ((await tx.store.get(key)) as Organization | undefined) ?? emptyOrganization();
     if (receipt) {
       const previous = (await tx.store.get(receipt.key)) as typeof receipt | undefined;
       if (previous && (previous.value === receipt.value || previous.modified > receipt.modified)) {
@@ -145,6 +150,8 @@ export async function updateOrganization(
     }
     const before = structuredClone(value);
     change(value);
+    if (!normalizedOrganization(value))
+      throw new Error('The library organization is invalid or exceeds its size limit.');
     // Migration retry protection commits atomically with collection memberships.
     if (receipt) await tx.store.put(receipt, receipt.key);
     if (equal(before, value)) {
@@ -174,13 +181,19 @@ export function watchOrganization(onError: (error: unknown) => void = () => unde
     };
   return () => channel?.close();
 }
-export async function createCollection(name: string, members: string[] = []) {
+export async function createCollection(
+  name: string,
+  members: string[] = [],
+  current: () => boolean = () => true
+) {
   const collection = {
     id: crypto.randomUUID(),
     name: libraryName(name),
     members: [...new Set(members)]
   };
   await updateOrganization((value) => {
+    if (!current()) throw new Error('The library changed. Reopen this action.');
+    if (value.collections.length >= 1000) throw new Error('The collection limit has been reached.');
     value.collections.push(collection);
   });
   return collection.id;
@@ -218,16 +231,74 @@ export async function setMembership(
     collection.members = included ? [...retained, member] : retained;
   });
 }
-export async function presentBook(
-  id: string,
-  change: { title?: string; direction?: PageDirection; cover?: string }
+export type PresentationChange = Partial<Omit<BookPresentation, 'modifiedAt'>>;
+export async function presentBook(id: string, change: PresentationChange) {
+  return presentBooks([id], change);
+}
+/** Commit a batch once. Validation failure rolls back every selected book. */
+export async function presentBooks(
+  ids: string[],
+  change: PresentationChange,
+  current: () => boolean = () => true,
+  expected?: Record<string, BookPresentation | undefined>,
+  preserveSeriesIndex = false
 ) {
-  if (change.title !== undefined) change.title = libraryName(change.title);
+  const patch = structuredClone(change);
+  const targets = [...new Set(ids)];
+  const baseline = expected && structuredClone(expected);
+  if (patch.title !== undefined) patch.title = libraryName(patch.title);
   await updateOrganization((value) => {
-    const presentation = { ...value.books[id], ...change, modifiedAt: Date.now() };
-    if (!isPortablePresentation(presentation))
-      throw new Error('The book presentation override is invalid or too large.');
-    value.books[id] = presentation;
+    if (!current()) throw new Error('The library changed. Reopen this action.');
+    for (const id of targets) {
+      if (baseline && !equal(value.books[id], baseline[id]))
+        throw new Error('This book was edited elsewhere. Reopen its metadata before saving.');
+      const presentation = { ...value.books[id], ...patch, modifiedAt: Date.now() };
+      // A batch membership edit never erases a book's existing volume number in that series.
+      // The metadata editor can still explicitly clear or change the number.
+      const previousSeries = value.books[id]?.series;
+      if (
+        preserveSeriesIndex &&
+        patch.series &&
+        previousSeries?.name === patch.series.name &&
+        patch.series.index === undefined &&
+        previousSeries.index !== undefined
+      ) {
+        presentation.series = { ...patch.series, index: previousSeries.index };
+      }
+      // Explicit undefined resets a field; never serialize undefined to the wire.
+      for (const field of Object.keys(presentation))
+        if (presentation[field as keyof BookPresentation] === undefined)
+          delete presentation[field as keyof BookPresentation];
+      if (!isPortablePresentation(presentation))
+        throw new Error('The book presentation override is invalid or too large.');
+      value.books[id] = presentation;
+    }
+  });
+}
+export async function setMembershipMany(
+  id: string,
+  books: CollectionBook[],
+  included: boolean,
+  current: () => boolean = () => true
+) {
+  const targets = structuredClone(books);
+  await updateOrganization((value) => {
+    if (!current()) throw new Error('The library changed. Reopen this action.');
+    if (id === WANT_TO_READ_ID) {
+      changeWantToRead(value, targets, included);
+      return;
+    }
+    const collection = value.collections.find((entry) => entry.id === id);
+    if (!collection) throw new Error('This collection no longer exists.');
+    const replaced = new Set(
+      targets.flatMap((book) => [book.organizationKey, ...book.organizationAliases])
+    );
+    const retained = collection.members.filter((key) => !replaced.has(key));
+    collection.members = [
+      ...new Set(
+        included ? [...retained, ...targets.map((book) => book.organizationKey)] : retained
+      )
+    ];
   });
 }
 
@@ -246,7 +317,7 @@ export async function stabilizeOrganization(
     for (const [before, after] of replacements) {
       const prior = value.books[before],
         current = value.books[after];
-      if (prior && (!current || prior.modifiedAt > current.modifiedAt)) value.books[after] = prior;
+      if (prior) value.books[after] = latestBookPresentation([current, prior])!;
       if (before !== after) delete value.books[before];
     }
   });
@@ -261,7 +332,7 @@ export async function relocatePresentation(before: string, after: string) {
       ];
     const prior = value.books[before],
       current = value.books[after];
-    if (prior && (!current || prior.modifiedAt > current.modifiedAt)) value.books[after] = prior;
+    if (prior) value.books[after] = latestBookPresentation([current, prior])!;
     delete value.books[before];
   });
 }

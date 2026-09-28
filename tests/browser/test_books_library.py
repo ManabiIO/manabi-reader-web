@@ -3,6 +3,7 @@
 No mocked storage, replaced picker, imported substitute UI or request interception.
 Filesystem cases run on Chromium; the browser-only cases also run on WebKit.
 """
+from reader_controls import reveal_reader_controls
 import base64
 import hashlib
 import io
@@ -120,7 +121,9 @@ class LibraryBase(unittest.TestCase):
         self.profile = tempfile.TemporaryDirectory()
         self.engine = os.environ.get('LIBRARY_BROWSER', 'chromium')
         self.context = getattr(self.playwright, self.engine).launch_persistent_context(
-            self.profile.name, viewport={'width': 1200, 'height': 900})
+            self.profile.name, viewport={'width': 1200, 'height': 900},
+            has_touch=getattr(self, 'touch', False),
+            executable_path=os.environ.get('LIBRARY_EXECUTABLE_PATH') or None)
         self.context.add_init_script(
             "try { localStorage.setItem('manabi-reader-dictionary-setup-v1', 'skip') } catch {}")
         self.page = self.context.pages[0]
@@ -377,8 +380,7 @@ class BooksLibraryBrowser(LibraryBase):
         controls = self.page.locator('button[data-reader-controls]')
 
         def tool(name):
-            if controls.get_attribute('aria-expanded') != 'true':
-                controls.click()
+            reveal_reader_controls(self.page)
             self.page.get_by_role('button', name='Reading tools').click()
             self.page.get_by_role('menuitem', name=name, exact=True).click()
 
@@ -441,7 +443,7 @@ class BooksLibraryBrowser(LibraryBase):
         })
         self.page.get_by_role('button', name='Read Projection checks', exact=True).click()
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=35000)
-        self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+        reveal_reader_controls(self.page)
         self.page.get_by_role('button', name='Reading tools').click()
         self.page.get_by_role('menuitem', name='Search Book', exact=True).click()
         search = self.page.get_by_role('searchbox', name='Search within book')
@@ -769,7 +771,7 @@ class BooksLibraryBrowser(LibraryBase):
                 self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), width + 1)
         header.get_by_role('button', name='Library actions', exact=True).click()
         self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
-        header.get_by_role('button', name='Select all', exact=True).click()
+        header.get_by_role('button', name='Select All Visible', exact=True).click()
         expect(self.page.get_by_text('1 selected', exact=True)).to_be_visible()
         self.page.set_viewport_size({'width': 320, 'height': 568})
         expect(header.get_by_role('button', name='Export', exact=True)).to_be_visible()
@@ -850,13 +852,13 @@ class BooksLibraryBrowser(LibraryBase):
         self.choose_collection('One book only')
         self.page.get_by_role('button', name='Library actions', exact=True).click()
         self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
-        self.page.get_by_role('button', name='Select all', exact=True).click()
+        self.page.get_by_role('button', name='Select All Visible', exact=True).click()
         expect(self.page.get_by_text('1 selected', exact=True)).to_be_visible()
         self.page.get_by_placeholder('Search library').fill('no result')
         expect(self.page.get_by_text('0 selected', exact=True)).to_be_visible()
         expect(self.page.get_by_role('heading', name='No matching books', exact=True)).to_be_visible()
         self.page.get_by_placeholder('Search library').fill('Beta')
-        self.page.get_by_role('button', name='Select all', exact=True).click()
+        self.page.get_by_role('button', name='Select All Visible', exact=True).click()
         expect(self.page.get_by_text('1 selected', exact=True)).to_be_visible()
         self.choose_collection('Books')
         expect(self.page.get_by_text('0 selected', exact=True)).to_be_visible()
@@ -1175,7 +1177,7 @@ class BooksLibraryBrowser(LibraryBase):
         before = self.stores('books', ['bookmark','statistic','data'])
         self.page.get_by_role('button', name='Library actions', exact=True).click()
         self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
-        self.page.get_by_role('button', name='Select all', exact=True).click()
+        self.page.get_by_role('button', name='Select All Visible', exact=True).click()
         expect(self.page.get_by_text('1 selected', exact=True)).to_be_visible()
         self.page.get_by_role('button', name='Export', exact=True).click()
         self.page.get_by_role('button', name='Zip File', exact=True).click()
@@ -1216,7 +1218,7 @@ class BooksLibraryBrowser(LibraryBase):
                 self.assertEqual(before['data'][0]['pageDirection'], migrated['data'][0]['pageDirection'])
                 self.assertEqual(before['data'][0]['creators'], migrated['data'][0]['creators'])
                 self.assertEqual(before['data'][0]['contentHash'], migrated['data'][0]['contentHash'])
-                self.page.get_by_role('button', name='Select all', exact=True).click()
+                self.page.get_by_role('button', name='Select All Visible', exact=True).click()
                 import_selected.click()
                 expect(imported.get_by_role('status')).to_contain_text('Already imported', timeout=30000)
                 self.assertEqual(migrated['bookmark'], self.stores('books', ['bookmark'])['bookmark'])
@@ -1245,7 +1247,7 @@ class BooksLibraryBrowser(LibraryBase):
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=30000)
         toolbar = self.page.get_by_role('banner', name='Reader toolbar')
         if not toolbar.is_visible():
-            self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+            reveal_reader_controls(self.page)
         toolbar.get_by_role('button', name='Reading tools', exact=True).click()
         self.page.get_by_role('menuitem', name='Complete Book', exact=True).click()
         self.page.get_by_role('dialog').get_by_role('button', name='Confirm', exact=True).click()

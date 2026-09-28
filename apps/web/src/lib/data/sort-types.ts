@@ -15,7 +15,7 @@ export interface SortOption {
   property:
     | Exclude<
         keyof BookCardProps,
-        'imagePath' | 'isPlaceholder' | 'completion' | 'pageDirection' | 'creators'
+        'imagePath' | 'isPlaceholder' | 'completion' | 'pageDirection' | 'creators' | 'metadata'
       >
     | 'author';
   direction: SortDirection;
