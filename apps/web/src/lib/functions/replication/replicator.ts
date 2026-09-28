@@ -61,6 +61,25 @@ export async function importData(
     try {
       throwIfAborted(cancelSignal);
 
+      let contentHash: string | undefined;
+      if (!fileCountData) {
+        contentHash = await sha256(await file.arrayBuffer());
+        throwIfAborted(cancelSignal);
+        const reusable = await targetHandler.findReusableBookByContentHash(
+          contentHash,
+          cancelSignal
+        );
+        throwIfAborted(cancelSignal);
+        if (reusable !== undefined) {
+          // Identity preflight replaces load/save/cover work as one completed
+          // import item. It does not mutate the existing book or its progress.
+          checkCancelAndProgress(cancelSignal, true, true);
+          checkCancelAndProgress(cancelSignal, true, true);
+          checkCancelAndProgress(cancelSignal, true, true);
+          continue;
+        }
+      }
+
       let bookContent: LoadData;
 
       if (file.name.endsWith('.epub')) {
@@ -85,7 +104,7 @@ export async function importData(
       checkCancelAndProgress(cancelSignal, true, true);
 
       currentTitle = bookContent.title;
-      bookContent.contentHash = await sha256(await file.arrayBuffer());
+      bookContent.contentHash = contentHash!;
       throwIfAborted(cancelSignal);
 
       targetHandler.startContext(

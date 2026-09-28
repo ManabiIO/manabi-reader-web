@@ -603,7 +603,9 @@ function linkFixture(records, links) {
     '$lib/data/storage/storage-handler-factory': {},
     '$lib/data/database/books-db/book-binary': {},
     '$lib/data/database/books-db/commit-transaction.mjs': { commitTransaction },
-    '$lib/data/database/books-db/library-import': { readLibraryIdentities: async () => records },
+    '$lib/data/database/books-db/library-import': {
+      readIndexedBookIdentities: async () => records
+    },
     '$lib/library/book-identity': {
       normalizedContentHash: (value) =>
         typeof value === 'string' && /^[a-f0-9]{64}$/i.test(value) ? value.toLowerCase() : undefined
