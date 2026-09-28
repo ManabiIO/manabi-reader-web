@@ -167,10 +167,7 @@ export async function addLocalLibrary(): Promise<LocalLibrary | null> {
 }
 const localLibraryLock = <T>(id: string, work: () => Promise<T>) =>
   exclusive(`local-library-source:${id}`, work);
-async function sameLocalHandle(
-  left: FileSystemDirectoryHandle,
-  right: FileSystemDirectoryHandle
-) {
+async function sameLocalHandle(left: FileSystemDirectoryHandle, right: FileSystemDirectoryHandle) {
   return left === right || (await left.isSameEntry(right));
 }
 export async function reconnectLocalLibrary(library: LocalLibrary, write = false) {
@@ -323,7 +320,10 @@ export class LocalLibrarySource implements LibrarySource {
     const state = await root.getDirectoryHandle(stateDirectory, { create });
     return state.getDirectoryHandle(stateKey(key), { create });
   }
-  private async revisions(root: FileSystemDirectoryHandle, key: string): Promise<RevisionDocument[]> {
+  private async revisions(
+    root: FileSystemDirectoryHandle,
+    key: string
+  ): Promise<RevisionDocument[]> {
     let directory: FileSystemDirectoryHandle;
     try {
       directory = await this.stateFolder(root, key);

@@ -573,7 +573,11 @@ test('disconnect waits for an admitted local read and prevents later retained-ha
   await new Promise((resolve) => setImmediate(resolve));
   const removing = api.removeLocalLibrary(library.id);
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(db.rows('localLibraries').length, 1, 'disconnect must wait for admitted source work');
+  assert.equal(
+    db.rows('localLibraries').length,
+    1,
+    'disconnect must wait for admitted source work'
+  );
   held.resolve(new File([original], 'book.txt'));
   assert.equal(await (await reading).text(), 'original');
   await removing;
