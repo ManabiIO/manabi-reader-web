@@ -122,12 +122,30 @@ class PanelUsabilityBrowser(LibraryBase):
         panel = self.page.get_by_role('dialog', name='Reading day details', exact=True)
         expect(panel).to_be_visible()
         expect(panel.get_by_role('heading', name='2026-09-25', exact=True)).to_be_visible()
-        panel.get_by_role('button', name='Close heatmap details', exact=True).click()
+        # This second activation happens after the popup is open. A toggle-only
+        # implementation would incorrectly close it despite the same-turn fence.
+        day.evaluate('e => e.click()')
+        expect(panel).to_be_visible()
+        other = grid.locator('[data-date="2026-09-26"]')
+        other.evaluate('e => e.click()')
+        expect(panel.get_by_role('heading', name='2026-09-26', exact=True)).to_be_visible()
+        self.capture('heatmap-retargeted-details')
+        # Exercise the real period handler while the popup is open, without
+        # explicitly closing it first or relying on an outside-pointer dismissal.
         grid.evaluate('e => { e.scrollLeft = 0; }')
-        self.page.get_by_role('button', name='Previous heatmap period', exact=True).first.click()
+        previous = self.page.get_by_role('button', name='Previous heatmap period', exact=True).first
+        previous.evaluate('e => e.click()')
         expect(grid.locator('[data-date="2025-01-01"]')).to_have_count(1)
         expect(panel).to_have_count(0)
         expect(grid.locator('button[tabindex="0"]')).to_have_count(1)
+        # A pending day-open must not outlive the same-turn year change either.
+        self.page.evaluate('''() => {
+          document.querySelector('.heatmap-calendar [data-date="2025-09-25"]').click();
+          document.querySelector('[aria-label="Previous heatmap period"]').click();
+        }''')
+        self.frames()
+        expect(grid.locator('[data-date="2024-01-01"]')).to_have_count(1)
+        expect(panel).to_have_count(0)
 
     def test_heatmap_cells_shrink_and_month_columns_follow_the_new_calendar(self):
         self.seed_statistics()
