@@ -10,9 +10,8 @@
   import faTriangleExclamation from '@lucide/svelte/icons/triangle-alert';
   import MessageDialog from '$lib/components/message-dialog.svelte';
   import Popover from '$lib/components/popover/popover.svelte';
-  import Ripple from '$lib/components/ripple.svelte';
   import SettingsStorageSource from '$lib/components/settings/settings-storage-source.svelte';
-  import { buttonClasses } from '$lib/css-classes';
+  import { Button } from '$lib/components/ui/button';
   import type { BooksDbStorageSource } from '$lib/data/database/books-db/versions/books-db';
   import { dialogManager } from '$lib/data/dialog-manager';
   import { gDriveRevokeEndpoint } from '$lib/data/env';
@@ -211,43 +210,36 @@
   }
 </script>
 
-<div class="mb-8 sm:col-span-2 lg:col-span-3">
-  <div class="flex">
-    <div class="flex grow">
-      <h1 class="mb-2 text-xl font-medium">
-        <span class="capitalize">Storage Sources</span>
-      </h1>
+<div class="mb-8 min-w-0 sm:col-span-2 lg:col-span-3">
+  <div class="flex flex-wrap items-center justify-between gap-2">
+    <div class="flex min-w-0 items-center gap-1">
       <Popover contentText={listTooltip} contentStyles="padding: 0.5rem;">
-        <AppIcon icon={faCircleQuestion} slot="icon" class="mx-2" />
+        <AppIcon icon={faCircleQuestion} slot="icon" class="mx-1" />
       </Popover>
       {#if $autoReplication$ !== AutoReplicationType.Off && !$syncTarget$}
         <Popover
           contentText={'Auto import/export enabled but no source as sync target from list selected'}
           contentStyles="padding: 0.25rem;"
         >
-          <AppIcon icon={faTriangleExclamation} slot="icon" class="mx-2" />
+          <AppIcon icon={faTriangleExclamation} slot="icon" class="mx-1" />
         </Popover>
       {/if}
     </div>
-    <button
-      class={buttonClasses}
-      class:cursor-not-allowed={!storageSources}
+    <Button
+      variant="outline"
       disabled={!storageSources}
-      on:click={() => {
+      onclick={() => {
         modifyStorageSource();
       }}
     >
-      <div class="flex items-center justify-center">
-        <AppIcon icon={faPlus} />
-        <span class="ml-1">Add</span>
-      </div>
-      <Ripple />
-    </button>
+      <AppIcon icon={faPlus} />
+      <span>Add source</span>
+    </Button>
   </div>
-  <hr class="border border-border" />
+
   <div class="mt-6">
     {#if !listLoading && storageSources}
-      <div class="grid grid-cols-1 gap-x-8 gap-y-12 sm:grid-cols-2 lg:grid-cols-3">
+      <div class="grid grid-cols-1 gap-x-8 gap-y-8 sm:grid-cols-2 lg:grid-cols-3">
         {#each storageSources as storageSource (storageSource.name)}
           {@const icon = getStorageIconData(storageSource.type)}
           {@const isDefault = isAppDefault(storageSource.name)}
@@ -257,61 +249,56 @@
             storageSource.type,
             [$gDriveStorageSource$, $oneDriveStorageSource$, $fsStorageSource$]
           )}
-          <div class="flex flex-col">
-            <div class="flex">
+          <article class="grid min-w-0 gap-3 rounded-xl border border-border p-3">
+            <div class="flex min-w-0 items-center gap-3">
               <svg
-                class="inline-block h-6 w-6 self-center"
+                class="inline-block size-6 shrink-0 self-center"
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox={icon.viewBox}
+                aria-hidden="true"
               >
                 <path class="fill-current" d={icon.d}></path>
               </svg>
-              <div class="ml-3 self-center">{storageSource.name}</div>
+              <div class="min-w-0 break-words font-medium">{storageSource.name}</div>
             </div>
-            <div class="mt-4 flex flex-wrap gap-2">
-              <button
-                type="button"
-                title="Edit source"
-                class="mr-4 gap-2 rounded-xl px-2 py-1.5 text-sm"
+            <div class="flex flex-wrap gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
                 class:hidden={isDefault}
-                on:click={() => modifyStorageSource(storageSource)}
+                onclick={() => modifyStorageSource(storageSource)}
               >
                 <AppIcon icon={faPenToSquare} />
-                <span>Edit</span></button
-              >
-              <button
-                type="button"
-                title="Toggle source as sync target"
+                <span>Edit</span>
+              </Button>
+              <Button
+                variant={storageSourceIsSyncTarget ? 'secondary' : 'ghost'}
+                size="sm"
                 aria-pressed={storageSourceIsSyncTarget}
-                class="mr-4 gap-2 rounded-xl px-2 py-1.5 text-sm"
-                class:opacity-50={!storageSourceIsSyncTarget}
-                on:click={() =>
+                onclick={() =>
                   syncTarget$.next($syncTarget$ === storageSource.name ? '' : storageSource.name)}
               >
                 <AppIcon icon={faCloudArrowUp} />
-                <span>Sync target</span></button
-              >
-              <button
-                type="button"
-                title="Toggle source as data source for this type"
+                <span>Sync target</span>
+              </Button>
+              <Button
+                variant={storageSourceIsSourceDefault ? 'secondary' : 'ghost'}
+                size="sm"
                 aria-pressed={storageSourceIsSourceDefault}
-                class="mr-4 gap-2 rounded-xl px-2 py-1.5 text-sm"
-                class:opacity-50={!storageSourceIsSourceDefault}
-                on:click={() =>
+                onclick={() =>
                   setStorageSourceDefault(
                     storageSourceIsSourceDefault ? '' : storageSource.name,
                     storageSource.type
                   )}
               >
                 <AppIcon icon={faTableList} />
-                <span>Use by default</span></button
-              >
-              <button
-                type="button"
-                class="inline-flex items-center gap-2 rounded-xl px-2 py-1.5 text-sm"
-                title="Delete source"
+                <span>Use by default</span>
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
                 class:hidden={isDefault}
-                on:click={() =>
+                onclick={() =>
                   deleteStorageSource(
                     storageSource,
                     storageSourceIsSyncTarget,
@@ -319,17 +306,16 @@
                   )}
               >
                 <AppIcon icon={faTrash} />
-                <span>Remove</span></button
-              >
+                <span>Remove</span>
+              </Button>
             </div>
-          </div>
+          </article>
         {/each}
       </div>
     {:else}
-      <div class="text-xl">
+      <div role="status" aria-label="Loading storage sources" class="text-xl">
         <AppIcon icon={faSpinner} spin />
       </div>
     {/if}
   </div>
-  <div></div>
 </div>

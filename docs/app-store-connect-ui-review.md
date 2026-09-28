@@ -85,3 +85,8 @@ Reading Goals now follows the same Settings control language: labeled 44px form
 fields, a distinct primary Save action, quiet Sync/Edit actions, and an explicit
 destructive Reset. Its sync chooser uses native select labels and a native
 disabled-aware swap button rather than emulating a button with a focusable div.
+
+The advanced Ttu storage editor now uses the same labeled field and action
+hierarchy as the surrounding Settings workspace. Its Source Default label is
+bound to the correct checkbox (rather than toggling Sync Target), destructive
+source removal is explicit, and repeated inner headings were removed.

@@ -317,6 +317,53 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
         dialog.get_by_role('button', name='Cancel', exact=True).click()
         expect(dialog).to_have_count(0)
 
+    def test_advanced_storage_editor_labels_the_correct_controls(self):
+        self.page.set_viewport_size({'width': 320, 'height': 844})
+        self.page.goto(self.origin + '/reader-web/settings#library')
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+
+        storage = self.page.locator('[data-setting="storage-sources"]')
+        expect(storage).to_be_visible()
+        expect(storage.get_by_role('heading', name='Storage sources', exact=True)).to_have_count(1)
+        add = storage.get_by_role('button', name='Add source', exact=True)
+        expect(add).to_have_attribute('data-variant', 'outline')
+        expect(add).to_be_enabled(timeout=15000)
+        add.click()
+
+        dialog = self.page.locator('[data-slot="dialog-content"]')
+        expect(dialog).to_be_visible()
+        name = dialog.get_by_label('Name', exact=True)
+        sync_target = dialog.get_by_label('Is Sync Target', exact=True)
+        source_default = dialog.get_by_label('Is Source Default', exact=True)
+        source_type = dialog.get_by_label('Storage type', exact=True)
+        client_id = dialog.get_by_label('Client ID', exact=True)
+        client_secret = dialog.get_by_label('Client Secret', exact=True)
+        password = dialog.get_by_label('Password', exact=True)
+        confirm = dialog.get_by_label('Confirm Password', exact=True)
+
+        for field in (name, source_type, client_id, client_secret, password, confirm):
+            expect(field).to_be_visible()
+            self.assertGreaterEqual(field.bounding_box()['height'], 43.99)
+
+        expect(sync_target).not_to_be_checked()
+        expect(source_default).not_to_be_checked()
+        source_default.check()
+        expect(source_default).to_be_checked()
+        expect(sync_target).not_to_be_checked()
+        sync_target.check()
+        expect(sync_target).to_be_checked()
+        expect(source_default).to_be_checked()
+
+        expect(dialog.get_by_role('button', name='Cancel', exact=True)).to_have_attribute(
+            'data-variant', 'ghost'
+        )
+        expect(dialog.get_by_role('button', name='Save', exact=True)).to_have_attribute(
+            'data-variant', 'default'
+        )
+        self.assertLessEqual(dialog.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
+        dialog.get_by_role('button', name='Cancel', exact=True).click()
+        expect(dialog).to_have_count(0)
+
     def test_statistics_toolbar_and_options_reflow_and_keep_unique_form_labels(self):
         self.page.goto(self.origin + '/reader-web/statistics')
         for width, scale in ((1200, '100%'), (390, '100%'), (320, '200%')):

@@ -1,8 +1,8 @@
 <script lang="ts">
   import { browser } from '$app/environment';
   import DialogTemplate from '$lib/components/dialog-template.svelte';
-  import Ripple from '$lib/components/ripple.svelte';
-  import { buttonClasses } from '$lib/css-classes';
+  import { Button } from '$lib/components/ui/button';
+  import { Input } from '$lib/components/ui/input';
   import type { BooksDbStorageSource } from '$lib/data/database/books-db/versions/books-db';
   import { gDriveRevokeEndpoint } from '$lib/data/env';
   import { resolveTtuRoot } from '$lib/manabi/ttu-folder-contract';
@@ -252,84 +252,111 @@
 
 <DialogTemplate>
   <div
-    class="flex flex-col p-2 max-h-[50vh] overflow-auto sm:max-h-[75vh]"
+    class="flex max-h-[50vh] min-w-0 flex-col gap-4 overflow-auto p-2 sm:max-h-[75vh]"
     slot="content"
     bind:this={containerElm}
   >
-    <p class="mb-3 text-sm">
+    <p class="text-sm">
       Advanced Ttu Ebook Reader storage. These sources use <code>ttu-reader-data</code> and its
       book, bookmark and statistics format. For ordinary Manabi folders, use
       <strong>Accounts and libraries</strong>.
     </p>
-    <input
-      required
-      type="text"
-      placeholder="Name"
-      bind:value={storageSourceName}
-      bind:this={nameElm}
-    />
-    <div class="mt-4 flex items-center">
-      <input id="cbx-source" type="checkbox" bind:checked={storageSourceIsSyncTarget} />
-      <label for="cbx-source" class="ml-2 mr-6">Is Sync Target</label>
-      <input id="cbx-manager" type="checkbox" bind:checked={storageSourceIsSourceDefault} />
-      <label for="cbx-source" class="ml-2">Is Source Default</label>
-    </div>
-    <select
-      class="my-4"
-      bind:value={storageSourceType}
-      on:change={() => {
-        if (storageSourceType === StorageKey.FS) {
-          storageSourceClientId = '';
-          storageSourceClientSecret = '';
-          storageSourceStoredInManager = false;
-          storageSourceEncryptionDisabled = false;
-        } else {
-          directoryHandle = undefined;
-          handleFsPath = '';
-        }
-      }}
-    >
-      {#each storageSourceTypes as sourceType (sourceType.key)}
-        <option value={sourceType.key}>
-          {sourceType.label}
-        </option>
-      {/each}
-    </select>
-    {#if storageSourceType === StorageKey.FS}
-      <button class={buttonClasses} on:click={selectDirectory}>
-        Select Directory
-        <Ripple />
-      </button>
-      <div class="my-4 text-center">{handleFsPath || 'Nothing selected'}</div>
-    {:else}
-      <input required type="text" placeholder="Client ID" bind:value={storageSourceClientId} />
-      <input
-        class="mt-4"
+
+    <label class="grid gap-2 text-sm font-medium">
+      <span>Name</span>
+      <Input
+        required
         type="text"
-        placeholder="Client Secret"
-        bind:value={storageSourceClientSecret}
+        placeholder="Name"
+        bind:value={storageSourceName}
+        bind:ref={nameElm}
       />
-      <input
-        class="mt-4"
-        type="password"
-        placeholder="Password"
-        required={!storageSourceEncryptionDisabled}
-        disabled={storageSourceEncryptionDisabled}
-        bind:this={pwElm}
-      />
-      <input
-        class="mt-4"
-        type="password"
-        placeholder="Confirm Password"
-        required={!storageSourceEncryptionDisabled}
-        disabled={storageSourceEncryptionDisabled}
-        bind:this={pwConfirmElm}
-      />
+    </label>
+
+    <div class="flex flex-wrap gap-x-5 gap-y-3">
+      <label class="flex min-h-11 items-center gap-2 text-sm">
+        <input
+          id="cbx-source"
+          type="checkbox"
+          class="size-5 shrink-0 accent-primary"
+          bind:checked={storageSourceIsSyncTarget}
+        />
+        <span>Is Sync Target</span>
+      </label>
+      <label class="flex min-h-11 items-center gap-2 text-sm">
+        <input
+          id="cbx-manager"
+          type="checkbox"
+          class="size-5 shrink-0 accent-primary"
+          bind:checked={storageSourceIsSourceDefault}
+        />
+        <span>Is Source Default</span>
+      </label>
+    </div>
+
+    <label class="grid gap-2 text-sm font-medium">
+      <span>Storage type</span>
+      <select
+        class="min-h-11 min-w-0 rounded-[10px] border border-input bg-background px-3 py-2 text-base text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 md:text-sm"
+        bind:value={storageSourceType}
+        on:change={() => {
+          if (storageSourceType === StorageKey.FS) {
+            storageSourceClientId = '';
+            storageSourceClientSecret = '';
+            storageSourceStoredInManager = false;
+            storageSourceEncryptionDisabled = false;
+          } else {
+            directoryHandle = undefined;
+            handleFsPath = '';
+          }
+        }}
+      >
+        {#each storageSourceTypes as sourceType (sourceType.key)}
+          <option value={sourceType.key}>
+            {sourceType.label}
+          </option>
+        {/each}
+      </select>
+    </label>
+
+    {#if storageSourceType === StorageKey.FS}
+      <Button variant="outline" onclick={selectDirectory}>Select Directory</Button>
+      <div class="text-center text-sm text-muted-foreground">
+        {handleFsPath || 'Nothing selected'}
+      </div>
+    {:else}
+      <label class="grid gap-2 text-sm font-medium">
+        <span>Client ID</span>
+        <Input required type="text" bind:value={storageSourceClientId} />
+      </label>
+      <label class="grid gap-2 text-sm font-medium">
+        <span>Client Secret</span>
+        <Input type="text" bind:value={storageSourceClientSecret} />
+      </label>
+      <label class="grid gap-2 text-sm font-medium">
+        <span>Password</span>
+        <Input
+          type="password"
+          required={!storageSourceEncryptionDisabled}
+          disabled={storageSourceEncryptionDisabled}
+          bind:ref={pwElm}
+        />
+      </label>
+      <label class="grid gap-2 text-sm font-medium">
+        <span>Confirm Password</span>
+        <Input
+          type="password"
+          required={!storageSourceEncryptionDisabled}
+          disabled={storageSourceEncryptionDisabled}
+          bind:ref={pwConfirmElm}
+        />
+      </label>
       {#if passwordManagerAvailable}
-        <div class="mt-4">
+        <label class="flex min-h-11 items-center gap-2 text-sm">
           <input
             id="cbx-store-in-manager"
             type="checkbox"
+            class="size-5 shrink-0 accent-primary"
             bind:checked={storageSourceStoredInManager}
             on:change={() => {
               if (storageSourceStoredInManager && storageSourceEncryptionDisabled) {
@@ -337,13 +364,14 @@
               }
             }}
           />
-          <label for="cbx-store-in-manager" class="ml-2 mr-6">Store in Password Manager</label>
-        </div>
+          <span>Store in Password Manager</span>
+        </label>
       {/if}
-      <div class="mt-4">
+      <label class="flex min-h-11 items-center gap-2 text-sm">
         <input
           id="cbx-disable-encryption"
           type="checkbox"
+          class="size-5 shrink-0 accent-primary"
           bind:checked={storageSourceEncryptionDisabled}
           on:change={() => {
             if (storageSourceEncryptionDisabled) {
@@ -353,43 +381,34 @@
             }
           }}
         />
-        <label for="cbx-disable-encryption" class="ml-2 mr-6">Disable Password Encryption</label>
-      </div>
+        <span>Disable Password Encryption</span>
+      </label>
     {/if}
+
     {#if storageSourceStoredInManager || storageSourceEncryptionDisabled}
-      <div class="flex items-center my-4 max-w-xs">
-        <AppIcon icon={faTriangleExclamation} />
-        <span class="ml-2">
+      <div class="flex max-w-sm items-start gap-2 rounded-xl bg-muted p-3 text-sm">
+        <AppIcon icon={faTriangleExclamation} class="mt-0.5 shrink-0" />
+        <span>
           Make sure to understand the
           <a
-            class="text-red-500"
+            class="text-primary underline underline-offset-2"
             href="https://github.com/ManabiIO/Manabi-Reader-Web?tab=readme-ov-file#security-considerations"
             target="_blank"
+            rel="noopener noreferrer"
           >
-            Implications
+            implications
           </a>
-          of your choosen Settings
+          of these settings.
         </span>
       </div>
     {/if}
+
     {#if error}
-      <div class="text-red-500">Error: {error}</div>
+      <div role="alert" class="text-sm text-destructive">Error: {error}</div>
     {/if}
   </div>
-  <div class="mt-4 flex grow justify-between" slot="footer">
-    <button class={buttonClasses} on:click={() => closeDialog()}>
-      Cancel
-      <Ripple />
-    </button>
-    <button class={buttonClasses} on:click={save}>
-      Save
-      <Ripple />
-    </button>
+  <div class="mt-4 flex grow flex-wrap justify-between gap-2" slot="footer">
+    <Button variant="ghost" onclick={() => closeDialog()}>Cancel</Button>
+    <Button variant="default" onclick={save}>Save</Button>
   </div>
 </DialogTemplate>
-
-<style>
-  input:disabled {
-    cursor: not-allowed;
-  }
-</style>

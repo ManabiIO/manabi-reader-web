@@ -1334,10 +1334,11 @@
           options={optionsForToggle}
           bind:selectedOptionId={keepLocalStatisticsOnDeletion}
         />
-        <button
-          type="button"
-          class="ml-4 hover:underline"
-          on:click={() => {
+        <Button
+          variant="destructive"
+          size="sm"
+          class="ml-4"
+          onclick={() => {
             showSpinner = true;
             database
               .clearZombieStatistics()
@@ -1356,7 +1357,7 @@
           }}
         >
           Clear Zombie Statistics
-        </button>
+        </Button>
       </div>
     </SettingsItemGroup>
     <SettingsItemGroup
