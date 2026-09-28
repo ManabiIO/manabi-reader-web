@@ -281,9 +281,11 @@ class LibraryIdentityBrowser(LibraryBase):
         self.go_library()
         expect(self.page.get_by_role(
             'button', name='Read Private-scope', exact=True)).to_have_count(0)
+        self.page.wait_for_load_state('networkidle')
         self.page.goto(self.origin + '/reader-web/b?id=' + str(saved['id']))
         expect(self.page).to_have_url(re.compile(r'/reader-web/manage(?:[/?#]|$)'))
         expect(self.page.locator('.book-content')).to_have_count(0)
+        self.page.wait_for_load_state('networkidle')
 
         StaticHandler.account_fixture = {
             'user': {'id': '42', 'username': 'reader'},
@@ -292,6 +294,7 @@ class LibraryIdentityBrowser(LibraryBase):
         self.go_library()
         expect(self.page.get_by_role(
             'button', name='Read Private-scope', exact=True)).to_be_visible(timeout=30000)
+        self.page.wait_for_load_state('networkidle')
 
     def test_two_live_histories_at_one_locator_are_not_chosen_by_link_order(self):
         original = self.import_finished()
