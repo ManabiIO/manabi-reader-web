@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { visibleLibraryEntries } from '../../apps/web/src/lib/library/account-visibility.ts';
+import {
+  readerAccessOwners,
+  visibleLibraryEntries
+} from '../../apps/web/src/lib/library/account-visibility.ts';
 
 const cards = [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }];
 const links = [
@@ -43,4 +46,35 @@ test('an account-scoped book remains private if link publication was interrupted
   assert.deepEqual(visibleLibraryEntries([pending], [], 'account-a').cards, [pending]);
   assert.deepEqual(visibleLibraryEntries([pending], [], 'account-b').cards, []);
   assert.deepEqual(visibleLibraryEntries([pending], [], null).cards, []);
+});
+
+
+test('personal reading scope hides a local book from every other profile', () => {
+  const scoped = { id: 9, readerOwner: 'account-a' };
+  assert.deepEqual(visibleLibraryEntries([scoped], [], 'account-a').cards, [scoped]);
+  assert.deepEqual(visibleLibraryEntries([scoped], [], 'account-b').cards, []);
+  assert.deepEqual(visibleLibraryEntries([scoped], [], null).cards, []);
+});
+
+test('durable reader ownership outranks links and contradictory claims fail closed', () => {
+  assert.deepEqual(
+    readerAccessOwners({}, { accountId: 'account-a' }, [
+      { owner: null },
+      { owner: 'account-b' }
+    ]),
+    ['account-a']
+  );
+  assert.equal(
+    readerAccessOwners(
+      { libraryOwner: 'account-a' },
+      { accountId: 'account-b' },
+      [{ owner: 'account-a' }]
+    ),
+    undefined
+  );
+  assert.deepEqual(
+    readerAccessOwners({}, undefined, [{ owner: 'account-a' }, { owner: 'account-b' }]),
+    ['account-a', 'account-b']
+  );
+  assert.deepEqual(readerAccessOwners({}, undefined, [{ owner: null }]), []);
 });
