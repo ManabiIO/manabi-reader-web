@@ -286,7 +286,11 @@
     const url = new URL($page.url);
     url.searchParams.set('scope', value);
     url.searchParams.set('q', query);
-    void goto(url, { replaceState: true, noScroll: true, keepFocus: true });
+    void goto(resolve(`/manage?${url.searchParams.toString()}`), {
+      replaceState: true,
+      noScroll: true,
+      keepFocus: true
+    });
   }
   $: normalizedQuery = foldSearch(query.trim());
   $: metadataSeries = normalizedQuery ? booksInMatchingSeries(tree, normalizedQuery) : [];
@@ -488,7 +492,11 @@
     const url = new URL($page.url);
     if (value) url.searchParams.set('q', value);
     else url.searchParams.delete('q');
-    void goto(url, { replaceState: true, noScroll: true, keepFocus: true });
+    void goto(resolve(`/manage?${url.searchParams.toString()}`), {
+      replaceState: true,
+      noScroll: true,
+      keepFocus: true
+    });
   }
   function setLayout(value: string) {
     if (collectionId === 'finished' && !series) {

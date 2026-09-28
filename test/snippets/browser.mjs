@@ -272,10 +272,13 @@ try {
   await page.getByRole('textbox', { name: 'Snippet title', exact: true }).fill('復元した下書き');
   await page.getByRole('button', { name: 'Keep draft', exact: true }).click();
   await openLibrary(page);
-  await page.getByRole('link').filter({ hasText: '復元した下書き' }).click();
+  const recoveryLink = page.getByRole('link').filter({ hasText: '復元した下書き' });
+  const previousDraftURL = await recoveryLink.getAttribute('href');
+  await recoveryLink.click();
   await expect(page.getByRole('textbox', { name: 'Snippet title', exact: true })).toHaveValue(
     '復元した下書き'
   );
+  assert.notEqual(page.url(), new URL(previousDraftURL, page.url()).href);
   // Real document reload, not a JS module reset. A recovered editor must point at its new session.
   page.once('dialog', (d) => d.accept());
   await page.reload();
@@ -383,7 +386,7 @@ try {
     .getByRole('dialog')
     .getByRole('button', { name: 'Use this folder', exact: true })
     .click();
-  await expect(page.getByRole('button', { name: 'Resume move', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Resume move', exact: true })).toBeEnabled();
   assert.equal([...files.values()].filter((f) => f.document.id === cloudID).length, 2);
   assert.equal(counts.writes, writesBefore + 1);
   failCleanup = false;
@@ -400,7 +403,7 @@ try {
     movedPage = await moved.ctx.newPage();
   await openLibrary(movedPage);
   await movedPage.locator('.snippet-shelf .title').filter({ hasText: '日本語の抜粋' }).click();
-  assert.equal(new URL(movedPage.url()).searchParams.get('id'), cloudID);
+  await expect.poll(() => new URL(movedPage.url()).searchParams.get('id')).toBe(cloudID);
   await expect(
     movedPage.getByRole('article', { name: 'Snippet content' }).locator('ruby').first()
   ).toBeVisible();

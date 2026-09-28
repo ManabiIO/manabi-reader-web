@@ -243,12 +243,15 @@
             operation: draft.operation ?? draft.session
           };
           await saveDraft(restored, s.guard);
-          await deleteDraft(draft.key, s.guard);
-          await openDraft(restored, s);
-          // Point reload at the newly owned session, not the discarded recovery key.
+          s.guard();
+          // Publish the durable replacement URL before deleting the old session
+          // or rendering its editor. A reload at any later point can recover it.
           const url = new URL($page.url);
           url.searchParams.set('draft', session);
+          routeSignature = JSON.stringify([owner, '', session]);
           replaceState(resolve(libraryPath(url.pathname + url.search)), $page.state);
+          await deleteDraft(draft.key, s.guard);
+          await openDraft(restored, s);
         } else error = 'This draft is unavailable in the current account.';
       } else await loadRecord(true);
     } catch (reason) {
