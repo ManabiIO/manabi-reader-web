@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import { performance } from 'node:perf_hooks';
 import test from 'node:test';
+import { clearTimeout, setTimeout } from 'node:timers';
 
 import { observeReaderFontLayout } from '../../apps/web/src/lib/functions/reader-font-layout.ts';
 
@@ -24,8 +26,6 @@ function harness(faces, family = '"Noto Serif JP", serif') {
     cancelAnimationFrame(handle) {
       clearTimeout(handle);
     },
-    setTimeout,
-    clearTimeout,
     getComputedStyle() {
       return { fontFamily: family };
     }
@@ -38,9 +38,13 @@ function harness(faces, family = '"Noto Serif JP", serif') {
     }
   };
   let notifications = 0;
-  const stop = observeReaderFontLayout(element, () => {
-    notifications += 1;
-  }, 10000);
+  const stop = observeReaderFontLayout(
+    element,
+    () => {
+      notifications += 1;
+    },
+    10000
+  );
 
   return {
     fonts,
