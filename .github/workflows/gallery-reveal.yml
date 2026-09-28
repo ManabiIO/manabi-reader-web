@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'apps/web/src/lib/components/book-reader/book-reader-image-gallery/**'
+      - 'apps/web/src/lib/components/book-reader/book-reader-continuous/book-reader-continuous.svelte'
       - 'apps/web/src/lib/components/book-reader/reactive-elements.ts'
       - 'apps/web/src/lib/components/html-renderer.svelte'
       - 'tests/browser/test_gallery_reveal_lifetime.py'

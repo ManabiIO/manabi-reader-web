@@ -384,6 +384,12 @@
     )
     .subscribe(() => {
       if (!calculator || !pageManagerConcrete) return;
+      // A zero character estimate is not a valid destination after the reader
+      // has moved down the document. Keep the visible position until geometry
+      // can map it to text instead of jumping back to the first paragraph.
+      if (!prevIntendedCharCount && Math.abs(verticalMode ? window.scrollX : window.scrollY) > 1) {
+        return;
+      }
 
       const scrollPos =
         calculator.getScrollPosByCharCount(prevIntendedCharCount) +
@@ -599,10 +605,17 @@
         return;
       }
       if (pageManagerConcrete && !scrollWhenReady) {
+        const currentScroll = verticalMode ? window.scrollX : window.scrollY;
+        if (!prevIntendedCharCount && Math.abs(currentScroll) > 1) {
+          // Font completion can arrive while the character index is still
+          // unmeasured. Preserve the user's actual reading position.
+          if (sectionToElement.size) updateSectionProgress();
+          dispatch('contentChange', contentEl);
+          return;
+        }
         const scrollPos =
           calculator.getScrollPosByCharCount(prevIntendedCharCount) +
           (verticalMode ? customReadingPointScrollOffset : -customReadingPointScrollOffset);
-        const currentScroll = verticalMode ? window.scrollX : window.scrollY;
         if (Math.abs(currentScroll - scrollPos) > 0.5) {
           isResizeScroll = true;
           pageManagerConcrete.scrollTo(scrollPos);

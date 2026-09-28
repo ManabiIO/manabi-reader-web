@@ -5,6 +5,7 @@ import unittest
 import zipfile
 
 from playwright.sync_api import expect
+from reader_controls import reveal_reader_controls
 from test_gallery_reveal_lifetime import GalleryRevealBase, illustrated_book
 
 
@@ -31,7 +32,8 @@ class GalleryContinuity(GalleryRevealBase):
         self.close_gallery(panel)
         for layout, saved in [('Pages', 'paginated'), ('Scroll', 'continuous'), ('Pages', 'paginated')]:
             with self.subTest(layout=layout):
-                self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+                self.page.evaluate('document.activeElement?.blur()')
+                reveal_reader_controls(self.page)
                 self.page.get_by_role('button', name='Themes & Settings', exact=True).click()
                 appearance = self.page.get_by_role('dialog', name='Themes & Settings', exact=True)
                 button = appearance.get_by_role('button', name=layout, exact=True)
