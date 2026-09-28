@@ -1,0 +1,64 @@
+name: Publish verified Library parity candidate
+on:
+  push:
+    branches: [chore/library-parity-publication-20260928]
+permissions:
+  contents: write
+concurrency:
+  group: library-parity-publication-20260928
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository == 'ManabiIO/manabi-reader-web'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Validate the finite patch payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import bz2, hashlib
+          from pathlib import Path
+          parts = [Path(f'.parity-publication/part-{i:02}.bin').read_bytes() for i in range(1, 7)]
+          assert [len(part) for part in parts] == [10000, 10000, 10000, 10000, 10000, 1976]
+          compressed = b''.join(parts)
+          assert hashlib.sha256(compressed).hexdigest() == '14b4c3d0ce572223320753e3498bdb6120530d565c4b7ae107007b007979d023'
+          decoder = bz2.BZ2Decompressor()
+          patch = decoder.decompress(compressed, max_length=248890)
+          assert decoder.eof and not decoder.unused_data and len(patch) == 248889
+          assert hashlib.sha256(patch).hexdigest() == '2fae48b41667c3b35db510328ac212642e038c94a149da8b05d42bcdc33695c2'
+          Path('/tmp/library-parity.patch').write_bytes(patch)
+          PY
+      - name: Publish only the verified application tree
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE: b9cd878743486ff27e007e9064dae3c57f563bcd
+          EXPECTED_TREE: 713afc0702b71cc307b352b1796e217ca011d3db
+          FEATURE: feat/library-selection-metadata-chrome-20260928
+        run: |
+          set -euo pipefail
+          git checkout --detach "$BASE"
+          test "$(git rev-parse HEAD^{tree})" = 0ebe30e3e89465fc226727a0d42fc1b8427280b4
+          git apply --check --index /tmp/library-parity.patch
+          git apply --index /tmp/library-parity.patch
+          git diff --cached --check
+          test "$(git write-tree)" = "$EXPECTED_TREE"
+          git diff --cached --stat
+          commit=$(printf '%s\n' 'feat(library): add desktop selection, metadata, bulk organization and reader chrome' | git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit-tree "$EXPECTED_TREE" -p "$BASE")
+          observed=$(git ls-remote origin "refs/heads/$FEATURE" | cut -f1)
+          test "$observed" = "$BASE"
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin "$commit:refs/heads/$FEATURE"
+          printf 'Published commit: %s\nVerified tree: %s\n' "$commit" "$EXPECTED_TREE"
+          {
+            printf 'Published commit: `%s`\n\n' "$commit"
+            printf 'Verified tree: `%s`\n' "$EXPECTED_TREE"
+            printf 'Draft PR and read-only qualification are separate. No merge or deployment.\n'
+          } >> "$GITHUB_STEP_SUMMARY"
