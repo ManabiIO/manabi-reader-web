@@ -15,7 +15,7 @@ import {
 } from './reader-statistics';
 import { commitTransaction, explainBookStorageError } from './commit-transaction.mjs';
 import { matchesDirectImportIdentity, normalizedDirectImportHash } from './direct-import-identity';
-import { snapshotBookmarkData } from './book-records';
+import { commitOwnedBookmark, snapshotBookmarkData } from './book-records';
 import { captureLibraryOperation } from '$lib/manabi/operation-scope';
 import type {
   BooksDbAudioBook,
@@ -442,34 +442,13 @@ export class DatabaseService {
     const scope = captureLibraryOperation();
     try {
       scope.assertCurrent();
-      const db = await this.db;
-      scope.assertCurrent();
-      const tx = db.transaction(['data', 'bookmark'], 'readwrite');
-      const abort = () => {
-        try {
-          tx.abort();
-        } catch {
-          /* Already settled. */
-        }
-      };
-      scope.signal.addEventListener('abort', abort, { once: true });
-      try {
-        return await commitTransaction(tx, async () => {
-          scope.assertCurrent();
-          scope.signal.throwIfAborted();
-          const book = await tx.objectStore('data').get(snapshot.dataId);
-          if (!book) throw new Error('This book is no longer in the library.');
-          if (book.libraryOwner && book.libraryOwner !== scope.profileId)
-            throw new Error('This book belongs to another account.');
-          const bookmarks = tx.objectStore('bookmark');
-          const before = await bookmarks.get(snapshot.dataId);
-          scope.assertCurrent();
-          scope.signal.throwIfAborted();
-          return bookmarks.put(mergeCompletion(before, snapshot));
-        });
-      } finally {
-        scope.signal.removeEventListener('abort', abort);
-      }
+      return await commitOwnedBookmark(
+        await this.db,
+        snapshot,
+        scope.profileId,
+        scope.assertCurrent,
+        scope.signal
+      );
     } finally {
       scope.stop();
     }
