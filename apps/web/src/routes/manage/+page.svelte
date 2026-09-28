@@ -82,7 +82,6 @@
   import { sha256 } from '$lib/manabi/sources';
   import type { LibraryMenuModel } from '$lib/library/library-menu';
   import { reduceToEmptyString } from '$lib/functions/rxjs/reduce-to-empty-string';
-  import pLimit from 'p-limit';
   import {
     combineLatest,
     distinctUntilChanged,
@@ -876,40 +875,31 @@
 
       const authority = statisticsAuthority(scope, cancelSignal);
       try {
-        const limiter = pLimit(1);
-        const tasks: Promise<void>[] = [];
         let failed = 0;
         const db = await database.db;
         authority.guard.assertCurrent();
 
         replicationProgress$.next({ progressBase: 1, maxProgress: selectedBooks.length });
 
-        selectedBooks.forEach((book) => {
-          tasks.push(
-            limiter(async () => {
-              try {
-                authority.guard.assertCurrent();
-                const plan = await statisticIdentityPlan(db, book.id, authority.guard);
-                if (plan.unresolvedLegacy)
-                  throw new Error(
-                    `Older statistics for “${plan.title}” cannot be safely assigned to this copy. ` +
-                      'Open Statistics and export the raw history before resolving the duplicate title.'
-                  );
-                await deleteStatisticsForIdentityPlan(db, book.id, plan, authority.guard);
-                replicationProgress$.next({ progressToAdd: 1 });
-              } catch (error) {
-                handleErrorDuringReplication(
-                  error,
-                  `Error on deleting statistics for ${book.title}: `,
-                  [limiter]
-                );
-                failed += 1;
-              }
-            })
-          );
-        });
-
-        await Promise.all(tasks).catch(() => {});
+        for (const book of selectedBooks) {
+          try {
+            authority.guard.assertCurrent();
+            const plan = await statisticIdentityPlan(db, book.id, authority.guard);
+            if (plan.unresolvedLegacy)
+              throw new Error(
+                `Older statistics for “${plan.title}” cannot be safely assigned to this copy. ` +
+                  'Open Statistics and export the raw history before resolving the duplicate title.'
+              );
+            await deleteStatisticsForIdentityPlan(db, book.id, plan, authority.guard);
+            replicationProgress$.next({ progressToAdd: 1 });
+          } catch (error) {
+            handleErrorDuringReplication(
+              error,
+              `Error on deleting statistics for ${book.title}: `
+            );
+            failed += 1;
+          }
+        }
 
         if (failed) {
           const errorMessage = `Unable to delete statistics of ${pluralize(failed, 'Book')}`;
