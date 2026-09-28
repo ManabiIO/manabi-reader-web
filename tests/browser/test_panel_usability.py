@@ -116,7 +116,9 @@ class PanelUsabilityBrowser(LibraryBase):
         day.press('Enter')
         panel = self.page.get_by_role('dialog', name='Reading day details', exact=True)
         expect(panel).to_be_visible()
-        target = self.page.get_by_role('button', name='Use all-time streak data', exact=True).first
+        # The streak toggle can sit behind the positioned popup. Use a visible
+        # toolbar target so this is a real outside pointer interaction.
+        target = self.page.get_by_role('button', name='Filter books', exact=True)
         target.click()
         expect(panel).to_have_count(0)
         # Safari does not focus buttons on pointer click. It must at least not
