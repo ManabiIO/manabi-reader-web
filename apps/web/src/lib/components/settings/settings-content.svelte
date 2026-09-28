@@ -639,16 +639,16 @@
           bind:fontValue={fontFamilyGroupOne}
         />
         {#if fontCacheSupported}
-          <button
-            type="button"
-            class="text-sm underline-offset-4 hover:underline"
-            on:click={() =>
+          <Button
+            variant="link"
+            size="sm"
+            onclick={() =>
               dialogManager.dialogs$.next([
                 {
                   component: SettingsUserFontDialog,
                   props: { fontFamily: fontFamilyGroupOne$ }
                 }
-              ])}>Custom fonts</button
+              ])}>Custom fonts</Button
           >
         {/if}
       </div>
@@ -681,16 +681,16 @@
           bind:fontValue={fontFamilyGroupTwo}
         />
         {#if fontCacheSupported}
-          <button
-            type="button"
-            class="text-sm underline-offset-4 hover:underline"
-            on:click={() =>
+          <Button
+            variant="link"
+            size="sm"
+            onclick={() =>
               dialogManager.dialogs$.next([
                 {
                   component: SettingsUserFontDialog,
                   props: { fontFamily: fontFamilyGroupTwo$ }
                 }
-              ])}>Custom fonts</button
+              ])}>Custom fonts</Button
           >
         {/if}
       </div>
@@ -1143,16 +1143,17 @@
             bind:selectedOptionId={customReadingPointEnabled}
           />
           {#if customReadingPointEnabled}
-            <button
-              type="button"
-              class="ml-4 hover:underline"
-              on:click={() => {
+            <Button
+              variant="ghost"
+              size="sm"
+              class="ml-4"
+              onclick={() => {
                 verticalCustomReadingPosition$.next(100);
                 horizontalCustomReadingPosition$.next(0);
               }}
             >
               Reset Points
-            </button>
+            </Button>
           {/if}
         </div>
       </SettingsItemGroup>
