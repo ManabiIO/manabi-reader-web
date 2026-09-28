@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
+import { setImmediate } from 'node:timers';
 import { compileFunction } from 'node:vm';
 import ts from 'typescript';
 import * as transactions from '../../apps/web/src/lib/data/database/books-db/commit-transaction.mjs';
@@ -250,12 +251,10 @@ function memoryDB(initial, options = {}) {
     ])
   );
   let transactions = 0;
-  const copy = (name, row) =>
-    row === undefined
-      ? undefined
-      : name === 'localLibraries'
-        ? { ...row }
-        : structuredClone(row);
+  const copy = (name, row) => {
+    if (row === undefined) return undefined;
+    return name === 'localLibraries' ? { ...row } : globalThis.structuredClone(row);
+  };
   const db = {
     transaction(names) {
       transactions++;
@@ -354,7 +353,7 @@ function completionFixture(options = {}) {
 }
 test('completion rejects a cached book belonging to a different account', async () => {
   const fixture = completionFixture({ bookOwner: 'bob' });
-  const before = structuredClone(fixture.db.rows('bookmark'));
+  const before = globalThis.structuredClone(fixture.db.rows('bookmark'));
   await assert.rejects(fixture.setCompletion(1, 'finished'), /another account/);
   assert.deepEqual(fixture.db.rows('bookmark'), before);
   assert.equal(fixture.publications, 0);
@@ -393,7 +392,7 @@ test('an account change during a completion request aborts its write', async () 
       if (name === 'bookmark' && op === 'put') fixture.owner.change('bob');
     }
   });
-  const before = structuredClone(fixture.db.rows('bookmark'));
+  const before = globalThis.structuredClone(fixture.db.rows('bookmark'));
   await assert.rejects(fixture.setCompletion(1, 'finished'));
   assert.deepEqual(fixture.db.rows('bookmark'), before);
   assert.equal(fixture.publications, 0);
@@ -448,7 +447,10 @@ test('a late permission grant cannot resurrect a disconnected source', async () 
   fixture.grant.resolve('granted');
   await rejected;
   assert.deepEqual(fixture.db.rows('localLibraries'), []);
-  assert.deepEqual(fixture.db.rows('books').map((row) => row.id), ['other-link']);
+  assert.deepEqual(
+    fixture.db.rows('books').map((row) => row.id),
+    ['other-link']
+  );
   assert.equal(fixture.library.writable, false);
 });
 test('a stale read-only reconnect preserves newer name and write consent', async () => {
@@ -505,9 +507,7 @@ function linkFixture(records, links) {
     '$lib/data/database/books-db/library-import': { readLibraryIdentities: async () => records },
     '$lib/library/book-identity': {
       normalizedContentHash: (value) =>
-        typeof value === 'string' && /^[a-f0-9]{64}$/i.test(value)
-          ? value.toLowerCase()
-          : undefined
+        typeof value === 'string' && /^[a-f0-9]{64}$/i.test(value) ? value.toLowerCase() : undefined
     },
     '$lib/functions/file-loaders/epub/load-epub': {},
     '$lib/functions/file-loaders/txt/load-txt': {},
@@ -536,11 +536,7 @@ test('refresh excludes stale content claims from usable links without erasing th
   await fixture.api.refreshLinkedBooks();
   assert.deepEqual(fixture.api.linkedBooks.value, [valid]);
   assert.deepEqual(fixture.api.allLinkedBooks.value, [stale, valid]);
-  assert.deepEqual(
-    fixture.migrated,
-    [stale, valid],
-    'migration must still see conflicting claims'
-  );
+  assert.deepEqual(fixture.migrated, [stale, valid], 'migration must still see conflicting claims');
 });
 test('refresh excludes removed records, invalid hashes and inconsistent ownership', async () => {
   const digest = hash(original);
