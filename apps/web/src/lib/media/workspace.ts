@@ -25,6 +25,7 @@ import {
 import { MediaStore } from './store.js';
 import { type ByteSource, localSource, supportedVideo, identify } from './sources.js';
 import { type Bunny, MediaPipeline } from './pipeline.js';
+import { DecodeSessionCache } from './decode-session.js';
 import { VideoPlayer } from './player.js';
 import { matchSidecar, parseSubtitles, cueDigest } from './captions.js';
 import { discoverEmbedded } from './embedded.js';
@@ -105,6 +106,7 @@ export class VideoWorkspace {
   private switchPaused = new Set<string>();
   private player?: VideoPlayer;
   private queue: TranscriptionQueue;
+  private decoderCache: DecodeSessionCache<Job>;
   private stopStore: () => void;
   private openAbort?: AbortController;
   private lifetime = new AbortController();
@@ -299,23 +301,18 @@ export class VideoWorkspace {
     );
     host.append(this.root);
     const engine = options.engine ?? new MossClient(options.runtimeBase);
+    this.decoderCache = new DecodeSessionCache<Job>(async (job, signal) => {
+      const source = await this.resolveSource(jobContentKey(job), signal);
+      const bunny = await abortable(signal, () => options.loadBunny());
+      signal.throwIfAborted();
+      return new MediaPipeline(bunny, source, signal);
+    });
     this.queue = new TranscriptionQueue(
       this.store,
       options.scope,
       engine,
-      async (job, start, end, signal) => {
-        return inAbortScope([signal, this.lifetime.signal], async (operation) => {
-          const source = await this.resolveSource(jobContentKey(job), operation);
-          const bunny = await abortable(operation, () => options.loadBunny());
-          operation.throwIfAborted();
-          const pipeline = new MediaPipeline(bunny, source, operation);
-          try {
-            return await pipeline.decode(Number(job.audioTrack), start, end, operation);
-          } finally {
-            pipeline.dispose();
-          }
-        });
-      },
+      (job, start, end, signal) =>
+        this.decoderCache.decode(job, Number(job.audioTrack), start, end, signal),
       (p) => {
         if (this.closed) return;
         if (this.current?.key === jobContentKey(p.job)) {
@@ -333,6 +330,7 @@ export class VideoWorkspace {
           this.player?.generationPreview(p.job.id, p.provisional);
         }
         if (['complete', 'paused', 'failed'].includes(p.stage)) {
+          this.decoderCache.release(p.job.id);
           this.progress.hidden = true;
           void this.refreshTracks().catch((e) => this.error(e));
         } /* Durable job changes notify the store. Download byte progress must not
@@ -1739,6 +1737,7 @@ export class VideoWorkspace {
     const queue = Promise.resolve().then(() => this.queue.dispose());
     const player = Promise.resolve().then(() => this.player?.dispose());
     this.closing = Promise.allSettled([queue, player]).then(async (results) => {
+      this.decoderCache.dispose();
       const failures = results
         .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
         .map((result) => result.reason);
