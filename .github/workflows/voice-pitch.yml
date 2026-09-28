@@ -15,7 +15,9 @@ concurrency:
 jobs:
   native:
     name: Pitch ${{ matrix.browser }}
-    runs-on: ubuntu-24.04
+    # Headless Linux WebKit reports play while its WAV media clock stays at 0;
+    # macOS WebKit exercises the actual Safari media pipeline.
+    runs-on: ${{ matrix.browser == 'webkit' && 'macos-15' || 'ubuntu-24.04' }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -38,6 +40,7 @@ jobs:
           python -m pip install 'playwright==1.63.0'
           python -m playwright install --with-deps ${{ matrix.browser }}
       - name: Provide a native output device on the headless runner
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get install -y --no-install-recommends pulseaudio pulseaudio-utils
           pulseaudio --start --exit-idle-time=-1
