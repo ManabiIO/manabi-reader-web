@@ -7,6 +7,7 @@
 import { finite, onlyKeys, record, validateCue, type Cue } from './contracts.js';
 import { joinBoundary, SAMPLE_RATE } from './moss-progressive.js';
 import { sameCueTiming } from './moss-cue-agreement.js';
+import { cueDigest } from './captions.js';
 
 /** A fixed 26-second core keeps each input within MOSS's 30-second budget. */
 export const SPARSE_CORE_SECONDS = 26;
@@ -195,19 +196,34 @@ export function sparseMissingWindowsForLead(
   position: number,
   leadSeconds: number
 ): number[] {
-  const first = Math.min(state.windows.length - 1, Math.floor(position / SPARSE_CORE_SECONDS));
+  return missingPlaybackWindows(
+    state.windows,
+    duration,
+    position,
+    leadSeconds,
+    sparsePredecessor(state, position)
+  );
+}
+function missingPlaybackWindows(
+  windows: readonly unknown[],
+  duration: number,
+  position: number,
+  leadSeconds: number,
+  predecessor: number | undefined
+): number[] {
+  const first = Math.min(windows.length - 1, Math.floor(position / SPARSE_CORE_SECONDS));
   const end = Math.min(duration, position + leadSeconds);
   const last = Math.min(
-    state.windows.length - 1,
+    windows.length - 1,
     Math.max(first, Math.ceil((end + SPARSE_CONTEXT_SECONDS) / SPARSE_CORE_SECONDS) - 1)
   );
   const start =
-    sparsePredecessor(state, position) ??
+    predecessor ??
     (first > 0 && position < first * SPARSE_CORE_SECONDS + SPARSE_CONTEXT_SECONDS
       ? first - 1
       : first);
   return Array.from({ length: last - start + 1 }, (_, offset) => start + offset).filter(
-    (index) => !state.windows[index]
+    (index) => !windows[index]
   );
 }
 interface SparseComponent {
@@ -313,10 +329,15 @@ function sparsePredecessor(state: SparseState, position: number): number | undef
   return position < neededUntil ? component.first - 1 : undefined;
 }
 
-function sparseProjection(state: SparseState, duration: number, acceptedOnly = false) {
+function sparseProjection(
+  state: SparseState,
+  duration: number,
+  acceptedOnly = false,
+  components = sparseComponents(state)
+) {
   const cues: Cue[] = [];
   const ready: { start: number; end: number }[] = [];
-  for (const component of sparseComponents(state)) {
+  for (const component of components) {
     // A disconnected component is useful near a seek, but its text can change
     // when its preceding seam is repaired. Never make that text immutable.
     if (acceptedOnly && component.first !== 0) break;
@@ -341,6 +362,66 @@ function sparseProjection(state: SparseState, duration: number, acceptedOnly = f
   }
   return { cues: cues.sort((a, b) => a.start - b.start), ready };
 }
+
+/** A display-only snapshot built on a progress notification, never a persistence
+ * authority. It stores no source hypotheses/cue objects and is not identity-cached:
+ * the caller must rebuild it even when a mutable Job is notified a second time.
+ * Playback ticks query numeric ranges instead of rejoining and hashing all cues.
+ */
+export function sparsePlaybackSnapshot(state: SparseState, duration: number) {
+  const components = sparseComponents(state);
+  const { cues, ready } = sparseProjection(state, duration, false, components);
+  const present = state.windows.map(Boolean);
+  const predecessors = components.map((component) => {
+    const edge = component.first * SPARSE_CORE_SECONDS + SPARSE_CONTEXT_SECONDS;
+    return {
+      first: component.first,
+      start: component.first * SPARSE_CORE_SECONDS,
+      end: (component.last + 1) * SPARSE_CORE_SECONDS,
+      neededUntil: component.cues.reduce(
+        (end, cue) => (cue.start < edge ? Math.max(end, cue.end) : end),
+        edge
+      )
+    };
+  });
+  let count = 0,
+    totalMs = 0,
+    inputSeconds = 0,
+    coreSeconds = 0;
+  state.windows.forEach((window, index) => {
+    if (!window) return;
+    const bounds = sparseBounds(index, duration);
+    count++;
+    totalMs += window.inferenceMs;
+    inputSeconds += bounds.end - bounds.start;
+    coreSeconds += bounds.coreEnd - bounds.coreStart;
+  });
+  return Object.freeze({
+    cueDigest: cueDigest(cues),
+    count,
+    totalMs,
+    inputSeconds,
+    coreSeconds,
+    lead(position: number): number {
+      if (!Number.isFinite(position) || position < 0 || position >= duration) return 0;
+      // Preserve first-component precedence even for conflicting overlapping repairs.
+      const interval = ready.find(({ start, end }) => position >= start && position < end);
+      return interval ? interval.end - position : 0;
+    },
+    missingWindows(position: number, leadSeconds: number): number[] {
+      const component = predecessors.find(({ start, end }) => position >= start && position < end);
+      const predecessor =
+        component &&
+        component.first &&
+        !present[component.first - 1] &&
+        position < component.neededUntil
+          ? component.first - 1
+          : undefined;
+      return missingPlaybackWindows(present, duration, position, leadSeconds, predecessor);
+    }
+  });
+}
+export type SparsePlaybackSnapshot = ReturnType<typeof sparsePlaybackSnapshot>;
 
 /** Display complete agreed components, holding only their unresolved outer cues. */
 export function safeSparseCues(state: SparseState, duration: number): Cue[] {

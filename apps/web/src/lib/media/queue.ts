@@ -7,7 +7,7 @@
 import { type ContentKey, type Cue, type Scope, type Track, language } from './contracts.js';
 import { MediaStore } from './store.js';
 import { MOSS, type ModelProgress } from './model-cache.js';
-import { audioProof } from './audio-proof.js';
+import { audioProofAsync } from './audio-proof.js';
 import type { DeviceKey } from './device-checkpoint.js';
 import { parseMoss, parseMossPreview, planWindows, ownedCues } from './moss-output.js';
 import { newProgressiveState } from './moss-progressive.js';
@@ -639,7 +639,7 @@ export class TranscriptionQueue {
                   signal.throwIfAborted();
                   const pcm = sparseModelPcm(decoded, first.start, second.end, 60);
                   const proof = job.audioProofs
-                    ? audioProof(first.start, second.end, pcm)
+                    ? await audioProofAsync(first.start, second.end, pcm, signal)
                     : undefined;
                   const inputDuration = pcm.length / 16000;
                   const exactSilence = pcm.every((sample) => sample === 0);
@@ -754,7 +754,7 @@ export class TranscriptionQueue {
                   signal.throwIfAborted();
                   const pcm = sparseModelPcm(decoded, bounds.start, bounds.end, 30);
                   const proof = job.audioProofs
-                    ? audioProof(bounds.start, bounds.end, pcm)
+                    ? await audioProofAsync(bounds.start, bounds.end, pcm, signal)
                     : undefined;
                   const inputDuration = pcm.length / 16000;
                   let raw = '';

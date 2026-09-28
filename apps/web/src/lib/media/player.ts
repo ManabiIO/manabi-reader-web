@@ -25,9 +25,8 @@ import type { TranscriptionDraft } from './transcription-draft.js';
 import { jobContentKey, type Job } from './jobs.js';
 import {
   sparseBounds,
-  sparseLead,
-  safeSparseCues,
-  sparseMissingWindowsForLead,
+  sparsePlaybackSnapshot,
+  type SparsePlaybackSnapshot,
   SPARSE_CORE_SECONDS,
   SPARSE_CONTEXT_SECONDS
 } from './sparse-transcription.js';
@@ -73,6 +72,8 @@ export class VideoPlayer {
   private publishedTracks: Track[] = [];
   private temporaryTracks: Track[] = [];
   private activeJob?: Job;
+  private sparsePlayback?: SparsePlaybackSnapshot;
+  private draftDigests = new Map<string, string>();
   private waitingForOriginLock?: string;
   private firstWindowJob?: string;
   private firstWindowStartedAt?: number;
@@ -899,6 +900,9 @@ export class VideoPlayer {
   generationProgress(job: Job, stage?: string) {
     if (this.closed || this.generationKey !== jobContentKey(job)) return;
     this.activeJob = job;
+    // Notifications, not object identity, define this snapshot's lifetime. Custom
+    // engines/workspaces may update the same Job object before notifying again.
+    this.sparsePlayback = job.sparse ? sparsePlaybackSnapshot(job.sparse, job.duration) : undefined;
     if (this.firstWindowJob !== job.id) {
       clearInterval(this.firstWindowClock);
       this.firstWindowClock = undefined;
@@ -976,7 +980,8 @@ export class VideoPlayer {
       return;
     }
     const position = Math.min(job.duration, this.video.currentTime || 0);
-    const lead = sparseLead(state, job.duration, position);
+    const playback = this.sparsePlayback!;
+    const lead = playback.lead(position);
     // Leave two halo widths of lead so playback started near zero can use the
     // first safe window without requiring a second inference at its edge.
     const needed = Math.min(
@@ -1005,29 +1010,12 @@ export class VideoPlayer {
         'Waiting for transcription in another tab or workspace. Close a stuck tab to release its model, or play without captions.';
       return;
     }
-    const samples = state.windows.flatMap((window, index) => {
-      if (!window) return [];
-      const bounds = sparseBounds(index, job.duration);
-      return [
-        {
-          ms: window.inferenceMs,
-          inputSeconds: bounds.end - bounds.start,
-          coreSeconds: bounds.coreEnd - bounds.coreStart
-        }
-      ];
-    });
-    const totalMs = samples.reduce((sum, sample) => sum + sample.ms, 0);
-    const inputSeconds = samples.reduce((sum, sample) => sum + sample.inputSeconds, 0);
-    const coreSeconds = samples.reduce((sum, sample) => sum + sample.coreSeconds, 0);
-    const missingWindows = sparseMissingWindowsForLead(state, job.duration, position, needed);
+    const { count, totalMs, inputSeconds, coreSeconds } = playback;
+    const missingWindows = playback.missingWindows(position, needed);
     // A queue progress callback can precede the saved draft page. Do not start
     // playback until the accepted captions from this checkpoint are visible.
-    const draft = this.waitForCaptions
-      ? this.drafts.find((item) => item.track.id === job.id)
-      : undefined;
     const awaitingDraft =
-      this.waitForCaptions &&
-      (!draft || cueDigest(draft.track.cues) !== cueDigest(safeSparseCues(state, job.duration)));
+      this.waitForCaptions && this.draftDigests.get(job.id) !== playback.cueDigest;
     const missing = lead < needed || awaitingDraft;
     if (nearGap) this.pauseAtCaptionGap();
     const repairing = lead < needed && !missingWindows.length;
@@ -1043,7 +1031,7 @@ export class VideoPlayer {
           ? `estimating after the first window${this.firstWindowStartedAt ? ` (${formatMediaTime((Date.now() - this.firstWindowStartedAt) / 1000)} elapsed on this device)` : ''}`
           : 'ready';
     const speed =
-      samples.length && totalMs > coreSeconds * 1000
+      count && totalMs > coreSeconds * 1000
         ? ' Recognition is slower than playback; captions may need to buffer again.'
         : '';
     this.bufferStatus.textContent = `Caption lead: ${formatMediaTime(lead)}. ${
@@ -1076,6 +1064,9 @@ export class VideoPlayer {
           ? { ...previous, state: draft.state }
           : draft;
       });
+    this.draftDigests = new Map(
+      this.drafts.map((draft) => [draft.track.id, cueDigest(draft.track.cues)])
+    );
     for (const draft of this.drafts) {
       this.localDraftIds.add(draft.track.id);
       if (['paused', 'failed', 'complete'].includes(draft.state)) {
@@ -1694,6 +1685,8 @@ export class VideoPlayer {
     this.closed = true;
     clearInterval(this.firstWindowClock);
     this.generationOutcomes = undefined;
+    this.sparsePlayback = undefined;
+    this.draftDigests.clear();
     this.alive.abort();
     this.menu.dispose();
     this.observer.disconnect();

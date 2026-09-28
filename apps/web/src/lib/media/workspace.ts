@@ -12,7 +12,7 @@ import { audioLanguage, chooseTranscriptionAudio, type AudioChoice } from './aud
 import { transcriptionDraft, type TranscriptionDraft } from './transcription-draft.js';
 import { jobCanResume, jobContentKey, validateJob } from './jobs.js';
 import { deviceKey, type DeviceKey } from './device-checkpoint.js';
-import { audioProof } from './audio-proof.js';
+import { audioProofAsync } from './audio-proof.js';
 import { sparseModelPcm } from './sparse-transcription.js';
 import {
   type Scope,
@@ -819,7 +819,7 @@ export class VideoWorkspace {
                 proof.end,
                 proof.end - proof.start > 30 ? 60 : 30
               );
-              digest = audioProof(proof.start, proof.end, pcm).digest;
+              digest = (await audioProofAsync(proof.start, proof.end, pcm, signal)).digest;
               checked.set(id, digest);
             }
             if (digest !== proof.digest) {

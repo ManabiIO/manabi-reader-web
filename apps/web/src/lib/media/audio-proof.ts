@@ -22,6 +22,45 @@ export function audioProof(start: number, end: number, pcm: Float32Array): Audio
   return { start, end, digest: new Sha256().update(bytes).hex() };
 }
 
+/** Bounded native SHA-256 for one decoded input, not a whole-file hashing API.
+ * digest copies the byte view on entry; await it before transferring PCM to MOSS.
+ * Cancellation fences the result, not the browser's already-started hash operation.
+ * The synchronous path remains for environments without Web Crypto. A native
+ * failure is not silently retried on the UI thread or accepted without evidence.
+ */
+export async function audioProofAsync(
+  start: number,
+  end: number,
+  pcm: Float32Array,
+  signal: AbortSignal
+): Promise<AudioProof> {
+  signal.throwIfAborted();
+  if (
+    !(pcm instanceof Float32Array) ||
+    !pcm.length ||
+    pcm.length > 60 * 16000 ||
+    !(pcm.buffer instanceof ArrayBuffer)
+  )
+    throw new Error('Invalid bounded audio proof input');
+  // Avoid a callback invocation per sample; preserve exactly the finite-value check.
+  for (let i = 0; i < pcm.length; i++)
+    if (!Number.isFinite(pcm[i])) throw new Error('Invalid audio proof input');
+  const bytes = new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength);
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) return { start, end, digest: new Sha256().update(bytes).hex() };
+  const result = await subtle.digest('SHA-256', bytes);
+  signal.throwIfAborted();
+  if (!(result instanceof ArrayBuffer) || result.byteLength !== 32)
+    throw new Error('Invalid SHA-256 audio proof result');
+  return {
+    start,
+    end,
+    digest: Array.from(new Uint8Array(result), (byte) => byte.toString(16).padStart(2, '0')).join(
+      ''
+    )
+  };
+}
+
 /** Every saved sparse hypothesis must have one matching decoded-input proof. */
 export function validateAudioProofs(
   value: unknown,
