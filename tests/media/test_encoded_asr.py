@@ -84,5 +84,50 @@ class EncodedQualityTest(unittest.TestCase):
             gate.assess(good, '！', .35)
 
 
+class RemoteReloadEvidenceTest(unittest.TestCase):
+    def good(self):
+        old = {'pageLifetime': 'before', 'counts': {'inference': 1}, 'decodeCalls': [{}],
+               'sourceReads': [{'phase': 'decoder-late-seek', 'start': 8 * 1024 * 1024,
+                                'end': 9 * 1024 * 1024, 'bytes': 1024 * 1024}]}
+        new = {'pageLifetime': 'after', 'counts': {'inference': 1}, 'decodeCalls': [{}],
+               'sourceReads': [{'phase': 'resume', 'start': 7 * 1024 * 1024,
+                                'end': 8 * 1024 * 1024, 'bytes': 1024 * 1024}],
+               'previousLifetime': old}
+        return new, {'large': True, 'videoBytes': 20 * 1024 * 1024}
+
+    def test_accepts_distinct_lifetimes_and_bounded_actual_decode_reads(self):
+        result, manifest = self.good()
+        gate.assess_remote_reload(result, manifest)
+
+    def test_hash_reads_do_not_prove_nonzero_decoder_seeks(self):
+        for phase in ['identity', 'reload-identity']:
+            result, manifest = self.good()
+            result['sourceReads'][0]['phase'] = phase
+            with self.subTest(phase=phase), self.assertRaises(AssertionError):
+                gate.assess_remote_reload(result, manifest)
+
+    def test_small_fixture_or_same_page_cannot_pass(self):
+        result, manifest = self.good()
+        with self.assertRaises(AssertionError):
+            gate.assess_remote_reload(result, {**manifest, 'videoBytes': 2 * 1024 * 1024})
+        result['pageLifetime'] = 'before'
+        with self.assertRaises(AssertionError):
+            gate.assess_remote_reload(result, manifest)
+
+    def test_missing_or_repeated_inference_cannot_pass(self):
+        for calls in [0, 2]:
+            result, manifest = self.good()
+            result['counts']['inference'] = calls
+            with self.subTest(calls=calls), self.assertRaises(AssertionError):
+                gate.assess_remote_reload(result, manifest)
+
+    def test_oversized_request_or_failed_read_cannot_pass(self):
+        for change in [{'bytes': 0}, {'end': 30 * 1024 * 1024}]:
+            result, manifest = self.good()
+            result['sourceReads'][0].update(change)
+            with self.subTest(change=change), self.assertRaises(AssertionError):
+                gate.assess_remote_reload(result, manifest)
+
+
 if __name__ == '__main__':
     unittest.main()

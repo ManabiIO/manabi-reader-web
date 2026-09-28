@@ -53,19 +53,43 @@ def assess(result, expected, threshold):
     return {'edits': edits, 'referenceCharacters': len(reference), 'characterErrorRate': cer}
 
 
+def assess_remote_reload(result, manifest):
+    # Read-phase labels come from a wrapper around the real ByteSource, not
+    # from the driver's initial full-file hash or unrelated server requests.
+    if manifest.get('large') is not True or manifest.get('videoBytes', 0) <= 8 * 1024 * 1024:
+        raise AssertionError('Fixture did not exceed the production read-ahead cache')
+    previous = result.get('previousLifetime', {})
+    if not previous.get('pageLifetime') or previous['pageLifetime'] == result.get('pageLifetime'):
+        raise AssertionError('The source was not recreated in a new browser page')
+    for record, phase in [(previous, 'decoder-late-seek'), (result, 'resume')]:
+        reads = record.get('sourceReads', [])
+        if not any(read.get('phase') == phase and read.get('start', 0) >= 4 * 1024 * 1024
+                   and read.get('bytes', 0) > 0 for read in reads):
+            raise AssertionError('Large remote decode or resumed input did not reach nonzero network offsets')
+        if any(not 0 < read['end'] - read['start'] <= 4 * 1024 * 1024 for read in reads):
+            raise AssertionError('A remote request exceeded its bounded range')
+    if (previous.get('counts', {}).get('inference') != 1 or result.get('counts', {}).get('inference') != 1
+            or len(previous.get('decodeCalls', [])) != 1 or len(result.get('decodeCalls', [])) != 1):
+        raise AssertionError('Full reload repeated accepted work or omitted an ordinary window')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--fixture', required=True, type=Path)
     parser.add_argument('--language', choices=['en', 'ja'], required=True)
     parser.add_argument('--threaded', action='store_true')
     parser.add_argument('--source', choices=['file', 'range'], required=True)
+    parser.add_argument('--large-reload', action='store_true',
+                        help='Require >8 MiB of encoded video, late HTTP ranges and an actual page reload')
     parser.add_argument('--max-cer', type=float, default=0.35)
     parser.add_argument('--output', required=True, type=Path)
     args = parser.parse_args()
     valid_cer(args.max_cer)
+    if args.large_reload and args.source != 'range':
+        parser.error('--large-reload requires --source range')
     args.output.mkdir(parents=True, exist_ok=True)
-    fixture_dir = ROOT / '.cache/media-fixtures/encoded' / args.language
-    manifest = build_fixture(args.fixture, fixture_dir, args.language)
+    fixture_dir = ROOT / '.cache/media-fixtures/encoded' / (args.language + ('-large' if args.large_reload else ''))
+    manifest = build_fixture(args.fixture, fixture_dir, args.language, large=args.large_reload)
     mode = 'threaded' if args.threaded else 'single'
     for path in [ROOT / f'apps/web/static/moss/{mode}/moss.wasm',
                  ROOT / f'apps/web/static/moss/{mode}/moss.mjs',
@@ -147,7 +171,18 @@ def main():
                     return state.job?.status === 'paused';
                 }""", timeout=10 * 60 * 1000)
                 evidence['paused'] = page.evaluate('() => encodedASR.state()')
-                page.evaluate('() => encodedASR.reopen()')
+                if args.large_reload:
+                    handoff = page.evaluate('() => encodedASR.beforeReload()')
+                    evidence['beforeReload'] = handoff
+                    page.reload()
+                    page.wait_for_function('globalThis.encodedReady === true')
+                    page.evaluate('snapshot => encodedASR.restore(snapshot)', handoff)
+                    evidence['restored'] = page.evaluate('() => encodedASR.state()')
+                    if evidence['restored']['diagnostics']['pageLifetime'] == handoff['diagnostics']['pageLifetime']:
+                        raise AssertionError('The browser page did not reload')
+                    page.evaluate('() => encodedASR.resumeReloaded()')
+                else:
+                    page.evaluate('() => encodedASR.reopen()')
                 wait_for_async(page, """async () => {
                     const state = await encodedASR.state();
                     if (state.errors.length || ['failed', 'paused'].includes(state.job?.status))
@@ -157,6 +192,8 @@ def main():
                 result = page.evaluate('() => encodedASR.finish()')
                 evidence['result'] = result
                 evidence['quality'] = assess(result, ' '.join(cue['text'] for cue in manifest['cues']), args.max_cer)
+                if args.large_reload:
+                    assess_remote_reload(result, manifest)
                 if args.source == 'range' and len(ranges) < 2:
                     raise AssertionError('Range-backed decoding was not exercised')
                 if page_errors:

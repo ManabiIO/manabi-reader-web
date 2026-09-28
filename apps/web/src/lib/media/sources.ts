@@ -20,6 +20,24 @@ export interface ByteSource {
     release(): void;
   };
 }
+/**
+ * Capture an operation's source authority before any asynchronous/cache work.
+ * A cached result is not evidence that its original account is still current.
+ * Keep revocation sticky and retain the admitted predicate, not a mutable field.
+ */
+export function sourceLifetime(source: ByteSource): () => void {
+  const current = source.isCurrent?.bind(source);
+  let failure: { error: unknown } | undefined;
+  return () => {
+    if (failure) throw failure.error;
+    try {
+      if (current && !current()) throw new Error('Media source is no longer current');
+    } catch (error) {
+      failure = { error };
+      throw error;
+    }
+  };
+}
 export const supportedVideo = (name: string) => /\.(mp4|m4v|mov|webm|mkv|ogv)$/i.test(name);
 export function assertRange(start: number, end: number, size: number) {
   if (
@@ -197,6 +215,9 @@ export async function identify(
   progress: (n: number) => void = () => {}
 ): Promise<ContentKey> {
   if (!Number.isSafeInteger(source.size) || source.size <= 0) throw new Error('Invalid media size');
+  signal.throwIfAborted();
+  const current = sourceLifetime(source);
+  current();
   const hash = new Sha256();
   const yieldBytes = 1024 * 1024;
   // Remote range requests are expensive. Read the permitted 4 MiB at once,
@@ -204,12 +225,15 @@ export async function identify(
   const requestBytes = source.cloud ? LIMITS.rangeBytes : yieldBytes;
   for (let start = 0; start < source.size; start += requestBytes) {
     signal.throwIfAborted();
+    current();
     const end = Math.min(source.size, start + requestBytes);
     const bytes = await source.read(start, end, signal);
     signal.throwIfAborted();
+    current();
     if (bytes.length !== end - start) throw new Error('Incomplete media identity read');
     for (let offset = 0; offset < bytes.length; offset += yieldBytes) {
       signal.throwIfAborted();
+      current();
       const boundary = Math.min(bytes.length, offset + yieldBytes);
       hash.update(bytes.subarray(offset, boundary));
       progress(start + boundary);
@@ -217,6 +241,7 @@ export async function identify(
     }
   }
   signal.throwIfAborted();
+  current();
   return `content:${hash.hex()}`;
 }
 export function streamedRange(
@@ -233,6 +258,7 @@ export function streamedRange(
     end > source.size
   )
     throw new Error('Invalid stream range');
+  const current = sourceLifetime(source);
   const abort = new AbortController();
   const parentAborted = () => abort.abort(signal.reason);
   signal.addEventListener('abort', parentAborted, { once: true });
@@ -244,6 +270,7 @@ export function streamedRange(
     async pull(controller) {
       try {
         abort.signal.throwIfAborted();
+        current();
         if (at >= end) {
           clean();
           controller.close();
@@ -253,6 +280,7 @@ export function streamedRange(
         const bytes = await source.read(at, next, abort.signal);
         if (cancelled) return;
         abort.signal.throwIfAborted();
+        current();
         if (bytes.length !== next - at) throw new Error('Incomplete media stream');
         controller.enqueue(bytes);
         at = next;
