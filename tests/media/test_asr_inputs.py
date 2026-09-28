@@ -35,6 +35,14 @@ class ASRInputTests(unittest.TestCase):
         self.manifest['engine']['name']='unverified';self.write()
         with self.assertRaisesRegex(ValueError,'voice'):asr.fixture_metadata(self.path,'ja')
 
+    def test_pinned_kokoro_fixture_rejects_wrong_language_before_recognition(self):
+        with self.assertRaisesRegex(ValueError,'Japanese'):
+            asr.natural_kokoro_fixture(self.path,'en')
+
+    def test_pinned_kokoro_fixture_rejects_substituted_audio(self):
+        with self.assertRaisesRegex(ValueError,'hash'):
+            asr.natural_kokoro_fixture(self.path,'ja')
+
 class StreamingMetricsTest(unittest.TestCase):
     def test_real_callback_latencies_are_required(self):
         good=dict(inferenceSeconds=10,partialUpdates=4,firstOutputSeconds=2,firstPreviewCueSeconds=3,cues=[{'text':'one'},{'text':'two'}])
