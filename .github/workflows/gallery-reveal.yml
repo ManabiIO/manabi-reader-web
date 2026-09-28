@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'apps/web/src/lib/components/book-reader/book-reader-image-gallery/**'
+      - 'apps/web/src/lib/components/book-reader/book-reader-header.svelte'
       - 'apps/web/src/lib/components/book-reader/reactive-elements.ts'
       - 'apps/web/src/lib/components/book-reader/book-reader-continuous/**'
       - 'apps/web/src/lib/functions/reader-font-layout.ts'

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { openUserGuide } from '$lib/components/navigation/docs-link';
   import { browser } from '$app/environment';
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, tick } from 'svelte';
   import { Button } from '$lib/components/ui/button';
   import * as Menu from '$lib/components/ui/dropdown-menu';
   import {
@@ -62,6 +62,15 @@
     searchBookClick: void;
     scrubClick: void;
   }>();
+  let toolsOpen = false;
+  async function openReaderImageGallery() {
+    // Close the portalled tools menu before opening the gallery dialog. Its
+    // trigger becomes hidden, so relying on the menu's select cleanup can
+    // leave the old portal intercepting later dialogs.
+    toolsOpen = false;
+    await tick();
+    dispatch('readerImageGalleryClick');
+  }
   $: oldDomain = browser && isOnOldUrl(window);
 </script>
 
@@ -134,7 +143,7 @@
           />{/if}
       </Button>
     {/if}
-    <Menu.Root>
+    <Menu.Root bind:open={toolsOpen}>
       <Menu.Trigger
         >{#snippet child({ props })}<Button
             {...props}
@@ -169,7 +178,7 @@
           ><TextAlignJustify aria-hidden="true" />Line Guide</Menu.Item
         >
         {#if $readerImageGalleryPictures$.length}<Menu.Item
-            onSelect={() => dispatch('readerImageGalleryClick')}
+            onSelect={() => void openReaderImageGallery()}
             ><Images aria-hidden="true" />Image Gallery</Menu.Item
           >{/if}
         <Menu.Item onSelect={() => dispatch('completeBook')}

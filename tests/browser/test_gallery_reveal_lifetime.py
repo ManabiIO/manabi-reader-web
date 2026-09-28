@@ -8,7 +8,6 @@ import zipfile
 from pathlib import Path
 
 from playwright.sync_api import expect
-from reader_controls import reveal_reader_controls
 from test_books_library import LibraryBase, book, raster
 from test_static_reader import StaticHandler
 
@@ -97,16 +96,23 @@ class GalleryRevealBase(LibraryBase):
         expect(self.page.get_by_role('button', name='Show reading controls', exact=True)).to_be_visible()
 
     def open_gallery(self):
-        # The hidden controls button can keep focus after closing a dialog.
-        # Move focus off that UI before Escape reveals the reader chrome.
-        self.page.evaluate('document.activeElement?.blur()')
-        reveal_reader_controls(self.page)
+        self.reveal_controls()
         self.page.get_by_role('button', name='Reading tools', exact=True).click()
         self.page.get_by_role('menuitem', name='Image Gallery', exact=True).click()
         panel = self.page.get_by_role('dialog', name='Image gallery', exact=True)
         expect(panel).to_be_visible()
+        expect(self.page.locator('[data-slot="dropdown-menu-content"]:not([data-closed])')).to_have_count(0)
         expect(panel.locator('.gallery-thumbnail')).to_have_count(2)
         return panel
+
+    def reveal_controls(self):
+        controls = self.page.locator('button[data-reader-controls]')
+        # Focus the top-level return control before the keyboard reveal. Tab
+        # pins even transient chrome; the book's iframe cannot consume it.
+        controls.evaluate('element => element.focus({preventScroll: true})')
+        self.page.keyboard.press('Tab')
+        expect(controls).to_have_attribute('aria-expanded', 'true')
+        expect(self.page.get_by_role('banner', name='Reader toolbar')).to_be_visible()
 
     def close_gallery(self, panel):
         panel.get_by_role('button', name='Close Image Gallery', exact=True).click()
@@ -157,7 +163,7 @@ class GalleryRevealLifetime(GalleryRevealBase):
         gate = FontResponseGate()
         self.server.font_gate = gate
         try:
-            reveal_reader_controls(self.page)
+            self.reveal_controls()
             self.page.get_by_role('button', name='Themes & Settings', exact=True).click()
             appearance = self.page.get_by_role('dialog', name='Themes & Settings', exact=True)
             appearance.get_by_label('Reading font', exact=True).select_option('Noto Serif JP')
