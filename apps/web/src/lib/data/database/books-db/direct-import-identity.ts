@@ -34,7 +34,11 @@ export function matchesDirectImportIdentity(
   profileId?: string | null
 ): boolean {
   if (existing.libraryOwner !== incoming.libraryOwner) return false;
-  if (existing.readerOwner !== undefined && profileId !== undefined && existing.readerOwner !== profileId)
+  if (
+    existing.readerOwner !== undefined &&
+    profileId !== undefined &&
+    existing.readerOwner !== profileId
+  )
     return false;
   const hash = normalizedDirectImportHash(incoming.contentHash);
   if (hash) return normalizedDirectImportHash(existing.contentHash) === hash;
