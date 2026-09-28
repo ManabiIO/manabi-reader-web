@@ -14,10 +14,11 @@
   export let xOffset = 0;
   export let yOffset = 10;
   export let label = '';
+  export let dialog = false;
+  export let isOpen = false;
   export let restoreAnchorFocus = false;
   const dispatch = createEventDispatcher<{ open: void }>();
   const id = Symbol('popover');
-  let isOpen = false;
   let generation = 0;
   let alive = true;
   let shouldRestoreFocus = true;
@@ -95,6 +96,7 @@
       {side}
       {align}
       {customAnchor}
+      role={dialog ? 'dialog' : undefined}
       aria-label={label || undefined}
       onInteractOutside={() => (shouldRestoreFocus = false)}
       onEscapeKeydown={() => (shouldRestoreFocus = true)}

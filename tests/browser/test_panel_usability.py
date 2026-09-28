@@ -42,6 +42,21 @@ class PanelUsabilityBrowser(LibraryBase):
         expect(grid).to_be_visible()
         return grid
 
+    def settle_calendar(self, grid):
+        # Keep production motion enabled. Geometry must be measured after the
+        # entrance transform, not after an arbitrary number of frames.
+        grid.evaluate('''async e => {
+          await Promise.all(e.getAnimations({subtree:true})
+            .filter(a => a.effect?.getComputedTiming().iterations !== Infinity)
+            .map(a => a.finished.catch(() => {})));
+        }''')
+        self.page.wait_for_function('''e => {
+          const day = e.querySelector('button[data-date]:not(:disabled)');
+          const expected = Math.max(15, Math.floor((e.clientWidth - 56) / 57));
+          return day && parseFloat(getComputedStyle(day).width) === expected;
+        }''', arg=grid.element_handle())
+        self.frames()
+
     def capture(self, name):
         Path('test-results').mkdir(exist_ok=True)
         self.page.screenshot(path=f'test-results/{self.engine}-panel-{name}.png', full_page=True)
@@ -70,6 +85,7 @@ class PanelUsabilityBrowser(LibraryBase):
             day.press('Enter')
             panel = self.page.get_by_role('dialog', name='Reading day details', exact=True)
             expect(panel).to_be_visible()
+            expect(day).to_have_attribute('aria-expanded', 'true')
             close = panel.get_by_role('button', name='Close heatmap details', exact=True)
             expect(close).to_have_attribute('data-modal-dismiss', '')
             heading = panel.get_by_role('heading', name='2026-09-25', exact=True)
@@ -83,12 +99,30 @@ class PanelUsabilityBrowser(LibraryBase):
             self.capture(f'heatmap-details-{mode}-200')
             self.page.keyboard.press('Escape')
             expect(panel).to_have_count(0)
+            expect(day).to_have_attribute('aria-expanded', 'false')
             expect(day).to_be_focused()
             day.press('Space')
             expect(panel).to_be_visible()
             close.click()
             expect(panel).to_have_count(0)
+            expect(day).to_have_attribute('aria-expanded', 'false')
             expect(day).to_be_focused()
+
+    def test_heatmap_outside_pointer_dismissal_keeps_the_new_focus(self):
+        self.seed_statistics()
+        grid = self.heatmap()
+        day = grid.locator('[data-date="2026-09-25"]')
+        day.focus()
+        day.press('Enter')
+        panel = self.page.get_by_role('dialog', name='Reading day details', exact=True)
+        expect(panel).to_be_visible()
+        target = self.page.get_by_role('button', name='Use all-time streak data', exact=True).first
+        target.click()
+        expect(panel).to_have_count(0)
+        # Safari does not focus buttons on pointer click. It must at least not
+        # restore the dismissed day and steal the user's new destination.
+        expect(day).not_to_be_focused()
+        expect(day).to_have_attribute('aria-expanded', 'false')
 
     def test_heatmap_arrow_navigation_has_one_tab_stop_and_native_activation(self):
         self.seed_statistics()
@@ -152,11 +186,12 @@ class PanelUsabilityBrowser(LibraryBase):
         self.page.set_viewport_size({'width': 2400, 'height': 1000})
         grid = self.heatmap()
         day = grid.locator('[data-date="2026-09-01"]')
-        # The desktop entrance animation scales the visual box from zero.
-        self.page.wait_for_function('e => e.getBoundingClientRect().width > 15', arg=day.element_handle())
+        self.settle_calendar(grid)
         large = day.bounding_box()['width']
+        self.assertGreater(large, 15)
         self.page.set_viewport_size({'width': 390, 'height': 844})
         self.page.wait_for_function('e => e.getBoundingClientRect().width <= 15.1', arg=day.element_handle())
+        self.settle_calendar(grid)
         self.assertGreater(large, day.bounding_box()['width'])
         grid.evaluate('e => { e.scrollLeft = 0; }')
         self.page.get_by_role('button', name='Previous heatmap period', exact=True).first.click()
