@@ -7,6 +7,7 @@
     toggleImageGalleryPictureSpoiler$
   } from './book-reader-image-gallery';
   import { revealGalleryPicture } from './reveal-gallery-picture';
+  import { galleryShortcutAllowed, galleryWheelStep } from './gallery-input';
   import {
     hideSpoilerImage$,
     readerImageGalleryKeybindMap$,
@@ -18,6 +19,9 @@
   import * as Dialog from '$lib/components/ui/dialog';
 
   const dispatch = createEventDispatcher<{ close: void }>();
+  let gallery: HTMLElement | null = null;
+  let focusGeneration = 0;
+  let closed = false;
   let contentContainer: HTMLElement;
   let imageContainer: HTMLElement;
   let desktop = window.matchMedia('(min-width: 1024px)').matches;
@@ -35,19 +39,23 @@
     };
     media.addEventListener('change', resize);
     return () => {
+      closed = true;
+      focusGeneration += 1;
       media.removeEventListener('change', resize);
       $skipKeyDownListener$ = wasSkipping;
     };
   });
 
   function close() {
+    closed = true;
+    focusGeneration += 1;
     dispatch('close');
   }
 
   function onKeyDown(event: KeyboardEvent) {
     // The dialog owns Tab/Escape and their focus behavior. Retain the reader's
     // configurable gallery bindings for image navigation and alternative close keys.
-    if (event.defaultPrevented || event.key === 'Tab' || event.key === 'Escape') return;
+    if (closed || !galleryShortcutAllowed(event, gallery)) return;
     if (
       onKeyDownReaderImageGallery(
         event,
@@ -61,12 +69,11 @@
   }
 
   function onWheel(event: WheelEvent) {
-    if (document.activeElement !== imageContainer) return;
-    // Enlarged controls may make the viewer scrollable. Do not turn a scroll
-    // gesture into an image change when the user needs to reach those controls.
-    if (imageContainer.scrollHeight > imageContainer.clientHeight + 1) return;
-    if (event.deltaY < 0) previousImage();
-    else if (event.deltaY > 0) nextImage();
+    if (closed) return;
+    const step = galleryWheelStep(event, imageContainer);
+    if (!step) return;
+    if (step < 0) previousImage();
+    else nextImage();
     event.preventDefault();
   }
 
@@ -79,9 +86,12 @@
   }
 
   function select(index: number) {
+    if (closed || index < 0 || index >= $readerImageGalleryPictures$.length) return;
+    const generation = ++focusGeneration;
     selectedImageIndex = index;
     void tick().then(() => {
-      if (imageContainer?.isConnected) imageContainer.focus();
+      if (!closed && generation === focusGeneration && imageContainer?.isConnected)
+        imageContainer.focus();
     });
   }
 
@@ -95,6 +105,7 @@
   }
 
   function move(offset: number) {
+    focusGeneration += 1;
     selectedImageIndex += offset;
     const thumbnail = contentContainer?.querySelector<HTMLElement>(
       `button[data-image-index="${selectedImageIndex}"]`
@@ -105,15 +116,17 @@
   }
 
   function backToImages() {
+    const generation = ++focusGeneration;
     const index = selectedImageIndex;
     selectedImageIndex = -1;
     void tick().then(() => {
-      contentContainer?.querySelector<HTMLElement>(`button[data-image-index="${index}"]`)?.focus();
+      if (closed || generation !== focusGeneration || !contentContainer?.isConnected) return;
+      contentContainer.querySelector<HTMLElement>(`button[data-image-index="${index}"]`)?.focus();
     });
   }
 </script>
 
-<svelte:window on:keydown={onKeyDown} on:wheel|nonpassive={onWheel} />
+<svelte:window on:keydown={onKeyDown} />
 <Dialog.Root
   open={true}
   onOpenChange={(open) => {
@@ -121,6 +134,7 @@
   }}
 >
   <Dialog.Content
+    bind:ref={gallery}
     showCloseButton={false}
     class="top-0 left-0 h-dvh max-h-dvh w-full max-w-none translate-x-0 translate-y-0 grid-rows-[auto_minmax(0,1fr)] gap-0 rounded-none p-0 sm:max-w-none writing-horizontal-tb"
     onCloseAutoFocus={(event) => {
@@ -164,6 +178,7 @@
         class="gallery-viewer bg-background text-foreground"
         tabindex="-1"
         bind:this={imageContainer}
+        on:wheel|nonpassive={onWheel}
       >
         {#if selectedImage}
           <div class="gallery-toolbar flex flex-wrap items-center justify-between gap-2 border-b p-3">
@@ -207,7 +222,8 @@
     grid-template-columns: minmax(0, 1fr) 44px;
     align-items: start;
     gap: 12px;
-    padding: 12px 16px;
+    padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+      12px max(16px, env(safe-area-inset-left));
   }
   .gallery-navigation {
     display: flex;
@@ -230,7 +246,8 @@
     position: relative;
     min-height: 0;
     overflow-y: auto;
-    padding: 1rem;
+    padding: 16px max(16px, env(safe-area-inset-right))
+      max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
   }
   .gallery-thumbnail {
     display: block;
@@ -261,7 +278,12 @@
     grid-template-rows: auto minmax(128px, 1fr);
     overflow-y: auto;
     overscroll-behavior: contain;
+    padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom);
     outline: none;
+  }
+  .gallery-viewer:focus-visible {
+    box-shadow: inset 0 0 0 2px var(--ring);
   }
   .has-selection .gallery-viewer {
     display: grid;

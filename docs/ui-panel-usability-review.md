@@ -59,3 +59,40 @@ Primary implementation references:
 - https://www.w3.org/WAI/ARIA/apg/practices/keyboard-interface/
 - Apple references and their public-only scope remain in
   `app-store-connect-ui-review.md` and `control-refinement.md`.
+
+
+## Input ownership and final visual follow-up
+
+The shared Tab fallback formerly picked the first selector match rather than the
+first usable Tab destination. Two native Chromium fixtures reproduce the defect:
+a disabled-fieldset input leaves focus outside, while a negative-tabindex button
+is incorrectly focused. Light-DOM candidate selection now respects native
+`:disabled` (including first-legend exceptions), negative indices, hidden/inert
+content, checked-radio groups and positive Tab order. This remains a fallback for
+our ordinary portaled modal content, not a new shadow-DOM focus manager.
+
+A deferred fallback must also honor newer input. Bubble-phase cancellation, a
+subsequent pointer gesture, a newer dialog awaiting autofocus, browser modifiers,
+and closed/disconnected contexts cannot be overruled by the pending frame. The
+normal Bits UI focus scope remains the primary owner. No dependency is added.
+
+Gallery wheel handling is attached to the viewer, not the window. Browser zoom,
+modified/horizontal gestures, other panes and genuinely scrollable image regions
+keep their native behavior. Configured unmodified navigation remains available;
+native Enter/Space control activation, IME, editing and modal Tab/Escape take
+precedence. Delayed thumbnail/viewer focus is canceled by a newer choice or close.
+The full-screen header and scroll areas have safe-area-aware padding and visible
+viewer focus. Physical mobile zoom/safe-area qualification is still separate.
+
+The previous head's rendered 200%-text heatmap capture showed the year squeezed
+between two utility buttons. The heading and utility group now wrap as units;
+the year never breaks into individual digits. No text-size reduction is used.
+
+Validation is layered: lifecycle/input unit tests use declared platform doubles;
+eight native DOM cases bundle the real focus helper and real candidate selection;
+the gallery and heatmap regressions run against the built app. Local native DOM
+execution used the production TypeScript with type syntax/import/export wrappers
+removed, not a second focus implementation. Local Chromium passes those eight
+cases; actual-app localhost navigation is blocked in this environment. The CI
+build and Chromium/WebKit app suites remain required. All existing suites stay
+enabled. Current commit IDs, totals and integration results belong in the PR.

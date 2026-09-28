@@ -92,6 +92,47 @@ class GalleryUsabilityBrowser(LibraryBase):
             expect(self.page.get_by_role('button', name='Show reading controls', exact=True)).to_be_focused()
             self.page.set_viewport_size({'width': 320, 'height': 568})
 
+    def test_gallery_keeps_zoom_and_other_panes_out_of_wheel_paging(self):
+        self.page.set_viewport_size({'width': 1440, 'height': 1000})
+        panel = self.open_gallery('light')
+        viewer = panel.locator('.gallery-viewer')
+        viewer.focus()
+        self.assertLessEqual(viewer.evaluate('e => e.scrollHeight - e.clientHeight'), 1)
+        # Synthetic wheel events test routing/cancellation through the actual
+        # gallery. They do not claim to emulate physical pinch zoom.
+        for selector, options in (
+            ('.gallery-viewer', {'ctrlKey': True}),
+            ('.gallery-viewer', {'deltaX': 150}),
+            ('.gallery-header', {}),
+            ('.gallery-list', {})
+        ):
+            prevented = panel.locator(selector).evaluate("""(e, options) => {
+              const event = new WheelEvent('wheel', {
+                deltaY:100, bubbles:true, cancelable:true, ...options
+              });
+              e.dispatchEvent(event);
+              return event.defaultPrevented;
+            }""", options)
+            self.assertFalse(prevented)
+            expect(viewer.locator('img')).to_have_attribute('alt', 'Book illustration 1')
+        viewer.press('Control+ArrowRight')
+        expect(viewer.locator('img')).to_have_attribute('alt', 'Book illustration 1')
+        viewer.press('ArrowRight')
+        expect(viewer.locator('img')).to_have_attribute('alt', 'Book illustration 2')
+        prevented = viewer.evaluate("""e => {
+          const event = new WheelEvent('wheel', {deltaY:-100, bubbles:true, cancelable:true});
+          e.dispatchEvent(event);
+          return event.defaultPrevented;
+        }""")
+        self.assertTrue(prevented)
+        expect(viewer.locator('img')).to_have_attribute('alt', 'Book illustration 1')
+        next_button = panel.get_by_role('button', name='Next', exact=True)
+        next_button.focus()
+        next_button.press('Enter')
+        expect(viewer.locator('img')).to_have_attribute('alt', 'Book illustration 2')
+        self.page.keyboard.press('Escape')
+        expect(panel).to_have_count(0)
+
     def test_enlarged_gallery_spoiler_label_stays_within_its_image(self):
         self.page.set_viewport_size({'width': 320, 'height': 568})
         panel = self.open_gallery('dark', hidden=True)

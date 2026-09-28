@@ -1086,33 +1086,38 @@
   }
 </script>
 
-<div class="mb-4 flex items-center justify-center gap-1">
-  <span class="min-w-0 text-center">{heatmapLabel}</span>
-  <Button
-    variant="ghost"
-    size="icon"
-    shape="circle"
-    aria-label="Return to current year"
-    title="Return to current year"
-    onclick={() => changeHeatmapYear(today.getFullYear() - heatmapYear)}
-  >
-    <AppIcon icon={faRepeat} />
-  </Button>
-  <Button
-    variant={heatmapAggregration === HeatmapDataAggregration.ALL_TIME ? 'secondary' : 'ghost'}
-    size="icon"
-    shape="circle"
-    aria-label="Use all-time streak data"
-    aria-pressed={heatmapAggregration === HeatmapDataAggregration.ALL_TIME}
-    title="Switch streak data between all time and current year"
-    onclick={() =>
-      (heatmapAggregration =
-        heatmapAggregration === HeatmapDataAggregration.ALL_TIME
-          ? HeatmapDataAggregration.YEAR
-          : HeatmapDataAggregration.ALL_TIME)}
-  >
-    <AppIcon icon={faLayerGroup} />
-  </Button>
+<div class="heatmap-toolbar">
+  <h2 class="heatmap-toolbar-label">
+    Reading {heatmapType === HeatmapType.STATISTICS ? '' : 'Goals '}Data for
+    <span class="heatmap-year">{heatmapYear}</span>
+  </h2>
+  <div class="heatmap-toolbar-actions">
+    <Button
+      variant="ghost"
+      size="icon"
+      shape="circle"
+      aria-label="Return to current year"
+      title="Return to current year"
+      onclick={() => changeHeatmapYear(today.getFullYear() - heatmapYear)}
+    >
+      <AppIcon icon={faRepeat} />
+    </Button>
+    <Button
+      variant={heatmapAggregration === HeatmapDataAggregration.ALL_TIME ? 'secondary' : 'ghost'}
+      size="icon"
+      shape="circle"
+      aria-label="Use all-time streak data"
+      aria-pressed={heatmapAggregration === HeatmapDataAggregration.ALL_TIME}
+      title="Switch streak data between all time and current year"
+      onclick={() =>
+        (heatmapAggregration =
+          heatmapAggregration === HeatmapDataAggregration.ALL_TIME
+            ? HeatmapDataAggregration.YEAR
+            : HeatmapDataAggregration.ALL_TIME)}
+    >
+      <AppIcon icon={faLayerGroup} />
+    </Button>
+  </div>
 </div>
 <div class="flex items-center justify-between">
   <Button
@@ -1416,6 +1421,30 @@
 {/if}
 
 <style>
+  .heatmap-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .heatmap-toolbar-label {
+    flex: 1 1 16rem;
+    min-width: 0;
+    text-align: center;
+    text-wrap: balance;
+  }
+  .heatmap-year {
+    white-space: nowrap;
+  }
+  .heatmap-toolbar-actions {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 4px;
+  }
+
   .heatmap-day {
     padding: 0;
     border-style: solid;

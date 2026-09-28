@@ -204,6 +204,25 @@ class PanelUsabilityBrowser(LibraryBase):
             actual = grid.get_by_text(label, exact=True).evaluate('e => parseInt(getComputedStyle(e).gridColumnStart)')
             self.assertEqual(expected, actual)
 
+    def test_enlarged_heatmap_toolbar_does_not_crush_the_year_between_buttons(self):
+        self.seed_statistics()
+        self.page.set_viewport_size({'width': 320, 'height': 568})
+        grid = self.heatmap()
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        self.settle_calendar(grid)
+        heading = self.page.locator('.heatmap-toolbar-label').first
+        year = heading.locator('.heatmap-year')
+        lines = heading.evaluate('e => e.getBoundingClientRect().height / parseFloat(getComputedStyle(e).lineHeight)')
+        self.assertLessEqual(lines, 3.1)
+        self.assertEqual('nowrap', year.evaluate('e => getComputedStyle(e).whiteSpace'))
+        tools = self.page.locator('.heatmap-toolbar-actions').first
+        bounds = tools.bounding_box()
+        self.assertGreaterEqual(bounds['x'], 0)
+        self.assertLessEqual(bounds['x'] + bounds['width'], 321)
+        label = heading.bounding_box()
+        self.assertGreaterEqual(bounds['y'], label['y'] + label['height'] - 1)
+        self.capture('heatmap-enlarged-toolbar')
+
     def test_filter_page_focus_is_not_under_sticky_header_or_footer(self):
         self.seed_statistics()
         self.page.set_viewport_size({'width': 390, 'height': 844})
