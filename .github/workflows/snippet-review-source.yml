@@ -7,7 +7,7 @@ permissions:
   contents: write
 concurrency:
   group: snippet-review-publication
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   publish:
     if: github.repository == 'ManabiIO/manabi-reader-web' && github.ref == 'refs/heads/fix/snippet-recovery-review-20260928'
@@ -29,20 +29,32 @@ jobs:
           import base64, hashlib, json, lzma, os, subprocess, urllib.request
           base = '91db8cbe4e8c9a88fb5d601cac9cea974021dffc'
           helper = '.github/workflows/snippet-review-source.yml'
-          assert subprocess.check_output(['git','diff','--name-only',base,'HEAD']).decode().splitlines() == [helper]
-          sha = 'efdd322f063379f8707c3a5fce5d4e3c8cc08d1e'
-          req = urllib.request.Request('https://api.github.com/repos/ManabiIO/manabi-reader-web/git/blobs/'+sha, headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
-          with urllib.request.urlopen(req, timeout=30) as response: item = json.load(response)
-          encoded = base64.b64decode(item['content'])
-          assert hashlib.sha1(b'blob '+str(len(encoded)).encode()+b'\0'+encoded).hexdigest() == sha
-          raw = lzma.decompress(base64.b64decode(encoded, validate=True), memlimit=64*1024*1024)
+          def blob(sha):
+              req = urllib.request.Request('https://api.github.com/repos/ManabiIO/manabi-reader-web/git/blobs/'+sha, headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+              with urllib.request.urlopen(req, timeout=30) as response: item = json.load(response)
+              data = base64.b64decode(item['content'])
+              assert hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest() == sha
+              return data
+          raw = lzma.decompress(base64.b64decode(blob('efdd322f063379f8707c3a5fce5d4e3c8cc08d1e'), validate=True), memlimit=64*1024*1024)
           assert len(raw) == 40094
           assert hashlib.sha256(raw).hexdigest() == '8f3121fb53ea2fa6e719626fc1b0461bae060346c4e7345a8871cf94f0c16ff0'
           expected = {'apps/web/src/lib/snippets/database.ts','apps/web/src/lib/snippets/destination-picker.svelte','apps/web/src/lib/snippets/document.ts','apps/web/src/lib/snippets/editor.svelte','apps/web/src/lib/snippets/service.ts','apps/web/src/lib/snippets/shelf.svelte','apps/web/src/lib/snippets/workspace.svelte','docs/snippets.md','test/snippets/browser.mjs','test/snippets/unit.test.mjs'}
           rows = subprocess.check_output(['git','apply','--numstat','-'], input=raw).decode().splitlines()
           assert {row.split('\t',2)[2] for row in rows} == expected
-          subprocess.run(['git','apply','--check','-'],input=raw,check=True)
-          subprocess.run(['git','apply','--index','-'],input=raw,check=True)
+          changed = set(subprocess.check_output(['git','diff','--name-only',base,'HEAD']).decode().splitlines())
+          if changed == {helper}:
+              subprocess.run(['git','apply','--check','-'],input=raw,check=True)
+              subprocess.run(['git','apply','--index','-'],input=raw,check=True)
+          else:
+              assert changed == expected | {helper}, changed
+              subprocess.run(['git','apply','--reverse','--check','-'],input=raw,check=True)
+          addon = blob('b5c74aab53c1f233fd87ff33905fd08c39d68a06')
+          assert len(addon) == 2422
+          assert hashlib.sha256(addon).hexdigest() == '32469037deca2da5bea8aaaae8ca9f011385b1d4f0a68bec3f4a7ee9d3f2a702'
+          rows = subprocess.check_output(['git','apply','--numstat','-'],input=addon).decode().splitlines()
+          assert {row.split('\t',2)[2] for row in rows} == {'apps/web/src/lib/snippets/editor.ts','test/snippets/browser.mjs','docs/snippets.md'}
+          subprocess.run(['git','apply','--check','-'],input=addon,check=True)
+          subprocess.run(['git','apply','--index','-'],input=addon,check=True)
           PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
