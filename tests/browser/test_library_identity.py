@@ -228,7 +228,8 @@ class LibraryIdentityBrowser(LibraryBase):
 
     def organization_snapshot(self):
         rows = self.stores('manabi-reader-integrations', ['metadata'])['metadata']
-        return next((row for row in rows if row.get('version') == 1 and 'collections' in row), None)
+        return next((row for row in rows if isinstance(row, dict)
+                     and row.get('version') == 1 and 'collections' in row), None)
 
     def replace_selected_bytes(self):
         replacement = bytearray(BYTES)
