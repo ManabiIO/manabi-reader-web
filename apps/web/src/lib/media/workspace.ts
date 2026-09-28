@@ -330,7 +330,8 @@ export class VideoWorkspace {
           this.player?.generationPreview(p.job.id, p.provisional);
         }
         if (['complete', 'paused', 'failed'].includes(p.stage)) {
-          this.decoderCache.release(p.job.id);
+          // Decoder lifetime is owned by the queue runner's AbortSignal. Do not
+          // release by durable job ID here: a successor may already reuse that ID.
           this.progress.hidden = true;
           void this.refreshTracks().catch((e) => this.error(e));
         } /* Durable job changes notify the store. Download byte progress must not
