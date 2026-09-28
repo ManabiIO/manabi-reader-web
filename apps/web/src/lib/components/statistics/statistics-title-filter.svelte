@@ -6,6 +6,7 @@
   import { Input } from '$lib/components/ui/input';
   import { stickyPanel } from '$lib/hooks/sticky-panel';
   import {
+    preFilteredBookKeysForStatistics$,
     preFilteredTitlesForStatistics$,
     type StatisticsTitleFilterItem
   } from './statistics-types';
@@ -130,7 +131,7 @@
       disabled={!filteredTitles.length}
       onclick={() => selectMatching(false)}>Remove matching</Button
     >
-    {#if $preFilteredTitlesForStatistics$.size}
+    {#if $preFilteredTitlesForStatistics$.size || $preFilteredBookKeysForStatistics$.size}
       <Button variant="outline" onclick={() => dispatch('clearPrefilter')}>Remove Prefilter</Button>
     {/if}
   </div>
