@@ -147,6 +147,7 @@ jobs:
       fail-fast: false
       matrix:
         profile: [persistent, incognito]
+        browser: [playwright, chrome-154]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -154,18 +155,39 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - name: Record tested source and install the pinned browser
+      - name: Record tested source and install common browser dependencies
         run: |
           mkdir -p test-results/native-handle-profile
           git rev-parse HEAD > test-results/native-handle-profile/tested-commit.txt
           git rev-parse HEAD^{tree} > test-results/native-handle-profile/tested-tree.txt
           python -m pip install playwright==1.63.0
-          python -m playwright install --with-deps chromium
+          python -m playwright install-deps chromium
+      - name: Install the original Playwright-pinned Chromium
+        if: matrix.browser == 'playwright'
+        run: |
+          python -m playwright install chromium
           python - <<'PYTHON' >> "$GITHUB_ENV"
           from playwright.sync_api import sync_playwright
           with sync_playwright() as p:
               print('CHROMIUM=' + p.chromium.executable_path)
           PYTHON
+      # Additional comparison, not a replacement for the affected bundled browser.
+      # The tagged 154 source contains upstream Chromium fix 909a0222 / bug562119515.
+      - name: Install pinned Chrome for Testing with the upstream handle fix
+        if: matrix.browser == 'chrome-154'
+        run: |
+          mkdir -p .cache/native-profile-browser
+          archive=.cache/native-profile-browser/chrome-linux64.zip
+          curl --fail --location --retry 3 --max-time 90 \
+            'https://storage.googleapis.com/chrome-for-testing-public/154.0.8037.57/linux64/chrome-linux64.zip' \
+            --output "$archive"
+          sha256sum "$archive" > test-results/native-handle-profile/browser-archive-sha256.txt
+          unzip -q "$archive" -d .cache/native-profile-browser
+          browser="$PWD/.cache/native-profile-browser/chrome-linux64/chrome"
+          "$browser" --version | tee test-results/native-handle-profile/browser-version.txt
+          test "$(awk '{print $NF}' test-results/native-handle-profile/browser-version.txt)" = '154.0.8037.57'
+          sha256sum "$browser" > test-results/native-handle-profile/browser-binary-sha256.txt
+          echo "CHROMIUM=$browser" >> "$GITHUB_ENV"
       - name: Native handle roundtrip without application code
         env:
           PROFILE_MODE: ${{ matrix.profile }}
@@ -176,7 +198,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: native-handle-profile-${{ matrix.profile }}
+          name: native-handle-profile-${{ matrix.browser }}-${{ matrix.profile }}
           path: test-results/native-handle-profile/
           if-no-files-found: error
           retention-days: 7
