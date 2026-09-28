@@ -6,7 +6,7 @@
 
 /** Cloud copies remain scoped even if their separate link write never committed. */
 export function visibleLibraryEntries<
-  C extends { id: number; libraryOwner?: string },
+  C extends { id: number; libraryOwner?: string; readerOwner?: string },
   L extends { bookId: number; owner: string | null }
 >(cards: C[], allLinks: L[] | null, viewerId: string | null): { cards: C[]; links: L[] } {
   if (!allLinks) return { cards: [], links: [] };
@@ -21,6 +21,7 @@ export function visibleLibraryEntries<
     cards: cards.filter(
       (card) =>
         (card.libraryOwner === undefined || card.libraryOwner === viewerId) &&
+        (card.readerOwner === undefined || card.readerOwner === viewerId) &&
         (!foreign.has(card.id) || available.has(card.id))
     ),
     links
