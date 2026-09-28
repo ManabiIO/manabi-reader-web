@@ -54,7 +54,14 @@ export function prepareUserFont(
   const mime = Object.hasOwn(formats, extension) ? formats[extension] : undefined;
   if (!path || !mime) throw new Error('Choose a WOFF2, WOFF, TTF, or OTF font file.');
   if (!file.size) throw new Error('This font file is empty. Choose another file.');
-  if (fonts.some((font) => normalizedName(font.name) === normalized || font.path === path || font.fileName === file.name))
+  if (
+    fonts.some(
+      (font) =>
+        normalizedName(font.name) === normalized ||
+        font.path === path ||
+        font.fileName === file.name
+    )
+  )
     throw new Error('A font with this name or filename is already stored.');
   if (fonts.length >= 256) throw new Error('Remove a stored font before adding another.');
   return { font: { name: trimmed, path, fileName: file.name }, mime };
@@ -116,5 +123,7 @@ export async function storedFontPaths(cache: Pick<Cache, 'keys'>): Promise<Set<s
 }
 
 export function fontActionError(error: unknown): string {
-  return error instanceof Error && error.message ? error.message : 'Font storage is unavailable. Try again.';
+  return error instanceof Error && error.message
+    ? error.message
+    : 'Font storage is unavailable. Try again.';
 }
