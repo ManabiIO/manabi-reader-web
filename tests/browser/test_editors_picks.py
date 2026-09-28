@@ -211,7 +211,10 @@ class EditorsPicksBrowser(unittest.TestCase):
         # click handlers hydrate. Wait for the ready reading document.
         expect(self.page.locator('.book-content').first).to_have_attribute('aria-busy', 'false')
         expect(setup).not_to_be_visible()
-        self.page.get_by_role('button', name='Show reading controls').click()
+        controls = self.page.locator('button[data-reader-controls]')
+        controls.evaluate('element => element.focus({preventScroll: true})')
+        self.page.keyboard.press('Tab')
+        expect(controls).to_have_attribute('aria-expanded', 'true')
         self.page.get_by_role('button', name='Reading tools').click()
         self.page.get_by_role('menuitem', name='Dictionary Setup').click()
         expect(setup).to_be_visible()
@@ -294,14 +297,14 @@ class EditorsPicksBrowser(unittest.TestCase):
         expect(self.page.get_by_role('heading', name='Make room for a good book')).to_be_visible()
         self.assertTrue(PicksHandler.index_started.wait(timeout=5))
 
-        with self.page.expect_event(
-            'requestfailed',
-            predicate=lambda request: request.url.endswith('/opds/index.xml')
-        ):
-            self.context.set_offline(True)
-            PicksHandler.index_gate.set()
-
+        self.context.set_offline(True)
         expect(self.page.get_by_role('button', name='Try Again', exact=True)).to_be_visible()
+        PicksHandler.index_gate.set()
+        self.assertFalse(
+            any(path.endswith('/opds/feeds/all.xml') for path in PicksHandler.requests),
+            PicksHandler.requests
+        )
+
         folder = Path('test-results')
         folder.mkdir(exist_ok=True)
         self.page.screenshot(

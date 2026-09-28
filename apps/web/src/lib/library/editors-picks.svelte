@@ -32,12 +32,16 @@
 
   function resumeLoad() {
     pageActive = true;
-    if (mounted && !request && !picks.length) void load();
+    if (mounted && navigator.onLine && !request && !picks.length) void load();
   }
 
   function visibilityChanged() {
     if (document.visibilityState === 'hidden') cancelLoad();
-    else if (pageActive && mounted && !request && !picks.length) void load();
+    else if (pageActive && mounted && navigator.onLine && !request && !picks.length) void load();
+  }
+  function offlineChanged() {
+    cancelLoad();
+    if (mounted && pageActive && !picks.length) error = 'Go online to load Editor’s Picks.';
   }
   beforeNavigate((navigation) => {
     // A same-route collection/view change can keep this component mounted.
@@ -49,6 +53,11 @@
 
   async function load() {
     if (!mounted || !pageActive || document.visibilityState === 'hidden') return;
+    if (!navigator.onLine) {
+      loading = false;
+      error = 'Go online to load Editor’s Picks.';
+      return;
+    }
     const version = ++loadVersion;
     request?.abort();
     const current = new AbortController();
@@ -78,7 +87,7 @@
   });
 </script>
 
-<svelte:window onpagehide={suspendLoad} onpageshow={resumeLoad} />
+<svelte:window onpagehide={suspendLoad} onpageshow={resumeLoad} onoffline={offlineChanged} />
 <svelte:document onvisibilitychange={visibilityChanged} />
 
 <section
@@ -111,7 +120,9 @@
     >
       <div class="grid gap-3">
         {#each picks as pick (pick.id)}
-          <article class="flex min-w-0 flex-wrap gap-[12px] rounded-xl border border-border/60 bg-background p-[12px]">
+          <article
+            class="flex min-w-0 flex-wrap gap-[12px] rounded-xl border border-border/60 bg-background p-[12px]"
+          >
             <div
               class="flex h-[112px] w-[76px] shrink-0 items-center justify-center overflow-hidden rounded-sm bg-muted shadow-sm"
             >
