@@ -8,29 +8,22 @@ permissions:
 jobs:
   inputs:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: 525a0790759177c102ed580eccb9175a1b8cc92c
           persist-credentials: false
-      - uses: pnpm/action-setup@v6.1.0
-        with:
-          version: '12.3.4'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.21.0'
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Capture inputs
+      - name: Capture source
         run: |
+          set -euo pipefail
           mkdir -p /tmp/parity-inputs
-          git archive --format=tar 525a0790759177c102ed580eccb9175a1b8cc92c | gzip > /tmp/parity-inputs/source.tar.gz
-          tar -czf /tmp/parity-inputs/dependencies.tar.gz node_modules apps/web/node_modules
+          git archive --format=tar HEAD | gzip > /tmp/parity-inputs/source.tar.gz
           git rev-parse HEAD > /tmp/parity-inputs/commit.txt
-          cd /tmp/parity-inputs && sha256sum source.tar.gz dependencies.tar.gz > SHA256SUMS
+          cd /tmp/parity-inputs && sha256sum source.tar.gz > SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
-          name: parity-inputs
+          name: parity-source
           path: /tmp/parity-inputs
           retention-days: 1
           if-no-files-found: error
