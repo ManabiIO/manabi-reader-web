@@ -42,6 +42,12 @@
     "vite": "8.3.0"
   },
   "dependencies": {
+    "@tiptap/core": "3.31.3",
+    "@tiptap/extension-ruby-text": "3.31.3",
+    "@tiptap/extension-unique-id": "3.31.3",
+    "@tiptap/markdown": "3.31.3",
+    "@tiptap/pm": "3.31.3",
+    "@tiptap/starter-kit": "3.31.3",
     "@zip.js/zip.js": "2.4.26",
     "balanced-match": "3.0.1",
     "dompurify": "3.4.15",

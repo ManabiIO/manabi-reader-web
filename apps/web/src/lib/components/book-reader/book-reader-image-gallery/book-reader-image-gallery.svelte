@@ -7,6 +7,7 @@
     toggleImageGalleryPictureSpoiler$
   } from './book-reader-image-gallery';
   import { revealGalleryPicture } from './reveal-gallery-picture';
+  import { galleryShortcutAllowed, galleryWheelStep } from './gallery-input';
   import {
     hideSpoilerImage$,
     readerImageGalleryKeybindMap$,
@@ -14,9 +15,13 @@
   } from '$lib/data/store';
   import { createEventDispatcher, onMount, tick } from 'svelte';
   import { Button } from '$lib/components/ui/button';
+  import CloseButton from '$lib/components/ui/close-button.svelte';
   import * as Dialog from '$lib/components/ui/dialog';
 
   const dispatch = createEventDispatcher<{ close: void }>();
+  let gallery: HTMLElement | null = null;
+  let focusGeneration = 0;
+  let closed = false;
   let contentContainer: HTMLElement;
   let imageContainer: HTMLElement;
   let desktop = window.matchMedia('(min-width: 1024px)').matches;
@@ -34,19 +39,23 @@
     };
     media.addEventListener('change', resize);
     return () => {
+      closed = true;
+      focusGeneration += 1;
       media.removeEventListener('change', resize);
       $skipKeyDownListener$ = wasSkipping;
     };
   });
 
   function close() {
+    closed = true;
+    focusGeneration += 1;
     dispatch('close');
   }
 
   function onKeyDown(event: KeyboardEvent) {
     // The dialog owns Tab/Escape and their focus behavior. Retain the reader's
     // configurable gallery bindings for image navigation and alternative close keys.
-    if (event.defaultPrevented || event.key === 'Tab' || event.key === 'Escape') return;
+    if (closed || !galleryShortcutAllowed(event, gallery)) return;
     if (
       onKeyDownReaderImageGallery(
         event,
@@ -60,9 +69,11 @@
   }
 
   function onWheel(event: WheelEvent) {
-    if (document.activeElement !== imageContainer) return;
-    if (event.deltaY < 0) previousImage();
-    else if (event.deltaY > 0) nextImage();
+    if (closed) return;
+    const step = galleryWheelStep(event, imageContainer);
+    if (!step) return;
+    if (step < 0) previousImage();
+    else nextImage();
     event.preventDefault();
   }
 
@@ -75,9 +86,12 @@
   }
 
   function select(index: number) {
+    if (closed || index < 0 || index >= $readerImageGalleryPictures$.length) return;
+    const generation = ++focusGeneration;
     selectedImageIndex = index;
     void tick().then(() => {
-      if (imageContainer?.isConnected) imageContainer.focus();
+      if (!closed && generation === focusGeneration && imageContainer?.isConnected)
+        imageContainer.focus();
     });
   }
 
@@ -91,6 +105,7 @@
   }
 
   function move(offset: number) {
+    focusGeneration += 1;
     selectedImageIndex += offset;
     const thumbnail = contentContainer?.querySelector<HTMLElement>(
       `button[data-image-index="${selectedImageIndex}"]`
@@ -101,15 +116,17 @@
   }
 
   function backToImages() {
+    const generation = ++focusGeneration;
     const index = selectedImageIndex;
     selectedImageIndex = -1;
     void tick().then(() => {
-      contentContainer?.querySelector<HTMLElement>(`button[data-image-index="${index}"]`)?.focus();
+      if (closed || generation !== focusGeneration || !contentContainer?.isConnected) return;
+      contentContainer.querySelector<HTMLElement>(`button[data-image-index="${index}"]`)?.focus();
     });
   }
 </script>
 
-<svelte:window on:keydown={onKeyDown} on:wheel|nonpassive={onWheel} />
+<svelte:window on:keydown={onKeyDown} />
 <Dialog.Root
   open={true}
   onOpenChange={(open) => {
@@ -117,6 +134,7 @@
   }}
 >
   <Dialog.Content
+    bind:ref={gallery}
     showCloseButton={false}
     class="top-0 left-0 h-dvh max-h-dvh w-full max-w-none translate-x-0 translate-y-0 grid-rows-[auto_minmax(0,1fr)] gap-0 rounded-none p-0 sm:max-w-none writing-horizontal-tb"
     onCloseAutoFocus={(event) => {
@@ -124,14 +142,14 @@
       document.querySelector<HTMLButtonElement>('[aria-label="Show reading controls"]')?.focus();
     }}
   >
-    <header class="flex items-center justify-between gap-3 border-b px-4 py-3">
-      <div>
+    <header class="gallery-header border-b">
+      <div class="min-w-0">
         <Dialog.Title>Image gallery</Dialog.Title>
         <Dialog.Description
           >{$readerImageGalleryPictures$.length} book images. Select an image to view it.</Dialog.Description
         >
       </div>
-      <Button variant="outline" onclick={close}>Close Image Gallery</Button>
+      <CloseButton aria-label="Close Image Gallery" onclick={close} />
     </header>
     <div class="gallery-layout" class:has-selection={!!selectedImage}>
       <div class="gallery-list bg-muted/40" bind:this={contentContainer}>
@@ -160,19 +178,20 @@
         class="gallery-viewer bg-background text-foreground"
         tabindex="-1"
         bind:this={imageContainer}
+        on:wheel|nonpassive={onWheel}
       >
         {#if selectedImage}
-          <div class="flex flex-wrap items-center justify-between gap-2 border-b p-3">
-            {#if !desktop}<Button variant="outline" onclick={backToImages}>All images</Button>{/if}
-            <div class="flex items-center gap-2">
-              <Button variant="outline" disabled={selectedImageIndex === 0} onclick={previousImage}>
+          <div class="gallery-toolbar flex flex-wrap items-center justify-between gap-2 border-b p-3">
+            {#if !desktop}<Button variant="ghost" onclick={backToImages}>All images</Button>{/if}
+            <div class="gallery-navigation">
+              <Button variant="secondary" disabled={selectedImageIndex === 0} onclick={previousImage}>
                 <ChevronLeft /> Previous
               </Button>
               <span class="text-sm tabular-nums" aria-live="polite"
                 >{selectedImageIndex + 1} / {$readerImageGalleryPictures$.length}</span
               >
               <Button
-                variant="outline"
+                variant="secondary"
                 disabled={selectedImageIndex === $readerImageGalleryPictures$.length - 1}
                 onclick={nextImage}
               >
@@ -198,6 +217,26 @@
 </Dialog.Root>
 
 <style>
+  .gallery-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 44px;
+    align-items: start;
+    gap: 12px;
+    padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+      12px max(16px, env(safe-area-inset-left));
+  }
+  .gallery-navigation {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .gallery-toolbar {
+    min-width: 0;
+  }
   .gallery-layout {
     min-height: 0;
     display: grid;
@@ -207,7 +246,8 @@
     position: relative;
     min-height: 0;
     overflow-y: auto;
-    padding: 1rem;
+    padding: 16px max(16px, env(safe-area-inset-right))
+      max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
   }
   .gallery-thumbnail {
     display: block;
@@ -233,8 +273,17 @@
     display: none;
     min-width: 0;
     min-height: 0;
-    grid-template-rows: auto minmax(0, 1fr);
+    /* Keep a usable image row when enlarged controls fill a short viewport.
+       The viewer scrolls as one region instead of collapsing the image to zero. */
+    grid-template-rows: auto minmax(128px, 1fr);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom);
     outline: none;
+  }
+  .gallery-viewer:focus-visible {
+    box-shadow: inset 0 0 0 2px var(--ring);
   }
   .has-selection .gallery-viewer {
     display: grid;
@@ -274,7 +323,10 @@
     color: var(--popover-foreground);
     border: 1px solid var(--border);
     font-size: 0.875rem;
-    white-space: nowrap;
+    max-width: calc(100% - 24px);
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: center;
   }
   @media (min-width: 1024px) {
     .gallery-layout {

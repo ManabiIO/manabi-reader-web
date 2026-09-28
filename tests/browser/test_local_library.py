@@ -72,7 +72,7 @@ class LocalLibraryBrowser(unittest.TestCase):
           const writer = await file.createWritable(); await writer.write(content); await writer.close();
           const id = 'local-' + crypto.randomUUID();
           await new Promise((resolve,reject) => {
-            const open=indexedDB.open('manabi-reader-integrations',1);
+            const open=indexedDB.open('manabi-reader-integrations');
             open.onupgradeneeded=()=>{
               // Only production code may create the integration schema.
               open.transaction.abort();

@@ -84,6 +84,7 @@ jobs:
           set -o pipefail
           python tests/browser/test_epub_publication.py 2>&1 | tee epub-publication.log
           python tests/browser/test_epub_navigation.py 2>&1 | tee epub-navigation.log
+          python tests/browser/test_foliate_progress_boundary.py 2>&1 | tee epub-progress-boundary.log
           python tests/browser/test_epub_resource_compatibility.py 2>&1 | tee epub-compatibility.log
           python tests/browser/test_epub_read_lifetime.py 2>&1 | tee epub-read-lifetime.log
           python tests/browser/test_catalog_lifetime.py 2>&1 | tee catalog-lifetime.log
@@ -124,6 +125,7 @@ jobs:
             foliate-regressions.log
             epub-publication.log
             epub-navigation.log
+            epub-progress-boundary.log
             epub-compatibility.log
             epub-read-lifetime.log
             foliate-fast-turns.log
