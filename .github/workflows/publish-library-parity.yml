@@ -1,0 +1,90 @@
+name: Publish verified Library parity
+on:
+  push:
+    branches: [feat/library-parity-qualified-20260928]
+    paths: [.github/workflows/publish-library-parity.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-library-parity-once
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository == 'ManabiIO/manabi-reader-web'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 0d24f182bb772ffcdbf7261ee5b9c7a2755e5a0b
+          persist-credentials: false
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('node:fs');
+            const crypto = require('node:crypto');
+            const { execFileSync } = require('node:child_process');
+            const branch = 'feat/library-parity-qualified-20260928';
+            const base = '0d24f182bb772ffcdbf7261ee5b9c7a2755e5a0b';
+            const baseTree = '6ec127aa1388911877ebf4729417cf5c0c3ebcc5';
+            const finalTree = 'f21c5752681cca628869bd21478b1b6642a8da8b';
+            const sha256 = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
+            const blobSHA = bytes => crypto.createHash('sha1').update(Buffer.from(`blob ${bytes.length}\0`)).update(bytes).digest('hex');
+            const git = args => execFileSync('git', args, {encoding: 'utf8', maxBuffer: 8 * 1024 * 1024}).trim();
+            const assert = (condition, reason) => { if (!condition) throw new Error(reason); };
+            assert(context.repo.owner === 'ManabiIO' && context.repo.repo === 'manabi-reader-web', 'Wrong repository');
+            assert(context.ref === `refs/heads/${branch}`, 'Wrong branch');
+            assert(git(['rev-parse', 'HEAD']) === base && git(['rev-parse', 'HEAD^{tree}']) === baseTree, 'Wrong checkout');
+            const ref = () => github.rest.git.getRef({...context.repo, ref: `heads/${branch}`});
+            assert((await ref()).data.object.sha === context.sha, 'Branch advanced');
+            const helper = (await github.rest.git.getCommit({...context.repo, commit_sha: context.sha})).data;
+            assert(helper.parents.length === 1 && helper.parents[0].sha === base, 'Unexpected helper parent');
+            const chunks = [
+              ['3e4500acde6aef1d09949f09921340d43e8242a4', 8192],
+              ['e4709b3341e82a482555eda54b1770cba4e03087', 8192],
+              ['1d04ebbdadde0048097cc0cf84a6a3abf2ae0d78', 8192],
+              ['f176903f63c4c6de0b4073dcb1f0cb2e2808b0a0', 8192],
+              ['b3c88b8346b0c98281bd90c24cfca639f70f12b5', 8192],
+              ['113d22f3ad2dd599c3fe3f337fba15d3d5567114', 8192],
+              ['fb9580aff40a509792d065bd55e46bc8e9999cae', 2804]
+            ];
+            const parts = [];
+            for (const [sha, size] of chunks) {
+              const data = (await github.rest.git.getBlob({...context.repo, file_sha: sha})).data;
+              assert(data.encoding === 'base64', 'Unexpected blob encoding');
+              const bytes = Buffer.from(data.content, 'base64');
+              assert(bytes.length === size && blobSHA(bytes) === sha, 'Payload chunk mismatch');
+              parts.push(bytes);
+            }
+            const compressed = Buffer.concat(parts);
+            assert(compressed.length === 51956 && sha256(compressed) === '2d0476dfd22401f5b252569c706327457276b769e570eafb39f810acae3f71dc', 'Compressed payload mismatch');
+            fs.writeFileSync('/tmp/library-parity.patch.xz', compressed);
+            execFileSync('python3', ['-c', "import lzma,pathlib; d=lzma.LZMADecompressor(); p=d.decompress(pathlib.Path('/tmp/library-parity.patch.xz').read_bytes(),max_length=1048576); assert d.eof and not d.unused_data; pathlib.Path('/tmp/library-parity.patch').write_bytes(p)"]);
+            const patch = fs.readFileSync('/tmp/library-parity.patch');
+            assert(sha256(patch) === '45ce51bce505f1de8f7c7cc4236212b5632dd2faa80a5b623793e850132b749c', 'Patch mismatch');
+            git(['apply', '--check', '/tmp/library-parity.patch']);
+            git(['apply', '--index', '/tmp/library-parity.patch']);
+            assert(git(['write-tree']) === finalTree, 'Applied tree mismatch');
+            const paths = git(['diff', '--cached', '--name-only', '-z']).split('\0').filter(Boolean);
+            assert(paths.length === 56, 'Unexpected changed file count');
+            const entries = [];
+            for (const path of paths) {
+              assert(/^(apps\/web\/|tests\/|tools\/appearance\/|docs\/|\.github\/workflows\/library-parity\.yml$)/.test(path), `Unexpected path: ${path}`);
+              const index = git(['ls-files', '--stage', '--', path]);
+              const match = /^(100644|100755) ([a-f0-9]{40}) 0\t/.exec(index);
+              assert(!!match, `Unexpected mode: ${path}`);
+              const bytes = fs.readFileSync(path);
+              const expected = match[2];
+              assert(blobSHA(bytes) === expected, `Local blob mismatch: ${path}`);
+              const result = await github.rest.git.createBlob({...context.repo, content: bytes.toString('base64'), encoding: 'base64'});
+              assert(result.data.sha === expected, `Published blob mismatch: ${path}`);
+              entries.push({path, mode: match[1], type: 'blob', sha: expected});
+            }
+            const tree = (await github.rest.git.createTree({...context.repo, base_tree: baseTree, tree: entries})).data;
+            assert(tree.sha === finalTree, 'Published tree mismatch');
+            const commit = (await github.rest.git.createCommit({...context.repo, tree: finalTree, parents: [context.sha], message: 'feat: add Library selection, metadata, batch organization and reader chrome'})).data;
+            assert((await ref()).data.object.sha === context.sha, 'Branch advanced before publication');
+            await github.rest.git.updateRef({...context.repo, ref: `heads/${branch}`, sha: commit.sha, force: false});
+            await core.summary.addHeading('Verified feature publication').addRaw(`Commit: ${commit.sha}\nTree: ${finalTree}\n56 source/test/documentation paths. Temporary publisher absent from final tree.\n`).write();
+            core.info(`PUBLISHED_COMMIT=${commit.sha}`);
+            core.info(`PUBLISHED_TREE=${finalTree}`);
