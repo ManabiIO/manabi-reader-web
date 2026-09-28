@@ -183,7 +183,7 @@
               >Title<input
                 class="metadata-input"
                 bind:value={title}
-                maxlength="240"
+                maxlength="1000"
                 required
               /></label
             >
