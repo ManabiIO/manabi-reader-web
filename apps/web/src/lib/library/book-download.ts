@@ -23,3 +23,19 @@ export function validateBookDownloadSize(expected: unknown, actual?: number): vo
   if (expected !== undefined && expected !== actual)
     throw new Error('The book download does not match the selected size. Refresh the folder.');
 }
+
+/** Check at the source boundary: metadata actions read books without importing
+ * them. Equal size, title or URL cannot replace the hash of the selected copy.
+ * Preserve the original File, and avoid a byte read when discovery has no hash.
+ */
+export async function verifySelectedBook<T extends Blob>(file: T, expected: unknown): Promise<T> {
+  if (expected === undefined) return file;
+  if (typeof expected !== 'string' || !/^[a-f0-9]{64}$/i.test(expected))
+    throw new Error('The selected book has an invalid content identity. Refresh the Library.');
+  const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', await file.arrayBuffer()))]
+    .map((value) => value.toString(16).padStart(2, '0'))
+    .join('');
+  if (hash !== expected.toLowerCase())
+    throw new Error('The source book changed. Refresh the Library before opening it again.');
+  return file;
+}

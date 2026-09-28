@@ -6,6 +6,8 @@
 
 import { integrationDB, exclusive, equal, type BookLink } from '$lib/manabi/persistence';
 import type { LibrarySource, LibraryEntry, StateCopy } from '$lib/manabi/sources';
+import { withLibraryOperation } from '$lib/manabi/operation-scope';
+import { verifySelectedBook } from '$lib/library/book-download';
 import { WebDavClient, davRoot, davChild, DavError, strongEtag, decodeDavText } from './client';
 
 export interface DavConfiguration {
@@ -213,8 +215,11 @@ export class WebDavSource implements LibrarySource {
     return this.download(item);
   }
   async read(item: LibraryEntry) {
-    if (!/\.(epub|txt|htmlz)$/i.test(item.name)) throw new Error('Unsupported WebDAV book.');
-    return this.download(item);
+    const selected = { ...item };
+    return withLibraryOperation(this.owner, async () => {
+      if (!/\.(epub|txt|htmlz)$/i.test(selected.name)) throw new Error('Unsupported WebDAV book.');
+      return verifySelectedBook(await this.download(selected), selected.expectedContentHash);
+    });
   }
   private async download(item: LibraryEntry) {
     if (item.kind !== 'file' || !/\.(epub|txt|htmlz|zip)$/i.test(item.name))
