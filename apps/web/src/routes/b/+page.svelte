@@ -400,11 +400,11 @@
           return bookData;
         }
 
+        const integration = await integrationDB();
+        const booksDb = await database.db;
         const [links, readerScope] = await Promise.all([
-          (await integrationDB()).getAll('books').then((items) =>
-            items.filter((link) => link.bookId === id)
-          ),
-          (await database.db).get('readerBookScope', id)
+          integration.getAll('books').then((items) => items.filter((link) => link.bookId === id)),
+          booksDb.get('readerBookScope', id)
         ]);
         const protectedOwners = readerAccessOwners(bookData, readerScope, links);
         if (!protectedOwners) return undefined;
