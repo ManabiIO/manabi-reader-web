@@ -202,6 +202,17 @@ test('an exact-byte copy can reuse established progress even while the original 
   assert.equal(atFile(books, target, 'copy.epub').bookId, 1);
 });
 
+test('a browser-only book shares progress with an exact local-folder copy without a title heuristic', () => {
+  const local = source('folder');
+  const saved = card(1, { title: 'My renamed browser copy' });
+  const scans = [catalog(local, ['different-name.epub'])];
+  const books = allBooks(shelf([saved], [], scans));
+  assert.equal(books.length, 1);
+  assert.equal(atFile(books, local, 'different-name.epub').bookId, 1);
+  assert.equal(atFile(books, local, 'different-name.epub').progress, 0.4);
+  assert.equal(atFile(books, local, 'different-name.epub').title, 'My renamed browser copy');
+});
+
 test('stale previews cannot identify a move or make a fresh target ambiguous', () => {
   const storage = source();
   const scans = [catalog(storage, ['fresh.epub', 'stale.epub'])];
