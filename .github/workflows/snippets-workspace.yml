@@ -1,4 +1,4 @@
-name: Current snippet integration sources
+name: Pinned snippet review source
 on:
   push:
     branches: [feat/cloud-backed-snippets]
@@ -6,25 +6,23 @@ on:
 permissions:
   contents: read
 jobs:
-  recover:
+  source:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: d0afc6fab0530c597e68b5345ab28ab138d16ac1
-          fetch-depth: 0
+          ref: 7d5c6729bc736cda3103b9911b120545da17baf8
           persist-credentials: false
-      - name: Retain exact current-main integration delta
+      - name: Retain tracked source only
         run: |
-          mkdir -p /tmp/snippet-current-main
-          git diff --binary 329dcec43bcfeaadaf6b028182584214b0f37558 HEAD > /tmp/snippet-current-main/current-main.patch
-          git rev-parse HEAD > /tmp/snippet-current-main/source-commit
-          git ls-files -s > /tmp/snippet-current-main/source-manifest
-          sha256sum /tmp/snippet-current-main/current-main.patch
+          mkdir -p /tmp/snippet-review-source
+          git archive --format=tar.gz HEAD > /tmp/snippet-review-source/source.tar.gz
+          git ls-files -s > /tmp/snippet-review-source/manifest.txt
+          git rev-parse HEAD > /tmp/snippet-review-source/commit.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: snippet-current-main
-          path: /tmp/snippet-current-main
-          retention-days: 7
+          name: snippets-pr-source
+          path: /tmp/snippet-review-source
+          retention-days: 1
           if-no-files-found: error
