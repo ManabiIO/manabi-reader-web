@@ -249,6 +249,52 @@ export async function visibleStatistics(db: IDBPDatabase<BooksDb>): Promise<Book
   return [...content, ...legacy.filter((row) => !assigned.has(row.title))];
 }
 
+export interface StatisticDeletionPlan {
+  title: string;
+  bookKey: string;
+  keys: string[];
+  unresolvedLegacy: boolean;
+}
+
+/** Resolve every statistics identity owned by one browser book before deletion.
+ * The primary key follows the current verified content identity. A retained
+ * pre-hash local key may still hold conflicting rows and therefore belongs to
+ * the same selected book. Title-only legacy rows are never guessed when their
+ * migration receipt remains ambiguous.
+ */
+export async function statisticDeletionPlan(
+  db: IDBPDatabase<BooksDb>,
+  bookId: number
+): Promise<StatisticDeletionPlan> {
+  if (!Number.isSafeInteger(bookId) || bookId <= 0)
+    throw new Error('The selected statistics book is invalid.');
+  const book = await db.get('data', bookId);
+  if (!book) throw new Error('The selected statistics book no longer exists.');
+  const snapshot = { id: book.id, title: book.title, contentHash: book.contentHash };
+  const bookKey = await migrateLegacyStatistics(db, snapshot);
+  const [current, local, receipt] = await Promise.all([
+    db.get('data', bookId),
+    db.get('readerLocalIdentity', bookId),
+    db.get('readerStatisticMigration', snapshot.title)
+  ]);
+  if (
+    !current ||
+    current.title !== snapshot.title ||
+    current.contentHash !== snapshot.contentHash
+  )
+    throw new Error('The selected statistics book changed. Refresh the Library and try again.');
+  const keys = new Set([bookKey]);
+  if (local) keys.add(`local:${local.uuid}`);
+  return {
+    title: snapshot.title,
+    bookKey,
+    keys: [...keys],
+    unresolvedLegacy:
+      receipt?.state === 'ambiguous' ||
+      (receipt?.state === 'identity-conflict' && receipt.legacyAssigned !== true)
+  };
+}
+
 /** A TTU statistics ZIP has only title keys, so it cannot represent this case. */
 export function titlesWithMultipleStatisticIdentities(
   rows: readonly (BooksDbStatistic | BooksDbContentStatistic)[]
