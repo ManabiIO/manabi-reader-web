@@ -53,7 +53,7 @@ def illustrated_book(title):
     return output.getvalue()
 
 
-class GalleryRevealLifetime(LibraryBase):
+class GalleryRevealBase(LibraryBase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -114,6 +114,8 @@ class GalleryRevealLifetime(LibraryBase):
         expect(panel.get_by_role('button', name='View image 2', exact=True)).to_be_visible()
         expect(panel.get_by_role('button', name='Show hidden image 1', exact=True)).to_be_visible()
 
+
+class GalleryRevealLifetime(GalleryRevealBase):
     def test_phone_reveal_and_reopen_preserve_only_the_chosen_image(self):
         self.page.set_viewport_size({'width': 390, 'height': 844})
         self.open_book()
@@ -158,8 +160,15 @@ class GalleryRevealLifetime(LibraryBase):
             # WebKit did not intercept this font through page.route. Hold it at
             # the actual HTTP server and require evidence that the request began.
             self.assertTrue(gate.started.wait(5), 'The real font request must reach the server')
-            self.page.wait_for_function('''() => [...document.fonts].some(
-              f => f.family.includes('Noto Serif JP') && f.status === 'loading')''')
+            # The server proves the real response is pending. WebKit may not
+            # expose the transient loading face in the active document's set.
+            expect(appearance.get_by_label('Reading font', exact=True)).to_have_value('Noto Serif JP')
+            expect(self.page.locator('.book-content')).to_have_css(
+                'font-family', re.compile('Noto Serif JP'))
+            (self.output / 'font-before-release.json').write_text(json.dumps(
+                self.page.evaluate("() => [...document.fonts].map(f => ({family:f.family, status:f.status}))"),
+                indent=2))
+            self.assertFalse(gate.expired)
             self.assertFalse(gate.release.is_set())
             self.page.keyboard.press('Escape')
             expect(appearance).to_have_count(0)

@@ -6,6 +6,7 @@ on:
       - 'apps/web/src/lib/components/book-reader/reactive-elements.ts'
       - 'apps/web/src/lib/components/html-renderer.svelte'
       - 'tests/browser/test_gallery_reveal_lifetime.py'
+      - 'tests/browser/test_gallery_continuity.py'
       - 'tests/unit/gallery-reveal*'
       - 'tests/unit/html-renderer-readiness.test.mjs'
       - '.github/workflows/gallery-reveal.yml'
@@ -45,7 +46,7 @@ jobs:
           mkdir -p test-results/source
           git rev-parse HEAD > test-results/source/commit.txt
           git ls-tree -r HEAD > test-results/source/tree.txt
-          cp tests/browser/test_gallery_reveal_lifetime.py test-results/source/
+          cp tests/browser/test_gallery_{reveal_lifetime,continuity}.py test-results/source/
           cp apps/web/src/lib/components/html-renderer.svelte test-results/source/
           cp apps/web/src/lib/components/book-reader/reactive-elements.ts test-results/source/
           cp apps/web/src/lib/components/book-reader/book-reader-image-gallery/{book-reader-image-gallery.svelte,reveal-gallery-picture.ts} test-results/source/
@@ -56,7 +57,7 @@ jobs:
           set +e
           status=0
           for engine in chromium webkit; do
-            LIBRARY_BROWSER=$engine python tests/browser/test_gallery_reveal_lifetime.py 2>&1 | tee test-results/gallery-$engine.log
+            LIBRARY_BROWSER=$engine PYTHONPATH=tests/browser python -m unittest test_gallery_reveal_lifetime test_gallery_continuity -v 2>&1 | tee test-results/gallery-$engine.log
             if [ "${PIPESTATUS[0]}" -ne 0 ]; then status=1; fi
             APPEARANCE_BROWSER=$engine PYTHONPATH=tests/browser python -m unittest test_rhea_ui.RheaReader.test_gallery_spoiler_reveal_is_a_real_keyboard_button -v 2>&1 | tee test-results/existing-gallery-$engine.log
             if [ "${PIPESTATUS[0]}" -ne 0 ]; then status=1; fi
