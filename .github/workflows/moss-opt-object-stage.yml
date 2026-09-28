@@ -1,0 +1,105 @@
+name: Reviewed MOSS optimization objects
+# Temporary transport of a reviewed, hash-locked source delta. No ref update,
+# merge, deployment or runtime build. The resulting tree excludes this workflow.
+on:
+  push:
+    branches: ['review/moss-opt-objects-20260928-1']
+permissions:
+  contents: write
+jobs:
+  reviewed-tree:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Verify the reviewed patch and create unreferenced Git objects
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64, gzip, hashlib, json, os, subprocess, urllib.request
+          from pathlib import Path
+          base = '11f1978cf25681d82fde7aff3452f257ac3f4bac'
+          base_tree = '489f8f1d822de565b1c661bc228985938519de2d'
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          if os.environ.get('GITHUB_REPOSITORY') != 'ManabiIO/manabi-reader-web':
+              raise RuntimeError('Wrong repository')
+          manifest = json.loads(Path('.review/manifest.json').read_text())
+          if manifest['base'] != base or manifest['base_tree'] != base_tree or git('rev-parse', 'HEAD^') != base:
+              raise RuntimeError('Reviewed base changed')
+          if git('rev-parse', base + '^{tree}') != base_tree:
+              raise RuntimeError('Wrong base tree')
+          allowed = {
+              '.github/workflows/media-player.yml',
+              'apps/web/src/lib/media/audio-proof.ts',
+              'apps/web/src/lib/media/player.ts',
+              'apps/web/src/lib/media/queue.ts',
+              'apps/web/src/lib/media/sparse-transcription.ts',
+              'apps/web/src/lib/media/workspace.ts',
+              'docs/moss-progressive-performance-review.md',
+              'tests/media/audio-proof-async.test.mjs',
+              'tests/media/audio-proof-queue-cases.mjs',
+              'tests/media/audio-proof-queue.test.mjs',
+              'tests/media/progressive-optimization-browser.py',
+              'tests/media/progressive-playback-cases.mjs',
+              'tests/media/sparse-playback-snapshot.test.mjs',
+              'tools/media/benchmark-progressive.mjs'
+          }
+          entries = manifest['files']
+          if len(entries) != len(allowed) or {e['path'] for e in entries} != allowed:
+              raise RuntimeError('Unexpected changed paths')
+          for entry in entries:
+              path = Path(entry['path'])
+              before = entry['before_sha256']
+              if (before is None and path.exists()) or (before is not None and hashlib.sha256(path.read_bytes()).hexdigest() != before):
+                  raise RuntimeError('Preimage mismatch: ' + str(path))
+          encoded = ''.join(Path(f'.review/patch-part-{i}.b64').read_text().strip() for i in range(5))
+          patch = gzip.decompress(base64.b64decode(encoded, validate=True))
+          if hashlib.sha256(patch).hexdigest() != manifest['patch_sha256']:
+              raise RuntimeError('Patch transport mismatch')
+          Path('.review/change.patch').write_bytes(patch)
+          subprocess.run(['git', 'apply', '--index', '--whitespace=error', '.review/change.patch'], check=True)
+          if set(git('diff', '--cached', '--name-only').splitlines()) != allowed:
+              raise RuntimeError('Applied paths differ from review')
+          payloads = []
+          for entry in entries:
+              raw = Path(entry['path']).read_bytes()
+              blob = hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()
+              if hashlib.sha256(raw).hexdigest() != entry['sha256'] or blob != entry['blob_sha']:
+                  raise RuntimeError('Output mismatch: ' + entry['path'])
+              payloads.append((entry, raw))
+          def post(resource, payload):
+              request = urllib.request.Request(
+                  'https://api.github.com/repos/ManabiIO/manabi-reader-web/git/' + resource,
+                  data=json.dumps(payload).encode(), method='POST', headers={
+                      'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+                      'Accept': 'application/vnd.github+json',
+                      'Content-Type': 'application/json',
+                      'X-GitHub-Api-Version': '2022-11-28'
+                  })
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  return json.load(response)
+          tree_entries = []
+          for entry, raw in payloads:
+              result = post('blobs', {'encoding':'base64', 'content':base64.b64encode(raw).decode()})
+              if result['sha'] != entry['blob_sha']:
+                  raise RuntimeError('GitHub blob mismatch')
+              tree_entries.append({'path':entry['path'], 'mode':'100644', 'type':'blob', 'sha':result['sha']})
+          tree = post('trees', {'base_tree':base_tree, 'tree':tree_entries})
+          Path('reviewed-objects.json').write_text(json.dumps({
+              'base':base, 'base_tree':base_tree, 'tree_sha':tree['sha'],
+              'patch_sha256':manifest['patch_sha256'], 'files':entries
+          }, indent=2))
+          print('Verified reviewed tree:', tree['sha'])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reviewed-moss-optimization-objects
+          path: reviewed-objects.json
+          if-no-files-found: error
+          retention-days: 7
