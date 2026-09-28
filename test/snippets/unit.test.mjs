@@ -402,25 +402,26 @@ test('lost create reply plus subsequent edit replays original snapshot without d
     'newer edit'
   );
 });
-test('new edit arriving while upload is in flight remains dirty after acknowledgement', async () => {
+test('new edit arriving while upload is in flight remains dirty without invalidating its base', async () => {
   const s = scope(),
     doc = document(),
     dest = { source: source(), parent: '' };
+  let later;
   await saveDocument(s.owner, doc, null, dest, s.guard);
   memory.beforeWrite = async () => {
     memory.beforeWrite = null;
-    await saveDocument(
-      s.owner,
-      editSnippet(doc, plainContent('later'), ''),
-      doc.revision,
-      dest,
-      s.guard
-    );
+    later = editSnippet(doc, plainContent('later'), '');
+    await saveDocument(s.owner, later, doc.revision, dest, s.guard);
   };
   await flushRecord(doc.id, s);
-  const record = await getRecord(s.owner, doc.id);
+  let record = await getRecord(s.owner, doc.id);
   assert(record.dirty);
   assert.equal(passages(record.document.content)[0].text, 'later');
+  assert.equal(record.document.revision, later.revision);
+  const followup = editSnippet(later, plainContent('still editing'), '');
+  await saveDocument(s.owner, followup, later.revision, dest, s.guard);
+  record = await getRecord(s.owner, doc.id);
+  assert.equal(record.document.revision, followup.revision);
 });
 test('account ABA invalidates a captured operation lifetime', () => {
   changeUser('alice');
@@ -461,6 +462,77 @@ test('index checkpoints continue past 100 bodies without restarting completed so
   assert.equal(memory.readCount - before, 125);
   memory.sources = [];
 });
+test('bounded indexing gives each connected source a fair first-pass turn', async () => {
+  const s = scope(),
+    first = source(),
+    second = source(),
+    secondDoc = document('二つ目の保存先');
+  memory.sources = [first, second];
+  for (let i = 0; i < 125; i++) {
+    const doc = document('大きい保存先 ' + i);
+    memory.files.set(doc.id, {
+      document: doc,
+      location: {
+        source: first,
+        fileId: doc.id,
+        name: doc.id + '.manabi-snippet.json',
+        parent: '',
+        token: '1'
+      }
+    });
+  }
+  memory.files.set(secondDoc.id, {
+    document: secondDoc,
+    location: {
+      source: second,
+      fileId: secondDoc.id,
+      name: secondDoc.id + '.manabi-snippet.json',
+      parent: '',
+      token: '1'
+    }
+  });
+  const before = memory.readCount;
+  await refreshSnippets(s, true);
+  assert((await summaries(s.owner)).some((item) => item.id === secondDoc.id));
+  assert(memory.readCount - before <= 100);
+  memory.sources = [];
+});
+
+test('byte budget also preserves a first-pass turn for later sources', async () => {
+  const s = scope(),
+    first = source(),
+    second = source(),
+    secondDoc = document('小さい二つ目の保存先'),
+    largeText = 'x'.repeat(1_800_000);
+  memory.sources = [first, second];
+  for (let i = 0; i < 10; i++) {
+    const doc = document(largeText + i);
+    memory.files.set(doc.id, {
+      document: doc,
+      location: {
+        source: first,
+        fileId: doc.id,
+        name: doc.id + '.manabi-snippet.json',
+        parent: '',
+        token: '1'
+      }
+    });
+  }
+  memory.files.set(secondDoc.id, {
+    document: secondDoc,
+    location: {
+      source: second,
+      fileId: secondDoc.id,
+      name: secondDoc.id + '.manabi-snippet.json',
+      parent: '',
+      token: '1'
+    }
+  });
+  await refreshSnippets(s, true);
+  assert((await summaries(s.owner)).some((item) => item.id === secondDoc.id));
+  memory.sources = [];
+});
+
 test('move reservation and journal are atomic, stale reservations fail', async () => {
   const who = owner(),
     doc = document();
@@ -809,6 +881,52 @@ test('canceling a metadata write after enqueue aborts its whole IndexedDB transa
     assert.equal(await (await integrationDB()).get('metadata', key), undefined);
   } finally {
     globalThis.IDBObjectStore.prototype.put = original;
+  }
+});
+
+test('account switch queues a successor save while an older account flush is in flight', async () => {
+  const previousWindow = globalThis.window,
+    navigation = writable(false);
+  globalThis.window = new EventTarget();
+  changeUser('alice');
+  let stop = () => {},
+    release;
+  const blocked = new Promise((resolve) => (release = resolve));
+  let started;
+  const admitted = new Promise((resolve) => (started = resolve));
+  memory.beforeWrite = async () => {
+    memory.beforeWrite = null;
+    started();
+    await blocked;
+  };
+  const waitFor = async (condition, timeout = 3500) => {
+    const deadline = Date.now() + timeout;
+    while (!(await condition())) {
+      if (Date.now() > deadline) assert.fail('The queued save did not settle.');
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  };
+  try {
+    stop = startSnippets(navigation);
+    const alice = scope(),
+      aliceDoc = document('Alice pending'),
+      aliceDest = { source: source(), parent: '' };
+    await saveDocument(alice.owner, aliceDoc, null, aliceDest, alice.guard);
+    await admitted;
+    changeUser('bob');
+    const bob = scope(),
+      bobDoc = document('Bob pending'),
+      bobDest = { source: source(), parent: '' };
+    await saveDocument(bob.owner, bobDoc, null, bobDest, bob.guard);
+    release();
+    await waitFor(async () => !(await getRecord(bob.owner, bobDoc.id))?.dirty);
+    assert.equal((await getRecord(bob.owner, bobDoc.id)).dirty, false);
+  } finally {
+    release?.();
+    stop();
+    memory.beforeWrite = null;
+    changeUser(null);
+    globalThis.window = previousWindow;
   }
 });
 

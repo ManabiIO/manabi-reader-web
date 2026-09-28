@@ -16,6 +16,8 @@ export interface ManabiSession {
 }
 
 export interface PreferenceReply {
+  /** Optional additive Library metadata contract, advertised only by supporting servers. */
+  book_presentation_version?: 1;
   user_id: string;
   schema_version: number;
   revision: number;
@@ -81,6 +83,7 @@ export function parsePreferenceReply(value: unknown, userId: string): Preference
     !record(value) ||
     value.user_id !== userId ||
     value.schema_version !== 1 ||
+    (value.book_presentation_version !== undefined && value.book_presentation_version !== 1) ||
     !Number.isSafeInteger(value.revision) ||
     (value.revision as number) < 0 ||
     !record(value.settings)
@@ -89,6 +92,7 @@ export function parsePreferenceReply(value: unknown, userId: string): Preference
   return {
     user_id: userId,
     schema_version: 1,
+    ...(value.book_presentation_version === 1 ? { book_presentation_version: 1 as const } : {}),
     revision: value.revision as number,
     settings: value.settings
   };

@@ -65,7 +65,7 @@
 
 <div class="flex items-center gap-1">
   {#if !iconOnly}
-    <nav aria-label="Primary navigation" class="hidden items-center gap-1 xl:flex">
+    <nav aria-label="Primary navigation" class="hidden items-center gap-1 lg:flex">
       {#each primaryDestinations as destination (destination.path)}
         <Button
           href={resolve(destination.path)}

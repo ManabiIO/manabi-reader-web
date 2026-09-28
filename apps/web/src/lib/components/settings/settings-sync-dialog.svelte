@@ -1,13 +1,11 @@
 <script lang="ts">
   import faArrowsUpDown from '@lucide/svelte/icons/move-vertical';
   import DialogTemplate from '$lib/components/dialog-template.svelte';
-  import Ripple from '$lib/components/ripple.svelte';
-  import { baseIconClasses, buttonClasses } from '$lib/css-classes';
+  import { Button } from '$lib/components/ui/button';
   import { InternalStorageSources, StorageKey } from '$lib/data/storage/storage-types';
   import type { BooksDbStorageSource } from '$lib/data/database/books-db/versions/books-db';
   import type { SyncSelection } from '$lib/data/dialog-manager';
   import { lastSyncedSettingsSource$, lastSyncedSettingsTarget$ } from '$lib/data/store';
-  import { dummyFn } from '$lib/functions/utils';
   import { createEventDispatcher } from 'svelte';
   import AppIcon from '$lib/components/app-icon.svelte';
 
@@ -60,59 +58,57 @@
 <DialogTemplate>
   <svelte:fragment slot="header">{settingsSyncHeader}</svelte:fragment>
   <svelte:fragment slot="content">
-    <div class="flex flex-col">
-      <div>Source</div>
-      <select bind:value={selectedSource}>
-        {#each sources as source (source.id)}
-          <option value={source.id}>
-            {source.label}
-          </option>
-        {/each}
-      </select>
-      <div
-        tabindex="0"
-        role="button"
+    <div class="grid gap-4">
+      <label class="grid gap-2 text-sm font-medium">
+        <span>Source</span>
+        <select
+          class="min-h-11 min-w-0 rounded-[10px] border border-input bg-background px-3 py-2 text-base text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 md:text-sm"
+          bind:value={selectedSource}
+        >
+          {#each sources as source (source.id)}
+            <option value={source.id}>
+              {source.label}
+            </option>
+          {/each}
+        </select>
+      </label>
+      <Button
+        variant="ghost"
+        size="icon"
+        shape="circle"
+        class="justify-self-center"
+        aria-label="Swap sync source and target"
         title={selectedTarget === InternalStorageSources.INTERNAL_ZIP
-          ? 'Choose a different Target for swap'
-          : 'Click to swap Source and Target'}
-        class="transform-gpu {baseIconClasses} flex justify-center"
-        style="width: 100%;"
-        style:cursor={selectedTarget === InternalStorageSources.INTERNAL_ZIP
-          ? 'not-allowed'
-          : 'pointer'}
-        on:click={() => {
-          if (selectedTarget === InternalStorageSources.INTERNAL_ZIP) {
-            return;
-          }
-
+          ? 'Choose a different target before swapping'
+          : 'Swap source and target'}
+        disabled={selectedTarget === InternalStorageSources.INTERNAL_ZIP}
+        onclick={() => {
           const oldSource = selectedSource;
           const oldTarget = selectedTarget;
 
           selectedSource = oldTarget;
           selectedTarget = oldSource;
         }}
-        on:keyup={dummyFn}
       >
         <AppIcon icon={faArrowsUpDown} />
-      </div>
-      <div>Target</div>
-      <select bind:value={selectedTarget}>
-        {#each targets as target (target.id)}
-          <option value={target.id}>
-            {target.label}
-          </option>
-        {/each}
-      </select>
+      </Button>
+      <label class="grid gap-2 text-sm font-medium">
+        <span>Target</span>
+        <select
+          class="min-h-11 min-w-0 rounded-[10px] border border-input bg-background px-3 py-2 text-base text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 md:text-sm"
+          bind:value={selectedTarget}
+        >
+          {#each targets as target (target.id)}
+            <option value={target.id}>
+              {target.label}
+            </option>
+          {/each}
+        </select>
+      </label>
     </div>
   </svelte:fragment>
-  <div class="flex grow justify-between" slot="footer">
-    <button class={buttonClasses} on:click={() => closeDialog(true)}>
-      Cancel
-      <Ripple />
-    </button>
-    <button class={buttonClasses} on:click={() => closeDialog()}>
-      Confirm
-      <Ripple />
-    </button>
+  <div class="flex grow flex-wrap justify-between gap-2" slot="footer">
+    <Button variant="ghost" onclick={() => closeDialog(true)}>Cancel</Button>
+    <Button variant="default" onclick={() => closeDialog()}>Confirm</Button>
   </div>
 </DialogTemplate>

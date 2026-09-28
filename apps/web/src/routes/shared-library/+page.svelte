@@ -116,12 +116,13 @@
 <svelte:head><title>Shared Ttu Ebook Reader libraries · Manabi Reader</title></svelte:head>
 
 <main>
-  <nav aria-label="Reader navigation" class="page-navigation">
-    <Button href={resolve('/manage')} variant="link" size="sm">Books</Button>
-    <Button href={resolve('/connections')} variant="link" size="sm"
-      >Accounts and local book folders</Button
+  <nav aria-label="Context navigation" class="page-navigation">
+    <Button
+      href={resolve('/connections')}
+      variant="link"
+      size="sm"
+      aria-label="Back to Accounts and libraries">← Accounts and libraries</Button
     >
-    <Button href={resolve('/settings')} variant="link" size="sm">Storage settings</Button>
   </nav>
   <h1>Shared Ttu Ebook Reader libraries</h1>
   <p>
@@ -294,8 +295,9 @@
     gap: 12px;
   }
   h1 {
-    font-size: 2rem;
+    font-size: clamp(1.75rem, 5vw, 2rem);
     font-weight: 700;
+    line-height: 1.1;
     margin: 1rem 0;
   }
   h2 {

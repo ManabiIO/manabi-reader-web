@@ -18,7 +18,11 @@ interface StoreSchema {
 // annotation schema. Version numbers cannot establish which stores are present.
 // Keep one complete, additive schema for fresh, skipped and repair upgrades.
 const schema: Record<StoreNames<BooksDb>, StoreSchema> = {
-  data: { keyPath: 'id', autoIncrement: true, indexes: { title: 'title' } },
+  data: {
+    keyPath: 'id',
+    autoIncrement: true,
+    indexes: { title: 'title', contentHash: 'contentHash', libraryOwner: 'libraryOwner' }
+  },
   bookmark: { keyPath: 'dataId' },
   lastItem: { keyPath: null },
   storageSource: { keyPath: 'name' },

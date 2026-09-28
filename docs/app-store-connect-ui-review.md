@@ -62,3 +62,36 @@ The top-level Manabi workspace now reflects that May homepage change on wide
 screens: Library, Statistics, and Settings are directly visible in the header.
 The existing full navigation sheet remains available for secondary destinations
 and remains the compact navigation on phones.
+
+## Workspace navigation follow-up
+
+Management pages lean on the persistent application navigation instead of
+repeating several destination links above every page. A subordinate workspace
+keeps one contextual back link, preserving orientation without competing with
+the top-level Library / Snippets / Statistics / Settings navigation.
+
+Settings sections are real hash destinations. Selecting a section updates the
+URL without scrolling the workspace, and browser Back/Forward restores the
+corresponding section. This follows the 2026 App Store Connect pattern of stable
+top-level workspace navigation plus addressable in-workspace state while keeping
+Manabi's own information architecture and visual tokens.
+
+The Ttu/Yatsu migration route follows the same management-page hierarchy:
+one contextual return to Library, shared primary/quiet/destructive actions, and
+touch-safe file/select controls. Its import semantics and migration format are
+unchanged.
+
+Reading Goals now follows the same Settings control language: labeled 44px form
+fields, a distinct primary Save action, quiet Sync/Edit actions, and an explicit
+destructive Reset. Its sync chooser uses native select labels and a native
+disabled-aware swap button rather than emulating a button with a focusable div.
+
+The advanced Ttu storage editor now uses the same labeled field and action
+hierarchy as the surrounding Settings workspace. Its Source Default label is
+bound to the correct checkbox (rather than toggling Sync Target), destructive
+source removal is explicit, and repeated inner headings were removed.
+
+The Reading Goal conflict dialog now treats cancellation/error as terminal rather
+than continuing into a second result construction after closing. Its archive
+dates and boundary options are explicitly labeled and use the same touch-sized
+form geometry as the parent Settings workspace.

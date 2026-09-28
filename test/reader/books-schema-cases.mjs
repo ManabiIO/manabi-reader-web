@@ -42,7 +42,11 @@ const localFeatures = {
   readerExternalSync: ['id'],
   readerImportRecord: ['id', false, { bookKey: 'bookKey' }]
 };
-const expected = { ...legacy, ...annotations, ...personal, ...statistics, ...localFeatures };
+const preV13 = { ...legacy, ...annotations, ...personal, ...statistics, ...localFeatures };
+const expected = {
+  ...preV13,
+  data: ['id', true, { title: 'title', contentHash: 'contentHash', libraryOwner: 'libraryOwner' }]
+};
 const prefix = (count) => Object.fromEntries(Object.entries(legacy).slice(0, count));
 const histories = {
   fresh: [0, {}],
@@ -55,8 +59,9 @@ const histories = {
   'v7-annotations': [7, { ...legacy, ...annotations }],
   'v8-personal-records': [8, { ...legacy, ...annotations, ...personal }],
   'v9-content-statistics': [9, { ...legacy, ...annotations, ...personal, ...statistics }],
-  'v10-local-features': [10, expected],
-  'v11-complete': [11, expected],
+  'v10-local-features': [10, preV13],
+  'v11-complete': [11, preV13],
+  'v12-complete': [12, preV13],
   // Shape produced by the old <7 guard after upgrading byte-only version 7.
   'v11-already-missing-reader-stores': [
     11,
@@ -67,7 +72,7 @@ const histories = {
     11,
     { ...prefix(4), ...annotations, ...personal, ...statistics, ...localFeatures }
   ],
-  'v11-missing-indexes': [11, expected]
+  'v11-missing-indexes': [11, preV13]
 };
 
 function assert(value, message) {
@@ -146,7 +151,9 @@ async function seedRows(db, version) {
       Object.assign(value, {
         elementHtml: '<p>本</p>',
         blobs: { 'image.png': binary },
-        coverImage: binary
+        coverImage: binary,
+        contentHash: 'a'.repeat(64),
+        libraryOwner: 'account:retained'
       });
     }
     store.put(value, store.keyPath === null ? 0 : undefined);
@@ -179,7 +186,7 @@ async function snapshot(db, names = Array.from(db.objectStoreNames)) {
   return serializable(Object.fromEntries(rows));
 }
 function verifySchema(db) {
-  assert(db.version === 12, `Expected repairing version 12, got ${db.version}`);
+  assert(db.version === 13, `Expected indexed version 13, got ${db.version}`);
   const tx = db.transaction(Array.from(db.objectStoreNames));
   for (const [name, [path, increment = false, indexes = {}]] of Object.entries(expected)) {
     assert(db.objectStoreNames.contains(name), `Missing required store ${name}`);
@@ -211,6 +218,20 @@ async function upgradeHistory(name, [version, definitions], omitIndexes = false)
     verifySchema(db);
     if (version) {
       same(await snapshot(db, names), before, 'Upgrade changed existing records');
+      if (names.includes('data')) {
+        const indexed = await request(
+          db.transaction('data').objectStore('data').index('contentHash').getAllKeys('a'.repeat(64))
+        );
+        same(indexed, [42], 'Upgrade did not index retained content identity');
+        const owned = await request(
+          db
+            .transaction('data')
+            .objectStore('data')
+            .index('libraryOwner')
+            .getAllKeys('account:retained')
+        );
+        same(owned, [42], 'Upgrade did not index retained library ownership');
+      }
       assert(
         db
           .transaction('extension-data')
@@ -300,11 +321,14 @@ async function legacyV2(name, invalid) {
   }
 }
 async function incompatible(name, kind) {
-  const old = await open(name, 11, (db) => {
+  const version = kind === 'content-index' ? 12 : 11;
+  const old = await open(name, version, (db) => {
     if (kind === 'store') db.createObjectStore('data', { keyPath: 'wrong' });
     else {
       const store = db.createObjectStore('data', { keyPath: 'id', autoIncrement: true });
-      store.createIndex('title', 'title', { unique: true });
+      store.createIndex('title', 'title', { unique: kind === 'index' });
+      if (kind === 'content-index')
+        store.createIndex('contentHash', 'wrongContentHash', { unique: true });
     }
   });
   const tx = old.transaction('data', 'readwrite');
@@ -326,7 +350,7 @@ async function incompatible(name, kind) {
   );
   const restored = await open(name);
   try {
-    assert(restored.version === 11, 'Schema rejection advanced the version');
+    assert(restored.version === version, 'Schema rejection advanced the version');
     same(Array.from(restored.objectStoreNames), ['data'], 'Schema rejection committed new stores');
     same(await snapshot(restored), before, 'Schema rejection changed existing records');
   } finally {
@@ -340,7 +364,8 @@ export const caseNames = [
   'v2-malformed-json-rollback-retry',
   'v2-invalid-record-rollback-retry',
   'incompatible-store-rollback',
-  'incompatible-index-rollback'
+  'incompatible-index-rollback',
+  'incompatible-content-index-rollback'
 ];
 export async function runCase(caseName) {
   assert(caseNames.includes(caseName), 'Unknown schema test');
@@ -358,8 +383,16 @@ export async function runCase(caseName) {
             ? 'record'
             : undefined
       );
-    else await incompatible(name, caseName.includes('-store-') ? 'store' : 'index');
-    return { name: caseName, version: 12, state: 'passed', stores: Object.keys(expected).length };
+    else
+      await incompatible(
+        name,
+        caseName.includes('content-index')
+          ? 'content-index'
+          : caseName.includes('-store-')
+            ? 'store'
+            : 'index'
+      );
+    return { name: caseName, version: 13, state: 'passed', stores: Object.keys(expected).length };
   } finally {
     await remove(name);
   }

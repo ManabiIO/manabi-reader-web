@@ -41,10 +41,10 @@ function harness() {
     return subjects.get(key);
   }
   class IntegrationError extends Error {
-    constructor(code) {
+    constructor(code, retryAfter = 0) {
       super(code);
       this.code = code;
-      this.retryAfter = 0;
+      this.retryAfter = retryAfter;
     }
   }
   const persistence = loadOfflineModule('apps/web/src/lib/manabi/persistence.ts', {
@@ -121,6 +121,7 @@ function harness() {
   });
   return {
     api,
+    IntegrationError,
     profile,
     account,
     loads,
@@ -139,6 +140,9 @@ function harness() {
     },
     advance: () => {
       clock += 6000;
+    },
+    advanceBy: (milliseconds) => {
+      clock += milliseconds;
     },
     online: () => window.dispatchEvent(new globalThis.Event('online')),
     visible: () => document.dispatchEvent(new globalThis.Event('visibilitychange'))
@@ -480,6 +484,155 @@ test('repeating enable without a new decision retains pending first-sync intent'
     );
     await h.api.enablePreferenceSync(true);
     assert.equal(h.subjects.get('fontSize$').getValue(), 31);
+    assert.equal(h.status().state, 'synced');
+  } finally {
+    h.stop();
+  }
+});
+
+test('successful retry clears an older server backoff for later background edits', async () => {
+  const h = await loadedHarness({ ...saved(), initialized: true, base: { font_size: 24 } });
+  let fail = true;
+  h.setRequestHandler(() => {
+    if (fail) {
+      fail = false;
+      throw new h.IntegrationError('rate_limited', 60);
+    }
+    return reply({ font_size: 24 });
+  });
+  try {
+    await h.api.syncPreferences();
+    assert.equal(h.status().state, 'rate_limited');
+    await h.api.syncPreferences();
+    assert.equal(h.status().state, 'synced');
+    h.subjects.get('fontSize$').next(31);
+    h.visible();
+    await drain();
+    assert.equal(h.requests.length, 4, 'successful retry left the old server backoff active');
+  } finally {
+    h.stop();
+  }
+});
+
+test('local save recovery does not wait for a server Retry-After', async () => {
+  const h = await loadedHarness({ ...saved(), initialized: true, base: { font_size: 24 } });
+  h.setRequestHandler(() => {
+    throw new h.IntegrationError('rate_limited', 60);
+  });
+  h.setWriteFailure(new Error('storage unavailable'));
+  try {
+    await assert.rejects(h.api.syncPreferences(), /storage unavailable/);
+    const writesAfterFailure = h.writes.length;
+    h.setWriteFailure(undefined);
+    h.advance();
+    h.visible();
+    await drain();
+    assert.ok(
+      h.writes.length > writesAfterFailure,
+      'local snapshot recovery waited for server backoff'
+    );
+    assert.equal(h.requests.length, 1, 'local recovery retried the rate-limited server early');
+  } finally {
+    h.stop();
+  }
+});
+
+test('a local storage failure cannot shorten a server Retry-After', async () => {
+  const h = await loadedHarness({ ...saved(), initialized: true, base: { font_size: 24 } });
+  h.setRequestHandler(() => {
+    throw new h.IntegrationError('rate_limited', 60);
+  });
+  try {
+    await h.api.syncPreferences();
+    h.setWriteFailure(new Error('storage unavailable'));
+    h.subjects.get('fontSize$').next(31);
+    await drain();
+    h.setWriteFailure(undefined);
+    h.advance();
+    h.visible();
+    await drain();
+    assert.equal(h.requests.length, 1, 'storage failure shortened the server retry deadline');
+    assert.ok(h.writes.length >= 3, 'local snapshot was not retried independently');
+  } finally {
+    h.stop();
+  }
+});
+
+test('server backoff is isolated to the profile that received it', async () => {
+  const h = await loadedHarness({ ...saved(), initialized: true, base: { font_size: 24 } });
+  let accountId = 'a';
+  h.setRequestHandler(({ options }) => {
+    if (accountId === 'a') throw new h.IntegrationError('rate_limited', 60);
+    const settings = options.method === 'PUT' ? options.value.settings : { font_size: 24 };
+    return {
+      user_id: 'b',
+      schema_version: 1,
+      revision: options.method === 'PUT' ? 3 : 2,
+      settings
+    };
+  });
+  try {
+    await h.api.syncPreferences();
+    assert.equal(h.status().state, 'rate_limited');
+    accountId = 'b';
+    h.account.set({ status: 'available', session: { user: { id: 'b', username: 'B' } } });
+    h.profile.set({ id: 'b', username: 'B' });
+    await drain();
+    h.loads[1].resolve({
+      enabled: true,
+      initialized: true,
+      revision: 2,
+      base: { font_size: 24 },
+      local: { font_size: 24 }
+    });
+    await drain();
+    await drain();
+    const beforeEdit = h.requests.length;
+    h.subjects.get('fontSize$').next(31);
+    h.visible();
+    await drain();
+    assert.ok(
+      h.requests.length > beforeEdit,
+      'a different profile inherited the previous account server backoff'
+    );
+  } finally {
+    h.stop();
+  }
+});
+
+test('returning to a rate-limited profile does not bypass its server backoff', async () => {
+  const h = await loadedHarness({ ...saved(), initialized: true, base: { font_size: 24 } });
+  let accountId = 'a';
+  let firstA = true;
+  h.setRequestHandler(({ options }) => {
+    if (accountId === 'a' && firstA) {
+      firstA = false;
+      throw new h.IntegrationError('rate_limited', 60);
+    }
+    const settings = options.method === 'PUT' ? options.value.settings : { font_size: 24 };
+    return { user_id: accountId, schema_version: 1, revision: 2, settings };
+  });
+  try {
+    await h.api.syncPreferences();
+    assert.equal(h.requests.length, 1);
+    accountId = 'b';
+    h.account.set({ status: 'available', session: { user: { id: 'b', username: 'B' } } });
+    h.profile.set({ id: 'b', username: 'B' });
+    await drain();
+    h.loads[1].resolve({ ...saved(), enabled: false });
+    await drain();
+    accountId = 'a';
+    h.account.set({ status: 'available', session: { user: { id: 'a', username: 'A' } } });
+    h.profile.set({ id: 'a', username: 'A' });
+    await drain();
+    h.loads[2].resolve({ ...saved(), initialized: true, base: { font_size: 24 } });
+    await drain();
+    await drain();
+    assert.equal(h.requests.length, 1, 'profile restoration bypassed the active Retry-After');
+    h.advanceBy(60000);
+    h.visible();
+    await drain();
+    assert.equal(h.requests.length, 2);
     assert.equal(h.status().state, 'synced');
   } finally {
     h.stop();

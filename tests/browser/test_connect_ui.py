@@ -1,4 +1,5 @@
 """App Store Connect-inspired workspace refinement against the real static app."""
+from reader_controls import reveal_reader_controls
 import unittest
 from playwright.sync_api import expect
 import test_apple_controls as previous
@@ -50,13 +51,13 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
                         'aria-current', 'page'
                     )
                 nav = self.page.get_by_role('navigation', name='Settings categories')
-                typography = nav.get_by_role('button', name='Fonts & text', exact=True)
+                typography = nav.get_by_role('link', name='Fonts & text', exact=True)
                 typography.click()
-                expect(typography).to_have_attribute('aria-pressed', 'true')
+                expect(typography).to_have_attribute('aria-current', 'page')
                 expect(self.page.locator('#settings-content').get_by_role('heading', name='Fonts & text', exact=True)).to_be_visible()
                 self.assert_no_horizontal_overflow(self.page.locator('html'))
                 # Activate with the keyboard before checking its focus ring.
-                # Do not assume Safari is configured to Tab through buttons.
+                # Do not assume Safari is configured to Tab through links.
                 typography.press('Enter')
                 expect(typography).to_be_focused()
                 self.assertNotEqual('none', typography.evaluate('e => getComputedStyle(e).outlineStyle'))
@@ -66,6 +67,63 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
                 search.fill('')
                 expect(self.page.locator('#settings-content').get_by_role('heading', name='Fonts & text', exact=True)).to_be_visible()
 
+    def test_primary_workspace_navigation_appears_at_standard_desktop_width(self):
+        self.page.set_viewport_size({'width': 1024, 'height': 768})
+        self.page.goto(self.origin + '/reader-web/settings')
+        primary = self.page.get_by_role('navigation', name='Primary navigation')
+        for destination in ('Library', 'Snippets', 'Statistics', 'Settings'):
+            expect(primary.get_by_role('link', name=destination, exact=True)).to_be_visible()
+        expect(primary.get_by_role('link', name='Settings', exact=True)).to_have_attribute(
+            'aria-current', 'page'
+        )
+        self.assert_no_horizontal_overflow(self.page.locator('html'))
+
+    def test_settings_section_links_follow_url_history_without_scrolling(self):
+        self.page.set_viewport_size({'width': 1200, 'height': 844})
+        self.page.goto(self.origin + '/reader-web/settings')
+        nav = self.page.get_by_role('navigation', name='Settings categories')
+        typography = nav.get_by_role('link', name='Fonts & text', exact=True)
+        layout = nav.get_by_role('link', name='Page layout', exact=True)
+
+        start_scroll = self.page.evaluate('scrollY')
+        typography.click()
+        expect(self.page).to_have_url(self.origin + '/reader-web/settings#typography')
+        expect(typography).to_have_attribute('aria-current', 'page')
+        expect(
+            self.page.locator('#settings-content').get_by_role(
+                'heading', name='Fonts & text', exact=True
+            )
+        ).to_be_visible()
+        self.assertEqual(start_scroll, self.page.evaluate('scrollY'))
+
+        layout.click()
+        expect(self.page).to_have_url(self.origin + '/reader-web/settings#layout')
+        expect(layout).to_have_attribute('aria-current', 'page')
+        expect(
+            self.page.locator('#settings-content').get_by_role(
+                'heading', name='Page layout', exact=True
+            )
+        ).to_be_visible()
+
+        self.page.go_back()
+        expect(self.page).to_have_url(self.origin + '/reader-web/settings#typography')
+        expect(typography).to_have_attribute('aria-current', 'page')
+        expect(
+            self.page.locator('#settings-content').get_by_role(
+                'heading', name='Fonts & text', exact=True
+            )
+        ).to_be_visible()
+
+        self.page.go_back()
+        expect(self.page).to_have_url(self.origin + '/reader-web/settings')
+        appearance = nav.get_by_role('link', name='Appearance', exact=True)
+        expect(appearance).to_have_attribute('aria-current', 'page')
+        expect(
+            self.page.locator('#settings-content').get_by_role(
+                'heading', name='Appearance', exact=True
+            )
+        ).to_be_visible()
+
     def test_connections_workspace_uses_shared_action_hierarchy(self):
         for mode in ('light', 'dark'):
             self.page.evaluate('v => localStorage.setItem("appearance", v)', mode)
@@ -73,7 +131,11 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
                 self.page.set_viewport_size({'width': width, 'height': 844})
                 self.page.goto(self.origin + '/reader-web/connections')
                 self.page.evaluate('v => document.documentElement.style.fontSize = v', scale)
-                expect(self.page.get_by_role('heading', name='Accounts and libraries', exact=True)).to_be_visible()
+                heading = self.page.get_by_role('heading', name='Accounts and libraries', exact=True)
+                expect(heading).to_be_visible()
+                context = self.page.get_by_role('navigation', name='Context navigation')
+                expect(context.get_by_role('link', name='Back to Library', exact=True)).to_be_visible()
+                expect(context.get_by_role('link')).to_have_count(1)
                 sign_in = self.page.get_by_role('link', name='Sign in to Manabi', exact=True)
                 create = self.page.get_by_role('link', name='Create a Manabi account', exact=True)
                 expect(sign_in).to_have_attribute('data-variant', 'default')
@@ -83,6 +145,21 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
                     'data-variant', 'ghost'
                 )
                 self.assert_no_horizontal_overflow(self.page.locator('html'))
+                if scale == '200%':
+                    self.assertEqual(
+                        [1, 1],
+                        heading.evaluate('''e => {
+                          const node = e.firstChild;
+                          const value = node.textContent;
+                          return ['Accounts', 'libraries'].map(word => {
+                            const start = value.indexOf(word);
+                            const range = document.createRange();
+                            range.setStart(node, start);
+                            range.setEnd(node, start + word.length);
+                            return range.getClientRects().length;
+                          });
+                        }''')
+                    )
                 first_section = self.page.locator('.connections-page > section').first
                 self.assertAlmostEqual(
                     first_section.evaluate('e => parseFloat(getComputedStyle(e).borderTopLeftRadius)'),
@@ -97,10 +174,30 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
             self.page.set_viewport_size({'width': 320, 'height': 844})
             self.page.goto(self.origin + '/reader-web/shared-library')
             self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+            heading = self.page.get_by_role(
+                'heading', name='Shared Ttu Ebook Reader libraries', exact=True
+            )
+            expect(heading).to_be_visible()
+            context = self.page.get_by_role('navigation', name='Context navigation')
             expect(
-                self.page.get_by_role('heading', name='Shared Ttu Ebook Reader libraries', exact=True)
+                context.get_by_role('link', name='Back to Accounts and libraries', exact=True)
             ).to_be_visible()
+            expect(context.get_by_role('link')).to_have_count(1)
             self.assert_no_horizontal_overflow(self.page.locator('html'))
+            self.assertEqual(
+                [1, 1, 1],
+                heading.evaluate('''e => {
+                  const node = e.firstChild;
+                  const value = node.textContent;
+                  return ['Shared', 'Ebook', 'libraries'].map(word => {
+                    const start = value.indexOf(word);
+                    const range = document.createRange();
+                    range.setStart(node, start);
+                    range.setEnd(node, start + word.length);
+                    return range.getClientRects().length;
+                  });
+                }''')
+            )
             first_section = self.page.locator('main > section').first
             self.assertAlmostEqual(
                 first_section.evaluate('e => parseFloat(getComputedStyle(e).borderTopLeftRadius)'),
@@ -116,6 +213,161 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
                     )
                 ).to_have_attribute('data-variant', 'outline')
             self.capture(f'connect-shared-library-{mode}-320')
+
+    def test_import_workspace_uses_management_hierarchy_at_enlarged_text(self):
+        for mode in ('light', 'dark'):
+            self.page.evaluate('v => localStorage.setItem("appearance", v)', mode)
+            self.page.set_viewport_size({'width': 320, 'height': 844})
+            self.page.goto(self.origin + '/reader-web/import-ttu')
+            self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+
+            heading = self.page.get_by_role(
+                'heading', name='Import from Ttu Ebook Reader', exact=True
+            )
+            expect(heading).to_be_visible()
+            context = self.page.get_by_role('navigation', name='Context navigation')
+            expect(context.get_by_role('link', name='Back to Library', exact=True)).to_be_visible()
+            expect(context.get_by_role('link')).to_have_count(1)
+            file_input = self.page.get_by_label('Choose Ttu export ZIPs', exact=True)
+            expect(file_input).to_be_visible()
+            self.assertGreaterEqual(file_input.bounding_box()['height'], 43.99)
+            self.assert_no_horizontal_overflow(self.page.locator('html'))
+            self.assertEqual(
+                [1, 1, 1],
+                heading.evaluate('''e => {
+                  const node = e.firstChild;
+                  const value = node.textContent;
+                  return ['Import', 'Ebook', 'Reader'].map(word => {
+                    const start = value.indexOf(word);
+                    const range = document.createRange();
+                    range.setStart(node, start);
+                    range.setEnd(node, start + word.length);
+                    return range.getClientRects().length;
+                  });
+                }''')
+            )
+            instructions = self.page.locator('.migration-page > section').first
+            self.assertAlmostEqual(
+                instructions.evaluate('e => parseFloat(getComputedStyle(e).borderTopLeftRadius)'),
+                16,
+                delta=0.1
+            )
+            self.capture(f'connect-import-ttu-{mode}-320')
+
+    def test_reading_goals_use_labeled_fields_and_native_sync_controls(self):
+        self.page.set_viewport_size({'width': 320, 'height': 844})
+        self.page.goto(self.origin + '/reader-web/settings#tracking')
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+
+        statistics = self.page.get_by_role('switch', name='Enable Statistics', exact=True)
+        if not statistics.is_checked():
+            statistics.check()
+
+        goals = self.page.locator('[data-setting="reading-goals"]')
+        expect(goals).to_be_visible()
+        expect(goals.get_by_role('heading', name='Reading goals', exact=True)).to_have_count(1)
+        self.assert_no_horizontal_overflow(self.page.locator('html'))
+
+        sync = goals.get_by_role('button', name='Sync', exact=True)
+        edit = goals.get_by_role('button', name='Edit', exact=True)
+        reset = goals.get_by_role('button', name='Reset', exact=True)
+        expect(sync).to_have_attribute('data-variant', 'outline')
+        expect(edit).to_have_attribute('data-variant', 'secondary')
+        expect(reset).to_have_attribute('data-variant', 'destructive')
+        expect(reset).to_be_disabled()
+
+        fields = (
+            ('Time goal (minutes)', 'spinbutton'),
+            ('Character goal', 'spinbutton'),
+            ('Frequency', 'combobox'),
+            ('Start date', None)
+        )
+        for label, role in fields:
+            field = goals.get_by_label(label, exact=True)
+            expect(field).to_be_visible()
+            self.assertGreaterEqual(field.bounding_box()['height'], 43.99)
+            expect(field).to_be_disabled()
+
+        edit.click()
+        for label, _ in fields:
+            expect(goals.get_by_label(label, exact=True)).to_be_enabled()
+        expect(goals.get_by_role('button', name='Save', exact=True)).to_have_attribute(
+            'data-variant', 'default'
+        )
+        cancel = goals.get_by_role('button', name='Cancel', exact=True)
+        expect(cancel).to_have_attribute('data-variant', 'ghost')
+        cancel.click()
+
+        sync.click()
+        dialog = self.page.locator('[data-slot="dialog-content"]')
+        expect(dialog).to_be_visible()
+        title = dialog.get_by_text('Sync Reading Goals', exact=True)
+        expect(title).to_be_visible()
+        title_box = title.bounding_box()
+        panel_box = dialog.locator('section.ui-panel').bounding_box()
+        self.assertGreaterEqual(title_box['width'], panel_box['width'] * 0.7)
+        source = dialog.get_by_label('Source', exact=True)
+        target = dialog.get_by_label('Target', exact=True)
+        self.assertGreaterEqual(source.bounding_box()['height'], 43.99)
+        self.assertGreaterEqual(target.bounding_box()['height'], 43.99)
+        swap = dialog.get_by_role('button', name='Swap sync source and target', exact=True)
+        self.assertEqual('BUTTON', swap.evaluate('e => e.tagName'))
+        expect(swap).to_be_disabled()
+        expect(dialog.get_by_role('button', name='Cancel', exact=True)).to_have_attribute(
+            'data-variant', 'ghost'
+        )
+        expect(dialog.get_by_role('button', name='Confirm', exact=True)).to_have_attribute(
+            'data-variant', 'default'
+        )
+        dialog.get_by_role('button', name='Cancel', exact=True).click()
+        expect(dialog).to_have_count(0)
+
+    def test_advanced_storage_editor_labels_the_correct_controls(self):
+        self.page.set_viewport_size({'width': 320, 'height': 844})
+        self.page.goto(self.origin + '/reader-web/settings#library')
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+
+        storage = self.page.locator('[data-setting="storage-sources"]')
+        expect(storage).to_be_visible()
+        expect(storage.get_by_role('heading', name='Storage sources', exact=True)).to_have_count(1)
+        add = storage.get_by_role('button', name='Add source', exact=True)
+        expect(add).to_have_attribute('data-variant', 'outline')
+        expect(add).to_be_enabled(timeout=15000)
+        add.click()
+
+        dialog = self.page.locator('[data-slot="dialog-content"]')
+        expect(dialog).to_be_visible()
+        name = dialog.get_by_label('Name', exact=True)
+        sync_target = dialog.get_by_label('Is Sync Target', exact=True)
+        source_default = dialog.get_by_label('Is Source Default', exact=True)
+        source_type = dialog.get_by_label('Storage type', exact=True)
+        client_id = dialog.get_by_label('Client ID', exact=True)
+        client_secret = dialog.get_by_label('Client Secret', exact=True)
+        password = dialog.get_by_label('Password', exact=True)
+        confirm = dialog.get_by_label('Confirm Password', exact=True)
+
+        for field in (name, source_type, client_id, client_secret, password, confirm):
+            expect(field).to_be_visible()
+            self.assertGreaterEqual(field.bounding_box()['height'], 43.99)
+
+        expect(sync_target).not_to_be_checked()
+        expect(source_default).not_to_be_checked()
+        source_default.check()
+        expect(source_default).to_be_checked()
+        expect(sync_target).not_to_be_checked()
+        sync_target.check()
+        expect(sync_target).to_be_checked()
+        expect(source_default).to_be_checked()
+
+        expect(dialog.get_by_role('button', name='Cancel', exact=True)).to_have_attribute(
+            'data-variant', 'ghost'
+        )
+        expect(dialog.get_by_role('button', name='Save', exact=True)).to_have_attribute(
+            'data-variant', 'default'
+        )
+        self.assertLessEqual(dialog.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
+        dialog.get_by_role('button', name='Cancel', exact=True).click()
+        expect(dialog).to_have_count(0)
 
     def test_statistics_toolbar_and_options_reflow_and_keep_unique_form_labels(self):
         self.page.goto(self.origin + '/reader-web/statistics')
@@ -271,9 +523,7 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
 
     def test_reader_appearance_state_controls_and_themes_remain_reachable_when_enlarged(self):
         self.open_reader()
-        reveal = self.page.get_by_role('button', name='Show reading controls', exact=True)
-        if reveal.is_visible():
-            reveal.click()
+        reveal_reader_controls(self.page)
         self.page.get_by_role('button', name='Themes & Settings', exact=True).click()
         panel = self.page.get_by_role('dialog', name='Themes & Settings', exact=True)
         self.page.set_viewport_size({'width': 320, 'height': 568})
