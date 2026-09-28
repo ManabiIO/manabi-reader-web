@@ -21,12 +21,12 @@ export function observeReaderFontLayout(
 
   let disposed = false;
   let frame: number | undefined;
-  let errorPoll: number | undefined;
+  let errorPoll: ReturnType<typeof setTimeout> | undefined;
   let errorPollUntil = 0;
 
   const settle = () => {
     if (disposed) return;
-    view.clearTimeout(deadlineTimer);
+    clearTimeout(deadlineTimer);
     if (frame !== undefined) view.cancelAnimationFrame(frame);
     frame = view.requestAnimationFrame(() => {
       frame = undefined;
@@ -34,7 +34,7 @@ export function observeReaderFontLayout(
     });
   };
 
-  const deadlineTimer = view.setTimeout(settle, deadlineMs);
+  const deadlineTimer = setTimeout(settle, deadlineMs);
   const fonts = document.fonts;
   const trackedFaces = new Set<FontFace>();
   const transientErrorFaces = new Set<FontFace>();
@@ -50,7 +50,7 @@ export function observeReaderFontLayout(
   const scheduleTransientErrorPoll = () => {
     if (disposed || errorPoll !== undefined) return;
     errorPollUntil = Math.max(errorPollUntil, Date.now() + Math.max(30000, deadlineMs * 4));
-    errorPoll = view.setTimeout(pollTransientErrors, 100);
+    errorPoll = setTimeout(pollTransientErrors, 100);
   };
 
   function pollTransientErrors() {
@@ -73,7 +73,7 @@ export function observeReaderFontLayout(
     }
 
     if (pending && Date.now() < errorPollUntil) {
-      errorPoll = view.setTimeout(pollTransientErrors, 100);
+      errorPoll = setTimeout(pollTransientErrors, 100);
     }
   }
 
@@ -119,8 +119,8 @@ export function observeReaderFontLayout(
 
   return () => {
     disposed = true;
-    view.clearTimeout(deadlineTimer);
-    if (errorPoll !== undefined) view.clearTimeout(errorPoll);
+    clearTimeout(deadlineTimer);
+    if (errorPoll !== undefined) clearTimeout(errorPoll);
     if (frame !== undefined) view.cancelAnimationFrame(frame);
     fonts?.removeEventListener('loading', onLoading);
     fonts?.removeEventListener('loadingdone', settle);
