@@ -34,11 +34,7 @@
 
   function submit() {
     if (settled) return;
-    if (
-      !Number.isSafeInteger(minValue) ||
-      !Number.isSafeInteger(maxValue) ||
-      minValue > maxValue
-    ) {
+    if (!Number.isSafeInteger(minValue) || !Number.isSafeInteger(maxValue) || minValue > maxValue) {
       error = 'Position range is unavailable.';
       return;
     }
@@ -61,7 +57,7 @@
     <div class="flex flex-col gap-3 text-sm sm:text-base" slot="content">
       <Input
         aria-label={dialogHeader}
-        aria-description={error || `Enter a position between ${minValue} and ${maxValue}.`}
+        aria-describedby={error ? 'number-dialog-help number-dialog-error' : 'number-dialog-help'}
         aria-invalid={!!error}
         type="number"
         inputmode="numeric"
@@ -75,10 +71,16 @@
           if (event.key === 'Enter' && event.isComposing) event.preventDefault();
         }}
       />
-      <p class="text-muted-foreground [overflow-wrap:anywhere]">
+      <p id="number-dialog-help" class="text-muted-foreground [overflow-wrap:anywhere]">
         Enter a position between {minValue} and {maxValue}.
       </p>
-      {#if error}<p role="alert" class="text-destructive [overflow-wrap:anywhere]">{error}</p>{/if}
+      {#if error}<p
+          id="number-dialog-error"
+          role="alert"
+          class="text-destructive [overflow-wrap:anywhere]"
+        >
+          {error}
+        </p>{/if}
     </div>
     <svelte:fragment slot="footer">
       {#if showCancel}

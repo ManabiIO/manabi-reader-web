@@ -40,7 +40,12 @@ function dialog(name, props = {}) {
     (callback) => destroys.push(callback),
     () => (event) => dispatched.push(event)
   );
-  return { ...api, received, dispatched, destroy: () => destroys.forEach((callback) => callback()) };
+  return {
+    ...api,
+    received,
+    dispatched,
+    destroy: () => destroys.forEach((callback) => callback())
+  };
 }
 
 for (const value of [undefined, NaN, Infinity, 1.5, 0, 101]) {
