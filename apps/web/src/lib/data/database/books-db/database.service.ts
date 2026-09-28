@@ -5,7 +5,6 @@
  */
 
 import { encodeBook, decodeBook } from './book-binary';
-import { mergeCompletion } from '$lib/library/completion';
 import {
   contentStatisticKey,
   migrateLegacyStatistics,
@@ -15,7 +14,7 @@ import {
 } from './reader-statistics';
 import { commitTransaction, explainBookStorageError } from './commit-transaction.mjs';
 import { matchesDirectImportIdentity, normalizedDirectImportHash } from './direct-import-identity';
-import { assertBookPersonalAccess, snapshotBookmarkData } from './book-records';
+import { commitOwnedBookmark, readOwnedBookmark, snapshotBookmarkData } from './book-records';
 import { captureLibraryOperation } from '$lib/manabi/operation-scope';
 import type {
   BooksDbAudioBook,
@@ -387,7 +386,9 @@ export class DatabaseService {
     dataIds: number[],
     _idsToTitles: Map<number, string>,
     cancelSignal: AbortSignal,
-    keepLocalStatistics: boolean
+    keepLocalStatistics: boolean,
+    profileId?: string | null,
+    assertCurrent?: () => void
   ) {
     // Snapshot the selected IDs, not their mutable title/resume metadata.
     const selectedIds = [...new Set(dataIds)];
@@ -404,9 +405,19 @@ export class DatabaseService {
       tasks.push(
         limiter(async () => {
           try {
+            assertCurrent?.();
             throwIfAborted(cancelSignal);
 
-            deleted.push(await this.deleteSingleData(db, id, !keepLocalStatistics));
+            deleted.push(
+              await this.deleteSingleData(
+                db,
+                id,
+                !keepLocalStatistics,
+                profileId,
+                assertCurrent,
+                cancelSignal
+              )
+            );
           } catch (error) {
             errorMessage = handleErrorDuringReplication(
               error,
@@ -427,23 +438,12 @@ export class DatabaseService {
     const scope = captureLibraryOperation();
     try {
       scope.assertCurrent();
-      const db = await this.db;
-      scope.assertCurrent();
-      const tx = db.transaction(['data', 'bookmark', 'readerBookScope']);
-      const bookmark = await commitTransaction(tx, async () => {
-        scope.assertCurrent();
-        const book = await tx.objectStore('data').get(dataId);
-        if (!book) return undefined;
-        const readerScope = await tx.objectStore('readerBookScope').get(dataId);
-        scope.assertCurrent();
-        if (book.libraryOwner !== undefined && book.libraryOwner !== scope.profileId)
-          throw new Error('This book belongs to another account.');
-        if (readerScope && readerScope.accountId !== scope.profileId) return undefined;
-        scope.assertCurrent();
-        const bookmark = await tx.objectStore('bookmark').get(dataId);
-        scope.assertCurrent();
-        return bookmark;
-      });
+      const bookmark = await readOwnedBookmark(
+        await this.db,
+        dataId,
+        scope.profileId,
+        scope.assertCurrent
+      );
       scope.assertCurrent();
       return bookmark;
     } finally {
@@ -459,37 +459,15 @@ export class DatabaseService {
     const scope = captureLibraryOperation();
     try {
       scope.assertCurrent();
-      const db = await this.db;
+      const result = await commitOwnedBookmark(
+        await this.db,
+        snapshot,
+        scope.profileId,
+        scope.assertCurrent,
+        scope.signal
+      );
       scope.assertCurrent();
-      const tx = db.transaction(['data', 'bookmark', 'readerBookScope'], 'readwrite');
-      const abort = () => {
-        try {
-          tx.abort();
-        } catch {
-          /* Already settled. */
-        }
-      };
-      scope.signal.addEventListener('abort', abort, { once: true });
-      try {
-        const result = await commitTransaction(tx, async () => {
-          scope.assertCurrent();
-          const book = await tx.objectStore('data').get(snapshot.dataId);
-          if (!book) throw new Error('This book is no longer in the library.');
-          const readerScope = await tx.objectStore('readerBookScope').get(snapshot.dataId);
-          assertBookPersonalAccess(book, readerScope, scope.profileId);
-          scope.assertCurrent();
-          const bookmarks = tx.objectStore('bookmark');
-          const before = await bookmarks.get(snapshot.dataId);
-          scope.assertCurrent();
-          return bookmarks.put(mergeCompletion(before, snapshot));
-        });
-        // A finished write cannot be undone, but a revoked profile must not
-        // receive its result after a switch during transaction completion.
-        scope.assertCurrent();
-        return result;
-      } finally {
-        scope.signal.removeEventListener('abort', abort);
-      }
+      return result;
     } finally {
       scope.stop();
     }
@@ -548,7 +526,10 @@ export class DatabaseService {
   private async deleteSingleData(
     db: IDBPDatabase<BooksDb>,
     dataId: number,
-    shouldDeleteStatistics: boolean
+    shouldDeleteStatistics: boolean,
+    profileId?: string | null,
+    assertCurrent?: () => void,
+    signal?: AbortSignal
   ) {
     const storeNames: (
       | 'data'
@@ -578,11 +559,28 @@ export class DatabaseService {
 
     const tx = db.transaction(storeNames, 'readwrite');
     let removedLastItem = false;
+    const abort = () => {
+      try {
+        tx.abort();
+      } catch {
+        /* Already settled. */
+      }
+    };
+    signal?.addEventListener('abort', abort, { once: true });
     try {
       await commitTransaction(tx, async () => {
+        assertCurrent?.();
+        throwIfAborted(signal);
         // A batch may span reader writes, renames and other tabs. Decisions must
         // use the current record in the same transaction as its deletion.
         const book = await tx.objectStore('data').get(dataId);
+        const owner = await tx.objectStore('readerBookScope').get(dataId);
+        if (
+          profileId !== undefined &&
+          ((book?.libraryOwner && book.libraryOwner !== profileId) ||
+            (owner && owner.accountId !== profileId))
+        )
+          throw new Error('This book belongs to another account.');
         const bookTitle = book?.title;
         const titleUsedByAnotherBook = bookTitle
           ? (await tx.objectStore('data').index('title').getAllKeys(bookTitle)).some(
@@ -639,12 +637,14 @@ export class DatabaseService {
           await tx.objectStore('subtitle').delete(bookTitle);
           await tx.objectStore('handle').delete(IDBKeyRange.bound([bookTitle], [bookTitle, []]));
         }
+        assertCurrent?.();
+        throwIfAborted(signal);
         await tx.objectStore('readerSearchProjection').delete(dataId);
         await tx.objectStore('data').delete(dataId);
       });
     } catch (error) {
-      // This transaction has no user-cancellation signal. A native abort is a
-      // storage failure, not the deliberate cancellation checked between books.
+      if (signal?.aborted) throw error;
+      // A native abort without user cancellation is a storage failure.
       if (error && typeof error === 'object' && 'name' in error && error.name === 'AbortError')
         throw new Error(
           'The book could not be deleted because its local storage transaction was aborted. ' +
@@ -652,6 +652,8 @@ export class DatabaseService {
           { cause: error }
         );
       throw error;
+    } finally {
+      signal?.removeEventListener('abort', abort);
     }
     if (removedLastItem) this.lastItemChanged$.next();
     this.bookmarksChanged$.next();

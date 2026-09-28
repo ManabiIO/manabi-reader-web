@@ -650,34 +650,40 @@
 
     initializeReplicationProgressData();
 
-    const currentBookCount = $bookCards$.length;
-    const handler = getStorageHandler(window, $storageSource$, '');
-    const { error, deleted } =
-      handler instanceof BrowserStorageHandler
-        ? await handler.deleteBookIds(bookIds, cancelSignal, $keepLocalStatisticsOnDeletion$)
-        : await handler.deleteBookData(
-            $bookCards$.reduce((toDelete, card) => {
-              if (bookIds.includes(card.id)) toDelete.push(card.title);
-              return toDelete;
-            }, [] as string[]),
-            cancelSignal,
-            $keepLocalStatisticsOnDeletion$
-          );
+    try {
+      const currentBookCount = $bookCards$.length;
+      const handler = getStorageHandler(window, $storageSource$, '');
+      const { error, deleted } =
+        handler instanceof BrowserStorageHandler
+          ? await handler.deleteBookIds(bookIds, cancelSignal, $keepLocalStatisticsOnDeletion$)
+          : await handler.deleteBookData(
+              $bookCards$.reduce((toDelete, card) => {
+                if (bookIds.includes(card.id)) toDelete.push(card.title);
+                return toDelete;
+              }, [] as string[]),
+              cancelSignal,
+              $keepLocalStatisticsOnDeletion$
+            );
 
-    resetProgress();
+      await tick();
 
-    await tick();
+      if (deleted.length === currentBookCount) {
+        selectMode = false;
+      } else {
+        selectedBookIds = cloneMutateSet(selectedBookIds, (set) => {
+          deleted.forEach((deletedBookId) => set.delete(deletedBookId));
+        });
+      }
 
-    if (deleted.length === currentBookCount) {
-      selectMode = false;
-    } else {
-      selectedBookIds = cloneMutateSet(selectedBookIds, (set) => {
-        deleted.forEach((deletedBookId) => set.delete(deletedBookId));
-      });
-    }
-
-    if (error) {
-      showError('Deletion failed', error, 'Error(s) occurred during deletion');
+      if (error) showError('Deletion failed', error, 'Error(s) occurred during deletion');
+    } catch (error) {
+      showError(
+        'Deletion failed',
+        error instanceof Error ? error.message : String(error),
+        'Error(s) occurred during deletion'
+      );
+    } finally {
+      resetProgress();
     }
   }
 
