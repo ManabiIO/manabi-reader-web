@@ -538,7 +538,9 @@ export class BrowserStorageHandler extends BaseStorageHandler {
         keepLocalStatistics,
         { profileId: scope.profileId, signal }
       );
-      scope.assertCurrent();
+      // A profile change aborts not-yet-committed guarded deletes. Preserve the
+      // result of any deletion that committed before revocation instead of
+      // reporting an empty outcome for work that actually completed.
       if (deleted.length) {
         this.clearData();
         database.dataListChanged$.next(this);
