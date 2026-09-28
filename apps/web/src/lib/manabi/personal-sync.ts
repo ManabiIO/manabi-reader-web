@@ -958,7 +958,10 @@ async function flushReading(accountId: string, books: Map<string, StoredBookData
   }
 }
 
-async function stageAnnotations(accountId: string) {
+async function stageAnnotations(
+  accountId: string,
+  books: ReadonlyMap<string, StoredBookData[]>
+) {
   const db = await database.db;
   const pending = await db.getAllFromIndex('readerAnnotationOutbox', 'accountId', accountId);
   const pendingIds = new Set(pending.map((value) => value.annotationId));
@@ -971,7 +974,13 @@ async function stageAnnotations(accountId: string) {
       continue;
     const owner = await annotationOwner(annotation.id, annotation.bookKey);
     if (owner && owner !== accountId) continue;
-    if (!owner) await db.put('readerAnnotationScope', { annotationId: annotation.id, accountId });
+    // A legacy unscoped annotation is not proof of account ownership. Only the
+    // already-vetted owned-book inventory may establish its first account scope.
+    if (!owner) {
+      if (!books.has(annotation.bookKey)) continue;
+      scoped(accountId);
+      await db.put('readerAnnotationScope', { annotationId: annotation.id, accountId });
+    }
     const base = await db.get('readerPersonalRecord', key(accountId, 'annotation', annotation.id));
     const value = annotation.deletedAt
       ? null
@@ -1089,11 +1098,11 @@ export async function syncPersonalState() {
           await bootstrap(accountId, books); // Never upload before every remote page is applied.
           await hydrateReading(accountId, books);
           await stageReading(accountId, books);
-          await stageAnnotations(accountId);
+          await stageAnnotations(accountId, books);
           await flushReading(accountId, books);
           await flushAnnotations(accountId, books);
           await stageReading(accountId, books);
-          await stageAnnotations(accountId);
+          await stageAnnotations(accountId, books);
           await publish(accountId);
           return;
         } catch (error) {
