@@ -11,6 +11,7 @@ import type {
   ReaderAnnotation,
   ReaderAnnotationMutation
 } from '$lib/data/database/books-db/versions/v7/books-db-v7';
+import { snapshotReaderLocator } from '$lib/reader-location';
 
 export type AnnotationDraft = Pick<ReaderAnnotation, 'bookKey' | 'kind' | 'targets'> &
   Partial<Pick<ReaderAnnotation, 'id' | 'body' | 'label' | 'color' | 'decoration'>>;
@@ -134,30 +135,22 @@ export function validateImportedAnnotation(value: unknown): ReaderAnnotation {
     value.deletedAt !== undefined
   )
     throw new Error('The archive contains an invalid annotation.');
-  for (const target of value.targets) {
+  const targets = value.targets.map((target) => {
     if (
       !isRecord(target) ||
-      target.version !== 1 ||
-      target.bookKey !== value.bookKey ||
-      !isRecord(target.resource) ||
-      !boundedString(target.resource.href, 2048) ||
-      !target.resource.href ||
-      !boundedString(target.resource.sectionId, 256) ||
-      !Number.isSafeInteger(target.resource.spineIndex) ||
-      Number(target.resource.spineIndex) < 0 ||
-      !Number.isSafeInteger(target.projectionVersion) ||
-      Number(target.projectionVersion) < 1 ||
       !boundedString(target.resourceDigest, 128) ||
-      !Number.isSafeInteger(target.start) ||
-      Number(target.start) < 0 ||
-      !Number.isSafeInteger(target.end) ||
-      Number(target.end) < Number(target.start) ||
       !boundedString(target.quote, maxBodyLength) ||
       !boundedString(target.prefix, 256) ||
-      !boundedString(target.suffix, 256)
+      !boundedString(target.suffix, 256) ||
+      !isRecord(target.resource) ||
+      !boundedString(target.resource.href, 2048) ||
+      !boundedString(target.resource.sectionId, 256)
     )
       throw new Error('The archive contains an invalid reading location.');
-  }
+    const snapshot = snapshotReaderLocator(target, value.bookKey);
+    if (!snapshot) throw new Error('The archive contains an invalid reading location.');
+    return snapshot;
+  });
   const annotation = value as unknown as ReaderAnnotation;
   validate(annotation);
   if (new TextEncoder().encode(JSON.stringify(annotation)).byteLength > 320 * 1024)
@@ -166,22 +159,7 @@ export function validateImportedAnnotation(value: unknown): ReaderAnnotation {
     id: annotation.id,
     bookKey: annotation.bookKey,
     kind: annotation.kind,
-    targets: annotation.targets.map((target) => ({
-      version: 1,
-      bookKey: target.bookKey,
-      resource: {
-        href: target.resource.href,
-        spineIndex: target.resource.spineIndex,
-        sectionId: target.resource.sectionId
-      },
-      projectionVersion: target.projectionVersion,
-      resourceDigest: target.resourceDigest,
-      start: target.start,
-      end: target.end,
-      quote: target.quote,
-      prefix: target.prefix,
-      suffix: target.suffix
-    })),
+    targets,
     body: annotation.body,
     label: annotation.label,
     color: annotation.color,
@@ -374,6 +352,29 @@ export async function resolveAnnotationImportConflict(
   await tx.done;
 }
 
+function snapshotDraft(draft: AnnotationDraft): AnnotationDraft {
+  if (!draft || typeof draft !== 'object') throw new Error('Invalid annotation.');
+  const bookKey = draft.bookKey;
+  if (typeof bookKey !== 'string') throw new Error('A verified book identity is required.');
+  const targets = Array.isArray(draft.targets)
+    ? draft.targets.map((target) => {
+        const snapshot = snapshotReaderLocator(target, bookKey);
+        if (!snapshot) throw new Error('The annotation contains an invalid reading location.');
+        return snapshot;
+      })
+    : [];
+  return {
+    bookKey,
+    kind: draft.kind,
+    targets,
+    ...(draft.id === undefined ? {} : { id: draft.id }),
+    ...(draft.body === undefined ? {} : { body: draft.body }),
+    ...(draft.label === undefined ? {} : { label: draft.label }),
+    ...(draft.color === undefined ? {} : { color: draft.color }),
+    ...(draft.decoration === undefined ? {} : { decoration: draft.decoration })
+  };
+}
+
 function validate(draft: AnnotationDraft) {
   if (!/^(content:[a-f0-9]{64}|local:[0-9a-f-]{36})$/.test(draft.bookKey))
     throw new Error('A verified book identity is required.');
@@ -381,10 +382,26 @@ function validate(draft: AnnotationDraft) {
     throw new Error('Invalid annotation type.');
   if (!draft.targets.length || draft.targets.length > 32)
     throw new Error('An annotation needs one to 32 source targets.');
+  if (draft.targets.some((target) => target.bookKey !== draft.bookKey))
+    throw new Error('An annotation target belongs to another book.');
   if (draft.kind !== 'bookmark' && draft.targets.every((target) => target.start === target.end))
     throw new Error('Select text before adding a highlight or note.');
-  if ((draft.body?.length ?? 0) > maxBodyLength || (draft.label?.length ?? 0) > maxLabelLength)
+  if (draft.id !== undefined && (!boundedString(draft.id, 128) || !draft.id))
+    throw new Error('Invalid annotation ID.');
+  if (draft.body !== undefined && !boundedString(draft.body, maxBodyLength))
     throw new Error('The annotation is too large.');
+  if (draft.label !== undefined && !boundedString(draft.label, maxLabelLength))
+    throw new Error('The annotation is too large.');
+  if (
+    draft.color !== undefined &&
+    !['yellow', 'blue', 'green', 'pink', 'purple'].includes(draft.color)
+  )
+    throw new Error('Invalid annotation color.');
+  if (
+    draft.decoration !== undefined &&
+    !['highlight', 'underline'].includes(draft.decoration)
+  )
+    throw new Error('Invalid annotation decoration.');
 }
 
 /** Local write and optional account-bound mutation are one IndexedDB transaction. */
@@ -392,6 +409,9 @@ export async function saveReaderAnnotation(
   draft: AnnotationDraft,
   accountId: string | null = localProfileUser()?.id ?? null
 ): Promise<ReaderAnnotation> {
+  // Snapshot synchronously before the first await. UI selections and callers
+  // remain mutable objects and must not retarget a pending database write.
+  draft = snapshotDraft(draft);
   assertCurrentAccount(accountId);
   validate(draft);
   const db = await database.db;

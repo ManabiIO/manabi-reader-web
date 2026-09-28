@@ -114,6 +114,18 @@ test('a malformed identity or text witness is unresolved rather than throwing', 
   }
 });
 
+test('resolution rejects locator projections newer than this reader understands', async (t) => {
+  const projected = source();
+  const locator = await makeLocator(bookKey, projected, 1, 3);
+  t.mock.method(globalThis.crypto.subtle, 'digest', () =>
+    assert.fail('Unsupported locator versions must not be hashed')
+  );
+  assert.equal(
+    await resolveLocator({ ...locator, projectionVersion: 999 }, projected, bookKey),
+    undefined
+  );
+});
+
 test('rangeAt refuses invalid points instead of clamping them to unrelated text', () => {
   const projected = {
     ...source(),

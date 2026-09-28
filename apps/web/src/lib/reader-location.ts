@@ -44,6 +44,60 @@ export interface ProjectedResource {
   runs: TextRun[];
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * Reader locations cross async, storage and sync boundaries. Treat them as
+ * immutable values: validate the supported coordinate contract and return a
+ * deep identity snapshot before any caller can retarget pending work.
+ */
+export function snapshotReaderLocator(
+  value: unknown,
+  expectedBookKey?: string
+): ReaderLocator | undefined {
+  if (!isRecord(value) || value.version !== 1 || typeof value.bookKey !== 'string') return;
+  if (expectedBookKey !== undefined && value.bookKey !== expectedBookKey) return;
+  if (
+    !isRecord(value.resource) ||
+    typeof value.resource.href !== 'string' ||
+    !value.resource.href ||
+    typeof value.resource.sectionId !== 'string' ||
+    !value.resource.sectionId ||
+    !Number.isSafeInteger(value.resource.spineIndex) ||
+    Number(value.resource.spineIndex) < 0 ||
+    !Number.isSafeInteger(value.projectionVersion) ||
+    Number(value.projectionVersion) < 1 ||
+    Number(value.projectionVersion) > readerProjectionVersion ||
+    typeof value.resourceDigest !== 'string' ||
+    !Number.isSafeInteger(value.start) ||
+    Number(value.start) < 0 ||
+    !Number.isSafeInteger(value.end) ||
+    Number(value.end) < Number(value.start) ||
+    typeof value.quote !== 'string' ||
+    typeof value.prefix !== 'string' ||
+    typeof value.suffix !== 'string'
+  )
+    return;
+  return {
+    version: 1,
+    bookKey: value.bookKey,
+    resource: {
+      href: value.resource.href,
+      spineIndex: Number(value.resource.spineIndex),
+      sectionId: value.resource.sectionId
+    },
+    projectionVersion: Number(value.projectionVersion),
+    resourceDigest: value.resourceDigest,
+    start: Number(value.start),
+    end: Number(value.end),
+    quote: value.quote,
+    prefix: value.prefix,
+    suffix: value.suffix
+  };
+}
+
 const ELEMENT_NODE = 1;
 const TEXT_NODE = 3;
 const excludedTags = new Set(['rt', 'rp', 'rtc', 'script', 'style', 'template', 'noscript']);
@@ -269,31 +323,16 @@ export async function resolveLocator(
   projected: ProjectedResource,
   bookKey: string
 ): Promise<{ start: number; end: number } | undefined> {
+  const request = snapshotReaderLocator(locator, bookKey);
   if (
-    !locator ||
-    locator.version !== 1 ||
-    locator.bookKey !== bookKey ||
-    !locator.resource ||
-    !Number.isSafeInteger(locator.resource.spineIndex) ||
-    locator.resource.spineIndex < 0 ||
-    locator.resource.spineIndex !== projected.resource.spineIndex ||
-    typeof locator.resource.href !== 'string' ||
-    locator.resource.href !== projected.resource.href ||
-    !Number.isSafeInteger(locator.projectionVersion) ||
-    locator.projectionVersion < 1 ||
-    !Number.isSafeInteger(locator.start) ||
-    !Number.isSafeInteger(locator.end) ||
-    locator.start < 0 ||
-    locator.end < locator.start ||
-    typeof locator.resourceDigest !== 'string' ||
-    typeof locator.quote !== 'string' ||
-    typeof locator.prefix !== 'string' ||
-    typeof locator.suffix !== 'string'
+    !request ||
+    request.resource.spineIndex !== projected.resource.spineIndex ||
+    request.resource.href !== projected.resource.href
   )
     return undefined;
   // Own caller coordinates before hashing yields. A saved locator is a value,
   // not authority for the caller to retarget a pending resolution by mutation.
-  locator = { ...locator, resource: { ...locator.resource } };
+  locator = request;
   const text = projected.text;
   const digest = await resourceDigest(text);
   if (
