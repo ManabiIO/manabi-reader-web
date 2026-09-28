@@ -187,7 +187,8 @@ def main():
             context = browser.new_context()
             owner = context.new_page()
             peer = context.new_page()
-            for page in (owner, peer):
+            successor = context.new_page()
+            for page in (owner, peer, successor):
                 page.set_default_timeout(15000)
                 page.goto(f'http://127.0.0.1:{server.server_port}/')
                 page.wait_for_function("events.some(e=>e.type==='capabilities'||e.type==='error')")
@@ -220,7 +221,13 @@ def main():
 
                 peer.evaluate('acquire()')
                 peer.wait_for_function("events.some(e=>e.type==='capabilities')")
-                phase = 'freeze-handoff'
+                phase = 'freeze-event-handoff'
+                # CDP's headless lifecycle override does not dispatch a reliable
+                # Page Lifecycle freeze event and, in prior evidence, the page kept
+                # processing MessagePort tasks. Exercise the production listener
+                # explicitly, then freeze the page before waiting on the successor.
+                owner.evaluate("document.dispatchEvent(new Event('freeze'))")
+                owner.wait_for_function("events.some(e=>e.type==='page-freeze')")
                 cdp.send('Page.setWebLifecycleState', {'state': 'frozen'})
                 frozen = True
                 second = acquired(peer)
@@ -230,7 +237,7 @@ def main():
                 held = {item['name'] for item in locks['held']}
                 assert {'moss-probe-model', 'moss-probe-inference'} <= held, locks
                 result.append({
-                    'name': 'frozen page loses inference ownership while peer reuses the same model',
+                    'name': 'freeze-event handoff lets a peer reuse the same MOSS runtime allocation',
                     'passed': True, 'loads': second['loads'], 'sameToken': True
                 })
 
@@ -243,22 +250,8 @@ def main():
                 assert 'moss-probe-model' in between_held, between
                 assert 'moss-probe-inference' not in between_held, between
                 result.append({
-                    'name': 'releasing inference retains shared model custody without a second allocation',
+                    'name': 'releasing inference retains shared runtime custody without a second allocation',
                     'passed': True
-                })
-
-                phase = 'shutdown'
-                peer.evaluate('shutdown()')
-                peer.wait_for_function("events.some(e=>e.type==='shutdown-complete'||e.type==='error')")
-                shutdown_events = events(peer)
-                assert not [event for event in shutdown_events if event['type'] == 'error'], shutdown_events
-                done = [event for event in shutdown_events if event['type'] == 'shutdown-complete'][-1]
-                assert done['loads'] == 1, done
-                wait_for_async(peer, """async()=>!(await navigator.locks.query()).held.some(
-                    lock=>lock.name==='moss-probe-model'||lock.name==='moss-probe-inference')""")
-                result.append({
-                    'name': 'explicit worker shutdown releases model and inference origin locks',
-                    'passed': True, 'loads': done['loads']
                 })
 
                 cdp.send('Page.setWebLifecycleState', {'state': 'active'})
@@ -268,8 +261,36 @@ def main():
                 assert any(event['type'] == 'page-freeze' for event in owner_events), owner_events
                 assert sum(event['type'] == 'acquired' for event in owner_events) == 1
                 result.append({
-                    'name': 'freeze event released inference before suspension; thaw does not replay it',
+                    'name': 'thaw does not replay inference or allocate another runtime',
                     'passed': True
+                })
+
+                phase = 'terminated-owner-handoff'
+                peer.evaluate('events.length=0; acquire()')
+                third = acquired(peer)
+                assert third['loads'] == 1 and third['token'] == first['token'], third
+                successor.evaluate('events.length=0; acquire()')
+                peer.close()
+                fourth = acquired(successor)
+                assert fourth['loads'] == 1 and fourth['token'] == first['token'], fourth
+                result.append({
+                    'name': 'a disappeared owner is reclaimed by heartbeat without reallocating MOSS',
+                    'passed': True, 'loads': fourth['loads'], 'sameToken': True
+                })
+                successor.evaluate('release()')
+                successor.wait_for_function("events.some(e=>e.type==='retired')")
+                phase = 'shutdown'
+                successor.evaluate('shutdown()')
+                successor.wait_for_function("events.some(e=>e.type==='shutdown-complete'||e.type==='error')")
+                shutdown_events = events(successor)
+                assert not [event for event in shutdown_events if event['type'] == 'error'], shutdown_events
+                done = [event for event in shutdown_events if event['type'] == 'shutdown-complete'][-1]
+                assert done['loads'] == 1, done
+                wait_for_async(successor, """async()=>!(await navigator.locks.query()).held.some(
+                    lock=>lock.name==='moss-probe-model'||lock.name==='moss-probe-inference')""")
+                result.append({
+                    'name': 'explicit worker shutdown releases runtime and inference origin locks',
+                    'passed': True, 'loads': done['loads']
                 })
             except Exception as error:
                 snapshot = {
@@ -277,8 +298,9 @@ def main():
                     'passed': False,
                     'phase': phase,
                     'error': str(error),
-                    'peer': events(peer),
-                    'locks': peer.evaluate('async()=>await navigator.locks.query()')
+                    'peer': events(peer) if not peer.is_closed() else [{'type': 'page-closed'}],
+                    'successor': events(successor),
+                    'locks': successor.evaluate('async()=>await navigator.locks.query()')
                 }
                 if frozen:
                     cdp.send('Page.setWebLifecycleState', {'state': 'active'})
