@@ -66,7 +66,7 @@ test('a revoked cloud source cannot revive when its account predicate becomes tr
     assert.throws(() => source.playback(), /Account changed/);
     allowed = true;
     assert.throws(() => source.playback(), /Account changed/);
-    assert.throws(() => source.isCurrent(), /Account changed/);
+    assert.equal(source.isCurrent(), false);
     assert.equal(checks, 2, 'revoked source retried its authority predicate');
   } finally {
     if (previous) Object.defineProperty(globalThis, 'location', previous);
