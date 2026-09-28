@@ -108,11 +108,21 @@ jobs:
           python tests/media/browser-poll.py --output test-results/media/polling
           python tests/media/publication-cancellation-browser.py --output test-results/media/publication-cancellation
           python tests/media/identity-handoff-browser.py --output test-results/media/identity-handoff
-          python tests/media/import-durability-browser.py --output test-results/media/import-durability
+          python tests/media/import-durability-browser.py --profile-mode persistent --output test-results/media/import-durability-persistent
           python tests/media/repair-resegmentation-browser.py --output test-results/media/repair-resegmentation
           python tests/media/progressive-optimization-browser.py --output test-results/media/progressive-optimization
           python tests/media/browser.py --fixture "$(cat fixture-path.txt)" --output test-results/media/native-browser
           python tests/media/sparse-browser.py --fixture "$(cat fixture-path.txt)" --output test-results/media/sparse-native
+      - name: Native filesystem handles without application code
+        if: ${{ !cancelled() && steps.fixture.outcome == 'success' }}
+        run: |
+          export CHROMIUM="$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
+          python tests/media/native-handle-profile.py --output test-results/media/native-handle-profile
+      - name: Incognito import compatibility (independent hard gate)
+        if: ${{ !cancelled() && steps.fixture.outcome == 'success' }}
+        run: |
+          export CHROMIUM="$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
+          python tests/media/import-durability-browser.py --profile-mode incognito --output test-results/media/import-durability-incognito
       - name: Player, workspace and real Web Audio
         if: ${{ !cancelled() && steps.fixture.outcome == 'success' }}
         run: |

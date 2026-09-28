@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import threading
+import tempfile
 from urllib.parse import urlsplit
 from playwright.sync_api import sync_playwright
 
@@ -39,6 +40,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, default=ROOT / '.cache/import-durability-browser')
+    parser.add_argument('--profile-mode', choices=('incognito', 'persistent'), default='incognito')
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     server = http.server.ThreadingHTTPServer(
@@ -46,13 +48,20 @@ def main():
     threading.Thread(target=server.serve_forever, daemon=True).start()
     results = []
     diagnostics = []
+    metadata = {'profileMode': args.profile_mode}
     try:
-        with sync_playwright() as pw:
-            browser = pw.chromium.launch(
-                executable_path=os.environ.get('CHROMIUM', '/usr/bin/chromium'),
-                headless=True, args=['--no-sandbox'])
+        with tempfile.TemporaryDirectory(prefix='media-import-profile-') as profile, sync_playwright() as pw:
+            options = dict(executable_path=os.environ.get('CHROMIUM', '/usr/bin/chromium'),
+                           headless=True, args=['--no-sandbox'])
+            if args.profile_mode == 'persistent':
+                context = pw.chromium.launch_persistent_context(profile, **options)
+                browser = context.browser
+            else:
+                browser = pw.chromium.launch(**options)
+                context = browser.new_context()
+            metadata['browserVersion'] = browser.version
             try:
-                page = browser.new_page()
+                page = context.new_page()
                 page.on('console', lambda message: diagnostics.append(
                     {'event': 'console', 'text': message.text}))
                 page.on('crash', lambda: diagnostics.append({'event': 'page-crash'}))
@@ -75,8 +84,12 @@ def main():
                         print('FAIL', name, str(error), flush=True)
                         raise
             finally:
-                browser.close()
+                try:
+                    context.close()
+                finally:
+                    browser.close()
     finally:
+        (args.output / 'metadata.json').write_text(json.dumps(metadata, indent=2))
         (args.output / 'diagnostics.json').write_text(json.dumps(diagnostics, indent=2))
         (args.output / 'results.json').write_text(json.dumps(results, ensure_ascii=False, indent=2))
         server.shutdown()
