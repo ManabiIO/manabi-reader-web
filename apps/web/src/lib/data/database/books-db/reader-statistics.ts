@@ -284,7 +284,8 @@ function statisticLegacyAssignment(
 export async function statisticIdentityPlan(
   db: IDBPDatabase<BooksDb>,
   bookId: number,
-  guard?: StatisticsMigrationGuard
+  guard?: StatisticsMigrationGuard,
+  expected?: Pick<StatisticBook, 'title' | 'contentHash'>
 ): Promise<StatisticIdentityPlan> {
   guard?.assertCurrent();
   guard?.signal.throwIfAborted();
@@ -294,6 +295,13 @@ export async function statisticIdentityPlan(
   guard?.assertCurrent();
   guard?.signal.throwIfAborted();
   if (!book) throw new Error('The selected statistics book no longer exists.');
+  if (
+    expected &&
+    (book.title !== expected.title ||
+      contentStatisticKey(book) !==
+        contentStatisticKey({ id: book.id, title: expected.title, contentHash: expected.contentHash }))
+  )
+    throw new Error('The selected statistics book changed. Refresh the Library and try again.');
   const snapshot = { id: book.id, title: book.title, contentHash: book.contentHash };
   const migrationGuard = guard
     ? {
