@@ -166,7 +166,11 @@ class UnifiedSearch(ProductJourneyBase):
         self.page.set_viewport_size({'width': 1280, 'height': 800})
 
         expect(field).to_have_value('neko')
+        field.fill('gakko')
+        expect(self.page.get_by_text('Showing prefix matches for がっこ', exact=True)).to_be_visible()
+        expect(full.locator('.headword')).to_contain_text('学校')
         field.fill('gakkou')
+        expect(self.page.get_by_text('Showing prefix matches for がっこ', exact=True)).to_have_count(0)
         expect(full.locator('.headword')).to_contain_text('学校')
         expect(field).to_have_value('gakkou')
         expect(field).to_be_focused()
