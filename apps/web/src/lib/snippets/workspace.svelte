@@ -982,11 +982,7 @@
               <Button {...props} variant="secondary" class="min-h-11">More actions</Button>
             {/snippet}
           </Menu.Trigger>
-          <Menu.Content
-            align="start"
-            collisionPadding={8}
-            class="w-64 max-w-[calc(100vw-1rem)]"
-          >
+          <Menu.Content align="start" collisionPadding={8} class="w-64 max-w-[calc(100vw-1rem)]">
             <Menu.Item
               disabled={busy || !!current.transfer}
               onSelect={() => membership([current!.document.id])}>Collections…</Menu.Item
@@ -1009,7 +1005,8 @@
             >
             <Menu.Item
               disabled={busy}
-              onSelect={() => action(() => exportSnippets([current!.document.id], admitted, 'html'))}
+              onSelect={() =>
+                action(() => exportSnippets([current!.document.id], admitted, 'html'))}
               >HTML</Menu.Item
             >
             <Menu.Item
