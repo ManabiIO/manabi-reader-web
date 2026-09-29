@@ -34,7 +34,6 @@ test('a throwing lifetime predicate is not interpreted as permission or retried'
   assert.equal(calls, 1);
 });
 
-
 test('a revoked cloud source cannot revive when its account predicate becomes true again', () => {
   const previous = Object.getOwnPropertyDescriptor(globalThis, 'location');
   Object.defineProperty(globalThis, 'location', {

@@ -205,8 +205,11 @@ test('queued admission that becomes active while revocation is scanning is still
 
 test('throwing automatic-resume lifetime fails closed without changing the saved job', () =>
   withStore('resume-lifetime-throw-', async (store) => {
-    const queue = new TranscriptionQueue(store, 'guest', { dispose() {} }, async () =>
-      new Float32Array(1)
+    const queue = new TranscriptionQueue(
+      store,
+      'guest',
+      { dispose() {} },
+      async () => new Float32Array(1)
     );
     const realKick = queue.kick.bind(queue);
     queue.kick = () => {};
