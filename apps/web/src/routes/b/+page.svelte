@@ -263,7 +263,7 @@
   let annotationSelection: ReaderLocator[] = [];
   let annotationPoint: ReaderLocator | undefined;
   let snippetCapture:
-    | { html: string; title: string; item: string; owner: string | null }
+    | { html: string; title: string; item: string; url: string; owner: string | null }
     | undefined;
   let annotationError = '';
   let annotationStatus = '';
@@ -1637,6 +1637,7 @@
         html: bookReaderComponent.captureSnippetHTML(lastSelectedRange),
         title: $rawBookData$?.title ?? '',
         item: readerBookKey,
+        url: window.location.href,
         owner: localProfileUser()?.id ?? null
       };
       annotationSelection = await bookReaderComponent.captureReaderSelection(
