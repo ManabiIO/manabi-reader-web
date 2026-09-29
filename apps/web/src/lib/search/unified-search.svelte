@@ -10,7 +10,7 @@
   import { snippetItems, scope } from '../snippets/service';
   import { snippetKey, type SnippetHit } from '../snippets/document';
   import { searchBodies } from '../snippets/search';
-  import { foldSearch } from '../library/search-normalization';
+  import { compareSearchText, foldSearch } from '../library/search-normalization';
   import { creatorLine } from '../library/book-metadata';
   import type { ShelfBook } from '../library/view-model';
   import type { ReaderLocator } from '../reader-location';
@@ -159,8 +159,9 @@
     const selectedBooks = plan.books ? [...matches] : [],
       selectedSnippets = plan.snippets ? [...eligible] : [],
       selectedOwner = owner,
+      selectedQuery = query,
       runVideos = videoLearningEnabled && searchScope === 'everything',
-      needle = foldSearch(query.trim());
+      needle = foldSearch(selectedQuery.trim());
     titleTask.start(async (signal, publish) => {
       const guard = () => {
         signal.throwIfAborted();
@@ -178,14 +179,19 @@
       }
       // Metadata stays local and independent of dictionary initialization and
       // expensive body projection. Do not normalize the editable query to kana.
-      const bookRows: Row[] = selectedBooks.map((book) => ({
-        id: `book:${book.key}`,
-        kind: 'Book',
-        title: book.title,
-        label: `Read ${book.title}`,
-        detail: creatorLine(book.creators),
-        open: () => openBook(book)
-      }));
+      const bookRows: Row[] = selectedBooks
+        .map((book) => ({
+          id: `book:${book.key}`,
+          kind: 'Book' as const,
+          title: book.title,
+          label: `Read ${book.title}`,
+          detail: creatorLine(book.creators),
+          open: () => openBook(book)
+        }))
+        .sort(
+          (a, b) =>
+            compareSearchText(a.title, b.title, selectedQuery) || a.id.localeCompare(b.id)
+        );
       const snippetRows: Row[] = snippetScope
         ? selectedSnippets
             .filter((item) => foldSearch(item.title).includes(needle))
@@ -196,6 +202,10 @@
               label: `Read snippet ${item.title}`,
               open: () => openSnippet(item)
             }))
+            .sort(
+              (a, b) =>
+                compareSearchText(a.title, b.title, selectedQuery) || a.id.localeCompare(b.id)
+            )
         : [];
       guard();
       publish({
@@ -212,7 +222,7 @@
           const result = await media.search.searchVideoTitles(
             media.store,
             media.search.mediaScope(selectedOwner),
-            query,
+            selectedQuery,
             signal
           );
           guard();
@@ -247,7 +257,10 @@
     const selectedBooks = plan.books ? [...books] : [],
       selectedSnippets = plan.snippets ? [...eligible] : [],
       needle = query,
-      selectedOwner = owner;
+      selectedOwner = owner,
+      selectedBooksById = new Map(
+        selectedBooks.flatMap((book) => (book.bookId ? [[book.bookId, book] as const] : []))
+      );
     const runBooks = plan.books && selectedBooks.length > 0;
     const runSnippets = plan.snippets && selectedSnippets.length > 0;
     const runVideos = videoLearningEnabled && searchScope === 'everything';
@@ -288,7 +301,7 @@
         if (signal.aborted) return;
         guard();
         const bookRows: Row[] = bookBatch.hits.flatMap((hit) => {
-          const book = selectedBooks.find((item) => item.bookId === hit.bookId);
+          const book = selectedBooksById.get(hit.bookId);
           return book
             ? [
                 {
