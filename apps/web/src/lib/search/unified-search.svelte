@@ -166,7 +166,7 @@
       };
       let snippetScope: ReturnType<typeof scope> | undefined,
         snippetFailed = 0;
-      if (plan.snippets) {
+      if (plan.snippets && selectedSnippets.length) {
         try {
           snippetScope = scope();
         } catch {
