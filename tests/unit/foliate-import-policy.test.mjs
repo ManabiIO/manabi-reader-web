@@ -24,10 +24,9 @@ test('pre-paginated EPUB packages and per-spine overrides fail closed', () => {
     );
   assert.throws(
     () =>
-      assertSupportedEpubRendition(
-        { layout: 'reflowable' },
-        [{ properties: ['rendition:layout-pre-paginated'] }]
-      ),
+      assertSupportedEpubRendition({ layout: 'reflowable' }, [
+        { properties: ['rendition:layout-pre-paginated'] }
+      ]),
     /Fixed-layout EPUBs are not supported/i
   );
   for (const [value, spine] of [

@@ -7,10 +7,7 @@
 import type { IDBPDatabase } from 'idb';
 import type BooksDb from './versions/books-db';
 import { commitTransaction } from './commit-transaction.mjs';
-import {
-  contentHashPrimaryKeys,
-  readIndexedBookTitles
-} from './content-hash-index.ts';
+import { contentHashPrimaryKeys, readIndexedBookTitles } from './content-hash-index.ts';
 import type {
   BooksDbBookData,
   BooksDbContentStatistic,
