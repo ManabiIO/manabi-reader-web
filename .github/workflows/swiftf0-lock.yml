@@ -1,0 +1,47 @@
+name: SwiftF0 lock refresh
+on:
+  push:
+    branches: [feat/optional-voice-pitch]
+    paths:
+      - '.github/workflows/swiftf0-lock.yml'
+permissions:
+  contents: write
+jobs:
+  refresh:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/optional-voice-pitch
+          persist-credentials: true
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --no-frozen-lockfile
+      - name: Apply repository formatting
+        run: |
+          pnpm exec prettier --write \
+            apps/web/package.json \
+            apps/web/src/service-worker.ts \
+            'apps/web/src/lib/features/whispersync/pitch/*.{ts,svelte}' \
+            docs/audio-pitch.md \
+            test/pitch/run.mjs \
+            test/pitch/pitch.test.mjs \
+            tests/browser/test_voice_pitch.py \
+            .github/workflows/voice-pitch.yml
+      - name: Commit generated lock and formatting
+        run: |
+          git rm .github/workflows/swiftf0-lock.yml
+          git add pnpm-lock.yaml apps/web/package.json apps/web/src/service-worker.ts \
+            apps/web/src/lib/features/whispersync/pitch docs/audio-pitch.md \
+            test/pitch/run.mjs test/pitch/pitch.test.mjs test/pitch/browser.py \
+            tests/browser/test_voice_pitch.py .github/workflows/voice-pitch.yml
+          git diff --cached --check
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "build(audio): lock and format SwiftF0 runtime"
+          git push origin HEAD:feat/optional-voice-pitch
