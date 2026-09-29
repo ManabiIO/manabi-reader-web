@@ -834,7 +834,6 @@
   .library-selection-toolbar :global(.selection-action) {
     min-height: 44px;
     padding: 8px 12px;
-    border-radius: 10px;
   }
   @media (min-width: 1024px) {
     .library-header-inner {
