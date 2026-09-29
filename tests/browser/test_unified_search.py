@@ -115,6 +115,55 @@ class UnifiedSearch(ProductJourneyBase):
           channel.postMessage({type:'media-change',captions:true});channel.close();
         }""", {'identity': identity, 'cues': cues})
 
+    def assert_no_document_horizontal_overflow(self):
+        diagnostic = self.page.evaluate("""() => {
+          const root = document.documentElement;
+          const overflow = root.scrollWidth - innerWidth;
+          if (overflow <= 1) return {overflow, active: null, offenders: []};
+          const describe = (node) => {
+            const rect = node.getBoundingClientRect();
+            const style = getComputedStyle(node);
+            return {
+              tag: node.tagName.toLowerCase(),
+              id: node.id,
+              className: typeof node.className === 'string' ? node.className : '',
+              role: node.getAttribute('role'),
+              ariaLabel: node.getAttribute('aria-label'),
+              text: (node.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 120),
+              left: rect.left,
+              right: rect.right,
+              width: rect.width,
+              clientWidth: node.clientWidth,
+              scrollWidth: node.scrollWidth,
+              overflowX: style.overflowX,
+              outlineWidth: style.outlineWidth,
+              outlineOffset: style.outlineOffset,
+              boxShadow: style.boxShadow
+            };
+          };
+          const offenders = [...document.querySelectorAll('body *')]
+            .filter((node) => {
+              const rect = node.getBoundingClientRect();
+              return (
+                rect.left < -1 ||
+                rect.right > innerWidth + 1 ||
+                node.scrollWidth > node.clientWidth + 1
+              );
+            })
+            .slice(0, 20)
+            .map(describe);
+          return {
+            overflow,
+            active: document.activeElement instanceof Element ? describe(document.activeElement) : null,
+            offenders
+          };
+        }""")
+        self.assertLessEqual(
+            diagnostic['overflow'],
+            1,
+            f"document horizontal overflow: {json.dumps(diagnostic, ensure_ascii=False)}",
+        )
+
     def filter(self, name):
         button = self.page.get_by_role('group', name='Show').get_by_role(
             'button', name=name, exact=True)
@@ -196,8 +245,7 @@ class UnifiedSearch(ProductJourneyBase):
         self.page.set_viewport_size({'width': 320, 'height': 568})
         self.page.evaluate('document.documentElement.style.fontSize = "200%"')
         self.assertLessEqual(full.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
-        self.assertLessEqual(
-            self.page.evaluate('document.documentElement.scrollWidth-innerWidth'), 1)
+        self.assert_no_document_horizontal_overflow()
         controls = self.page.locator('.search-controls')
         self.assertEqual('static', controls.evaluate('e => getComputedStyle(e).position'))
         setup = self.page.get_by_text('Local dictionaries', exact=True)
