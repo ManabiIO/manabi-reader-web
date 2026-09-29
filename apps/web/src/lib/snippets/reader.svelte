@@ -95,6 +95,7 @@
           html: wrapper.innerHTML,
           title: displayTitle(document),
           item: `snippet:${document.id}`,
+          url: window.location.href,
           owner: selectedScope.owner === 'local' ? null : selectedScope.owner.slice(8)
         }
       })
