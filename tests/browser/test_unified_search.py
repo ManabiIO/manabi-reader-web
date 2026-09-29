@@ -26,14 +26,14 @@ def dictionary_archive():
 
 class UnifiedSearch(ProductJourneyBase):
     def filter(self, name):
-        button = self.page.get_by_role('navigation', name='Search result type').get_by_role(
+        button = self.page.get_by_role('group', name='Search result type').get_by_role(
             'button', name=name, exact=True)
         button.click()
         expect(button).to_have_attribute('aria-pressed', 'true')
         return button
 
     def scope(self, name):
-        button = self.page.get_by_role('navigation', name='Search library scope').get_by_role(
+        button = self.page.get_by_role('group', name='Search library scope').get_by_role(
             'button', name=name, exact=True)
         button.click()
         expect(button).to_have_attribute('aria-pressed', 'true')
