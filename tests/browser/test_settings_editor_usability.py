@@ -190,6 +190,53 @@ class SettingsEditorUsabilityBrowser(LibraryBase):
             expect(menu).to_have_count(0)
             expect(navigate).to_be_focused()
 
+    def test_global_navigation_keeps_close_reachable_after_short_enlarged_scroll(self):
+        self.page.set_viewport_size({'width': 320, 'height': 320})
+        self.settings()
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        trigger = self.page.get_by_role('button', name='Navigate', exact=True)
+        trigger.focus()
+        trigger.press('Enter')
+        panel = self.page.get_by_role('dialog', name='Manabi Reader', exact=True)
+        expect(panel).to_be_visible()
+        close = panel.get_by_role('button', name='Close', exact=True)
+
+        def assert_close_reachable():
+            box = close.bounding_box()
+            viewport = self.page.evaluate('''() => {
+              const v=visualViewport;
+              return {
+                left:v?.offsetLeft ?? 0, top:v?.offsetTop ?? 0,
+                right:(v?.offsetLeft ?? 0)+(v?.width ?? innerWidth),
+                bottom:(v?.offsetTop ?? 0)+(v?.height ?? innerHeight)
+              };
+            }''')
+            self.assertGreaterEqual(box['width'], 43.99)
+            self.assertGreaterEqual(box['height'], 43.99)
+            self.assertGreaterEqual(box['x'], viewport['left'] - 1)
+            self.assertGreaterEqual(box['y'], viewport['top'] - 1)
+            self.assertLessEqual(box['x'] + box['width'], viewport['right'] + 1)
+            self.assertLessEqual(box['y'] + box['height'], viewport['bottom'] + 1)
+            self.assertTrue(close.evaluate('''e => {
+              const r=e.getBoundingClientRect();
+              const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+              return !!hit && (hit===e || e.contains(hit));
+            }'''))
+
+        assert_close_reachable()
+        panel.evaluate('e => e.scrollTop = e.scrollHeight')
+        self.page.wait_for_function('e => e.scrollTop > 0', arg=panel.element_handle())
+        expect(panel.get_by_role('link', name='User guide', exact=True)).to_be_visible()
+        self.assertLessEqual(panel.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+        assert_close_reachable()
+        self.capture('global-nav-short-enlarged-scrolled')
+
+        close.focus()
+        expect(close).to_be_focused()
+        close.press('Enter')
+        expect(panel).to_have_count(0)
+        expect(trigger).to_be_focused()
+
     def test_statistics_cleanup_reflows_without_touching_history(self):
         self.page.set_viewport_size({'width': 320, 'height': 568})
         self.settings('tracking')
