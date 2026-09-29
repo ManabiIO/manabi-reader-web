@@ -1,51 +1,54 @@
 <script lang="ts">
   import DialogTemplate from '$lib/components/dialog-template.svelte';
-  import Ripple from '$lib/components/ripple.svelte';
-  import { buttonClasses } from '$lib/css-classes';
+  import { Button } from '$lib/components/ui/button';
   import { hideExternalReadHint$ } from '$lib/data/store';
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onDestroy } from 'svelte';
 
   export let resolver: (arg0: string) => void;
 
   const dispatch = createEventDispatcher<{
     close: void;
   }>();
+  let settled = false;
+
+  onDestroy(() => {
+    if (settled) return;
+    settled = true;
+    resolver('cancel');
+  });
 
   function closeDialog(result = '') {
+    if (settled) return;
+    settled = true;
     resolver(result);
     dispatch('close');
   }
 </script>
 
 <DialogTemplate>
-  <svelte:fragment slot="header">External Read</svelte:fragment>
+  <svelte:fragment slot="header">Read from external storage</svelte:fragment>
   <svelte:fragment slot="content">
-    <p class="my-2">You are opening a book from an external storage Source.</p>
-    <p class="my-2">
-      Note: This will redownload the complete book every time and may override other configured sync
-      target configurations.
-    </p>
-    <p class="my-2">
-      Consider an export to the local browser and switching to / reading from browser storage view
-      to prevent such behaviour.
-    </p>
-    <p class="flex items-center mt-4">
-      <input id="show-hint" type="checkbox" bind:checked={$hideExternalReadHint$} />
-      <label class="ml-2" for="show-hint">Remember and hide this message</label>
-    </p>
+    <div class="space-y-3 text-sm sm:text-base">
+      <p>
+        This book is stored outside the browser. Opening it downloads the complete book again and
+        can interact with your configured sync target.
+      </p>
+      <p class="text-muted-foreground">
+        Export a browser copy if you want to avoid downloading the source again on future reads.
+      </p>
+      <label class="flex min-h-11 min-w-0 items-start gap-3 rounded-xl py-2">
+        <input
+          type="checkbox"
+          class="mt-0.5 size-5 shrink-0 accent-primary"
+          bind:checked={$hideExternalReadHint$}
+        />
+        <span class="min-w-0 break-words">Remember my choice and hide this message</span>
+      </label>
+    </div>
   </svelte:fragment>
-  <div class="flex flex-col sm:flex-row grow sm:justify-between" slot="footer">
-    <button class={buttonClasses} on:click={() => closeDialog('cancel')}>
-      Cancel
-      <Ripple />
-    </button>
-    <button class={buttonClasses} on:click={() => closeDialog('export')}>
-      Open Export
-      <Ripple />
-    </button>
-    <button class={buttonClasses} on:click={() => closeDialog()}>
-      Confirm
-      <Ripple />
-    </button>
+  <div class="flex grow flex-wrap justify-end gap-2" slot="footer">
+    <Button variant="ghost" onclick={() => closeDialog('cancel')}>Cancel</Button>
+    <Button variant="outline" onclick={() => closeDialog('export')}>Open Export</Button>
+    <Button onclick={() => closeDialog()}>Continue</Button>
   </div>
 </DialogTemplate>
