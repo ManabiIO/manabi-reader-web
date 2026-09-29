@@ -319,9 +319,19 @@ try {
     'Save selection to snippet…'
   ]) {
     const control = readingToolbar.getByRole('button', { name, exact: true });
+    await control.scrollIntoViewIfNeeded();
     const box = await control.boundingBox();
     assert(box && box.height >= 43.5, `${name} must remain at least 44 CSS px high`);
     assert(box.x >= -1 && box.x + box.width <= 321, `${name} must stay inside the viewport`);
+    assert(box.y >= -1 && box.y + box.height <= 481, `${name} must be vertically reachable`);
+    assert(
+      await control.evaluate((node) => {
+        const r = node.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return !!hit && (hit === node || node.contains(hit));
+      }),
+      `${name} must remain hit-testable after enlarged-text scrolling`
+    );
   }
   const verticalToggle = readingToolbar.getByRole('button', {
     name: 'Vertical reading',
