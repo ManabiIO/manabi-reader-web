@@ -16,6 +16,7 @@ export const foldSearch = (value: string) => foldSearchCase(value.normalize('NFK
 
 interface SearchMatchKey {
   tier: number;
+  field: number;
   index: number;
   length: number;
   folded: string;
@@ -24,7 +25,7 @@ interface SearchMatchKey {
 const boundaryBefore = (value: string, index: number) =>
   index > 0 && /[\s\p{P}\p{S}]/u.test(Array.from(value.slice(0, index)).at(-1) ?? '');
 
-function matchKey(value: string, needle: string): SearchMatchKey {
+function matchKey(value: string, needle: string, field = 0): SearchMatchKey {
   const folded = foldSearch(value);
   if (folded === needle) return { tier: 0, index: 0, length: Array.from(folded).length, folded };
 
@@ -53,6 +54,7 @@ function matchKey(value: string, needle: string): SearchMatchKey {
   }
   return {
     tier,
+    field,
     // indexOf reports UTF-16 code units. Relevance positions are user-visible
     // Unicode code points so supplementary characters do not distort ordering.
     index: Array.from(folded.slice(0, best)).length,
@@ -64,9 +66,9 @@ function matchKey(value: string, needle: string): SearchMatchKey {
 const compareStableText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 function bestKey(values: readonly string[], needle: string): SearchMatchKey {
-  let best = matchKey(values[0] ?? '', needle);
+  let best = matchKey(values[0] ?? '', needle, 0);
   for (let index = 1; index < values.length; index++) {
-    const candidate = matchKey(values[index], needle);
+    const candidate = matchKey(values[index], needle, index);
     if (compareKeys(candidate, best) < 0) best = candidate;
   }
   return best;
@@ -75,6 +77,7 @@ function bestKey(values: readonly string[], needle: string): SearchMatchKey {
 function compareKeys(a: SearchMatchKey, b: SearchMatchKey): number {
   return (
     a.tier - b.tier ||
+    a.field - b.field ||
     a.index - b.index ||
     a.length - b.length ||
     compareStableText(a.folded, b.folded)
