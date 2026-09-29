@@ -95,6 +95,10 @@
   import CollectionsSheet from './collections-sheet.svelte';
   import type { ReaderLocator } from '../reader-location';
   import UnifiedSearch from '../search/unified-search.svelte';
+  import {
+    parseLibrarySearchScope,
+    type LibrarySearchScope
+  } from '../search/library-search-scope';
   import SnippetShelf from '../snippets/shelf.svelte';
   import { snippetItems } from '../snippets/service';
   import { snippetKey } from '../snippets/document';
@@ -312,10 +316,15 @@
   $: notFinished = $page.url.searchParams.get('unfinished') === '1';
   $: destinationTitle = series?.name || (collectionId === 'books' ? 'Library' : collectionTitle);
   let queryURL = '';
+  let librarySearchScope: LibrarySearchScope = 'everything';
   $: nextQueryURL = $page.url.searchParams.get('q') ?? '';
   $: if (queryURL !== nextQueryURL) {
     queryURL = nextQueryURL;
     query = nextQueryURL;
+  }
+  $: nextLibrarySearchScope = parseLibrarySearchScope($page.url.searchParams.get('scope'));
+  $: if (librarySearchScope !== nextLibrarySearchScope) {
+    librarySearchScope = nextLibrarySearchScope;
   }
   // The unified search spans the library. Collection/series navigation must
   // not silently constrain the All/Titles/Content filters.
@@ -546,6 +555,17 @@
     const url = new URL($page.url);
     if (value) url.searchParams.set('q', value);
     else url.searchParams.delete('q');
+    void goto(resolve(`/manage?${url.searchParams.toString()}`), {
+      replaceState: true,
+      noScroll: true,
+      keepFocus: true
+    });
+  }
+  function setSearchScope(value: LibrarySearchScope) {
+    librarySearchScope = value;
+    const url = new URL($page.url);
+    if (value === 'everything') url.searchParams.delete('scope');
+    else url.searchParams.set('scope', value);
     void goto(resolve(`/manage?${url.searchParams.toString()}`), {
       replaceState: true,
       noScroll: true,
@@ -1491,10 +1511,12 @@
     {#if normalizedQuery && !selectMode}
       <UnifiedSearch
         {query}
+        searchScope={librarySearchScope}
         books={searchableBooks}
         matches={metadataMatches}
         {openBook}
         onquery={setQuery}
+        onscope={setSearchScope}
         returnTo={$page.url.pathname + $page.url.search}
       />
     {:else if completedGroups.length && collectionId === 'finished' && !series && currentLayout === 'timeline'}
