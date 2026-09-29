@@ -107,7 +107,7 @@ export function bindReaderChromeInteractions(
   }) as EventListener;
   const key = ((event: KeyboardEvent) => {
     if (event.isComposing || event.defaultPrevented) return;
-    if (event.key === 'Tab' || (event.key === 'Escape' && !readerUIOwnsEvent(event)))
+    if ((event.key === 'Tab' || event.key === 'Escape') && !readerUIOwnsEvent(event))
       activity('pin');
   }) as EventListener;
   target.addEventListener('pointermove', move, { passive: true });
