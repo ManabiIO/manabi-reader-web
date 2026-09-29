@@ -189,10 +189,35 @@ test('transcript search never includes incomplete tracks and clips by code point
   );
   assert.equal(result.hits.length, 1);
   assert.equal(result.hits[0].cueId, 'published');
-  assert.equal(Array.from(result.hits[0].text).length, 360);
+  assert.ok(Array.from(result.hits[0].text).length <= 360);
   assert.equal(result.hits[0].text.endsWith('…'), true);
+  assert.equal(
+    result.hits[0].text.slice(result.hits[0].match.start, result.hits[0].match.end),
+    'needle'
+  );
   const last = result.hits[0].text.charCodeAt(result.hits[0].text.length - 1);
   assert.equal(last >= 0xd800 && last <= 0xdbff, false);
+});
+
+test('transcript excerpts center late matches and preserve compatibility source text', async () => {
+  const a = key('a');
+  const id = '00000000-0000-4000-8000-000000000011';
+  const late = '😀'.repeat(450) + ' ㍿ needle tail';
+  const store = new Store({
+    infos: [replica('video_info', a, info('Movie'))],
+    tracks: new Map([[a, [track(id, a, [cue('late', 4, late)])]]])
+  });
+  const result = await searchVideoTranscripts(
+    store,
+    'guest',
+    '株式会社',
+    new AbortController().signal
+  );
+  assert.equal(result.hits.length, 1);
+  const hit = result.hits[0];
+  assert.ok(Array.from(hit.text).length <= 360);
+  assert.equal(hit.text.startsWith('…'), true);
+  assert.equal(hit.text.slice(hit.match.start, hit.match.end), '㍿');
 });
 
 test('transcript search caps each video while continuing into other videos', async () => {
