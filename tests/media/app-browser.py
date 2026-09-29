@@ -305,7 +305,21 @@ def main():
 
         # Stress the library chrome too, not only the currently open player.
         # These controls all remain part of the same page above the viewing surface.
-        assert media.evaluate("node => node.scrollWidth-node.clientWidth") <= 1
+        media_overflow = media.evaluate("""node => {
+            const overflow=node.scrollWidth-node.clientWidth;
+            const bounds=node.getBoundingClientRect();
+            const offenders=[...node.querySelectorAll('*')].map(child => {
+                const r=child.getBoundingClientRect();
+                return {
+                    tag:child.tagName, cls:String(child.className || '').slice(0,120),
+                    text:(child.textContent || '').trim().replace(/\s+/g,' ').slice(0,80),
+                    left:r.left, right:r.right, width:r.width
+                };
+            }).filter(item => item.right > bounds.right + 1 || item.left < bounds.left - 1)
+              .sort((a,b)=>b.right-a.right).slice(0,12);
+            return {overflow,bounds:{left:bounds.left,right:bounds.right,width:bounds.width},offenders};
+        }""")
+        assert media_overflow['overflow'] <= 1, media_overflow
         library_controls = [
             page.get_by_role('button', name='Add videos', exact=True),
             page.get_by_role('button', name='Open local folder', exact=True),
