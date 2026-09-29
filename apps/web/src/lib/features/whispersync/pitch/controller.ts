@@ -1,5 +1,11 @@
 import { appendPoint, initialPitchState, type PitchState } from './model';
-import { ANALYSIS_WINDOW_SECONDS, SAMPLE_INTERVAL_MS, type Measurement } from './analysis';
+import {
+  ANALYSIS_WINDOW_SECONDS,
+  SAMPLE_INTERVAL_MS,
+  SWIFT_F0_FRAME_SECONDS,
+  SWIFT_F0_LOOKAHEAD_FRAMES,
+  type Measurement
+} from './analysis';
 
 export interface PitchEnvironment {
   createContext(): AudioContext;
@@ -41,6 +47,7 @@ export class PitchController {
   private buffering = false;
   private sampleAfter = 0;
   private breakBefore = true;
+  private speechActive = false;
 
   constructor(environment: PitchEnvironment, changed: (state: PitchState) => void) {
     this.environment = environment;
@@ -150,6 +157,25 @@ export class PitchController {
   }
   retry() {
     if (this.state.enabled) this.setEnabled(true);
+  }
+  setSpeechActive(active: boolean) {
+    if (this.disposed || this.speechActive === active) return;
+    this.speechActive = active;
+    this.invalidateSamples();
+    this.cancelFrame();
+    if (active) {
+      // SwiftF0's newest stable estimate needs future context. Waiting one
+      // lookahead span keeps the selected frame inside the new dialogue cue
+      // without paying a full 550 ms warm-up between every subtitle.
+      this.sampleAfter =
+        (this.context?.currentTime ?? 0) +
+        (SWIFT_F0_LOOKAHEAD_FRAMES + 1) * SWIFT_F0_FRAME_SECONDS;
+    }
+    this.publish({
+      speechActive: active,
+      time: this.audio?.currentTime ?? this.state.time
+    });
+    if (active) this.schedule();
   }
   // Retire both the reply and its watchdog at every playback discontinuity.
   // Keep the paused trace, but never draw a line through the resume boundary.
@@ -299,6 +325,7 @@ export class PitchController {
       this.frame !== undefined ||
       !this.visible ||
       !this.state.enabled ||
+      !this.speechActive ||
       this.state.status !== 'ready' ||
       !this.analyser ||
       !this.worker ||
