@@ -15,6 +15,10 @@ import { epubCompatibilityStyles } from './resource-styles';
 import { EpubStyleBudget } from './style-budget';
 import { repairEpubHtml } from './html-repair';
 import {
+  assertSupportedEpubRendition,
+  normalizeEpubSpineLinear
+} from './epub-import-policy';
+import {
   sanitizeBookHtml,
   sanitizeBookStyleSheet
 } from '../functions/book-security/book-content-security';
@@ -106,18 +110,23 @@ export async function importEpubPublication(
   let imported: LoadData;
   try {
     const { book } = publication;
+    assertSupportedEpubRendition(book.rendition, book.resources.spine);
     const items = book.resources.manifest;
     const byId = new Map(items.map((item) => [item.id, item]));
     const byHref = new Map(items.map((item) => [item.href, item]));
     if (byId.size !== items.length || byHref.size !== items.length)
       throw new Error('EPUB manifest contains duplicate resources.');
-    const spine = book.resources.spine.map((ref) => readableItem(byId.get(ref.idref), byId));
-    const resources: EpubResourceData[] = spine.map((item, spineIndex) => ({
+    const spine = book.resources.spine.map((ref) => ({
+      item: readableItem(byId.get(ref.idref), byId),
+      linear: normalizeEpubSpineLinear(ref.linear)
+    }));
+    const resources: EpubResourceData[] = spine.map(({ item, linear }, spineIndex) => ({
       href: item.href,
       spineIndex,
       sectionId: `ttu-epub-${spineIndex}`,
       html: '',
-      styleSheet: ''
+      styleSheet: '',
+      ...(linear === 'no' ? { linear: 'no' as const } : {})
     }));
     const manifest = epubPublicationManifest({ resources });
     const labels = chapterLabels(book.toc);
@@ -152,8 +161,9 @@ export async function importEpubPublication(
     let totalCharacters = 0;
     const sections: NonNullable<LoadData['sections']> = [];
     let mainChapter: (typeof sections)[number] | undefined;
-    for (const [index, item] of spine.entries()) {
+    for (const [index, spineEntry] of spine.entries()) {
       signal?.throwIfAborted();
+      const { item } = spineEntry;
       const raw = repairEpubHtml(
         await readText(item.href),
         options.repairMode,
@@ -253,7 +263,14 @@ export async function importEpubPublication(
       });
       resource.styleSheet = sanitizeBookStyleSheet(styles.toString(), document);
     }
-    const { elementHtml, epubPublication } = packEpubResources(resources);
+    const { elementHtml, epubPublication } = packEpubResources(resources, {
+      navigation: {
+        toc: book.toc,
+        pageList: book.pageList,
+        landmarks: book.landmarks
+      },
+      rendition: book.rendition
+    });
     const metadata = book.metadata ?? {};
     const creators = extractCreators({
       'dc:creator': values(metadata.author).map((value) => {
@@ -290,7 +307,10 @@ export async function importEpubPublication(
         },
         spine: {
           '@_page-progression-direction': book.dir,
-          itemref: spine.map((entry) => ({ '@_idref': entry.id }))
+          itemref: spine.map(({ item, linear }) => ({
+            '@_idref': item.id,
+            ...(linear === 'no' ? { '@_linear': 'no' } : {})
+          }))
         }
       }
     };
