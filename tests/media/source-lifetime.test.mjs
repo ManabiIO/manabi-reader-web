@@ -113,3 +113,68 @@ test('streamed ranges preserve nonzero offsets above four GiB without truncation
   assert.equal(chunks[0][0], start % 251);
   assert.equal(chunks.at(-1).at(-1), (end - 1) % 251);
 });
+
+
+test('cloud range requests preserve offsets above four GiB end to end', async () => {
+  const locationDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'location');
+  const fetchDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
+  const gib = 1024 ** 3;
+  const size = 7 * gib;
+  const start = 5 * gib + 54321;
+  const end = start + 257;
+  const version = 'b'.repeat(64);
+  const user = 'large-user';
+  const seen = [];
+  Object.defineProperty(globalThis, 'location', {
+    configurable: true,
+    value: new URL('https://reader.example/')
+  });
+  Object.defineProperty(globalThis, 'fetch', {
+    configurable: true,
+    value: async (input, init) => {
+      seen.push({
+        url: String(input),
+        range: init?.headers?.Range,
+        user: init?.headers?.['X-Manabi-User']
+      });
+      return new Response(new Uint8Array(end - start).fill(7), {
+        status: 206,
+        headers: {
+          'X-Manabi-User': user,
+          ETag: `"${version}"`,
+          'Content-Range': `bytes ${start}-${end - 1}/${size}`
+        }
+      });
+    }
+  });
+  try {
+    const source = cloudSource(
+      {
+        name: 'Huge.webm',
+        size,
+        version,
+        url:
+          '/api/reader-web/connections/11111111-1111-4111-8111-111111111111/media/' +
+          `?id=huge&root=root&user=${user}&version=${version}`
+      },
+      user,
+      () => true
+    );
+    const bytes = await source.read(start, end, new AbortController().signal);
+    assert.equal(bytes.length, end - start);
+    assert.deepEqual(seen, [
+      {
+        url:
+          'https://reader.example/api/reader-web/connections/11111111-1111-4111-8111-111111111111/media/' +
+          `?id=huge&root=root&user=${user}&version=${version}`,
+        range: `bytes=${start}-${end - 1}`,
+        user
+      }
+    ]);
+  } finally {
+    if (locationDescriptor) Object.defineProperty(globalThis, 'location', locationDescriptor);
+    else delete globalThis.location;
+    if (fetchDescriptor) Object.defineProperty(globalThis, 'fetch', fetchDescriptor);
+    else delete globalThis.fetch;
+  }
+});
