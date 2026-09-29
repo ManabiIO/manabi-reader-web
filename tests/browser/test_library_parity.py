@@ -328,8 +328,27 @@ class LibraryParityBrowser(LibraryBase):
     def test_idle_and_mouse_reveals_timeout_but_click_reveal_stays_pinned_without_reflow(self):
         controls = self.open_reader()
         geometry = self.page.locator('.reader-page-frame').evaluate('e => {const s=getComputedStyle(e);return [s.paddingTop,s.paddingBottom]}')
+        # Navigation leaves focus on the controls. Focus protects them for keyboard
+        # users, so release that focus before testing the idle reading state.
+        controls.evaluate('e => e.blur()')
+        # Closed portal remnants must not protect transient chrome. This mirrors
+        # component libraries that retain hidden role nodes between openings.
+        self.page.evaluate('''() => {
+          const dialog=document.createElement('div');
+          dialog.id='hidden-reader-dialog-regression';
+          dialog.role='dialog';
+          dialog.hidden=true;
+          document.body.append(dialog);
+          const menu=document.createElement('div');
+          menu.id='hidden-reader-menu-regression';
+          menu.role='menu';
+          menu.style.display='none';
+          document.body.append(menu);
+        }''')
         # Real elapsed-time timers, not a stub clock or replacement controller.
         expect(controls).to_have_class(re.compile(r'chrome-hidden'), timeout=10000)
+        self.page.locator('#hidden-reader-dialog-regression, #hidden-reader-menu-regression').evaluate_all(
+            'nodes => nodes.forEach(node => node.remove())')
         self.page.mouse.move(600, 400)
         expect(controls).not_to_have_class(re.compile(r'chrome-hidden'))
         expect(controls).to_have_class(re.compile(r'chrome-hidden'), timeout=10000)
