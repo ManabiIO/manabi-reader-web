@@ -57,11 +57,18 @@ export async function readLibraryIdentities(db: IDBPDatabase<BooksDb>) {
 export async function readIndexedBookIdentities(db: IDBPDatabase<BooksDb>) {
   const tx = db.transaction('data');
   return commitTransaction(tx, async () =>
-    (await readIndexedBookMetadata(tx.store)).map(({ id, contentHash, libraryOwner }) => ({
-      id,
-      contentHash,
-      ...(libraryOwner !== undefined ? { libraryOwner } : {})
-    }))
+    (await readIndexedBookMetadata(tx.store)).flatMap(
+      ({ id, contentHash, libraryOwner, invalidOwner }) =>
+        invalidOwner
+          ? []
+          : [
+              {
+                id,
+                contentHash,
+                ...(libraryOwner !== undefined ? { libraryOwner } : {})
+              }
+            ]
+    )
   );
 }
 
@@ -103,12 +110,17 @@ export async function commitLibraryBook(
     return await commitTransaction(tx, async () => {
       assertCurrent();
       signal?.throwIfAborted();
-      const records = (await readIndexedBookMetadata(tx.store)).map(
-        ({ id, contentHash, libraryOwner }) => ({
-          id,
-          contentHash,
-          ...(libraryOwner !== undefined ? { libraryOwner } : {})
-        })
+      const records = (await readIndexedBookMetadata(tx.store)).flatMap(
+        ({ id, contentHash, libraryOwner, invalidOwner }) =>
+          invalidOwner
+            ? []
+            : [
+                {
+                  id,
+                  contentHash,
+                  ...(libraryOwner !== undefined ? { libraryOwner } : {})
+                }
+              ]
       );
       const selected = resolveImportedBook(
         records,
