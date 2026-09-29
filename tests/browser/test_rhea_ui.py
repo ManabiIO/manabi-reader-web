@@ -393,7 +393,7 @@ class RheaReader(previous.RefinedAppearance):
 
     def category(self, name):
         self.page.get_by_role('navigation', name='Settings categories').get_by_role(
-            'button', name=name, exact=True).click()
+            'link', name=name, exact=True).click()
 
     def test_empty_library_has_keyboard_import_action(self):
         self.page.goto(self.origin + '/reader-web/manage')

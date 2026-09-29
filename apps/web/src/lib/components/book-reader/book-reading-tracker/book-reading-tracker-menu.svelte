@@ -63,7 +63,11 @@
   const actions = [
     { icon: faPlay, event: 'resumeAfterClose', title: 'Resume tracking after closing' },
     { icon: faRepeat, event: 'updateCurrentLocation', title: 'Update position' },
-    { icon: faClockRotateLeft, event: 'freezeCurrentLocation', title: 'Keep reading position fixed' },
+    {
+      icon: faClockRotateLeft,
+      event: 'freezeCurrentLocation',
+      title: 'Keep reading position fixed'
+    },
     { icon: faFloppyDisk, event: 'saveStatistics', title: 'Save statistics' }
   ] as const;
 
@@ -175,7 +179,6 @@
       ? `${label}: value hidden. Activate to show.`
       : `${label}: ${value}. Activate to hide.`;
   }
-
 </script>
 
 <div class="flex min-h-16 items-center justify-between gap-3 px-4 pt-4">
@@ -193,9 +196,7 @@
   <div class="flex min-h-0 flex-1 flex-col overflow-auto p-4" inert={actionInProgress}>
     <p class="mb-4 text-sm text-muted-foreground" role="status" aria-live="polite">
       Tracking is paused while this panel is open.
-      {wasTrackerPaused
-        ? 'It will remain paused after closing.'
-        : 'It will resume after closing.'}
+      {wasTrackerPaused ? 'It will remain paused after closing.' : 'It will resume after closing.'}
     </p>
     {#if currentReadingGoal}
       <div class="mb-6">
