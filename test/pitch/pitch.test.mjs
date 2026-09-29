@@ -383,6 +383,7 @@ test('replacement audio retires only the old route and rejects late callbacks', 
 });
 test('load and result timeouts expose retry without closing the output route', async () => {
   const f = fixture();
+  f.controller.setSpeechActive(true);
   f.controller.setEnabled(true);
   f.timer(15000);
   assert.equal(f.state.status, 'error');
@@ -538,10 +539,10 @@ test('transcript cue gate suppresses background-only sampling and breaks the nex
 
   f.controller.setSpeechActive(true);
   assert.equal(f.state.speechActive, true);
-  f.frame(100);
+  f.frame(1100);
   assert.equal(f.workers[0].sent.length, 0, 'wait for SwiftF0 future context inside the cue');
   f.a.currentTime += 0.25;
-  f.frame(300);
+  f.frame(1300);
   assert.equal(f.workers[0].sent.length, 1);
   f.result();
   assert.equal(f.state.points.length, 1);
@@ -549,12 +550,12 @@ test('transcript cue gate suppresses background-only sampling and breaks the nex
 
   f.controller.setSpeechActive(false);
   f.a.currentTime += 0.05;
-  f.frame(400);
+  f.frame(1400);
   assert.equal(f.workers[0].sent.length, 1, 'cue gaps must not enqueue pitch work');
 
   f.controller.setSpeechActive(true);
   f.a.currentTime += 0.25;
-  f.frame(700);
+  f.frame(1700);
   assert.equal(f.workers[0].sent.length, 2);
   f.result();
   assert.equal(f.state.points.length, 2);
