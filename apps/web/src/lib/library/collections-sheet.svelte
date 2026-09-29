@@ -78,7 +78,7 @@
     <Sheet.Content
       id="library-collections-sheet"
       side="bottom"
-      class="mx-auto max-h-[90dvh] max-w-xl overflow-y-auto rounded-t-3xl p-[20px] px-[16px] pb-[40px] sm:p-[24px]"
+      class="mx-auto max-h-[90dvh] max-w-xl overflow-hidden rounded-t-3xl p-[20px] px-[16px] pb-[max(20px,env(safe-area-inset-bottom))] sm:p-[24px]"
       showCloseButton={false}
       onOpenAutoFocus={(event) => {
         // This action sheet starts at its visible Edit control, unlike an
@@ -88,8 +88,20 @@
           editButton.focus({ preventScroll: true });
         }
       }}
+      onCloseAutoFocus={(event) => {
+        if (dialogOpen) return;
+        const trigger = document.querySelector<HTMLButtonElement>(
+          'button[aria-label="Collections"][aria-haspopup="dialog"]'
+        );
+        if (trigger?.isConnected) {
+          event.preventDefault();
+          trigger.focus({ preventScroll: true });
+        }
+      }}
     >
-      <Sheet.Header class="mb-6 flex shrink-0 flex-row flex-wrap items-center justify-between gap-3 p-0">
+      <Sheet.Header
+        class="mb-[16px] flex shrink-0 flex-row flex-wrap items-center justify-between gap-3 border-b border-border p-0 pb-[16px]"
+      >
         <Sheet.Title class="min-w-0 font-serif text-xl sm:text-2xl">Collections</Sheet.Title>
         <div class="ms-auto flex shrink-0 items-center gap-2">
           <Button
@@ -99,85 +111,88 @@
             aria-pressed={editing}
             onclick={() => (editing = !editing)}>{editing ? 'Done' : 'Edit'}</Button
           >
-          <CloseButton
-            aria-label="Close collections"
-            onclick={() => (open = false)}
-          />
+          <CloseButton aria-label="Close collections" onclick={() => (open = false)} />
         </div>
         <Sheet.Description class="sr-only"
           >Organize books without moving their files. A book can be in several collections.</Sheet.Description
         >
       </Sheet.Header>
-      <div class="shrink-0 divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card">
-        <button
-          class="collection-row"
-          aria-current={active === 'books' ? 'page' : undefined}
-          onclick={() => choose('books')}
-          ><BookOpen aria-hidden="true" /><span>Books</span><span class="count">{books.length}</span
-          ><CaretRight class="text-muted-foreground" aria-hidden="true" /></button
+      <div class="collections-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div
+          class="shrink-0 divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card"
         >
-        <button
-          class="collection-row"
-          aria-current={active === WANT_TO_READ_ID ? 'page' : undefined}
-          onclick={() => choose(WANT_TO_READ_ID)}
-          ><BookmarkSimple aria-hidden="true" /><span>Want to Read</span><span class="count"
-            >{books.filter((book) => collectionContains(wantToRead, book)).length}</span
-          ><CaretRight class="text-muted-foreground" aria-hidden="true" /></button
+          <button
+            class="collection-row"
+            aria-current={active === 'books' ? 'page' : undefined}
+            onclick={() => choose('books')}
+            ><BookOpen aria-hidden="true" /><span>Books</span><span class="count"
+              >{books.length}</span
+            ><CaretRight class="text-muted-foreground" aria-hidden="true" /></button
+          >
+          <button
+            class="collection-row"
+            aria-current={active === WANT_TO_READ_ID ? 'page' : undefined}
+            onclick={() => choose(WANT_TO_READ_ID)}
+            ><BookmarkSimple aria-hidden="true" /><span>Want to Read</span><span class="count"
+              >{books.filter((book) => collectionContains(wantToRead, book)).length}</span
+            ><CaretRight class="text-muted-foreground" aria-hidden="true" /></button
+          >
+          <button
+            class="collection-row"
+            aria-current={active === 'finished' ? 'page' : undefined}
+            onclick={() => choose('finished')}
+            ><CircleCheck aria-hidden="true" /><span>Finished</span><span class="count"
+              >{finished}</span
+            ><CaretRight class="text-muted-foreground" aria-hidden="true" /></button
+          >
+        </div>
+        <p class="mt-4 shrink-0 text-xs text-muted-foreground">
+          Collections and book overrides sync with your Manabi Reader settings when account sync is
+          on. Unavailable books stay in their collections and reappear when their library is
+          connected.
+        </p>
+        <div
+          class="mt-6 shrink-0 divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card"
         >
-        <button
-          class="collection-row"
-          aria-current={active === 'finished' ? 'page' : undefined}
-          onclick={() => choose('finished')}
-          ><CircleCheck aria-hidden="true" /><span>Finished</span><span class="count"
-            >{finished}</span
-          ><CaretRight class="text-muted-foreground" aria-hidden="true" /></button
-        >
+          <button class="collection-row" onclick={() => edit()}
+            ><Plus aria-hidden="true" /><span>New Collection…</span></button
+          >
+          {#each customCollections as collection (collection.id)}
+            <div class="collection-entry">
+              <button
+                class="collection-row"
+                aria-current={active === collection.id ? 'page' : undefined}
+                onclick={() => choose(collection.id)}
+                ><List aria-hidden="true" /><span class="min-w-0 [overflow-wrap:anywhere]"
+                  >{collection.name}</span
+                ><span class="count"
+                  >{books.filter((book) => collectionContains(collection, book)).length}</span
+                >{#if !editing}<CaretRight
+                    class="text-muted-foreground"
+                    aria-hidden="true"
+                  />{/if}</button
+              >
+              {#if editing}<div class="collection-actions">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    class="size-[44px]"
+                    onclick={() => edit(collection)}
+                    aria-label={`Rename collection ${collection.name}`}
+                    title="Rename collection"><PencilSimple aria-hidden="true" /></Button
+                  ><Button
+                    variant="ghost"
+                    size="icon"
+                    class="size-[44px] text-destructive hover:text-destructive"
+                    onclick={() => edit(collection, true)}
+                    aria-label={`Delete collection ${collection.name}`}
+                    title="Delete collection"><Trash aria-hidden="true" /></Button
+                  >
+                </div>{/if}
+            </div>
+          {/each}
+        </div>
       </div>
-      <div
-        class="mt-6 shrink-0 divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card"
-      >
-        {#each customCollections as collection (collection.id)}
-          <div class="collection-entry">
-            <button
-              class="collection-row"
-              aria-current={active === collection.id ? 'page' : undefined}
-              onclick={() => choose(collection.id)}
-              ><List aria-hidden="true" /><span class="min-w-0 [overflow-wrap:anywhere]">{collection.name}</span
-              ><span class="count"
-                >{books.filter((book) => collectionContains(collection, book)).length}</span
-              >{#if !editing}<CaretRight
-                  class="text-muted-foreground"
-                  aria-hidden="true"
-                />{/if}</button
-            >
-            {#if editing}<div class="collection-actions">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  class="size-11"
-                  onclick={() => edit(collection)}
-                  aria-label={`Rename collection ${collection.name}`}
-                  title="Rename collection"><PencilSimple aria-hidden="true" /></Button
-                ><Button
-                  variant="ghost"
-                  size="icon"
-                  class="size-11 text-destructive hover:text-destructive"
-                  onclick={() => edit(collection, true)}
-                  aria-label={`Delete collection ${collection.name}`}
-                  title="Delete collection"><Trash aria-hidden="true" /></Button
-                >
-              </div>{/if}
-          </div>
-        {/each}
-        <button class="collection-row" onclick={() => edit()}
-          ><Plus aria-hidden="true" /><span>New Collection…</span></button
-        >
-      </div>
-      <p class="mt-4 shrink-0 text-xs text-muted-foreground">
-        Collections and book overrides sync with your Manabi Reader settings when account sync is
-        on. Unavailable books stay in their collections and reappear when their library is
-        connected.
-      </p>
     </Sheet.Content>
   </Sheet.Root>{/if}
 <Dialog.Root bind:open={dialogOpen}>
@@ -245,7 +260,7 @@
     align-items: center;
     gap: min(0.75rem, 12px);
     width: 100%;
-    padding: 0.875rem min(1rem, 16px);
+    padding: 14px 16px;
     text-align: left;
     font-size: 1.1rem;
     min-height: 60px;
