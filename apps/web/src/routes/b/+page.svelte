@@ -1013,22 +1013,29 @@
         scheduleReplication(StorageDataType.PROGRESS);
       }
 
+      const celebrateCompletion = !window.matchMedia(
+        '(prefers-reduced-motion: reduce)'
+      ).matches;
+
       if ($statisticsEnabled$ && $openTrackerOnCompletion$) {
         confettiWidthModifier = 36;
         confettiMaxRuns = 0;
-        bookCompleted = window.matchMedia('(min-width: 900px)').matches;
+        bookCompleted =
+          celebrateCompletion && window.matchMedia('(min-width: 900px)').matches;
         isTrackerMenuOpen$.next(true);
       } else {
         dialogManager.dialogs$.next([]);
         confettiWidthModifier = 0;
         confettiMaxRuns = 3;
-        bookCompleted = true;
+        bookCompleted = celebrateCompletion;
 
-        merge(fromEvent(document, 'pointerup'), timer(10000))
-          .pipe(take(1))
-          .subscribe(() => {
-            bookCompleted = false;
-          });
+        if (bookCompleted) {
+          merge(fromEvent(document, 'pointerup'), timer(10000))
+            .pipe(take(1))
+            .subscribe(() => {
+              bookCompleted = false;
+            });
+        }
       }
     } catch ({ message }: any) {
       dialogManager.dialogs$.next([
