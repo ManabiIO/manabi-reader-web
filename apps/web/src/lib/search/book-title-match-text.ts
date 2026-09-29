@@ -13,6 +13,11 @@ export interface BookTitleMatchContext {
   detail: string;
 }
 
+export interface BookTitleMatchIndex {
+  textByBook: Record<string, readonly BookTitleMatchContext[]>;
+  matchedKeys: Set<string>;
+}
+
 function add(
   result: Map<string, BookTitleMatchContext[]>,
   key: string,
@@ -44,13 +49,13 @@ function matchingSeriesText(
  * This is presentation-only search context; organization identities remain the
  * durable source of truth and none of these strings become locators.
  */
-export function bookTitleMatchText(
+export function bookTitleMatchIndex(
   books: readonly ShelfBook[],
   nodes: readonly ShelfNode[],
   collections: readonly Collection[],
   normalizedQuery: string
-): Record<string, readonly BookTitleMatchContext[]> {
-  if (!normalizedQuery) return {};
+): BookTitleMatchIndex {
+  if (!normalizedQuery) return { textByBook: {}, matchedKeys: new Set() };
   const result = new Map<string, BookTitleMatchContext[]>();
   matchingSeriesText(nodes, normalizedQuery, result);
 
@@ -68,5 +73,8 @@ export function bookTitleMatchText(
     for (const alias of book.organizationAliases)
       for (const context of collectionsByMember.get(alias) ?? []) add(result, book.key, context);
 
-  return Object.fromEntries(result);
+  return {
+    textByBook: Object.fromEntries(result),
+    matchedKeys: new Set(result.keys())
+  };
 }
