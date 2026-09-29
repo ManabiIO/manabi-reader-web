@@ -156,7 +156,7 @@
     onCloseAutoFocus={(event) => {
       event.preventDefault();
       document
-        .querySelector<HTMLButtonElement>('[aria-label="Show reading controls"]')
+        .querySelector<HTMLButtonElement>('button[data-reader-controls]')
         ?.focus({ preventScroll: true });
     }}
   >

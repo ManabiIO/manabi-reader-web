@@ -5,6 +5,7 @@ import zipfile
 from pathlib import Path
 from playwright.sync_api import expect
 from test_books_library import LibraryBase, book, raster
+from reader_controls import reveal_reader_controls
 
 
 class GalleryUsabilityBrowser(LibraryBase):
@@ -30,9 +31,7 @@ class GalleryUsabilityBrowser(LibraryBase):
         })
         self.page.get_by_role('button', name='Read ' + title, exact=True).click()
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
-        reveal = self.page.get_by_role('button', name='Show reading controls', exact=True)
-        expect(reveal).to_be_visible()
-        reveal.click()
+        reveal_reader_controls(self.page)
         self.page.get_by_role('button', name='Reading tools', exact=True).click()
         self.page.get_by_role('menuitem', name='Image Gallery', exact=True).click()
         panel = self.page.get_by_role('dialog', name='Image gallery', exact=True)
@@ -89,7 +88,7 @@ class GalleryUsabilityBrowser(LibraryBase):
             expect(panel.get_by_role('button', name='View image 1', exact=True)).to_be_focused()
             close.click()
             expect(panel).to_have_count(0)
-            expect(self.page.get_by_role('button', name='Show reading controls', exact=True)).to_be_focused()
+            expect(self.page.locator('button[data-reader-controls]')).to_be_focused()
             self.page.set_viewport_size({'width': 320, 'height': 568})
 
     def test_gallery_keeps_zoom_and_other_panes_out_of_wheel_paging(self):
