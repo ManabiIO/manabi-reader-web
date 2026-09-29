@@ -123,4 +123,3 @@ test('metadata writer observes transaction completion before issuing its first r
   });
   assert.equal(await api.setMetadata('preference', { value: 1 }), 'key');
 });
-

@@ -452,10 +452,7 @@ async function performPreferenceSync(
         ? state.pendingUpload
         : undefined;
       if (state.pendingUpload && !pendingUpload) delete state.pendingUpload;
-      if (
-        state.initialized &&
-        (!Number.isSafeInteger(state.revision) || state.revision < 0)
-      )
+      if (state.initialized && (!Number.isSafeInteger(state.revision) || state.revision < 0))
         throw new IntegrationError('invalid_response');
       if (pendingUpload && state.initialized && pendingUpload.revision < state.revision) {
         delete state.pendingUpload;
