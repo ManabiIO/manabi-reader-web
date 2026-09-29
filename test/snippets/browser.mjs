@@ -262,8 +262,23 @@ try {
   await page.evaluate(() => {
     document.documentElement.style.fontSize = '200%';
   });
+  const moreActions = page.getByRole('button', { name: 'More actions', exact: true });
+  await expect(moreActions).toBeVisible();
   const readingToolbar = page.getByRole('toolbar', { name: 'Snippet reading controls' });
   await expect(readingToolbar).toBeVisible();
+  const articleTop = (await page.getByRole('article', { name: 'Snippet content' }).boundingBox()).y;
+  assert(
+    articleTop <= 480 * 2.5,
+    `Secondary actions push reading content too far below the fold: ${articleTop}px`
+  );
+  moreActions.focus();
+  await moreActions.press('Enter');
+  const actionMenu = page.getByRole('menu');
+  await expect(actionMenu).toBeVisible();
+  await expect(actionMenu.getByRole('menuitem', { name: 'Collections…', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(actionMenu).toHaveCount(0);
+  await expect(moreActions).toBeFocused();
   assert(
     (await readingToolbar.evaluate((node) => node.scrollWidth - node.clientWidth)) <= 1,
     'Snippet reading controls must not overflow horizontally at 200% text'
