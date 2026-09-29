@@ -2237,9 +2237,6 @@
   data-reader-chrome
   data-reader-controls
   class="reader-controls writing-horizontal-tb fixed z-20 flex size-11 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-sm"
-  on:focus={(event) => {
-    if (event.currentTarget.matches(':focus-visible')) readerChrome?.pin();
-  }}
   on:click={() => {
     if (showHeader) readerChrome?.hide();
     else readerChrome?.pin();
@@ -2773,7 +2770,7 @@
     opacity: 0;
     pointer-events: none !important;
   }
-  .reader-controls.chrome-hidden:focus-visible {
+  .reader-controls.chrome-hidden:focus {
     opacity: 1;
     pointer-events: auto !important;
   }

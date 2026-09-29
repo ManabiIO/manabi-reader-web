@@ -179,7 +179,7 @@ class SearchQuality(ProductJourneyBase):
         settings = self.context.new_page()
         settings.goto(self.origin + '/reader-web/settings')
         expect(settings.get_by_label('Search settings', exact=True)).to_be_visible()
-        settings.get_by_role('button', name='All settings', exact=True).click()
+        settings.get_by_role('navigation', name='Settings categories').get_by_role('link', name='All settings', exact=True).click()
         for theme in ('manabi-theme', 'light-theme', 'ecru-theme', 'water-theme', 'gray-theme', 'dark-theme', 'black-theme'):
             for mode in ('light', 'dark'):
                 with self.subTest(theme=theme, mode=mode):
