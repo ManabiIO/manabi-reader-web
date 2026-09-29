@@ -173,7 +173,9 @@ class VoicePitchBrowser(existing.WhispersyncBrowser):
     def test_voice_pitch_mobile_dark_accessibility(self):
         self.prepare(dark=True, mobile=True)
         self.capture('mobile-dark')
-        self.strip.locator('summary').press('Enter')
+        summary = self.strip.locator('summary')
+        self.assertGreaterEqual(summary.bounding_box()['height'], 43.99)
+        summary.press('Enter')
         expect(self.strip.locator('details p')).to_be_visible()
         self.strip.locator('summary').press('Enter')
         self.strip.get_by_role('button', name='Hide voice pitch').press('Space')

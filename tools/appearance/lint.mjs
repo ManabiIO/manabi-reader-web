@@ -40,6 +40,7 @@ const files = [
 
   'apps/web/src/lib/components/book-reader/book-reader-image-gallery/book-reader-image-gallery.svelte',
   'apps/web/src/lib/components/book-reader/book-reading-tracker/book-reading-tracker-menu.svelte',
+  'apps/web/src/lib/features/whispersync/audiobook-panel.svelte',
   'apps/web/src/lib/components/ripple.svelte',
   'apps/web/src/lib/appearance/background-settings.svelte',
   'apps/web/src/lib/appearance/runtime.svelte',
