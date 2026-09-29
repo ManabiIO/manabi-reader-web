@@ -59,7 +59,6 @@ function contains(error, expected) {
   );
 }
 
-
 test('normal completion ends the queue-owner signal that owns decoder state', () =>
   harness(async ({ make, store }) => {
     let ownerSignal;
