@@ -74,6 +74,7 @@
     installing = true;
     message = 'Preparing dictionary…';
     const controller = (installController = new AbortController());
+    let imported = false;
     try {
       const opened = await lease.get();
       controller.signal.throwIfAborted();
@@ -92,6 +93,7 @@
         signal: controller.signal,
         onProgress: () => {}
       });
+      imported = true;
       if (!file) await opened.client.setDefault('installed', result.summary.title);
       if (mounted)
         message = result.cancelledAfterCommit
@@ -102,6 +104,14 @@
         message = error instanceof Error ? error.message : 'Dictionary installation failed.';
     } finally {
       if (mounted) {
+        if (imported) {
+          // The current translator can retain stale headword fields after a
+          // commit. Reopen against the durable dictionary before searching.
+          task.stop();
+          lease.release();
+          lease = dictionaryLease();
+          runtime = undefined;
+        }
         installing = false;
         attempt++;
       }
@@ -205,12 +215,12 @@
             >Cancel installation</button
           >{/if}
       </div>
-      {#if message}<p class="note" role="status">{message}</p>{/if}
       <p class="note">
         Jitendex by Stephen Kraus · CC BY-SA 4.0. Includes JMdict, Tatoeba and JmdictFurigana data.
         The full dictionary retains its source labels.
       </p>
     </details>
+    {#if message}<p class="note" role="status">{message}</p>{/if}
   {/if}
 </section>
 

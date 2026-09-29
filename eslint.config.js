@@ -16,6 +16,9 @@ module.exports = (async () => {
     eslintPluginPrettierRecommended,
     {
       ignores: [
+        '**/.cache/**',
+        'apps/web/static/manabitan/**',
+        'apps/web/static/dictionary-archives/**',
         '**/build/*',
         '**/test-results/**',
         '**/.svelte-kit/*',
