@@ -14,6 +14,7 @@ import { readIndexedBookMetadata } from '$lib/data/database/books-db/content-has
 import {
   livePersonalCopies,
   planPersonalBookClaims,
+  PersonalBookOwnershipError,
   type PersonalBook
 } from './personal-book-authority';
 import type {
@@ -871,7 +872,25 @@ async function stageReading(accountId: string, books: Map<string, PersonalBook[]
       const id = key(accountId, entity.kind, entity.entityId);
       const base = await db.get('readerPersonalRecord', id);
       const local = await readLocal(entity.kind, entity.entityId, bookKey, books, accountId);
-      const tx = db.transaction(['readerPersonalOutbox', 'readerPersonalConflict'], 'readwrite');
+      const tx = db.transaction(
+        ['data', 'readerBookScope', 'readerPersonalOutbox', 'readerPersonalConflict'],
+        'readwrite'
+      );
+      try {
+        await livePersonalCopies(
+          bookKey,
+          books.get(bookKey) ?? [],
+          tx.objectStore('data'),
+          tx.objectStore('readerBookScope'),
+          accountId,
+          () => scoped(accountId)
+        );
+      } catch (error) {
+        await tx.done.catch(() => undefined);
+        scoped(accountId);
+        if (error instanceof PersonalBookOwnershipError) continue;
+        throw error;
+      }
       if (await tx.objectStore('readerPersonalConflict').get(id)) {
         await tx.done;
         continue;
@@ -942,6 +961,36 @@ async function hydrateReading(accountId: string, books: Map<string, PersonalBook
   await tx.done;
 }
 
+async function hasLivePersonalAuthority(
+  bookKey: string,
+  books: ReadonlyMap<string, PersonalBook[]>,
+  accountId: string
+): Promise<boolean> {
+  const copies = books.get(bookKey) ?? [];
+  if (!copies.length) return false;
+  const db = await database.db;
+  scoped(accountId);
+  const tx = db.transaction(['data', 'readerBookScope']);
+  try {
+    await livePersonalCopies(
+      bookKey,
+      copies,
+      tx.objectStore('data'),
+      tx.objectStore('readerBookScope'),
+      accountId,
+      () => scoped(accountId)
+    );
+    scoped(accountId);
+    await tx.done;
+    return true;
+  } catch (error) {
+    await tx.done.catch(() => undefined);
+    scoped(accountId);
+    if (error instanceof PersonalBookOwnershipError) return false;
+    throw error;
+  }
+}
+
 async function bindMutation(accountId: string, mutation: WireMutation): Promise<WireMutation> {
   const db = await database.db;
   const state = await db.get('readerSyncState', accountId);
@@ -988,8 +1037,10 @@ async function flushReading(accountId: string, books: Map<string, PersonalBook[]
     if (processed.has(entityKey)) continue;
     processed.add(entityKey);
     scoped(accountId);
-    // A previously queued request cannot bypass a later ownership ambiguity.
-    if (!books.has(pending.bookKey)) continue;
+    // A previously queued request cannot bypass a later ownership change.
+    // The sync-start map is only a candidate set; re-read durable ownership
+    // immediately before preparing/sending this immutable request.
+    if (!(await hasLivePersonalAuthority(pending.bookKey, books, accountId))) continue;
     if (await db.get('readerPersonalConflict', key(accountId, pending.kind, pending.entityId)))
       continue;
     const current = await db.get('readerPersonalOutbox', pending.id);
@@ -1113,6 +1164,15 @@ async function flushAnnotations(accountId: string, books: Map<string, PersonalBo
       | (ReaderAnnotationMutation & { request?: WireMutation })
       | undefined;
     if (!current || current.accountId !== accountId) continue;
+    // Downloaded books carry live durable ownership. If this sync began with an
+    // owned copy and that copy became foreign, do not send the retained note
+    // mutation under stale authority. Undownloaded annotations remain governed
+    // by their annotation scope, as before.
+    if (
+      books.has(current.bookKey) &&
+      !(await hasLivePersonalAuthority(current.bookKey, books, accountId))
+    )
+      continue;
     const latestAnnotation = await db.get('readerAnnotation', current.annotationId);
     if (!current.request && latestAnnotation?.revision !== current.localRevision) {
       await db.delete('readerAnnotationOutbox', current.id);
