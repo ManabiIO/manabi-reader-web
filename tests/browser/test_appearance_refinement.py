@@ -245,7 +245,7 @@ class RefinedAppearance(previous.AppearanceBrowser):
 
     def test_focus_and_escape_do_not_commit_the_device_font_fallback(self):
         self.settings()
-        self.page.get_by_role('button', name='Fonts & text', exact=True).click()
+        self.page.get_by_role('navigation', name='Settings categories').get_by_role('link', name='Fonts & text', exact=True).click()
         font = self.page.get_by_role('textbox', name='Primary / Serif font', exact=True)
         saved = self.page.evaluate('localStorage.getItem("fontFamilyGroupOne")')
         font.focus()

@@ -330,7 +330,7 @@ export function isShellAsset(url) {
     return false;
   }
   return (
-    !/(?:^|\/)(?:dictionaries|dictionary-archives|manabitan)(?:\/|$)/.test(path) &&
+    !/(?:^|\/)(?:dictionaries|dictionary-archives|manabitan|moss)(?:\/|$)/.test(path) &&
     !/\.(?:zip|epub|htmlz|sqlite3?|db|wasm|woff2?|ttf|otf)$/.test(path)
   );
 }

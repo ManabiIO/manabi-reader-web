@@ -390,6 +390,16 @@ class ReaderBrowser(unittest.TestCase):
         expect(self.page.get_by_text('Manabi account services are not available on this deployment. Local libraries still work.')).to_be_visible()
         self.assertTrue(self.page.get_by_role('link', name='Sign in to Manabi').get_attribute('href').startswith('/accounts/login/'))
 
+    def test_video_release_gate_keeps_default_build_dormant(self):
+        self.page.goto(self.origin + '/reader-web/manage')
+        expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
+        expect(self.page.get_by_role('link', name='Videos', exact=True)).to_have_count(0)
+
+        self.page.goto(self.origin + '/reader-web/videos')
+        expect(self.page.get_by_role('heading', name='Page not found', exact=True)).to_be_visible()
+        expect(self.page.get_by_role('link', name='Back to library', exact=True)).to_be_visible()
+        expect(self.page.locator('.video-workspace')).to_have_count(0)
+
     def test_yukyokasho_default_is_device_local_and_requires_both_faces(self):
         self.page.goto(self.origin + '/reader-web/settings#typography')
         primary = self.page.get_by_role('textbox', name='Primary / Serif font', exact=True)

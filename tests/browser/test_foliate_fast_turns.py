@@ -1,6 +1,7 @@
 """Additional built-application acceptance for discrete page-turn bursts."""
 import unittest
 from playwright.sync_api import expect
+from reader_controls import reveal_reader_controls
 from test_foliate_slide import FoliateSlide, P
 
 
@@ -82,7 +83,7 @@ class FoliateFastTurns(FoliateSlide):
         self.assertEqual(self.pose()['radius'], '0px')
 
     def choose_effect(self, value):
-        self.toggle_controls()
+        reveal_reader_controls(self.page)
         self.page.get_by_role('button', name='Themes & Settings', exact=True).click()
         self.page.get_by_role('combobox', name='Page turn effect', exact=True).select_option(value)
         self.assertEqual(self.page.evaluate("localStorage.getItem('pageTurnEffect')"), value)

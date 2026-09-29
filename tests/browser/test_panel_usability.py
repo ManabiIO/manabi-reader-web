@@ -136,7 +136,7 @@ class PanelUsabilityBrowser(LibraryBase):
         expect(panel).to_be_visible()
         # Reader entry starts paused. Toggle the desired post-menu state, then
         # dismiss through the real control so the route resumes the production timer.
-        panel.get_by_role('button', name='Toggle Tracker', exact=True).click()
+        panel.get_by_role('button', name='Resume tracking after closing', exact=True).click()
         panel.get_by_role('button', name='Close reading tracker', exact=True).click()
         expect(panel).to_have_count(0)
 

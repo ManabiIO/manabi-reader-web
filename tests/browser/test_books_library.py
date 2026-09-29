@@ -516,8 +516,10 @@ class BooksLibraryBrowser(LibraryBase):
 
         def tool(name):
             reveal_reader_controls(self.page)
-            self.page.get_by_role('button', name='Reading tools').click()
-            self.page.get_by_role('menuitem', name=name, exact=True).click()
+            item = self.page.get_by_role('menuitem', name=name, exact=True)
+            if not item.is_visible():
+                self.page.get_by_role('button', name='Reading tools').click()
+            item.click()
 
         book_id = self.stores('books', ['data'])['data'][0]['id']
         previous = self.stores('books', ['bookmark'])['bookmark']
@@ -538,7 +540,8 @@ class BooksLibraryBrowser(LibraryBase):
         expect(content.locator('[data-manabi-spine-index="1"]')).to_be_attached(timeout=30000)
         self.assertEqual(baseline, self.stores('books', ['bookmark', 'readerStatistic']))
 
-        controls.click()
+        expect(content).to_have_attribute('aria-busy', 'false')
+        reveal_reader_controls(self.page)
         self.page.get_by_role('button', name='Themes & Settings').click()
         self.page.get_by_role('button', name='Increase text size').click()
         self.page.get_by_role('button', name='Close reading appearance').click()
@@ -728,7 +731,7 @@ class BooksLibraryBrowser(LibraryBase):
                 self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), width + 1)
                 brand = self.page.get_by_role('banner', name='Library toolbar').get_by_role(
                     'heading', name='Manabi Reader for Web', exact=True).bounding_box()
-                shelf = self.page.locator('.shelf-heading').first.bounding_box()
+                shelf = self.page.locator('.shelf-heading:visible, .unified-search:visible').first.bounding_box()
                 self.assertAlmostEqual(brand['x'], shelf['x'], delta=1)
                 if width < 1024:
                     trigger = self.page.get_by_role('button', name='Search library', exact=True)
@@ -752,8 +755,8 @@ class BooksLibraryBrowser(LibraryBase):
                     expect(self.page.get_by_role('button', name='Read Standard cover', exact=True)).to_be_visible()
                     trigger.click()
                     self.page.get_by_role('searchbox', name='Search library', exact=True).fill('No matching title')
-                    expect(self.page.get_by_text('No matching book metadata.', exact=True)).to_be_visible()
-                    expect(self.page.get_by_text('No content matches.', exact=True)).to_be_visible()
+                    expect(self.page.get_by_text('No matching titles.', exact=True)).to_be_visible()
+                    expect(self.page.get_by_text('No matches in content saved in this browser.', exact=True)).to_be_visible()
                     self.page.get_by_role('button', name='Cancel', exact=True).click()
                     expect(trigger).to_be_focused()
                 else:
@@ -787,6 +790,7 @@ class BooksLibraryBrowser(LibraryBase):
                     }''', arg=title)
                     geometry = tile.evaluate('''tile => {
                         const cover = tile.querySelector('.cover-surface').getBoundingClientRect();
+                        const title = tile.querySelector('.book-copy').getBoundingClientRect();
                         const button = tile.querySelector('.book-status button');
                         const svg = button.querySelector('svg');
                         // Phosphor includes an unpainted full-viewBox rect; measure
@@ -795,8 +799,8 @@ class BooksLibraryBrowser(LibraryBase):
                         const edge = new DOMPoint(ink.x + ink.width, ink.y + ink.height / 2).matrixTransform(matrix);
                         const target = button.getBoundingClientRect();
                         const label = tile.querySelector('.progress-label').getBoundingClientRect();
-                        return {edge: edge.x - cover.right, center: edge.y - cover.bottom,
-                            labelCenter: label.top + label.height / 2 - cover.bottom,
+                        return {edge: edge.x - cover.right, center: edge.y - title.bottom,
+                            labelCenter: label.top + label.height / 2 - title.bottom,
                             targetWidth: target.width, targetHeight: target.height};
                     }''')
                     self.assertAlmostEqual(0, geometry['edge'], delta=2)
@@ -975,8 +979,8 @@ class BooksLibraryBrowser(LibraryBase):
             expect(self.tile(title).get_by_role('heading', name=title, exact=True)).to_be_visible()
         search = self.page.get_by_role('searchbox', name='Search library', exact=True)
         search.fill('missing book')
-        expect(self.page.get_by_text('No matching book metadata.', exact=True)).to_be_visible()
-        expect(self.page.get_by_text('No content matches.', exact=True)).to_be_visible()
+        expect(self.page.get_by_text('No matching titles.', exact=True)).to_be_visible()
+        expect(self.page.get_by_text('No matches in content saved in this browser.', exact=True)).to_be_visible()
         search.fill('')
         expect(self.page.get_by_role('heading', name='Continue', exact=True)).to_be_visible()
         self.assertEqual(before, self.stores('books', ['bookmark', 'statistic']))
@@ -990,10 +994,10 @@ class BooksLibraryBrowser(LibraryBase):
         self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
         self.page.get_by_role('button', name='Select All Visible', exact=True).click()
         expect(self.page.get_by_text('1 selected', exact=True)).to_be_visible()
-        self.page.get_by_placeholder('Search library').fill('no result')
+        self.page.get_by_role('searchbox', name='Search library', exact=True).fill('no result')
         expect(self.page.get_by_text('0 selected', exact=True)).to_be_visible()
         expect(self.page.get_by_role('heading', name='No matching books', exact=True)).to_be_visible()
-        self.page.get_by_placeholder('Search library').fill('Beta')
+        self.page.get_by_role('searchbox', name='Search library', exact=True).fill('Beta')
         self.page.get_by_role('button', name='Select All Visible', exact=True).click()
         expect(self.page.get_by_text('1 selected', exact=True)).to_be_visible()
         self.choose_collection('Books')
@@ -1013,10 +1017,10 @@ class BooksLibraryBrowser(LibraryBase):
 
         self.choose_view('List')
         expect(self.tile('Started book').locator('.book-author')).to_have_text('Author One')
-        self.page.get_by_placeholder('Search library').fill('Author Two')
+        self.page.get_by_role('searchbox', name='Search library', exact=True).fill('Author Two')
         expect(self.page.get_by_role('button', name='Read Untouched book', exact=True)).to_be_visible()
         expect(self.page.get_by_role('button', name='Read Started book', exact=True)).to_have_count(0)
-        self.page.get_by_placeholder('Search library').fill('')
+        self.page.get_by_role('searchbox', name='Search library', exact=True).fill('')
 
         self.menu('Finished book', 'Mark as Finished')
         self.menu('Finished book', 'Edit Finished Date…')
@@ -1487,6 +1491,7 @@ class BooksLibraryBrowser(LibraryBase):
         expect(self.tile('Open reader').locator('.progress-label')).to_have_text('Finished')
         before = self.stores('books', ['bookmark'])['bookmark'][0]
         reader.bring_to_front()
+        reader.locator('.book-content').first.click(position={'x': 25, 'y': 100}, force=True)
         reader.keyboard.press('PageDown')
         # Let the existing three-second reader autosave actually persist. Do not
         # replace it with a direct database write or merely check unchanged data.
@@ -1537,10 +1542,10 @@ class BooksLibraryBrowser(LibraryBase):
         expect(self.page.get_by_text('1 selected', exact=True)).to_be_visible()
         self.page.get_by_role('button', name='Export', exact=True).click()
         self.page.get_by_role('button', name='Zip File', exact=True).click()
-        for label in ('Book Data','Bookmark','Statistics'):
+        for label in ('Book data','Reading position','Statistics'):
             self.page.get_by_label(label, exact=True).check()
         with self.page.expect_download(timeout=60000) as pending:
-            self.page.get_by_role('button', name='Start', exact=True).click()
+            self.page.get_by_role('button', name='Start export', exact=True).click()
         raw = Path(pending.value.path()).read_bytes()
         with zipfile.ZipFile(io.BytesIO(raw)) as archive:
             name = next(name for name in archive.namelist() if '/bookdata_' in name)
@@ -1770,7 +1775,7 @@ class BooksLibraryFilesystem(LibraryBase):
             rear = tile.locator('.stack-item:not(.front)').bounding_box()
             self.assertGreater(front['x'], rear['x'])
             self.assertGreater(front['y'], rear['y'])
-            expect(tile.locator('.series-copy')).not_to_be_visible()
+            expect(tile.locator('.series-copy')).to_be_visible()
             self.assertAlmostEqual(tile.locator('.book-status').bounding_box()['y'],
                 self.tile('Standalone').locator('.book-status').bounding_box()['y'], delta=1)
         series.click()

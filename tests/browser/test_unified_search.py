@@ -25,6 +25,96 @@ def dictionary_archive():
 
 
 class UnifiedSearch(ProductJourneyBase):
+    def seed_video_search(self, title='Searchable video', cues=None, delay=2.5):
+        cues = cues or [
+            {'id': 'cue-one', 'start': 12, 'end': 14, 'text': '字幕検索 first result'},
+            {'id': 'cue-two', 'start': 30, 'end': 32, 'text': '別の字幕 second result'}
+        ]
+        return self.page.evaluate("""async ({title,cues,delay}) => {
+          const mediaKey='content:'+'a'.repeat(64);
+          const trackId='00000000-0000-4000-8000-000000000123';
+          const canonical=value=>{
+            if(value===null||typeof value!=='object')return JSON.stringify(value);
+            if(Array.isArray(value))return '['+value.map(canonical).join(',')+']';
+            return '{'+Object.keys(value).sort().map(k=>JSON.stringify(k)+':'+canonical(value[k])).join(',')+'}';
+          };
+          const digest=async value=>Array.from(new Uint8Array(await crypto.subtle.digest(
+            'SHA-256',new TextEncoder().encode(canonical(value)))))
+            .map(n=>n.toString(16).padStart(2,'0')).join('');
+          const cueDigest=await digest(cues);
+          const info={version:1,title,duration:120,width:1280,height:720,addedAt:Date.now()};
+          const resume={version:1,mediaKey,position:0,duration:120,rate:1,finished:false,
+            updatedAt:Date.now(),primary:trackId,secondary:null,delays:{[trackId]:delay}};
+          const metadata={version:1,id:trackId,mediaKey,label:'Japanese captions',language:'ja',
+            kind:'transcription',origin:'sidecar',complete:true,forced:false,createdAt:Date.now()};
+          const manifest={version:1,track:metadata,pages:[{id:trackId+'/p/0',digest:cueDigest}],
+            count:cues.length,digest:cueDigest};
+          const chunk={version:1,trackId,index:0,cues};
+          const rows=[
+            ['video_info',mediaKey,info],
+            ['video_resume',mediaKey,resume],
+            ['video_track',trackId,manifest],
+            ['video_chunk',trackId+'/p/0',chunk]
+          ];
+          const request=indexedDB.open('manabi-media-v1',1);
+          const db=await new Promise((yes,no)=>{
+            request.onupgradeneeded=()=>{
+              for(const name of ['local','records'])
+                if(!request.result.objectStoreNames.contains(name))
+                  request.result.createObjectStore(name);
+            };
+            request.onsuccess=()=>yes(request.result);request.onerror=()=>no(request.error);
+          });
+          await new Promise((yes,no)=>{
+            const tx=db.transaction('records','readwrite'),store=tx.objectStore('records');
+            for(const [kind,id,payload] of rows){
+              const replica={scope:'guest',kind,id,mediaKey,payload,base:payload,revision:1,
+                localVersion:crypto.randomUUID(),dirty:false};
+              store.put(replica,JSON.stringify(['guest',kind,id]));
+            }
+            tx.oncomplete=yes;tx.onerror=()=>no(tx.error);tx.onabort=()=>no(tx.error);
+          });
+          db.close();
+          return {mediaKey,trackId};
+        }""", {'title': title, 'cues': cues, 'delay': delay})
+
+    def replace_video_cues(self, identity, cues):
+        self.page.evaluate("""async ({identity,cues}) => {
+          const canonical=value=>{
+            if(value===null||typeof value!=='object')return JSON.stringify(value);
+            if(Array.isArray(value))return '['+value.map(canonical).join(',')+']';
+            return '{'+Object.keys(value).sort().map(k=>JSON.stringify(k)+':'+canonical(value[k])).join(',')+'}';
+          };
+          const digest=async value=>Array.from(new Uint8Array(await crypto.subtle.digest(
+            'SHA-256',new TextEncoder().encode(canonical(value)))))
+            .map(n=>n.toString(16).padStart(2,'0')).join('');
+          const db=await new Promise((yes,no)=>{
+            const r=indexedDB.open('manabi-media-v1');r.onsuccess=()=>yes(r.result);r.onerror=()=>no(r.error);
+          });
+          const manifestKey=JSON.stringify(['guest','video_track',identity.trackId]);
+          const pageKey=JSON.stringify(['guest','video_chunk',identity.trackId+'/p/0']);
+          const old=await new Promise((yes,no)=>{
+            const tx=db.transaction('records','readonly'),q=tx.objectStore('records').get(manifestKey);
+            q.onsuccess=()=>yes(q.result);q.onerror=()=>no(q.error);
+          });
+          const d=await digest(cues);
+          const manifest={...old,payload:{...old.payload,pages:[{id:identity.trackId+'/p/0',digest:d}],
+            count:cues.length,digest:d},base:{...old.base,pages:[{id:identity.trackId+'/p/0',digest:d}],
+            count:cues.length,digest:d},localVersion:crypto.randomUUID()};
+          const chunkPayload={version:1,trackId:identity.trackId,index:0,cues};
+          const chunk={scope:'guest',kind:'video_chunk',id:identity.trackId+'/p/0',
+            mediaKey:identity.mediaKey,payload:chunkPayload,base:chunkPayload,revision:1,
+            localVersion:crypto.randomUUID(),dirty:false};
+          await new Promise((yes,no)=>{
+            const tx=db.transaction('records','readwrite'),store=tx.objectStore('records');
+            store.put(manifest,manifestKey);store.put(chunk,pageKey);
+            tx.oncomplete=yes;tx.onerror=()=>no(tx.error);tx.onabort=()=>no(tx.error);
+          });
+          db.close();
+          const channel=new BroadcastChannel('manabi-media-v1');
+          channel.postMessage({type:'media-change',captions:true});channel.close();
+        }""", {'identity': identity, 'cues': cues})
+
     def filter(self, name):
         button = self.page.get_by_role('group', name='Show').get_by_role(
             'button', name=name, exact=True)
@@ -76,7 +166,11 @@ class UnifiedSearch(ProductJourneyBase):
         self.page.set_viewport_size({'width': 1280, 'height': 800})
 
         expect(field).to_have_value('neko')
-
+        field.fill('gakko')
+        expect(
+            self.page.get_by_text('Showing prefix matches for がっこ', exact=True)
+        ).to_be_visible(timeout=30000)
+        expect(full.locator('.headword')).to_contain_text('学校')
         field.fill('がっこ')
         expect(
             self.page.get_by_text('Showing prefix matches for がっこ', exact=True)
@@ -215,6 +309,67 @@ class UnifiedSearch(ProductJourneyBase):
         expect(self.page.locator('button.passage')).to_have_count(1)
         self.checkpoint('unified-latest-query')
 
+    def test_video_titles_and_published_transcripts_join_unified_search_without_media_io(self):
+        identity = self.seed_video_search()
+        field = self.library_search('Searchable')
+        expect(self.page.get_by_role('button', name='Open video Searchable video', exact=True)).to_be_visible()
+        title = self.page.get_by_role('button', name='Open video Searchable video', exact=True)
+        expect(title).to_contain_text('Video')
+        self.scope('Books')
+        expect(title).to_have_count(0)
+        self.scope('Snippets')
+        expect(title).to_have_count(0)
+        self.scope('Everything')
+        expect(title).to_be_visible()
+
+        field.fill('字幕検索')
+        transcript = self.page.get_by_role(
+            'button', name='Open transcript in Searchable video at 0:14: 字幕検索 first result',
+            exact=True)
+        expect(transcript).to_be_visible(timeout=30000)
+        expect(transcript).to_contain_text('Video · Searchable video · 0:14 · Japanese captions')
+        self.scope('Books')
+        expect(transcript).to_have_count(0)
+        self.scope('Everything')
+        expect(transcript).to_be_visible()
+
+        # Search operates only on published local records. It neither resolves a
+        # File/cloud alias nor creates source state merely because a hit exists.
+        local_count = self.page.evaluate("""async () => {
+          const db=await new Promise((yes,no)=>{const r=indexedDB.open('manabi-media-v1');
+            r.onsuccess=()=>yes(r.result);r.onerror=()=>no(r.error)});
+          const count=await new Promise((yes,no)=>{const tx=db.transaction('local','readonly');
+            const q=tx.objectStore('local').count();q.onsuccess=()=>yes(q.result);q.onerror=()=>no(q.error)});
+          db.close();return count;
+        }""")
+        self.assertEqual(0, local_count)
+
+        transcript.click()
+        expect(self.page).to_have_url(__import__('re').compile(r'/videos\?'))
+        params = self.page.evaluate("""() => Object.fromEntries(new URL(location.href).searchParams)""")
+        self.assertEqual(identity['mediaKey'], params['media'])
+        self.assertEqual('14.5', params['time'])
+        self.assertEqual(identity['trackId'], params['track'])
+        self.checkpoint('unified-video-transcript-deep-link')
+
+    def test_video_transcript_search_refreshes_after_published_track_change_and_latest_query_wins(self):
+        identity = self.seed_video_search()
+        field = self.library_search('字幕検索')
+        expect(self.page.get_by_text('字幕検索 first result', exact=True)).to_be_visible(timeout=30000)
+
+        field.fill('別の字幕')
+        expect(self.page.get_by_text('別の字幕 second result', exact=True)).to_be_visible()
+        expect(self.page.get_by_text('字幕検索 first result', exact=True)).to_have_count(0)
+
+        replacement = [
+            {'id': 'cue-three', 'start': 44, 'end': 46, 'text': '更新字幕 refreshed result'}
+        ]
+        self.replace_video_cues(identity, replacement)
+        field.fill('更新字幕')
+        expect(self.page.get_by_text('更新字幕 refreshed result', exact=True)).to_be_visible(timeout=30000)
+        expect(self.page.get_by_text('別の字幕 second result', exact=True)).to_have_count(0)
+        self.checkpoint('unified-video-transcript-refresh')
+
     def test_dictionary_query_limit_counts_unicode_characters_and_recovers(self):
         field = self.library_search('𠮷' * 256)
         self.filter('Dictionary')
@@ -247,6 +402,7 @@ class UnifiedSearch(ProductJourneyBase):
             'No enabled local dictionary yet.', exact=False
         )).to_be_visible(timeout=30000)
         self.checkpoint('dictionary-unicode-limit-recovered')
+
 
     def test_unified_search_reflows_at_200_percent_text_on_short_phone(self):
         self.import_book(

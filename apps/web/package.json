@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev",
-    "build": "vite build",
+    "build": "vite build && node ../../tools/media/verify-deployment.mjs",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "check:types": "tsc --noEmit",
@@ -54,13 +54,14 @@
     "fake-indexeddb": "6.2.5",
     "fast-xml-parser": "5.11.1",
     "idb": "8.0.3",
+    "mediabunny": "1.59.1",
+    "onnxruntime-web": "1.29.0",
     "p-limit": "7.3.2",
     "parse5": "8.0.1",
     "path-browserify": "1.0.1",
     "rxjs": "7.8.2",
     "svelte-gestures": "5.0.7",
     "svelte-meta-tags": "3.1.4",
-    "ua-parser-js": "2.0.10",
-    "onnxruntime-web": "1.29.0"
+    "ua-parser-js": "2.0.10"
   }
 }

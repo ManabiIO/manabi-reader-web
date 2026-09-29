@@ -328,7 +328,17 @@ class OfflineReader(unittest.TestCase):
                         expect(page.get_by_role('button', name='Read ' + TITLE, exact=True)).to_be_visible()
                     page.goto(origin + SCOPE + 'settings#library')
                     expect(page.get_by_text('App ready for offline reopening', exact=True)).to_be_visible(timeout=15000)
-                    self.assertEqual(errors, [])
+                    # WebKit can report the optional Editor's Picks request as
+                    # a page error when its persisted profile still claims to
+                    # be online after the server is gone. The offline shell and
+                    # local book checks above must still succeed; no other page
+                    # errors are expected.
+                    unexpected = [error for error in errors if not (
+                        OPTIONS.browser == 'webkit' and
+                        '/static/reader/books/opds/index.xml due to access control checks.'
+                        in error['message']
+                    )]
+                    self.assertEqual(unexpected, [])
                     stage = 'complete'
                 finally:
                     variant = ('recovered-byte-read' if abort_bytes_once else 'recovered-import') if (abort_once or abort_bytes_once) else ('book' if import_book else 'empty-library')

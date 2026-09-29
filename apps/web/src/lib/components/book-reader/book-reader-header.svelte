@@ -63,13 +63,12 @@
     scrubClick: void;
   }>();
   let toolsOpen = false;
-  async function openReaderImageGallery() {
-    // Close the portalled tools menu before opening the gallery dialog. Its
-    // trigger becomes hidden, so relying on the menu's select cleanup can
-    // leave the old portal intercepting later dialogs.
+  async function selectTool(action: () => void) {
+    // A selection can hide the menu trigger while opening a dialog. Retire the
+    // portal first so it cannot cover the new dialog or intercept its controls.
     toolsOpen = false;
     await tick();
-    dispatch('readerImageGalleryClick');
+    action();
   }
   $: oldDomain = browser && isOnOldUrl(window);
 </script>
@@ -159,41 +158,44 @@
         class="max-h-[min(75dvh,36rem)] w-64 max-w-[calc(100vw-1rem)] overflow-y-auto"
       >
         <Menu.Label>Reading</Menu.Label>
-        <Menu.Item onSelect={() => dispatch('bookmarkClick')}
+        <Menu.Item onSelect={() => void selectTool(() => dispatch('bookmarkClick'))}
           ><Bookmark aria-hidden="true" />Save Reading Position</Menu.Item
         >
-        {#if hasBookmarkData}<Menu.Item onSelect={() => dispatch('scrollToBookmarkClick')}
+        {#if hasBookmarkData}<Menu.Item
+            onSelect={() => void selectTool(() => dispatch('scrollToBookmarkClick'))}
             ><ArrowUUpLeft aria-hidden="true" />Return to Reading Position</Menu.Item
           >{/if}
-        {#if hasText}<Menu.Item onSelect={() => dispatch('jumpClick')}
+        {#if hasText}<Menu.Item onSelect={() => void selectTool(() => dispatch('jumpClick'))}
             ><Crosshair aria-hidden="true" />Jump to Position</Menu.Item
           >{/if}
-        <Menu.Item onSelect={() => dispatch('scrubClick')}
+        <Menu.Item onSelect={() => void selectTool(() => dispatch('scrubClick'))}
           ><ArrowsLeftRight aria-hidden="true" />Browse Book</Menu.Item
         >
-        {#if hasText}<Menu.Item onSelect={() => dispatch('searchBookClick')}
+        {#if hasText}<Menu.Item onSelect={() => void selectTool(() => dispatch('searchBookClick'))}
             ><MagnifyingGlass aria-hidden="true" />Search Book</Menu.Item
           >{/if}
-        <Menu.Item onSelect={() => dispatch('lineGuideClick')}
+        <Menu.Item onSelect={() => void selectTool(() => dispatch('lineGuideClick'))}
           ><TextAlignJustify aria-hidden="true" />Line Guide</Menu.Item
         >
         {#if $readerImageGalleryPictures$.length}<Menu.Item
-            onSelect={() => void openReaderImageGallery()}
+            onSelect={() => void selectTool(() => dispatch('readerImageGalleryClick'))}
             ><Images aria-hidden="true" />Image Gallery</Menu.Item
           >{/if}
-        <Menu.Item onSelect={() => dispatch('completeBook')}
+        <Menu.Item onSelect={() => void selectTool(() => dispatch('completeBook'))}
           ><CheckCircle aria-hidden="true" />Complete Book</Menu.Item
         >
         {#if $customReadingPointEnabled$ || $viewMode$ === ViewMode.Paginated}
           <Menu.Separator />
           <Menu.Label>Custom reading point</Menu.Label>
-          {#if hasCustomReadingPoint}<Menu.Item onSelect={() => dispatch('showCustomReadingPoint')}
+          {#if hasCustomReadingPoint}<Menu.Item
+              onSelect={() => void selectTool(() => dispatch('showCustomReadingPoint'))}
               ><MapPin aria-hidden="true" />Show Point</Menu.Item
             >{/if}
-          <Menu.Item onSelect={() => dispatch('setCustomReadingPoint')}
+          <Menu.Item onSelect={() => void selectTool(() => dispatch('setCustomReadingPoint'))}
             ><MapPin aria-hidden="true" />Set Point</Menu.Item
           >
-          {#if hasCustomReadingPoint}<Menu.Item onSelect={() => dispatch('resetCustomReadingPoint')}
+          {#if hasCustomReadingPoint}<Menu.Item
+              onSelect={() => void selectTool(() => dispatch('resetCustomReadingPoint'))}
               ><ArrowUUpLeft aria-hidden="true" />Reset Point</Menu.Item
             >{/if}
         {/if}
@@ -201,17 +203,18 @@
           <Menu.Separator /><Menu.Label>Autoscroll speed: {autoScrollMultiplier}×</Menu.Label>
         {/if}
         <Menu.Separator />
-        <Menu.Item onSelect={() => dispatch('settingsClick')}
+        <Menu.Item onSelect={() => void selectTool(() => dispatch('settingsClick'))}
           ><Gear aria-hidden="true" />Settings</Menu.Item
         >
-        <Menu.Item onSelect={() => dispatch('dictionarySetupClick')}
+        <Menu.Item onSelect={() => void selectTool(() => dispatch('dictionarySetupClick'))}
           ><BookOpen aria-hidden="true" />Dictionary Setup</Menu.Item
         >
-        <Menu.Item onSelect={() => dispatch('statisticsClick')}
+        <Menu.Item onSelect={() => void selectTool(() => dispatch('statisticsClick'))}
           ><ChartBar aria-hidden="true" />Statistics</Menu.Item
         >
         <Menu.Item onSelect={openUserGuide}><BookOpen aria-hidden="true" />User guide</Menu.Item>
-        {#if oldDomain}<Menu.Item onSelect={() => dispatch('domainHintClick')}
+        {#if oldDomain}<Menu.Item
+            onSelect={() => void selectTool(() => dispatch('domainHintClick'))}
             ><Info aria-hidden="true" />Old domain information</Menu.Item
           >{/if}
       </Menu.Content>

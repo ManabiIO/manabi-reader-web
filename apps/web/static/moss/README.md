@@ -1,0 +1,48 @@
+# CPU-only MOSS browser assets
+
+Video learning is disabled in ordinary Reader builds. The opt-in build setting
+`VITE_ENABLE_VIDEO_LEARNING=true` enables its navigation, search source, profile
+watcher and `/videos` workspace. Video and product-journey CI use that setting;
+other builds exercise the dormant path. This frontend setting does not enable
+the separate Reader backend serving/API boundary. Keep both release decisions
+explicit until the integrated video qualification is complete.
+
+`python tools/media/build-moss.py` builds `single/moss.mjs` / `single/moss.wasm`
+and their `threaded/` equivalents from the pinned C++/ggml source. These files
+are committed with their build manifests and upstream notices. The production
+build verifies their identities, source hashes and copied artifact bytes before
+it succeeds. Model weights are fetched on an explicit Generate action,
+streamed into OPFS, and verified against the pinned SHA-256.
+
+The application must serve `.wasm` as `application/wasm`. Threaded execution is
+selected only when `crossOriginIsolated` and `SharedArrayBuffer` are available;
+otherwise the single-thread SIMD runtime is used. This patch does not impose
+COOP/COEP on the existing app or assume its OAuth/cloud flows are qualified under
+isolation. Browser thread teardown, memory use and speed require real-device tests.
+The v7 pthread build can use up to eight workers for encoding and prompt prefill;
+token generation uses at most four. A new audio window restores the configured
+worker count. The single-thread build keeps one worker throughout.
+
+The build uses `-sDYNAMIC_EXECUTION=0`; deployment CSP should allow
+`'wasm-unsafe-eval'`, never broaden to JavaScript `'unsafe-eval'`. Each runtime
+directory includes the upstream MOSS and ggml notices plus build.json with source,
+compiler, port and file digests. A stricter CSP attached to worker responses must
+be qualified separately from the application's document meta policy.
+
+Before any model download, the Worker verifies the module's ABI, engine revision,
+ggml revision and actual single/shared-memory mode. A stale runtime directory fails
+with a rebuild/deploy message; it is never silently assigned the app's expected
+provenance. Rebuild both variants for `manabi-web-v7`. Changing a port revision
+invalidates resumption of incomplete old-engine jobs, not completed subtitle tracks.
+
+Required JavaScript/C functions, WORKERFS integration, typed heap views, the
+cancellation address and pthread teardown are also checked before weight download.
+The recipe explicitly produces separate `.wasm` assets and exports the heap views.
+
+Both variants are compiled into isolated staging directories before local publication.
+The installed pair is retained if prepublication validation fails; caught rename
+failures restore the previous outputs. Failed recovery retains a named backup for
+inspection. This is not an atomic live-deployment switch or crash-proof filesystem
+transaction. Use the normal immutable deployment artifact/release process. Generated
+recovery directories remain Git-ignored. Rebuild both tracked runtime directories
+together whenever the native port changes, then run the real recognition gate.

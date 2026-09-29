@@ -22,7 +22,8 @@ const config = {
     csp: {
       mode: 'hash',
       directives: {
-        'script-src': ['self'],
+        // MOSS/SIMD capability checks need WASM compilation, not JavaScript eval.
+        'script-src': ['self', 'wasm-unsafe-eval'],
         'object-src': ['none'],
         'base-uri': ['none'],
         'worker-src': ['self', 'blob:'],
