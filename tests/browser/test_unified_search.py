@@ -76,7 +76,17 @@ class UnifiedSearch(ProductJourneyBase):
         self.page.set_viewport_size({'width': 1280, 'height': 800})
 
         expect(field).to_have_value('neko')
+
+        field.fill('がっこ')
+        expect(
+            self.page.get_by_text('Showing prefix matches for がっこ', exact=True)
+        ).to_be_visible(timeout=30000)
+        expect(full.locator('.headword')).to_contain_text('学校')
+
         field.fill('gakkou')
+        expect(
+            self.page.get_by_text('Showing prefix matches for', exact=False)
+        ).to_have_count(0)
         expect(full.locator('.headword')).to_contain_text('学校')
         expect(field).to_have_value('gakkou')
         expect(field).to_be_focused()
@@ -209,18 +219,33 @@ class UnifiedSearch(ProductJourneyBase):
         field = self.library_search('𠮷' * 256)
         self.filter('Dictionary')
         # 256 supplementary-plane characters are 512 UTF-16 code units but
-        # must still be accepted as 256 user-visible search characters.
+        # must still be accepted as 256 user-visible search characters all the
+        # way through the pinned runtime. A generic runtime/protocol failure is
+        # not an acceptable substitute for passing host validation.
         expect(self.page.get_by_text(
             'Use a dictionary query of 256 characters or fewer.', exact=False
         )).to_have_count(0)
+        expect(self.page.get_by_role('button', name='Retry dictionary', exact=True)).to_have_count(
+            0, timeout=30000)
+        expect(self.page.get_by_text(
+            'No enabled local dictionary yet.', exact=False
+        )).to_be_visible(timeout=30000)
+
         field.fill('𠮷' * 257)
         expect(self.page.get_by_text(
             'Use a dictionary query of 256 characters or fewer.', exact=False
         )).to_be_visible()
+        expect(self.page.get_by_role('button', name='Retry dictionary', exact=True)).to_be_visible()
+
         field.fill('猫')
         expect(self.page.get_by_text(
             'Use a dictionary query of 256 characters or fewer.', exact=False
         )).to_have_count(0)
+        expect(self.page.get_by_role('button', name='Retry dictionary', exact=True)).to_have_count(
+            0, timeout=30000)
+        expect(self.page.get_by_text(
+            'No enabled local dictionary yet.', exact=False
+        )).to_be_visible(timeout=30000)
         self.checkpoint('dictionary-unicode-limit-recovered')
 
     def test_unified_search_reflows_at_200_percent_text_on_short_phone(self):
