@@ -83,10 +83,16 @@
   let mediaRevision = 0;
   async function mediaRuntime(): Promise<LazyMediaRuntime> {
     if (!videoLearningEnabled) throw new Error('Video learning is disabled.');
-    mediaRuntimePromise ??= Promise.all([
-      import('../media/store'),
-      import('../media/video-search')
-    ]).then(([store, search]) => ({ store: new store.MediaStore(), search }));
+    if (!mediaRuntimePromise) {
+      const pending = Promise.all([
+        import('../media/store'),
+        import('../media/video-search')
+      ]).then(([store, search]) => ({ store: new store.MediaStore(), search }));
+      mediaRuntimePromise = pending;
+      void pending.catch(() => {
+        if (mediaRuntimePromise === pending) mediaRuntimePromise = undefined;
+      });
+    }
     const runtime = await mediaRuntimePromise;
     if (mediaDisposed) {
       await runtime.store.close();
