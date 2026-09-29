@@ -100,8 +100,8 @@
     }
     if (!mediaSubscribed) {
       mediaSubscribed = true;
-      stopMedia = runtime.store.subscribe(() => {
-        if (mounted) mediaRevision++;
+      stopMedia = runtime.store.subscribe((captionsChanged, metadataChanged) => {
+        if (mounted && (captionsChanged || metadataChanged)) mediaRevision++;
       });
     }
     return runtime;
