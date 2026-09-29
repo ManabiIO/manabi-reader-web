@@ -285,12 +285,35 @@ function clearRetry(retries: Map<string, number>, user: string) {
 }
 let activation = 0;
 let applyLifetime = new AbortController();
+interface PreferenceRestoration {
+  state: SavedPreferences;
+  activation: number;
+  signal: AbortSignal;
+  pending?: Promise<void>;
+}
+// Loading a profile and accepting server settings both create local application
+// work. Network success must not make a failed binding disappear from recovery.
+let restoration: PreferenceRestoration | undefined;
 function advanceActivation() {
   activation += 1;
+  restoration = undefined;
   applyLifetime.abort();
   applyLifetime = new AbortController();
   return activation;
 }
+function applyRestoration(value: PreferenceRestoration, isCurrent: () => boolean): Promise<void> {
+  if (value.pending) return value.pending;
+  const pending = apply(value.state.local, isCurrent, value.signal)
+    .then(() => {
+      if (isCurrent() && restoration === value) restoration = undefined;
+    })
+    .finally(() => {
+      if (value.pending === pending) value.pending = undefined;
+    });
+  value.pending = pending;
+  return pending;
+}
+
 interface PendingPreferenceSave {
   value: SavedPreferences;
   pending?: Promise<void>;
@@ -373,6 +396,14 @@ async function performPreferenceSync(
     const captured = structuredClone(state.local);
     let failureKind: 'sync' | 'storage' = 'sync';
     try {
+      // Finish already accepted local work before issuing another request. This
+      // also joins an application begun by startup or a recovery notification.
+      if (restoration?.state === state && restoration.activation === admitted) {
+        failureKind = 'storage';
+        await applyRestoration(restoration, isCurrent);
+        if (!isCurrent()) return;
+        failureKind = 'sync';
+      }
       // The first-sync decision is user intent, not a one-request hint. A lost
       // GET/PUT reply must not change "use this device" into "use the server"
       // on recovery. Persist explicit intent before issuing any HTTP request.
@@ -471,7 +502,8 @@ async function performPreferenceSync(
       state.initialized = true;
       delete state.initialChoice;
       failureKind = 'storage';
-      await apply(state.local, isCurrent, signal);
+      restoration = { state, activation: admitted, signal };
+      await applyRestoration(restoration, isCurrent);
       if (!isCurrent()) return;
       await persist(user, state);
       if (!isCurrent()) return;
@@ -545,37 +577,34 @@ function reportPreferenceFailure(error: unknown, enabled: boolean) {
 function startPreferenceSyncReady() {
   let stopped = false;
   let loadingActivation: number | undefined;
-  let restoration:
-    | { state: SavedPreferences; activation: number; signal: AbortSignal; pending?: Promise<void> }
-    | undefined;
-  function restoreProfile(value: NonNullable<typeof restoration>): Promise<void> {
-    if (value.pending) return value.pending;
+  function restoreProfile(value: PreferenceRestoration): Promise<void> {
     const isCurrent = () => !stopped && active === value.state && activation === value.activation;
-    const pending = (async () => {
+    return (async () => {
       try {
-        await apply(value.state.local, isCurrent, value.signal);
+        await applyRestoration(value, isCurrent);
       } catch (error) {
         if (isCurrent() && activeUser) reportStorageFailure(activeUser, error, value.state.enabled);
         return;
       }
       if (!isCurrent()) return;
-      if (restoration === value) restoration = undefined;
       preferenceStatus.set({ enabled: value.state.enabled, state: 'pending', conflicts: [] });
       const user = activeUser;
       // Restoration is automatic work. Returning to a profile must not turn a
       // previous Retry-After into an implicit immediate retry. Explicit user
       // sync actions still bypass background backoff through syncPreferences().
-      if (!user || Date.now() < retryAt(syncRetryAt, user)) return;
+      if (
+        !user ||
+        globalThis.navigator?.onLine === false ||
+        get(account).status !== 'available' ||
+        Date.now() < retryAt(syncRetryAt, user)
+      )
+        return;
       try {
         await syncPreferences();
       } catch (error) {
         if (isCurrent()) reportSyncFailure(user, error, value.state.enabled);
       }
-    })().finally(() => {
-      if (value.pending === pending) value.pending = undefined;
-    });
-    value.pending = pending;
-    return pending;
+    })();
   }
   async function switchUser() {
     if (stopped) return;
@@ -679,6 +708,7 @@ function startPreferenceSyncReady() {
       !user ||
       Date.now() < retryAt(syncRetryAt, user) ||
       get(preferenceStatus).state === 'conflict' ||
+      globalThis.navigator?.onLine === false ||
       get(account).status !== 'available'
     )
       return;
