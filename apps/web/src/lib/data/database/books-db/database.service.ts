@@ -16,7 +16,6 @@ import {
 import { commitTransaction, explainBookStorageError } from './commit-transaction.mjs';
 import { matchesDirectImportIdentity, normalizedDirectImportHash } from './direct-import-identity';
 import { snapshotBookmarkData } from './book-records';
-import { captureLibraryOperation } from '$lib/manabi/operation-scope';
 import type {
   BooksDbAudioBook,
   BooksDbBookData,
@@ -251,19 +250,16 @@ export class DatabaseService {
     saveBehavior: ReplicationSaveBehavior,
     skipTimestampFallback = true,
     removeStorageContext = true,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    profileId?: string | null
   ) {
-    const scope = captureLibraryOperation();
-    try {
-      scope.assertCurrent();
-      throwIfAborted(signal);
+    throwIfAborted(signal);
       // encodeBook takes its owned snapshot synchronously, before either the
       // database promise or image reads can let the caller mutate the payload.
       const encoding = encodeBook(data);
       // Observe both failures immediately. A rejected database promise must not
       // escape unhandled while an earlier image read is still pending.
       const [stored, db] = await Promise.all([encoding, this.db]);
-      scope.assertCurrent();
       throwIfAborted(signal);
       const tx = db.transaction(['data', 'readerBookScope'], 'readwrite');
       const abort = () => {
@@ -274,7 +270,6 @@ export class DatabaseService {
         }
       };
       signal?.addEventListener('abort', abort, { once: true });
-      scope.signal.addEventListener('abort', abort, { once: true });
       return commitTransaction(tx, async () => {
         scope.assertCurrent();
         throwIfAborted(signal);
@@ -289,13 +284,12 @@ export class DatabaseService {
         const remember = async (candidate: StoredBookData) => {
           if (!matchesDirectImportIdentity(candidate, stored)) return;
           const readerOwner = await ownerStore.get(candidate.id);
-          scope.assertCurrent();
           throwIfAborted(signal);
           if (
             !matchesDirectImportIdentity(
               { ...candidate, readerOwner: readerOwner?.accountId },
               stored,
-              scope.profileId
+              profileId
             )
           )
             return;
@@ -308,7 +302,6 @@ export class DatabaseService {
         };
         if (incomingHash) {
           for (let cursor = await store.openCursor(); cursor; cursor = await cursor.continue()) {
-            scope.assertCurrent();
             throwIfAborted(signal);
             await remember(cursor.value);
           }
@@ -318,7 +311,6 @@ export class DatabaseService {
             cursor;
             cursor = await cursor.continue()
           ) {
-            scope.assertCurrent();
             throwIfAborted(signal);
             await remember(cursor.value);
           }
@@ -352,7 +344,6 @@ export class DatabaseService {
                 }),
             ...(removeStorageContext ? { storageSource: undefined } : {})
           };
-          scope.assertCurrent();
           throwIfAborted(signal);
           await store.put(replacement);
           return decodeBook(replacement);
@@ -369,7 +360,6 @@ export class DatabaseService {
         return decodeBook({ ...created, id });
       })
         .catch((error) => {
-          scope.assertCurrent();
           throwIfAborted(signal);
           throw explainBookStorageError(error);
         })
