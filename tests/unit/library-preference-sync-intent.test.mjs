@@ -829,3 +829,156 @@ test('an explicit sync may still test connectivity when the browser reports offl
     h.stop();
   }
 });
+
+test('lost ordinary PUT acknowledgement plus a newer same-setting edit does not create a false conflict', async () => {
+  const h = await loadedHarness({
+    ...saved(31),
+    initialized: true,
+    revision: 2,
+    base: { font_size: 24 }
+  });
+  let server = reply({ font_size: 24 }, 2);
+  let puts = 0;
+  h.setRequestHandler(({ options }) => {
+    if (options.method !== 'PUT') return server;
+    puts++;
+    server = reply(options.value.settings, server.revision + 1);
+    if (puts === 1) throw new Error('response lost after server commit');
+    return server;
+  });
+  try {
+    await h.api.syncPreferences();
+    assert.equal(h.status().state, 'unavailable');
+    assert.equal(h.writes.at(-1).value.pendingUpload.revision, 2);
+    assert.equal(h.writes.at(-1).value.pendingUpload.settings.font_size, 31);
+    h.subjects.get('fontSize$').next(32);
+    await drain();
+    await h.api.syncPreferences();
+    assert.equal(puts, 2);
+    assert.equal(h.subjects.get('fontSize$').getValue(), 32);
+    assert.equal(h.status().state, 'synced');
+    assert.equal(h.writes.at(-1).value.pendingUpload, undefined);
+    assert.equal(server.settings.font_size, 32);
+  } finally {
+    h.stop();
+  }
+});
+
+test('lost PUT identity survives profile reload and recognizes its exact server readback', async () => {
+  const first = await loadedHarness({
+    ...saved(31),
+    initialized: true,
+    revision: 2,
+    base: { font_size: 24 }
+  });
+  let server = reply({ font_size: 24 }, 2);
+  first.setRequestHandler(({ options }) => {
+    if (options.method !== 'PUT') return server;
+    server = reply(options.value.settings, 3);
+    throw new Error('response lost after server commit');
+  });
+  let snapshot;
+  try {
+    await first.api.syncPreferences();
+    first.subjects.get('fontSize$').next(32);
+    await drain();
+    snapshot = globalThis.structuredClone(first.writes.at(-1).value);
+    assert.equal(snapshot.pendingUpload.settings.font_size, 31);
+  } finally {
+    first.stop();
+  }
+
+  const second = await loadedHarness(snapshot);
+  second.setRequestHandler(({ options }) => {
+    if (options.method !== 'PUT') return server;
+    server = reply(options.value.settings, 4);
+    return server;
+  });
+  try {
+    await second.api.syncPreferences();
+    assert.equal(second.status().state, 'synced');
+    assert.equal(second.subjects.get('fontSize$').getValue(), 32);
+    assert.equal(server.settings.font_size, 32);
+    assert.equal(second.writes.at(-1).value.pendingUpload, undefined);
+  } finally {
+    second.stop();
+  }
+});
+
+test('conditional PUT is not dispatched until its exact request identity is durable', async () => {
+  const h = await loadedHarness({
+    ...saved(31),
+    initialized: true,
+    revision: 2,
+    base: { font_size: 24 }
+  });
+  h.setWriteFailure(new Error('local metadata unavailable'));
+  h.setRequestHandler(({ options }) =>
+    options.method === 'PUT' ? reply(options.value.settings, 3) : reply({ font_size: 24 }, 2)
+  );
+  try {
+    await assert.rejects(h.api.syncPreferences(), /local metadata unavailable/);
+    assert.equal(
+      h.requests.filter(({ options }) => options.method === 'PUT').length,
+      0,
+      'remote state changed before the recovery marker was durable'
+    );
+    h.setWriteFailure(undefined);
+    await h.api.syncPreferences();
+    assert.equal(h.requests.filter(({ options }) => options.method === 'PUT').length, 1);
+    assert.equal(h.status().state, 'synced');
+  } finally {
+    h.stop();
+  }
+});
+
+test('initialized profiles reject a regressive server revision without applying its settings', async () => {
+  const h = await loadedHarness({
+    ...saved(31),
+    initialized: true,
+    revision: 3,
+    base: { font_size: 31 }
+  });
+  h.setRequestHandler(() => reply({ font_size: 12 }, 2));
+  try {
+    await h.api.syncPreferences();
+    assert.equal(h.subjects.get('fontSize$').getValue(), 31);
+    assert.equal(h.status().state, 'invalid_response');
+    assert.equal(h.requests.length, 1);
+  } finally {
+    h.stop();
+  }
+});
+
+test('recovered accepted application also retries its failed profile snapshot in the same pass', async () => {
+  const h = await loadedHarness({
+    ...saved(24),
+    initialized: true,
+    revision: 2,
+    base: { font_size: 24 }
+  });
+  const accepted = organization('Durable accepted shelf');
+  h.setRequestHandler(() => reply({ font_size: 24, library_organization: accepted }, 3));
+  h.setOrganizationHandler(() => Promise.reject(new Error('organization storage unavailable')));
+  h.setWriteFailure(new Error('profile snapshot unavailable'));
+  try {
+    await assert.rejects(h.api.syncPreferences(), /profile snapshot unavailable/);
+    const writesAfterFailure = h.writes.length;
+    h.setOnline(false);
+    h.setWriteFailure(undefined);
+    h.setOrganizationHandler((value) => h.subjects.get('organization').next(value));
+    h.advance();
+    h.visible();
+    await drain();
+    assert.deepEqual(h.subjects.get('organization').getValue(), accepted);
+    assert.ok(
+      h.writes.length > writesAfterFailure,
+      'successful local application still left its accepted profile snapshot undurable'
+    );
+    assert.deepEqual(h.writes.at(-1).value.local.library_organization, accepted);
+    assert.equal(h.requests.length, 1, 'closing local durability retried the server while offline');
+  } finally {
+    h.stop();
+  }
+});
+
