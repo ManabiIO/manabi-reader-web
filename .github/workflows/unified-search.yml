@@ -8,6 +8,7 @@ on:
       - 'tests/unit/unified-search.test.mjs'
       - 'tests/unit/library-search-scope.test.mjs'
       - 'tests/unit/search-normalization.test.mjs'
+      - 'tests/unit/book-title-match-text.test.mjs'
       - '.github/workflows/unified-search.yml'
 permissions:
   contents: read
@@ -26,3 +27,4 @@ jobs:
           tests/unit/unified-search.test.mjs
           tests/unit/library-search-scope.test.mjs
           tests/unit/search-normalization.test.mjs
+          tests/unit/book-title-match-text.test.mjs
