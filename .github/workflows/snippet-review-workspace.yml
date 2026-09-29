@@ -1,0 +1,43 @@
+name: Snippet storage review workspace
+on:
+  push:
+    branches: [fix/snippet-local-storage-authority-20260929]
+    paths: ['.github/workflows/snippet-review-workspace.yml']
+permissions:
+  contents: read
+jobs:
+  workspace:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ec0260c7a596a510c4441518249fc022c49f7bec
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - name: Package tracked source and locked dependencies only
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/snippet-authority-review
+          git archive HEAD | tar -x -C /tmp/snippet-authority-review
+          cp -a node_modules /tmp/snippet-authority-review/node_modules
+          cp -a apps/web/node_modules /tmp/snippet-authority-review/apps/web/node_modules
+          cp -a apps/web/.svelte-kit /tmp/snippet-authority-review/apps/web/.svelte-kit
+          mkdir -p /tmp/snippet-authority-review/.review-tools
+          cp "$(command -v node)" /tmp/snippet-authority-review/.review-tools/node
+          git rev-parse HEAD > /tmp/snippet-authority-review/.review-tools/source-commit
+          git ls-files -s > /tmp/snippet-authority-review/.review-tools/source-manifest
+          tar -czf /tmp/snippet-authority-workspace.tar.gz -C /tmp snippet-authority-review
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snippet-authority-workspace
+          path: /tmp/snippet-authority-workspace.tar.gz
+          retention-days: 1
+          if-no-files-found: error
