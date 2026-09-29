@@ -19,7 +19,7 @@
     );
   onMount(() => {
     let mediaDisposed = false;
-    let stopMediaProfile = () => undefined;
+    let stopMediaProfile: () => void = () => {};
     if (videoLearningEnabled)
       void import('./media-profile')
         .then(({ startMediaProfileWatcher }) => {
