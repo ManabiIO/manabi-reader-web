@@ -88,6 +88,45 @@ class SettingsEditorUsabilityBrowser(LibraryBase):
             expect(panel).to_have_count(0)
             self.assertEqual(before, self.stores('books', ['storageSource']))
 
+    def test_enlarged_storage_editor_keeps_cancel_reachable_after_form_scroll(self):
+        self.page.set_viewport_size({'width': 320, 'height': 480})
+        self.settings()
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        panel = self.editor()
+        close = panel.get_by_role('button', name='Cancel', exact=True)
+        scroll = panel.locator('[data-dialog-scroll]')
+
+        self.page.wait_for_function('e => e.scrollHeight > e.clientHeight', arg=scroll.element_handle())
+        scroll.evaluate('e => e.scrollTop = e.scrollHeight')
+        self.page.wait_for_function('e => e.scrollTop > 0', arg=scroll.element_handle())
+
+        box = close.bounding_box()
+        viewport = self.page.evaluate('''() => {
+          const v=visualViewport;
+          return {
+            left:v?.offsetLeft ?? 0, top:v?.offsetTop ?? 0,
+            right:(v?.offsetLeft ?? 0)+(v?.width ?? innerWidth),
+            bottom:(v?.offsetTop ?? 0)+(v?.height ?? innerHeight)
+          };
+        }''')
+        self.assertGreaterEqual(box['width'], 43.99)
+        self.assertGreaterEqual(box['height'], 43.99)
+        self.assertGreaterEqual(box['x'], viewport['left'] - 1)
+        self.assertGreaterEqual(box['y'], viewport['top'] - 1)
+        self.assertLessEqual(box['x'] + box['width'], viewport['right'] + 1)
+        self.assertLessEqual(box['y'] + box['height'], viewport['bottom'] + 1)
+        self.assertTrue(close.evaluate('''e => {
+          const r=e.getBoundingClientRect();
+          const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+          return !!hit && (hit===e || e.contains(hit));
+        }'''))
+        self.assertLessEqual(panel.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+        self.capture('post-scroll-close')
+        close.focus()
+        expect(close).to_be_focused()
+        close.press('Enter')
+        expect(panel).to_have_count(0)
+
     def test_pending_native_save_blocks_edit_cancel_and_duplicate_submission(self):
         self.settings()
         panel = self.editor()
@@ -157,6 +196,46 @@ class SettingsEditorUsabilityBrowser(LibraryBase):
         self.assertEqual([r for r in rows if r['name'] == 'Existing fixture source'],
                          [r for r in existing if r['name'] == 'Existing fixture source'])
 
+    def test_encrypted_source_unlock_retries_and_reflows_at_large_text(self):
+        self.settings()
+        source_name = 'Encrypted UI source'
+        panel = self.editor()
+        panel.get_by_label('Name', exact=True).fill(source_name)
+        panel.get_by_label('Client ID', exact=True).fill('encrypted-ui-client')
+        password = panel.get_by_label('Password', exact=True)
+        confirm = panel.get_by_label('Confirm Password', exact=True)
+        password.fill('correct fixture password')
+        confirm.fill('correct fixture password')
+        panel.get_by_role('button', name='Save', exact=True).click()
+        expect(panel).to_have_count(0)
+
+        self.page.set_viewport_size({'width': 320, 'height': 568})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        source = self.page.locator('[data-setting="storage-sources"] article').filter(
+            has_text=source_name
+        )
+        source.get_by_role('button', name='Edit', exact=True).click()
+        panel = self.dialog()
+        expect(panel.get_by_role('heading', name='Unlock storage source', exact=True)).to_be_visible()
+        self.assertLessEqual(panel.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+        secret = panel.get_by_label('Password', exact=True)
+        self.assert_clickable(secret)
+        self.assert_clickable(panel.get_by_role('button', name='Cancel', exact=True))
+        self.assert_clickable(panel.get_by_role('button', name='Unlock', exact=True))
+        secret.fill('wrong fixture password')
+        secret.press('Enter')
+        expect(panel.get_by_role('alert')).to_contain_text('Could not unlock data')
+        expect(panel).to_be_visible()
+        secret.fill('correct fixture password')
+        secret.press('Enter')
+        expect(panel.get_by_role('heading', name='Edit storage source', exact=True)).to_be_visible()
+        expect(panel.get_by_label('Client ID', exact=True)).to_have_value('encrypted-ui-client')
+        expect(self.page.locator('[role="dialog"][aria-modal="true"]')).to_have_count(1)
+        self.capture('unlock-200')
+        panel.get_by_role('button', name='Cancel', exact=True).click()
+        expect(panel).to_have_count(0)
+        self.page.evaluate('document.documentElement.style.fontSize = ""')
+
     def test_compact_header_preserves_full_navigation_and_readable_text(self):
         for width, scale in ((320, '200%'), (390, '100%'), (1440, '100%')):
             self.page.set_viewport_size({'width': width, 'height': 844})
@@ -189,6 +268,54 @@ class SettingsEditorUsabilityBrowser(LibraryBase):
             menu.get_by_role('button', name='Close', exact=True).click()
             expect(menu).to_have_count(0)
             expect(navigate).to_be_focused()
+
+    def test_global_navigation_keeps_close_reachable_after_short_enlarged_scroll(self):
+        self.page.set_viewport_size({'width': 320, 'height': 320})
+        self.settings()
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        trigger = self.page.get_by_role('button', name='Navigate', exact=True)
+        trigger.focus()
+        trigger.press('Enter')
+        panel = self.page.get_by_role('dialog', name='Manabi Reader', exact=True)
+        expect(panel).to_be_visible()
+        close = panel.get_by_role('button', name='Close', exact=True)
+
+        def assert_close_reachable():
+            box = close.bounding_box()
+            viewport = self.page.evaluate('''() => {
+              const v=visualViewport;
+              return {
+                left:v?.offsetLeft ?? 0, top:v?.offsetTop ?? 0,
+                right:(v?.offsetLeft ?? 0)+(v?.width ?? innerWidth),
+                bottom:(v?.offsetTop ?? 0)+(v?.height ?? innerHeight)
+              };
+            }''')
+            self.assertGreaterEqual(box['width'], 43.99)
+            self.assertGreaterEqual(box['height'], 43.99)
+            self.assertGreaterEqual(box['x'], viewport['left'] - 1)
+            self.assertGreaterEqual(box['y'], viewport['top'] - 1)
+            self.assertLessEqual(box['x'] + box['width'], viewport['right'] + 1)
+            self.assertLessEqual(box['y'] + box['height'], viewport['bottom'] + 1)
+            self.assertTrue(close.evaluate('''e => {
+              const r=e.getBoundingClientRect();
+              const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+              return !!hit && (hit===e || e.contains(hit));
+            }'''))
+
+        assert_close_reachable()
+        navigation = panel.get_by_role('navigation', name='Main navigation')
+        navigation.evaluate('e => e.scrollTop = e.scrollHeight')
+        self.page.wait_for_function('e => e.scrollTop > 0', arg=navigation.element_handle())
+        expect(panel.get_by_role('link', name='User guide', exact=True)).to_be_visible()
+        self.assertLessEqual(panel.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+        assert_close_reachable()
+        self.capture('global-nav-short-enlarged-scrolled')
+
+        close.focus()
+        expect(close).to_be_focused()
+        close.press('Enter')
+        expect(panel).to_have_count(0)
+        expect(trigger).to_be_focused()
 
     def test_direct_settings_entry_keeps_library_back_fallback_across_categories(self):
         self.settings('library')

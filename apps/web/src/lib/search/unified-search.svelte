@@ -16,13 +16,20 @@
   import DictionarySearch from './dictionary-search.svelte';
   import { searchBookContents, type BookSearchBatch } from './book-content-source';
   import { queryTask, type SearchState } from './query-task.mjs';
+  import {
+    librarySearchScopePlan,
+    librarySearchScopes,
+    type LibrarySearchScope
+  } from './library-search-scope';
   export let query = '';
+  export let searchScope: LibrarySearchScope = 'everything';
   export let books: ShelfBook[] = [];
   export let matches: ShelfBook[] = [];
   export let snippetMembers: string[] | undefined = undefined;
   export let returnTo = '/manage';
   export let openBook: (book: ShelfBook, locator?: ReaderLocator) => void;
   export let onquery: (query: string) => void;
+  export let onscope: (scope: LibrarySearchScope) => void;
   type Filter = 'all' | 'dictionary' | 'titles' | 'content';
   interface Row {
     id: string;
@@ -64,13 +71,18 @@
   $: eligible = $snippetItems.filter(
     (item) => !item.trashedAt && (!snippetMembers || snippetMembers.includes(snippetKey(item.id)))
   );
+  $: scopePlan = librarySearchScopePlan(searchScope);
+  $: availableFilters = scopePlan.dictionary
+    ? filters
+    : filters.filter((item) => item.id !== 'dictionary');
   $: nextSignature = JSON.stringify([
     query,
     owner,
     filter,
-    books.map((book) => [book.key, book.contentHash, book.lastBookModified]),
-    matches.map((book) => [book.key, book.title]),
-    eligible.map((item) => [item.key, item.revision])
+    searchScope,
+    scopePlan.books ? books.map((book) => [book.key, book.contentHash, book.lastBookModified]) : [],
+    scopePlan.books ? matches.map((book) => [book.key, book.title]) : [],
+    scopePlan.snippets ? eligible.map((item) => [item.key, item.revision]) : []
   ]);
   $: if (mounted && nextSignature !== signature) {
     signature = nextSignature;
@@ -92,8 +104,9 @@
     return result;
   }
   function startTitles() {
-    const selectedBooks = [...matches],
-      selectedSnippets = [...eligible],
+    const plan = librarySearchScopePlan(searchScope);
+    const selectedBooks = plan.books ? [...matches] : [],
+      selectedSnippets = plan.snippets ? [...eligible] : [],
       needle = foldSearch(query.trim());
     titleTask.start(async (signal, publish) => {
       const selected = scope();
@@ -122,15 +135,23 @@
     }, 0);
   }
   function startContent() {
-    const selectedBooks = [...books],
-      selectedSnippets = [...eligible],
+    const plan = librarySearchScopePlan(searchScope);
+    const selectedBooks = plan.books ? [...books] : [],
+      selectedSnippets = plan.snippets ? [...eligible] : [],
       needle = query,
       selectedOwner = owner;
+    const runBooks = plan.books && selectedBooks.length > 0;
+    const runSnippets = plan.snippets && selectedSnippets.length > 0;
     contentTask.start(async (signal, publish) => {
       const selected = scope();
-      let bookBatch: BookSearchBatch = { hits: [], busy: true, failed: 0, truncated: false };
+      let bookBatch: BookSearchBatch = {
+        hits: [],
+        busy: runBooks,
+        failed: 0,
+        truncated: false
+      };
       let snippetHits = new Map<string, SnippetHit[]>(),
-        snippetBusy = true,
+        snippetBusy = runSnippets,
         snippetFailed = 0,
         snippetTruncated = false;
       let stopBooks: (() => void) | undefined, stopSnippets: (() => void) | undefined;
@@ -180,42 +201,46 @@
           }
         });
       };
-      try {
-        stopSnippets = searchBodies(
-          needle,
-          selectedSnippets.map((item) => item.id),
-          selected,
-          (batch) => {
-            snippetHits = batch.hits;
-            snippetBusy = batch.busy;
-            snippetFailed = batch.failed;
-            snippetTruncated = batch.truncated;
-            update();
-          }
-        );
-      } catch {
-        snippetBusy = false;
-        snippetFailed = 1;
-      }
-      try {
-        stopBooks = await searchBookContents(
-          needle,
-          selectedBooks,
-          selectedOwner,
-          signal,
-          (batch) => {
-            bookBatch = batch;
-            update();
-          }
-        );
-      } catch (error) {
-        if (signal.aborted) {
-          stop();
-          throw error;
+      if (runSnippets) {
+        try {
+          stopSnippets = searchBodies(
+            needle,
+            selectedSnippets.map((item) => item.id),
+            selected,
+            (batch) => {
+              snippetHits = batch.hits;
+              snippetBusy = batch.busy;
+              snippetFailed = batch.failed;
+              snippetTruncated = batch.truncated;
+              update();
+            }
+          );
+        } catch {
+          snippetBusy = false;
+          snippetFailed = 1;
         }
-        bookBatch = { ...bookBatch, busy: false, failed: 1 };
-        update();
       }
+      if (runBooks) {
+        try {
+          stopBooks = await searchBookContents(
+            needle,
+            selectedBooks,
+            selectedOwner,
+            signal,
+            (batch) => {
+              bookBatch = batch;
+              update();
+            }
+          );
+        } catch (error) {
+          if (signal.aborted) {
+            stop();
+            throw error;
+          }
+          bookBatch = { ...bookBatch, busy: false, failed: 1 };
+        }
+      }
+      update();
       return stop;
     });
   }
@@ -237,6 +262,15 @@
     // keyboard anchor. Ordinary pressed buttons avoid async automatic tabs.
     results
       .querySelector<HTMLButtonElement>(`[data-search-filter="${value}"]`)
+      ?.focus({ preventScroll: true });
+  }
+  async function chooseScope(value: LibrarySearchScope) {
+    searchScope = value;
+    onscope(value);
+    if (!librarySearchScopePlan(value).dictionary && filter === 'dictionary') filter = 'all';
+    await tick();
+    results
+      .querySelector<HTMLButtonElement>(`[data-search-scope="${value}"]`)
       ?.focus({ preventScroll: true });
   }
   async function more(kind: 'titles' | 'content') {
@@ -263,15 +297,31 @@
 </script>
 
 <div class="unified-search" aria-label="Library search results" bind:this={results}>
-  <nav aria-label="Search result type" class="filters">
-    {#each filters as item}<button
-        type="button"
-        data-search-filter={item.id}
-        aria-pressed={filter === item.id}
-        onclick={() => void choose(item.id)}>{item.label}</button
-      >{/each}
-  </nav>
-  {#if filter === 'all' || filter === 'dictionary'}<DictionarySearch
+  <div class="search-controls">
+    <div class="control-group">
+      <span id="library-search-scope-label" class="control-label">Search in</span>
+      <div role="group" aria-labelledby="library-search-scope-label" class="scopes">
+        {#each librarySearchScopes as item}<button
+            type="button"
+            data-search-scope={item.id}
+            aria-pressed={searchScope === item.id}
+            onclick={() => void chooseScope(item.id)}>{item.label}</button
+          >{/each}
+      </div>
+    </div>
+    <div class="control-group">
+      <span id="library-search-result-type-label" class="control-label">Show</span>
+      <div role="group" aria-labelledby="library-search-result-type-label" class="filters">
+        {#each availableFilters as item}<button
+            type="button"
+            data-search-filter={item.id}
+            aria-pressed={filter === item.id}
+            onclick={() => void choose(item.id)}>{item.label}</button
+          >{/each}
+      </div>
+    </div>
+  </div>
+  {#if scopePlan.dictionary && (filter === 'all' || filter === 'dictionary')}<DictionarySearch
       {query}
       full={filter === 'dictionary'}
       expand={() => void choose('dictionary')}
@@ -374,7 +424,11 @@
           The local search limit was reached. Refine your query for more specific matches.
         </p>{/if}
       <p class="note scope-note">
-        Searches saved books and snippets without downloading cloud content.
+        {searchScope === 'books'
+          ? 'Searches saved books without downloading cloud content.'
+          : searchScope === 'snippets'
+            ? 'Searches snippets already indexed in this browser.'
+            : 'Searches saved books and snippets without downloading cloud content.'}
       </p>
     </section>
   {/if}
@@ -383,29 +437,58 @@
 <style>
   .unified-search {
     display: grid;
-    gap: 1.75rem;
+    gap: clamp(20px, 1.75rem, 28px);
     max-width: 64rem;
     margin-inline: auto;
   }
+  .search-controls {
+    position: sticky;
+    top: var(--library-header-height, 0px);
+    z-index: 2;
+    display: grid;
+    gap: 8px;
+    padding-block: 8px 10px;
+    border-bottom: 1px solid color-mix(in oklch, var(--border) 65%, transparent);
+    background: color-mix(in oklch, var(--background) 94%, transparent);
+    backdrop-filter: blur(12px);
+  }
+  .control-group {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+  .control-label {
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .scopes,
+  .filters {
+    min-width: 0;
+  }
+  .scopes {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
+    width: min(100%, 28rem);
+  }
   .filters {
     display: flex;
-    gap: 0.35rem;
+    gap: 6px;
     flex-wrap: wrap;
-    position: sticky;
-    top: 0;
-    z-index: 1;
-    background: var(--background);
-    padding-block: 0.4rem;
   }
   button {
     min-height: 44px;
-    padding: 0.65rem 0.85rem;
+    padding: 10px 12px;
     border-radius: 0.7rem;
   }
+  .scopes button,
   .filters button {
-    border-radius: 99px;
+    border-radius: 999px;
     border: 1px solid transparent;
+    overflow-wrap: anywhere;
   }
+  .scopes button[aria-pressed='true'],
   .filters button[aria-pressed='true'] {
     border-color: var(--border);
     background: var(--muted);
@@ -424,7 +507,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
+    gap: 12px;
     flex-wrap: wrap;
   }
   h2 {
@@ -445,11 +528,11 @@
   }
   .result-row {
     display: flex;
-    gap: 0.9rem;
+    gap: 14px;
     align-items: center;
     width: 100%;
     text-align: start;
-    padding: 0.9rem;
+    padding: 14px;
   }
   .result-row:hover {
     background: var(--muted);
@@ -458,10 +541,10 @@
     display: grid;
     place-items: center;
     flex-shrink: 0;
-    width: 2.5rem;
-    height: 2.5rem;
+    width: 40px;
+    height: 40px;
     background: var(--muted);
-    border-radius: 0.65rem;
+    border-radius: 10px;
   }
   .row-copy {
     display: grid;
@@ -494,14 +577,23 @@
     font-size: 0.75rem;
   }
   @media (max-width: 480px) {
-    .unified-search {
-      gap: 1.25rem;
-    }
-    header {
-      gap: 0.2rem;
-    }
     header button {
       font-size: 0.8rem;
+    }
+  }
+  @media (max-height: 40rem) {
+    .search-controls {
+      position: static;
+      backdrop-filter: none;
+    }
+  }
+  @media (forced-colors: active) {
+    .scopes button[aria-pressed='true'],
+    .filters button[aria-pressed='true'] {
+      outline: 2px solid Highlight;
+      outline-offset: -2px;
+      border-color: Highlight;
+      color: Highlight;
     }
   }
 </style>

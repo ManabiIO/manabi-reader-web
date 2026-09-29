@@ -166,7 +166,7 @@
   {#if dialogs.length > 0}
     <Modal.Content
       showCloseButton={false}
-      class="max-h-[90dvh] overflow-y-auto p-0 pt-12 sm:max-w-3xl"
+      class="max-h-[90dvh] overflow-hidden p-0 pt-12 sm:max-w-3xl"
       style={`z-index: ${zIndex || '60'}`}
       onInteractOutside={(event) => {
         if (clickOnCloseDisabled) event.preventDefault();
@@ -191,15 +191,20 @@
       <Modal.Description class="sr-only"
         >Adjust the options below, then confirm or cancel.</Modal.Description
       >
-      {#each dialogs as dialog}
-        {#if typeof dialog.component === 'string'}
-          <div class="p-6">
-            {@html browser ? sanitizeDialogHtml(dialog.component, document) : ''}
-          </div>
-        {:else}
-          <svelte:component this={dialog.component} {...dialog.props} on:close={closeAllDialogs} />
-        {/if}
-      {/each}
+      <div
+        class="min-h-0 max-h-[calc(90dvh-3rem)] overflow-y-auto overscroll-contain"
+        data-dialog-scroll
+      >
+        {#each dialogs as dialog}
+          {#if typeof dialog.component === 'string'}
+            <div class="p-6">
+              {@html browser ? sanitizeDialogHtml(dialog.component, document) : ''}
+            </div>
+          {:else}
+            <svelte:component this={dialog.component} {...dialog.props} on:close={closeAllDialogs} />
+          {/if}
+        {/each}
+      </div>
       {#if !clickOnCloseDisabled}<CloseButton
           class="absolute top-2 end-2"
           onclick={closeAllDialogs}

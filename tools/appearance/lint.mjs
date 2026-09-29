@@ -5,6 +5,9 @@ import { ESLint } from 'eslint';
 
 const files = [
   'apps/web/src/lib/components/settings/settings-storage-source.svelte',
+  'apps/web/src/lib/components/settings/settings-sync-dialog.svelte',
+  'apps/web/src/lib/components/settings/settings-reading-goals-merge.svelte',
+  'apps/web/src/lib/components/storage-unlock.svelte',
   'apps/web/src/lib/components/settings/settings-dimension-content.svelte',
   'apps/web/src/lib/components/settings/settings-dimension-popover.svelte',
   'apps/web/src/lib/components/settings/settings-user-font-add.svelte',
@@ -36,6 +39,7 @@ const files = [
   'apps/web/src/lib/library/source-icon.svelte',
 
   'apps/web/src/lib/components/book-reader/book-reader-image-gallery/book-reader-image-gallery.svelte',
+  'apps/web/src/lib/components/book-reader/book-reading-tracker/book-reading-tracker-menu.svelte',
   'apps/web/src/lib/components/ripple.svelte',
   'apps/web/src/lib/appearance/background-settings.svelte',
   'apps/web/src/lib/appearance/runtime.svelte',
