@@ -88,6 +88,45 @@ class SettingsEditorUsabilityBrowser(LibraryBase):
             expect(panel).to_have_count(0)
             self.assertEqual(before, self.stores('books', ['storageSource']))
 
+    def test_enlarged_storage_editor_keeps_cancel_reachable_after_form_scroll(self):
+        self.page.set_viewport_size({'width': 320, 'height': 480})
+        self.settings()
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        panel = self.editor()
+        close = panel.get_by_role('button', name='Cancel', exact=True)
+        scroll = panel.locator('[data-dialog-scroll]')
+
+        self.page.wait_for_function('e => e.scrollHeight > e.clientHeight', arg=scroll.element_handle())
+        scroll.evaluate('e => e.scrollTop = e.scrollHeight')
+        self.page.wait_for_function('e => e.scrollTop > 0', arg=scroll.element_handle())
+
+        box = close.bounding_box()
+        viewport = self.page.evaluate('''() => {
+          const v=visualViewport;
+          return {
+            left:v?.offsetLeft ?? 0, top:v?.offsetTop ?? 0,
+            right:(v?.offsetLeft ?? 0)+(v?.width ?? innerWidth),
+            bottom:(v?.offsetTop ?? 0)+(v?.height ?? innerHeight)
+          };
+        }''')
+        self.assertGreaterEqual(box['width'], 43.99)
+        self.assertGreaterEqual(box['height'], 43.99)
+        self.assertGreaterEqual(box['x'], viewport['left'] - 1)
+        self.assertGreaterEqual(box['y'], viewport['top'] - 1)
+        self.assertLessEqual(box['x'] + box['width'], viewport['right'] + 1)
+        self.assertLessEqual(box['y'] + box['height'], viewport['bottom'] + 1)
+        self.assertTrue(close.evaluate('''e => {
+          const r=e.getBoundingClientRect();
+          const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+          return !!hit && (hit===e || e.contains(hit));
+        }'''))
+        self.assertLessEqual(panel.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+        self.capture('post-scroll-close')
+        close.focus()
+        expect(close).to_be_focused()
+        close.press('Enter')
+        expect(panel).to_have_count(0)
+
     def test_pending_native_save_blocks_edit_cancel_and_duplicate_submission(self):
         self.settings()
         panel = self.editor()
@@ -189,6 +228,91 @@ class SettingsEditorUsabilityBrowser(LibraryBase):
             menu.get_by_role('button', name='Close', exact=True).click()
             expect(menu).to_have_count(0)
             expect(navigate).to_be_focused()
+
+    def test_global_navigation_keeps_close_reachable_after_short_enlarged_scroll(self):
+        self.page.set_viewport_size({'width': 320, 'height': 320})
+        self.settings()
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        trigger = self.page.get_by_role('button', name='Navigate', exact=True)
+        trigger.focus()
+        trigger.press('Enter')
+        panel = self.page.get_by_role('dialog', name='Manabi Reader', exact=True)
+        expect(panel).to_be_visible()
+        close = panel.get_by_role('button', name='Close', exact=True)
+
+        def assert_close_reachable():
+            box = close.bounding_box()
+            viewport = self.page.evaluate('''() => {
+              const v=visualViewport;
+              return {
+                left:v?.offsetLeft ?? 0, top:v?.offsetTop ?? 0,
+                right:(v?.offsetLeft ?? 0)+(v?.width ?? innerWidth),
+                bottom:(v?.offsetTop ?? 0)+(v?.height ?? innerHeight)
+              };
+            }''')
+            self.assertGreaterEqual(box['width'], 43.99)
+            self.assertGreaterEqual(box['height'], 43.99)
+            self.assertGreaterEqual(box['x'], viewport['left'] - 1)
+            self.assertGreaterEqual(box['y'], viewport['top'] - 1)
+            self.assertLessEqual(box['x'] + box['width'], viewport['right'] + 1)
+            self.assertLessEqual(box['y'] + box['height'], viewport['bottom'] + 1)
+            self.assertTrue(close.evaluate('''e => {
+              const r=e.getBoundingClientRect();
+              const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+              return !!hit && (hit===e || e.contains(hit));
+            }'''))
+
+        assert_close_reachable()
+        navigation = panel.get_by_role('navigation', name='Main navigation')
+        navigation.evaluate('e => e.scrollTop = e.scrollHeight')
+        self.page.wait_for_function('e => e.scrollTop > 0', arg=navigation.element_handle())
+        expect(panel.get_by_role('link', name='User guide', exact=True)).to_be_visible()
+        self.assertLessEqual(panel.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+        assert_close_reachable()
+        self.capture('global-nav-short-enlarged-scrolled')
+
+        close.focus()
+        expect(close).to_be_focused()
+        close.press('Enter')
+        expect(panel).to_have_count(0)
+        expect(trigger).to_be_focused()
+
+    def test_direct_settings_entry_keeps_library_back_fallback_across_categories(self):
+        self.settings('library')
+        back = self.page.get_by_role('link', name='Back', exact=True)
+        expect(back).to_have_attribute('href', '/reader-web/manage')
+        typography = self.page.get_by_role('navigation', name='Settings categories').get_by_role(
+            'link', name='Fonts & text', exact=True)
+        typography.click()
+        expect(typography).to_have_attribute('aria-current', 'page')
+        expect(back).to_have_attribute('href', '/reader-web/manage')
+
+    def test_reader_origin_survives_settings_category_navigation(self):
+        self.import_book('Settings back origin')
+        self.page.get_by_role('button', name='Read Settings back origin', exact=True).click()
+        expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
+        reader_url = self.page.url
+
+        reveal = self.page.get_by_role('button', name='Show reading controls', exact=True)
+        if reveal.is_visible():
+            reveal.click()
+        self.page.get_by_role('button', name='Reading tools', exact=True).click()
+        self.page.get_by_role('menuitem', name='Settings', exact=True).click()
+        expect(self.page.get_by_label('Search settings', exact=True)).to_be_visible()
+
+        back = self.page.get_by_role('link', name='Back', exact=True)
+        expected_path = reader_url.removeprefix(self.origin)
+        expect(back).to_have_attribute('href', expected_path)
+        typography = self.page.get_by_role('navigation', name='Settings categories').get_by_role(
+            'link', name='Fonts & text', exact=True)
+        typography.click()
+        expect(typography).to_have_attribute('aria-current', 'page')
+        expect(back).to_have_attribute('href', expected_path)
+        self.capture('reader-origin-preserved')
+
+        back.click()
+        expect(self.page).to_have_url(reader_url)
+        expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
 
     def test_statistics_cleanup_reflows_without_touching_history(self):
         self.page.set_viewport_size({'width': 320, 'height': 568})

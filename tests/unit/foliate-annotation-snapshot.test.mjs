@@ -31,6 +31,17 @@ function load(url) {
       if (name === '$lib/data/store') return { database };
       if (name === 'svelte/store') return { get: () => ({ status: 'ready' }) };
       if (name === '$lib/manabi/client') return { account: {}, localProfileUser: () => profile };
+      if (name === '$lib/manabi/operation-scope')
+        return {
+          captureLibraryOperation: () => ({
+            profileId: profile?.id ?? null,
+            signal: new AbortController().signal,
+            assertCurrent() {
+              assert.equal(profile?.id ?? null, this.profileId);
+            },
+            stop() {}
+          })
+        };
       if (name === '$lib/reader-location') return load(new URL('reader-location.ts', root));
       if (name === '$lib/data/database/books-db/content-hash-index')
         return {
@@ -70,10 +81,12 @@ function databaseGate() {
   const tx = {
     objectStore: (name) => ({
       get: async () => undefined,
+      getAll: async () => [],
       put: async (value) => {
         if (name === 'readerAnnotation') puts.push(globalThis.structuredClone(value));
       }
     }),
+    abort: () => {},
     done: Promise.resolve()
   };
   const db = {
@@ -170,6 +183,7 @@ test('annotation import refuses an ID collision across different books', async (
   const tx = {
     objectStore: (name) => ({
       get: async () => (name === 'readerAnnotation' ? existing : undefined),
+      getAll: async () => [],
       put: async () => {
         if (name === 'readerConflict') conflicts += 1;
       }
