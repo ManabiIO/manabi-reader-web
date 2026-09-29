@@ -117,6 +117,9 @@
   $: availableFilters = scopePlan.dictionary
     ? filters
     : filters.filter((item) => item.id !== 'dictionary');
+  // Scope can also change through URL history/parent state, not only chooseScope().
+  // Never retain a hidden Dictionary filter when the new source family excludes it.
+  $: if (!scopePlan.dictionary && filter === 'dictionary') filter = 'all';
   $: nextSignature = JSON.stringify([
     query,
     owner,
