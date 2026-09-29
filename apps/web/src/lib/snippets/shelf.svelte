@@ -5,7 +5,7 @@
   import { page } from '$app/stores';
   import { Button } from '$lib/components/ui/button';
   import { snippetItems, scope } from './service';
-  import { fold, snippetKey, type SnippetHit } from './document';
+  import { fold, snippetKey, snippetSearchTooLong, type SnippetHit } from './document';
   import { searchBodies } from './search';
   import { saveLabel } from './presentation';
   import type { SnippetSummary } from './summary';
@@ -80,7 +80,7 @@
     truncated = false;
     limit = 60;
     searching = false;
-    if (!query.trim() || query.length > 512) return;
+    if (!query.trim() || snippetSearchTooLong(query)) return;
     try {
       stop = searchBodies(
         query,
@@ -138,7 +138,9 @@
   });
 </script>
 
-{#if query.length > 512}<p role="alert">Use a search of 512 characters or fewer.</p>{/if}
+{#if snippetSearchTooLong(query)}<p id="snippet-search-limit-error" role="alert">
+    Use a search of 512 characters or fewer.
+  </p>{/if}
 {#if searching}<p class="search-note" role="status">
     Searching snippet contents… Title matches are ready.
   </p>{/if}
@@ -231,6 +233,7 @@
   }
   .title {
     display: block;
+    min-height: 44px;
     font-size: 1.15rem;
     font-weight: 650;
     line-height: 1.5;
@@ -266,6 +269,7 @@
   }
   .passage {
     display: block;
+    min-height: 44px;
     padding: 0.5rem 0.7rem;
     margin-top: 0.5rem;
     border-inline-start: 2px solid var(--border);
@@ -291,11 +295,17 @@
     color: var(--muted-foreground);
   }
   .select {
-    padding-top: 0.3rem;
+    display: grid;
+    place-items: center;
+    align-self: flex-start;
+    flex: 0 0 44px;
+    width: 44px;
+    height: 44px;
+    cursor: pointer;
   }
   .select input {
-    width: 1.2rem;
-    height: 1.2rem;
+    width: 20px;
+    height: 20px;
     accent-color: var(--primary);
   }
 </style>
