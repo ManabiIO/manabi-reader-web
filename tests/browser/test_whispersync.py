@@ -181,6 +181,33 @@ class WhispersyncBrowser(unittest.TestCase):
         expect(self.page.get_by_role('dialog')).not_to_be_visible()
         expect(trigger).to_be_focused()
 
+    def test_whispersync_audio_bar_never_strands_focus_on_disabled_or_removed_controls(self):
+        self.open_fixture('continuous', 'horizontal-tb')
+        self.page.locator('input[type=file][accept*=".mp3"]').set_input_files(
+            {'name': 'focus-audiobook.wav', 'mimeType': 'audio/wav', 'buffer': audio()})
+        self.page.wait_for_function('() => document.querySelector("audio")?.duration === 40')
+        panel = self.page.get_by_role('dialog', name='Audiobook', exact=True)
+        panel.get_by_role('button', name='Play', exact=True).click()
+        self.page.wait_for_function('() => document.querySelector("audio")?.currentTime > .1')
+        panel.press('Escape')
+        expect(panel).not_to_be_visible()
+
+        bar = self.page.locator('[data-ui-overlay="audiobook-controls"]')
+        open_button = bar.get_by_role('button', name='Audiobook', exact=True)
+        pause = bar.get_by_role('button', name='Pause', exact=True)
+        expect(pause).to_be_enabled()
+        pause.focus()
+        pause.press('Enter')
+        expect(pause).to_be_disabled()
+        expect(open_button).to_be_focused()
+
+        close = bar.get_by_role('button', name='Close audio playback', exact=True)
+        close.focus()
+        close.press('Enter')
+        expect(close).to_have_count(0)
+        expect(open_button).to_be_focused()
+        self.assertGreaterEqual(open_button.bounding_box()['height'], 43.99)
+
     def test_whispersync_mobile_dark_dialog_is_labelled_and_within_viewport(self):
         self.page.set_viewport_size({'width': 390, 'height': 844})
         self.page.emulate_media(color_scheme='dark')
