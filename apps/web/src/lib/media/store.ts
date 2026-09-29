@@ -419,21 +419,29 @@ export class MediaStore {
       };
     });
   }
-  records(scope: Scope, kind?: Kind): Promise<Replica[]> {
-    return this.tx('records', 'readonly', (store, done, fail) => {
-      // Never load another account's records or every caption page just to paint a shelf.
-      const request = store.getAll(range(scope, kind));
-      request.onsuccess = () => {
-        try {
-          const rows: Replica[] = request.result;
-          if (rows.some((row) => row?.scope !== scope || (kind !== undefined && row.kind !== kind)))
-            throw new Error('Invalid local media record scope');
-          done(rows);
-        } catch (e) {
-          fail(e);
-        }
-      };
-    });
+  records(scope: Scope, kind?: Kind, signal?: AbortSignal): Promise<Replica[]> {
+    return this.tx(
+      'records',
+      'readonly',
+      (store, done, fail) => {
+        // Never load another account's records or every caption page just to paint a shelf.
+        const request = store.getAll(range(scope, kind));
+        request.onsuccess = () => {
+          try {
+            const rows: Replica[] = request.result;
+            if (
+              rows.some((row) => row?.scope !== scope || (kind !== undefined && row.kind !== kind))
+            )
+              throw new Error('Invalid local media record scope');
+            done(rows);
+          } catch (e) {
+            fail(e);
+          }
+        };
+      },
+      false,
+      signal
+    );
   }
   get(scope: Scope, kind: Kind, id: string): Promise<Replica | undefined> {
     return this.tx('records', 'readonly', (store, done) => {
