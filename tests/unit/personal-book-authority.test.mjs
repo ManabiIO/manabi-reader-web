@@ -207,49 +207,33 @@ test('fail-closed probe returns undefined for ownership changes without hiding a
   );
 });
 
-test('one newly claimed exact copy reopens hydration for the shared content identity', () => {
-  const copies = [candidate(1), candidate(2)];
+test('an unhydrated reading history requires first-use reconciliation', () => {
+  const copies = [candidate(1)];
   assert.equal(
-    needsPersonalHydration(
-      copies,
-      [
-        { bookId: 1, accountId: 'alice', hydrated: true },
-        { bookId: 2, accountId: 'alice' }
-      ],
-      'alice'
-    ),
+    needsPersonalHydration(copies, [{ bookId: 1, accountId: 'alice' }], 'alice'),
     true
   );
 });
 
-test('fully hydrated exact copies do not repeat first-use reconciliation', () => {
-  const copies = [candidate(1), candidate(2)];
+test('a hydrated reading history does not repeat first-use reconciliation', () => {
+  const copies = [candidate(1)];
   assert.equal(
     needsPersonalHydration(
       copies,
-      [
-        { bookId: 1, accountId: 'alice', hydrated: true },
-        { bookId: 2, accountId: 'alice', hydrated: true }
-      ],
+      [{ bookId: 1, accountId: 'alice', hydrated: true }],
       'alice'
     ),
     false
   );
 });
 
-test('missing or newly foreign scope evidence never counts as safely hydrated', () => {
-  const copies = [candidate(1), candidate(2)];
-  assert.equal(
-    needsPersonalHydration(copies, [{ bookId: 1, accountId: 'alice', hydrated: true }], 'alice'),
-    true
-  );
+test('missing or foreign scope evidence never counts as safely hydrated', () => {
+  const copies = [candidate(1)];
+  assert.equal(needsPersonalHydration(copies, [], 'alice'), true);
   assert.equal(
     needsPersonalHydration(
       copies,
-      [
-        { bookId: 1, accountId: 'alice', hydrated: true },
-        { bookId: 2, accountId: 'bob', hydrated: true }
-      ],
+      [{ bookId: 1, accountId: 'bob', hydrated: true }],
       'alice'
     ),
     true
