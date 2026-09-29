@@ -14,6 +14,10 @@ test('metadata relevance orders exact, prefix, token-boundary and interior match
   assert.deepEqual(values, ['cat', 'Cat guide', 'A cat story', 'Copycat notes']);
 });
 
+test('title highlight follows the occurrence that earned the stronger boundary rank', () => {
+  assert.deepEqual(searchMatchRange('Copycat cat', 'cat'), { start: 8, end: 11 });
+});
+
 test('title match ranges map normalized text back to original metadata', () => {
   assert.deepEqual(searchMatchRange('ＡＢＣ guide', 'abc'), { start: 0, end: 3 });
   assert.deepEqual(searchMatchRange('ﬁ field', 'fi'), { start: 0, end: 1 });
