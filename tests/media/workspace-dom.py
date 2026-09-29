@@ -178,6 +178,40 @@ def main():
             """)
             assert 'Web Locks' in result['message'] and result['jobs']==0,result
         case('browsers without Web Locks cannot admit concurrent model inference',no_web_locks)
+        def throwing_source_authority_does_not_escape_error_handler():
+            page.evaluate('reset({account:true})')
+            result=page.evaluate("""async()=>{
+                const bytes=fixtures[0];
+                let checks=0;
+                const reason=new Error('provider authority revoked');
+                const source={
+                    name:'Revoked.mp4',size:bytes.length,version:'b'.repeat(64),
+                    isCurrent(){
+                        checks++;
+                        if(checks>=3)throw reason;
+                        return true;
+                    },
+                    async read(start,end,signal){
+                        signal.throwIfAborted();
+                        return bytes.slice(start,end);
+                    },
+                    playback(){
+                        const url=URL.createObjectURL(new Blob([bytes],{type:'video/mp4'}));
+                        return {url,release:()=>URL.revokeObjectURL(url)};
+                    }
+                };
+                try{
+                    await workspace.openSource(source);
+                    return {resolved:true,checks,text:workspace.root.textContent};
+                }catch(error){
+                    return {resolved:false,checks,error:String(error),text:workspace.root.textContent};
+                }
+            }""")
+            assert result['resolved'] is True,result
+            assert 'provider authority revoked' in result['text'],result
+            assert result['checks']>=4,result
+        case('a throwing source authority cannot escape the workspace open error handler',
+             throwing_source_authority_does_not_escape_error_handler)
         def connection_revocation_pauses_cloud_work():
             page.evaluate('reset({account:true})')
             page.evaluate("""()=>{
