@@ -21,6 +21,14 @@ from browser_poll import wait_for_async
 
 PAGE = '''<!doctype html><title>Model custody probe</title><script>
 window.events=[];
+window.dedicatedEvents=[];
+window.startDedicated=(label)=>{
+  const worker=new Worker('/dedicated.js?label='+encodeURIComponent(label),{type:'module'});
+  worker.onmessage=({data})=>dedicatedEvents.push(data);
+  worker.onerror=event=>dedicatedEvents.push({type:'error',phase:'dedicated-script',message:event.message});
+  window.dedicated=worker;
+};
+window.stopDedicated=()=>{dedicated?.terminate();window.dedicated=undefined};
 window.broker=new SharedWorker('/broker.js',{name:'moss-direct-custody-probe',type:'module'});
 broker.onerror=event=>events.push({type:'error',phase:'broker-script',message:event.message});
 broker.port.onmessage=({data})=>{
@@ -34,6 +42,10 @@ window.shutdown=()=>broker.port.postMessage({type:'shutdown'});
 window.transcribe=()=>broker.port.postMessage({type:'transcribe'});
 document.addEventListener('freeze',()=>{
   events.push({type:'page-freeze'});
+  if(window.dedicated){
+    dedicatedEvents.push({type:'freeze-terminate'});
+    window.stopDedicated();
+  }
   broker.port.postMessage({type:'release'});
 },{capture:true});
 window.addEventListener('pagehide',()=>{
@@ -41,6 +53,35 @@ window.addEventListener('pagehide',()=>{
   broker.port.postMessage({type:'release'});
 },{capture:true});
 </script>'''
+
+DEDICATED = '''const label=new URL(location.href).searchParams.get('label')||'unknown';
+navigator.locks.request('moss-probe-dedicated-resource',async()=>{
+  const snapshot=await navigator.locks.query();
+  if(snapshot.held.some(lock=>lock.name==='moss-probe-dedicated-child')){
+    postMessage({type:'unsafe',label,reason:'prior child still holds origin resource'});
+    return;
+  }
+  if(typeof Worker!=='function'){
+    postMessage({type:'error',label,phase:'nested-worker',message:'Worker constructor unavailable'});
+    return;
+  }
+  const child=new Worker('/dedicated-child.js',{type:'module'});
+  await new Promise((resolve,reject)=>{
+    child.onmessage=({data})=>{
+      if(data?.type==='ready')resolve();
+      else if(data?.type==='error')reject(Error(data.message));
+    };
+    child.onerror=event=>reject(Error(event.message||'nested worker failed'));
+  });
+  postMessage({type:'ready',label,worker:typeof Worker});
+  await new Promise(()=>{});
+}).catch(error=>postMessage({
+  type:'error',label,phase:'dedicated-resource',message:String(error)
+}));'''
+DEDICATED_CHILD = '''navigator.locks.request('moss-probe-dedicated-child',async()=>{
+  postMessage({type:'ready'});
+  await new Promise(()=>{});
+}).catch(error=>postMessage({type:'error',message:String(error)}));'''
 
 BROKER = '''const ports=new Set();
 let active, pending=[], serial=0, runtime, allocation=0, modelToken, modelLoads=0;
@@ -243,7 +284,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.wfile.write(chunk)
 
     def do_GET(self):
-        if self.path == '/':
+        path = self.path.split('?', 1)[0]
+        if path == '/':
             body = PAGE.encode()
             self.send_response(200)
             self.send_header('Content-Type', 'text/html')
@@ -252,7 +294,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-        if self.path == '/broker.js':
+        if path == '/dedicated.js':
+            body = DEDICATED.encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/javascript')
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if path == '/dedicated-child.js':
+            body = DEDICATED_CHILD.encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/javascript')
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if path == '/broker.js':
             body = BROKER.replace('__FULL_MODEL__', 'true' if self.model_path else 'false').encode()
             self.send_response(200)
             self.send_header('Content-Type', 'text/javascript')
@@ -261,17 +321,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-        if self.path in {'/moss.mjs', '/moss.wasm'}:
-            item = MOSS / self.path[1:]
+        if path in {'/moss.mjs', '/moss.wasm'}:
+            item = MOSS / path[1:]
             if not item.is_file():
                 self.send_error(404)
                 return
             self.send_path(item, 'text/javascript' if item.suffix == '.mjs' else 'application/wasm')
             return
-        if self.path == '/model.gguf' and self.model_path:
+        if path == '/model.gguf' and self.model_path:
             self.send_path(self.model_path, 'application/octet-stream')
             return
-        if self.path == '/speech.f32' and self.pcm_path:
+        if path == '/speech.f32' and self.pcm_path:
             self.send_path(self.pcm_path, 'application/octet-stream')
             return
         self.send_error(404)
@@ -332,6 +392,47 @@ def main():
                 return grants[-1]
 
             try:
+                # A dedicated model worker can hold its own resource lock. If the
+                # page freezes and terminates it synchronously, a replacement must
+                # not obtain that lock while a nested worker from the old owner is
+                # still alive. This is the safety property needed before production
+                # may release its page-level scheduling lock on freeze.
+                phase = 'dedicated-resource-freeze'
+                owner.evaluate("startDedicated('first')")
+                owner.wait_for_function(
+                    "dedicatedEvents.some(e=>e.type==='ready'||e.type==='error'||e.type==='unsafe')")
+                first_dedicated = owner.evaluate('dedicatedEvents')
+                assert not [event for event in first_dedicated
+                            if event['type'] in ('error', 'unsafe')], first_dedicated
+                before = peer.evaluate('async()=>await navigator.locks.query()')
+                before_held = {item['name'] for item in before['held']}
+                assert {'moss-probe-dedicated-resource', 'moss-probe-dedicated-child'} <= before_held, before
+                owner.evaluate("document.dispatchEvent(new Event('freeze'))")
+                owner.wait_for_function(
+                    "dedicatedEvents.some(e=>e.type==='freeze-terminate')")
+                cdp.send('Page.setWebLifecycleState', {'state': 'frozen'})
+                frozen = True
+                successor.evaluate("startDedicated('second')")
+                successor.wait_for_function(
+                    "dedicatedEvents.some(e=>e.type==='ready'||e.type==='error'||e.type==='unsafe')")
+                second_dedicated = successor.evaluate('dedicatedEvents')
+                assert not [event for event in second_dedicated
+                            if event['type'] in ('error', 'unsafe')], second_dedicated
+                assert [event for event in second_dedicated if event['type'] == 'ready'], second_dedicated
+                result.append({
+                    'name': 'dedicated worker termination releases resource only after nested-worker custody',
+                    'passed': True,
+                    'worker': [event for event in second_dedicated if event['type'] == 'ready'][-1]['worker']
+                })
+                successor.evaluate('stopDedicated()')
+                wait_for_async(successor, """async()=>!(await navigator.locks.query()).held.some(
+                    lock=>lock.name==='moss-probe-dedicated-resource'||
+                          lock.name==='moss-probe-dedicated-child')""")
+                cdp.send('Page.setWebLifecycleState', {'state': 'active'})
+                frozen = False
+                owner.evaluate('dedicatedEvents.length=0')
+                successor.evaluate('dedicatedEvents.length=0')
+
                 # Queue a successor before initial model startup finishes. Only one
                 # startup may run; the second port must remain queued for inference.
                 owner.evaluate('acquire()')

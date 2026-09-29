@@ -170,16 +170,36 @@ export function cloudSource(
     root: url.searchParams.get('root'),
     id: url.searchParams.get('id')
   });
+  let revoked: { error: unknown; thrown: boolean } | undefined;
+  const stillCurrent = () => {
+    if (revoked) {
+      if (revoked.thrown) throw revoked.error;
+      return false;
+    }
+    try {
+      if (!current()) {
+        revoked = { error: new Error('Account changed'), thrown: false };
+        return false;
+      }
+      return true;
+    } catch (error) {
+      revoked = { error, thrown: true };
+      throw error;
+    }
+  };
+  const assertCurrent = () => {
+    if (!stillCurrent()) throw revoked!.error;
+  };
   return {
     name,
     size,
     version,
     cloud,
-    isCurrent: current,
+    isCurrent: stillCurrent,
     async read(start, end, signal) {
       signal.throwIfAborted();
       assertRange(start, end, size);
-      if (!current()) throw new Error('Account changed');
+      assertCurrent();
       const response = await abortable(signal, () =>
         fetch(url, {
           signal,
@@ -196,9 +216,11 @@ export function cloudSource(
           /* Reject with the account/range error, not cleanup failure. */
         }
       };
-      if (!current()) {
+      try {
+        assertCurrent();
+      } catch (error) {
         discard();
-        throw new Error('Account changed');
+        throw error;
       }
       if (
         response.status !== 206 ||
@@ -210,12 +232,12 @@ export function cloudSource(
         throw new Error('Cloud media changed or its range response was invalid');
       }
       const bytes = await boundedResponse(response, end - start, signal);
-      if (bytes.length !== end - start || !current())
-        throw new Error('Incomplete or stale cloud media range');
+      if (bytes.length !== end - start) throw new Error('Incomplete cloud media range');
+      assertCurrent();
       return bytes;
     },
     playback() {
-      if (!current()) throw new Error('Account changed');
+      assertCurrent();
       return { url: url.href, release() {} };
     }
   };

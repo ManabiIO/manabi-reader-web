@@ -304,7 +304,14 @@ export class TranscriptionQueue {
     // Snapshot the caller's authority before awaiting storage. The predicate
     // may observe a changing lifetime; replacing the options object may not.
     const condition = automatic && { ...automatic };
-    const current = () => !this.closed && (!condition || condition.isCurrent());
+    const current = () => {
+      if (this.closed) return false;
+      try {
+        return !condition || condition.isCurrent();
+      } catch {
+        return false;
+      }
+    };
     if (condition && !current()) return undefined;
     if (this.closed) throw new Error('The queue is closed');
     this.requireOriginLock();
@@ -397,7 +404,14 @@ export class TranscriptionQueue {
     sparseOnly: boolean,
     isCurrent: () => boolean = () => true
   ): Promise<string[]> {
-    const current = () => !this.closed && isCurrent();
+    const current = () => {
+      if (this.closed) return false;
+      try {
+        return isCurrent();
+      } catch {
+        return false;
+      }
+    };
     if (!current()) return [];
     // Capture request identity before the scan. A later explicit Resume/Generate
     // may reuse the same job ID, but not the old local admission token.
@@ -1067,6 +1081,12 @@ export class TranscriptionQueue {
           } catch (e) {
             if (!signal.aborted || e !== signal.reason) throw e;
           } finally {
+            // The controller is the lifetime token for every resource owned by
+            // this runner, including cached decoder/container state. End that
+            // lifetime even after normal completion so cleanup does not depend
+            // on a later UI progress callback.
+            if (!controller.signal.aborted)
+              controller.abort(new DOMException('Transcription owner finished', 'AbortError'));
             this.targets.delete(candidate.id);
             this.active = undefined;
           }

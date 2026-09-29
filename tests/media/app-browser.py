@@ -2,6 +2,7 @@
 """Built Svelte / real IndexedDB / shared ebook display settings. No ASR or cloud claim."""
 import argparse
 import json
+import os
 import pathlib
 import sys
 import threading
@@ -124,7 +125,7 @@ def main():
     errors = []
     p = sync_playwright().start()
     try:
-        browser = p.chromium.launch()
+        browser = p.chromium.launch(executable_path=os.environ.get('CHROMIUM'))
         context = browser.new_context(locale='en-CA', viewport={'width':1280,'height':900})
         context.add_init_script("localStorage.setItem('manabi-reader-dictionary-setup-v1','skip')")
         page = context.new_page()

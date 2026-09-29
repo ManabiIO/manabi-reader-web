@@ -32,14 +32,30 @@ export async function syncMedia(
   signal: AbortSignal,
   publish: (s: SyncStatus) => void = () => {}
 ) {
-  const scope: Scope = `account:${transport.userId}`;
+  const userId = transport.userId;
+  const isCurrent = transport.isCurrent.bind(transport);
+  const scope: Scope = `account:${userId}`;
+  const current = () => {
+    try {
+      return transport.userId === userId && isCurrent();
+    } catch {
+      return false;
+    }
+  };
   const guard = () => {
     signal.throwIfAborted();
-    if (!transport.isCurrent()) throw new Error('The signed-in account changed');
+    if (!current()) throw new Error('The signed-in account changed');
+  };
+  const notify = (status: SyncStatus) => {
+    try {
+      publish(status);
+    } catch {
+      /* UI status is not synchronization authority. */
+    }
   };
   const work = async () => {
     guard();
-    publish({ state: 'syncing', message: 'Syncing video progress and subtitles…', conflicts: [] });
+    notify({ state: 'syncing', message: 'Syncing video progress and subtitles…', conflicts: [] });
     let cursor = (await store.local<number>(scope, 'sync', 'cursor')) ?? 0;
     if (!Number.isSafeInteger(cursor) || cursor < 0) throw new Error('Invalid saved sync cursor');
     // Drain before pushing: never overwrite unknown cloud history from a fresh browser.
@@ -51,7 +67,7 @@ export async function syncMedia(
           items: unknown[];
           next_cursor: number;
           has_more: boolean;
-        }>(`personal/changes/?cursor=${cursor}&limit=3`, { userId: transport.userId })
+        }>(`personal/changes/?cursor=${cursor}&limit=3`, { userId })
       );
       guard();
       if (
@@ -108,7 +124,7 @@ export async function syncMedia(
           }>('personal/mutations/', {
             method: 'POST',
             value: pendingRequest,
-            userId: transport.userId
+            userId
           })
         );
         guard();
@@ -116,12 +132,12 @@ export async function syncMedia(
           throw new Error('Invalid sync acknowledgement');
         await store.ack(scope, r.kind, r.id, response.mutation_id, response.record);
       } catch (e) {
-        guard();
-        const error = e as {
-          status?: number;
-          current?: unknown;
-        };
-        if (error.status === 412 && error.current) {
+        // Preserve the operation's failure, including falsy abort reasons.
+        // Account observation gates conflict writes, not the identity of an
+        // already-rejected upload. It can itself fail after disconnection.
+        const error = e as { status?: number; current?: unknown } | null | undefined;
+        if (error?.status === 412 && error.current) {
+          if (signal.aborted || !current()) throw e;
           await store.conflict(
             scope,
             r.kind,
@@ -137,7 +153,7 @@ export async function syncMedia(
     const conflicts = remaining.filter((r) => r.conflict);
     const stillPending = remaining.some((r) => !r.conflict && (r.dirty || r.pending));
     guard();
-    publish({
+    notify({
       state: conflicts.length ? 'conflict' : stillPending ? 'pending' : 'synced',
       message: conflicts.length
         ? 'Both copies changed. Choose which version to keep.'
@@ -149,11 +165,11 @@ export async function syncMedia(
   };
   try {
     if (navigator.locks)
-      await navigator.locks.request(`manabi-video-sync/${transport.userId}`, { signal }, work);
+      await navigator.locks.request(`manabi-video-sync/${userId}`, { signal }, work);
     else await work();
   } catch (error) {
-    if (!signal.aborted && transport.isCurrent())
-      publish({
+    if (!signal.aborted && current())
+      notify({
         state: 'error',
         message: error instanceof Error ? error.message : String(error),
         conflicts: []

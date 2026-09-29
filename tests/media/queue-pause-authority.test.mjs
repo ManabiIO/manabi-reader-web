@@ -202,3 +202,60 @@ test('queued admission that becomes active while revocation is scanning is still
       await queue.dispose();
     }
   }));
+
+test('throwing automatic-resume lifetime fails closed without changing the saved job', () =>
+  withStore('resume-lifetime-throw-', async (store) => {
+    const queue = new TranscriptionQueue(store, 'guest', { dispose() {} }, async () =>
+      new Float32Array(1)
+    );
+    const realKick = queue.kick.bind(queue);
+    queue.kick = () => {};
+    try {
+      const job = await queue.enqueue(key, 'ja', '1', 2);
+      const paused = await store.updateLocal('guest', 'jobs', job.id, (old) => ({
+        ...old,
+        status: 'paused',
+        pauseReason: 'switch'
+      }));
+      const result = await queue.resume(job.id, {
+        mediaKey: key,
+        expected: 'switch',
+        isCurrent() {
+          throw new Error('stale player lifetime');
+        }
+      });
+      assert.equal(result, undefined);
+      assert.deepEqual(await store.local('guest', 'jobs', job.id), paused);
+    } finally {
+      queue.kick = realKick;
+      await queue.dispose();
+    }
+  }));
+
+test('throwing pause lifetime cannot mutate or revoke a queued admission', () =>
+  withStore('pause-lifetime-throw-', async (store) => {
+    const queue = new TranscriptionQueue(
+      store,
+      'guest',
+      { dispose() {} },
+      async () => new Float32Array(1)
+    );
+    const realKick = queue.kick.bind(queue);
+    queue.kick = () => {};
+    try {
+      const job = await queue.enqueue(key, 'ja', '1', 2);
+      assert.deepEqual(
+        await queue.pauseSparseForMedia(key, () => {
+          throw new Error('stale switch lifetime');
+        }),
+        []
+      );
+      const saved = await store.local('guest', 'jobs', job.id);
+      assert.equal(saved.status, 'queued');
+      assert.equal(saved.pauseReason, undefined);
+      assert.equal(queue.admitted.has(job.id), true);
+    } finally {
+      queue.kick = realKick;
+      await queue.dispose();
+    }
+  }));

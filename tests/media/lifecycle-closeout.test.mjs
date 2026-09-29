@@ -25,10 +25,8 @@ async function harness(body) {
   Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined });
   const store = new MediaStore(new TransactionFactory(), 'lifecycle-closeout');
   const queues = [];
-  const make = (engine) => {
-    const q = new TranscriptionQueue(store, 'guest', engine, async () =>
-      new Float32Array(32000).fill(0.1)
-    );
+  const make = (engine, decode = async () => new Float32Array(32000).fill(0.1)) => {
+    const q = new TranscriptionQueue(store, 'guest', engine, decode);
     queues.push(q);
     return q;
   };
@@ -60,6 +58,32 @@ function contains(error, expected) {
     (error instanceof AggregateError && error.errors.some((e) => contains(e, expected)))
   );
 }
+
+
+test('normal completion ends the queue-owner signal that owns decoder state', () =>
+  harness(async ({ make, store }) => {
+    let ownerSignal;
+    const q = make(
+      {
+        async prepare() {
+          throw new Error('silence must not prepare the model');
+        },
+        dispose() {}
+      },
+      async (_job, _start, _end, signal) => {
+        ownerSignal = signal;
+        return new Float32Array(32000);
+      }
+    );
+    const job = await q.enqueue(key, 'en', '1', 2);
+    for (let i = 0; i < 100; i++) {
+      if ((await store.local('guest', 'jobs', job.id))?.status === 'complete') break;
+      await tick();
+    }
+    assert.equal((await store.local('guest', 'jobs', job.id)).status, 'complete');
+    assert.ok(ownerSignal, 'decode received the queue-owner signal');
+    assert.equal(ownerSignal.aborted, true, 'terminal success retires owner-scoped resources');
+  }));
 
 test('Close reports the draining batch retirement failure and retires the engine once', () =>
   harness(async ({ make }) => {

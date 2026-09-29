@@ -30,6 +30,7 @@ import {
 } from './import-records.js';
 import { type ByteSource, localSource, supportedVideo, identify } from './sources.js';
 import { type Bunny, MediaPipeline } from './pipeline.js';
+import { DecodeSessionCache } from './decode-session.js';
 import { VideoPlayer } from './player.js';
 import { matchSidecar, parseSubtitles } from './captions.js';
 import { discoverEmbedded } from './embedded.js';
@@ -104,6 +105,7 @@ export class VideoWorkspace {
   private switchPaused = new Set<string>();
   private player?: VideoPlayer;
   private queue: TranscriptionQueue;
+  private decoderCache: DecodeSessionCache<Job>;
   private stopStore: () => void;
   private openAbort?: AbortController;
   private lifetime = new AbortController();
@@ -298,23 +300,18 @@ export class VideoWorkspace {
     );
     host.append(this.root);
     const engine = options.engine ?? new MossClient(options.runtimeBase);
+    this.decoderCache = new DecodeSessionCache<Job>(async (job, signal) => {
+      const source = await this.resolveSource(jobContentKey(job), signal);
+      const bunny = await abortable(signal, () => options.loadBunny());
+      signal.throwIfAborted();
+      return new MediaPipeline(bunny, source, signal);
+    });
     this.queue = new TranscriptionQueue(
       this.store,
       options.scope,
       engine,
-      async (job, start, end, signal) => {
-        return inAbortScope([signal, this.lifetime.signal], async (operation) => {
-          const source = await this.resolveSource(jobContentKey(job), operation);
-          const bunny = await abortable(operation, () => options.loadBunny());
-          operation.throwIfAborted();
-          const pipeline = new MediaPipeline(bunny, source, operation);
-          try {
-            return await pipeline.decode(Number(job.audioTrack), start, end, operation);
-          } finally {
-            pipeline.dispose();
-          }
-        });
-      },
+      (job, start, end, signal) =>
+        this.decoderCache.decode(job, Number(job.audioTrack), start, end, signal),
       (p) => {
         if (this.closed) return;
         if (this.current?.key === jobContentKey(p.job)) {
@@ -332,6 +329,8 @@ export class VideoWorkspace {
           this.player?.generationPreview(p.job.id, p.provisional);
         }
         if (['complete', 'paused', 'failed'].includes(p.stage)) {
+          // Decoder lifetime is owned by the queue runner's AbortSignal. Do not
+          // release by durable job ID here: a successor may already reuse that ID.
           this.progress.hidden = true;
           void this.refreshTracks().catch((e) => this.error(e));
         } /* Durable job changes notify the store. Download byte progress must not
@@ -1171,6 +1170,11 @@ export class VideoWorkspace {
         throw new Error(
           'Reopen this video to reconnect its local file, or sign in to reconnect its cloud folder.'
         );
+      // Snapshot the authenticated transport identity for the entire reconnect.
+      // A mutable transport object must not attach an old locator under a newer user.
+      const userId = transport.userId;
+      const transportCurrent = transport.isCurrent.bind(transport);
+      const isCurrent = () => transport.userId === userId && transportCurrent();
       // Account/profile transitions abort this scope even if the underlying
       // transport promise ignores cancellation. A late result cannot cache a
       // source from the retired connection.
@@ -1181,7 +1185,8 @@ export class VideoWorkspace {
           operation
         );
         operation.throwIfAborted();
-        const source = cloudSource(manifest, transport.userId, transport.isCurrent);
+        if (!isCurrent()) throw new Error('Account changed');
+        const source = cloudSource(manifest, userId, isCurrent);
         // A saved locator grants no authority and is not content identity. The
         // server rechecks the selected root; bytes must match before attachment.
         if ((await identify(source, operation)) !== key)
@@ -1189,7 +1194,7 @@ export class VideoWorkspace {
             'A video file changed. Reopen it before generating captions. Its previous progress was kept.'
           );
         operation.throwIfAborted();
-        if (!transport.isCurrent() || (source.isCurrent && !source.isCurrent()))
+        if (!isCurrent() || (source.isCurrent && !source.isCurrent()))
           throw new Error('Account changed');
         if (forOpen) this.verifiedCloudOpen.set(source, key);
         this.sources.set(key, source);
@@ -1726,6 +1731,16 @@ export class VideoWorkspace {
     if (this.closing) return this.closing;
     this.closed = true;
     this.generation++;
+    // Revoke the queue owner synchronously before the broader workspace signal.
+    // Otherwise a decoder waiting on workspace lifetime can reject as a failure
+    // before the queue has marked the operation as an intentional shutdown.
+    let queue: Promise<void>;
+    try {
+      queue = this.queue.dispose();
+    } catch (error) {
+      queue = Promise.reject(error);
+    }
+    this.decoderCache.dispose();
     this.lifetime.abort();
     this.cloudAbort.abort();
     this.openAbort?.abort();
@@ -1737,7 +1752,6 @@ export class VideoWorkspace {
     // or slow storage. Neither drain is allowed to skip the other on failure.
     this.root.remove();
     this.player?.video.pause();
-    const queue = Promise.resolve().then(() => this.queue.dispose());
     const player = Promise.resolve().then(() => this.player?.dispose());
     this.closing = Promise.allSettled([queue, player]).then(async (results) => {
       const failures = results

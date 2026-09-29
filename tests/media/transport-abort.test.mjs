@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cloudRequest } from '../../.cache/media-test-build/cloud-listing.js';
+import { cloudRequest, listCloudFolder } from '../../.cache/media-test-build/cloud-listing.js';
 import { syncMedia } from '../../.cache/media-test-build/sync.js';
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -143,4 +143,178 @@ test('sync mutation abort does not wait for a stalled upload or acknowledge it l
   await pending.catch(() => {});
   await tick();
   assert.equal(acknowledgements, 0, 'retired upload was acknowledged after sign-out');
+});
+
+test('cloud request keeps the admitted user identity across a delayed response', async () => {
+  const response = deferred();
+  const transport = {
+    userId: 'old-user',
+    isCurrent: () => true,
+    request(_path, options) {
+      assert.equal(options.userId, 'old-user');
+      return response.promise;
+    }
+  };
+  const pending = cloudRequest(
+    transport,
+    'connections/example/media-info/',
+    new AbortController().signal
+  );
+  await tick();
+  transport.userId = 'new-user';
+  response.resolve({ ok: true });
+  await assert.rejects(pending, /Account changed/);
+});
+
+test('paginated cloud listing cannot continue an old connection under a new user', async () => {
+  let requests = 0;
+  const transport = {
+    userId: 'old-user',
+    isCurrent: () => true,
+    async request(_path, options) {
+      requests++;
+      if (requests === 1) {
+        assert.equal(options.userId, 'old-user');
+        return {
+          items: [],
+          get cursor() {
+            transport.userId = 'new-user';
+            return 'next';
+          }
+        };
+      }
+      throw new Error('old connection was requested under the replacement user');
+    }
+  };
+  await assert.rejects(
+    listCloudFolder(
+      transport,
+      {
+        id: '11111111-1111-4111-8111-111111111111',
+        provider: 'fixture',
+        roots: ['root'],
+        needs_reconnect: false
+      },
+      'root',
+      '',
+      new AbortController().signal
+    ),
+    /Account changed/
+  );
+  assert.equal(requests, 1);
+});
+
+test('sync snapshots its user before a stalled feed resolves', async () => {
+  const feed = deferred();
+  const writes = [];
+  const transport = {
+    userId: 'old-user',
+    isCurrent: () => true,
+    request(_path, options) {
+      assert.equal(options.userId, 'old-user');
+      return feed.promise;
+    }
+  };
+  const store = {
+    local: async () => 0,
+    putLocal: async (...args) => writes.push(args),
+    accept: async () => {
+      throw new Error('changed-account feed was applied');
+    },
+    records: async () => [],
+    prepare: async () => {
+      throw new Error('unexpected prepare');
+    }
+  };
+  const pending = syncMedia(store, transport, new AbortController().signal);
+  await tick();
+  transport.userId = 'new-user';
+  feed.resolve({ items: [], next_cursor: 0, has_more: false });
+  await assert.rejects(pending, /signed-in account changed/);
+  assert.deepEqual(writes, []);
+});
+
+test('sync error reporting preserves the network failure if isCurrent throws', async () => {
+  const network = new Error('network failed');
+  let requestFailed = false;
+  let requests = 0;
+  const transport = {
+    userId: 'user',
+    isCurrent() {
+      if (requestFailed) throw new Error('current-account predicate failed');
+      return true;
+    },
+    request: async () => {
+      requests++;
+      requestFailed = true;
+      throw network;
+    }
+  };
+  const store = {
+    local: async () => 0,
+    putLocal: async () => {},
+    accept: async () => {},
+    records: async () => [],
+    prepare: async () => {
+      throw new Error('unexpected prepare');
+    }
+  };
+  await assert.rejects(
+    syncMedia(store, transport, new AbortController().signal),
+    (error) => error === network
+  );
+  assert.equal(requests, 1, 'the network failure must actually be reached');
+});
+
+test('throwing sync status observer cannot abort durable synchronization', async () => {
+  const writes = [];
+  const store = {
+    local: async () => 0,
+    putLocal: async (...args) => writes.push(args),
+    accept: async () => {},
+    records: async () => [],
+    prepare: async () => {
+      throw new Error('unexpected prepare');
+    }
+  };
+  const transport = {
+    userId: 'user',
+    isCurrent: () => true,
+    request: async () => ({ items: [], next_cursor: 0, has_more: false })
+  };
+  await syncMedia(store, transport, new AbortController().signal, () => {
+    throw new Error('broken status UI');
+  });
+  assert.equal(writes.length, 1);
+  assert.deepEqual(writes[0].slice(0, 3), ['account:user', 'sync', 'cursor']);
+});
+
+test('throwing sync error observer cannot replace the transport failure', async () => {
+  const network = new Error('network unavailable');
+  const store = {
+    local: async () => 0,
+    putLocal: async () => {},
+    accept: async () => {},
+    records: async () => [],
+    prepare: async () => {
+      throw new Error('unexpected prepare');
+    }
+  };
+  await assert.rejects(
+    syncMedia(
+      store,
+      {
+        userId: 'user',
+        isCurrent: () => true,
+        request: async () => {
+          throw network;
+        }
+      },
+      new AbortController().signal,
+      () => {
+        throw new Error('broken status UI');
+      }
+    ),
+    (error) => error === network
+  );
 });

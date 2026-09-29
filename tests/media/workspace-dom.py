@@ -1004,6 +1004,33 @@ def main():
             assert page.get_by_text('different window policy required',exact=False).count()==1
             assert page.get_by_role('button',name='Resume',exact=True).count()==0
         case('a deterministically oversized seam does not advertise an identical Resume',nonretryable_seam)
+        def shutdown_pauses_active_decode_before_lifetime_rejection():
+            page.evaluate('reset()')
+            result=page.evaluate("""async()=>{
+                const q=workspace.queue,key=syntheticKey('f');
+                let started=false;
+                q.decode=async(_job,_start,_end,signal)=>{
+                    started=true;
+                    return await new Promise((_,reject)=>{
+                        const lifetime=()=>reject(Error('workspace lifetime ended before owner revocation'));
+                        const owner=()=>reject(signal.reason);
+                        workspace.lifetime.signal.addEventListener('abort',lifetime,{once:true});
+                        if(signal.aborted)owner();
+                        else signal.addEventListener('abort',owner,{once:true});
+                    });
+                };
+                const job=await q.enqueue(key,'ja','2',2);
+                const deadline=performance.now()+2000;
+                while(!started&&performance.now()<deadline)await new Promise(r=>setTimeout(r,5));
+                if(!started)throw Error('decode did not start');
+                await workspace.dispose();
+                const saved=await store.local('guest','jobs',job.id);
+                window.workspace=undefined;
+                return {status:saved?.status,error:saved?.error??'',reason:saved?.pauseReason??null};
+            }""")
+            assert result['status']=='paused',result
+            assert 'workspace lifetime ended before owner revocation' not in result['error'],result
+        case('workspace shutdown revokes the active queue owner before lifetime cancellation can fail its decode',shutdown_pauses_active_decode_before_lifetime_rejection)
         def teardown_failure():
             page.evaluate('reset()');page.evaluate("workspace.openSource(makeSource('Closing.mp4'))")
             page.wait_for_function('workspace.player?.video.readyState>=2')
