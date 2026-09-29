@@ -1,16 +1,18 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ReadingGoalFrequency } from '../../apps/web/src/lib/components/book-reader/book-reading-tracker/book-reading-tracker.ts';
-import {
-  InternalStorageSources,
-  StorageKey
-} from '../../apps/web/src/lib/data/storage/storage-types.ts';
 import { settingsScript } from './fixtures/settings-script.mjs';
+
+// Node's built-in TypeScript loader cannot evaluate the production enum declarations.
+const StorageKey = { BACKUP: 'backup', BROWSER: 'browser', GDRIVE: 'gdrive' };
+const InternalStorageSources = {
+  INTERNAL_BROWSER: 'ttu-internal-browser',
+  INTERNAL_ZIP: 'ttu-internal-zip'
+};
 
 const emptyGoal = {
   timeGoal: 0,
   characterGoal: 0,
-  goalFrequency: ReadingGoalFrequency.DAILY,
+  goalFrequency: 'daily',
   goalStartDate: ''
 };
 
@@ -34,7 +36,6 @@ function syncDialog() {
   );
   return { ...h, received };
 }
-
 
 function storageSourceDialog() {
   const received = [];
@@ -95,7 +96,11 @@ test('sync confirmation owns settlement before later cancel or destruction', () 
   h.dispose();
   assert.deepEqual(h.received, [
     [
-      { id: InternalStorageSources.INTERNAL_BROWSER, label: 'Browser DB', type: StorageKey.BROWSER },
+      {
+        id: InternalStorageSources.INTERNAL_BROWSER,
+        label: 'Browser DB',
+        type: StorageKey.BROWSER
+      },
       { id: InternalStorageSources.INTERNAL_ZIP, label: 'ZIP File', type: StorageKey.BACKUP }
     ]
   ]);
@@ -106,9 +111,7 @@ test('destroying an unresolved reading-goal merge returns the existing no-op can
   const h = mergeDialog();
   h.dispose();
   h.dispose();
-  assert.deepEqual(h.received, [
-    { readingGoalsToDelete: [], readingGoalsToInsert: [], error: '' }
-  ]);
+  assert.deepEqual(h.received, [{ readingGoalsToDelete: [], readingGoalsToInsert: [], error: '' }]);
   assert.deepEqual(h.events, []);
 });
 
@@ -117,9 +120,7 @@ test('reading-goal cancellation can settle only once', async () => {
   await h.closeDialog()(true);
   await h.closeDialog()(true);
   h.dispose();
-  assert.deepEqual(h.received, [
-    { readingGoalsToDelete: [], readingGoalsToInsert: [], error: '' }
-  ]);
+  assert.deepEqual(h.received, [{ readingGoalsToDelete: [], readingGoalsToInsert: [], error: '' }]);
   assert.deepEqual(h.events, [['close']]);
 });
 
@@ -127,12 +128,9 @@ test('competing reading-goal confirmations cannot both publish', async () => {
   const h = mergeDialog();
   await Promise.all([h.closeDialog()(false), h.closeDialog()(false)]);
   h.dispose();
-  assert.deepEqual(h.received, [
-    { readingGoalsToDelete: [], readingGoalsToInsert: [], error: '' }
-  ]);
+  assert.deepEqual(h.received, [{ readingGoalsToDelete: [], readingGoalsToInsert: [], error: '' }]);
   assert.deepEqual(h.events, [['close']]);
 });
-
 
 test('destroying an unresolved storage-source editor cancels its caller exactly once', () => {
   const h = storageSourceDialog();
