@@ -18,7 +18,8 @@ def resource_epub(malformed=False):
 <rootfile full-path="EPUB/book.opf" media-type="application/oebps-package+xml"/></rootfiles></container>'''
     package = f'''<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">
 <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">urn:resource-test</dc:identifier>
-<dc:title>{TITLE}</dc:title><dc:language>ja</dc:language><dc:creator>作者</dc:creator></metadata>
+<dc:title>{TITLE}</dc:title><dc:language>ja</dc:language><dc:creator>作者</dc:creator>
+<meta property="rendition:flow">paginated</meta></metadata>
 <manifest><item id="one" href="one.xhtml" media-type="application/xhtml+xml"/>
 <item id="two" href="two.xhtml" media-type="application/xhtml+xml"/>
 <item id="css1" href="one.css" media-type="text/css"/><item id="css2" href="two.css" media-type="text/css"/>
@@ -38,9 +39,13 @@ def resource_epub(malformed=False):
 <link rel="stylesheet" href="two.css"/></head><body><p class="text" id="same">別の章</p>
 <a id="back" href="one.xhtml#same">戻る</a></body></html>'''
     nav = '''<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
-<head><title>Contents</title></head><body><nav epub:type="toc landmarks"><ol><li><span>Part</span>
-<ol><li><a href="one.xhtml">第一章</a></li><li><a href="two.xhtml">第二章</a></li></ol>
-</li></ol></nav></body></html>'''
+<head><title>Contents</title></head><body>
+<nav epub:type="toc"><ol><li><span>Part</span>
+<ol><li><a href="one.xhtml#same">第一章</a></li><li><a href="two.xhtml">第二章</a></li></ol>
+</li></ol></nav>
+<nav epub:type="page-list"><ol><li><a href="one.xhtml#same">1</a></li></ol></nav>
+<nav epub:type="landmarks"><ol><li><a epub:type="bodymatter" href="one.xhtml">本文</a></li></ol></nav>
+</body></html>'''
     with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
         for name, contents in {
             'mimetype': 'application/epub+zip', 'META-INF/container.xml': container,
@@ -264,6 +269,20 @@ class EpubPublicationBrowser(ReaderBrowser):
         self.assertEqual('epub', before['sourceFormat'])
         self.assertEqual(3, len(before['publication']['resources']))
         self.assertEqual(2, len(before['publication']['styleSheets']))
+        self.assertEqual('paginated', before['publication']['rendition']['flow'])
+        self.assertEqual('Part', before['publication']['navigation']['toc'][0]['label'])
+        self.assertEqual(
+            'EPUB/one.xhtml#same',
+            before['publication']['navigation']['toc'][0]['subitems'][0]['href']
+        )
+        self.assertEqual(
+            'EPUB/one.xhtml#same',
+            before['publication']['navigation']['pageList'][0]['href']
+        )
+        self.assertEqual(
+            ['bodymatter'],
+            before['publication']['navigation']['landmarks'][0]['type']
+        )
         self.assertEqual('第一章', before['sections'][0]['label'])
         self.assertEqual('第二章', before['sections'][1]['label'])
         self.assertEqual('EPUB/one.xhtml', before['manifest']['resources'][2]['href'])

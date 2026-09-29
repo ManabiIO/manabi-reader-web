@@ -17,6 +17,7 @@ export interface FoliateSection {
 export interface FoliateNavigationItem {
   label?: string;
   href?: string;
+  type?: string[];
   subitems?: FoliateNavigationItem[];
 }
 

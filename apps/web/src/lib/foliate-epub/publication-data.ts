@@ -21,6 +21,31 @@ interface PackedEpubResource extends PublicationResource {
   linear?: 'no';
 }
 
+export interface EpubNavigationItemData {
+  label?: string;
+  href?: string;
+  type?: string[];
+  subitems?: EpubNavigationItemData[];
+}
+
+export interface EpubPublicationNavigation {
+  toc?: EpubNavigationItemData[];
+  pageList?: EpubNavigationItemData[];
+  landmarks?: EpubNavigationItemData[];
+}
+
+export interface EpubRenditionData {
+  layout?: string;
+  flow?: string;
+  spread?: string;
+  orientation?: string;
+}
+
+export interface EpubPublicationExtras {
+  navigation?: unknown;
+  rendition?: unknown;
+}
+
 /**
  * Individual resources address immutable slices of the existing elementHtml
  * buffer. Do not persist a second copy of every chapter or shared stylesheet.
@@ -30,10 +55,98 @@ export interface EpubPublicationData {
   version: 1;
   resources: PackedEpubResource[];
   styleSheets: string[];
+  navigation?: EpubPublicationNavigation;
+  rendition?: EpubRenditionData;
 }
 
 const MAX_HTML = 32 * 1024 * 1024;
 const MAX_CSS = 4 * 1024 * 1024;
+const MAX_NAVIGATION_ENTRIES = 20_000;
+const MAX_NAVIGATION_DEPTH = 64;
+const MAX_NAVIGATION_LABEL = 4096;
+const MAX_NAVIGATION_HREF = 4096;
+const MAX_NAVIGATION_TYPES = 32;
+const MAX_NAVIGATION_TYPE = 128;
+const RENDITION_KEYS = ['layout', 'flow', 'spread', 'orientation'] as const;
+
+function record(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function boundedText(value: unknown, maximum: number): string | undefined {
+  if (value == null) return undefined;
+  if (
+    typeof value !== 'string' ||
+    value.length > maximum ||
+    // eslint-disable-next-line no-control-regex
+    /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/.test(value)
+  )
+    throw new Error('Invalid EPUB navigation text.');
+  return value || undefined;
+}
+
+function readNavigationList(
+  value: unknown,
+  state: { count: number },
+  depth = 0
+): EpubNavigationItemData[] | undefined {
+  if (value == null) return undefined;
+  if (!Array.isArray(value) || depth > MAX_NAVIGATION_DEPTH)
+    throw new Error('Invalid EPUB navigation data.');
+  const result = value.map((entry): EpubNavigationItemData => {
+    if (++state.count > MAX_NAVIGATION_ENTRIES || !record(entry))
+      throw new Error('EPUB navigation exceeds the size limit.');
+    const label = boundedText(entry.label, MAX_NAVIGATION_LABEL);
+    const href = boundedText(entry.href, MAX_NAVIGATION_HREF);
+    let type: string[] | undefined;
+    if (entry.type != null) {
+      if (!Array.isArray(entry.type) || entry.type.length > MAX_NAVIGATION_TYPES)
+        throw new Error('Invalid EPUB navigation type.');
+      type = entry.type.map((item) => {
+        const value = boundedText(item, MAX_NAVIGATION_TYPE);
+        if (!value) throw new Error('Invalid EPUB navigation type.');
+        return value;
+      });
+      if (!type.length) type = undefined;
+    }
+    const subitems = readNavigationList(entry.subitems, state, depth + 1);
+    return {
+      ...(label ? { label } : {}),
+      ...(href ? { href } : {}),
+      ...(type ? { type } : {}),
+      ...(subitems?.length ? { subitems } : {})
+    };
+  });
+  return result.length ? result : undefined;
+}
+
+function readNavigation(value: unknown): EpubPublicationNavigation | undefined {
+  if (value == null) return undefined;
+  if (!record(value)) throw new Error('Invalid EPUB navigation data.');
+  const state = { count: 0 };
+  const toc = readNavigationList(value.toc, state);
+  const pageList = readNavigationList(value.pageList, state);
+  const landmarks = readNavigationList(value.landmarks, state);
+  return toc || pageList || landmarks
+    ? {
+        ...(toc ? { toc } : {}),
+        ...(pageList ? { pageList } : {}),
+        ...(landmarks ? { landmarks } : {})
+      }
+    : undefined;
+}
+
+function readRendition(value: unknown): EpubRenditionData | undefined {
+  if (value == null) return undefined;
+  if (!record(value)) throw new Error('Invalid EPUB rendition data.');
+  const result: EpubRenditionData = {};
+  for (const key of RENDITION_KEYS) {
+    if (value[key] == null) continue;
+    const text = boundedText(value[key], 128);
+    if (text) result[key] = text;
+  }
+  return Object.keys(result).length ? result : undefined;
+}
 const localHref = (value: unknown): value is string =>
   typeof value === 'string' &&
   value.length > 0 &&
@@ -101,10 +214,21 @@ export function readEpubPublication(value: unknown, source: string): EpubPublica
     };
   });
   if (position !== source.length) throw new Error('EPUB resource ranges do not cover the source.');
-  return { version: 1, resources, styleSheets };
+  const navigation = readNavigation(publication.navigation);
+  const rendition = readRendition(publication.rendition);
+  return {
+    version: 1,
+    resources,
+    styleSheets,
+    ...(navigation ? { navigation } : {}),
+    ...(rendition ? { rendition } : {})
+  };
 }
 
-export function packEpubResources(resources: readonly EpubResourceData[]): {
+export function packEpubResources(
+  resources: readonly EpubResourceData[],
+  extras: EpubPublicationExtras = {}
+): {
   elementHtml: string;
   epubPublication: EpubPublicationData;
 } {
@@ -127,7 +251,13 @@ export function packEpubResources(resources: readonly EpubResourceData[]): {
   });
   const elementHtml = resources.map((resource) => resource.html).join('');
   const epubPublication = readEpubPublication(
-    { version: 1, resources: entries, styleSheets: [...styles.keys()] },
+    {
+      version: 1,
+      resources: entries,
+      styleSheets: [...styles.keys()],
+      navigation: extras.navigation,
+      rendition: extras.rendition
+    },
     elementHtml
   );
   return { elementHtml, epubPublication };
@@ -201,5 +331,8 @@ export function rewriteEpubPublication(
       throw new Error('An EPUB content transform changed resource identity or spine semantics.');
     return next;
   });
-  return packEpubResources(resources);
+  return packEpubResources(resources, {
+    navigation: validated.navigation,
+    rendition: validated.rendition
+  });
 }

@@ -263,7 +263,14 @@ export async function importEpubPublication(
       });
       resource.styleSheet = sanitizeBookStyleSheet(styles.toString(), document);
     }
-    const { elementHtml, epubPublication } = packEpubResources(resources);
+    const { elementHtml, epubPublication } = packEpubResources(resources, {
+      navigation: {
+        toc: book.toc,
+        pageList: book.pageList,
+        landmarks: book.landmarks
+      },
+      rendition: book.rendition
+    });
     const metadata = book.metadata ?? {};
     const creators = extractCreators({
       'dc:creator': values(metadata.author).map((value) => {

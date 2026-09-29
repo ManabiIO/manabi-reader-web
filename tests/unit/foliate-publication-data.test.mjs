@@ -186,3 +186,107 @@ test('restored publication rejects unknown linearity and content rewrites cannot
     /spine semantics/
   );
 });
+
+
+test('navigation hierarchy, page list, landmarks and rendition survive resource rewrites', () => {
+  const packed = packEpubResources(resources(), {
+    navigation: {
+      toc: [
+        {
+          label: 'Part',
+          subitems: [
+            { label: 'Chapter', href: 'EPUB/chapter.xhtml#start' },
+            { label: 'Notes', href: 'EPUB/notes.xhtml' }
+          ]
+        }
+      ],
+      pageList: [{ label: '12', href: 'EPUB/chapter.xhtml#page-12' }],
+      landmarks: [
+        {
+          label: 'Body',
+          href: 'EPUB/chapter.xhtml',
+          type: ['bodymatter']
+        }
+      ]
+    },
+    rendition: {
+      layout: 'reflowable',
+      flow: 'paginated',
+      spread: 'auto',
+      orientation: 'auto',
+      ignored: 'not persisted'
+    }
+  });
+  assert.deepEqual(packed.epubPublication.navigation, {
+    toc: [
+      {
+        label: 'Part',
+        subitems: [
+          { label: 'Chapter', href: 'EPUB/chapter.xhtml#start' },
+          { label: 'Notes', href: 'EPUB/notes.xhtml' }
+        ]
+      }
+    ],
+    pageList: [{ label: '12', href: 'EPUB/chapter.xhtml#page-12' }],
+    landmarks: [
+      {
+        label: 'Body',
+        href: 'EPUB/chapter.xhtml',
+        type: ['bodymatter']
+      }
+    ]
+  });
+  assert.deepEqual(packed.epubPublication.rendition, {
+    layout: 'reflowable',
+    flow: 'paginated',
+    spread: 'auto',
+    orientation: 'auto'
+  });
+
+  const rewritten = rewriteEpubPublication(
+    packed.epubPublication,
+    packed.elementHtml,
+    (resource) => ({ ...resource, html: resource.html.replace('漢字𠮷', '本文') })
+  );
+  assert.deepEqual(rewritten.epubPublication.navigation, packed.epubPublication.navigation);
+  assert.deepEqual(rewritten.epubPublication.rendition, packed.epubPublication.rendition);
+});
+
+test('restored navigation is bounded by depth, entry count and string sizes', () => {
+  const packed = packEpubResources(resources());
+  const deep = structuredClone(packed.epubPublication);
+  let items = [{ label: 'root' }];
+  deep.navigation = { toc: items };
+  for (let depth = 0; depth < 66; depth++) {
+    items[0].subitems = [{ label: String(depth) }];
+    items = items[0].subitems;
+  }
+  assert.throws(() => readEpubPublication(deep, packed.elementHtml), /navigation/i);
+
+  const many = structuredClone(packed.epubPublication);
+  many.navigation = {
+    toc: Array.from({ length: 20001 }, (_, index) => ({ label: String(index) }))
+  };
+  assert.throws(() => readEpubPublication(many, packed.elementHtml), /navigation|size/i);
+
+  const long = structuredClone(packed.epubPublication);
+  long.navigation = { toc: [{ href: 'x'.repeat(4097) }] };
+  assert.throws(() => readEpubPublication(long, packed.elementHtml), /navigation/i);
+});
+
+test('restored rendition retains only bounded supported scalar hints', () => {
+  const packed = packEpubResources(resources());
+  const value = structuredClone(packed.epubPublication);
+  value.rendition = {
+    layout: 'reflowable',
+    spread: 'auto',
+    unknown: 'discard me'
+  };
+  assert.deepEqual(readEpubPublication(value, packed.elementHtml).rendition, {
+    layout: 'reflowable',
+    spread: 'auto'
+  });
+
+  value.rendition = { layout: 'x'.repeat(129) };
+  assert.throws(() => readEpubPublication(value, packed.elementHtml), /navigation text|rendition/i);
+});
