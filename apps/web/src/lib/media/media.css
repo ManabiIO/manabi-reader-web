@@ -612,6 +612,23 @@
 .media-cloud-dialog > button {
   margin-left: auto;
 }
+@media (max-width: 480px) {
+  .video-study-controls {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+  .cue-navigation {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+  }
+  .manabi-media .cue-navigation button {
+    min-width: 0;
+  }
+  .video-toolbar {
+    margin-inline-start: auto;
+  }
+}
 @media (max-width: 600px) {
   .manabi-media {
     padding: 16px;
