@@ -107,7 +107,7 @@ test('restored ranges reject gaps, overlap, fractional coordinates and missing s
       value.resources[0].spineIndex = 2;
     }
   ]) {
-    const value = globalThis.globalThis.structuredClone(before.epubPublication);
+    const value = globalThis.structuredClone(before.epubPublication);
     edit(value);
     assert.throws(() => readEpubPublication(value, before.elementHtml));
   }
@@ -124,7 +124,7 @@ test('resolved publication resources reject unsafe URL and path aliases', () => 
     'a\\b',
     'a\0b'
   ]) {
-    const value = globalThis.globalThis.structuredClone(before.epubPublication);
+    const value = globalThis.structuredClone(before.epubPublication);
     value.resources[0].href = href;
     assert.throws(() => readEpubPublication(value, before.elementHtml), /identity/);
   }
