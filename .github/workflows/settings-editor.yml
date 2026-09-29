@@ -1,0 +1,80 @@
+name: Settings editor usability
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/web/src/**'
+      - 'tests/browser/test_settings*'
+      - 'tests/browser/test_books_library.py'
+      - 'tools/appearance/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/settings-editor.yml'
+  pull_request:
+    paths:
+      - 'apps/web/src/**'
+      - 'tests/browser/test_settings*'
+      - 'tests/browser/test_books_library.py'
+      - 'tools/appearance/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/settings-editor.yml'
+permissions:
+  contents: read
+concurrency:
+  group: settings-editor-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  settings-editor:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: |
+          mkdir -p artifacts/settings-editor
+          git rev-parse HEAD > artifacts/settings-editor/commit.txt
+          git rev-parse HEAD^{tree} > artifacts/settings-editor/tree.txt
+          pnpm install --frozen-lockfile
+          pnpm --dir apps/web exec svelte-kit sync
+      - run: node tools/appearance/lint.mjs
+      - run: pnpm --dir apps/web check
+      - name: Build the real subpath application
+        env:
+          BASE_PATH: /reader-web
+        run: pnpm build
+      - name: Native Settings acceptance
+        run: |
+          python -m pip install 'playwright==1.63.0'
+          python -m playwright install --with-deps chromium webkit
+          set +e
+          status=0
+          for engine in chromium webkit; do
+            mkdir -p artifacts/settings-editor/$engine test-results
+            for suite in test_settings_editor_usability test_settings_controls test_gallery_usability; do
+              LIBRARY_BROWSER=$engine timeout -v -k 10s 180s python tests/browser/$suite.py 2>&1 | tee artifacts/settings-editor/$engine/$suite.log
+              result=${PIPESTATUS[0]}
+              if [ "$result" -ne 0 ]; then status=1; fi
+            done
+            mv test-results artifacts/settings-editor/$engine/screenshots
+          done
+          exit "$status"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: settings-editor-evidence
+          path: |
+            artifacts/settings-editor/
+            test-results/
+          retention-days: 7

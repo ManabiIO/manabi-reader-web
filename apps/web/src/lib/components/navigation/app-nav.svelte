@@ -15,6 +15,7 @@
     ListIcon as MenuIcon
   } from 'phosphor-svelte';
   export let iconOnly = false;
+  export let compact = false;
   let open = false;
   const destinations = [
     {
@@ -63,7 +64,7 @@
   const primaryDestinations = destinations.slice(0, 4);
 </script>
 
-<div class="flex items-center gap-1">
+<div class="flex min-w-0 items-center gap-1" class:compact>
   {#if !iconOnly}
     <nav aria-label="Primary navigation" class="hidden items-center gap-1 lg:flex">
       {#each primaryDestinations as destination (destination.path)}
@@ -85,6 +86,7 @@
       {#snippet child({ props })}
         <Button
           {...props}
+          data-navigation-trigger
           variant="ghost"
           size={iconOnly ? 'icon' : 'default'}
           class={iconOnly ? 'size-11 shrink-0 rounded-full' : 'min-h-9'}
@@ -94,7 +96,7 @@
           <MenuIcon
             class={iconOnly ? 'size-5' : 'size-4'}
             aria-hidden="true"
-          />{#if !iconOnly}Navigate{/if}
+          />{#if !iconOnly}<span class="navigation-label">Navigate</span>{/if}
         </Button>
       {/snippet}
     </Sheet.Trigger>
@@ -151,3 +153,22 @@
     </Sheet.Content>
   </Sheet.Root>
 </div>
+
+<style>
+  @media (max-width: 639px) {
+    .compact :global([data-navigation-trigger]) {
+      width: 44px;
+      height: 44px;
+      min-height: 44px;
+      padding: 0;
+      border-radius: 50%;
+    }
+    .compact .navigation-label {
+      display: none;
+    }
+    .compact :global([data-navigation-trigger] svg) {
+      width: 20px;
+      height: 20px;
+    }
+  }
+</style>

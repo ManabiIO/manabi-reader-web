@@ -20,7 +20,7 @@ class SettingsControlsBrowser(LibraryBase):
             self.page.evaluate('values => { for (const [key,value] of Object.entries(values)) localStorage.setItem(key,value); }', values)
         self.page.goto(self.origin + '/reader-web/settings')
         nav = self.page.get_by_role('navigation', name='Settings categories', exact=True)
-        nav.get_by_role('button', name=section, exact=True).click()
+        nav.get_by_role('link', name=section, exact=True).click()
         expect(self.page.locator('#settings-content').get_by_role('heading', name=section, exact=True)).to_be_visible()
 
     def fonts(self):
@@ -64,7 +64,7 @@ class SettingsControlsBrowser(LibraryBase):
         expect(maximum).to_have_value('0')
         panel.get_by_role('slider').press('Escape')
         self.page.reload()
-        self.page.get_by_role('navigation', name='Settings categories').get_by_role('button', name='Page layout', exact=True).click()
+        self.page.get_by_role('navigation', name='Settings categories').get_by_role('link', name='Page layout', exact=True).click()
         expect(margin).to_have_value('137')
         expect(maximum).to_have_value('0')
 
@@ -177,7 +177,7 @@ class SettingsControlsBrowser(LibraryBase):
                 self.assert_reachable(dialog.get_by_role('button', name='Done', exact=True))
                 dialog.get_by_role('button', name='Done', exact=True).click()
                 expect(dialog).to_have_count(0)
-                self.page.get_by_role('navigation', name='Settings categories').get_by_role('button', name='Page layout', exact=True).click()
+                self.page.get_by_role('navigation', name='Settings categories').get_by_role('link', name='Page layout', exact=True).click()
                 self.page.get_by_role('button', name='Size presets for', exact=False).first.click()
                 panel = self.page.get_by_role('dialog', name='Size presets for', exact=False)
                 self.assert_reachable(panel.get_by_role('button', name='50%', exact=True))

@@ -1330,7 +1330,7 @@
       title="Keep Local Data on Deletion"
       tooltip={'Determines if local statistics will be deleted or not when removing a local book copy'}
     >
-      <div class="flex items-center">
+      <div class="flex min-w-0 flex-wrap items-center gap-3">
         <ButtonToggleGroup
           options={optionsForToggle}
           bind:selectedOptionId={keepLocalStatisticsOnDeletion}
@@ -1338,7 +1338,6 @@
         <Button
           variant="destructive"
           size="sm"
-          class="ml-4"
           onclick={() => {
             showSpinner = true;
             database
