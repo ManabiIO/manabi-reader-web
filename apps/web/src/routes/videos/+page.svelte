@@ -22,12 +22,34 @@
   import { chooseCloudVideo } from '$lib/media/cloud-browser';
   import { ProfileLifetime } from '$lib/media/profile-lifetime';
   import type { WorkspaceConnection } from '$lib/media/workspace';
+  import { isContentKey, isUUID, LIMITS } from '$lib/media/contracts';
   import '$lib/media/media.css';
 
   let host: HTMLDivElement;
   let appearanceOpen = false;
   let appearanceTrigger: HTMLElement | undefined;
   let workspace: VideoWorkspace | undefined;
+
+  function requestedSearchResult() {
+    const params = new URLSearchParams(location.search);
+    const media = params.get('media');
+    if (!isContentKey(media)) return undefined;
+    const rawTime = params.get('time');
+    const time = rawTime === null ? 0 : Number(rawTime);
+    if (!Number.isFinite(time) || time < 0 || time > LIMITS.duration) return undefined;
+    const candidate = params.get('track');
+    const track = candidate && isUUID(candidate) ? candidate : undefined;
+    return { media, time, track };
+  }
+
+  function openRequestedSearchResult(target: VideoWorkspace) {
+    const result = requestedSearchResult();
+    if (!result) return;
+    void target.openSearchResult(result.media, result.time, result.track).catch(() => {
+      // VideoWorkspace owns the user-visible error. A missing/revoked source
+      // must not replace the rest of the video library route.
+    });
+  }
   onMount(() => {
     const typography = combineLatest([
       fontFamilyGroupOne$,
@@ -68,8 +90,8 @@
     const stopFonts = observeReaderFontLayout(host, () => workspace?.refreshDisplay());
     const lifetime = new ProfileLifetime<WorkspaceConnection>(
       offlineMediaProfile,
-      (scope, connection) =>
-        (workspace = new VideoWorkspace(host, {
+      (scope, connection) => {
+        const target = new VideoWorkspace(host, {
           scope,
           booksURL: `${base}/manage`,
           runtimeBase: `${base}/moss`,
@@ -81,7 +103,11 @@
           loadBunny: () =>
             import('$lib/manabi/media-runtime').then((module) => module.mediaRuntime),
           ...connection
-        })),
+        });
+        workspace = target;
+        openRequestedSearchResult(target);
+        return target;
+      },
       (error) => {
         host.textContent = error instanceof Error ? error.message : String(error);
       }
