@@ -265,14 +265,15 @@ async function localBooks(
   scoped(accountId);
   // Scope adoption is one IndexedDB transaction across the exact-copy set.
   // This remains safe even when Web Locks is unavailable in another tab.
-  const tx = db.transaction(['data', 'readerBookScope'], 'readwrite');
+  const tx = db.transaction(['data', 'readerBookScope', 'readerStatisticScope'], 'readwrite');
   const claimed = await commitTransaction(tx, async () => {
-    const [metadata, scopeRows] = await Promise.all([
+    const [metadata, scopeRows, statisticScopes] = await Promise.all([
       readIndexedBookMetadata(tx.objectStore('data'), () => scoped(accountId)),
-      tx.objectStore('readerBookScope').getAll()
+      tx.objectStore('readerBookScope').getAll(),
+      tx.objectStore('readerStatisticScope').getAll()
     ]);
     scoped(accountId);
-    const plan = planPersonalBookClaims(metadata, scopeRows, accountId);
+    const plan = planPersonalBookClaims(metadata, scopeRows, accountId, statisticScopes);
     for (const scope of plan.scopesToCreate) {
       scoped(accountId);
       await tx.objectStore('readerBookScope').put(scope);
