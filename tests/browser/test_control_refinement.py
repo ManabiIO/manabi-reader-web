@@ -210,6 +210,62 @@ class ControlRefinementBrowser(modal_controls.ModalControlsBrowser):
         expect(controls).to_be_focused()
 
 
+    def test_notes_panel_keeps_sticky_dismissal_reachable_at_200_percent_text(self):
+        self.open_reader()
+        self.page.set_viewport_size({'width': 320, 'height': 320})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        reveal_reader_controls(self.page)
+        trigger = self.page.get_by_role('button', name='Bookmarks and Notes', exact=True)
+        trigger.focus()
+        trigger.press('Enter')
+        panel = self.page.get_by_role('dialog').last
+        expect(panel.get_by_role('heading', name='Bookmarks & Notes', exact=True)).to_be_visible()
+        add = panel.get_by_role('button', name='Add Bookmark', exact=True)
+        self.assertGreaterEqual(add.bounding_box()['height'], 43.99)
+        add.click()
+
+        saved = panel.get_by_role('button').filter(has_text='Go to saved passage')
+        expect(saved).to_have_count(1)
+        self.page.wait_for_function('e => e.scrollHeight > e.clientHeight', arg=panel.element_handle())
+        panel.evaluate('e => { e.scrollTop = e.scrollHeight; }')
+        self.page.wait_for_function('e => e.scrollTop > 0', arg=panel.element_handle())
+        saved = panel.get_by_role('button').filter(has_text='Go to saved passage')
+        expect(saved).to_be_visible()
+
+        close = panel.get_by_role('button', name='Close bookmarks and notes', exact=True)
+        box = close.bounding_box()
+        viewport = self.page.evaluate('''() => {
+          const v=visualViewport;
+          return {
+            left:v?.offsetLeft ?? 0, top:v?.offsetTop ?? 0,
+            right:(v?.offsetLeft ?? 0)+(v?.width ?? innerWidth),
+            bottom:(v?.offsetTop ?? 0)+(v?.height ?? innerHeight)
+          };
+        }''')
+        self.assertGreaterEqual(box['width'], 43.99)
+        self.assertGreaterEqual(box['height'], 43.99)
+        self.assertGreaterEqual(box['x'], viewport['left'] - 1)
+        self.assertGreaterEqual(box['y'], viewport['top'] - 1)
+        self.assertLessEqual(box['x'] + box['width'], viewport['right'] + 1)
+        self.assertLessEqual(box['y'] + box['height'], viewport['bottom'] + 1)
+        self.assertTrue(close.evaluate('''e => {
+          const r=e.getBoundingClientRect();
+          const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+          return !!hit && (hit===e || e.contains(hit));
+        }'''))
+        self.assertLessEqual(panel.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+
+        remove = panel.get_by_role('button', name='Remove bookmark', exact=True)
+        remove.scroll_into_view_if_needed()
+        self.assertGreaterEqual(remove.bounding_box()['height'], 43.99)
+        self.capture('notes-short-enlarged-sticky-dismissal')
+
+        close.focus()
+        close.press('Enter')
+        expect(panel).to_have_count(0)
+        expect(self.page.locator('button[data-reader-controls]')).to_be_focused()
+        self.page.evaluate('document.documentElement.style.fontSize = ""')
+
     def test_notes_actions_have_distinct_shapes_and_remain_reachable_in_landscape(self):
         self.open_reader()
         self.page.set_viewport_size({'width': 568, 'height': 320})
