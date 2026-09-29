@@ -92,6 +92,68 @@ class RheaReader(previous.RefinedAppearance):
                 self.page.get_by_role('button', name='Hide reading controls', exact=True).click()
                 expect(toolbar).to_have_count(0)
 
+    def test_enlarged_reader_toolbar_stays_reachable_in_a_short_phone_viewport(self):
+        self.open_book(font='Klee One')
+        self.wait_for_fonts()
+        self.page.set_viewport_size({'width': 320, 'height': 320})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        reveal_reader_controls(self.page)
+
+        toolbar = self.page.get_by_role('banner', name='Reader toolbar')
+        expect(toolbar).to_be_visible()
+        self.assertLessEqual(toolbar.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
+        bounds = toolbar.bounding_box()
+        self.assertGreaterEqual(bounds['x'], -1)
+        self.assertGreaterEqual(bounds['y'], -1)
+        self.assertLessEqual(bounds['x'] + bounds['width'], 321)
+        self.assertLessEqual(bounds['y'] + bounds['height'], 321)
+
+        def assert_target(control):
+            box = control.bounding_box()
+            self.assertGreaterEqual(box['width'], 43.99)
+            self.assertGreaterEqual(box['height'], 43.99)
+            self.assertGreaterEqual(box['x'], -1)
+            self.assertGreaterEqual(box['y'], -1)
+            self.assertLessEqual(box['x'] + box['width'], 321)
+            self.assertLessEqual(box['y'] + box['height'], 321)
+            self.assertTrue(control.evaluate('''e => {
+              const r = e.getBoundingClientRect();
+              const hit = document.elementFromPoint(r.left + r.width/2, r.top + r.height/2);
+              return !!hit && (hit === e || e.contains(hit));
+            }'''))
+
+        for name in ('Library', 'Bookmarks and Notes', 'Themes & Settings', 'Reading tools'):
+            assert_target(toolbar.get_by_role('button', name=name, exact=True))
+        progress = self.page.locator('button[title="Copy Progress"]')
+        assert_target(progress)
+
+        content = self.page.locator('.book-content').bounding_box()
+        self.assertGreater(content['height'], 64)
+        self.assertGreater(content['width'], 64)
+        self.assertLessEqual(content['y'] + content['height'], bounds['y'] + 1)
+
+        tools = toolbar.get_by_role('button', name='Reading tools', exact=True)
+        tools.focus()
+        tools.press('Enter')
+        menu = self.page.get_by_role('menu')
+        expect(menu).to_be_visible()
+        menu_box = menu.bounding_box()
+        self.assertGreaterEqual(menu_box['x'], -1)
+        self.assertGreaterEqual(menu_box['y'], -1)
+        self.assertLessEqual(menu_box['x'] + menu_box['width'], 321)
+        self.assertLessEqual(menu_box['y'] + menu_box['height'], 321)
+        self.assertLessEqual(menu.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
+        for item in menu.get_by_role('menuitem').all():
+            box = item.bounding_box()
+            self.assertGreaterEqual(box['height'], 43.99)
+        self.page.screenshot(path='test-results/reader-toolbar-enlarged-short.png')
+        self.page.keyboard.press('Escape')
+        expect(menu).to_have_count(0)
+        expect(tools).to_be_focused()
+        self.page.get_by_role('button', name='Hide reading controls', exact=True).click()
+        expect(toolbar).to_have_count(0)
+        expect(self.page.locator('.book-content')).to_be_visible()
+
     def test_in_book_appearance_persists_and_owns_keys_vertical_phone(self):
         self.verify_reading_appearance('vertical-rl', 390)
 
