@@ -3,7 +3,8 @@ import { test } from 'node:test';
 import {
   contentHashPrimaryKeys,
   normalizedIndexedContentHash,
-  readIndexedBookMetadata
+  readIndexedBookMetadata,
+  readIndexedBookTitles
 } from '../../apps/web/src/lib/data/database/books-db/content-hash-index.ts';
 
 function index(entries) {
@@ -125,4 +126,40 @@ test('compact metadata projection retains hash/owner evidence even when title me
   assert.deepEqual(await readIndexedBookMetadata(store), [
     { id: 1, contentHash: hash, libraryOwner: 'alice' }
   ]);
+});
+
+test('title recovery projection retains hashless books without reading payloads', async () => {
+  const hash = '7'.repeat(64);
+  const store = {
+    index(name) {
+      return index(
+        name === 'title'
+          ? [
+              ['Legacy title', 1],
+              ['Verified title', 2]
+            ]
+          : [[hash.toUpperCase(), 2]]
+      );
+    }
+  };
+  assert.deepEqual(await readIndexedBookTitles(store), [
+    { id: 1, title: 'Legacy title' },
+    { id: 2, title: 'Verified title', contentHash: hash }
+  ]);
+});
+
+test('title recovery projection ignores malformed title keys but retains other valid books', async () => {
+  const store = {
+    index(name) {
+      return index(
+        name === 'title'
+          ? [
+              [42, 1],
+              ['Good', 2]
+            ]
+          : []
+      );
+    }
+  };
+  assert.deepEqual(await readIndexedBookTitles(store), [{ id: 2, title: 'Good' }]);
 });
