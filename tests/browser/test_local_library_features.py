@@ -23,6 +23,7 @@ from xml.sax.saxutils import escape
 import zipfile
 from http.server import BaseHTTPRequestHandler
 from playwright.sync_api import expect
+from reader_controls import reveal_reader_controls
 from test_static_reader import ThreadingHTTPServer, StaticHandler
 from test_books_library import LibraryBase, book, cross_resource_book
 
@@ -218,6 +219,9 @@ class LocalFeatureBrowser(LibraryBase):
         if not field.count() or not field.is_visible():
             self.page.get_by_role('button',name='Search library',exact=True).click()
         field.fill(text)
+        books = self.page.locator('[data-search-scope="books"]')
+        if books.get_attribute('aria-pressed') != 'true':
+            books.click()
 
     def open_migration(self, raw=None):
         self.page.goto(self.origin+'/reader-web/import-ttu?source=yatsu')
@@ -279,7 +283,7 @@ class LocalFeatureBrowser(LibraryBase):
         self.import_book('Search metadata',creators=('Test Author',),body='<p>ＡＢＣ <ruby>猫<rt>ねこ</rt></ruby>が好き。</p>')
         self.import_book('Other novel',body='<p>Content-only SEARCH metadata mention.</p>')
         self.search('Search metadata')
-        expect(self.page.get_by_role('heading',name='Books 1',exact=True)).to_be_visible()
+        expect(self.page.get_by_role('heading',name='Titles',exact=True)).to_be_visible()
         expect(self.page.get_by_role('heading',name='Content',exact=True)).to_be_visible()
         expect(self.page.get_by_role('button',name='Read Search metadata',exact=True)).to_be_enabled()
         expect(self.page.get_by_role('button',name=re.compile('^Open passage in Other novel:'))).to_be_visible()
@@ -288,14 +292,14 @@ class LocalFeatureBrowser(LibraryBase):
         expect(hit).to_be_visible()
         self.assertIn('ＡＢＣ',hit.inner_text())
         self.search('ねこ')
-        expect(self.page.get_by_text('No content matches.',exact=True)).to_be_visible()
+        expect(self.page.get_by_text('No matches in content saved in this browser.',exact=True)).to_be_visible()
         self.assertEqual(0,self.page.get_by_role('button',name=re.compile('^Open passage in')).count())
 
     def test_metadata_clickable_with_worker_failure(self):
         self.import_book('Metadata still works',body='<p>Metadata still works.</p>')
         self.page.evaluate('''()=>{window.OriginalWorker=window.Worker;window.Worker=class{constructor(){throw new Error('test worker failure')}}}''')
         self.search('Metadata')
-        expect(self.page.get_by_text('Content search could not start. Book matches are still available.',exact=True)).to_be_visible()
+        expect(self.page.get_by_role('status').filter(has_text='could not be searched')).to_be_visible()
         self.page.get_by_role('button',name='Read Metadata still works',exact=True).click()
         expect(self.page).to_have_url(re.compile(r'/b\?id='))
         expect(self.page.get_by_text('Metadata still works.',exact=True)).to_be_visible()
@@ -389,7 +393,7 @@ class LocalFeatureBrowser(LibraryBase):
           }};}""")
         self.search('Fast')
         self.page.wait_for_function('() => window.searchWorkerMessages > 0')
-        expect(self.page.get_by_text(re.compile('Searching content…'))).to_be_visible()
+        expect(self.page.get_by_text('Searching saved content…', exact=True)).to_be_visible()
         expect(self.page.get_by_role('button',name='Read Fast metadata',exact=True)).to_be_enabled()
         self.page.get_by_role('button',name='Read Fast metadata',exact=True).click()
         expect(self.page.get_by_text('Fast metadata content.',exact=True)).to_be_visible()
@@ -419,7 +423,7 @@ class LocalFeatureBrowser(LibraryBase):
         self.search('AFTER_EDIT')
         expect(self.page.get_by_role('button',name='Open passage in Reindexed book: AFTER_EDIT',exact=True)).to_be_visible()
         self.search('BEFORE_EDIT')
-        expect(self.page.get_by_text('No content matches.',exact=True)).to_be_visible()
+        expect(self.page.get_by_text('No matches in content saved in this browser.',exact=True)).to_be_visible()
         self.context.set_offline(True)
         self.search('AFTER_EDIT')
         expect(self.page.get_by_role('button',name='Open passage in Reindexed book: AFTER_EDIT',exact=True)).to_be_visible()
@@ -427,7 +431,7 @@ class LocalFeatureBrowser(LibraryBase):
     def test_yatsu_edit_download_conflict_and_restore(self):
         self.open_migration();self.migrate()
         self.page.get_by_role('link',name='Read '+TITLE,exact=True).click()
-        self.page.get_by_role('button',name='Show reading controls',exact=True).click()
+        reveal_reader_controls(self.page)
         self.page.get_by_role('button',name='Bookmarks and Notes',exact=True).click()
         notebook=self.page.get_by_role('region',name='Imported Yatsu notes',exact=True)
         expect(notebook.get_by_text('A book-wide note',exact=True)).to_be_visible()
@@ -564,7 +568,7 @@ class LocalFeatureBrowser(LibraryBase):
         self.search('日本語')
         expect(self.page.get_by_role('button',name='Open passage in A long searchable title 日本語: 日本語',exact=True)).to_be_visible()
         self.assertTrue(self.page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1'))
-        sections=self.page.locator('.library-search > section')
+        sections=self.page.locator('.unified-search > section')
         self.assertEqual(2,sections.count())
         self.assertLess(sections.nth(0).bounding_box()['y'],sections.nth(1).bounding_box()['y'])
 
@@ -588,7 +592,7 @@ class LocalFeatureBrowser(LibraryBase):
     def test_webdav_two_devices_annotations_converge_without_revision_churn(self):
         self.establish_dav_state()
         self.page.get_by_role('link',name='Read WebDAV offline book',exact=True).click()
-        self.page.get_by_role('button',name='Show reading controls',exact=True).click()
+        reveal_reader_controls(self.page)
         self.page.get_by_role('button',name='Bookmarks and Notes',exact=True).click()
         self.page.get_by_role('button',name='Add Bookmark',exact=True).click()
         self.wait_rows('readerAnnotation',lambda rows:len(rows)==1)

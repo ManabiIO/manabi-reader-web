@@ -2,6 +2,7 @@
 import unittest
 from unittest.mock import patch
 from playwright.sync_api import expect
+from reader_controls import reveal_reader_controls
 from test_local_library_features import LocalFeatureBrowser, DavHandler, TITLE, archive_files, zip_bytes, yatsu_fixture
 
 
@@ -15,7 +16,7 @@ class LocalLibraryReview(LocalFeatureBrowser):
         # These are real saved cache rows; the immutable source and fingerprint remain unchanged.
         for damage in ('text', 'shape', 'legacy'):
             self.search('unmatched query')
-            expect(self.page.get_by_text('No content matches.', exact=True)).to_be_visible()
+            expect(self.page.get_by_text('No matches in content saved in this browser.', exact=True)).to_be_visible()
             self.page.evaluate("""async damage => {
                 const db = await new Promise((resolve, reject) => {
                     const r = indexedDB.open('books'); r.onsuccess=()=>resolve(r.result); r.onerror=()=>reject(r.error);
@@ -44,9 +45,7 @@ class LocalLibraryReview(LocalFeatureBrowser):
         # The second tab can show the server-rendered controls before the
         # reader has loaded its book and attached the click handler.
         expect(page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=30000)
-        controls = page.get_by_role('button', name='Show reading controls', exact=True)
-        controls.click()
-        expect(page.locator('button[data-reader-controls]')).to_have_attribute('aria-expanded', 'true')
+        reveal_reader_controls(page)
         page.get_by_role('button', name='Bookmarks and Notes', exact=True).click()
         notebook = page.get_by_role('region', name='Imported Yatsu notes', exact=True)
         expect(notebook.get_by_text('A book-wide note', exact=True)).to_be_visible()

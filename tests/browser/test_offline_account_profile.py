@@ -3,6 +3,7 @@ import re
 import time
 
 from playwright.sync_api import expect
+from reader_controls import reveal_reader_controls
 from test_books_library import LibraryBase
 from test_static_reader import StaticHandler
 
@@ -97,7 +98,7 @@ class OfflineAccountProfile(LibraryBase):
         expect(self.page.get_by_text('reader-a', exact=True)).to_be_visible()
         self.page.goto(self.origin + '/reader-web/b?id=' + str(book_id))
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=35000)
-        self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+        reveal_reader_controls(self.page)
         self.page.get_by_role('button', name='Bookmarks and Notes', exact=True).click()
         self.page.get_by_role('button', name='Add Bookmark', exact=True).click()
         saved = self.page.get_by_label('Saved annotations')
@@ -115,7 +116,7 @@ class OfflineAccountProfile(LibraryBase):
         self.page.get_by_role('button', name='Refresh connections', exact=True).click()
         self.page.goto(self.origin + '/reader-web/b?id=' + str(book_id))
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=35000)
-        self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+        reveal_reader_controls(self.page)
         self.page.get_by_role('button', name='Bookmarks and Notes', exact=True).click()
         expect(self.page.get_by_label('Saved annotations').get_by_text(
             'No saved bookmarks or notes yet.', exact=True)).to_be_visible()
