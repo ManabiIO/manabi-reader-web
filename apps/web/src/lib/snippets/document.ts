@@ -7,6 +7,9 @@
 /** The file is the document. Provider IDs, paths and hashes are only locations/revisions. */
 export const SNIPPET_SUFFIX = '.manabi-snippet.json';
 export const MAX_SNIPPET_BYTES = 2 * 1024 * 1024;
+export const MAX_SNIPPET_SEARCH_CODEPOINTS = 512;
+export const snippetSearchTooLong = (value: string) =>
+  [...value].length > MAX_SNIPPET_SEARCH_CODEPOINTS;
 export const isSnippetFile = (name: string) => name.toLowerCase().endsWith(SNIPPET_SUFFIX);
 export const isUUID = (value: unknown): value is string =>
   typeof value === 'string' &&
@@ -482,7 +485,7 @@ export function fold(value: string): string {
 }
 export function searchSnippet(document: SnippetDocument, query: string, limit = 20): SnippetHit[] {
   const needle = fold(query.trim());
-  if (!needle || query.length > 512) return [];
+  if (!needle || snippetSearchTooLong(query)) return [];
   const hits: SnippetHit[] = [];
   for (const block of passages(document.content)) {
     // Normalize per grapheme and retain original UTF-16 offsets, including width expansion.
