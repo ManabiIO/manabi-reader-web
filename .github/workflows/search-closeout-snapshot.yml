@@ -1,0 +1,44 @@
+name: Search closeout source snapshot
+on:
+  push:
+    branches: [review/unified-search-source-20260928]
+    paths: [.github/workflows/search-closeout-snapshot.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 3d59bbeb977aab4b1717f59303aa9f48027272c8
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+      - name: Capture exact source and main delta
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/search-snapshot"
+          git archive HEAD | gzip > "$RUNNER_TEMP/search-snapshot/media-source.tar.gz"
+          git diff 3a8e5239a93bd9b4e10b7a7b96e37c2fc1225607 bfd54fdf7b8b9b49091e11d9bc8f39a3241e7d53 > "$RUNNER_TEMP/search-snapshot/main.patch"
+          git ls-tree -r HEAD > "$RUNNER_TEMP/search-snapshot/media-tree.txt"
+          git ls-tree -r bfd54fdf7b8b9b49091e11d9bc8f39a3241e7d53 > "$RUNNER_TEMP/search-snapshot/main-tree.txt"
+      - run: pnpm install --frozen-lockfile
+      - name: Capture installed compiler and app dependencies
+        run: |
+          tar -czf "$RUNNER_TEMP/search-snapshot/dependencies.tar.gz" node_modules apps/web/node_modules
+          cd "$RUNNER_TEMP/search-snapshot"
+          sha256sum *.tar.gz *.patch > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: search-closeout-sources
+          path: ${{ runner.temp }}/search-snapshot
+          retention-days: 1
+          if-no-files-found: error
