@@ -964,10 +964,7 @@ class RheaReader(previous.RefinedAppearance):
         self.wait_for_fonts()
 
     def open_gallery(self):
-        controls = self.page.locator('button[data-reader-controls]')
-        controls.evaluate('element => element.focus({preventScroll: true})')
-        self.page.keyboard.press('Tab')
-        expect(controls).to_have_attribute('aria-expanded', 'true')
+        reveal_reader_controls(self.page)
         self.page.get_by_role('button', name='Reading tools', exact=True).click()
         self.page.get_by_role('menuitem', name='Image Gallery', exact=True).click()
         gallery = self.page.get_by_role('dialog', name='Image gallery', exact=True)

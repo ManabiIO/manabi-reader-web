@@ -156,6 +156,7 @@ class FoliateSlide(ReaderBrowser):
         expect(self.page.get_by_role('banner', name='Reader toolbar')).to_be_visible()
         self.assertRegex(self.indicator(), r'^1 of \d+$')
         self.page.evaluate('document.activeElement?.blur()')
+        self.page.mouse.move(195, 600)
         self.page.evaluate(f"async () => {{window.prepared = await {P}.preparePageTurn(1);window.prepared.update(.45)}}")
         expect(self.page.get_by_role('banner', name='Reader toolbar')).not_to_be_visible()
         expect(self.page.locator('.reader-controls')).to_have_css('opacity', '0')
