@@ -158,8 +158,9 @@
   function bookDetail(book: ShelfBook, selectedQuery: string): string | undefined {
     const needle = foldSearch(selectedQuery.trim());
     const creators = creatorLine(book.creators) || undefined;
-    if ([book.title, book.canonicalTitle].some((value) => foldSearch(value).includes(needle)))
-      return creators;
+    if (foldSearch(book.title).includes(needle)) return creators;
+    if (book.canonicalTitle !== book.title && foldSearch(book.canonicalTitle).includes(needle))
+      return `Original title · ${book.canonicalTitle}`;
     const creator = (book.creators ?? []).find((item) => foldSearch(item.name).includes(needle));
     if (creator) return `Author · ${creator.name}`;
     const context = (bookMatchText[book.key] ?? []).find((item) =>
