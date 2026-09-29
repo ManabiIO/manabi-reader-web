@@ -89,17 +89,12 @@
     const fragment = range.cloneContents();
     const wrapper = window.document.createElement('div');
     wrapper.append(fragment);
-    const sourceURL = new URL(window.location.href);
-    sourceURL.search = '';
-    sourceURL.hash = '';
-    sourceURL.searchParams.set('id', document.id);
     window.dispatchEvent(
       new CustomEvent('manabi-capture-snippet', {
         detail: {
           html: wrapper.innerHTML,
           title: displayTitle(document),
           item: `snippet:${document.id}`,
-          url: sourceURL.href,
           owner: selectedScope.owner === 'local' ? null : selectedScope.owner.slice(8)
         }
       })
