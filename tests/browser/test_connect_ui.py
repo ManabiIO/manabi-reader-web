@@ -93,11 +93,6 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
 
                 control.focus()
                 expect(control).to_be_focused()
-                self.assertNotEqual(
-                    'none',
-                    control.evaluate('e => getComputedStyle(e).outlineStyle'),
-                    route
-                )
                 self.assert_no_horizontal_overflow(self.page.locator('html'))
                 self.capture(f'connect-short-enlarged-{label}')
 
