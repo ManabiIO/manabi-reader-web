@@ -23,7 +23,7 @@
   import { lastBlurredTrackerItems$, skipKeyDownListener$ } from '$lib/data/store';
   import { secondsToMinutes, toTimeString } from '$lib/functions/statistic-util';
   import { caluclatePercentage } from '$lib/functions/utils';
-  import { createEventDispatcher, onMount } from 'svelte';
+  import { createEventDispatcher, onMount, tick } from 'svelte';
   import AppIcon from '$lib/components/app-icon.svelte';
 
   export let fontColor: string;
@@ -72,6 +72,8 @@
   const trackingItemsPerPage = 15;
 
   let trackingHistoryIndex = 0;
+  let previousHistoryPage: HTMLButtonElement | undefined;
+  let nextHistoryPage: HTMLButtonElement | undefined;
   let timeToFinishChapter = 'N/A';
 
   $: allStatistics = autoScrollerStatistics
@@ -134,6 +136,20 @@
 
       default:
         break;
+    }
+  }
+
+  async function pageHistory(delta: -1 | 1) {
+    trackingHistoryIndex = Math.max(0, trackingHistoryIndex + delta);
+    await tick();
+
+    // Keep keyboard ownership on an enabled pager when the activated control
+    // becomes disabled at a boundary. On intermediate pages the same button
+    // remains focused so repeated paging is still one-key operation.
+    if (delta > 0 && nextHistoryPage?.disabled) {
+      previousHistoryPage?.focus({ preventScroll: true });
+    } else if (delta < 0 && previousHistoryPage?.disabled) {
+      nextHistoryPage?.focus({ preventScroll: true });
     }
   }
 
@@ -455,6 +471,7 @@
           </div>
           <div class="mt-3 flex justify-between">
             <Button
+              bind:ref={previousHistoryPage}
               variant="ghost"
               size="icon"
               shape="circle"
@@ -462,11 +479,12 @@
               aria-label="Previous history page"
               title="Previous Page"
               disabled={currentTrackingHistoryIndex === 0}
-              onclick={() => (trackingHistoryIndex -= 1)}
+              onclick={() => void pageHistory(-1)}
             >
               <AppIcon icon={faChevronLeft} />
             </Button>
             <Button
+              bind:ref={nextHistoryPage}
               variant="ghost"
               size="icon"
               shape="circle"
@@ -474,7 +492,7 @@
               aria-label="Next history page"
               title="Next Page"
               disabled={!hasNextPage}
-              onclick={() => (trackingHistoryIndex += 1)}
+              onclick={() => void pageHistory(1)}
             >
               <AppIcon icon={faChevronRight} />
             </Button>
