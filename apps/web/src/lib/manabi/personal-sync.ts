@@ -7,10 +7,13 @@
 import { get, writable } from 'svelte/store';
 import { database } from '$lib/data/store';
 import type {
-  StoredBookData,
   BooksDbBookmarkData,
   BooksDbStatistic
 } from '$lib/data/database/books-db/versions/books-db';
+import {
+  readIndexedBookMetadata,
+  type IndexedBookMetadata
+} from '$lib/data/database/books-db/content-hash-index';
 import type {
   PersonalConflict,
   PersonalKind,
@@ -243,15 +246,17 @@ async function publish(
   });
 }
 
-async function localBooks(accountId: string): Promise<Map<string, StoredBookData[]>> {
+async function localBooks(accountId: string): Promise<Map<string, IndexedBookMetadata[]>> {
   const db = await database.db;
-  const map = new Map<string, StoredBookData[]>();
-  const allBooks = await db.getAll('data');
-  const scopes = new Map<number, { bookId: number; accountId: string; hydrated?: boolean }>();
-  for (const book of allBooks) {
-    const scope = await db.get('readerBookScope', book.id);
-    if (scope) scopes.set(book.id, scope);
-  }
+  const map = new Map<string, IndexedBookMetadata[]>();
+  const inventory = db.transaction(['data', 'readerBookScope']);
+  const [allBooks, scopeRows] = await Promise.all([
+    readIndexedBookMetadata(inventory.objectStore('data'), () => scoped(accountId)),
+    inventory.objectStore('readerBookScope').getAll()
+  ]);
+  await inventory.done;
+  scoped(accountId);
+  const scopes = new Map(scopeRows.map((scope) => [scope.bookId, scope]));
   const ownersByBook = new Map<string, Set<string>>();
   for (const book of allBooks) {
     if (!book.contentHash || !/^[a-f0-9]{64}$/i.test(book.contentHash)) continue;
@@ -296,7 +301,7 @@ async function readLocal(
   kind: PersonalKind,
   entityId: string,
   bookKey: string,
-  books: Map<string, StoredBookData[]>
+  books: Map<string, IndexedBookMetadata[]>
 ): Promise<Payload> {
   const db = await database.db;
   if (kind === 'annotation') {
@@ -339,7 +344,7 @@ async function applyLocal(
   entityId: string,
   bookKey: string,
   payload: Payload,
-  books: Map<string, StoredBookData[]>,
+  books: Map<string, IndexedBookMetadata[]>,
   accountId: string,
   expected: Payload
 ) {
@@ -431,7 +436,7 @@ async function applyLocal(
 async function acceptRemote(
   accountId: string,
   item: RemoteRecord,
-  books: Map<string, StoredBookData[]>,
+  books: Map<string, IndexedBookMetadata[]>,
   cursor: number,
   generation?: string,
   absent = false,
@@ -592,7 +597,7 @@ function validEpoch(value: Partial<SyncEpoch>): value is SyncEpoch {
   );
 }
 
-async function recoverSnapshot(accountId: string, books: Map<string, StoredBookData[]>) {
+async function recoverSnapshot(accountId: string, books: Map<string, IndexedBookMetadata[]>) {
   const db = await database.db;
   const previous = await db.get('readerSyncState', accountId);
   scoped(accountId);
@@ -693,7 +698,7 @@ async function recoverSnapshot(accountId: string, books: Map<string, StoredBookD
   await tx.done;
 }
 
-async function bootstrap(accountId: string, books: Map<string, StoredBookData[]>) {
+async function bootstrap(accountId: string, books: Map<string, IndexedBookMetadata[]>) {
   const db = await database.db;
   let state = await db.get('readerSyncState', accountId);
   let recovered = false;
@@ -759,7 +764,7 @@ async function bootstrap(accountId: string, books: Map<string, StoredBookData[]>
   }
 }
 
-async function stageReading(accountId: string, books: Map<string, StoredBookData[]>) {
+async function stageReading(accountId: string, books: Map<string, IndexedBookMetadata[]>) {
   const db = await database.db;
   for (const bookKey of books.keys()) {
     const stats = await db.getAll('readerStatistic', IDBKeyRange.bound([bookKey], [bookKey, []]));
@@ -812,7 +817,7 @@ async function stageReading(accountId: string, books: Map<string, StoredBookData
   }
 }
 
-async function hydrateReading(accountId: string, books: Map<string, StoredBookData[]>) {
+async function hydrateReading(accountId: string, books: Map<string, IndexedBookMetadata[]>) {
   const db = await database.db;
   const pending = await db.getAllFromIndex('readerPersonalOutbox', 'accountId', accountId);
   const unhydrated = new Set<string>();
@@ -878,7 +883,7 @@ async function sendMutation(accountId: string, mutation: WireMutation): Promise<
   return reply.record;
 }
 
-async function flushReading(accountId: string, books: Map<string, StoredBookData[]>) {
+async function flushReading(accountId: string, books: Map<string, IndexedBookMetadata[]>) {
   const db = await database.db;
   const outbox = await db.getAllFromIndex('readerPersonalOutbox', 'accountId', accountId);
   outbox.sort((left, right) => {
@@ -967,7 +972,7 @@ async function flushReading(accountId: string, books: Map<string, StoredBookData
   }
 }
 
-async function stageAnnotations(accountId: string, books: ReadonlyMap<string, StoredBookData[]>) {
+async function stageAnnotations(accountId: string, books: ReadonlyMap<string, IndexedBookMetadata[]>) {
   const db = await database.db;
   const pending = await db.getAllFromIndex('readerAnnotationOutbox', 'accountId', accountId);
   const pendingIds = new Set(pending.map((value) => value.annotationId));
@@ -1007,7 +1012,7 @@ async function stageAnnotations(accountId: string, books: ReadonlyMap<string, St
   }
 }
 
-async function flushAnnotations(accountId: string, books: Map<string, StoredBookData[]>) {
+async function flushAnnotations(accountId: string, books: Map<string, IndexedBookMetadata[]>) {
   const db = await database.db;
   for (const pending of await db.getAllFromIndex(
     'readerAnnotationOutbox',
