@@ -1,8 +1,9 @@
 <script lang="ts">
   import ImportedYatsuNotes from './imported-yatsu-notes.svelte';
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, tick } from 'svelte';
   import * as Sheet from '$lib/components/ui/sheet';
   import { Button } from '$lib/components/ui/button';
+  import CloseButton from '$lib/components/ui/close-button.svelte';
   import {
     BookmarkSimple,
     DownloadSimple,
@@ -25,7 +26,14 @@
   export let status = '';
   export let savedVersion = 0;
   let note = '';
+  let contentElement: HTMLElement | null = null;
+  let pendingRemoval: { id: string; index: number } | undefined;
   $: if (savedVersion > 0) note = '';
+  $: if (pendingRemoval && !busy) {
+    const pending = pendingRemoval;
+    pendingRemoval = undefined;
+    void restoreRemovalFocus(pending.index);
+  }
   const dispatch = createEventDispatcher<{
     bookmark: void;
     highlight: void;
@@ -43,22 +51,49 @@
     if (!value || busy) return;
     dispatch('note', value);
   }
+
+  async function restoreRemovalFocus(index: number) {
+    await tick();
+    const removes = contentElement?.querySelectorAll<HTMLButtonElement>('button[data-annotation-remove]');
+    if (removes?.length) {
+      removes[Math.min(index, removes.length - 1)]?.focus({ preventScroll: true });
+      return;
+    }
+    contentElement
+      ?.querySelector<HTMLButtonElement>('[data-annotations-primary]')
+      ?.focus({ preventScroll: true });
+  }
+
+  function removeWithFocus(id: string, index: number) {
+    if (busy) return;
+    pendingRemoval = { id, index };
+    contentElement?.focus({ preventScroll: true });
+    dispatch('remove', id);
+  }
 </script>
 
 <Sheet.Root {open} onOpenChange={(value) => (open = value)}>
   <Sheet.Content
+    bind:ref={contentElement}
     side="left"
-    showCloseButton
+    showCloseButton={false}
     closeDisabled={busy}
     aria-busy={busy}
-    class="writing-horizontal-tb p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] data-[side=left]:w-full data-[side=left]:sm:max-w-md"
+    class="writing-horizontal-tb p-[20px] pb-[max(20px,env(safe-area-inset-bottom))] data-[side=left]:w-full data-[side=left]:sm:max-w-md"
   >
-    <Sheet.Header class="shrink-0 p-0">
-      <Sheet.Title>Bookmarks & Notes</Sheet.Title>
-      <Sheet.Description>Saved places and passages in this book.</Sheet.Description>
+    <Sheet.Header class="annotations-header">
+      <div class="min-w-0">
+        <Sheet.Title class="break-words">Bookmarks & Notes</Sheet.Title>
+        <Sheet.Description>Saved places and passages in this book.</Sheet.Description>
+      </div>
+      <CloseButton
+        aria-label="Close bookmarks and notes"
+        disabled={busy}
+        onclick={() => (open = false)}
+      />
     </Sheet.Header>
     <div class="mt-5 flex shrink-0 flex-wrap gap-2">
-      <Button variant="secondary" disabled={busy} onclick={() => dispatch('bookmark')}
+      <Button data-annotations-primary variant="secondary" disabled={busy} onclick={() => dispatch('bookmark')}
         ><BookmarkSimple aria-hidden="true" />Add Bookmark</Button
       >
       <Button
@@ -153,7 +188,7 @@
       {#if !annotations.length}<p class="text-sm text-muted-foreground">
           No saved bookmarks or notes yet.
         </p>{/if}
-      {#each annotations as annotation (annotation.id)}
+      {#each annotations as annotation, index (annotation.id)}
         <div class="flex items-start gap-1 border-b border-border py-2">
           <button
             type="button"
@@ -187,8 +222,9 @@
             size="icon"
             class="size-11 shrink-0"
             aria-label={`Remove ${annotation.kind}`}
+            data-annotation-remove
             disabled={busy}
-            onclick={() => dispatch('remove', annotation.id)}><Trash aria-hidden="true" /></Button
+            onclick={() => removeWithFocus(annotation.id, index)}><Trash aria-hidden="true" /></Button
           >
         </div>
       {/each}
@@ -196,3 +232,18 @@
     <ImportedYatsuNotes {bookId} {bookKey} {open} />
   </Sheet.Content>
 </Sheet.Root>
+
+<style>
+  .annotations-header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 44px;
+    align-items: start;
+    gap: 12px;
+    padding-block-end: 16px;
+    border-block-end: 1px solid var(--border);
+    background: var(--popover);
+  }
+</style>
