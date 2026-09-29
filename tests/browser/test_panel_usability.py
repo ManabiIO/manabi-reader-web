@@ -73,6 +73,52 @@ class PanelUsabilityBrowser(LibraryBase):
             hit && (hit === e || e.contains(hit));
         }''', arg=control.element_handle())
 
+    def test_tracker_reflows_and_privacy_toggle_is_accessible_at_200_percent_text(self):
+        self.page.goto(self.origin + '/reader-web/settings#tracking')
+        self.page.get_by_role('switch', name='Enable Statistics', exact=True).check()
+        title = 'Tracker panel large text'
+        self.page.goto(self.origin + '/reader-web/manage')
+        expect(self.page.locator('input[type=file][accept*=".epub"]').first).to_be_attached()
+        self.import_book(title)
+        self.page.get_by_role('button', name='Read ' + title, exact=True).click()
+        expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
+        trigger = self.page.get_by_role('button', name='Open reading tracker', exact=True)
+        expect(trigger).to_be_visible(timeout=30000)
+        trigger.click()
+        panel = self.page.get_by_role('dialog', name='Reading tracker', exact=True)
+        expect(panel).to_be_visible()
+        self.page.set_viewport_size({'width': 320, 'height': 568})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        self.frames()
+        self.assertLessEqual(panel.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
+
+        metric = panel.locator('[data-tracker-metric]').first
+        metric.scroll_into_view_if_needed()
+        self.assert_unoccluded(metric)
+        self.assertGreaterEqual(metric.bounding_box()['height'], 43.99)
+        before = metric.get_attribute('aria-pressed')
+        label = metric.get_attribute('aria-label')
+        if before == 'true':
+            self.assertIn('value hidden', label)
+        else:
+            self.assertIn('Activate to hide', label)
+        metric.click()
+        expect(metric).to_have_attribute('aria-pressed', 'false' if before == 'true' else 'true')
+        value = metric.locator('[data-tracker-value]')
+        if before == 'true':
+            expect(value).to_have_attribute('aria-hidden', 'false')
+        else:
+            expect(value).to_have_attribute('aria-hidden', 'true')
+
+        close = panel.get_by_role('button', name='Close reading tracker', exact=True)
+        close.scroll_into_view_if_needed()
+        self.assert_unoccluded(close)
+        self.capture('tracker-large-text')
+        close.click()
+        expect(panel).to_have_count(0)
+        expect(trigger).to_be_focused()
+        self.page.evaluate('document.documentElement.style.fontSize = ""')
+
     def test_heatmap_popup_close_has_its_own_space_and_restores_day_focus(self):
         self.seed_statistics()
         for mode in ('light', 'dark'):
