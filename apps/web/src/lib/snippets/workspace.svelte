@@ -60,7 +60,7 @@
     type TextNode
   } from './document';
   import { currentTransfer, moveSnippet, resumeTransfer, keepBoth } from './transfers';
-  import { parseLocator, safeReturn, saveLabel } from './presentation';
+  import { parseLocator, safeReturn, saveLabel, snippetSourceId } from './presentation';
   import { exportSnippets, restoreBackup, MAX_BACKUP_BYTES, download } from './portability';
   import Shelf from './shelf.svelte';
   import Reader from './reader.svelte';
@@ -132,6 +132,7 @@
     if (request) void loadRoute(request);
   }
   $: selectedSummary = $snippetItems.find((item) => item.id === id);
+  $: sourceSnippetId = snippetSourceId(current?.document.source?.item) ?? '';
   $: nextRecordSignature = JSON.stringify([
     selectedSummary?.revision,
     selectedSummary?.dirty,
@@ -991,7 +992,9 @@
           followRemotePosition={!locator}
         />{/key}
       {#if current.document.source}<p class="source">
-          Captured from {current.document.source.title}{#if current.document.source.url}
+          Captured from {current.document.source.title}{#if sourceSnippetId}
+            · <a href={resolve(`/snippets?id=${sourceSnippetId}`)}>Open source</a
+            >{:else if current.document.source.url}
             · <a
               href={current.document.source.url}
               target="_blank"
