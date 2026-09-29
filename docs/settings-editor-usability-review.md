@@ -64,3 +64,24 @@ and all existing suites remain enabled. The storage editor is newly included in
 explicit component lint. Results are recorded on the PR; authored tests and
 baseline passes are not new-head execution evidence. Physical Safari/iOS remains
 separate from automated WebKit.
+
+
+## Protected-source unlock follow-up
+
+The older protected-source prompt bypassed the shared Settings form controls and
+had a correctness problem: successful decryption called its close path and then
+fell through to the no-secret continuation close. Promise resolution masks most
+double-resolution effects, but the component could still dispatch two closes.
+
+The unlock prompt now has one native form, one in-flight operation, shared
+Input/Button controls and the same settle-once destruction contract used by the
+other resolver-backed dialogs. An unresolved removal resolves cancellation.
+Wrong-password errors remain editable and are announced with `role="alert"`;
+the previous shake animation is removed. Popup-blocker continuation still works
+without a password and returns the existing empty-client continuation sentinel.
+
+Focused unit cases cover successful and no-secret settlement, retry after decrypt
+failure, duplicate-submit fencing, destruction cancellation and reader-shortcut
+suppression lifetime. The built Settings suite creates a real encrypted source,
+reopens it at 320px/200% text, exercises wrong/correct passwords and verifies the
+single edit dialog after successful unlock.
