@@ -50,7 +50,6 @@ export function changeWantToRead(value: Organization, books: CollectionBook[], i
   ];
 }
 
-
 /** Count visible logical items in a mixed collection without double-counting book aliases. */
 export function collectionItemCount(
   collection: Collection,
