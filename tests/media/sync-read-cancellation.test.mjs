@@ -96,10 +96,7 @@ for (const reason of [null, 0, false]) {
     controller.abort(reason);
     try {
       assert.deepEqual(await prompt(pending), { ok: false, reason });
-      assert.equal(
-        requests.filter((request) => request.options?.method === 'POST').length,
-        0
-      );
+      assert.equal(requests.filter((request) => request.options?.method === 'POST').length, 0);
     } finally {
       gate.resolve([]);
       await pending;

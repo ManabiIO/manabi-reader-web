@@ -56,7 +56,11 @@ export interface VideoSearchStore {
   ): Promise<Track[]>;
 }
 
-const foldSearch = (value: string) => value.normalize('NFKC').toLowerCase().replace(/\u03c2/g, '\u03c3');
+const foldSearch = (value: string) =>
+  value
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/\u03c2/g, '\u03c3');
 
 const MAX_TITLE_RESULTS = 300;
 const MAX_TRANSCRIPT_RESULTS = 300;
@@ -111,7 +115,9 @@ function trackOrder(a: Track, b: Track): number {
   if (kind) return kind;
   const origin = (value: Track['origin']) =>
     value === 'sidecar' ? 0 : value === 'embedded' ? 1 : 2;
-  return origin(a.origin) - origin(b.origin) || b.createdAt - a.createdAt || a.id.localeCompare(b.id);
+  return (
+    origin(a.origin) - origin(b.origin) || b.createdAt - a.createdAt || a.id.localeCompare(b.id)
+  );
 }
 
 export async function searchVideoTitles(

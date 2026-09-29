@@ -166,7 +166,6 @@ test('cancellation does not erase a completed cursor commit', async () => {
   }
 });
 
-
 test('Close cancels operations still waiting for IndexedDB to open', async () => {
   const factory = new TransactionFactory();
   factory.holdOpen = true;
@@ -174,14 +173,20 @@ test('Close cancels operations still waiting for IndexedDB to open', async () =>
   const pending = outcome(store.local(scope, 'sync', 'cursor'));
   await turn();
   const closing = store.close();
-  assert.notEqual(await Promise.race([closing.then(() => 'closed'), turn().then(() => 'stalled')]), 'stalled');
+  assert.notEqual(
+    await Promise.race([closing.then(() => 'closed'), turn().then(() => 'stalled')]),
+    'stalled'
+  );
   const result = await pending;
   assert.equal(result.ok, false);
   assert.match(String(result.reason), /storage is closed/i);
   assert.equal(factory.transactions.length, 0);
   factory.releaseOpen();
   await turn();
-  assert.equal(factory.connections.every((connection) => connection.closed), true);
+  assert.equal(
+    factory.connections.every((connection) => connection.closed),
+    true
+  );
 });
 
 test('Close still drains a transaction that already started', async () => {
@@ -202,5 +207,8 @@ test('Close still drains a transaction that already started', async () => {
   gate.resolve();
   await Promise.all([pending, closing]);
   assert.equal(factory.values('local').get(JSON.stringify([scope, 'sync', 'cursor'])), 7);
-  assert.equal(factory.connections.every((connection) => connection.closed), true);
+  assert.equal(
+    factory.connections.every((connection) => connection.closed),
+    true
+  );
 });

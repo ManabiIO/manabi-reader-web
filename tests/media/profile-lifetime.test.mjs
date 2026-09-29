@@ -40,7 +40,11 @@ test('same-account available refresh updates connection without transient revoca
   );
   await lifetime.update({ status: 'available', userId: 'u', connection: connection('u:1') });
   calls.length = 0;
-  await lifetime.update({ status: 'available', userId: 'u', connection: connection('u:1-refresh') });
+  await lifetime.update({
+    status: 'available',
+    userId: 'u',
+    connection: connection('u:1-refresh')
+  });
   assert.deepEqual(mounted, ['u:1']);
   assert.equal(disposed.length, 0);
   assert.deepEqual(calls, ['u:1-refresh', 'u:1-refresh']);

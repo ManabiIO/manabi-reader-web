@@ -919,7 +919,8 @@ export class VideoPlayer {
       });
     }
     if (this.closed || !this.ready) throw new Error('Video player is not ready');
-    if (trackId && this.tracks.some((track) => track.id === trackId)) this.chooseTranscript(trackId);
+    if (trackId && this.tracks.some((track) => track.id === trackId))
+      this.chooseTranscript(trackId);
     this.linePause.reset();
     this.touched = true;
     this.video.pause();

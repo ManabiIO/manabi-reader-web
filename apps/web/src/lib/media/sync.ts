@@ -57,8 +57,7 @@ export async function syncMedia(
   const work = async () => {
     guard();
     notify({ state: 'syncing', message: 'Syncing video progress and subtitles…', conflicts: [] });
-    let cursor =
-      (await abortable(signal, () => store.local<number>(scope, 'sync', 'cursor'))) ?? 0;
+    let cursor = (await abortable(signal, () => store.local<number>(scope, 'sync', 'cursor'))) ?? 0;
     if (!Number.isSafeInteger(cursor) || cursor < 0) throw new Error('Invalid saved sync cursor');
     // Drain before pushing: never overwrite unknown cloud history from a fresh browser.
     for (let pages = 0; ; pages++) {

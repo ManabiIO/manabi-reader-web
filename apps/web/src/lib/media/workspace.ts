@@ -764,7 +764,8 @@ export class VideoWorkspace {
       guard();
       for (const sub of subs) {
         guard();
-        if (matchSidecar(source.name, sub.name)) await this.saveSubtitle(key, source.name, sub, signal);
+        if (matchSidecar(source.name, sub.name))
+          await this.saveSubtitle(key, source.name, sub, signal);
       }
       guard();
       await this.refreshTracks();
@@ -1246,11 +1247,7 @@ export class VideoWorkspace {
     );
   }
   /** Opens an already-saved video at a global-search transcript result. */
-  async openSearchResult(
-    key: ContentKey,
-    seconds = 0,
-    trackId?: string
-  ): Promise<void> {
+  async openSearchResult(key: ContentKey, seconds = 0, trackId?: string): Promise<void> {
     try {
       if (this.closed) throw new Error('Video workspace is closed');
       await this.reopen(key);
