@@ -142,9 +142,13 @@ class ReaderNavigationPanels:
         self.page.get_by_role('button', name='Open reading tracker', exact=True).click()
         panel = self.page.get_by_role('dialog', name='Reading tracker', exact=True)
         expect(panel).to_be_visible()
-        label = panel.get_by_role('button', name='Time to Finish Chapter:', exact=True)
-        expect(label).to_be_visible()
-        expect(label.locator('xpath=following-sibling::button[1]')).to_have_text('N/A')
+        chapter_eta = panel.get_by_role(
+            'button',
+            name='Time to Finish Chapter: N/A. Activate to hide.',
+            exact=True,
+        )
+        expect(chapter_eta).to_be_visible()
+        expect(chapter_eta).to_have_attribute('aria-pressed', 'false')
         panel.get_by_role('button', name='Close reading tracker', exact=True).click()
         expect(panel).to_have_count(0)
 
@@ -156,7 +160,9 @@ class ReaderNavigationPanels:
         self.open_chaptered_reader()
         self.page.get_by_role('button', name='Open reading tracker', exact=True).click()
         tracker = self.page.get_by_role('dialog', name='Reading tracker', exact=True)
-        tracker.get_by_role('button', name='Toggle Tracker', exact=True).click()
+        tracker.get_by_role(
+            'button', name='Resume tracking after closing', exact=True
+        ).click()
         tracker.get_by_role('button', name='Close reading tracker', exact=True).click()
         expect(tracker).to_have_count(0)
         panel = self.open_contents_panel()
