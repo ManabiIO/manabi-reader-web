@@ -69,7 +69,7 @@ def natural_kokoro_fixture(path, language):
     data = wave.read_bytes()
     # GitHub's immutable source tree identifies this binary with the canonical
     # Git blob hash; retain SHA-256 separately in result evidence.
-    header = b'blob ' + str(len(data)).encode() + b'\\0'
+    header = b'blob ' + str(len(data)).encode() + b'\0'
     if hashlib.sha1(header + data).hexdigest() != KOKORO_JA_GIT_BLOB:
         raise ValueError('Pinned Kokoro Japanese speech hash does not match')
     fingerprint = hashlib.sha256(data).hexdigest()

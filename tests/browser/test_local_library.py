@@ -142,7 +142,7 @@ class LocalLibraryBrowser(unittest.TestCase):
         self.page.get_by_role('button', name='Disconnect local folder', exact=True).click()
         expect(self.page.get_by_role('button', name='Browse Fixture books')).to_have_count(0)
         self.assertEqual(CONTENT, self.original())
-        self.page.get_by_role('link', name='← Books', exact=True).click()
+        self.page.get_by_role('link', name='Back to Library', exact=True).click()
         expect(self.page.get_by_role('button', name='Read local-book', exact=True)).to_be_visible()
 
     def test_real_handle_reload_keeps_local_reading_data_without_folder_writeback(self):

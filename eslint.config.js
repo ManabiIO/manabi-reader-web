@@ -19,6 +19,7 @@ module.exports = (async () => {
         '**/.cache/**',
         'apps/web/static/manabitan/**',
         'apps/web/static/dictionary-archives/**',
+        'apps/web/static/moss/**',
         '**/build/*',
         '**/test-results/**',
         '**/.svelte-kit/*',
