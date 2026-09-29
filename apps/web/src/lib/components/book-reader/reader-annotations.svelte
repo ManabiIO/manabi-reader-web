@@ -87,7 +87,9 @@
     aria-busy={busy}
     class="writing-horizontal-tb p-[20px] pb-[max(20px,env(safe-area-inset-bottom))] data-[side=left]:w-full data-[side=left]:sm:max-w-md"
   >
-    <Sheet.Header class="annotations-header">
+    <Sheet.Header
+      class="sticky top-0 z-10 grid shrink-0 grid-cols-[minmax(0,1fr)_44px] items-start gap-3 border-b border-border bg-popover p-0 pb-4"
+    >
       <div class="min-w-0">
         <Sheet.Title class="break-words">Bookmarks & Notes</Sheet.Title>
         <Sheet.Description>Saved places and passages in this book.</Sheet.Description>
@@ -104,7 +106,6 @@
         variant="secondary"
         disabled={busy}
         onclick={() => dispatch('bookmark')}
-      
         ><BookmarkSimple aria-hidden="true" />Add Bookmark</Button
       >
       <Button
@@ -235,7 +236,8 @@
             aria-label={`Remove ${annotation.kind}`}
             data-annotation-remove
             disabled={busy}
-            onclick={() => removeWithFocus(annotation.id, index)}><Trash aria-hidden="true" /></Button
+            onclick={() => removeWithFocus(annotation.id, index)}
+            ><Trash aria-hidden="true" /></Button
           >
         </div>
       {/each}
@@ -243,18 +245,3 @@
     <ImportedYatsuNotes {bookId} {bookKey} {open} />
   </Sheet.Content>
 </Sheet.Root>
-
-<style>
-  .annotations-header {
-    position: sticky;
-    top: 0;
-    z-index: 10;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 44px;
-    align-items: start;
-    gap: 12px;
-    padding-block-end: 16px;
-    border-block-end: 1px solid var(--border);
-    background: var(--popover);
-  }
-</style>
