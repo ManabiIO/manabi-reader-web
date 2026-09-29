@@ -302,25 +302,25 @@
   <div class="search-controls">
     <div class="control-group">
       <span class="control-label">Search in</span>
-      <nav aria-label="Search library scope" class="scopes">
+      <div role="group" aria-label="Search library scope" class="scopes">
         {#each librarySearchScopes as item}<button
             type="button"
             data-search-scope={item.id}
             aria-pressed={searchScope === item.id}
             onclick={() => void chooseScope(item.id)}>{item.label}</button
           >{/each}
-      </nav>
+      </div>
     </div>
     <div class="control-group">
       <span class="control-label">Show</span>
-      <nav aria-label="Search result type" class="filters">
+      <div role="group" aria-label="Search result type" class="filters">
         {#each availableFilters as item}<button
             type="button"
             data-search-filter={item.id}
             aria-pressed={filter === item.id}
             onclick={() => void choose(item.id)}>{item.label}</button
           >{/each}
-      </nav>
+      </div>
     </div>
   </div>
   {#if scopePlan.dictionary && (filter === 'all' || filter === 'dictionary')}<DictionarySearch
