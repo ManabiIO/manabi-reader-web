@@ -136,7 +136,8 @@
     selectedSummary?.dirty,
     selectedSummary?.issue,
     selectedSummary?.conflicts,
-    selectedSummary?.transfer
+    selectedSummary?.transfer,
+    selectedSummary?.progressAt
   ]);
   $: if (mounted && admitted && !editing && recordSignature !== nextRecordSignature) {
     recordSignature = nextRecordSignature;
@@ -986,6 +987,7 @@
           document={current.document}
           selectedScope={admitted}
           locator={locator ?? current.progress}
+          followRemotePosition={!locator}
         />{/key}
       {#if current.document.source}<p class="source">
           Captured from {current.document.source.title}{#if current.document.source.url}

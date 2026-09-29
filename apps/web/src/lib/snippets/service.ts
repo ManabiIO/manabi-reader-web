@@ -34,6 +34,7 @@ import {
   acknowledge,
   locationKey,
   reconcileSourceListing,
+  sourceListingFenceKey,
   defaultDestination,
   setDefaultDestination,
   type Destination,
@@ -202,6 +203,30 @@ export async function refreshSnippets(
             const scanAge = checkpoint ? Date.now() - checkpoint.catalog.scannedAt : Infinity;
             const recentlyScanned = scanAge >= 0 && scanAge < minimumScanAge;
             if (!checkpoint || (rescan && checkpoint.finished && !recentlyScanned)) {
+              // Capture exactly which locations this traversal is allowed to call
+              // missing. A save/move/discovery acceptance after this point owns a
+              // newer token/generation and cannot be invalidated by the older list.
+              const beforeScan = await summaries(selected.owner);
+              selected.guard();
+              const listingFence = new Map(
+                beforeScan.flatMap((record) =>
+                  record.locations
+                    .filter(
+                      (location) =>
+                        location.source.id === source.id &&
+                        location.source.owner === source.owner &&
+                        location.source.root === source.root
+                    )
+                    .map((location) => [
+                      sourceListingFenceKey(record.id, location.fileId),
+                      {
+                        token: location.token,
+                        observedRevision: location.observedRevision,
+                        missing: location.missing
+                      }
+                    ] as const)
+                )
+              );
               const catalog = await scanCatalog(
                 await librarySource(source),
                 source,
@@ -216,6 +241,7 @@ export async function refreshSnippets(
                 selected.owner,
                 source,
                 new Set(catalog.entries.filter((e) => e.kind === 'file').map((e) => e.id)),
+                listingFence,
                 selected.guard
               );
             }

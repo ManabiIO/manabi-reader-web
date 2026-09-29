@@ -1036,3 +1036,53 @@ test('lost create reply followed by repeated trash and restore still drains one 
   assert.equal(current.document.trashedAt, undefined);
   assert.equal([...memory.files.values()].filter((x) => x.document.id === doc.id).length, 1);
 });
+
+
+test('restoring the same durable locator does not manufacture a newer position upload', async () => {
+  const { selected, doc } = await stored('位置を保持する文章');
+  const block = passages(doc.content)[0];
+  const locator = {
+    blockId: block.blockId,
+    quote: block.text.slice(0, 80),
+    before: '',
+    offset: 0,
+    revision: doc.revision
+  };
+  await saveProgress(doc.id, locator, selected);
+  await syncReading(doc.id, selected);
+  const before = await getRecord(selected.owner, doc.id);
+  assert.equal(before.progressDirty, false);
+  const changedAt = before.progressAt;
+  await saveProgress(doc.id, structuredClone(locator), selected);
+  const after = await getRecord(selected.owner, doc.id);
+  assert.equal(after.progressAt, changedAt);
+  assert.equal(after.progressDirty, false);
+  assert.deepEqual(after.progress, locator);
+});
+
+test('a stale listing snapshot cannot mark a location created during that scan as missing', async () => {
+  const selected = { owner: owner(), guard },
+    src = source(),
+    doc = document('走査中に保存される文章'),
+    previousSources = memory.sources;
+  memory.sources = [src];
+  try {
+    await saveDocument(selected.owner, doc, null, { source: src, parent: '' }, guard);
+    assert.equal((await getRecord(selected.owner, doc.id)).locations.length, 0);
+    memory.beforeScan = async () => {
+      memory.beforeScan = null;
+      await flushRecord(doc.id, selected);
+      const saved = await getRecord(selected.owner, doc.id);
+      assert.equal(saved.locations.length, 1);
+      assert.equal(saved.locations[0].missing, false);
+    };
+    await refreshSnippets(selected, true);
+    const after = await getRecord(selected.owner, doc.id);
+    assert.equal(after.locations.length, 1);
+    assert.equal(after.locations[0].missing, false);
+    assert.equal(after.primary, locationKey(after.locations[0]));
+  } finally {
+    memory.beforeScan = null;
+    memory.sources = previousSources;
+  }
+});
