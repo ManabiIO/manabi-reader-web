@@ -76,15 +76,7 @@
   }
 </script>
 
-<form
-  class="min-w-0 w-full"
-  aria-busy={pending}
-  on:submit|preventDefault={unlock}
-  on:keydown={(event) => {
-    if (event.key === 'Enter' && (event.isComposing || event.keyCode === 229))
-      event.preventDefault();
-  }}
->
+<form class="min-w-0 w-full" aria-busy={pending} on:submit|preventDefault={unlock}>
   <DialogTemplate>
     <svelte:fragment slot="header"
       >{requiresSecret ? 'Unlock storage source' : 'Continue to sign in'}</svelte:fragment
@@ -102,6 +94,10 @@
             disabled={pending}
             bind:value={secret}
             bind:ref={passwordElm}
+            onkeydown={(event) => {
+              if (event.key === 'Enter' && (event.isComposing || event.keyCode === 229))
+                event.preventDefault();
+            }}
             oninput={() => (error = '')}
           />
         </label>
@@ -115,7 +111,13 @@
         >
       {/if}
       <Button type="submit" disabled={pending}
-        >{pending ? (requiresSecret ? 'Unlocking…' : 'Continuing…') : requiresSecret ? 'Unlock' : 'Continue'}</Button
+        >{pending
+          ? requiresSecret
+            ? 'Unlocking…'
+            : 'Continuing…'
+          : requiresSecret
+            ? 'Unlock'
+            : 'Continue'}</Button
       >
     </div>
   </DialogTemplate>

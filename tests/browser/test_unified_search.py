@@ -89,21 +89,7 @@ class UnifiedSearch(ProductJourneyBase):
 
     def test_library_scope_switches_books_and_snippets_without_losing_query(self):
         self.import_book('Scope book', body='<p>SCOPE_TOKEN book body</p>')
-        self.page.goto(re.sub(r'/manage(?:[?#].*)?        self.import_book('Live search ownership', body='<p>猫</p><p>犬</p>')
-        field = self.library_search('猫')
-        self.filter('Content')
-        expect(self.page.locator('button.passage mark')).to_have_text('猫')
-        field.fill('猫')
-        field.fill('犬')
-        expect(self.page.locator('button.passage mark')).to_have_text('犬')
-        expect(field).to_be_focused()
-        expect(self.page.locator('button.passage')).to_have_count(1)
-        self.checkpoint('unified-latest-query')
-
-
-if __name__ == '__main__':
-    unittest.main(verbosity=2)
-, '/snippets', self.page.url))
+        self.page.goto(self.origin + '/reader-web/snippets')
         expect(self.page.get_by_role('button', name='New snippet', exact=True)).to_be_enabled()
         self.page.get_by_role('button', name='New snippet', exact=True).click()
         self.page.get_by_role('textbox', name='Snippet text', exact=True).fill(
