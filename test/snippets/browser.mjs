@@ -268,7 +268,12 @@ try {
     (await readingToolbar.evaluate((node) => node.scrollWidth - node.clientWidth)) <= 1,
     'Snippet reading controls must not overflow horizontally at 200% text'
   );
-  for (const name of ['Smaller text', 'Larger text', 'Vertical reading', 'Save selection to snippet…']) {
+  for (const name of [
+    'Smaller text',
+    'Larger text',
+    'Vertical reading',
+    'Save selection to snippet…'
+  ]) {
     const control = readingToolbar.getByRole('button', { name, exact: true });
     const box = await control.boundingBox();
     assert(box && box.height >= 43.5, `${name} must remain at least 44 CSS px high`);
@@ -282,7 +287,7 @@ try {
   await expect(verticalToggle).toHaveAttribute('aria-pressed', 'true');
   const readingArticle = page.getByRole('article', { name: 'Snippet content' });
   assert.equal(
-    await readingArticle.evaluate((node) => getComputedStyle(node).writingMode),
+    await readingArticle.evaluate((node) => window.getComputedStyle(node).writingMode),
     'vertical-rl'
   );
   assert(
@@ -326,15 +331,18 @@ try {
     assert(box.x >= -1 && box.x + box.width <= 321, 'Formatting actions must stay in the viewport');
   }
   const editable = page.getByRole('textbox', { name: 'Snippet text', exact: true });
-  await editable.locator('p').first().evaluate((paragraph) => {
-    paragraph.closest('[contenteditable]').focus();
-    const selection = window.getSelection();
-    const range = document.createRange();
-    range.selectNodeContents(paragraph);
-    selection.removeAllRanges();
-    selection.addRange(range);
-    document.dispatchEvent(new Event('selectionchange'));
-  });
+  await editable
+    .locator('p')
+    .first()
+    .evaluate((paragraph) => {
+      paragraph.closest('[contenteditable]').focus();
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(paragraph);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      document.dispatchEvent(new Event('selectionchange'));
+    });
   await formatting.getByRole('button', { name: 'Furigana', exact: true }).click();
   const readingInput = page.getByRole('textbox', { name: 'Furigana reading', exact: true });
   await expect(readingInput).toBeFocused();
