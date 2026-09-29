@@ -192,13 +192,15 @@ test('transcript search caps each video while continuing into other videos', asy
   assert.equal(result.scanned, 2)
 })
 
-test('transcript search enumerates manifests once and reuses that snapshot across videos', async () => {
+test('transcript search enumerates manifests once and skips videos without captions', async () => {
   const a = key('a')
   const b = key('b')
+  const c = key('c')
   const store = new Store({
     infos: [
-      replica('video_info', a, info('A', 2)),
-      replica('video_info', b, info('B', 1))
+      replica('video_info', a, info('A', 3)),
+      replica('video_info', b, info('B', 2)),
+      replica('video_info', c, info('No captions', 1))
     ],
     tracks: new Map([
       [a, [track('00000000-0000-4000-8000-000000000009', a, [cue('a', 1, 'needle a')])]],
@@ -217,6 +219,8 @@ test('transcript search enumerates manifests once and reuses that snapshot acros
   )
   assert.equal(result.hits.length, 2)
   assert.equal(store.manifestReads, 1)
+  assert.equal(result.scanned, 3)
+  assert.equal(store.trackSignals.length, 2)
   assert.equal(store.seenManifestSnapshots.length, 2)
   assert.deepEqual(store.seenManifestSnapshots.map((snapshot) => snapshot.map((row) => row.marker)), [
     ['a'],
