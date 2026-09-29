@@ -50,7 +50,11 @@ jobs:
           git rev-parse HEAD > test-results/media/source/tested-commit.txt
           git rev-parse HEAD^{tree} > test-results/media/source/tested-tree.txt
           git archive --format=tar.gz HEAD \
-            apps/web/src/lib/media tests/media tools/media \
+            apps/web/src/lib/media apps/web/src/lib/search \
+            apps/web/src/lib/manabi/media-profile.ts apps/web/src/lib/manabi/media-runtime.ts \
+            apps/web/src/lib/manabi/runtime.svelte apps/web/src/lib/service-worker \
+            apps/web/src/routes/videos apps/web/src/routes/manage/+page.svelte \
+            tests/media tests/browser/test_unified_search.py tools/media \
             package.json apps/web/package.json apps/web/svelte.config.js pnpm-lock.yaml \
             .prettierrc.cjs .github/workflows/media-player.yml \
             > test-results/media/source/media-source.tar.gz
