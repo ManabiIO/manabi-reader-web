@@ -1,0 +1,31 @@
+name: Export video integration bundle
+on:
+  push:
+    branches: [review/video-main-integration-bundle-20260928]
+permissions:
+  contents: read
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fetch integration heads
+        run: |
+          set -euo pipefail
+          git fetch origin main fix/video-import-durability-20260928
+          git branch bundle-main origin/main
+          git branch bundle-video origin/fix/video-import-durability-20260928
+          git bundle create "$RUNNER_TEMP/manabi-reader-integration.bundle" bundle-main bundle-video
+          git bundle verify "$RUNNER_TEMP/manabi-reader-integration.bundle"
+          sha256sum "$RUNNER_TEMP/manabi-reader-integration.bundle" > "$RUNNER_TEMP/SHA256SUMS"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: manabi-reader-integration-bundle
+          path: |
+            ${{ runner.temp }}/manabi-reader-integration.bundle
+            ${{ runner.temp }}/SHA256SUMS
+          retention-days: 1
