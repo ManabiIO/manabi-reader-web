@@ -2,8 +2,7 @@
   import { browser } from '$app/environment';
   import BookExportSelection from '$lib/components/book-export/book-export-selection.svelte';
   import DialogTemplate from '$lib/components/dialog-template.svelte';
-  import Ripple from '$lib/components/ripple.svelte';
-  import { buttonClasses } from '$lib/css-classes';
+  import { Button } from '$lib/components/ui/button';
   import { StorageKey } from '$lib/data/storage/storage-types';
   import {
     getStorageIconData,
@@ -20,10 +19,11 @@
   import { executeReplicate$ } from '$lib/functions/replication/replication-progress';
   import { createEventDispatcher } from 'svelte';
 
-  let icons = [
+  const baseIcons = [
     { ...getStorageIconData(StorageKey.BACKUP), source: StorageKey.BACKUP, label: 'Zip File' },
     { ...getStorageIconData(StorageKey.BROWSER), source: StorageKey.BROWSER, label: 'Browser DB' }
   ];
+  let icons = baseIcons;
 
   const dispatch = createEventDispatcher<{
     close: void;
@@ -31,7 +31,7 @@
 
   $: if (browser) {
     icons = [
-      ...icons,
+      ...baseIcons,
       ...(isStorageSourceAvailable(StorageKey.GDRIVE, $gDriveStorageSource$, window)
         ? [
             {
@@ -58,12 +58,12 @@
 
   function replicateData() {
     executeReplicate$.next();
-
     dispatch('close');
   }
 </script>
 
 <DialogTemplate>
+  <svelte:fragment slot="header">Export books and reading data</svelte:fragment>
   <svelte:fragment slot="content">
     <BookExportSelection
       {icons}
@@ -71,19 +71,8 @@
       bind:dataToReplicate={$lastExportedTypes$}
     />
   </svelte:fragment>
-  <div class="flex grow justify-between" slot="footer">
-    <button class={buttonClasses} on:click={() => dispatch('close')}>
-      Cancel
-      <Ripple />
-    </button>
-    <button
-      class={buttonClasses}
-      class:cursor-not-allowed={!$lastExportedTypes$.length}
-      disabled={!$lastExportedTypes$.length}
-      on:click={replicateData}
-    >
-      Start
-      <Ripple />
-    </button>
+  <div class="flex grow flex-wrap justify-between gap-2" slot="footer">
+    <Button variant="ghost" onclick={() => dispatch('close')}>Cancel</Button>
+    <Button disabled={!$lastExportedTypes$.length} onclick={replicateData}>Start export</Button>
   </div>
 </DialogTemplate>

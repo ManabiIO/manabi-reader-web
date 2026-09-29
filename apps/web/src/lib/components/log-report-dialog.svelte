@@ -1,7 +1,6 @@
 <script lang="ts">
   import DialogTemplate from '$lib/components/dialog-template.svelte';
-  import Ripple from '$lib/components/ripple.svelte';
-  import { buttonClasses } from '$lib/css-classes';
+  import { Button } from '$lib/components/ui/button';
   import { logger } from '$lib/data/logger';
   import { StorageSourceDefault } from '$lib/data/storage/storage-types';
   import {
@@ -185,21 +184,21 @@
 <DialogTemplate>
   <svelte:fragment slot="header">{title}</svelte:fragment>
   <svelte:fragment slot="content">
-    <p>{message}</p>
+    <div class="space-y-2">
+      <p class="break-words">{message}</p>
+      <p class="text-sm text-muted-foreground">
+        The diagnostic report is generated in this browser. Review the downloaded file before
+        sharing it.
+      </p>
+    </div>
   </svelte:fragment>
   <svelte:fragment slot="footer">
-    <a
-      class={buttonClasses}
+    <Button
       href="https://github.com/ManabiIO/Manabi-Reader-Web"
       target="_blank"
       rel="noreferrer"
+      variant="outline">Open Repository</Button
     >
-      Open Repository
-      <Ripple />
-    </a>
-    <a class={buttonClasses} href={downloadableLog} download="log.json">
-      Download Report
-      <Ripple />
-    </a>
+    <Button href={downloadableLog} download="log.json">Download Report</Button>
   </svelte:fragment>
 </DialogTemplate>
