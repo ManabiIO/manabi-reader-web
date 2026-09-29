@@ -185,14 +185,15 @@ export async function searchVideoTranscripts(
 
   for (const video of videos) {
     signal.throwIfAborted();
+    const videoManifests = manifestSnapshot ? manifestsByVideo.get(video.key) : undefined;
+    if (manifestSnapshot && !videoManifests?.length) {
+      scanned++;
+      publish();
+      continue;
+    }
     let tracks: Track[];
     try {
-      tracks = await store.tracks(
-        scope,
-        video.key,
-        signal,
-        manifestSnapshot ? (manifestsByVideo.get(video.key) ?? []) : undefined
-      );
+      tracks = await store.tracks(scope, video.key, signal, videoManifests);
     } catch (error) {
       if (aborted(error, signal)) throw error;
       failed++;
