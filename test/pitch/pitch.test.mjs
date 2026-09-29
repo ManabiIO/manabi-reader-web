@@ -567,7 +567,11 @@ test('transcript cue gate suppresses background-only sampling and breaks the nex
   assert.equal(f.workers[0].sent.length, 2);
   f.result();
   assert.equal(f.state.points.length, 2);
-  assert.equal(f.state.points[1].breakBefore, true, 'new cues must not join across a background gap');
+  assert.equal(
+    f.state.points[1].breakBefore,
+    true,
+    'new cues must not join across a background gap'
+  );
   f.controller.dispose();
 });
 
