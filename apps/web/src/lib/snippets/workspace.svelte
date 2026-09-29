@@ -1601,7 +1601,7 @@
   }
   @media (max-width: 640px) {
     .secondary-actions-wide,
-    .reader-add-wide {
+    :global(.reader-add-wide) {
       display: none;
     }
     .secondary-actions-menu {
