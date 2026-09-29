@@ -1,0 +1,55 @@
+name: Scrubber quality
+on:
+  pull_request:
+    paths:
+      - 'apps/web/src/lib/components/book-reader/reader-scrubber.svelte'
+      - 'apps/web/src/routes/b/+page.svelte'
+      - 'tests/browser/test_scrubber_quality.py'
+      - '.github/workflows/scrubber-quality.yml'
+permissions:
+  contents: read
+concurrency:
+  group: scrubber-quality-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  scrubber:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - run: pnpm --dir apps/web check
+      - name: Build real subpath app
+        env:
+          BASE_PATH: /reader-web
+        run: pnpm build
+      - name: Run both browser engines
+        run: |
+          python -m pip install 'playwright==1.63.0'
+          python -m playwright install --with-deps chromium webkit
+          set +e
+          status=0
+          for engine in chromium webkit; do
+            LIBRARY_BROWSER=$engine python tests/browser/test_scrubber_quality.py 2>&1 | tee test-results/scrubber-$engine.log
+            if [ "${PIPESTATUS[0]}" -ne 0 ]; then status=1; fi
+          done
+          exit "$status"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: scrubber-quality-evidence
+          path: test-results/
+          retention-days: 7
