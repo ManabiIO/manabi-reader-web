@@ -219,8 +219,9 @@
         detail: bookDetail(book, selectedQuery),
         titleMatch: searchMatchRange(book.title, selectedQuery),
         searchText: {
-          primary: [book.title, book.canonicalTitle],
+          primary: [book.title],
           secondary: [
+            ...(book.canonicalTitle !== book.title ? [book.canonicalTitle] : []),
             ...(book.creators ?? []).map((creator) => creator.name),
             ...(book.series?.name ? [book.series.name] : []),
             ...(bookMatchText[book.key] ?? []).map((item) => item.text)
