@@ -49,6 +49,32 @@ export function assertBookPersonalAccess(
     throw new Error('This book belongs to another account.');
 }
 
+export async function readOwnedLastItem(
+  db: IDBPDatabase<BooksDb>,
+  profileId: string | null,
+  assertCurrent: () => void = () => undefined
+): Promise<{ dataId: number } | undefined> {
+  assertCurrent();
+  const tx = db.transaction(['data', 'readerBookScope', 'lastItem']);
+  return commitTransaction(tx, async () => {
+    assertCurrent();
+    const item = await tx.objectStore('lastItem').get(0);
+    if (!item) return undefined;
+    const book = await tx.objectStore('data').get(item.dataId);
+    if (!book) return undefined;
+    const owner = await tx.objectStore('readerBookScope').get(item.dataId);
+    assertCurrent();
+    try {
+      assertBookPersonalAccess(book, owner, profileId);
+    } catch {
+      // Keep another profile's pointer intact; it simply is not resumable by
+      // the current profile.
+      return undefined;
+    }
+    return item;
+  });
+}
+
 export async function commitOwnedLastItem(
   db: IDBPDatabase<BooksDb>,
   dataId: number,
