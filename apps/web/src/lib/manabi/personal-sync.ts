@@ -84,7 +84,8 @@ export const personalSyncStatus = writable<{
   state: string;
   message: string;
   conflicts: PersonalConflict[];
-}>({ state: 'idle', message: '', conflicts: [] });
+  blockedBookKeys: string[];
+}>({ state: 'idle', message: '', conflicts: [], blockedBookKeys: [] });
 
 function key(accountId: string, kind: PersonalKind, entityId: string) {
   return JSON.stringify([accountId, kind, entityId]);
@@ -220,7 +221,8 @@ function validRemote(value: RemoteRecord): boolean {
 async function publish(
   accountId: string,
   state = 'synced',
-  message = 'Personal reading data synced.'
+  message = 'Personal reading data synced.',
+  blockedBookKeys: readonly string[] = []
 ) {
   if (currentUser()?.id !== accountId) return;
   const db = await database.db;
@@ -237,17 +239,22 @@ async function publish(
       ? 'conflict'
       : state === 'synced' && pending
         ? 'pending'
-        : state === 'synced' && ambiguous
-          ? 'legacy_statistics'
-          : state,
+        : state === 'synced' && blockedBookKeys.length
+          ? 'identity_conflict'
+          : state === 'synced' && ambiguous
+            ? 'legacy_statistics'
+            : state,
     message: conflicts.length
       ? `${conflicts.length} reading sync conflict(s) need review.`
       : state === 'synced' && pending
         ? `${pending} local change(s) are queued for sync.`
-        : state === 'synced' && ambiguous
-          ? `${ambiguous} older same-title statistics record(s) remain on this device because their book could not be identified.`
-          : message,
-    conflicts
+        : state === 'synced' && blockedBookKeys.length
+          ? `${blockedBookKeys.length} identical-content reading histor${blockedBookKeys.length === 1 ? 'y was' : 'ies were'} kept separate and skipped during personal sync. Resolve the duplicate book histories before syncing them.`
+          : state === 'synced' && ambiguous
+            ? `${ambiguous} older same-title statistics record(s) remain on this device because their book could not be identified.`
+            : message,
+    conflicts,
+    blockedBookKeys: [...blockedBookKeys]
   });
 }
 
@@ -1294,7 +1301,8 @@ export async function syncPersonalState() {
       personalSyncStatus.set({
         state: 'syncing',
         message: 'Syncing personal reading data…',
-        conflicts: get(personalSyncStatus).conflicts
+        conflicts: get(personalSyncStatus).conflicts,
+        blockedBookKeys: []
       });
       const inventory = await localBooks(accountId);
       const { books } = inventory;
@@ -1310,10 +1318,9 @@ export async function syncPersonalState() {
           await stageAnnotations(accountId, books);
           await publish(
             accountId,
-            inventory.blockedBookKeys.length ? 'identity_conflict' : 'synced',
-            inventory.blockedBookKeys.length
-              ? `${inventory.blockedBookKeys.length} identical-content reading histor${inventory.blockedBookKeys.length === 1 ? 'y was' : 'ies were'} kept separate and skipped during personal sync. Resolve the duplicate book histories before syncing them.`
-              : 'Personal reading data synced.'
+            'synced',
+            'Personal reading data synced.',
+            inventory.blockedBookKeys
           );
           return;
         } catch (error) {
@@ -1485,7 +1492,8 @@ export function startPersonalSync() {
         message: accountId
           ? 'Checking personal reading data…'
           : 'Sign in to sync personal reading data.',
-        conflicts: []
+        conflicts: [],
+        blockedBookKeys: []
       });
       lastAccountId = accountId;
     }
