@@ -52,6 +52,7 @@ class SearchQuality(ProductJourneyBase):
     def test_library_marks_compatibility_matches_without_rewriting_quotes(self):
         self.import_book('Original spelling', body='<p>ﬁ / fi / ＦＩ / ｶﾞ / ガ / &lt;b&gt; &amp;</p>')
         self.library_search('fi')
+        self.page.get_by_role('button', name='Content', exact=True).click()
         passages = self.page.locator('button.passage')
         expect(passages).to_have_count(3)
         expect(passages.locator('mark')).to_have_count(3)
