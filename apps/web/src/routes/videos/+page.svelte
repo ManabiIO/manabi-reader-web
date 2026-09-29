@@ -18,11 +18,7 @@
   import { backgrounds, type BackgroundState } from '$lib/appearance/backgrounds';
   import { resolvedMode$, readerBackgroundOptions$ } from '$lib/appearance/state';
   import { account, accountScope, currentUser, request } from '$lib/manabi/client';
-  import { offlineMediaProfile } from '$lib/manabi/media-profile';
-  import { VideoWorkspace } from '$lib/media/workspace';
-  import { chooseCloudVideo } from '$lib/media/cloud-browser';
-  import { ProfileLifetime } from '$lib/media/profile-lifetime';
-  import type { WorkspaceConnection } from '$lib/media/workspace';
+  import type { VideoWorkspace, WorkspaceConnection } from '$lib/media/workspace';
   import { isContentKey, isUUID, LIMITS } from '$lib/media/contracts';
   import '$lib/media/media.css';
 
@@ -54,106 +50,126 @@
   }
   onMount(() => {
     if (!videoLearningEnabled) return;
-    const typography = combineLatest([
-      fontFamilyGroupOne$,
-      fontFamilyGroupTwo$,
-      fontWeight$,
-      fontSize$,
-      lineHeight$,
-      yuKyokashoAvailable$
-    ]).subscribe(([font, sans, weight, size, spacing, available]) => {
-      host.style.setProperty(
-        '--transcript-font-family',
-        resolveReaderFont(effectivePrimaryReaderFont(font, available), false)
-      );
-      host.style.setProperty('--transcript-sans-family', resolveReaderFont(sans, false, true));
-      host.style.setProperty('--transcript-font-weight', String(weight ?? 400));
-      host.style.setProperty('--transcript-font-size', `${size}px`);
-      host.style.setProperty('--transcript-line-height', String(spacing));
-      workspace?.refreshDisplay();
-    });
-    const background = combineLatest([
-      new Observable<Record<'reader' | 'library', BackgroundState>>((subscriber) =>
-        backgrounds.subscribe((value) => subscriber.next(value))
-      ),
-      resolvedMode$,
-      readerBackgroundOptions$
-    ]).subscribe(([images, mode, options]) => {
-      const url = images.reader[mode].url;
-      // The shared background store has already validated/decoded these local images.
-      host.style.setProperty(
-        '--transcript-background-image',
-        url ? `url(${JSON.stringify(url)})` : 'none'
-      );
-      host.style.setProperty(
-        '--transcript-background-fade',
-        String(options.fade ? options.amount / 100 : 0)
-      );
-    });
-    const stopFonts = observeReaderFontLayout(host, () => workspace?.refreshDisplay());
-    const lifetime = new ProfileLifetime<WorkspaceConnection>(
-      offlineMediaProfile,
-      (scope, connection) => {
-        lifetimeError = '';
-        const target = new VideoWorkspace(host, {
-          scope,
-          booksURL: `${base}/manage`,
-          runtimeBase: `${base}/moss`,
-          onAppearance: (trigger) => {
-            appearanceTrigger = trigger;
-            appearanceOpen = true;
-          },
-          // Checked against the actual installed dependency by the full app typecheck.
-          loadBunny: () =>
-            import('$lib/manabi/media-runtime').then((module) => module.mediaRuntime),
-          ...connection
+    let disposed = false;
+    let cleanup = () => undefined;
+    void Promise.all([
+      import('$lib/media/workspace'),
+      import('$lib/media/cloud-browser'),
+      import('$lib/media/profile-lifetime'),
+      import('$lib/manabi/media-profile')
+    ])
+      .then(([workspaceModule, cloudModule, lifetimeModule, profileModule]) => {
+        if (disposed) return;
+        const typography = combineLatest([
+          fontFamilyGroupOne$,
+          fontFamilyGroupTwo$,
+          fontWeight$,
+          fontSize$,
+          lineHeight$,
+          yuKyokashoAvailable$
+        ]).subscribe(([font, sans, weight, size, spacing, available]) => {
+          host.style.setProperty(
+            '--transcript-font-family',
+            resolveReaderFont(effectivePrimaryReaderFont(font, available), false)
+          );
+          host.style.setProperty('--transcript-sans-family', resolveReaderFont(sans, false, true));
+          host.style.setProperty('--transcript-font-weight', String(weight ?? 400));
+          host.style.setProperty('--transcript-font-size', `${size}px`);
+          host.style.setProperty('--transcript-line-height', String(spacing));
+          workspace?.refreshDisplay();
         });
-        workspace = target;
-        openRequestedSearchResult(target);
-        return target;
-      },
-      (error) => {
-        lifetimeError = error instanceof Error ? error.message : String(error);
-      }
-    );
-    const stop = account.subscribe((state) => {
-      let connection: WorkspaceConnection | undefined;
-      if (state.status === 'available' && state.session?.user) {
-        const admitted = accountScope();
-        const transport = {
-          userId: admitted.userId,
-          isCurrent: () => {
-            try {
-              return (
-                currentUser()?.id === admitted.userId &&
-                accountScope().generation === admitted.generation
-              );
-            } catch {
-              return false;
-            }
+        const background = combineLatest([
+          new Observable<Record<'reader' | 'library', BackgroundState>>((subscriber) =>
+            backgrounds.subscribe((value) => subscriber.next(value))
+          ),
+          resolvedMode$,
+          readerBackgroundOptions$
+        ]).subscribe(([images, mode, options]) => {
+          const url = images.reader[mode].url;
+          // The shared background store has already validated/decoded these local images.
+          host.style.setProperty(
+            '--transcript-background-image',
+            url ? `url(${JSON.stringify(url)})` : 'none'
+          );
+          host.style.setProperty(
+            '--transcript-background-fade',
+            String(options.fade ? options.amount / 100 : 0)
+          );
+        });
+        const stopFonts = observeReaderFontLayout(host, () => workspace?.refreshDisplay());
+        const lifetime = new lifetimeModule.ProfileLifetime<WorkspaceConnection>(
+          profileModule.offlineMediaProfile,
+          (scope, connection) => {
+            lifetimeError = '';
+            const target = new workspaceModule.VideoWorkspace(host, {
+              scope,
+              booksURL: `${base}/manage`,
+              runtimeBase: `${base}/moss`,
+              onAppearance: (trigger) => {
+                appearanceTrigger = trigger;
+                appearanceOpen = true;
+              },
+              // Checked against the actual installed dependency by the full app typecheck.
+              loadBunny: () =>
+                import('$lib/manabi/media-runtime').then((module) => module.mediaRuntime),
+              ...connection
+            });
+            workspace = target;
+            openRequestedSearchResult(target);
+            return target;
           },
-          request
+          (error) => {
+            lifetimeError = error instanceof Error ? error.message : String(error);
+          }
+        );
+        const stop = account.subscribe((state) => {
+          let connection: WorkspaceConnection | undefined;
+          if (state.status === 'available' && state.session?.user) {
+            const admitted = accountScope();
+            const transport = {
+              userId: admitted.userId,
+              isCurrent: () => {
+                try {
+                  return (
+                    currentUser()?.id === admitted.userId &&
+                    accountScope().generation === admitted.generation
+                  );
+                } catch {
+                  return false;
+                }
+              },
+              request
+            };
+            connection = {
+              transport,
+              chooseConnected: (open, signal) =>
+                cloudModule.chooseCloudVideo(transport, open, signal)
+            };
+          }
+          void lifetime.update({
+            status: state.status,
+            userId: state.session?.user?.id ?? null,
+            connection
+          });
+        });
+        cleanup = () => {
+          stop();
+          typography.unsubscribe();
+          background.unsubscribe();
+          stopFonts();
+          workspace = undefined;
+          void lifetime.stop();
         };
-        connection = {
-          transport,
-          chooseConnected: (open, signal) => chooseCloudVideo(transport, open, signal)
-        };
-      }
-      void lifetime.update({
-        status: state.status,
-        userId: state.session?.user?.id ?? null,
-        connection
+        if (disposed) cleanup();
+      })
+      .catch((error) => {
+        if (!disposed) lifetimeError = error instanceof Error ? error.message : String(error);
       });
-    });
     return () => {
-      stop();
-      typography.unsubscribe();
-      background.unsubscribe();
-      stopFonts();
-      workspace = undefined;
-      void lifetime.stop();
+      disposed = true;
+      cleanup();
     };
-  });
+  });;
 </script>
 
 <svelte:head
