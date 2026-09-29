@@ -1,5 +1,6 @@
 /** @license BSD-3-Clause */
 import assert from 'node:assert/strict';
+import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { build } from 'esbuild';
 import test from 'node:test';
@@ -13,7 +14,7 @@ globalThis[Symbol.for(fixtureKey)] = {
   getRecord: async (owner, id) => {
     assert.equal(owner, fixture.record.owner);
     assert.equal(id, fixture.record.document.id);
-    return structuredClone(fixture.record);
+    return globalThis.structuredClone(fixture.record);
   },
   mutateRecord: async (owner, id, guard, change) => {
     const beforeMutation = fixture.beforeMutation;
@@ -22,9 +23,9 @@ globalThis[Symbol.for(fixtureKey)] = {
     guard();
     assert.equal(owner, fixture.record.owner);
     assert.equal(id, fixture.record.document.id);
-    const next = change(structuredClone(fixture.record));
-    if (next) fixture.record = structuredClone(next);
-    return structuredClone(next);
+    const next = change(globalThis.structuredClone(fixture.record));
+    if (next) fixture.record = globalThis.structuredClone(next);
+    return globalThis.structuredClone(next);
   },
   locationKey: (location) =>
     JSON.stringify([
@@ -35,17 +36,17 @@ globalThis[Symbol.for(fixtureKey)] = {
     ]),
   librarySource: async () => ({
     state: async () => {
-      const snapshot = structuredClone(fixture.remote);
+      const snapshot = globalThis.structuredClone(fixture.remote);
       await fixture.onRead?.();
       return snapshot;
     },
     write: async (key, value, expected) => {
-      fixture.writes.push({ key, value: structuredClone(value), expected });
+      fixture.writes.push({ key, value: globalThis.structuredClone(value), expected });
       await fixture.onWrite?.();
       if (fixture.writeError) throw fixture.writeError;
       assert.equal(expected, fixture.remote.revision);
-      fixture.remote = { value: structuredClone(value), revision: 'acknowledged' };
-      return structuredClone(fixture.remote);
+      fixture.remote = { value: globalThis.structuredClone(value), revision: 'acknowledged' };
+      return globalThis.structuredClone(fixture.remote);
     }
   }),
   sha256: async (value) => createHash('sha256').update(value).digest('hex')
