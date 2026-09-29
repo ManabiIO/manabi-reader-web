@@ -180,7 +180,8 @@
     onclick={() => dispatch('trackerMenuClosed')}
   />
 </div>
-<div class="flex flex-1 flex-col overflow-auto p-4">
+<div class="relative flex min-h-0 flex-1" aria-busy={actionInProgress}>
+  <div class="flex min-h-0 flex-1 flex-col overflow-auto p-4" inert={actionInProgress}>
   {#if currentReadingGoal}
     <div class="mb-6">
       {#if currentReadingGoal.timeGoal}
@@ -482,10 +483,19 @@
       {/if}
     </div>
   {/each}
+  </div>
   {#if actionInProgress}
-    <div class="tap-highlight-transparent absolute inset-0 bg-black/[.2]"></div>
-    <div class="absolute inset-0 flex h-full w-full items-center justify-center text-7xl">
+    <div
+      aria-hidden="true"
+      class="tap-highlight-transparent absolute inset-0 bg-black/[.2]"
+    ></div>
+    <div
+      role="status"
+      aria-label="Updating reading tracker"
+      class="pointer-events-none absolute inset-0 flex h-full w-full items-center justify-center text-7xl"
+    >
       <AppIcon icon={faSpinner} spin />
+      <span class="sr-only">Updating reading tracker…</span>
     </div>
   {/if}
 </div>
