@@ -26,8 +26,7 @@ const boundaryBefore = (value: string, index: number) =>
 
 function matchKey(value: string, needle: string): SearchMatchKey {
   const folded = foldSearch(value);
-  if (folded === needle)
-    return { tier: 0, index: 0, length: Array.from(folded).length, folded };
+  if (folded === needle) return { tier: 0, index: 0, length: Array.from(folded).length, folded };
 
   const first = folded.indexOf(needle);
   if (first < 0)
@@ -44,11 +43,7 @@ function matchKey(value: string, needle: string): SearchMatchKey {
     // A later word/symbol boundary is more relevant than an earlier interior
     // substring. Scan only until the first boundary match; all boundary matches
     // share the same tier and the earliest one wins.
-    for (
-      let candidate = first;
-      candidate >= 0;
-      candidate = folded.indexOf(needle, candidate + 1)
-    ) {
+    for (let candidate = first; candidate >= 0; candidate = folded.indexOf(needle, candidate + 1)) {
       if (boundaryBefore(folded, candidate)) {
         best = candidate;
         tier = 2;
@@ -99,8 +94,6 @@ export function sortSearchText<T>(
   if (!needle) return [...values];
   return values
     .map((value, order) => ({ value, order, key: matchKey(text(value), needle) }))
-    .sort(
-      (a, b) => compareKeys(a.key, b.key) || tie(a.value, b.value) || a.order - b.order
-    )
+    .sort((a, b) => compareKeys(a.key, b.key) || tie(a.value, b.value) || a.order - b.order)
     .map(({ value }) => value);
 }
