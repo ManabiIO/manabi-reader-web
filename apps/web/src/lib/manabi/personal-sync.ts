@@ -934,8 +934,8 @@ async function hydrateReading(accountId: string, books: Map<string, PersonalBook
   const pending = await db.getAllFromIndex('readerPersonalOutbox', 'accountId', accountId);
   scoped(accountId);
 
-  // A content identity needs reconciliation when any of its exact physical
-  // copies is newly claimed/unhydrated, not only when every copy is new.
+  // Personal sync owns one reading-history row per content identity. Reconcile
+  // that row until its durable scope records successful first-use hydration.
   const scopeSnapshot = await db.getAll('readerBookScope');
   scoped(accountId);
   const unhydrated = new Set(
@@ -963,18 +963,6 @@ async function hydrateReading(accountId: string, books: Map<string, PersonalBook
         accountId,
         local
       );
-  }
-
-  // Resume/completion live in per-book bookmark rows even though exact copies
-  // share one logical personal identity. If a new exact copy appears after an
-  // older copy was already hydrated, copy the current aggregate state to all
-  // live copies before marking the newcomer hydrated.
-  for (const bookKey of unhydrated) {
-    for (const kind of ['resume', 'completion'] as const) {
-      const local = await readLocal(kind, bookKey, bookKey, books, accountId);
-      if (local !== null)
-        await applyLocal(kind, bookKey, bookKey, local, books, accountId, local);
-    }
   }
 
   scoped(accountId);
