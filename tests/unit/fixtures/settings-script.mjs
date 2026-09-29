@@ -120,7 +120,9 @@ export function settingsScript(file, initial, bindings, expose, mutable) {
   );
   for (const name of Object.keys(deps)) declared.add(name);
   const code = [
-    reactiveNames.length ? `let ${reactiveNames.join(', ')};` : '',
+    reactiveNames.some((name) => !declared.has(name))
+      ? `let ${reactiveNames.filter((name) => !declared.has(name)).join(', ')};`
+      : '',
     ...statements.map(print),
     `return {${expose.map((name) => `${name}: () => ${name}`).join(',')},`,
     `reactive: () => { ${reactive.map(print).join('\n')} },`,

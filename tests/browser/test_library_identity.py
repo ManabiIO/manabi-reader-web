@@ -334,6 +334,35 @@ class LibraryIdentityBrowser(LibraryBase):
             'button', name='Read Private-scope', exact=True)).to_be_visible(timeout=30000)
         self.page.wait_for_load_state('networkidle')
 
+    def test_root_resume_skips_foreign_book_without_erasing_its_pointer(self):
+        original = self.import_finished()
+        self.page.evaluate('''async ({bookId}) => {
+          const db = await new Promise((resolve, reject) => {
+            const request = indexedDB.open('books');
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          const tx = db.transaction(['data', 'lastItem'], 'readwrite');
+          const get = tx.objectStore('data').get(bookId);
+          get.onsuccess = () => {
+            tx.objectStore('data').put({...get.result, libraryOwner: 'other'});
+            tx.objectStore('lastItem').put({dataId: bookId}, 0);
+          };
+          await new Promise((resolve, reject) => {
+            tx.oncomplete = resolve;
+            tx.onabort = () => reject(tx.error);
+          });
+          db.close();
+        }''', {'bookId': original['bookId']})
+
+        self.page.goto(self.origin + '/reader-web/')
+        expect(self.page).to_have_url(re.compile(r'/reader-web/manage(?:[/?#]|$)'), timeout=30000)
+        expect(self.page.locator('.book-content')).to_have_count(0)
+        self.assertEqual(
+            [{'dataId': original['bookId']}],
+            self.stores('books', ['lastItem'])['lastItem']
+        )
+
     def test_two_live_histories_at_one_locator_are_not_chosen_by_link_order(self):
         original = self.import_finished()
         duplicate_id = self.page.evaluate('''async link => {

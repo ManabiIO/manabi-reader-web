@@ -16,6 +16,8 @@ export interface DictionaryResult {
   version: 1;
   query: string;
   matchedQuery: string;
+  /** Backward-compatible provenance from runtimes with live prefix completion. */
+  prefix?: boolean;
   dictionaryCount: number;
   preview: { items: DictionaryPreview[]; hasMore: boolean };
   lookup?: { dictionaryEntries: unknown[] };

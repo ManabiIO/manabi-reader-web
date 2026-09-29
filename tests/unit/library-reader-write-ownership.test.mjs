@@ -27,30 +27,40 @@ function load(file, imports = {}) {
   return module.exports;
 }
 
-function memoryDB(initial) {
+function memoryDB(initial, { onTransaction } = {}) {
   const tables = new Map(
     Object.entries(initial).map(([name, rows]) => [
       name,
       new Map(
         rows.map((row) => [
-          row.id ?? row.dataId ?? row.annotationId ?? row.bookId,
+          name === 'lastItem' ? 0 : (row.id ?? row.dataId ?? row.annotationId ?? row.bookId),
           globalThis.structuredClone(row)
         ])
       )
     ])
   );
-  const keyFor = (row) => row.id ?? row.dataId ?? row.annotationId ?? row.bookId;
+  const keyFor = (name, row) =>
+    name === 'lastItem' ? 0 : (row.id ?? row.dataId ?? row.annotationId ?? row.bookId);
   const copy = (row) => (row === undefined ? undefined : globalThis.structuredClone(row));
   const storeFor = (name) => {
     const rows = tables.get(name);
     return {
       get: async (key) => copy(rows.get(key)),
       getAll: async () => [...rows.values()].map(copy),
-      put: async (row) => {
-        rows.set(keyFor(row), copy(row));
-        return keyFor(row);
+      put: async (row, explicitKey) => {
+        const key = explicitKey ?? keyFor(name, row);
+        rows.set(key, copy(row));
+        return key;
       },
       delete: async (key) => rows.delete(key),
+      index: (field) => ({
+        async getAllKeys(value, count) {
+          const keys = [...rows.entries()]
+            .filter(([, row]) => row[field] === value)
+            .map(([key]) => key);
+          return count === undefined ? keys : keys.slice(0, count);
+        }
+      }),
       openCursor: async () => {
         const values = [...rows.values()].map(copy);
         const cursor = (index) =>
@@ -64,6 +74,7 @@ function memoryDB(initial) {
   return {
     transaction(names) {
       const selected = typeof names === 'string' ? [names] : names;
+      onTransaction?.({ selected, tables });
       let aborted = false;
       const tx = {
         done: Promise.resolve(),
@@ -208,7 +219,145 @@ test('bookmark persistence requires the book to still exist', async () => {
   assert.equal(db.rows('bookmark')[0].progress, 0.25);
 });
 
-function annotationFixture({ bookOwner, scopeOwner } = {}) {
+test('local open admission rejects a newly foreign library owner without detaching its source', async () => {
+  const db = memoryDB({
+    data: [
+      {
+        id: 1,
+        title: 'Book',
+        elementHtml: '<p>book</p>',
+        storageSource: 'Legacy source',
+        libraryOwner: 'bob'
+      }
+    ],
+    readerBookScope: []
+  });
+  await assert.rejects(
+    bookRecords.prepareBookForLocalReading(
+      db,
+      { id: 1, title: 'Book' },
+      undefined,
+      'alice',
+      () => undefined
+    ),
+    /another account/
+  );
+  assert.equal(db.rows('data')[0].storageSource, 'Legacy source');
+});
+
+test('local open admission rejects a newly foreign personal scope', async () => {
+  const db = memoryDB({
+    data: [{ id: 1, title: 'Book', elementHtml: '<p>book</p>', storageSource: 'Legacy source' }],
+    readerBookScope: [{ bookId: 1, accountId: 'bob' }]
+  });
+  await assert.rejects(
+    bookRecords.prepareBookForLocalReading(
+      db,
+      { id: 1, title: 'Book' },
+      undefined,
+      'alice',
+      () => undefined
+    ),
+    /another account/
+  );
+  assert.equal(db.rows('data')[0].storageSource, 'Legacy source');
+});
+
+test('owned local open can detach legacy source metadata after the live ownership check', async () => {
+  const db = memoryDB({
+    data: [
+      {
+        id: 1,
+        title: 'Book',
+        elementHtml: '<p>book</p>',
+        storageSource: 'Legacy source',
+        libraryOwner: 'alice'
+      }
+    ],
+    readerBookScope: [{ bookId: 1, accountId: 'alice' }]
+  });
+  assert.equal(
+    await bookRecords.prepareBookForLocalReading(
+      db,
+      { id: 1, title: 'Book' },
+      undefined,
+      'alice',
+      () => undefined
+    ),
+    1
+  );
+  assert.equal(db.rows('data')[0].storageSource, undefined);
+});
+
+test('resume target read hides a foreign pointer without deleting it', async () => {
+  const db = memoryDB({
+    data: [{ id: 1, title: 'Book', libraryOwner: 'bob' }],
+    readerBookScope: [],
+    lastItem: [{ dataId: 1 }]
+  });
+  assert.equal(await bookRecords.readOwnedLastItem(db, 'alice', () => undefined), undefined);
+  assert.deepEqual(db.rows('lastItem'), [{ dataId: 1 }]);
+
+  assert.deepEqual(await bookRecords.readOwnedLastItem(db, 'bob', () => undefined), {
+    dataId: 1
+  });
+});
+
+test('resume target read applies personal scope and ignores stale missing targets', async () => {
+  const scoped = memoryDB({
+    data: [{ id: 1, title: 'Book' }],
+    readerBookScope: [{ bookId: 1, accountId: 'alice' }],
+    lastItem: [{ dataId: 1 }]
+  });
+  assert.equal(await bookRecords.readOwnedLastItem(scoped, 'bob', () => undefined), undefined);
+  assert.deepEqual(await bookRecords.readOwnedLastItem(scoped, 'alice', () => undefined), {
+    dataId: 1
+  });
+
+  const missing = memoryDB({
+    data: [],
+    readerBookScope: [],
+    lastItem: [{ dataId: 999 }]
+  });
+  assert.equal(await bookRecords.readOwnedLastItem(missing, null, () => undefined), undefined);
+  assert.deepEqual(missing.rows('lastItem'), [{ dataId: 999 }]);
+});
+
+test('resume target persistence rejects a newly foreign book and preserves the previous target', async () => {
+  const db = memoryDB({
+    data: [{ id: 1, title: 'Book', libraryOwner: 'bob' }],
+    readerBookScope: [],
+    lastItem: [{ dataId: 7 }]
+  });
+  await assert.rejects(
+    bookRecords.commitOwnedLastItem(db, 1, 'alice', () => undefined),
+    /another account/
+  );
+  assert.deepEqual(db.rows('lastItem'), [{ dataId: 7 }]);
+});
+
+test('resume target persistence checks personal scope and commits only the owned ID', async () => {
+  const foreign = memoryDB({
+    data: [{ id: 1, title: 'Book' }],
+    readerBookScope: [{ bookId: 1, accountId: 'bob' }],
+    lastItem: []
+  });
+  await assert.rejects(
+    bookRecords.commitOwnedLastItem(foreign, 1, 'alice', () => undefined),
+    /another account/
+  );
+  assert.deepEqual(foreign.rows('lastItem'), []);
+
+  const owned = memoryDB({
+    data: [{ id: 1, title: 'Book', libraryOwner: 'alice' }],
+    readerBookScope: [{ bookId: 1, accountId: 'alice' }],
+    lastItem: []
+  });
+  await bookRecords.commitOwnedLastItem(owned, 1, 'alice', () => undefined);
+  assert.deepEqual(owned.rows('lastItem'), [{ dataId: 1 }]);
+});
+
+function annotationFixture({ bookOwner, scopeOwner, onTransaction } = {}) {
   const hash = 'a'.repeat(64);
   const bookKey = 'content:' + hash;
   const annotation = {
@@ -233,30 +382,56 @@ function annotationFixture({ bookOwner, scopeOwner } = {}) {
     modifiedAt: '2026-09-28T00:00:00.000Z',
     revision: 1
   };
-  const db = memoryDB({
-    data: [{ id: 1, contentHash: hash, ...(bookOwner ? { libraryOwner: bookOwner } : {}) }],
-    readerBookScope: [],
-    readerAnnotation: [annotation],
-    readerAnnotationOutbox: [],
-    readerAnnotationScope: scopeOwner
-      ? [{ annotationId: annotation.id, accountId: scopeOwner }]
-      : [],
-    readerConflict: [
-      {
-        id: 'import:' + annotation.id,
-        bookKey,
-        local: annotation,
-        remote: { ...annotation, body: 'archive' }
-      }
-    ]
-  });
+  const db = memoryDB(
+    {
+      data: [{ id: 1, contentHash: hash, ...(bookOwner ? { libraryOwner: bookOwner } : {}) }],
+      readerBookScope: [],
+      readerAnnotation: [annotation],
+      readerAnnotationOutbox: [],
+      readerAnnotationScope: scopeOwner
+        ? [{ annotationId: annotation.id, accountId: scopeOwner }]
+        : [],
+      readerConflict: [
+        {
+          id: 'import:' + annotation.id,
+          bookKey,
+          local: annotation,
+          remote: { ...annotation, body: 'archive' }
+        }
+      ]
+    },
+    { onTransaction }
+  );
   let user = { id: 'alice' };
+  const operationControllers = new Set();
   const api = load('reader-annotations.ts', {
     '$lib/data/store': { database: { db: Promise.resolve(db) } },
     'svelte/store': { get: (value) => value.value },
     '$lib/manabi/client': {
       account: { value: { status: 'ready' } },
       localProfileUser: () => user
+    },
+    '$lib/manabi/operation-scope': {
+      captureLibraryOperation: () => {
+        const profileId = user?.id ?? null;
+        const controller = new AbortController();
+        const token = { profileId, controller };
+        operationControllers.add(token);
+        return {
+          profileId,
+          signal: controller.signal,
+          assertCurrent() {
+            if ((user?.id ?? null) !== profileId) {
+              controller.abort();
+              throw new Error('The account changed.');
+            }
+            controller.signal.throwIfAborted();
+          },
+          stop() {
+            operationControllers.delete(token);
+          }
+        };
+      }
     },
     '$lib/reader-location': { snapshotReaderLocator: (value) => globalThis.structuredClone(value) },
     '$lib/data/database/books-db/content-hash-index': {
@@ -277,7 +452,17 @@ function annotationFixture({ bookOwner, scopeOwner } = {}) {
       }
     }
   });
-  return { api, db, annotation, bookKey, setUser: (id) => (user = id ? { id } : null) };
+  return {
+    api,
+    db,
+    annotation,
+    bookKey,
+    setUser(id) {
+      user = id ? { id } : null;
+      for (const token of operationControllers)
+        if (token.profileId !== (user?.id ?? null)) token.controller.abort();
+    }
+  };
 }
 
 test('deleting an unscoped annotation cannot adopt a foreign-owned book', async () => {
@@ -305,6 +490,45 @@ test('archive conflict restore cannot adopt an unscoped foreign-owned annotation
   assert.equal(fixture.db.rows('readerConflict').length, 1);
 });
 
+test('a stale annotation scope cannot override newer foreign book ownership', async () => {
+  const fixture = annotationFixture({ bookOwner: 'bob', scopeOwner: 'alice' });
+  const draft = {
+    id: fixture.annotation.id,
+    bookKey: fixture.bookKey,
+    kind: 'bookmark',
+    targets: fixture.annotation.targets
+  };
+  await assert.rejects(fixture.api.saveReaderAnnotation(draft, 'alice'), /another account/);
+  await assert.rejects(
+    fixture.api.removeReaderAnnotation(fixture.annotation.id, 'alice'),
+    /another account/
+  );
+  await assert.rejects(
+    fixture.api.resolveAnnotationImportConflict(
+      'import:' + fixture.annotation.id,
+      'restore-archive',
+      'alice'
+    ),
+    /another account/
+  );
+  assert.equal(fixture.db.rows('readerAnnotation')[0].deletedAt, undefined);
+  assert.equal(fixture.db.rows('readerAnnotation')[0].body, undefined);
+  assert.equal(fixture.db.rows('readerAnnotationOutbox').length, 0);
+  assert.equal(fixture.db.rows('readerConflict').length, 1);
+});
+
+test('archive import rejects a stale annotation scope when its book is foreign', async () => {
+  const fixture = annotationFixture({ bookOwner: 'bob', scopeOwner: 'alice' });
+  const archive = JSON.stringify({
+    format: 'manabi-reader-annotations',
+    version: 1,
+    annotations: [fixture.annotation]
+  });
+  await assert.rejects(fixture.api.importReaderAnnotations(archive, 'alice'), /another account/);
+  assert.equal(fixture.db.rows('readerAnnotationOutbox').length, 0);
+  assert.equal(fixture.db.rows('readerConflict').length, 1);
+});
+
 test('deleting a genuinely local unscoped annotation binds its tombstone to the active profile', async () => {
   const fixture = annotationFixture();
   await fixture.api.removeReaderAnnotation(fixture.annotation.id, 'alice');
@@ -314,4 +538,75 @@ test('deleting a genuinely local unscoped annotation binds its tombstone to the 
   ]);
   assert.equal(fixture.db.rows('readerAnnotationOutbox').length, 1);
   assert.equal(fixture.db.rows('readerAnnotationOutbox')[0].accountId, 'alice');
+});
+
+test('annotation save rechecks book ownership inside the mutation transaction', async () => {
+  let changed = false;
+  const fixture = annotationFixture({
+    onTransaction({ selected, tables }) {
+      if (changed || !selected.includes('readerAnnotation')) return;
+      changed = true;
+      tables.get('readerBookScope').set(1, { bookId: 1, accountId: 'bob' });
+    }
+  });
+  const draft = {
+    bookKey: fixture.bookKey,
+    kind: 'bookmark',
+    targets: fixture.annotation.targets
+  };
+  const before = fixture.db.rows('readerAnnotation');
+  await assert.rejects(fixture.api.saveReaderAnnotation(draft, 'alice'), /another account/);
+  assert.deepEqual(fixture.db.rows('readerAnnotation'), before);
+  assert.equal(fixture.db.rows('readerAnnotationOutbox').length, 0);
+  assert.equal(fixture.db.rows('readerAnnotationScope').length, 0);
+});
+
+test('annotation archive import cannot commit after book ownership changes at write admission', async () => {
+  let changed = false;
+  const fixture = annotationFixture({
+    onTransaction({ selected, tables }) {
+      if (changed || !selected.includes('readerAnnotation')) return;
+      changed = true;
+      tables.get('readerBookScope').set(1, { bookId: 1, accountId: 'bob' });
+    }
+  });
+  const incoming = {
+    ...fixture.annotation,
+    id: '22222222-2222-2222-2222-222222222222',
+    createdAt: '2026-09-28T01:00:00.000Z',
+    modifiedAt: '2026-09-28T01:00:00.000Z'
+  };
+  const archive = JSON.stringify({
+    format: 'manabi-reader-annotations',
+    version: 1,
+    annotations: [incoming]
+  });
+  const before = fixture.db.rows('readerAnnotation');
+  await assert.rejects(fixture.api.importReaderAnnotations(archive, 'alice'), /another account/);
+  assert.deepEqual(fixture.db.rows('readerAnnotation'), before);
+  assert.equal(fixture.db.rows('readerAnnotationOutbox').length, 0);
+  assert.equal(fixture.db.rows('readerConflict').length, 1);
+});
+
+test('profile change aborts a pending annotation mutation instead of acknowledging it', async () => {
+  const fixture = annotationFixture();
+  const draft = {
+    bookKey: fixture.bookKey,
+    kind: 'bookmark',
+    targets: fixture.annotation.targets
+  };
+  // Change the active profile as soon as the annotation transaction is admitted.
+  let switched = false;
+  const originalTransaction = fixture.db.transaction;
+  fixture.db.transaction = function transaction(names) {
+    const tx = originalTransaction.call(this, names);
+    const selected = typeof names === 'string' ? [names] : names;
+    if (!switched && selected.includes('readerAnnotation')) {
+      switched = true;
+      globalThis.queueMicrotask(() => fixture.setUser('bob'));
+    }
+    return tx;
+  };
+  await assert.rejects(fixture.api.saveReaderAnnotation(draft, 'alice'), /account changed/i);
+  assert.equal(fixture.db.rows('readerAnnotationOutbox').length, 0);
 });
