@@ -205,7 +205,10 @@ test('transcript search enumerates manifests once and reuses that snapshot acros
       [b, [track('00000000-0000-4000-8000-000000000010', b, [cue('b', 2, 'needle b')])]]
     ])
   })
-  store.manifestSnapshot = [{ marker: 'shared' }]
+  store.manifestSnapshot = [
+    { mediaKey: a, marker: 'a' },
+    { mediaKey: b, marker: 'b' }
+  ]
   const result = await searchVideoTranscripts(
     store,
     'guest',
@@ -215,7 +218,10 @@ test('transcript search enumerates manifests once and reuses that snapshot acros
   assert.equal(result.hits.length, 2)
   assert.equal(store.manifestReads, 1)
   assert.equal(store.seenManifestSnapshots.length, 2)
-  assert.ok(store.seenManifestSnapshots.every((snapshot) => snapshot === store.manifestSnapshot))
+  assert.deepEqual(store.seenManifestSnapshots.map((snapshot) => snapshot.map((row) => row.marker)), [
+    ['a'],
+    ['b']
+  ])
 })
 
 test('one corrupt transcript snapshot does not hide other video matches', async () => {
