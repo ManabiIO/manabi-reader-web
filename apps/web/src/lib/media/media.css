@@ -90,6 +90,9 @@
 }
 .media-sections a,
 .media-sections span {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
   padding: 8px 22px;
   border-radius: 20px;
   text-decoration: none;
