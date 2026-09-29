@@ -31,8 +31,7 @@ export function resampleForSwiftF0(input: Float32Array, rate: number): Float32Ar
   if (!Number.isFinite(rate) || rate < 8000 || rate > 192000 || input.length === 0)
     return new Float32Array();
 
-  if (rate === SWIFT_F0_SAMPLE_RATE)
-    return Float32Array.from(input, (value) => finite(value));
+  if (rate === SWIFT_F0_SAMPLE_RATE) return Float32Array.from(input, (value) => finite(value));
 
   const ratio = rate / SWIFT_F0_SAMPLE_RATE;
   const length = Math.max(1, Math.floor(input.length / ratio));
