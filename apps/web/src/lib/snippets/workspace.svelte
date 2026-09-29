@@ -1188,27 +1188,32 @@
   {/if}
 </div>
 {#if pickerOpen && admitted}<Dialog.Root bind:open={pickerOpen}
-    ><Dialog.Content closeDisabled={busy || pickerWriteBusy}
-      ><Dialog.Header
-        ><Dialog.Title
-          >{pickerPurpose === 'move'
-            ? 'Move snippets'
-            : pickerPurpose === 'default'
-              ? 'Default snippet location'
-              : 'Save location'}</Dialog.Title
-        ><Dialog.Description
-          >Choose one real storage home. Your documents remain together in the Snippets view.</Dialog.Description
-        ></Dialog.Header
-      ><DestinationPicker
-        initial={destination ?? current?.destination}
-        guard={admitted.guard}
-        allowDevice={pickerPurpose === 'save'}
-        allowUnsetDefault={pickerPurpose === 'default'}
-        onwritebusy={(value) => (pickerWriteBusy = value)}
-        choose={(value, remember) => void action(() => chooseDestination(value, remember))}
-      /></Dialog.Content
-    ></Dialog.Root
-  >{/if}
+    ><Dialog.Content class="overflow-hidden p-0" closeDisabled={busy || pickerWriteBusy}
+      ><div
+        data-snippet-picker-scroll
+        class="max-h-[inherit] min-h-0 overflow-y-auto overscroll-contain p-[24px]"
+      >
+        <Dialog.Header class="pe-[48px]"
+          ><Dialog.Title
+            >{pickerPurpose === 'move'
+              ? 'Move snippets'
+              : pickerPurpose === 'default'
+                ? 'Default snippet location'
+                : 'Save location'}</Dialog.Title
+          ><Dialog.Description
+            >Choose one real storage home. Your documents remain together in the Snippets view.</Dialog.Description
+          ></Dialog.Header
+        ><DestinationPicker
+          initial={destination ?? current?.destination}
+          guard={admitted.guard}
+          allowDevice={pickerPurpose === 'save'}
+          allowUnsetDefault={pickerPurpose === 'default'}
+          onwritebusy={(value) => (pickerWriteBusy = value)}
+          choose={(value, remember) => void action(() => chooseDestination(value, remember))}
+        /></div
+      ></Dialog.Content>
+    </Dialog.Root>
+  {/if}
 {#if collectionsOpen}<Dialog.Root bind:open={collectionsOpen}
     ><Dialog.Content closeDisabled={busy}
       ><Dialog.Header
