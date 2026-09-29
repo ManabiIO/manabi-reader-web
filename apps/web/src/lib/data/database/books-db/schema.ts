@@ -56,7 +56,8 @@ const schema: Record<StoreNames<BooksDb>, StoreSchema> = {
   readerExternalSync: { keyPath: 'id' },
   readerImportRecord: { keyPath: 'id', indexes: { bookKey: 'bookKey' } },
   readerStatistic: { keyPath: ['bookKey', 'dateKey'], indexes: { dateKey: 'dateKey' } },
-  readerStatisticMigration: { keyPath: 'title' }
+  readerStatisticMigration: { keyPath: 'title' },
+  readerStatisticScope: { keyPath: 'bookKey' }
 };
 
 function equalKeyPath(left: KeyPath, right: KeyPath) {
