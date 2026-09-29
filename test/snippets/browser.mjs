@@ -489,6 +489,56 @@ try {
   await expect(rootCrumb).toHaveAttribute('data-slot', 'button');
   await expect(rootCrumb).toHaveAttribute('aria-current', 'page');
   assert((await rootCrumb.boundingBox()).height >= 43.5);
+
+  await page.setViewportSize({ width: 320, height: 320 });
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '200%';
+  });
+  const pickerScroll = picker.locator('[data-snippet-picker-scroll]');
+  await expect
+    .poll(() => pickerScroll.evaluate((element) => element.scrollHeight > element.clientHeight))
+    .toBe(true);
+  await pickerScroll.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await expect.poll(() => pickerScroll.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  const enlargedPickerClose = picker.getByRole('button', { name: 'Close', exact: true });
+  const closeBox = await enlargedPickerClose.boundingBox();
+  assert(closeBox.width >= 43.5 && closeBox.height >= 43.5,
+    'Save-location close target must remain at least 44x44 CSS px');
+  assert(
+    closeBox.x >= -1 &&
+      closeBox.y >= -1 &&
+      closeBox.x + closeBox.width <= 321 &&
+      closeBox.y + closeBox.height <= 321,
+    'Save-location close target must remain inside the short visual viewport'
+  );
+  assert(
+    await enlargedPickerClose.evaluate((button) => {
+      const r = button.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return !!hit && (hit === button || button.contains(hit));
+    }),
+    'Save-location close target must remain hit-testable after picker scrolling'
+  );
+  assert(
+    (await picker.evaluate((element) => element.scrollWidth - element.clientWidth)) <= 1,
+    'Save-location dialog must not overflow horizontally at 200% text'
+  );
+  const enlargedEvidence = process.env.SNIPPETS_SCREENSHOT;
+  if (enlargedEvidence) {
+    const pickerPath = enlargedEvidence.replace(/\.png$/i, '-picker-large-text.png');
+    await mkdir(dirname(pickerPath), { recursive: true });
+    await page.screenshot({ path: pickerPath, fullPage: true });
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '';
+  });
+  await pickerScroll.evaluate((element) => {
+    element.scrollTop = 0;
+  });
+
   holdMkdir = true;
   await picker.getByLabel('New folder name').fill('Study folder');
   await picker.getByRole('button', { name: 'Create folder', exact: true }).click();
