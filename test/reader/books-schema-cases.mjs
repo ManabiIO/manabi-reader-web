@@ -37,15 +37,22 @@ const statistics = {
   readerStatistic: [['bookKey', 'dateKey'], false, { dateKey: 'dateKey' }],
   readerStatisticMigration: ['title']
 };
+const retainedStatisticScope = {
+  readerStatisticScope: ['bookKey']
+};
 const localFeatures = {
   readerSearchProjection: ['bookId'],
   readerExternalSync: ['id'],
   readerImportRecord: ['id', false, { bookKey: 'bookKey' }]
 };
 const preV13 = { ...legacy, ...annotations, ...personal, ...statistics, ...localFeatures };
-const expected = {
+const indexedV13 = {
   ...preV13,
   data: ['id', true, { title: 'title', contentHash: 'contentHash', libraryOwner: 'libraryOwner' }]
+};
+const expected = {
+  ...indexedV13,
+  ...retainedStatisticScope
 };
 const prefix = (count) => Object.fromEntries(Object.entries(legacy).slice(0, count));
 const histories = {
@@ -62,6 +69,7 @@ const histories = {
   'v10-local-features': [10, preV13],
   'v11-complete': [11, preV13],
   'v12-complete': [12, preV13],
+  'v13-indexed': [13, indexedV13],
   // Shape produced by the old <7 guard after upgrading byte-only version 7.
   'v11-already-missing-reader-stores': [
     11,
@@ -186,7 +194,7 @@ async function snapshot(db, names = Array.from(db.objectStoreNames)) {
   return serializable(Object.fromEntries(rows));
 }
 function verifySchema(db) {
-  assert(db.version === 13, `Expected indexed version 13, got ${db.version}`);
+  assert(db.version === 14, `Expected statistic-scope version 14, got ${db.version}`);
   const tx = db.transaction(Array.from(db.objectStoreNames));
   for (const [name, [path, increment = false, indexes = {}]] of Object.entries(expected)) {
     assert(db.objectStoreNames.contains(name), `Missing required store ${name}`);
