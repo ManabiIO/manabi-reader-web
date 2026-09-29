@@ -95,7 +95,23 @@ export class BrowserStorageHandler extends BaseStorageHandler {
     const context = { id: this.currentContext.id, title: this.currentContext.title };
     const signal = this.cancelSignal;
     throwIfAborted(signal);
-    return prepareBookForLocalReading(await database.db, context, signal);
+    const scope = captureLibraryOperation();
+    try {
+      scope.assertCurrent();
+      const id = await prepareBookForLocalReading(
+        await database.db,
+        context,
+        signal,
+        scope.profileId,
+        scope.assertCurrent,
+        scope.signal
+      );
+      scope.assertCurrent();
+      throwIfAborted(signal);
+      return id;
+    } finally {
+      scope.stop();
+    }
   }
 
   async updateLastRead(book: BooksDbBookData) {
