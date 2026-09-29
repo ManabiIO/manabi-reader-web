@@ -338,4 +338,16 @@
     border-color: var(--border);
     margin-block: 1em;
   }
+  @media (max-width: 640px) {
+    .reading-tools {
+      gap: 6px;
+      padding-block: 8px;
+    }
+    .reading-tools :global(button) {
+      padding-inline: 10px;
+    }
+    .snippet-reading {
+      margin-block: 20px;
+    }
+  }
 </style>

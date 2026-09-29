@@ -275,9 +275,40 @@ try {
   await moreActions.press('Enter');
   const actionMenu = page.getByRole('menu');
   await expect(actionMenu).toBeVisible();
+  const mobileActions = [
+    'Collections…',
+    'Add text',
+    'Move to…',
+    'Duplicate',
+    'Export JSON',
+    'HTML',
+    'Markdown',
+    'Trash'
+  ];
   await expect(
-    actionMenu.getByRole('menuitem', { name: 'Collections…', exact: true })
-  ).toBeVisible();
+    actionMenu.getByRole('menuitem', { name: mobileActions[0], exact: true })
+  ).toBeFocused();
+  for (const [index, name] of mobileActions.entries()) {
+    if (index > 0) await page.keyboard.press('ArrowDown');
+    const item = actionMenu.getByRole('menuitem', { name, exact: true });
+    await expect(item).toBeFocused();
+    const box = await item.boundingBox();
+    assert(box && box.height >= 43.5, `${name} menu item must remain at least 44 CSS px high`);
+    if (index === mobileActions.length - 1) {
+      assert(
+        box.y >= -1 && box.y + box.height <= 481,
+        `Last Snippets action must scroll into the short viewport: ${JSON.stringify(box)}`
+      );
+      assert(
+        await item.evaluate((node) => {
+          const r = node.getBoundingClientRect();
+          const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return !!hit && (hit === node || node.contains(hit));
+        }),
+        'Last Snippets action must remain hit-testable after keyboard scrolling'
+      );
+    }
+  }
   await page.keyboard.press('Escape');
   await expect(actionMenu).toHaveCount(0);
   await expect(moreActions).toBeFocused();
@@ -292,9 +323,19 @@ try {
     'Save selection to snippet…'
   ]) {
     const control = readingToolbar.getByRole('button', { name, exact: true });
+    await control.scrollIntoViewIfNeeded();
     const box = await control.boundingBox();
     assert(box && box.height >= 43.5, `${name} must remain at least 44 CSS px high`);
     assert(box.x >= -1 && box.x + box.width <= 321, `${name} must stay inside the viewport`);
+    assert(box.y >= -1 && box.y + box.height <= 481, `${name} must be vertically reachable`);
+    assert(
+      await control.evaluate((node) => {
+        const r = node.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return !!hit && (hit === node || node.contains(hit));
+      }),
+      `${name} must remain hit-testable after enlarged-text scrolling`
+    );
   }
   const verticalToggle = readingToolbar.getByRole('button', {
     name: 'Vertical reading',

@@ -133,6 +133,8 @@ def main():
         page.set_default_timeout(20000)
         page.goto(origin + '/reader-web/videos')
         expect(page.get_by_role('heading', name='Videos', exact=True)).to_be_visible()
+        books_link = page.get_by_role('link', name='Books', exact=True)
+        assert books_link.bounding_box()['height'] >= 43.5
         def upload():
             page.locator('[data-testid=media-files]').set_input_files([
                 {'name':'video.mp4','mimeType':'video/mp4','buffer':(args.fixture / 'video.mp4').read_bytes()},
@@ -140,6 +142,26 @@ def main():
                 {'name':'video.en.srt','mimeType':'text/plain','buffer':b'1\n00:00:00,000 --> 00:00:04,000\nHello. Are you looking for something?\n\n2\n00:00:04,000 --> 00:00:08,000\nI am looking for a Japanese book.\n'}
             ])
         upload()
+        shelf = page.get_by_label('Video library', exact=True)
+        card_select = shelf.get_by_role('checkbox').first
+        expect(card_select).to_be_visible()
+        select_target = card_select.locator('..')
+        select_box = select_target.bounding_box()
+        assert select_box['width'] >= 43.5 and select_box['height'] >= 43.5, select_box
+        assert card_select.evaluate("""input => {
+            const label=input.closest('label');
+            const r=label.getBoundingClientRect();
+            const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+            return !!hit && (hit===label || label.contains(hit));
+        }""")
+        card_select.focus()
+        expect(card_select).to_be_focused()
+        page.keyboard.press('Space')
+        expect(card_select).to_be_checked()
+        page.keyboard.press('Space')
+        expect(card_select).not_to_be_checked()
+        results.append('video card selection has a native 44px keyboard and pointer target')
+
         existing = page.get_by_label('Choose existing subtitles', exact=True)
         expect(existing.locator('option')).to_have_count(3)
         assert page.locator('.transcript-cue').count() == 0
@@ -268,6 +290,161 @@ def main():
         page.set_viewport_size({'width':390,'height':844})
         page.locator('.manabi-video-player').scroll_into_view_if_needed()
         page.screenshot(path=str(args.output/'app-phone.png'))
+
+        # The real app's media chrome must participate in text scaling instead
+        # of pinning its UI to absolute 16px typography. Stress the same player
+        # and transcript at a genuinely narrow viewport.
+        page.set_viewport_size({'width':320,'height':568})
+        page.evaluate("document.documentElement.style.fontSize='200%'")
+        page.locator('.manabi-video-player').scroll_into_view_if_needed()
+        media = page.locator('.manabi-media')
+        media_font = float(media.evaluate(
+            "node => parseFloat(getComputedStyle(node).fontSize)"
+        ))
+        assert media_font >= 31.5, media_font
+
+        # Stress the library chrome too, not only the currently open player.
+        # These controls all remain part of the same page above the viewing surface.
+        media_overflow = media.evaluate("""node => {
+            const overflow=node.scrollWidth-node.clientWidth;
+            const bounds=node.getBoundingClientRect();
+            const offenders=[...node.querySelectorAll('*')].map(child => {
+                const r=child.getBoundingClientRect();
+                return {
+                    tag:child.tagName, cls:String(child.className || '').slice(0,120),
+                    text:(child.textContent || '').trim().replace(/\s+/g,' ').slice(0,80),
+                    left:r.left, right:r.right, width:r.width
+                };
+            }).filter(item => item.right > bounds.right + 1 || item.left < bounds.left - 1)
+              .sort((a,b)=>b.right-a.right).slice(0,12);
+            return {overflow,bounds:{left:bounds.left,right:bounds.right,width:bounds.width},offenders};
+        }""")
+        assert media_overflow['overflow'] <= 1, media_overflow
+        library_controls = [
+            page.get_by_role('button', name='Add videos', exact=True),
+            page.get_by_role('button', name='Open local folder', exact=True),
+            page.get_by_role('searchbox', name='Search videos', exact=True),
+            page.get_by_label('Sort videos', exact=True),
+            page.get_by_label('Filter videos', exact=True),
+            page.get_by_role('button', name='Select visible videos', exact=True),
+            page.get_by_role('button', name='Clear selection', exact=True),
+            page.get_by_role('button', name='Generate missing transcripts', exact=True),
+            page.get_by_text('Transcription and sync', exact=True),
+        ]
+        def assert_reachable(control):
+            control.scroll_into_view_if_needed()
+            expect(control).to_be_visible()
+            box = control.bounding_box()
+            assert box and box['height'] >= 43.5, box
+            assert box['x'] >= -1 and box['x'] + box['width'] <= 321, box
+            assert box['y'] >= -1 and box['y'] + box['height'] <= 569, box
+            assert control.evaluate("""node => {
+                const r=node.getBoundingClientRect();
+                const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+                return !!hit && (hit===node || node.contains(hit));
+            }"""), box
+
+        for control in library_controls:
+            assert_reachable(control)
+
+        library_card = page.locator('.video-card').filter(has_text='video.mp4')
+        library_card.scroll_into_view_if_needed()
+        expect(library_card).to_be_visible()
+        assert library_card.evaluate("node => node.scrollWidth-node.clientWidth") <= 1
+        card_select = library_card.get_by_role('checkbox', name='Select video.mp4', exact=True)
+        assert_reachable(card_select.locator('..'))
+        card_title = library_card.get_by_role('button', name='video.mp4', exact=True)
+        assert_reachable(card_title)
+        actions_summary = library_card.get_by_text('Actions', exact=True)
+        assert_reachable(actions_summary)
+        actions_summary.click()
+        for action_name in ('Open video', 'Generate missing transcript', 'Rename title'):
+            action = library_card.get_by_role('button', name=action_name, exact=True)
+            expect(action).to_be_visible()
+            assert_reachable(action)
+        actions_summary.click()
+        page.locator('.manabi-video-player').scroll_into_view_if_needed()
+        heading_font = float(page.get_by_role(
+            'heading', name='Videos', exact=True
+        ).evaluate("node => parseFloat(getComputedStyle(node).fontSize)"))
+        assert heading_font > media_font, (heading_font, media_font)
+        track_font = float(page.get_by_label(
+            'Transcript track', exact=True
+        ).evaluate("node => parseFloat(getComputedStyle(node).fontSize)"))
+        assert track_font >= media_font * 0.8, (track_font, media_font)
+        assert page.evaluate(
+            "document.documentElement.scrollWidth-innerWidth"
+        ) <= 1
+        assert media.evaluate("node => node.scrollWidth-node.clientWidth") <= 1
+
+        study_controls = page.locator('.video-study-controls')
+        assert study_controls.evaluate("node => node.scrollWidth-node.clientWidth") <= 1
+        cue_navigation = page.locator('.cue-navigation')
+        assert cue_navigation.evaluate(
+            "node => getComputedStyle(node).gridTemplateColumns !== 'none'"
+        )
+
+        controls = page.locator(
+            '.video-study-controls button:visible, .caption-controls button:visible'
+        )
+        assert controls.count() >= 3
+        for control in controls.all():
+            box = control.bounding_box()
+            assert box and box['height'] >= 43.5, box
+            assert box['x'] >= -1 and box['x'] + box['width'] <= 321, box
+
+        transcript = page.locator('.transcript-pane')
+        expect(transcript).to_be_visible()
+        assert transcript.evaluate("node => node.scrollWidth-node.clientWidth") <= 1
+        rows = page.locator('.transcript-rows')
+        assert rows.evaluate("node => node.scrollWidth-node.clientWidth") <= 1
+        expect(page.locator('.transcript-cue').first).to_be_visible()
+
+        options_button = page.get_by_role('button', name='Transcript options', exact=True)
+        options_button.focus()
+        options_button.press('Enter')
+        options_panel = page.locator('.transcript-options')
+        expect(options_panel).to_be_visible()
+        options_font = float(options_panel.evaluate(
+            "node => parseFloat(getComputedStyle(node).fontSize)"
+        ))
+        assert options_font >= media_font * 0.8, (options_font, media_font)
+        panel_box = options_panel.bounding_box()
+        assert panel_box['x'] >= -1 and panel_box['y'] >= -1, panel_box
+        assert panel_box['x'] + panel_box['width'] <= 321, panel_box
+        assert panel_box['y'] + panel_box['height'] <= 569, panel_box
+        page.screenshot(path=str(args.output/'app-phone-200-percent.png'))
+        page.keyboard.press('Escape')
+        expect(options_panel).to_be_hidden()
+        expect(options_button).to_be_focused()
+        results.append('real video player and transcript chrome reflow at 320px / 200% text')
+
+        page.goto(origin + '/reader-web/manage')
+        library_sections = page.get_by_role('navigation', name='Library sections', exact=True)
+        expect(library_sections).to_be_visible()
+        videos_link = library_sections.get_by_role('link', name='Videos', exact=True)
+        link_box = videos_link.bounding_box()
+        assert link_box['height'] >= 43.5, link_box
+        page.evaluate("document.documentElement.style.fontSize='200%'")
+        tab_font = float(videos_link.evaluate(
+            "node => parseFloat(getComputedStyle(node).fontSize)"
+        ))
+        assert tab_font >= 29.5, tab_font
+        assert library_sections.evaluate(
+            "node => node.scrollWidth-node.clientWidth"
+        ) <= 1
+        for link in library_sections.get_by_role('link').all():
+            box = link.bounding_box()
+            assert box['height'] >= 43.5, box
+            assert box['x'] >= -1 and box['x'] + box['width'] <= 321, box
+        assert page.evaluate(
+            "document.documentElement.scrollWidth-innerWidth"
+        ) <= 1
+        videos_link.focus()
+        expect(videos_link).to_be_focused()
+        page.evaluate("document.documentElement.style.fontSize=''")
+        results.append('Library Books/Videos switcher scales and remains touch sized')
+
         assert not errors, errors
         browser.close()
     except Exception:
