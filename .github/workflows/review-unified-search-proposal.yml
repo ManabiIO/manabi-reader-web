@@ -2,7 +2,7 @@ name: Qualify unified search proposal
 on:
   push:
     branches: [review/unified-search-source-20260928]
-    paths: [.github/workflows/review-unified-search-proposal.yml, .review/reader.patch.2.b64]
+    paths: [.github/workflows/review-unified-search-proposal.yml]
 permissions:
   contents: write
 jobs:
@@ -12,73 +12,119 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          path: proposal
-          persist-credentials: false
-      - uses: actions/checkout@v4
-        with:
-          ref: 3a8e5239a93bd9b4e10b7a7b96e37c2fc1225607
-          path: product
+          ref: 4afb19c8fa3e1e87605a4f0efad7a62cecd1b820
+          fetch-depth: 0
       - uses: pnpm/action-setup@v6.1.0
         with:
           version: '12.3.4'
       - uses: actions/setup-node@v4
         with:
           node-version: '24.21.0'
-      - name: Apply exact reviewed patch
-        working-directory: product
+      - name: Add executable repository-boundary regression and Node lint context
         run: |
-          set -euo pipefail
           mkdir -p "$RUNNER_TEMP/search-evidence"
-          cp ../proposal/.review/reader.patch.*.b64 "$RUNNER_TEMP/search-evidence/"
           python3 - <<'PY'
-          import base64, gzip, hashlib, os, pathlib
-          data = ''.join(pathlib.Path(f'../proposal/.review/reader.patch.{i}.b64').read_text().strip() for i in [1, 2])
-          patch = gzip.decompress(base64.b64decode(data, validate=True))
-          assert hashlib.sha256(patch).hexdigest() == '505a8a7935e72aa928fcf9cc4e4fdc6d0397e7cf0e892542c4a07d9a8c127584'
-          pathlib.Path(os.environ['RUNNER_TEMP'], 'reader.patch').write_bytes(patch)
+          from pathlib import Path
+          for name in ['apps/web/src/lib/search/query-task.mjs','tests/unit/unified-search.test.mjs']:
+              p = Path(name)
+              p.write_text(p.read_text().replace('clearTimeout(', 'globalThis.clearTimeout(').replace('setTimeout(', 'globalThis.setTimeout('))
+          p = Path('eslint.config.js')
+          p.write_text(p.read_text().replace("    {\n      files: ['test/reader/**/*.{mjs,ts}'],", "    {\n      files: ['scripts/**/*.mjs'],\n      languageOptions: {\n        parserOptions: { project: false },\n        globals: { AbortSignal: 'readonly', Buffer: 'readonly', URL: 'readonly', console: 'readonly', fetch: 'readonly', process: 'readonly' }\n      }\n    },\n    {\n      files: ['test/reader/**/*.{mjs,ts}'],"))
           PY
-          git apply --check "$RUNNER_TEMP/reader.patch"
-          git apply "$RUNNER_TEMP/reader.patch"
-          git add -A
+          cat > tests/unit/dictionary-source.test.mjs <<'JS'
+          /** @license BSD-3-Clause */
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs/promises';
+          import os from 'node:os';
+          import path from 'node:path';
+          import { execFileSync } from 'node:child_process';
+          import { test } from 'node:test';
+          import { ensureDictionaryRepository } from '../../scripts/dictionary-source.mjs';
+          const git = (cwd, args) => execFileSync('git', args, {cwd, encoding: 'utf8', stdio: 'pipe'}).trim();
+          async function fixture(t) {
+            const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'dictionary-boundary-'));
+            t.after(() => fs.rm(parent, {recursive: true, force: true}));
+            git(parent, ['init', '--quiet']);
+            await fs.writeFile(path.join(parent, 'sentinel'), 'Reader must not change.');
+            git(parent, ['add', 'sentinel']);
+            git(parent, ['-c','user.name=Test','-c','user.email=test@example.invalid','commit','--quiet','-m','Reader']);
+            return parent;
+          }
+          test('fresh nested cache owns its repository and cannot change Reader HEAD', async (t) => {
+            const parent = await fixture(t), before = git(parent, ['rev-parse','HEAD']);
+            const nested = path.join(parent, '.cache', 'dictionary', 'source');
+            const actual = await ensureDictionaryRepository(nested, true);
+            assert.equal(git(nested, ['rev-parse','--show-toplevel']), await fs.realpath(nested));
+            await fs.writeFile(path.join(nested, 'dictionary'), 'Dictionary');
+            git(nested, ['add','dictionary']);
+            git(nested, ['-c','user.name=Test','-c','user.email=test@example.invalid','commit','--quiet','-m','Dictionary']);
+            git(nested, ['checkout','--detach']);
+            assert.equal(git(parent, ['rev-parse','HEAD']), before);
+            assert.equal(await fs.readFile(path.join(parent, 'sentinel'),'utf8'), 'Reader must not change.');
+            assert.equal(await ensureDictionaryRepository(nested, true), actual);
+          });
+          test('explicit source cannot inherit a containing repository', async (t) => {
+            const parent = await fixture(t), nested = path.join(parent, 'not-a-repository');
+            await fs.mkdir(nested);
+            await assert.rejects(ensureDictionaryRepository(nested), /repository root/);
+            await assert.rejects(fs.lstat(path.join(nested,'.git')), {code:'ENOENT'});
+            assert.equal(await ensureDictionaryRepository(parent), await fs.realpath(parent));
+          });
+          test('cache refuses symbolic metadata and symbolic repository roots', async (t) => {
+            const parent = await fixture(t), nested = path.join(parent, 'misdirected');
+            await fs.mkdir(nested);
+            await fs.symlink(path.join(parent,'.git'), path.join(nested,'.git'), 'dir');
+            await assert.rejects(ensureDictionaryRepository(nested, true), /independent repository metadata/);
+            const link = path.join(parent, 'root-link');
+            await fs.symlink(nested, link, 'dir');
+            await assert.rejects(ensureDictionaryRepository(link, true), /symbolic repository root/);
+          });
+          JS
       - run: pnpm install --frozen-lockfile
-        working-directory: product
       - run: pnpm --dir apps/web exec svelte-kit sync
-        working-directory: product
-      - name: Format changed source only
-        working-directory: product
-        run: |
-          git diff --cached --name-only -z -- '*.js' '*.mjs' '*.ts' '*.mts' '*.svelte' '*.md' '*.json' | xargs -0 pnpm exec prettier --write > "$RUNNER_TEMP/search-evidence/format.txt" 2>&1
-          node --test tests/unit/unified-search.test.mjs | tee "$RUNNER_TEMP/search-evidence/unit.txt"
-      - name: Publish bounded product branch
-        working-directory: product
+      - name: Check changed source and publish qualified fixes
         run: |
           set -euo pipefail
-          git add -A
+          pnpm exec prettier --write eslint.config.js scripts/dictionary-source.mjs scripts/prepare-dictionary.mjs tests/unit/dictionary-source.test.mjs tests/unit/unified-search.test.mjs apps/web/src/lib/search/query-task.mjs
+          node --test tests/unit/unified-search.test.mjs tests/unit/dictionary-source.test.mjs | tee "$RUNNER_TEMP/search-evidence/unit.txt"
+          pnpm --dir apps/web check > "$RUNNER_TEMP/search-evidence/check.txt" 2>&1
+          pnpm check > "$RUNNER_TEMP/search-evidence/lint.txt" 2>&1
+          git add eslint.config.js scripts/dictionary-source.mjs scripts/prepare-dictionary.mjs tests/unit/dictionary-source.test.mjs tests/unit/unified-search.test.mjs apps/web/src/lib/search/query-task.mjs
           git config user.name 'Manabi development'
           git config user.email 'development@manabi.io'
-          git switch -c feat/unified-dictionary-search-20260928
-          HUSKY=0 git commit -m 'feat(search): unify dictionary titles and local content search'
+          HUSKY=0 git commit -m 'test(search): verify dictionary repository isolation and finish Node lint'
+          git push origin HEAD:refs/heads/feat/unified-dictionary-search-20260928
           git rev-parse HEAD > "$RUNNER_TEMP/search-evidence/product-head.txt"
           git diff 3a8e5239a93bd9b4e10b7a7b96e37c2fc1225607 HEAD > "$RUNNER_TEMP/search-evidence/product.patch"
-          git push origin HEAD:refs/heads/feat/unified-dictionary-search-20260928
-      - name: Type and lint evidence
-        working-directory: product
-        run: |
-          set +e
-          pnpm --dir apps/web check > "$RUNNER_TEMP/search-evidence/check.txt" 2>&1
-          echo "check_exit=$?" >> "$RUNNER_TEMP/search-evidence/status.txt"
-          pnpm check > "$RUNNER_TEMP/search-evidence/lint.txt" 2>&1
-          echo "lint_exit=$?" >> "$RUNNER_TEMP/search-evidence/status.txt"
       - name: Build exact pinned runtime and Reader
-        working-directory: product
         env:
           BASE_PATH: /reader-web
         run: |
           set -o pipefail
+          before=$(git rev-parse HEAD)
           pnpm build 2>&1 | tee "$RUNNER_TEMP/search-evidence/build.txt"
+          test "$before" = "$(git rev-parse HEAD)"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install browser engines
+        run: |
+          python -m pip install 'playwright==1.63.0'
+          python -m playwright install --with-deps chromium webkit
+      - name: Execute real dictionary journeys in both engines
+        run: |
+          set +e
+          status=0
+          for engine in chromium webkit; do
+            LIBRARY_BROWSER=$engine timeout -v -k 10s 360s python tests/browser/test_unified_search.py 2>&1 | tee "$RUNNER_TEMP/search-evidence/$engine-unified-search.txt"
+            if [ "${PIPESTATUS[0]}" -ne 0 ]; then status=1; fi
+          done
+          exit "$status"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: unified-search-proposal-evidence
-          path: ${{ runner.temp }}/search-evidence
+          name: unified-search-final-qualification
+          path: |
+            ${{ runner.temp }}/search-evidence
+            test-results/
           retention-days: 3
