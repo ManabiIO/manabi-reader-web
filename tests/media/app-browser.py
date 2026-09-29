@@ -343,6 +343,7 @@ def main():
             assert box['height'] >= 43.5, (action_name, box)
             assert box['x'] >= -1 and box['x'] + box['width'] <= 321, (action_name, box)
         actions_summary.click()
+        page.locator('.manabi-video-player').scroll_into_view_if_needed()
         heading_font = float(page.get_by_role(
             'heading', name='Videos', exact=True
         ).evaluate("node => parseFloat(getComputedStyle(node).fontSize)"))
