@@ -134,20 +134,15 @@ export function sortSearchText<T>(
       const fields = text(value);
       let key: SearchMatchKey;
       if (typeof fields === 'string') key = bestKey([fields], needle);
-      else if (Array.isArray(fields)) key = bestKey(fields, needle);
-      else {
+      else if ('primary' in fields) {
         const primary = bestKey(fields.primary, needle, 0);
-        key =
-          primary.tier < 4
-            ? primary
-            : bestKey(fields.secondary ?? [], needle, 1);
-      }
+        key = primary.tier < 4 ? primary : bestKey(fields.secondary ?? [], needle, 1);
+      } else key = bestKey(fields, needle);
       return { value, order, key };
     })
     .sort((a, b) => compareKeys(a.key, b.key) || tie(a.value, b.value) || a.order - b.order)
     .map(({ value }) => value);
 }
-
 
 /**
  * Locate the first normalized query match in original metadata text without
@@ -159,12 +154,10 @@ export function searchMatchRange(
 ): { start: number; end: number } | undefined {
   const needle = foldSearch(query.trim());
   if (!needle) return;
-  let folded = '';
   const starts: number[] = [],
     ends: number[] = [];
   for (const part of new Intl.Segmenter('ja', { granularity: 'grapheme' }).segment(value)) {
     const unit = foldSearch(part.segment);
-    folded += unit;
     for (let index = 0; index < unit.length; index++) {
       starts.push(part.index);
       ends.push(part.index + part.segment.length);
@@ -174,5 +167,7 @@ export function searchMatchRange(
   if (at < 0) return;
   const start = starts[at],
     end = ends[at + needle.length - 1];
-  return Number.isInteger(start) && Number.isInteger(end) && end > start ? { start, end } : undefined;
+  return Number.isInteger(start) && Number.isInteger(end) && end > start
+    ? { start, end }
+    : undefined;
 }

@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { foldSearch } from '../library/search-normalization';
+import { foldSearch } from '../library/search-normalization.ts';
 import type { Collection } from '../library/organization';
 import type { ShelfBook, ShelfNode } from '../library/view-model';
 
@@ -60,18 +60,21 @@ export function bookTitleMatchIndex(
   matchingSeriesText(nodes, normalizedQuery, result);
 
   const collectionsByMember = new Map<string, BookTitleMatchContext[]>();
+  const contextOrder = new Map<BookTitleMatchContext, number>();
   for (const collection of collections) {
     if (!foldSearch(collection.name).includes(normalizedQuery)) continue;
-    for (const member of collection.members)
-      add(collectionsByMember, member, {
-        text: collection.name,
-        detail: `Collection · ${collection.name}`
-      });
+    const context = { text: collection.name, detail: `Collection · ${collection.name}` };
+    contextOrder.set(context, contextOrder.size);
+    for (const member of collection.members) add(collectionsByMember, member, context);
   }
 
-  for (const book of books)
-    for (const alias of book.organizationAliases)
-      for (const context of collectionsByMember.get(alias) ?? []) add(result, book.key, context);
+  for (const book of books) {
+    const contexts = book.organizationAliases.flatMap(
+      (alias) => collectionsByMember.get(alias) ?? []
+    );
+    contexts.sort((a, b) => contextOrder.get(a)! - contextOrder.get(b)!);
+    for (const context of contexts) add(result, book.key, context);
+  }
 
   return {
     textByBook: Object.fromEntries(result),
