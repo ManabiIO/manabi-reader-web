@@ -264,6 +264,7 @@ function fixture(options = {}) {
   };
 }
 async function running(f = fixture()) {
+  f.controller.setSpeechActive(true);
   f.controller.setEnabled(true);
   f.ready();
   await flush();
@@ -526,6 +527,41 @@ test('native Play waits for suspended output to resume before scheduling analysi
   assert.equal(f.frames.size, 1);
   f.controller.dispose();
 });
+
+test('transcript cue gate suppresses background-only sampling and breaks the next contour', async () => {
+  const f = await running();
+  f.controller.setSpeechActive(false);
+  assert.equal(f.state.speechActive, false);
+  assert.equal(f.frames.size, 0);
+  f.frame(1000);
+  assert.equal(f.workers[0].sent.length, 0);
+
+  f.controller.setSpeechActive(true);
+  assert.equal(f.state.speechActive, true);
+  f.frame(100);
+  assert.equal(f.workers[0].sent.length, 0, 'wait for SwiftF0 future context inside the cue');
+  f.a.currentTime += 0.25;
+  f.frame(300);
+  assert.equal(f.workers[0].sent.length, 1);
+  f.result();
+  assert.equal(f.state.points.length, 1);
+  assert.equal(f.state.points[0].breakBefore, true);
+
+  f.controller.setSpeechActive(false);
+  f.a.currentTime += 0.05;
+  f.frame(400);
+  assert.equal(f.workers[0].sent.length, 1, 'cue gaps must not enqueue pitch work');
+
+  f.controller.setSpeechActive(true);
+  f.a.currentTime += 0.25;
+  f.frame(700);
+  assert.equal(f.workers[0].sent.length, 2);
+  f.result();
+  assert.equal(f.state.points.length, 2);
+  assert.equal(f.state.points[1].breakBefore, true, 'new cues must not join across a background gap');
+  f.controller.dispose();
+});
+
 test('startup timeout distinguishes ready worker from unavailable audio output', async () => {
   const f = fixture({ resume: () => new Promise(() => {}) });
   f.controller.setEnabled(true);
