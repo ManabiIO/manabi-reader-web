@@ -22,6 +22,7 @@ async function database() {
     upgrade(db) {
       const data = db.createObjectStore('data', { keyPath: 'id' });
       data.createIndex('title', 'title');
+      data.createIndex('contentHash', 'contentHash');
       const legacy = db.createObjectStore('statistic', { keyPath: ['title', 'dateKey'] });
       legacy.createIndex('dateKey', 'dateKey');
       const content = db.createObjectStore('readerStatistic', { keyPath: ['bookKey', 'dateKey'] });

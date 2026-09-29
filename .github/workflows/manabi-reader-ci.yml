@@ -48,7 +48,8 @@ jobs:
           python -m pip install 'playwright==1.55.0'
           python -m playwright install --with-deps chromium
           set -o pipefail
-          python tests/browser/test_offline_reader.py 2>&1 | tee browser-results.log
+          python tests/browser/test_preference_sync_recovery.py PreferenceSyncRecovery.test_accepted_server_organization_recovers_offline_without_refetch PreferenceSyncRecovery.test_accepted_server_organization_recovers_offline_preserving_later_edit 2>&1 | tee browser-results.log
+          python tests/browser/test_offline_reader.py 2>&1 | tee -a browser-results.log
           python tests/browser/test_static_reader.py 2>&1 | tee -a browser-results.log
           python tests/browser/test_local_library.py 2>&1 | tee -a browser-results.log
           python test/whispersync/browser.py test-results/whispersync-bundle.js 2>&1 | tee -a browser-results.log
@@ -132,6 +133,11 @@ jobs:
         run: |
           pnpm --dir apps/web exec svelte-kit sync
           pnpm build
+      - name: Accepted preference application recovers locally in WebKit
+        if: matrix.browser == 'webkit'
+        env:
+          LIBRARY_BROWSER: webkit
+        run: python tests/browser/test_preference_sync_recovery.py PreferenceSyncRecovery.test_accepted_server_organization_recovers_offline_without_refetch PreferenceSyncRecovery.test_accepted_server_organization_recovers_offline_preserving_later_edit
       - name: Run actual-app WebKit acceptance
         if: matrix.browser == 'webkit'
         run: python tests/browser/test_whispersync.py --browser webkit

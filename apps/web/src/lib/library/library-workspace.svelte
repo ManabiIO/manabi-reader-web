@@ -2263,6 +2263,17 @@
     display: none;
     min-width: 0;
   }
+  .shelf-grid .book-copy {
+    display: block;
+    width: 100%;
+    margin-top: 0.75rem;
+  }
+  .shelf-grid .book-copy h3 {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
   .book-copy h3 {
     font-weight: 600;
     overflow-wrap: anywhere;

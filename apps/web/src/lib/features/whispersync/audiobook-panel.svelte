@@ -24,6 +24,10 @@
     type CueMatch
   } from './matcher';
   import { toTimeString } from './upstream';
+  import PitchStrip from './pitch/pitch-strip.svelte';
+  import { createPitchController } from './pitch/browser';
+  import type { PitchController } from './pitch/controller';
+  import { initialPitchState } from './pitch/model';
 
   export let open = false;
   export let bookId: number;
@@ -40,6 +44,8 @@
   let ready = false;
   let audioHost: HTMLDivElement;
   let player: LocalAudioPlayer;
+  let pitch: PitchController;
+  let pitchState = initialPitchState();
   let session: AudiobookSessionCoordinator;
   let highlight: ReaderHighlight;
   let navigator: ReaderNavigator;
@@ -87,9 +93,13 @@
   $: activeCue = current >= 0 ? cues[current] : undefined;
   $: if (mounted) contentChanged(htmlContent, layoutKey);
   $: if (mounted) panelVisibilityChanged(open);
+  $: if (mounted) pitch.setVisible(open && cues.length > 0 && !document.hidden);
 
   onMount(() => {
     alive = true;
+    pitch = createPitchController((state) => {
+      if (alive) pitchState = state;
+    });
     highlight = new ReaderHighlight(window);
     highlightSupported = highlight.supported;
     session = new AudiobookSessionCoordinator(new AudiobookSessionStore(), key);
@@ -119,7 +129,11 @@
         createAudio: () => document.createElement('audio'),
         createURL: (file) => URL.createObjectURL(file),
         revokeURL: (url) => URL.revokeObjectURL(url),
-        attach: (audio) => (audio ? audioHost.replaceChildren(audio) : audioHost.replaceChildren()),
+        attach: (audio) => {
+          pitch.setAudio(audio);
+          if (audio) audioHost.replaceChildren(audio);
+          else audioHost.replaceChildren();
+        },
         requestFrame: (callback) => requestAnimationFrame(callback),
         cancelFrame: (id) => cancelAnimationFrame(id)
       },
@@ -138,6 +152,7 @@
       if (ready && !clearing) void save();
     };
     const visibility = () => {
+      pitch.setVisible(open && cues.length > 0 && !document.hidden);
       if (document.visibilityState === 'hidden') flush();
     };
     window.addEventListener('pagehide', flush);
@@ -160,6 +175,7 @@
       source?.dispose();
       index?.dispose();
       player.dispose();
+      pitch.dispose();
       void session.close();
     };
   });
@@ -765,6 +781,12 @@
           {#if matchError}<p role="status">{matchError}</p>{/if}
         </div>
         <section aria-label="Audiobook transcript">
+          <PitchStrip
+            state={pitchState}
+            available={snapshot.ready}
+            onToggle={() => pitch.setEnabled(!pitchState.enabled)}
+            onRetry={() => pitch.retry()}
+          />
           <div class="actions">
             <h3>Transcript</h3>
             <button

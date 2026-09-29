@@ -1574,7 +1574,7 @@ class BooksLibraryBrowser(LibraryBase):
                 self.assertEqual(before['data'][0]['pageDirection'], migrated['data'][0]['pageDirection'])
                 self.assertEqual(before['data'][0]['creators'], migrated['data'][0]['creators'])
                 self.assertEqual(before['data'][0]['contentHash'], migrated['data'][0]['contentHash'])
-                self.page.get_by_role('button', name='Select All Visible', exact=True).click()
+                self.page.get_by_role('button', name='Select all', exact=True).click()
                 import_selected.click()
                 expect(imported.get_by_role('status')).to_contain_text('Already imported', timeout=30000)
                 self.assertEqual(migrated['bookmark'], self.stores('books', ['bookmark'])['bookmark'])

@@ -132,6 +132,27 @@ class ProductJourneys(ProductJourneyBase):
         self.page.keyboard.press('Enter')
         expect(self.page.get_by_role('button', name='Reading tools', exact=True)).to_be_visible()
 
+    def test_search_dismissal_restores_reveal_control_without_pinning_toolbar(self):
+        self.import_book('Reader chrome focus')
+        self.read('Reader chrome focus')
+        panel, field = self.reader_search()
+        field.fill('日本語')
+        expect(panel.get_by_text('180 results', exact=True)).to_be_visible()
+        self.page.keyboard.press('Escape')
+        expect(panel).to_have_count(0)
+
+        controls = self.page.locator('button[data-reader-controls]')
+        expect(controls).to_be_focused()
+        expect(controls).to_have_attribute('aria-label', 'Show reading controls')
+        expect(controls).to_be_visible()
+        expect(self.page.get_by_role('button', name='Reading tools', exact=True)).to_have_count(0)
+        self.checkpoint('focused-reveal-only')
+
+        self.page.keyboard.press('Enter')
+        expect(controls).to_have_attribute('aria-label', 'Hide reading controls')
+        expect(self.page.get_by_role('button', name='Reading tools', exact=True)).to_be_visible()
+        self.checkpoint('toolbar-opened-by-user')
+
     def test_reader_pagination_reset_horizontal_desktop(self):
         self.pagination(width=1280, height=900, writing='horizontal-tb')
 
@@ -271,7 +292,7 @@ class ProductJourneys(ProductJourneyBase):
         self.page.get_by_role('button', name='Reading tools', exact=True).click()
         self.page.get_by_role('menuitem', name='Settings', exact=True).click()
         expect(self.page.get_by_label('Search settings', exact=True)).to_be_visible()
-        self.page.get_by_role('button', name='Fonts & text', exact=True).click()
+        self.page.get_by_role('navigation', name='Settings categories').get_by_role('link', name='Fonts & text', exact=True).click()
         field = self.page.get_by_role('spinbutton', name='Font size', exact=True)
         field.fill('28')
         field.press('Tab')

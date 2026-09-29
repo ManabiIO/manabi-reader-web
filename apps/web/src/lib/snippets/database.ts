@@ -45,7 +45,10 @@ export interface SnippetRecord {
   issue?: string;
   progress?: SnippetLocator;
   progressToken?: string;
+  /** Last visit, used for Recently read; opening does not change position authority. */
   readAt?: number;
+  /** Last deliberate position change; absent on legacy records until first touch/sync. */
+  progressAt?: number;
   progressDirty?: boolean;
   stateCheckedAt?: number;
   transfer?: string;

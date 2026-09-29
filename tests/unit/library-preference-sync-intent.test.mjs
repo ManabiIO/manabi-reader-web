@@ -20,14 +20,16 @@ function harness() {
   const account = stores.writable({ status: 'offline', session: null });
   const loads = [],
     writes = [],
-    requests = [];
+    requests = [],
+    applications = [];
   const subjects = new Map(),
     timers = new Map();
+  const navigator = { onLine: true };
   const window = new globalThis.EventTarget();
   const document = Object.assign(new globalThis.EventTarget(), { visibilityState: 'visible' });
   let clock = 10000,
     serial = 0;
-  let failWrite, failLock, requestImpl;
+  let failWrite, failLock, requestImpl, organizationImpl;
   let locks = Promise.resolve();
   function subject(key, initial = 0) {
     if (!subjects.has(key)) {
@@ -100,12 +102,20 @@ function harness() {
         }
       },
       '$lib/library/organization': {
-        organizationPreference: subject('organization', { version: 1, collections: [], books: {} }),
+        organizationPreference: {
+          ...subject('organization', { version: 1, collections: [], books: {} }),
+          next(value, signal) {
+            applications.push({ value: globalThis.structuredClone(value), signal });
+            if (organizationImpl) return organizationImpl(value, signal);
+            subject('organization').next(value);
+          }
+        },
         reloadOrganization: async () => undefined,
         watchOrganization: () => () => undefined
       }
     },
     globals: {
+      navigator,
       window,
       document,
       Date: class extends Date {
@@ -127,10 +137,17 @@ function harness() {
     loads,
     writes,
     requests,
+    applications,
     subjects,
     status: () => stores.get(api.preferenceStatus),
+    setOnline: (value) => {
+      navigator.onLine = value;
+    },
     setRequestHandler: (handler) => {
       requestImpl = handler;
+    },
+    setOrganizationHandler: (handler) => {
+      organizationImpl = handler;
     },
     setWriteFailure: (value) => {
       failWrite = value;
@@ -633,6 +650,180 @@ test('returning to a rate-limited profile does not bypass its server backoff', a
     h.visible();
     await drain();
     assert.equal(h.requests.length, 2);
+    assert.equal(h.status().state, 'synced');
+  } finally {
+    h.stop();
+  }
+});
+
+const organization = (name = 'Accepted remote shelf') => ({
+  version: 1,
+  collections: [{ id: 'remote-shelf', name, members: [] }],
+  books: {}
+});
+
+async function failedRemoteApplication() {
+  const h = await loadedHarness({ ...saved(), initialized: true, base: { font_size: 24 } });
+  h.setRequestHandler(() => reply({ font_size: 24, library_organization: organization() }));
+  h.setOrganizationHandler(() => Promise.reject(new Error('local organization write failed')));
+  await h.api.syncPreferences();
+  assert.equal(h.status().state, 'unavailable');
+  assert.equal(h.applications.length, 1);
+  assert.equal(
+    h.writes.at(-1).value.local.library_organization.collections[0].name,
+    'Accepted remote shelf'
+  );
+  return h;
+}
+
+test('accepted server settings recover their failed local application while offline', async () => {
+  const h = await failedRemoteApplication();
+  try {
+    h.account.set({ status: 'offline', session: null });
+    h.setOrganizationHandler((value) => h.subjects.get('organization').next(value));
+    h.advance();
+    h.visible();
+    await drain();
+    assert.equal(
+      h.applications.length,
+      2,
+      'accepted server state has no local-only application retry'
+    );
+    assert.deepEqual(h.subjects.get('organization').getValue(), organization());
+    assert.equal(h.requests.length, 1, 'offline local application tried another server request');
+  } finally {
+    h.stop();
+  }
+});
+
+test('accepted application retry preserves a scalar edit made after the storage failure', async () => {
+  const h = await failedRemoteApplication();
+  try {
+    h.account.set({ status: 'offline', session: null });
+    h.subjects.get('fontSize$').next(31);
+    await drain();
+    h.setOrganizationHandler((value) => h.subjects.get('organization').next(value));
+    h.advance();
+    h.visible();
+    await drain();
+    assert.deepEqual(h.subjects.get('organization').getValue(), organization());
+    assert.equal(h.subjects.get('fontSize$').getValue(), 31);
+    assert.equal(h.writes.at(-1).value.local.font_size, 31);
+    assert.equal(h.requests.length, 1);
+  } finally {
+    h.stop();
+  }
+});
+
+test('automatic retry drains accepted local application before contacting the server again', async () => {
+  const h = await failedRemoteApplication();
+  const gate = deferred();
+  try {
+    h.setOrganizationHandler((value, signal) => {
+      signal.addEventListener('abort', () => gate.reject(signal.reason), { once: true });
+      return gate.promise.then(() => h.subjects.get('organization').next(value));
+    });
+    h.advance();
+    for (let i = 0; i < 10; i++) {
+      h.visible();
+      h.online();
+    }
+    await drain();
+    assert.equal(h.applications.length, 2, 'recovery must coalesce the application attempt');
+    assert.equal(h.requests.length, 1, 'new HTTP ran before accepted local state settled');
+    gate.resolve();
+    await drain();
+    await drain();
+    assert.equal(h.status().state, 'synced');
+  } finally {
+    gate.resolve();
+    h.stop();
+  }
+});
+
+test('disabling sync revokes a recovering server application, not just its final notification', async () => {
+  const h = await failedRemoteApplication();
+  const gate = deferred();
+  let pendingSignal;
+  try {
+    h.account.set({ status: 'offline', session: null });
+    h.setOrganizationHandler((_value, signal) => {
+      pendingSignal = signal;
+      signal.addEventListener('abort', () => gate.reject(signal.reason), { once: true });
+      return gate.promise;
+    });
+    h.advance();
+    h.visible();
+    await drain();
+    assert.ok(pendingSignal, 'no local application started');
+    h.account.set({ status: 'available', session: { user: { id: 'a', username: 'A' } } });
+    await h.api.enablePreferenceSync(false);
+    await drain();
+    assert.equal(pendingSignal.aborted, true);
+    assert.equal(h.status().enabled, false);
+    assert.equal(h.status().state, 'off');
+    h.advance();
+    h.visible();
+    await drain();
+    assert.equal(h.applications.length, 2);
+    assert.equal(h.requests.length, 1);
+  } finally {
+    h.stop();
+    gate.resolve();
+  }
+});
+
+for (const notification of ['visible', 'online']) {
+  test(`automatic ${notification} recovery honors offline browser state despite a retained session`, async () => {
+    const h = await loadedHarness({ ...saved(), initialized: true, base: { font_size: 24 } });
+    h.setRequestHandler(() => reply({ font_size: 24 }));
+    try {
+      h.setOnline(false);
+      h[notification]();
+      await drain();
+      assert.equal(
+        h.requests.length,
+        0,
+        'stale available account state caused an offline HTTP attempt'
+      );
+      h.setOnline(true);
+      h.online();
+      await drain();
+      assert.equal(h.requests.length, 1);
+      assert.equal(h.status().state, 'synced');
+    } finally {
+      h.stop();
+    }
+  });
+}
+
+test('accepted local application recovers while offline without probing a retained online session', async () => {
+  const h = await failedRemoteApplication();
+  try {
+    h.setOnline(false);
+    h.setOrganizationHandler((value) => h.subjects.get('organization').next(value));
+    h.advance();
+    h.visible();
+    await drain();
+    assert.deepEqual(h.subjects.get('organization').getValue(), organization());
+    assert.equal(h.requests.length, 1, 'local recovery recontacted the server while offline');
+    h.setOnline(true);
+    h.online();
+    await drain();
+    assert.equal(h.requests.length, 2);
+    assert.equal(h.status().state, 'synced');
+  } finally {
+    h.stop();
+  }
+});
+
+test('an explicit sync may still test connectivity when the browser reports offline', async () => {
+  const h = await loadedHarness({ ...saved(), initialized: true, base: { font_size: 24 } });
+  h.setRequestHandler(() => reply({ font_size: 24 }));
+  try {
+    h.setOnline(false);
+    await h.api.syncPreferences();
+    assert.equal(h.requests.length, 1, 'an unreliable connectivity hint disabled explicit retry');
     assert.equal(h.status().state, 'synced');
   } finally {
     h.stop();
