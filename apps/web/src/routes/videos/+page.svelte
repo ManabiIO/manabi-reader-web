@@ -51,7 +51,7 @@
   onMount(() => {
     if (!videoLearningEnabled) return;
     let disposed = false;
-    let cleanup = () => undefined;
+    let cleanup: () => void = () => {};
     void Promise.all([
       import('$lib/media/workspace'),
       import('$lib/media/cloud-browser'),
