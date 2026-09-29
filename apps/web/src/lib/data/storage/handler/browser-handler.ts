@@ -70,6 +70,7 @@ export class BrowserStorageHandler extends BaseStorageHandler {
           pageDirection: book.pageDirection,
           contentHash: book.contentHash,
           libraryOwner: book.libraryOwner,
+          readerOwner: book.readerOwner,
           isPlaceholder: book.isPlaceholder
         });
         // The inherited TTU cache is keyed by title. Retain its legacy lookup
