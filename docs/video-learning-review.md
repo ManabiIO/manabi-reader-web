@@ -1,6 +1,6 @@
 # Video transcript interaction and display
 
-Reader PR #46; backend companion lake-of-fire/manabi#80.
+Current Reader integration: PR #157. Historical implementation lineage: #46 / #67 / #79 / #153. Backend companion: lake-of-fire/manabi#80. Video learning remains default-off unless the Reader build sets `VITE_ENABLE_VIDEO_LEARNING=true`.
 
 ## Visual references
 
@@ -95,6 +95,22 @@ listeners and rejects stale trigger actions.
 actual Chromium popover layout, focus and the compatibility fallback, with
 keyboard/pinch bounds supplied as explicit simulated VisualViewport inputs.
 Those cases are not physical-device keyboard or iOS IME qualification.
+
+## Search and activation boundary
+
+Unified Reader search can surface saved video titles and complete published
+transcript cues only when video learning is enabled and Search in is Everything.
+That search path reads local media metadata/caption storage only: it never opens
+a cloud/local video source, downloads media, starts recognition, or promotes an
+incomplete generated draft. Transcript hits carry the saved per-track subtitle
+delay and navigate to a paused validated timestamp.
+
+The default production Reader build hides Videos navigation/search, does not
+mount the video workspace on direct `/videos` access, dynamically avoids the
+global media profile/search runtimes, excludes `/moss/**` from the service
+worker shell, and removes packaged MOSS runtime files from the final artifact.
+The enabled media qualification workflows set the build flag explicitly and
+verify the retained MOSS artifacts instead.
 
 ## Verification boundaries
 
