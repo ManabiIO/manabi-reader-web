@@ -114,5 +114,43 @@ class AnnotationQuality(LibraryBase):
 
 
 
+    def test_export_delete_import_conflict_can_restore_the_archived_bookmark(self):
+        self.open_reader()
+        panel = self.open_annotations()
+        self.add_bookmarks(panel, 1)
+        saved = panel.get_by_label('Saved annotations')
+        expect(saved.get_by_text('Bookmark · Section 1', exact=True)).to_have_count(1)
+
+        with self.page.expect_download() as download_info:
+            panel.get_by_role('button', name='Export Notes', exact=True).click()
+        download = download_info.value
+        archive = Path(download.path()).read_bytes()
+        self.assertGreater(len(archive), 100)
+        expect(panel.get_by_role('status')).to_have_text('Notes archive downloaded.')
+
+        panel.get_by_role('button', name='Remove bookmark', exact=True).click()
+        expect(panel.get_by_role('button', name='Remove bookmark', exact=True)).to_have_count(0)
+        expect(panel.get_by_role('button', name='Add Bookmark', exact=True)).to_be_focused()
+
+        panel.locator('input[type=file][accept*=".json"]').set_input_files({
+            'name': 'annotations.json',
+            'mimeType': 'application/json',
+            'buffer': archive
+        })
+        expect(panel.get_by_role('region', name='Archive conflicts')).to_be_visible()
+        expect(panel.get_by_role('status')).to_contain_text('1 kept for conflict review')
+        expect(panel.get_by_role('button', name='Use Archive', exact=True)).to_be_visible()
+
+        panel.get_by_role('button', name='Use Archive', exact=True).click()
+        expect(panel.get_by_role('region', name='Archive conflicts')).to_have_count(0)
+        expect(panel.get_by_role('status')).to_have_text('Archived passage restored.')
+        expect(panel.get_by_role('button', name='Remove bookmark', exact=True)).to_have_count(1)
+        self.page.screenshot(path=str(self.output / 'archive-restored.png'))
+
+        saved.get_by_role('button').filter(has_text='Go to saved passage').click()
+        expect(panel).to_have_count(0)
+        expect(self.page.get_by_role('button', name='Return to where I was', exact=True)).to_be_visible()
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
