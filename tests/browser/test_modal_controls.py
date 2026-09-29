@@ -239,5 +239,49 @@ class ModalControlsBrowser(LibraryBase):
         expect(self.page.get_by_role('button', name='Return to where I was', exact=True)).to_be_visible()
 
 
+    def test_export_dialog_uses_native_targets_and_reflows_at_200_percent_text(self):
+        title = 'Export dialog accessibility'
+        self.import_book(title)
+        header = self.page.locator('header[aria-label="Library toolbar"]')
+        header.get_by_role('button', name='Library actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
+        header.get_by_role('button', name='Select All Visible', exact=True).click()
+        export = header.get_by_role('button', name='Export', exact=True)
+        expect(export).to_be_visible()
+        self.page.set_viewport_size({'width': 320, 'height': 568})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        export.click()
+        panel = self.dialog()
+        expect(
+            panel.get_by_role('heading', name='Export books and reading data', exact=True)
+        ).to_be_visible()
+        self.frames()
+        self.assertLessEqual(panel.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
+
+        target = panel.get_by_role('button', name='Zip File', exact=True)
+        self.assertEqual('BUTTON', target.evaluate('e => e.tagName'))
+        expect(target).to_have_attribute('aria-pressed', 'true')
+        target.focus()
+        expect(target).to_be_focused()
+        self.assertGreaterEqual(target.bounding_box()['height'], 43.99)
+
+        checkboxes = panel.get_by_role('checkbox')
+        self.assertEqual(5, checkboxes.count())
+        for checkbox in checkboxes.all():
+            label = checkbox.locator('xpath=ancestor::label')
+            self.assertGreaterEqual(label.bounding_box()['height'], 43.99)
+            checkbox.uncheck()
+        start = panel.get_by_role('button', name='Start export', exact=True)
+        expect(start).to_be_disabled()
+        checkboxes.first.check()
+        expect(start).to_be_enabled()
+        self.capture('modal-export-phone-200')
+
+        panel.get_by_role('button', name='Cancel', exact=True).click()
+        expect(panel).to_have_count(0)
+        expect(export).to_be_focused()
+        self.page.evaluate('document.documentElement.style.fontSize = ""')
+
+
 if __name__ == '__main__':
     unittest.main()
