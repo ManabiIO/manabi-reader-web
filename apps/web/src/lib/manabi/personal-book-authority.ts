@@ -7,13 +7,15 @@
 import {
   readIndexedBookMetadata,
   type IndexedBookMetadata
-} from '$lib/data/database/books-db/content-hash-index';
+} from '../data/database/books-db/content-hash-index.ts';
 
 export type PersonalBook = IndexedBookMetadata & { title: string; invalidOwner?: never };
 
 export class PersonalBookOwnershipError extends Error {
   constructor() {
-    super('Book ownership changed while personal reading data was syncing. No reading state was changed.');
+    super(
+      'Book ownership changed while personal reading data was syncing. No reading state was changed.'
+    );
     this.name = 'PersonalBookOwnershipError';
   }
 }

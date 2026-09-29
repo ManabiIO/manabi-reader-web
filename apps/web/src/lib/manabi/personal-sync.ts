@@ -1113,11 +1113,32 @@ async function stageAnnotations(accountId: string, books: ReadonlyMap<string, Pe
     const owner = await annotationOwner(annotation.id, annotation.bookKey);
     if (owner && owner !== accountId) continue;
     // A legacy unscoped annotation is not proof of account ownership. Only the
-    // already-vetted owned-book inventory may establish its first account scope.
+    // live owned-book set may establish its first account scope.
     if (!owner) {
-      if (!books.has(annotation.bookKey)) continue;
-      scoped(accountId);
-      await db.put('readerAnnotationScope', { annotationId: annotation.id, accountId });
+      const copies = books.get(annotation.bookKey) ?? [];
+      if (!copies.length) continue;
+      const tx = db.transaction(['data', 'readerBookScope', 'readerAnnotationScope'], 'readwrite');
+      const admitted = await commitTransaction(tx, async () => {
+        const live = await tryLivePersonalCopies(
+          annotation.bookKey,
+          copies,
+          tx.objectStore('data'),
+          tx.objectStore('readerBookScope'),
+          accountId,
+          () => scoped(accountId)
+        );
+        if (!live) return false;
+        const current = await tx.objectStore('readerAnnotationScope').get(annotation.id);
+        scoped(accountId);
+        if (current && current.accountId !== accountId) return false;
+        if (!current)
+          await tx.objectStore('readerAnnotationScope').put({
+            annotationId: annotation.id,
+            accountId
+          });
+        return true;
+      });
+      if (!admitted) continue;
     }
     const base = await db.get('readerPersonalRecord', key(accountId, 'annotation', annotation.id));
     const value = annotation.deletedAt
@@ -1296,7 +1317,13 @@ export async function resolvePersonalConflict(id: string, choice: 'local' | 'rem
     const conflict = await db.get('readerPersonalConflict', id);
     if (!conflict || conflict.accountId !== accountId) throw new IntegrationError('not_found');
     const books = await localBooks(accountId);
-    const latestLocal = await readLocal(conflict.kind, conflict.entityId, conflict.bookKey, books, accountId);
+    const latestLocal = await readLocal(
+      conflict.kind,
+      conflict.entityId,
+      conflict.bookKey,
+      books,
+      accountId
+    );
     if (!equal(latestLocal, conflict.local)) {
       scoped(accountId);
       await db.put('readerPersonalConflict', { ...conflict, local: latestLocal });

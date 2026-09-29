@@ -30,7 +30,9 @@ function stores({ books, scopes = [], ownerEntries } = {}) {
   const hashes = books.map((book) => [book.contentHash, book.id]);
   const owners =
     ownerEntries ??
-    books.flatMap((book) => (book.libraryOwner === undefined ? [] : [[book.libraryOwner, book.id]]));
+    books.flatMap((book) =>
+      book.libraryOwner === undefined ? [] : [[book.libraryOwner, book.id]]
+    );
   return {
     data: {
       index(name) {
@@ -154,11 +156,7 @@ test('scope planning claims all unowned exact copies for one account in one plan
 
 test('one pre-existing foreign scope blocks claiming every exact copy for another account', () => {
   const metadata = [candidate(1), candidate(2)];
-  const plan = planPersonalBookClaims(
-    metadata,
-    [{ bookId: 1, accountId: 'bob' }],
-    'alice'
-  );
+  const plan = planPersonalBookClaims(metadata, [{ bookId: 1, accountId: 'bob' }], 'alice');
   assert.deepEqual(plan.books, []);
   assert.deepEqual(plan.scopesToCreate, []);
 });
