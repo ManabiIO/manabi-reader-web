@@ -49,3 +49,15 @@ export function changeWantToRead(value: Organization, books: CollectionBook[], i
     ])
   ];
 }
+
+
+/** Count visible logical items in a mixed collection without double-counting book aliases. */
+export function collectionItemCount(
+  collection: Collection,
+  books: CollectionBook[],
+  additionalMembers: ReadonlySet<string> = new Set()
+): number {
+  const booksCount = books.filter((book) => collectionContains(collection, book)).length;
+  const extras = new Set(collection.members.filter((member) => additionalMembers.has(member)));
+  return booksCount + extras.size;
+}
