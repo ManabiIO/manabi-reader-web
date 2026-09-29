@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   contentHashPrimaryKeys,
-  normalizedIndexedContentHash
+  normalizedIndexedContentHash,
+  readIndexedBookMetadata
 } from '../../apps/web/src/lib/data/database/books-db/content-hash-index.ts';
 
 function index(entries) {
@@ -72,4 +73,44 @@ test('content identity key scan observes authority and cancellation between curs
     { name: 'AbortError' }
   );
   assert.equal(assertions, 2);
+});
+
+test('compact metadata projection joins title, hash and owner without reading payload values', async () => {
+  const indexes = {
+    title: [
+      ['First', 1],
+      ['Second', 2],
+      ['Hashless', 3]
+    ],
+    contentHash: [
+      ['d'.repeat(64), 1],
+      ['E'.repeat(64), 2]
+    ],
+    libraryOwner: [['alice', 2]]
+  };
+  const store = {
+    index(name) {
+      return index(indexes[name]);
+    }
+  };
+  assert.deepEqual(await readIndexedBookMetadata(store), [
+    { id: 1, title: 'First', contentHash: 'd'.repeat(64) },
+    { id: 2, title: 'Second', contentHash: 'e'.repeat(64), libraryOwner: 'alice' }
+  ]);
+});
+
+test('compact metadata projection drops invalid owner evidence rather than treating it as local', async () => {
+  const hash = 'f'.repeat(64);
+  const store = {
+    index(name) {
+      return index(
+        name === 'title'
+          ? [['Book', 1]]
+          : name === 'contentHash'
+            ? [[hash, 1]]
+            : [[42, 1]]
+      );
+    }
+  };
+  assert.deepEqual(await readIndexedBookMetadata(store), []);
 });
