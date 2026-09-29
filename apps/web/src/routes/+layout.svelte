@@ -160,7 +160,10 @@
       }}
       onCloseAutoFocus={(event) => {
         event.preventDefault();
-        dialogReturnFocus?.focus();
+        const target = dialogReturnFocus?.isConnected
+          ? dialogReturnFocus
+          : document.querySelector<HTMLElement>('button[data-reader-controls]');
+        target?.focus({ preventScroll: true });
         dialogReturnFocus = undefined;
       }}
     >
