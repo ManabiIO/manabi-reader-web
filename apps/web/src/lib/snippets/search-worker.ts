@@ -5,7 +5,7 @@
  */
 
 import { getRecord } from './database';
-import { isUUID, searchSnippet } from './document';
+import { isUUID, searchSnippet, snippetSearchTooLong } from './document';
 import type { SnippetHit } from './document';
 self.onmessage = async ({ data }) => {
   const request = data as { requestId: number; owner: string; ids: string[]; query: string };
@@ -18,7 +18,7 @@ self.onmessage = async ({ data }) => {
       request.ids.length > 50000 ||
       !request.ids.every(isUUID) ||
       typeof request.query !== 'string' ||
-      request.query.length > 512
+      snippetSearchTooLong(request.query)
     )
       throw new Error('Invalid snippet search.');
     let matched = 0,
