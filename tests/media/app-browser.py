@@ -280,6 +280,14 @@ def main():
             "node => parseFloat(getComputedStyle(node).fontSize)"
         ))
         assert media_font >= 31.5, media_font
+        heading_font = float(page.get_by_role(
+            'heading', name='Videos', exact=True
+        ).evaluate("node => parseFloat(getComputedStyle(node).fontSize)"))
+        assert heading_font > media_font, (heading_font, media_font)
+        track_font = float(page.get_by_label(
+            'Transcript track', exact=True
+        ).evaluate("node => parseFloat(getComputedStyle(node).fontSize)"))
+        assert track_font >= media_font * 0.8, (track_font, media_font)
         assert page.evaluate(
             "document.documentElement.scrollWidth-innerWidth"
         ) <= 1
