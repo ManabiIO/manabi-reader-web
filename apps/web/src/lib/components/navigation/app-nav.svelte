@@ -108,13 +108,16 @@
         event.preventDefault();
         navigationTrigger.focus({ preventScroll: true });
       }}
-      class="data-[side=left]:w-[min(24rem,calc(100vw-1rem))] data-[side=right]:w-[min(24rem,calc(100vw-1rem))] overflow-y-auto"
+      class="overflow-hidden data-[side=left]:w-[min(24rem,calc(100vw-1rem))] data-[side=right]:w-[min(24rem,calc(100vw-1rem))]"
     >
-      <Sheet.Header>
+      <Sheet.Header class="shrink-0 border-b border-border">
         <Sheet.Title>Manabi Reader</Sheet.Title>
         <Sheet.Description>Your books. Your reading space.</Sheet.Description>
       </Sheet.Header>
-      <nav aria-label="Main navigation" class="grid gap-1 p-3">
+      <nav
+        aria-label="Main navigation"
+        class="grid min-h-0 flex-1 gap-1 overflow-y-auto overscroll-contain p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+      >
         {#each destinations as destination (destination.path)}
           <a
             aria-label={destination.label}

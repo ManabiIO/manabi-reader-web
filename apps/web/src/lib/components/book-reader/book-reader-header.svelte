@@ -223,6 +223,11 @@
   .reader-toolbar {
     padding-top: env(safe-area-inset-top);
   }
+  @media (max-width: 639px) and (max-height: 400px) {
+    .reader-toolbar {
+      min-height: calc(64px + env(safe-area-inset-top));
+    }
+  }
   .reader-toolbar :global([aria-label='Reading tools']) {
     min-height: 44px;
   }
@@ -230,7 +235,8 @@
     /* Five icon actions must remain reachable with enlarged reader text. Keep
        their 44px hit targets rather than letting rem-sized padding push Tools
        outside the viewport (the page itself intentionally cannot pan sideways). */
-    .reader-toolbar :global([data-slot='button']) {
+    .reader-toolbar :global([data-slot='button']),
+    .reader-toolbar :global([aria-label='Reading tools']) {
       inline-size: 44px;
       min-inline-size: 44px;
       block-size: 44px;
