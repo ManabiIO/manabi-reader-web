@@ -53,6 +53,34 @@ def resource_epub(malformed=False):
     return output.getvalue()
 
 
+def linear_epub():
+    output = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(resource_epub())) as source, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as target:
+        for entry in source.infolist():
+            data = source.read(entry)
+            if entry.filename == 'EPUB/book.opf':
+                data = data.replace(
+                    b'<itemref idref="two"/>',
+                    b'<itemref idref="two" linear="no"/>'
+                )
+            target.writestr(entry, data)
+    return output.getvalue()
+
+
+def fixed_layout_epub():
+    output = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(resource_epub())) as source, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as target:
+        for entry in source.infolist():
+            data = source.read(entry)
+            if entry.filename == 'EPUB/book.opf':
+                data = data.replace(
+                    b'</metadata>',
+                    b'<meta property="rendition:layout">pre-paginated</meta></metadata>'
+                )
+            target.writestr(entry, data)
+    return output.getvalue()
+
+
 def numeric_epub():
     """Escaped author text must not become markup during Extended repair."""
     extra = ('<p id="literal-html">&#60;em&#62;literal&#60;/em&#62;</p>'
@@ -96,6 +124,50 @@ class EpubPublicationBrowser(ReaderBrowser):
             self.page.wait_for_function(f"() => {P}?.getContents?.()[0]?.doc?.querySelector('#same')")
         else:
             expect(self.page.locator('#ttu-epub-0 .text')).to_be_visible(timeout=30000)
+
+    def test_non_linear_spine_item_is_skipped_by_page_turn_but_directly_addressable(self):
+        self.open_resource_book(payload=linear_epub())
+        metadata = self.metadata()
+        self.assertNotIn('linear', metadata['publication']['resources'][0])
+        self.assertEqual('no', metadata['publication']['resources'][1]['linear'])
+        self.assertNotIn('linear', metadata['publication']['resources'][2])
+
+        self.assertTrue(self.page.evaluate(f"async()=>await {P}.goTo({{index:0,anchor:1}})"))
+        self.page.evaluate(f"""async()=>{{
+          const turn=await {P}.preparePageTurn(1);
+          if(!turn) throw Error('Expected a next page turn');
+          if(!turn.commit()) throw Error('Expected page turn commit');
+        }}""")
+        self.page.wait_for_function(f"() => {P}.getContents()[0]?.index === 2")
+        self.assertNotIn('別の章', self.page.evaluate(f"{P}.getContents()[0].doc.body.textContent"))
+
+        self.assertTrue(self.page.evaluate(f"async()=>await {P}.goTo({{index:1}})"))
+        self.page.wait_for_function(f"() => {P}.getContents()[0]?.index === 1")
+        self.assertIn('別の章', self.page.evaluate(f"{P}.getContents()[0].doc.body.textContent"))
+
+        self.page.reload()
+        self.page.wait_for_function(f"() => {P}?.getContents?.()[0]?.doc?.querySelector('.text')")
+        self.assertEqual('no', self.metadata()['publication']['resources'][1]['linear'])
+        self.assertEqual([], self.errors)
+
+    def test_fixed_layout_epub_is_rejected_instead_of_reflowed(self):
+        self.context.add_init_script(
+            "localStorage.setItem('manabi-dev-foliate-epub','true');"
+            "localStorage.setItem('viewMode','paginated')"
+        )
+        self.page.goto(self.origin + '/reader-web/manage')
+        expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
+        self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
+            'name': 'fixed.epub',
+            'mimeType': 'application/epub+zip',
+            'buffer': fixed_layout_epub()
+        })
+        expect(
+            self.page.get_by_text('Fixed-layout EPUBs are not supported by this reader yet.', exact=True)
+        ).to_be_visible(timeout=30000)
+        expect(self.page.get_by_role('button', name='Read ' + TITLE, exact=True)).to_have_count(0)
+        self.assertEqual([], StaticHandler.probes)
+        self.assertEqual([], self.errors)
 
     def test_extended_numeric_repair_preserves_paginated_author_text(self):
         self.check_numeric_repair('paginated')

@@ -155,3 +155,34 @@ test('resolved names retain literal reserved punctuation without a second URL de
   const packed = packEpubResources(original);
   assert.deepEqual(epubResourceContents(packed.epubPublication, packed.elementHtml), original);
 });
+
+
+test('non-linear spine hints survive persistence without entering locator identity', () => {
+  const original = resources();
+  original[1].linear = 'no';
+  const packed = packEpubResources(original);
+  assert.equal(packed.epubPublication.resources[1].linear, 'no');
+  assert.equal('linear' in packed.epubPublication.resources[0], false);
+  assert.deepEqual(epubResourceContents(packed.epubPublication, packed.elementHtml), original);
+  assert.deepEqual(
+    Object.keys(epubPublicationManifest(packed.epubPublication).resources[1]).sort(),
+    ['href', 'sectionId', 'spineIndex']
+  );
+});
+
+test('restored publication rejects unknown linearity and content rewrites cannot change it', () => {
+  const original = resources();
+  original[1].linear = 'no';
+  const packed = packEpubResources(original);
+  const invalid = structuredClone(packed.epubPublication);
+  invalid.resources[1].linear = 'maybe';
+  assert.throws(() => readEpubPublication(invalid, packed.elementHtml), /identity|range/);
+  assert.throws(
+    () =>
+      rewriteEpubPublication(packed.epubPublication, packed.elementHtml, (resource) => ({
+        ...resource,
+        linear: resource.linear === 'no' ? undefined : resource.linear
+      })),
+    /spine semantics/
+  );
+});

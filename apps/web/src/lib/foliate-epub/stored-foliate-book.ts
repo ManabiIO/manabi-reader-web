@@ -17,7 +17,7 @@ function escapeAttribute(value: string): string {
 
 export interface StoredFoliateSection {
   id: string;
-  linear: 'yes';
+  linear: 'yes' | 'no';
   load(): Promise<string>;
   unload(): void;
   createDocument(): Promise<Document>;
@@ -119,7 +119,7 @@ export function createStoredFoliateBook(
 
     return {
       id: resource.href,
-      linear: 'yes',
+      linear: resources?.[index].linear === 'no' ? 'no' : 'yes',
       size: new TextEncoder().encode(markup).byteLength,
       async load() {
         if (destroyed) throw new DOMException('Publication is closed.', 'AbortError');
