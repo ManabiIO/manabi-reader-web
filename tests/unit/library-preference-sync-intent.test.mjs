@@ -982,3 +982,56 @@ test('recovered accepted application also retries its failed profile snapshot in
   }
 });
 
+test('pending upload observation also rejects a server revision rollback', async () => {
+  const h = await loadedHarness({
+    ...saved(31),
+    initialized: true,
+    revision: 2,
+    base: { font_size: 24 },
+    pendingUpload: {
+      revision: 4,
+      supportsExtensions: false,
+      settings: { font_size: 31 }
+    }
+  });
+  h.setRequestHandler(() => reply({ font_size: 24 }, 3));
+  try {
+    await h.api.syncPreferences();
+    assert.equal(h.status().state, 'invalid_response');
+    assert.equal(h.subjects.get('fontSize$').getValue(), 31);
+    assert.equal(h.requests.length, 1);
+  } finally {
+    h.stop();
+  }
+});
+
+test('later equivalent server revision can retire a lost upload and preserve newer local intent', async () => {
+  const h = await loadedHarness({
+    ...saved(32),
+    initialized: true,
+    revision: 2,
+    base: { font_size: 24 },
+    pendingUpload: {
+      revision: 2,
+      supportsExtensions: false,
+      settings: { font_size: 31 }
+    }
+  });
+  let server = reply({ font_size: 31 }, 4);
+  h.setRequestHandler(({ options }) => {
+    if (options.method !== 'PUT') return server;
+    server = reply(options.value.settings, 5);
+    return server;
+  });
+  try {
+    await h.api.syncPreferences();
+    assert.equal(h.status().state, 'synced');
+    assert.equal(h.subjects.get('fontSize$').getValue(), 32);
+    assert.equal(server.settings.font_size, 32);
+    assert.equal(h.requests.filter(({ options }) => options.method === 'PUT').length, 1);
+    assert.equal(h.writes.at(-1).value.pendingUpload, undefined);
+  } finally {
+    h.stop();
+  }
+});
+
