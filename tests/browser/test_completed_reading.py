@@ -53,6 +53,10 @@ class CompletedReadingBrowser(LocalLibraryBrowser):
             dialog = self.page.get_by_role('dialog').last
             expect(dialog.get_by_text('Complete Book', exact=True)).to_be_visible()
             self.assertLessEqual(dialog.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+            scroll = dialog.locator('[data-dialog-scroll]')
+            self.assertTrue(scroll.evaluate('e => e.scrollHeight > e.clientHeight'))
+            scroll.evaluate('e => { e.scrollTop = e.scrollHeight; }')
+            self.page.wait_for_function('e => e.scrollTop > 0', arg=scroll.element_handle())
             for name in ('Cancel', 'Confirm'):
                 self.assert_target(dialog.get_by_role('button', name=name, exact=True))
             return dialog
@@ -80,6 +84,35 @@ class CompletedReadingBrowser(LocalLibraryBrowser):
         expect(self.page.locator('[data-book-completion-confetti]')).to_have_count(0)
         expect(self.page.get_by_role('button', name='Confirm', exact=True)).to_have_count(0)
         self.page.evaluate('document.documentElement.style.fontSize = ""')
+
+    def test_active_celebration_restarts_after_reduced_motion_is_cleared(self):
+        self.seed(True)
+        self.import_book()
+        self.page.set_viewport_size({'width': 320, 'height': 320})
+        self.page.get_by_role('link', name='Read local-book', exact=True).click()
+        expect(self.page.locator('.book-content')).to_have_attribute(
+            'aria-busy', 'false', timeout=35000
+        )
+        reveal_reader_controls(self.page)
+        self.page.get_by_role('button', name='Reading tools', exact=True).click()
+        self.page.get_by_role('menuitem', name='Complete Book', exact=True).click()
+        self.page.get_by_role('button', name='Confirm', exact=True).click()
+
+        canvas = self.page.locator('[data-book-completion-confetti]')
+        expect(canvas).to_be_visible()
+        self.page.emulate_media(reduced_motion='reduce')
+        expect(canvas).to_be_hidden()
+        self.page.emulate_media(reduced_motion='no-preference')
+        expect(canvas).to_be_visible()
+        self.page.wait_for_function('''() => {
+          const canvas = document.querySelector('[data-book-completion-confetti]');
+          if (!canvas || canvas.width === 0 || canvas.height === 0) return false;
+          const pixels = canvas.getContext('2d').getImageData(
+            0, 0, canvas.width, canvas.height).data;
+          for (let index = 3; index < pixels.length; index += 4)
+            if (pixels[index] !== 0) return true;
+          return false;
+        }''', timeout=5000)
 
     def test_finished_book_survives_export_migration_and_retry(self):
         self.seed(True)

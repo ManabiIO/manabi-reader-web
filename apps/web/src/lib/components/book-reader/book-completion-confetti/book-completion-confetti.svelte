@@ -3,7 +3,7 @@
     Confetti,
     confettiParams
   } from '$lib/components/book-reader/book-completion-confetti/book-completion-confetti';
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
 
   export let confettiWidthModifier: number;
   export let confettiMaxRuns: number;
@@ -17,25 +17,34 @@
   let addConfettiTimer: number | undefined;
   let confettiRuns = 0;
   let reducedMotion = false;
+  let motionReady = false;
 
   onMount(() => {
     const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const applyMotionPreference = (matches: boolean) => {
+    let generation = 0;
+    const applyMotionPreference = async (matches: boolean) => {
+      const current = ++generation;
       reducedMotion = matches;
+      motionReady = false;
       hideConfetti();
-      if (!matches) {
-        setupCanvas();
-        updateConfetti();
-        confettiLoop();
-      }
+      if (matches) return;
+      await tick();
+      if (current !== generation) return;
+      confettiRuns = 0;
+      setupCanvas();
+      motionReady = true;
+      updateConfetti();
+      confettiLoop();
     };
-    const changed = (event: MediaQueryListEvent) => applyMotionPreference(event.matches);
+    const changed = (event: MediaQueryListEvent) => void applyMotionPreference(event.matches);
 
     motion.addEventListener('change', changed);
-    applyMotionPreference(motion.matches);
+    void applyMotionPreference(motion.matches);
 
     return () => {
+      generation++;
       motion.removeEventListener('change', changed);
+      motionReady = false;
       hideConfetti();
     };
   });
@@ -130,7 +139,7 @@
 ></canvas>
 <svelte:window
   on:resize={() => {
-    if (reducedMotion) return;
+    if (reducedMotion || !motionReady) return;
     hideConfetti();
     setupCanvas();
     updateConfetti();
