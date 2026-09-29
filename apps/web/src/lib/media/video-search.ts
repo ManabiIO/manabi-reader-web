@@ -13,7 +13,6 @@ import {
   type Track
 } from './contracts.js';
 import type { Replica } from './replica.js';
-import { compareSearchText, foldSearch } from '../library/search-normalization.js';
 
 export interface VideoTitleHit {
   key: ContentKey;
@@ -55,6 +54,46 @@ export interface VideoSearchStore {
     signal?: AbortSignal,
     manifestSnapshot?: readonly Replica[]
   ): Promise<Track[]>;
+}
+
+const foldSearch = (value: string) =>
+  value
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/\u03c2/g, '\u03c3');
+
+const boundaryBefore = (value: string, index: number) =>
+  index > 0 && /[\s\p{P}\p{S}]/u.test(value.slice(0, index).at(-1) ?? '');
+
+function compareSearchText(left: string, right: string, query: string): number {
+  const needle = foldSearch(query.trim());
+  const key = (value: string) => {
+    const folded = foldSearch(value);
+    const index = folded.indexOf(needle);
+    return {
+      tier:
+        index < 0
+          ? 4
+          : folded === needle
+            ? 0
+            : index === 0
+              ? 1
+              : boundaryBefore(folded, index)
+                ? 2
+                : 3,
+      index: index < 0 ? Number.MAX_SAFE_INTEGER : index,
+      length: Array.from(folded).length,
+      folded
+    };
+  };
+  const a = key(left);
+  const b = key(right);
+  return (
+    a.tier - b.tier ||
+    a.index - b.index ||
+    a.length - b.length ||
+    a.folded.localeCompare(b.folded)
+  );
 }
 
 const MAX_TITLE_RESULTS = 300;
