@@ -31,6 +31,8 @@ export interface VideoTranscriptHit {
   time: number;
   end: number;
   text: string;
+  /** UTF-16 boundaries in the returned text excerpt. */
+  match: { start: number; end: number };
 }
 
 export interface VideoTranscriptBatch {
@@ -123,11 +125,61 @@ const MAX_EXCERPT_CODEPOINTS = 360;
 const aborted = (error: unknown, signal: AbortSignal) =>
   signal.aborted || (error instanceof DOMException && error.name === 'AbortError');
 
-function clip(text: string): string {
+function transcriptExcerpt(
+  text: string,
+  foldedText: string,
+  needle: string
+): { text: string; match: { start: number; end: number } } {
+  const at = foldedText.indexOf(needle);
+  let foldedOffset = 0,
+    sourceStart = -1,
+    sourceEnd = -1;
+  for (const part of new Intl.Segmenter('ja', { granularity: 'grapheme' }).segment(text)) {
+    const next = foldedOffset + foldSearch(part.segment).length;
+    if (sourceStart < 0 && at < next) sourceStart = part.index;
+    if (at + needle.length <= next) {
+      sourceEnd = part.index + part.segment.length;
+      break;
+    }
+    foldedOffset = next;
+  }
+  if (sourceStart < 0 || sourceEnd <= sourceStart)
+    return { text, match: { start: 0, end: Math.min(text.length, 1) } };
+
   const points = Array.from(text);
-  return points.length <= MAX_EXCERPT_CODEPOINTS
-    ? text
-    : `${points.slice(0, MAX_EXCERPT_CODEPOINTS - 1).join('')}…`;
+  if (points.length <= MAX_EXCERPT_CODEPOINTS)
+    return { text, match: { start: sourceStart, end: sourceEnd } };
+
+  const offsets = [0];
+  let units = 0;
+  for (const point of points) {
+    units += point.length;
+    offsets.push(units);
+  }
+  const startPoint = Math.max(0, offsets.indexOf(sourceStart));
+  const endPoint = Math.max(startPoint + 1, offsets.indexOf(sourceEnd));
+  const contentBudget = MAX_EXCERPT_CODEPOINTS - 2;
+  const matchLength = endPoint - startPoint;
+  let from =
+    matchLength >= contentBudget
+      ? startPoint
+      : Math.max(0, startPoint - Math.floor((contentBudget - matchLength) / 3));
+  from = Math.min(from, Math.max(0, points.length - contentBudget));
+  if (from + contentBudget < Math.min(endPoint, startPoint + contentBudget))
+    from = Math.max(0, Math.min(startPoint, endPoint - contentBudget));
+  const to = Math.min(points.length, from + contentBudget);
+  const prefix = from > 0 ? '…' : '';
+  const suffix = to < points.length ? '…' : '';
+  const excerpt = prefix + text.slice(offsets[from], offsets[to]) + suffix;
+  const visibleStart = Math.max(startPoint, from);
+  const visibleEnd = Math.min(endPoint, to);
+  return {
+    text: excerpt,
+    match: {
+      start: prefix.length + offsets[visibleStart] - offsets[from],
+      end: prefix.length + offsets[visibleEnd] - offsets[from]
+    }
+  };
 }
 
 function videoInfoRows(rows: Replica[]): VideoTitleHit[] {
@@ -286,6 +338,7 @@ export async function searchVideoTranscripts(
           break;
         }
         matchesForVideo++;
+        const excerpt = transcriptExcerpt(cue.text, foldedText, needle);
         hits.push({
           key: video.key,
           title: video.title,
@@ -295,7 +348,8 @@ export async function searchVideoTranscripts(
           cueId: cue.id,
           time: Math.max(0, cue.start + delay),
           end: Math.max(0, cue.end + delay),
-          text: clip(cue.text)
+          text: excerpt.text,
+          match: excerpt.match
         });
       }
       if (hits.length >= MAX_TRANSCRIPT_RESULTS) break;
