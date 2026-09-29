@@ -43,7 +43,11 @@ export interface VideoTranscriptBatch {
 }
 
 export interface VideoSearchStore {
-  records(scope: Scope, kind: 'video_info' | 'video_resume'): Promise<Replica[]>;
+  records(
+    scope: Scope,
+    kind: 'video_info' | 'video_resume',
+    signal?: AbortSignal
+  ): Promise<Replica[]>;
   tracks(scope: Scope, mediaKey: ContentKey, signal?: AbortSignal): Promise<Track[]>;
 }
 
@@ -114,7 +118,7 @@ export async function searchVideoTitles(
   signal.throwIfAborted();
   const needle = foldSearch(query.trim());
   if (!needle) return { hits: [], truncated: false };
-  const rows = await store.records(scope, 'video_info');
+  const rows = await store.records(scope, 'video_info', signal);
   signal.throwIfAborted();
   const matches = videoInfoRows(rows)
     .filter((item) => foldSearch(item.title).includes(needle))
@@ -141,8 +145,8 @@ export async function searchVideoTranscripts(
   if (!needle) return { hits: [], failed: 0, truncated: false, scanned: 0, total: 0 };
 
   const [metadataRows, resumeRows] = await Promise.all([
-    store.records(scope, 'video_info'),
-    store.records(scope, 'video_resume')
+    store.records(scope, 'video_info', signal),
+    store.records(scope, 'video_resume', signal)
   ]);
   signal.throwIfAborted();
 
