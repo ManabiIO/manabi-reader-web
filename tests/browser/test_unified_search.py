@@ -132,20 +132,22 @@ class UnifiedSearch(ProductJourneyBase):
 
     def test_title_results_prioritize_relevance_across_source_types(self):
         self.seed_video_search(title='cat')
+        self.import_book('Dog guide', body='<p>Unrelated body text.</p>', creators=('cat',))
         for title in ('Copycat notes', 'A cat story', 'Cat guide'):
             self.import_book(title, body='<p>Unrelated body text.</p>')
         self.library_search('cat')
         self.filter('Titles')
         titles = self.page.locator('[data-search-row="titles"] strong')
-        expect(titles).to_have_count(4)
+        expect(titles).to_have_count(5)
         self.assertEqual(
-            ['cat', 'Cat guide', 'A cat story', 'Copycat notes'],
+            ['cat', 'Dog guide', 'Cat guide', 'A cat story', 'Copycat notes'],
             titles.all_text_contents(),
         )
         kinds = self.page.locator('[data-search-row="titles"] small')
-        expect(kinds).to_have_count(4)
+        expect(kinds).to_have_count(5)
         self.assertTrue(kinds.nth(0).inner_text().startswith('Video'))
-        self.assertTrue(all(kinds.nth(index).inner_text().startswith('Book') for index in range(1, 4)))
+        self.assertIn('cat', kinds.nth(1).inner_text())
+        self.assertTrue(all(kinds.nth(index).inner_text().startswith('Book') for index in range(1, 5)))
         self.checkpoint('unified-title-relevance')
 
     def test_title_ranking_keeps_creator_only_metadata_matches(self):
