@@ -119,3 +119,32 @@ export function sortSearchText<T>(
     .sort((a, b) => compareKeys(a.key, b.key) || tie(a.value, b.value) || a.order - b.order)
     .map(({ value }) => value);
 }
+
+
+/**
+ * Locate the first normalized query match in original metadata text without
+ * reusing folded offsets as source offsets. Suitable for short UI metadata.
+ */
+export function searchMatchRange(
+  value: string,
+  query: string
+): { start: number; end: number } | undefined {
+  const needle = foldSearch(query.trim());
+  if (!needle) return;
+  let folded = '';
+  const starts: number[] = [],
+    ends: number[] = [];
+  for (const part of new Intl.Segmenter('ja', { granularity: 'grapheme' }).segment(value)) {
+    const unit = foldSearch(part.segment);
+    folded += unit;
+    for (let index = 0; index < unit.length; index++) {
+      starts.push(part.index);
+      ends.push(part.index + part.segment.length);
+    }
+  }
+  const at = folded.indexOf(needle);
+  if (at < 0) return;
+  const start = starts[at],
+    end = ends[at + needle.length - 1];
+  return Number.isInteger(start) && Number.isInteger(end) && end > start ? { start, end } : undefined;
+}
