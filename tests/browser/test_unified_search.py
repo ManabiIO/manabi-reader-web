@@ -94,7 +94,9 @@ class UnifiedSearch(ProductJourneyBase):
         expect(self.page.locator('button.passage')).to_have_count(1)
         self.checkpoint('unified-all-real-dictionary')
         self.page.set_viewport_size({'width': 360, 'height': 740})
-        self.assertTrue(self.page.locator('.unified-search').evaluate('e => e.scrollWidth <= e.clientWidth + 1'))
+        self.page.wait_for_function(
+            'e => e.scrollWidth <= e.clientWidth + 1',
+            arg=self.page.locator('.unified-search').element_handle())
         self.checkpoint('unified-mobile-preview')
 
     def test_dictionary_asset_failure_does_not_block_titles_or_passages(self):
