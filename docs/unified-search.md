@@ -15,8 +15,16 @@ reloads, and does not rewrite the editable query.
 **Content**. Dictionary is available only for Everything. All previews at most
 two results from each section; See all switches to the corresponding dedicated
 view. Dictionary mode requests full structured entries instead of stretching a
-clipped preview. Titles and Content reveal additional batches of 30 with a
-keyboard focus anchor.
+clipped preview. Titles rank displayed titles globally across source types as
+exact, prefix, token-boundary, then interior substring matches; source type never
+lets a weaker displayed-title match outrank a stronger one. Visible title matches
+are highlighted using ranges mapped back to the original text, including
+compatibility-width and ligature cases. Books admitted only by canonical title,
+author, series/folder, or collection metadata remain visible after literal title
+matches and show that provenance instead of pretending the displayed title
+matched. Content stays source-diverse because book, snippet and transcript body
+workers do not expose directly comparable relevance scores. Titles and Content
+reveal additional batches of 30 with a keyboard focus anchor.
 
 Every asynchronous source owns cancellation, stale-result suppression, loading,
 failure and retry independently. A dictionary, snippet, video-store, or book-body
@@ -47,9 +55,11 @@ English-gloss reverse search and new grammar data are not implemented.
 
 ## Books, snippets and video
 
-Books and snippets retain differentiated labels and canonical locators. Book
-highlights use engine-provided original-text offsets rather than a regex over
-normalized text. Snippet navigation preserves the existing snippet locator.
+Books and snippets retain differentiated labels and canonical locators. Content
+highlights always use source-produced original-text offsets rather than re-searching
+a displayed excerpt with a regex. This preserves compatibility-width text,
+furigana-backed snippet matches, ligatures and supplementary characters. Snippet
+navigation preserves the existing snippet locator.
 
 Video search is read-only over the media database. Titles come from saved
 `video_info` records. Content search reads only complete, published transcript
@@ -57,7 +67,9 @@ tracks and applies saved per-track subtitle delays when producing timestamp
 locators. It does **not** reconnect a File/cloud source, download video bytes,
 start MOSS, or publish a transcript. Equivalent cues across candidate tracks are
 deduplicated; authored transcription tracks retain preference over generated or
-translation duplicates. Results are bounded per video and overall.
+translation duplicates. Transcript excerpts remain bounded but center on the
+source-mapped match, so a long cue cannot clip the matching text off-screen.
+Results are bounded per video and overall.
 
 Transcript navigation uses
 `/videos?media=<content-key>&time=<seconds>&track=<track-id>`. Opening such a

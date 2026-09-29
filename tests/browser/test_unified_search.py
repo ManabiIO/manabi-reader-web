@@ -130,6 +130,52 @@ class UnifiedSearch(ProductJourneyBase):
         expect(button).to_be_focused()
         return button
 
+    def test_title_results_prioritize_relevance_across_source_types(self):
+        self.seed_video_search(title='cat')
+        self.import_book('Dog guide', body='<p>Unrelated body text.</p>', creators=('cat',))
+        for title in ('Copycat notes', 'A cat story', 'Cat guide'):
+            self.import_book(title, body='<p>Unrelated body text.</p>')
+        self.library_search('cat')
+        self.filter('Titles')
+        titles = self.page.locator('[data-search-row="titles"] strong')
+        expect(titles).to_have_count(5)
+        self.assertEqual(
+            ['cat', 'Cat guide', 'A cat story', 'Copycat notes', 'Dog guide'],
+            titles.all_text_contents(),
+        )
+        rows = self.page.locator('[data-search-row="titles"]')
+        kinds = rows.locator('small')
+        expect(kinds).to_have_count(5)
+        self.assertTrue(kinds.nth(0).inner_text().startswith('Video'))
+        self.assertEqual('Book · Author · cat', kinds.nth(4).inner_text())
+        self.assertTrue(all(kinds.nth(index).inner_text().startswith('Book') for index in range(1, 5)))
+        expect(rows.nth(4)).to_have_attribute(
+            'aria-label', 'Read Dog guide. Matched Author · cat'
+        )
+        expect(rows.nth(0).locator('mark')).to_have_text('cat')
+        expect(rows.nth(4).locator('mark')).to_have_count(0)
+        self.checkpoint('unified-title-relevance')
+
+    def test_title_ranking_keeps_creator_only_metadata_matches(self):
+        self.seed_video_search(title='cat author')
+        self.import_book(
+            'Completely Different Book',
+            body='<p>Unrelated body text.</p>',
+            creators=('Cat Author',),
+        )
+        self.library_search('cat author')
+        self.filter('Titles')
+        titles = self.page.locator('[data-search-row="titles"] strong')
+        expect(titles).to_have_count(2)
+        self.assertEqual(
+            ['cat author', 'Completely Different Book'],
+            titles.all_text_contents(),
+        )
+        kinds = self.page.locator('[data-search-row="titles"] small')
+        self.assertTrue(kinds.nth(0).inner_text().startswith('Video'))
+        self.assertIn('Cat Author', kinds.nth(1).inner_text())
+        self.checkpoint('unified-title-creator-match-retained')
+
     def test_real_local_dictionary_uses_raw_input_and_bounded_previews(self):
         self.import_book('Neko field guide', body='<p>neko ねこ 猫</p>')
         field = self.library_search('neko')
@@ -270,6 +316,9 @@ class UnifiedSearch(ProductJourneyBase):
         expect(field).to_have_value('SCOPE_TOKEN')
         expect(rows).to_have_count(1, timeout=30000)
         expect(rows).to_contain_text('Snippet · Scope snippet')
+        snippet_match = self.page.get_by_role(
+            'button', name='Open passage in Scope snippet: SCOPE_TOKEN', exact=True)
+        expect(snippet_match.locator('mark')).to_have_text('SCOPE_TOKEN')
         self.assertIn('scope=snippets', self.page.url)
 
         # Scope belongs to navigation state, not an ephemeral child component.
@@ -328,6 +377,7 @@ class UnifiedSearch(ProductJourneyBase):
             exact=True)
         expect(transcript).to_be_visible(timeout=30000)
         expect(transcript).to_contain_text('Video · Searchable video · 0:14 · Japanese captions')
+        expect(transcript.locator('mark')).to_have_text('字幕検索')
         self.scope('Books')
         expect(transcript).to_have_count(0)
         self.scope('Everything')
@@ -350,6 +400,26 @@ class UnifiedSearch(ProductJourneyBase):
         self.assertEqual(identity['mediaKey'], params['media'])
         self.assertEqual('14.5', params['time'])
         self.assertEqual(identity['trackId'], params['track'])
+
+        # This fixture intentionally publishes durable metadata/captions without
+        # a reconnectable local/cloud alias. The receiver must keep the Videos
+        # library usable, explain the reconnect requirement, and never invent a
+        # source merely because the global search result was actionable.
+        expect(self.page.get_by_role('heading', name='Videos', exact=True)).to_be_visible()
+        expect(self.page.get_by_role('status')).to_contain_text(
+            'Reopen this video to reconnect its local file, or sign in to reconnect its cloud folder.',
+            timeout=30000,
+        )
+        expect(self.page.get_by_role('button', name='Searchable video', exact=True)).to_be_visible()
+        expect(self.page.locator('.manabi-video-player')).to_have_count(0)
+        local_count_after = self.page.evaluate("""async () => {
+          const db=await new Promise((yes,no)=>{const r=indexedDB.open('manabi-media-v1');
+            r.onsuccess=()=>yes(r.result);r.onerror=()=>no(r.error)});
+          const count=await new Promise((yes,no)=>{const tx=db.transaction('local','readonly');
+            const q=tx.objectStore('local').count();q.onsuccess=()=>yes(q.result);q.onerror=()=>no(q.error)});
+          db.close();return count;
+        }""")
+        self.assertEqual(0, local_count_after)
         self.checkpoint('unified-video-transcript-deep-link')
 
     def test_video_transcript_search_refreshes_after_published_track_change_and_latest_query_wins(self):

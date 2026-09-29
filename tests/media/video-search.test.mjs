@@ -103,6 +103,38 @@ test('video title search folds width and case without touching stored titles', a
   assert.equal(store.infos[0].payload.title, 'ＡＢＣ 日本語');
 });
 
+test('video title search ranks exact, prefix, boundary and interior matches', async () => {
+  const store = new Store({
+    infos: [
+      replica('video_info', key('a'), info('Copycat notes')),
+      replica('video_info', key('b'), info('A cat story')),
+      replica('video_info', key('c'), info('Cat guide')),
+      replica('video_info', key('d'), info('cat'))
+    ]
+  });
+  const result = await searchVideoTitles(store, 'guest', 'cat', new AbortController().signal);
+  assert.deepEqual(
+    result.hits.map((hit) => hit.title),
+    ['cat', 'Cat guide', 'A cat story', 'Copycat notes']
+  );
+});
+
+test('video title relevance uses the best occurrence and code-point position', async () => {
+  const store = new Store({
+    infos: [
+      replica('video_info', key('a'), info('Copycat only')),
+      replica('video_info', key('b'), info('Copycat cat')),
+      replica('video_info', key('c'), info('abc cat')),
+      replica('video_info', key('d'), info('🐱x cat trailing text'))
+    ]
+  });
+  const result = await searchVideoTitles(store, 'guest', 'cat', new AbortController().signal);
+  assert.deepEqual(
+    result.hits.map((hit) => hit.title),
+    ['🐱x cat trailing text', 'abc cat', 'Copycat cat', 'Copycat only']
+  );
+});
+
 test('transcript search uses saved delay, prefers authored transcription, and deduplicates equivalent cues', async () => {
   const a = key('a');
   const authored = '00000000-0000-4000-8000-000000000001';
@@ -157,10 +189,35 @@ test('transcript search never includes incomplete tracks and clips by code point
   );
   assert.equal(result.hits.length, 1);
   assert.equal(result.hits[0].cueId, 'published');
-  assert.equal(Array.from(result.hits[0].text).length, 360);
+  assert.ok(Array.from(result.hits[0].text).length <= 360);
   assert.equal(result.hits[0].text.endsWith('…'), true);
+  assert.equal(
+    result.hits[0].text.slice(result.hits[0].match.start, result.hits[0].match.end),
+    'needle'
+  );
   const last = result.hits[0].text.charCodeAt(result.hits[0].text.length - 1);
   assert.equal(last >= 0xd800 && last <= 0xdbff, false);
+});
+
+test('transcript excerpts center late matches and preserve compatibility source text', async () => {
+  const a = key('a');
+  const id = '00000000-0000-4000-8000-000000000011';
+  const late = '😀'.repeat(450) + ' ㍿ needle tail';
+  const store = new Store({
+    infos: [replica('video_info', a, info('Movie'))],
+    tracks: new Map([[a, [track(id, a, [cue('late', 4, late)])]]])
+  });
+  const result = await searchVideoTranscripts(
+    store,
+    'guest',
+    '株式会社',
+    new AbortController().signal
+  );
+  assert.equal(result.hits.length, 1);
+  const hit = result.hits[0];
+  assert.ok(Array.from(hit.text).length <= 360);
+  assert.equal(hit.text.startsWith('…'), true);
+  assert.equal(hit.text.slice(hit.match.start, hit.match.end), '㍿');
 });
 
 test('transcript search caps each video while continuing into other videos', async () => {

@@ -31,6 +31,8 @@ export interface VideoTranscriptHit {
   time: number;
   end: number;
   text: string;
+  /** UTF-16 boundaries in the returned text excerpt when mapping succeeds. */
+  match?: { start: number; end: number };
 }
 
 export interface VideoTranscriptBatch {
@@ -62,6 +64,59 @@ const foldSearch = (value: string) =>
     .toLowerCase()
     .replace(/\u03c2/g, '\u03c3');
 
+const boundaryBefore = (value: string, index: number) =>
+  index > 0 && /[\s\p{P}\p{S}]/u.test(Array.from(value.slice(0, index)).at(-1) ?? '');
+
+interface SearchMatchKey {
+  tier: number;
+  index: number;
+  length: number;
+  folded: string;
+}
+
+function matchKey(value: string, needle: string): SearchMatchKey {
+  const folded = foldSearch(value);
+  if (folded === needle) return { tier: 0, index: 0, length: Array.from(folded).length, folded };
+
+  const first = folded.indexOf(needle);
+  if (first < 0)
+    return {
+      tier: 4,
+      index: Number.MAX_SAFE_INTEGER,
+      length: Array.from(folded).length,
+      folded
+    };
+
+  let best = first;
+  let tier = first === 0 ? 1 : 3;
+  if (tier === 3) {
+    for (let candidate = first; candidate >= 0; candidate = folded.indexOf(needle, candidate + 1)) {
+      if (boundaryBefore(folded, candidate)) {
+        best = candidate;
+        tier = 2;
+        break;
+      }
+    }
+  }
+  return {
+    tier,
+    index: Array.from(folded.slice(0, best)).length,
+    length: Array.from(folded).length,
+    folded
+  };
+}
+
+const compareStableText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+
+function compareKeys(a: SearchMatchKey, b: SearchMatchKey): number {
+  return (
+    a.tier - b.tier ||
+    a.index - b.index ||
+    a.length - b.length ||
+    compareStableText(a.folded, b.folded)
+  );
+}
+
 const MAX_TITLE_RESULTS = 300;
 const MAX_TRANSCRIPT_RESULTS = 300;
 const MAX_MATCHES_PER_VIDEO = 24;
@@ -70,11 +125,70 @@ const MAX_EXCERPT_CODEPOINTS = 360;
 const aborted = (error: unknown, signal: AbortSignal) =>
   signal.aborted || (error instanceof DOMException && error.name === 'AbortError');
 
-function clip(text: string): string {
+const transcriptGraphemes = new Intl.Segmenter('ja', { granularity: 'grapheme' });
+
+function boundedExcerpt(text: string): string {
   const points = Array.from(text);
   return points.length <= MAX_EXCERPT_CODEPOINTS
     ? text
     : `${points.slice(0, MAX_EXCERPT_CODEPOINTS - 1).join('')}…`;
+}
+
+function transcriptExcerpt(
+  text: string,
+  foldedText: string,
+  needle: string
+): { text: string; match?: { start: number; end: number } } {
+  const at = foldedText.indexOf(needle);
+  let foldedOffset = 0,
+    sourceStart = -1,
+    sourceEnd = -1;
+  for (const part of transcriptGraphemes.segment(text)) {
+    const next = foldedOffset + foldSearch(part.segment).length;
+    if (sourceStart < 0 && at < next) sourceStart = part.index;
+    if (at + needle.length <= next) {
+      sourceEnd = part.index + part.segment.length;
+      break;
+    }
+    foldedOffset = next;
+  }
+  if (sourceStart < 0 || sourceEnd <= sourceStart) return { text: boundedExcerpt(text) };
+
+  const points = Array.from(text);
+  if (points.length <= MAX_EXCERPT_CODEPOINTS)
+    return { text, match: { start: sourceStart, end: sourceEnd } };
+
+  const offsets = [0];
+  let units = 0;
+  for (const point of points) {
+    units += point.length;
+    offsets.push(units);
+  }
+  const startPoint = offsets.indexOf(sourceStart);
+  const endPoint = offsets.indexOf(sourceEnd);
+  if (startPoint < 0 || endPoint <= startPoint) return { text: boundedExcerpt(text) };
+  const contentBudget = MAX_EXCERPT_CODEPOINTS - 2;
+  const matchLength = endPoint - startPoint;
+  let from =
+    matchLength >= contentBudget
+      ? startPoint
+      : Math.max(0, startPoint - Math.floor((contentBudget - matchLength) / 3));
+  from = Math.min(from, Math.max(0, points.length - contentBudget));
+  if (from + contentBudget < Math.min(endPoint, startPoint + contentBudget))
+    from = Math.max(0, Math.min(startPoint, endPoint - contentBudget));
+  const to = Math.min(points.length, from + contentBudget);
+  const prefix = from > 0 ? '…' : '';
+  const suffix = to < points.length ? '…' : '';
+  const excerpt = prefix + text.slice(offsets[from], offsets[to]) + suffix;
+  const visibleStart = Math.max(startPoint, from);
+  const visibleEnd = Math.min(endPoint, to);
+  return {
+    text: excerpt,
+    match: {
+      start: prefix.length + offsets[visibleStart] - offsets[from],
+      end: prefix.length + offsets[visibleEnd] - offsets[from]
+    }
+  };
 }
 
 function videoInfoRows(rows: Replica[]): VideoTitleHit[] {
@@ -132,8 +246,13 @@ export async function searchVideoTitles(
   const rows = await store.records(scope, 'video_info', signal);
   signal.throwIfAborted();
   const matches = videoInfoRows(rows)
-    .filter((item) => foldSearch(item.title).includes(needle))
-    .sort((a, b) => a.title.localeCompare(b.title) || a.key.localeCompare(b.key));
+    .map((item, order) => ({ item, order, key: matchKey(item.title, needle) }))
+    .filter(({ key }) => key.tier < 4)
+    .sort(
+      (a, b) =>
+        compareKeys(a.key, b.key) || compareStableText(a.item.key, b.item.key) || a.order - b.order
+    )
+    .map(({ item }) => item);
   return {
     hits: matches.slice(0, MAX_TITLE_RESULTS),
     truncated: matches.length > MAX_TITLE_RESULTS
@@ -214,8 +333,9 @@ export async function searchVideoTranscripts(
     for (const track of [...tracks].filter((item) => item.complete).sort(trackOrder)) {
       const delay = playback.get(video.key)?.delays[track.id] ?? 0;
       for (const cue of track.cues) {
-        if (!foldSearch(cue.text).includes(needle)) continue;
-        const identity = `${cue.start}\u0000${cue.end}\u0000${foldSearch(cue.text)}`;
+        const foldedText = foldSearch(cue.text);
+        if (!foldedText.includes(needle)) continue;
+        const identity = `${cue.start}\u0000${cue.end}\u0000${foldedText}`;
         if (seen.has(identity)) continue;
         seen.add(identity);
         if (matchesForVideo >= MAX_MATCHES_PER_VIDEO) {
@@ -227,6 +347,7 @@ export async function searchVideoTranscripts(
           break;
         }
         matchesForVideo++;
+        const excerpt = transcriptExcerpt(cue.text, foldedText, needle);
         hits.push({
           key: video.key,
           title: video.title,
@@ -236,7 +357,8 @@ export async function searchVideoTranscripts(
           cueId: cue.id,
           time: Math.max(0, cue.start + delay),
           end: Math.max(0, cue.end + delay),
-          text: clip(cue.text)
+          text: excerpt.text,
+          match: excerpt.match
         });
       }
       if (hits.length >= MAX_TRANSCRIPT_RESULTS) break;

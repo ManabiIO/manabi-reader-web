@@ -2,7 +2,7 @@
   import { onMount, tick } from 'svelte';
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
-  import { BookOpen, FileText } from '@lucide/svelte';
+  import { BookOpen, FileText, Video } from '@lucide/svelte';
   import { localUser, localProfileUser } from '../manabi/client';
   import { videoLearningEnabled } from '../media/feature';
   import type { VideoTranscriptBatch } from '../media/video-search';
@@ -10,14 +10,23 @@
   import { snippetItems, scope } from '../snippets/service';
   import { snippetKey, type SnippetHit } from '../snippets/document';
   import { searchBodies } from '../snippets/search';
-  import { foldSearch } from '../library/search-normalization';
-  import { creatorLine } from '../library/book-metadata';
+  import {
+    foldSearch,
+    searchMatchRange,
+    sortSearchText,
+    type SearchTextFields
+  } from '../library/search-normalization';
   import type { ShelfBook } from '../library/view-model';
   import type { ReaderLocator } from '../reader-location';
   import type { SnippetSummary } from '../snippets/summary';
   import SearchExcerpt from '../components/search-excerpt.svelte';
   import DictionarySearch from './dictionary-search.svelte';
   import { searchBookContents, type BookSearchBatch } from './book-content-source';
+  import {
+    bookTitleMatchDetail,
+    bookTitleSearchFields,
+    type BookTitleMatchContext
+  } from './book-title-match-text';
   import { queryTask, type SearchState } from './query-task.mjs';
   import {
     librarySearchScopePlan,
@@ -28,6 +37,7 @@
   export let searchScope: LibrarySearchScope = 'everything';
   export let books: ShelfBook[] = [];
   export let matches: ShelfBook[] = [];
+  export let bookMatchText: Record<string, readonly BookTitleMatchContext[]> = {};
   export let snippetMembers: string[] | undefined = undefined;
   export let returnTo = '/manage';
   export let openBook: (book: ShelfBook, locator?: ReaderLocator) => void;
@@ -40,6 +50,9 @@
     title: string;
     label: string;
     detail?: string;
+    titleMatch?: { start: number; end: number };
+    /** Search-only metadata used for relevance; never rendered directly. */
+    searchText?: SearchTextFields;
     excerpt?: string;
     match?: { start: number; end: number };
     open: () => void;
@@ -84,10 +97,9 @@
   async function mediaRuntime(): Promise<LazyMediaRuntime> {
     if (!videoLearningEnabled) throw new Error('Video learning is disabled.');
     if (!mediaRuntimePromise) {
-      const pending = Promise.all([
-        import('../media/store'),
-        import('../media/video-search')
-      ]).then(([store, search]) => ({ store: new store.MediaStore(), search }));
+      const pending = Promise.all([import('../media/store'), import('../media/video-search')]).then(
+        ([store, search]) => ({ store: new store.MediaStore(), search })
+      );
       mediaRuntimePromise = pending;
       void pending.catch(() => {
         if (mediaRuntimePromise === pending) mediaRuntimePromise = undefined;
@@ -126,7 +138,16 @@
     filter,
     searchScope,
     scopePlan.books ? books.map((book) => [book.key, book.contentHash, book.lastBookModified]) : [],
-    scopePlan.books ? matches.map((book) => [book.key, book.title]) : [],
+    scopePlan.books
+      ? matches.map((book) => [
+          book.key,
+          book.title,
+          book.canonicalTitle,
+          (book.creators ?? []).map((creator) => creator.name),
+          book.series?.name ?? null,
+          bookMatchText[book.key] ?? []
+        ])
+      : [],
     scopePlan.snippets ? eligible.map((item) => [item.key, item.revision]) : [],
     videoLearningEnabled && searchScope === 'everything' ? mediaRevision : 0
   ]);
@@ -159,8 +180,9 @@
     const selectedBooks = plan.books ? [...matches] : [],
       selectedSnippets = plan.snippets ? [...eligible] : [],
       selectedOwner = owner,
+      selectedQuery = query,
       runVideos = videoLearningEnabled && searchScope === 'everything',
-      needle = foldSearch(query.trim());
+      needle = foldSearch(selectedQuery.trim());
     titleTask.start(async (signal, publish) => {
       const guard = () => {
         signal.throwIfAborted();
@@ -178,29 +200,45 @@
       }
       // Metadata stays local and independent of dictionary initialization and
       // expensive body projection. Do not normalize the editable query to kana.
-      const bookRows: Row[] = selectedBooks.map((book) => ({
-        id: `book:${book.key}`,
-        kind: 'Book',
-        title: book.title,
-        label: `Read ${book.title}`,
-        detail: creatorLine(book.creators),
-        open: () => openBook(book)
-      }));
+      const bookRows: Row[] = selectedBooks.map((book) => {
+        const titleMatch = searchMatchRange(book.title, selectedQuery);
+        const detail = bookTitleMatchDetail(book, bookMatchText[book.key] ?? [], selectedQuery);
+        return {
+          id: `book:${book.key}`,
+          kind: 'Book',
+          title: book.title,
+          label:
+            !titleMatch && detail ? `Read ${book.title}. Matched ${detail}` : `Read ${book.title}`,
+          detail,
+          titleMatch,
+          searchText: bookTitleSearchFields(book, bookMatchText[book.key] ?? []),
+          open: () => openBook(book)
+        };
+      });
       const snippetRows: Row[] = snippetScope
         ? selectedSnippets
             .filter((item) => foldSearch(item.title).includes(needle))
             .map((item) => ({
               id: `snippet:${item.key}`,
-              kind: 'Snippet' as const,
+              kind: 'Snippet',
               title: item.title,
               label: `Read snippet ${item.title}`,
+              titleMatch: searchMatchRange(item.title, selectedQuery),
               open: () => openSnippet(item)
             }))
         : [];
       guard();
       publish({
         state: 'loading',
-        value: { rows: mixMany(bookRows, snippetRows), failed: snippetFailed, truncated: false }
+        value: {
+          rows: sortSearchText(
+            [...bookRows, ...snippetRows],
+            selectedQuery,
+            (row) => row.searchText ?? row.title
+          ),
+          failed: snippetFailed,
+          truncated: false
+        }
       });
       let videoRows: Row[] = [],
         videoFailed = 0,
@@ -212,7 +250,7 @@
           const result = await media.search.searchVideoTitles(
             media.store,
             media.search.mediaScope(selectedOwner),
-            query,
+            selectedQuery,
             signal
           );
           guard();
@@ -223,6 +261,7 @@
             title: hit.title,
             label: `Open video ${hit.title}`,
             detail: hit.duration > 0 ? formatMediaTime(hit.duration) : undefined,
+            titleMatch: searchMatchRange(hit.title, selectedQuery),
             open: () => openVideo(hit.key)
           }));
         } catch (error) {
@@ -235,7 +274,11 @@
       publish({
         state: 'ready',
         value: {
-          rows: mixMany(bookRows, videoRows, snippetRows),
+          rows: sortSearchText(
+            [...bookRows, ...videoRows, ...snippetRows],
+            selectedQuery,
+            (row) => row.searchText ?? row.title
+          ),
           failed: snippetFailed + videoFailed,
           truncated: videoTruncated
         }
@@ -247,7 +290,10 @@
     const selectedBooks = plan.books ? [...books] : [],
       selectedSnippets = plan.snippets ? [...eligible] : [],
       needle = query,
-      selectedOwner = owner;
+      selectedOwner = owner,
+      selectedBooksById = new Map(
+        selectedBooks.flatMap((book) => (book.bookId ? [[book.bookId, book] as const] : []))
+      );
     const runBooks = plan.books && selectedBooks.length > 0;
     const runSnippets = plan.snippets && selectedSnippets.length > 0;
     const runVideos = videoLearningEnabled && searchScope === 'everything';
@@ -288,7 +334,7 @@
         if (signal.aborted) return;
         guard();
         const bookRows: Row[] = bookBatch.hits.flatMap((hit) => {
-          const book = selectedBooks.find((item) => item.bookId === hit.bookId);
+          const book = selectedBooksById.get(hit.bookId);
           return book
             ? [
                 {
@@ -311,6 +357,7 @@
           label: `Open transcript in ${hit.title} at ${formatMediaTime(hit.time)}: ${hit.text}`,
           detail: `${formatMediaTime(hit.time)} · ${hit.trackLabel || hit.language}`,
           excerpt: hit.text,
+          match: hit.match,
           open: () => openVideo(hit.key, hit.time, hit.trackId)
         }));
         const snippetRows: Row[] = selectedSnippets.flatMap((item) =>
@@ -321,6 +368,7 @@
             label: `Open passage in ${item.title}: ${hit.locator.quote}`,
             detail: hit.reading ? 'Furigana match' : undefined,
             excerpt: hit.excerpt,
+            match: hit.excerptMatch,
             open: () => openSnippet(item, hit)
           }))
         );
@@ -518,12 +566,14 @@
               onclick={row.open}
             >
               <span class="type-icon" aria-hidden="true"
-                >{#if row.kind === 'Book'}<BookOpen size={20} />{:else if row.kind === 'Video'}<span
-                    class="video-glyph">▶</span
-                  >{:else}<FileText size={20} />{/if}</span
+                >{#if row.kind === 'Book'}<BookOpen
+                    size={20}
+                  />{:else if row.kind === 'Video'}<Video size={20} />{:else}<FileText
+                    size={20}
+                  />{/if}</span
               >
               <span class="row-copy"
-                ><strong>{row.title}</strong><small
+                ><strong><SearchExcerpt text={row.title} match={row.titleMatch} /></strong><small
                   >{row.kind}{row.detail ? ` · ${row.detail}` : ''}</small
                 ></span
               >
@@ -568,9 +618,11 @@
               onclick={row.open}
             >
               <span class="type-icon" aria-hidden="true"
-                >{#if row.kind === 'Book'}<BookOpen size={20} />{:else if row.kind === 'Video'}<span
-                    class="video-glyph">▶</span
-                  >{:else}<FileText size={20} />{/if}</span
+                >{#if row.kind === 'Book'}<BookOpen
+                    size={20}
+                  />{:else if row.kind === 'Video'}<Video size={20} />{:else}<FileText
+                    size={20}
+                  />{/if}</span
               >
               <span class="row-copy"
                 ><span class="excerpt"
@@ -716,10 +768,6 @@
     height: 40px;
     background: var(--muted);
     border-radius: 10px;
-  }
-  .video-glyph {
-    font-size: 0.9rem;
-    line-height: 1;
   }
   .row-copy {
     display: grid;

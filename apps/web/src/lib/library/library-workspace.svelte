@@ -1,5 +1,6 @@
 <script lang="ts">
   import { foldSearch } from './search-normalization';
+  import { bookTitleMatchIndex } from '../search/book-title-match-text';
   import { librarySelection } from './selection-action';
   import BookOrganizationDialog from './book-organization-dialog.svelte';
   import type { BookPresentation, PresentationChange } from './organization';
@@ -330,16 +331,16 @@
   // not silently constrain the All/Titles/Content filters.
   $: searchableBooks = books;
   $: normalizedQuery = foldSearch(query.trim());
-  $: metadataSeries = normalizedQuery ? booksInMatchingSeries(tree, normalizedQuery) : [];
-  $: metadataCollections = $organization.collections.filter((c) =>
-    foldSearch(c.name).includes(normalizedQuery)
+  $: metadataMatchIndex = bookTitleMatchIndex(
+    searchableBooks,
+    tree,
+    $organization.collections,
+    normalizedQuery
   );
+  $: metadataMatchText = metadataMatchIndex.textByBook;
   $: metadataMatches = searchableBooks.filter(
     (book) =>
-      matchesBookQuery(book, normalizedQuery, metadataSeries) ||
-      metadataCollections.some((c) =>
-        book.organizationAliases.some((key) => c.members.includes(key))
-      )
+      matchesBookQuery(book, normalizedQuery, []) || metadataMatchIndex.matchedKeys.has(book.key)
   );
   $: flatDestination = !series && (collectionId === 'finished' || !!selectedCollection);
   $: seriesMatchedKeys =
@@ -1514,6 +1515,7 @@
         searchScope={librarySearchScope}
         books={searchableBooks}
         matches={metadataMatches}
+        bookMatchText={metadataMatchText}
         {openBook}
         onquery={setQuery}
         onscope={setSearchScope}
