@@ -112,8 +112,8 @@ class PanelUsabilityBrowser(LibraryBase):
             expect(value).to_have_attribute('aria-hidden', 'true')
 
         close = panel.get_by_role('button', name='Close reading tracker', exact=True)
-        close.scroll_into_view_if_needed()
         self.assert_unoccluded(close)
+        self.assertGreaterEqual(close.bounding_box()['height'], 43.99)
         self.capture('tracker-large-text')
         close.click()
         expect(panel).to_have_count(0)
@@ -187,6 +187,9 @@ class PanelUsabilityBrowser(LibraryBase):
         self.assertLess(remaining, 15)
         self.assertGreaterEqual(previous.bounding_box()['height'], 43.99)
         self.assert_unoccluded(previous)
+        close = panel.get_by_role('button', name='Close reading tracker', exact=True)
+        self.assert_unoccluded(close)
+        self.assertGreaterEqual(close.bounding_box()['height'], 43.99)
         self.capture('tracker-history-final-page')
 
         previous.press('Enter')
