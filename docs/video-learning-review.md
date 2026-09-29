@@ -126,5 +126,9 @@ Japanese speech or MOSS recognition accuracy.
 
 Real single/threaded MOSS build/inference, Japanese synthesis/diarization,
 cross-tab/suspension, live provider/account composition, and physical Safari/iOS
-memory/performance/fullscreen behavior remain separate gates. The expensive
-real-model workflow is manual; ordinary UI qualification does not download models.
+memory/performance/fullscreen behavior remain separate gates. The checked-in
+runtime workflow runs real English/Japanese and pinned natural-speech inference
+when runtime/model/search paths change; ordinary UI qualification still does not
+download model weights. Rebuilding the CPU runtime remains a separate
+compiler-change qualification. The SharedWorker custody probe is retained only
+as a manual experiment and is not a production release gate.
