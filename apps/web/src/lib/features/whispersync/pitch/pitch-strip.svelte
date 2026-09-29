@@ -106,10 +106,11 @@
       <details>
         <summary>About this view</summary>
         <p>
-          Yellow follows the voice’s estimated pitch; the shaded waveform shows its volume. Pausing
-          holds the trace. Seeking starts a new one. Gaps can mean silence, unvoiced speech, or a
-          pitch outside 85–520 Hz. This is a listening aid, not a pitch-accent score. Audio stays on
-          your device.
+          Yellow shows SwiftF0’s estimated pitch; the shaded waveform shows volume. Pausing holds
+          the trace. Seeking starts a new one. Gaps can mean silence, unvoiced speech, low confidence,
+          or a pitch outside 85–520 Hz. Pitched background sounds or another speaker can still be
+          mistaken for the voice, especially during pauses. This is a listening aid, not a
+          pitch-accent score. Audio stays on your device.
         </p>
       </details>
     {/if}
