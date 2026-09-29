@@ -215,9 +215,11 @@ class UnifiedSearch(ProductJourneyBase):
         self.assertEqual(0, local_count)
 
         transcript.click()
-        expect(self.page).to_have_url(
-            __import__('re').compile(
-                rf'/videos\?media={identity["mediaKey"]}&time=14\.5&track={identity["trackId"]}'))
+        expect(self.page).to_have_url(__import__('re').compile(r'/videos\?'))
+        params = self.page.evaluate("""() => Object.fromEntries(new URL(location.href).searchParams)""")
+        self.assertEqual(identity['mediaKey'], params['media'])
+        self.assertEqual('14.5', params['time'])
+        self.assertEqual(identity['trackId'], params['track'])
         self.checkpoint('unified-video-transcript-deep-link')
 
     def test_video_transcript_search_refreshes_after_published_track_change_and_latest_query_wins(self):
