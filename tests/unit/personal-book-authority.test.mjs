@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   livePersonalCopies,
-  planPersonalBookClaims
+  planPersonalBookClaims,
+  tryLivePersonalCopies
 } from '../../apps/web/src/lib/manabi/personal-book-authority.ts';
 
 const hash = 'a'.repeat(64);
@@ -170,4 +171,27 @@ test('mixed existing owners remain unclaimable for either account', () => {
   ];
   assert.deepEqual(planPersonalBookClaims(metadata, scopes, 'alice').books, []);
   assert.deepEqual(planPersonalBookClaims(metadata, scopes, 'bob').books, []);
+});
+
+test('fail-closed probe returns undefined for ownership changes without hiding account errors', async () => {
+  const expected = [candidate(1)];
+  const foreign = stores({
+    books: expected,
+    scopes: [{ bookId: 1, accountId: 'bob' }]
+  });
+  assert.equal(
+    await tryLivePersonalCopies(bookKey, expected, foreign.data, foreign.scopes, 'alice', () => {}),
+    undefined
+  );
+
+  const current = stores({
+    books: expected,
+    scopes: [{ bookId: 1, accountId: 'alice' }]
+  });
+  await assert.rejects(
+    tryLivePersonalCopies(bookKey, expected, current.data, current.scopes, 'alice', () => {
+      throw new Error('account revoked');
+    }),
+    /account revoked/
+  );
 });
