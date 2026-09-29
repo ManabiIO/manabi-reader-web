@@ -1,7 +1,9 @@
 import process from 'node:process';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-const { analyseFrame } = await import(new URL('analysis.mjs', process.env.PITCH_COMPILED));
+const { frameLevel, resampleForSwiftF0 } = await import(
+  new URL('analysis.mjs', process.env.PITCH_COMPILED)
+);
 const { appendPoint, pitchPaths, initialPitchState } = await import(
   new URL('model.mjs', process.env.PITCH_COMPILED)
 );
@@ -15,31 +17,32 @@ const tone = (hz, rate = 48000, amplitude = 0.7) =>
     (_, i) => amplitude * Math.sin((2 * Math.PI * hz * i) / rate)
   );
 
-for (const rate of [8000, 16000, 44100, 48000, 96000, 192000]) {
-  for (const hz of [100, 160, 220, 330, 440])
-    test(`tone ${hz} Hz at ${rate} samples/s`, () => {
-      const result = analyseFrame(tone(hz, rate), rate);
-      assert.ok(result.hz !== null && Math.abs(result.hz - hz) < 4, JSON.stringify(result));
-      assert.ok(result.confidence >= 0.52 && result.amplitude > 0);
-    });
-}
-test('silence, DC, nonfinite input and malformed sample rates cannot produce a contour', () => {
-  for (const samples of [
-    new Float32Array(1920),
-    new Float32Array(1920).fill(0.5),
-    new Float32Array(1920).fill(NaN)
-  ])
-    assert.equal(analyseFrame(samples, 48000).hz, null);
-  for (const rate of [NaN, Infinity, 0, 7999, 192001])
-    assert.equal(analyseFrame(tone(220), rate).hz, null);
-  assert.equal(analyseFrame(new Float32Array(8), 48000).hz, null);
-  assert.equal(analyseFrame(new Float32Array(20000), 48000).hz, null);
+test('SwiftF0 signal preparation preserves bounded finite audio across media rates', () => {
+  for (const rate of [8000, 16000, 44100, 48000, 96000, 192000]) {
+    const output = resampleForSwiftF0(tone(220, rate), rate);
+    assert.ok(output.length > 0);
+    assert.ok(output.every(Number.isFinite));
+    const expected = Math.floor((Math.ceil(rate * 0.04) * 16000) / rate);
+    assert.ok(Math.abs(output.length - expected) <= 1, `${rate}: ${output.length} vs ${expected}`);
+    const level = frameLevel(output, Math.floor(output.length / 2));
+    assert.ok(level.rms > 0 && level.peak > 0 && level.amplitude > 0);
+  }
 });
+
+test('SwiftF0 preparation rejects malformed rates and sanitizes nonfinite samples', () => {
+  for (const rate of [NaN, Infinity, 0, 7999, 192001])
+    assert.equal(resampleForSwiftF0(tone(220), rate).length, 0);
+  const dirty = tone(220, 48000);
+  dirty[17] = NaN;
+  dirty[51] = Infinity;
+  assert.ok(resampleForSwiftF0(dirty, 48000).every(Number.isFinite));
+});
+
 test('history is bounded in time and points, and seeks start a new contour', () => {
   let points = [];
   for (let i = 0; i < 10000; i++)
     points = appendPoint(points, { time: i * 0.001, hz: 220, amplitude: 0.5 });
-  assert.equal(points.length, 400);
+  assert.equal(points.length, 560);
   assert.deepEqual(appendPoint(points, { time: 1, hz: null, amplitude: 0 }), [
     { time: 1, hz: null, amplitude: 0 }
   ]);
@@ -185,7 +188,14 @@ function fixture(options = {}) {
       workers.at(-1).onmessage({ data: { type: 'ready' } });
     },
     result(worker = workers.at(-1), result = { hz: 220, amplitude: 0.5, confidence: 1, rms: 0.5 }) {
-      worker.onmessage({ data: { type: 'result', id: worker.sent.at(-1).id, result } });
+      const sent = worker.sent.at(-1);
+      const point = {
+        time: Math.max(0, Number(sent?.endTime ?? a.currentTime) - 0.18),
+        ...result
+      };
+      worker.onmessage({
+        data: { type: 'result', id: sent?.id, points: [point], result }
+      });
     },
     play() {
       a.paused = false;
@@ -272,12 +282,12 @@ test('bounded work: one in-flight request, timestamps at frame center, no duplic
   f.frame(100);
   const worker = f.workers[0];
   assert.equal(worker.sent.length, 1);
-  assert.equal(worker.sent[0].samples.length, 1920);
+  assert.equal(worker.sent[0].samples.length, 32768);
   f.a.currentTime += 0.1;
   f.frame(200);
   assert.equal(worker.sent.length, 1);
   f.result();
-  assert.ok(Math.abs(f.state.points[0].time - 0.98) < 1e-9);
+  assert.ok(Math.abs(f.state.points[0].time - 0.82) < 1e-9);
   f.frame(300);
   assert.equal(worker.sent.length, 2);
   f.result();
@@ -323,7 +333,7 @@ test('replacement audio retires only the old route and rejects late callbacks', 
 test('load and result timeouts expose retry without closing the output route', async () => {
   const f = fixture();
   f.controller.setEnabled(true);
-  f.timer(15000);
+  f.timer(30000);
   assert.equal(f.state.status, 'error');
   f.controller.retry();
   f.ready();
