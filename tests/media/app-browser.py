@@ -302,6 +302,47 @@ def main():
             "node => parseFloat(getComputedStyle(node).fontSize)"
         ))
         assert media_font >= 31.5, media_font
+
+        # Stress the library chrome too, not only the currently open player.
+        # These controls all remain part of the same page above the viewing surface.
+        assert media.evaluate("node => node.scrollWidth-node.clientWidth") <= 1
+        library_controls = [
+            page.get_by_role('button', name='Add videos', exact=True),
+            page.get_by_role('button', name='Open local folder', exact=True),
+            page.get_by_role('searchbox', name='Search videos', exact=True),
+            page.get_by_label('Sort videos', exact=True),
+            page.get_by_label('Filter videos', exact=True),
+            page.get_by_role('button', name='Select visible videos', exact=True),
+            page.get_by_role('button', name='Clear selection', exact=True),
+            page.get_by_role('button', name='Generate missing transcripts', exact=True),
+            page.get_by_text('Transcription and sync', exact=True),
+        ]
+        for control in library_controls:
+            expect(control).to_be_visible()
+            box = control.bounding_box()
+            assert box and box['height'] >= 43.5, box
+            assert box['x'] >= -1 and box['x'] + box['width'] <= 321, box
+
+        library_card = page.locator('.video-card').filter(has_text='video.mp4')
+        expect(library_card).to_be_visible()
+        assert library_card.evaluate("node => node.scrollWidth-node.clientWidth") <= 1
+        card_select = library_card.get_by_role('checkbox', name='Select video.mp4', exact=True)
+        select_box = card_select.locator('..').bounding_box()
+        assert select_box['width'] >= 43.5 and select_box['height'] >= 43.5, select_box
+        card_title = library_card.get_by_role('button', name='video.mp4', exact=True)
+        title_box = card_title.bounding_box()
+        assert title_box['height'] >= 43.5, title_box
+        actions_summary = library_card.get_by_text('Actions', exact=True)
+        actions_box = actions_summary.bounding_box()
+        assert actions_box['height'] >= 43.5, actions_box
+        actions_summary.click()
+        for action_name in ('Open video', 'Generate missing transcript', 'Rename title'):
+            action = library_card.get_by_role('button', name=action_name, exact=True)
+            expect(action).to_be_visible()
+            box = action.bounding_box()
+            assert box['height'] >= 43.5, (action_name, box)
+            assert box['x'] >= -1 and box['x'] + box['width'] <= 321, (action_name, box)
+        actions_summary.click()
         heading_font = float(page.get_by_role(
             'heading', name='Videos', exact=True
         ).evaluate("node => parseFloat(getComputedStyle(node).fontSize)"))
