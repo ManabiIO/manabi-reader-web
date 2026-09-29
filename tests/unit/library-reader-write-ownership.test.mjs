@@ -33,24 +33,34 @@ function memoryDB(initial, { onTransaction } = {}) {
       name,
       new Map(
         rows.map((row) => [
-          row.id ?? row.dataId ?? row.annotationId ?? row.bookId,
+          name === 'lastItem' ? 0 : (row.id ?? row.dataId ?? row.annotationId ?? row.bookId),
           globalThis.structuredClone(row)
         ])
       )
     ])
   );
-  const keyFor = (row) => row.id ?? row.dataId ?? row.annotationId ?? row.bookId;
+  const keyFor = (name, row) =>
+    name === 'lastItem' ? 0 : (row.id ?? row.dataId ?? row.annotationId ?? row.bookId);
   const copy = (row) => (row === undefined ? undefined : globalThis.structuredClone(row));
   const storeFor = (name) => {
     const rows = tables.get(name);
     return {
       get: async (key) => copy(rows.get(key)),
       getAll: async () => [...rows.values()].map(copy),
-      put: async (row) => {
-        rows.set(keyFor(row), copy(row));
-        return keyFor(row);
+      put: async (row, explicitKey) => {
+        const key = explicitKey ?? keyFor(name, row);
+        rows.set(key, copy(row));
+        return key;
       },
       delete: async (key) => rows.delete(key),
+      index: (field) => ({
+        async getAllKeys(value, count) {
+          const keys = [...rows.entries()]
+            .filter(([, row]) => row[field] === value)
+            .map(([key]) => key);
+          return count === undefined ? keys : keys.slice(0, count);
+        }
+      }),
       openCursor: async () => {
         const values = [...rows.values()].map(copy);
         const cursor = (index) =>
@@ -209,6 +219,144 @@ test('bookmark persistence requires the book to still exist', async () => {
   assert.equal(db.rows('bookmark')[0].progress, 0.25);
 });
 
+test('local open admission rejects a newly foreign library owner without detaching its source', async () => {
+  const db = memoryDB({
+    data: [
+      {
+        id: 1,
+        title: 'Book',
+        elementHtml: '<p>book</p>',
+        storageSource: 'Legacy source',
+        libraryOwner: 'bob'
+      }
+    ],
+    readerBookScope: []
+  });
+  await assert.rejects(
+    bookRecords.prepareBookForLocalReading(
+      db,
+      { id: 1, title: 'Book' },
+      undefined,
+      'alice',
+      () => undefined
+    ),
+    /another account/
+  );
+  assert.equal(db.rows('data')[0].storageSource, 'Legacy source');
+});
+
+test('local open admission rejects a newly foreign personal scope', async () => {
+  const db = memoryDB({
+    data: [{ id: 1, title: 'Book', elementHtml: '<p>book</p>', storageSource: 'Legacy source' }],
+    readerBookScope: [{ bookId: 1, accountId: 'bob' }]
+  });
+  await assert.rejects(
+    bookRecords.prepareBookForLocalReading(
+      db,
+      { id: 1, title: 'Book' },
+      undefined,
+      'alice',
+      () => undefined
+    ),
+    /another account/
+  );
+  assert.equal(db.rows('data')[0].storageSource, 'Legacy source');
+});
+
+test('owned local open can detach legacy source metadata after the live ownership check', async () => {
+  const db = memoryDB({
+    data: [
+      {
+        id: 1,
+        title: 'Book',
+        elementHtml: '<p>book</p>',
+        storageSource: 'Legacy source',
+        libraryOwner: 'alice'
+      }
+    ],
+    readerBookScope: [{ bookId: 1, accountId: 'alice' }]
+  });
+  assert.equal(
+    await bookRecords.prepareBookForLocalReading(
+      db,
+      { id: 1, title: 'Book' },
+      undefined,
+      'alice',
+      () => undefined
+    ),
+    1
+  );
+  assert.equal(db.rows('data')[0].storageSource, undefined);
+});
+
+test('resume target read hides a foreign pointer without deleting it', async () => {
+  const db = memoryDB({
+    data: [{ id: 1, title: 'Book', libraryOwner: 'bob' }],
+    readerBookScope: [],
+    lastItem: [{ dataId: 1 }]
+  });
+  assert.equal(await bookRecords.readOwnedLastItem(db, 'alice', () => undefined), undefined);
+  assert.deepEqual(db.rows('lastItem'), [{ dataId: 1 }]);
+
+  assert.deepEqual(await bookRecords.readOwnedLastItem(db, 'bob', () => undefined), {
+    dataId: 1
+  });
+});
+
+test('resume target read applies personal scope and ignores stale missing targets', async () => {
+  const scoped = memoryDB({
+    data: [{ id: 1, title: 'Book' }],
+    readerBookScope: [{ bookId: 1, accountId: 'alice' }],
+    lastItem: [{ dataId: 1 }]
+  });
+  assert.equal(await bookRecords.readOwnedLastItem(scoped, 'bob', () => undefined), undefined);
+  assert.deepEqual(await bookRecords.readOwnedLastItem(scoped, 'alice', () => undefined), {
+    dataId: 1
+  });
+
+  const missing = memoryDB({
+    data: [],
+    readerBookScope: [],
+    lastItem: [{ dataId: 999 }]
+  });
+  assert.equal(await bookRecords.readOwnedLastItem(missing, null, () => undefined), undefined);
+  assert.deepEqual(missing.rows('lastItem'), [{ dataId: 999 }]);
+});
+
+test('resume target persistence rejects a newly foreign book and preserves the previous target', async () => {
+  const db = memoryDB({
+    data: [{ id: 1, title: 'Book', libraryOwner: 'bob' }],
+    readerBookScope: [],
+    lastItem: [{ dataId: 7 }]
+  });
+  await assert.rejects(
+    bookRecords.commitOwnedLastItem(db, 1, 'alice', () => undefined),
+    /another account/
+  );
+  assert.deepEqual(db.rows('lastItem'), [{ dataId: 7 }]);
+});
+
+test('resume target persistence checks personal scope and commits only the owned ID', async () => {
+  const foreign = memoryDB({
+    data: [{ id: 1, title: 'Book' }],
+    readerBookScope: [{ bookId: 1, accountId: 'bob' }],
+    lastItem: []
+  });
+  await assert.rejects(
+    bookRecords.commitOwnedLastItem(foreign, 1, 'alice', () => undefined),
+    /another account/
+  );
+  assert.deepEqual(foreign.rows('lastItem'), []);
+
+  const owned = memoryDB({
+    data: [{ id: 1, title: 'Book', libraryOwner: 'alice' }],
+    readerBookScope: [{ bookId: 1, accountId: 'alice' }],
+    lastItem: []
+  });
+  await bookRecords.commitOwnedLastItem(owned, 1, 'alice', () => undefined);
+  assert.deepEqual(owned.rows('lastItem'), [{ dataId: 1 }]);
+});
+
 function annotationFixture({ bookOwner, scopeOwner, onTransaction } = {}) {
   const hash = 'a'.repeat(64);
   const bookKey = 'content:' + hash;
@@ -234,23 +382,26 @@ function annotationFixture({ bookOwner, scopeOwner, onTransaction } = {}) {
     modifiedAt: '2026-09-28T00:00:00.000Z',
     revision: 1
   };
-  const db = memoryDB({
-    data: [{ id: 1, contentHash: hash, ...(bookOwner ? { libraryOwner: bookOwner } : {}) }],
-    readerBookScope: [],
-    readerAnnotation: [annotation],
-    readerAnnotationOutbox: [],
-    readerAnnotationScope: scopeOwner
-      ? [{ annotationId: annotation.id, accountId: scopeOwner }]
-      : [],
-    readerConflict: [
-      {
-        id: 'import:' + annotation.id,
-        bookKey,
-        local: annotation,
-        remote: { ...annotation, body: 'archive' }
-      }
-    ]
-  }, { onTransaction });
+  const db = memoryDB(
+    {
+      data: [{ id: 1, contentHash: hash, ...(bookOwner ? { libraryOwner: bookOwner } : {}) }],
+      readerBookScope: [],
+      readerAnnotation: [annotation],
+      readerAnnotationOutbox: [],
+      readerAnnotationScope: scopeOwner
+        ? [{ annotationId: annotation.id, accountId: scopeOwner }]
+        : [],
+      readerConflict: [
+        {
+          id: 'import:' + annotation.id,
+          bookKey,
+          local: annotation,
+          remote: { ...annotation, body: 'archive' }
+        }
+      ]
+    },
+    { onTransaction }
+  );
   let user = { id: 'alice' };
   const operationControllers = new Set();
   const api = load('reader-annotations.ts', {
@@ -452,7 +603,7 @@ test('profile change aborts a pending annotation mutation instead of acknowledgi
     const selected = typeof names === 'string' ? [names] : names;
     if (!switched && selected.includes('readerAnnotation')) {
       switched = true;
-      queueMicrotask(() => fixture.setUser('bob'));
+      globalThis.queueMicrotask(() => fixture.setUser('bob'));
     }
     return tx;
   };
