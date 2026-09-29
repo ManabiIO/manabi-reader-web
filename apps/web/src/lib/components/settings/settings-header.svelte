@@ -10,7 +10,7 @@
     <CaretLeftIcon class="size-5 shrink-0" aria-hidden="true" />
     <span class="back-label">Back</span>
   </Button>
-  <span class="settings-title font-semibold">Settings</span>
+  <h1 class="settings-title font-semibold">Settings</h1>
   <div class="settings-navigation"><AppNav compact /></div>
 </header>
 
