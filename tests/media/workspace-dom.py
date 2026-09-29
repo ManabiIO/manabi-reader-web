@@ -792,10 +792,11 @@ def main():
                 releaseAlias();
                 await opened;
                 return {current:workspace.current?.key??null,bound:bound.length,
-                    available:workspace.player.generationAvailable,
+                    player:!!workspace.player,viewingChildren:workspace.viewing.childElementCount,
                     status:workspace.status.textContent};
             }""")
-            assert result['current'] is None and result['bound']==0 and result['available'] is False,result
+            assert result['current'] is None and result['bound']==0,result
+            assert result['player'] is False and result['viewingChildren']==0,result
             assert 'Account changed' in result['status'],result
         case('an account revoked during storage cannot leave Generate attached to stale media',account_replaced_during_alias_write)
         def verified_source_is_not_hashed_twice():
