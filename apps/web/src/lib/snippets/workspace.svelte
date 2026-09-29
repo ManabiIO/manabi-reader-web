@@ -989,35 +989,43 @@
           >
             <Menu.Item
               disabled={busy || !!current.transfer}
-              onSelect={() => membership([current!.document.id])}>Collections…</Menu.Item
+              onSelect={() => membership([current!.document.id])}
             >
+              Collections…
+            </Menu.Item>
             <Menu.Item
               disabled={busy || !!current.transfer || !!current.conflicts.length}
-              onSelect={() => move([current!.document.id])}>Move to…</Menu.Item
+              onSelect={() => move([current!.document.id])}
             >
+              Move to…
+            </Menu.Item>
             <Menu.Item
               disabled={busy}
               onSelect={() =>
                 action(() => newSnippet(current!.document.content, current!.document))}
-              >Duplicate</Menu.Item
             >
+              Duplicate
+            </Menu.Item>
             <Menu.Separator />
             <Menu.Item
               disabled={busy}
               onSelect={() => action(() => exportSnippets([current!.document.id], admitted))}
-              >Export JSON</Menu.Item
             >
+              Export JSON
+            </Menu.Item>
             <Menu.Item
               disabled={busy}
               onSelect={() => action(() => exportSnippets([current!.document.id], admitted, 'html'))}
-              >HTML</Menu.Item
             >
+              HTML
+            </Menu.Item>
             <Menu.Item
               disabled={busy}
               onSelect={() =>
                 action(() => exportSnippets([current!.document.id], admitted, 'markdown'))}
-              >Markdown</Menu.Item
             >
+              Markdown
+            </Menu.Item>
             {#if !current.document.trashedAt}
               <Menu.Separator />
               <Menu.Item
@@ -1025,8 +1033,10 @@
                 onSelect={() => {
                   deleteIds = [current!.document.id];
                   deleteOpen = true;
-                }}>Trash</Menu.Item
+                }}
               >
+                Trash
+              </Menu.Item>
             {/if}
           </Menu.Content>
         </Menu.Root>
