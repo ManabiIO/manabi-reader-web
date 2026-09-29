@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** Fail a production build if its MOSS assets are absent, stale, or altered. */
+/** Finalize video assets: omit them when disabled, verify them when enabled. */
 import { createHash } from 'node:crypto';
 import { readFile, readdir, lstat, rm } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
