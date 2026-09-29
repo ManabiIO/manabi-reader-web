@@ -15,6 +15,8 @@ export const foldSearchCase = (value: string) => value.toLowerCase().replace(/\u
 export const foldSearch = (value: string) => foldSearchCase(value.normalize('NFKC'));
 
 interface SearchMatchKey {
+  /** Primary title fields always rank before metadata-only fallback fields. */
+  group: number;
   tier: number;
   field: number;
   index: number;
@@ -27,10 +29,11 @@ interface SearchMatchKey {
 const boundaryBefore = (value: string, index: number) =>
   index > 0 && /[\s\p{P}\p{S}]/u.test(Array.from(value.slice(0, index)).at(-1) ?? '');
 
-function matchKey(value: string, needle: string, field = 0): SearchMatchKey {
+function matchKey(value: string, needle: string, field = 0, group = 0): SearchMatchKey {
   const folded = foldSearch(value);
   if (folded === needle)
     return {
+      group,
       tier: 0,
       field,
       index: 0,
@@ -42,6 +45,7 @@ function matchKey(value: string, needle: string, field = 0): SearchMatchKey {
   const first = folded.indexOf(needle);
   if (first < 0)
     return {
+      group,
       tier: 4,
       field,
       index: Number.MAX_SAFE_INTEGER,
@@ -65,6 +69,7 @@ function matchKey(value: string, needle: string, field = 0): SearchMatchKey {
     }
   }
   return {
+    group,
     tier,
     field,
     // indexOf reports UTF-16 code units. Relevance positions are user-visible
@@ -78,10 +83,10 @@ function matchKey(value: string, needle: string, field = 0): SearchMatchKey {
 
 const compareStableText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
-function bestKey(values: readonly string[], needle: string): SearchMatchKey {
-  let best = matchKey(values[0] ?? '', needle, 0);
+function bestKey(values: readonly string[], needle: string, group = 0): SearchMatchKey {
+  let best = matchKey(values[0] ?? '', needle, 0, group);
   for (let index = 1; index < values.length; index++) {
-    const candidate = matchKey(values[index], needle, index);
+    const candidate = matchKey(values[index], needle, index, group);
     if (compareKeys(candidate, best) < 0) best = candidate;
   }
   return best;
@@ -89,6 +94,7 @@ function bestKey(values: readonly string[], needle: string): SearchMatchKey {
 
 function compareKeys(a: SearchMatchKey, b: SearchMatchKey): number {
   return (
+    a.group - b.group ||
     a.tier - b.tier ||
     a.field - b.field ||
     a.index - b.index ||
@@ -110,10 +116,15 @@ export function compareSearchText(left: string, right: string, query: string): n
 }
 
 /** Sort metadata while normalizing each candidate only once per admitted query. */
+export interface SearchTextFields {
+  primary: readonly string[];
+  secondary?: readonly string[];
+}
+
 export function sortSearchText<T>(
   values: readonly T[],
   query: string,
-  text: (value: T) => string | readonly string[],
+  text: (value: T) => string | readonly string[] | SearchTextFields,
   tie: (left: T, right: T) => number = () => 0
 ): T[] {
   const needle = foldSearch(query.trim());
@@ -121,11 +132,17 @@ export function sortSearchText<T>(
   return values
     .map((value, order) => {
       const fields = text(value);
-      return {
-        value,
-        order,
-        key: bestKey(typeof fields === 'string' ? [fields] : fields, needle)
-      };
+      let key: SearchMatchKey;
+      if (typeof fields === 'string') key = bestKey([fields], needle);
+      else if (Array.isArray(fields)) key = bestKey(fields, needle);
+      else {
+        const primary = bestKey(fields.primary, needle, 0);
+        key =
+          primary.tier < 4
+            ? primary
+            : bestKey(fields.secondary ?? [], needle, 1);
+      }
+      return { value, order, key };
     })
     .sort((a, b) => compareKeys(a.key, b.key) || tie(a.value, b.value) || a.order - b.order)
     .map(({ value }) => value);
