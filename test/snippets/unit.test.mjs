@@ -192,13 +192,19 @@ test('ruby search includes reading but does not pollute base text', () => {
   const hit = searchSnippet(doc, 'トウキョウ')[0];
   assert.equal(hit.reading, true);
   assert.equal(hit.locator.quote, '東京');
-  assert.equal(searchSnippet(doc, '東京')[0].reading, false);
+  assert.equal(hit.excerpt.slice(hit.excerptMatch.start, hit.excerptMatch.end), '東京');
+  const literal = searchSnippet(doc, '東京')[0];
+  assert.equal(literal.reading, false);
+  assert.equal(literal.excerpt.slice(literal.excerptMatch.start, literal.excerptMatch.end), '東京');
 });
 test('width normalization maps expanded text back to original offsets', () => {
   const doc = document('㍿ＡＢＣ');
   const hit = searchSnippet(doc, '株式会社')[0];
   assert.equal(hit.locator.quote, '㍿');
-  assert.equal(searchSnippet(doc, 'abc')[0].locator.quote, 'ＡＢＣ');
+  assert.equal(hit.excerpt.slice(hit.excerptMatch.start, hit.excerptMatch.end), '㍿');
+  const width = searchSnippet(doc, 'abc')[0];
+  assert.equal(width.locator.quote, 'ＡＢＣ');
+  assert.equal(width.excerpt.slice(width.excerptMatch.start, width.excerptMatch.end), 'ＡＢＣ');
 });
 test('snippet search limit counts Unicode code points end to end', () => {
   const accepted = '𠮷'.repeat(MAX_SNIPPET_SEARCH_CODEPOINTS);
