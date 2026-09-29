@@ -130,8 +130,9 @@ class UnifiedSearch(ProductJourneyBase):
         expect(button).to_be_focused()
         return button
 
-    def test_title_results_prioritize_exact_prefix_boundary_then_interior_matches(self):
-        for title in ('Copycat notes', 'A cat story', 'Cat guide', 'cat'):
+    def test_title_results_prioritize_relevance_across_source_types(self):
+        self.seed_video_search(title='cat')
+        for title in ('Copycat notes', 'A cat story', 'Cat guide'):
             self.import_book(title, body='<p>Unrelated body text.</p>')
         self.library_search('cat')
         self.filter('Titles')
@@ -141,6 +142,10 @@ class UnifiedSearch(ProductJourneyBase):
             ['cat', 'Cat guide', 'A cat story', 'Copycat notes'],
             titles.all_text_contents(),
         )
+        kinds = self.page.locator('[data-search-row="titles"] small')
+        expect(kinds).to_have_count(4)
+        self.assertTrue(kinds.nth(0).inner_text().startswith('Video'))
+        self.assertTrue(all(kinds.nth(index).inner_text().startswith('Book') for index in range(1, 4)))
         self.checkpoint('unified-title-relevance')
 
     def test_real_local_dictionary_uses_raw_input_and_bounded_previews(self):
