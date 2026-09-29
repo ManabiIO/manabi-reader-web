@@ -53,6 +53,7 @@
     passages,
     plainContent,
     snippetKey,
+    snippetSearchTooLong,
     MAX_SNIPPET_BYTES,
     filename,
     type SnippetDocument,
@@ -1027,7 +1028,7 @@
             type="search"
             aria-label="Search snippets"
             placeholder="Search titles and content"
-            maxlength={512}
+            aria-invalid={snippetSearchTooLong(query) ? true : undefined}
             bind:value={query}
             oninput={(event) => {
               query = event.currentTarget.value;
