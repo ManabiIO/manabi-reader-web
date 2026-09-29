@@ -4,6 +4,7 @@
   import { isSnippetLibraryPath } from '../snippets/discovery';
   import { derived } from 'svelte/store';
   import { onMount } from 'svelte';
+  import { startMediaProfileWatcher } from './media-profile';
   import { page } from '$app/stores';
   import { base, resolve } from '$app/paths';
   import { refreshAccount } from './client';
@@ -17,6 +18,7 @@
       ['conflict', 'needs_reconnect', 'permission_required', 'unauthorized'].includes(status.state)
     );
   onMount(() => {
+    const stopMediaProfile = startMediaProfileWatcher();
     const stopSnippets = startSnippets(
       derived(page, (current) => isSnippetLibraryPath(current.url.pathname, base))
     );
@@ -37,6 +39,7 @@
     window.addEventListener('online', refreshOnline);
     window.addEventListener('focus', refreshFocus);
     return () => {
+      stopMediaProfile();
       stopSnippets();
       stopPreferences();
       stopBooks();

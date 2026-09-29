@@ -1,3 +1,5 @@
 pnpm-lock.yaml
 build/
 .svelte-kit/
+apps/web/static/moss/single/moss.mjs
+apps/web/static/moss/threaded/moss.mjs

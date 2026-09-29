@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev",
-    "build": "vite build",
+    "build": "vite build && node ../../tools/media/verify-deployment.mjs",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "check:types": "tsc --noEmit",
@@ -60,6 +60,7 @@
     "rxjs": "7.8.2",
     "svelte-gestures": "5.0.7",
     "svelte-meta-tags": "3.1.4",
-    "ua-parser-js": "2.0.10"
+    "ua-parser-js": "2.0.10",
+    "mediabunny": "1.59.1"
   }
 }

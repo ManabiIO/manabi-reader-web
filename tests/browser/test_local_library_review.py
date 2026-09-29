@@ -41,10 +41,12 @@ class LocalLibraryReview(LocalFeatureBrowser):
 
 
     def open_notebook(self, page):
-        # A new tab can expose the prerendered controls before hydration. Wait
-        # for the reader to load before clicking, as the other reader tests do.
+        # The second tab can show the server-rendered controls before the
+        # reader has loaded its book and attached the click handler.
         expect(page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=30000)
-        page.get_by_role('button', name='Show reading controls', exact=True).click()
+        controls = page.get_by_role('button', name='Show reading controls', exact=True)
+        controls.click()
+        expect(page.locator('button[data-reader-controls]')).to_have_attribute('aria-expanded', 'true')
         page.get_by_role('button', name='Bookmarks and Notes', exact=True).click()
         notebook = page.get_by_role('region', name='Imported Yatsu notes', exact=True)
         expect(notebook.get_by_text('A book-wide note', exact=True)).to_be_visible()
