@@ -20,6 +20,8 @@ import {
   resolveLocator,
   filename,
   MAX_SNIPPET_BYTES,
+  MAX_SNIPPET_SEARCH_CODEPOINTS,
+  snippetSearchTooLong,
   validateContent
 } from '../../apps/web/src/lib/snippets/document.ts';
 import {
@@ -196,6 +198,16 @@ test('width normalization maps expanded text back to original offsets', () => {
   const hit = searchSnippet(doc, '株式会社')[0];
   assert.equal(hit.locator.quote, '㍿');
   assert.equal(searchSnippet(doc, 'abc')[0].locator.quote, 'ＡＢＣ');
+});
+test('snippet search limit counts Unicode code points end to end', () => {
+  const accepted = '𠮷'.repeat(MAX_SNIPPET_SEARCH_CODEPOINTS);
+  assert.equal(snippetSearchTooLong(accepted), false);
+  assert.equal(snippetSearchTooLong(accepted + '𠮷'), true);
+  const doc = document(accepted);
+  const hit = searchSnippet(doc, accepted, 1);
+  assert.equal(hit.length, 1);
+  assert.equal(hit[0].locator.quote, accepted);
+  assert.deepEqual(searchSnippet(doc, accepted + '𠮷', 1), []);
 });
 test('locator follows changed text and refuses ambiguous matches', () => {
   const doc = document('before 東京 after'),
