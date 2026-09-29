@@ -1334,6 +1334,19 @@
   }
 
   let chromeMousePointer = false;
+  function hasVisibleModalSurface() {
+    return [...document.querySelectorAll<HTMLElement>('[role="dialog"], [role="menu"]')].some(
+      (element) => {
+        if (element.hidden || element.getAttribute('aria-hidden') === 'true') return false;
+        const style = getComputedStyle(element);
+        return (
+          style.display !== 'none' &&
+          style.visibility !== 'hidden' &&
+          element.getClientRects().length > 0
+        );
+      }
+    );
+  }
   function chromeProtected() {
     return (
       showSpinner ||
@@ -1344,7 +1357,7 @@
       showReaderImageGallery ||
       $tocIsOpen$ ||
       $skipKeyDownListener$ ||
-      !!document.querySelector('[role="dialog"], [role="menu"]') ||
+      hasVisibleModalSurface() ||
       !!document.activeElement?.closest('[data-reader-chrome]') ||
       (chromeMousePointer && !!document.querySelector('[data-reader-chrome]:hover')) ||
       !!window.getSelection()?.toString() ||

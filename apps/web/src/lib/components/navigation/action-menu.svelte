@@ -7,6 +7,7 @@
   export let disabled = false;
   export let open = false;
   export let variant: ButtonVariant = 'outline';
+  export let iconOnly = false;
 </script>
 
 <Menu.Root bind:open>
@@ -16,11 +17,14 @@
         {...props}
         {disabled}
         {variant}
-        class="min-h-9"
+        class={iconOnly ? 'size-[44px] min-h-[44px] rounded-full p-0' : 'min-h-9'}
         aria-label={title || label}
         title={title || label}
       >
-        {label}<ChevronDown class="size-3.5" aria-hidden="true" />
+        {#if !iconOnly}{label}{/if}<ChevronDown
+          class={iconOnly ? 'size-[24px]' : 'size-3.5'}
+          aria-hidden="true"
+        />
       </Button>
     {/snippet}
   </Menu.Trigger>
