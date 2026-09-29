@@ -1,5 +1,5 @@
 import { appendPoint, initialPitchState, type PitchState } from './model';
-import type { Measurement } from './analysis';
+import { MAX_HZ, MIN_HZ, type TimedMeasurement } from './analysis';
 
 export interface PitchEnvironment {
   createContext(): AudioContext;
@@ -30,7 +30,7 @@ export class PitchController {
   private analyserConnected = false;
   private loadTimer?: number;
   private replyTimer?: number;
-  private pending?: { id: number; time: number };
+  private pending?: { id: number };
   private generation = 0;
   private sequence = 0;
   private epoch = 0;
@@ -159,7 +159,7 @@ export class PitchController {
     if (this.replyTimer !== undefined) this.environment.clearTimer(this.replyTimer);
     this.replyTimer = undefined;
     this.lastSample = -Infinity;
-    this.sampleAfter = (this.context?.currentTime ?? 0) + 0.04;
+    this.sampleAfter = (this.context?.currentTime ?? 0) + 0.2;
     this.breakBefore = true;
   }
   private reset() {
@@ -194,14 +194,16 @@ export class PitchController {
             this.source.connect(context.destination);
           }
           const analyser = context.createAnalyser();
-          analyser.fftSize = Math.min(16384, 2 ** Math.ceil(Math.log2(context.sampleRate * 0.04)));
+          // SwiftF0 needs temporal context on both sides of each estimate.
+          // At the requested 48 kHz context, 32768 samples provide ~683 ms.
+          analyser.fftSize = 32768;
           this.samples = new Float32Array(analyser.fftSize);
           this.analyser = analyser;
           this.source.connect(analyser);
           this.analyserConnected = true;
           if (this.loadTimer !== undefined) this.environment.clearTimer(this.loadTimer);
           this.loadTimer = undefined;
-          this.sampleAfter = context.currentTime + 0.04;
+          this.sampleAfter = context.currentTime + 0.35;
           this.publish({ status: 'ready', message: '' });
           this.schedule();
         } catch {
@@ -225,31 +227,41 @@ export class PitchController {
           !audio.seeking &&
           !this.buffering
         ) {
-          const pending = this.pending!;
           this.pending = undefined;
           if (this.replyTimer !== undefined) this.environment.clearTimer(this.replyTimer);
           this.replyTimer = undefined;
-          const result = event.data.result as Measurement;
-          if (
-            !result ||
-            !Number.isFinite(result.amplitude) ||
-            result.amplitude < 0 ||
-            (result.hz !== null &&
-              (!Number.isFinite(result.hz) || result.hz < 85 || result.hz > 520))
-          ) {
-            this.fail('Pitch analysis returned invalid data. Retry to reload it.');
+          const measurements = event.data.points as TimedMeasurement[];
+          if (!Array.isArray(measurements)) {
+            this.fail('SwiftF0 returned invalid data. Retry to reload it.');
             return;
           }
-          this.publish({
-            points: appendPoint(this.state.points, {
-              time: pending.time,
+          let points = this.state.points;
+          for (const result of measurements) {
+            if (
+              !result ||
+              !Number.isFinite(result.time) ||
+              !Number.isFinite(result.amplitude) ||
+              result.amplitude < 0 ||
+              !Number.isFinite(result.confidence) ||
+              result.confidence < 0 ||
+              result.confidence > 1 ||
+              (result.hz !== null &&
+                (!Number.isFinite(result.hz) || result.hz < MIN_HZ || result.hz > MAX_HZ))
+            ) {
+              this.fail('SwiftF0 returned invalid data. Retry to reload it.');
+              return;
+            }
+            points = appendPoint(points, {
+              time: result.time,
               hz: result.hz,
               amplitude: result.amplitude,
               breakBefore: this.breakBefore
-            }),
-            time: audio.currentTime
-          });
-          this.breakBefore = false;
+            });
+            this.breakBefore = false;
+          }
+          this.publish({ points, time: audio.currentTime });
+        } else if (event.data?.type === 'error') {
+          this.fail(event.data.error || 'SwiftF0 analysis failed. Retry to reload it.');
         }
       };
       worker.onerror = () => {
@@ -264,7 +276,7 @@ export class PitchController {
           this.fail(
             this.workerReady
               ? 'Audio analysis could not start. Check your audio output, then retry.'
-              : 'Pitch could not load. Check your connection, then retry.'
+              : 'SwiftF0 could not load. Check your connection, then retry.'
           );
       }, 15000);
       void resumed
@@ -322,24 +334,27 @@ export class PitchController {
         !this.pending &&
         context.currentTime >= this.sampleAfter &&
         audio.readyState >= 2 &&
-        now - this.lastSample >= 40 &&
+        now - this.lastSample >= 80 &&
         audio.currentTime !== this.lastAudioTime
       ) {
         this.lastSample = now;
         this.lastAudioTime = audio.currentTime;
         try {
           this.analyser!.getFloatTimeDomainData(this.samples!);
-          const count = Math.ceil(context.sampleRate * 0.04);
-          const samples = this.samples!.slice(-count);
-          const time = Math.max(
-            0,
-            audio.currentTime - ((samples.length / context.sampleRate) * audio.playbackRate) / 2
-          );
+          const samples = this.samples!.slice();
           const id = ++this.sequence;
-          this.pending = { id, time };
-          this.worker!.postMessage({ samples, rate: context.sampleRate, id, epoch: this.epoch }, [
-            samples.buffer
-          ]);
+          this.pending = { id };
+          this.worker!.postMessage(
+            {
+              samples,
+              rate: context.sampleRate,
+              id,
+              epoch: this.epoch,
+              endTime: audio.currentTime,
+              playbackRate: audio.playbackRate
+            },
+            [samples.buffer]
+          );
           this.replyTimer = this.environment.setTimer(() => {
             if (this.pending?.id === id)
               this.fail('Pitch analysis stopped responding. Retry to restart it.');
