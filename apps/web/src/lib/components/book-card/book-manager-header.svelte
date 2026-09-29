@@ -226,9 +226,13 @@
           onsubmit={(event) => event.preventDefault()}
         >
           <label
-            class="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-full bg-muted px-3 focus-within:ring-2 focus-within:ring-ring"
+            class="flex min-h-11 min-w-0 flex-1 items-center gap-1 rounded-full bg-muted px-2 focus-within:ring-2 focus-within:ring-ring min-[390px]:gap-2 min-[390px]:px-3"
           >
-            <Search class="size-6 shrink-0" weight="bold" aria-hidden="true" />
+            <Search
+              class="hidden size-6 shrink-0 min-[390px]:block"
+              weight="bold"
+              aria-hidden="true"
+            />
             <span class="sr-only">Search library</span>
             <input
               bind:this={searchInput}
@@ -251,7 +255,9 @@
               }}
             />
           </label>
-          <Button variant="ghost" class="min-h-11" onclick={closeSearch}>Cancel</Button>
+          <Button variant="ghost" class="min-h-11 px-2 min-[390px]:px-4" onclick={closeSearch}
+            >Cancel</Button
+          >
         </form>
       {:else}
         <div class="flex min-w-0 items-center gap-2">

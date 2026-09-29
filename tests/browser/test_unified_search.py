@@ -196,6 +196,7 @@ class UnifiedSearch(ProductJourneyBase):
         self.page.set_viewport_size({'width': 320, 'height': 480})
         self.page.evaluate('document.documentElement.style.fontSize = "200%"')
         field = self.library_search('猫')
+        self.assertGreaterEqual(field.bounding_box()['width'], 64)
         results = self.page.get_by_label('Library search results', exact=True)
         expect(results).to_be_visible()
         self.assertLessEqual(results.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
