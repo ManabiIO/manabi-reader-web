@@ -1,0 +1,40 @@
+name: Format snippet workspace repair
+on:
+  push:
+    branches: [review/format-snippet-workspace-20260929]
+permissions:
+  contents: write
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: aadddb139b24469de9eb98512fc57b18f2bf9e03
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Format only the failing snippet workspace
+        run: pnpm exec prettier --write apps/web/src/lib/snippets/workspace.svelte
+      - name: Verify bounded change
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only)"
+          test "$changed" = "apps/web/src/lib/snippets/workspace.svelte"
+          pnpm exec prettier --check apps/web/src/lib/snippets/workspace.svelte
+      - name: Publish product branch
+        run: |
+          set -euo pipefail
+          git config user.name 'Manabi development'
+          git config user.email 'development@manabi.io'
+          git switch -c fix/snippet-workspace-format-20260929
+          git add apps/web/src/lib/snippets/workspace.svelte
+          git commit -m 'style(snippets): format enlarged-text action menu'
+          git push origin HEAD:refs/heads/fix/snippet-workspace-format-20260929
