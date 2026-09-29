@@ -301,8 +301,8 @@
 <div class="unified-search" aria-label="Library search results" bind:this={results}>
   <div class="search-controls">
     <div class="control-group">
-      <span class="control-label">Search in</span>
-      <div role="group" aria-label="Search library scope" class="scopes">
+      <span id="library-search-scope-label" class="control-label">Search in</span>
+      <div role="group" aria-labelledby="library-search-scope-label" class="scopes">
         {#each librarySearchScopes as item}<button
             type="button"
             data-search-scope={item.id}
@@ -312,8 +312,8 @@
       </div>
     </div>
     <div class="control-group">
-      <span class="control-label">Show</span>
-      <div role="group" aria-label="Search result type" class="filters">
+      <span id="library-search-result-type-label" class="control-label">Show</span>
+      <div role="group" aria-labelledby="library-search-result-type-label" class="filters">
         {#each availableFilters as item}<button
             type="button"
             data-search-filter={item.id}
