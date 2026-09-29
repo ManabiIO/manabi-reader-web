@@ -103,6 +103,22 @@ test('video title search folds width and case without touching stored titles', a
   assert.equal(store.infos[0].payload.title, 'ＡＢＣ 日本語');
 });
 
+test('video title search ranks exact, prefix, boundary and interior matches', async () => {
+  const store = new Store({
+    infos: [
+      replica('video_info', key('a'), info('Copycat notes')),
+      replica('video_info', key('b'), info('A cat story')),
+      replica('video_info', key('c'), info('Cat guide')),
+      replica('video_info', key('d'), info('cat'))
+    ]
+  });
+  const result = await searchVideoTitles(store, 'guest', 'cat', new AbortController().signal);
+  assert.deepEqual(
+    result.hits.map((hit) => hit.title),
+    ['cat', 'Cat guide', 'A cat story', 'Copycat notes']
+  );
+});
+
 test('transcript search uses saved delay, prefers authored transcription, and deduplicates equivalent cues', async () => {
   const a = key('a');
   const authored = '00000000-0000-4000-8000-000000000001';
