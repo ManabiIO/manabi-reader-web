@@ -1018,7 +1018,13 @@ class BooksLibraryBrowser(LibraryBase):
         self.choose_view('List')
         expect(self.tile('Started book').locator('.book-author')).to_have_text('Author One')
         self.page.get_by_role('searchbox', name='Search library', exact=True).fill('Author Two')
-        expect(self.page.get_by_role('button', name='Read Untouched book', exact=True)).to_be_visible()
+        expect(
+            self.page.get_by_role(
+                'button',
+                name='Read Untouched book. Matched Author · Author Two',
+                exact=True,
+            )
+        ).to_be_visible()
         expect(self.page.get_by_role('button', name='Read Started book', exact=True)).to_have_count(0)
         self.page.get_by_role('searchbox', name='Search library', exact=True).fill('')
 
