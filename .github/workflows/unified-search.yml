@@ -5,6 +5,7 @@ on:
       - 'apps/web/src/lib/search/**'
       - 'apps/web/src/lib/library/library-workspace.svelte'
       - 'tests/unit/unified-search.test.mjs'
+      - 'tests/unit/library-search-scope.test.mjs'
       - '.github/workflows/unified-search.yml'
 permissions:
   contents: read
@@ -18,4 +19,4 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24.21.0'
-      - run: node --test tests/unit/unified-search.test.mjs
+      - run: node --experimental-strip-types --test tests/unit/unified-search.test.mjs tests/unit/library-search-scope.test.mjs
