@@ -215,6 +215,24 @@
     }
     return matches.filter((key, index) => matches.indexOf(key) === index);
   }
+  function matchingSeriesText(
+    nodes: ShelfNode[],
+    search: string,
+    result = new Map<string, string[]>()
+  ): Map<string, string[]> {
+    for (const node of nodes) {
+      if (node.kind !== 'series') continue;
+      if (foldSearch(node.name).includes(search))
+        for (const book of node.books) {
+          const values = result.get(book.key);
+          if (values) {
+            if (!values.includes(node.name)) values.push(node.name);
+          } else result.set(book.key, [node.name]);
+        }
+      matchingSeriesText(node.children, search, result);
+    }
+    return result;
+  }
   function matchesBookQuery(book: ShelfBook, search: string, seriesMatches: string[]) {
     return (
       !search ||
@@ -334,6 +352,18 @@
   $: metadataCollections = $organization.collections.filter((c) =>
     foldSearch(c.name).includes(normalizedQuery)
   );
+  $: metadataMatchText = (() => {
+    const matched = matchingSeriesText(tree, normalizedQuery);
+    for (const collection of metadataCollections)
+      for (const book of searchableBooks)
+        if (book.organizationAliases.some((key) => collection.members.includes(key))) {
+          const values = matched.get(book.key);
+          if (values) {
+            if (!values.includes(collection.name)) values.push(collection.name);
+          } else matched.set(book.key, [collection.name]);
+        }
+    return Object.fromEntries(matched);
+  })();
   $: metadataMatches = searchableBooks.filter(
     (book) =>
       matchesBookQuery(book, normalizedQuery, metadataSeries) ||
@@ -1514,6 +1544,7 @@
         searchScope={librarySearchScope}
         books={searchableBooks}
         matches={metadataMatches}
+        bookMatchText={metadataMatchText}
         {openBook}
         onquery={setQuery}
         onscope={setSearchScope}
