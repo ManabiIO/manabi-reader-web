@@ -99,7 +99,6 @@ class UnifiedSearch(ProductJourneyBase):
         expect(self.page.locator('button.passage')).to_have_count(1)
         self.checkpoint('unified-latest-query')
 
-
     def test_dictionary_query_limit_counts_unicode_characters_and_recovers(self):
         field = self.library_search('𠮷' * 256)
         self.filter('Dictionary')
@@ -152,8 +151,6 @@ class UnifiedSearch(ProductJourneyBase):
         self.checkpoint('unified-200-percent-short-phone')
         field.focus()
         expect(field).to_be_focused()
-
-
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
