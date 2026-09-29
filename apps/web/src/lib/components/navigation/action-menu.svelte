@@ -17,11 +17,14 @@
         {...props}
         {disabled}
         {variant}
-        class={iconOnly ? 'size-11 min-h-11 rounded-full p-0' : 'min-h-9'}
+        class={iconOnly ? 'size-[44px] min-h-[44px] rounded-full p-0' : 'min-h-9'}
         aria-label={title || label}
         title={title || label}
       >
-        {#if !iconOnly}{label}{/if}<ChevronDown class={iconOnly ? 'size-6' : 'size-3.5'} aria-hidden="true" />
+        {#if !iconOnly}{label}{/if}<ChevronDown
+          class={iconOnly ? 'size-[24px]' : 'size-3.5'}
+          aria-hidden="true"
+        />
       </Button>
     {/snippet}
   </Menu.Trigger>

@@ -170,7 +170,7 @@ class LibraryGridLabels(LibraryBase):
               return !!hit && (hit===e || e.contains(hit));
             }'''))
 
-        actions = toolbar.get_by_role('button', name='Actions', exact=True)
+        actions = toolbar.get_by_role('button', name='Selected book actions', exact=True)
         actions.focus()
         actions.press('Enter')
         menu = self.page.get_by_role('menu')

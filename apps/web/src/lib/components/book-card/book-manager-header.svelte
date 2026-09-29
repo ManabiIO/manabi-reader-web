@@ -598,7 +598,7 @@
           aria-label="Cancel selection"
           disabled={libraryMenu?.selectedActions?.busy}
           onclick={() => (selectMode = false)}
-          >{#if compactLibrary}<X class="size-6" aria-hidden="true" />{:else}Cancel selection{/if}</Button
+          >{#if compactLibrary}<X class="size-[24px]" aria-hidden="true" />{:else}Cancel selection{/if}</Button
         >
         <span class="whitespace-nowrap text-sm" aria-live="polite">{selectedCount} selected</span>
         <Button
@@ -607,9 +607,10 @@
           aria-label={modernLibrary ? 'Select All Visible' : 'Select all'}
           disabled={libraryMenu?.selectedActions?.busy}
           onclick={() => dispatch('selectAllClick')}
-          >{#if compactLibrary}<SelectionAll class="size-6" aria-hidden="true" />{:else}{modernLibrary
-              ? 'Select All Visible'
-              : 'Select all'}{/if}</Button
+          >{#if compactLibrary}<SelectionAll
+              class="size-[24px]"
+              aria-hidden="true"
+            />{:else}{modernLibrary ? 'Select All Visible' : 'Select all'}{/if}</Button
         >
         {#if selectedCount > 0}
           <Button
@@ -619,7 +620,10 @@
               libraryMenu?.selectedActions?.savedCount === 0}
             aria-label="Export"
             onclick={() => dispatch('replicateData')}
-            >{#if compactLibrary}<FileArrowUp class="size-6" aria-hidden="true" />{:else}Export{/if}</Button
+            >{#if compactLibrary}<FileArrowUp
+                class="size-[24px]"
+                aria-hidden="true"
+              />{:else}Export{/if}</Button
           >
           <ActionMenu label="Actions" title="Selected book actions" iconOnly={compactLibrary}>
             {#if libraryMenu?.selectedActions}
