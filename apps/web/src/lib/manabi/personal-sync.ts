@@ -10,12 +10,11 @@ import type {
   BooksDbBookmarkData,
   BooksDbStatistic
 } from '$lib/data/database/books-db/versions/books-db';
+import { readIndexedBookMetadata } from '$lib/data/database/books-db/content-hash-index';
 import {
-  readIndexedBookMetadata,
-  type IndexedBookMetadata
-} from '$lib/data/database/books-db/content-hash-index';
-
-type PersonalBook = IndexedBookMetadata & { title: string; invalidOwner?: never };
+  livePersonalCopies,
+  type PersonalBook
+} from './personal-book-authority';
 import type {
   PersonalConflict,
   PersonalKind,
@@ -41,58 +40,6 @@ import {
 } from './personal-merge';
 
 type Payload = Record<string, unknown> | null;
-interface PersonalScopeStore {
-  getAll(): Promise<{ bookId: number; accountId: string; hydrated?: boolean }[]>;
-}
-
-/** Revalidate the logical book inside the same transaction as personal-state I/O.
- * The sync-start inventory is only a candidate set; it is never write authority.
- */
-async function livePersonalCopies(
-  bookKey: string,
-  expectedCopies: readonly PersonalBook[],
-  dataStore: Parameters<typeof readIndexedBookMetadata>[0],
-  scopeStore: PersonalScopeStore,
-  accountId: string
-): Promise<PersonalBook[]> {
-  const match = /^content:([a-f0-9]{64})$/.exec(bookKey);
-  if (!match || !expectedCopies.length) return [];
-  const [metadata, scopeRows] = await Promise.all([
-    readIndexedBookMetadata(dataStore, () => scoped(accountId)),
-    scopeStore.getAll()
-  ]);
-  scoped(accountId);
-  const scopeByBook = new Map(scopeRows.map((scope) => [scope.bookId, scope.accountId]));
-  const expectedIds = new Set(expectedCopies.map((book) => book.id));
-  const owners = new Set<string>();
-  const live: PersonalBook[] = [];
-  let invalidOwner = false;
-
-  for (const book of metadata) {
-    if (book.contentHash !== match[1]) continue;
-    if (book.invalidOwner) {
-      invalidOwner = true;
-      continue;
-    }
-    const scopeOwner = scopeByBook.get(book.id);
-    if (scopeOwner) owners.add(scopeOwner);
-    if (book.libraryOwner) owners.add(book.libraryOwner);
-    if (
-      expectedIds.has(book.id) &&
-      scopeOwner === accountId &&
-      (!book.libraryOwner || book.libraryOwner === accountId) &&
-      typeof book.title === 'string'
-    )
-      live.push(book as PersonalBook);
-  }
-
-  if (invalidOwner || owners.size !== 1 || !owners.has(accountId) || !live.length)
-    throw new Error(
-      'Book ownership changed while personal reading data was syncing. No reading state was changed.'
-    );
-  return live;
-}
-
 interface RemoteRecord {
   kind: string;
   entity_id: string;
@@ -390,7 +337,8 @@ async function readLocal(
       copies,
       tx.objectStore('data'),
       tx.objectStore('readerBookScope'),
-      accountId
+      accountId,
+      () => scoped(accountId)
     );
     if (!live.length) {
       await tx.done;
@@ -410,7 +358,8 @@ async function readLocal(
     copies,
     tx.objectStore('data'),
     tx.objectStore('readerBookScope'),
-    accountId
+    accountId,
+    () => scoped(accountId)
   );
   const bookmarks = (
     await Promise.all(live.map((book) => tx.objectStore('bookmark').get(book.id)))
@@ -482,7 +431,8 @@ async function applyLocal(
       copies,
       tx.objectStore('data'),
       tx.objectStore('readerBookScope'),
-      accountId
+      accountId,
+      () => scoped(accountId)
     );
     const before = await tx.objectStore('readerStatistic').get([bookKey, day]);
     const current = before
@@ -518,7 +468,8 @@ async function applyLocal(
     copies,
     tx.objectStore('data'),
     tx.objectStore('readerBookScope'),
-    accountId
+    accountId,
+    () => scoped(accountId)
   );
   const observed = (
     await Promise.all(live.map((book) => tx.objectStore('bookmark').get(book.id)))
