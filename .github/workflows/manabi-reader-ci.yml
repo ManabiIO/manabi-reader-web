@@ -39,6 +39,13 @@ jobs:
         env:
           BASE_PATH: /reader-web
         run: pnpm build
+      - name: Verify default-off artifact omits video runtime
+        run: |
+          test ! -e apps/web/build/moss
+          if find apps/web/build -type f -path '*/moss/*' -print -quit | grep -q .; then
+            echo 'Default-off build unexpectedly packaged MOSS runtime assets' >&2
+            exit 1
+          fi
       - name: Build the user guide into the static artifact
         run: |
           python -m pip install -r requirements-docs.txt
