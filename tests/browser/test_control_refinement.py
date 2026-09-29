@@ -256,8 +256,20 @@ class ControlRefinementBrowser(modal_controls.ModalControlsBrowser):
         self.assertLessEqual(panel.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
 
         remove = panel.get_by_role('button', name='Remove bookmark', exact=True)
-        remove.scroll_into_view_if_needed()
+        expect(remove).to_be_visible()
         self.assertGreaterEqual(remove.bounding_box()['height'], 43.99)
+        self.assertTrue(remove.evaluate('''e => {
+          const r=e.getBoundingClientRect();
+          const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+          return !!hit && (hit===e || e.contains(hit));
+        }'''))
+        # The sticky header must still own dismissal after the annotation action
+        # at the opposite end of the scroller is reached.
+        self.assertTrue(close.evaluate('''e => {
+          const r=e.getBoundingClientRect();
+          const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+          return !!hit && (hit===e || e.contains(hit));
+        }'''))
         self.capture('notes-short-enlarged-sticky-dismissal')
 
         close.focus()
