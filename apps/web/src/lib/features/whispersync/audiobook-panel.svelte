@@ -44,6 +44,7 @@
   let alive = false;
   let ready = false;
   let audioHost: HTMLDivElement;
+  let audioBarOpenButton: HTMLButtonElement | undefined;
   let player: LocalAudioPlayer;
   let pitch: PitchController;
   let pitchState = initialPitchState();
@@ -252,7 +253,7 @@
       }, 5000);
   }
 
-  function closeAudio() {
+  async function closeAudio() {
     if (snapshot.file && snapshot.ready) {
       try {
         sessionSnapshot();
@@ -263,6 +264,13 @@
     }
     navigation.cancel();
     player.clear();
+    await tick();
+    audioBarOpenButton?.focus({ preventScroll: true });
+  }
+  async function pauseFromBar() {
+    player?.pause();
+    await tick();
+    audioBarOpenButton?.focus({ preventScroll: true });
   }
 
   function selectAudio(event: Event) {
@@ -597,6 +605,7 @@
 >
   <div class="audio-heading">
     <button
+      bind:this={audioBarOpenButton}
       type="button"
       on:click={() => {
         open = true;
@@ -604,10 +613,12 @@
     >
     <span class="audio-title" title={snapshot.file?.name}>{snapshot.file?.name}</span>
     {#if snapshot.file}
-      <button type="button" on:click={() => player?.pause()} disabled={snapshot.paused}
+      <button type="button" on:click={() => void pauseFromBar()} disabled={snapshot.paused}
         >Pause</button
       >
-      <button type="button" on:click={closeAudio} aria-label="Close audio playback">×</button>
+      <button type="button" on:click={() => void closeAudio()} aria-label="Close audio playback"
+        >×</button
+      >
     {/if}
   </div>
   <div bind:this={audioHost}></div>
