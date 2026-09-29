@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   compareSearchText,
   foldSearch,
+  searchMatchRange,
   sortSearchText
 } from '../../apps/web/src/lib/library/search-normalization.ts';
 
@@ -11,6 +12,13 @@ test('metadata relevance orders exact, prefix, token-boundary and interior match
   const values = ['Copycat notes', 'A cat story', 'Cat guide', 'cat'];
   values.sort((a, b) => compareSearchText(a, b, 'cat'));
   assert.deepEqual(values, ['cat', 'Cat guide', 'A cat story', 'Copycat notes']);
+});
+
+test('title match ranges map normalized text back to original metadata', () => {
+  assert.deepEqual(searchMatchRange('ＡＢＣ guide', 'abc'), { start: 0, end: 3 });
+  assert.deepEqual(searchMatchRange('ﬁ field', 'fi'), { start: 0, end: 1 });
+  assert.deepEqual(searchMatchRange('🐱cat notes', 'cat'), { start: 2, end: 5 });
+  assert.equal(searchMatchRange('Dog guide', 'cat'), undefined);
 });
 
 test('metadata relevance uses the same compatibility normalization as library search', () => {
