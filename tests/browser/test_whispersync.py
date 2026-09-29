@@ -205,8 +205,10 @@ class WhispersyncBrowser(unittest.TestCase):
         close.focus()
         close.press('Enter')
         expect(close).to_have_count(0)
-        expect(open_button).to_be_focused()
-        self.assertGreaterEqual(open_button.bounding_box()['height'], 43.99)
+        expect(open_button).to_be_hidden()
+        trigger = self.page.locator('#ttu-page-footer button[aria-haspopup="dialog"]')
+        expect(trigger).to_be_focused()
+        self.assertGreaterEqual(trigger.bounding_box()['height'], 43.99)
 
     def test_whispersync_mobile_dark_dialog_is_labelled_and_within_viewport(self):
         self.page.set_viewport_size({'width': 390, 'height': 844})
