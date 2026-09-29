@@ -27,7 +27,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24.21.0'
-      - name: Retain exact media source and merge diagnostics
+      - name: Retain exact media source
         working-directory: reader
         run: |
           set -euo pipefail
@@ -47,12 +47,13 @@ jobs:
       - name: Archive development dependencies without credentials
         run: |
           set -euo pipefail
-          tar -czf "$RUNNER_TEMP/search-development/reader-dependencies.tar.gz" -C reader node_modules apps/web/node_modules apps/web/.svelte-kit packages/*/node_modules
+          (cd reader && find . -maxdepth 4 -name node_modules -prune -print0 | tar --null -czf "$RUNNER_TEMP/search-development/reader-dependencies.tar.gz" -T -)
           tar -czf "$RUNNER_TEMP/search-development/dictionary-dependencies.tar.gz" -C dictionary node_modules ext/lib builds/manabitan-web
           cp "$(command -v node)" "$RUNNER_TEMP/search-development/node"
           cd "$RUNNER_TEMP/search-development"
           sha256sum *.tar.gz node > SHA256SUMS
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: search-continuation-environment
           path: ${{ runner.temp }}/search-development
