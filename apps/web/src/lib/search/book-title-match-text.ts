@@ -84,3 +84,45 @@ export function bookTitleMatchIndex(
     matchedKeys: new Set(result.keys())
   };
 }
+
+
+/** The exact fields used to rank a Book in the global Titles section. */
+export function bookTitleSearchFields(
+  book: ShelfBook,
+  contexts: readonly BookTitleMatchContext[]
+): SearchTextFields {
+  return {
+    primary: [book.title],
+    secondary: [
+      ...(book.canonicalTitle !== book.title ? [book.canonicalTitle] : []),
+      ...(book.creators ?? []).map((creator) => creator.name),
+      ...(book.series?.name ? [book.series.name] : []),
+      ...contexts.map((item) => item.text)
+    ]
+  };
+}
+
+/**
+ * Explain a metadata-only Book match using the same relevance ordering as the
+ * Titles sorter. Literal displayed-title matches retain the normal creator line.
+ */
+export function bookTitleMatchDetail(
+  book: ShelfBook,
+  contexts: readonly BookTitleMatchContext[],
+  query: string
+): string | undefined {
+  const needle = foldSearch(query.trim());
+  const creators = creatorLine(book.creators) || undefined;
+  if (foldSearch(book.title).includes(needle)) return creators;
+  const candidates = [
+    ...(book.canonicalTitle !== book.title
+      ? [{ text: book.canonicalTitle, detail: `Original title · ${book.canonicalTitle}` }]
+      : []),
+    ...(book.creators ?? []).map((creator) => ({
+      text: creator.name,
+      detail: `Author · ${creator.name}`
+    })),
+    ...contexts
+  ].filter((item) => foldSearch(item.text).includes(needle));
+  return sortSearchText(candidates, query, (item) => item.text)[0]?.detail ?? creators;
+}
