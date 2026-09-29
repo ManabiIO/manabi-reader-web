@@ -37,6 +37,7 @@ const files = [
   'apps/web/src/lib/library/cover-stack.svelte',
   'apps/web/src/lib/library/library-workspace.svelte',
   'apps/web/src/lib/library/source-icon.svelte',
+  'apps/web/src/lib/library/editors-picks.svelte',
 
   'apps/web/src/lib/components/book-reader/book-reader-image-gallery/book-reader-image-gallery.svelte',
   'apps/web/src/lib/components/book-reader/book-reading-tracker/book-reading-tracker-menu.svelte',
