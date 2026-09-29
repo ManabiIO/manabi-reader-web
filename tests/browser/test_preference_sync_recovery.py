@@ -231,8 +231,10 @@ class PreferenceSyncRecovery(LibraryBase):
                 break
             self.assertLess(time.monotonic(), deadline, 'Accepted reply was not retained for recovery')
             self.page.wait_for_timeout(25)
+        # An untouched empty organization need not have a stored row yet.
+        prior = self.snapshot('books-organization-v1') or {}
         self.assertFalse(any(item['id'] == 'server-accepted'
-                             for item in self.snapshot('books-organization-v1')['collections']))
+                             for item in prior.get('collections', [])))
 
         attempted = []
         self.page.on('request', lambda request: attempted.append(request.url)
@@ -250,8 +252,8 @@ class PreferenceSyncRecovery(LibraryBase):
             self.page.evaluate('window.__rejectAcceptedOrganization = false')
             deadline = time.monotonic() + 15
             while True:
-                organization = self.snapshot('books-organization-v1')
-                if any(item['id'] == 'server-accepted' for item in organization['collections']):
+                organization = self.snapshot('books-organization-v1') or {}
+                if any(item['id'] == 'server-accepted' for item in organization.get('collections', [])):
                     break
                 self.assertLess(time.monotonic(), deadline, 'Accepted settings did not apply offline')
                 # Recovery events are repeatable; the edit and remote update are not retried.
