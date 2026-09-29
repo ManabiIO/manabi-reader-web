@@ -66,6 +66,8 @@ export interface MediaWriteGuard {
 /** Local-first records. Transactions, not per-tab queues, own cross-tab publication. */
 export class MediaStore {
   private opened?: Promise<IDBDatabase>;
+  private database?: IDBDatabase;
+  private openingWaiters = new Set<AbortController>();
   private closed = false;
   private closing?: Promise<void>;
   private active = new Set<Promise<unknown>>();
@@ -111,8 +113,15 @@ export class MediaStore {
           db.close();
           return;
         }
+        if (this.closed) {
+          db.close();
+          no(new Error('Video storage is closed'));
+          return;
+        }
+        this.database = db;
         const retire = () => {
           db.close();
+          if (this.database === db) this.database = undefined;
           if (this.opened === opening) this.opened = undefined;
         };
         db.onversionchange = retire;
@@ -197,14 +206,23 @@ export class MediaStore {
     if (signal?.aborted) return Promise.reject(signal.reason);
     // Admission happens now. close() waits even for calls still opening the database.
     const opening = this.open();
-    // Cancellation can win while the database is opening. Observe the late
-    // open, but do not attach a transaction to a retired caller's continuation.
-    const admitted = signal ? abortable(signal, () => opening) : opening;
+    // Close cancels only operations that have not reached a transaction yet.
+    // Once a transaction exists, Close still drains it to preserve committed work.
+    const waiter = new AbortController();
+    this.openingWaiters.add(waiter);
+    const cancelWait = () => waiter.abort(signal?.reason);
+    if (signal?.aborted) cancelWait();
+    else signal?.addEventListener('abort', cancelWait, { once: true });
+    const admitted = abortable(waiter.signal, () => opening).finally(() => {
+      this.openingWaiters.delete(waiter);
+      signal?.removeEventListener('abort', cancelWait);
+    });
     const operation = admitted.then(
       (db) =>
         new Promise<T>((yes, no) => {
-          // Opening storage is asynchronous; cancelled publication must not enter
-          // a new transaction just because its database eventually became ready.
+          // Opening storage is asynchronous; cancelled/closed publication must
+          // not enter a transaction just because its database later became ready.
+          if (this.closed) throw new Error('Video storage is closed');
           signal?.throwIfAborted();
           const transaction = db.transaction(name, mode);
           let result: T, error: unknown;
@@ -721,17 +739,27 @@ export class MediaStore {
   close(): Promise<void> {
     if (this.closing) return this.closing;
     this.closed = true;
+    const reason = new Error('Video storage is closed');
+    for (const waiter of this.openingWaiters) waiter.abort(reason);
     this.closing = (async () => {
+      // Transactions that already exist retain drain semantics. Open waiters
+      // were rejected above and cannot create a transaction after Close.
       await Promise.allSettled([...this.active]);
-      try {
-        (await this.opened)?.close();
-      } catch {
-        /* Opening failures already reached callers. */
-      }
+      const database = this.database,
+        opening = this.opened;
+      this.database = undefined;
+      this.opened = undefined;
+      if (database) database.close();
+      else if (opening)
+        void opening.then(
+          (db) => db.close(),
+          () => {
+            /* Opening failures are already observed by open(). */
+          }
+        );
       this.channel?.close();
       this.channel = undefined;
       this.listeners.clear();
-      this.opened = undefined;
     })();
     return this.closing;
   }

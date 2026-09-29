@@ -165,3 +165,42 @@ test('cancellation does not erase a completed cursor commit', async () => {
     await store.close();
   }
 });
+
+
+test('Close cancels operations still waiting for IndexedDB to open', async () => {
+  const factory = new TransactionFactory();
+  factory.holdOpen = true;
+  const store = new MediaStore(factory, 'close-during-open');
+  const pending = outcome(store.local(scope, 'sync', 'cursor'));
+  await turn();
+  const closing = store.close();
+  assert.notEqual(await Promise.race([closing.then(() => 'closed'), turn().then(() => 'stalled')]), 'stalled');
+  const result = await pending;
+  assert.equal(result.ok, false);
+  assert.match(String(result.reason), /storage is closed/i);
+  assert.equal(factory.transactions.length, 0);
+  factory.releaseOpen();
+  await turn();
+  assert.equal(factory.connections.every((connection) => connection.closed), true);
+});
+
+test('Close still drains a transaction that already started', async () => {
+  const factory = new TransactionFactory(),
+    store = new MediaStore(factory, 'close-drains-started');
+  await store.local(scope, 'sync', 'cursor');
+  const gate = deferred();
+  factory.queue = gate.promise;
+  const pending = store.putLocal(scope, 'sync', 'cursor', 7);
+  await turn();
+  assert.equal(factory.transactions.at(-1).mode, 'readwrite');
+  let closed = false;
+  const closing = store.close().then(() => {
+    closed = true;
+  });
+  await turn();
+  assert.equal(closed, false, 'Close abandoned an admitted transaction');
+  gate.resolve();
+  await Promise.all([pending, closing]);
+  assert.equal(factory.values('local').get(JSON.stringify([scope, 'sync', 'cursor'])), 7);
+  assert.equal(factory.connections.every((connection) => connection.closed), true);
+});
