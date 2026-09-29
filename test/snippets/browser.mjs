@@ -291,8 +291,8 @@ try {
     'vertical-rl'
   );
   assert(
-    (await readingArticle.evaluate((node) => node.scrollWidth - node.clientWidth)) >= 0,
-    'Vertical snippet reader geometry must be measurable'
+    (await page.locator('html').evaluate((node) => node.scrollWidth - node.clientWidth)) <= 1,
+    'Vertical snippet reader must not make the page overflow horizontally'
   );
   const articleBox = await readingArticle.boundingBox();
   assert(
