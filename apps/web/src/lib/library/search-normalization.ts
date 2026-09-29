@@ -26,8 +26,19 @@ interface SearchMatchKey {
   folded: string;
 }
 
-const boundaryBefore = (value: string, index: number) =>
-  index > 0 && /[\s\p{P}\p{S}]/u.test(Array.from(value.slice(0, index)).at(-1) ?? '');
+const boundaryBefore = (value: string, index: number) => {
+  if (index <= 0) return false;
+  const previous = value.charCodeAt(index - 1);
+  const start =
+    previous >= 0xdc00 &&
+    previous <= 0xdfff &&
+    index > 1 &&
+    value.charCodeAt(index - 2) >= 0xd800 &&
+    value.charCodeAt(index - 2) <= 0xdbff
+      ? index - 2
+      : index - 1;
+  return /[\s\p{P}\p{S}]/u.test(value.slice(start, index));
+};
 
 function matchKey(value: string, needle: string, field = 0, group = 0): SearchMatchKey {
   const folded = foldSearch(value);
@@ -113,6 +124,14 @@ export function compareSearchText(left: string, right: string, query: string): n
   const needle = foldSearch(query.trim());
   if (!needle) return 0;
   return compareKeys(matchKey(left, needle), matchKey(right, needle));
+}
+
+/** Select the matching field with exactly the same tier and field precedence as sorting. */
+export function searchMatchedField(values: readonly string[], query: string): number | undefined {
+  const needle = foldSearch(query.trim());
+  if (!needle || !values.length) return;
+  const best = bestKey(values, needle);
+  return best.tier < 4 ? best.field : undefined;
 }
 
 /** Sort metadata while normalizing each candidate only once per admitted query. */

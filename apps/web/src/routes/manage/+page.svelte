@@ -1210,7 +1210,9 @@
       on:replicateData={onReplicateData}
       on:importBackup={(ev) => onImportBackup(ev.detail)}
     />
-    {#if videoLearningEnabled && $storageSource$ === StorageKey.BROWSER}<LibraryTabs />{/if}
+    {#if videoLearningEnabled && $storageSource$ === StorageKey.BROWSER}
+      <div class="library-section-switcher"><LibraryTabs /></div>
+    {/if}
   </div>
 
   <div
@@ -1313,6 +1315,9 @@
     pointer-events: auto;
   }
   @media (min-width: 1024px) {
+    .library-section-switcher {
+      margin-inline-start: 16rem;
+    }
     .library-nav-shell::before {
       left: 16rem;
     }

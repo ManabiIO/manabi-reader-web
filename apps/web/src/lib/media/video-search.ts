@@ -64,8 +64,19 @@ const foldSearch = (value: string) =>
     .toLowerCase()
     .replace(/\u03c2/g, '\u03c3');
 
-const boundaryBefore = (value: string, index: number) =>
-  index > 0 && /[\s\p{P}\p{S}]/u.test(Array.from(value.slice(0, index)).at(-1) ?? '');
+const boundaryBefore = (value: string, index: number) => {
+  if (index <= 0) return false;
+  const previous = value.charCodeAt(index - 1);
+  const start =
+    previous >= 0xdc00 &&
+    previous <= 0xdfff &&
+    index > 1 &&
+    value.charCodeAt(index - 2) >= 0xd800 &&
+    value.charCodeAt(index - 2) <= 0xdbff
+      ? index - 2
+      : index - 1;
+  return /[\s\p{P}\p{S}]/u.test(value.slice(start, index));
+};
 
 interface SearchMatchKey {
   tier: number;
