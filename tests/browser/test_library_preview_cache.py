@@ -23,11 +23,18 @@ class PreviewCacheBrowser(fixtures.LibraryBase):
         self.page.get_by_role('button', name='Library actions', exact=True).click()
         self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
         preview = self.page.get_by_role('button', name='Select Cached first', exact=True)
-        expect(preview).to_be_disabled()
-        expect(preview).to_have_attribute(
-            'title', 'Save this book to the browser before selecting it')
+        expect(preview).to_be_enabled()
+        expect(preview).to_have_attribute('aria-pressed', 'false')
+        preview.click()
+        expect(preview).to_have_attribute('aria-pressed', 'true')
+        expect(self.page.get_by_text('1 selected', exact=True)).to_be_visible()
+        # Selection organizes unopened connected previews without importing
+        # their bytes into the browser library.
         self.assertEqual(1, len(self.stores('books', ['data'])['data']))
         self.assertEqual([], self.stores('manabi-reader-integrations', ['books'])['books'])
+        self.assertEqual(before, self.disk())
+        preview.click()
+        expect(preview).to_have_attribute('aria-pressed', 'false')
         self.page.get_by_role('button', name='Cancel selection', exact=True).click()
         snapshot = '''async () => {
           const db=await new Promise((resolve,reject)=>{const r=indexedDB.open('manabi-library-previews',1);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)});

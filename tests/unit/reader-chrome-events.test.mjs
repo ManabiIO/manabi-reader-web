@@ -153,6 +153,20 @@ test('chrome interaction pins without changing the explicit Show/Hide button act
     h.close();
   }
 });
+test('Tab inside a modal leaves reader chrome collapsed', () => {
+  const h = harness();
+  try {
+    h.modal(true);
+    h.fire('keydown', { key: 'Tab' });
+    h.fire('keydown', { key: 'Escape' });
+    assert.deepEqual(h.calls, []);
+    h.modal(false);
+    h.fire('keydown', { key: 'Tab' });
+    assert.deepEqual(h.calls, ['pin']);
+  } finally {
+    h.close();
+  }
+});
 test('touch motion does not become mouse reveal and disposal releases every listener', () => {
   const h = harness();
   try {
