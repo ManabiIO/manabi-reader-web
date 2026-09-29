@@ -354,14 +354,25 @@
   );
   $: metadataMatchText = (() => {
     const matched = matchingSeriesText(tree, normalizedQuery);
+    const collectionNamesByMember = new Map<string, string[]>();
     for (const collection of metadataCollections)
-      for (const book of searchableBooks)
-        if (book.organizationAliases.some((key) => collection.members.includes(key))) {
-          const values = matched.get(book.key);
-          if (values) {
-            if (!values.includes(collection.name)) values.push(collection.name);
-          } else matched.set(book.key, [collection.name]);
-        }
+      for (const member of collection.members) {
+        const names = collectionNamesByMember.get(member);
+        if (names) {
+          if (!names.includes(collection.name)) names.push(collection.name);
+        } else collectionNamesByMember.set(member, [collection.name]);
+      }
+    for (const book of searchableBooks) {
+      const names = book.organizationAliases.flatMap(
+        (alias) => collectionNamesByMember.get(alias) ?? []
+      );
+      if (!names.length) continue;
+      const values = matched.get(book.key);
+      for (const name of names)
+        if (values) {
+          if (!values.includes(name)) values.push(name);
+        } else matched.set(book.key, [name]);
+    }
     return Object.fromEntries(matched);
   })();
   $: metadataMatches = searchableBooks.filter(
