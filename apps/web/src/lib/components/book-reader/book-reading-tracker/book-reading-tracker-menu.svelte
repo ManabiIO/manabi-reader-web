@@ -6,12 +6,10 @@
   import faChevronRight from '@lucide/svelte/icons/chevron-right';
   import faClockRotateLeft from '@lucide/svelte/icons/history';
   import faFloppyDisk from '@lucide/svelte/icons/save';
-  import faPause from '@lucide/svelte/icons/pause';
   import faPlay from '@lucide/svelte/icons/play';
   import faRepeat from '@lucide/svelte/icons/repeat';
   import faSpinner from '@lucide/svelte/icons/loader-circle';
   import faTrash from '@lucide/svelte/icons/trash-2';
-  import type { IconDefinition } from '$lib/components/icon-types';
   import type { TrackingHistory } from '$lib/components/book-reader/book-reading-tracker/book-reading-tracker';
   import {
     getChapterData,
@@ -63,11 +61,15 @@
   }>();
 
   const actions = [
-    { icon: faPlay, event: 'toggleTracker', title: 'Toggle Tracker' },
-    { icon: faRepeat, event: 'updateCurrentLocation', title: 'Update Position' },
-    { icon: faClockRotateLeft, event: 'freezeCurrentLocation', title: 'Toggle Freeze Position' },
-    { icon: faFloppyDisk, event: 'saveStatistics', title: 'Save' }
-  ];
+    { icon: faPlay, event: 'resumeAfterClose', title: 'Resume tracking after closing' },
+    { icon: faRepeat, event: 'updateCurrentLocation', title: 'Update position' },
+    {
+      icon: faClockRotateLeft,
+      event: 'freezeCurrentLocation',
+      title: 'Keep reading position fixed'
+    },
+    { icon: faFloppyDisk, event: 'saveStatistics', title: 'Save statistics' }
+  ] as const;
 
   const trackingItemsPerPage = 15;
 
@@ -127,7 +129,7 @@
 
   function executeAction(event: string) {
     switch (event) {
-      case 'toggleTracker':
+      case 'resumeAfterClose':
         wasTrackerPaused = !wasTrackerPaused;
         break;
       case 'updateCurrentLocation':
@@ -177,17 +179,6 @@
       ? `${label}: value hidden. Activate to show.`
       : `${label}: ${value}. Activate to hide.`;
   }
-
-  function getActionIcon(
-    action: { icon: IconDefinition; event: string; title: string },
-    trackerPaused: boolean
-  ) {
-    if (action.event === 'toggleTracker') {
-      return trackerPaused ? faPlay : faPause;
-    }
-
-    return action.icon;
-  }
 </script>
 
 <div class="flex min-h-16 items-center justify-between gap-3 px-4 pt-4">
@@ -203,6 +194,10 @@
 </div>
 <div class="relative flex min-h-0 flex-1" aria-busy={actionInProgress}>
   <div class="flex min-h-0 flex-1 flex-col overflow-auto p-4" inert={actionInProgress}>
+    <p class="mb-4 text-sm text-muted-foreground" role="status" aria-live="polite">
+      Tracking is paused while this panel is open.
+      {wasTrackerPaused ? 'It will remain paused after closing.' : 'It will resume after closing.'}
+    </p>
     {#if currentReadingGoal}
       <div class="mb-6">
         {#if currentReadingGoal.timeGoal}
@@ -270,11 +265,16 @@
                 variant="ghost"
                 size="sm"
                 title={action.title}
+                aria-pressed={action.event === 'resumeAfterClose'
+                  ? !wasTrackerPaused
+                  : action.event === 'freezeCurrentLocation'
+                    ? frozenPosition > -1
+                    : undefined}
                 disabled={actionInProgress ||
                   (action.event === 'saveStatistics' && !canSaveStatistics)}
                 onclick={() => executeAction(action.event)}
               >
-                <AppIcon icon={getActionIcon(action, wasTrackerPaused)} />
+                <AppIcon icon={action.icon} />
                 {action.title}
               </Button>
             {/each}

@@ -393,7 +393,7 @@ class RheaReader(previous.RefinedAppearance):
 
     def category(self, name):
         self.page.get_by_role('navigation', name='Settings categories').get_by_role(
-            'button', name=name, exact=True).click()
+            'link', name=name, exact=True).click()
 
     def test_empty_library_has_keyboard_import_action(self):
         self.page.goto(self.origin + '/reader-web/manage')
@@ -872,12 +872,67 @@ class RheaReader(previous.RefinedAppearance):
         expect(close).to_have_attribute('data-shape', 'circle')
         self.assertGreaterEqual(close.bounding_box()['height'], 43.99)
         self.assertLessEqual(sheet.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
-        for label in ['Toggle Tracker', 'Update Position', 'Toggle Freeze Position', 'Save']:
+        for label in [
+            'Resume tracking after closing',
+            'Update position',
+            'Keep reading position fixed',
+            'Save statistics',
+        ]:
             expect(sheet.get_by_role('button', name=label, exact=True)).to_be_visible()
-        expect(sheet.get_by_role('button', name='Save', exact=True)).to_be_disabled()
-        for _ in range(12):
+
+        resume = sheet.get_by_role('button', name='Resume tracking after closing', exact=True)
+        fixed = sheet.get_by_role('button', name='Keep reading position fixed', exact=True)
+        save = sheet.get_by_role('button', name='Save statistics', exact=True)
+        expect(resume).to_have_attribute('aria-pressed', 'false')
+        expect(fixed).to_have_attribute('aria-pressed', 'false')
+        expect(save).to_be_disabled()
+        expect(
+            sheet.get_by_text(
+                'Tracking is paused while this panel is open. It will remain paused after closing.',
+                exact=True,
+            )
+        ).to_be_visible()
+
+        resume.focus()
+        resume.press('Enter')
+        expect(resume).to_have_attribute('aria-pressed', 'true')
+        expect(
+            sheet.get_by_text(
+                'Tracking is paused while this panel is open. It will resume after closing.',
+                exact=True,
+            )
+        ).to_be_visible()
+
+        # Update position sits between the two toggles in native tab order.
+        update = sheet.get_by_role('button', name='Update position', exact=True)
+        self.page.keyboard.press('Tab')
+        expect(update).to_be_focused()
+        self.page.keyboard.press('Tab')
+        expect(fixed).to_be_focused()
+        fixed.press('Space')
+        expect(fixed).to_have_attribute('aria-pressed', 'true')
+        fixed.press('Space')
+        expect(fixed).to_have_attribute('aria-pressed', 'false')
+
+        for _ in range(8):
             self.page.keyboard.press('Tab')
             expect(sheet.locator(':focus')).to_have_count(1)
+        self.page.keyboard.press('Escape')
+        expect(sheet).to_have_count(0)
+        expect(trigger).to_be_focused()
+
+        # The post-close choice must match the actual tracker state on reopen.
+        trigger.click()
+        sheet = self.page.get_by_role('dialog', name='Reading tracker', exact=True)
+        expect(sheet).to_be_visible()
+        resume = sheet.get_by_role('button', name='Resume tracking after closing', exact=True)
+        expect(resume).to_have_attribute('aria-pressed', 'true')
+        expect(
+            sheet.get_by_text(
+                'Tracking is paused while this panel is open. It will resume after closing.',
+                exact=True,
+            )
+        ).to_be_visible()
         self.page.keyboard.press('Escape')
         expect(sheet).to_have_count(0)
         expect(trigger).to_be_focused()
