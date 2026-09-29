@@ -33,9 +33,12 @@ test('metadata relevance prefers a later token boundary over an earlier interior
 });
 
 test('metadata relevance positions count supplementary characters as one code point', () => {
-  const values = ['🐱🐱 cat', 'ab cat'];
+  // Both matches begin at UTF-16 index 4. In code points the emoji title's
+  // boundary is earlier (3 vs 4), so its deliberately longer suffix must not
+  // let the shorter BMP title win the tie.
+  const values = ['abc cat', '🐱x cat trailing text'];
   values.sort((a, b) => compareSearchText(a, b, 'cat'));
-  assert.deepEqual(values, ['ab cat', '🐱🐱 cat']);
+  assert.deepEqual(values, ['🐱x cat trailing text', 'abc cat']);
 });
 
 test('bulk metadata sorting extracts each candidate text once', () => {
