@@ -7,7 +7,10 @@
 import type { IDBPDatabase } from 'idb';
 import type BooksDb from './versions/books-db';
 import { commitTransaction } from './commit-transaction.mjs';
-import { contentHashPrimaryKeys } from './content-hash-index.ts';
+import {
+  contentHashPrimaryKeys,
+  readIndexedBookTitles
+} from './content-hash-index.ts';
 import type {
   BooksDbBookData,
   BooksDbContentStatistic,
@@ -427,15 +430,18 @@ export async function deleteStatisticsForIdentityPlan(
       if (guard?.validateCopy) {
         const contentKey = contentStatisticKey(book);
         if (contentKey) {
-          for (
-            let cursor = await tx.objectStore('data').openCursor();
-            cursor;
-            cursor = await cursor.continue()
-          ) {
-            if (contentStatisticKey(cursor.value) !== contentKey) continue;
-            const copyOwner = await tx.objectStore('readerBookScope').get(cursor.value.id);
+          const copyIds = await contentHashPrimaryKeys(
+            tx.objectStore('data').index('contentHash'),
+            book.contentHash!,
+            guard.assertCurrent,
+            guard.signal
+          );
+          for (const id of copyIds) {
+            const copy = await tx.objectStore('data').get(id);
+            if (!copy) continue;
+            const copyOwner = await tx.objectStore('readerBookScope').get(id);
             guard.assertCurrent();
-            guard.validateCopy(cursor.value, copyOwner);
+            guard.validateCopy(copy, copyOwner);
           }
         }
       }
@@ -496,7 +502,7 @@ export async function readStatisticsRecoverySnapshot(db: IDBPDatabase<BooksDb>) 
     'readonly'
   );
   const [books, legacyRows, contentRows, migrationReceipts, localIdentities] = await Promise.all([
-    tx.objectStore('data').getAll(),
+    readIndexedBookTitles(tx.objectStore('data')),
     tx.objectStore('statistic').getAll(),
     tx.objectStore('readerStatistic').getAll(),
     tx.objectStore('readerStatisticMigration').getAll(),
@@ -507,7 +513,7 @@ export async function readStatisticsRecoverySnapshot(db: IDBPDatabase<BooksDb>) 
     format: 'manabi-reader-statistics-recovery',
     version: 1,
     exportedAt: new Date().toISOString(),
-    books: books.map(({ id, title, contentHash }) => ({ id, title, contentHash })),
+    books,
     contentRows,
     legacyRows,
     migrationReceipts,
