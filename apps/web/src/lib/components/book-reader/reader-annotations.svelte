@@ -28,10 +28,13 @@
   let note = '';
   let contentElement: HTMLElement | null = null;
   let pendingRemoval: { id: string; index: number } | undefined;
+  let pendingRemovalSawBusy = false;
   $: if (savedVersion > 0) note = '';
-  $: if (pendingRemoval && !busy) {
+  $: if (pendingRemoval && busy) pendingRemovalSawBusy = true;
+  $: if (pendingRemoval && pendingRemovalSawBusy && !busy) {
     const pending = pendingRemoval;
     pendingRemoval = undefined;
+    pendingRemovalSawBusy = false;
     void restoreRemovalFocus(pending.index);
   }
   const dispatch = createEventDispatcher<{
@@ -54,7 +57,9 @@
 
   async function restoreRemovalFocus(index: number) {
     await tick();
-    const removes = contentElement?.querySelectorAll<HTMLButtonElement>('button[data-annotation-remove]');
+    const removes = contentElement?.querySelectorAll<HTMLButtonElement>(
+      'button[data-annotation-remove]'
+    );
     if (removes?.length) {
       removes[Math.min(index, removes.length - 1)]?.focus({ preventScroll: true });
       return;
@@ -67,6 +72,7 @@
   function removeWithFocus(id: string, index: number) {
     if (busy) return;
     pendingRemoval = { id, index };
+    pendingRemovalSawBusy = false;
     contentElement?.focus({ preventScroll: true });
     dispatch('remove', id);
   }
@@ -93,7 +99,12 @@
       />
     </Sheet.Header>
     <div class="mt-5 flex shrink-0 flex-wrap gap-2">
-      <Button data-annotations-primary variant="secondary" disabled={busy} onclick={() => dispatch('bookmark')}
+      <Button
+        data-annotations-primary
+        variant="secondary"
+        disabled={busy}
+        onclick={() => dispatch('bookmark')}
+      
         ><BookmarkSimple aria-hidden="true" />Add Bookmark</Button
       >
       <Button
