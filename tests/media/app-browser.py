@@ -268,6 +268,55 @@ def main():
         page.set_viewport_size({'width':390,'height':844})
         page.locator('.manabi-video-player').scroll_into_view_if_needed()
         page.screenshot(path=str(args.output/'app-phone.png'))
+
+        # The real app's media chrome must participate in text scaling instead
+        # of pinning its UI to absolute 16px typography. Stress the same player
+        # and transcript at a genuinely narrow viewport.
+        page.set_viewport_size({'width':320,'height':568})
+        page.evaluate("document.documentElement.style.fontSize='200%'")
+        page.locator('.manabi-video-player').scroll_into_view_if_needed()
+        media = page.locator('.manabi-media')
+        media_font = float(media.evaluate(
+            "node => parseFloat(getComputedStyle(node).fontSize)"
+        ))
+        assert media_font >= 31.5, media_font
+        assert page.evaluate(
+            "document.documentElement.scrollWidth-innerWidth"
+        ) <= 1
+        assert media.evaluate("node => node.scrollWidth-node.clientWidth") <= 1
+
+        controls = page.locator(
+            '.video-study-controls button:visible, .caption-controls button:visible'
+        )
+        assert controls.count() >= 3
+        for control in controls.all():
+            box = control.bounding_box()
+            assert box and box['height'] >= 43.5, box
+            assert box['x'] >= -1 and box['x'] + box['width'] <= 321, box
+
+        transcript = page.locator('.transcript-pane')
+        expect(transcript).to_be_visible()
+        assert transcript.evaluate("node => node.scrollWidth-node.clientWidth") <= 1
+        rows = page.locator('.transcript-rows')
+        assert rows.evaluate("node => node.scrollWidth-node.clientWidth") <= 1
+        expect(page.locator('.transcript-cue').first).to_be_visible()
+
+        options_button = page.get_by_role('button', name='Transcript options', exact=True)
+        options_button.focus()
+        options_button.press('Enter')
+        options_panel = page.locator('.transcript-options')
+        expect(options_panel).to_be_visible()
+        panel_box = options_panel.bounding_box()
+        assert panel_box['x'] >= -1 and panel_box['y'] >= -1, panel_box
+        assert panel_box['x'] + panel_box['width'] <= 321, panel_box
+        assert panel_box['y'] + panel_box['height'] <= 569, panel_box
+        page.screenshot(path=str(args.output/'app-phone-200-percent.png'))
+        page.keyboard.press('Escape')
+        expect(options_panel).to_be_hidden()
+        expect(options_button).to_be_focused()
+        results.append('real video player and transcript chrome reflow at 320px / 200% text')
+
+        page.evaluate("document.documentElement.style.fontSize=''")
         assert not errors, errors
         browser.close()
     except Exception:
