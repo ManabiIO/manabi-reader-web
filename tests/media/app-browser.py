@@ -315,6 +315,13 @@ def main():
         ) <= 1
         assert media.evaluate("node => node.scrollWidth-node.clientWidth") <= 1
 
+        study_controls = page.locator('.video-study-controls')
+        assert study_controls.evaluate("node => node.scrollWidth-node.clientWidth") <= 1
+        cue_navigation = page.locator('.cue-navigation')
+        assert cue_navigation.evaluate(
+            "node => getComputedStyle(node).gridTemplateColumns !== 'none'"
+        )
+
         controls = page.locator(
             '.video-study-controls button:visible, .caption-controls button:visible'
         )
