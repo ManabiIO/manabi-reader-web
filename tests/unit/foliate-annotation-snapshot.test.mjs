@@ -32,6 +32,12 @@ function load(url) {
       if (name === 'svelte/store') return { get: () => ({ status: 'ready' }) };
       if (name === '$lib/manabi/client') return { account: {}, localProfileUser: () => profile };
       if (name === '$lib/reader-location') return load(new URL('reader-location.ts', root));
+      if (name === '$lib/data/database/books-db/content-hash-index')
+        return {
+          readIndexedBookMetadata: async () => {
+            throw new Error('content index must not be read for local annotation keys');
+          }
+        };
       throw new Error(`Unexpected dependency: ${name}`);
     },
     module,

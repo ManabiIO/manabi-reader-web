@@ -190,6 +190,43 @@ class SettingsEditorUsabilityBrowser(LibraryBase):
             expect(menu).to_have_count(0)
             expect(navigate).to_be_focused()
 
+    def test_direct_settings_entry_keeps_library_back_fallback_across_categories(self):
+        self.settings('library')
+        back = self.page.get_by_role('link', name='Back', exact=True)
+        expect(back).to_have_attribute('href', '/reader-web/manage')
+        typography = self.page.get_by_role('navigation', name='Settings categories').get_by_role(
+            'link', name='Fonts & text', exact=True)
+        typography.click()
+        expect(typography).to_have_attribute('aria-current', 'page')
+        expect(back).to_have_attribute('href', '/reader-web/manage')
+
+    def test_reader_origin_survives_settings_category_navigation(self):
+        self.import_book('Settings back origin')
+        self.page.get_by_role('button', name='Read Settings back origin', exact=True).click()
+        expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
+        reader_url = self.page.url
+
+        reveal = self.page.get_by_role('button', name='Show reading controls', exact=True)
+        if reveal.is_visible():
+            reveal.click()
+        self.page.get_by_role('button', name='Reading tools', exact=True).click()
+        self.page.get_by_role('menuitem', name='Settings', exact=True).click()
+        expect(self.page.get_by_label('Search settings', exact=True)).to_be_visible()
+
+        back = self.page.get_by_role('link', name='Back', exact=True)
+        expected_path = reader_url.removeprefix(self.origin)
+        expect(back).to_have_attribute('href', expected_path)
+        typography = self.page.get_by_role('navigation', name='Settings categories').get_by_role(
+            'link', name='Fonts & text', exact=True)
+        typography.click()
+        expect(typography).to_have_attribute('aria-current', 'page')
+        expect(back).to_have_attribute('href', expected_path)
+        self.capture('reader-origin-preserved')
+
+        back.click()
+        expect(self.page).to_have_url(reader_url)
+        expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
+
     def test_statistics_cleanup_reflows_without_touching_history(self):
         self.page.set_viewport_size({'width': 320, 'height': 568})
         self.settings('tracking')
