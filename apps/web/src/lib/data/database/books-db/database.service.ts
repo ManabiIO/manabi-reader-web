@@ -23,6 +23,7 @@ import {
   commitOwnedBookmark,
   commitOwnedLastItem,
   readOwnedBookmark,
+  readOwnedLastItem,
   snapshotBookmarkData
 } from './book-records';
 import { captureLibraryOperation } from '$lib/manabi/operation-scope';
@@ -588,6 +589,18 @@ export class DatabaseService {
     const db = await this.db;
 
     return db.put('subtitle', subtitleData);
+  }
+
+  async getAccessibleLastItem() {
+    const scope = captureLibraryOperation();
+    try {
+      scope.assertCurrent();
+      const item = await readOwnedLastItem(await this.db, scope.profileId, scope.assertCurrent);
+      scope.assertCurrent();
+      return item;
+    } finally {
+      scope.stop();
+    }
   }
 
   async putLastItem(dataId: number, signal?: AbortSignal) {
