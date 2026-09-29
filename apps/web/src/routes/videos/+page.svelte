@@ -169,7 +169,7 @@
       disposed = true;
       cleanup();
     };
-  });;
+  });
 </script>
 
 <svelte:head
