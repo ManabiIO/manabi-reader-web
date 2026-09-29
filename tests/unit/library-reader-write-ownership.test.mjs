@@ -45,6 +45,7 @@ function memoryDB(initial) {
     const rows = tables.get(name);
     return {
       get: async (key) => copy(rows.get(key)),
+      getAll: async () => [...rows.values()].map(copy),
       put: async (row) => {
         rows.set(keyFor(row), copy(row));
         return keyFor(row);
