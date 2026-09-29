@@ -47,7 +47,13 @@ export interface VideoSearchStore {
     kind: 'video_info' | 'video_resume',
     signal?: AbortSignal
   ): Promise<Replica[]>;
-  tracks(scope: Scope, mediaKey: ContentKey, signal?: AbortSignal): Promise<Track[]>;
+  trackManifests?(scope: Scope, signal?: AbortSignal): Promise<Replica[]>;
+  tracks(
+    scope: Scope,
+    mediaKey: ContentKey,
+    signal?: AbortSignal,
+    manifestSnapshot?: readonly Replica[]
+  ): Promise<Track[]>;
 }
 
 const foldSearch = (value: string) => value.normalize('NFKC').toLowerCase().replace(/\u03c2/g, '\u03c3');
@@ -143,9 +149,10 @@ export async function searchVideoTranscripts(
   const needle = foldSearch(query.trim());
   if (!needle) return { hits: [], failed: 0, truncated: false, scanned: 0, total: 0 };
 
-  const [metadataRows, resumeRows] = await Promise.all([
+  const [metadataRows, resumeRows, manifestSnapshot] = await Promise.all([
     store.records(scope, 'video_info', signal),
-    store.records(scope, 'video_resume', signal)
+    store.records(scope, 'video_resume', signal),
+    store.trackManifests ? store.trackManifests(scope, signal) : Promise.resolve(undefined)
   ]);
   signal.throwIfAborted();
 
@@ -173,7 +180,7 @@ export async function searchVideoTranscripts(
     signal.throwIfAborted();
     let tracks: Track[];
     try {
-      tracks = await store.tracks(scope, video.key, signal);
+      tracks = await store.tracks(scope, video.key, signal, manifestSnapshot);
     } catch (error) {
       if (aborted(error, signal)) throw error;
       failed++;
