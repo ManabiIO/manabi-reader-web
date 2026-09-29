@@ -22,8 +22,17 @@ test('book title match context retains nested series and overlapping collection 
           id: 'inner',
           directoryId: 'inner',
           name: 'Cat Studies',
+          personal: true,
           books: [a],
           children: [{ kind: 'book', id: a.key, book: a }]
+        },
+        {
+          kind: 'series',
+          id: 'folder',
+          directoryId: 'folder',
+          name: 'Cat Folder',
+          books: [b],
+          children: [{ kind: 'book', id: b.key, book: b }]
         },
         { kind: 'book', id: b.key, book: b }
       ]
@@ -42,7 +51,10 @@ test('book title match context retains nested series and overlapping collection 
       { text: 'Cat Studies', detail: 'Collection · Cat Studies' },
       { text: 'Cat Archive', detail: 'Collection · Cat Archive' }
     ],
-    'book:b': [{ text: 'Cat Archive', detail: 'Collection · Cat Archive' }]
+    'book:b': [
+      { text: 'Cat Folder', detail: 'Folder · Cat Folder' },
+      { text: 'Cat Archive', detail: 'Collection · Cat Archive' }
+    ]
   });
   assert.deepEqual([...result.matchedKeys], ['book:a', 'book:b']);
 });
