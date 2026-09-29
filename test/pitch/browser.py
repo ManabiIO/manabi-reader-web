@@ -8,7 +8,6 @@ import functools
 import http.server
 import json
 from pathlib import Path
-import shutil
 import threading
 from playwright.sync_api import sync_playwright
 
@@ -22,9 +21,9 @@ html = '''<!doctype html><html><head><meta charset="utf-8"><title>Pitch native h
 <script type="module">
 import {createPitchController} from './browser.mjs';
 import {pitchPaths} from './model.mjs';
-window.workersCreated = 0; window.workerReady = 0; window.contexts = []; window.audioEvents = [];
+window.workersCreated = 0; window.workerReady = 0; window.detector = null; window.contexts = []; window.audioEvents = [];
 const OriginalWorker = window.Worker;
-window.Worker = class extends OriginalWorker { constructor(...args) { super(...args); this.addEventListener('error', event => console.error('Worker error:', event.message, event.filename)); this.addEventListener('message', event => { if (event.data?.type === 'ready') window.workerReady++; }); window.workersCreated++; } };
+window.Worker = class extends OriginalWorker { constructor(...args) { super(...args); this.addEventListener('error', event => console.error('Worker error:', event.message, event.filename)); this.addEventListener('message', event => { if (event.data?.type === 'ready') { window.workerReady++; window.detector = event.data.detector ?? null; } }); window.workersCreated++; } };
 window.states = []; window.captured = []; window.routes = []; window.contextCloses = 0;
 const Original = window.AudioContext;
 window.AudioContext = class extends Original {
@@ -74,8 +73,7 @@ thread = threading.Thread(target=server.serve_forever, daemon=True)
 thread.start()
 try:
     with sync_playwright() as p:
-        executable = shutil.which('chromium') if args.browser == 'chromium' else None
-        browser = getattr(p, args.browser).launch(headless=True, **({'executable_path': executable} if executable else {}))
+        browser = getattr(p, args.browser).launch(headless=True)
         page = browser.new_page()
         page.set_default_timeout(20000)
         page.on("console", lambda message: print("console:", message.type, message.text, flush=True))
@@ -84,16 +82,23 @@ try:
         page.on('request', lambda request: requests.append(request.url))
         page.goto(f'http://127.0.0.1:{server.server_port}/')
         page.wait_for_function('window.ready && audio.readyState >= 2')
-        assert not any('voice-pitch.worker' in url for url in requests), 'worker fetched while disabled'
+        assert not any(
+            token in url
+            for url in requests
+            for token in ('voice-pitch.worker', 'swift-f0-0.3.0', 'ort-wasm-simd-threaded')
+        ), 'pitch runtime fetched while disabled'
         page.click('#show')
         page.wait_for_function("['ready','error'].includes(window.state?.status)")
-        diagnostics = page.evaluate('''() => ({state, workerReady, workersCreated, audioEvents,
+        diagnostics = page.evaluate('''() => ({state, workerReady, workersCreated, detector, audioEvents,
             contexts: contexts.map(context => ({state: context.state, time: context.currentTime,
                 sampleRate: context.sampleRate})), userActivation: navigator.userActivation?.hasBeenActive})''')
         (root / 'startup.json').write_text(json.dumps(diagnostics, indent=2))
         assert page.evaluate("state.status === 'ready'"), json.dumps(diagnostics)
         assert page.evaluate('workersCreated === 1')
         assert any('voice-pitch.worker' in url for url in requests), 'worker was not loaded on demand'
+        assert any('swift-f0-0.3.0' in url for url in requests), 'SwiftF0 model was not loaded on demand'
+        assert any('ort-wasm-simd-threaded' in url and '.wasm' in url for url in requests), 'ORT WASM was not loaded on demand'
+        assert page.evaluate("detector === 'swift-f0-0.3.0'")
         assert 'loading' in page.evaluate('window.states')
         page.click('#play')
         try:
@@ -137,7 +142,7 @@ try:
         page.evaluate('controller.dispose()')
         assert page.evaluate('contextCloses === 1 && routes[0].size === 0')
         assert not errors, errors
-        print(json.dumps({'browser': args.browser, 'transport': 'HTTP modules', 'passed': ['no eager worker', 'worker handshake/loading', 'real 220Hz contour', 'off keeps playback', 'reuse audio capture', 'hide keeps route', 'seek drops stale trace', 'pause stops samples', 'dispose closes context'], 'pageErrors': errors}))
+        print(json.dumps({'browser': args.browser, 'transport': 'HTTP modules', 'passed': ['no eager worker', 'worker handshake/loading', 'real SwiftF0 220Hz contour', 'off keeps playback', 'reuse audio capture', 'hide keeps route', 'seek drops stale trace', 'pause stops samples', 'dispose closes context'], 'pageErrors': errors}))
         browser.close()
 finally:
     server.shutdown()
