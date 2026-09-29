@@ -159,13 +159,20 @@
       runVideos = videoLearningEnabled && searchScope === 'everything',
       needle = foldSearch(query.trim());
     titleTask.start(async (signal, publish) => {
-      const selected = scope();
       const guard = () => {
         signal.throwIfAborted();
-        selected.guard();
         if (selectedOwner !== (localProfileUser()?.id ?? null))
           throw new DOMException('Account changed', 'AbortError');
       };
+      let snippetScope: ReturnType<typeof scope> | undefined,
+        snippetFailed = 0;
+      if (plan.snippets) {
+        try {
+          snippetScope = scope();
+        } catch {
+          snippetFailed = 1;
+        }
+      }
       // Metadata stays local and independent of dictionary initialization and
       // expensive body projection. Do not normalize the editable query to kana.
       const bookRows: Row[] = selectedBooks.map((book) => ({
@@ -176,19 +183,21 @@
         detail: creatorLine(book.creators),
         open: () => openBook(book)
       }));
-      const snippetRows: Row[] = selectedSnippets
-        .filter((item) => foldSearch(item.title).includes(needle))
-        .map((item) => ({
-          id: `snippet:${item.key}`,
-          kind: 'Snippet',
-          title: item.title,
-          label: `Read snippet ${item.title}`,
-          open: () => openSnippet(item)
-        }));
+      const snippetRows: Row[] = snippetScope
+        ? selectedSnippets
+            .filter((item) => foldSearch(item.title).includes(needle))
+            .map((item) => ({
+              id: `snippet:${item.key}`,
+              kind: 'Snippet' as const,
+              title: item.title,
+              label: `Read snippet ${item.title}`,
+              open: () => openSnippet(item)
+            }))
+        : [];
       guard();
       publish({
         state: 'loading',
-        value: { rows: mixMany(bookRows, snippetRows), failed: 0, truncated: false }
+        value: { rows: mixMany(bookRows, snippetRows), failed: snippetFailed, truncated: false }
       });
       let videoRows: Row[] = [],
         videoFailed = 0,
@@ -224,7 +233,7 @@
         state: 'ready',
         value: {
           rows: mixMany(bookRows, videoRows, snippetRows),
-          failed: videoFailed,
+          failed: snippetFailed + videoFailed,
           truncated: videoTruncated
         }
       });
@@ -240,13 +249,12 @@
     const runSnippets = plan.snippets && selectedSnippets.length > 0;
     const runVideos = videoLearningEnabled && searchScope === 'everything';
     contentTask.start(async (signal, publish) => {
-      const selected = scope();
       const guard = () => {
         signal.throwIfAborted();
-        selected.guard();
         if (selectedOwner !== (localProfileUser()?.id ?? null))
           throw new DOMException('Account changed', 'AbortError');
       };
+      let snippetScope: ReturnType<typeof scope> | undefined;
       let bookBatch: BookSearchBatch = {
         hits: [],
         busy: runBooks,
@@ -324,10 +332,11 @@
       };
       if (runSnippets) {
         try {
+          snippetScope = scope();
           stopSnippets = searchBodies(
             needle,
             selectedSnippets.map((item) => item.id),
-            selected,
+            snippetScope,
             (batch) => {
               snippetHits = batch.hits;
               snippetBusy = batch.busy;
