@@ -2,6 +2,7 @@
 import unittest
 from pathlib import Path
 from playwright.sync_api import expect
+from reader_controls import reveal_reader_controls
 from test_books_library import LibraryBase
 
 
@@ -115,6 +116,83 @@ class PanelUsabilityBrowser(LibraryBase):
         self.assert_unoccluded(close)
         self.capture('tracker-large-text')
         close.click()
+        expect(panel).to_have_count(0)
+        expect(trigger).to_be_focused()
+        self.page.evaluate('document.documentElement.style.fontSize = ""')
+
+    def test_tracker_history_paginates_without_stranding_keyboard_focus(self):
+        self.page.goto(self.origin + '/reader-web/settings#tracking')
+        self.page.get_by_role('switch', name='Enable Statistics', exact=True).check()
+        title = 'Tracker history pagination'
+        self.page.goto(self.origin + '/reader-web/manage')
+        self.import_book(title)
+        self.page.get_by_role('button', name='Read ' + title, exact=True).click()
+        expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
+
+        trigger = self.page.get_by_role('button', name='Open reading tracker', exact=True)
+        expect(trigger).to_be_visible(timeout=30000)
+        trigger.click()
+        panel = self.page.get_by_role('dialog', name='Reading tracker', exact=True)
+        expect(panel).to_be_visible()
+        # Reader entry starts paused. Toggle the desired post-menu state, then
+        # dismiss through the real control so the route resumes the production timer.
+        panel.get_by_role('button', name='Toggle Tracker', exact=True).click()
+        panel.get_by_role('button', name='Close reading tracker', exact=True).click()
+        expect(panel).to_have_count(0)
+
+        # History is intentionally a real-time runtime feature. Accumulate just
+        # over one 15-item page rather than injecting component state or records.
+        self.page.wait_for_timeout(18000)
+
+        reveal_reader_controls(self.page)
+        trigger = self.page.get_by_role('button', name='Open reading tracker', exact=True)
+        trigger.click()
+        panel = self.page.get_by_role('dialog', name='Reading tracker', exact=True)
+        expect(panel).to_be_visible()
+        self.page.set_viewport_size({'width': 320, 'height': 568})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        self.frames()
+        self.assertLessEqual(panel.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+
+        history = panel.get_by_text('Recent History', exact=True)
+        history.click()
+        rows = panel.locator('[data-tracker-history-item]')
+        expect(rows).to_have_count(15)
+        first = rows.first
+        first.scroll_into_view_if_needed()
+        self.assertLessEqual(first.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+        expect(first.get_by_text('Time change:', exact=True)).to_be_visible()
+        expect(first.get_by_text('Character change:', exact=True)).to_be_visible()
+        revert = first.get_by_role('button', name='Revert history item', exact=True)
+        self.assertGreaterEqual(revert.bounding_box()['height'], 43.99)
+        self.assert_unoccluded(revert)
+        state_text = first.locator('.sr-only').all_text_contents()
+        self.assertTrue(
+            any(value in ('Saved to database', 'Not saved yet') for value in state_text),
+            state_text
+        )
+
+        previous = panel.get_by_role('button', name='Previous history page', exact=True)
+        next_page = panel.get_by_role('button', name='Next history page', exact=True)
+        expect(previous).to_be_disabled()
+        expect(next_page).to_be_enabled()
+        next_page.focus()
+        next_page.press('Enter')
+        expect(next_page).to_be_disabled()
+        expect(previous).to_be_focused()
+        remaining = rows.count()
+        self.assertGreater(remaining, 0)
+        self.assertLess(remaining, 15)
+        self.assertGreaterEqual(previous.bounding_box()['height'], 43.99)
+        self.assert_unoccluded(previous)
+        self.capture('tracker-history-final-page')
+
+        previous.press('Enter')
+        expect(previous).to_be_disabled()
+        expect(next_page).to_be_focused()
+        expect(rows).to_have_count(15)
+
+        panel.get_by_role('button', name='Close reading tracker', exact=True).click()
         expect(panel).to_have_count(0)
         expect(trigger).to_be_focused()
         self.page.evaluate('document.documentElement.style.fontSize = ""')
