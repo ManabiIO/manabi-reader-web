@@ -72,10 +72,11 @@ export class MediaStore {
   private closed = false;
   private closing?: Promise<void>;
   private active = new Set<Promise<unknown>>();
-  private listeners = new Set<(captionsChanged: boolean) => void>();
+  private listeners = new Set<(captionsChanged: boolean, metadataChanged: boolean) => void>();
   private channel?: BroadcastChannel;
   private notificationQueued = false;
   private captionsChanged = false;
+  private metadataChanged = false;
   constructor(
     private factory?: IDBFactory,
     private name = 'manabi-media-v1'
@@ -137,20 +138,20 @@ export class MediaStore {
     return opening;
   }
 
-  subscribe(fn: (captionsChanged: boolean) => void) {
+  subscribe(fn: (captionsChanged: boolean, metadataChanged: boolean) => void) {
     if (this.closed) throw new Error('Video storage is closed');
     this.listeners.add(fn);
     if (!this.channel && typeof BroadcastChannel !== 'undefined') {
       try {
         this.channel = new BroadcastChannel(this.name);
         this.channel.onmessage = ({ data }) => {
-          // Only an invalidation hint, never trusted subtitle data. Legacy tabs
-          // send "change"; unknown messages conservatively invalidate captions.
-          const captions =
-            data?.type === 'media-change' && typeof data.captions === 'boolean'
-              ? data.captions
-              : true;
-          this.notify(false, captions);
+          // Only invalidation hints, never trusted media data. Older tabs do
+          // not provide both flags, so unknown/legacy messages conservatively
+          // invalidate both searchable metadata and captions.
+          const valid = data?.type === 'media-change';
+          const captions = valid && typeof data.captions === 'boolean' ? data.captions : true;
+          const metadata = valid && typeof data.metadata === 'boolean' ? data.metadata : true;
+          this.notify(false, captions, metadata);
         };
       } catch {
         /* Restricted contexts can still use local persistence. */
@@ -165,11 +166,12 @@ export class MediaStore {
     };
   }
 
-  private notify(broadcast = true, captions = true) {
+  private notify(broadcast = true, captions = true, metadata = true) {
     this.captionsChanged ||= captions;
+    this.metadataChanged ||= metadata;
     if (broadcast) {
       try {
-        this.channel?.postMessage({ type: 'media-change', captions });
+        this.channel?.postMessage({ type: 'media-change', captions, metadata });
       } catch {
         /* Notification is not the commit. */
       }
@@ -178,12 +180,14 @@ export class MediaStore {
     this.notificationQueued = true;
     queueMicrotask(() => {
       this.notificationQueued = false;
-      const captions = this.captionsChanged;
+      const captions = this.captionsChanged,
+        metadata = this.metadataChanged;
       this.captionsChanged = false;
+      this.metadataChanged = false;
       if (this.closed) return;
       for (const fn of this.listeners) {
         try {
-          fn(captions);
+          fn(captions, metadata);
         } catch {
           /* A broken observer must never leave a committed write pending. */
         }
@@ -201,7 +205,8 @@ export class MediaStore {
       transaction: IDBTransaction
     ) => void,
     captions = false,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    metadata = false
   ): Promise<T> {
     if (this.closed) return Promise.reject(new Error('Video storage is closed'));
     if (signal?.aborted) return Promise.reject(signal.reason);
@@ -255,7 +260,7 @@ export class MediaStore {
           transaction.oncomplete = () => {
             cleanup();
             yes(result);
-            if (mode === 'readwrite') this.notify(true, captions);
+            if (mode === 'readwrite') this.notify(true, captions, metadata);
           };
           transaction.onabort = () => {
             cleanup();
@@ -479,7 +484,8 @@ export class MediaStore {
         };
       },
       kind === 'video_track' || kind === 'video_chunk',
-      signal
+      signal,
+      kind === 'video_info'
     );
   }
   async edit(
