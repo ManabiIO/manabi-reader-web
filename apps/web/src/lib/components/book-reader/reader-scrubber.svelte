@@ -94,6 +94,13 @@
   <Sheet.Content
     side="bottom"
     showCloseButton
+    onCloseAutoFocus={(event) => {
+      const controls = document.querySelector<HTMLButtonElement>('button[data-reader-controls]');
+      if (controls) {
+        event.preventDefault();
+        controls.focus({ preventScroll: true });
+      }
+    }}
     class="writing-horizontal-tb mx-auto max-w-3xl rounded-t-3xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]"
   >
     <Sheet.Header class="p-0">
