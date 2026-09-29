@@ -5,6 +5,7 @@ HTTP fixture returns controlled 503s; no Playwright route or storage substitute.
 """
 import copy
 import json
+import socket
 import time
 import unittest
 from unittest.mock import patch
@@ -122,6 +123,75 @@ class PreferenceSyncRecovery(LibraryBase):
     def preference_request_count(self):
         return sum(1 for request in StaticHandler.account_requests
                    if request['path'].endswith('/preferences/'))
+
+    def test_lost_put_reply_then_same_setting_edit_converges_without_false_conflict(self):
+        self.page.goto(self.origin + '/reader-web/connections')
+        expect(self.page.get_by_text('preference-recovery', exact=True)).to_be_visible()
+        font = self.page.get_by_label('Font size', exact=True)
+        font.fill('30')
+        font.press('Tab')
+        self.page.get_by_label('When first enabling sync').select_option('local')
+        toggle = self.page.get_by_label(
+            'Sync reader settings with this Manabi account', exact=True)
+        status = self.page.get_by_role('status', name='Settings sync status')
+        toggle.check()
+        expect(status).to_contain_text('synced', timeout=15000)
+        self.assertEqual(30, StaticHandler.preference_settings['font_size'])
+
+        original = StaticHandler.do_PUT
+        dropped = []
+
+        def commit_then_drop(handler):
+            if not dropped and urlsplit(handler.path).path == '/api/reader-web/preferences/':
+                handler.api_request()
+                request = type(handler).account_requests[-1]
+                type(handler).preference_settings = request['body']['settings']
+                type(handler).preference_revision += 1
+                dropped.append(type(handler).preference_revision)
+                handler.close_connection = True
+                try:
+                    handler.connection.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+                return
+            return original(handler)
+
+        with patch.object(StaticHandler, 'do_PUT', commit_then_drop):
+            font.fill('31')
+            font.press('Tab')
+            self.page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+            expect(status).to_contain_text('unavailable', timeout=10000)
+            self.assertEqual(31, StaticHandler.preference_settings['font_size'])
+            deadline = time.monotonic() + 10
+            while True:
+                value = self.snapshot()
+                pending = (value or {}).get('pendingUpload')
+                if pending and pending.get('settings', {}).get('font_size') == 31:
+                    break
+                self.assertLess(time.monotonic(), deadline,
+                                'Lost PUT identity was not saved before recovery')
+                self.page.wait_for_timeout(25)
+
+            # Change the exact same setting again before readback. Without the
+            # retained request identity, base=30/local=32/remote=31 looks like
+            # an unrelated two-sided conflict.
+            font.fill('32')
+            font.press('Tab')
+            deadline = time.monotonic() + 15
+            while StaticHandler.preference_settings.get('font_size') != 32:
+                self.assertLess(time.monotonic(), deadline,
+                                'Lost PUT acknowledgement did not converge')
+                self.page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+                self.page.wait_for_timeout(50)
+
+        expect(status).to_contain_text('synced', timeout=10000)
+        expect(font).to_have_value('32')
+        value = self.snapshot()
+        self.assertEqual(32, value['local']['font_size'])
+        self.assertEqual(32, value['base']['font_size'])
+        self.assertIsNone(value.get('pendingUpload'))
+        self.assertEqual(1, len(dropped))
+        self.assertEqual([], self.errors)
 
     def test_successful_manual_recovery_clears_previous_retry_after(self):
         self.page.goto(self.origin + '/reader-web/connections')
