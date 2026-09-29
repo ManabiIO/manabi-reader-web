@@ -12,6 +12,7 @@ import type {
   ReaderAnnotationMutation
 } from '$lib/data/database/books-db/versions/v7/books-db-v7';
 import { snapshotReaderLocator } from '$lib/reader-location';
+import { readIndexedBookMetadata } from '$lib/data/database/books-db/content-hash-index';
 
 export type AnnotationDraft = Pick<ReaderAnnotation, 'bookKey' | 'kind' | 'targets'> &
   Partial<Pick<ReaderAnnotation, 'id' | 'body' | 'label' | 'color' | 'decoration'>>;
@@ -33,17 +34,11 @@ async function visibleAnnotations(records: ReaderAnnotation[]): Promise<ReaderAn
   const owners = await Promise.all(
     records.map((record) => db.get('readerAnnotationScope', record.id))
   );
-  const bookOwners = new Map<string, Promise<string | null | undefined>>();
-  const effectiveOwners = await Promise.all(
-    records.map((record, index) => {
-      if (owners[index]) return owners[index].accountId;
-      let owner = bookOwners.get(record.bookKey);
-      if (!owner) {
-        owner = bookAccount(record.bookKey);
-        bookOwners.set(record.bookKey, owner);
-      }
-      return owner;
-    })
+  const bookOwners = await bookAccounts(
+    records.filter((_, index) => !owners[index]).map((record) => record.bookKey)
+  );
+  const effectiveOwners = records.map((record, index) =>
+    owners[index] ? owners[index].accountId : bookOwners.get(record.bookKey)
   );
   assertCurrentAccount(accountId);
   return records.filter(
@@ -53,44 +48,57 @@ async function visibleAnnotations(records: ReaderAnnotation[]): Promise<ReaderAn
   );
 }
 
-interface BookOwnerCursor {
-  value: { id: number; contentHash?: string; libraryOwner?: string };
-  continue(): Promise<BookOwnerCursor | null>;
-}
-interface BookOwnerStore {
-  openCursor(): Promise<BookOwnerCursor | null>;
-}
 interface BookScopeStore {
   get(id: number): Promise<{ accountId: string } | undefined>;
 }
 
-/** Undefined means copies belong to multiple accounts, so access is ambiguous. */
-async function bookAccountFromStores(
-  bookKey: string,
-  books: BookOwnerStore,
+/** Undefined means copies belong to multiple accounts, so access is ambiguous.
+ * Resolve all requested content keys from one compact index inventory.
+ */
+async function bookAccountsFromStores(
+  bookKeys: readonly string[],
+  books: Parameters<typeof readIndexedBookMetadata>[0],
   scopes: BookScopeStore
-): Promise<string | null | undefined> {
-  if (!bookKey.startsWith('content:')) return null;
-  const owners = new Set<string>();
-  for (let cursor = await books.openCursor(); cursor; cursor = await cursor.continue()) {
-    const book = cursor.value;
-    if (`content:${book.contentHash?.toLowerCase()}` !== bookKey) continue;
+): Promise<Map<string, string | null | undefined>> {
+  const requested = [...new Set(bookKeys)];
+  const result = new Map<string, string | null | undefined>();
+  const content = new Set(requested.filter((key) => key.startsWith('content:')));
+  for (const key of requested) if (!content.has(key)) result.set(key, null);
+  if (!content.size) return result;
+
+  const owners = new Map<string, Set<string>>();
+  for (const book of await readIndexedBookMetadata(books)) {
+    const key = `content:${book.contentHash}`;
+    if (!content.has(key)) continue;
+    const values = owners.get(key) ?? new Set<string>();
     const scope = await scopes.get(book.id);
-    if (scope) owners.add(scope.accountId);
-    if (book.libraryOwner) owners.add(book.libraryOwner);
+    if (scope) values.add(scope.accountId);
+    if (book.libraryOwner) values.add(book.libraryOwner);
+    owners.set(key, values);
   }
-  return owners.size === 1 ? [...owners][0] : owners.size === 0 ? null : undefined;
+  for (const key of content) {
+    const values = owners.get(key) ?? new Set<string>();
+    result.set(key, values.size === 1 ? [...values][0] : values.size === 0 ? null : undefined);
+  }
+  return result;
 }
-async function bookAccount(bookKey: string): Promise<string | null | undefined> {
+
+async function bookAccounts(
+  bookKeys: readonly string[]
+): Promise<Map<string, string | null | undefined>> {
   const db = await database.db;
   const tx = db.transaction(['data', 'readerBookScope']);
-  const owner = await bookAccountFromStores(
-    bookKey,
+  const result = await bookAccountsFromStores(
+    bookKeys,
     tx.objectStore('data'),
     tx.objectStore('readerBookScope')
   );
   await tx.done;
-  return owner;
+  return result;
+}
+
+async function bookAccount(bookKey: string): Promise<string | null | undefined> {
+  return (await bookAccounts([bookKey])).get(bookKey);
 }
 
 export interface ReaderAnnotationArchive {
@@ -231,9 +239,8 @@ export async function importReaderAnnotations(
   const incoming = parsed.annotations.map(validateImportedAnnotation);
   if (new Set(incoming.map((value) => value.id)).size !== incoming.length)
     throw new Error('The archive contains duplicate annotation IDs.');
-  const boundAccounts = await Promise.all(
-    incoming.map((annotation) => bookAccount(annotation.bookKey))
-  );
+  const ownerByBook = await bookAccounts(incoming.map((annotation) => annotation.bookKey));
+  const boundAccounts = incoming.map((annotation) => ownerByBook.get(annotation.bookKey));
   const db = await database.db;
   const tx = db.transaction(
     ['readerAnnotation', 'readerAnnotationOutbox', 'readerConflict', 'readerAnnotationScope'],
