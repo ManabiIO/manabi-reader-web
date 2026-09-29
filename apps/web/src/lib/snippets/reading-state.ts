@@ -70,6 +70,10 @@ export async function saveProgress(id: string, locator: SnippetLocator, selected
   if (!validLocator(locator)) throw new Error('Invalid reading location.');
   await mutateRecord(selected.owner, id, selected.guard, (current) => {
     if (!current) throw new Error('Snippet no longer exists.');
+    // Programmatic restoration, resize, and repeated scroll events in the same
+    // passage are not new reading intent. Avoid manufacturing a newer clock or
+    // an upload when the durable locator is unchanged.
+    if (canonical(current.progress) === canonical(locator)) return current;
     const changedAt = Math.max(Date.now(), progressTime(current) + 1);
     return {
       ...current,
