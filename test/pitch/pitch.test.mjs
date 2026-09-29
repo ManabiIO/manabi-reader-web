@@ -228,7 +228,7 @@ function fixture(options = {}) {
       a.paused = false;
       a.dispatchEvent(new Event('play'));
     },
-    frame(now = 100) {
+    frame(now = 600) {
       context.currentTime = now / 1000;
       const queued = [...frames.values()];
       frames.clear();
@@ -306,21 +306,21 @@ test('show/hide and off/on stop analysis but retain the playback destination', a
 });
 test('bounded work: one in-flight request, timestamp at selected frame, no duplicate stalled samples', async () => {
   const f = await running();
-  f.frame(100);
+  f.frame(600);
   const worker = f.workers[0];
   assert.equal(worker.sent.length, 1);
   assert.equal(worker.sent[0].samples.length, Math.ceil(48000 * ANALYSIS_WINDOW_SECONDS));
   f.a.currentTime += 0.1;
-  f.frame(200);
+  f.frame(700);
   assert.equal(worker.sent.length, 1);
   f.result();
   assert.ok(
     Math.abs(f.state.points[0].time - (1 - worker.sent[0].samples.length / 48000 + 0.32)) < 1e-9
   );
-  f.frame(300);
+  f.frame(800);
   assert.equal(worker.sent.length, 2);
   f.result();
-  f.frame(400);
+  f.frame(900);
   assert.equal(worker.sent.length, 2);
   f.controller.dispose();
 });
@@ -335,9 +335,9 @@ test('seeking discards old results and even a delivered cancelled animation call
   assert.equal(f.state.points.length, 0);
   f.a.seeking = false;
   f.a.dispatchEvent(new Event('seeked'));
-  staleFrame(200);
+  staleFrame(700);
   assert.equal(f.frames.size, 1);
-  f.frame(300);
+  f.frame(1300);
   f.result();
   assert.equal(f.state.points.length, 1);
   assert.ok(f.state.points[0].time > 19);
@@ -414,11 +414,11 @@ test('paused playback stops sampling; native Play still resumes retained routing
 
 test('pause drops a pending result and watchdog while retaining the completed trace', async () => {
   const f = await running();
-  f.frame(100);
+  f.frame(600);
   f.result();
   const completed = f.state.points;
   f.a.currentTime += 0.1;
-  f.frame(200);
+  f.frame(700);
   f.a.paused = true;
   f.a.dispatchEvent(new Event('pause'));
   assert.equal(f.state.activity, 'paused');
@@ -429,7 +429,7 @@ test('pause drops a pending result and watchdog while retaining the completed tr
   f.play();
   await flush();
   f.a.currentTime += 0.1;
-  f.frame(300);
+  f.frame(1300);
   f.result();
   assert.equal(f.state.points.length, 2);
   assert.equal(f.state.points[1].breakBefore, true);
@@ -460,7 +460,7 @@ test('buffering stops work and resumption starts a new smoothing epoch', async (
   assert.equal(f.state.points.length, 0);
   f.a.currentTime += 0.1;
   f.a.dispatchEvent(new Event('playing'));
-  f.frame(300);
+  f.frame(1200);
   assert.ok(f.workers[0].sent[1].epoch > epoch);
   f.result();
   assert.equal(f.state.activity, 'playing');
@@ -471,10 +471,10 @@ test('wait for a fresh audio window and media data before sampling', async () =>
   f.frame(10);
   assert.equal(f.workers[0].sent.length, 0);
   f.a.readyState = 1;
-  f.frame(100);
+  f.frame(600);
   assert.equal(f.workers[0].sent.length, 0);
   f.a.readyState = 4;
-  f.frame(200);
+  f.frame(700);
   assert.equal(f.workers[0].sent.length, 1);
   f.controller.dispose();
 });
