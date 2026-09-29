@@ -37,13 +37,10 @@ function matchKey(value: string, needle: string): SearchMatchKey {
   };
 }
 
+const compareStableText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+
 function compareKeys(a: SearchMatchKey, b: SearchMatchKey): number {
-  return (
-    a.tier - b.tier ||
-    a.index - b.index ||
-    a.length - b.length ||
-    a.folded.localeCompare(b.folded)
-  );
+  return a.tier - b.tier || a.index - b.index || a.length - b.length || compareStableText(a.folded, b.folded);
 }
 
 /**
