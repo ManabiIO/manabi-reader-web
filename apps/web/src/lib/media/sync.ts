@@ -6,7 +6,7 @@
 
 import { kinds, remote, type Replica } from './replica.js';
 import { type Scope } from './contracts.js';
-import { MediaStore } from './store.js';
+import { MediaStore, type MediaWriteGuard } from './store.js';
 import { abortable } from './abort.js';
 export interface SyncTransport {
   userId: string;
@@ -46,6 +46,7 @@ export async function syncMedia(
     signal.throwIfAborted();
     if (!current()) throw new Error('The signed-in account changed');
   };
+  const writeGuard: MediaWriteGuard = { signal, check: guard };
   const notify = (status: SyncStatus) => {
     try {
       publish(status);
@@ -94,12 +95,12 @@ export async function syncMedia(
         previous = value.sequence as number;
         if (kinds.includes(value.kind as never)) {
           guard();
-          await store.accept(scope, remote(value));
+          await store.accept(scope, remote(value), writeGuard);
         }
       }
       if (feed.next_cursor !== previous) throw new Error('Sync cursor skips unseen records');
       guard();
-      await store.putLocal(scope, 'sync', 'cursor', feed.next_cursor);
+      await store.putLocal(scope, 'sync', 'cursor', feed.next_cursor, writeGuard);
       cursor = feed.next_cursor;
       if (!feed.has_more) break;
     }
@@ -109,7 +110,7 @@ export async function syncMedia(
     for (const candidate of pending) {
       guard();
       if (candidate.conflict) continue;
-      const r = await store.prepare(scope, candidate.kind, candidate.id);
+      const r = await store.prepare(scope, candidate.kind, candidate.id, writeGuard);
       if (!r.pending) continue;
       // Snapshot the admitted mutation before any asynchronous transport work.
       // The closure must not depend on a later re-read of optional pending state.
@@ -130,20 +131,19 @@ export async function syncMedia(
         guard();
         if (response.accepted !== true || response.mutation_id !== pendingRequest.mutation_id)
           throw new Error('Invalid sync acknowledgement');
-        await store.ack(scope, r.kind, r.id, response.mutation_id, response.record);
+        await store.ack(scope, r.kind, r.id, response.mutation_id, response.record, writeGuard);
       } catch (e) {
-        // Preserve the operation's failure, including falsy abort reasons.
-        // Account observation gates conflict writes, not the identity of an
-        // already-rejected upload. It can itself fail after disconnection.
+        signal.throwIfAborted();
         const error = e as { status?: number; current?: unknown } | null | undefined;
         if (error?.status === 412 && error.current) {
-          if (signal.aborted || !current()) throw e;
+          if (!current()) throw e;
           await store.conflict(
             scope,
             r.kind,
             r.id,
             remote(error.current),
-            pendingRequest.mutation_id
+            pendingRequest.mutation_id,
+            writeGuard
           );
         } else throw e;
       }
