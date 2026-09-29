@@ -58,6 +58,8 @@ export interface SnippetLocator {
 export interface SnippetHit {
   locator: SnippetLocator;
   excerpt: string;
+  /** UTF-16 boundaries in the original excerpt. */
+  excerptMatch: { start: number; end: number };
   reading: boolean;
 }
 export class SnippetError extends Error {
@@ -509,6 +511,7 @@ export function searchSnippet(document: SnippetDocument, query: string, limit = 
     if (index < 0 && !ruby) continue;
     const start = index >= 0 ? offsets[index] : ruby!.start;
     const end = index >= 0 ? (ends[index + needle.length - 1] ?? block.text.length) : ruby!.end;
+    const excerptStart = Math.max(0, start - 40);
     hits.push({
       locator: {
         blockId: block.blockId,
@@ -517,7 +520,8 @@ export function searchSnippet(document: SnippetDocument, query: string, limit = 
         offset: start,
         revision: document.revision
       },
-      excerpt: block.text.slice(Math.max(0, start - 40), Math.max(end, start + 100)),
+      excerpt: block.text.slice(excerptStart, Math.max(end, start + 100)),
+      excerptMatch: { start: start - excerptStart, end: end - excerptStart },
       reading: index < 0
     });
     if (hits.length >= limit) break;
