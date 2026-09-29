@@ -113,6 +113,9 @@ jobs:
             LIBRARY_BROWSER=$engine timeout -v -k 10s 180s python tests/browser/test_gallery_usability.py 2>&1 | tee artifacts/appearance/$engine/gallery-usability.log
             result=${PIPESTATUS[0]}
             if [ "$result" -ne 0 ]; then status=1; fi
+            LIBRARY_BROWSER=$engine timeout -v -k 10s 180s python tests/browser/test_annotations_quality.py 2>&1 | tee artifacts/appearance/$engine/annotations-quality.log
+            result=${PIPESTATUS[0]}
+            if [ "$result" -ne 0 ]; then status=1; fi
             LIBRARY_BROWSER=$engine timeout -v -k 10s 90s python tests/browser/test_modal_tab_fallback.py 2>&1 | tee artifacts/appearance/$engine/modal-tab-fallback.log
             result=${PIPESTATUS[0]}
             if [ "$result" -ne 0 ]; then status=1; fi
