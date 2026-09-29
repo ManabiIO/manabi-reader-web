@@ -47,7 +47,8 @@
     TextAlignLeftIcon as CollectionsList,
     SelectionAllIcon as SelectionAll,
     SquaresFourIcon as SquaresFour,
-    UserCircleIcon as UserCircle
+    UserCircleIcon as UserCircle,
+    XIcon as X
   } from 'phosphor-svelte';
 
   export let modernLibrary = false;
@@ -218,7 +219,10 @@
     class="floating-library-header text-foreground lg:ml-[16rem]"
     aria-label="Library toolbar"
   >
-    <div class="library-header-inner flex min-h-16 items-center justify-between gap-2 py-2">
+    <div
+      class:hidden={selectMode && compactLibrary}
+      class="library-header-inner flex min-h-16 items-center justify-between gap-2 py-2"
+    >
       {#if compactLibrary && (searchExpanded || !!libraryMenu?.search.query)}
         <form
           class="flex min-w-0 flex-1 items-center gap-2"
@@ -584,29 +588,44 @@
       </div>
     {:else if selectMode}
       <div
-        class="mx-auto flex min-h-14 max-w-6xl flex-wrap items-center gap-2 border-t border-border/60 px-4 py-2 sm:px-6"
+        class:compact-selection={compactLibrary}
+        class="library-selection-toolbar mx-auto flex min-h-14 max-w-6xl flex-wrap items-center gap-2 border-t border-border/60 px-[16px] py-[8px] sm:px-[24px]"
         aria-label="Book selection"
       >
         <Button
+          class="selection-action"
           variant="ghost"
+          aria-label="Cancel selection"
           disabled={libraryMenu?.selectedActions?.busy}
-          onclick={() => (selectMode = false)}>Cancel selection</Button
+          onclick={() => (selectMode = false)}
+          >{#if compactLibrary}<X class="size-[24px]" aria-hidden="true" />{:else}Cancel selection{/if}</Button
         >
         <span class="whitespace-nowrap text-sm" aria-live="polite">{selectedCount} selected</span>
         <Button
+          class="selection-action"
           variant="outline"
+          aria-label={modernLibrary ? 'Select All Visible' : 'Select all'}
           disabled={libraryMenu?.selectedActions?.busy}
           onclick={() => dispatch('selectAllClick')}
-          >{modernLibrary ? 'Select All Visible' : 'Select all'}</Button
+          >{#if compactLibrary}<SelectionAll
+              class="size-[24px]"
+              aria-hidden="true"
+            />{:else}{modernLibrary ? 'Select All Visible' : 'Select all'}{/if}</Button
         >
         {#if selectedCount > 0}
           <Button
+            class="selection-action"
             variant="secondary"
             disabled={libraryMenu?.selectedActions?.busy ||
               libraryMenu?.selectedActions?.savedCount === 0}
-            onclick={() => dispatch('replicateData')}>Export</Button
+            aria-label="Export"
+            onclick={() => dispatch('replicateData')}
+            >{#if compactLibrary}<FileArrowUp
+                class="size-[24px]"
+                aria-hidden="true"
+              />{:else}Export{/if}</Button
           >
-          <ActionMenu label="Actions" title="Selected book actions">
+          <ActionMenu label="Actions" title="Selected book actions" iconOnly={compactLibrary}>
             {#if libraryMenu?.selectedActions}
               <Menu.Item
                 disabled={libraryMenu.selectedActions.busy}
@@ -827,6 +846,51 @@
     max-width: 100rem;
     margin-inline: auto;
     padding-inline: 1.5rem;
+  }
+  .library-selection-toolbar :global(.selection-action) {
+    min-height: 44px;
+    padding: 8px 12px;
+  }
+  .library-selection-toolbar.compact-selection {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) repeat(3, 44px);
+    align-items: center;
+    gap: 6px;
+    min-height: 0;
+    padding: 8px 16px;
+    border-top: 0;
+  }
+  .library-selection-toolbar.compact-selection > :global(.selection-action:first-child) {
+    justify-self: start;
+  }
+  .library-selection-toolbar.compact-selection > span[aria-live] {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    justify-self: center;
+    min-width: 0;
+    max-width: calc(100% - 96px);
+    overflow-wrap: anywhere;
+    text-align: center;
+  }
+  .library-selection-toolbar.compact-selection > :global(.selection-action:first-child) {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .library-selection-toolbar.compact-selection > :global(.selection-action:nth-of-type(2)) {
+    grid-column: 2;
+    grid-row: 2;
+    width: 44px;
+    padding-inline: 0;
+  }
+  .library-selection-toolbar.compact-selection > :global(.selection-action:nth-of-type(3)) {
+    grid-column: 3;
+    grid-row: 2;
+    width: 44px;
+    padding-inline: 0;
+  }
+  .library-selection-toolbar.compact-selection > :global([data-slot='dropdown-menu-trigger']) {
+    grid-column: 4;
+    grid-row: 2;
   }
   @media (min-width: 1024px) {
     .library-header-inner {
