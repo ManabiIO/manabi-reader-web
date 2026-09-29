@@ -53,6 +53,26 @@ test('primary title wins a same-tier match found only in secondary metadata', ()
   );
 });
 
+test('primary metadata wins same-tier prefix and boundary matches', () => {
+  const prefix = [
+    { id: 'secondary', fields: ['Dog guide', 'catalog notes'] },
+    { id: 'primary', fields: ['cat handbook'] }
+  ];
+  assert.deepEqual(
+    sortSearchText(prefix, 'cat', (value) => value.fields).map((value) => value.id),
+    ['primary', 'secondary']
+  );
+
+  const boundary = [
+    { id: 'secondary', fields: ['Dog guide', 'A cat note'] },
+    { id: 'primary', fields: ['Before cat chapter'] }
+  ];
+  assert.deepEqual(
+    sortSearchText(boundary, 'cat', (value) => value.fields).map((value) => value.id),
+    ['primary', 'secondary']
+  );
+});
+
 test('bulk metadata sorting extracts each candidate text once', () => {
   const values = ['Copycat notes', 'A cat story', 'Cat guide', 'cat'];
   let reads = 0;
