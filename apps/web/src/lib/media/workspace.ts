@@ -700,7 +700,7 @@ export class VideoWorkspace {
             );
             for (const sub of subs)
               if (matchSidecar(source.name, sub.name))
-                await this.saveSubtitle(key, source.name, sub);
+                await this.saveSubtitle(key, source.name, sub, signal);
             await this.refresh();
           }
           return;
