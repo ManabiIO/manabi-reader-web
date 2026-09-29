@@ -315,6 +315,9 @@
   }
   summary {
     cursor: pointer;
+    display: flex;
+    min-height: 44px;
+    align-items: center;
     padding-block: 8px;
     width: fit-content;
     border-radius: 0.25rem;
