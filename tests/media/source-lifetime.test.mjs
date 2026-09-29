@@ -72,3 +72,44 @@ test('a revoked cloud source cannot revive when its account predicate becomes tr
     else delete globalThis.location;
   }
 });
+
+test('streamed ranges preserve nonzero offsets above four GiB without truncation', async () => {
+  const gib = 1024 ** 3;
+  const start = 5 * gib + 12345;
+  const end = start + 2 * 1024 * 1024 + 17;
+  const calls = [];
+  const source = {
+    name: 'Huge.webm',
+    size: 7 * gib,
+    version: 'huge',
+    async read(a, b, signal) {
+      signal.throwIfAborted();
+      calls.push([a, b]);
+      const bytes = new Uint8Array(b - a);
+      bytes[0] = a % 251;
+      bytes[bytes.length - 1] = (b - 1) % 251;
+      return bytes;
+    }
+  };
+  const reader = (await import('../../.cache/media-test-build/sources.js')).streamedRange(
+    source,
+    start,
+    end,
+    new AbortController().signal
+  ).getReader();
+  const chunks = [];
+  for (;;) {
+    const next = await reader.read();
+    if (next.done) break;
+    chunks.push(next.value);
+  }
+  reader.releaseLock();
+  assert.deepEqual(calls, [
+    [start, start + 1024 * 1024],
+    [start + 1024 * 1024, start + 2 * 1024 * 1024],
+    [start + 2 * 1024 * 1024, end]
+  ]);
+  assert.equal(chunks.reduce((sum, bytes) => sum + bytes.length, 0), end - start);
+  assert.equal(chunks[0][0], start % 251);
+  assert.equal(chunks.at(-1).at(-1), (end - 1) % 251);
+});
