@@ -13,7 +13,8 @@
   import {
     foldSearch,
     searchMatchRange,
-    sortSearchText
+    sortSearchText,
+    type SearchTextFields
   } from '../library/search-normalization';
   import { creatorLine } from '../library/book-metadata';
   import type { ShelfBook } from '../library/view-model';
@@ -48,7 +49,7 @@
     detail?: string;
     titleMatch?: { start: number; end: number };
     /** Search-only metadata used for relevance; never rendered directly. */
-    searchText?: readonly string[];
+    searchText?: SearchTextFields;
     excerpt?: string;
     match?: { start: number; end: number };
     open: () => void;
@@ -216,13 +217,14 @@
         label: `Read ${book.title}`,
         detail: bookDetail(book, selectedQuery),
         titleMatch: searchMatchRange(book.title, selectedQuery),
-        searchText: [
-          book.title,
-          book.canonicalTitle,
-          ...(book.creators ?? []).map((creator) => creator.name),
-          ...(book.series?.name ? [book.series.name] : []),
-          ...(bookMatchText[book.key] ?? []).map((item) => item.text)
-        ],
+        searchText: {
+          primary: [book.title, book.canonicalTitle],
+          secondary: [
+            ...(book.creators ?? []).map((creator) => creator.name),
+            ...(book.series?.name ? [book.series.name] : []),
+            ...(bookMatchText[book.key] ?? []).map((item) => item.text)
+          ]
+        },
         open: () => openBook(book)
       }));
       const snippetRows: Row[] = snippetScope
