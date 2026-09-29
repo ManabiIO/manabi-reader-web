@@ -883,6 +883,51 @@ export class VideoPlayer {
     }
     this.updateBuffering();
   }
+  /**
+   * Navigate from a global transcript-search result without starting playback.
+   * The matched published track is selected when it is still available.
+   */
+  async seekTo(seconds: number, trackId?: string): Promise<void> {
+    if (this.closed) throw new Error('Video player is closed');
+    if (!Number.isFinite(seconds) || seconds < 0) throw new Error('Invalid video position');
+    if (!this.ready) {
+      await new Promise<void>((resolve, reject) => {
+        const signal = this.alive.signal;
+        const cleanup = () => {
+          this.video.removeEventListener('loadedmetadata', loaded);
+          this.video.removeEventListener('error', failed);
+          signal.removeEventListener('abort', cancelled);
+        };
+        const loaded = () => {
+          queueMicrotask(() => {
+            cleanup();
+            if (this.ready && !this.closed) resolve();
+            else reject(new Error('Video metadata is unavailable'));
+          });
+        };
+        const failed = () => {
+          cleanup();
+          reject(new Error('Video metadata is unavailable'));
+        };
+        const cancelled = () => {
+          cleanup();
+          reject(signal.reason ?? new DOMException('Video navigation cancelled', 'AbortError'));
+        };
+        this.video.addEventListener('loadedmetadata', loaded, { once: true });
+        this.video.addEventListener('error', failed, { once: true });
+        signal.addEventListener('abort', cancelled, { once: true });
+      });
+    }
+    if (this.closed || !this.ready) throw new Error('Video player is not ready');
+    if (trackId && this.tracks.some((track) => track.id === trackId)) this.chooseTranscript(trackId);
+    this.linePause.reset();
+    this.touched = true;
+    this.video.pause();
+    this.video.currentTime = Math.min(seconds, this.video.duration);
+    this.render();
+    this.scheduleSave(true);
+  }
+
   /** In-memory authored captions are usable while full content identity is verified. */
   setTemporaryTracks(tracks: Track[]) {
     if (this.closed) return;
