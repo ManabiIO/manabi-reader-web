@@ -4,7 +4,6 @@
  * All rights reserved.
  */
 
-import { foldSearch } from '../library/search-normalization';
 import {
   validateInfo,
   validatePlayback,
@@ -47,6 +46,8 @@ export interface VideoSearchStore {
   records(scope: Scope, kind: 'video_info' | 'video_resume'): Promise<Replica[]>;
   tracks(scope: Scope, mediaKey: ContentKey, signal?: AbortSignal): Promise<Track[]>;
 }
+
+const foldSearch = (value: string) => value.normalize('NFKC').toLowerCase().replace(/\\u03c2/g, '\\u03c3');
 
 const MAX_TITLE_RESULTS = 300;
 const MAX_TRANSCRIPT_RESULTS = 300;
