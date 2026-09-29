@@ -285,8 +285,11 @@ try {
     'Markdown',
     'Trash'
   ];
+  await expect(
+    actionMenu.getByRole('menuitem', { name: mobileActions[0], exact: true })
+  ).toBeFocused();
   for (const [index, name] of mobileActions.entries()) {
-    await page.keyboard.press('ArrowDown');
+    if (index > 0) await page.keyboard.press('ArrowDown');
     const item = actionMenu.getByRole('menuitem', { name, exact: true });
     await expect(item).toBeFocused();
     const box = await item.boundingBox();
