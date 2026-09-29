@@ -469,9 +469,9 @@
               onclick={row.open}
             >
               <span class="type-icon" aria-hidden="true"
-                >{#if row.kind === 'Book'}<BookOpen size={20} />{:else}<FileText
-                    size={20}
-                  />{/if}</span
+                >{#if row.kind === 'Book'}<BookOpen size={20} />{:else if row.kind === 'Video'}<span
+                    class="video-glyph">▶</span
+                  >{:else}<FileText size={20} />{/if}</span
               >
               <span class="row-copy"
                 ><span class="excerpt"
