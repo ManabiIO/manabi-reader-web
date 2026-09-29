@@ -8,6 +8,7 @@
   import { Button } from '$lib/components/ui/button';
   import { Input } from '$lib/components/ui/input';
   import * as Dialog from '$lib/components/ui/dialog';
+  import * as Menu from '$lib/components/ui/dropdown-menu';
   import { account, localUser, providerLabels } from '../manabi/client';
   import {
     organization,
@@ -936,7 +937,7 @@
               >
             </details>{/each}
         </section>{/if}
-      <div class="actions secondary">
+      <div class="actions secondary secondary-actions-wide">
         <Button
           variant="ghost"
           disabled={busy || !!current.transfer}
@@ -973,6 +974,62 @@
               deleteOpen = true;
             }}>Trash</Button
           >{/if}
+      </div>
+      <div class="secondary-actions-menu">
+        <Menu.Root>
+          <Menu.Trigger>
+            {#snippet child({ props })}
+              <Button {...props} variant="secondary" class="min-h-11">More actions</Button>
+            {/snippet}
+          </Menu.Trigger>
+          <Menu.Content
+            align="start"
+            collisionPadding={8}
+            class="w-64 max-w-[calc(100vw-1rem)]"
+          >
+            <Menu.Item
+              disabled={busy || !!current.transfer}
+              onSelect={() => membership([current!.document.id])}>Collections…</Menu.Item
+            >
+            <Menu.Item
+              disabled={busy || !!current.transfer || !!current.conflicts.length}
+              onSelect={() => move([current!.document.id])}>Move to…</Menu.Item
+            >
+            <Menu.Item
+              disabled={busy}
+              onSelect={() =>
+                action(() => newSnippet(current!.document.content, current!.document))}
+              >Duplicate</Menu.Item
+            >
+            <Menu.Separator />
+            <Menu.Item
+              disabled={busy}
+              onSelect={() => action(() => exportSnippets([current!.document.id], admitted))}
+              >Export JSON</Menu.Item
+            >
+            <Menu.Item
+              disabled={busy}
+              onSelect={() => action(() => exportSnippets([current!.document.id], admitted, 'html'))}
+              >HTML</Menu.Item
+            >
+            <Menu.Item
+              disabled={busy}
+              onSelect={() =>
+                action(() => exportSnippets([current!.document.id], admitted, 'markdown'))}
+              >Markdown</Menu.Item
+            >
+            {#if !current.document.trashedAt}
+              <Menu.Separator />
+              <Menu.Item
+                disabled={busy || !!current.transfer}
+                onSelect={() => {
+                  deleteIds = [current!.document.id];
+                  deleteOpen = true;
+                }}>Trash</Menu.Item
+              >
+            {/if}
+          </Menu.Content>
+        </Menu.Root>
       </div>
       {#if current.destination}<details class="locations">
           <summary>Storage location{current.locations.length > 1 ? 's' : ''}</summary
@@ -1347,6 +1404,10 @@
   .secondary {
     padding: 0.6rem 0;
   }
+  .secondary-actions-menu {
+    display: none;
+    padding-block: 0.35rem 0.6rem;
+  }
   .reading,
   .editing {
     max-width: 62rem;
@@ -1523,6 +1584,12 @@
     gap: 0.4rem;
   }
   @media (max-width: 640px) {
+    .secondary-actions-wide {
+      display: none;
+    }
+    .secondary-actions-menu {
+      display: block;
+    }
     .heading {
       align-items: start;
       flex-direction: column;
