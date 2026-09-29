@@ -233,6 +233,7 @@
   }
   .title {
     display: block;
+    min-height: 44px;
     font-size: 1.15rem;
     font-weight: 650;
     line-height: 1.5;
@@ -268,6 +269,7 @@
   }
   .passage {
     display: block;
+    min-height: 44px;
     padding: 0.5rem 0.7rem;
     margin-top: 0.5rem;
     border-inline-start: 2px solid var(--border);
