@@ -585,6 +585,8 @@ test('disconnect waits for an admitted local read and prevents later retained-ha
   await assert.rejects(source.read(entry()), /not_found/);
 });
 
+const accountVisibility = load('library/account-visibility.ts');
+
 function linkFixture(records, links) {
   const owner = profile();
   let migrated;
@@ -598,6 +600,7 @@ function linkFixture(records, links) {
         migrated = all;
       }
     },
+    '$lib/library/account-visibility': accountVisibility,
     '$lib/data/storage/storage-types': {},
     '$lib/data/storage/storage-view': {},
     '$lib/data/storage/storage-handler-factory': {},
@@ -653,6 +656,19 @@ test('refresh excludes removed records, invalid hashes and inconsistent ownershi
   assert.deepEqual(fixture.api.linkedBooks.value, []);
   assert.equal(fixture.api.allLinkedBooks.value.length, 3);
 });
+test('refresh keeps legacy multi-account links historical but unusable', async () => {
+  const digest = hash(original);
+  const links = [
+    { id: 'alice', bookId: 1, owner: 'alice', contentHash: digest },
+    { id: 'bob', bookId: 1, owner: 'bob', contentHash: digest }
+  ];
+  const fixture = linkFixture([{ id: 1, contentHash: digest }], links);
+  await fixture.api.refreshLinkedBooks();
+  assert.deepEqual(fixture.api.linkedBooks.value, []);
+  assert.deepEqual(fixture.api.allLinkedBooks.value, links);
+  assert.deepEqual(fixture.migrated, []);
+});
+
 test('refresh retains all valid copies and their per-link sync choices', async () => {
   const digest = hash(original);
   const links = [
