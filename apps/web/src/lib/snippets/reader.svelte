@@ -2,7 +2,13 @@
   import { onMount, tick } from 'svelte';
   import { Button } from '$lib/components/ui/button';
   import { readerHTML } from './presentation';
-  import { passages, resolveLocator, type SnippetDocument, type SnippetLocator } from './document';
+  import {
+    displayTitle,
+    passages,
+    resolveLocator,
+    type SnippetDocument,
+    type SnippetLocator
+  } from './document';
   import { saveProgress, syncReading, touchReading } from './reading-state';
   import { getRecord } from './database';
   import type { SnippetScope } from './scope';
@@ -87,7 +93,7 @@
       new CustomEvent('manabi-capture-snippet', {
         detail: {
           html: wrapper.innerHTML,
-          title: document.title.text,
+          title: displayTitle(document),
           item: `snippet:${document.id}`,
           owner: selectedScope.owner === 'local' ? null : selectedScope.owner.slice(8)
         }

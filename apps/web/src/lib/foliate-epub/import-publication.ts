@@ -14,10 +14,7 @@ import {
 import { epubCompatibilityStyles } from './resource-styles';
 import { EpubStyleBudget } from './style-budget';
 import { repairEpubHtml } from './html-repair';
-import {
-  assertSupportedEpubRendition,
-  normalizeEpubSpineLinear
-} from './epub-import-policy';
+import { assertSupportedEpubRendition, normalizeEpubSpineLinear } from './epub-import-policy';
 import {
   sanitizeBookHtml,
   sanitizeBookStyleSheet
