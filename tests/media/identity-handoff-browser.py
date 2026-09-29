@@ -17,8 +17,10 @@ ROOT = Path(__file__).resolve().parents[2]
 HTML = '''<!doctype html><meta charset="utf-8"><title>Identity handoff</title>
 <script type="module">
 import {cases} from '/tests/media/identity-handoff-cases.mjs';
+import {cases as switchCases} from '/tests/media/switch-intent-cases.mjs';
 import {cases as syncCases} from '/tests/media/sync-write-authority-cases.mjs';
-window.scenarios=[...cases,...syncCases];
+window.scenarioGroups={identity:cases.length,switch:switchCases.length,sync:syncCases.length};
+window.scenarios=[...cases,...switchCases,...syncCases];
 </script>'''
 
 
@@ -56,7 +58,12 @@ def main():
                 page.set_default_timeout(30000)
                 page.goto(f'http://127.0.0.1:{server.server_port}/__identity_handoff__/')
                 page.wait_for_function('Array.isArray(window.scenarios)')
+                groups = page.evaluate('scenarioGroups')
+                if not all(groups.get(name, 0) > 0 for name in ('identity', 'switch', 'sync')):
+                    raise RuntimeError(f'Missing native scenario group: {groups}')
                 names = page.evaluate('scenarios.map(scenario => scenario.name)')
+                if len(names) != sum(groups.values()):
+                    raise RuntimeError(f'Native scenario registration mismatch: {groups} vs {len(names)}')
                 for index, name in enumerate(names):
                     try:
                         # evaluate awaits the scenario. Its own bounded reads and

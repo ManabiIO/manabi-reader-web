@@ -57,7 +57,8 @@ export async function syncMedia(
   const work = async () => {
     guard();
     notify({ state: 'syncing', message: 'Syncing video progress and subtitles…', conflicts: [] });
-    let cursor = (await store.local<number>(scope, 'sync', 'cursor')) ?? 0;
+    let cursor =
+      (await abortable(signal, () => store.local<number>(scope, 'sync', 'cursor'))) ?? 0;
     if (!Number.isSafeInteger(cursor) || cursor < 0) throw new Error('Invalid saved sync cursor');
     // Drain before pushing: never overwrite unknown cloud history from a fresh browser.
     for (let pages = 0; ; pages++) {
@@ -104,7 +105,7 @@ export async function syncMedia(
       cursor = feed.next_cursor;
       if (!feed.has_more) break;
     }
-    const pending = (await store.records(scope))
+    const pending = (await abortable(signal, () => store.records(scope)))
       .filter((r) => r.dirty || r.pending)
       .sort((a, b) => (a.kind === 'video_track' ? 1 : 0) - (b.kind === 'video_track' ? 1 : 0));
     for (const candidate of pending) {
@@ -149,7 +150,7 @@ export async function syncMedia(
       }
     }
     guard();
-    const remaining = await store.records(scope);
+    const remaining = await abortable(signal, () => store.records(scope));
     const conflicts = remaining.filter((r) => r.conflict);
     const stillPending = remaining.some((r) => !r.conflict && (r.dirty || r.pending));
     guard();
