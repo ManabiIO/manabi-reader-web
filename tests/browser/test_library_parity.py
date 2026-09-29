@@ -328,6 +328,9 @@ class LibraryParityBrowser(LibraryBase):
     def test_idle_and_mouse_reveals_timeout_but_click_reveal_stays_pinned_without_reflow(self):
         controls = self.open_reader()
         geometry = self.page.locator('.reader-page-frame').evaluate('e => {const s=getComputedStyle(e);return [s.paddingTop,s.paddingBottom]}')
+        # Navigation leaves focus on the controls. Focus protects them for keyboard
+        # users, so release that focus before testing the idle reading state.
+        controls.evaluate('e => e.blur()')
         # Closed portal remnants must not protect transient chrome. This mirrors
         # component libraries that retain hidden role nodes between openings.
         self.page.evaluate('''() => {
