@@ -159,7 +159,7 @@ export class PitchController {
     if (this.replyTimer !== undefined) this.environment.clearTimer(this.replyTimer);
     this.replyTimer = undefined;
     this.lastSample = -Infinity;
-    this.sampleAfter = (this.context?.currentTime ?? 0) + 0.2;
+    this.sampleAfter = (this.context?.currentTime ?? 0) + 0.08;
     this.breakBefore = true;
   }
   private reset() {
@@ -203,7 +203,7 @@ export class PitchController {
           this.analyserConnected = true;
           if (this.loadTimer !== undefined) this.environment.clearTimer(this.loadTimer);
           this.loadTimer = undefined;
-          this.sampleAfter = context.currentTime + 0.35;
+          this.sampleAfter = context.currentTime + 0.08;
           this.publish({ status: 'ready', message: '' });
           this.schedule();
         } catch {
