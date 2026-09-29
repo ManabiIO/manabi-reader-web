@@ -134,5 +134,94 @@ class LibraryGridLabels(LibraryBase):
 
 
 
+    def test_grid_title_and_author_contrast_across_real_theme_presets(self):
+        title = 'Theme contrast reading identity'
+        author = 'Muted Author Label'
+        self.import_book(title, creators=(author,))
+        button = self.page.get_by_role('button', name='Read ' + title, exact=True)
+        expect(button).to_be_visible()
+        title_text = button.get_by_text(title, exact=True)
+        author_text = button.get_by_text(author, exact=True)
+
+        settings = self.context.new_page()
+        settings.goto(self.origin + '/reader-web/settings')
+        expect(settings.get_by_label('Search settings', exact=True)).to_be_visible()
+        settings.get_by_role('navigation', name='Settings categories').get_by_role(
+            'link', name='All settings', exact=True).click()
+
+        measurements = []
+        try:
+            for theme in (
+                'manabi-theme', 'light-theme', 'ecru-theme', 'water-theme',
+                'gray-theme', 'dark-theme', 'black-theme'
+            ):
+                for mode in ('light', 'dark'):
+                    with self.subTest(theme=theme, mode=mode):
+                        settings.bring_to_front()
+                        settings.locator('button[title="' + theme + '"]').click()
+                        settings.get_by_role('group', name='Appearance mode').get_by_role(
+                            'button', name=mode.capitalize(), exact=True).click()
+                        expect(self.page.locator('html')).to_have_attribute('data-theme', theme)
+                        expect(self.page.locator('html')).to_have_attribute('data-appearance', mode)
+                        self.page.bring_to_front()
+                        button.evaluate('''async e => {
+                          getComputedStyle(e).color;
+                          await Promise.all(e.getAnimations({subtree:true})
+                            .filter(a => a.effect?.getComputedTiming().iterations !== Infinity)
+                            .map(a => a.finished.catch(() => {})));
+                        }''')
+                        colors = button.evaluate('''button => {
+                          const canvas=document.createElement('canvas');
+                          canvas.width=canvas.height=1;
+                          const context=canvas.getContext('2d', {willReadFrequently:true});
+                          const rgba=color => {
+                            context.clearRect(0,0,1,1);
+                            context.fillStyle=color;
+                            context.fillRect(0,0,1,1);
+                            return [...context.getImageData(0,0,1,1).data];
+                          };
+                          const title=button.querySelector('.book-copy h3');
+                          const author=button.querySelector('.book-author');
+                          return {
+                            title:rgba(getComputedStyle(title).color),
+                            author:rgba(getComputedStyle(author).color),
+                            background:rgba(getComputedStyle(document.body).backgroundColor)
+                          };
+                        }''')
+                        def luminance(rgba):
+                            channels = [value / 255 for value in rgba[:3]]
+                            linear = [
+                                value / 12.92 if value <= 0.04045
+                                else ((value + 0.055) / 1.055) ** 2.4
+                                for value in channels
+                            ]
+                            return sum(value * weight for value, weight in zip(
+                                linear, (0.2126, 0.7152, 0.0722)))
+                        background = luminance(colors['background'])
+                        ratios = {}
+                        for key in ('title', 'author'):
+                            self.assertEqual(colors[key][3], 255, colors)
+                            foreground = luminance(colors[key])
+                            ratio = (max(foreground, background) + .05) / (
+                                min(foreground, background) + .05)
+                            self.assertGreaterEqual(ratio, 4.5, (theme, mode, key, colors))
+                            ratios[key] = ratio
+                        measurements.append({
+                            'theme': theme, 'mode': mode, 'ratios': ratios, **colors
+                        })
+            palette_pairs = {
+                (tuple(row['author']), tuple(row['background'])) for row in measurements
+            }
+            self.assertGreaterEqual(len(palette_pairs), 5, measurements)
+            (self.output / 'grid-theme-contrast.json').write_text(
+                json.dumps(measurements, indent=2))
+        finally:
+            settings.close()
+            self.page.bring_to_front()
+        expect(title_text).to_be_visible()
+        expect(author_text).to_be_visible()
+
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
