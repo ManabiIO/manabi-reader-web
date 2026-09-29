@@ -91,6 +91,53 @@ class GalleryUsabilityBrowser(LibraryBase):
             expect(self.page.locator('button[data-reader-controls]')).to_be_focused()
             self.page.set_viewport_size({'width': 320, 'height': 568})
 
+    def test_enlarged_gallery_close_remains_reachable_after_short_viewer_scroll(self):
+        self.page.set_viewport_size({'width': 320, 'height': 568})
+        panel = self.open_gallery('dark')
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        panel.get_by_role('button', name='View image 1', exact=True).click()
+        self.page.set_viewport_size({'width': 320, 'height': 320})
+        viewer = panel.locator('.gallery-viewer')
+        viewer.focus()
+        viewer.hover()
+        self.page.mouse.wheel(0, 900)
+        self.page.wait_for_function('e => e.scrollTop > 0', arg=viewer.element_handle())
+
+        close = panel.get_by_role('button', name='Close Image Gallery', exact=True)
+        geometry = close.bounding_box()
+        viewport = self.page.evaluate('''() => {
+          const v = visualViewport;
+          return {
+            left: v?.offsetLeft ?? 0,
+            top: v?.offsetTop ?? 0,
+            width: v?.width ?? innerWidth,
+            height: v?.height ?? innerHeight
+          };
+        }''')
+        self.assertGreaterEqual(geometry['width'], 44)
+        self.assertGreaterEqual(geometry['height'], 44)
+        self.assertGreaterEqual(geometry['x'], viewport['left'])
+        self.assertGreaterEqual(geometry['y'], viewport['top'])
+        self.assertLessEqual(
+            geometry['x'] + geometry['width'],
+            viewport['left'] + viewport['width']
+        )
+        self.assertLessEqual(
+            geometry['y'] + geometry['height'],
+            viewport['top'] + viewport['height']
+        )
+        self.hit_test(close)
+        close.focus()
+        expect(close).to_be_focused()
+
+        Path('test-results').mkdir(exist_ok=True)
+        self.page.screenshot(
+            path=f'test-results/{self.engine}-gallery-post-scroll-enlarged-close.png'
+        )
+        close.press('Enter')
+        expect(panel).to_have_count(0)
+        expect(self.page.locator('button[data-reader-controls]')).to_be_focused()
+
     def test_gallery_keeps_zoom_and_other_panes_out_of_wheel_paging(self):
         self.page.set_viewport_size({'width': 1440, 'height': 1000})
         panel = self.open_gallery('light')
