@@ -353,6 +353,70 @@ test('same UUID in another location is discovered without content-identity repla
   assert.equal(record.primary, locationKey(a));
   assert.equal(record.conflicts.length, 0);
 });
+test('causal descendant in another source wins independent of discovery order', async () => {
+  const who = owner(),
+    original = document('before'),
+    newer = editSnippet(original, plainContent('after'), ''),
+    staleLocation = {
+      source: source('stale-source'),
+      parent: '',
+      name: 'stale.manabi-snippet.json',
+      fileId: 'stale',
+      token: 'stale-token'
+    },
+    newerLocation = {
+      source: source('new-source'),
+      parent: '',
+      name: 'new.manabi-snippet.json',
+      fileId: 'new',
+      token: 'new-token'
+    };
+  // Fresh browser happens to discover the stale replica first.
+  await acceptRemote(who, original, staleLocation, guard);
+  await acceptRemote(who, newer, newerLocation, guard);
+  let record = await getRecord(who, original.id);
+  assert.equal(record.document.revision, newer.revision);
+  assert.equal(record.primary, locationKey(newerLocation));
+  assert.equal(record.conflicts.length, 0);
+  assert.equal(passages(record.document.content)[0].text, 'after');
+
+  // The reverse order must converge to the same logical state.
+  const secondOwner = owner();
+  await acceptRemote(secondOwner, newer, newerLocation, guard);
+  await acceptRemote(secondOwner, original, staleLocation, guard);
+  record = await getRecord(secondOwner, original.id);
+  assert.equal(record.document.revision, newer.revision);
+  assert.equal(record.primary, locationKey(newerLocation));
+  assert.equal(record.conflicts.length, 0);
+});
+
+test('causal descendant preserves portable trash state instead of resurrecting stale copy', async () => {
+  const who = owner(),
+    original = document('trash me'),
+    trashed = editSnippet(original, original.content, '');
+  trashed.trashedAt = Date.now();
+  const staleLocation = {
+      source: source('old-copy'),
+      parent: '',
+      name: 'old.manabi-snippet.json',
+      fileId: 'old',
+      token: '1'
+    },
+    trashedLocation = {
+      source: source('new-copy'),
+      parent: '',
+      name: 'new.manabi-snippet.json',
+      fileId: 'new',
+      token: '2'
+    };
+  await acceptRemote(who, original, staleLocation, guard);
+  await acceptRemote(who, parseSnippet(encodeSnippet(trashed)), trashedLocation, guard);
+  const record = await getRecord(who, original.id);
+  assert.equal(record.document.trashedAt, trashed.trashedAt);
+  assert.equal(record.primary, locationKey(trashedLocation));
+  assert.equal(record.conflicts.length, 0);
+});
+
 test('divergent remote edits are retained rather than last-write-wins', async () => {
   const who = owner(),
     doc = document(),
