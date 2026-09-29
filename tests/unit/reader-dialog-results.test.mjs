@@ -133,7 +133,6 @@ test('destroyed unresolved dialogs cancel once even if cleanup is repeated', () 
   }
 });
 
-
 test('external-read dismissal cancels an unresolved choice exactly once', () => {
   const h = dialog('external-read');
   h.destroy();
