@@ -103,7 +103,7 @@ export function planPersonalBookClaims(
   for (const [bookKey, group] of groups) {
     const owners = new Set<string>();
     let invalidOwner = false;
-    let currentPotential = false;
+    let currentRelevant = false;
     let currentMalformed = false;
 
     for (const book of group) {
@@ -114,20 +114,24 @@ export function planPersonalBookClaims(
 
       const libraryVisible = !book.libraryOwner || book.libraryOwner === accountId;
       const scopeVisible = !scope || scope.accountId === accountId;
-      if (libraryVisible && scopeVisible) {
-        currentPotential = true;
-        if (typeof book.title !== 'string') currentMalformed = true;
-      }
+      if (
+        book.libraryOwner === accountId ||
+        scope?.accountId === accountId ||
+        (!book.libraryOwner && !scope)
+      )
+        currentRelevant = true;
+      if (libraryVisible && scopeVisible && typeof book.title !== 'string')
+        currentMalformed = true;
     }
 
     // One browser data row is one reading history. Physical copies do not
     // create extra rows; they are BookLinks to that row. Multiple same-hash
     // rows therefore represent competing histories and must never be merged
     // by personal sync merely because their bytes are equal.
-    const competingHistories = group.length > 1 && currentPotential;
+    const competingHistories = group.length > 1 && currentRelevant;
     const conflictingOwners = owners.size > 1;
     if (invalidOwner || currentMalformed || competingHistories || conflictingOwners) {
-      if (currentPotential) blockedBookKeys.push(bookKey);
+      if (currentRelevant) blockedBookKeys.push(bookKey);
       continue;
     }
 
