@@ -39,9 +39,9 @@ export function appendPoint(points: readonly PitchPoint[], point: PitchPoint): P
 export function pitchPaths(points: readonly PitchPoint[], time: number) {
   const end = Math.max(0, Number.isFinite(time) ? time : 0);
   const start = end - WINDOW_SECONDS;
-  const visible = points.filter(
-    (p) => p.time >= Math.max(0, start) && p.time <= end && Number.isFinite(p.amplitude)
-  ).slice(-MAX_POINTS);
+  const visible = points
+    .filter((p) => p.time >= Math.max(0, start) && p.time <= end && Number.isFinite(p.amplitude))
+    .slice(-MAX_POINTS);
   const max = Math.max(0.01, ...visible.map((p) => p.amplitude));
   const x = (point: PitchPoint) => 8 + ((point.time - start) / WINDOW_SECONDS) * 616;
   const height = (point: PitchPoint) => Math.min(30, Math.max(0, (point.amplitude / max) * 30));
@@ -71,7 +71,9 @@ export function pitchPaths(points: readonly PitchPoint[], time: number) {
     segment.push(point);
     if (point.hz !== null && Number.isFinite(point.hz) && point.hz >= 85 && point.hz <= 520) {
       const y = pitchY(point.hz);
-      const join = previous?.hz != null && adjacent(previous, point) &&
+      const join =
+        previous?.hz != null &&
+        adjacent(previous, point) &&
         Math.abs(Math.log2(point.hz / previous.hz)) <= 0.75;
       // A tiny round-capped segment also makes an isolated voiced frame visible.
       pitch += `${join ? 'L' : 'M'}${x(point).toFixed(2)},${y.toFixed(2)}${join ? '' : 'l0.01,0'}`;

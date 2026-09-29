@@ -452,7 +452,10 @@ test('native Play waits for suspended output to resume before scheduling analysi
   f.a.dispatchEvent(new Event('pause'));
   f.context.state = 'suspended';
   let resume;
-  f.context.resume = () => new Promise((resolve) => { resume = resolve; });
+  f.context.resume = () =>
+    new Promise((resolve) => {
+      resume = resolve;
+    });
   f.play();
   f.frame(200);
   assert.equal(f.state.status, 'ready');

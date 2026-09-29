@@ -9,13 +9,22 @@
 
   $: paths = pitchPaths(state.points, state.time);
   $: subtitle = !state.enabled
-    ? available ? 'See how the voice rises and falls' : 'Choose an audio file to begin'
-    : state.status === 'loading' ? 'Preparing visualization'
-    : state.status === 'error' ? 'Visualization unavailable'
-    : state.activity === 'playing' ? 'Live · last 8 seconds'
-    : state.activity === 'buffering' ? 'Waiting for audio'
-    : state.activity === 'ended' ? 'Finished · trace held'
-    : state.points.length ? 'Paused · trace held' : 'Ready when you press Play';
+    ? available
+      ? 'See how the voice rises and falls'
+      : 'Choose an audio file to begin'
+    : state.status === 'loading'
+      ? 'Preparing visualization'
+      : state.status === 'error'
+        ? 'Visualization unavailable'
+        : state.activity === 'playing'
+          ? 'Live · last 8 seconds'
+          : state.activity === 'buffering'
+            ? 'Waiting for audio'
+            : state.activity === 'ended'
+              ? 'Finished · trace held'
+              : state.points.length
+                ? 'Paused · trace held'
+                : 'Ready when you press Play';
 </script>
 
 <div class="voice-pitch" class:enabled={state.enabled} data-testid="voice-pitch">
@@ -34,8 +43,8 @@
       aria-expanded={state.enabled}
       aria-controls={`${id}-content`}
       disabled={!available && !state.enabled}
-      on:click={onToggle}
-    >{state.enabled ? 'Hide' : 'Show'}</button>
+      on:click={onToggle}>{state.enabled ? 'Hide' : 'Show'}</button
+    >
   </div>
   <div id={`${id}-content`} hidden={!state.enabled}>
     {#if state.enabled}
@@ -55,7 +64,7 @@
             <div class="frequency-scale" aria-hidden="true">
               <span class="unit">Hz</span>
               {#each PITCH_GUIDES as guide (guide.hz)}
-                <span class="frequency" style:top={`${guide.y / 112 * 100}%`}>{guide.hz}</span>
+                <span class="frequency" style:top={`${(guide.y / 112) * 100}%`}>{guide.hz}</span>
               {/each}
             </div>
             <svg
@@ -79,20 +88,28 @@
             </svg>
             {#if !state.points.length}
               <p class="empty-label" role="status">
-                {available ? 'Press Play to follow the voice' : 'Choose an audio file to see pitch'}
+                {!available
+                  ? 'Choose an audio file to see pitch'
+                  : state.activity === 'playing'
+                    ? 'Listening for the voice…'
+                    : state.activity === 'buffering'
+                      ? 'Waiting for audio…'
+                      : 'Press Play to follow the voice'}
               </p>
             {/if}
           </div>
-          <div class="time-scale" aria-hidden="true"><span>−8 s</span><span>−4 s</span><span>Now</span></div>
+          <div class="time-scale" aria-hidden="true">
+            <span>−8 s</span><span>−4 s</span><span>Now</span>
+          </div>
         {/if}
       </div>
       <details>
         <summary>About this view</summary>
         <p>
-          Yellow follows the voice’s estimated pitch; the shaded waveform shows its volume.
-          Pausing holds the trace. Seeking starts a new one. Gaps can mean silence, unvoiced
-          speech, or a pitch outside 85–520 Hz. This is a listening aid, not a pitch-accent score.
-          Audio stays on your device.
+          Yellow follows the voice’s estimated pitch; the shaded waveform shows its volume. Pausing
+          holds the trace. Seeking starts a new one. Gaps can mean silence, unvoiced speech, or a
+          pitch outside 85–520 Hz. This is a listening aid, not a pitch-accent score. Audio stays on
+          your device.
         </p>
       </details>
     {/if}
@@ -110,56 +127,255 @@
     writing-mode: horizontal-tb;
     text-align: start;
   }
-  .heading { display: flex; align-items: center; gap: 0.75rem; }
-  .heading-icon { width: 1.375rem; height: 1.375rem; flex: none; opacity: 0.65; }
-  .heading-icon path { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
-  .heading-copy { flex: 1; min-width: 0; }
-  .label { font-size: 0.875rem; font-weight: 600; }
-  .subtitle { margin: 0.1rem 0 0; font-size: 0.75rem; line-height: 1.45; opacity: 0.72; }
-  button { min-height: 2.75rem; padding: 0.375rem 0.875rem; border: 1px solid var(--border); border-radius: 0.5rem; background: transparent; color: inherit; cursor: pointer; font-size: 0.8125rem; }
-  .toggle { min-width: 4.25rem; flex: none; }
-  .toggle[aria-expanded='true'] { background: color-mix(in srgb, var(--foreground) 6%, transparent); }
-  button:hover:not(:disabled), summary:hover { background: color-mix(in srgb, var(--foreground) 9%, transparent); }
-  button:focus-visible, summary:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
-  button:disabled { opacity: 0.45; cursor: default; }
-  .visualization { margin-top: 0.875rem; min-height: 8.75rem; }
-  .chart { position: relative; display: grid; grid-template-columns: 2rem minmax(0, 1fr); height: 7.5rem; }
-  .frequency-scale { position: relative; font-size: 0.625rem; line-height: 1; font-variant-numeric: tabular-nums; opacity: 0.6; }
-  .unit { position: absolute; top: 0; }
-  .frequency { position: absolute; transform: translateY(-50%); }
-  .trace { display: block; width: 100%; height: 100%; overflow: hidden; }
-  .trace path { vector-effect: non-scaling-stroke; }
-  .grid, .baseline, .playhead { fill: none; stroke: var(--foreground); stroke-width: 0.5; opacity: 0.14; }
-  .grid { stroke-dasharray: 2 5; }
-  .baseline { opacity: 0.08; }
-  .playhead { opacity: 0.24; }
-  .waveform { fill: var(--foreground); fill-opacity: 0.12; stroke: var(--foreground); stroke-opacity: 0.15; stroke-width: 0.75; }
-  .outline, .pitch, .tip { fill: none; stroke-linecap: round; stroke-linejoin: round; }
-  .outline { stroke: var(--foreground); stroke-width: 4; opacity: 0.32; }
-  .pitch, .tip { stroke: #ffd83d; stroke-width: 2; }
-  .tip { stroke-width: 5; }
-  .time-scale { display: flex; justify-content: space-between; margin: 0.25rem 0.35rem 0 2.35rem; font-size: 0.625rem; line-height: 1.4; opacity: 0.65; font-variant-numeric: tabular-nums; }
-  .empty .trace { opacity: 0.5; }
-  .empty-label { position: absolute; inset-inline: 2.5rem 0.5rem; top: 50%; transform: translateY(-50%); margin: 0; font-size: 0.75rem; text-align: center; background: var(--background); padding: 0.4rem; }
-  .feedback { min-height: 8.75rem; display: flex; align-items: center; justify-content: center; gap: 0.75rem; font-size: 0.8125rem; line-height: 1.5; }
-  .feedback p { margin: 0; overflow-wrap: anywhere; }
-  .error { justify-content: space-between; }
-  .error button { flex: none; }
-  details { margin-top: 0.5rem; font-size: 0.75rem; line-height: 1.6; }
-  summary { cursor: pointer; padding-block: 0.5rem; width: fit-content; border-radius: 0.25rem; opacity: 0.75; }
-  details p { max-width: 65ch; margin: 0.35rem 0 0; opacity: 0.8; }
-  .spinner { display: inline-block; flex: none; width: 1rem; height: 1rem; border: 2px solid currentColor; border-inline-end-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  @media (max-width: 420px) {
-    .voice-pitch { padding-inline: 0.75rem; }
-    .heading { gap: 0.5rem; }
-    .heading-icon { display: none; }
-    .feedback { flex-wrap: wrap; align-content: center; }
+  .heading {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
   }
-  @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+  .heading-icon {
+    width: 1.375rem;
+    height: 1.375rem;
+    flex: none;
+    opacity: 0.65;
+  }
+  .heading-icon path {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+  }
+  .heading-copy {
+    flex: 1;
+    min-width: 0;
+  }
+  .label {
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+  .subtitle {
+    margin: 0.1rem 0 0;
+    font-size: 0.75rem;
+    line-height: 1.45;
+    opacity: 0.72;
+  }
+  button {
+    min-height: 2.75rem;
+    padding: 0.375rem 0.875rem;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font-size: 0.8125rem;
+  }
+  .toggle {
+    min-width: 4.25rem;
+    flex: none;
+  }
+  .toggle[aria-expanded='true'] {
+    background: color-mix(in srgb, var(--foreground) 6%, transparent);
+  }
+  button:hover:not(:disabled),
+  summary:hover {
+    background: color-mix(in srgb, var(--foreground) 9%, transparent);
+  }
+  button:focus-visible,
+  summary:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 3px;
+  }
+  button:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  .visualization {
+    margin-top: 0.875rem;
+    min-height: 8.75rem;
+  }
+  .chart {
+    position: relative;
+    display: grid;
+    grid-template-columns: 2rem minmax(0, 1fr);
+    height: 7.5rem;
+  }
+  .frequency-scale {
+    position: relative;
+    font-size: 0.625rem;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    opacity: 0.6;
+  }
+  .unit {
+    position: absolute;
+    top: 0;
+  }
+  .frequency {
+    position: absolute;
+    transform: translateY(-50%);
+  }
+  .trace {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+  .trace path {
+    vector-effect: non-scaling-stroke;
+  }
+  .grid,
+  .baseline,
+  .playhead {
+    fill: none;
+    stroke: var(--foreground);
+    stroke-width: 0.5;
+    opacity: 0.14;
+  }
+  .grid {
+    stroke-dasharray: 2 5;
+  }
+  .baseline {
+    opacity: 0.08;
+  }
+  .playhead {
+    opacity: 0.24;
+  }
+  .waveform {
+    fill: var(--foreground);
+    fill-opacity: 0.12;
+    stroke: var(--foreground);
+    stroke-opacity: 0.15;
+    stroke-width: 0.75;
+  }
+  .outline,
+  .pitch,
+  .tip {
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .outline {
+    stroke: var(--foreground);
+    stroke-width: 4;
+    opacity: 0.32;
+  }
+  .pitch,
+  .tip {
+    stroke: #ffd83d;
+    stroke-width: 2;
+  }
+  .tip {
+    stroke-width: 5;
+  }
+  .time-scale {
+    display: flex;
+    justify-content: space-between;
+    margin: 0.25rem 0.35rem 0 2.35rem;
+    font-size: 0.625rem;
+    line-height: 1.4;
+    opacity: 0.65;
+    font-variant-numeric: tabular-nums;
+  }
+  .empty .trace {
+    opacity: 0.5;
+  }
+  .empty-label {
+    position: absolute;
+    inset-inline: 2.5rem 0.5rem;
+    top: 50%;
+    transform: translateY(-50%);
+    margin: 0;
+    font-size: 0.75rem;
+    text-align: center;
+    background: var(--background);
+    padding: 0.4rem;
+  }
+  .feedback {
+    min-height: 8.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+  }
+  .feedback p {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+  .error {
+    justify-content: space-between;
+  }
+  .error button {
+    flex: none;
+  }
+  details {
+    margin-top: 0.5rem;
+    font-size: 0.75rem;
+    line-height: 1.6;
+  }
+  summary {
+    cursor: pointer;
+    padding-block: 0.5rem;
+    width: fit-content;
+    border-radius: 0.25rem;
+    opacity: 0.75;
+  }
+  details p {
+    max-width: 65ch;
+    margin: 0.35rem 0 0;
+    opacity: 0.8;
+  }
+  .spinner {
+    display: inline-block;
+    flex: none;
+    width: 1rem;
+    height: 1rem;
+    border: 2px solid currentColor;
+    border-inline-end-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @media (max-width: 420px) {
+    .voice-pitch {
+      padding-inline: 0.75rem;
+    }
+    .heading {
+      gap: 0.5rem;
+    }
+    .heading-icon {
+      display: none;
+    }
+    .feedback {
+      flex-wrap: wrap;
+      align-content: center;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .spinner {
+      animation: none;
+    }
+  }
   @media (forced-colors: active) {
-    .pitch, .tip, .outline { stroke: Highlight; opacity: 1; }
-    .waveform { fill: GrayText; stroke: GrayText; }
-    .grid, .baseline, .playhead { stroke: CanvasText; opacity: 0.5; }
+    .pitch,
+    .tip,
+    .outline {
+      stroke: Highlight;
+      opacity: 1;
+    }
+    .waveform {
+      fill: GrayText;
+      stroke: GrayText;
+    }
+    .grid,
+    .baseline,
+    .playhead {
+      stroke: CanvasText;
+      opacity: 0.5;
+    }
   }
 </style>

@@ -1,83 +1,102 @@
 # Optional voice pitch in the audiobook transcript
 
-Use **Audiobook → Transcript → Voice pitch → Show** after choosing local audio
-and timed subtitles. Pitch is off by default. The compact strip shows a neutral
-waveform with a yellow (`#ffd83d`) acoustic contour over the most recent eight
-seconds of playback. The waveform and surface use the reader's foreground,
-background and border tokens in both light and dark appearances. No red target
-highlighting, kana labels, recording or upload is involved.
+Choose local audio and timed subtitles, then use **Audiobook → Transcript →
+Voice pitch → Show**. The visualization is off by default, and enabling it lasts
+only for the open book session. Audio stays on the device; no microphone,
+recording, upload or second playback element is involved.
 
-## Loading and lifetime
+## Reading the view
 
-The detector is a small, same-origin worker, not a downloaded machine-learning
-model. The worker is constructed only after enabling pitch and is excluded from
-the service worker's eager shell installation through its existing `lazyAssets`
-contract. The browser's normal HTTP cache may reuse the content-hashed worker on
-later enables. An uncached worker needs a connection; offline first use reports
-an error with Retry instead of blocking audiobook playback.
+The shaded waveform shows relative audio amplitude. The yellow (`#ffd83d`)
+contour shows estimated acoustic pitch, with higher lines representing a higher
+voice. Both the waveform and its surface follow the reader’s foreground,
+background and border tokens in light and dark modes.
 
-Loading remains visible until both the worker handshake and AudioContext resume
-complete. Loading, decoding/worker failures, timeouts and denied audio processing
-have recoverable states. Hide remains available during loading or an error.
-The enabled preference lasts for this open book session; it does not silently
-opt a later book or a new browser session into audio processing.
+The graph always places the most recent audio at the right. It shows the last
+eight seconds of media time, with −8 s / −4 s / Now labels and logarithmic
+100 / 200 / 400 Hz guides. A point marks the latest voiced estimate. Unvoiced
+frames, gaps, playback discontinuities and jumps greater than nine semitones
+break the contour rather than drawing misleading connecting lines.
+
+Pausing holds the completed trace. Seeking, looping, changing speed, choosing
+another audio file, or reopening the strip starts a new trace. Resuming after
+pause or buffering begins a separate contour segment. The About this view
+disclosure explains these limits without occupying the main transcript view.
+
+This is a **live rolling visualization**, not a precomputed full-cue graph.
+Not-yet-played passages have no contour. The 85–520 Hz range does not cover every
+voice, and music, noise or creaky speech can produce inaccurate estimates. It is
+a listening aid, **not dictionary pitch-accent inference or pronunciation grading**.
+Synthetic tone tests do not establish accuracy on Japanese speech.
+
+## Loading and playback lifetime
+
+A small, same-origin analysis worker is requested only on enable. It is not a
+machine-learning model and is excluded from the service worker’s eager shell
+installation through the existing `lazyAssets` contract. Normal HTTP caching
+may reuse the content-hashed worker on later enables. An uncached offline first
+use can fail; Retry and Hide remain available.
+
+The loading spinner remains until both worker readiness and AudioContext resume
+complete. Worker/download failures and unavailable audio output have distinct
+retry messages. Loading/error/empty states reserve graph space. The disclosure
+button has a 44 px minimum target, accurate expanded/control semantics and
+keyboard focus styling. Reduced-motion and forced-colors modes are supported.
 
 The controller belongs to the persistent audiobook player, not the dismissible
-Sheet. It reads bounded 40 ms frames from the existing local media element at
-most 25 times per second, with one worker request in flight and at most 400
-history points. It never reads/copies/decodes the entire audiobook. Hiding the
-strip, closing the transcript or hiding the browser tab terminates analysis work.
-Pausing stops sampling. Seeking, looping, changing speed, replacing audio and
-reopening the strip start a new contour; stale replies cannot restore old data.
+Sheet. It samples bounded 40 ms frames at most 25 times per second with one worker
+request in flight, and keeps at most 400 history points. It never decodes or
+copies the entire audiobook. Analysis stops when the strip, panel or browser tab
+is hidden; pausing, ending and buffering retire both pending results and their
+watchdogs. A fresh native audio window and available media data are required
+before sampling resumes. Stale callbacks cannot restore retired traces.
 
-**Important Web Audio invariant:** after capture, the media source's destination
-connection remains alive even while pitch is off. Disconnecting it, suspending
-its context or closing the context on Sheet dismissal would mute native playback.
-Only the analyser branch is removed on hide. The old source is released when the
-player retires its audio element; the AudioContext closes when the player is
-finally disposed. No second playback element is introduced.
+**Web Audio routing invariant:** once the media element is captured, its direct
+connection to the destination stays alive while visualization is hidden or off.
+Only the analyser branch is disconnected. Closing or suspending that context on
+Sheet dismissal would silence the existing player. Native Play resumes the
+retained context before scheduling analysis. Audio replacement retires the old
+source; final player disposal closes the context.
 
-## Provenance and limits
+## Provenance
 
-Adapted from ManabiIO/japanesevids-template `src/pitch-analysis.js`, the Black
-Belt waveform/pitch implementation used with ManabiIO/japanesevids-cli. Source
-blob inspected for the estimator: the `main` version on 2026-09-28; its tuning
-rationale is in `PITCH-ANALYSIS-TUNING.md` (blob
+The estimator is adapted from ManabiIO/japanesevids-template
+`src/pitch-analysis.js`, used by the Japanese Vids Black Belt template and
+ManabiIO/japanesevids-cli. The initial port inspected main on 2026-09-28 and the
+tuning rationale in `PITCH-ANALYSIS-TUNING.md` (blob
 `4a6a1bf3dced6aad2a87a142104868420a66735b`).
 
-The port retains the 85–520 Hz search range, at-most-12-kHz block averaging,
-mean-centred Hann frames, paired-energy normalized correlation, genuine local
-peak selection, 88% candidate preference, 0.52 voicing threshold, interpolated
-lag and peak/RMS waveform blend. It uses causal three-frame log-frequency
-smoothing and a rolling -35 dB relative gate, rather than the offline template's
-whole-clip gate, look-ahead median and greedy octave correction. The contour
-breaks across unvoiced gaps. Neither implementation is Praat or dictionary
-pitch-accent inference. Music, noise, creaky voices and voices outside the range
-can make the trace inaccurate or absent. Synthetic tones do not validate
-Japanese-speech accuracy.
-
-This is a **live rolling visualization**, not a precomputed full-cue graph. A
-paused, not-yet-played passage has no contour. Timestamp centres are based on the
-media clock and playback rate, not sample-exact audio/transcript alignment.
-No database schema, subtitle-delay semantics, matcher or playback API changed.
+The port retains at-most-12-kHz block averaging, mean-centred Hann frames,
+paired-energy normalized correlation, genuine local peak selection, 88%
+candidate preference, a 0.52 voicing threshold, interpolated lag and peak/RMS
+amplitude blend. Causal three-frame log-frequency smoothing and a rolling
+−35 dB relative gate replace offline look-ahead and whole-clip analysis.
+Timestamp centres follow media time and playback rate; they are not
+sample-exact transcript alignment. No subtitle-delay, matcher or database
+schema change is required.
 
 ## Qualification
 
-- `node test/pitch/run.mjs`: executes the actual TypeScript core after Node type
-  stripping; no duplicate test implementation. Forty-four tests cover tones at
-  six sample rates, invalid/silent input, bounded history, gaps, lazy loading,
-  stale readiness/results/animation callbacks, seeks, timeouts, retries, audio
-  replacement, preserved output routing, pauses and disposal.
-- `node test/pitch/run.mjs --emit=test-results/pitch-modules` followed by
-  `python test/pitch/browser.py test-results/pitch-modules`: native audio and
-  worker harness (not the bundled Svelte app). The dedicated workflow runs it
-  across Chromium, Firefox and WebKit.
-- Existing application CI remains responsible for the repository-pinned
-  TypeScript/Svelte check and the production static build. Before merging,
-  inspect the actual app in light/dark modes and verify that its built worker
-  filename matches the lazy-asset selector and is not requested by shell install.
+`node test/pitch/run.mjs` executes the actual TypeScript core through Node type
+stripping. The 52 tests include estimator fixtures at six sample rates, bounds,
+unvoiced gaps, missing/malformed replies, delayed initialization, seek/pause/end/
+buffering races, timeouts, retries, replacement, native resume, preserved routing,
+and the rolling graph geometry.
 
-Local evidence on the implementation pass: all 44 tests and a strict TypeScript
-5.8.3 check passed. Local native browser qualification was blocked by the
-container's HTTP navigation policy; it is not counted as passed. Cross-browser
-workflow results and actual-app visual acceptance are separate merge gates.
+`node test/pitch/run.mjs --emit=test-results/pitch-modules` followed by
+`python test/pitch/browser.py test-results/pitch-modules --browser chromium`
+exercises actual HTML audio, Web Audio and the worker over HTTP. The dedicated
+workflow runs Chromium and Firefox on Linux with an explicit audio output and
+WebKit on macOS. This module harness is separate from the application UI tests.
+
+After `BASE_PATH=/reader-web pnpm build`, run
+`python tests/browser/test_voice_pitch.py`. Its two actual-app journeys use
+normal EPUB/subtitle/audio import, the emitted worker and a changing-F0 audio
+fixture. They check no eager worker request during offline-shell installation,
+enable/disable, held paused traces, panel dismissal/reopening, seeking, mobile
+keyboard interaction, theme-derived waveform colors and the yellow contour.
+Screenshots and diagnostics are retained under `test-results/voice-pitch-app`.
+
+Repository lint, application type-check and build, the native engine matrix,
+and actual-app acceptance must be checked on the selected PR head. The PR
+qualification ledger records observed results; an added test is not a pass.

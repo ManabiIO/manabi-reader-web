@@ -48,8 +48,15 @@ export class PitchController {
   }
   private publish(patch: Partial<PitchState> = {}) {
     const audio = this.audio;
-    const activity = !audio ? 'idle' : audio.ended ? 'ended' : audio.paused ? 'paused' :
-      this.buffering || audio.seeking ? 'buffering' : 'playing';
+    const activity = !audio
+      ? 'idle'
+      : audio.ended
+        ? 'ended'
+        : audio.paused
+          ? 'paused'
+          : this.buffering || audio.seeking
+            ? 'buffering'
+            : 'playing';
     this.state = { ...this.state, ...patch, activity };
     if (!this.disposed) this.changed(this.state);
   }
@@ -211,8 +218,12 @@ export class PitchController {
             begin();
           }
         } else if (
-          event.data?.type === 'result' && this.pending && event.data.id === this.pending.id &&
-          !audio.paused && !audio.seeking && !this.buffering
+          event.data?.type === 'result' &&
+          this.pending &&
+          event.data.id === this.pending.id &&
+          !audio.paused &&
+          !audio.seeking &&
+          !this.buffering
         ) {
           const pending = this.pending!;
           this.pending = undefined;
@@ -250,9 +261,11 @@ export class PitchController {
       };
       this.loadTimer = this.environment.setTimer(() => {
         if (current())
-          this.fail(this.workerReady
-            ? 'Audio analysis could not start. Check your audio output, then retry.'
-            : 'Pitch could not load. Check your connection, then retry.');
+          this.fail(
+            this.workerReady
+              ? 'Audio analysis could not start. Check your audio output, then retry.'
+              : 'Pitch could not load. Check your connection, then retry.'
+          );
       }, 15000);
       void resumed
         .then(() => {
