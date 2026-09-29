@@ -2,77 +2,132 @@
 
 ## Interaction
 
-The default **All** view has three independent sections, in this order:
-**Dictionary**, **Titles**, **Content**. Exactly four pressed filter buttons are
-shown: All, Dictionary, Titles, Content. Each All section previews at most two
-matches, while its See all action selects the corresponding dedicated view.
-Dictionary mode requests full structured entries; it does not stretch a clipped
-preview. Titles/content reveal additional batches of 30 with a keyboard anchor.
+Search has two independent controls.
 
-Dictionary starts asynchronously and can fail independently of metadata or body
-search. Raw text stays unchanged in the global input. The dictionary alone tries
-Japanese spelling/romaji alternatives. Both search inputs retain composition-aware
-updates, and Escape does not dismiss an active IME candidate list.
+**Search in** selects the source family: **Everything**, **Books**, or
+**Snippets**. **Everything** includes Dictionary, saved book/snippet metadata and
+body text, and—only in video-enabled builds—saved video titles and already
+published transcript tracks. **Books** and **Snippets** never initialize the
+other source's search lifetime. Their source choice is navigation state, survives
+reloads, and does not rewrite the editable query.
 
-Books and snippets have differentiated icons and labels. Content rows identify the
-source title and preserve the existing exact book/snippet locator; book highlights
-use the engine-provided original-text offsets, never a new regex over normalized
-text. Each source has separate loading, empty and retry UI. Body search remains
-local; opening search never downloads a cloud book or starts transcription.
+**Show** selects the result presentation: **All**, **Dictionary**, **Titles**, or
+**Content**. Dictionary is available only for Everything. All previews at most
+two results from each section; See all switches to the corresponding dedicated
+view. Dictionary mode requests full structured entries instead of stretching a
+clipped preview. Titles and Content reveal additional batches of 30 with a
+keyboard focus anchor.
 
-## Current composition boundary
+Every asynchronous source owns cancellation, stale-result suppression, loading,
+failure and retry independently. A dictionary, snippet, video-store, or book-body
+failure must not erase successful sibling results. Switching to Books does not
+require Snippets scope readiness, and vice versa.
 
-This main-based implementation includes **books and snippets**, not videos.
-Video library/transcript storage currently lives in the separate draft stack
-Reader #46 / #67 / #79. Do not merge or activate that stack implicitly to make a
-search checkbox look complete. A video adapter must be composed against its
-chosen head, read only retained/authorized transcript tracks, return a timestamp
-locator, and honor account changes. That adapter and its end-to-end navigation
-remain an explicit follow-up before calling the entire requested feature complete.
+## Dictionary behavior
 
-The embedded renderer reuses Manabitan's static web structured definitions,
-frequency information and dictionary media handling. The extension's own search
-retains its full UI. Embedded audio, Anki and complete extension UI parity are not
-claimed here. English-gloss search and new grammar data are also not implemented.
+Raw text stays unchanged in the global input. Dictionary search alone evaluates
+Japanese spelling and romaji alternatives using Manabitan's existing converter
+and Yomitan-derived translator/deinflector.
 
-## Pinned assets and local ownership
+Exact and deinflected results always outrank completion. When all exact candidates
+miss, the pinned runtime may perform a conservative implicit prefix lookup only
+for a completed Japanese candidate of at least two code points with no remaining
+Latin letters. This allows partial romaji such as `gakko` to become
+`がっこ` and complete to words such as `学校` without turning arbitrary
+English or unfinished romaji into prefix enumeration. Prefix-derived results are
+labeled explicitly. A trailing `*` remains the explicit prefix-search form.
 
-`manabitan-version.json` selects an exact companion Manabitan source commit.
-`pnpm prepare:dictionary` builds that revision (or a clean checkout supplied with
-`MANABITAN_SOURCE`) and verifies generated assets. Normal root build/dev includes
-this preparation; a warm local build reuses verified output. First preparation
-needs GitHub/npm network access. Direct `apps/web` builds must prepare first.
+Both search inputs retain composition-aware updates; intermediate IME text is not
+submitted, and Escape does not dismiss an active IME candidate list.
 
-Runtime assets are under `static/manabitan/<revision>/`; the optional Jitendex ZIP
-is under `static/dictionary-archives/`. Existing service-worker exclusions prevent
-both from becoming eager shell cache downloads. The runtime is dynamically loaded
-only when dictionary search is used. Installing Jitendex or an imported ZIP is an
-explicit action. The Jitendex archive is pinned by byte count and SHA-256.
+The embedded renderer reuses Manabitan's static structured definitions, frequency
+information and dictionary media handling. The extension keeps its full UI.
+Embedded audio, Anki and complete extension-UI parity are not claimed here.
+English-gloss reverse search and new grammar data are not implemented.
 
-One lease-owned worker is shared per tab. Closing search retires its worker; a
-replacement waits for retirement. Other tabs' exclusive-storage failures appear
-as dictionary errors, not as empty result lists. No user query is sent to a
-third-party dictionary search service. Web dictionaries remain separate from the
-installed extension's storage and preferences.
+## Books, snippets and video
+
+Books and snippets retain differentiated labels and canonical locators. Book
+highlights use engine-provided original-text offsets rather than a regex over
+normalized text. Snippet navigation preserves the existing snippet locator.
+
+Video search is read-only over the media database. Titles come from saved
+`video_info` records. Content search reads only complete, published transcript
+tracks and applies saved per-track subtitle delays when producing timestamp
+locators. It does **not** reconnect a File/cloud source, download video bytes,
+start MOSS, or publish a transcript. Equivalent cues across candidate tracks are
+deduplicated; authored transcription tracks retain preference over generated or
+translation duplicates. Results are bounded per video and overall.
+
+Transcript navigation uses
+`/videos?media=<content-key>&time=<seconds>&track=<track-id>`. Opening such a
+result reuses the media workspace's normal source/account checks, selects the
+matched published track when it still exists, seeks while paused, and never
+autoplays.
+
+Transcript search enumerates validated track manifests once per query, groups
+them by content identity, skips videos with no transcript manifest without
+opening another IndexedDB transaction, and hydrates only the required caption
+pages. Account changes and query replacement cancel publication.
+
+## Release and ownership boundary
+
+Video learning is integrated in Reader PR #157 but remains a **default-off build
+feature**. `VITE_ENABLE_VIDEO_LEARNING=true` enables Videos navigation,
+video search, the media profile watcher and the `/videos` workspace. Ordinary
+builds hide those entry points; direct `/videos` access renders a page-not-found
+view without mounting the workspace. Heavy media modules are loaded dynamically
+only in enabled paths.
+
+MOSS runtime files are excluded from the offline application shell in every
+build. Enabled builds retain and verify the pinned single/threaded runtime.
+Default-off production builds remove `build/moss` after compilation and CI
+asserts that no MOSS artifact remains. This front-end gate does not enable the
+separate Reader backend serving/API boundary.
+
+The historical video stack (#46 / #67 / #79 / #153) is superseded by #157.
+Do not land new product fixes on those closed branches.
+
+## Pinned dictionary assets and local ownership
+
+`manabitan-version.json` selects an exact companion Manabitan commit.
+`pnpm prepare:dictionary` builds that revision (or a clean checkout supplied
+with `MANABITAN_SOURCE`) and verifies generated assets. Normal root build/dev
+includes this preparation; a warm local build reuses verified output. First
+preparation needs GitHub/npm network access. Direct `apps/web` builds must
+prepare first.
+
+Runtime assets are under `static/manabitan/<revision>/`; the optional Jitendex
+ZIP is under `static/dictionary-archives/`. Service-worker exclusions keep both
+out of eager shell caching. The runtime is dynamically loaded only when dictionary
+search is used. Installing Jitendex or an imported ZIP is explicit. The Jitendex
+archive is pinned by byte count and SHA-256.
+
+One lease-owned dictionary worker is shared per tab. Closing search retires its
+worker; a replacement waits for retirement. Other tabs' exclusive-storage
+failures appear as dictionary errors rather than empty results. No user query is
+sent to a third-party dictionary service. Web dictionaries remain separate from
+the installed extension's storage and preferences.
 
 The GPL runtime retains LICENSE, per-file notices and corresponding source/build
 instructions alongside the assets. Dictionary licensing remains separate.
 
 ## Research and acceptance
 
-The Moe Way favors Yomitan strongly; its resources do not establish universal
-consensus for Takoboto or a grammar-based reason to prefer it. Takoboto, Jotoba and
-Jiten are the relevant references alongside Jisho. Jiten's combined
+The Moe Way strongly favors Yomitan; its resources do not establish universal
+consensus for Takoboto or a grammar-based reason to prefer it. Takoboto, Jotoba
+and Jiten remain useful references alongside Jisho. Jiten's combined
 words/sentences/media entry point is especially aligned with this design.
 
 Sources: https://learnjapanese.moe/resources/ ; https://takoboto.jp/ ;
 https://jotoba.de/tour ; https://jiten.moe/ ;
 https://www.w3.org/WAI/ARIA/apg/patterns/tabs/
 
-Before merging: run query-lifetime unit tests, complete Svelte/TypeScript/lint and
-production builds with the exact runtime pin, and browser-test no-extension setup,
-Jitendex and custom dictionary import, Japanese IME, middle-of-input edits, stale
-success/error suppression, independent section failures, full-entry expansion,
-mobile layouts, light/dark themes, keyboard/assistive technology navigation,
-account changes and exact passage navigation. Build/unit success is not a claim
-of completed manual design or browser acceptance.
+Merge qualification belongs to the exact selected Reader and Manabitan heads:
+query-lifetime tests; Svelte/TypeScript/lint and production builds; no-extension
+setup; Jitendex/custom ZIP import; Japanese IME and middle-of-input edits;
+exact/deinflected/prefix precedence; stale success/error suppression; independent
+source failures; full-entry expansion; mobile/200% text; light/dark themes;
+keyboard and assistive-technology navigation; account/scope changes; exact
+book/snippet navigation; video timestamp navigation; and enabled/default-off
+packaging. Build or unit success alone is not manual/browser qualification.
