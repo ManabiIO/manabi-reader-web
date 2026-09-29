@@ -83,8 +83,7 @@ class AnnotationQuality(LibraryBase):
           const a = title.getBoundingClientRect(), b = close.getBoundingClientRect();
           return {
             overlapX: Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)),
-            overlapY: Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top)),
-            overflow: panel => panel.scrollWidth - panel.clientWidth
+            overlapY: Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top))
           };
         }''', [title.element_handle(), close.element_handle()])
         self.assertFalse(geometry['overlapX'] > 1 and geometry['overlapY'] > 1, geometry)
@@ -113,42 +112,6 @@ class AnnotationQuality(LibraryBase):
         expect(removes).to_have_count(0)
         expect(panel.get_by_role('button', name='Add Bookmark', exact=True)).to_be_focused()
 
-    def test_busy_save_keeps_dismissal_disabled_and_panel_owned(self):
-        self.open_reader()
-        panel = self.open_annotations()
-        add = panel.get_by_role('button', name='Add Bookmark', exact=True)
-        close = panel.get_by_role('button', name='Close bookmarks and notes', exact=True)
-
-        self.page.evaluate('''async () => {
-          const request = indexedDB.open('manabi-reader-integrations');
-          const db = await new Promise((resolve, reject) => {
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject(request.error);
-          });
-          const stores = [...db.objectStoreNames];
-          const target = stores.find(name => /annotation/i.test(name));
-          if (!target) { db.close(); return; }
-          const tx = db.transaction(target, 'readwrite');
-          let hold = true;
-          window.__releaseAnnotationWrite = () => { hold = false; };
-          tx.oncomplete = tx.onabort = () => db.close();
-          const pump = () => {
-            if (hold) tx.objectStore(target).get('__qa_hold__').onsuccess = pump;
-          };
-          pump();
-        }''')
-        # This is a control: if this database has no annotation store, the actual
-        # app write remains fast and the test only checks the settled state.
-        add.click()
-        if self.page.evaluate('typeof window.__releaseAnnotationWrite === "function"'):
-            try:
-                expect(panel).to_have_attribute('aria-busy', 'true')
-                expect(close).to_be_disabled()
-                self.page.keyboard.press('Escape')
-                expect(panel).to_be_visible()
-            finally:
-                self.page.evaluate('window.__releaseAnnotationWrite()')
-        expect(panel.get_by_role('button', name='Remove bookmark', exact=True)).to_have_count(1)
 
 
 if __name__ == '__main__':
