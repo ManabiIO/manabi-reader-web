@@ -533,8 +533,7 @@ class UnifiedSearch(ProductJourneyBase):
         results = self.page.get_by_label('Library search results', exact=True)
         expect(results).to_be_visible()
         self.assertLessEqual(results.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
-        self.assertLessEqual(
-            self.page.evaluate('document.documentElement.scrollWidth-innerWidth'), 1)
+        self.assert_no_document_horizontal_overflow()
 
         controls = results.locator('.search-controls')
         self.assertEqual('static', controls.evaluate('e => getComputedStyle(e).position'))
