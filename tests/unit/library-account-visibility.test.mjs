@@ -17,11 +17,11 @@ const links = [
 test('another account’s linked books cannot fall back to browser imports', () => {
   assert.deepEqual(
     visibleLibraryEntries(cards, links, 'account-a').cards.map((card) => card.id),
-    [1, 3, 4]
+    [1, 3]
   );
   assert.deepEqual(
     visibleLibraryEntries(cards, links, 'account-b').cards.map((card) => card.id),
-    [2, 3, 4]
+    [2, 3]
   );
   assert.deepEqual(
     visibleLibraryEntries(cards, links, null).cards.map((card) => card.id),
@@ -67,9 +67,29 @@ test('content ownership outranks links and contradictory private claims fail clo
     ]),
     undefined
   );
-  assert.deepEqual(
+  assert.equal(
     readerAccessOwners({}, undefined, [{ owner: 'account-a' }, { owner: 'account-b' }]),
-    ['account-a', 'account-b']
+    undefined
   );
   assert.deepEqual(readerAccessOwners({}, undefined, [{ owner: null }]), []);
+  assert.deepEqual(
+    readerAccessOwners({}, undefined, [
+      { owner: null },
+      { owner: 'account-a' },
+      { owner: 'account-b' }
+    ]),
+    []
+  );
+});
+
+test('a public local link keeps a legacy multi-account book public', () => {
+  const mixedLinks = [
+    { bookId: 7, owner: null },
+    { bookId: 7, owner: 'account-a' },
+    { bookId: 7, owner: 'account-b' }
+  ];
+  const card = { id: 7 };
+  assert.deepEqual(visibleLibraryEntries([card], mixedLinks, 'account-a').cards, [card]);
+  assert.deepEqual(visibleLibraryEntries([card], mixedLinks, 'account-b').cards, [card]);
+  assert.deepEqual(visibleLibraryEntries([card], mixedLinks, null).cards, [card]);
 });
