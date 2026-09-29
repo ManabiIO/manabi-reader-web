@@ -226,9 +226,10 @@ class ControlRefinementBrowser(modal_controls.ModalControlsBrowser):
 
         saved = panel.get_by_role('button').filter(has_text='Go to saved passage')
         expect(saved).to_have_count(1)
-        self.page.wait_for_function('e => e.scrollHeight > e.clientHeight', arg=panel.element_handle())
-        panel.evaluate('e => { e.scrollTop = e.scrollHeight; }')
-        self.page.wait_for_function('e => e.scrollTop > 0', arg=panel.element_handle())
+        scroll = panel.locator('[data-annotations-scroll]')
+        self.page.wait_for_function('e => e.scrollHeight > e.clientHeight', arg=scroll.element_handle())
+        scroll.evaluate('e => { e.scrollTop = e.scrollHeight; }')
+        self.page.wait_for_function('e => e.scrollTop > 0', arg=scroll.element_handle())
         saved = panel.get_by_role('button').filter(has_text='Go to saved passage')
         expect(saved).to_be_visible()
 
