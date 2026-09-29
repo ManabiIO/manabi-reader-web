@@ -26,12 +26,41 @@ const boundaryBefore = (value: string, index: number) =>
 
 function matchKey(value: string, needle: string): SearchMatchKey {
   const folded = foldSearch(value);
-  const index = folded.indexOf(needle);
-  const tier =
-    index < 0 ? 4 : folded === needle ? 0 : index === 0 ? 1 : boundaryBefore(folded, index) ? 2 : 3;
+  if (folded === needle)
+    return { tier: 0, index: 0, length: Array.from(folded).length, folded };
+
+  const first = folded.indexOf(needle);
+  if (first < 0)
+    return {
+      tier: 4,
+      index: Number.MAX_SAFE_INTEGER,
+      length: Array.from(folded).length,
+      folded
+    };
+
+  let best = first;
+  let tier = first === 0 ? 1 : 3;
+  if (tier === 3) {
+    // A later word/symbol boundary is more relevant than an earlier interior
+    // substring. Scan only until the first boundary match; all boundary matches
+    // share the same tier and the earliest one wins.
+    for (
+      let candidate = first;
+      candidate >= 0;
+      candidate = folded.indexOf(needle, candidate + 1)
+    ) {
+      if (boundaryBefore(folded, candidate)) {
+        best = candidate;
+        tier = 2;
+        break;
+      }
+    }
+  }
   return {
     tier,
-    index: index < 0 ? Number.MAX_SAFE_INTEGER : index,
+    // indexOf reports UTF-16 code units. Relevance positions are user-visible
+    // Unicode code points so supplementary characters do not distort ordering.
+    index: Array.from(folded.slice(0, best)).length,
     length: Array.from(folded).length,
     folded
   };
