@@ -584,16 +584,18 @@
       </div>
     {:else if selectMode}
       <div
-        class="mx-auto flex min-h-14 max-w-6xl flex-wrap items-center gap-2 border-t border-border/60 px-4 py-2 sm:px-6"
+        class="library-selection-toolbar mx-auto flex min-h-14 max-w-6xl flex-wrap items-center gap-2 border-t border-border/60 px-[16px] py-[8px] sm:px-[24px]"
         aria-label="Book selection"
       >
         <Button
+          class="selection-action"
           variant="ghost"
           disabled={libraryMenu?.selectedActions?.busy}
           onclick={() => (selectMode = false)}>Cancel selection</Button
         >
         <span class="whitespace-nowrap text-sm" aria-live="polite">{selectedCount} selected</span>
         <Button
+          class="selection-action"
           variant="outline"
           disabled={libraryMenu?.selectedActions?.busy}
           onclick={() => dispatch('selectAllClick')}
@@ -601,6 +603,7 @@
         >
         {#if selectedCount > 0}
           <Button
+            class="selection-action"
             variant="secondary"
             disabled={libraryMenu?.selectedActions?.busy ||
               libraryMenu?.selectedActions?.savedCount === 0}
@@ -827,6 +830,11 @@
     max-width: 100rem;
     margin-inline: auto;
     padding-inline: 1.5rem;
+  }
+  .library-selection-toolbar :global(.selection-action) {
+    min-height: 44px;
+    padding: 8px 12px;
+    border-radius: 10px;
   }
   @media (min-width: 1024px) {
     .library-header-inner {
