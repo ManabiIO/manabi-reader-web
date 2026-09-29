@@ -18,6 +18,8 @@ interface SearchMatchKey {
   tier: number;
   field: number;
   index: number;
+  /** UTF-16 offset in folded text for mapping back to the source. */
+  foldedIndex: number;
   length: number;
   folded: string;
 }
@@ -28,7 +30,14 @@ const boundaryBefore = (value: string, index: number) =>
 function matchKey(value: string, needle: string, field = 0): SearchMatchKey {
   const folded = foldSearch(value);
   if (folded === needle)
-    return { tier: 0, field, index: 0, length: Array.from(folded).length, folded };
+    return {
+      tier: 0,
+      field,
+      index: 0,
+      foldedIndex: 0,
+      length: Array.from(folded).length,
+      folded
+    };
 
   const first = folded.indexOf(needle);
   if (first < 0)
@@ -36,6 +45,7 @@ function matchKey(value: string, needle: string, field = 0): SearchMatchKey {
       tier: 4,
       field,
       index: Number.MAX_SAFE_INTEGER,
+      foldedIndex: -1,
       length: Array.from(folded).length,
       folded
     };
@@ -60,6 +70,7 @@ function matchKey(value: string, needle: string, field = 0): SearchMatchKey {
     // indexOf reports UTF-16 code units. Relevance positions are user-visible
     // Unicode code points so supplementary characters do not distort ordering.
     index: Array.from(folded.slice(0, best)).length,
+    foldedIndex: best,
     length: Array.from(folded).length,
     folded
   };
@@ -142,7 +153,7 @@ export function searchMatchRange(
       ends.push(part.index + part.segment.length);
     }
   }
-  const at = folded.indexOf(needle);
+  const at = matchKey(value, needle).foldedIndex;
   if (at < 0) return;
   const start = starts[at],
     end = ends[at + needle.length - 1];
