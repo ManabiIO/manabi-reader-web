@@ -95,6 +95,8 @@
           : [])
       ];
 
+  $: historyPageCount = Math.max(1, Math.ceil(trackingHistory.length / trackingItemsPerPage));
+  $: if (trackingHistoryIndex >= historyPageCount) trackingHistoryIndex = historyPageCount - 1;
   $: currentTrackingHistoryIndex = Math.max(0, trackingHistoryIndex * trackingItemsPerPage);
 
   $: trackingHistoryItems = trackingHistory.slice(
@@ -140,7 +142,10 @@
   }
 
   async function pageHistory(delta: -1 | 1) {
-    trackingHistoryIndex = Math.max(0, trackingHistoryIndex + delta);
+    trackingHistoryIndex = Math.min(
+      historyPageCount - 1,
+      Math.max(0, trackingHistoryIndex + delta)
+    );
     await tick();
 
     // Keep keyboard ownership on an enabled pager when the activated control
@@ -469,7 +474,7 @@
               </div>
             {/each}
           </div>
-          <div class="mt-3 flex justify-between">
+          <div class="mt-3 flex items-center justify-between gap-2">
             <Button
               bind:ref={previousHistoryPage}
               variant="ghost"
@@ -483,6 +488,9 @@
             >
               <AppIcon icon={faChevronLeft} />
             </Button>
+            <span class="text-center text-sm text-muted-foreground" role="status" aria-live="polite">
+              Page {trackingHistoryIndex + 1} of {historyPageCount}
+            </span>
             <Button
               bind:ref={nextHistoryPage}
               variant="ghost"
