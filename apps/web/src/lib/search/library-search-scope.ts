@@ -1,4 +1,8 @@
-/** @license BSD-3-Clause */
+/**
+ * @license BSD-3-Clause
+ * Copyright (c) 2026, ッツ Reader Authors
+ * All rights reserved.
+ */
 
 export type LibrarySearchScope = 'everything' | 'books' | 'snippets';
 
@@ -22,7 +26,6 @@ const plans = {
 
 export const librarySearchScopePlan = (scope: LibrarySearchScope): LibrarySearchScopePlan =>
   plans[scope];
-
 
 export const parseLibrarySearchScope = (value: string | null): LibrarySearchScope =>
   value === 'books' || value === 'snippets' ? value : 'everything';

@@ -257,16 +257,21 @@ export async function acceptRemote(
       return { ...current, ...relocated, locations };
     if (primaryMissing && current.dirty && document.revision === current.remoteRevision)
       return { ...current, ...relocated, locations };
-    // A primary file can advance a clean local snapshot. A divergent copy cannot silently win.
+    // A causally newer copy is the same logical snippet, regardless of which
+    // provider happened to be scanned first in this browser. The primary home
+    // is local metadata and cannot make a stale ancestor win after reinstall.
+    // Concurrent siblings still become explicit conflicts.
     if (
       !current.dirty &&
       !current.transfer &&
-      (current.primary === key || primaryMissing) &&
+      !current.upload &&
+      !current.conflicts.length &&
       document.parents.includes(current.document.revision)
     )
       return {
         ...current,
-        ...relocated,
+        primary: key,
+        destination: location,
         document,
         locations,
         remoteRevision: document.revision,
