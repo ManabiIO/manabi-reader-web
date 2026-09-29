@@ -1,102 +1,116 @@
 # Optional voice pitch in the audiobook transcript
 
 Choose local audio and timed subtitles, then use **Audiobook → Transcript →
-Voice pitch → Show**. The visualization is off by default, and enabling it lasts
+Voice pitch → Show**. The visualization is off by default and remains enabled
 only for the open book session. Audio stays on the device; no microphone,
-recording, upload or second playback element is involved.
+recording, upload, second playback element, or server analysis is involved.
 
 ## Reading the view
 
 The shaded waveform shows relative audio amplitude. The yellow (`#ffd83d`)
 contour shows estimated acoustic pitch, with higher lines representing a higher
-voice. Both the waveform and its surface follow the reader’s foreground,
-background and border tokens in light and dark modes.
+fundamental frequency. The waveform and surface use the reader's foreground,
+background and border tokens in light and dark appearances.
 
 The graph always places the most recent audio at the right. It shows the last
 eight seconds of media time, with −8 s / −4 s / Now labels and logarithmic
 100 / 200 / 400 Hz guides. A point marks the latest voiced estimate. Unvoiced
-frames, gaps, playback discontinuities and jumps greater than nine semitones
-break the contour rather than drawing misleading connecting lines.
+frames, low-confidence frames, playback discontinuities and implausibly large
+display jumps break the contour rather than joining unrelated estimates.
 
 Pausing holds the completed trace. Seeking, looping, changing speed, choosing
 another audio file, or reopening the strip starts a new trace. Resuming after
-pause or buffering begins a separate contour segment. The About this view
-disclosure explains these limits without occupying the main transcript view.
+pause or buffering begins a separate contour segment.
 
-This is a **live rolling visualization**, not a precomputed full-cue graph.
-Not-yet-played passages have no contour. The 85–520 Hz range does not cover every
-voice, and music, noise or creaky speech can produce inaccurate estimates. It is
-a listening aid, **not dictionary pitch-accent inference or pronunciation grading**.
-Synthetic tone tests do not establish accuracy on Japanese speech.
+This is a **live rolling visualization**, not a precomputed full-cue graph and
+not dictionary pitch-accent inference or pronunciation grading.
 
-## Loading and playback lifetime
+## SwiftF0 detector
 
-A small, same-origin analysis worker is requested only on enable. It is not a
-machine-learning model and is excluded from the service worker’s eager shell
-installation through the existing `lazyAssets` contract. Normal HTTP caching
-may reuse the content-hashed worker on later enables. An uncached offline first
-use can fail; Retry and Hide remain available.
+Pitch is estimated by **SwiftF0 0.3.0**, using the upstream MIT-licensed ONNX
+model from `lars76/swift-f0`. The exact vendored model is recorded in
+`SWIFTF0-NOTICE.txt`.
 
-The loading spinner remains until both worker readiness and AudioContext resume
-complete. Worker/download failures and unavailable audio output have distinct
-retry messages. Loading/error/empty states reserve graph space. The disclosure
-button has a 44 px minimum target, accurate expanded/control semantics and
-keyboard focus styling. Reduced-motion and forced-colors modes are supported.
+The detector runs at its native 16 kHz sample rate. Reader resamples only the
+bounded analysis window; audible playback and transcription continue to use the
+original media stream. SwiftF0 emits estimates every 16 ms and needs temporal
+context around an estimate. Reader samples a ~683 ms Web Audio history window
+(at the requested 48 kHz analysis context) every 80 ms and publishes only model
+frames with SwiftF0's required future context. Overlapping windows are
+deduplicated by media timestamp.
+
+SwiftF0 confidence below 0.5 is treated as unvoiced. Digitally silent frames are
+also suppressed. A rolling speech-oriented level gate suppresses candidate pitch
+more than 20 dB below the recent voiced level, following SwiftF0's guidance for
+speech applications.
+
+**Important limitation:** SwiftF0 detects pitched sound, not speaker identity.
+Music, another speaker, or other tonal background audio can still be reported as
+pitch, particularly when the intended speaker pauses. The confidence and level
+gates reduce misleading traces but do not perform source separation. When the
+detector is uncertain Reader prefers a gap over inventing a contour.
+
+## Loading and resource isolation
+
+SwiftF0 is loaded only after the user presses **Show**. The lazy graph consists
+of the pitch worker, the pinned SwiftF0 model and ONNX Runtime Web's WASM
+backend. Those emitted assets are excluded from the service worker's eager
+offline-shell installation. Normal browser caching may reuse them after first
+use; an uncached first use therefore needs a network connection.
+
+ONNX Runtime is configured for the **WASM CPU backend with one inference
+thread**. Voice pitch does not request WebGPU. This is deliberate so the
+optional visualization does not compete for the GPU execution path used by
+other local ML features. The worker is terminated when pitch is hidden, the
+sheet is dismissed or the page is hidden.
+
+The loading spinner remains until both the SwiftF0 inference session and the
+Web Audio context are ready. A cold runtime/model load gets a 30-second bounded
+startup window. Retry and Hide remain available on failure.
+
+## Playback lifetime
 
 The controller belongs to the persistent audiobook player, not the dismissible
-Sheet. It samples bounded 40 ms frames at most 25 times per second with one worker
-request in flight, and keeps at most 400 history points. It never decodes or
-copies the entire audiobook. Analysis stops when the strip, panel or browser tab
-is hidden; pausing, ending and buffering retire both pending results and their
-watchdogs. A fresh native audio window and available media data are required
-before sampling resumes. Stale callbacks cannot restore retired traces.
+Sheet. Once Web Audio captures the media element, its direct
+media-source → destination connection stays alive while pitch is hidden or off.
+Only the optional analyser branch is disconnected. Closing or suspending that
+context on Sheet dismissal would silence the existing player, so final context
+shutdown happens only when the player is disposed.
 
-**Web Audio routing invariant:** once the media element is captured, its direct
-connection to the destination stays alive while visualization is hidden or off.
-Only the analyser branch is disconnected. Closing or suspending that context on
-Sheet dismissal would silence the existing player. Native Play resumes the
-retained context before scheduling analysis. Audio replacement retires the old
-source; final player disposal closes the context.
+Analysis uses one worker request in flight. Pausing, ending, buffering, seeking,
+rate changes and audio replacement retire pending replies and their watchdogs.
+An epoch plus monotonically increasing media timestamps prevents an old worker
+result from restoring a retired contour. The graph keeps at most 560 points,
+which bounds the dense 16 ms SwiftF0 output over the eight-second display.
 
-## Provenance
+## Provenance and licensing
 
-The estimator is adapted from ManabiIO/japanesevids-template
-`src/pitch-analysis.js`, used by the Japanese Vids Black Belt template and
-ManabiIO/japanesevids-cli. The initial port inspected main on 2026-09-28 and the
-tuning rationale in `PITCH-ANALYSIS-TUNING.md` (blob
-`4a6a1bf3dced6aad2a87a142104868420a66735b`).
+SwiftF0 upstream: `https://github.com/lars76/swift-f0`.
 
-The port retains at-most-12-kHz block averaging, mean-centred Hann frames,
-paired-energy normalized correlation, genuine local peak selection, 88%
-candidate preference, a 0.52 voicing threshold, interpolated lag and peak/RMS
-amplitude blend. Causal three-frame log-frequency smoothing and a rolling
-−35 dB relative gate replace offline look-ahead and whole-clip analysis.
-Timestamp centres follow media time and playback rate; they are not
-sample-exact transcript alignment. No subtitle-delay, matcher or database
-schema change is required.
+The vendored model is SwiftF0 0.3.0, upstream Git blob
+`3619f9ab7ad7c852b995550c74d971be236225d7`, licensed MIT. ONNX Runtime Web
+1.29.0 is also MIT licensed and is pinned by the web package manifest.
+
+The previous JapaneseVids-derived normalized-autocorrelation estimator is no
+longer used by Reader's Voice pitch feature.
 
 ## Qualification
 
-`node test/pitch/run.mjs` executes the actual TypeScript core through Node type
-stripping. The 52 tests include estimator fixtures at six sample rates, bounds,
-unvoiced gaps, missing/malformed replies, delayed initialization, seek/pause/end/
-buffering races, timeouts, retries, replacement, native resume, preserved routing,
-and the rolling graph geometry.
+The dependency-free core suite exercises resampling, graph bounds and the
+controller's worker/audio lifecycle. Its native module harness intentionally
+uses a deterministic detector stub so it can isolate Web Audio routing,
+capture reuse, cancellation, seek/pause/buffering races and disposal without
+pretending to qualify the neural model.
 
-`node test/pitch/run.mjs --emit=test-results/pitch-modules` followed by
-`python test/pitch/browser.py test-results/pitch-modules --browser chromium`
-exercises actual HTML audio, Web Audio and the worker over HTTP. The dedicated
-workflow runs Chromium and Firefox on Linux with an explicit audio output and
-WebKit on macOS. This module harness is separate from the application UI tests.
-
+**Actual SwiftF0 qualification belongs to the production-app browser test.**
 After `BASE_PATH=/reader-web pnpm build`, run
-`python tests/browser/test_voice_pitch.py`. Its two actual-app journeys use
-normal EPUB/subtitle/audio import, the emitted worker and a changing-F0 audio
-fixture. They check no eager worker request during offline-shell installation,
-enable/disable, held paused traces, panel dismissal/reopening, seeking, mobile
-keyboard interaction, theme-derived waveform colors and the yellow contour.
-Screenshots and diagnostics are retained under `test-results/voice-pitch-app`.
+`python tests/browser/test_voice_pitch.py --browser <engine>`. It imports a
+normal EPUB, subtitles and changing-F0 local WAV through the built application,
+verifies that the worker/model/WASM are not requested by offline-shell
+installation, enables pitch, observes real SwiftF0 results, exercises playback
+lifetime and captures light/dark appearance.
 
-Repository lint, application type-check and build, the native engine matrix,
-and actual-app acceptance must be checked on the selected PR head. The PR
-qualification ledger records observed results; an added test is not a pass.
+The dedicated workflow runs that built-app journey in Chromium, Firefox and
+WebKit. Repository lint, Svelte/TypeScript checking, production build and all
+three real SwiftF0 browser jobs must pass on the selected head before the PR's
+qualification ledger can call the detector switch complete.
