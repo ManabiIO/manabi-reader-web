@@ -10,7 +10,11 @@
   import { snippetItems, scope } from '../snippets/service';
   import { snippetKey, type SnippetHit } from '../snippets/document';
   import { searchBodies } from '../snippets/search';
-  import { foldSearch, sortSearchText } from '../library/search-normalization';
+  import {
+    foldSearch,
+    searchMatchRange,
+    sortSearchText
+  } from '../library/search-normalization';
   import { creatorLine } from '../library/book-metadata';
   import type { ShelfBook } from '../library/view-model';
   import type { ReaderLocator } from '../reader-location';
@@ -42,6 +46,7 @@
     title: string;
     label: string;
     detail?: string;
+    titleMatch?: { start: number; end: number };
     /** Search-only metadata used for relevance; never rendered directly. */
     searchText?: readonly string[];
     excerpt?: string;
@@ -210,6 +215,7 @@
         title: book.title,
         label: `Read ${book.title}`,
         detail: bookDetail(book, selectedQuery),
+        titleMatch: searchMatchRange(book.title, selectedQuery),
         searchText: [
           book.title,
           book.canonicalTitle,
@@ -227,6 +233,7 @@
               kind: 'Snippet',
               title: item.title,
               label: `Read snippet ${item.title}`,
+              titleMatch: searchMatchRange(item.title, selectedQuery),
               open: () => openSnippet(item)
             }))
         : [];
@@ -264,6 +271,7 @@
             title: hit.title,
             label: `Open video ${hit.title}`,
             detail: hit.duration > 0 ? formatMediaTime(hit.duration) : undefined,
+            titleMatch: searchMatchRange(hit.title, selectedQuery),
             open: () => openVideo(hit.key)
           }));
         } catch (error) {
@@ -571,7 +579,7 @@
                 >{#if row.kind === 'Book'}<BookOpen size={20} />{:else if row.kind === 'Video'}<Video size={20} />{:else}<FileText size={20} />{/if}</span
               >
               <span class="row-copy"
-                ><strong>{row.title}</strong><small
+                ><strong><SearchExcerpt text={row.title} match={row.titleMatch} /></strong><small
                   >{row.kind}{row.detail ? ` · ${row.detail}` : ''}</small
                 ></span
               >
