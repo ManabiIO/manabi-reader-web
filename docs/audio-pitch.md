@@ -75,9 +75,13 @@ been removed rather than retained as a silent fallback.
 
 SwiftF0 requires about 176 ms of future context for a final streaming frame.
 Reader therefore analyzes a short rolling window and displays a slightly
-delayed acoustic estimate. Timestamp mapping follows media time and playback
-rate; it is not sample-exact transcript alignment. No subtitle-delay, matcher
-or database schema change is required.
+delayed acoustic estimate. Sampling is additionally gated by the timed subtitle
+timeline: between cues, no pitch requests are sent; the next cue starts a fresh
+contour after one SwiftF0 lookahead span. This prevents music-only subtitle gaps
+from being presented as voice pitch, but it cannot separate simultaneous pitched
+background audio from the speaker. Timestamp mapping follows media time and
+playback rate; it is not sample-exact transcript alignment. No subtitle-delay,
+matcher or database schema change is required.
 
 ## Qualification
 
