@@ -28,6 +28,7 @@
   export let searchScope: LibrarySearchScope = 'everything';
   export let books: ShelfBook[] = [];
   export let matches: ShelfBook[] = [];
+  export let bookMatchText: Record<string, readonly string[]> = {};
   export let snippetMembers: string[] | undefined = undefined;
   export let returnTo = '/manage';
   export let openBook: (book: ShelfBook, locator?: ReaderLocator) => void;
@@ -134,7 +135,8 @@
           book.title,
           book.canonicalTitle,
           (book.creators ?? []).map((creator) => [creator.name, creator.sortAs]),
-          book.series?.name ?? null
+          book.series?.name ?? null,
+          bookMatchText[book.key] ?? []
         ])
       : [],
     scopePlan.snippets ? eligible.map((item) => [item.key, item.revision]) : [],
@@ -199,7 +201,8 @@
           book.title,
           book.canonicalTitle,
           ...(book.creators ?? []).map((creator) => creator.name),
-          ...(book.series?.name ? [book.series.name] : [])
+          ...(book.series?.name ? [book.series.name] : []),
+          ...(bookMatchText[book.key] ?? [])
         ],
         open: () => openBook(book)
       }));
