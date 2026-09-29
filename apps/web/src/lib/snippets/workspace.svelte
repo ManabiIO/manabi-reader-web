@@ -1029,6 +1029,7 @@
             aria-label="Search snippets"
             placeholder="Search titles and content"
             aria-invalid={snippetSearchTooLong(query) ? true : undefined}
+            aria-describedby={snippetSearchTooLong(query) ? 'snippet-search-limit-error' : undefined}
             bind:value={query}
             oninput={(event) => {
               query = event.currentTarget.value;
