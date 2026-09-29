@@ -760,7 +760,15 @@ export class VideoWorkspace {
           );
           void this.refreshJobs().catch((error) => this.error(error));
         }
-        if (source.isCurrent && !source.isCurrent() && this.current?.source === source) {
+        let sourceCurrent = true;
+        if (source.isCurrent) {
+          try {
+            sourceCurrent = source.isCurrent();
+          } catch {
+            sourceCurrent = false;
+          }
+        }
+        if (!sourceCurrent && this.current?.source === source) {
           this.current = undefined;
           this.currentTranscription = undefined;
           player.setGenerationAvailable(false, 'The connected account changed. Reopen this video.');
