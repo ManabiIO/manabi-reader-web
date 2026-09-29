@@ -17,6 +17,7 @@
   export let iconOnly = false;
   export let compact = false;
   let open = false;
+  let navigationTrigger: HTMLButtonElement | null = null;
   const destinations = [
     {
       path: '/manage',
@@ -86,6 +87,7 @@
       {#snippet child({ props })}
         <Button
           {...props}
+          bind:ref={navigationTrigger}
           data-navigation-trigger
           variant="ghost"
           size={iconOnly ? 'icon' : 'default'}
@@ -93,15 +95,19 @@
           aria-label={iconOnly ? 'Main menu' : 'Navigate'}
           title={iconOnly ? 'Main menu' : undefined}
         >
-          <MenuIcon
-            class={iconOnly ? 'size-5' : 'size-4'}
-            aria-hidden="true"
-          />{#if !iconOnly}<span class="navigation-label">Navigate</span>{/if}
+          <MenuIcon class={iconOnly ? 'size-5' : 'size-4'} aria-hidden="true" />{#if !iconOnly}<span
+              class="navigation-label">Navigate</span
+            >{/if}
         </Button>
       {/snippet}
     </Sheet.Trigger>
     <Sheet.Content
       side={iconOnly ? 'left' : 'right'}
+      onCloseAutoFocus={(event) => {
+        if (!navigationTrigger?.isConnected) return;
+        event.preventDefault();
+        navigationTrigger.focus({ preventScroll: true });
+      }}
       class="data-[side=left]:w-[min(24rem,calc(100vw-1rem))] data-[side=right]:w-[min(24rem,calc(100vw-1rem))] overflow-y-auto"
     >
       <Sheet.Header>

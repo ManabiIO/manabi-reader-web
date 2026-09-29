@@ -141,7 +141,6 @@
       if (storageSourceStoredInManager) {
         await navigator.credentials
           .store(
-            // eslint-disable-next-line no-undef
             new PasswordCredential({
               id: storageSourceName,
               name: `${storageSourceName} (${storageSourceType})`,
@@ -228,7 +227,7 @@
       if (
         storageSourceType === StorageKey.FS &&
         directoryHandle &&
-        !(await configuredFSData?.directoryHandle.isSameEntry(directoryHandle))
+        !(await configuredFSData?.directoryHandle?.isSameEntry(directoryHandle))
       ) {
         getStorageHandler(window, StorageKey.FS).clearData();
       }
@@ -258,6 +257,8 @@
   <svelte:fragment slot="header"
     >{configuredName ? 'Edit storage source' : 'Add storage source'}</svelte:fragment
   >
+  <!-- Input and composition events are delegated to the form for dynamically rendered fields. -->
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <form
     id="storage-source-form"
     class="min-w-0"
