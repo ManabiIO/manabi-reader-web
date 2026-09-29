@@ -287,6 +287,40 @@ test('owned local open can detach legacy source metadata after the live ownershi
   assert.equal(db.rows('data')[0].storageSource, undefined);
 });
 
+test('resume target read hides a foreign pointer without deleting it', async () => {
+  const db = memoryDB({
+    data: [{ id: 1, title: 'Book', libraryOwner: 'bob' }],
+    readerBookScope: [],
+    lastItem: [{ dataId: 1 }]
+  });
+  assert.equal(await bookRecords.readOwnedLastItem(db, 'alice', () => undefined), undefined);
+  assert.deepEqual(db.rows('lastItem'), [{ dataId: 1 }]);
+
+  assert.deepEqual(await bookRecords.readOwnedLastItem(db, 'bob', () => undefined), {
+    dataId: 1
+  });
+});
+
+test('resume target read applies personal scope and ignores stale missing targets', async () => {
+  const scoped = memoryDB({
+    data: [{ id: 1, title: 'Book' }],
+    readerBookScope: [{ bookId: 1, accountId: 'alice' }],
+    lastItem: [{ dataId: 1 }]
+  });
+  assert.equal(await bookRecords.readOwnedLastItem(scoped, 'bob', () => undefined), undefined);
+  assert.deepEqual(await bookRecords.readOwnedLastItem(scoped, 'alice', () => undefined), {
+    dataId: 1
+  });
+
+  const missing = memoryDB({
+    data: [],
+    readerBookScope: [],
+    lastItem: [{ dataId: 999 }]
+  });
+  assert.equal(await bookRecords.readOwnedLastItem(missing, null, () => undefined), undefined);
+  assert.deepEqual(missing.rows('lastItem'), [{ dataId: 999 }]);
+});
+
 test('resume target persistence rejects a newly foreign book and preserves the previous target', async () => {
   const db = memoryDB({
     data: [{ id: 1, title: 'Book', libraryOwner: 'bob' }],
