@@ -318,15 +318,38 @@ async function readLocal(
 ): Promise<Payload> {
   scoped(accountId);
   const db = await database.db;
+  const copies = books.get(bookKey) ?? [];
   if (kind === 'annotation') {
-    const annotation = await db.get('readerAnnotation', entityId);
+    const tx = db.transaction([
+      'data',
+      'readerBookScope',
+      'readerAnnotation',
+      'readerAnnotationScope'
+    ]);
+    if (copies.length)
+      await livePersonalCopies(
+        bookKey,
+        copies,
+        tx.objectStore('data'),
+        tx.objectStore('readerBookScope'),
+        accountId,
+        () => scoped(accountId)
+      );
+    const [annotation, owner] = await Promise.all([
+      tx.objectStore('readerAnnotation').get(entityId),
+      tx.objectStore('readerAnnotationScope').get(entityId)
+    ]);
     scoped(accountId);
+    if (owner && owner.accountId !== accountId)
+      throw new Error(
+        'Annotation ownership changed while personal reading data was syncing. No reading state was changed.'
+      );
+    await tx.done;
     return annotation && !annotation.deletedAt
       ? wirePayload(annotation as unknown as Record<string, unknown>)
       : null;
   }
 
-  const copies = books.get(bookKey) ?? [];
   if (!copies.length) return null;
   if (kind === 'statistics') {
     const day = dayId.exec(entityId)?.[1];
@@ -394,9 +417,30 @@ async function applyLocal(
 ) {
   scoped(accountId);
   const db = await database.db;
+  const copies = books.get(bookKey) ?? [];
   if (kind === 'annotation') {
-    const tx = db.transaction('readerAnnotation', 'readwrite');
-    const before = await tx.store.get(entityId);
+    const tx = db.transaction(
+      ['data', 'readerBookScope', 'readerAnnotation', 'readerAnnotationScope'],
+      'readwrite'
+    );
+    if (copies.length)
+      await livePersonalCopies(
+        bookKey,
+        copies,
+        tx.objectStore('data'),
+        tx.objectStore('readerBookScope'),
+        accountId,
+        () => scoped(accountId)
+      );
+    const [before, owner] = await Promise.all([
+      tx.objectStore('readerAnnotation').get(entityId),
+      tx.objectStore('readerAnnotationScope').get(entityId)
+    ]);
+    scoped(accountId);
+    if (owner && owner.accountId !== accountId)
+      throw new Error(
+        'Annotation ownership changed while personal reading data was syncing. No reading state was changed.'
+      );
     const current =
       before && !before.deletedAt
         ? wirePayload(before as unknown as Record<string, unknown>)
@@ -406,18 +450,21 @@ async function applyLocal(
       throw new IntegrationError('conflict', 409);
     }
     scoped(accountId);
-    if (payload) await tx.store.put(payload as unknown as ReaderAnnotation);
-    else if (before)
-      await tx.store.put({
+    if (payload) {
+      await tx.objectStore('readerAnnotation').put(payload as unknown as ReaderAnnotation);
+      if (!owner)
+        await tx.objectStore('readerAnnotationScope').put({ annotationId: entityId, accountId });
+    } else if (before)
+      await tx.objectStore('readerAnnotation').put({
         ...before,
         deletedAt: new Date().toISOString(),
         revision: before.revision + 1
       });
+    scoped(accountId);
     await tx.done;
     return;
   }
 
-  const copies = books.get(bookKey) ?? [];
   if (!copies.length) return;
   if (kind === 'statistics') {
     const day = dayId.exec(entityId)?.[1];
