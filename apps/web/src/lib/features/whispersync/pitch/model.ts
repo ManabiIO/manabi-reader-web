@@ -21,7 +21,7 @@ export const initialPitchState = (): PitchState => ({
   time: 0
 });
 export const WINDOW_SECONDS = 8;
-export const MAX_POINTS = 400;
+export const MAX_POINTS = 560;
 const MAX_GAP = 0.18;
 const pitchY = (hz: number) => 90 - (Math.log2(hz / 85) / Math.log2(520 / 85)) * 76;
 export const PITCH_GUIDES = [400, 200, 100].map((hz) => ({ hz, y: pitchY(hz) }));
