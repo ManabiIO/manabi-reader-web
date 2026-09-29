@@ -27,6 +27,10 @@ import {
   snapshotBookmarkData
 } from './book-records';
 import { captureLibraryOperation } from '$lib/manabi/operation-scope';
+import {
+  claimStatisticSyncScope,
+  removeStatisticSyncScope
+} from '$lib/manabi/statistic-sync-scope';
 import type {
   BooksDbAudioBook,
   BooksDbBookData,
@@ -651,6 +655,7 @@ export class DatabaseService {
       | 'readerBookScope'
       | 'readerStatistic'
       | 'readerLocalIdentity'
+      | 'readerStatisticScope'
     )[] = [
       'data',
       'audioBook',
@@ -658,11 +663,14 @@ export class DatabaseService {
       'handle',
       'readerSearchProjection',
       'readerBookScope',
+      'readerStatisticScope',
+      'readerStatistic',
+      'readerLocalIdentity',
+      'statistic',
       'bookmark',
       'lastItem'
     ];
-    if (shouldDeleteStatistics)
-      storeNames.push('statistic', 'lastModified', 'readerStatistic', 'readerLocalIdentity');
+    if (shouldDeleteStatistics) storeNames.push('lastModified');
 
     const tx = db.transaction(storeNames, 'readwrite');
     let removedLastItem = false;
@@ -694,21 +702,43 @@ export class DatabaseService {
               (id) => id !== dataId
             )
           : false;
+        const local = book ? await tx.objectStore('readerLocalIdentity').get(dataId) : undefined;
+        const contentKey = book ? contentStatisticKey(book) : undefined;
+        const retainedOwner = new Set<string>();
+        if (book?.libraryOwner) retainedOwner.add(book.libraryOwner);
+        if (owner?.accountId) retainedOwner.add(owner.accountId);
+        if (retainedOwner.size > 1)
+          throw new Error('This book has conflicting account ownership. No data was changed.');
+        const retainedAccount = retainedOwner.values().next().value as string | undefined;
+
+        if (!shouldDeleteStatistics && book && contentKey && retainedAccount) {
+          const hasContentStatistics =
+            (await tx.objectStore('readerStatistic').getKey(statisticRange(contentKey))) !==
+            undefined;
+          const hasLegacyStatistics =
+            (await tx
+              .objectStore('statistic')
+              .getKey(IDBKeyRange.bound([book.title], [book.title, []]))) !== undefined;
+          if (hasContentStatistics || hasLegacyStatistics)
+            await claimStatisticSyncScope(
+              tx.objectStore('readerStatisticScope'),
+              contentKey,
+              retainedAccount
+            );
+        }
+
         const lastItem = await tx.objectStore('lastItem').get(LAST_ITEM_KEY);
         if (lastItem?.dataId === dataId) {
           await tx.objectStore('lastItem').delete(LAST_ITEM_KEY);
           removedLastItem = true;
         }
         await tx.objectStore('bookmark').delete(dataId);
-        // Personal sync records are content/account keyed and may outlive the
-        // cached copy. The numeric book ownership row cannot: once this dataId
-        // is gone it must not survive as an orphaned authorization artifact.
+        // The numeric book scope is tied to the row. Retained statistics keep a
+        // separate content-keyed sync receipt above when account ownership exists.
         await tx.objectStore('readerBookScope').delete(dataId);
 
         if (shouldDeleteStatistics && book) {
           const keys = new Set<string>();
-          const contentKey = contentStatisticKey(book);
-          const local = await tx.objectStore('readerLocalIdentity').get(dataId);
           if (local) keys.add(`local:${local.uuid}`);
           if (contentKey) {
             // Use the content index rather than cloning every stored EPUB merely
@@ -724,6 +754,7 @@ export class DatabaseService {
           for (const key of keys) {
             await tx.objectStore('readerStatistic').delete(statisticRange(key));
             await tx.objectStore('lastModified').delete([key, StorageDataType.STATISTICS]);
+            await removeStatisticSyncScope(tx.objectStore('readerStatisticScope'), key);
           }
         }
         if (shouldDeleteStatistics && bookTitle && !titleUsedByAnotherBook) {
