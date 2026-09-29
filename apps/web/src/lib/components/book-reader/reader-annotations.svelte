@@ -104,7 +104,6 @@
         variant="secondary"
         disabled={busy}
         onclick={() => dispatch('bookmark')}
-      
         ><BookmarkSimple aria-hidden="true" />Add Bookmark</Button
       >
       <Button
