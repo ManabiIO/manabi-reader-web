@@ -392,6 +392,26 @@ class UnifiedSearch(ProductJourneyBase):
         self.assertEqual(identity['mediaKey'], params['media'])
         self.assertEqual('14.5', params['time'])
         self.assertEqual(identity['trackId'], params['track'])
+
+        # This fixture intentionally publishes durable metadata/captions without
+        # a reconnectable local/cloud alias. The receiver must keep the Videos
+        # library usable, explain the reconnect requirement, and never invent a
+        # source merely because the global search result was actionable.
+        expect(self.page.get_by_role('heading', name='Videos', exact=True)).to_be_visible()
+        expect(self.page.get_by_role('status')).to_contain_text(
+            'Reopen this video to reconnect its local file, or sign in to reconnect its cloud folder.',
+            timeout=30000,
+        )
+        expect(self.page.get_by_role('button', name='Searchable video', exact=True)).to_be_visible()
+        expect(self.page.locator('.manabi-video-player')).to_have_count(0)
+        local_count_after = self.page.evaluate("""async () => {
+          const db=await new Promise((yes,no)=>{const r=indexedDB.open('manabi-media-v1');
+            r.onsuccess=()=>yes(r.result);r.onerror=()=>no(r.error)});
+          const count=await new Promise((yes,no)=>{const tx=db.transaction('local','readonly');
+            const q=tx.objectStore('local').count();q.onsuccess=()=>yes(q.result);q.onerror=()=>no(q.error)});
+          db.close();return count;
+        }""")
+        self.assertEqual(0, local_count_after)
         self.checkpoint('unified-video-transcript-deep-link')
 
     def test_video_transcript_search_refreshes_after_published_track_change_and_latest_query_wins(self):
