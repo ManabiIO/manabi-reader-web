@@ -6,7 +6,8 @@ Upstream: https://github.com/lars76/swift-f0
 Model path upstream: swift_f0/model.onnx
 Git blob: 3619f9ab7ad7c852b995550c74d971be236225d7
 Model size: 135,090 bytes
-License: MIT
+License: MIT (full text: /licenses/swift-f0.txt)
+ONNX Runtime Web license: MIT (full text: /licenses/onnxruntime-web.txt)
 Paper: “SwiftF0: Fast and Accurate Monophonic Pitch Detection” (Lars Nieradzik)
 
 The model detects pitched sound, not speaker identity. Reader uses it only for
