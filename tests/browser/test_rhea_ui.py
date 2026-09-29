@@ -274,7 +274,7 @@ class RheaReader(previous.RefinedAppearance):
             self.page.wait_for_function('localStorage.getItem("fontSize") === "21"')
             self.page.touchscreen.tap(20, 20)
             expect(panel).to_have_count(0)
-            expect(self.page.locator('button[data-reader-controls]')).to_be_focused()
+            expect(self.page.get_by_role('button', name='Themes & Settings', exact=True)).to_be_focused()
             reveal_reader_controls(self.page)
             self.page.get_by_role('button', name='Themes & Settings', exact=True).tap()
             close = panel.get_by_role('button', name='Close reading appearance', exact=True)
@@ -442,8 +442,8 @@ class RheaReader(previous.RefinedAppearance):
         search = self.page.get_by_role('searchbox', name='Search library', exact=True)
         expect(search).to_be_focused()
         search.fill('not-this-book')
-        expect(self.page.get_by_role('heading', name='Books 0', exact=True)).to_be_visible()
-        expect(self.page.get_by_text('No matching book metadata.', exact=True)).to_be_visible()
+        expect(self.page.get_by_role('heading', name='Titles', exact=True)).to_be_visible()
+        expect(self.page.get_by_text('No matching titles.', exact=True)).to_be_visible()
         search.fill('reader browser')
         self.page.keyboard.press('Escape')
         expect(compact_search).to_be_focused()
@@ -583,6 +583,8 @@ class RheaReader(previous.RefinedAppearance):
         toolbar.get_by_role('button', name='Reading tools', exact=True).click()
         expect(self.page.get_by_role('menu')).to_be_visible()
         self.page.keyboard.press('Escape')
+        expect(self.page.get_by_role('menu')).to_have_count(0)
+        expect(self.page.locator('[data-slot="dropdown-menu-content"]')).to_have_count(0)
         expect(toolbar).to_be_visible()
         expect(toolbar.get_by_role('button', name='Reading tools', exact=True)).to_be_focused()
         viewport = self.page.viewport_size
@@ -670,7 +672,7 @@ class RheaReader(previous.RefinedAppearance):
         dialog = self.page.locator('[data-slot="dialog-content"]')
         expect(dialog).to_be_visible()
         expect(dialog.get_by_role('button', name='Zip File', exact=True)).to_be_visible()
-        for name in ['Book Data','Bookmark','Statistics','Audiobook','Subtitles']:
+        for name in ['Book data','Reading position','Statistics','Audiobook','Subtitles']:
             expect(dialog.get_by_label(name, exact=True)).to_be_visible()
         dialog.get_by_role('button', name='Cancel', exact=True).click()
         expect(dialog).to_have_count(0)
@@ -684,6 +686,7 @@ class RheaReader(previous.RefinedAppearance):
 
     def test_book_details_match_persisted_metadata_in_grid_and_list(self):
         self.open_book(font='Klee One')
+        expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
         book_id = int(self.page.evaluate('new URL(location.href).searchParams.get("id")'))
         toolbar = self.page.get_by_role('banner', name='Reader toolbar')
         reveal_reader_controls(self.page)
@@ -964,10 +967,7 @@ class RheaReader(previous.RefinedAppearance):
         self.wait_for_fonts()
 
     def open_gallery(self):
-        controls = self.page.locator('button[data-reader-controls]')
-        controls.evaluate('element => element.focus({preventScroll: true})')
-        self.page.keyboard.press('Tab')
-        expect(controls).to_have_attribute('aria-expanded', 'true')
+        reveal_reader_controls(self.page)
         self.page.get_by_role('button', name='Reading tools', exact=True).click()
         self.page.get_by_role('menuitem', name='Image Gallery', exact=True).click()
         gallery = self.page.get_by_role('dialog', name='Image gallery', exact=True)

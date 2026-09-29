@@ -1,0 +1,74 @@
+/**
+ * @license BSD-3-Clause
+ * Copyright (c) 2026, ッツ Reader Authors
+ * All rights reserved.
+ */
+
+import type { Cue, Track } from './contracts.js';
+import { jobCanResume, jobContentKey, type Job } from './jobs.js';
+import { MOSS } from './model-cache.js';
+import { coreEnd, SAMPLE_RATE } from './moss-progressive.js';
+import { planWindows } from './moss-output.js';
+import { safeSparseCues, sparseCoverage } from './sparse-transcription.js';
+
+/** Device-only view of a durable job. Never saved as a caption manifest or synced. */
+export interface TranscriptionDraft {
+  track: Track;
+  coverage: number;
+  duration: number;
+  state: Job['status'];
+  restartRequired: boolean;
+  provisional: boolean;
+  pending: Cue[];
+}
+export function transcriptionDraft(job: Job): TranscriptionDraft | undefined {
+  const visible = job.sparse ? safeSparseCues(job.sparse, job.duration) : job.cues;
+  const coverage =
+    job.version === 3 && !job.sparse
+      ? job.duration
+      : job.sparse
+        ? sparseCoverage(job.sparse, job.duration)
+        : job.progressive
+          ? Math.min(job.duration, coreEnd(job.progressive) / SAMPLE_RATE)
+          : job.nextWindow
+            ? planWindows(job.duration)[job.nextWindow - 1].coreEnd
+            : 0;
+  return {
+    track: {
+      version: 1,
+      id: job.id,
+      mediaKey: jobContentKey(job),
+      language: job.language,
+      kind: 'transcription',
+      origin: 'generated',
+      label: `${job.language} · MOSS · In progress`,
+      cues: visible,
+      complete: false,
+      forced: false,
+      createdAt: job.createdAt,
+      provenance: {
+        engine:
+          job.version === 3
+            ? `moss-transcribe.cpp/${job.sparse?.policy ?? 'overlap-sparse'}`
+            : job.progressive
+              ? `moss-transcribe.cpp/${job.progressive.policy}`
+              : 'moss-transcribe.cpp',
+        engineRevision: job.engineRevision,
+        model: MOSS.model,
+        modelRevision: MOSS.revision,
+        modelSha256: job.modelSha256,
+        quantization: MOSS.quantization,
+        audioTrack: job.audioTrack,
+        windowSeconds: job.version === 3 ? 30 : (job.progressive?.inputSeconds ?? 60),
+        overlapSeconds: 2,
+        generatedAt: job.createdAt
+      }
+    },
+    coverage,
+    duration: job.duration,
+    state: job.status,
+    restartRequired: job.status === 'failed' && !jobCanResume(job),
+    provisional: job.sparse?.policy === 'overlap-sparse-v2' && visible.length > job.cues.length,
+    pending: job.progressive?.tail ?? []
+  };
+}

@@ -43,6 +43,9 @@ class ResourceCompatibilityBrowser(EpubPublicationBrowser):
         self.page.get_by_role('button', name='Read ' + TITLE, exact=True).click(timeout=30000)
         expect(self.page.locator('.book-content-container .text')).to_be_visible(timeout=30000)
         expect(self.page.locator('foliate-paginator')).to_have_count(0)
+        # Opening from the Library may leave focus on a Reader control. Arrow
+        # keys belong to that control until focus returns to the reading area.
+        self.page.evaluate('document.activeElement?.blur()')
 
     def test_legacy_paginator_mounts_resource_identity_before_first_measurement(self):
         self.context.add_init_script("""(() => {

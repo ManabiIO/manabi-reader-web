@@ -24,7 +24,7 @@ class DeepControlRefinementBrowser(control_refinement.ControlRefinementBrowser):
         # The import input must remain keyboard-accessible, just not autofocused.
         picker = panel.locator('input[type=file]')
         self.assertEqual(0, picker.evaluate('e => e.tabIndex'))
-        panel.get_by_role('button', name='Close', exact=True).click()
+        panel.get_by_role('button', name='Close bookmarks and notes', exact=True).click()
         expect(panel).to_have_count(0)
 
     def test_annotation_write_blocks_dismissal_and_saved_passage_navigation(self):
@@ -53,7 +53,7 @@ class DeepControlRefinementBrowser(control_refinement.ControlRefinementBrowser):
         try:
             panel.get_by_role('button', name='Add Bookmark', exact=True).click()
             expect(panel).to_have_attribute('aria-busy', 'true')
-            expect(panel.get_by_role('button', name='Close', exact=True)).to_be_disabled()
+            expect(panel.get_by_role('button', name='Close bookmarks and notes', exact=True)).to_be_disabled()
             expect(passages.first).to_be_disabled()
             expect(panel.locator('input[type=file]')).to_be_disabled()
             self.assertEqual('0.5', panel.locator('label[aria-label="Import notes"]').evaluate('e => getComputedStyle(e).opacity'))
@@ -91,7 +91,7 @@ class DeepControlRefinementBrowser(control_refinement.ControlRefinementBrowser):
         heading = sheet.locator('[data-slot="sheet-title"]')
         self.assertLessEqual(heading.bounding_box()['height'], heading.evaluate('e => parseFloat(getComputedStyle(e).lineHeight)') + 1)
         # Rounded groups must not flex-shrink and clip their actual controls.
-        groups = sheet.locator(':scope > div.overflow-hidden')
+        groups = sheet.locator('.collections-scroll > div.overflow-hidden')
         expect(groups).to_have_count(2)
         for group in groups.all():
             self.assertLessEqual(group.evaluate('e => e.scrollHeight - e.clientHeight'), 1)

@@ -110,7 +110,7 @@ class ReaderNavigationPanels:
             expect(panel.get_by_role('alert')).to_be_visible()
             self.assertLessEqual(panel.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
             self.assertGreaterEqual(field.bounding_box()['height'], 44)
-            panel.evaluate('e => e.scrollTop = e.scrollHeight')
+            panel.locator('[data-dialog-scroll]').evaluate('e => e.scrollTop = e.scrollHeight')
             for name, variant in (('Cancel', 'secondary'), ('Confirm', 'default')):
                 control = panel.get_by_role('button', name=name, exact=True)
                 expect(control).to_have_attribute('data-variant', variant)

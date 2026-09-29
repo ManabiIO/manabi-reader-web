@@ -5,6 +5,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 from playwright.sync_api import expect
+from reader_controls import reveal_reader_controls
 from test_local_library_features import LocalFeatureBrowser, DavHandler, TITLE
 from test_local_library_review import LocalLibraryReview
 
@@ -21,7 +22,7 @@ class LocalLibraryRefinement(LocalFeatureBrowser):
         self.search('ΟΣ')
         self.page.get_by_role('button', name='Read ΟΣ handbook', exact=True).click()
         expect(self.page.locator('.book-content').first).to_have_attribute('aria-busy', 'false')
-        self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+        reveal_reader_controls(self.page)
         self.page.get_by_role('button', name='Reading tools', exact=True).click()
         self.page.get_by_role('menuitem', name='Search Book', exact=True).click()
         field = self.page.get_by_role('searchbox', name='Search within book', exact=True)
@@ -179,7 +180,7 @@ class LocalLibraryRefinement(LocalFeatureBrowser):
         }""")
         self.search('CACHE_ABORT_NEEDLE')
         expect(self.page.get_by_role('button', name='Open passage in Cache write failure: CACHE_ABORT_NEEDLE', exact=True)).to_be_visible()
-        expect(self.page.get_by_text('1 matching passage.', exact=True)).to_be_visible()
+        expect(self.page.get_by_role('list', name='Content results').get_by_role('button')).to_have_count(1)
         self.assertEqual(1, self.page.evaluate('window.cacheAborts'))
         self.assertEqual([], self.page.evaluate('window.cacheUnhandled'))
         self.assertEqual([], self.stores('books', ['readerSearchProjection'])['readerSearchProjection'])

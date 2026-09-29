@@ -100,10 +100,7 @@ test('browser-only duplicates participate in conflicts even with a requested boo
 test('legacy private links from multiple accounts cannot share one reading history', () => {
   const alice = { ...source, owner: 'alice' };
   const bob = { ...source, owner: 'bob' };
-  const links = [
-    link(1, 'alice.epub', { owner: 'alice' }),
-    link(1, 'bob.epub', { owner: 'bob' })
-  ];
+  const links = [link(1, 'alice.epub', { owner: 'alice' }), link(1, 'bob.epub', { owner: 'bob' })];
   assert.equal(resolve([record(1)], links, alice, 'alice.epub', hash), undefined);
   assert.equal(resolve([record(1)], links, bob, 'bob.epub', hash), undefined);
   assert.equal(resolve([record(1)], links, alice, 'copy.epub', hash), undefined);

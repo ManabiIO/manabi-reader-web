@@ -1,4 +1,6 @@
 <script lang="ts">
+  import LibraryTabs from '$lib/media/library-tabs.svelte';
+  import { videoLearningEnabled } from '$lib/media/feature';
   import { progressFraction } from '$lib/library/completion';
   import { resolve } from '$app/paths';
   import { beforeNavigate, goto } from '$app/navigation';
@@ -13,7 +15,6 @@
   import ConfirmDialog from '$lib/components/confirm-dialog.svelte';
   import ExternalReadDialog from '$lib/components/external-read-dialog.svelte';
   import LogReportDialog from '$lib/components/log-report-dialog.svelte';
-  import { mergeEntries } from '$lib/components/merged-header-icon/merged-entries';
   import MessageDialog from '$lib/components/message-dialog.svelte';
   import {
     preFilteredBookKeysForStatistics$,
@@ -27,7 +28,6 @@
     type StatisticsMigrationGuard
   } from '$lib/data/database/books-db/reader-statistics';
   import { dialogManager } from '$lib/data/dialog-manager';
-  import { pagePath } from '$lib/data/env';
   import { logger } from '$lib/data/logger';
   import { SortDirection, type SortOption } from '$lib/data/sort-types';
   import { ApiStorageHandler } from '$lib/data/storage/handler/api-handler';
@@ -442,7 +442,9 @@
 
   async function gotoBook(id: number, librarySearch?: string) {
     await goto(
-      `${pagePath}/b?id=${id}${librarySearch ? `&library-search=${encodeURIComponent(librarySearch)}` : ''}`
+      resolve(
+        `/b?id=${id}${librarySearch ? `&library-search=${encodeURIComponent(librarySearch)}` : ''}`
+      )
     );
   }
 
@@ -882,7 +884,7 @@
       $preFilteredTitlesForStatistics$ = new Set(plans.map((plan) => plan.title));
       $preFilteredBookKeysForStatistics$ = new Set(plans.flatMap((plan) => plan.keys));
       try {
-        await goto(`${pagePath}${mergeEntries.STATISTICS.routeId}`);
+        await goto(resolve('/statistics'));
       } catch (error) {
         $preFilteredTitlesForStatistics$ = previousTitles;
         $preFilteredBookKeysForStatistics$ = previousKeys;
@@ -1208,6 +1210,7 @@
       on:replicateData={onReplicateData}
       on:importBackup={(ev) => onImportBackup(ev.detail)}
     />
+    {#if videoLearningEnabled && $storageSource$ === StorageKey.BROWSER}<LibraryTabs />{/if}
   </div>
 
   <div

@@ -211,7 +211,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
 
     def test_all_presets_theme_forms_headers_and_statistics(self):
         self.settings()
-        self.page.get_by_role('button', name='All settings', exact=True).click()
+        self.page.get_by_role('navigation', name='Settings categories').get_by_role('link', name='All settings', exact=True).click()
         for theme in ['manabi-theme', 'light-theme', 'ecru-theme', 'water-theme', 'gray-theme', 'dark-theme', 'black-theme']:
             self.page.locator('button[title="' + theme + '"]').click()
             for mode in ['Light', 'Dark']:

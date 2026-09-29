@@ -84,12 +84,7 @@ export class BookIdentityIndex {
       // Legacy rows predate durable libraryOwner. If the same numeric reading
       // history has valid private links from multiple accounts and no local
       // public copy, neither account is authority to reuse that row.
-      if (
-        !this.libraryOwners.has(bookId) &&
-        inferred &&
-        !inferred.has(null) &&
-        inferred.size > 1
-      ) {
+      if (!this.libraryOwners.has(bookId) && inferred && !inferred.has(null) && inferred.size > 1) {
         this.ambiguousLegacyOwners.add(bookId);
         continue;
       }

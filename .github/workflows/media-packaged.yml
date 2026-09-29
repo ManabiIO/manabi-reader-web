@@ -1,0 +1,199 @@
+name: Packaged MOSS qualification
+# Execute the checked-in runtime pair, not a replacement built by CI.
+# Read-only qualification: no runtime publication, source writes or deployment.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/media-packaged.yml'
+      - 'apps/web/static/moss/**'
+      - 'apps/web/src/lib/media/moss-*.ts'
+      - 'apps/web/src/lib/media/model-cache.ts'
+      - 'tests/media/asr*'
+      - 'tests/media/thread-sweep.py'
+      - 'tests/media/encoded*'
+      - 'tests/media/test_encoded_asr.py'
+      - 'apps/web/src/lib/manabi/media-runtime.ts'
+      - 'apps/web/src/lib/media/pipeline.ts'
+      - 'apps/web/src/lib/media/queue.ts'
+      - 'apps/web/src/lib/media/sources.ts'
+      - 'apps/web/src/lib/media/store.ts'
+      - 'apps/web/src/lib/media/sparse-*.ts'
+      - 'pnpm-lock.yaml'
+      - 'apps/web/package.json'
+      - 'tools/media/runtime_artifacts.py'
+permissions:
+  contents: read
+concurrency:
+  group: media-packaged-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  checked-in-cpu:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install the repository-pinned media adapter dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Provision speech fixtures and browser, without a WASM compiler
+        run: |
+          mkdir -p test-results/media-packaged
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg espeak-ng open-jtalk open-jtalk-mecab-naist-jdic hts-voice-nitech-jp-atr503-m001
+          python -m pip install playwright==1.63.0
+          python -m playwright install --with-deps chromium
+          python - <<'PY' >> "$GITHUB_ENV"
+          from playwright.sync_api import sync_playwright
+          with sync_playwright() as p:
+              print('CHROMIUM=' + p.chromium.executable_path)
+          PY
+      - name: Generate verified English and Japanese PCM and compile production modules
+        run: |
+          EN_FIXTURE="$(python tools/media/generate-fixtures.py --language en 2>test-results/media-packaged/voice-en.log)"
+          JA_FIXTURE="$(python tools/media/generate-fixtures.py --language ja 2>test-results/media-packaged/voice-ja.log)"
+          echo "EN_FIXTURE=$EN_FIXTURE" >> "$GITHUB_ENV"
+          echo "JA_FIXTURE=$JA_FIXTURE" >> "$GITHUB_ENV"
+          MEDIA_FIXTURE="$EN_FIXTURE" pnpm exec node tools/media/test.mjs 2>&1 | tee test-results/media-packaged/core.log
+          node --input-type=module -e "import {MOSS} from './.cache/media-test-build/model-cache.js'; console.log(JSON.stringify(MOSS))" > test-results/media-packaged/model.json
+      - name: Validate and record the exact committed runtime bytes
+        id: identity
+        run: |
+          git diff --exit-code HEAD -- apps/web/static/moss
+          git rev-parse HEAD > test-results/media-packaged/tested-commit.txt
+          git rev-parse HEAD^{tree} > test-results/media-packaged/tested-tree.txt
+          python - <<'PY'
+          from pathlib import Path
+          import json, sys
+          sys.path.insert(0, 'tools/media')
+          from runtime_artifacts import validate_mode, digest
+          evidence = Path('test-results/media-packaged')
+          model = json.loads((evidence / 'model.json').read_text())
+          expected_inputs = {'build-moss.py', 'bridge.cpp', 'manabi_web_hooks.hpp',
+                             'runtime_artifacts.py', 'manabi_model_reader.hpp',
+                             'model_loader_patch.py', 'output_stream_patch.py'}
+          sums = []
+          for mode in ('single', 'threaded'):
+              path = Path('apps/web/static/moss') / mode
+              manifest = validate_mode(path, mode, model['engineRevision'], model['ggmlRevision'])
+              if manifest.get('mossCommit') != model['engineRevision'].split('+', 1)[0]:
+                  raise ValueError('Packaged runtime MOSS source differs from the application')
+              inputs = manifest.get('portSha256', {})
+              if set(inputs) != expected_inputs:
+                  raise ValueError('Incomplete packaged runtime source evidence')
+              for name, expected in inputs.items():
+                  if digest(Path('tools/media') / name) != expected:
+                      raise ValueError('Packaged runtime source changed: ' + name)
+              (evidence / f'runtime-{mode}.json').write_bytes((path / 'build.json').read_bytes())
+              for name in [*manifest['files'], 'build.json']:
+                  item = path / name
+                  sums.append(f'{digest(item)}  {item.as_posix()}')
+          (evidence / 'runtime-sha256.txt').write_text('\n'.join(sums) + '\n')
+          print('Verified checked-in single/threaded runtime pair; no rebuild performed')
+          PY
+      - name: Bundle the actual media adapter and retain its dependency evidence
+        if: ${{ !cancelled() && steps.identity.outcome == 'success' }}
+        run: |
+          pnpm exec esbuild apps/web/src/lib/manabi/media-runtime.ts --bundle --platform=browser --format=esm \
+            --outfile=.cache/media-test-build/encoded-media-adapter.js \
+            --metafile=test-results/media-packaged/encoded-adapter-meta.json
+          sha256sum apps/web/src/lib/manabi/media-runtime.ts pnpm-lock.yaml \
+            .cache/media-test-build/encoded-media-adapter.js > test-results/media-packaged/encoded-adapter-sha256.txt
+          python -m unittest discover -s tests/media -p 'test_encoded_asr.py' -v
+      - name: Real encoded Japanese video through decoder, resumable queue and subtitle publication
+        if: ${{ !cancelled() && steps.identity.outcome == 'success' }}
+        run: |
+          status=0
+          python tests/media/encoded-asr.py --fixture "$JA_FIXTURE" --language ja --source file \
+            --output test-results/media-packaged/encoded-file-single \
+            2>&1 | tee test-results/media-packaged/encoded-file-single.log || status=1
+          python tests/media/encoded-asr.py --fixture "$JA_FIXTURE" --language ja --source range --threaded --large-reload \
+            --output test-results/media-packaged/encoded-range-threaded \
+            2>&1 | tee test-results/media-packaged/encoded-range-threaded.log || status=1
+          exit "$status"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: media-encoded-path-evidence
+          path: |
+            test-results/media-packaged/encoded-*
+            test-results/media-packaged/tested-*.txt
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Recognize both languages using the checked-in single and threaded runtimes
+        run: |
+          status=0
+          for language in en ja; do
+            fixture="$EN_FIXTURE"
+            if [ "$language" = ja ]; then fixture="$JA_FIXTURE"; fi
+            for mode in single threaded; do
+              flags=()
+              if [ "$mode" = threaded ]; then flags+=(--threaded); fi
+              if [ "$mode" = threaded ] && [ "$language" = en ]; then flags+=(--repeat 2); fi
+              python tests/media/asr.py --fixture "$fixture" --language "$language" "${flags[@]}" \
+                --output "test-results/media-packaged/asr-$language-$mode.json" \
+                2>&1 | tee "test-results/media-packaged/asr-$language-$mode.log" || status=1
+            done
+          done
+          exit "$status"
+      - name: Measure 2/4/8-thread policy on the exact checked-in runtime
+        if: ${{ !cancelled() && steps.identity.outcome == 'success' }}
+        run: |
+          python tests/media/thread-sweep.py --fixture "$JA_FIXTURE" --language ja             --output test-results/media-packaged/thread-sweep-ja.json             2>&1 | tee test-results/media-packaged/thread-sweep-ja.log
+      - name: Recognize pinned natural speech using the checked-in threaded runtime
+        if: ${{ !cancelled() && steps.identity.outcome == 'success' }}
+        run: |
+          mkdir -p .cache/media-fixtures/natural-jfk
+          curl --fail --location --retry 3 \
+            'https://raw.githubusercontent.com/localai-org/moss-transcribe.cpp/190a569c13b4b247450f2fb3b2a431244e84833e/tests/fixtures/short.wav' \
+            --output .cache/media-fixtures/natural-jfk/speech.wav
+          python tests/media/asr.py --fixture .cache/media-fixtures/natural-jfk \
+            --upstream-jfk --language en --threaded --max-cer 0.20 \
+            --output test-results/media-packaged/asr-natural-jfk.json \
+            2>&1 | tee test-results/media-packaged/asr-natural-jfk.log
+      - name: Recognize pinned public-domain natural Japanese using the checked-in threaded runtime
+        if: ${{ !cancelled() && steps.identity.outcome == 'success' }}
+        run: |
+          mkdir -p .cache/media-fixtures/natural-ja-kokoro
+          source_dir="$(mktemp -d "$RUNNER_TEMP/kokoro-source.XXXXXX")"
+          git init -q "$source_dir"
+          git -C "$source_dir" fetch --quiet --depth=1 \
+            https://github.com/kaiidams/Kokoro-Speech-Dataset.git \
+            0c03174b9d7d90aa1da03a21dba93eb6059278f6
+          git -C "$source_dir" show \
+            FETCH_HEAD:kokoro-by-soseki-natsume-02359.wav \
+            > .cache/media-fixtures/natural-ja-kokoro/source.wav
+          ffmpeg -nostdin -hide_banner -loglevel error \
+            -i .cache/media-fixtures/natural-ja-kokoro/source.wav \
+            -map 0:a:0 -ac 1 -ar 16000 -c:a pcm_s16le \
+            .cache/media-fixtures/natural-ja-kokoro/speech.wav
+          python tests/media/asr.py --fixture .cache/media-fixtures/natural-ja-kokoro \
+            --kokoro-japanese --language ja --threaded --max-cer 0.35 \
+            --output test-results/media-packaged/asr-natural-ja-kokoro.json \
+            2>&1 | tee test-results/media-packaged/asr-natural-ja-kokoro.log
+      - name: Confirm qualification did not replace the packaged runtime bytes
+        if: ${{ !cancelled() && steps.identity.outcome == 'success' }}
+        run: |
+          sha256sum --check test-results/media-packaged/runtime-sha256.txt
+          git diff --exit-code HEAD -- apps/web/static/moss
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: media-packaged-cpu-evidence
+          # Logs and identities only; no voices, media, model weights or browser profiles.
+          path: test-results/media-packaged/
+          if-no-files-found: warn
+          retention-days: 7
