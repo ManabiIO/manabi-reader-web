@@ -26,14 +26,14 @@ def dictionary_archive():
 
 class UnifiedSearch(ProductJourneyBase):
     def filter(self, name):
-        button = self.page.get_by_role('group', name='Search result type').get_by_role(
+        button = self.page.get_by_role('group', name='Show').get_by_role(
             'button', name=name, exact=True)
         button.click()
         expect(button).to_have_attribute('aria-pressed', 'true')
         return button
 
     def scope(self, name):
-        button = self.page.get_by_role('group', name='Search library scope').get_by_role(
+        button = self.page.get_by_role('group', name='Search in').get_by_role(
             'button', name=name, exact=True)
         button.click()
         expect(button).to_have_attribute('aria-pressed', 'true')
@@ -43,7 +43,7 @@ class UnifiedSearch(ProductJourneyBase):
     def test_real_local_dictionary_uses_raw_input_and_bounded_previews(self):
         self.import_book('Neko field guide', body='<p>neko ねこ 猫</p>')
         field = self.library_search('neko')
-        filters = self.page.get_by_role('navigation', name='Search result type')
+        filters = self.page.get_by_role('group', name='Show')
         self.assertEqual(['All', 'Dictionary', 'Titles', 'Content'], filters.get_by_role('button').all_text_contents())
         expect(filters.get_by_role('button', name='All', exact=True)).to_have_attribute('aria-pressed', 'true')
         expect(self.page.get_by_role('button', name='Read Neko field guide', exact=True)).to_be_visible()
@@ -140,8 +140,8 @@ class UnifiedSearch(ProductJourneyBase):
 
         self.go_library()
         field = self.library_search('SCOPE_TOKEN')
-        scopes = self.page.get_by_role('navigation', name='Search library scope')
-        result_types = self.page.get_by_role('navigation', name='Search result type')
+        scopes = self.page.get_by_role('group', name='Search in')
+        result_types = self.page.get_by_role('group', name='Show')
         self.assertEqual(
             ['Everything', 'Books', 'Snippets'],
             scopes.get_by_role('button').all_text_contents())
@@ -168,7 +168,7 @@ class UnifiedSearch(ProductJourneyBase):
 
         # Scope belongs to navigation state, not an ephemeral child component.
         self.page.reload()
-        expect(self.page.get_by_role('navigation', name='Search library scope').get_by_role(
+        expect(self.page.get_by_role('group', name='Search in').get_by_role(
             'button', name='Snippets', exact=True
         )).to_have_attribute('aria-pressed', 'true')
         expect(self.page.get_by_role('searchbox', name='Search library', exact=True)).to_have_value(
@@ -238,8 +238,8 @@ class UnifiedSearch(ProductJourneyBase):
 
         controls = results.locator('.search-controls')
         self.assertEqual('static', controls.evaluate('e => getComputedStyle(e).position'))
-        scopes = self.page.get_by_role('navigation', name='Search library scope')
-        filters = self.page.get_by_role('navigation', name='Search result type')
+        scopes = self.page.get_by_role('group', name='Search in')
+        filters = self.page.get_by_role('group', name='Show')
         for nav, names in (
             (scopes, ('Everything', 'Books', 'Snippets')),
             (filters, ('All', 'Dictionary', 'Titles', 'Content')),
