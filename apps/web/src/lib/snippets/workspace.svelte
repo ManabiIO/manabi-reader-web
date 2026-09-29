@@ -1615,6 +1615,7 @@
       flex-direction: column;
     }
     .snippet-workspace {
+      padding-block-start: 16px;
       padding-inline: 16px;
     }
     .top {
