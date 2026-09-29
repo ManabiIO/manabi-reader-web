@@ -589,4 +589,13 @@
       backdrop-filter: none;
     }
   }
+  @media (forced-colors: active) {
+    .scopes button[aria-pressed='true'],
+    .filters button[aria-pressed='true'] {
+      outline: 2px solid Highlight;
+      outline-offset: -2px;
+      border-color: Highlight;
+      color: Highlight;
+    }
+  }
 </style>

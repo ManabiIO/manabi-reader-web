@@ -56,6 +56,23 @@ class UnifiedSearch(ProductJourneyBase):
         expect(full.locator('.headword')).to_contain_text('猫')
         expect(full.locator('script, iframe')).to_have_count(0)
         self.assertGreater(len(full.inner_text()), 10000)
+
+        self.page.set_viewport_size({'width': 320, 'height': 568})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        self.assertLessEqual(full.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+        self.assertLessEqual(
+            self.page.evaluate('document.documentElement.scrollWidth-innerWidth'), 1)
+        setup = self.page.get_by_text('Local dictionaries', exact=True)
+        setup.scroll_into_view_if_needed()
+        self.assertGreaterEqual(setup.bounding_box()['height'], 43.99)
+        setup.click()
+        install = self.page.get_by_role('button', name='Install Jitendex', exact=True)
+        expect(install).to_be_visible()
+        self.assertGreaterEqual(install.bounding_box()['height'], 43.99)
+        self.checkpoint('unified-full-dictionary-200-percent')
+        self.page.evaluate('document.documentElement.style.fontSize = "100%"')
+        self.page.set_viewport_size({'width': 1280, 'height': 800})
+
         expect(field).to_have_value('neko')
         field.fill('gakkou')
         expect(full.locator('.headword')).to_contain_text('学校')
