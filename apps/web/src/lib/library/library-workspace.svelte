@@ -73,7 +73,12 @@
   } from './view-model';
   import { isFinished, finishedDay, calendarDay } from './completion';
   import { visibleLibraryEntries } from './account-visibility';
-  import { WANT_TO_READ_ID, wantToReadCollection, collectionContains } from './want-to-read';
+  import {
+    WANT_TO_READ_ID,
+    wantToReadCollection,
+    collectionContains,
+    collectionItemCount
+  } from './want-to-read';
   import { setCompletion } from './commands';
   import {
     createLocalSeries,
@@ -273,7 +278,16 @@
     collectionId === WANT_TO_READ_ID
       ? wantToRead
       : customCollections.find((c) => c.id === collectionId);
-  $: wantToReadCount = books.filter((book) => collectionContains(wantToRead, book)).length;
+  $: activeSnippetKeys = new Set(
+    $snippetItems.filter((item) => !item.trashedAt).map((item) => snippetKey(item.id))
+  );
+  $: wantToReadCount = collectionItemCount(wantToRead, books, activeSnippetKeys);
+  $: customCollectionCounts = Object.fromEntries(
+    customCollections.map((collection) => [
+      collection.id,
+      collectionItemCount(collection, books, activeSnippetKeys)
+    ])
+  );
   $: selectedKeys = new Set([
     ...selectedPreviewKeys,
     ...visibleBooks
@@ -1301,9 +1315,7 @@
             navigate(undefined, collection.id, false);
           }}
           ><List aria-hidden="true" /><span>{collection.name}</span><span
-            >{books.filter((book) =>
-              book.organizationAliases.some((alias) => collection.members.includes(alias))
-            ).length}</span
+            >{customCollectionCounts[collection.id] ?? 0}</span
           ></button
         >{/each}
       <button onclick={() => (collectionsOpen = true)}

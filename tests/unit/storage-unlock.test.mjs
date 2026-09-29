@@ -14,6 +14,7 @@ const source = ts.createSourceFile(path + '.ts', component, ts.ScriptTarget.Late
 const printer = ts.createPrinter();
 
 function harness(overrides = {}) {
+  const received = [];
   const initial = {
     description: 'Protected source',
     action: 'Enter the password to continue',
@@ -21,17 +22,18 @@ function harness(overrides = {}) {
     showCancel: false,
     forwardSecret: false,
     encryptedData: new ArrayBuffer(8),
+    resolver: (value) => received.push(value),
     ...overrides.props
   };
   const mounts = [];
   const destroys = [];
   const events = [];
-  const received = [];
   const skip = [];
   let decryptCalls = 0;
   const decrypt =
     overrides.decrypt ??
-    (async () => new TextEncoder().encode(JSON.stringify({ clientId: 'client', clientSecret: '' })));
+    (async () =>
+      new TextEncoder().encode(JSON.stringify({ clientId: 'client', clientSecret: '' })));
   const deps = {
     decrypt: async (...args) => {
       decryptCalls += 1;
@@ -84,9 +86,8 @@ function harness(overrides = {}) {
   const compiled = ts.transpileModule(code, {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None }
   }).outputText;
-  const api = new Function('__initial', 'resolver', ...Object.keys(deps), compiled)(
+  const api = new Function('__initial', ...Object.keys(deps), compiled)(
     initial,
-    (value) => received.push(value),
     ...Object.values(deps)
   );
   return {

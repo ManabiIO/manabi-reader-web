@@ -31,7 +31,7 @@
     task.stop();
     state = { state: 'idle' };
     if (!query.trim() || installing) return;
-    if (query.length > 256) {
+    if ([...query].length > 256) {
       state = {
         state: 'error',
         error:
