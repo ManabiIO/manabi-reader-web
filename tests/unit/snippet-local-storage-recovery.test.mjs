@@ -1,5 +1,6 @@
 /** @license BSD-3-Clause */
 import assert from 'node:assert/strict';
+import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { build } from 'esbuild';
 import test from 'node:test';
