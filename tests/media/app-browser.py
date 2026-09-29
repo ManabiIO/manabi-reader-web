@@ -317,31 +317,37 @@ def main():
             page.get_by_role('button', name='Generate missing transcripts', exact=True),
             page.get_by_text('Transcription and sync', exact=True),
         ]
-        for control in library_controls:
+        def assert_reachable(control):
+            control.scroll_into_view_if_needed()
             expect(control).to_be_visible()
             box = control.bounding_box()
             assert box and box['height'] >= 43.5, box
             assert box['x'] >= -1 and box['x'] + box['width'] <= 321, box
+            assert box['y'] >= -1 and box['y'] + box['height'] <= 569, box
+            assert control.evaluate("""node => {
+                const r=node.getBoundingClientRect();
+                const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+                return !!hit && (hit===node || node.contains(hit));
+            }"""), box
+
+        for control in library_controls:
+            assert_reachable(control)
 
         library_card = page.locator('.video-card').filter(has_text='video.mp4')
+        library_card.scroll_into_view_if_needed()
         expect(library_card).to_be_visible()
         assert library_card.evaluate("node => node.scrollWidth-node.clientWidth") <= 1
         card_select = library_card.get_by_role('checkbox', name='Select video.mp4', exact=True)
-        select_box = card_select.locator('..').bounding_box()
-        assert select_box['width'] >= 43.5 and select_box['height'] >= 43.5, select_box
+        assert_reachable(card_select.locator('..'))
         card_title = library_card.get_by_role('button', name='video.mp4', exact=True)
-        title_box = card_title.bounding_box()
-        assert title_box['height'] >= 43.5, title_box
+        assert_reachable(card_title)
         actions_summary = library_card.get_by_text('Actions', exact=True)
-        actions_box = actions_summary.bounding_box()
-        assert actions_box['height'] >= 43.5, actions_box
+        assert_reachable(actions_summary)
         actions_summary.click()
         for action_name in ('Open video', 'Generate missing transcript', 'Rename title'):
             action = library_card.get_by_role('button', name=action_name, exact=True)
             expect(action).to_be_visible()
-            box = action.bounding_box()
-            assert box['height'] >= 43.5, (action_name, box)
-            assert box['x'] >= -1 and box['x'] + box['width'] <= 321, (action_name, box)
+            assert_reachable(action)
         actions_summary.click()
         page.locator('.manabi-video-player').scroll_into_view_if_needed()
         heading_font = float(page.get_by_role(
