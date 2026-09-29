@@ -141,25 +141,33 @@ test('authority assertions run while the index inventory is being read', async (
   assert.equal(calls, 2);
 });
 
-test('scope planning claims all unowned exact copies for one account in one plan', () => {
-  const metadata = [candidate(1), candidate(2)];
+test('one unowned reading history is claimed for the active account', () => {
+  const metadata = [candidate(1)];
   const alice = planPersonalBookClaims(metadata, [], 'alice');
   assert.deepEqual(alice.books, metadata);
-  assert.deepEqual(alice.scopesToCreate, [
-    { bookId: 1, accountId: 'alice' },
-    { bookId: 2, accountId: 'alice' }
-  ]);
+  assert.deepEqual(alice.scopesToCreate, [{ bookId: 1, accountId: 'alice' }]);
+  assert.deepEqual(alice.blockedBookKeys, []);
 
   const bob = planPersonalBookClaims(metadata, alice.scopesToCreate, 'bob');
   assert.deepEqual(bob.books, []);
   assert.deepEqual(bob.scopesToCreate, []);
+  assert.deepEqual(bob.blockedBookKeys, []);
 });
 
-test('one pre-existing foreign scope blocks claiming every exact copy for another account', () => {
+test('two same-byte database histories are preserved as a sync conflict instead of merged', () => {
+  const metadata = [candidate(1), candidate(2)];
+  const plan = planPersonalBookClaims(metadata, [], 'alice');
+  assert.deepEqual(plan.books, []);
+  assert.deepEqual(plan.scopesToCreate, []);
+  assert.deepEqual(plan.blockedBookKeys, [bookKey]);
+});
+
+test('one pre-existing foreign scope blocks a competing same-byte history for another account', () => {
   const metadata = [candidate(1), candidate(2)];
   const plan = planPersonalBookClaims(metadata, [{ bookId: 1, accountId: 'bob' }], 'alice');
   assert.deepEqual(plan.books, []);
   assert.deepEqual(plan.scopesToCreate, []);
+  assert.deepEqual(plan.blockedBookKeys, [bookKey]);
 });
 
 test('mixed existing owners remain unclaimable for either account', () => {
@@ -168,8 +176,12 @@ test('mixed existing owners remain unclaimable for either account', () => {
     { bookId: 1, accountId: 'alice' },
     { bookId: 2, accountId: 'bob' }
   ];
-  assert.deepEqual(planPersonalBookClaims(metadata, scopes, 'alice').books, []);
-  assert.deepEqual(planPersonalBookClaims(metadata, scopes, 'bob').books, []);
+  const alice = planPersonalBookClaims(metadata, scopes, 'alice');
+  const bob = planPersonalBookClaims(metadata, scopes, 'bob');
+  assert.deepEqual(alice.books, []);
+  assert.deepEqual(bob.books, []);
+  assert.deepEqual(alice.blockedBookKeys, [bookKey]);
+  assert.deepEqual(bob.blockedBookKeys, [bookKey]);
 });
 
 test('fail-closed probe returns undefined for ownership changes without hiding account errors', async () => {
@@ -242,4 +254,20 @@ test('missing or newly foreign scope evidence never counts as safely hydrated', 
     ),
     true
   );
+});
+
+test('foreign-only duplicate histories do not create a warning for the current account', () => {
+  const metadata = [candidate(1, { libraryOwner: 'bob' }), candidate(2, { libraryOwner: 'bob' })];
+  const plan = planPersonalBookClaims(metadata, [], 'alice');
+  assert.deepEqual(plan.books, []);
+  assert.deepEqual(plan.scopesToCreate, []);
+  assert.deepEqual(plan.blockedBookKeys, []);
+});
+
+test('malformed current-account identity is reported as blocked instead of silently ignored', () => {
+  const metadata = [{ id: 1, contentHash: hash }];
+  const plan = planPersonalBookClaims(metadata, [], 'alice');
+  assert.deepEqual(plan.books, []);
+  assert.deepEqual(plan.scopesToCreate, []);
+  assert.deepEqual(plan.blockedBookKeys, [bookKey]);
 });
