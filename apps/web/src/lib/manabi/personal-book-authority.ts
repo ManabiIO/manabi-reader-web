@@ -66,3 +66,55 @@ export async function livePersonalCopies(
     );
   return live;
 }
+
+export interface PersonalBookScope {
+  bookId: number;
+  accountId: string;
+  hydrated?: boolean;
+}
+
+export function planPersonalBookClaims(
+  metadata: readonly IndexedBookMetadata[],
+  scopeRows: readonly PersonalBookScope[],
+  accountId: string
+): { books: PersonalBook[]; scopesToCreate: PersonalBookScope[] } {
+  const scopes = new Map(scopeRows.map((scope) => [scope.bookId, scope]));
+  const ownersByBook = new Map<string, Set<string>>();
+  const invalidOwnerKeys = new Set<string>();
+
+  for (const book of metadata) {
+    const bookKey = `content:${book.contentHash}`;
+    if (book.invalidOwner) {
+      invalidOwnerKeys.add(bookKey);
+      continue;
+    }
+    const owners = ownersByBook.get(bookKey) ?? new Set<string>();
+    const scope = scopes.get(book.id);
+    if (scope) owners.add(scope.accountId);
+    if (book.libraryOwner) owners.add(book.libraryOwner);
+    if (owners.size) ownersByBook.set(bookKey, owners);
+  }
+
+  const books: PersonalBook[] = [];
+  const scopesToCreate: PersonalBookScope[] = [];
+  for (const candidate of metadata) {
+    const bookKey = `content:${candidate.contentHash}`;
+    if (invalidOwnerKeys.has(bookKey) || typeof candidate.title !== 'string') continue;
+    const book = candidate as PersonalBook;
+    if (book.libraryOwner && book.libraryOwner !== accountId) continue;
+    const explicitOwners = ownersByBook.get(bookKey) ?? new Set<string>();
+    if (explicitOwners.size > 1) continue;
+
+    let owner = scopes.get(book.id);
+    if (!owner) {
+      if (explicitOwners.size && !explicitOwners.has(accountId)) continue;
+      owner = { bookId: book.id, accountId };
+      scopes.set(book.id, owner);
+      explicitOwners.add(accountId);
+      ownersByBook.set(bookKey, explicitOwners);
+      scopesToCreate.push(owner);
+    }
+    if (owner.accountId === accountId) books.push(book);
+  }
+  return { books, scopesToCreate };
+}
