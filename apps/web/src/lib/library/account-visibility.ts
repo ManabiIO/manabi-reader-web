@@ -27,6 +27,14 @@ export function visibleLibraryEntries<
   };
 }
 
+/** Reading-data scope can be private even when local book bytes remain readable. */
+export function canReadLibraryReadingState(
+  card: { readerOwner?: string },
+  viewerId: string | null
+): boolean {
+  return card.readerOwner === undefined || card.readerOwner === viewerId;
+}
+
 /** Reading-data scope may be created for an otherwise public local book.
  * Content ownership comes from the imported book or its source links.
  * Contradictory explicit ownership fails closed; [] means public content.
