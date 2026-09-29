@@ -1248,12 +1248,17 @@ export class VideoWorkspace {
     seconds = 0,
     trackId?: string
   ): Promise<void> {
-    if (this.closed) throw new Error('Video workspace is closed');
-    await this.reopen(key);
-    if (this.closed) throw new Error('Video workspace is closed');
-    if (this.current?.key !== key || !this.player)
-      throw new Error('The saved video could not be reopened for this search result.');
-    await this.player.seekTo(seconds, trackId);
+    try {
+      if (this.closed) throw new Error('Video workspace is closed');
+      await this.reopen(key);
+      if (this.closed) throw new Error('Video workspace is closed');
+      if (this.current?.key !== key || !this.player)
+        throw new Error('The saved video could not be reopened for this search result.');
+      await this.player.seekTo(seconds, trackId);
+    } catch (error) {
+      this.error(error);
+      throw error;
+    }
   }
 
   private async reopen(key: ContentKey) {
