@@ -15,7 +15,7 @@ export const foldSearchCase = (value: string) => value.toLowerCase().replace(/\u
 export const foldSearch = (value: string) => foldSearchCase(value.normalize('NFKC'));
 
 const boundaryBefore = (value: string, index: number) =>
-  index > 0 && /[\s\p{P}\p{S}]/u.test(value.slice(0, index).at(-1) ?? '');
+  index > 0 && /[\s\p{P}\p{S}]/u.test(Array.from(value.slice(0, index)).at(-1) ?? '');
 
 function matchKey(value: string, needle: string) {
   const folded = foldSearch(value);
