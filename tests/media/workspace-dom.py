@@ -87,7 +87,7 @@ def main():
                     ]},computeDuration:async()=>20,getPrimaryVideoTrack:async()=>null,dispose(){}
                 }}};
                 const engine={async prepare(){prepares++},async transcribe(){inferences++;return '[0][S01]こんにちは。[1]'},dispose(){}};
-                const connection=config.account?{transport:{userId:'test',isCurrent:()=>true,async request(){return {items:[],next_cursor:0,has_more:false}}}}:{};
+                const connection=config.account?{connectionKey:'test:1',transport:{userId:'test',isCurrent:()=>true,async request(){return {items:[],next_cursor:0,has_more:false}}}}:{};
                 window.workspace=new VideoWorkspace(document.querySelector('#host'),{
                     scope:config.account?'account:test':'guest',booksURL:'/manage',runtimeBase:'/moss',store,engine,loadBunny:async()=>bunny,...connection
                 });
@@ -284,7 +284,7 @@ def main():
                     userId:'test',isCurrent:()=>true,
                     request:()=>{cloudRequestStarted=true;return new Promise(resolve=>cloudRequestRelease=resolve)}
                 };
-                workspace.setConnection({transport:hanging,chooseConnected:async()=>{}});
+                workspace.setConnection({connectionKey:'test:1',transport:hanging,chooseConnected:async()=>{}});
                 window.reopenState='pending';
                 window.pendingCloudReopen=workspace.reopen(savedCloudKey).then(
                     ()=>reopenState='resolved',
