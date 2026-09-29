@@ -2,6 +2,7 @@
   import { onMount, tick } from 'svelte';
   import { base } from '$app/paths';
   import * as Sheet from '$lib/components/ui/sheet';
+  import CloseButton from '$lib/components/ui/close-button.svelte';
   import type { BookmarkManager } from '$lib/components/book-reader/types';
   import {
     CueTimeline,
@@ -620,18 +621,25 @@
 <Sheet.Root bind:open>
   <Sheet.Content
     side="bottom"
-    class="audiobook-sheet max-h-[85dvh] overflow-y-auto p-4 pr-12 pb-[calc(1rem+env(safe-area-inset-bottom))] [writing-mode:horizontal-tb]"
+    showCloseButton={false}
+    class="audiobook-sheet max-h-[85dvh] overflow-hidden p-0 [writing-mode:horizontal-tb]"
     onCloseAutoFocus={(event) => {
       event.preventDefault();
       returnFocus();
     }}
   >
-    <Sheet.Title>Audiobook</Sheet.Title>
-    <Sheet.Description
-      >Listen alongside {bookTitle} using local audio and timed subtitles. Files are not uploaded. Following
-      resumes after this panel closes.</Sheet.Description
-    >
-    <div class="panel" data-ui-overlay="audiobook-panel">
+    <div class="audiobook-header">
+      <div class="min-w-0">
+        <Sheet.Title>Audiobook</Sheet.Title>
+        <Sheet.Description
+          >Listen alongside {bookTitle} using local audio and timed subtitles. Files are not uploaded.
+          Following resumes after this panel closes.</Sheet.Description
+        >
+      </div>
+      <CloseButton aria-label="Close audiobook" onclick={() => (open = false)} />
+    </div>
+    <div class="audiobook-scroll">
+      <div class="panel" data-ui-overlay="audiobook-panel">
       {#if !ready}<p role="status">Loading saved audiobook settings…</p>{/if}
       <div class="file-fields">
         <label
@@ -873,6 +881,7 @@
           >MIT license</a
         >. This built-in player does not require their userscript or Anki.
       </p>
+      </div>
     </div>
   </Sheet.Content>
 </Sheet.Root>
@@ -923,6 +932,22 @@
     overflow-y: auto;
     white-space: pre-wrap;
   }
+  .audiobook-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 44px;
+    align-items: start;
+    gap: 16px;
+    flex-shrink: 0;
+    padding: 16px;
+    border-block-end: 1px solid var(--border);
+  }
+  .audiobook-scroll {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 16px;
+    padding-block-end: max(16px, env(safe-area-inset-bottom));
+  }
   .panel {
     display: grid;
     gap: 1rem;
@@ -957,14 +982,27 @@
   button,
   input[type='number'] {
     border: 1px solid currentColor;
-    border-radius: 0.375rem;
-    padding: 0.3rem 0.6rem;
-    min-height: 2.25rem;
+    border-radius: 0.5rem;
+    padding: 0.55rem 0.7rem;
+    min-height: 44px;
     background: transparent;
     color: inherit;
   }
+  .matching > label {
+    display: flex;
+    min-height: 44px;
+    align-items: center;
+    gap: 0.55rem;
+    cursor: pointer;
+  }
   input[type='checkbox'] {
-    margin-inline-end: 0.4rem;
+    width: 20px;
+    height: 20px;
+    margin: 0;
+    flex: 0 0 20px;
+  }
+  .file-fields input[type='file'] {
+    min-height: 44px;
   }
   button {
     cursor: pointer;
