@@ -74,8 +74,7 @@ interface SearchMatchKey {
 
 function matchKey(value: string, needle: string): SearchMatchKey {
   const folded = foldSearch(value);
-  if (folded === needle)
-    return { tier: 0, index: 0, length: Array.from(folded).length, folded };
+  if (folded === needle) return { tier: 0, index: 0, length: Array.from(folded).length, folded };
 
   const first = folded.indexOf(needle);
   if (first < 0)
@@ -89,11 +88,7 @@ function matchKey(value: string, needle: string): SearchMatchKey {
   let best = first;
   let tier = first === 0 ? 1 : 3;
   if (tier === 3) {
-    for (
-      let candidate = first;
-      candidate >= 0;
-      candidate = folded.indexOf(needle, candidate + 1)
-    ) {
+    for (let candidate = first; candidate >= 0; candidate = folded.indexOf(needle, candidate + 1)) {
       if (boundaryBefore(folded, candidate)) {
         best = candidate;
         tier = 2;
@@ -194,9 +189,7 @@ export async function searchVideoTitles(
     .filter(({ key }) => key.tier < 4)
     .sort(
       (a, b) =>
-        compareKeys(a.key, b.key) ||
-        compareStableText(a.item.key, b.item.key) ||
-        a.order - b.order
+        compareKeys(a.key, b.key) || compareStableText(a.item.key, b.item.key) || a.order - b.order
     )
     .map(({ item }) => item);
   return {
