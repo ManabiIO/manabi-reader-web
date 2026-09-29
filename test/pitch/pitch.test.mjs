@@ -1,7 +1,12 @@
 import process from 'node:process';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-const { analyseFrame } = await import(new URL('analysis.mjs', process.env.PITCH_COMPILED));
+const {
+  ANALYSIS_WINDOW_SECONDS,
+  SWIFT_F0_FRAME_SECONDS,
+  measurementFromSwiftF0,
+  resampleForSwiftF0
+} = await import(new URL('analysis.mjs', process.env.PITCH_COMPILED));
 const { appendPoint, pitchPaths, initialPitchState } = await import(
   new URL('model.mjs', process.env.PITCH_COMPILED)
 );
@@ -9,31 +14,53 @@ const { PitchController } = await import(new URL('controller.mjs', process.env.P
 const flush = async () => {
   for (let i = 0; i < 5; i++) await Promise.resolve();
 };
-const tone = (hz, rate = 48000, amplitude = 0.7) =>
+const tone = (hz, rate = 48000, seconds = ANALYSIS_WINDOW_SECONDS, amplitude = 0.7) =>
   Float32Array.from(
-    { length: Math.ceil(rate * 0.04) },
+    { length: Math.ceil(rate * seconds) },
     (_, i) => amplitude * Math.sin((2 * Math.PI * hz * i) / rate)
   );
 
 for (const rate of [8000, 16000, 44100, 48000, 96000, 192000]) {
-  for (const hz of [100, 160, 220, 330, 440])
-    test(`tone ${hz} Hz at ${rate} samples/s`, () => {
-      const result = analyseFrame(tone(hz, rate), rate);
-      assert.ok(result.hz !== null && Math.abs(result.hz - hz) < 4, JSON.stringify(result));
-      assert.ok(result.confidence >= 0.52 && result.amplitude > 0);
-    });
+  test(`SwiftF0 resampling keeps a finite 16 kHz window from ${rate} Hz`, () => {
+    const result = resampleForSwiftF0(tone(220, rate), rate);
+    assert.ok(result.length > 1000);
+    assert.ok([...result].every(Number.isFinite));
+    assert.ok(Math.abs(result.length / 16000 - ANALYSIS_WINDOW_SECONDS) < 0.002);
+  });
 }
-test('silence, DC, nonfinite input and malformed sample rates cannot produce a contour', () => {
-  for (const samples of [
-    new Float32Array(1920),
-    new Float32Array(1920).fill(0.5),
-    new Float32Array(1920).fill(NaN)
-  ])
-    assert.equal(analyseFrame(samples, 48000).hz, null);
+test('SwiftF0 frame selection retains its future-context margin and speech bounds', () => {
+  const samples = tone(220, 16000);
+  const frameCount = Math.floor(samples.length / 256);
+  const pitch = new Float64Array(frameCount).fill(220);
+  const confidence = new Float32Array(frameCount).fill(0.9);
+  const result = measurementFromSwiftF0(samples, pitch, confidence);
+  assert.equal(result.hz, 220);
+  assert.ok(result.confidence > 0.5 && result.amplitude > 0);
+  assert.ok(result.offsetSeconds <= result.windowSeconds - 0.15);
+  assert.ok(Math.abs((result.offsetSeconds / SWIFT_F0_FRAME_SECONDS) % 1) < 1e-8);
+});
+test('low confidence, silence and out-of-band SwiftF0 frames are unvoiced', () => {
+  const samples = tone(220, 16000);
+  const pitch = new Float64Array(24).fill(220);
+  const confidence = new Float32Array(24).fill(0.9);
+  confidence[13] = 0.1;
+  assert.equal(measurementFromSwiftF0(samples, pitch, confidence).hz, null);
+  assert.equal(
+    measurementFromSwiftF0(
+      new Float32Array(samples.length),
+      new Float64Array(24).fill(220),
+      new Float32Array(24).fill(1)
+    ).hz,
+    null
+  );
+  pitch[13] = 700;
+  confidence[13] = 1;
+  assert.equal(measurementFromSwiftF0(samples, pitch, confidence).hz, null);
+});
+test('empty model output and malformed source rates fail closed', () => {
+  assert.equal(measurementFromSwiftF0(new Float32Array(32), [], []).hz, null);
   for (const rate of [NaN, Infinity, 0, 7999, 192001])
-    assert.equal(analyseFrame(tone(220), rate).hz, null);
-  assert.equal(analyseFrame(new Float32Array(8), 48000).hz, null);
-  assert.equal(analyseFrame(new Float32Array(20000), 48000).hz, null);
+    assert.equal(resampleForSwiftF0(tone(220), rate).length, 0);
 });
 test('history is bounded in time and points, and seeks start a new contour', () => {
   let points = [];
@@ -106,7 +133,7 @@ function fixture(options = {}) {
       return {
         fftSize: 0,
         getFloatTimeDomainData(samples) {
-          samples.set(tone(220), samples.length - 1920);
+          samples.set(tone(220, 48000, samples.length / 48000));
         }
       };
     }
@@ -184,7 +211,17 @@ function fixture(options = {}) {
     ready() {
       workers.at(-1).onmessage({ data: { type: 'ready' } });
     },
-    result(worker = workers.at(-1), result = { hz: 220, amplitude: 0.5, confidence: 1, rms: 0.5 }) {
+    result(
+      worker = workers.at(-1),
+      result = {
+        hz: 220,
+        amplitude: 0.5,
+        confidence: 1,
+        rms: 0.5,
+        offsetSeconds: 0.32,
+        windowSeconds: ANALYSIS_WINDOW_SECONDS
+      }
+    ) {
       worker.onmessage({ data: { type: 'result', id: worker.sent.at(-1).id, result } });
     },
     play() {
@@ -272,12 +309,14 @@ test('bounded work: one in-flight request, timestamps at frame center, no duplic
   f.frame(100);
   const worker = f.workers[0];
   assert.equal(worker.sent.length, 1);
-  assert.equal(worker.sent[0].samples.length, 1920);
+  assert.equal(worker.sent[0].samples.length, Math.ceil(48000 * ANALYSIS_WINDOW_SECONDS));
   f.a.currentTime += 0.1;
   f.frame(200);
   assert.equal(worker.sent.length, 1);
   f.result();
-  assert.ok(Math.abs(f.state.points[0].time - 0.98) < 1e-9);
+  assert.ok(
+    Math.abs(f.state.points[0].time - (1 - ANALYSIS_WINDOW_SECONDS + 0.32)) < 1e-9
+  );
   f.frame(300);
   assert.equal(worker.sent.length, 2);
   f.result();
