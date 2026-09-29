@@ -49,6 +49,49 @@ export function assertBookPersonalAccess(
     throw new Error('This book belongs to another account.');
 }
 
+export async function commitOwnedLastItem(
+  db: IDBPDatabase<BooksDb>,
+  dataId: number,
+  profileId: string | null = null,
+  assertCurrent: () => void = () => undefined,
+  signal?: AbortSignal,
+  authoritySignal?: AbortSignal
+) {
+  if (!Number.isSafeInteger(dataId) || dataId <= 0)
+    throw new Error('The selected book is not a valid local book.');
+  assertCurrent();
+  signal?.throwIfAborted();
+  authoritySignal?.throwIfAborted();
+  const tx = db.transaction(['data', 'readerBookScope', 'lastItem'], 'readwrite');
+  const abort = () => {
+    try {
+      tx.abort();
+    } catch {
+      /* Already settled. */
+    }
+  };
+  signal?.addEventListener('abort', abort, { once: true });
+  authoritySignal?.addEventListener('abort', abort, { once: true });
+  try {
+    return await commitTransaction(tx, async () => {
+      assertCurrent();
+      signal?.throwIfAborted();
+      authoritySignal?.throwIfAborted();
+      const book = await tx.objectStore('data').get(dataId);
+      if (!book) throw new Error('The selected book was removed. Refresh the Library and try again.');
+      const owner = await tx.objectStore('readerBookScope').get(dataId);
+      assertBookPersonalAccess(book, owner, profileId);
+      assertCurrent();
+      signal?.throwIfAborted();
+      authoritySignal?.throwIfAborted();
+      return tx.objectStore('lastItem').put({ dataId }, 0);
+    });
+  } finally {
+    signal?.removeEventListener('abort', abort);
+    authoritySignal?.removeEventListener('abort', abort);
+  }
+}
+
 export async function readOwnedBookmark(
   db: IDBPDatabase<BooksDb>,
   dataId: number,
@@ -208,13 +251,18 @@ export async function updateBookLastRead(
 export async function prepareBookForLocalReading(
   db: IDBPDatabase<BooksDb>,
   context: { id?: number; title: string },
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  profileId: string | null = null,
+  assertCurrent: () => void = () => undefined,
+  authoritySignal?: AbortSignal
 ): Promise<number> {
-  throwIfAborted(signal);
+  signal?.throwIfAborted();
+  authoritySignal?.throwIfAborted();
+  assertCurrent();
   const { id, title } = context;
   if (id !== undefined && id !== 0 && (!Number.isSafeInteger(id) || id < 1))
     throw new Error('The selected book is not a valid local book.');
-  const tx = db.transaction('data', 'readwrite');
+  const tx = db.transaction(['data', 'readerBookScope'], 'readwrite');
   const abort = () => {
     try {
       tx.abort();
@@ -223,24 +271,31 @@ export async function prepareBookForLocalReading(
     }
   };
   signal?.addEventListener('abort', abort, { once: true });
+  authoritySignal?.addEventListener('abort', abort, { once: true });
   try {
     return await commitTransaction(tx, async () => {
-      throwIfAborted(signal);
+      signal?.throwIfAborted();
+      authoritySignal?.throwIfAborted();
+      assertCurrent();
+      const data = tx.objectStore('data');
       const selected =
-        id || uniqueSharedCopy(title, await tx.store.index('title').getAllKeys(title, 2));
-      const book = selected === undefined ? undefined : await tx.store.get(selected);
+        id || uniqueSharedCopy(title, await data.index('title').getAllKeys(title, 2));
+      const book = selected === undefined ? undefined : await data.get(selected);
       if (!book) throw new Error('No local book data found');
+      const owner = await tx.objectStore('readerBookScope').get(book.id);
+      assertBookPersonalAccess(book, owner, profileId);
       if (!book.elementHtml)
         throw new Error(
-          `Placeholder books should be opened from their original source${
-            book.storageSource ? ` - last source: ${book.storageSource}` : ''
-          }`
+          `Placeholder books should be opened from their original source${book.storageSource ? ` - last source: ${book.storageSource}` : ''}`
         );
-      throwIfAborted(signal);
-      if (book.storageSource) await tx.store.put({ ...book, storageSource: undefined });
+      signal?.throwIfAborted();
+      authoritySignal?.throwIfAborted();
+      assertCurrent();
+      if (book.storageSource) await data.put({ ...book, storageSource: undefined });
       return book.id;
     });
   } finally {
     signal?.removeEventListener('abort', abort);
+    authoritySignal?.removeEventListener('abort', abort);
   }
 }
