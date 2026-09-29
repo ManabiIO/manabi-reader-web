@@ -79,7 +79,7 @@
   let mediaRuntimePromise: Promise<LazyMediaRuntime> | undefined;
   let mediaSubscribed = false;
   let mediaDisposed = false;
-  let stopMedia = () => undefined;
+  let stopMedia: () => void = () => {};
   let mediaRevision = 0;
   async function mediaRuntime(): Promise<LazyMediaRuntime> {
     if (!videoLearningEnabled) throw new Error('Video learning is disabled.');
