@@ -55,6 +55,8 @@ interface Alias {
   cloud?: CloudLocator;
 }
 export interface WorkspaceConnection {
+  /** Stable authenticated authority identity, including account generation. */
+  connectionKey: string;
   transport: SyncTransport;
   chooseConnected: (
     open: (source: ByteSource, subtitles?: File[]) => Promise<void>,
@@ -69,6 +71,7 @@ export interface WorkspaceOptions {
   store?: MediaStore;
   engine?: Engine;
   loadBunny: () => Promise<Bunny>;
+  connectionKey?: string;
   transport?: SyncTransport;
   /** Actual connected-source browser supplied by the Svelte host. */
   chooseConnected?: (
@@ -1630,13 +1633,17 @@ export class VideoWorkspace {
     for (const key of keys) void this.queue.pauseForMedia(key).catch((error) => this.error(error));
   }
   setConnection(connection: WorkspaceConnection | undefined) {
-    const changed =
-      this.options.transport !== connection?.transport ||
-      this.options.chooseConnected !== connection?.chooseConnected;
-    this.cloudAbort.abort(new DOMException('Connected media access changed', 'AbortError'));
-    this.cloudAbort = new AbortController();
-    this.stopSync();
-    if (changed) this.revokeConnectedMedia();
+    const changed = this.options.connectionKey !== connection?.connectionKey;
+    if (changed) {
+      this.cloudAbort.abort(new DOMException('Connected media access changed', 'AbortError'));
+      this.cloudAbort = new AbortController();
+      this.stopSync();
+      this.revokeConnectedMedia();
+    }
+    // Same-generation refreshes may replace wrapper functions/tokens without
+    // invalidating an already admitted source. Future operations use the newest
+    // transport while existing operations retain their captured authority check.
+    this.options.connectionKey = connection?.connectionKey;
     this.options.transport = connection?.transport;
     this.options.chooseConnected = connection?.chooseConnected;
     this.cloudButton.hidden = !connection;

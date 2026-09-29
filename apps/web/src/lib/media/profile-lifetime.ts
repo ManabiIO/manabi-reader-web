@@ -33,8 +33,16 @@ export class ProfileLifetime<Connection> {
   update(event: ProfileEvent<Connection>): Promise<void> {
     if (this.stopped) return this.chain;
     const epoch = ++this.epoch;
-    // Revoke network authority immediately, before any asynchronous profile reads.
-    this.workspace?.setConnection(undefined);
+    // Same-account available refreshes already contain enough identity to update
+    // authority synchronously. Let the workspace compare connection generations
+    // instead of revoking healthy cloud playback on every session-store emission.
+    const sameAvailableScope =
+      event.status === 'available' &&
+      !!event.userId &&
+      this.scope === `account:${event.userId}` &&
+      !!this.workspace;
+    if (sameAvailableScope) this.workspace!.setConnection(event.connection);
+    else this.workspace?.setConnection(undefined);
     if (event.status === 'loading') return this.chain;
     this.chain = this.chain
       .then(async () => {

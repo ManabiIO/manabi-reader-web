@@ -105,6 +105,7 @@
           request
         };
         connection = {
+          connectionKey: `${admitted.userId}:${admitted.generation}`,
           transport,
           chooseConnected: (open, signal) => chooseCloudVideo(transport, open, signal)
         };
