@@ -119,6 +119,22 @@ test('video title search ranks exact, prefix, boundary and interior matches', as
   );
 });
 
+test('video title relevance uses the best occurrence and code-point position', async () => {
+  const store = new Store({
+    infos: [
+      replica('video_info', key('a'), info('Copycat only')),
+      replica('video_info', key('b'), info('Copycat cat')),
+      replica('video_info', key('c'), info('Before cat')),
+      replica('video_info', key('d'), info('🐱🐱 cat'))
+    ]
+  });
+  const result = await searchVideoTitles(store, 'guest', 'cat', new AbortController().signal);
+  assert.deepEqual(
+    result.hits.map((hit) => hit.title),
+    ['Before cat', '🐱🐱 cat', 'Copycat cat', 'Copycat only']
+  );
+});
+
 test('transcript search uses saved delay, prefers authored transcription, and deduplicates equivalent cues', async () => {
   const a = key('a');
   const authored = '00000000-0000-4000-8000-000000000001';
