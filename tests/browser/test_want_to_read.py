@@ -166,6 +166,108 @@ class WantToReadBrowser(LibraryBase):
         expect(browse).to_be_visible()
         self.assertGreaterEqual(browse.bounding_box()['height'], 44)
 
+    def test_mobile_collections_keeps_header_and_edit_actions_reachable_at_200_percent(self):
+        names = [
+            'Japanese Reading Projects and Long-Term Study Plans',
+            'とても長い名前の日本語コレクションと読書リスト',
+            'Reference Books for Grammar Vocabulary and Culture',
+        ]
+        self.page.set_viewport_size({'width': 390, 'height': 844})
+        trigger = self.page.get_by_role('button', name='Collections', exact=True)
+        trigger.click()
+        sheet = self.page.locator('#library-collections-sheet')
+        expect(sheet.get_by_role('button', name='Edit', exact=True)).to_be_focused()
+
+        for name in names:
+            sheet.get_by_role('button', name='New Collection…', exact=True).click()
+            dialog = self.page.get_by_role('dialog', name='New collection', exact=True)
+            expect(dialog).to_be_visible()
+            dialog.get_by_label('Name', exact=True).fill(name)
+            dialog.get_by_role('button', name='Save', exact=True).click()
+            expect(dialog).to_have_count(0)
+            sheet = self.page.locator('#library-collections-sheet')
+            expect(sheet.get_by_role('button', name=name, exact=False)).to_be_visible()
+
+        sheet.get_by_role('button', name='Close collections', exact=True).click()
+        expect(sheet).to_have_count(0)
+        expect(trigger).to_be_focused()
+
+        self.page.set_viewport_size({'width': 320, 'height': 320})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        trigger = self.page.get_by_role('button', name='Collections', exact=True)
+        trigger.focus()
+        trigger.press('Enter')
+        sheet = self.page.locator('#library-collections-sheet')
+        expect(sheet).to_be_visible()
+        scroll = sheet.locator('.collections-scroll')
+        self.page.wait_for_function(
+            'e => e.scrollHeight > e.clientHeight',
+            arg=scroll.element_handle()
+        )
+        self.assertEqual('hidden', sheet.evaluate('e => getComputedStyle(e).overflowY'))
+        self.assertEqual('auto', scroll.evaluate('e => getComputedStyle(e).overflowY'))
+        self.assertLessEqual(sheet.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+        self.assertLessEqual(scroll.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+
+        edit = sheet.get_by_role('button', name='Edit', exact=True)
+        close = sheet.get_by_role('button', name='Close collections', exact=True)
+        for control in (edit, close):
+            box = control.bounding_box()
+            self.assertGreaterEqual(box['width'], 43.99)
+            self.assertGreaterEqual(box['height'], 43.99)
+            self.assertGreaterEqual(box['x'], -1)
+            self.assertGreaterEqual(box['y'], -1)
+            self.assertLessEqual(box['x'] + box['width'], 321)
+            self.assertLessEqual(box['y'] + box['height'], 321)
+
+        scroll.evaluate('e => { e.scrollTop = e.scrollHeight; }')
+        self.page.wait_for_function('e => e.scrollTop > 0', arg=scroll.element_handle())
+        last = sheet.get_by_role('button', name=re.compile('^' + re.escape(names[-1]) + r'\b'))
+        expect(last).to_be_visible()
+        self.assertTrue(last.evaluate('''e => {
+          const r=e.getBoundingClientRect();
+          const viewport=e.closest('.collections-scroll').getBoundingClientRect();
+          const left=Math.max(r.left,viewport.left,0), right=Math.min(r.right,viewport.right,innerWidth);
+          const top=Math.max(r.top,viewport.top,0), bottom=Math.min(r.bottom,viewport.bottom,innerHeight);
+          if (right<=left || bottom<=top) return false;
+          const hit=document.elementFromPoint((left+right)/2,(top+bottom)/2);
+          return !!hit && (hit===e || e.contains(hit));
+        }'''))
+
+        edit.click()
+        done = sheet.get_by_role('button', name='Done', exact=True)
+        expect(done).to_be_visible()
+        scroll.evaluate('e => { e.scrollTop = e.scrollHeight; }')
+        rename = sheet.get_by_role('button', name='Rename collection ' + names[-1], exact=True)
+        delete = sheet.get_by_role('button', name='Delete collection ' + names[-1], exact=True)
+        for control in (rename, delete):
+            expect(control).to_be_visible()
+            box = control.bounding_box()
+            self.assertGreaterEqual(box['width'], 43.99)
+            self.assertGreaterEqual(box['height'], 43.99)
+            self.assertLessEqual(box['x'] + box['width'], 321)
+            self.assertTrue(control.evaluate('''e => {
+              const r=e.getBoundingClientRect();
+              const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+              return !!hit && (hit===e || e.contains(hit));
+            }'''))
+
+        # Header actions must remain reachable after the opposite end of the
+        # destination scroller is reached and edit controls are expanded.
+        for control in (done, close):
+            self.assertTrue(control.evaluate('''e => {
+              const r=e.getBoundingClientRect();
+              const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+              return !!hit && (hit===e || e.contains(hit));
+            }'''))
+        self.screenshot('collections-short-enlarged-edit')
+
+        close.focus()
+        close.press('Enter')
+        expect(sheet).to_have_count(0)
+        expect(trigger).to_be_focused()
+        self.page.evaluate('document.documentElement.style.fontSize = ""')
+
     def test_book_menu_and_collection_dialog_preserve_other_membership(self):
         self.import_book('Wishlist one')
         self.import_book('Wishlist two')
