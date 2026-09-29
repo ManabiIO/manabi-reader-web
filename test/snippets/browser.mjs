@@ -395,7 +395,11 @@ try {
     .getByRole('textbox', { name: 'New collection name', exact: true })
     .fill('日本語の文章');
   await page.getByRole('button', { name: 'Create collection', exact: true }).click();
-  await expect(page.getByRole('checkbox', { name: '日本語の文章' })).toBeChecked();
+  const collectionMembership = page.getByRole('checkbox', { name: '日本語の文章' });
+  await expect(collectionMembership).toBeChecked();
+  const collectionTarget = collectionMembership.locator('..');
+  assert((await collectionTarget.boundingBox()).height >= 43.5,
+    'Collection membership label must remain at least 44 CSS px high');
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   const metadata = await records(page, 'metadata');
   assert(
@@ -569,7 +573,13 @@ try {
   await sourceSelect.selectOption({ label: 'Dropbox · Dropbox snippets' });
   await expect(picker.getByRole('button', { name: 'Use this folder', exact: true })).toBeEnabled();
   passed('failed destination switch cannot reuse the previously writable folder');
-  await picker.getByRole('checkbox', { name: 'Use this location for new snippets' }).check();
+  const rememberLocation = picker.getByRole('checkbox', {
+    name: 'Use this location for new snippets'
+  });
+  const rememberTarget = rememberLocation.locator('..');
+  assert((await rememberTarget.boundingBox()).height >= 43.5,
+    'Remember-location label must remain at least 44 CSS px high');
+  await rememberLocation.check();
   await picker.getByRole('button', { name: 'Use this folder', exact: true }).click();
   const cloudID = await commit(page);
   await expect
