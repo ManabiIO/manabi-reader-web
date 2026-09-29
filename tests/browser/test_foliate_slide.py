@@ -72,7 +72,9 @@ class FoliateSlide(ReaderBrowser):
             insets:['Top','Right','Bottom','Left'].map(side => parseFloat(getComputedStyle(el)['padding'+side])),
             indicator:rect(el.querySelector('.page-indicator')),
             label:el.querySelector('.page-indicator').textContent,
-            globalPage:Number(el.querySelector('.page-indicator').dataset.page)
+            globalPage:Number(el.querySelector('.page-indicator').dataset.page),
+            total:el.querySelector('.page-indicator').dataset.total,
+            expanded:el.querySelector('.page-indicator').getAttribute('aria-expanded') === 'true'
           }});
           return {{page:p.page, index:p.getContents()[0].index, width:p.getBoundingClientRect().width,
             host:rect(p), viewport:{{width:visualViewport.width,height:visualViewport.height}},
@@ -121,7 +123,10 @@ class FoliateSlide(ReaderBrowser):
             self.assertAlmostEqual(surface['bounds']['y'], 0, delta=1)
             self.assertAlmostEqual(surface['indicator']['x'] + surface['indicator']['width']/2,
                                    surface['bounds']['x'] + width/2, delta=1)
-            self.assertEqual(surface['label'], str(surface['globalPage']))
+            expected = str(surface['globalPage'])
+            if surface['expanded'] and surface['total']:
+                expected += ' of ' + surface['total']
+            self.assertEqual(surface['label'], expected)
             for layer in ['shade', 'background']:
                 for axis in ['x', 'y', 'width', 'height']:
                     self.assertAlmostEqual(surface[layer][axis], surface['bounds'][axis], delta=1,
@@ -150,7 +155,7 @@ class FoliateSlide(ReaderBrowser):
         self.assertRegex(self.indicator(), r'^1 of \d+$')
         expect(self.page.get_by_role('banner', name='Reader toolbar')).to_be_visible()
         self.assertRegex(self.indicator(), r'^1 of \d+$')
-        self.page.locator('button[data-reader-controls]').first.evaluate('e => e.blur()')
+        self.page.evaluate('document.activeElement?.blur()')
         self.page.evaluate(f"async () => {{window.prepared = await {P}.preparePageTurn(1);window.prepared.update(.45)}}")
         expect(self.page.get_by_role('banner', name='Reader toolbar')).not_to_be_visible()
         expect(self.page.locator('.reader-controls')).to_have_css('opacity', '0')

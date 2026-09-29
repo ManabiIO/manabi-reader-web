@@ -21,10 +21,10 @@ class ReaderIntegration(LibraryBase):
         self.assertEqual(2, len(before['data']))
         self.seed_shared_source()
         self.page.goto(self.origin + '/reader-web/shared-library')
-        navigation = self.page.get_by_role('navigation', name='Reader navigation', exact=True)
+        navigation = self.page.get_by_role('navigation', name='Primary navigation', exact=True)
         links = navigation.get_by_role('link')
-        expect(links).to_have_count(3)
-        bounds = [links.nth(i).bounding_box() for i in range(3)]
+        expect(links).to_have_count(4)
+        bounds = [links.nth(i).bounding_box() for i in range(4)]
         for left, right in zip(bounds, bounds[1:]):
             self.assertGreaterEqual(right['x'] - left['x'] - left['width'], 11)
         publish = self.page.get_by_role('region', name='Publish browser books', exact=True)

@@ -33,7 +33,8 @@ class PreviewCacheBrowser(fixtures.LibraryBase):
         self.assertEqual(1, len(self.stores('books', ['data'])['data']))
         self.assertEqual([], self.stores('manabi-reader-integrations', ['books'])['books'])
         self.assertEqual(before, self.disk())
-        preview.click()
+        # Plain clicks replace the selection; Space toggles the focused tile.
+        preview.press('Space')
         expect(preview).to_have_attribute('aria-pressed', 'false')
         self.page.get_by_role('button', name='Cancel selection', exact=True).click()
         snapshot = '''async () => {

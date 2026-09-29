@@ -390,6 +390,8 @@ class LibraryTouchParityBrowser(LibraryBase):
         self.import_book('Touch parity')
         self.page.get_by_role('button', name='Read Touch parity', exact=True).tap()
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=35000)
+        # A focused navigation control intentionally keeps chrome visible.
+        self.page.evaluate('document.activeElement?.blur()')
         controls = self.page.locator('button[data-reader-controls]')
         expect(controls).to_have_class(re.compile(r'chrome-hidden'), timeout=10000)
         self.page.touchscreen.tap(195, 400)

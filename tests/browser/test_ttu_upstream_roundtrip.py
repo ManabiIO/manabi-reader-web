@@ -81,8 +81,10 @@ class UpstreamTtuRoundTrip(MigrationBrowser):
             expect(ttu_page.locator('[title="Open Export Menu"]')).to_be_visible()
             ttu_page.locator('[title="Open Export Menu"]').click()
             ttu_page.get_by_role('button', name='Zip File', exact=True).click()
-            for label in ('Book Data', 'Bookmark', 'Statistics', 'Audiobook', 'Subtitles'):
-                ttu_page.get_by_label(label, exact=True).check()
+            # This pinned upstream build mislabels the Audiobook and Subtitles
+            # inputs, so target its actual named checkboxes.
+            for name in ('data', 'bookmark', 'statistic', 'audioBook', 'subtitle'):
+                ttu_page.locator(f'input[type="checkbox"][name="{name}"]').check()
 
             with ttu_page.expect_download(timeout=60000) as pending:
                 ttu_page.get_by_role('button', name='Start', exact=True).click()

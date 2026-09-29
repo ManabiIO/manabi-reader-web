@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Opt-in REAL MOSS inference gate. Missing runtimes are failures, never fake passes."""
-import argparse, functools, hashlib, http.server, importlib.util, json, math, os, pathlib, re, threading, unicodedata
+import argparse, functools, hashlib, http.server, importlib.util, json, math, os, pathlib, re, threading, unicodedata, wave as wavfile
 from playwright.sync_api import sync_playwright
 from urllib.parse import urlsplit
 ROOT=pathlib.Path(__file__).resolve().parents[2]
@@ -63,18 +63,23 @@ def natural_kokoro_fixture(path, language):
     """Pinned public-domain Kokoro/LibriVox Japanese reading and transcript."""
     if language != 'ja':
         raise ValueError('The pinned Kokoro fixture is Japanese')
-    wave = pathlib.Path(path)/'speech.wav'
-    if wave.is_symlink():
-        raise ValueError('Pinned Kokoro speech must be a regular file')
-    data = wave.read_bytes()
+    source = pathlib.Path(path)/'source.wav'
+    speech = pathlib.Path(path)/'speech.wav'
+    if source.is_symlink() or speech.is_symlink():
+        raise ValueError('Pinned Kokoro speech must be regular files')
+    data = source.read_bytes()
     # GitHub's immutable source tree identifies this binary with the canonical
     # Git blob hash; retain SHA-256 separately in result evidence.
     header = b'blob ' + str(len(data)).encode() + b'\0'
     if hashlib.sha1(header + data).hexdigest() != KOKORO_JA_GIT_BLOB:
         raise ValueError('Pinned Kokoro Japanese speech hash does not match')
-    fingerprint = hashlib.sha256(data).hexdigest()
+    with wavfile.open(str(speech), 'rb') as decoded:
+        if (decoded.getnchannels(), decoded.getsampwidth(), decoded.getframerate(), decoded.getcomptype()) != (1, 2, 16000, 'NONE'):
+            raise ValueError('Normalized Kokoro speech must be PCM 16-bit mono 16 kHz')
+    fingerprint = hashlib.sha256(speech.read_bytes()).hexdigest()
     return {'fingerprint': fingerprint,
-            'engine': {'name': 'kokoro-public-domain-librivox', 'language': 'ja'},
+            'engine': {'name': 'kokoro-public-domain-librivox', 'language': 'ja',
+                       'sourceSha256': hashlib.sha256(data).hexdigest()},
             'files': {'speech.wav': fingerprint},
             'cues': [{'text': KOKORO_JA_REFERENCE}]}
 

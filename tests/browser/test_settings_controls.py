@@ -115,8 +115,18 @@ class SettingsControlsBrowser(LibraryBase):
         self.page.evaluate('''async () => {
           const cache=await caches.open('ttu-userfonts');
           await cache.put('/userfonts/unlisted.ttf',new Response('synthetic unlisted bytes'));
-          const open=caches.open.bind(caches); window.__denyFontCache=true;
-          caches.open=(name)=>name==='ttu-userfonts' && window.__denyFontCache ? Promise.reject(new Error('Font cache temporarily denied')) : open(name);
+          window.__unlistedFontWasStored=!!(await cache.match('/userfonts/unlisted.ttf'));
+          window.__fontDeleteCalls=[];
+          const remove=Cache.prototype.delete;
+          Cache.prototype.delete=function(request,options) {
+            window.__fontDeleteCalls.push(String(request));
+            return remove.call(this,request,options);
+          };
+          const open=CacheStorage.prototype.open; window.__denyFontCache=true;
+          CacheStorage.prototype.open=function(name) {
+            return name==='ttu-userfonts' && window.__denyFontCache
+              ? Promise.reject(new Error('Font cache temporarily denied')) : open.call(this,name);
+          };
         }''')
         dialog = self.fonts()
         expect(dialog.get_by_role('alert')).to_contain_text('Font cache temporarily denied')
@@ -126,7 +136,11 @@ class SettingsControlsBrowser(LibraryBase):
         expect(dialog.get_by_role('button', name='Use ' + FONT['name'], exact=True)).to_be_disabled()
         expect(dialog).to_contain_text('File unavailable.')
         self.assertEqual(self.catalog(), [FONT])
-        self.assertTrue(self.page.evaluate("async () => !!(await (await caches.open('ttu-userfonts')).match('/userfonts/unlisted.ttf'))"))
+        self.assertEqual(self.page.evaluate('window.__fontDeleteCalls'), [])
+        # Some WebKit builds acknowledge Cache.put but do not retain synthetic
+        # entries. When the fixture is retained, verify the actual bytes too.
+        if self.page.evaluate('window.__unlistedFontWasStored'):
+            self.assertTrue(self.page.evaluate("async () => !!(await (await caches.open('ttu-userfonts')).match('/userfonts/unlisted.ttf'))"))
 
     def test_font_submission_validation_and_close_during_native_save(self):
         self.settings('Fonts & text')
