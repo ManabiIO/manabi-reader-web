@@ -100,5 +100,60 @@ class UnifiedSearch(ProductJourneyBase):
         self.checkpoint('unified-latest-query')
 
 
+    def test_dictionary_query_limit_counts_unicode_characters_and_recovers(self):
+        field = self.library_search('𠮷' * 256)
+        self.filter('Dictionary')
+        # 256 supplementary-plane characters are 512 UTF-16 code units but
+        # must still be accepted as 256 user-visible search characters.
+        expect(self.page.get_by_text(
+            'Use a dictionary query of 256 characters or fewer.', exact=False
+        )).to_have_count(0)
+        field.fill('𠮷' * 257)
+        expect(self.page.get_by_text(
+            'Use a dictionary query of 256 characters or fewer.', exact=False
+        )).to_be_visible()
+        field.fill('猫')
+        expect(self.page.get_by_text(
+            'Use a dictionary query of 256 characters or fewer.', exact=False
+        )).to_have_count(0)
+        self.checkpoint('dictionary-unicode-limit-recovered')
+
+    def test_unified_search_reflows_at_200_percent_text_on_short_phone(self):
+        self.import_book(
+            'とても長い日本語の検索結果タイトルと読書ガイド',
+            body='<p>検索対象の猫についてのとても長い本文です。</p>' * 4
+        )
+        self.page.set_viewport_size({'width': 320, 'height': 480})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        field = self.library_search('猫')
+        results = self.page.get_by_label('Library search results', exact=True)
+        expect(results).to_be_visible()
+        self.assertLessEqual(results.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+        self.assertLessEqual(
+            self.page.evaluate('document.documentElement.scrollWidth-innerWidth'), 1)
+
+        filters = self.page.get_by_role('navigation', name='Search result type')
+        for name in ('All', 'Dictionary', 'Titles', 'Content'):
+            button = filters.get_by_role('button', name=name, exact=True)
+            box = button.bounding_box()
+            self.assertGreaterEqual(box['height'], 43.99)
+            self.assertGreaterEqual(box['x'], -1)
+            self.assertLessEqual(box['x'] + box['width'], 321)
+
+        expect(self.page.locator('[data-search-row="titles"]').first).to_be_visible()
+        passage = self.page.locator('[data-search-row="content"]').first
+        expect(passage).to_be_visible()
+        passage.scroll_into_view_if_needed()
+        self.assertTrue(passage.evaluate('''e => {
+          const r=e.getBoundingClientRect();
+          const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+          return !!hit && (hit===e || e.contains(hit));
+        }'''))
+        self.checkpoint('unified-200-percent-short-phone')
+        field.focus()
+        expect(field).to_be_focused()
+
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
