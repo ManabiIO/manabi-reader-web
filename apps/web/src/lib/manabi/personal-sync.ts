@@ -13,6 +13,7 @@ import type {
 import { readIndexedBookMetadata } from '$lib/data/database/books-db/content-hash-index';
 import {
   livePersonalCopies,
+  needsPersonalHydration,
   planPersonalBookClaims,
   tryLivePersonalCopies,
   type PersonalBook
@@ -922,11 +923,18 @@ async function stageReading(accountId: string, books: Map<string, PersonalBook[]
 async function hydrateReading(accountId: string, books: Map<string, PersonalBook[]>) {
   const db = await database.db;
   const pending = await db.getAllFromIndex('readerPersonalOutbox', 'accountId', accountId);
-  const unhydrated = new Set<string>();
-  for (const [bookKey, copies] of books) {
-    const scopes = await Promise.all(copies.map((book) => db.get('readerBookScope', book.id)));
-    if (scopes.every((scope) => !scope?.hydrated)) unhydrated.add(bookKey);
-  }
+  scoped(accountId);
+
+  // A content identity needs reconciliation when any of its exact physical
+  // copies is newly claimed/unhydrated, not only when every copy is new.
+  const scopeSnapshot = await db.getAll('readerBookScope');
+  scoped(accountId);
+  const unhydrated = new Set(
+    [...books].flatMap(([bookKey, copies]) =>
+      needsPersonalHydration(copies, scopeSnapshot, accountId) ? [bookKey] : []
+    )
+  );
+
   for (const record of await db.getAllFromIndex('readerPersonalRecord', 'accountId', accountId)) {
     if (
       record.kind === 'annotation' ||
@@ -947,14 +955,40 @@ async function hydrateReading(accountId: string, books: Map<string, PersonalBook
         local
       );
   }
-  scoped(accountId);
-  const tx = db.transaction('readerBookScope', 'readwrite');
-  for (const copies of books.values())
-    for (const book of copies) {
-      const scope = await tx.store.get(book.id);
-      if (scope?.accountId === accountId && !scope.hydrated)
-        await tx.store.put({ ...scope, hydrated: true });
+
+  // Resume/completion live in per-book bookmark rows even though exact copies
+  // share one logical personal identity. If a new exact copy appears after an
+  // older copy was already hydrated, copy the current aggregate state to all
+  // live copies before marking the newcomer hydrated.
+  for (const bookKey of unhydrated) {
+    for (const kind of ['resume', 'completion'] as const) {
+      const local = await readLocal(kind, bookKey, bookKey, books, accountId);
+      if (local !== null)
+        await applyLocal(kind, bookKey, bookKey, local, books, accountId, local);
     }
+  }
+
+  scoped(accountId);
+  const tx = db.transaction(['data', 'readerBookScope'], 'readwrite');
+  for (const [bookKey, copies] of books) {
+    if (!unhydrated.has(bookKey)) continue;
+    const live = await tryLivePersonalCopies(
+      bookKey,
+      copies,
+      tx.objectStore('data'),
+      tx.objectStore('readerBookScope'),
+      accountId,
+      () => scoped(accountId)
+    );
+    if (!live) continue;
+    for (const book of live) {
+      const scope = await tx.objectStore('readerBookScope').get(book.id);
+      scoped(accountId);
+      if (scope?.accountId === accountId && !scope.hydrated)
+        await tx.objectStore('readerBookScope').put({ ...scope, hydrated: true });
+    }
+  }
+  scoped(accountId);
   await tx.done;
 }
 
