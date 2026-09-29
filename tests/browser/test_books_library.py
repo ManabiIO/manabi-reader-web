@@ -137,7 +137,19 @@ class LibraryBase(unittest.TestCase):
         output = Path('test-results')
         output.mkdir(exist_ok=True)
         try:
-            self.page.screenshot(path=str(output / (self.engine + '-' + self._testMethodName + '.png')), full_page=True)
+            screenshot = output / (self.engine + '-' + self._testMethodName + '.png')
+            dimensions = self.page.evaluate("""() => ({
+              width: Math.max(document.documentElement.scrollWidth, document.body?.scrollWidth || 0),
+              height: Math.max(document.documentElement.scrollHeight, document.body?.scrollHeight || 0)
+            })""")
+            # WebKit/Chromium reject screenshots with a dimension above 32767px.
+            # Preserve viewport evidence instead of masking the primary assertion.
+            full_page = max(dimensions['width'], dimensions['height']) <= 32760
+            self.page.screenshot(path=str(screenshot), full_page=full_page)
+            if not full_page:
+                (output / (self.engine + '-' + self._testMethodName + '-screenshot.txt')).write_text(
+                    f"Full-page screenshot skipped for {dimensions['width']}x{dimensions['height']} CSS px."
+                )
             (output / (self.engine + '-' + self._testMethodName + '.html')).write_text(self.page.content())
         finally:
             self.context.close()
