@@ -109,7 +109,8 @@ function fixture(options = {}) {
       return {
         fftSize: 0,
         getFloatTimeDomainData(samples) {
-          samples.set(tone(220), samples.length - 1920);
+          const signal = tone(220);
+          samples.set(signal, samples.length - signal.length);
         }
       };
     }
@@ -277,7 +278,7 @@ test('show/hide and off/on stop analysis but retain the playback destination', a
   assert.equal(f.context.closes, 1);
   assert.equal(source.connections.size, 0);
 });
-test('bounded work: one in-flight request, timestamps at frame center, no duplicate stalled samples', async () => {
+test('bounded work: one in-flight SwiftF0 window and no duplicate stalled samples', async () => {
   const f = await running();
   f.frame(100);
   const worker = f.workers[0];
@@ -480,7 +481,7 @@ test('startup timeout distinguishes ready worker from unavailable audio output',
   const f = fixture({ resume: () => new Promise(() => {}) });
   f.controller.setEnabled(true);
   f.ready();
-  f.timer(15000);
+  f.timer(30000);
   assert.equal(f.state.status, 'error');
   assert.match(f.state.message, /audio output/);
   assert.equal(f.sources.length, 0);
