@@ -4,6 +4,16 @@ import { build, files, prerendered, version } from '$service-worker';
 import { userFontsCacheName } from '$lib/data/fonts';
 import { registerReaderServiceWorker } from '$lib/service-worker/reader-service-worker.mjs';
 
+// Optional analysis must not be fetched by the offline shell installer.
+const lazyAssets = build.filter((path) => /\/voice-pitch\.worker-[^/]+\.js$/.test(path));
+
 // eslint-disable-next-line no-restricted-globals
 const worker = self as unknown as ServiceWorkerGlobalScope;
-registerReaderServiceWorker(worker, { build, files, prerendered, version, userFontsCacheName });
+registerReaderServiceWorker(worker, {
+  build,
+  files,
+  prerendered,
+  version,
+  userFontsCacheName,
+  lazyAssets
+});
