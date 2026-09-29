@@ -25,6 +25,11 @@ function loadModule(path, name, dependencies = {}) {
 }
 
 const EpubStyleBudget = loadModule('style-budget.ts', 'EpubStyleBudget');
+const assertSupportedEpubRendition = loadModule(
+  'epub-import-policy.ts',
+  'assertSupportedEpubRendition'
+);
+const normalizeEpubSpineLinear = loadModule('epub-import-policy.ts', 'normalizeEpubSpineLinear');
 
 function deferred() {
   let resolve;
@@ -86,6 +91,8 @@ function fixture({ sources = [], sheets = {}, chapters = 1, close, readFailure }
   const document = { createElement: element };
   const importEpubPublication = loadModule('import-publication.ts', 'importEpubPublication', {
     EpubStyleBudget,
+    assertSupportedEpubRendition,
+    normalizeEpubSpineLinear,
     openFoliateEpub: async () => publication,
     epubPublicationManifest: ({ resources }) => ({ version: 1, resources }),
     packEpubResources: (resources) => {
