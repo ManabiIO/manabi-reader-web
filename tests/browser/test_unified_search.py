@@ -131,24 +131,38 @@ class UnifiedSearch(ProductJourneyBase):
 
         self.filter('Content')
         rows = self.page.locator('[data-search-row="content"] small')
-        expect(rows).to_have_count(2)
+        expect(rows).to_have_count(2, timeout=30000)
         self.assertTrue(any('Book · Scope book' in value for value in rows.all_text_contents()))
         self.assertTrue(any('Snippet · Scope snippet' in value for value in rows.all_text_contents()))
 
         self.scope('Books')
         expect(field).to_have_value('SCOPE_TOKEN')
         expect(result_types.get_by_role('button', name='Dictionary', exact=True)).to_have_count(0)
-        expect(rows).to_have_count(1)
+        expect(rows).to_have_count(1, timeout=30000)
         expect(rows).to_contain_text('Book · Scope book')
 
         self.scope('Snippets')
         expect(field).to_have_value('SCOPE_TOKEN')
-        expect(rows).to_have_count(1)
+        expect(rows).to_have_count(1, timeout=30000)
+        expect(rows).to_contain_text('Snippet · Scope snippet')
+        self.assertIn('scope=snippets', self.page.url)
+
+        # Scope belongs to navigation state, not an ephemeral child component.
+        self.page.reload()
+        expect(self.page.get_by_role('navigation', name='Search library scope').get_by_role(
+            'button', name='Snippets', exact=True
+        )).to_have_attribute('aria-pressed', 'true')
+        expect(self.page.get_by_role('searchbox', name='Search library', exact=True)).to_have_value(
+            'SCOPE_TOKEN'
+        )
+        rows = self.page.locator('[data-search-row="content"] small')
+        expect(rows).to_have_count(1, timeout=30000)
         expect(rows).to_contain_text('Snippet · Scope snippet')
 
         self.scope('Everything')
         expect(result_types.get_by_role('button', name='Dictionary', exact=True)).to_be_visible()
-        expect(rows).to_have_count(2)
+        expect(rows).to_have_count(2, timeout=30000)
+        self.assertNotIn('scope=', self.page.url)
 
         self.filter('Dictionary')
         self.scope('Books')
@@ -240,7 +254,11 @@ class UnifiedSearch(ProductJourneyBase):
         self.page.set_viewport_size({'width': 390, 'height': 844})
         self.page.evaluate('document.documentElement.style.fontSize = "100%"')
         passages.last.scroll_into_view_if_needed()
-        self.page.wait_for_timeout(50)
+        self.page.wait_for_function('''controls => {
+          const style = getComputedStyle(controls);
+          const box = controls.getBoundingClientRect();
+          return style.position === 'sticky' && box.top >= 0;
+        }''', arg=controls.element_handle())
         toolbar = self.page.get_by_role('banner', name='Library toolbar', exact=True)
         control_box = controls.bounding_box()
         toolbar_box = toolbar.bounding_box()

@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   librarySearchScopePlan,
-  librarySearchScopes
+  librarySearchScopes,
+  parseLibrarySearchScope
 } from '../../apps/web/src/lib/search/library-search-scope.ts';
 
 test('library search scopes define one orthogonal corpus plan', () => {
@@ -26,4 +27,10 @@ test('library search scopes define one orthogonal corpus plan', () => {
     snippets: true,
     dictionary: false
   });
+  assert.equal(parseLibrarySearchScope('books'), 'books');
+  assert.equal(parseLibrarySearchScope('snippets'), 'snippets');
+  assert.equal(parseLibrarySearchScope('everything'), 'everything');
+  assert.equal(parseLibrarySearchScope('all'), 'everything');
+  assert.equal(parseLibrarySearchScope('unknown'), 'everything');
+  assert.equal(parseLibrarySearchScope(null), 'everything');
 });

@@ -22,12 +22,14 @@
     type LibrarySearchScope
   } from './library-search-scope';
   export let query = '';
+  export let searchScope: LibrarySearchScope = 'everything';
   export let books: ShelfBook[] = [];
   export let matches: ShelfBook[] = [];
   export let snippetMembers: string[] | undefined = undefined;
   export let returnTo = '/manage';
   export let openBook: (book: ShelfBook, locator?: ReaderLocator) => void;
   export let onquery: (query: string) => void;
+  export let onscope: (scope: LibrarySearchScope) => void;
   type Filter = 'all' | 'dictionary' | 'titles' | 'content';
   interface Row {
     id: string;
@@ -51,7 +53,6 @@
     { id: 'content', label: 'Content' }
   ];
   let filter: Filter = 'all',
-    searchScope: LibrarySearchScope = 'everything',
     mounted = false,
     signature = '',
     titleLimit = 30,
@@ -267,6 +268,7 @@
   }
   async function chooseScope(value: LibrarySearchScope) {
     searchScope = value;
+    onscope(value);
     if (!librarySearchScopePlan(value).dictionary && filter === 'dictionary') filter = 'all';
     await tick();
     results

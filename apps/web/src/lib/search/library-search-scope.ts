@@ -22,3 +22,7 @@ const plans = {
 
 export const librarySearchScopePlan = (scope: LibrarySearchScope): LibrarySearchScopePlan =>
   plans[scope];
+
+
+export const parseLibrarySearchScope = (value: string | null): LibrarySearchScope =>
+  value === 'books' || value === 'snippets' ? value : 'everything';
