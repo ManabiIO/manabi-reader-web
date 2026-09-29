@@ -140,6 +140,26 @@ def main():
                 {'name':'video.en.srt','mimeType':'text/plain','buffer':b'1\n00:00:00,000 --> 00:00:04,000\nHello. Are you looking for something?\n\n2\n00:00:04,000 --> 00:00:08,000\nI am looking for a Japanese book.\n'}
             ])
         upload()
+        shelf = page.get_by_label('Video library', exact=True)
+        card_select = shelf.get_by_role('checkbox').first
+        expect(card_select).to_be_visible()
+        select_target = card_select.locator('..')
+        select_box = select_target.bounding_box()
+        assert select_box['width'] >= 43.5 and select_box['height'] >= 43.5, select_box
+        assert card_select.evaluate("""input => {
+            const label=input.closest('label');
+            const r=label.getBoundingClientRect();
+            const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+            return !!hit && (hit===label || label.contains(hit));
+        }""")
+        card_select.focus()
+        expect(card_select).to_be_focused()
+        page.keyboard.press('Space')
+        expect(card_select).to_be_checked()
+        page.keyboard.press('Space')
+        expect(card_select).not_to_be_checked()
+        results.append('video card selection has a native 44px keyboard and pointer target')
+
         existing = page.get_by_label('Choose existing subtitles', exact=True)
         expect(existing.locator('option')).to_have_count(3)
         assert page.locator('.transcript-cue').count() == 0
