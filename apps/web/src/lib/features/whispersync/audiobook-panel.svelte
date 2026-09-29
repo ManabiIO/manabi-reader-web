@@ -86,6 +86,8 @@
   let clearing = false;
   let confirmClear = false;
   let transcriptPage = 0;
+  let previousTranscriptPage: HTMLButtonElement | undefined;
+  let nextTranscriptPage: HTMLButtonElement | undefined;
   const pageSize = 30;
   const key = sessionKey(bookId, bookTitle);
 
@@ -500,6 +502,14 @@
   function moveCue(direction: -1 | 1) {
     selectCue(timeline.adjacent(snapshot.time, direction, delay));
   }
+  async function pageTranscript(delta: -1 | 1) {
+    transcriptPage = Math.min(pageCount - 1, Math.max(0, transcriptPage + delta));
+    await tick();
+    if (delta > 0 && nextTranscriptPage?.disabled)
+      previousTranscriptPage?.focus({ preventScroll: true });
+    else if (delta < 0 && previousTranscriptPage?.disabled)
+      nextTranscriptPage?.focus({ preventScroll: true });
+  }
   function toggleLoop() {
     if (snapshot.loop) player.setLoop();
     else if (activeCue) {
@@ -629,16 +639,14 @@
     }}
   >
     <div class="audiobook-header">
-      <div class="min-w-0">
-        <Sheet.Title>Audiobook</Sheet.Title>
-        <Sheet.Description
-          >Listen alongside {bookTitle} using local audio and timed subtitles. Files are not uploaded.
-          Following resumes after this panel closes.</Sheet.Description
-        >
-      </div>
+      <Sheet.Title>Audiobook</Sheet.Title>
       <CloseButton aria-label="Close audiobook" onclick={() => (open = false)} />
     </div>
     <div class="audiobook-scroll">
+      <Sheet.Description
+        >Listen alongside {bookTitle} using local audio and timed subtitles. Files are not uploaded.
+        Following resumes after this panel closes.</Sheet.Description
+      >
       <div class="panel" data-ui-overlay="audiobook-panel">
       {#if !ready}<p role="status">Loading saved audiobook settings…</p>{/if}
       <div class="file-fields">
@@ -805,19 +813,19 @@
               }}>Show current cue</button
             >
             <button
+              bind:this={previousTranscriptPage}
               type="button"
               disabled={transcriptPage === 0}
-              on:click={() => {
-                transcriptPage -= 1;
-              }}>Previous 30</button
+              on:click={() => void pageTranscript(-1)}>Previous 30</button
             >
-            <span>Page {transcriptPage + 1} / {pageCount}</span>
+            <span role="status" aria-live="polite"
+              >Page {transcriptPage + 1} / {pageCount}</span
+            >
             <button
+              bind:this={nextTranscriptPage}
               type="button"
               disabled={transcriptPage + 1 >= pageCount}
-              on:click={() => {
-                transcriptPage += 1;
-              }}>Next 30</button
+              on:click={() => void pageTranscript(1)}>Next 30</button
             >
           </div>
           <ol start={transcriptPage * pageSize + 1}>
