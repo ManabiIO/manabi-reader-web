@@ -17,11 +17,14 @@ two results from each section; See all switches to the corresponding dedicated
 view. Dictionary mode requests full structured entries instead of stretching a
 clipped preview. Titles rank displayed titles globally across source types as
 exact, prefix, token-boundary, then interior substring matches; source type never
-lets a weaker displayed-title match outrank a stronger one. Books admitted by an
-author/series/collection match remain visible after literal title matches.
-Content stays source-diverse because book, snippet and transcript body workers do
-not expose directly comparable relevance scores. Titles and Content reveal
-additional batches of 30 with a keyboard focus anchor.
+lets a weaker displayed-title match outrank a stronger one. Visible title matches
+are highlighted using ranges mapped back to the original text, including
+compatibility-width and ligature cases. Books admitted only by canonical title,
+author, series/folder, or collection metadata remain visible after literal title
+matches and show that provenance instead of pretending the displayed title
+matched. Content stays source-diverse because book, snippet and transcript body
+workers do not expose directly comparable relevance scores. Titles and Content
+reveal additional batches of 30 with a keyboard focus anchor.
 
 Every asynchronous source owns cancellation, stale-result suppression, loading,
 failure and retry independently. A dictionary, snippet, video-store, or book-body
