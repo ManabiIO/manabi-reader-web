@@ -84,46 +84,73 @@ export function planPersonalBookClaims(
   metadata: readonly IndexedBookMetadata[],
   scopeRows: readonly PersonalBookScope[],
   accountId: string
-): { books: PersonalBook[]; scopesToCreate: PersonalBookScope[] } {
+): {
+  books: PersonalBook[];
+  scopesToCreate: PersonalBookScope[];
+  blockedBookKeys: string[];
+} {
   const scopes = new Map(scopeRows.map((scope) => [scope.bookId, scope]));
-  const ownersByBook = new Map<string, Set<string>>();
-  const invalidOwnerKeys = new Set<string>();
-
+  const groups = new Map<string, IndexedBookMetadata[]>();
   for (const book of metadata) {
-    const bookKey = `content:${book.contentHash}`;
-    if (book.invalidOwner) {
-      invalidOwnerKeys.add(bookKey);
-      continue;
-    }
-    const owners = ownersByBook.get(bookKey) ?? new Set<string>();
-    const scope = scopes.get(book.id);
-    if (scope) owners.add(scope.accountId);
-    if (book.libraryOwner) owners.add(book.libraryOwner);
-    if (owners.size) ownersByBook.set(bookKey, owners);
+    const key = `content:${book.contentHash}`;
+    groups.set(key, [...(groups.get(key) ?? []), book]);
   }
 
   const books: PersonalBook[] = [];
   const scopesToCreate: PersonalBookScope[] = [];
-  for (const candidate of metadata) {
-    const bookKey = `content:${candidate.contentHash}`;
-    if (invalidOwnerKeys.has(bookKey) || typeof candidate.title !== 'string') continue;
-    const book = candidate as PersonalBook;
-    if (book.libraryOwner && book.libraryOwner !== accountId) continue;
-    const explicitOwners = ownersByBook.get(bookKey) ?? new Set<string>();
-    if (explicitOwners.size > 1) continue;
+  const blockedBookKeys: string[] = [];
+
+  for (const [bookKey, group] of groups) {
+    const owners = new Set<string>();
+    let invalidOwner = false;
+    let currentPotential = false;
+    let currentMalformed = false;
+
+    for (const book of group) {
+      const scope = scopes.get(book.id);
+      if (book.invalidOwner) invalidOwner = true;
+      if (scope) owners.add(scope.accountId);
+      if (book.libraryOwner) owners.add(book.libraryOwner);
+
+      const libraryVisible = !book.libraryOwner || book.libraryOwner === accountId;
+      const scopeVisible = !scope || scope.accountId === accountId;
+      if (libraryVisible && scopeVisible) {
+        currentPotential = true;
+        if (typeof book.title !== 'string') currentMalformed = true;
+      }
+    }
+
+    // One browser data row is one reading history. Physical copies do not
+    // create extra rows; they are BookLinks to that row. Multiple same-hash
+    // rows therefore represent competing histories and must never be merged
+    // by personal sync merely because their bytes are equal.
+    const competingHistories = group.length > 1 && currentPotential;
+    const conflictingOwners = owners.size > 1;
+    if (invalidOwner || currentMalformed || competingHistories || conflictingOwners) {
+      if (currentPotential) blockedBookKeys.push(bookKey);
+      continue;
+    }
+
+    const book = group[0];
+    if (
+      !book ||
+      typeof book.title !== 'string' ||
+      (book.libraryOwner && book.libraryOwner !== accountId)
+    )
+      continue;
 
     let owner = scopes.get(book.id);
+    if (owner && owner.accountId !== accountId) continue;
     if (!owner) {
-      if (explicitOwners.size && !explicitOwners.has(accountId)) continue;
+      if (owners.size && !owners.has(accountId)) continue;
       owner = { bookId: book.id, accountId };
       scopes.set(book.id, owner);
-      explicitOwners.add(accountId);
-      ownersByBook.set(bookKey, explicitOwners);
       scopesToCreate.push(owner);
     }
-    if (owner.accountId === accountId) books.push(book);
+    books.push(book as PersonalBook);
   }
-  return { books, scopesToCreate };
+
+  return { books, scopesToCreate, blockedBookKeys };
 }
 
 export async function tryLivePersonalCopies(
