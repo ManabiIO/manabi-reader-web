@@ -61,14 +61,24 @@ class Store {
     this.trackMap = tracks
     this.failures = failures
     this.trackSignals = []
+    this.manifestReads = 0
+    this.manifestSnapshot = []
+    this.seenManifestSnapshots = []
   }
 
   async records(_scope, kind) {
     return kind === 'video_info' ? this.infos : this.resumes
   }
 
-  async tracks(_scope, mediaKey, signal) {
+  async trackManifests(_scope, signal) {
+    this.manifestReads++
+    signal?.throwIfAborted()
+    return this.manifestSnapshot
+  }
+
+  async tracks(_scope, mediaKey, signal, manifestSnapshot) {
     this.trackSignals.push(signal)
+    this.seenManifestSnapshots.push(manifestSnapshot)
     signal?.throwIfAborted()
     if (this.failures.has(mediaKey)) throw new Error('broken track snapshot')
     return this.trackMap.get(mediaKey) ?? []
@@ -180,6 +190,32 @@ test('transcript search caps each video while continuing into other videos', asy
   assert.equal(result.hits.filter((hit) => hit.key === b).length, 1)
   assert.equal(result.truncated, true)
   assert.equal(result.scanned, 2)
+})
+
+test('transcript search enumerates manifests once and reuses that snapshot across videos', async () => {
+  const a = key('a')
+  const b = key('b')
+  const store = new Store({
+    infos: [
+      replica('video_info', a, info('A', 2)),
+      replica('video_info', b, info('B', 1))
+    ],
+    tracks: new Map([
+      [a, [track('00000000-0000-4000-8000-000000000009', a, [cue('a', 1, 'needle a')])]],
+      [b, [track('00000000-0000-4000-8000-000000000010', b, [cue('b', 2, 'needle b')])]]
+    ])
+  })
+  store.manifestSnapshot = [{ marker: 'shared' }]
+  const result = await searchVideoTranscripts(
+    store,
+    'guest',
+    'needle',
+    new AbortController().signal
+  )
+  assert.equal(result.hits.length, 2)
+  assert.equal(store.manifestReads, 1)
+  assert.equal(store.seenManifestSnapshots.length, 2)
+  assert.ok(store.seenManifestSnapshots.every((snapshot) => snapshot === store.manifestSnapshot))
 })
 
 test('one corrupt transcript snapshot does not hide other video matches', async () => {
