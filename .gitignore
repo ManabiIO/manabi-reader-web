@@ -3,3 +3,8 @@ node_modules
 /test-results/
 __pycache__/
 .cache/
+
+# Generated, pinned Manabitan runtime and explicit-install dictionary archive
+/.cache/dictionary-build/
+/apps/web/static/manabitan/
+/apps/web/static/dictionary-archives/

@@ -89,7 +89,7 @@
   import SourceIcon from './source-icon.svelte';
   import CollectionsSheet from './collections-sheet.svelte';
   import type { ReaderLocator } from '../reader-location';
-  import LibrarySearch from './library-search.svelte';
+  import UnifiedSearch from '../search/unified-search.svelte';
   import SnippetShelf from '../snippets/shelf.svelte';
   import { snippetItems } from '../snippets/service';
   import { snippetKey } from '../snippets/document';
@@ -297,34 +297,15 @@
   $: series = trail.at(-1);
   $: notFinished = $page.url.searchParams.get('unfinished') === '1';
   $: destinationTitle = series?.name || (collectionId === 'books' ? 'Library' : collectionTitle);
-  let queryURL = '',
-    searchScope = '';
+  let queryURL = '';
   $: nextQueryURL = $page.url.searchParams.get('q') ?? '';
   $: if (queryURL !== nextQueryURL) {
     queryURL = nextQueryURL;
     query = nextQueryURL;
   }
-  $: searchScope =
-    $page.url.searchParams.get('scope') || (selectedCollection || series ? 'here' : 'all');
-  $: snippetMembers = searchScope === 'all' ? undefined : selectedCollection?.members;
-  $: searchableBooks =
-    searchScope === 'all' || searchScope === 'books'
-      ? books
-      : series
-        ? series.books
-        : selectedCollection
-          ? books.filter((book) => collectionContains(selectedCollection, book))
-          : books;
-  function chooseSearchScope(value: string) {
-    const url = new URL($page.url);
-    url.searchParams.set('scope', value);
-    url.searchParams.set('q', query);
-    void goto(resolve(`/manage?${url.searchParams.toString()}`), {
-      replaceState: true,
-      noScroll: true,
-      keepFocus: true
-    });
-  }
+  // The unified search spans the library. Collection/series navigation must
+  // not silently constrain the All/Titles/Content filters.
+  $: searchableBooks = books;
   $: normalizedQuery = foldSearch(query.trim());
   $: metadataSeries = normalizedQuery ? booksInMatchingSeries(tree, normalizedQuery) : [];
   $: metadataCollections = $organization.collections.filter((c) =>
@@ -1496,46 +1477,14 @@
         Books
       </h2>{/if}
     {#if normalizedQuery && !selectMode}
-      <nav aria-label="Search scope" class="mb-5 flex flex-wrap gap-2">
-        {#if selectedCollection || series}<Button
-            variant={searchScope === 'here' ? 'secondary' : 'ghost'}
-            aria-pressed={searchScope === 'here'}
-            onclick={() => chooseSearchScope('here')}
-            >This {series ? 'series' : 'collection'}</Button
-          >{/if}
-        <Button
-          variant={searchScope === 'all' ? 'secondary' : 'ghost'}
-          aria-pressed={searchScope === 'all'}
-          onclick={() => chooseSearchScope('all')}>All Library</Button
-        >
-        <Button
-          variant={searchScope === 'books' ? 'secondary' : 'ghost'}
-          aria-pressed={searchScope === 'books'}
-          onclick={() => chooseSearchScope('books')}>Books</Button
-        >
-        <Button
-          variant={searchScope === 'snippets' ? 'secondary' : 'ghost'}
-          aria-pressed={searchScope === 'snippets'}
-          onclick={() => chooseSearchScope('snippets')}>Snippets</Button
-        >
-      </nav>
-      {#if searchScope !== 'snippets'}<LibrarySearch
-          {query}
-          books={searchableBooks}
-          matches={metadataMatches}
-          {openBook}
-        />{/if}
-      {#if searchScope !== 'books' && !(series && searchScope === 'here')}<section
-          class="my-6"
-          aria-label="Snippet matches"
-        >
-          <h2 class="mb-4 text-xl font-semibold">Snippets</h2>
-          <SnippetShelf
-            {query}
-            members={snippetMembers}
-            returnTo={$page.url.pathname + $page.url.search}
-          />
-        </section>{/if}
+      <UnifiedSearch
+        {query}
+        books={searchableBooks}
+        matches={metadataMatches}
+        {openBook}
+        onquery={setQuery}
+        returnTo={$page.url.pathname + $page.url.search}
+      />
     {:else if completedGroups.length && collectionId === 'finished' && !series && currentLayout === 'timeline'}
       <div class="finished-timeline" role="list" aria-label="Finished books">
         {#each completedGroups as group (group.day || 'unknown')}
@@ -2324,6 +2273,7 @@
     overflow: hidden;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
+    line-clamp: 2;
   }
   .book-copy h3 {
     font-weight: 600;
