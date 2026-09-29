@@ -260,9 +260,15 @@ async function localBooks(accountId: string): Promise<Map<string, PersonalBook[]
   scoped(accountId);
   const scopes = new Map(scopeRows.map((scope) => [scope.bookId, scope]));
   const ownersByBook = new Map<string, Set<string>>();
+  const invalidOwnerKeys = new Set<string>();
   for (const book of allBooks) {
-    if (book.invalidOwner || typeof book.title !== 'string') continue;
     const bookKey = `content:${book.contentHash}`;
+    // One corrupt owner on a same-content copy makes the shared key unsafe,
+    // even when another copy has a valid title and local scope.
+    if (book.invalidOwner) {
+      invalidOwnerKeys.add(bookKey);
+      continue;
+    }
     const owners = ownersByBook.get(bookKey) ?? new Set<string>();
     const scope = scopes.get(book.id);
     if (scope) owners.add(scope.accountId);
@@ -271,7 +277,11 @@ async function localBooks(accountId: string): Promise<Map<string, PersonalBook[]
     ownersByBook.set(bookKey, owners);
   }
   for (const candidate of allBooks) {
-    if (candidate.invalidOwner || typeof candidate.title !== 'string') continue;
+    if (
+      invalidOwnerKeys.has(`content:${candidate.contentHash}`) ||
+      typeof candidate.title !== 'string'
+    )
+      continue;
     const book = candidate as PersonalBook;
     if (book.libraryOwner && book.libraryOwner !== accountId) continue;
     scoped(accountId);
