@@ -63,7 +63,7 @@ const foldSearch = (value: string) =>
     .replace(/\u03c2/g, '\u03c3');
 
 const boundaryBefore = (value: string, index: number) =>
-  index > 0 && /[\s\p{P}\p{S}]/u.test(value.slice(0, index).at(-1) ?? '');
+  index > 0 && /[\s\p{P}\p{S}]/u.test(Array.from(value.slice(0, index)).at(-1) ?? '');
 
 function compareSearchText(left: string, right: string, query: string): number {
   const needle = foldSearch(query.trim());
