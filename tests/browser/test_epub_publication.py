@@ -125,23 +125,22 @@ class EpubPublicationBrowser(ReaderBrowser):
         else:
             expect(self.page.locator('#ttu-epub-0 .text')).to_be_visible(timeout=30000)
 
-    def test_non_linear_spine_item_is_skipped_by_page_turn_but_directly_addressable(self):
+    def test_non_linear_spine_hint_is_persisted_without_changing_current_reading_order(self):
         self.open_resource_book(payload=linear_epub())
         metadata = self.metadata()
         self.assertNotIn('linear', metadata['publication']['resources'][0])
         self.assertEqual('no', metadata['publication']['resources'][1]['linear'])
         self.assertNotIn('linear', metadata['publication']['resources'][2])
 
+        # Reader Web has two existing sequential surfaces: Foliate pagination
+        # and the legacy continuous document. Preserve the historical all-spine
+        # reading order until both can adopt one explicit non-linear policy.
         self.assertTrue(self.page.evaluate(f"async()=>await {P}.goTo({{index:0,anchor:1}})"))
         self.page.evaluate(f"""async()=>{{
           const turn=await {P}.preparePageTurn(1);
           if(!turn) throw Error('Expected a next page turn');
           if(!turn.commit()) throw Error('Expected page turn commit');
         }}""")
-        self.page.wait_for_function(f"() => {P}.getContents()[0]?.index === 2")
-        self.assertNotIn('別の章', self.page.evaluate(f"{P}.getContents()[0].doc.body.textContent"))
-
-        self.assertTrue(self.page.evaluate(f"async()=>await {P}.goTo({{index:1}})"))
         self.page.wait_for_function(f"() => {P}.getContents()[0]?.index === 1")
         self.assertIn('別の章', self.page.evaluate(f"{P}.getContents()[0].doc.body.textContent"))
 

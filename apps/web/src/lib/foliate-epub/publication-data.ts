@@ -10,7 +10,7 @@ import type { PublicationManifest, PublicationResource } from '../reader-locatio
 export interface EpubResourceData extends PublicationResource {
   html: string;
   styleSheet: string;
-  /** EPUB spine hint: auxiliary resources remain directly addressable but are skipped by next/prev. */
+  /** EPUB spine hint retained for a future cross-view reading-order policy. */
   linear?: 'no';
 }
 
