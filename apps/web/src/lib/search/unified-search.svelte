@@ -10,7 +10,7 @@
   import { snippetItems, scope } from '../snippets/service';
   import { snippetKey, type SnippetHit } from '../snippets/document';
   import { searchBodies } from '../snippets/search';
-  import { compareSearchText, foldSearch } from '../library/search-normalization';
+  import { foldSearch, sortSearchText } from '../library/search-normalization';
   import { creatorLine } from '../library/book-metadata';
   import type { ShelfBook } from '../library/view-model';
   import type { ReaderLocator } from '../reader-location';
@@ -179,33 +179,34 @@
       }
       // Metadata stays local and independent of dictionary initialization and
       // expensive body projection. Do not normalize the editable query to kana.
-      const bookRows: Row[] = selectedBooks
-        .map((book) => ({
+      const bookRows = sortSearchText<Row>(
+        selectedBooks.map((book) => ({
           id: `book:${book.key}`,
-          kind: 'Book' as const,
+          kind: 'Book',
           title: book.title,
           label: `Read ${book.title}`,
           detail: creatorLine(book.creators),
           open: () => openBook(book)
-        }))
-        .sort(
-          (a, b) =>
-            compareSearchText(a.title, b.title, selectedQuery) || a.id.localeCompare(b.id)
-        );
-      const snippetRows: Row[] = snippetScope
-        ? selectedSnippets
-            .filter((item) => foldSearch(item.title).includes(needle))
-            .map((item) => ({
-              id: `snippet:${item.key}`,
-              kind: 'Snippet' as const,
-              title: item.title,
-              label: `Read snippet ${item.title}`,
-              open: () => openSnippet(item)
-            }))
-            .sort(
-              (a, b) =>
-                compareSearchText(a.title, b.title, selectedQuery) || a.id.localeCompare(b.id)
-            )
+        })),
+        selectedQuery,
+        (row) => row.title,
+        (a, b) => a.id.localeCompare(b.id)
+      );
+      const snippetRows = snippetScope
+        ? sortSearchText<Row>(
+            selectedSnippets
+              .filter((item) => foldSearch(item.title).includes(needle))
+              .map((item) => ({
+                id: `snippet:${item.key}`,
+                kind: 'Snippet',
+                title: item.title,
+                label: `Read snippet ${item.title}`,
+                open: () => openSnippet(item)
+              })),
+            selectedQuery,
+            (row) => row.title,
+            (a, b) => a.id.localeCompare(b.id)
+          )
         : [];
       guard();
       publish({
