@@ -52,7 +52,12 @@ class ModalControlsBrowser(LibraryBase):
             panel: { x: bounds.x, y: bounds.y, right: bounds.right, bottom: bounds.bottom },
             close: { x: box.x, y: box.y, right: box.right, bottom: box.bottom },
             viewport: { width: innerWidth, height: innerHeight },
-            overflow: panel.scrollWidth - panel.clientWidth };
+            overflow: panel.scrollWidth - panel.clientWidth,
+            hit: (() => {
+              const x = box.left + box.width / 2, y = box.top + box.height / 2;
+              const hit = document.elementFromPoint(x, y);
+              return !!hit && (hit === close || close.contains(hit));
+            })() };
         }''')
         self.assertEqual([], result['overlaps'], result)
         self.assertGreaterEqual(result['width'], 43.99, result)
@@ -67,6 +72,7 @@ class ModalControlsBrowser(LibraryBase):
         self.assertGreaterEqual(result['close']['y'], result['panel']['y'], result)
         self.assertLessEqual(result['close']['right'], result['panel']['right'], result)
         self.assertLessEqual(result['close']['bottom'], result['panel']['bottom'], result)
+        self.assertTrue(result['hit'], result)
         return close
 
     def open_reader(self):
@@ -130,6 +136,31 @@ class ModalControlsBrowser(LibraryBase):
                     close.click()
                     expect(panel).to_have_count(0)
         self.assertEqual(saved, self.stores('books', ['bookmark']))
+
+    def test_long_dialog_keeps_dismissal_reachable_after_own_scroll(self):
+        title = 'Scrollable Book Details — ' + '長い日本語の題名と副題' * 20
+        self.import_book(title)
+        self.page.set_viewport_size({'width': 320, 'height': 320})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        self.menu(title, 'Book Details')
+        panel = self.dialog()
+        close = self.check_modal(panel)
+        self.assertTrue(
+            panel.evaluate('e => e.scrollHeight > e.clientHeight'),
+            'The regression fixture must genuinely overflow the dialog.'
+        )
+        panel.evaluate('e => { e.scrollTop = e.scrollHeight; }')
+        self.page.wait_for_function('e => e.scrollTop > 0', arg=panel.element_handle())
+
+        # The entire dialog is the scroll owner. Dismissal must track that
+        # scroll rather than moving off the visual viewport with its content.
+        close = self.check_modal(panel)
+        self.capture('modal-book-info-post-scroll-200')
+        close.focus()
+        expect(close).to_be_focused()
+        close.press('Enter')
+        expect(panel).to_have_count(0)
+        self.page.evaluate('document.documentElement.style.fontSize = ""')
 
     def test_onboarding_dialog_fits_short_viewports_and_larger_text(self):
         self.open_reader()

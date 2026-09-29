@@ -277,6 +277,10 @@ try {
     document.documentElement.style.fontSize = '';
   });
   const localTitle = page.locator('.snippet-shelf .title').filter({ hasText: '散歩の記録' });
+  assert(
+    (await localTitle.boundingBox()).height >= 43.5,
+    'Snippet title link must remain at least 44 CSS px high'
+  );
   // Control-click opens the native context menu on macOS; Command is its
   // normal multiselect modifier. Linux/Windows use Control.
   await localTitle.click({ modifiers: [process.platform === 'darwin' ? 'Meta' : 'Control'] });
@@ -284,10 +288,53 @@ try {
     page.getByRole('toolbar', { name: 'Selected snippet actions', exact: true })
   ).toBeVisible();
   await expect(page.getByRole('list', { name: 'Snippets', exact: true })).toBeVisible();
-  await expect(page.getByRole('checkbox', { name: 'Select 散歩の記録' })).toBeChecked();
+  const selectedCheckbox = page.getByRole('checkbox', { name: 'Select 散歩の記録' });
+  await expect(selectedCheckbox).toBeChecked();
+  const selectionTarget = selectedCheckbox.locator('..');
+  const selectionBox = await selectionTarget.boundingBox();
+  assert(
+    selectionBox.width >= 43.5 && selectionBox.height >= 43.5,
+    'Snippet selection target must remain at least 44x44 CSS px'
+  );
+  assert(
+    await selectionTarget.evaluate((label) => {
+      const r = label.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return !!hit && (hit === label || label.contains(hit));
+    }),
+    'Snippet selection target center must be hit-testable'
+  );
   await page.getByRole('button', { name: 'Done selecting', exact: true }).click();
   passed('modifier-click enters visible selection mode');
-  await page.getByRole('searchbox', { name: 'Search snippets' }).fill('珍しい言葉');
+  const search = page.getByRole('searchbox', { name: 'Search snippets' });
+
+  await search.fill('𠮷'.repeat(512));
+  await expect(search).toHaveValue('𠮷'.repeat(512));
+  await expect(search).not.toHaveAttribute('aria-invalid', 'true');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(
+    page.getByText(
+      'Some snippet contents could not be searched. Title matches are still available.'
+    )
+  ).toHaveCount(0, { timeout: 15000 });
+  await expect(page.getByText('No matching snippets.', { exact: true })).toBeVisible();
+
+  await search.fill('𠮷'.repeat(513));
+  await expect(search).toHaveValue('𠮷'.repeat(513));
+  await expect(search).toHaveAttribute('aria-invalid', 'true');
+  await expect(search).toHaveAttribute('aria-describedby', 'snippet-search-limit-error');
+  await expect(
+    page.getByRole('alert').filter({ hasText: 'Use a search of 512 characters or fewer.' })
+  ).toBeVisible();
+
+  await search.fill('珍しい言葉');
+  await expect(search).not.toHaveAttribute('aria-invalid', 'true');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(
+    page.getByText(
+      'Some snippet contents could not be searched. Title matches are still available.'
+    )
+  ).toHaveCount(0);
   await expect(page.locator('.snippet-shelf .title')).toHaveText(['散歩の記録']);
   await page.getByRole('button', { name: 'Select', exact: true }).click();
   await page.locator('.snippet-shelf .passage').first().click();
@@ -298,7 +345,12 @@ try {
   await expect(page.getByRole('article', { name: 'Snippet content' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Done selecting', exact: true }).click();
   passed('search passages honor selection mode without navigating away');
-  await page.locator('.snippet-shelf .passage').first().click();
+  const passageLink = page.locator('.snippet-shelf .passage').first();
+  assert(
+    (await passageLink.boundingBox()).height >= 43.5,
+    'Snippet passage link must remain at least 44 CSS px high'
+  );
+  await passageLink.click();
   await expect(page.getByRole('article', { name: 'Snippet content' })).toContainText('珍しい言葉');
   await page.getByRole('link', { name: '← Back to library', exact: true }).click();
   await expect(page.getByRole('searchbox', { name: 'Search snippets' })).toHaveValue('珍しい言葉');
@@ -353,7 +405,13 @@ try {
     .getByRole('textbox', { name: 'New collection name', exact: true })
     .fill('日本語の文章');
   await page.getByRole('button', { name: 'Create collection', exact: true }).click();
-  await expect(page.getByRole('checkbox', { name: '日本語の文章' })).toBeChecked();
+  const collectionMembership = page.getByRole('checkbox', { name: '日本語の文章' });
+  await expect(collectionMembership).toBeChecked();
+  const collectionTarget = collectionMembership.locator('..');
+  assert(
+    (await collectionTarget.boundingBox()).height >= 43.5,
+    'Collection membership label must remain at least 44 CSS px high'
+  );
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   const metadata = await records(page, 'metadata');
   assert(
@@ -447,6 +505,68 @@ try {
   await expect(rootCrumb).toHaveAttribute('data-slot', 'button');
   await expect(rootCrumb).toHaveAttribute('aria-current', 'page');
   assert((await rootCrumb.boundingBox()).height >= 43.5);
+
+  await page.setViewportSize({ width: 320, height: 320 });
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '200%';
+  });
+  const pickerScroll = picker.locator('[data-snippet-picker-scroll]');
+  await expect
+    .poll(() => pickerScroll.evaluate((element) => element.scrollHeight > element.clientHeight))
+    .toBe(true);
+  await pickerScroll.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await expect.poll(() => pickerScroll.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  const enlargedPickerClose = picker.getByRole('button', { name: 'Close', exact: true });
+  // Resizing the viewport animates the dialog from its previous max-height.
+  // Check the settled position so this measures reachability, not a transition frame.
+  await expect
+    .poll(async () => {
+      const box = await enlargedPickerClose.boundingBox();
+      return (
+        !!box && box.x >= -1 && box.y >= -1 && box.x + box.width <= 321 && box.y + box.height <= 321
+      );
+    })
+    .toBe(true);
+  const closeBox = await enlargedPickerClose.boundingBox();
+  assert(
+    closeBox.width >= 43.5 && closeBox.height >= 43.5,
+    'Save-location close target must remain at least 44x44 CSS px'
+  );
+  assert(
+    closeBox.x >= -1 &&
+      closeBox.y >= -1 &&
+      closeBox.x + closeBox.width <= 321 &&
+      closeBox.y + closeBox.height <= 321,
+    'Save-location close target must remain inside the short visual viewport'
+  );
+  assert(
+    await enlargedPickerClose.evaluate((button) => {
+      const r = button.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return !!hit && (hit === button || button.contains(hit));
+    }),
+    'Save-location close target must remain hit-testable after picker scrolling'
+  );
+  assert(
+    (await picker.evaluate((element) => element.scrollWidth - element.clientWidth)) <= 1,
+    'Save-location dialog must not overflow horizontally at 200% text'
+  );
+  const enlargedEvidence = process.env.SNIPPETS_SCREENSHOT;
+  if (enlargedEvidence) {
+    const pickerPath = enlargedEvidence.replace(/\.png$/i, '-picker-large-text.png');
+    await mkdir(dirname(pickerPath), { recursive: true });
+    await page.screenshot({ path: pickerPath, fullPage: true });
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '';
+  });
+  await pickerScroll.evaluate((element) => {
+    element.scrollTop = 0;
+  });
+
   holdMkdir = true;
   await picker.getByLabel('New folder name').fill('Study folder');
   await picker.getByRole('button', { name: 'Create folder', exact: true }).click();
@@ -477,7 +597,15 @@ try {
   await sourceSelect.selectOption({ label: 'Dropbox · Dropbox snippets' });
   await expect(picker.getByRole('button', { name: 'Use this folder', exact: true })).toBeEnabled();
   passed('failed destination switch cannot reuse the previously writable folder');
-  await picker.getByRole('checkbox', { name: 'Use this location for new snippets' }).check();
+  const rememberLocation = picker.getByRole('checkbox', {
+    name: 'Use this location for new snippets'
+  });
+  const rememberTarget = rememberLocation.locator('..');
+  assert(
+    (await rememberTarget.boundingBox()).height >= 43.5,
+    'Remember-location label must remain at least 44 CSS px high'
+  );
+  await rememberLocation.check();
   await picker.getByRole('button', { name: 'Use this folder', exact: true }).click();
   const cloudID = await commit(page);
   await expect

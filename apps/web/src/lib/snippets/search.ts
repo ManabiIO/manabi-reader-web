@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import type { SnippetHit } from './document';
+import { snippetSearchTooLong, type SnippetHit } from './document';
 import type { SnippetScope } from './scope';
 export interface SearchBatch {
   hits: Map<string, SnippetHit[]>;
@@ -25,7 +25,7 @@ export function searchBodies(
   const requestId = ++sequence;
   let stopped = false;
   const hits = new Map<string, SnippetHit[]>();
-  if (!query.trim() || !ids.length) {
+  if (!query.trim() || !ids.length || snippetSearchTooLong(query)) {
     receive({ hits, busy: false, scanned: 0, failed: 0, truncated: false });
     return () => undefined;
   }
