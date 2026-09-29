@@ -8,7 +8,6 @@ import type { IDBPDatabase } from 'idb';
 import type BooksDb from './versions/books-db';
 import type { BooksDbBookmarkData, StoredBookData } from './versions/books-db';
 import { commitTransaction } from './commit-transaction.mjs';
-import { throwIfAborted } from '../../../functions/replication/replication-error.ts';
 import { uniqueSharedCopy } from '../../../manabi/shared-title-selection.ts';
 import { mergeCompletion } from '../../../library/completion.ts';
 
@@ -104,7 +103,8 @@ export async function commitOwnedLastItem(
       signal?.throwIfAborted();
       authoritySignal?.throwIfAborted();
       const book = await tx.objectStore('data').get(dataId);
-      if (!book) throw new Error('The selected book was removed. Refresh the Library and try again.');
+      if (!book)
+        throw new Error('The selected book was removed. Refresh the Library and try again.');
       const owner = await tx.objectStore('readerBookScope').get(dataId);
       assertBookPersonalAccess(book, owner, profileId);
       assertCurrent();
