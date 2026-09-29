@@ -251,7 +251,9 @@ async function publish(
   });
 }
 
-async function localBooks(accountId: string): Promise<Map<string, PersonalBook[]>> {
+async function localBooks(
+  accountId: string
+): Promise<{ books: Map<string, PersonalBook[]>; blockedBookKeys: string[] }> {
   const db = await database.db;
   scoped(accountId);
   // Scope adoption is one IndexedDB transaction across the exact-copy set.
@@ -269,18 +271,18 @@ async function localBooks(accountId: string): Promise<Map<string, PersonalBook[]
       await tx.objectStore('readerBookScope').put(scope);
     }
     scoped(accountId);
-    return plan.books;
+    return plan;
   });
 
   const map = new Map<string, PersonalBook[]>();
   scoped(accountId);
-  for (const book of claimed) {
+  for (const book of claimed.books) {
     await migrateLegacyStatistics(db, book);
     scoped(accountId);
     const bookKey = `content:${book.contentHash}`;
     map.set(bookKey, [...(map.get(bookKey) ?? []), book]);
   }
-  return map;
+  return { books: map, blockedBookKeys: claimed.blockedBookKeys };
 }
 
 async function readLocal(
@@ -1294,7 +1296,8 @@ export async function syncPersonalState() {
         message: 'Syncing personal reading data…',
         conflicts: get(personalSyncStatus).conflicts
       });
-      const books = await localBooks(accountId);
+      const inventory = await localBooks(accountId);
+      const { books } = inventory;
       for (let attempt = 0; attempt < 2; attempt += 1) {
         try {
           await bootstrap(accountId, books); // Never upload before every remote page is applied.
@@ -1305,7 +1308,13 @@ export async function syncPersonalState() {
           await flushAnnotations(accountId, books);
           await stageReading(accountId, books);
           await stageAnnotations(accountId, books);
-          await publish(accountId);
+          await publish(
+            accountId,
+            inventory.blockedBookKeys.length ? 'identity_conflict' : 'synced',
+            inventory.blockedBookKeys.length
+              ? `${inventory.blockedBookKeys.length} identical-content reading histor${inventory.blockedBookKeys.length === 1 ? 'y was' : 'ies were'} kept separate and skipped during personal sync. Resolve the duplicate book histories before syncing them.`
+              : 'Personal reading data synced.'
+          );
           return;
         } catch (error) {
           // A compaction can race a mutation after bootstrap. Refresh the
@@ -1350,7 +1359,8 @@ export async function resolvePersonalConflict(id: string, choice: 'local' | 'rem
     const db = await database.db;
     const conflict = await db.get('readerPersonalConflict', id);
     if (!conflict || conflict.accountId !== accountId) throw new IntegrationError('not_found');
-    const books = await localBooks(accountId);
+    const inventory = await localBooks(accountId);
+    const { books } = inventory;
     const latestLocal = await readLocal(
       conflict.kind,
       conflict.entityId,
