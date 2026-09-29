@@ -11,16 +11,19 @@ from test_static_reader import StaticHandler
 class OfflineAccountProfile(LibraryBase):
     def tearDown(self):
         try:
-            if (self.engine == 'webkit' and self._testMethodName ==
-                    'test_owned_book_opens_offline_and_disappears_after_confirmed_signout'):
+            if (self.engine == 'webkit' and self._testMethodName in (
+                    'test_owned_book_opens_offline_and_disappears_after_confirmed_signout',
+                    'test_account_annotation_is_hidden_on_a_public_book_after_signout')):
                 # WebKit reports an aborted fetch as a page error while this
-                # case deliberately cuts network access and leaves documents.
+                # case cuts network access or signs out during a live sync.
                 # Keep every other page error subject to the base assertion.
+                paths = ('/api/reader-web/personal/changes/',)
+                if self._testMethodName == 'test_owned_book_opens_offline_and_disappears_after_confirmed_signout':
+                    paths += ('/static/reader/books/opds/index.xml',)
                 self.errors = [error for error in self.errors if not (
                     error.startswith('Fetch API cannot load http://127.0.0.1:') and
-                    ' due to access control checks.' in error and
-                    ('/api/reader-web/personal/changes/' in error or
-                     '/static/reader/books/opds/index.xml' in error))]
+                    ' due to access control checks.' in error.splitlines()[0] and
+                    any(path in error.splitlines()[0] for path in paths))]
             super().tearDown()
         finally:
             StaticHandler.account_fixture = None
