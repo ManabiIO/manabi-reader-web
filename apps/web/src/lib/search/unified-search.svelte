@@ -18,6 +18,7 @@
   import SearchExcerpt from '../components/search-excerpt.svelte';
   import DictionarySearch from './dictionary-search.svelte';
   import { searchBookContents, type BookSearchBatch } from './book-content-source';
+  import type { BookTitleMatchContext } from './book-title-match-text';
   import { queryTask, type SearchState } from './query-task.mjs';
   import {
     librarySearchScopePlan,
@@ -28,7 +29,7 @@
   export let searchScope: LibrarySearchScope = 'everything';
   export let books: ShelfBook[] = [];
   export let matches: ShelfBook[] = [];
-  export let bookMatchText: Record<string, readonly string[]> = {};
+  export let bookMatchText: Record<string, readonly BookTitleMatchContext[]> = {};
   export let snippetMembers: string[] | undefined = undefined;
   export let returnTo = '/manage';
   export let openBook: (book: ShelfBook, locator?: ReaderLocator) => void;
@@ -148,6 +149,16 @@
   }
   $: visibleTitles = (titles.value?.rows ?? []).slice(0, filter === 'all' ? 2 : titleLimit);
   $: visibleContent = (content.value?.rows ?? []).slice(0, filter === 'all' ? 2 : contentLimit);
+  function bookDetail(book: ShelfBook, selectedQuery: string): string | undefined {
+    const needle = foldSearch(selectedQuery.trim());
+    const creator = (book.creators ?? []).find((item) => foldSearch(item.name).includes(needle));
+    if (creator) return `Author · ${creator.name}`;
+    const context = (bookMatchText[book.key] ?? []).find((item) =>
+      foldSearch(item.text).includes(needle)
+    );
+    if (context) return context.detail;
+    return creatorLine(book.creators) || undefined;
+  }
   function openSnippet(item: SnippetSummary, hit?: SnippetHit) {
     const params = new URLSearchParams({ id: item.id, returnTo });
     if (hit) params.set('locator', JSON.stringify(hit.locator));
@@ -196,13 +207,13 @@
         kind: 'Book',
         title: book.title,
         label: `Read ${book.title}`,
-        detail: creatorLine(book.creators),
+        detail: bookDetail(book, selectedQuery),
         searchText: [
           book.title,
           book.canonicalTitle,
           ...(book.creators ?? []).map((creator) => creator.name),
           ...(book.series?.name ? [book.series.name] : []),
-          ...(bookMatchText[book.key] ?? [])
+          ...(bookMatchText[book.key] ?? []).map((item) => item.text)
         ],
         open: () => openBook(book)
       }));
