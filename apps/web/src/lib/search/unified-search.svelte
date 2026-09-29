@@ -207,8 +207,7 @@
           id: `book:${book.key}`,
           kind: 'Book',
           title: book.title,
-          label:
-            !titleMatch && detail ? `Read ${book.title}. Matched ${detail}` : `Read ${book.title}`,
+          label: `Read ${book.title}`,
           detail,
           titleMatch,
           searchText: bookTitleSearchFields(book, bookMatchText[book.key] ?? []),
@@ -563,6 +562,7 @@
               class="result-row"
               data-search-row="titles"
               aria-label={row.label}
+              aria-describedby={row.detail ? `title-detail-${row.id}` : undefined}
               onclick={row.open}
             >
               <span class="type-icon" aria-hidden="true"
@@ -573,7 +573,7 @@
                   />{/if}</span
               >
               <span class="row-copy"
-                ><strong><SearchExcerpt text={row.title} match={row.titleMatch} /></strong><small
+                ><strong><SearchExcerpt text={row.title} match={row.titleMatch} /></strong><small id={row.detail ? `title-detail-${row.id}` : undefined}
                   >{row.kind}{row.detail ? ` · ${row.detail}` : ''}</small
                 ></span
               >
