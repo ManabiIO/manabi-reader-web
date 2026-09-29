@@ -138,9 +138,9 @@
   });
 </script>
 
-{#if snippetSearchTooLong(query)}<p id="snippet-search-limit-error" role="alert"
-    >Use a search of 512 characters or fewer.</p
-  >{/if}
+{#if snippetSearchTooLong(query)}<p id="snippet-search-limit-error" role="alert">
+    Use a search of 512 characters or fewer.
+  </p>{/if}
 {#if searching}<p class="search-note" role="status">
     Searching snippet contents… Title matches are ready.
   </p>{/if}

@@ -1029,7 +1029,9 @@
             aria-label="Search snippets"
             placeholder="Search titles and content"
             aria-invalid={snippetSearchTooLong(query) ? true : undefined}
-            aria-describedby={snippetSearchTooLong(query) ? 'snippet-search-limit-error' : undefined}
+            aria-describedby={snippetSearchTooLong(query)
+              ? 'snippet-search-limit-error'
+              : undefined}
             bind:value={query}
             oninput={(event) => {
               query = event.currentTarget.value;
@@ -1210,10 +1212,11 @@
           allowUnsetDefault={pickerPurpose === 'default'}
           onwritebusy={(value) => (pickerWriteBusy = value)}
           choose={(value, remember) => void action(() => chooseDestination(value, remember))}
-        /></div
-      ></Dialog.Content>
-    </Dialog.Root>
-  {/if}
+        />
+      </div></Dialog.Content
+    >
+  </Dialog.Root>
+{/if}
 {#if collectionsOpen}<Dialog.Root bind:open={collectionsOpen}
     ><Dialog.Content closeDisabled={busy}
       ><Dialog.Header
