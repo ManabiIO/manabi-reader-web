@@ -38,10 +38,15 @@ def voice_fixture():
 
 class PitchHandler(existing.StaticHandler):
     worker_requests = []
+    pitch_requests = []
 
     def do_GET(self):
         if 'voice-pitch.worker-' in self.path:
             self.worker_requests.append(self.path)
+        if any(name in self.path for name in (
+            'voice-pitch.worker-', 'swift-f0-0.3.0-', 'ort-wasm-simd-threaded-'
+        )):
+            self.pitch_requests.append(self.path)
         super().do_GET()
 
 
@@ -86,6 +91,7 @@ class VoicePitchBrowser(existing.WhispersyncBrowser):
           }
         })()''')
         self.worker_start = len(PitchHandler.worker_requests)
+        self.pitch_start = len(PitchHandler.pitch_requests)
 
     def tearDown(self):
         try:
@@ -94,6 +100,7 @@ class VoicePitchBrowser(existing.WhispersyncBrowser):
               audio: [...document.querySelectorAll('audio')].map(a => ({time: a.currentTime,
                 paused: a.paused, ended: a.ended, readyState: a.readyState}))})''')
             report['workerRequests'] = PitchHandler.worker_requests[self.worker_start:]
+            report['pitchRequests'] = PitchHandler.pitch_requests[self.pitch_start:]
             (OUTPUT / (self._testMethodName + '.json')).write_text(json.dumps(report, indent=2))
         finally:
             super().tearDown()
@@ -109,12 +116,12 @@ class VoicePitchBrowser(existing.WhispersyncBrowser):
           navigator.serviceWorker.ready,
           new Promise((_, reject) => setTimeout(() => reject(Error('offline shell did not install')), 20000))
         ]).then(() => true)''')
-        self.assertEqual([], PitchHandler.worker_requests[self.worker_start:], 'eager worker download')
+        self.assertEqual([], PitchHandler.pitch_requests[self.pitch_start:], 'eager SwiftF0 download')
         self.assertEqual(0, self.page.evaluate('__pitchQA.created'))
         self.strip = self.page.get_by_test_id('voice-pitch')
         expect(self.strip.get_by_role('button', name='Show voice pitch')).to_have_attribute('aria-expanded', 'false')
         self.strip.get_by_role('button', name='Show voice pitch').press('Enter')
-        expect(self.strip.get_by_text('Ready when you press Play', exact=True)).to_be_visible(timeout=20000)
+        expect(self.strip.get_by_text('Ready when you press Play', exact=True)).to_be_visible(timeout=40000)
         self.assertEqual(1, self.page.evaluate('__pitchQA.created'))
         self.page.locator('.panel').get_by_role('button', name='Play', exact=True).click()
         self.page.wait_for_function('() => __pitchQA.results.filter(r => r.hz > 85 && r.hz < 520).length >= 8', timeout=20000)
@@ -122,7 +129,10 @@ class VoicePitchBrowser(existing.WhispersyncBrowser):
         self.page.locator('.panel').get_by_role('button', name='Pause', exact=True).click()
         expect(self.strip.get_by_text('Paused · trace held', exact=True)).to_be_visible()
         expect(self.strip.locator('path.pitch')).to_have_attribute('d', __import__('re').compile('.*L.*'))
-        self.assertTrue(PitchHandler.worker_requests[self.worker_start:])
+        requests = PitchHandler.pitch_requests[self.pitch_start:]
+        self.assertTrue(any('voice-pitch.worker-' in request for request in requests), requests)
+        self.assertTrue(any('swift-f0-0.3.0-' in request for request in requests), requests)
+        self.assertTrue(any('ort-wasm-simd-threaded-' in request for request in requests), requests)
         self.strip.scroll_into_view_if_needed()
 
     def capture(self, name):
