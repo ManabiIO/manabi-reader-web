@@ -333,6 +333,7 @@
             label: `Open passage in ${item.title}: ${hit.locator.quote}`,
             detail: hit.reading ? 'Furigana match' : undefined,
             excerpt: hit.excerpt,
+            match: hit.excerptMatch,
             open: () => openSnippet(item, hit)
           }))
         );
