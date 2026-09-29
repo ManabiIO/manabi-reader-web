@@ -275,7 +275,9 @@ try {
   await moreActions.press('Enter');
   const actionMenu = page.getByRole('menu');
   await expect(actionMenu).toBeVisible();
-  await expect(actionMenu.getByRole('menuitem', { name: 'Collections…', exact: true })).toBeVisible();
+  await expect(
+    actionMenu.getByRole('menuitem', { name: 'Collections…', exact: true })
+  ).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(actionMenu).toHaveCount(0);
   await expect(moreActions).toBeFocused();
