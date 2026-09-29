@@ -5,6 +5,7 @@
   import { derived } from 'svelte/store';
   import { onMount } from 'svelte';
   import { startMediaProfileWatcher } from './media-profile';
+  import { videoLearningEnabled } from '$lib/media/feature';
   import { page } from '$app/stores';
   import { base, resolve } from '$app/paths';
   import { refreshAccount } from './client';
@@ -18,7 +19,7 @@
       ['conflict', 'needs_reconnect', 'permission_required', 'unauthorized'].includes(status.state)
     );
   onMount(() => {
-    const stopMediaProfile = startMediaProfileWatcher();
+    const stopMediaProfile = videoLearningEnabled ? startMediaProfileWatcher() : () => undefined;
     const stopSnippets = startSnippets(
       derived(page, (current) => isSnippetLibraryPath(current.url.pathname, base))
     );

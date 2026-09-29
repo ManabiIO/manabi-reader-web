@@ -5,6 +5,7 @@
   import { BookOpen, FileText } from '@lucide/svelte';
   import { localUser, localProfileUser } from '../manabi/client';
   import { MediaStore } from '../media/store';
+  import { videoLearningEnabled } from '../media/feature';
   import {
     mediaScope,
     searchVideoTitles,
@@ -98,7 +99,7 @@
     scopePlan.books ? books.map((book) => [book.key, book.contentHash, book.lastBookModified]) : [],
     scopePlan.books ? matches.map((book) => [book.key, book.title]) : [],
     scopePlan.snippets ? eligible.map((item) => [item.key, item.revision]) : [],
-    searchScope === 'everything' ? mediaRevision : 0
+    videoLearningEnabled && searchScope === 'everything' ? mediaRevision : 0
   ]);
   $: if (mounted && nextSignature !== signature) {
     signature = nextSignature;
@@ -129,7 +130,7 @@
     const selectedBooks = plan.books ? [...matches] : [],
       selectedSnippets = plan.snippets ? [...eligible] : [],
       selectedOwner = owner,
-      runVideos = searchScope === 'everything',
+      runVideos = videoLearningEnabled && searchScope === 'everything',
       needle = foldSearch(query.trim());
     titleTask.start(async (signal, publish) => {
       const selected = scope();
@@ -209,7 +210,7 @@
       selectedOwner = owner;
     const runBooks = plan.books && selectedBooks.length > 0;
     const runSnippets = plan.snippets && selectedSnippets.length > 0;
-    const runVideos = searchScope === 'everything';
+    const runVideos = videoLearningEnabled && searchScope === 'everything';
     contentTask.start(async (signal, publish) => {
       const selected = scope();
       const guard = () => {
@@ -405,15 +406,17 @@
   }
   onMount(() => {
     mounted = true;
-    const stopMedia = mediaStore.subscribe(() => {
-      if (mounted) mediaRevision++;
-    });
+    const stopMedia = videoLearningEnabled
+      ? mediaStore.subscribe(() => {
+          if (mounted) mediaRevision++;
+        })
+      : () => undefined;
     return () => {
       mounted = false;
       titleTask.stop();
       contentTask.stop();
       stopMedia();
-      void mediaStore.close();
+      if (videoLearningEnabled) void mediaStore.close();
     };
   });
 </script>
@@ -555,7 +558,9 @@
           ? 'Searches saved books without downloading cloud content.'
           : searchScope === 'snippets'
             ? 'Searches snippets already indexed in this browser.'
-            : 'Searches saved books, snippets and published video transcripts without downloading cloud video bytes or starting transcription.'}
+            : videoLearningEnabled
+              ? 'Searches saved books, snippets and published video transcripts without downloading cloud video bytes or starting transcription.'
+              : 'Searches saved books and snippets without downloading cloud content.'}
       </p>
     </section>
   {/if}

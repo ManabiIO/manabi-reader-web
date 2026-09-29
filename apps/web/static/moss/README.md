@@ -1,5 +1,12 @@
 # CPU-only MOSS browser assets
 
+Video learning is disabled in ordinary Reader builds. The opt-in build setting
+`VITE_ENABLE_VIDEO_LEARNING=true` enables its navigation, search source, profile
+watcher and `/videos` workspace. Video and product-journey CI use that setting;
+other builds exercise the dormant path. This frontend setting does not enable
+the separate Reader backend serving/API boundary. Keep both release decisions
+explicit until the integrated video qualification is complete.
+
 `python tools/media/build-moss.py` builds `single/moss.mjs` / `single/moss.wasm`
 and their `threaded/` equivalents from the pinned C++/ggml source. These files
 are committed with their build manifests and upstream notices. The production

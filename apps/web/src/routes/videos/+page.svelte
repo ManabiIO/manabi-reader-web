@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { base } from '$app/paths';
+  import { videoLearningEnabled } from '$lib/media/feature';
+  import { base, resolve } from '$app/paths';
   import { goto } from '$app/navigation';
   import { combineLatest, Observable } from 'rxjs';
   import ReaderAppearance from '$lib/components/book-reader/reader-appearance.svelte';
@@ -27,6 +28,7 @@
 
   let host: HTMLDivElement;
   let appearanceOpen = false;
+  let lifetimeError = '';
   let appearanceTrigger: HTMLElement | undefined;
   let workspace: VideoWorkspace | undefined;
 
@@ -51,6 +53,7 @@
     });
   }
   onMount(() => {
+    if (!videoLearningEnabled) return;
     const typography = combineLatest([
       fontFamilyGroupOne$,
       fontFamilyGroupTwo$,
@@ -91,6 +94,7 @@
     const lifetime = new ProfileLifetime<WorkspaceConnection>(
       offlineMediaProfile,
       (scope, connection) => {
+        lifetimeError = '';
         const target = new VideoWorkspace(host, {
           scope,
           booksURL: `${base}/manage`,
@@ -109,7 +113,7 @@
         return target;
       },
       (error) => {
-        host.textContent = error instanceof Error ? error.message : String(error);
+        lifetimeError = error instanceof Error ? error.message : String(error);
       }
     );
     const stop = account.subscribe((state) => {
@@ -152,13 +156,22 @@
   });
 </script>
 
-<svelte:head><title>Videos — Manabi Reader</title></svelte:head>
-<div bind:this={host}></div>
-
-<ReaderAppearance
-  bind:open={appearanceOpen}
-  showLayout={false}
-  returnFocus={appearanceTrigger}
-  description="Adjust transcript text and appearance. These are the same settings used by your ebooks."
-  on:settingsClick={() => goto(`${base}/settings`)}
-/>
+<svelte:head
+  ><title>{videoLearningEnabled ? 'Videos' : 'Page not found'} — Manabi Reader</title></svelte:head
+>
+{#if videoLearningEnabled}
+  {#if lifetimeError}<p role="alert">{lifetimeError}</p>{/if}
+  <div bind:this={host}></div>
+  <ReaderAppearance
+    bind:open={appearanceOpen}
+    showLayout={false}
+    returnFocus={appearanceTrigger}
+    description="Adjust transcript text and appearance. These are the same settings used by your ebooks."
+    on:settingsClick={() => goto(resolve('/settings'))}
+  />
+{:else}
+  <main>
+    <h1>Page not found</h1>
+    <a href={resolve('/manage')}>Back to library</a>
+  </main>
+{/if}
