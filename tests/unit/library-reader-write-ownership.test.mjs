@@ -339,6 +339,45 @@ test('archive conflict restore cannot adopt an unscoped foreign-owned annotation
   assert.equal(fixture.db.rows('readerConflict').length, 1);
 });
 
+test('a stale annotation scope cannot override newer foreign book ownership', async () => {
+  const fixture = annotationFixture({ bookOwner: 'bob', scopeOwner: 'alice' });
+  const draft = {
+    id: fixture.annotation.id,
+    bookKey: fixture.bookKey,
+    kind: 'bookmark',
+    targets: fixture.annotation.targets
+  };
+  await assert.rejects(fixture.api.saveReaderAnnotation(draft, 'alice'), /another account/);
+  await assert.rejects(
+    fixture.api.removeReaderAnnotation(fixture.annotation.id, 'alice'),
+    /another account/
+  );
+  await assert.rejects(
+    fixture.api.resolveAnnotationImportConflict(
+      'import:' + fixture.annotation.id,
+      'restore-archive',
+      'alice'
+    ),
+    /another account/
+  );
+  assert.equal(fixture.db.rows('readerAnnotation')[0].deletedAt, undefined);
+  assert.equal(fixture.db.rows('readerAnnotation')[0].body, undefined);
+  assert.equal(fixture.db.rows('readerAnnotationOutbox').length, 0);
+  assert.equal(fixture.db.rows('readerConflict').length, 1);
+});
+
+test('archive import rejects a stale annotation scope when its book is foreign', async () => {
+  const fixture = annotationFixture({ bookOwner: 'bob', scopeOwner: 'alice' });
+  const archive = JSON.stringify({
+    format: 'manabi-reader-annotations',
+    version: 1,
+    annotations: [fixture.annotation]
+  });
+  await assert.rejects(fixture.api.importReaderAnnotations(archive, 'alice'), /another account/);
+  assert.equal(fixture.db.rows('readerAnnotationOutbox').length, 0);
+  assert.equal(fixture.db.rows('readerConflict').length, 1);
+});
+
 test('deleting a genuinely local unscoped annotation binds its tombstone to the active profile', async () => {
   const fixture = annotationFixture();
   await fixture.api.removeReaderAnnotation(fixture.annotation.id, 'alice');
