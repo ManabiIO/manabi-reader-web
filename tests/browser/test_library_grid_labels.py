@@ -182,10 +182,15 @@ class LibraryGridLabels(LibraryBase):
                           };
                           const title=button.querySelector('.book-copy h3');
                           const author=button.querySelector('.book-author');
+                          const probe=document.createElement('div');
+                          probe.style.cssText='position:fixed;inset:auto;width:1px;height:1px;background:var(--background);pointer-events:none';
+                          document.body.append(probe);
+                          const background=getComputedStyle(probe).backgroundColor;
+                          probe.remove();
                           return {
                             title:rgba(getComputedStyle(title).color),
                             author:rgba(getComputedStyle(author).color),
-                            background:rgba(getComputedStyle(document.body).backgroundColor)
+                            background:rgba(background)
                           };
                         }''')
                         def luminance(rgba):
