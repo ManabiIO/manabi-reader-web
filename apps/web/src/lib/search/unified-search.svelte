@@ -179,34 +179,24 @@
       }
       // Metadata stays local and independent of dictionary initialization and
       // expensive body projection. Do not normalize the editable query to kana.
-      const bookRows = sortSearchText<Row>(
-        selectedBooks.map((book) => ({
-          id: `book:${book.key}`,
-          kind: 'Book',
-          title: book.title,
-          label: `Read ${book.title}`,
-          detail: creatorLine(book.creators),
-          open: () => openBook(book)
-        })),
-        selectedQuery,
-        (row) => row.title,
-        (a, b) => a.id.localeCompare(b.id)
-      );
-      const snippetRows = snippetScope
-        ? sortSearchText<Row>(
-            selectedSnippets
-              .filter((item) => foldSearch(item.title).includes(needle))
-              .map((item) => ({
-                id: `snippet:${item.key}`,
-                kind: 'Snippet',
-                title: item.title,
-                label: `Read snippet ${item.title}`,
-                open: () => openSnippet(item)
-              })),
-            selectedQuery,
-            (row) => row.title,
-            (a, b) => a.id.localeCompare(b.id)
-          )
+      const bookRows: Row[] = selectedBooks.map((book) => ({
+        id: `book:${book.key}`,
+        kind: 'Book',
+        title: book.title,
+        label: `Read ${book.title}`,
+        detail: creatorLine(book.creators),
+        open: () => openBook(book)
+      }));
+      const snippetRows: Row[] = snippetScope
+        ? selectedSnippets
+            .filter((item) => foldSearch(item.title).includes(needle))
+            .map((item) => ({
+              id: `snippet:${item.key}`,
+              kind: 'Snippet',
+              title: item.title,
+              label: `Read snippet ${item.title}`,
+              open: () => openSnippet(item)
+            }))
         : [];
       guard();
       publish({
