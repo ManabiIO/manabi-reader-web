@@ -35,6 +35,33 @@ function syncDialog() {
   return { ...h, received };
 }
 
+
+function storageSourceDialog() {
+  const received = [];
+  const h = settingsScript(
+    'settings-storage-source.svelte',
+    {
+      configuredName: '',
+      configuredIsSyncTarget: false,
+      configuredIsStorageSourceDefault: false,
+      configuredType: StorageKey.GDRIVE,
+      configuredRemoteData: undefined,
+      configuredFSData: undefined,
+      configuredStoredInManager: false,
+      configuredEncryptionDisabled: false,
+      resolver: (value) => received.push(value)
+    },
+    {
+      browser: false,
+      StorageKey,
+      window: {}
+    },
+    ['closeDialog'],
+    []
+  );
+  return { ...h, received };
+}
+
 function mergeDialog() {
   const received = [];
   const h = settingsScript(
@@ -103,5 +130,33 @@ test('competing reading-goal confirmations cannot both publish', async () => {
   assert.deepEqual(h.received, [
     { readingGoalsToDelete: [], readingGoalsToInsert: [], error: '' }
   ]);
+  assert.deepEqual(h.events, [['close']]);
+});
+
+
+test('destroying an unresolved storage-source editor cancels its caller exactly once', () => {
+  const h = storageSourceDialog();
+  h.dispose();
+  h.dispose();
+  assert.deepEqual(h.received, [undefined]);
+  assert.deepEqual(h.events, []);
+});
+
+test('storage-source close owns settlement before repeated close or destruction', () => {
+  const h = storageSourceDialog();
+  const result = {
+    new: {
+      name: 'Fixture',
+      type: StorageKey.GDRIVE,
+      storedInManager: false,
+      encryptionDisabled: true,
+      data: { clientId: 'fixture', clientSecret: '' },
+      lastSourceModified: 1
+    }
+  };
+  h.closeDialog()(result);
+  h.closeDialog()();
+  h.dispose();
+  assert.deepEqual(h.received, [result]);
   assert.deepEqual(h.events, [['close']]);
 });
