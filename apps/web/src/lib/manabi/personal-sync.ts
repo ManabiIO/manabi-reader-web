@@ -41,6 +41,58 @@ import {
 } from './personal-merge';
 
 type Payload = Record<string, unknown> | null;
+interface PersonalScopeStore {
+  getAll(): Promise<{ bookId: number; accountId: string; hydrated?: boolean }[]>;
+}
+
+/** Revalidate the logical book inside the same transaction as personal-state I/O.
+ * The sync-start inventory is only a candidate set; it is never write authority.
+ */
+async function livePersonalCopies(
+  bookKey: string,
+  expectedCopies: readonly PersonalBook[],
+  dataStore: Parameters<typeof readIndexedBookMetadata>[0],
+  scopeStore: PersonalScopeStore,
+  accountId: string
+): Promise<PersonalBook[]> {
+  const match = /^content:([a-f0-9]{64})$/.exec(bookKey);
+  if (!match || !expectedCopies.length) return [];
+  const [metadata, scopeRows] = await Promise.all([
+    readIndexedBookMetadata(dataStore, () => scoped(accountId)),
+    scopeStore.getAll()
+  ]);
+  scoped(accountId);
+  const scopeByBook = new Map(scopeRows.map((scope) => [scope.bookId, scope.accountId]));
+  const expectedIds = new Set(expectedCopies.map((book) => book.id));
+  const owners = new Set<string>();
+  const live: PersonalBook[] = [];
+  let invalidOwner = false;
+
+  for (const book of metadata) {
+    if (book.contentHash !== match[1]) continue;
+    if (book.invalidOwner) {
+      invalidOwner = true;
+      continue;
+    }
+    const scopeOwner = scopeByBook.get(book.id);
+    if (scopeOwner) owners.add(scopeOwner);
+    if (book.libraryOwner) owners.add(book.libraryOwner);
+    if (
+      expectedIds.has(book.id) &&
+      scopeOwner === accountId &&
+      (!book.libraryOwner || book.libraryOwner === accountId) &&
+      typeof book.title === 'string'
+    )
+      live.push(book as PersonalBook);
+  }
+
+  if (invalidOwner || owners.size !== 1 || !owners.has(accountId) || !live.length)
+    throw new Error(
+      'Book ownership changed while personal reading data was syncing. No reading state was changed.'
+    );
+  return live;
+}
+
 interface RemoteRecord {
   kind: string;
   entity_id: string;
@@ -314,30 +366,60 @@ async function readLocal(
   kind: PersonalKind,
   entityId: string,
   bookKey: string,
-  books: Map<string, PersonalBook[]>
+  books: Map<string, PersonalBook[]>,
+  accountId: string
 ): Promise<Payload> {
+  scoped(accountId);
   const db = await database.db;
   if (kind === 'annotation') {
     const annotation = await db.get('readerAnnotation', entityId);
+    scoped(accountId);
     return annotation && !annotation.deletedAt
       ? wirePayload(annotation as unknown as Record<string, unknown>)
       : null;
   }
+
   const copies = books.get(bookKey) ?? [];
   if (!copies.length) return null;
   if (kind === 'statistics') {
     const day = dayId.exec(entityId)?.[1];
     if (!day) return null;
-    const statistic = await db.get('readerStatistic', [bookKey, day]);
+    const tx = db.transaction(['data', 'readerBookScope', 'readerStatistic']);
+    const live = await livePersonalCopies(
+      bookKey,
+      copies,
+      tx.objectStore('data'),
+      tx.objectStore('readerBookScope'),
+      accountId
+    );
+    if (!live.length) {
+      await tx.done;
+      return null;
+    }
+    const statistic = await tx.objectStore('readerStatistic').get([bookKey, day]);
+    scoped(accountId);
+    await tx.done;
     return statistic
       ? payloadOf(statistic as unknown as Record<string, unknown>, statFields)
       : null;
   }
-  const bookmarks = (await Promise.all(copies.map((book) => db.get('bookmark', book.id)))).filter(
-    (value): value is BooksDbBookmarkData => !!value
+
+  const tx = db.transaction(['data', 'readerBookScope', 'bookmark']);
+  const live = await livePersonalCopies(
+    bookKey,
+    copies,
+    tx.objectStore('data'),
+    tx.objectStore('readerBookScope'),
+    accountId
   );
+  const bookmarks = (
+    await Promise.all(live.map((book) => tx.objectStore('bookmark').get(book.id)))
+  ).filter((value): value is BooksDbBookmarkData => !!value);
+  scoped(accountId);
+  await tx.done;
   return bookmarkPayload(bookmarks, kind);
 }
+
 function bookmarkPayload(bookmarks: BooksDbBookmarkData[], kind: PersonalKind): Payload {
   const bookmark = bookmarks.sort((a, b) =>
     kind === 'completion'
@@ -385,12 +467,23 @@ async function applyLocal(
     await tx.done;
     return;
   }
+
   const copies = books.get(bookKey) ?? [];
   if (!copies.length) return;
   if (kind === 'statistics') {
     const day = dayId.exec(entityId)?.[1];
     if (!day) return;
-    const tx = db.transaction(['readerStatistic', 'lastModified'], 'readwrite');
+    const tx = db.transaction(
+      ['data', 'readerBookScope', 'readerStatistic', 'lastModified'],
+      'readwrite'
+    );
+    const live = await livePersonalCopies(
+      bookKey,
+      copies,
+      tx.objectStore('data'),
+      tx.objectStore('readerBookScope'),
+      accountId
+    );
     const before = await tx.objectStore('readerStatistic').get([bookKey, day]);
     const current = before
       ? payloadOf(before as unknown as Record<string, unknown>, statFields)
@@ -404,7 +497,7 @@ async function applyLocal(
       await tx.objectStore('readerStatistic').put({
         ...payload,
         bookKey,
-        title: copies[0].title,
+        title: live[0].title,
         dateKey: day
       } as BooksDbStatistic & { bookKey: string });
     else await tx.objectStore('readerStatistic').delete([bookKey, day]);
@@ -413,21 +506,30 @@ async function applyLocal(
       dataType: StorageDataType.STATISTICS,
       lastModifiedValue: Date.now()
     });
+    scoped(accountId);
     await tx.done;
     database.dataListChanged$.next(undefined);
     return;
   }
-  const tx = db.transaction('bookmark', 'readwrite');
-  const observed = (await Promise.all(copies.map((book) => tx.store.get(book.id)))).filter(
-    (value): value is BooksDbBookmarkData => !!value
+
+  const tx = db.transaction(['data', 'readerBookScope', 'bookmark'], 'readwrite');
+  const live = await livePersonalCopies(
+    bookKey,
+    copies,
+    tx.objectStore('data'),
+    tx.objectStore('readerBookScope'),
+    accountId
   );
+  const observed = (
+    await Promise.all(live.map((book) => tx.objectStore('bookmark').get(book.id)))
+  ).filter((value): value is BooksDbBookmarkData => !!value);
   if (!equal(bookmarkPayload(observed, kind), expected)) {
     await tx.done;
     throw new IntegrationError('conflict', 409);
   }
   scoped(accountId);
-  for (const book of copies) {
-    const old = await tx.store.get(book.id);
+  for (const book of live) {
+    const old = await tx.objectStore('bookmark').get(book.id);
     const next: BooksDbBookmarkData = {
       ...(old ?? { dataId: book.id, progress: undefined, lastBookmarkModified: 0 }),
       dataId: book.id
@@ -440,7 +542,8 @@ async function applyLocal(
       for (const field of fields) delete (next as unknown as Record<string, unknown>)[field];
       Object.assign(next, payload ?? {});
     }
-    await tx.store.put(next);
+    await tx.objectStore('bookmark').put(next);
+    scoped(accountId);
   }
   await tx.done;
   database.bookmarksChanged$.next();
@@ -489,7 +592,7 @@ async function acceptRemote(
   const local = foreign
     ? null
     : materialized
-      ? await readLocal(item.kind, item.entity_id, item.book_key, books)
+      ? await readLocal(item.kind, item.entity_id, item.book_key, books, accountId)
       : (baseline?.payload ?? remote);
   const readingPending =
     item.kind === 'annotation'
@@ -797,7 +900,7 @@ async function stageReading(accountId: string, books: Map<string, PersonalBook[]
     for (const entity of entities) {
       const id = key(accountId, entity.kind, entity.entityId);
       const base = await db.get('readerPersonalRecord', id);
-      const local = await readLocal(entity.kind, entity.entityId, bookKey, books);
+      const local = await readLocal(entity.kind, entity.entityId, bookKey, books, accountId);
       const tx = db.transaction(['readerPersonalOutbox', 'readerPersonalConflict'], 'readwrite');
       if (await tx.objectStore('readerPersonalConflict').get(id)) {
         await tx.done;
@@ -846,7 +949,7 @@ async function hydrateReading(accountId: string, books: Map<string, PersonalBook
       pending.some((entry) => entry.kind === record.kind && entry.entityId === record.entityId)
     )
       continue;
-    const local = await readLocal(record.kind, record.entityId, record.bookKey, books);
+    const local = await readLocal(record.kind, record.entityId, record.bookKey, books, accountId);
     if (local === null)
       await applyLocal(
         record.kind,
@@ -1173,7 +1276,7 @@ export async function resolvePersonalConflict(id: string, choice: 'local' | 'rem
     const conflict = await db.get('readerPersonalConflict', id);
     if (!conflict || conflict.accountId !== accountId) throw new IntegrationError('not_found');
     const books = await localBooks(accountId);
-    const latestLocal = await readLocal(conflict.kind, conflict.entityId, conflict.bookKey, books);
+    const latestLocal = await readLocal(conflict.kind, conflict.entityId, conflict.bookKey, books, accountId);
     if (!equal(latestLocal, conflict.local)) {
       scoped(accountId);
       await db.put('readerPersonalConflict', { ...conflict, local: latestLocal });
