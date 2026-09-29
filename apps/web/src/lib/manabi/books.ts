@@ -9,6 +9,7 @@ import { davSyncStatus, syncDavBook, syncEnabledDavBooks } from '$lib/webdav/syn
 import { get, writable } from 'svelte/store';
 import { database } from '$lib/data/store';
 import { stabilizeOrganization } from '$lib/library/organization';
+import { visibleLibraryEntries } from '$lib/library/account-visibility';
 import { StorageKey } from '$lib/data/storage/storage-types';
 import { storageSource$ } from '$lib/data/storage/storage-view';
 import { getStorageHandler } from '$lib/data/storage/storage-handler-factory';
@@ -62,9 +63,9 @@ export async function refreshLinkedBooks() {
     generation === linkRefreshGeneration && (localProfileUser()?.id ?? null) === owner;
   const books = await (await integrationDB()).getAll('books');
   if (!current()) return;
-  const visible = books.filter((book) => book.owner === null || book.owner === owner);
   const records = await readIndexedBookIdentities(await database.db);
   if (!current()) return;
+  const visible = visibleLibraryEntries(records, books, owner).links;
   await stabilizeOrganization(visible, records);
   if (!current()) return;
   allLinkedBooks.set(books);
