@@ -1,7 +1,11 @@
 /** @license BSD-3-Clause */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { bookTitleMatchIndex } from '../../apps/web/src/lib/search/book-title-match-text.ts';
+import {
+  bookTitleMatchIndex,
+  bookTitleMatchDetail,
+  bookTitleSearchFields
+} from '../../apps/web/src/lib/search/book-title-match-text.ts';
 
 const book = (key, aliases = [key]) => ({ key, organizationAliases: aliases });
 
@@ -63,4 +67,21 @@ test('book title match context is empty without a query', () => {
   const result = bookTitleMatchIndex([book('book:a')], [], [], '');
   assert.deepEqual(result.textByBook, {});
   assert.deepEqual([...result.matchedKeys], []);
+});
+
+test('metadata-only book matches explain their strongest matching field', () => {
+  const item = {
+    title: 'Dog guide',
+    canonicalTitle: 'Copycat',
+    creators: [{ name: 'Cat Author' }]
+  };
+  assert.equal(
+    bookTitleMatchDetail(item, [{ text: 'cat', detail: 'Collection · cat' }], 'cat'),
+    'Collection · cat'
+  );
+  assert.deepEqual(bookTitleSearchFields(item, []), {
+    primary: ['Dog guide'],
+    secondary: ['Copycat', 'Cat Author']
+  });
+  assert.equal(bookTitleMatchDetail({ ...item, title: 'Cat guide' }, [], 'cat'), 'Cat Author');
 });

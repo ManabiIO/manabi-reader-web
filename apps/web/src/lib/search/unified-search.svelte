@@ -16,14 +16,17 @@
     sortSearchText,
     type SearchTextFields
   } from '../library/search-normalization';
-  import { creatorLine } from '../library/book-metadata';
   import type { ShelfBook } from '../library/view-model';
   import type { ReaderLocator } from '../reader-location';
   import type { SnippetSummary } from '../snippets/summary';
   import SearchExcerpt from '../components/search-excerpt.svelte';
   import DictionarySearch from './dictionary-search.svelte';
   import { searchBookContents, type BookSearchBatch } from './book-content-source';
-  import type { BookTitleMatchContext } from './book-title-match-text';
+  import {
+    bookTitleMatchDetail,
+    bookTitleSearchFields,
+    type BookTitleMatchContext
+  } from './book-title-match-text';
   import { queryTask, type SearchState } from './query-task.mjs';
   import {
     librarySearchScopePlan,
@@ -94,10 +97,9 @@
   async function mediaRuntime(): Promise<LazyMediaRuntime> {
     if (!videoLearningEnabled) throw new Error('Video learning is disabled.');
     if (!mediaRuntimePromise) {
-      const pending = Promise.all([
-        import('../media/store'),
-        import('../media/video-search')
-      ]).then(([store, search]) => ({ store: new store.MediaStore(), search }));
+      const pending = Promise.all([import('../media/store'), import('../media/video-search')]).then(
+        ([store, search]) => ({ store: new store.MediaStore(), search })
+      );
       mediaRuntimePromise = pending;
       void pending.catch(() => {
         if (mediaRuntimePromise === pending) mediaRuntimePromise = undefined;
@@ -155,22 +157,6 @@
   }
   $: visibleTitles = (titles.value?.rows ?? []).slice(0, filter === 'all' ? 2 : titleLimit);
   $: visibleContent = (content.value?.rows ?? []).slice(0, filter === 'all' ? 2 : contentLimit);
-  function bookDetail(book: ShelfBook, selectedQuery: string): string | undefined {
-    const needle = foldSearch(selectedQuery.trim());
-    const creators = creatorLine(book.creators) || undefined;
-    if (foldSearch(book.title).includes(needle)) return creators;
-    const candidates = [
-      ...(book.canonicalTitle !== book.title
-        ? [{ text: book.canonicalTitle, detail: `Original title · ${book.canonicalTitle}` }]
-        : []),
-      ...(book.creators ?? []).map((creator) => ({
-        text: creator.name,
-        detail: `Author · ${creator.name}`
-      })),
-      ...(bookMatchText[book.key] ?? [])
-    ].filter((item) => foldSearch(item.text).includes(needle));
-    return sortSearchText(candidates, selectedQuery, (item) => item.text)[0]?.detail ?? creators;
-  }
   function openSnippet(item: SnippetSummary, hit?: SnippetHit) {
     const params = new URLSearchParams({ id: item.id, returnTo });
     if (hit) params.set('locator', JSON.stringify(hit.locator));
@@ -216,26 +202,16 @@
       // expensive body projection. Do not normalize the editable query to kana.
       const bookRows: Row[] = selectedBooks.map((book) => {
         const titleMatch = searchMatchRange(book.title, selectedQuery);
-        const detail = bookDetail(book, selectedQuery);
+        const detail = bookTitleMatchDetail(book, bookMatchText[book.key] ?? [], selectedQuery);
         return {
           id: `book:${book.key}`,
           kind: 'Book',
           title: book.title,
           label:
-            !titleMatch && detail
-              ? `Read ${book.title}. Matched ${detail}`
-              : `Read ${book.title}`,
+            !titleMatch && detail ? `Read ${book.title}. Matched ${detail}` : `Read ${book.title}`,
           detail,
           titleMatch,
-          searchText: {
-            primary: [book.title],
-            secondary: [
-              ...(book.canonicalTitle !== book.title ? [book.canonicalTitle] : []),
-              ...(book.creators ?? []).map((creator) => creator.name),
-              ...(book.series?.name ? [book.series.name] : []),
-              ...(bookMatchText[book.key] ?? []).map((item) => item.text)
-            ]
-          },
+          searchText: bookTitleSearchFields(book, bookMatchText[book.key] ?? []),
           open: () => openBook(book)
         };
       });
@@ -590,7 +566,11 @@
               onclick={row.open}
             >
               <span class="type-icon" aria-hidden="true"
-                >{#if row.kind === 'Book'}<BookOpen size={20} />{:else if row.kind === 'Video'}<Video size={20} />{:else}<FileText size={20} />{/if}</span
+                >{#if row.kind === 'Book'}<BookOpen
+                    size={20}
+                  />{:else if row.kind === 'Video'}<Video size={20} />{:else}<FileText
+                    size={20}
+                  />{/if}</span
               >
               <span class="row-copy"
                 ><strong><SearchExcerpt text={row.title} match={row.titleMatch} /></strong><small
@@ -638,7 +618,11 @@
               onclick={row.open}
             >
               <span class="type-icon" aria-hidden="true"
-                >{#if row.kind === 'Book'}<BookOpen size={20} />{:else if row.kind === 'Video'}<Video size={20} />{:else}<FileText size={20} />{/if}</span
+                >{#if row.kind === 'Book'}<BookOpen
+                    size={20}
+                  />{:else if row.kind === 'Video'}<Video size={20} />{:else}<FileText
+                    size={20}
+                  />{/if}</span
               >
               <span class="row-copy"
                 ><span class="excerpt"

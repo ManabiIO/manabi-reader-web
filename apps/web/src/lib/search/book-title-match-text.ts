@@ -4,7 +4,12 @@
  * All rights reserved.
  */
 
-import { foldSearch } from '../library/search-normalization.ts';
+import {
+  foldSearch,
+  sortSearchText,
+  type SearchTextFields
+} from '../library/search-normalization.ts';
+import { creatorLine } from '../library/book-metadata.ts';
 import type { Collection } from '../library/organization';
 import type { ShelfBook, ShelfNode } from '../library/view-model';
 
@@ -84,7 +89,6 @@ export function bookTitleMatchIndex(
     matchedKeys: new Set(result.keys())
   };
 }
-
 
 /** The exact fields used to rank a Book in the global Titles section. */
 export function bookTitleSearchFields(
