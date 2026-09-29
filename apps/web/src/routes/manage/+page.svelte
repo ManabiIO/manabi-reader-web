@@ -66,7 +66,10 @@
   } from '$lib/functions/replication/replication-progress';
   import { isMobile$, pluralize } from '$lib/functions/utils';
   import { creatorSortKey } from '$lib/library/book-metadata';
-  import { visibleLibraryEntries } from '$lib/library/account-visibility';
+  import {
+    canReadLibraryReadingState,
+    visibleLibraryEntries
+  } from '$lib/library/account-visibility';
   import EditorsPicks from '$lib/library/editors-picks.svelte';
   import { downloadEditorsPick, type EditorsPick } from '$lib/library/editors-picks';
   import {
@@ -82,6 +85,7 @@
   import { sha256 } from '$lib/manabi/sources';
   import type { LibraryMenuModel } from '$lib/library/library-menu';
   import { reduceToEmptyString } from '$lib/functions/rxjs/reduce-to-empty-string';
+  import { readableToObservable } from '$lib/functions/rxjs/readable-to-observable';
   import {
     combineLatest,
     distinctUntilChanged,
@@ -99,14 +103,25 @@
   const bookCards$: Observable<BookCardProps[]> = combineLatest([
     database.dataList$,
     database.bookmarks$,
-    booklistSortOptions$
+    booklistSortOptions$,
+    readableToObservable(localUser)
   ]).pipe(
-    map(([dataList, bookmarks]) => {
-      const sortProp = $booklistSortOptions$[$storageSource$];
+    map(([dataList, bookmarks, sortOptions, viewer]) => {
+      const sortProp = sortOptions[$storageSource$];
       const isTextSort = sortProp.property === 'title' || sortProp.property === 'author';
 
       if ($storageSource$ === StorageKey.BROWSER) {
-        const bookmarkMap = keyBy(bookmarks, 'dataId');
+        const ownerByBook = new Map(dataList.map((book) => [book.id, book]));
+        const bookmarkMap = keyBy(
+          bookmarks.filter((bookmark) => {
+            const book = ownerByBook.get(bookmark.dataId);
+            return (
+              !!book &&
+              canReadLibraryReadingState(book, viewer?.id ?? null)
+            );
+          }),
+          'dataId'
+        );
 
         return [
           ...dataList
