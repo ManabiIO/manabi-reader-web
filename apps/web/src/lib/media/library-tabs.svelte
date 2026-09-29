@@ -24,11 +24,20 @@
   a {
     display: flex;
     align-items: center;
+    justify-content: center;
+    min-width: 0;
     min-height: 44px;
     padding: 10px 22px;
     border-radius: 20px;
     color: var(--foreground);
+    text-align: center;
     text-decoration: none;
+    overflow-wrap: anywhere;
+  }
+  @media (max-width: 480px) {
+    a {
+      padding-inline: 12px;
+    }
   }
   a[aria-current] {
     background: var(--card);
