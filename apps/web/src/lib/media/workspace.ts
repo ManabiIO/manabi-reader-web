@@ -1242,6 +1242,20 @@ export class VideoWorkspace {
       'Reopen this video to reconnect its local file, or sign in to reconnect its cloud folder.'
     );
   }
+  /** Opens an already-saved video at a global-search transcript result. */
+  async openSearchResult(
+    key: ContentKey,
+    seconds = 0,
+    trackId?: string
+  ): Promise<void> {
+    if (this.closed) throw new Error('Video workspace is closed');
+    await this.reopen(key);
+    if (this.closed) throw new Error('Video workspace is closed');
+    if (this.current?.key !== key || !this.player)
+      throw new Error('The saved video could not be reopened for this search result.');
+    await this.player.seekTo(seconds, trackId);
+  }
+
   private async reopen(key: ContentKey) {
     const intent = ++this.openIntent;
     const source = await this.resolveSource(key, this.lifetime.signal, true);
