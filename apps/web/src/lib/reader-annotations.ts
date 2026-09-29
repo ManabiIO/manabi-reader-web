@@ -58,6 +58,32 @@ function bindTransactionLifetime(
   return () => signal.removeEventListener('abort', abort);
 }
 
+async function commitAnnotationTransaction<T>(
+  transaction: { abort(): void; done: Promise<unknown> },
+  operation: ReturnType<typeof annotationOperation>,
+  work: () => Promise<T>
+): Promise<T> {
+  const unbind = bindTransactionLifetime(transaction, operation.signal);
+  try {
+    const result = await work();
+    operation.assertCurrent();
+    await transaction.done;
+    operation.assertCurrent();
+    return result;
+  } catch (error) {
+    try {
+      transaction.abort();
+    } catch {
+      /* The transaction may already have settled. */
+    }
+    await transaction.done.catch(() => undefined);
+    operation.assertCurrent();
+    throw error;
+  } finally {
+    unbind();
+  }
+}
+
 
 async function visibleAnnotations(records: ReaderAnnotation[]): Promise<ReaderAnnotation[]> {
   if (get(account).status === 'loading') return [];
@@ -309,9 +335,8 @@ export async function importReaderAnnotations(
       ],
       'readwrite'
     );
-    const unbind = bindTransactionLifetime(tx, operation.signal);
     const result = { imported: 0, alreadyPresent: 0, conflicts: 0 };
-    try {
+    return await commitAnnotationTransaction(tx, operation, async () => {
       const ownerByBook = await bookAccountsFromStores(
         incoming.map((annotation) => annotation.bookKey),
         tx.objectStore('data'),
@@ -380,21 +405,8 @@ export async function importReaderAnnotations(
         }
         result.imported += 1;
       }
-      await tx.done;
-      operation.assertCurrent();
       return result;
-    } catch (error) {
-      try {
-        tx.abort();
-      } catch {
-        /* The transaction may already have settled. */
-      }
-      await tx.done.catch(() => undefined);
-      operation.assertCurrent();
-      throw error;
-    } finally {
-      unbind();
-    }
+    });
   } finally {
     operation.stop();
   }
@@ -433,8 +445,7 @@ export async function resolveAnnotationImportConflict(
       ],
       'readwrite'
     );
-    const unbind = bindTransactionLifetime(tx, operation.signal);
-    try {
+    await commitAnnotationTransaction(tx, operation, async () => {
       const conflict = await tx.objectStore('readerConflict').get(id);
       operation.assertCurrent();
       if (!conflict) {
@@ -513,20 +524,7 @@ export async function resolveAnnotationImportConflict(
       }
       await tx.objectStore('readerConflict').delete(id);
       operation.assertCurrent();
-      await tx.done;
-      operation.assertCurrent();
-    } catch (error) {
-      try {
-        tx.abort();
-      } catch {
-        /* The transaction may already have settled. */
-      }
-      await tx.done.catch(() => undefined);
-      operation.assertCurrent();
-      throw error;
-    } finally {
-      unbind();
-    }
+    });
   } finally {
     operation.stop();
   }
@@ -603,8 +601,7 @@ export async function saveReaderAnnotation(
       ],
       'readwrite'
     );
-    const unbind = bindTransactionLifetime(tx, operation.signal);
-    try {
+    return await commitAnnotationTransaction(tx, operation, async () => {
       const id = draft.id ?? crypto.randomUUID();
       const [previous, owner, bookOwner] = await Promise.all([
         tx.objectStore('readerAnnotation').get(id),
@@ -666,21 +663,8 @@ export async function saveReaderAnnotation(
         await tx.objectStore('readerAnnotationOutbox').put(mutation);
         operation.assertCurrent();
       }
-      await tx.done;
-      operation.assertCurrent();
       return value;
-    } catch (error) {
-      try {
-        tx.abort();
-      } catch {
-        /* The transaction may already have settled. */
-      }
-      await tx.done.catch(() => undefined);
-      operation.assertCurrent();
-      throw error;
-    } finally {
-      unbind();
-    }
+    });
   } finally {
     operation.stop();
   }
@@ -719,8 +703,7 @@ export async function removeReaderAnnotation(
       ],
       'readwrite'
     );
-    const unbind = bindTransactionLifetime(tx, operation.signal);
-    try {
+    await commitAnnotationTransaction(tx, operation, async () => {
       const current = await tx.objectStore('readerAnnotation').get(id);
       operation.assertCurrent();
       if (!current || current.deletedAt) {
@@ -777,20 +760,7 @@ export async function removeReaderAnnotation(
         });
         operation.assertCurrent();
       }
-      await tx.done;
-      operation.assertCurrent();
-    } catch (error) {
-      try {
-        tx.abort();
-      } catch {
-        /* The transaction may already have settled. */
-      }
-      await tx.done.catch(() => undefined);
-      operation.assertCurrent();
-      throw error;
-    } finally {
-      unbind();
-    }
+    });
   } finally {
     operation.stop();
   }
