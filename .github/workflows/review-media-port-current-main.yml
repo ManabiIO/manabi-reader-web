@@ -1,0 +1,81 @@
+name: Port media stack onto current main
+on:
+  push:
+    branches: [review/media-port-current-main-20260928]
+permissions:
+  contents: write
+jobs:
+  port:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+      - name: Apply complete media product delta with three-way resolution
+        id: apply
+        shell: bash
+        run: |
+          set +e
+          mkdir -p "$RUNNER_TEMP/media-port"
+          git fetch origin feat/unified-search-media-integration-20260928
+          base=329dcec43bcfeaadaf6b028182584214b0f37558
+          feature=origin/feat/unified-search-media-integration-20260928
+          git diff --binary "$base..$feature" -- . \
+            ':(exclude).github/workflows/**' \
+            ':(exclude)pnpm-lock.yaml' > "$RUNNER_TEMP/media-port/media-product.patch"
+          git apply --3way --index "$RUNNER_TEMP/media-port/media-product.patch"
+          result=$?
+          git status --porcelain=v1 > "$RUNNER_TEMP/media-port/status.txt"
+          git diff --name-only --diff-filter=U > "$RUNNER_TEMP/media-port/conflicts.txt"
+          git diff > "$RUNNER_TEMP/media-port/worktree.diff"
+          git diff --cached > "$RUNNER_TEMP/media-port/index.diff"
+          if [ "$result" -ne 0 ]; then
+            cat "$RUNNER_TEMP/media-port/conflicts.txt"
+            exit "$result"
+          fi
+      - name: Recompute lockfile on current dependency graph
+        if: success()
+        run: |
+          pnpm install --lockfile-only
+          git add pnpm-lock.yaml
+      - name: Install and compile
+        if: success()
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --dir apps/web exec svelte-kit sync
+          pnpm --dir apps/web check
+          pnpm check
+      - name: Run media and search-focused tests
+        if: success()
+        run: |
+          node tools/media/test.mjs
+          node --test tests/unit/unified-search.test.mjs tests/unit/dictionary-source.test.mjs
+      - name: Build application
+        if: success()
+        env:
+          BASE_PATH: /reader-web
+        run: pnpm build
+      - name: Publish integrated product branch
+        if: success()
+        run: |
+          set -euo pipefail
+          git add -A
+          git config user.name 'Manabi development'
+          git config user.email 'development@manabi.io'
+          git switch -c feat/video-stack-current-main-20260928
+          HUSKY=0 git commit -m 'feat(media): port video stack onto current reader main'
+          git push origin HEAD:refs/heads/feat/video-stack-current-main-20260928
+          git rev-parse HEAD > "$RUNNER_TEMP/media-port/product-head.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: media-port-evidence
+          path: \${{ runner.temp }}/media-port
+          retention-days: 3
