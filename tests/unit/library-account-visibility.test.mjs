@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  canReadLibraryReadingState,
   readerAccessOwners,
   visibleLibraryEntries
 } from '../../apps/web/src/lib/library/account-visibility.ts';
@@ -54,6 +55,15 @@ test('personal reading-data scope does not hide an otherwise public local book',
   assert.deepEqual(visibleLibraryEntries([scoped], [], 'account-b').cards, [scoped]);
   assert.deepEqual(visibleLibraryEntries([scoped], [], null).cards, [scoped]);
   assert.deepEqual(readerAccessOwners({}, { accountId: 'account-a' }, []), []);
+});
+
+test('personal reading state is visible only to its owning profile', () => {
+  const scoped = { readerOwner: 'account-a' };
+  assert.equal(canReadLibraryReadingState(scoped, 'account-a'), true);
+  assert.equal(canReadLibraryReadingState(scoped, 'account-b'), false);
+  assert.equal(canReadLibraryReadingState(scoped, null), false);
+  assert.equal(canReadLibraryReadingState({}, 'account-b'), true);
+  assert.equal(canReadLibraryReadingState({}, null), true);
 });
 
 test('content ownership outranks links and contradictory private claims fail closed', () => {
