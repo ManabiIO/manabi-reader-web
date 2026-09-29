@@ -132,6 +132,12 @@
     if (request) void loadRoute(request);
   }
   $: selectedSummary = $snippetItems.find((item) => item.id === id);
+  $: sourceSnippetId = (() => {
+    const item = current?.document.source?.item;
+    if (!item?.startsWith('snippet:')) return '';
+    const value = item.slice(8);
+    return isUUID(value) ? value : '';
+  })();
   $: nextRecordSignature = JSON.stringify([
     selectedSummary?.revision,
     selectedSummary?.dirty,
@@ -991,7 +997,9 @@
           followRemotePosition={!locator}
         />{/key}
       {#if current.document.source}<p class="source">
-          Captured from {current.document.source.title}{#if current.document.source.url}
+          Captured from {current.document.source.title}{#if sourceSnippetId}
+            · <a href={resolve(`/snippets?id=${sourceSnippetId}`)}>Open source</a
+            >{:else if current.document.source.url}
             · <a
               href={current.document.source.url}
               target="_blank"
