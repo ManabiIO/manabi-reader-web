@@ -134,6 +134,75 @@ class LibraryGridLabels(LibraryBase):
 
 
 
+    def test_selection_toolbar_stays_compact_and_reachable_at_200_percent_text(self):
+        first = 'Selection toolbar first long title'
+        second = '選択ツールバーの長い日本語タイトル'
+        self.import_book(first)
+        self.import_book(second)
+
+        self.page.set_viewport_size({'width': 320, 'height': 320})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        self.page.get_by_role('button', name='Library actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
+
+        first_select = self.page.get_by_role('button', name='Select ' + first, exact=True)
+        expect(first_select).to_be_focused()
+        first_select.press('Space')
+        expect(first_select).to_have_attribute('aria-pressed', 'true')
+
+        toolbar = self.page.get_by_label('Book selection', exact=True)
+        expect(toolbar).to_be_visible()
+        self.assertLessEqual(toolbar.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+        toolbar_box = toolbar.bounding_box()
+        self.assertGreaterEqual(toolbar_box['y'], -1)
+        self.assertLessEqual(toolbar_box['y'] + toolbar_box['height'], 256, toolbar_box)
+
+        for name in ('Cancel selection', 'Select All Visible', 'Export'):
+            control = toolbar.get_by_role('button', name=name, exact=True)
+            box = control.bounding_box()
+            self.assertGreaterEqual(box['height'], 43.99, (name, box))
+            self.assertLessEqual(box['height'], 64, (name, box))
+            self.assertGreaterEqual(box['x'], -1, (name, box))
+            self.assertLessEqual(box['x'] + box['width'], 321, (name, box))
+            self.assertTrue(control.evaluate('''e => {
+              const r=e.getBoundingClientRect();
+              const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+              return !!hit && (hit===e || e.contains(hit));
+            }'''))
+
+        actions = toolbar.get_by_role('button', name='Actions', exact=True)
+        actions.focus()
+        actions.press('Enter')
+        menu = self.page.get_by_role('menu')
+        expect(menu).to_be_visible()
+        self.assertLessEqual(menu.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+        menu_box = menu.bounding_box()
+        self.assertGreaterEqual(menu_box['x'], -1)
+        self.assertLessEqual(menu_box['x'] + menu_box['width'], 321)
+        self.page.keyboard.press('Escape')
+        expect(menu).to_have_count(0)
+        expect(actions).to_be_focused()
+
+        shelf = self.page.get_by_role('region', name='Library shelves', exact=True)
+        shelf_box = shelf.bounding_box()
+        visible_top = max(toolbar_box['y'] + toolbar_box['height'], 0)
+        self.assertGreater(320 - visible_top, 64, (toolbar_box, shelf_box))
+        second_select = self.page.get_by_role('button', name='Select ' + second, exact=True)
+        second_select.scroll_into_view_if_needed()
+        expect(second_select).to_be_visible()
+        self.assertLessEqual(
+            self.page.evaluate('document.documentElement.scrollWidth-innerWidth'), 1)
+        self.page.screenshot(
+            path=str(self.output / 'selection-toolbar-enlarged-320.png'),
+            full_page=True
+        )
+
+        toolbar.get_by_role('button', name='Cancel selection', exact=True).focus()
+        self.page.keyboard.press('Enter')
+        expect(toolbar).to_have_count(0)
+        expect(self.page.get_by_role('button', name='Read ' + first, exact=True)).to_be_visible()
+        self.page.evaluate('document.documentElement.style.fontSize = ""')
+
     def test_grid_title_and_author_contrast_across_real_theme_presets(self):
         title = 'Theme contrast reading identity'
         author = 'Muted Author Label'
