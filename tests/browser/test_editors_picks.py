@@ -122,6 +122,7 @@ class EditorsPicksBrowser(unittest.TestCase):
         self.page.set_default_timeout(30000)
         self.errors = []
         self.diagnostics = []
+        self.allow_webkit_catalog_abort_error = False
         self.page.on('pageerror', self.page_error)
         self.page.on('requestfailed', lambda request: self.diagnostics.append({
             'kind': 'requestfailed', 'url': request.url,
@@ -180,7 +181,16 @@ class EditorsPicksBrowser(unittest.TestCase):
         folder.mkdir(exist_ok=True)
         (folder / f'{self.engine}-{self._testMethodName}-diagnostics.json').write_text(
             json.dumps(self.diagnostics, ensure_ascii=False, indent=2))
-        self.assertEqual([], self.errors)
+        errors = self.errors
+        if self.engine == 'webkit' and self.allow_webkit_catalog_abort_error:
+            # WebKit can report an intentionally aborted catalog fetch as a
+            # page error even when the app catches the rejection. These cases
+            # explicitly exercise account changes and verify the resulting UI.
+            errors = [message for message in errors if not (
+                'Fetch API cannot load http:' in message and
+                '/static/reader/books/opds/index.xml due to access control checks.' in message
+            )]
+        self.assertEqual([], errors)
 
     def library(self):
         self.page.goto(self.origin + '/reader-web/manage')
@@ -422,6 +432,7 @@ class EditorsPicksBrowser(unittest.TestCase):
         return title
 
     def test_catalog_does_not_open_a_foreign_account_cached_copy(self):
+        self.allow_webkit_catalog_abort_error = True
         self.prepare_foreign_book(catalog_copy=True)
         before = self.book_rows()
         self.page.get_by_role('region', name="Editor's Picks books").get_by_role(
@@ -431,6 +442,7 @@ class EditorsPicksBrowser(unittest.TestCase):
         self.assertEqual(before, self.book_rows())
 
     def test_account_switch_away_and_back_cancels_download_and_allows_fresh_open(self):
+        self.allow_webkit_catalog_abort_error = True
         self.prepare_foreign_book()
         before = self.book_rows()
         PicksHandler.book_started, PicksHandler.book_gate = threading.Event(), threading.Event()

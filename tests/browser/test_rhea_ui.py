@@ -584,6 +584,7 @@ class RheaReader(previous.RefinedAppearance):
         expect(self.page.get_by_role('menu')).to_be_visible()
         self.page.keyboard.press('Escape')
         expect(self.page.get_by_role('menu')).to_have_count(0)
+        expect(self.page.locator('[data-slot="dropdown-menu-content"]')).to_have_count(0)
         expect(toolbar).to_be_visible()
         expect(toolbar.get_by_role('button', name='Reading tools', exact=True)).to_be_focused()
         viewport = self.page.viewport_size
