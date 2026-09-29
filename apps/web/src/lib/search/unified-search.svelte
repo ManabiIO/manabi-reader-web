@@ -159,14 +159,17 @@
     const needle = foldSearch(selectedQuery.trim());
     const creators = creatorLine(book.creators) || undefined;
     if (foldSearch(book.title).includes(needle)) return creators;
-    if (book.canonicalTitle !== book.title && foldSearch(book.canonicalTitle).includes(needle))
-      return `Original title · ${book.canonicalTitle}`;
-    const creator = (book.creators ?? []).find((item) => foldSearch(item.name).includes(needle));
-    if (creator) return `Author · ${creator.name}`;
-    const context = (bookMatchText[book.key] ?? []).find((item) =>
-      foldSearch(item.text).includes(needle)
-    );
-    return context?.detail ?? creators;
+    const candidates = [
+      ...(book.canonicalTitle !== book.title
+        ? [{ text: book.canonicalTitle, detail: `Original title · ${book.canonicalTitle}` }]
+        : []),
+      ...(book.creators ?? []).map((creator) => ({
+        text: creator.name,
+        detail: `Author · ${creator.name}`
+      })),
+      ...(bookMatchText[book.key] ?? [])
+    ].filter((item) => foldSearch(item.text).includes(needle));
+    return sortSearchText(candidates, selectedQuery, (item) => item.text)[0]?.detail ?? creators;
   }
   function openSnippet(item: SnippetSummary, hit?: SnippetHit) {
     const params = new URLSearchParams({ id: item.id, returnTo });
