@@ -360,14 +360,6 @@ test('seeking discards old results and even a delivered cancelled animation call
   staleFrame(700);
   assert.equal(f.frames.size, 1);
   f.frame(1300);
-  assert.ok(
-    f.workers[0].sent[0].samples.slice(0, 12000).every((sample) => sample === 0),
-    'pre-cue samples must be zeroed before SwiftF0 inference'
-  );
-  assert.ok(
-    f.workers[0].sent[0].samples.slice(16000).some((sample) => Math.abs(sample) > 0.01),
-    'the authored cue samples must remain available to SwiftF0'
-  );
   f.result();
   assert.equal(f.state.points.length, 1);
   assert.ok(f.state.points[0].time > 19);
@@ -552,6 +544,14 @@ test('transcript cue gate suppresses background-only sampling and breaks the nex
   f.a.currentTime += 0.25;
   f.frame(1300);
   assert.equal(f.workers[0].sent.length, 1);
+  assert.ok(
+    f.workers[0].sent[0].samples.slice(0, 12000).every((sample) => sample === 0),
+    'pre-cue samples must be zeroed before SwiftF0 inference'
+  );
+  assert.ok(
+    f.workers[0].sent[0].samples.slice(16000).some((sample) => Math.abs(sample) > 0.01),
+    'the authored cue samples must remain available to SwiftF0'
+  );
   f.result();
   assert.equal(f.state.points.length, 1);
   assert.equal(f.state.points[0].breakBefore, true);
