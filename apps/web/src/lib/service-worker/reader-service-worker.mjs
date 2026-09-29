@@ -331,7 +331,12 @@ export function isShellAsset(url) {
   }
   return (
     !/(?:^|\/)(?:dictionaries|dictionary-archives|manabitan)(?:\/|$)/.test(path) &&
-    !/\.(?:zip|epub|htmlz|sqlite3?|db|wasm|woff2?|ttf|otf)$/.test(path)
+    // Offline readiness is the executable Reader shell, not every public file.
+    // Decorative/PWA assets, legal text and large optional media/model payloads
+    // must not be able to make an otherwise usable application fail install.
+    !/\.(?:zip|epub|htmlz|sqlite3?|db|wasm|woff2?|ttf|otf|png|jpe?g|gif|webp|avif|svg|ico|webmanifest|txt|md|pdf|mp3|m4a|aac|ogg|opus|wav|flac|mp4|webm|mov|bin|onnx|gguf|safetensors)$/.test(
+      path
+    )
   );
 }
 
