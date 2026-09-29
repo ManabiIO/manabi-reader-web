@@ -22,10 +22,7 @@ test('mixed collection counts books and active snippet identities once each', ()
       'snippet:10000000-0000-4000-8000-000000000001'
     ]
   };
-  const books = [
-    book('content:book-a', ['legacy:book-a']),
-    book('content:book-b')
-  ];
+  const books = [book('content:book-a', ['legacy:book-a']), book('content:book-b')];
   const snippets = new Set(['snippet:10000000-0000-4000-8000-000000000001']);
   assert.equal(collectionContains(collection, books[0]), true);
   assert.equal(collectionContains(collection, books[1]), false);
@@ -42,11 +39,7 @@ test('trashed or otherwise hidden snippets are excluded by the caller-provided a
     ]
   };
   assert.equal(
-    collectionItemCount(
-      collection,
-      [],
-      new Set(['snippet:10000000-0000-4000-8000-000000000001'])
-    ),
+    collectionItemCount(collection, [], new Set(['snippet:10000000-0000-4000-8000-000000000001'])),
     1
   );
 });
