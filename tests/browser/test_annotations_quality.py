@@ -152,5 +152,35 @@ class AnnotationQuality(LibraryBase):
         expect(self.page.get_by_role('button', name='Return to where I was', exact=True)).to_be_visible()
 
 
+    def test_selected_passage_can_be_saved_as_note_and_previewed(self):
+        self.open_reader()
+        paragraph = self.page.locator('.book-content p').first
+        paragraph.select_text()
+        self.page.wait_for_function(
+            "() => getSelection()?.toString().includes('日本語の本を読みます')")
+
+        panel = self.open_annotations()
+        highlight = panel.get_by_role('button', name='Highlight Selection', exact=True)
+        snippet = panel.get_by_role('button', name='Add to Snippet…', exact=True)
+        expect(highlight).to_be_enabled()
+        expect(snippet).to_be_enabled()
+
+        note = panel.get_by_label('Note on selected passage', exact=True)
+        expect(note).to_be_visible()
+        note.fill('Selected-passage QA note')
+        panel.get_by_role('button', name='Save Note', exact=True).click()
+        expect(note).to_have_value('')
+        saved = panel.get_by_label('Saved annotations')
+        expect(saved.get_by_text('Note · Section 1', exact=True)).to_have_count(1)
+        expect(saved.get_by_text('Selected-passage QA note', exact=True)).to_be_visible()
+
+        saved.get_by_role('button').filter(has_text='Go to saved passage').click()
+        expect(panel).to_have_count(0)
+        expect(self.page.get_by_role('button', name='Return to where I was', exact=True)).to_be_visible()
+        self.page.screenshot(path=str(self.output / 'selected-note-preview.png'))
+        self.page.get_by_role('button', name='Return to where I was', exact=True).click()
+        expect(self.page.get_by_role('button', name='Return to where I was', exact=True)).to_have_count(0)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
