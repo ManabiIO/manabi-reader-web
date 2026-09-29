@@ -43,7 +43,8 @@ import { integrationDB, setMetadata } from '../../apps/web/src/lib/manabi/persis
 import {
   readerHTML,
   parseLocator,
-  safeReturn
+  safeReturn,
+  snippetSourceId
 } from '../../apps/web/src/lib/snippets/presentation.ts';
 import { scope } from '../../apps/web/src/lib/snippets/scope.ts';
 import {
@@ -228,6 +229,20 @@ test('document byte budget includes the newline', () => {
   assert(new TextEncoder().encode(encodeSnippet(doc)).length < MAX_SNIPPET_BYTES);
   assert.throws(() => encodeSnippet(document('あ'.repeat(800000))));
 });
+test('portable snippet provenance resolves only a validated snippet UUID', () => {
+  const id = crypto.randomUUID();
+  assert.equal(snippetSourceId(`snippet:${id}`), id);
+  for (const value of [
+    undefined,
+    '',
+    'book:' + id,
+    'snippet:not-a-uuid',
+    'snippet:' + id + '/extra',
+    'snippet:../../b?id=1'
+  ])
+    assert.equal(snippetSourceId(value), undefined);
+});
+
 test('malicious return links cannot leave Reader routes', () => {
   for (const raw of [
     '//evil.test',
