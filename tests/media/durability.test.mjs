@@ -132,16 +132,17 @@ test('throwing subscribers cannot strand a committed transaction promise', () =>
     }
     assert.deepEqual(await store.local(scope, 'device', 'x'), { n: 1 });
   }));
-test('close drains admitted writes waiting for database open and rejects new admissions', () =>
+test('close cancels writes waiting for database open and rejects new admissions', () =>
   harness(async (store, factory) => {
     factory.holdOpen = true;
     const write = store.putLocal(scope, 'device', 'x', 1),
       closing = store.close();
+    await assert.rejects(write, /closed/);
     await assert.rejects(store.putLocal(scope, 'device', 'y', 2), /closed/);
-    factory.releaseOpen();
-    await write;
     await closing;
-    assert.equal(factory.values('local').get(JSON.stringify([scope, 'device', 'x'])), 1);
+    factory.releaseOpen();
+    assert.equal(factory.transactions.length, 0);
+    assert.equal(factory.values('local').get(JSON.stringify([scope, 'device', 'x'])), undefined);
     assert.ok(factory.connections.every((c) => c.closed));
   }));
 test('subtitle publication is one atomic transaction even on mid-page quota failure', () =>

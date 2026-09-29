@@ -776,7 +776,7 @@
   <Sheet.Content
     side="left"
     showCloseButton={false}
-    class="data-[side=left]:w-full data-[side=left]:sm:max-w-xl"
+    class="writing-horizontal-tb data-[side=left]:w-full data-[side=left]:sm:max-w-xl"
     onInteractOutside={(e) => {
       if (actionInProgress) e.preventDefault();
     }}

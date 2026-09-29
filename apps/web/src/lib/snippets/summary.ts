@@ -19,12 +19,14 @@ export interface SnippetSummary {
   modifiedAt: number;
   trashedAt?: number;
   readAt?: number;
+  /** Changes only when the durable reading locator changes; used to refresh an open reader. */
+  progressAt?: number;
   dirty: boolean;
   progressDirty: boolean;
   conflicts: number;
   transfer?: string;
   issue?: string;
-  locations: Pick<Location, 'source' | 'fileId' | 'missing' | 'observedRevision'>[];
+  locations: Pick<Location, 'source' | 'fileId' | 'token' | 'missing' | 'observedRevision'>[];
   destination?: { source: Location['source']; parent: string };
 }
 export function summarize(record: SnippetRecord): SnippetSummary {
@@ -43,14 +45,16 @@ export function summarize(record: SnippetRecord): SnippetSummary {
     modifiedAt: doc.modifiedAt,
     trashedAt: doc.trashedAt,
     readAt: record.readAt,
+    progressAt: record.progressAt,
     dirty: record.dirty,
     progressDirty: !!record.progressDirty,
     conflicts: record.conflicts.length,
     transfer: record.transfer,
     issue: record.issue,
-    locations: record.locations.map(({ source, fileId, missing, observedRevision }) => ({
+    locations: record.locations.map(({ source, fileId, token, missing, observedRevision }) => ({
       source,
       fileId,
+      token,
       missing,
       observedRevision
     })),

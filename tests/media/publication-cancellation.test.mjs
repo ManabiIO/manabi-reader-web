@@ -110,10 +110,15 @@ test('cancellation while opening storage prevents later publication and still dr
       signal: h.controller.signal
     });
     const rejected = assert.rejects(pending, (error) => error === reason);
-    const closing = other.close();
     h.controller.abort(reason);
+    const closing = other.close();
     h.factory.releaseOpen();
     await Promise.all([rejected, closing]);
+    assert.equal(
+      h.factory.transactions.length,
+      1,
+      'cancelled publication never entered a transaction'
+    );
     await unchanged(h);
   }));
 test('cancellation of an admitted publication rolls back its job and every caption page', () =>

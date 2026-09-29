@@ -585,12 +585,61 @@ try {
     .poll(async () => (await records(page)).find((r) => r.document.id === cloudID)?.dirty)
     .toBe(false);
   passed('ruby editor composition Enter guard and explicit commit');
-  await page
-    .getByRole('article', { name: 'Snippet content' })
-    .locator('p')
-    .last()
-    .scrollIntoViewIfNeeded();
+  // Only genuine reader navigation may create position intent. Programmatic
+  // restoration/layout scrolling is deliberately ignored by the production reader.
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  });
+  await page.keyboard.press('End');
+  await page.mouse.wheel(0, 1200);
   await expect.poll(() => [...states.values()].some((s) => s.value?.id === cloudID)).toBe(true);
+
+  const stateEntry = [...states.entries()].find(
+      ([key, state]) => key.includes(providers[0].id) && state.value?.id === cloudID
+    ),
+    cloudFile = [...files.values()].find((file) => file.document.id === cloudID);
+  assert(stateEntry, 'The Dropbox reading state must exist before reconnect hydration.');
+  assert(cloudFile, 'The cloud snippet file must still exist.');
+  const targetBlock = cloudFile.document.content.content.find(
+      (node) => node.type === 'paragraph' && node.attrs?.id
+    ),
+    targetText = (targetBlock?.content ?? []).map((node) => node.text ?? '').join('');
+  assert(targetBlock?.attrs?.id, 'A stable target block is required for the reading-state test.');
+  const stateWritesBeforeHydration = counts.stateWrites;
+  states.set(stateEntry[0], {
+    value: {
+      ...stateEntry[1].value,
+      readAt: Date.now() + 1_000_000,
+      locator: {
+        blockId: targetBlock.attrs.id,
+        quote: targetText.slice(0, 80),
+        before: '',
+        offset: 0,
+        revision: cloudFile.document.revision
+      }
+    },
+    revision: String(Number(stateEntry[1].revision) + 1)
+  });
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await expect(
+    page
+      .getByRole('article', { name: 'Snippet content' })
+      .locator(`[data-id="${targetBlock.attrs.id}"]`)
+  ).toHaveClass(/snippet-match/);
+  await expect
+    .poll(
+      async () => (await records(page)).find((r) => r.document.id === cloudID)?.progress?.blockId
+    )
+    .toBe(targetBlock.attrs.id);
+  await page.waitForTimeout(1200);
+  assert.equal(
+    counts.stateWrites,
+    stateWritesBeforeHydration,
+    'Adopting/restoring a remote cursor must not echo it back as a newer local write.'
+  );
+  assert.equal((await records(page)).find((r) => r.document.id === cloudID)?.progressDirty, false);
+  passed('open reader adopts a newer remote cursor after reconnect without echoing restoration');
+
   // Movement exercises real durable client journals and conditional HTTP cleanup.
   failCleanup = true;
   const writesBefore = counts.writes;

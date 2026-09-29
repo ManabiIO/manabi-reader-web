@@ -19,7 +19,13 @@ import {
   normalizedDirectImportHash,
   type DirectImportCandidate
 } from './direct-import-identity';
-import { commitOwnedBookmark, readOwnedBookmark, snapshotBookmarkData } from './book-records';
+import {
+  commitOwnedBookmark,
+  commitOwnedLastItem,
+  readOwnedBookmark,
+  readOwnedLastItem,
+  snapshotBookmarkData
+} from './book-records';
 import { captureLibraryOperation } from '$lib/manabi/operation-scope';
 import type {
   BooksDbAudioBook,
@@ -585,35 +591,36 @@ export class DatabaseService {
     return db.put('subtitle', subtitleData);
   }
 
-  async putLastItem(dataId: number, signal?: AbortSignal) {
-    throwIfAborted(signal);
-    if (!Number.isSafeInteger(dataId) || dataId <= 0)
-      throw new Error('The selected book is not a valid local book.');
-    const db = await this.db;
-    throwIfAborted(signal);
-    // Keep the existence check and resume target in one transaction, serialized
-    // with deletion. getKey avoids cloning the book's image payloads.
-    const tx = db.transaction(['data', 'lastItem'], 'readwrite');
-    const abort = () => {
-      try {
-        tx.abort();
-      } catch {
-        // A committed transaction cannot be undone by a later departure.
-      }
-    };
-    signal?.addEventListener('abort', abort, { once: true });
+  async getAccessibleLastItem() {
+    const scope = captureLibraryOperation();
     try {
-      const result = await commitTransaction(tx, async () => {
-        throwIfAborted(signal);
-        if ((await tx.objectStore('data').getKey(dataId)) === undefined)
-          throw new Error('The selected book was removed. Refresh the Library and try again.');
-        throwIfAborted(signal);
-        return tx.objectStore('lastItem').put({ dataId }, LAST_ITEM_KEY);
-      });
+      scope.assertCurrent();
+      const item = await readOwnedLastItem(await this.db, scope.profileId, scope.assertCurrent);
+      scope.assertCurrent();
+      return item;
+    } finally {
+      scope.stop();
+    }
+  }
+
+  async putLastItem(dataId: number, signal?: AbortSignal) {
+    const scope = captureLibraryOperation();
+    try {
+      scope.assertCurrent();
+      const result = await commitOwnedLastItem(
+        await this.db,
+        dataId,
+        scope.profileId,
+        scope.assertCurrent,
+        signal,
+        scope.signal
+      );
+      scope.assertCurrent();
+      throwIfAborted(signal);
       this.lastItemChanged$.next();
       return result;
     } finally {
-      signal?.removeEventListener('abort', abort);
+      scope.stop();
     }
   }
 

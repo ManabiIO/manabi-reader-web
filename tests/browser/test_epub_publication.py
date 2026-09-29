@@ -18,7 +18,8 @@ def resource_epub(malformed=False):
 <rootfile full-path="EPUB/book.opf" media-type="application/oebps-package+xml"/></rootfiles></container>'''
     package = f'''<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">
 <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">urn:resource-test</dc:identifier>
-<dc:title>{TITLE}</dc:title><dc:language>ja</dc:language><dc:creator>作者</dc:creator></metadata>
+<dc:title>{TITLE}</dc:title><dc:language>ja</dc:language><dc:creator>作者</dc:creator>
+<meta property="rendition:flow">paginated</meta></metadata>
 <manifest><item id="one" href="one.xhtml" media-type="application/xhtml+xml"/>
 <item id="two" href="two.xhtml" media-type="application/xhtml+xml"/>
 <item id="css1" href="one.css" media-type="text/css"/><item id="css2" href="two.css" media-type="text/css"/>
@@ -38,9 +39,13 @@ def resource_epub(malformed=False):
 <link rel="stylesheet" href="two.css"/></head><body><p class="text" id="same">別の章</p>
 <a id="back" href="one.xhtml#same">戻る</a></body></html>'''
     nav = '''<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
-<head><title>Contents</title></head><body><nav epub:type="toc landmarks"><ol><li><span>Part</span>
-<ol><li><a href="one.xhtml">第一章</a></li><li><a href="two.xhtml">第二章</a></li></ol>
-</li></ol></nav></body></html>'''
+<head><title>Contents</title></head><body>
+<nav epub:type="toc"><ol><li><span>Part</span>
+<ol><li><a href="one.xhtml#same">第一章</a></li><li><a href="two.xhtml">第二章</a></li></ol>
+</li></ol></nav>
+<nav epub:type="page-list"><ol><li><a href="one.xhtml#same">1</a></li></ol></nav>
+<nav epub:type="landmarks"><ol><li><a epub:type="bodymatter" href="one.xhtml">本文</a></li></ol></nav>
+</body></html>'''
     with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
         for name, contents in {
             'mimetype': 'application/epub+zip', 'META-INF/container.xml': container,
@@ -50,6 +55,40 @@ def resource_epub(malformed=False):
             'EPUB/two.css': '.text{color:rgb(0,0,180)} @import "/attack-probe-import";'
         }.items():
             archive.writestr(name, contents)
+    return output.getvalue()
+
+
+def linear_epub():
+    output = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(resource_epub())) as source, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as target:
+        for entry in source.infolist():
+            data = source.read(entry)
+            if entry.filename == 'EPUB/book.opf':
+                data = data.replace(
+                    b'<itemref idref="two"/>',
+                    b'<itemref idref="two" linear="no"/>'
+                )
+            target.writestr(entry, data)
+    return output.getvalue()
+
+
+def fixed_layout_epub(spine_override=False):
+    output = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(resource_epub())) as source, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as target:
+        for entry in source.infolist():
+            data = source.read(entry)
+            if entry.filename == 'EPUB/book.opf':
+                if spine_override:
+                    data = data.replace(
+                        b'<itemref idref="two"/>',
+                        b'<itemref idref="two" properties="rendition:layout-pre-paginated"/>'
+                    )
+                else:
+                    data = data.replace(
+                        b'</metadata>',
+                        b'<meta property="rendition:layout">pre-paginated</meta></metadata>'
+                    )
+            target.writestr(entry, data)
     return output.getvalue()
 
 
@@ -96,6 +135,57 @@ class EpubPublicationBrowser(ReaderBrowser):
             self.page.wait_for_function(f"() => {P}?.getContents?.()[0]?.doc?.querySelector('#same')")
         else:
             expect(self.page.locator('#ttu-epub-0 .text')).to_be_visible(timeout=30000)
+
+    def test_non_linear_spine_hint_is_persisted_without_changing_current_reading_order(self):
+        self.open_resource_book(payload=linear_epub())
+        metadata = self.metadata()
+        self.assertNotIn('linear', metadata['publication']['resources'][0])
+        self.assertEqual('no', metadata['publication']['resources'][1]['linear'])
+        self.assertNotIn('linear', metadata['publication']['resources'][2])
+
+        # Reader Web has two existing sequential surfaces: Foliate pagination
+        # and the legacy continuous document. Preserve the historical all-spine
+        # reading order until both can adopt one explicit non-linear policy.
+        self.assertTrue(self.page.evaluate(f"async()=>await {P}.goTo({{index:0,anchor:1}})"))
+        self.page.evaluate(f"""async()=>{{
+          const turn=await {P}.preparePageTurn(1);
+          if(!turn) throw Error('Expected a next page turn');
+          if(!turn.commit()) throw Error('Expected page turn commit');
+        }}""")
+        self.page.wait_for_function(f"() => {P}.getContents()[0]?.index === 1")
+        self.assertIn('別の章', self.page.evaluate(f"{P}.getContents()[0].doc.body.textContent"))
+
+        self.page.reload()
+        self.page.wait_for_function(f"() => {P}?.getContents?.()[0]?.doc?.querySelector('.text')")
+        self.assertEqual('no', self.metadata()['publication']['resources'][1]['linear'])
+        self.assertEqual([], self.errors)
+
+    def test_fixed_layout_epub_is_rejected_instead_of_reflowed(self):
+        self.context.add_init_script(
+            "localStorage.setItem('manabi-dev-foliate-epub','true');"
+            "localStorage.setItem('viewMode','paginated')"
+        )
+        for spine_override in (False, True):
+            with self.subTest(spine_override=spine_override):
+                self.page.goto(self.origin + '/reader-web/manage')
+                expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
+                self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
+                    'name': 'fixed.epub',
+                    'mimeType': 'application/epub+zip',
+                    'buffer': fixed_layout_epub(spine_override)
+                })
+                expect(
+                    self.page.get_by_text(
+                        'Fixed-layout EPUBs are not supported by this reader yet.',
+                        exact=False
+                    )
+                ).to_be_visible(timeout=30000)
+                expect(
+                    self.page.get_by_role('button', name='Read ' + TITLE, exact=True)
+                ).to_have_count(0)
+                self.page.keyboard.press('Escape')
+        self.assertEqual([], StaticHandler.probes)
+        self.assertEqual([], self.errors)
 
     def test_extended_numeric_repair_preserves_paginated_author_text(self):
         self.check_numeric_repair('paginated')
@@ -193,6 +283,20 @@ class EpubPublicationBrowser(ReaderBrowser):
         self.assertEqual('epub', before['sourceFormat'])
         self.assertEqual(3, len(before['publication']['resources']))
         self.assertEqual(2, len(before['publication']['styleSheets']))
+        self.assertEqual('paginated', before['publication']['rendition']['flow'])
+        self.assertEqual('Part', before['publication']['navigation']['toc'][0]['label'])
+        self.assertEqual(
+            'EPUB/one.xhtml#same',
+            before['publication']['navigation']['toc'][0]['subitems'][0]['href']
+        )
+        self.assertEqual(
+            'EPUB/one.xhtml#same',
+            before['publication']['navigation']['pageList'][0]['href']
+        )
+        self.assertEqual(
+            ['bodymatter'],
+            before['publication']['navigation']['landmarks'][0]['type']
+        )
         self.assertEqual('第一章', before['sections'][0]['label'])
         self.assertEqual('第二章', before['sections'][1]['label'])
         self.assertEqual('EPUB/one.xhtml', before['manifest']['resources'][2]['href'])
