@@ -502,7 +502,7 @@
       {#if titles.state === 'loading'}<p class="note" role="status">Searching titles…</p>{/if}
       {#if titles.state === 'error' || titles.value?.failed}<p class="note" role="status">
           {titles.error ??
-            'Video titles could not be searched. Other title matches remain available.'}
+            'Some title sources could not be searched. Other title matches remain available.'}
           <button type="button" onclick={startTitles}>Retry titles</button>
         </p>{/if}
       <ul aria-label="Title results">
