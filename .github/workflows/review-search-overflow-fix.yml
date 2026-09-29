@@ -33,10 +33,12 @@ jobs:
         run: |
           python -m pip install 'playwright==1.63.0'
           python -m playwright install --with-deps chromium
-      - name: Qualify exact overflow regressions
+      - name: Qualify exact search and library regressions
         env:
           LIBRARY_BROWSER: chromium
         run: |
           python tests/browser/test_unified_search.py \
             UnifiedSearch.test_real_local_dictionary_uses_raw_input_and_bounded_previews \
             UnifiedSearch.test_unified_search_reflows_at_200_percent_text_on_short_phone
+          python tests/browser/test_books_library.py \
+            BooksLibraryBrowser.test_continue_finished_timeline_and_author_search_are_distinct_destinations
