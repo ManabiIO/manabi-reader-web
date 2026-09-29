@@ -4,14 +4,8 @@
   import { resolve } from '$app/paths';
   import { BookOpen, FileText } from '@lucide/svelte';
   import { localUser, localProfileUser } from '../manabi/client';
-  import { MediaStore } from '../media/store';
   import { videoLearningEnabled } from '../media/feature';
-  import {
-    mediaScope,
-    searchVideoTitles,
-    searchVideoTranscripts,
-    type VideoTranscriptBatch
-  } from '../media/video-search';
+  import type { VideoTranscriptBatch } from '../media/video-search';
   import { formatMediaTime } from '../media/time';
   import { snippetItems, scope } from '../snippets/service';
   import { snippetKey, type SnippetHit } from '../snippets/document';
@@ -78,8 +72,34 @@
   const titleTask = queryTask<TitleResults>((value) => {
     titles = value;
   });
-  const mediaStore = new MediaStore();
+  type LazyMediaRuntime = {
+    store: import('../media/store').MediaStore;
+    search: typeof import('../media/video-search');
+  };
+  let mediaRuntimePromise: Promise<LazyMediaRuntime> | undefined;
+  let mediaSubscribed = false;
+  let mediaDisposed = false;
+  let stopMedia = () => undefined;
   let mediaRevision = 0;
+  async function mediaRuntime(): Promise<LazyMediaRuntime> {
+    if (!videoLearningEnabled) throw new Error('Video learning is disabled.');
+    mediaRuntimePromise ??= Promise.all([
+      import('../media/store'),
+      import('../media/video-search')
+    ]).then(([store, search]) => ({ store: new store.MediaStore(), search }));
+    const runtime = await mediaRuntimePromise;
+    if (mediaDisposed) {
+      await runtime.store.close();
+      throw new DOMException('Search was closed', 'AbortError');
+    }
+    if (!mediaSubscribed) {
+      mediaSubscribed = true;
+      stopMedia = runtime.store.subscribe(() => {
+        if (mounted) mediaRevision++;
+      });
+    }
+    return runtime;
+  }
   const contentTask = queryTask<ContentResults>((value) => {
     content = value;
   });
@@ -169,9 +189,11 @@
         videoTruncated = false;
       if (runVideos) {
         try {
-          const result = await searchVideoTitles(
-            mediaStore,
-            mediaScope(selectedOwner),
+          const media = await mediaRuntime();
+          signal.throwIfAborted();
+          const result = await media.search.searchVideoTitles(
+            media.store,
+            media.search.mediaScope(selectedOwner),
             query,
             signal
           );
@@ -336,9 +358,11 @@
       update();
       if (runVideos) {
         try {
-          await searchVideoTranscripts(
-            mediaStore,
-            mediaScope(selectedOwner),
+          const media = await mediaRuntime();
+          signal.throwIfAborted();
+          await media.search.searchVideoTranscripts(
+            media.store,
+            media.search.mediaScope(selectedOwner),
             needle,
             signal,
             (batch) => {
@@ -406,17 +430,14 @@
   }
   onMount(() => {
     mounted = true;
-    const stopMedia = videoLearningEnabled
-      ? mediaStore.subscribe(() => {
-          if (mounted) mediaRevision++;
-        })
-      : () => undefined;
     return () => {
       mounted = false;
+      mediaDisposed = true;
       titleTask.stop();
       contentTask.stop();
       stopMedia();
-      if (videoLearningEnabled) void mediaStore.close();
+      if (mediaRuntimePromise)
+        void mediaRuntimePromise.then(({ store }) => store.close()).catch(() => undefined);
     };
   });
 </script>
