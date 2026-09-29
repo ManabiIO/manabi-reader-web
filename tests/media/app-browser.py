@@ -133,6 +133,8 @@ def main():
         page.set_default_timeout(20000)
         page.goto(origin + '/reader-web/videos')
         expect(page.get_by_role('heading', name='Videos', exact=True)).to_be_visible()
+        books_link = page.get_by_role('link', name='Books', exact=True)
+        assert books_link.bounding_box()['height'] >= 43.5
         def upload():
             page.locator('[data-testid=media-files]').set_input_files([
                 {'name':'video.mp4','mimeType':'video/mp4','buffer':(args.fixture / 'video.mp4').read_bytes()},
