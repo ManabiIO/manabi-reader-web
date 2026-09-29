@@ -7,7 +7,7 @@ export function queryTask(receive) {
   let cleanup;
   function stop() {
     generation++;
-    clearTimeout(timer);
+    globalThis.clearTimeout(timer);
     controller?.abort();
     cleanup?.();
     cleanup = undefined;
@@ -20,7 +20,7 @@ export function queryTask(receive) {
       if (admitted === generation && !active.signal.aborted) receive(state);
     };
     publish({ state: 'loading' });
-    timer = setTimeout(async () => {
+    timer = globalThis.setTimeout(async () => {
       try {
         const dispose = await work(active.signal, publish);
         if (typeof dispose === 'function') {

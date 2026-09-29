@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { queryTask } from '../../apps/web/src/lib/search/query-task.mjs';
-const wait = () => new Promise((resolve) => setTimeout(resolve, 5));
+const wait = () => new Promise((resolve) => globalThis.setTimeout(resolve, 5));
 test('dictionary, titles and content publish independently', async () => {
   const dictionary = [],
     titles = [],

@@ -85,6 +85,20 @@ module.exports = (async () => {
       }
     },
     {
+      files: ['scripts/**/*.mjs'],
+      languageOptions: {
+        parserOptions: { project: false },
+        globals: {
+          AbortSignal: 'readonly',
+          Buffer: 'readonly',
+          URL: 'readonly',
+          console: 'readonly',
+          fetch: 'readonly',
+          process: 'readonly'
+        }
+      }
+    },
+    {
       files: ['test/reader/**/*.{mjs,ts}'],
       languageOptions: {
         globals: {
