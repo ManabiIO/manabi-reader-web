@@ -130,6 +130,19 @@ class UnifiedSearch(ProductJourneyBase):
         expect(button).to_be_focused()
         return button
 
+    def test_title_results_prioritize_exact_prefix_boundary_then_interior_matches(self):
+        for title in ('Copycat notes', 'A cat story', 'Cat guide', 'cat'):
+            self.import_book(title, body='<p>Unrelated body text.</p>')
+        self.library_search('cat')
+        self.filter('Titles')
+        titles = self.page.locator('[data-search-row="titles"] strong')
+        expect(titles).to_have_count(4)
+        self.assertEqual(
+            ['cat', 'Cat guide', 'A cat story', 'Copycat notes'],
+            titles.all_text_contents(),
+        )
+        self.checkpoint('unified-title-relevance')
+
     def test_real_local_dictionary_uses_raw_input_and_bounded_previews(self):
         self.import_book('Neko field guide', body='<p>neko ねこ 猫</p>')
         field = self.library_search('neko')
