@@ -1,6 +1,6 @@
 import process from 'node:process';
 /** Dependency-free execution of the actual TypeScript sources, not copied algorithms. */
-import { stripTypeScriptTypes } from 'node:module';
+import { createRequire, stripTypeScriptTypes } from 'node:module';
 import { mkdtempSync, readFileSync, readdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -23,7 +23,9 @@ try {
     writeFileSync(join(output, name.replace(/\.ts$/, '.mjs')), code);
   }
   if (argument) {
-    const wasm = fileURLToPath(import.meta.resolve('onnxruntime-web/ort-wasm-simd-threaded.wasm'));
+    const wasm = createRequire(join(root, 'apps/web/package.json')).resolve(
+      'onnxruntime-web/ort-wasm-simd-threaded.wasm'
+    );
     await build({
       entryPoints: [join(source, 'voice-pitch.worker.ts')],
       bundle: true,
@@ -39,8 +41,7 @@ try {
           setup(bundle) {
             bundle.onResolve({ filter: /\?url$/ }, (args) => {
               const request = args.path.slice(0, -4);
-              if (request === 'onnxruntime-web/ort-wasm-simd-threaded.wasm')
-                return { path: wasm };
+              if (request === 'onnxruntime-web/ort-wasm-simd-threaded.wasm') return { path: wasm };
               if (request.startsWith('.')) return { path: resolve(args.resolveDir, request) };
               return null;
             });

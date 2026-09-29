@@ -8,7 +8,6 @@ import functools
 import http.server
 import json
 from pathlib import Path
-import shutil
 import threading
 from playwright.sync_api import sync_playwright
 
@@ -74,8 +73,7 @@ thread = threading.Thread(target=server.serve_forever, daemon=True)
 thread.start()
 try:
     with sync_playwright() as p:
-        executable = shutil.which('chromium') if args.browser == 'chromium' else None
-        browser = getattr(p, args.browser).launch(headless=True, **({'executable_path': executable} if executable else {}))
+        browser = getattr(p, args.browser).launch(headless=True)
         page = browser.new_page()
         page.set_default_timeout(20000)
         page.on("console", lambda message: print("console:", message.type, message.text, flush=True))

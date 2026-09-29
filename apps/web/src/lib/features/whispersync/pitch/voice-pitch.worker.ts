@@ -16,6 +16,7 @@ scope.onmessage = ({ data }) => {
   }
   void analyseSwiftF0Window(data.samples, data.rate)
     .then((result) => {
+      if (data.epoch !== epoch) return;
       levels.push(result.rms);
       if (levels.length > 24) levels.shift();
       const peak = Math.max(0, ...levels);
@@ -23,6 +24,7 @@ scope.onmessage = ({ data }) => {
       scope.postMessage({ type: 'result', id: data.id, result });
     })
     .catch((error) => {
+      if (data.epoch !== epoch) return;
       scope.postMessage({
         type: 'error',
         id: data.id,

@@ -1,5 +1,5 @@
 import { appendPoint, initialPitchState, type PitchState } from './model';
-import {\n  ANALYSIS_WINDOW_SECONDS,\n  SAMPLE_INTERVAL_MS,\n  type Measurement\n} from './analysis';
+import { ANALYSIS_WINDOW_SECONDS, SAMPLE_INTERVAL_MS, type Measurement } from './analysis';
 
 export interface PitchEnvironment {
   createContext(): AudioContext;
@@ -194,7 +194,10 @@ export class PitchController {
             this.source.connect(context.destination);
           }
           const analyser = context.createAnalyser();
-          analyser.fftSize = Math.min(\n            32768,\n            2 ** Math.ceil(Math.log2(context.sampleRate * ANALYSIS_WINDOW_SECONDS))\n          );
+          analyser.fftSize = Math.min(
+            32768,
+            2 ** Math.ceil(Math.log2(context.sampleRate * ANALYSIS_WINDOW_SECONDS))
+          );
           this.samples = new Float32Array(analyser.fftSize);
           this.analyser = analyser;
           this.source.connect(analyser);
@@ -234,6 +237,10 @@ export class PitchController {
             !result ||
             !Number.isFinite(result.amplitude) ||
             result.amplitude < 0 ||
+            !Number.isFinite(result.offsetSeconds) ||
+            !Number.isFinite(result.windowSeconds) ||
+            result.offsetSeconds < 0 ||
+            result.offsetSeconds > result.windowSeconds ||
             (result.hz !== null &&
               (!Number.isFinite(result.hz) || result.hz < 85 || result.hz > 520))
           ) {
@@ -250,6 +257,8 @@ export class PitchController {
             time: audio.currentTime
           });
           this.breakBefore = false;
+        } else if (event.data?.type === 'error') {
+          this.fail('Pitch analysis could not load or run. Check your connection and retry.');
         }
       };
       worker.onerror = () => {
@@ -329,17 +338,21 @@ export class PitchController {
         this.lastAudioTime = audio.currentTime;
         try {
           this.analyser!.getFloatTimeDomainData(this.samples!);
-          const count = Math.ceil(context.sampleRate * 0.04);
+          const count = Math.min(
+            this.samples!.length,
+            Math.ceil(context.sampleRate * ANALYSIS_WINDOW_SECONDS)
+          );
           const samples = this.samples!.slice(-count);
-          const time = Math.max(
+          const windowStart = Math.max(
             0,
-            audio.currentTime - ((samples.length / context.sampleRate) * audio.playbackRate) / 2
+            audio.currentTime - (samples.length / context.sampleRate) * audio.playbackRate
           );
           const id = ++this.sequence;
-          this.pending = { id, time };
-          this.worker!.postMessage({ type: 'analyze', samples, rate: context.sampleRate, id, epoch: this.epoch }, [
-            samples.buffer
-          ]);
+          this.pending = { id, windowStart, playbackRate: audio.playbackRate };
+          this.worker!.postMessage(
+            { type: 'analyze', samples, rate: context.sampleRate, id, epoch: this.epoch },
+            [samples.buffer]
+          );
           this.replyTimer = this.environment.setTimer(() => {
             if (this.pending?.id === id)
               this.fail('Pitch analysis stopped responding. Retry to restart it.');

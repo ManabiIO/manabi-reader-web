@@ -304,7 +304,7 @@ test('show/hide and off/on stop analysis but retain the playback destination', a
   assert.equal(f.context.closes, 1);
   assert.equal(source.connections.size, 0);
 });
-test('bounded work: one in-flight request, timestamps at frame center, no duplicate stalled samples', async () => {
+test('bounded work: one in-flight request, timestamp at selected frame, no duplicate stalled samples', async () => {
   const f = await running();
   f.frame(100);
   const worker = f.workers[0];
@@ -315,7 +315,7 @@ test('bounded work: one in-flight request, timestamps at frame center, no duplic
   assert.equal(worker.sent.length, 1);
   f.result();
   assert.ok(
-    Math.abs(f.state.points[0].time - (1 - ANALYSIS_WINDOW_SECONDS + 0.32)) < 1e-9
+    Math.abs(f.state.points[0].time - (1 - worker.sent[0].samples.length / 48000 + 0.32)) < 1e-9
   );
   f.frame(300);
   assert.equal(worker.sent.length, 2);
