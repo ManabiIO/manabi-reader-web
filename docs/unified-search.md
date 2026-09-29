@@ -52,9 +52,11 @@ English-gloss reverse search and new grammar data are not implemented.
 
 ## Books, snippets and video
 
-Books and snippets retain differentiated labels and canonical locators. Book
-highlights use engine-provided original-text offsets rather than a regex over
-normalized text. Snippet navigation preserves the existing snippet locator.
+Books and snippets retain differentiated labels and canonical locators. Content
+highlights always use source-produced original-text offsets rather than re-searching
+a displayed excerpt with a regex. This preserves compatibility-width text,
+furigana-backed snippet matches, ligatures and supplementary characters. Snippet
+navigation preserves the existing snippet locator.
 
 Video search is read-only over the media database. Titles come from saved
 `video_info` records. Content search reads only complete, published transcript
@@ -62,7 +64,9 @@ tracks and applies saved per-track subtitle delays when producing timestamp
 locators. It does **not** reconnect a File/cloud source, download video bytes,
 start MOSS, or publish a transcript. Equivalent cues across candidate tracks are
 deduplicated; authored transcription tracks retain preference over generated or
-translation duplicates. Results are bounded per video and overall.
+translation duplicates. Transcript excerpts remain bounded but center on the
+source-mapped match, so a long cue cannot clip the matching text off-screen.
+Results are bounded per video and overall.
 
 Transcript navigation uses
 `/videos?media=<content-key>&time=<seconds>&track=<track-id>`. Opening such a
