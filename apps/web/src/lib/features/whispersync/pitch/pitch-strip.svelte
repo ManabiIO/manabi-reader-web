@@ -118,7 +118,7 @@
 
 <style>
   .voice-pitch {
-    margin-block: 0.5rem 1rem;
+    margin-block: 8px 16px;
     padding: 12px 16px;
     border: 1px solid var(--border);
     border-radius: 14px;
@@ -190,13 +190,13 @@
   }
   .visualization {
     margin-top: 14px;
-    min-height: 140px;
+    min-height: clamp(140px, 8.75rem, 180px);
   }
   .chart {
     position: relative;
     display: grid;
     grid-template-columns: 32px minmax(0, 1fr);
-    height: 120px;
+    height: clamp(120px, 7.5rem, 160px);
   }
   .frequency-scale {
     position: relative;
@@ -290,7 +290,7 @@
     padding: 6px;
   }
   .feedback {
-    min-height: 140px;
+    min-height: clamp(140px, 8.75rem, 180px);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -328,8 +328,8 @@
   .spinner {
     display: inline-block;
     flex: none;
-    width: 1rem;
-    height: 1rem;
+    width: clamp(16px, 1rem, 24px);
+    height: clamp(16px, 1rem, 24px);
     border: 2px solid currentColor;
     border-inline-end-color: transparent;
     border-radius: 50%;
