@@ -13,6 +13,7 @@ import type {
 import { readIndexedBookMetadata } from '$lib/data/database/books-db/content-hash-index';
 import {
   livePersonalCopies,
+  planPersonalBookClaims,
   type PersonalBook
 } from './personal-book-authority';
 import type {
@@ -26,6 +27,7 @@ import type {
 } from '$lib/data/database/books-db/versions/v7/books-db-v7';
 import { StorageDataType } from '$lib/data/storage/storage-types';
 import { migrateLegacyStatistics } from '$lib/data/database/books-db/reader-statistics';
+import { commitTransaction } from '$lib/data/database/books-db/commit-transaction.mjs';
 import { validCompletion } from '$lib/library/completion';
 import { validateImportedAnnotation } from '$lib/reader-annotations';
 import { isCompletedStatistics } from './completed-statistics.js';
@@ -249,66 +251,36 @@ async function publish(
 
 async function localBooks(accountId: string): Promise<Map<string, PersonalBook[]>> {
   const db = await database.db;
-  const map = new Map<string, PersonalBook[]>();
-  const inventory = db.transaction(['data', 'readerBookScope']);
-  const [allBooks, scopeRows] = await Promise.all([
-    readIndexedBookMetadata(inventory.objectStore('data'), () => scoped(accountId)),
-    inventory.objectStore('readerBookScope').getAll()
-  ]);
-  await inventory.done;
   scoped(accountId);
-  const scopes = new Map(scopeRows.map((scope) => [scope.bookId, scope]));
-  const ownersByBook = new Map<string, Set<string>>();
-  const invalidOwnerKeys = new Set<string>();
-  for (const book of allBooks) {
-    const bookKey = `content:${book.contentHash}`;
-    // One corrupt owner on a same-content copy makes the shared key unsafe,
-    // even when another copy has a valid title and local scope.
-    if (book.invalidOwner) {
-      invalidOwnerKeys.add(bookKey);
-      continue;
+  // Scope adoption is one IndexedDB transaction across the exact-copy set.
+  // This remains safe even when Web Locks is unavailable in another tab.
+  const tx = db.transaction(['data', 'readerBookScope'], 'readwrite');
+  const claimed = await commitTransaction(tx, async () => {
+    const [metadata, scopeRows] = await Promise.all([
+      readIndexedBookMetadata(tx.objectStore('data'), () => scoped(accountId)),
+      tx.objectStore('readerBookScope').getAll()
+    ]);
+    scoped(accountId);
+    const plan = planPersonalBookClaims(metadata, scopeRows, accountId);
+    for (const scope of plan.scopesToCreate) {
+      scoped(accountId);
+      await tx.objectStore('readerBookScope').put(scope);
     }
-    const owners = ownersByBook.get(bookKey) ?? new Set<string>();
-    const scope = scopes.get(book.id);
-    if (scope) owners.add(scope.accountId);
-    if (book.libraryOwner) owners.add(book.libraryOwner);
-    if (!owners.size) continue;
-    ownersByBook.set(bookKey, owners);
-  }
-  for (const candidate of allBooks) {
-    if (
-      invalidOwnerKeys.has(`content:${candidate.contentHash}`) ||
-      typeof candidate.title !== 'string'
-    )
-      continue;
-    const book = candidate as PersonalBook;
-    if (book.libraryOwner && book.libraryOwner !== accountId) continue;
+    scoped(accountId);
+    return plan.books;
+  });
+
+  const map = new Map<string, PersonalBook[]>();
+  scoped(accountId);
+  for (const book of claimed) {
+    await migrateLegacyStatistics(db, book);
     scoped(accountId);
     const bookKey = `content:${book.contentHash}`;
-    const explicitOwners = ownersByBook.get(bookKey) ?? new Set<string>();
-    // Resume/statistics still use a content key, not an account key. Two
-    // explicitly owned copies of the same bytes cannot safely sync either row.
-    if (explicitOwners.size > 1) continue;
-    let owner = scopes.get(book.id);
-    if (!owner) {
-      if (explicitOwners.size && !explicitOwners.has(accountId)) continue;
-      const scopeTx = db.transaction('readerBookScope', 'readwrite');
-      owner = await scopeTx.store.get(book.id);
-      if (!owner) {
-        owner = { bookId: book.id, accountId };
-        await scopeTx.store.put(owner);
-        scopes.set(book.id, owner);
-        explicitOwners.add(accountId);
-        ownersByBook.set(bookKey, explicitOwners);
-      }
-      await scopeTx.done;
-    }
-    if (owner.accountId !== accountId) continue;
-    await migrateLegacyStatistics(db, book);
     map.set(bookKey, [...(map.get(bookKey) ?? []), book]);
   }
   return map;
 }
+
 async function readLocal(
   kind: PersonalKind,
   entityId: string,
