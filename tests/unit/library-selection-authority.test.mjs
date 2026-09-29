@@ -6,6 +6,7 @@ import { setImmediate } from 'node:timers';
 import { compileFunction } from 'node:vm';
 import ts from 'typescript';
 import * as transactions from '../../apps/web/src/lib/data/database/books-db/commit-transaction.mjs';
+import { normalizedContentHash } from '../../apps/web/src/lib/library/book-identity.ts';
 
 const { commitTransaction } = transactions;
 
@@ -585,7 +586,9 @@ test('disconnect waits for an admitted local read and prevents later retained-ha
   await assert.rejects(source.read(entry()), /not_found/);
 });
 
-const accountVisibility = load('library/account-visibility.ts');
+const accountVisibility = load('library/account-visibility.ts', {
+  './book-identity.ts': { normalizedContentHash }
+});
 
 function linkFixture(records, links) {
   const owner = profile();

@@ -6,6 +6,8 @@ import {
 } from '../../apps/web/src/lib/library/account-visibility.ts';
 
 const cards = [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }];
+const hash = 'a'.repeat(64);
+const staleHash = 'b'.repeat(64);
 const links = [
   { bookId: 1, owner: 'account-a' },
   { bookId: 2, owner: 'account-b' },
@@ -58,7 +60,10 @@ test('personal reading-data scope does not hide an otherwise public local book',
 
 test('content ownership outranks links and contradictory private claims fail closed', () => {
   assert.deepEqual(
-    readerAccessOwners({}, { accountId: 'account-a' }, [{ owner: null }, { owner: 'account-b' }]),
+    readerAccessOwners({ contentHash: hash }, { accountId: 'account-a' }, [
+      { owner: null, contentHash: hash },
+      { owner: 'account-b', contentHash: hash }
+    ]),
     []
   );
   assert.equal(
@@ -73,10 +78,10 @@ test('content ownership outranks links and contradictory private claims fail clo
   );
   assert.deepEqual(readerAccessOwners({}, undefined, [{ owner: null }]), []);
   assert.deepEqual(
-    readerAccessOwners({}, undefined, [
-      { owner: null },
-      { owner: 'account-a' },
-      { owner: 'account-b' }
+    readerAccessOwners({ contentHash: hash }, undefined, [
+      { owner: null, contentHash: hash },
+      { owner: 'account-a', contentHash: hash },
+      { owner: 'account-b', contentHash: hash }
     ]),
     []
   );
@@ -84,12 +89,35 @@ test('content ownership outranks links and contradictory private claims fail clo
 
 test('a public local link keeps a legacy multi-account book public', () => {
   const mixedLinks = [
-    { bookId: 7, owner: null },
-    { bookId: 7, owner: 'account-a' },
-    { bookId: 7, owner: 'account-b' }
+    { bookId: 7, owner: null, contentHash: hash },
+    { bookId: 7, owner: 'account-a', contentHash: hash },
+    { bookId: 7, owner: 'account-b', contentHash: hash }
   ];
-  const card = { id: 7 };
+  const card = { id: 7, contentHash: hash };
   assert.deepEqual(visibleLibraryEntries([card], mixedLinks, 'account-a').cards, [card]);
   assert.deepEqual(visibleLibraryEntries([card], mixedLinks, 'account-b').cards, [card]);
   assert.deepEqual(visibleLibraryEntries([card], mixedLinks, null).cards, [card]);
+});
+
+test('a stale public link cannot expose a multi-account legacy history', () => {
+  const card = { id: 7, contentHash: hash };
+  const mixedLinks = [
+    { bookId: 7, owner: null, contentHash: staleHash },
+    { bookId: 7, owner: 'account-a', contentHash: hash },
+    { bookId: 7, owner: 'account-b', contentHash: hash }
+  ];
+  for (const viewer of [null, 'account-a', 'account-b'])
+    assert.deepEqual(visibleLibraryEntries([card], mixedLinks, viewer), { cards: [], links: [] });
+  assert.equal(readerAccessOwners(card, undefined, mixedLinks), undefined);
+});
+
+test('a stale private link cannot grant the current account access to a foreign row', () => {
+  const card = { id: 8, contentHash: hash };
+  const mixedLinks = [
+    { bookId: 8, owner: 'account-a', contentHash: hash },
+    { bookId: 8, owner: 'account-b', contentHash: staleHash }
+  ];
+  assert.deepEqual(visibleLibraryEntries([card], mixedLinks, 'account-a').cards, [card]);
+  assert.deepEqual(visibleLibraryEntries([card], mixedLinks, 'account-b').cards, []);
+  assert.deepEqual(readerAccessOwners(card, undefined, mixedLinks), ['account-a']);
 });

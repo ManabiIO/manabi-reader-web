@@ -65,13 +65,20 @@ export async function refreshLinkedBooks() {
   if (!current()) return;
   const records = await readIndexedBookIdentities(await database.db);
   if (!current()) return;
-  const visible = visibleLibraryEntries(records, books, owner).links;
-  await stabilizeOrganization(visible, records);
+  const accountEntries = visibleLibraryEntries(records, books, owner);
+  const visible = accountEntries.links;
+  const visibleIds = new Set(accountEntries.cards.map((record) => record.id));
+  // Alias migration must see conflicting stale claims for an otherwise visible
+  // book so it can refuse a path shared by different content hashes.
+  const migrationLinks = books.filter(
+    (link) => (link.owner === null || link.owner === owner) && visibleIds.has(link.bookId)
+  );
+  await stabilizeOrganization(migrationLinks, records);
   if (!current()) return;
   allLinkedBooks.set(books);
   const byId = new Map(records.map((record) => [record.id, record]));
-  // Keep historical claims in allLinkedBooks and alias migration, but do not
-  // expose stale claims as usable links to cached-open, cover or sync callers.
+  // Keep historical claims in allLinkedBooks, but do not expose stale claims
+  // as usable links to cached-open, cover or sync callers.
   linkedBooks.set(
     visible.filter((link) => {
       const record = byId.get(link.bookId);
