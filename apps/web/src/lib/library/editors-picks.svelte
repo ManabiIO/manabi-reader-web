@@ -109,6 +109,7 @@
   {:else if !picks.length}
     <p class="py-6 text-sm text-muted-foreground">No books are listed right now.</p>
   {:else}
+    <!-- eslint-disable-next-line svelte/no-unused-svelte-ignore -->
     <!-- svelte-ignore a11y_no_noninteractive_tabindex: keyboard users need to scroll the bounded list -->
     <div
       aria-label="Editor's Picks books"
@@ -144,8 +145,10 @@
               <Button
                 size="sm"
                 variant="secondary"
-                class="mt-auto min-h-9 self-end px-4"
-                disabled={!!openingId}
+                class="mt-auto min-h-11 self-end px-4"
+                disabled={!!openingId && openingId !== pick.id}
+                aria-busy={openingId === pick.id}
+                aria-disabled={openingId === pick.id}
                 onclick={() => dispatch('open', pick)}
                 >{openingId === pick.id ? 'Opening…' : 'Open'}</Button
               >

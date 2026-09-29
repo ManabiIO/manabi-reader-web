@@ -364,19 +364,35 @@ class UnifiedSearch(ProductJourneyBase):
         field = self.library_search('𠮷' * 256)
         self.filter('Dictionary')
         # 256 supplementary-plane characters are 512 UTF-16 code units but
-        # must still be accepted as 256 user-visible search characters.
+        # must still be accepted as 256 user-visible search characters all the
+        # way through the pinned runtime. A generic runtime/protocol failure is
+        # not an acceptable substitute for passing host validation.
         expect(self.page.get_by_text(
             'Use a dictionary query of 256 characters or fewer.', exact=False
         )).to_have_count(0)
+        expect(self.page.get_by_role('button', name='Retry dictionary', exact=True)).to_have_count(
+            0, timeout=30000)
+        expect(self.page.get_by_text(
+            'No enabled local dictionary yet.', exact=False
+        )).to_be_visible(timeout=30000)
+
         field.fill('𠮷' * 257)
         expect(self.page.get_by_text(
             'Use a dictionary query of 256 characters or fewer.', exact=False
         )).to_be_visible()
+        expect(self.page.get_by_role('button', name='Retry dictionary', exact=True)).to_be_visible()
+
         field.fill('猫')
         expect(self.page.get_by_text(
             'Use a dictionary query of 256 characters or fewer.', exact=False
         )).to_have_count(0)
+        expect(self.page.get_by_role('button', name='Retry dictionary', exact=True)).to_have_count(
+            0, timeout=30000)
+        expect(self.page.get_by_text(
+            'No enabled local dictionary yet.', exact=False
+        )).to_be_visible(timeout=30000)
         self.checkpoint('dictionary-unicode-limit-recovered')
+
 
     def test_unified_search_reflows_at_200_percent_text_on_short_phone(self):
         self.import_book(

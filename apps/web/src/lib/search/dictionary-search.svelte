@@ -47,7 +47,11 @@
       runtime = opened;
       const value = await opened.client.search(needle, detailed, { signal });
       signal.throwIfAborted();
-      if (value.version !== 1 || value.query !== needle.trim())
+      if (
+        value.version !== 1 ||
+        value.query !== needle.trim() ||
+        typeof value.prefix !== 'boolean'
+      )
         throw new Error('The dictionary returned a mismatched search response.');
       publish({ state: 'ready', value });
     });

@@ -231,6 +231,54 @@ class EditorsPicksBrowser(unittest.TestCase):
         self.page.goto(self.origin + '/reader-web/manage')
         expect(self.page.get_by_role('button', name='Read A Pick from Manabi')).to_have_count(1)
 
+    def test_open_action_stays_focusable_during_slow_failure_and_returns_after_error(self):
+        self.page.set_viewport_size({'width': 320, 'height': 568})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        self.library()
+        region = self.page.get_by_role('region', name="Editor's Picks books")
+        opens = region.get_by_role('button', name='Open', exact=True)
+        self.assertEqual(6, opens.count())
+        for button in opens.all():
+            self.assertGreaterEqual(button.bounding_box()['height'], 43.99)
+
+        PicksHandler.fail_download = True
+        PicksHandler.book_started = threading.Event()
+        PicksHandler.book_gate = threading.Event()
+        first = opens.first
+        first.focus()
+        expect(first).to_be_focused()
+        first.press('Enter')
+        self.assertTrue(PicksHandler.book_started.wait(timeout=5))
+
+        opening = region.get_by_role('button', name='Opening…', exact=True)
+        expect(opening).to_be_focused()
+        expect(opening).to_have_attribute('aria-busy', 'true')
+        expect(opening).to_have_attribute('aria-disabled', 'true')
+        self.assertFalse(opening.evaluate('e => e.disabled'))
+        self.assertGreaterEqual(opening.bounding_box()['height'], 43.99)
+        self.assertTrue(
+            all(button.is_disabled() for button in region.get_by_role('button', name='Open', exact=True).all())
+        )
+
+        folder = Path('test-results')
+        folder.mkdir(exist_ok=True)
+        self.page.screenshot(
+            path=str(folder / f'{self.engine}-editors-picks-opening-200.png'),
+            full_page=True
+        )
+
+        PicksHandler.book_gate.set()
+        error = self.page.get_by_role('dialog')
+        expect(error).to_contain_text('Could not open book')
+        self.page.keyboard.press('Escape')
+        expect(error).to_have_count(0)
+
+        reopened = region.get_by_role('button', name='Open', exact=True).first
+        expect(reopened).to_be_focused()
+        self.assertFalse(reopened.evaluate('e => e.disabled'))
+        expect(reopened).not_to_have_attribute('aria-disabled', 'true')
+        self.page.evaluate('document.documentElement.style.fontSize = ""')
+
     def test_bad_catalog_url_and_download_failure(self):
         PicksHandler.bad_feed = True
         PicksHandler.fail_download = True
