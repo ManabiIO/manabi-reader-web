@@ -49,7 +49,7 @@ async function visibleAnnotations(records: ReaderAnnotation[]): Promise<ReaderAn
 }
 
 interface BookScopeStore {
-  get(id: number): Promise<{ accountId: string } | undefined>;
+  getAll(): Promise<{ bookId: number; accountId: string }[]>;
 }
 
 /** Undefined means copies belong to multiple accounts, so access is ambiguous.
@@ -66,9 +66,14 @@ async function bookAccountsFromStores(
   for (const key of requested) if (!content.has(key)) result.set(key, null);
   if (!content.size) return result;
 
+  const [metadata, scopeRows] = await Promise.all([
+    readIndexedBookMetadata(books),
+    scopes.getAll()
+  ]);
+  const scopeByBook = new Map(scopeRows.map((scope) => [scope.bookId, scope.accountId]));
   const owners = new Map<string, Set<string>>();
   const invalid = new Set<string>();
-  for (const book of await readIndexedBookMetadata(books)) {
+  for (const book of metadata) {
     const key = `content:${book.contentHash}`;
     if (!content.has(key)) continue;
     if (book.invalidOwner) {
@@ -76,8 +81,8 @@ async function bookAccountsFromStores(
       continue;
     }
     const values = owners.get(key) ?? new Set<string>();
-    const scope = await scopes.get(book.id);
-    if (scope) values.add(scope.accountId);
+    const scope = scopeByBook.get(book.id);
+    if (scope) values.add(scope);
     if (book.libraryOwner) values.add(book.libraryOwner);
     owners.set(key, values);
   }
