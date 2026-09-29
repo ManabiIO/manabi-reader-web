@@ -46,11 +46,20 @@ function memoryDB(initial) {
     return {
       get: async (key) => copy(rows.get(key)),
       getAll: async () => [...rows.values()].map(copy),
-      put: async (row) => {
-        rows.set(keyFor(row), copy(row));
-        return keyFor(row);
+      put: async (row, explicitKey) => {
+        const key = explicitKey ?? keyFor(row);
+        rows.set(key, copy(row));
+        return key;
       },
       delete: async (key) => rows.delete(key),
+      index: (field) => ({
+        async getAllKeys(value, count) {
+          const keys = [...rows.entries()]
+            .filter(([, row]) => row[field] === value)
+            .map(([key]) => key);
+          return count === undefined ? keys : keys.slice(0, count);
+        }
+      }),
       openCursor: async () => {
         const values = [...rows.values()].map(copy);
         const cursor = (index) =>
@@ -206,6 +215,110 @@ test('bookmark persistence requires the book to still exist', async () => {
     /no longer in the library/
   );
   assert.equal(db.rows('bookmark')[0].progress, 0.25);
+});
+
+test('local open admission rejects a newly foreign library owner without detaching its source', async () => {
+  const db = memoryDB({
+    data: [
+      {
+        id: 1,
+        title: 'Book',
+        elementHtml: '<p>book</p>',
+        storageSource: 'Legacy source',
+        libraryOwner: 'bob'
+      }
+    ],
+    readerBookScope: []
+  });
+  await assert.rejects(
+    bookRecords.prepareBookForLocalReading(
+      db,
+      { id: 1, title: 'Book' },
+      undefined,
+      'alice',
+      () => undefined
+    ),
+    /another account/
+  );
+  assert.equal(db.rows('data')[0].storageSource, 'Legacy source');
+});
+
+test('local open admission rejects a newly foreign personal scope', async () => {
+  const db = memoryDB({
+    data: [{ id: 1, title: 'Book', elementHtml: '<p>book</p>', storageSource: 'Legacy source' }],
+    readerBookScope: [{ bookId: 1, accountId: 'bob' }]
+  });
+  await assert.rejects(
+    bookRecords.prepareBookForLocalReading(
+      db,
+      { id: 1, title: 'Book' },
+      undefined,
+      'alice',
+      () => undefined
+    ),
+    /another account/
+  );
+  assert.equal(db.rows('data')[0].storageSource, 'Legacy source');
+});
+
+test('owned local open can detach legacy source metadata after the live ownership check', async () => {
+  const db = memoryDB({
+    data: [
+      {
+        id: 1,
+        title: 'Book',
+        elementHtml: '<p>book</p>',
+        storageSource: 'Legacy source',
+        libraryOwner: 'alice'
+      }
+    ],
+    readerBookScope: [{ bookId: 1, accountId: 'alice' }]
+  });
+  assert.equal(
+    await bookRecords.prepareBookForLocalReading(
+      db,
+      { id: 1, title: 'Book' },
+      undefined,
+      'alice',
+      () => undefined
+    ),
+    1
+  );
+  assert.equal(db.rows('data')[0].storageSource, undefined);
+});
+
+test('resume target persistence rejects a newly foreign book and preserves the previous target', async () => {
+  const db = memoryDB({
+    data: [{ id: 1, title: 'Book', libraryOwner: 'bob' }],
+    readerBookScope: [],
+    lastItem: [{ dataId: 7 }]
+  });
+  await assert.rejects(
+    bookRecords.commitOwnedLastItem(db, 1, 'alice', () => undefined),
+    /another account/
+  );
+  assert.deepEqual(db.rows('lastItem'), [{ dataId: 7 }]);
+});
+
+test('resume target persistence checks personal scope and commits only the owned ID', async () => {
+  const foreign = memoryDB({
+    data: [{ id: 1, title: 'Book' }],
+    readerBookScope: [{ bookId: 1, accountId: 'bob' }],
+    lastItem: []
+  });
+  await assert.rejects(
+    bookRecords.commitOwnedLastItem(foreign, 1, 'alice', () => undefined),
+    /another account/
+  );
+  assert.deepEqual(foreign.rows('lastItem'), []);
+
+  const owned = memoryDB({
+    data: [{ id: 1, title: 'Book', libraryOwner: 'alice' }],
+    readerBookScope: [{ bookId: 1, accountId: 'alice' }],
+    lastItem: []
+  });
+  await bookRecords.commitOwnedLastItem(owned, 1, 'alice', () => undefined);
+  assert.deepEqual(owned.rows('lastItem'), [{ dataId: 1 }]);
 });
 
 function annotationFixture({ bookOwner, scopeOwner } = {}) {
