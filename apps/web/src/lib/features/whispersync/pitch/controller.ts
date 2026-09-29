@@ -47,7 +47,7 @@ export class PitchController {
   private buffering = false;
   private sampleAfter = 0;
   private breakBefore = true;
-  private speechActive = false;
+  private speechWindow?: { start: number; end: number };
 
   constructor(environment: PitchEnvironment, changed: (state: PitchState) => void) {
     this.environment = environment;
@@ -76,6 +76,7 @@ export class PitchController {
     this.source = undefined;
     this.audio = audio;
     this.buffering = false;
+    this.speechWindow = undefined;
     this.reset();
     if (audio) {
       const listen = (event: string, callback: () => void) => {
@@ -158,12 +159,26 @@ export class PitchController {
   retry() {
     if (this.state.enabled) this.setEnabled(true);
   }
-  setSpeechActive(active: boolean) {
-    if (this.disposed || this.speechActive === active) return;
-    this.speechActive = active;
+  setSpeechWindow(bounds?: { start: number; end: number } | null) {
+    if (this.disposed) return;
+    const start = Number(bounds?.start);
+    const end = Number(bounds?.end);
+    const next =
+      Number.isFinite(start) && Number.isFinite(end) && end > start
+        ? { start: Math.max(0, start), end }
+        : undefined;
+    if (
+      (!next && !this.speechWindow) ||
+      (next &&
+        this.speechWindow &&
+        Math.abs(next.start - this.speechWindow.start) < 1e-6 &&
+        Math.abs(next.end - this.speechWindow.end) < 1e-6)
+    )
+      return;
+    this.speechWindow = next;
     this.invalidateSamples();
     this.cancelFrame();
-    if (active) {
+    if (next) {
       // SwiftF0's newest stable estimate needs future context. Waiting one
       // lookahead span keeps the selected frame inside the new dialogue cue
       // without paying a full 550 ms warm-up between every subtitle.
@@ -171,10 +186,10 @@ export class PitchController {
         (this.context?.currentTime ?? 0) + (SWIFT_F0_LOOKAHEAD_FRAMES + 1) * SWIFT_F0_FRAME_SECONDS;
     }
     this.publish({
-      speechActive: active,
+      speechActive: !!next,
       time: this.audio?.currentTime ?? this.state.time
     });
-    if (active) this.schedule();
+    if (next) this.schedule();
   }
   // Retire both the reply and its watchdog at every playback discontinuity.
   // Keep the paused trace, but never draw a line through the resume boundary.
@@ -190,7 +205,11 @@ export class PitchController {
   private reset() {
     this.invalidateSamples();
     this.lastAudioTime = -Infinity;
-    this.publish({ points: [], time: this.audio?.currentTime ?? 0 });
+    this.publish({
+      points: [],
+      speechActive: !!this.speechWindow,
+      time: this.audio?.currentTime ?? 0
+    });
   }
   private start() {
     if (this.disposed || !this.state.enabled || !this.visible || this.worker) return;
@@ -272,9 +291,16 @@ export class PitchController {
             this.fail('Pitch analysis returned invalid data. Retry to reload it.');
             return;
           }
+          const pointTime = pending.windowStart + result.offsetSeconds * pending.playbackRate;
+          const speechWindow = this.speechWindow;
+          if (!speechWindow || pointTime < speechWindow.start || pointTime > speechWindow.end) {
+            this.breakBefore = true;
+            this.publish({ time: audio.currentTime });
+            return;
+          }
           this.publish({
             points: appendPoint(this.state.points, {
-              time: pending.windowStart + result.offsetSeconds * pending.playbackRate,
+              time: pointTime,
               hz: result.hz,
               amplitude: result.amplitude,
               breakBefore: this.breakBefore
@@ -324,7 +350,7 @@ export class PitchController {
       this.frame !== undefined ||
       !this.visible ||
       !this.state.enabled ||
-      !this.speechActive ||
+      !this.speechWindow ||
       this.state.status !== 'ready' ||
       !this.analyser ||
       !this.worker ||
@@ -369,10 +395,22 @@ export class PitchController {
             Math.ceil(context.sampleRate * ANALYSIS_WINDOW_SECONDS)
           );
           const samples = this.samples!.slice(-count);
-          const windowStart = Math.max(
+          const mediaStep = Math.max(0.01, audio.playbackRate) / context.sampleRate;
+          const windowStart = Math.max(0, audio.currentTime - samples.length * mediaStep);
+          const speechWindow = this.speechWindow!;
+          // Keep SwiftF0's receptive-field context local to the authored
+          // dialogue cue. BGM/ambience immediately before a subtitle must not
+          // become the past context for the cue's first pitch estimate.
+          const firstSpeechSample = Math.max(
             0,
-            audio.currentTime - (samples.length / context.sampleRate) * audio.playbackRate
+            Math.min(samples.length, Math.ceil((speechWindow.start - windowStart) / mediaStep))
           );
+          const afterSpeechSample = Math.max(
+            0,
+            Math.min(samples.length, Math.ceil((speechWindow.end - windowStart) / mediaStep))
+          );
+          if (firstSpeechSample > 0) samples.fill(0, 0, firstSpeechSample);
+          if (afterSpeechSample < samples.length) samples.fill(0, afterSpeechSample);
           const id = ++this.sequence;
           this.pending = { id, windowStart, playbackRate: audio.playbackRate };
           this.worker!.postMessage(
