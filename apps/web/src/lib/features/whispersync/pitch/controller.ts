@@ -1,5 +1,5 @@
 import { appendPoint, initialPitchState, type PitchState } from './model';
-import type { Measurement } from './analysis';
+import {\n  ANALYSIS_WINDOW_SECONDS,\n  SAMPLE_INTERVAL_MS,\n  type Measurement\n} from './analysis';
 
 export interface PitchEnvironment {
   createContext(): AudioContext;
@@ -30,7 +30,7 @@ export class PitchController {
   private analyserConnected = false;
   private loadTimer?: number;
   private replyTimer?: number;
-  private pending?: { id: number; time: number };
+  private pending?: { id: number; windowStart: number; playbackRate: number };
   private generation = 0;
   private sequence = 0;
   private epoch = 0;
@@ -159,7 +159,7 @@ export class PitchController {
     if (this.replyTimer !== undefined) this.environment.clearTimer(this.replyTimer);
     this.replyTimer = undefined;
     this.lastSample = -Infinity;
-    this.sampleAfter = (this.context?.currentTime ?? 0) + 0.04;
+    this.sampleAfter = (this.context?.currentTime ?? 0) + SAMPLE_INTERVAL_MS / 1000;
     this.breakBefore = true;
   }
   private reset() {
@@ -194,14 +194,14 @@ export class PitchController {
             this.source.connect(context.destination);
           }
           const analyser = context.createAnalyser();
-          analyser.fftSize = Math.min(16384, 2 ** Math.ceil(Math.log2(context.sampleRate * 0.04)));
+          analyser.fftSize = Math.min(\n            32768,\n            2 ** Math.ceil(Math.log2(context.sampleRate * ANALYSIS_WINDOW_SECONDS))\n          );
           this.samples = new Float32Array(analyser.fftSize);
           this.analyser = analyser;
           this.source.connect(analyser);
           this.analyserConnected = true;
           if (this.loadTimer !== undefined) this.environment.clearTimer(this.loadTimer);
           this.loadTimer = undefined;
-          this.sampleAfter = context.currentTime + 0.04;
+          this.sampleAfter = context.currentTime + SAMPLE_INTERVAL_MS / 1000;
           this.publish({ status: 'ready', message: '' });
           this.schedule();
         } catch {
@@ -242,7 +242,7 @@ export class PitchController {
           }
           this.publish({
             points: appendPoint(this.state.points, {
-              time: pending.time,
+              time: pending.windowStart + result.offsetSeconds * pending.playbackRate,
               hz: result.hz,
               amplitude: result.amplitude,
               breakBefore: this.breakBefore
@@ -322,7 +322,7 @@ export class PitchController {
         !this.pending &&
         context.currentTime >= this.sampleAfter &&
         audio.readyState >= 2 &&
-        now - this.lastSample >= 40 &&
+        now - this.lastSample >= SAMPLE_INTERVAL_MS &&
         audio.currentTime !== this.lastAudioTime
       ) {
         this.lastSample = now;
