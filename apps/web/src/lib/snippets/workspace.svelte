@@ -1623,7 +1623,7 @@
       padding-block: 8px;
     }
     .brand {
-      flex: 1 1 100%;
+      white-space: nowrap;
     }
     .draft {
       align-items: start;
