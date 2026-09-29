@@ -297,7 +297,7 @@ export function startBookSync() {
         message: conflicts.length
           ? `${conflicts.length} personal-state conflict(s) need review.`
           : blocked
-            ? 'This exact file has more than one saved reading history. Resolve the duplicate histories before personal sync can choose one.'
+            ? 'This book has conflicting or incomplete identity evidence. Personal sync skipped its reading history until the issue is resolved.'
             : status.state === 'identity_conflict'
               ? 'Personal reading data synced.'
               : status.message,

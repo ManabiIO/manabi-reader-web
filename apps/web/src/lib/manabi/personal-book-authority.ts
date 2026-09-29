@@ -50,9 +50,11 @@ export async function livePersonalCopies(
   const owners = new Set<string>();
   const live: PersonalBook[] = [];
   let invalidOwner = false;
+  let matchingRows = 0;
 
   for (const book of metadata) {
     if (book.contentHash !== match[1]) continue;
+    matchingRows += 1;
     if (book.invalidOwner) {
       invalidOwner = true;
       continue;
@@ -69,7 +71,14 @@ export async function livePersonalCopies(
       live.push(book as PersonalBook);
   }
 
-  if (invalidOwner || owners.size !== 1 || !owners.has(accountId) || !live.length)
+  if (
+    expectedCopies.length !== 1 ||
+    matchingRows !== 1 ||
+    invalidOwner ||
+    owners.size !== 1 ||
+    !owners.has(accountId) ||
+    live.length !== 1
+  )
     throw new PersonalBookOwnershipError();
   return live;
 }
@@ -120,8 +129,7 @@ export function planPersonalBookClaims(
         (!book.libraryOwner && !scope)
       )
         currentRelevant = true;
-      if (libraryVisible && scopeVisible && typeof book.title !== 'string')
-        currentMalformed = true;
+      if (libraryVisible && scopeVisible && typeof book.title !== 'string') currentMalformed = true;
     }
 
     // One browser data row is one reading history. Physical copies do not

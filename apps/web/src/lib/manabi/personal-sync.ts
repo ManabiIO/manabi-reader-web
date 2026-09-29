@@ -249,7 +249,7 @@ async function publish(
       : state === 'synced' && pending
         ? `${pending} local change(s) are queued for sync.`
         : state === 'synced' && blockedBookKeys.length
-          ? `${blockedBookKeys.length} identical-content reading histor${blockedBookKeys.length === 1 ? 'y was' : 'ies were'} kept separate and skipped during personal sync. Resolve the duplicate book histories before syncing them.`
+          ? `${blockedBookKeys.length} book identit${blockedBookKeys.length === 1 ? 'y has' : 'ies have'} conflicting or incomplete evidence. Personal sync skipped the affected reading histories.`
           : state === 'synced' && ambiguous
             ? `${ambiguous} older same-title statistics record(s) remain on this device because their book could not be identified.`
             : message,

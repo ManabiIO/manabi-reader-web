@@ -51,14 +51,11 @@ const candidate = (id, changes = {}) => ({
   ...changes
 });
 
-test('live personal authority keeps the sync-start copies while account evidence is unchanged', async () => {
-  const expected = [candidate(1), candidate(2)];
+test('live personal authority keeps the one sync-start history while account evidence is unchanged', async () => {
+  const expected = [candidate(1)];
   const fixture = stores({
     books: expected,
-    scopes: [
-      { bookId: 1, accountId: 'alice' },
-      { bookId: 2, accountId: 'alice' }
-    ]
+    scopes: [{ bookId: 1, accountId: 'alice' }]
   });
   assert.deepEqual(
     await livePersonalCopies(bookKey, expected, fixture.data, fixture.scopes, 'alice', () => {}),
@@ -99,15 +96,30 @@ test('deleting every sync-start copy does not turn local absence into a personal
   );
 });
 
-test('a newly discovered unowned exact copy does not invalidate the already scoped copy', async () => {
+test('a newly discovered unowned same-byte history invalidates the sync-start claim', async () => {
   const expected = [candidate(1)];
   const fixture = stores({
     books: [...expected, candidate(2)],
     scopes: [{ bookId: 1, accountId: 'alice' }]
   });
-  assert.deepEqual(
-    await livePersonalCopies(bookKey, expected, fixture.data, fixture.scopes, 'alice', () => {}),
-    expected
+  await assert.rejects(
+    livePersonalCopies(bookKey, expected, fixture.data, fixture.scopes, 'alice', () => {}),
+    /ownership changed/
+  );
+});
+
+test('an older multi-history sync snapshot cannot hydrate either row', async () => {
+  const expected = [candidate(1), candidate(2)];
+  const fixture = stores({
+    books: expected,
+    scopes: [
+      { bookId: 1, accountId: 'alice' },
+      { bookId: 2, accountId: 'alice' }
+    ]
+  });
+  await assert.rejects(
+    livePersonalCopies(bookKey, expected, fixture.data, fixture.scopes, 'alice', () => {}),
+    /ownership changed/
   );
 });
 
@@ -209,20 +221,13 @@ test('fail-closed probe returns undefined for ownership changes without hiding a
 
 test('an unhydrated reading history requires first-use reconciliation', () => {
   const copies = [candidate(1)];
-  assert.equal(
-    needsPersonalHydration(copies, [{ bookId: 1, accountId: 'alice' }], 'alice'),
-    true
-  );
+  assert.equal(needsPersonalHydration(copies, [{ bookId: 1, accountId: 'alice' }], 'alice'), true);
 });
 
 test('a hydrated reading history does not repeat first-use reconciliation', () => {
   const copies = [candidate(1)];
   assert.equal(
-    needsPersonalHydration(
-      copies,
-      [{ bookId: 1, accountId: 'alice', hydrated: true }],
-      'alice'
-    ),
+    needsPersonalHydration(copies, [{ bookId: 1, accountId: 'alice', hydrated: true }], 'alice'),
     false
   );
 });
@@ -231,11 +236,7 @@ test('missing or foreign scope evidence never counts as safely hydrated', () => 
   const copies = [candidate(1)];
   assert.equal(needsPersonalHydration(copies, [], 'alice'), true);
   assert.equal(
-    needsPersonalHydration(
-      copies,
-      [{ bookId: 1, accountId: 'bob', hydrated: true }],
-      'alice'
-    ),
+    needsPersonalHydration(copies, [{ bookId: 1, accountId: 'bob', hydrated: true }], 'alice'),
     true
   );
 });
