@@ -144,8 +144,14 @@ def main():
         expect(existing.locator('option')).to_have_count(3)
         assert page.locator('.transcript-cue').count() == 0
         options = existing.locator('option').evaluate_all('(nodes)=>nodes.map(n=>({label:n.textContent,value:n.value}))')
-        chosen = next(o['value'] for o in options if 'video.ja.srt' in o['label'])
-        existing.select_option(chosen)
+        chosen_label = next(o['label'] for o in options if 'video.ja.srt' in o['label'])
+        # Full video verification can remap a temporary sidecar ID between
+        # reading these options and the click. Select the current semantic
+        # option, then capture the ID that actually became selected for the
+        # native persistence/reload assertions below.
+        existing.select_option(label=chosen_label)
+        chosen = page.get_by_label('Transcript track', exact=True).input_value()
+        assert chosen
         expect(page.locator('.transcript-cue')).to_have_count(2)
         expect(page.locator('.transcript-translation').first).to_have_text('Hello. Are you looking for something?')
         results.append('real local-file/sidecar import and explicit main selection with locale translation')
