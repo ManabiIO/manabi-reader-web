@@ -903,8 +903,10 @@ class RheaReader(previous.RefinedAppearance):
             )
         ).to_be_visible()
 
-        fixed.press('Tab')
         # Update position sits between the two toggles in native tab order.
+        update = sheet.get_by_role('button', name='Update position', exact=True)
+        self.page.keyboard.press('Tab')
+        expect(update).to_be_focused()
         self.page.keyboard.press('Tab')
         expect(fixed).to_be_focused()
         fixed.press('Space')
