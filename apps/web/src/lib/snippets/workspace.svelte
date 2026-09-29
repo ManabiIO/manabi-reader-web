@@ -1503,8 +1503,10 @@
   }
   .membership {
     display: flex;
+    min-height: 44px;
     gap: 0.6rem;
     align-items: center;
+    cursor: pointer;
   }
   form {
     display: grid;
