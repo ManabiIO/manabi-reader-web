@@ -83,7 +83,8 @@ export interface PersonalBookScope {
 export function planPersonalBookClaims(
   metadata: readonly IndexedBookMetadata[],
   scopeRows: readonly PersonalBookScope[],
-  accountId: string
+  accountId: string,
+  statisticScopes: readonly { bookKey: string; accountId: string }[] = []
 ): {
   books: PersonalBook[];
   scopesToCreate: PersonalBookScope[];
@@ -91,6 +92,12 @@ export function planPersonalBookClaims(
 } {
   const scopes = new Map(scopeRows.map((scope) => [scope.bookId, scope]));
   const groups = new Map<string, IndexedBookMetadata[]>();
+  const statisticOwners = new Map<string, Set<string>>();
+  for (const scope of statisticScopes) {
+    const owners = statisticOwners.get(scope.bookKey) ?? new Set<string>();
+    owners.add(scope.accountId);
+    statisticOwners.set(scope.bookKey, owners);
+  }
   for (const book of metadata) {
     const key = `content:${book.contentHash}`;
     groups.set(key, [...(groups.get(key) ?? []), book]);
@@ -101,9 +108,10 @@ export function planPersonalBookClaims(
   const blockedBookKeys: string[] = [];
 
   for (const [bookKey, group] of groups) {
-    const owners = new Set<string>();
+    const retainedOwners = statisticOwners.get(bookKey) ?? new Set<string>();
+    const owners = new Set<string>(retainedOwners);
     let invalidOwner = false;
-    let currentRelevant = false;
+    let currentRelevant = retainedOwners.has(accountId);
     let currentMalformed = false;
 
     for (const book of group) {
@@ -130,7 +138,15 @@ export function planPersonalBookClaims(
     // by personal sync merely because their bytes are equal.
     const competingHistories = group.length > 1 && currentRelevant;
     const conflictingOwners = owners.size > 1;
-    if (invalidOwner || currentMalformed || competingHistories || conflictingOwners) {
+    const foreignRetainedStatistics =
+      retainedOwners.size > 0 && !retainedOwners.has(accountId);
+    if (
+      invalidOwner ||
+      currentMalformed ||
+      competingHistories ||
+      conflictingOwners ||
+      foreignRetainedStatistics
+    ) {
       if (currentRelevant) blockedBookKeys.push(bookKey);
       continue;
     }
