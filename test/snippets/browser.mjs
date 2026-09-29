@@ -627,7 +627,9 @@ try {
       .locator(`[data-id="${targetBlock.attrs.id}"]`)
   ).toHaveClass(/snippet-match/);
   await expect
-    .poll(async () => (await records(page)).find((r) => r.document.id === cloudID)?.progress?.blockId)
+    .poll(
+      async () => (await records(page)).find((r) => r.document.id === cloudID)?.progress?.blockId
+    )
     .toBe(targetBlock.attrs.id);
   await page.waitForTimeout(1200);
   assert.equal(
@@ -635,10 +637,7 @@ try {
     stateWritesBeforeHydration,
     'Adopting/restoring a remote cursor must not echo it back as a newer local write.'
   );
-  assert.equal(
-    (await records(page)).find((r) => r.document.id === cloudID)?.progressDirty,
-    false
-  );
+  assert.equal((await records(page)).find((r) => r.document.id === cloudID)?.progressDirty, false);
   passed('open reader adopts a newer remote cursor after reconnect without echoing restoration');
 
   // Movement exercises real durable client journals and conditional HTTP cleanup.

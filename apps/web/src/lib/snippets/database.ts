@@ -456,8 +456,7 @@ export interface SourceListingObservation {
   missing?: boolean;
 }
 export type SourceListingFence = ReadonlyMap<string, SourceListingObservation>;
-export const sourceListingFenceKey = (id: string, fileId: string) =>
-  JSON.stringify([id, fileId]);
+export const sourceListingFenceKey = (id: string, fileId: string) => JSON.stringify([id, fileId]);
 
 /** Call only after a complete successful listing; an access failure is not deletion.
  * The fence is captured before traversal. Locations created or changed while that

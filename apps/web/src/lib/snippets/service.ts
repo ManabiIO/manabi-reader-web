@@ -217,14 +217,17 @@ export async function refreshSnippets(
                         location.source.owner === source.owner &&
                         location.source.root === source.root
                     )
-                    .map((location) => [
-                      sourceListingFenceKey(record.id, location.fileId),
-                      {
-                        token: location.token,
-                        observedRevision: location.observedRevision,
-                        missing: location.missing
-                      }
-                    ] as const)
+                    .map(
+                      (location) =>
+                        [
+                          sourceListingFenceKey(record.id, location.fileId),
+                          {
+                            token: location.token,
+                            observedRevision: location.observedRevision,
+                            missing: location.missing
+                          }
+                        ] as const
+                    )
                 )
               );
               const catalog = await scanCatalog(

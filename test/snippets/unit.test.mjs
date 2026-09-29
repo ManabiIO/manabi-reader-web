@@ -1037,7 +1037,6 @@ test('lost create reply followed by repeated trash and restore still drains one 
   assert.equal([...memory.files.values()].filter((x) => x.document.id === doc.id).length, 1);
 });
 
-
 test('restoring the same durable locator does not manufacture a newer position upload', async () => {
   const { selected, doc } = await stored('位置を保持する文章');
   const block = passages(doc.content)[0];

@@ -18,7 +18,9 @@
     ready = false,
     pendingPosition: SnippetLocator | undefined,
     timer: ReturnType<typeof setTimeout> | undefined,
+    intentTimer: ReturnType<typeof setTimeout> | undefined,
     appliedLocator = '',
+    committedLocator = '',
     userScrollIntent = false,
     mountedAlive = false,
     restoreGeneration = 0,
@@ -26,37 +28,51 @@
     lastHydration = 0;
   $: html = readerHTML(document.content);
   $: incomingLocator = locator ? JSON.stringify(locator) : '';
+  // The signature equality guard stops restoration from re-entering this block.
+  /* eslint-disable svelte/infinite-reactive-loop */
   $: if (ready && incomingLocator && incomingLocator !== appliedLocator) {
     // A newer remote cursor must not yank the view while the user is actively
     // scrolling. Their next durable position becomes authoritative instead.
-    if (userScrollIntent || pendingPosition) appliedLocator = incomingLocator;
-    else void restore(locator, incomingLocator);
+    if (userScrollIntent || pendingPosition || incomingLocator === committedLocator)
+      appliedLocator = incomingLocator;
+    else void restore(locator, incomingLocator, followRemotePosition);
   }
   const cssEscape = (id: string) => CSS.escape(id);
   const locatorSignature = (value: SnippetLocator | undefined) =>
     value ? JSON.stringify(value) : '';
 
-  async function restore(value: SnippetLocator | undefined, signature = locatorSignature(value)) {
+  async function restore(
+    value: SnippetLocator | undefined,
+    signature = locatorSignature(value),
+    respectUserIntent = false
+  ) {
     if (!value || !host) return;
     const generation = ++restoreGeneration;
     await tick();
-    if (!mountedAlive || generation !== restoreGeneration || !host) return;
+    if (
+      !mountedAlive ||
+      generation !== restoreGeneration ||
+      !host ||
+      (respectUserIntent && (userScrollIntent || pendingPosition))
+    )
+      return;
     const resolved = resolveLocator(document, value);
-    host.querySelectorAll('.snippet-match').forEach((node) => node.classList.remove('snippet-match'));
+    host
+      .querySelectorAll('.snippet-match')
+      .forEach((node) => node.classList.remove('snippet-match'));
     appliedLocator = signature;
     userScrollIntent = false;
     pendingPosition = undefined;
     clearTimeout(timer);
+    clearTimeout(intentTimer);
     if (resolved) {
-      const target = host.querySelector<HTMLElement>(
-        `[data-id="${cssEscape(resolved.blockId)}"]`
-      );
+      const target = host.querySelector<HTMLElement>(`[data-id="${cssEscape(resolved.blockId)}"]`);
       target?.scrollIntoView({ block: 'center' });
       target?.classList.add('snippet-match');
       notice = '';
-    } else
-      notice = 'The saved passage changed. Showing the current snippet instead.';
+    } else notice = 'The saved passage changed. Showing the current snippet instead.';
   }
+  /* eslint-enable svelte/infinite-reactive-loop */
 
   function capture() {
     selectedScope.guard();
@@ -108,8 +124,11 @@
     const value = pendingPosition;
     pendingPosition = undefined;
     userScrollIntent = false;
+    clearTimeout(intentTimer);
     if (value) {
-      appliedLocator = locatorSignature(value);
+      // Keep the old parent locator acknowledged until the local write reaches
+      // the summary. Otherwise it can be restored between commit and that write.
+      committedLocator = locatorSignature(value);
       void saveProgress(document.id, value, selectedScope).catch(() => undefined);
     }
   }
@@ -136,6 +155,12 @@
     }
     if (event instanceof PointerEvent && event.target !== host) return;
     userScrollIntent = true;
+    clearTimeout(intentTimer);
+    // A gesture at the scroll boundary may never emit scroll. Do not let it
+    // suppress remote hydration for the rest of this reader session.
+    intentTimer = setTimeout(() => {
+      if (!pendingPosition) userScrollIntent = false;
+    }, 1200);
   }
   async function hydrateRemotePosition(force = false) {
     if (
@@ -164,7 +189,7 @@
       )
         return;
       const signature = locatorSignature(latest.progress);
-      if (signature !== appliedLocator) await restore(latest.progress, signature);
+      if (signature !== appliedLocator) await restore(latest.progress, signature, true);
     } catch {
       // Retain the current view. Online/focus or an explicit refresh can retry.
     } finally {
@@ -194,6 +219,7 @@
       mountedAlive = false;
       restoreGeneration++;
       clearTimeout(timer);
+      clearTimeout(intentTimer);
       commitPosition(); // Keep the last deliberate scroll when the reader closes before the debounce.
       window.removeEventListener('scroll', schedule);
       host?.removeEventListener('scroll', schedule);
