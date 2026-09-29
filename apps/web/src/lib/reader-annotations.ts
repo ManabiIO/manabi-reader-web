@@ -348,6 +348,8 @@ export async function importReaderAnnotations(
         const bookOwner = ownerByBook.get(annotation.bookKey);
         if (bookOwner === undefined)
           throw new Error('This annotation has ambiguous account ownership.');
+        if (bookOwner && bookOwner !== accountId)
+          throw new Error('This annotation belongs to another account.');
         const existing = await tx.objectStore('readerAnnotation').get(annotation.id);
         const owner = existing
           ? await tx.objectStore('readerAnnotationScope').get(annotation.id)
@@ -617,6 +619,8 @@ export async function saveReaderAnnotation(
         throw new Error('This annotation belongs to another account.');
       if (bookOwner === undefined)
         throw new Error('This annotation has ambiguous account ownership.');
+      if (bookOwner && bookOwner !== accountId)
+        throw new Error('This annotation belongs to another account.');
       const boundAccount = owner?.accountId ?? bookOwner ?? accountId;
       if (boundAccount && boundAccount !== accountId)
         throw new Error('This annotation belongs to another account.');
@@ -724,6 +728,8 @@ export async function removeReaderAnnotation(
         throw new Error('This annotation belongs to another account.');
       if (bookOwner === undefined)
         throw new Error('This annotation has ambiguous account ownership.');
+      if (bookOwner && bookOwner !== accountId)
+        throw new Error('This annotation belongs to another account.');
       const boundAccount = owner?.accountId ?? bookOwner ?? accountId;
       if (boundAccount && boundAccount !== accountId)
         throw new Error('This annotation belongs to another account.');
