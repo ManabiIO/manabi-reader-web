@@ -1,0 +1,81 @@
+name: MOSS shared custody experiment
+# Experimental only: production uses dedicated workers and this is not a release gate.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: moss-shared-custody-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native-probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: |
+          python -m pip install playwright==1.63.0
+          python -m playwright install --with-deps chromium
+      - run: python tests/media/shared-custody-probe.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: moss-shared-custody-experiment
+          path: test-results/media/shared-custody-probe.json
+          if-no-files-found: error
+          retention-days: 7
+
+  real-model-custody:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/cache@v4
+        with:
+          path: .cache/shared-custody/model.gguf
+          key: moss-q5-7e9ce1de5648ed49fc5c4f5e003d61a7421a63c14074f7275dc8a8cc664ff865
+      - name: Provision browser and deterministic English speech
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg espeak-ng
+          python -m pip install playwright==1.63.0
+          python -m playwright install --with-deps chromium
+          mkdir -p .cache/shared-custody
+          fixture="$(python tools/media/generate-fixtures.py --language en)"
+          ffmpeg -hide_banner -loglevel error -y -i "$fixture/speech.wav" \
+            -ac 1 -ar 16000 -f f32le .cache/shared-custody/speech.f32
+      - name: Fetch and verify the pinned Q5_0 model
+        run: |
+          model=.cache/shared-custody/model.gguf
+          expected=7e9ce1de5648ed49fc5c4f5e003d61a7421a63c14074f7275dc8a8cc664ff865
+          if [ ! -f "$model" ] || ! echo "$expected  $model" | sha256sum --check --status; then
+            rm -f "$model"
+            curl --fail --location --retry 3 \
+              'https://huggingface.co/mudler/moss-transcribe.cpp-gguf/resolve/54e4bbd17da3f84adf1c1bcf7791b9b9266f741e/moss-transcribe-q5_0.gguf' \
+              --output "$model"
+          fi
+          echo "$expected  $model" | sha256sum --check
+          test "$(stat -c%s "$model")" = 648174592
+      - name: Reuse one loaded real model across SharedWorker ownership handoff
+        run: |
+          python tests/media/shared-custody-probe.py \
+            --model .cache/shared-custody/model.gguf \
+            --pcm .cache/shared-custody/speech.f32 \
+            --output test-results/media/shared-custody-model.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: moss-shared-custody-real-model
+          path: test-results/media/shared-custody-model.json
+          if-no-files-found: error
+          retention-days: 7
