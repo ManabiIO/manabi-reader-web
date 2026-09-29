@@ -357,7 +357,26 @@ def main():
         expect(options_button).to_be_focused()
         results.append('real video player and transcript chrome reflow at 320px / 200% text')
 
+        page.goto(origin + '/reader-web/manage')
+        library_sections = page.get_by_role('navigation', name='Library sections', exact=True)
+        expect(library_sections).to_be_visible()
+        videos_link = library_sections.get_by_role('link', name='Videos', exact=True)
+        link_box = videos_link.bounding_box()
+        assert link_box['height'] >= 43.5, link_box
+        page.evaluate("document.documentElement.style.fontSize='200%'")
+        tab_font = float(videos_link.evaluate(
+            "node => parseFloat(getComputedStyle(node).fontSize)"
+        ))
+        assert tab_font >= 29.5, tab_font
+        assert page.evaluate(
+            "document.documentElement.scrollWidth-innerWidth"
+        ) <= 1
+        page.keyboard.press('Tab')
+        videos_link.focus()
+        expect(videos_link).to_be_focused()
         page.evaluate("document.documentElement.style.fontSize=''")
+        results.append('Library Books/Videos switcher scales and remains touch sized')
+
         assert not errors, errors
         browser.close()
     except Exception:
