@@ -92,7 +92,7 @@ class AnnotationQuality(LibraryBase):
         self.page.screenshot(path=str(self.output / 'enlarged-scrolled.png'))
         close.click()
         expect(panel).to_have_count(0)
-        expect(self.page.get_by_role('button', name='Show reading controls', exact=True)).to_be_focused()
+        expect(self.page.locator('button[data-reader-controls]')).to_be_focused()
 
     def test_removing_focused_annotation_moves_focus_to_next_remove_action(self):
         self.open_reader()
