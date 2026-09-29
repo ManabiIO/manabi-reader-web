@@ -1379,6 +1379,8 @@ export class VideoWorkspace {
         const card = make('article');
         card.className = 'video-card';
         card.dataset.mediaKey = key;
+        const selectTarget = make('label');
+        selectTarget.className = 'video-card-select';
         const checkbox = make('input');
         checkbox.type = 'checkbox';
         checkbox.dataset.command = 'select';
@@ -1388,12 +1390,13 @@ export class VideoWorkspace {
         checkbox.addEventListener('change', () =>
           checkbox.checked ? this.selected.add(key) : this.selected.delete(key)
         );
+        selectTarget.append(checkbox);
         const title = action(info.title, () => void this.reopen(key).catch((e) => this.error(e)));
         title.className = 'video-card-title';
         title.dataset.command = 'title';
         const p = resume.get(key);
         card.append(
-          checkbox,
+          selectTarget,
           title,
           make(
             'p',
