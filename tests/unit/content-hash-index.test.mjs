@@ -104,11 +104,7 @@ test('compact metadata projection retains invalid owner evidence for fail-closed
   const store = {
     index(name) {
       return index(
-        name === 'title'
-          ? [['Book', 1]]
-          : name === 'contentHash'
-            ? [[hash, 1]]
-            : [[42, 1]]
+        name === 'title' ? [['Book', 1]] : name === 'contentHash' ? [[hash, 1]] : [[42, 1]]
       );
     }
   };
@@ -122,11 +118,7 @@ test('compact metadata projection retains hash/owner evidence even when title me
   const store = {
     index(name) {
       return index(
-        name === 'title'
-          ? [[42, 1]]
-          : name === 'contentHash'
-            ? [[hash, 1]]
-            : [['alice', 1]]
+        name === 'title' ? [[42, 1]] : name === 'contentHash' ? [[hash, 1]] : [['alice', 1]]
       );
     }
   };

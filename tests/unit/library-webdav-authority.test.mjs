@@ -37,7 +37,8 @@ const persistence = load('manabi/persistence.ts', {
   }
 });
 const statistics = load('data/database/books-db/reader-statistics.ts', {
-  './commit-transaction.mjs': transactions
+  './commit-transaction.mjs': transactions,
+  './content-hash-index': load('data/database/books-db/content-hash-index.ts')
 });
 function writable(value) {
   const listeners = new Set();
@@ -183,12 +184,22 @@ function memoryDB(initial = {}) {
                 dirty.add(name);
                 rows.delete(encoded(key));
               }),
-            index: (field) => ({
-              getAll: (value) =>
-                request('index', value, () =>
-                  [...rows.values()].filter((row) => row[field] === value)
-                )
-            }),
+            index: (field) => {
+              const entries = [...rows.values()]
+                .filter((row) => row[field] !== undefined)
+                .map((row) => ({ key: row[field], primaryKey: keyOf(name, row) }));
+              const cursor = async (position) => {
+                const entry = await request('index-key-cursor', field, () => entries[position]);
+                return entry ? { ...entry, continue: () => cursor(position + 1) } : null;
+              };
+              return {
+                getAll: (value) =>
+                  request('index', value, () =>
+                    [...rows.values()].filter((row) => row[field] === value)
+                  ),
+                openKeyCursor: () => cursor(0)
+              };
+            },
             async openCursor() {
               const values = await request('cursor', undefined, () => [...rows.values()]);
               const cursor = (index) =>

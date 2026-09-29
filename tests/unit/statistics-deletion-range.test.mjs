@@ -110,6 +110,7 @@ const statistics = load('functions/statistic-util.ts');
 const storage = load('data/storage/storage-types.ts');
 const { DatabaseService } = load('data/database/books-db/database.service.ts', {
   './commit-transaction.mjs': transactions,
+  './content-hash-index': load('data/database/books-db/content-hash-index.ts'),
   './reader-statistics': { statisticRange: (key) => bound([key], [key, []]) },
   '$lib/functions/statistic-util': statistics,
   '$lib/data/storage/storage-types': storage,

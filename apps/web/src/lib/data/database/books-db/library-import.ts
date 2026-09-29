@@ -11,11 +11,10 @@ import type { BookLink } from '../../../manabi/persistence';
 import {
   normalizedContentHash,
   resolveImportedBook,
-  type BookIdentityRecord,
   type BookIdentitySource
 } from '../../../library/book-identity.ts';
 import { commitTransaction, explainBookStorageError } from './commit-transaction.mjs';
-import { readIndexedBookMetadata } from './content-hash-index';
+import { readIndexedBookMetadata } from './content-hash-index.ts';
 
 export interface LibraryBookIdentity {
   id: number;

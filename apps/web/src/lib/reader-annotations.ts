@@ -97,6 +97,14 @@ async function bookAccountsFromStores(
   return result;
 }
 
+async function bookAccountFromStores(
+  bookKey: string,
+  books: Parameters<typeof readIndexedBookMetadata>[0],
+  scopes: BookScopeStore
+): Promise<string | null | undefined> {
+  return (await bookAccountsFromStores([bookKey], books, scopes)).get(bookKey);
+}
+
 async function bookAccounts(
   bookKeys: readonly string[]
 ): Promise<Map<string, string | null | undefined>> {
