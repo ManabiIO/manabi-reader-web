@@ -130,11 +130,13 @@ class VoicePitchBrowser(existing.WhispersyncBrowser):
         styles = self.strip.evaluate('''el => ({foreground: getComputedStyle(el).color,
           waveform: getComputedStyle(el.querySelector('.waveform')).fill,
           pitch: getComputedStyle(el.querySelector('.pitch')).stroke,
+          haloOutline: getComputedStyle(el.querySelector('.pitch-halo')).outlineStyle,
           writingMode: getComputedStyle(el).writingMode,
           width: el.getBoundingClientRect().width, viewport: innerWidth,
           buttonHeight: el.querySelector('button').getBoundingClientRect().height})''')
         self.assertEqual(styles['foreground'], styles['waveform'])
         self.assertEqual('rgb(255, 216, 61)', styles['pitch'])
+        self.assertEqual('none', styles['haloOutline'], 'global outline utility must not box the trace')
         self.assertEqual('horizontal-tb', styles['writingMode'])
         self.assertLessEqual(styles['width'], styles['viewport'])
         self.assertGreaterEqual(styles['buttonHeight'], 44)

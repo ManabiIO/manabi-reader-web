@@ -75,11 +75,11 @@
               aria-label="Audio waveform and yellow estimated voice pitch. Higher lines mean a higher voice. The most recent audio is on the right."
             >
               {#each PITCH_GUIDES as guide (guide.hz)}
-                <path class="grid" d={`M8 ${guide.y}H624`} />
+                <path class="pitch-grid" d={`M8 ${guide.y}H624`} />
               {/each}
               <path class="baseline" d="M8 52H624" />
               <path class="waveform" d={paths.waveform} />
-              <path class="outline" d={paths.pitch} />
+              <path class="pitch-halo" d={paths.pitch} />
               <path class="pitch" d={paths.pitch} />
               <path class="playhead" d="M624 8V98" />
               {#if paths.marker}
@@ -222,7 +222,7 @@
   .trace path {
     vector-effect: non-scaling-stroke;
   }
-  .grid,
+  .pitch-grid,
   .baseline,
   .playhead {
     fill: none;
@@ -230,7 +230,7 @@
     stroke-width: 0.5;
     opacity: 0.14;
   }
-  .grid {
+  .pitch-grid {
     stroke-dasharray: 2 5;
   }
   .baseline {
@@ -246,14 +246,14 @@
     stroke-opacity: 0.15;
     stroke-width: 0.75;
   }
-  .outline,
+  .pitch-halo,
   .pitch,
   .tip {
     fill: none;
     stroke-linecap: round;
     stroke-linejoin: round;
   }
-  .outline {
+  .pitch-halo {
     stroke: var(--foreground);
     stroke-width: 4;
     opacity: 0.32;
@@ -363,7 +363,7 @@
   @media (forced-colors: active) {
     .pitch,
     .tip,
-    .outline {
+    .pitch-halo {
       stroke: Highlight;
       opacity: 1;
     }
@@ -371,7 +371,7 @@
       fill: GrayText;
       stroke: GrayText;
     }
-    .grid,
+    .pitch-grid,
     .baseline,
     .playhead {
       stroke: CanvasText;
