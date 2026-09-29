@@ -164,13 +164,48 @@ class ModalControlsBrowser(LibraryBase):
 
     def test_onboarding_dialog_fits_short_viewports_and_larger_text(self):
         self.open_reader()
-        for width, height, font_size in ((320, 480, '125%'), (568, 320, '100%')):
-            with self.subTest(width=width):
+        for width, height, font_size in (
+            (320, 480, '125%'),
+            (568, 320, '100%'),
+            (320, 320, '200%'),
+        ):
+            with self.subTest(width=width, height=height, font_size=font_size):
                 self.page.set_viewport_size({'width': width, 'height': height})
                 self.page.evaluate('(size) => document.documentElement.style.fontSize = size', font_size)
                 panel = self.open_tool('Dictionary Setup')
                 self.check_modal(panel)
-                self.capture(f'modal-dictionary-{width}')
+
+                if font_size == '200%':
+                    controls = (
+                        panel.get_by_role('link', name='Get Manabitan', exact=True),
+                        panel.get_by_role('button', name='Use another extension', exact=True),
+                        panel.get_by_role('button', name='Not now', exact=True),
+                    )
+                    self.assertTrue(
+                        panel.evaluate('e => e.scrollHeight > e.clientHeight'),
+                        'The 200% onboarding fixture must genuinely overflow.'
+                    )
+                    for control in controls:
+                        control.scroll_into_view_if_needed()
+                        expect(control).to_be_visible()
+                        box = control.bounding_box()
+                        self.assertGreaterEqual(box['height'], 43.99, box)
+                        self.assertGreaterEqual(box['x'], -1, box)
+                        self.assertGreaterEqual(box['y'], -1, box)
+                        self.assertLessEqual(box['x'] + box['width'], width + 1, box)
+                        self.assertLessEqual(box['y'] + box['height'], height + 1, box)
+                        self.assertTrue(control.evaluate('''e => {
+                          const r=e.getBoundingClientRect();
+                          const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+                          return !!hit && (hit===e || e.contains(hit));
+                        }'''))
+                    # Dismissal must remain independently reachable after the
+                    # body has scrolled all the way to the final choice.
+                    close = self.check_modal(panel)
+                    close.focus()
+                    expect(close).to_be_focused()
+
+                self.capture(f'modal-dictionary-{width}-{height}-{font_size}')
                 panel.get_by_role('button', name='Not now', exact=True).click()
                 expect(panel).to_have_count(0)
         self.page.evaluate('document.documentElement.style.fontSize = ""')
