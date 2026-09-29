@@ -5,28 +5,27 @@
   import { BookOpen, FileText, Video } from '@lucide/svelte';
   import { localUser, localProfileUser } from '../manabi/client';
   import { videoLearningEnabled } from '../media/feature';
-  import type { VideoTranscriptBatch } from '../media/video-search';
-  import { formatMediaTime } from '../media/time';
   import { snippetItems, scope } from '../snippets/service';
   import { snippetKey, type SnippetHit } from '../snippets/document';
   import { searchBodies } from '../snippets/search';
-  import {
-    foldSearch,
-    searchMatchRange,
-    sortSearchText,
-    type SearchTextFields
-  } from '../library/search-normalization';
   import type { ShelfBook } from '../library/view-model';
   import type { ReaderLocator } from '../reader-location';
   import type { SnippetSummary } from '../snippets/summary';
   import SearchExcerpt from '../components/search-excerpt.svelte';
   import DictionarySearch from './dictionary-search.svelte';
-  import { searchBookContents, type BookSearchBatch } from './book-content-source';
+  import { searchBookContents } from './book-content-source';
+  import type { BookTitleMatchContext } from './book-title-match-text';
   import {
-    bookTitleMatchDetail,
-    bookTitleSearchFields,
-    type BookTitleMatchContext
-  } from './book-title-match-text';
+    bookTitleRows,
+    snippetTitleRows,
+    videoTitleRows,
+    sortTitleRows,
+    bookContentRows,
+    snippetContentRows,
+    videoContentRows,
+    type SearchRow
+  } from './result-rows';
+  import { startSearchSources, type SearchSource, type SearchResults } from './source-session';
   import { queryTask, type SearchState } from './query-task.mjs';
   import {
     librarySearchScopePlan,
@@ -44,30 +43,7 @@
   export let onquery: (query: string) => void;
   export let onscope: (scope: LibrarySearchScope) => void;
   type Filter = 'all' | 'dictionary' | 'titles' | 'content';
-  interface Row {
-    id: string;
-    kind: 'Book' | 'Video' | 'Snippet';
-    title: string;
-    label: string;
-    detail?: string;
-    detailMatch?: { start: number; end: number };
-    titleMatch?: { start: number; end: number };
-    /** Search-only metadata used for relevance; never rendered directly. */
-    searchText?: SearchTextFields;
-    excerpt?: string;
-    match?: { start: number; end: number };
-    open: () => void;
-  }
-  interface TitleResults {
-    rows: Row[];
-    failed: number;
-    truncated: boolean;
-  }
-  interface ContentResults {
-    rows: Row[];
-    failed: number;
-    truncated: boolean;
-  }
+  type Results = SearchResults<SearchRow>;
   const filters: { id: Filter; label: string }[] = [
     { id: 'all', label: 'All' },
     { id: 'dictionary', label: 'Dictionary' },
@@ -79,11 +55,11 @@
     signature = '',
     titleLimit = 30,
     contentLimit = 30;
-  let titles: SearchState<TitleResults> = { state: 'idle' };
-  let content: SearchState<ContentResults> = { state: 'idle' };
+  let titles: SearchState<Results> = { state: 'idle' };
+  let content: SearchState<Results> = { state: 'idle' };
   let results: HTMLElement;
   let focusGeneration = 0;
-  const titleTask = queryTask<TitleResults>((value) => {
+  const titleTask = queryTask<Results>((value) => {
     titles = value;
   });
   type LazyMediaRuntime = {
@@ -119,7 +95,7 @@
     }
     return runtime;
   }
-  const contentTask = queryTask<ContentResults>((value) => {
+  const contentTask = queryTask<Results>((value) => {
     content = value;
   });
   $: owner = $localUser?.id ?? null;
@@ -171,12 +147,11 @@
     if (hit) params.set('locator', JSON.stringify(hit.locator));
     void goto(resolve(`/snippets?${params}`));
   }
-  function mixMany<T>(...groups: T[][]): T[] {
-    const result: T[] = [];
-    const size = Math.max(0, ...groups.map((group) => group.length));
-    for (let index = 0; index < size; index++)
-      for (const group of groups) if (index < group.length) result.push(group[index]);
-    return result;
+  function openRow(row: SearchRow) {
+    const target = row.target;
+    if (target.kind === 'book') openBook(target.book, target.locator);
+    else if (target.kind === 'snippet') openSnippet(target.snippet, target.hit);
+    else openVideo(target.key, target.time, target.track);
   }
   function openVideo(key: string, time?: number, track?: string) {
     const params = new URLSearchParams({ media: key });
@@ -191,7 +166,7 @@
       selectedOwner = owner,
       selectedQuery = query,
       runVideos = videoLearningEnabled && searchScope === 'everything',
-      needle = foldSearch(selectedQuery.trim());
+      selectedBookMatchText = bookMatchText;
     titleTask.start(async (signal, publish) => {
       const guard = () => {
         signal.throwIfAborted();
@@ -209,55 +184,18 @@
       }
       // Metadata stays local and independent of dictionary initialization and
       // expensive body projection. Do not normalize the editable query to kana.
-      const bookRows: Row[] = selectedBooks.map((book) => {
-        const titleMatch = searchMatchRange(book.title, selectedQuery);
-        const detail = bookTitleMatchDetail(book, bookMatchText[book.key] ?? [], selectedQuery);
-        // Metadata reasons have a field label ("Author · "). Highlight the
-        // matched value, so a query for "author" does not light up that label.
-        const detailStart = !titleMatch && detail ? detail.indexOf(' · ') + 3 : 0;
-        const detailMatch = detail
-          ? searchMatchRange(detail.slice(detailStart), selectedQuery)
-          : undefined;
-        return {
-          id: `book:${book.key}`,
-          kind: 'Book',
-          title: book.title,
-          label: `Read ${book.title}`,
-          detail,
-          detailMatch: detailMatch
-            ? { start: detailMatch.start + detailStart, end: detailMatch.end + detailStart }
-            : undefined,
-          titleMatch,
-          searchText: bookTitleSearchFields(book, bookMatchText[book.key] ?? []),
-          open: () => openBook(book)
-        };
-      });
-      const snippetRows: Row[] = snippetScope
-        ? selectedSnippets
-            .filter((item) => foldSearch(item.title).includes(needle))
-            .map((item) => ({
-              id: `snippet:${item.key}`,
-              kind: 'Snippet',
-              title: item.title,
-              label: `Read snippet ${item.title}`,
-              titleMatch: searchMatchRange(item.title, selectedQuery),
-              open: () => openSnippet(item)
-            }))
-        : [];
+      const bookRows = bookTitleRows(selectedBooks, selectedBookMatchText, selectedQuery);
+      const snippetRows = snippetScope ? snippetTitleRows(selectedSnippets, selectedQuery) : [];
       guard();
       publish({
         state: 'loading',
         value: {
-          rows: sortSearchText(
-            [...bookRows, ...snippetRows],
-            selectedQuery,
-            (row) => row.searchText ?? row.title
-          ),
+          rows: sortTitleRows([...bookRows, ...snippetRows], selectedQuery),
           failed: snippetFailed,
           truncated: false
         }
       });
-      let videoRows: Row[] = [],
+      let videoRows: SearchRow[] = [],
         videoFailed = 0,
         videoTruncated = false;
       if (runVideos) {
@@ -272,15 +210,7 @@
           );
           guard();
           videoTruncated = result.truncated;
-          videoRows = result.hits.map((hit) => ({
-            id: `video:${hit.key}`,
-            kind: 'Video' as const,
-            title: hit.title,
-            label: `Open video ${hit.title}`,
-            detail: hit.duration > 0 ? formatMediaTime(hit.duration) : undefined,
-            titleMatch: searchMatchRange(hit.title, selectedQuery),
-            open: () => openVideo(hit.key)
-          }));
+          videoRows = videoTitleRows(result.hits, selectedQuery);
         } catch (error) {
           if (signal.aborted) throw error;
           guard();
@@ -291,11 +221,7 @@
       publish({
         state: 'ready',
         value: {
-          rows: sortSearchText(
-            [...bookRows, ...videoRows, ...snippetRows],
-            selectedQuery,
-            (row) => row.searchText ?? row.title
-          ),
+          rows: sortTitleRows([...bookRows, ...videoRows, ...snippetRows], selectedQuery),
           failed: snippetFailed + videoFailed,
           truncated: videoTruncated
         }
@@ -308,167 +234,67 @@
       selectedSnippets = plan.snippets ? [...eligible] : [],
       needle = query,
       selectedOwner = owner,
+      runVideos = videoLearningEnabled && searchScope === 'everything',
       selectedBooksById = new Map(
         selectedBooks.flatMap((book) => (book.bookId ? [[book.bookId, book] as const] : []))
       );
-    const runBooks = plan.books && selectedBooks.length > 0;
-    const runSnippets = plan.snippets && selectedSnippets.length > 0;
-    const runVideos = videoLearningEnabled && searchScope === 'everything';
-    contentTask.start(async (signal, publish) => {
+    contentTask.start((signal, publish) => {
       const guard = () => {
         signal.throwIfAborted();
         if (selectedOwner !== (localProfileUser()?.id ?? null))
           throw new DOMException('Account changed', 'AbortError');
       };
-      let snippetScope: ReturnType<typeof scope> | undefined;
-      let bookBatch: BookSearchBatch = {
-        hits: [],
-        busy: runBooks,
-        failed: 0,
-        truncated: false
-      };
-      let snippetHits = new Map<string, SnippetHit[]>(),
-        snippetBusy = runSnippets,
-        snippetFailed = 0,
-        snippetTruncated = false;
-      let videoBatch: VideoTranscriptBatch = {
-          hits: [],
-          failed: 0,
-          truncated: false,
-          scanned: 0,
-          total: 0
-        },
-        videoBusy = runVideos,
-        videoFailed = 0;
-      let stopBooks: (() => void) | undefined, stopSnippets: (() => void) | undefined;
-      const stop = () => {
-        stopBooks?.();
-        stopSnippets?.();
-        signal.removeEventListener('abort', stop);
-      };
-      signal.addEventListener('abort', stop, { once: true });
-      const update = () => {
-        if (signal.aborted) return;
-        guard();
-        const bookRows: Row[] = bookBatch.hits.flatMap((hit) => {
-          const book = selectedBooksById.get(hit.bookId);
-          return book
-            ? [
-                {
-                  id: `book:${book.key}:${hit.locator.resource.spineIndex}:${hit.locator.start}`,
-                  kind: 'Book' as const,
-                  title: book.title,
-                  label: `Open passage in ${book.title}: ${hit.locator.quote}`,
-                  detail: `Section ${hit.locator.resource.spineIndex + 1}`,
-                  excerpt: hit.excerpt,
-                  match: hit.excerptMatch,
-                  open: () => openBook(book, hit.locator)
-                }
-              ]
-            : [];
+      // Display order is Books, Videos, Snippets. Admission is independent;
+      // no source waits for a sibling's imports, descriptors or database reads.
+      const sources: SearchSource<SearchRow>[] = [];
+      if (plan.books && selectedBooks.length)
+        sources.push({
+          start: (signal, receive) =>
+            searchBookContents(needle, selectedBooks, selectedOwner, signal, (batch) =>
+              receive({ ...batch, rows: bookContentRows(batch.hits, selectedBooksById) })
+            )
         });
-        const videoRows: Row[] = videoBatch.hits.map((hit) => ({
-          id: `video:${hit.key}:${hit.trackId}:${hit.cueId}`,
-          kind: 'Video' as const,
-          title: hit.title,
-          label: `Open transcript in ${hit.title} at ${formatMediaTime(hit.time)}: ${hit.text}`,
-          detail: `${formatMediaTime(hit.time)} · ${hit.trackLabel || hit.language}`,
-          excerpt: hit.text,
-          match: hit.match,
-          open: () => openVideo(hit.key, hit.time, hit.trackId)
-        }));
-        const snippetRows: Row[] = selectedSnippets.flatMap((item) =>
-          (snippetHits.get(item.id) ?? []).map((hit) => ({
-            id: `snippet:${item.key}:${hit.locator.blockId}:${hit.locator.offset}`,
-            kind: 'Snippet' as const,
-            title: item.title,
-            label: `Open passage in ${item.title}: ${hit.locator.quote}`,
-            detail: hit.reading ? 'Furigana match' : undefined,
-            excerpt: hit.excerpt,
-            match: hit.excerptMatch,
-            open: () => openSnippet(item, hit)
-          }))
-        );
-        publish({
-          state: bookBatch.busy || snippetBusy || videoBusy ? 'loading' : 'ready',
-          value: {
-            rows: mixMany(bookRows, videoRows, snippetRows),
-            failed: bookBatch.failed + snippetFailed + videoBatch.failed + videoFailed,
-            truncated: bookBatch.truncated || snippetTruncated || videoBatch.truncated
+      if (runVideos)
+        sources.push({
+          start: async (signal, receive) => {
+            const media = await mediaRuntime();
+            signal.throwIfAborted();
+            const result = await media.search.searchVideoTranscripts(
+              media.store,
+              media.search.mediaScope(selectedOwner),
+              needle,
+              signal,
+              (batch) =>
+                receive({
+                  rows: videoContentRows(batch.hits),
+                  busy: batch.scanned < batch.total,
+                  failed: batch.failed,
+                  truncated: batch.truncated
+                })
+            );
+            receive({
+              rows: videoContentRows(result.hits),
+              busy: false,
+              failed: result.failed,
+              truncated: result.truncated
+            });
           }
         });
-      };
-      if (runSnippets) {
-        try {
-          snippetScope = scope();
-          stopSnippets = searchBodies(
-            needle,
-            selectedSnippets.map((item) => item.id),
-            snippetScope,
-            (batch) => {
-              snippetHits = batch.hits;
-              snippetBusy = batch.busy;
-              snippetFailed = batch.failed;
-              snippetTruncated = batch.truncated;
-              update();
-            }
-          );
-        } catch {
-          snippetBusy = false;
-          snippetFailed = 1;
-        }
-      }
-      if (runBooks) {
-        try {
-          stopBooks = await searchBookContents(
-            needle,
-            selectedBooks,
-            selectedOwner,
-            signal,
-            (batch) => {
-              bookBatch = batch;
-              update();
-            }
-          );
-        } catch (error) {
-          if (signal.aborted) {
-            stop();
-            throw error;
-          }
-          bookBatch = { ...bookBatch, busy: false, failed: 1 };
-        }
-      }
-      update();
-      if (runVideos) {
-        try {
-          const media = await mediaRuntime();
-          signal.throwIfAborted();
-          await media.search.searchVideoTranscripts(
-            media.store,
-            media.search.mediaScope(selectedOwner),
-            needle,
-            signal,
-            (batch) => {
-              videoBatch = batch;
-              videoBusy = batch.scanned < batch.total;
-              update();
-            }
-          );
-          videoBusy = false;
-          update();
-        } catch (error) {
-          if (signal.aborted) {
-            stop();
-            throw error;
-          }
-          videoBusy = false;
-          videoFailed = 1;
-          update();
-        }
-      }
-      return stop;
+      if (plan.snippets && selectedSnippets.length)
+        sources.push({
+          start: (_signal, receive) =>
+            searchBodies(
+              needle,
+              selectedSnippets.map((item) => item.id),
+              scope(),
+              (batch) =>
+                receive({ ...batch, rows: snippetContentRows(batch.hits, selectedSnippets) })
+            )
+        });
+      return startSearchSources(sources, signal, publish, guard);
     });
   }
+
   function start() {
     focusGeneration++;
     titleTask.stop();
@@ -581,7 +407,7 @@
               data-search-row="titles"
               aria-label={row.label}
               aria-describedby={`search-title-detail-${encodeURIComponent(row.id)}`}
-              onclick={row.open}
+              onclick={() => openRow(row)}
             >
               <span class="type-icon" aria-hidden="true"
                 >{#if row.kind === 'Book'}<BookOpen
@@ -637,7 +463,7 @@
               class="result-row passage"
               data-search-row="content"
               aria-label={row.label}
-              onclick={row.open}
+              onclick={() => openRow(row)}
             >
               <span class="type-icon" aria-hidden="true"
                 >{#if row.kind === 'Book'}<BookOpen

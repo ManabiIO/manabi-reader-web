@@ -53,6 +53,7 @@ export async function searchBookContents(
   let hits: ContentHit[] = [],
     stopped = false;
   const stop = () => {
+    if (stopped) return;
     stopped = true;
     worker.terminate();
     signal.removeEventListener('abort', stop);
@@ -85,6 +86,11 @@ export async function searchBookContents(
       stop();
     }
   };
-  worker.postMessage({ type: 'search', requestId: 1, books: descriptors, owner, query });
+  try {
+    worker.postMessage({ type: 'search', requestId: 1, books: descriptors, owner, query });
+  } catch (error) {
+    stop();
+    throw error;
+  }
   return stop;
 }

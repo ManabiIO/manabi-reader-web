@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { snippetSearchTooLong, type SnippetHit } from './document';
+import { snippetSearchTooLong, type SnippetHit } from './document.ts';
 import type { SnippetScope } from './scope';
 export interface SearchBatch {
   hits: Map<string, SnippetHit[]>;
@@ -30,6 +30,11 @@ export function searchBodies(
     return () => undefined;
   }
   const worker = new Worker(new URL('./search-worker.ts', import.meta.url), { type: 'module' });
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    worker.terminate();
+  };
   const fail = () => {
     if (stopped) return;
     try {
@@ -38,8 +43,7 @@ export function searchBodies(
     } catch {
       /* Retain local state; the next explicit refresh can retry. */
     }
-    worker.terminate();
-    stopped = true;
+    stop();
   };
   worker.onerror = fail;
   worker.onmessageerror = fail;
@@ -59,19 +63,17 @@ export function searchBodies(
         failed: data.failed,
         truncated: !!data.truncated
       });
-      if (data.type === 'done') {
-        worker.terminate();
-        stopped = true;
-      }
+      if (data.type === 'done') stop();
     } catch {
-      worker.terminate();
-      stopped = true;
+      stop();
     }
   };
-  receive({ hits: new Map(), busy: true, scanned: 0, failed: 0, truncated: false });
-  worker.postMessage({ requestId, owner: selected.owner, ids, query });
-  return () => {
-    stopped = true;
-    worker.terminate();
-  };
+  try {
+    receive({ hits: new Map(), busy: true, scanned: 0, failed: 0, truncated: false });
+    worker.postMessage({ requestId, owner: selected.owner, ids, query });
+  } catch (error) {
+    stop();
+    throw error;
+  }
+  return stop;
 }
