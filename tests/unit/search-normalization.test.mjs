@@ -53,15 +53,16 @@ test('metadata relevance positions count supplementary characters as one code po
   assert.deepEqual(values, ['🐱x cat trailing text', 'abc cat']);
 });
 
-test('primary title wins a same-tier match found only in secondary metadata', () => {
+test('literal title matches stay above metadata-only fallbacks', () => {
   const values = [
-    { id: 'secondary', fields: ['Dog guide', 'cat'] },
-    { id: 'primary', fields: ['cat'] }
+    { id: 'secondary', fields: { primary: ['Dog guide'], secondary: ['cat'] } },
+    { id: 'interior', fields: { primary: ['Copycat notes'], secondary: [] } },
+    { id: 'primary', fields: { primary: ['cat'], secondary: [] } }
   ];
   const sorted = sortSearchText(values, 'cat', (value) => value.fields);
   assert.deepEqual(
     sorted.map((value) => value.id),
-    ['primary', 'secondary']
+    ['primary', 'interior', 'secondary']
   );
 });
 
