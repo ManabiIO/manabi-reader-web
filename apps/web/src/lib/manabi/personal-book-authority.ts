@@ -11,6 +11,13 @@ import {
 
 export type PersonalBook = IndexedBookMetadata & { title: string; invalidOwner?: never };
 
+export class PersonalBookOwnershipError extends Error {
+  constructor() {
+    super('Book ownership changed while personal reading data was syncing. No reading state was changed.');
+    this.name = 'PersonalBookOwnershipError';
+  }
+}
+
 interface PersonalScopeStore {
   getAll(): Promise<{ bookId: number; accountId: string; hydrated?: boolean }[]>;
 }
@@ -61,9 +68,7 @@ export async function livePersonalCopies(
   }
 
   if (invalidOwner || owners.size !== 1 || !owners.has(accountId) || !live.length)
-    throw new Error(
-      'Book ownership changed while personal reading data was syncing. No reading state was changed.'
-    );
+    throw new PersonalBookOwnershipError();
   return live;
 }
 
