@@ -337,7 +337,7 @@ export class PitchController {
           );
           const id = ++this.sequence;
           this.pending = { id, time };
-          this.worker!.postMessage({ samples, rate: context.sampleRate, id, epoch: this.epoch }, [
+          this.worker!.postMessage({ type: 'analyze', samples, rate: context.sampleRate, id, epoch: this.epoch }, [
             samples.buffer
           ]);
           this.replyTimer = this.environment.setTimer(() => {
