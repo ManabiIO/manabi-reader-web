@@ -67,9 +67,14 @@ async function bookAccountsFromStores(
   if (!content.size) return result;
 
   const owners = new Map<string, Set<string>>();
+  const invalid = new Set<string>();
   for (const book of await readIndexedBookMetadata(books)) {
     const key = `content:${book.contentHash}`;
     if (!content.has(key)) continue;
+    if (book.invalidOwner) {
+      invalid.add(key);
+      continue;
+    }
     const values = owners.get(key) ?? new Set<string>();
     const scope = await scopes.get(book.id);
     if (scope) values.add(scope.accountId);
@@ -77,6 +82,10 @@ async function bookAccountsFromStores(
     owners.set(key, values);
   }
   for (const key of content) {
+    if (invalid.has(key)) {
+      result.set(key, undefined);
+      continue;
+    }
     const values = owners.get(key) ?? new Set<string>();
     result.set(key, values.size === 1 ? [...values][0] : values.size === 0 ? null : undefined);
   }
