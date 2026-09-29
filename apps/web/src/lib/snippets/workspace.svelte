@@ -1596,20 +1596,33 @@
     }
     .secondary-actions-menu {
       display: block;
+      padding-block: 6px 10px;
     }
     .heading {
       align-items: start;
       flex-direction: column;
+      gap: 12px;
+      margin-block: 20px;
+    }
+    .heading > .actions {
+      gap: 8px;
+    }
+    .heading > .actions :global(button) {
+      padding-inline: 16px;
     }
     .search-row {
       align-items: stretch;
       flex-direction: column;
     }
     .snippet-workspace {
-      padding-inline: 1rem;
+      padding-inline: 16px;
     }
     .top {
-      padding-bottom: 0.5rem;
+      gap: 12px;
+      padding-block: 8px;
+    }
+    .brand {
+      flex: 1 1 100%;
     }
     .draft {
       align-items: start;
