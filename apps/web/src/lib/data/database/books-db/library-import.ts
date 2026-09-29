@@ -11,10 +11,10 @@ import type { BookLink } from '../../../manabi/persistence';
 import {
   normalizedContentHash,
   resolveImportedBook,
-  type BookIdentityRecord,
   type BookIdentitySource
 } from '../../../library/book-identity.ts';
 import { commitTransaction, explainBookStorageError } from './commit-transaction.mjs';
+import { readIndexedBookMetadata } from './content-hash-index.ts';
 
 export interface LibraryBookIdentity {
   id: number;
@@ -50,60 +50,25 @@ export async function readLibraryIdentities(db: IDBPDatabase<BooksDb>) {
   return commitTransaction(tx, () => readIdentities(tx.store));
 }
 
-interface IdentityKeyCursor {
-  key: IDBValidKey;
-  primaryKey: IDBValidKey;
-  continue(): Promise<IdentityKeyCursor | null>;
-}
-interface IdentityKeyIndex {
-  openKeyCursor(): Promise<IdentityKeyCursor | null>;
-}
-interface IndexedIdentityStore {
-  index(name: 'contentHash' | 'libraryOwner'): IdentityKeyIndex;
-}
-async function readIndexedIdentities(store: IndexedIdentityStore): Promise<BookIdentityRecord[]> {
-  const hashes = new Map<number, string>();
-  const owners = new Map<number, string>();
-  const invalidOwners = new Set<number>();
-  const readHashes = async () => {
-    for (
-      let cursor = await store.index('contentHash').openKeyCursor();
-      cursor;
-      cursor = await cursor.continue()
-    ) {
-      if (typeof cursor.primaryKey !== 'number' || !Number.isSafeInteger(cursor.primaryKey))
-        continue;
-      const hash = normalizedContentHash(cursor.key);
-      if (hash) hashes.set(cursor.primaryKey, hash);
-    }
-  };
-  const readOwners = async () => {
-    for (
-      let cursor = await store.index('libraryOwner').openKeyCursor();
-      cursor;
-      cursor = await cursor.continue()
-    ) {
-      if (typeof cursor.primaryKey !== 'number' || !Number.isSafeInteger(cursor.primaryKey))
-        continue;
-      if (typeof cursor.key === 'string') owners.set(cursor.primaryKey, cursor.key);
-      else invalidOwners.add(cursor.primaryKey);
-    }
-  };
-  // Queue both index walks before either can let this transaction become idle.
-  await Promise.all([readHashes(), readOwners()]);
-  return [...hashes].flatMap(([id, contentHash]) =>
-    invalidOwners.has(id)
-      ? []
-      : [{ id, contentHash, ...(owners.has(id) ? { libraryOwner: owners.get(id)! } : {}) }]
-  );
-}
-
 /** Compact identity projection: index cursors expose keys/primary keys only and
  * never clone stored HTML, covers or EPUB resource buffers into JavaScript.
  */
 export async function readIndexedBookIdentities(db: IDBPDatabase<BooksDb>) {
   const tx = db.transaction('data');
-  return commitTransaction(tx, () => readIndexedIdentities(tx.store));
+  return commitTransaction(tx, async () =>
+    (await readIndexedBookMetadata(tx.store)).flatMap(
+      ({ id, contentHash, libraryOwner, invalidOwner }) =>
+        invalidOwner
+          ? []
+          : [
+              {
+                id,
+                contentHash,
+                ...(libraryOwner !== undefined ? { libraryOwner } : {})
+              }
+            ]
+    )
+  );
 }
 
 export interface LibraryImportIdentity {
@@ -144,7 +109,18 @@ export async function commitLibraryBook(
     return await commitTransaction(tx, async () => {
       assertCurrent();
       signal?.throwIfAborted();
-      const records = await readIndexedIdentities(tx.store);
+      const records = (await readIndexedBookMetadata(tx.store)).flatMap(
+        ({ id, contentHash, libraryOwner, invalidOwner }) =>
+          invalidOwner
+            ? []
+            : [
+                {
+                  id,
+                  contentHash,
+                  ...(libraryOwner !== undefined ? { libraryOwner } : {})
+                }
+              ]
+      );
       const selected = resolveImportedBook(
         records,
         links,

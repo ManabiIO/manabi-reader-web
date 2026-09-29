@@ -13,6 +13,7 @@ import {
   visibleStatistics
 } from './reader-statistics';
 import { commitTransaction, explainBookStorageError } from './commit-transaction.mjs';
+import { contentHashPrimaryKeys, type ContentHashIndex } from './content-hash-index';
 import {
   matchesDirectImportIdentity,
   normalizedDirectImportHash,
@@ -63,13 +64,7 @@ import { throwIfAborted } from '$lib/functions/replication/replication-error';
 
 const LAST_ITEM_KEY = 0;
 
-interface DirectImportKeyCursor {
-  key: IDBValidKey;
-  primaryKey: IDBValidKey;
-  continue(): Promise<DirectImportKeyCursor | null>;
-}
-interface DirectImportIndex {
-  openKeyCursor(): Promise<DirectImportKeyCursor | null>;
+interface DirectImportIndex extends ContentHashIndex {
   getAllKeys(query: string): Promise<IDBValidKey[]>;
 }
 interface DirectImportDataStore {
@@ -112,14 +107,16 @@ async function selectDirectImportRecord(
   };
 
   if (incomingHash) {
-    const index = store.index('contentHash');
-    for (let cursor = await index.openKeyCursor(); cursor; cursor = await cursor.continue()) {
+    const ids = await contentHashPrimaryKeys(
+      store.index('contentHash'),
+      incomingHash,
+      assertCurrent,
+      signal
+    );
+    for (const id of ids) {
       assertCurrent();
       throwIfAborted(signal);
-      if (normalizedDirectImportHash(cursor.key) !== incomingHash) continue;
-      if (typeof cursor.primaryKey !== 'number' || !Number.isSafeInteger(cursor.primaryKey))
-        continue;
-      const candidate = await store.get(cursor.primaryKey);
+      const candidate = await store.get(id);
       assertCurrent();
       throwIfAborted(signal);
       if (candidate) await remember(candidate);
@@ -707,24 +704,15 @@ export class DatabaseService {
           const local = await tx.objectStore('readerLocalIdentity').get(dataId);
           if (local) keys.add(`local:${local.uuid}`);
           if (contentKey) {
-            // Renamed copies can share one content identity. Do not remove their
-            // history while another copy remains, and do not retain all payloads
-            // at once just to inspect identity metadata.
-            let hasOtherCopy = false;
-            for (
-              let cursor = await tx.objectStore('data').openCursor();
-              cursor;
-              cursor = await cursor.continue()
-            ) {
-              if (
-                cursor.primaryKey !== dataId &&
-                contentStatisticKey(cursor.value) === contentKey
-              ) {
-                hasOtherCopy = true;
-                break;
-              }
-            }
-            if (!hasOtherCopy) keys.add(contentKey);
+            // Use the content index rather than cloning every stored EPUB merely
+            // to decide whether this logical history still has another copy.
+            const copies = await contentHashPrimaryKeys(
+              tx.objectStore('data').index('contentHash'),
+              book.contentHash!,
+              assertCurrent,
+              signal
+            );
+            if (!copies.some((id) => id !== dataId)) keys.add(contentKey);
           }
           for (const key of keys) {
             await tx.objectStore('readerStatistic').delete(statisticRange(key));

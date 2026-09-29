@@ -58,14 +58,24 @@ function decode(value: Record<string, unknown> | null, id: string): ReadingState
     throw new Error('Unsupported snippet reading state. The original has been kept.');
   return value as ReadingState;
 }
+/** Older records used readAt for both visits and positions. Freeze that fallback
+ * before a visit changes readAt; no database-version or remote-envelope change is needed. */
+function progressTime(record: SnippetRecord): number {
+  return record.progress ? (record.progressAt ?? record.readAt ?? 0) : 0;
+}
+function sameProgress(a: SnippetRecord, b: SnippetRecord): boolean {
+  return progressTime(a) === progressTime(b) && canonical(a.progress) === canonical(b.progress);
+}
 export async function saveProgress(id: string, locator: SnippetLocator, selected: SnippetScope) {
   if (!validLocator(locator)) throw new Error('Invalid reading location.');
   await mutateRecord(selected.owner, id, selected.guard, (current) => {
     if (!current) throw new Error('Snippet no longer exists.');
+    const changedAt = Math.max(Date.now(), progressTime(current) + 1);
     return {
       ...current,
       progress: structuredClone(locator),
-      readAt: Math.max(Date.now(), (current.readAt ?? 0) + 1),
+      readAt: Math.max(changedAt, (current.readAt ?? 0) + 1),
+      progressAt: changedAt,
       progressDirty: !!current.destination
     };
   });
@@ -80,7 +90,9 @@ export async function touchReading(id: string, selected: SnippetScope) {
       current && {
         ...current,
         readAt: Math.max(Date.now(), (current.readAt ?? 0) + 1),
-        progressDirty: !!current.destination && !!current.progress
+        // A visit is not a scroll. Re-publishing the cached cursor here could
+        // overwrite a newer remote position while the initial refresh is pending.
+        progressAt: current.progress ? progressTime(current) : undefined
       }
   );
 }
@@ -120,12 +132,13 @@ export async function syncReading(id: string, selected: SnippetScope, target?: L
   selected.guard();
   if (!here) return;
   requireStorage(here);
-  if (here.progress && here.readAt && (here.progressDirty || target)) {
+  if (here.progress && (here.progressDirty || target)) {
     const value: ReadingState = {
       format: 'manabi-snippet-reading',
       version: 1,
       id,
-      readAt: here.readAt,
+      // Keep the v1 wire field, but give it only the position's timestamp.
+      readAt: progressTime(here),
       locator: here.progress
     };
     // A transfer takes the most recent known reading intent, not a stale local percentage.
@@ -141,20 +154,29 @@ export async function syncReading(id: string, selected: SnippetScope, target?: L
       requireStorage(latest);
       return {
         ...latest,
-        ...(latest.readAt === here.readAt
-          ? { progress: winner.locator, readAt: winner.readAt, progressDirty: false }
+        ...(sameProgress(latest, here)
+          ? {
+              progress: winner.locator,
+              progressAt: winner.readAt,
+              readAt: Math.max(latest.readAt ?? 0, winner.readAt),
+              progressDirty: false
+            }
           : {}),
         stateCheckedAt: Date.now(),
         progressToken: result.revision
       };
     });
-  } else if (remoteState && (!here.readAt || remoteState.readAt > here.readAt)) {
+  } else if (remoteState && (!here.progress || remoteState.readAt > progressTime(here))) {
     await mutateRecord(selected.owner, id, selected.guard, (latest) => {
       requireStorage(latest);
       return {
         ...latest,
-        ...(!latest.progressDirty && (latest.readAt ?? 0) < remoteState.readAt
-          ? { progress: remoteState.locator, readAt: remoteState.readAt }
+        ...(!latest.progressDirty && (!latest.progress || progressTime(latest) < remoteState.readAt)
+          ? {
+              progress: remoteState.locator,
+              progressAt: remoteState.readAt,
+              readAt: Math.max(latest.readAt ?? 0, remoteState.readAt)
+            }
           : {}),
         stateCheckedAt: Date.now(),
         progressToken: remote.revision

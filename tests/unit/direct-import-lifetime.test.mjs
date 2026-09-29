@@ -56,6 +56,7 @@ function load(path, dependencies = {}) {
 }
 
 const identity = load('data/database/books-db/direct-import-identity.ts');
+const contentHashIndex = load('data/database/books-db/content-hash-index.ts');
 const cancellation = load('functions/replication/replication-error.ts');
 const behavior = { NewOnly: 1, Overwrite: 2 };
 const hash = 'a'.repeat(64);
@@ -244,6 +245,7 @@ function fixture({
     },
     './commit-transaction.mjs': transactions,
     './direct-import-identity': identity,
+    './content-hash-index': contentHashIndex,
     '$lib/manabi/operation-scope': operation,
     '$lib/functions/replication/replication-error': cancellation,
     '$lib/functions/replication/replication-options': { ReplicationSaveBehavior: behavior }
