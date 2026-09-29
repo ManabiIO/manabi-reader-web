@@ -14,7 +14,7 @@ import { readIndexedBookMetadata } from '$lib/data/database/books-db/content-has
 import {
   livePersonalCopies,
   planPersonalBookClaims,
-  PersonalBookOwnershipError,
+  tryLivePersonalCopies,
   type PersonalBook
 } from './personal-book-authority';
 import type {
@@ -876,20 +876,17 @@ async function stageReading(accountId: string, books: Map<string, PersonalBook[]
         ['data', 'readerBookScope', 'readerPersonalOutbox', 'readerPersonalConflict'],
         'readwrite'
       );
-      try {
-        await livePersonalCopies(
-          bookKey,
-          books.get(bookKey) ?? [],
-          tx.objectStore('data'),
-          tx.objectStore('readerBookScope'),
-          accountId,
-          () => scoped(accountId)
-        );
-      } catch (error) {
-        await tx.done.catch(() => undefined);
-        scoped(accountId);
-        if (error instanceof PersonalBookOwnershipError) continue;
-        throw error;
+      const live = await tryLivePersonalCopies(
+        bookKey,
+        books.get(bookKey) ?? [],
+        tx.objectStore('data'),
+        tx.objectStore('readerBookScope'),
+        accountId,
+        () => scoped(accountId)
+      );
+      if (!live) {
+        await tx.done;
+        continue;
       }
       if (await tx.objectStore('readerPersonalConflict').get(id)) {
         await tx.done;
@@ -971,24 +968,17 @@ async function hasLivePersonalAuthority(
   const db = await database.db;
   scoped(accountId);
   const tx = db.transaction(['data', 'readerBookScope']);
-  try {
-    await livePersonalCopies(
-      bookKey,
-      copies,
-      tx.objectStore('data'),
-      tx.objectStore('readerBookScope'),
-      accountId,
-      () => scoped(accountId)
-    );
-    scoped(accountId);
-    await tx.done;
-    return true;
-  } catch (error) {
-    await tx.done.catch(() => undefined);
-    scoped(accountId);
-    if (error instanceof PersonalBookOwnershipError) return false;
-    throw error;
-  }
+  const live = await tryLivePersonalCopies(
+    bookKey,
+    copies,
+    tx.objectStore('data'),
+    tx.objectStore('readerBookScope'),
+    accountId,
+    () => scoped(accountId)
+  );
+  scoped(accountId);
+  await tx.done;
+  return !!live;
 }
 
 async function bindMutation(accountId: string, mutation: WireMutation): Promise<WireMutation> {
