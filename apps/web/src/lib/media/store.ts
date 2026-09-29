@@ -774,66 +774,112 @@ export class MediaStore {
     }
   }
 
+  /** Read and validate track manifests without hydrating caption pages.
+   * Search can reuse this one bounded metadata scan across every video instead
+   * of rescanning the same manifest range once per title.
+   */
+  trackManifests(scope: Scope, signal?: AbortSignal): Promise<Replica[]> {
+    return this.tx(
+      'records',
+      'readonly',
+      (store, done, fail) => {
+        const request = store.getAll(range(scope, 'video_track'));
+        request.onsuccess = () => {
+          try {
+            const manifests: Replica[] = [];
+            for (const row of request.result as Replica[]) {
+              if (row?.scope !== scope || row.kind !== 'video_track')
+                throw new Error('Invalid local subtitle manifest scope');
+              if (row.payload === null) continue;
+              validatePayload(row.kind, row.id, row.mediaKey, row.payload);
+              manifests.push(row);
+            }
+            done(manifests);
+          } catch (error) {
+            fail(error);
+          }
+        };
+      },
+      false,
+      signal
+    );
+  }
+
   /** Read a consistent manifest/page snapshot for ONE video. Do not fetch all
    * of the account's transcript bodies on every playback/library notification.
-   * Requests created inside onsuccess keep the native IDB transaction active;
-   * no asynchronous work escapes between reading manifests and their pages.
+   * A caller that already owns a validated manifest snapshot can provide it to
+   * avoid another full manifest-range scan.
    */
-  tracks(scope: Scope, mediaKey: ContentKey, signal?: AbortSignal): Promise<Track[]> {
-    return this.tx('records', 'readonly', (store, done, fail) => {
-      const manifests = store.getAll(range(scope, 'video_track'));
-      manifests.onsuccess = () => {
-        try {
-          const selected: Replica[] = [];
-          for (const row of manifests.result as Replica[]) {
-            if (row?.scope !== scope || row.kind !== 'video_track')
-              throw new Error('Invalid local subtitle manifest scope');
-            if (row.mediaKey !== mediaKey || row.payload === null) continue;
-            validatePayload(row.kind, row.id, row.mediaKey, row.payload);
-            selected.push(row);
-          }
-          const pages: Replica[] = [];
-          const required = selected.flatMap((row) =>
-            (row.payload!.pages as { id: string }[]).map((page) => page.id)
-          );
-          let remaining = required.length;
-          const finish = () =>
-            done(
-              selected
-                .map((row) => assembleTrack(row, pages))
-                .filter((track): track is Track => !!track)
+  tracks(
+    scope: Scope,
+    mediaKey: ContentKey,
+    signal?: AbortSignal,
+    manifestSnapshot?: readonly Replica[]
+  ): Promise<Track[]> {
+    return this.tx(
+      'records',
+      'readonly',
+      (store, done, fail) => {
+        const readPages = (manifests: readonly Replica[]) => {
+          try {
+            const selected = manifests.filter((row) => {
+              if (row.scope !== scope || row.kind !== 'video_track')
+                throw new Error('Invalid local subtitle manifest scope');
+              if (row.payload === null) return false;
+              validatePayload(row.kind, row.id, row.mediaKey, row.payload);
+              return row.mediaKey === mediaKey;
+            });
+            const pages: Replica[] = [];
+            const required = selected.flatMap((row) =>
+              (row.payload!.pages as { id: string }[]).map((page) => page.id)
             );
-          if (!remaining) {
-            finish();
-            return;
-          }
-          for (const id of required) {
-            const request = store.get(key(scope, 'video_chunk', id));
-            request.onsuccess = () => {
-              try {
-                const row: Replica | undefined = request.result;
-                if (row) {
-                  if (
-                    row.scope !== scope ||
-                    row.kind !== 'video_chunk' ||
-                    row.id !== id ||
-                    row.mediaKey !== mediaKey
-                  )
-                    throw new Error('Invalid local subtitle page identity');
-                  validatePayload(row.kind, row.id, row.mediaKey, row.payload);
-                  pages.push(row);
+            let remaining = required.length;
+            const finish = () =>
+              done(
+                selected
+                  .map((row) => assembleTrack(row, pages))
+                  .filter((track): track is Track => !!track)
+              );
+            if (!remaining) {
+              finish();
+              return;
+            }
+            for (const id of required) {
+              const request = store.get(key(scope, 'video_chunk', id));
+              request.onsuccess = () => {
+                try {
+                  const row: Replica | undefined = request.result;
+                  if (row) {
+                    if (
+                      row.scope !== scope ||
+                      row.kind !== 'video_chunk' ||
+                      row.id !== id ||
+                      row.mediaKey !== mediaKey
+                    )
+                      throw new Error('Invalid local subtitle page identity');
+                    validatePayload(row.kind, row.id, row.mediaKey, row.payload);
+                    pages.push(row);
+                  }
+                  if (--remaining === 0) finish();
+                } catch (error) {
+                  fail(error);
                 }
-                if (--remaining === 0) finish();
-              } catch (e) {
-                fail(e);
-              }
-            };
+              };
+            }
+          } catch (error) {
+            fail(error);
           }
-        } catch (e) {
-          fail(e);
+        };
+        if (manifestSnapshot) {
+          readPages(manifestSnapshot);
+          return;
         }
-      };
-    }, false, signal);
+        const request = store.getAll(range(scope, 'video_track'));
+        request.onsuccess = () => readPages(request.result as Replica[]);
+      },
+      false,
+      signal
+    );
   }
   close(): Promise<void> {
     if (this.closing) return this.closing;
