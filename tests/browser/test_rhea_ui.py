@@ -93,7 +93,7 @@ class RheaReader(previous.RefinedAppearance):
                 expect(toolbar).to_have_count(0)
 
     def test_enlarged_reader_toolbar_stays_reachable_in_a_short_phone_viewport(self):
-        self.open_book(font='Klee One')
+        self.open_chaptered_reader()
         self.wait_for_fonts()
         self.page.set_viewport_size({'width': 320, 'height': 320})
         self.page.evaluate('document.documentElement.style.fontSize = "200%"')
@@ -122,8 +122,15 @@ class RheaReader(previous.RefinedAppearance):
               return !!hit && (hit === e || e.contains(hit));
             }'''))
 
-        for name in ('Library', 'Bookmarks and Notes', 'Themes & Settings', 'Reading tools'):
+        for name in (
+            'Library', 'Contents', 'Bookmarks and Notes', 'Themes & Settings', 'Reading tools'
+        ):
             assert_target(toolbar.get_by_role('button', name=name, exact=True))
+        fullscreen = toolbar.get_by_role(
+            'button', name='Enter Fullscreen', exact=True
+        )
+        if fullscreen.count():
+            assert_target(fullscreen)
         progress = self.page.locator('button[title="Copy Progress"]')
         assert_target(progress)
 
