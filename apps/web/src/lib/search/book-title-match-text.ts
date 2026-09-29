@@ -39,7 +39,10 @@ function matchingSeriesText(
     if (node.kind !== 'series') continue;
     if (foldSearch(node.name).includes(search))
       for (const book of node.books)
-        add(result, book.key, { text: node.name, detail: `Series · ${node.name}` });
+        add(result, book.key, {
+          text: node.name,
+          detail: `${node.personal ? 'Series' : 'Folder'} · ${node.name}`
+        });
     matchingSeriesText(node.children, search, result);
   }
 }
