@@ -198,9 +198,8 @@ class UnifiedSearch(ProductJourneyBase):
         self.assertTrue(kinds.nth(0).inner_text().startswith('Video'))
         self.assertEqual('Book · Author · cat', kinds.nth(4).inner_text())
         self.assertTrue(all(kinds.nth(index).inner_text().startswith('Book') for index in range(1, 5)))
-        expect(rows.nth(4)).to_have_attribute(
-            'aria-label', 'Read Dog guide. Matched Author · cat'
-        )
+        expect(rows.nth(4)).to_have_attribute('aria-label', 'Read Dog guide')
+        expect(rows.nth(4)).to_have_accessible_description('Book · Author · cat')
         expect(rows.nth(0).locator('mark')).to_have_text('cat')
         expect(rows.nth(4).locator('mark')).to_have_count(0)
         self.checkpoint('unified-title-relevance')
