@@ -224,8 +224,9 @@ class SettingsEditorUsabilityBrowser(LibraryBase):
             }'''))
 
         assert_close_reachable()
-        panel.evaluate('e => e.scrollTop = e.scrollHeight')
-        self.page.wait_for_function('e => e.scrollTop > 0', arg=panel.element_handle())
+        navigation = panel.get_by_role('navigation', name='Main navigation')
+        navigation.evaluate('e => e.scrollTop = e.scrollHeight')
+        self.page.wait_for_function('e => e.scrollTop > 0', arg=navigation.element_handle())
         expect(panel.get_by_role('link', name='User guide', exact=True)).to_be_visible()
         self.assertLessEqual(panel.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
         assert_close_reachable()
