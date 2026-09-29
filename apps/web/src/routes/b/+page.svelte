@@ -1633,11 +1633,13 @@
     const manifest = $rawBookData$?.publicationManifest;
     try {
       // Capture before focus moves into the sheet; the DOM selection is ephemeral.
+      const sourceURL = new URL($page.url.origin + $page.url.pathname);
+      if ($rawBookData$?.id) sourceURL.searchParams.set('id', String($rawBookData$.id));
       snippetCapture = {
         html: bookReaderComponent.captureSnippetHTML(lastSelectedRange),
         title: $rawBookData$?.title ?? '',
         item: readerBookKey,
-        url: window.location.href,
+        url: sourceURL.href,
         owner: localProfileUser()?.id ?? null
       };
       annotationSelection = await bookReaderComponent.captureReaderSelection(
