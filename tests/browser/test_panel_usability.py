@@ -53,7 +53,8 @@ class PanelUsabilityBrowser(LibraryBase):
         }''')
         self.page.wait_for_function('''e => {
           const day = e.querySelector('button[data-date]:not(:disabled)');
-          const expected = Math.max(15, Math.floor((e.clientWidth - 56) / 57));
+          const minimum = e.clientWidth <= 640 ? 44 : 15;
+          const expected = Math.max(minimum, Math.floor((e.clientWidth - 56) / 57));
           return day && parseFloat(getComputedStyle(day).width) === expected;
         }''', arg=grid.element_handle())
         self.frames()
@@ -313,26 +314,47 @@ class PanelUsabilityBrowser(LibraryBase):
         expect(grid.locator('[data-date="2024-01-01"]')).to_have_count(1)
         expect(panel).to_have_count(0)
 
-    def test_heatmap_cells_shrink_and_month_columns_follow_the_new_calendar(self):
+    def test_compact_heatmap_uses_touch_sized_scrolling_cells_and_correct_month_columns(self):
         self.seed_statistics()
         self.page.set_viewport_size({'width': 2400, 'height': 1000})
         grid = self.heatmap()
         day = grid.locator('[data-date="2026-09-01"]')
         self.settle_calendar(grid)
-        large = day.bounding_box()['width']
-        self.assertGreater(large, 15)
+        desktop = day.bounding_box()['width']
+        self.assertGreater(desktop, 15)
+
         self.page.set_viewport_size({'width': 390, 'height': 844})
-        self.page.wait_for_function('e => e.getBoundingClientRect().width <= 15.1', arg=day.element_handle())
         self.settle_calendar(grid)
-        self.assertGreater(large, day.bounding_box()['width'])
+        compact = day.bounding_box()
+        self.assertGreaterEqual(compact['width'], 43.99)
+        self.assertGreaterEqual(compact['height'], 43.99)
+        self.assertGreater(grid.evaluate('e => e.scrollWidth'), grid.evaluate('e => e.clientWidth'))
+        self.assertTrue(day.evaluate('''e => {
+          const r=e.getBoundingClientRect();
+          const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+          return !!hit && (hit===e || e.contains(hit));
+        }'''))
+
+        # Arrow navigation must still bring a distant week into the horizontal
+        # viewport now that compact cells prioritize touch size over compression.
+        day.focus()
+        before = grid.evaluate('e => e.scrollLeft')
+        for _ in range(8):
+            self.page.keyboard.press('ArrowRight')
+        focused = grid.locator(':focus')
+        self.assertTrue(focused.get_attribute('data-date'))
+        self.assertGreaterEqual(grid.evaluate('e => e.scrollLeft'), before)
+
         grid.evaluate('e => { e.scrollLeft = 0; }')
         self.page.get_by_role('button', name='Previous heatmap period', exact=True).first.click()
         expect(grid.locator('[data-date="2025-01-01"]')).to_have_count(1)
         for month, label in ((1, 'Jan'), (2, 'Feb'), (9, 'Sep'), (12, 'Dec')):
             first = grid.locator(f'[data-date="2025-{month:02d}-01"]')
             expected = first.evaluate('e => parseInt(getComputedStyle(e).gridColumnStart) + 1')
-            actual = grid.get_by_text(label, exact=True).evaluate('e => parseInt(getComputedStyle(e).gridColumnStart)')
+            actual = grid.get_by_text(label, exact=True).evaluate(
+                'e => parseInt(getComputedStyle(e).gridColumnStart)')
             self.assertEqual(expected, actual)
+        self.capture('heatmap-touch-sized-cells')
 
     def test_enlarged_heatmap_toolbar_does_not_crush_the_year_between_buttons(self):
         self.seed_statistics()
