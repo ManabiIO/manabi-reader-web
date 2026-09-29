@@ -63,6 +63,15 @@ function matchKey(value: string, needle: string): SearchMatchKey {
 
 const compareStableText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
+function bestKey(values: readonly string[], needle: string): SearchMatchKey {
+  let best = matchKey(values[0] ?? '', needle);
+  for (let index = 1; index < values.length; index++) {
+    const candidate = matchKey(values[index], needle);
+    if (compareKeys(candidate, best) < 0) best = candidate;
+  }
+  return best;
+}
+
 function compareKeys(a: SearchMatchKey, b: SearchMatchKey): number {
   return (
     a.tier - b.tier ||
@@ -87,13 +96,20 @@ export function compareSearchText(left: string, right: string, query: string): n
 export function sortSearchText<T>(
   values: readonly T[],
   query: string,
-  text: (value: T) => string,
+  text: (value: T) => string | readonly string[],
   tie: (left: T, right: T) => number = () => 0
 ): T[] {
   const needle = foldSearch(query.trim());
   if (!needle) return [...values];
   return values
-    .map((value, order) => ({ value, order, key: matchKey(text(value), needle) }))
+    .map((value, order) => {
+      const fields = text(value);
+      return {
+        value,
+        order,
+        key: bestKey(typeof fields === 'string' ? [fields] : fields, needle)
+      };
+    })
     .sort((a, b) => compareKeys(a.key, b.key) || tie(a.value, b.value) || a.order - b.order)
     .map(({ value }) => value);
 }
