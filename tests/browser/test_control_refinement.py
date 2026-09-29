@@ -156,6 +156,60 @@ class ControlRefinementBrowser(modal_controls.ModalControlsBrowser):
         expect(panel.get_by_role('searchbox')).to_have_value('文章')
         expect(panel.get_by_text('180 results', exact=True)).to_be_visible()
 
+
+    def test_reader_tool_round_trips_never_leave_focus_in_a_closed_surface(self):
+        self.open_reader()
+        controls = self.page.locator('button[data-reader-controls]')
+
+        panel = self.open_tool('Search Book')
+        search = panel.get_by_role('searchbox', name='Search within book', exact=True)
+        search.focus()
+        expect(search).to_be_focused()
+        search.press('Escape')
+        expect(panel).to_have_count(0)
+        expect(controls).to_be_focused()
+        expect(self.page.get_by_role('menu')).to_have_count(0)
+
+        panel = self.open_tool('Browse Book')
+        slider = panel.get_by_role('slider', name='Book position', exact=True)
+        slider.focus()
+        expect(slider).to_be_focused()
+        slider.press('Escape')
+        expect(panel).to_have_count(0)
+        expect(controls).to_be_focused()
+        expect(self.page.get_by_role('menu')).to_have_count(0)
+
+        panel = self.open_tool('Jump to Position')
+        field = panel.get_by_role('spinbutton', name='Jump to Position', exact=True)
+        field.focus()
+        expect(field).to_be_focused()
+        field.press('Escape')
+        expect(panel).to_have_count(0)
+        expect(controls).to_be_focused()
+        expect(self.page.get_by_role('menu')).to_have_count(0)
+
+        panel = self.open_tool('Dictionary Setup')
+        not_now = panel.get_by_role('button', name='Not now', exact=True)
+        not_now.focus()
+        expect(not_now).to_be_focused()
+        self.page.keyboard.press('Escape')
+        expect(panel).to_have_count(0)
+        expect(controls).to_be_focused()
+        expect(self.page.get_by_role('menu')).to_have_count(0)
+
+        # Re-enter the first tool after four portal lifecycles. A stale focus
+        # scope or hidden menu must not prevent a fresh keyboard interaction.
+        panel = self.open_tool('Search Book')
+        search = panel.get_by_role('searchbox', name='Search within book', exact=True)
+        search.fill('文章')
+        expect(panel.get_by_text('180 results', exact=True)).to_be_visible(timeout=15000)
+        expect(search).to_be_focused()
+        self.capture('reader-tool-round-trip-focus')
+        self.page.keyboard.press('Escape')
+        expect(panel).to_have_count(0)
+        expect(controls).to_be_focused()
+
+
     def test_notes_actions_have_distinct_shapes_and_remain_reachable_in_landscape(self):
         self.open_reader()
         self.page.set_viewport_size({'width': 568, 'height': 320})

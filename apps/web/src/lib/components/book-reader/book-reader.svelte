@@ -713,6 +713,12 @@
     --reader-page-insets: var(--reader-frame-top) var(--reader-frame-right)
       var(--reader-frame-bottom) var(--reader-frame-left);
   }
+  @media (max-width: 639px) and (max-height: 400px) {
+    .reader-page-frame {
+      --reader-frame-top: calc(72px + env(safe-area-inset-top));
+      --reader-frame-bottom: calc(80px + env(safe-area-inset-bottom));
+    }
+  }
   @media (min-width: 768px) {
     .reader-page-frame {
       --reader-frame-top: max(calc(5rem + env(safe-area-inset-top)), calc((100dvh - 780px) / 2));
