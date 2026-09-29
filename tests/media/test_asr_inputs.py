@@ -40,6 +40,7 @@ class ASRInputTests(unittest.TestCase):
             asr.natural_kokoro_fixture(self.path,'en')
 
     def test_pinned_kokoro_fixture_rejects_substituted_audio(self):
+        (self.path/'source.wav').write_bytes(b'substituted source audio')
         with self.assertRaisesRegex(ValueError,'hash'):
             asr.natural_kokoro_fixture(self.path,'ja')
 

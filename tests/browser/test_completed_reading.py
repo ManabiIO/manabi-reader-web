@@ -152,10 +152,10 @@ class CompletedReadingBrowser(LocalLibraryBrowser):
         expect(self.page.get_by_text('1 selected', exact=True)).to_be_visible()
         self.page.get_by_role('button', name='Export', exact=True).click()
         self.page.get_by_role('button',name='Zip File',exact=True).click()
-        for label in ('Book Data','Bookmark','Statistics'):
+        for label in ('Book data','Reading position','Statistics'):
             self.page.get_by_label(label,exact=True).check()
         with self.page.expect_download(timeout=60000) as pending:
-            self.page.get_by_role('button',name='Start',exact=True).click()
+            self.page.get_by_role('button',name='Start export',exact=True).click()
         raw=Path(pending.value.path()).read_bytes()
         with zipfile.ZipFile(io.BytesIO(raw)) as archive:
             name=next(name for name in archive.namelist() if '/statistics_' in name)

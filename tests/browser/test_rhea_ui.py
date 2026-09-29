@@ -670,7 +670,7 @@ class RheaReader(previous.RefinedAppearance):
         dialog = self.page.locator('[data-slot="dialog-content"]')
         expect(dialog).to_be_visible()
         expect(dialog.get_by_role('button', name='Zip File', exact=True)).to_be_visible()
-        for name in ['Book Data','Bookmark','Statistics','Audiobook','Subtitles']:
+        for name in ['Book data','Reading position','Statistics','Audiobook','Subtitles']:
             expect(dialog.get_by_label(name, exact=True)).to_be_visible()
         dialog.get_by_role('button', name='Cancel', exact=True).click()
         expect(dialog).to_have_count(0)
