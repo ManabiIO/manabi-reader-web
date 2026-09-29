@@ -168,8 +168,7 @@ export class PitchController {
       // lookahead span keeps the selected frame inside the new dialogue cue
       // without paying a full 550 ms warm-up between every subtitle.
       this.sampleAfter =
-        (this.context?.currentTime ?? 0) +
-        (SWIFT_F0_LOOKAHEAD_FRAMES + 1) * SWIFT_F0_FRAME_SECONDS;
+        (this.context?.currentTime ?? 0) + (SWIFT_F0_LOOKAHEAD_FRAMES + 1) * SWIFT_F0_FRAME_SECONDS;
     }
     this.publish({
       speechActive: active,
