@@ -13,7 +13,6 @@
     createSnippet,
     passages,
     snippetKey,
-    safeLink,
     type SnippetDocument,
     type TextNode
   } from './document';
@@ -62,13 +61,7 @@
       if (open || busy) return;
       busy = true;
       const value = (
-        event as CustomEvent<{
-          html: string;
-          title: string;
-          item: string;
-          url?: string;
-          owner: string | null;
-        }>
+        event as CustomEvent<{ html: string; title: string; item: string; owner: string | null }>
       ).detail;
       try {
         const selected = scope();
@@ -81,7 +74,6 @@
         created.source = {
           title: value.title.slice(0, 1000),
           item: value.item.slice(0, 1000),
-          ...(safeLink(value.url) ? { url: value.url } : {}),
           quote: passages(text)
             .map((p) => p.text)
             .join('\n')
