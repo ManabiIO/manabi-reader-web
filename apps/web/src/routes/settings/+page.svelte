@@ -98,6 +98,10 @@
   afterNavigate((navigation) => {
     const { from } = navigation;
     if (!from) return;
+    // Category/hash changes are still the same Settings visit. Preserve the
+    // external page that opened Settings so Back returns to the Reader/Library
+    // instead of being overwritten with /settings after choosing a category.
+    if (from.url.pathname === `${pagePath}${mergeEntries.SETTINGS.routeId}`) return;
     prevPage = `${from.url.pathname}${from.url.search}`;
   });
 

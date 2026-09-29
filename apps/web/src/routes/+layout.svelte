@@ -5,7 +5,7 @@
   import { sanitizeDialogHtml } from '$lib/functions/book-security/dialog-content-security';
   import { page } from '$app/stores';
   import { base } from '$app/paths';
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import ManabiRuntime from '$lib/manabi/runtime.svelte';
   import { basePath, clearConsoleOnReload } from '$lib/data/env';
   import { dialogManager, type Dialog } from '$lib/data/dialog-manager';
@@ -99,6 +99,22 @@
   }
 
   const dialogsSubscription = dialogManager.dialogs$.subscribe((d) => {
+    if (browser && dialogs.length && !d.length) {
+      const returnFocus = dialogReturnFocus;
+      void tick().then(() => {
+        requestAnimationFrame(() => {
+          if (dialogs.length) return;
+          const target =
+            document.querySelector<HTMLElement>('button[data-reader-controls]') ??
+            (returnFocus?.isConnected ? returnFocus : undefined);
+          target?.focus({ preventScroll: true });
+          if (document.activeElement !== target)
+            document
+              .querySelector<HTMLElement>('button[data-reader-controls]')
+              ?.focus({ preventScroll: true });
+        });
+      });
+    }
     if (browser && !dialogs.length && d.length) {
       const active = document.activeElement;
       dialogReturnFocus =
@@ -160,7 +176,14 @@
       }}
       onCloseAutoFocus={(event) => {
         event.preventDefault();
-        dialogReturnFocus?.focus();
+        const target =
+          document.querySelector<HTMLElement>('button[data-reader-controls]') ??
+          (dialogReturnFocus?.isConnected ? dialogReturnFocus : undefined);
+        target?.focus({ preventScroll: true });
+        if (document.activeElement !== target)
+          document
+            .querySelector<HTMLElement>('button[data-reader-controls]')
+            ?.focus({ preventScroll: true });
         dialogReturnFocus = undefined;
       }}
     >
