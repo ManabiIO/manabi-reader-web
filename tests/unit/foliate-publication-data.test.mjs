@@ -156,7 +156,6 @@ test('resolved names retain literal reserved punctuation without a second URL de
   assert.deepEqual(epubResourceContents(packed.epubPublication, packed.elementHtml), original);
 });
 
-
 test('non-linear spine hints survive persistence without entering locator identity', () => {
   const original = resources();
   original[1].linear = 'no';
@@ -174,7 +173,7 @@ test('restored publication rejects unknown linearity and content rewrites cannot
   const original = resources();
   original[1].linear = 'no';
   const packed = packEpubResources(original);
-  const invalid = structuredClone(packed.epubPublication);
+  const invalid = globalThis.structuredClone(packed.epubPublication);
   invalid.resources[1].linear = 'maybe';
   assert.throws(() => readEpubPublication(invalid, packed.elementHtml), /identity|range/);
   assert.throws(
@@ -186,7 +185,6 @@ test('restored publication rejects unknown linearity and content rewrites cannot
     /spine semantics/
   );
 });
-
 
 test('navigation hierarchy, page list, landmarks and rendition survive resource rewrites', () => {
   const packed = packEpubResources(resources(), {
@@ -254,7 +252,7 @@ test('navigation hierarchy, page list, landmarks and rendition survive resource 
 
 test('restored navigation is bounded by depth, entry count and string sizes', () => {
   const packed = packEpubResources(resources());
-  const deep = structuredClone(packed.epubPublication);
+  const deep = globalThis.structuredClone(packed.epubPublication);
   let items = [{ label: 'root' }];
   deep.navigation = { toc: items };
   for (let depth = 0; depth < 66; depth++) {
@@ -263,17 +261,17 @@ test('restored navigation is bounded by depth, entry count and string sizes', ()
   }
   assert.throws(() => readEpubPublication(deep, packed.elementHtml), /navigation/i);
 
-  const many = structuredClone(packed.epubPublication);
+  const many = globalThis.structuredClone(packed.epubPublication);
   many.navigation = {
     toc: Array.from({ length: 20001 }, (_, index) => ({ label: String(index) }))
   };
   assert.throws(() => readEpubPublication(many, packed.elementHtml), /navigation|size/i);
 
-  const long = structuredClone(packed.epubPublication);
+  const long = globalThis.structuredClone(packed.epubPublication);
   long.navigation = { toc: [{ href: 'x'.repeat(4097) }] };
   assert.throws(() => readEpubPublication(long, packed.elementHtml), /navigation/i);
 
-  const aggregate = structuredClone(packed.epubPublication);
+  const aggregate = globalThis.structuredClone(packed.epubPublication);
   aggregate.navigation = {
     toc: Array.from({ length: 1025 }, () => ({ label: '文'.repeat(4096) }))
   };
@@ -282,7 +280,7 @@ test('restored navigation is bounded by depth, entry count and string sizes', ()
 
 test('restored rendition retains only bounded supported scalar hints', () => {
   const packed = packEpubResources(resources());
-  const value = structuredClone(packed.epubPublication);
+  const value = globalThis.structuredClone(packed.epubPublication);
   value.rendition = {
     layout: 'reflowable',
     spread: 'auto',

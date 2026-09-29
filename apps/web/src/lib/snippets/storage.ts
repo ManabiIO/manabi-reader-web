@@ -378,9 +378,19 @@ export async function writeDocument(
     let before: Awaited<ReturnType<typeof localRead>> | undefined;
     const id = join(parent, name);
     if (handle) {
-      before = await localRead(source, id, guard);
-      if (!permitUpdate(before.document, document, expected, before.location))
-        return before.location;
+      const existing = await handle.getFile();
+      guard();
+      // File System Access creates the directory entry before a writable stream
+      // is committed. A crash/abort during a first create can therefore leave a
+      // zero-byte placeholder. Only reclaim the deterministic filename for this
+      // exact logical document; corrupt/non-empty external files remain conflicts.
+      const recoverablePlaceholder =
+        !expected && existing.size === 0 && name === filename(document);
+      if (!recoverablePlaceholder) {
+        before = await localRead(source, id, guard);
+        if (!permitUpdate(before.document, document, expected, before.location))
+          return before.location;
+      }
     } else if (expected) throw new IntegrationError('not_found', 404);
     handle ??= await directory.getFileHandle(name, { create: true });
     guard();
