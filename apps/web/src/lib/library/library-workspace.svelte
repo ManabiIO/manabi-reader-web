@@ -1,5 +1,6 @@
 <script lang="ts">
   import { foldSearch } from './search-normalization';
+  import { bookTitleMatchText } from '../search/book-title-match-text';
   import { librarySelection } from './selection-action';
   import BookOrganizationDialog from './book-organization-dialog.svelte';
   import type { BookPresentation, PresentationChange } from './organization';
@@ -215,24 +216,6 @@
     }
     return matches.filter((key, index) => matches.indexOf(key) === index);
   }
-  function matchingSeriesText(
-    nodes: ShelfNode[],
-    search: string,
-    result = new Map<string, string[]>()
-  ): Map<string, string[]> {
-    for (const node of nodes) {
-      if (node.kind !== 'series') continue;
-      if (foldSearch(node.name).includes(search))
-        for (const book of node.books) {
-          const values = result.get(book.key);
-          if (values) {
-            if (!values.includes(node.name)) values.push(node.name);
-          } else result.set(book.key, [node.name]);
-        }
-      matchingSeriesText(node.children, search, result);
-    }
-    return result;
-  }
   function matchesBookQuery(book: ShelfBook, search: string, seriesMatches: string[]) {
     return (
       !search ||
@@ -352,27 +335,12 @@
   $: metadataCollections = $organization.collections.filter((c) =>
     foldSearch(c.name).includes(normalizedQuery)
   );
-  $: metadataMatchText = (() => {
-    const matched = matchingSeriesText(tree, normalizedQuery);
-    const collectionNamesByMember = new Map<string, string[]>();
-    for (const collection of metadataCollections)
-      for (const member of collection.members) {
-        const names = collectionNamesByMember.get(member);
-        if (names) {
-          if (!names.includes(collection.name)) names.push(collection.name);
-        } else collectionNamesByMember.set(member, [collection.name]);
-      }
-    for (const book of searchableBooks) {
-      const names = book.organizationAliases.flatMap(
-        (alias) => collectionNamesByMember.get(alias) ?? []
-      );
-      if (!names.length) continue;
-      const values = matched.get(book.key) ?? [];
-      for (const name of names) if (!values.includes(name)) values.push(name);
-      if (values.length) matched.set(book.key, values);
-    }
-    return Object.fromEntries(matched);
-  })();
+  $: metadataMatchText = bookTitleMatchText(
+    searchableBooks,
+    tree,
+    metadataCollections,
+    normalizedQuery
+  );
   $: metadataMatches = searchableBooks.filter(
     (book) =>
       matchesBookQuery(book, normalizedQuery, metadataSeries) ||
