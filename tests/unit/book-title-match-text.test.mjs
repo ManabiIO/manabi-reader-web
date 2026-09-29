@@ -36,8 +36,12 @@ test('book title match context retains nested series and overlapping collection 
   ];
 
   assert.deepEqual(bookTitleMatchText([a, b], tree, collections, 'cat'), {
-    'book:a': ['Cat Studies', 'Cat Archive'],
-    'book:b': ['Cat Archive']
+    'book:a': [
+      { text: 'Cat Studies', detail: 'Series · Cat Studies' },
+      { text: 'Cat Studies', detail: 'Collection · Cat Studies' },
+      { text: 'Cat Archive', detail: 'Collection · Cat Archive' }
+    ],
+    'book:b': [{ text: 'Cat Archive', detail: 'Collection · Cat Archive' }]
   });
 });
 
