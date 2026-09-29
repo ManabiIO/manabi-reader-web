@@ -160,6 +160,13 @@ export async function searchVideoTranscripts(
     (a, b) => b.addedAt - a.addedAt || a.title.localeCompare(b.title) || a.key.localeCompare(b.key)
   );
   const playback = playbackRows(resumeRows);
+  const manifestsByVideo = new Map<ContentKey, Replica[]>();
+  if (manifestSnapshot)
+    for (const manifest of manifestSnapshot) {
+      const current = manifestsByVideo.get(manifest.mediaKey);
+      if (current) current.push(manifest);
+      else manifestsByVideo.set(manifest.mediaKey, [manifest]);
+    }
   const hits: VideoTranscriptHit[] = [];
   let failed = 0;
   let truncated = false;
@@ -180,7 +187,12 @@ export async function searchVideoTranscripts(
     signal.throwIfAborted();
     let tracks: Track[];
     try {
-      tracks = await store.tracks(scope, video.key, signal, manifestSnapshot);
+      tracks = await store.tracks(
+        scope,
+        video.key,
+        signal,
+        manifestSnapshot ? (manifestsByVideo.get(video.key) ?? []) : undefined
+      );
     } catch (error) {
       if (aborted(error, signal)) throw error;
       failed++;
