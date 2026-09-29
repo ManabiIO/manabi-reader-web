@@ -16,6 +16,13 @@
   import DictionarySearch from './dictionary-search.svelte';
   import { searchBookContents, type BookSearchBatch } from './book-content-source';
   import { queryTask, type SearchState } from './query-task.mjs';
+  import {
+    librarySearchScopes,
+    scopeIncludesBooks,
+    scopeIncludesDictionary,
+    scopeIncludesSnippets,
+    type LibrarySearchScope
+  } from './library-search-scope';
   export let query = '';
   export let books: ShelfBook[] = [];
   export let matches: ShelfBook[] = [];
@@ -46,6 +53,7 @@
     { id: 'content', label: 'Content' }
   ];
   let filter: Filter = 'all',
+    searchScope: LibrarySearchScope = 'everything',
     mounted = false,
     signature = '',
     titleLimit = 30,
@@ -64,13 +72,19 @@
   $: eligible = $snippetItems.filter(
     (item) => !item.trashedAt && (!snippetMembers || snippetMembers.includes(snippetKey(item.id)))
   );
+  $: availableFilters = scopeIncludesDictionary(searchScope)
+    ? filters
+    : filters.filter((item) => item.id !== 'dictionary');
   $: nextSignature = JSON.stringify([
     query,
     owner,
     filter,
-    books.map((book) => [book.key, book.contentHash, book.lastBookModified]),
-    matches.map((book) => [book.key, book.title]),
-    eligible.map((item) => [item.key, item.revision])
+    searchScope,
+    scopeIncludesBooks(searchScope)
+      ? books.map((book) => [book.key, book.contentHash, book.lastBookModified])
+      : [],
+    scopeIncludesBooks(searchScope) ? matches.map((book) => [book.key, book.title]) : [],
+    scopeIncludesSnippets(searchScope) ? eligible.map((item) => [item.key, item.revision]) : []
   ]);
   $: if (mounted && nextSignature !== signature) {
     signature = nextSignature;
@@ -92,8 +106,8 @@
     return result;
   }
   function startTitles() {
-    const selectedBooks = [...matches],
-      selectedSnippets = [...eligible],
+    const selectedBooks = scopeIncludesBooks(searchScope) ? [...matches] : [],
+      selectedSnippets = scopeIncludesSnippets(searchScope) ? [...eligible] : [],
       needle = foldSearch(query.trim());
     titleTask.start(async (signal, publish) => {
       const selected = scope();
@@ -122,8 +136,8 @@
     }, 0);
   }
   function startContent() {
-    const selectedBooks = [...books],
-      selectedSnippets = [...eligible],
+    const selectedBooks = scopeIncludesBooks(searchScope) ? [...books] : [],
+      selectedSnippets = scopeIncludesSnippets(searchScope) ? [...eligible] : [],
       needle = query,
       selectedOwner = owner;
     contentTask.start(async (signal, publish) => {
@@ -239,6 +253,14 @@
       .querySelector<HTMLButtonElement>(`[data-search-filter="${value}"]`)
       ?.focus({ preventScroll: true });
   }
+  async function chooseScope(value: LibrarySearchScope) {
+    searchScope = value;
+    if (!scopeIncludesDictionary(value) && filter === 'dictionary') filter = 'all';
+    await tick();
+    results
+      .querySelector<HTMLButtonElement>(`[data-search-scope="${value}"]`)
+      ?.focus({ preventScroll: true });
+  }
   async function more(kind: 'titles' | 'content') {
     const admitted = focusGeneration;
     const before = kind === 'titles' ? titleLimit : contentLimit;
@@ -263,15 +285,23 @@
 </script>
 
 <div class="unified-search" aria-label="Library search results" bind:this={results}>
+  <nav aria-label="Search library scope" class="scopes">
+    {#each librarySearchScopes as item}<button
+        type="button"
+        data-search-scope={item.id}
+        aria-pressed={searchScope === item.id}
+        onclick={() => void chooseScope(item.id)}>{item.label}</button
+      >{/each}
+  </nav>
   <nav aria-label="Search result type" class="filters">
-    {#each filters as item}<button
+    {#each availableFilters as item}<button
         type="button"
         data-search-filter={item.id}
         aria-pressed={filter === item.id}
         onclick={() => void choose(item.id)}>{item.label}</button
       >{/each}
   </nav>
-  {#if filter === 'all' || filter === 'dictionary'}<DictionarySearch
+  {#if scopeIncludesDictionary(searchScope) && (filter === 'all' || filter === 'dictionary')}<DictionarySearch
       {query}
       full={filter === 'dictionary'}
       expand={() => void choose('dictionary')}
@@ -374,7 +404,11 @@
           The local search limit was reached. Refine your query for more specific matches.
         </p>{/if}
       <p class="note scope-note">
-        Searches saved books and snippets without downloading cloud content.
+        {searchScope === 'books'
+          ? 'Searches saved books without downloading cloud content.'
+          : searchScope === 'snippets'
+            ? 'Searches snippets already indexed in this browser.'
+            : 'Searches saved books and snippets without downloading cloud content.'}
       </p>
     </section>
   {/if}
@@ -387,6 +421,7 @@
     max-width: 64rem;
     margin-inline: auto;
   }
+  .scopes,
   .filters {
     display: flex;
     gap: 0.35rem;
@@ -402,10 +437,12 @@
     padding: 0.65rem 0.85rem;
     border-radius: 0.7rem;
   }
+  .scopes button,
   .filters button {
     border-radius: 99px;
     border: 1px solid transparent;
   }
+  .scopes button[aria-pressed='true'],
   .filters button[aria-pressed='true'] {
     border-color: var(--border);
     background: var(--muted);
