@@ -308,6 +308,9 @@ class UnifiedSearch(ProductJourneyBase):
         expect(field).to_have_value('SCOPE_TOKEN')
         expect(rows).to_have_count(1, timeout=30000)
         expect(rows).to_contain_text('Snippet · Scope snippet')
+        snippet_match = self.page.get_by_role(
+            'button', name='Open passage in Scope snippet: SCOPE_TOKEN', exact=True)
+        expect(snippet_match.locator('mark')).to_have_text('SCOPE_TOKEN')
         self.assertIn('scope=snippets', self.page.url)
 
         # Scope belongs to navigation state, not an ephemeral child component.
@@ -366,6 +369,7 @@ class UnifiedSearch(ProductJourneyBase):
             exact=True)
         expect(transcript).to_be_visible(timeout=30000)
         expect(transcript).to_contain_text('Video · Searchable video · 0:14 · Japanese captions')
+        expect(transcript.locator('mark')).to_have_text('字幕検索')
         self.scope('Books')
         expect(transcript).to_have_count(0)
         self.scope('Everything')
