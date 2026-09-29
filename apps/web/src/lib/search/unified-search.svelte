@@ -40,6 +40,8 @@
     title: string;
     label: string;
     detail?: string;
+    /** Search-only metadata used for relevance; never rendered directly. */
+    searchText?: readonly string[];
     excerpt?: string;
     match?: { start: number; end: number };
     open: () => void;
@@ -185,6 +187,12 @@
         title: book.title,
         label: `Read ${book.title}`,
         detail: creatorLine(book.creators),
+        searchText: [
+          book.title,
+          book.canonicalTitle,
+          ...(book.creators ?? []).map((creator) => creator.name),
+          ...(book.series?.name ? [book.series.name] : [])
+        ],
         open: () => openBook(book)
       }));
       const snippetRows: Row[] = snippetScope
@@ -202,7 +210,11 @@
       publish({
         state: 'loading',
         value: {
-          rows: sortSearchText([...bookRows, ...snippetRows], selectedQuery, (row) => row.title),
+          rows: sortSearchText(
+            [...bookRows, ...snippetRows],
+            selectedQuery,
+            (row) => row.searchText ?? row.title
+          ),
           failed: snippetFailed,
           truncated: false
         }
@@ -243,7 +255,7 @@
           rows: sortSearchText(
             [...bookRows, ...videoRows, ...snippetRows],
             selectedQuery,
-            (row) => row.title
+            (row) => row.searchText ?? row.title
           ),
           failed: snippetFailed + videoFailed,
           truncated: videoTruncated
