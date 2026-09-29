@@ -162,7 +162,9 @@
           >{/if}
       </p>
     {:else}
-      {#if state.value.matchedQuery !== query.trim()}<p class="note">
+      {#if state.value.prefix}<p class="note">
+          Showing prefix matches for <span lang="ja">{state.value.matchedQuery}</span>
+        </p>{:else if state.value.matchedQuery !== query.trim()}<p class="note">
           Showing matches for <span lang="ja">{state.value.matchedQuery}</span>
         </p>{/if}
       {#if full && state.value.lookup}
@@ -189,7 +191,7 @@
           {/each}
         </ul>
         {#if !state.value.preview.items.length}<p class="note">
-            No dictionary matches. Try kana, another spelling, or a trailing * for prefix search.
+            No dictionary matches. Keep typing, try kana or another spelling, or use a trailing * for an explicit prefix search.
           </p>{/if}
       {/if}
     {/if}
