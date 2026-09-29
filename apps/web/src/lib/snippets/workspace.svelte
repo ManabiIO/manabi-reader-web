@@ -60,7 +60,7 @@
     type TextNode
   } from './document';
   import { currentTransfer, moveSnippet, resumeTransfer, keepBoth } from './transfers';
-  import { parseLocator, safeReturn, saveLabel } from './presentation';
+  import { parseLocator, safeReturn, saveLabel, snippetSourceId } from './presentation';
   import { exportSnippets, restoreBackup, MAX_BACKUP_BYTES, download } from './portability';
   import Shelf from './shelf.svelte';
   import Reader from './reader.svelte';
@@ -132,12 +132,7 @@
     if (request) void loadRoute(request);
   }
   $: selectedSummary = $snippetItems.find((item) => item.id === id);
-  $: sourceSnippetId = (() => {
-    const item = current?.document.source?.item;
-    if (!item?.startsWith('snippet:')) return '';
-    const value = item.slice(8);
-    return isUUID(value) ? value : '';
-  })();
+  $: sourceSnippetId = snippetSourceId(current?.document.source?.item) ?? '';
   $: nextRecordSignature = JSON.stringify([
     selectedSummary?.revision,
     selectedSummary?.dirty,
