@@ -1388,12 +1388,15 @@ export class VideoWorkspace {
         checkbox.addEventListener('change', () =>
           checkbox.checked ? this.selected.add(key) : this.selected.delete(key)
         );
+        const selectionTarget = make('label');
+        selectionTarget.className = 'video-select';
+        selectionTarget.append(checkbox);
         const title = action(info.title, () => void this.reopen(key).catch((e) => this.error(e)));
         title.className = 'video-card-title';
         title.dataset.command = 'title';
         const p = resume.get(key);
         card.append(
-          checkbox,
+          selectionTarget,
           title,
           make(
             'p',
