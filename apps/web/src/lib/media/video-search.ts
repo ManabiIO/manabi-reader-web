@@ -10,8 +10,7 @@ import {
   type ContentKey,
   type Playback,
   type Scope,
-  type Track,
-  type VideoInfo
+  type Track
 } from './contracts.js';
 import type { Replica } from './replica.js';
 
@@ -51,7 +50,7 @@ export interface VideoSearchStore {
   tracks(scope: Scope, mediaKey: ContentKey, signal?: AbortSignal): Promise<Track[]>;
 }
 
-const foldSearch = (value: string) => value.normalize('NFKC').toLowerCase().replace(/\\u03c2/g, '\\u03c3');
+const foldSearch = (value: string) => value.normalize('NFKC').toLowerCase().replace(/\u03c2/g, '\u03c3');
 
 const MAX_TITLE_RESULTS = 300;
 const MAX_TRANSCRIPT_RESULTS = 300;
