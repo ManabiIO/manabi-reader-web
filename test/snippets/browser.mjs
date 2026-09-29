@@ -284,10 +284,41 @@ try {
     page.getByRole('toolbar', { name: 'Selected snippet actions', exact: true })
   ).toBeVisible();
   await expect(page.getByRole('list', { name: 'Snippets', exact: true })).toBeVisible();
-  await expect(page.getByRole('checkbox', { name: 'Select 散歩の記録' })).toBeChecked();
+  const selectedCheckbox = page.getByRole('checkbox', { name: 'Select 散歩の記録' });
+  await expect(selectedCheckbox).toBeChecked();
+  const selectionTarget = selectedCheckbox.locator('..');
+  const selectionBox = await selectionTarget.boundingBox();
+  assert(selectionBox.width >= 43.5 && selectionBox.height >= 43.5,
+    'Snippet selection target must remain at least 44x44 CSS px');
+  assert(
+    await selectionTarget.evaluate((label) => {
+      const r = label.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return !!hit && (hit === label || label.contains(hit));
+    }),
+    'Snippet selection target center must be hit-testable'
+  );
   await page.getByRole('button', { name: 'Done selecting', exact: true }).click();
   passed('modifier-click enters visible selection mode');
-  await page.getByRole('searchbox', { name: 'Search snippets' }).fill('珍しい言葉');
+  const search = page.getByRole('searchbox', { name: 'Search snippets' });
+
+  await search.fill('𠮷'.repeat(512));
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(
+    page.getByText('Some snippet contents could not be searched. Title matches are still available.')
+  ).toHaveCount(0, { timeout: 15000 });
+  await expect(page.getByText('No matching snippets.', { exact: true })).toBeVisible();
+
+  await search.fill('𠮷'.repeat(513));
+  await expect(
+    page.getByRole('alert').filter({ hasText: 'Use a search of 512 characters or fewer.' })
+  ).toBeVisible();
+
+  await search.fill('珍しい言葉');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(
+    page.getByText('Some snippet contents could not be searched. Title matches are still available.')
+  ).toHaveCount(0);
   await expect(page.locator('.snippet-shelf .title')).toHaveText(['散歩の記録']);
   await page.getByRole('button', { name: 'Select', exact: true }).click();
   await page.locator('.snippet-shelf .passage').first().click();
