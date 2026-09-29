@@ -771,7 +771,7 @@ export class MediaStore {
    * Requests created inside onsuccess keep the native IDB transaction active;
    * no asynchronous work escapes between reading manifests and their pages.
    */
-  tracks(scope: Scope, mediaKey: ContentKey): Promise<Track[]> {
+  tracks(scope: Scope, mediaKey: ContentKey, signal?: AbortSignal): Promise<Track[]> {
     return this.tx('records', 'readonly', (store, done, fail) => {
       const manifests = store.getAll(range(scope, 'video_track'));
       manifests.onsuccess = () => {
@@ -825,7 +825,7 @@ export class MediaStore {
           fail(e);
         }
       };
-    });
+    }, false, signal);
   }
   close(): Promise<void> {
     if (this.closing) return this.closing;
