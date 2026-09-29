@@ -351,14 +351,15 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
             ('Start date', None)
         )
         for label, role in fields:
-            field = goals.get_by_label(label, exact=True)
+            field = goals.get_by_role(role, name=label, exact=True) if role else goals.get_by_label(label, exact=True)
             expect(field).to_be_visible()
             self.assertGreaterEqual(field.bounding_box()['height'], 43.99)
             expect(field).to_be_disabled()
 
         edit.click()
-        for label, _ in fields:
-            expect(goals.get_by_label(label, exact=True)).to_be_enabled()
+        for label, role in fields:
+            field = goals.get_by_role(role, name=label, exact=True) if role else goals.get_by_label(label, exact=True)
+            expect(field).to_be_enabled()
         expect(goals.get_by_role('button', name='Save', exact=True)).to_have_attribute(
             'data-variant', 'default'
         )
@@ -374,8 +375,8 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
         title_box = title.bounding_box()
         panel_box = dialog.locator('section.ui-panel').bounding_box()
         self.assertGreaterEqual(title_box['width'], panel_box['width'] * 0.7)
-        source = dialog.get_by_label('Source', exact=True)
-        target = dialog.get_by_label('Target', exact=True)
+        source = dialog.get_by_role('combobox', name='Source', exact=True)
+        target = dialog.get_by_role('combobox', name='Target', exact=True)
         self.assertGreaterEqual(source.bounding_box()['height'], 43.99)
         self.assertGreaterEqual(target.bounding_box()['height'], 43.99)
         swap = dialog.get_by_role('button', name='Swap sync source and target', exact=True)
@@ -408,7 +409,7 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
         name = dialog.get_by_label('Name', exact=True)
         sync_target = dialog.get_by_label('Is Sync Target', exact=True)
         source_default = dialog.get_by_label('Is Source Default', exact=True)
-        source_type = dialog.get_by_label('Storage type', exact=True)
+        source_type = dialog.get_by_role('combobox', name='Storage type', exact=True)
         client_id = dialog.get_by_label('Client ID', exact=True)
         client_secret = dialog.get_by_label('Client Secret', exact=True)
         password = dialog.get_by_label('Password', exact=True)
