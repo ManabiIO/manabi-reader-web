@@ -91,12 +91,9 @@ test('streamed ranges preserve nonzero offsets above four GiB without truncation
       return bytes;
     }
   };
-  const reader = (await import('../../.cache/media-test-build/sources.js')).streamedRange(
-    source,
-    start,
-    end,
-    new AbortController().signal
-  ).getReader();
+  const reader = (await import('../../.cache/media-test-build/sources.js'))
+    .streamedRange(source, start, end, new AbortController().signal)
+    .getReader();
   const chunks = [];
   for (;;) {
     const next = await reader.read();
@@ -109,7 +106,10 @@ test('streamed ranges preserve nonzero offsets above four GiB without truncation
     [start + 1024 * 1024, start + 2 * 1024 * 1024],
     [start + 2 * 1024 * 1024, end]
   ]);
-  assert.equal(chunks.reduce((sum, bytes) => sum + bytes.length, 0), end - start);
+  assert.equal(
+    chunks.reduce((sum, bytes) => sum + bytes.length, 0),
+    end - start
+  );
   assert.equal(chunks[0][0], start % 251);
   assert.equal(chunks.at(-1).at(-1), (end - 1) % 251);
 });
