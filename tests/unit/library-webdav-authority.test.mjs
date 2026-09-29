@@ -38,7 +38,7 @@ const persistence = load('manabi/persistence.ts', {
 });
 const statistics = load('data/database/books-db/reader-statistics.ts', {
   './commit-transaction.mjs': transactions,
-  './content-hash-index': load('data/database/books-db/content-hash-index.ts')
+  './content-hash-index.ts': load('data/database/books-db/content-hash-index.ts')
 });
 function writable(value) {
   const listeners = new Set();
