@@ -151,13 +151,15 @@
   $: visibleContent = (content.value?.rows ?? []).slice(0, filter === 'all' ? 2 : contentLimit);
   function bookDetail(book: ShelfBook, selectedQuery: string): string | undefined {
     const needle = foldSearch(selectedQuery.trim());
+    const creators = creatorLine(book.creators) || undefined;
+    if ([book.title, book.canonicalTitle].some((value) => foldSearch(value).includes(needle)))
+      return creators;
     const creator = (book.creators ?? []).find((item) => foldSearch(item.name).includes(needle));
     if (creator) return `Author · ${creator.name}`;
     const context = (bookMatchText[book.key] ?? []).find((item) =>
       foldSearch(item.text).includes(needle)
     );
-    if (context) return context.detail;
-    return creatorLine(book.creators) || undefined;
+    return context?.detail ?? creators;
   }
   function openSnippet(item: SnippetSummary, hit?: SnippetHit) {
     const params = new URLSearchParams({ id: item.id, returnTo });
