@@ -47,7 +47,8 @@
     TextAlignLeftIcon as CollectionsList,
     SelectionAllIcon as SelectionAll,
     SquaresFourIcon as SquaresFour,
-    UserCircleIcon as UserCircle
+    UserCircleIcon as UserCircle,
+    XIcon as X
   } from 'phosphor-svelte';
 
   export let modernLibrary = false;
@@ -596,7 +597,8 @@
           variant="ghost"
           aria-label="Cancel selection"
           disabled={libraryMenu?.selectedActions?.busy}
-          onclick={() => (selectMode = false)}>{compactLibrary ? 'Cancel' : 'Cancel selection'}</Button
+          onclick={() => (selectMode = false)}
+          >{#if compactLibrary}<X class="size-6" aria-hidden="true" />{:else}Cancel selection{/if}</Button
         >
         <span class="whitespace-nowrap text-sm" aria-live="polite">{selectedCount} selected</span>
         <Button
@@ -605,7 +607,9 @@
           aria-label={modernLibrary ? 'Select All Visible' : 'Select all'}
           disabled={libraryMenu?.selectedActions?.busy}
           onclick={() => dispatch('selectAllClick')}
-          >{compactLibrary ? 'All' : modernLibrary ? 'Select All Visible' : 'Select all'}</Button
+          >{#if compactLibrary}<SelectionAll class="size-6" aria-hidden="true" />{:else}{modernLibrary
+              ? 'Select All Visible'
+              : 'Select all'}{/if}</Button
         >
         {#if selectedCount > 0}
           <Button
@@ -613,9 +617,11 @@
             variant="secondary"
             disabled={libraryMenu?.selectedActions?.busy ||
               libraryMenu?.selectedActions?.savedCount === 0}
-            onclick={() => dispatch('replicateData')}>Export</Button
+            aria-label="Export"
+            onclick={() => dispatch('replicateData')}
+            >{#if compactLibrary}<FileArrowUp class="size-6" aria-hidden="true" />{:else}Export{/if}</Button
           >
-          <ActionMenu label="Actions" title="Selected book actions">
+          <ActionMenu label="Actions" title="Selected book actions" iconOnly={compactLibrary}>
             {#if libraryMenu?.selectedActions}
               <Menu.Item
                 disabled={libraryMenu.selectedActions.busy}
