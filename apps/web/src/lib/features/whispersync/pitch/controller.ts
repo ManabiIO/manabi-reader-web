@@ -278,7 +278,7 @@ export class PitchController {
               ? 'Audio analysis could not start. Check your audio output, then retry.'
               : 'SwiftF0 could not load. Check your connection, then retry.'
           );
-      }, 15000);
+      }, 30000);
       void resumed
         .then(() => {
           if (!current()) return;
