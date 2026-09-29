@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   native:
-    name: Pitch ${{ matrix.browser }}
+    name: Pitch controller ${{ matrix.browser }}
     # Headless Linux WebKit reports play while its WAV media clock stays at 0;
     # macOS WebKit exercises the actual Safari media pipeline.
     runs-on: ${{ matrix.browser == 'webkit' && 'macos-15' || 'ubuntu-24.04' }}
@@ -59,9 +59,13 @@ jobs:
           path: test-results/
           retention-days: 3
   application:
-    name: Pitch actual app and appearance
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    name: SwiftF0 app ${{ matrix.browser }}
+    runs-on: ${{ matrix.browser == 'webkit' && 'macos-15' || 'ubuntu-24.04' }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -83,18 +87,21 @@ jobs:
         env:
           BASE_PATH: /reader-web
         run: pnpm build
-      - name: Install native browser and audio output
+      - name: Install native browser
         run: |
           python -m pip install 'playwright==1.63.0'
-          python -m playwright install --with-deps chromium
+          python -m playwright install --with-deps ${{ matrix.browser }}
+      - name: Provide a native output device on Linux
+        if: runner.os == 'Linux'
+        run: |
           sudo apt-get install -y --no-install-recommends pulseaudio pulseaudio-utils
           pulseaudio --start --exit-idle-time=-1
           pactl load-module module-null-sink sink_name=pitch_ci rate=48000
           pactl set-default-sink pitch_ci
-      - name: Real transcript, lazy download, playback, light and dark
-        run: python tests/browser/test_voice_pitch.py
+      - name: Real SwiftF0 transcript, lazy download, playback and appearance
+        run: python tests/browser/test_voice_pitch.py --browser ${{ matrix.browser }}
       - name: Check formatting and retain an actionable patch
-        if: always()
+        if: always() && matrix.browser == 'chromium'
         run: |
           mkdir -p test-results
           pnpm exec prettier --write 'apps/web/src/lib/features/whispersync/pitch/*.{ts,svelte}' 'test/pitch/*.mjs' > test-results/pitch-format.log
@@ -103,7 +110,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: voice-pitch-application
+          name: voice-pitch-application-${{ matrix.browser }}
           path: |
             test-results/
             apps/web/src/lib/features/whispersync/pitch/
