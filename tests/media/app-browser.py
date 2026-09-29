@@ -154,6 +154,28 @@ def main():
         assert chosen
         expect(page.locator('.transcript-cue')).to_have_count(2)
         expect(page.locator('.transcript-translation').first).to_have_text('Hello. Are you looking for something?')
+
+        card = page.locator('.video-card').filter(has_text='video.mp4')
+        expect(card).to_be_visible()
+        select_video = card.get_by_role('checkbox', name='Select video.mp4', exact=True)
+        select_target = select_video.locator('..')
+        page.set_viewport_size({'width':320,'height':568})
+        target_box = select_target.bounding_box()
+        assert target_box['width'] >= 43.5 and target_box['height'] >= 43.5, target_box
+        assert target_box['x'] >= -1 and target_box['x'] + target_box['width'] <= 321, target_box
+        assert select_target.evaluate("""label => {
+            const r=label.getBoundingClientRect();
+            const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+            return !!hit && (hit===label || label.contains(hit));
+        }"""), 'Saved-video selection target center must be hit-testable'
+        select_video.focus()
+        expect(select_video).to_be_focused()
+        select_video.press('Space')
+        expect(select_video).to_be_checked()
+        select_video.press('Space')
+        expect(select_video).not_to_be_checked()
+        page.set_viewport_size({'width':1280,'height':900})
+        results.append('saved-video selection exposes a real 44px touch and keyboard target')
         results.append('real local-file/sidecar import and explicit main selection with locale translation')
         def menu():
             page.get_by_role('button', name='Transcript options', exact=True).click()
