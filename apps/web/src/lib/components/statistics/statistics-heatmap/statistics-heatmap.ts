@@ -5,6 +5,8 @@
  */
 
 export const heatmapDayElementSize = 15;
+export const heatmapCompactDayElementSize = 44;
+export const heatmapCompactWidth = 640;
 
 export const heatmapDayMargins = 20;
 
