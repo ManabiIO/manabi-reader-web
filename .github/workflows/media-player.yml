@@ -1,0 +1,201 @@
+name: Video player and transcript
+# Real app and inexpensive generated fixtures; never downloads ASR models.
+on:
+  workflow_dispatch:
+    inputs:
+      legacy_browser:
+        description: 'Also reproduce the documented Chromium 153 Incognito handle crash (fails on affected build)'
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - 'apps/web/src/lib/media/**'
+      - 'apps/web/src/lib/manabi/media-*.ts'
+      - 'apps/web/src/routes/videos/**'
+      - 'apps/web/src/lib/search/**'
+      - 'tests/browser/test_unified_search.py'
+      - 'apps/web/src/lib/components/book-reader/reader-appearance.svelte'
+      - 'apps/web/src/lib/appearance/**'
+      - 'apps/web/src/lib/data/*font*'
+      - 'apps/web/src/lib/data/reader-typography.ts'
+      - 'apps/web/src/lib/data/store.ts'
+      - 'apps/web/src/lib/functions/reader-font-layout.ts'
+      - 'tests/media/**'
+      - 'tests/browser/test_static_reader.py'
+      - 'tools/media/**'
+      - 'apps/web/package.json'
+      - 'apps/web/svelte.config.js'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/media-player.yml'
+permissions:
+  contents: read
+concurrency:
+  group: media-player-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Record exact media source composition
+        run: |
+          mkdir -p test-results/media/source
+          git rev-parse HEAD > test-results/media/source/tested-commit.txt
+          git rev-parse HEAD^{tree} > test-results/media/source/tested-tree.txt
+          git archive --format=tar.gz HEAD \
+            apps/web/src/lib/media tests/media tools/media \
+            package.json apps/web/package.json apps/web/svelte.config.js pnpm-lock.yaml \
+            .prettierrc.cjs .github/workflows/media-player.yml \
+            > test-results/media/source/media-source.tar.gz
+          sha256sum test-results/media/source/media-source.tar.gz > test-results/media/source/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: video-player-source
+          path: test-results/media/source/
+          if-no-files-found: error
+          retention-days: 7
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: 12.3.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.21.0
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pnpm install --frozen-lockfile
+      - name: Record pinned formatter for reproducible offline media review
+        run: |
+          mkdir -p test-results/media/formatter
+          node --version > test-results/media/formatter/node-version.txt
+          node -p "require('prettier/package.json').version" > test-results/media/formatter/version.txt
+          formatter="$(node -p "require('path').dirname(require.resolve('prettier/package.json'))")"
+          tar -czf test-results/media/formatter/prettier.tar.gz -C "$formatter" .
+          sha256sum test-results/media/formatter/prettier.tar.gz > test-results/media/formatter/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: video-player-formatter
+          path: test-results/media/formatter/
+          if-no-files-found: error
+          retention-days: 7
+      - run: pnpm --dir apps/web exec svelte-kit sync
+      - run: pnpm --dir apps/web check
+      - name: Build the actual application
+        env:
+          BASE_PATH: /reader-web
+        run: pnpm --dir apps/web build
+      - name: Install generated-fixture and browser tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg espeak
+          python -m pip install playwright==1.63.0
+          python -m playwright install --with-deps chromium
+      - name: Install qualified storage browser
+        run: bash tools/media/install-qualified-chromium.sh test-results/media/browser
+      - name: Generate short fixture and run media regressions
+        id: fixture
+        run: |
+          set -o pipefail
+          mkdir -p test-results/media
+          python -m unittest discover -s tests/media -p 'test_*.py' -v 2>&1 | tee test-results/media/tooling.log
+          python tools/media/generate-fixtures.py --language en > fixture-path.txt
+          export MEDIA_FIXTURE="$(cat fixture-path.txt)"
+          pnpm exec node tools/media/test.mjs | tee test-results/media/core.log
+      - name: Actual Svelte application and native IndexedDB
+        run: python tests/media/app-browser.py --fixture "$(cat fixture-path.txt)" --output test-results/media/app
+      - name: Native media IndexedDB contracts
+        if: ${{ !cancelled() && steps.fixture.outcome == 'success' }}
+        run: |
+          python tests/media/browser-poll.py --output test-results/media/polling
+          python tests/media/publication-cancellation-browser.py --output test-results/media/publication-cancellation
+          python tests/media/identity-handoff-browser.py --output test-results/media/identity-handoff
+          python tests/media/import-durability-browser.py --profile-mode persistent --output test-results/media/import-durability-persistent
+          python tests/media/repair-resegmentation-browser.py --output test-results/media/repair-resegmentation
+          python tests/media/progressive-optimization-browser.py --output test-results/media/progressive-optimization
+          python tests/media/browser.py --fixture "$(cat fixture-path.txt)" --output test-results/media/native-browser
+          python tests/media/sparse-browser.py --fixture "$(cat fixture-path.txt)" --output test-results/media/sparse-native
+      - name: Incognito import compatibility (independent hard gate)
+        if: ${{ !cancelled() && steps.fixture.outcome == 'success' }}
+        run: |
+          python tests/media/import-durability-browser.py --profile-mode incognito --output test-results/media/import-durability-incognito
+      - name: Player, workspace and real Web Audio
+        if: ${{ !cancelled() && steps.fixture.outcome == 'success' }}
+        run: |
+          python tests/media/player-publication-browser.py --fixture "$(cat fixture-path.txt)" --output test-results/media/publication
+          python tests/media/dom-browser.py --fixture "$(cat fixture-path.txt)" --output test-results/media/player
+          python tests/media/transition-browser.py --fixture "$(cat fixture-path.txt)" --output test-results/media/transitions
+          python tests/media/workspace-dom.py --fixture "$(cat fixture-path.txt)" --output test-results/media/workspace
+          python tests/media/audio-browser.py --output test-results/media/audio
+          python tests/media/menu-browser.py --output test-results/media/menu
+          python tests/media/transcript-interactions.py --fixture "$(cat fixture-path.txt)" --output test-results/media/transcript-interactions
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: video-player-evidence
+          path: test-results/media/
+          if-no-files-found: warn
+          retention-days: 7
+
+  # This probe imports no application code and must still run when compilation,
+  # core tests, or another browser suite fails. Each profile owns an independent
+  # runner so a hung/crashed browser cannot hide the other profile's evidence.
+  native-handle-profiles:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [persistent, incognito]
+        # Chromium 153 Incognito failure is established upstream and reproduced
+        # without app code. Preserve an explicit diagnostic, not an impossible
+        # permanent PR gate. Every selected matrix entry still fails normally.
+        browser: ${{ fromJSON(github.event_name == 'workflow_dispatch' && inputs.legacy_browser && '["playwright","chrome-154"]' || '["chrome-154"]') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Record tested source and install common browser dependencies
+        run: |
+          mkdir -p test-results/native-handle-profile
+          git rev-parse HEAD > test-results/native-handle-profile/tested-commit.txt
+          git rev-parse HEAD^{tree} > test-results/native-handle-profile/tested-tree.txt
+          python -m pip install playwright==1.63.0
+          python -m playwright install-deps chromium
+      - name: Install the original Playwright-pinned Chromium
+        if: matrix.browser == 'playwright'
+        run: |
+          python -m playwright install chromium
+          python - <<'PYTHON' >> "$GITHUB_ENV"
+          from playwright.sync_api import sync_playwright
+          with sync_playwright() as p:
+              print('CHROMIUM=' + p.chromium.executable_path)
+          PYTHON
+      # Both required profiles use the same upstream-fixed, byte-verified pin.
+      - name: Install qualified Chrome for Testing
+        if: matrix.browser == 'chrome-154'
+        run: bash tools/media/install-qualified-chromium.sh test-results/native-handle-profile
+      - name: Native handle roundtrip without application code
+        env:
+          PROFILE_MODE: ${{ matrix.profile }}
+        run: |
+          timeout --signal=TERM --kill-after=10s 120s \
+            python tests/media/native-handle-profile.py --profile-mode "$PROFILE_MODE" \
+            --output test-results/native-handle-profile
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-handle-profile-${{ matrix.browser }}-${{ matrix.profile }}
+          path: test-results/native-handle-profile/
+          if-no-files-found: error
+          retention-days: 7
