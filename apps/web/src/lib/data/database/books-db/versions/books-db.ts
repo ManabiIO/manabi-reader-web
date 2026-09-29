@@ -12,13 +12,20 @@ export type StoredBookData = Omit<BooksDbV10['data']['value'], 'blobs' | 'coverI
   blobs: Record<string, Blob | StoredBinary>;
   coverImage?: string | Blob | StoredBinary;
 };
-type BooksDb = {
+type BooksDbBase = {
   [K in keyof BooksDbV10]: K extends 'data'
     ? Omit<BooksDbV10['data'], 'value' | 'indexes'> & {
         value: StoredBookData;
         indexes: BooksDbV10['data']['indexes'] & { contentHash: string; libraryOwner: string };
       }
     : BooksDbV10[K];
+};
+type BooksDb = BooksDbBase & {
+  /** Durable personal-sync ownership for retained content-keyed statistics. */
+  readerStatisticScope: {
+    key: string;
+    value: { bookKey: string; accountId: string };
+  };
 };
 
 export type BooksDbBookData = BooksDbV10['data']['value'];
@@ -33,8 +40,10 @@ export type BooksDbSubtitleData = BooksDb['subtitle']['value'];
 export type BooksDbHandle = BooksDb['handle']['value'];
 // v12 repaired missing stores/indexes in older and already-upgraded schemas.
 // v13 adds native content-hash and library-owner indexes so identity checks do
-// not clone every stored book payload into JavaScript. Payloads and portable wire data are unchanged.
-export const currentDbVersion = 13;
+// not clone every stored book payload into JavaScript.
+// v14 adds a tiny account receipt for statistics retained after their book row
+// is removed. Statistics payloads and portable wire data are unchanged.
+export const currentDbVersion = 14;
 export const currentStorageVersion = currentDbVersion;
 export const ttuWireVersion = 8;
 
