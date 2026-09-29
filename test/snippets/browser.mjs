@@ -277,6 +277,7 @@ try {
   await expect(actionMenu).toBeVisible();
   const mobileActions = [
     'Collections…',
+    'Add text',
     'Move to…',
     'Duplicate',
     'Export JSON',

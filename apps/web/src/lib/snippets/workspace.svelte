@@ -856,7 +856,7 @@
   {:else if current && admitted}
     <section class="reading" aria-label="Snippet reader">
       <Button
-        class="back min-h-11 px-0"
+        class="back h-auto min-h-[44px] px-0 py-[4px]"
         href={resolve(libraryPath(params.get('returnTo')))}
         variant="link"
         size="sm">← Back to library</Button
@@ -869,6 +869,7 @@
         </div>
         <div class="actions">
           {#if current.document.trashedAt}<Button
+              class="h-auto min-h-[44px] py-[6px]"
               disabled={busy}
               onclick={() =>
                 action(async () => {
@@ -876,9 +877,11 @@
                   await loadRecord(false);
                 })}>Restore snippet</Button
             >{:else}<Button
+              class="h-auto min-h-[44px] py-[6px]"
               disabled={busy || !!current.transfer || !!current.conflicts.length}
               onclick={() => action(() => edit())}>Edit</Button
             ><Button
+              class="reader-add-wide h-auto min-h-[44px] py-[6px]"
               variant="secondary"
               disabled={busy || !!current.transfer || !!current.conflicts.length}
               onclick={() => action(() => edit('append'))}>Add text</Button
@@ -979,7 +982,9 @@
         <Menu.Root>
           <Menu.Trigger>
             {#snippet child({ props })}
-              <Button {...props} variant="secondary" class="min-h-11">More actions</Button>
+              <Button {...props} variant="secondary" class="h-auto min-h-[44px] py-[6px]"
+                >More actions</Button
+              >
             {/snippet}
           </Menu.Trigger>
           <Menu.Content align="start" collisionPadding={8} class="w-64 max-w-[calc(100vw-1rem)]">
@@ -989,6 +994,10 @@
             >
               Collections…
             </Menu.Item>
+            {#if !current.document.trashedAt}<Menu.Item
+                disabled={busy || !!current.transfer || !!current.conflicts.length}
+                onSelect={() => action(() => edit('append'))}>Add text</Menu.Item
+              >{/if}
             <Menu.Item
               disabled={busy || !!current.transfer || !!current.conflicts.length}
               onSelect={() => move([current!.document.id])}
@@ -1591,12 +1600,17 @@
     gap: 0.4rem;
   }
   @media (max-width: 640px) {
-    .secondary-actions-wide {
+    .secondary-actions-wide,
+    .reader-add-wide {
       display: none;
     }
     .secondary-actions-menu {
       display: block;
-      padding-block: 6px 10px;
+      padding-block: 4px 8px;
+    }
+    .reading > .heading {
+      gap: 8px;
+      margin-block: 12px;
     }
     .heading {
       align-items: start;
