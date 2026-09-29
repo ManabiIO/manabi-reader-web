@@ -26,6 +26,18 @@ test('metadata relevance treats supplementary symbols as token boundaries', () =
   assert.deepEqual(values, ['🐱cat notes', 'Copycat']);
 });
 
+test('metadata relevance prefers a later token boundary over an earlier interior hit', () => {
+  const values = ['Copycat only', 'Copycat cat', 'Before cat'];
+  values.sort((a, b) => compareSearchText(a, b, 'cat'));
+  assert.deepEqual(values, ['Before cat', 'Copycat cat', 'Copycat only']);
+});
+
+test('metadata relevance positions count supplementary characters as one code point', () => {
+  const values = ['🐱🐱 cat', 'ab cat'];
+  values.sort((a, b) => compareSearchText(a, b, 'cat'));
+  assert.deepEqual(values, ['ab cat', '🐱🐱 cat']);
+});
+
 test('bulk metadata sorting extracts each candidate text once', () => {
   const values = ['Copycat notes', 'A cat story', 'Cat guide', 'cat'];
   let reads = 0;
