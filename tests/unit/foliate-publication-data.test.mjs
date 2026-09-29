@@ -272,6 +272,12 @@ test('restored navigation is bounded by depth, entry count and string sizes', ()
   const long = structuredClone(packed.epubPublication);
   long.navigation = { toc: [{ href: 'x'.repeat(4097) }] };
   assert.throws(() => readEpubPublication(long, packed.elementHtml), /navigation/i);
+
+  const aggregate = structuredClone(packed.epubPublication);
+  aggregate.navigation = {
+    toc: Array.from({ length: 1025 }, () => ({ label: '文'.repeat(4096) }))
+  };
+  assert.throws(() => readEpubPublication(aggregate, packed.elementHtml), /navigation|size/i);
 });
 
 test('restored rendition retains only bounded supported scalar hints', () => {

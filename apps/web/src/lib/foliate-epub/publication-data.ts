@@ -62,6 +62,7 @@ export interface EpubPublicationData {
 const MAX_HTML = 32 * 1024 * 1024;
 const MAX_CSS = 4 * 1024 * 1024;
 const MAX_NAVIGATION_ENTRIES = 20_000;
+const MAX_NAVIGATION_TEXT = 4 * 1024 * 1024;
 const MAX_NAVIGATION_DEPTH = 64;
 const MAX_NAVIGATION_LABEL = 4096;
 const MAX_NAVIGATION_HREF = 4096;
@@ -73,7 +74,11 @@ function record(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
-function boundedText(value: unknown, maximum: number): string | undefined {
+function boundedText(
+  value: unknown,
+  maximum: number,
+  state?: { text: number }
+): string | undefined {
   if (value == null) return undefined;
   if (
     typeof value !== 'string' ||
@@ -82,12 +87,14 @@ function boundedText(value: unknown, maximum: number): string | undefined {
     /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/.test(value)
   )
     throw new Error('Invalid EPUB navigation text.');
+  if (state && (state.text += value.length) > MAX_NAVIGATION_TEXT)
+    throw new Error('EPUB navigation exceeds the size limit.');
   return value || undefined;
 }
 
 function readNavigationList(
   value: unknown,
-  state: { count: number },
+  state: { count: number; text: number },
   depth = 0
 ): EpubNavigationItemData[] | undefined {
   if (value == null) return undefined;
@@ -96,14 +103,14 @@ function readNavigationList(
   const result = value.map((entry): EpubNavigationItemData => {
     if (++state.count > MAX_NAVIGATION_ENTRIES || !record(entry))
       throw new Error('EPUB navigation exceeds the size limit.');
-    const label = boundedText(entry.label, MAX_NAVIGATION_LABEL);
-    const href = boundedText(entry.href, MAX_NAVIGATION_HREF);
+    const label = boundedText(entry.label, MAX_NAVIGATION_LABEL, state);
+    const href = boundedText(entry.href, MAX_NAVIGATION_HREF, state);
     let type: string[] | undefined;
     if (entry.type != null) {
       if (!Array.isArray(entry.type) || entry.type.length > MAX_NAVIGATION_TYPES)
         throw new Error('Invalid EPUB navigation type.');
       type = entry.type.map((item) => {
-        const value = boundedText(item, MAX_NAVIGATION_TYPE);
+        const value = boundedText(item, MAX_NAVIGATION_TYPE, state);
         if (!value) throw new Error('Invalid EPUB navigation type.');
         return value;
       });
@@ -123,7 +130,7 @@ function readNavigationList(
 function readNavigation(value: unknown): EpubPublicationNavigation | undefined {
   if (value == null) return undefined;
   if (!record(value)) throw new Error('Invalid EPUB navigation data.');
-  const state = { count: 0 };
+  const state = { count: 0, text: 0 };
   const toc = readNavigationList(value.toc, state);
   const pageList = readNavigationList(value.pageList, state);
   const landmarks = readNavigationList(value.landmarks, state);
