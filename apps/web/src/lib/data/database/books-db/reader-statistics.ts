@@ -7,6 +7,7 @@
 import type { IDBPDatabase } from 'idb';
 import type BooksDb from './versions/books-db';
 import { commitTransaction } from './commit-transaction.mjs';
+import { contentHashPrimaryKeys } from './content-hash-index';
 import type {
   BooksDbBookData,
   BooksDbContentStatistic,
@@ -134,15 +135,20 @@ export async function migrateLegacyStatistics(
         book = current;
         if (guard.validateCopy) {
           const contentKey = contentStatisticKey(book);
-          for (
-            let cursor = await tx.objectStore('data').openCursor();
-            cursor;
-            cursor = await cursor.continue()
-          ) {
-            if (!contentKey || contentStatisticKey(cursor.value) !== contentKey) continue;
-            const copyOwner = await tx.objectStore('readerBookScope').get(cursor.value.id);
-            guard.assertCurrent();
-            guard.validateCopy(cursor.value, copyOwner);
+          if (contentKey) {
+            const copyIds = await contentHashPrimaryKeys(
+              tx.objectStore('data').index('contentHash'),
+              book.contentHash!,
+              guard.assertCurrent,
+              guard.signal
+            );
+            for (const id of copyIds) {
+              const copy = await tx.objectStore('data').get(id);
+              if (!copy) continue;
+              const copyOwner = await tx.objectStore('readerBookScope').get(id);
+              guard.assertCurrent();
+              guard.validateCopy(copy, copyOwner);
+            }
           }
         }
       }
