@@ -253,7 +253,11 @@ class UnifiedSearch(ProductJourneyBase):
         self.page.set_viewport_size({'width': 390, 'height': 844})
         self.page.evaluate('document.documentElement.style.fontSize = "100%"')
         passages.last.scroll_into_view_if_needed()
-        self.page.wait_for_timeout(50)
+        self.page.wait_for_function('''controls => {
+          const style = getComputedStyle(controls);
+          const box = controls.getBoundingClientRect();
+          return style.position === 'sticky' && box.top >= 0;
+        }''', arg=controls.element_handle())
         toolbar = self.page.get_by_role('banner', name='Library toolbar', exact=True)
         control_box = controls.bounding_box()
         toolbar_box = toolbar.bounding_box()
