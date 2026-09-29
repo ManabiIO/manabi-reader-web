@@ -32,6 +32,24 @@ SECOND = 'The second audiobook chapter continues here.'
 CAPTIONS = f'1\n00:00:00,000 --> 00:00:20,000\n{FIRST}\n\n2\n00:00:20,000 --> 00:00:40,000\n{SECOND}\n'
 
 
+def many_captions(count=65):
+    def stamp(milliseconds):
+        seconds, millis = divmod(milliseconds, 1000)
+        minutes, seconds = divmod(seconds, 60)
+        hours, minutes = divmod(minutes, 60)
+        return f'{hours:02d}:{minutes:02d}:{seconds:02d},{millis:03d}'
+
+    rows = []
+    for index in range(count):
+        start = index * 500
+        end = start + 450
+        rows.append(
+            f'{index + 1}\n{stamp(start)} --> {stamp(end)}\n'
+            f'Long transcript cue {index + 1:02d} 日本語の字幕です。'
+        )
+    return '\n\n'.join(rows) + '\n'
+
+
 def epub():
     output = io.BytesIO()
     with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
@@ -163,6 +181,35 @@ class WhispersyncBrowser(unittest.TestCase):
         expect(self.page.get_by_role('dialog')).not_to_be_visible()
         expect(trigger).to_be_focused()
 
+    def test_whispersync_audio_bar_never_strands_focus_on_disabled_or_removed_controls(self):
+        self.open_fixture('continuous', 'horizontal-tb')
+        self.page.locator('input[type=file][accept*=".mp3"]').set_input_files(
+            {'name': 'focus-audiobook.wav', 'mimeType': 'audio/wav', 'buffer': audio()})
+        self.page.wait_for_function('() => document.querySelector("audio")?.duration === 40')
+        panel = self.page.get_by_role('dialog', name='Audiobook', exact=True)
+        panel.get_by_role('button', name='Play', exact=True).click()
+        self.page.wait_for_function('() => document.querySelector("audio")?.currentTime > .1')
+        panel.press('Escape')
+        expect(panel).not_to_be_visible()
+
+        bar = self.page.locator('[data-ui-overlay="audiobook-controls"]')
+        open_button = bar.get_by_role('button', name='Audiobook', exact=True)
+        pause = bar.get_by_role('button', name='Pause', exact=True)
+        expect(pause).to_be_enabled()
+        pause.focus()
+        pause.press('Enter')
+        expect(pause).to_be_disabled()
+        expect(open_button).to_be_focused()
+
+        close = bar.get_by_role('button', name='Close audio playback', exact=True)
+        close.focus()
+        close.press('Enter')
+        expect(close).to_have_count(0)
+        expect(open_button).to_be_hidden()
+        trigger = self.page.locator('#ttu-page-footer button[aria-haspopup="dialog"]')
+        expect(trigger).to_be_focused()
+        self.assertGreaterEqual(trigger.bounding_box()['height'], 43.99)
+
     def test_whispersync_mobile_dark_dialog_is_labelled_and_within_viewport(self):
         self.page.set_viewport_size({'width': 390, 'height': 844})
         self.page.emulate_media(color_scheme='dark')
@@ -181,6 +228,94 @@ class WhispersyncBrowser(unittest.TestCase):
         self.assertLessEqual(box['y'] + box['height'], 844.5)
         self.assertEqual(
             'horizontal-tb', dialog.evaluate('element => getComputedStyle(element).writingMode'))
+
+    def test_whispersync_short_enlarged_panel_keeps_controls_and_dismissal_reachable(self):
+        self.page.set_viewport_size({'width': 320, 'height': 320})
+        self.open_fixture('continuous', 'horizontal-tb')
+        self.page.locator('input[type=file][accept*=".mp3"]').set_input_files(
+            {'name': 'long-audiobook.wav', 'mimeType': 'audio/wav', 'buffer': audio()})
+        self.page.wait_for_function('() => document.querySelector("audio")?.duration === 40')
+        self.page.locator('input[type=file][accept*=".srt"]').set_input_files({
+            'name': 'long.srt',
+            'mimeType': 'application/x-subrip',
+            'buffer': many_captions().encode()
+        })
+        expect(self.page.get_by_text('long.srt · 65 cues', exact=True)).to_be_visible()
+
+        panel = self.page.get_by_role('dialog', name='Audiobook', exact=True)
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        scroll = panel.locator('.audiobook-scroll')
+        self.page.wait_for_function('e => e.scrollHeight > e.clientHeight', arg=scroll.element_handle())
+        self.assertEqual('hidden', panel.evaluate('e => getComputedStyle(e).overflowY'))
+        self.assertEqual('auto', scroll.evaluate('e => getComputedStyle(e).overflowY'))
+
+        close = panel.get_by_role('button', name='Close audiobook', exact=True)
+        for control in (
+            panel.get_by_role('button', name='Play', exact=True),
+            panel.get_by_role('button', name='+10 seconds', exact=True),
+            panel.get_by_role('button', name='Next 30', exact=True),
+            panel.get_by_role('button', name='Remove saved audiobook data', exact=True),
+            panel.locator('input[type=file][accept*=".mp3"]'),
+            panel.locator('input[type=file][accept*=".srt"]'),
+        ):
+            self.assertGreaterEqual(control.bounding_box()['height'], 43.99)
+
+        for label_text in (
+            'Follow matched text while playing',
+            'Allow approximate matches (review highlighted text)',
+        ):
+            checkbox = panel.get_by_role('checkbox', name=label_text, exact=True)
+            label = checkbox.locator('xpath=ancestor::label')
+            self.assertGreaterEqual(label.bounding_box()['height'], 43.99)
+
+        next_page = panel.get_by_role('button', name='Next 30', exact=True)
+        previous = panel.get_by_role('button', name='Previous 30', exact=True)
+        expect(previous).to_be_disabled()
+        next_page.focus()
+        next_page.press('Enter')
+        expect(panel.get_by_role('status').filter(has_text='Page 2 / 3')).to_be_visible()
+        expect(next_page).to_be_focused()
+        next_page.press('Enter')
+        expect(panel.get_by_role('status').filter(has_text='Page 3 / 3')).to_be_visible()
+        expect(next_page).to_be_disabled()
+        expect(previous).to_be_focused()
+
+        scroll.evaluate('e => { e.scrollTop = e.scrollHeight; }')
+        self.page.wait_for_function('e => e.scrollTop > 0', arg=scroll.element_handle())
+        box = close.bounding_box()
+        viewport = self.page.evaluate('''() => {
+          const v=visualViewport;
+          return {
+            left:v?.offsetLeft ?? 0,
+            top:v?.offsetTop ?? 0,
+            right:(v?.offsetLeft ?? 0)+(v?.width ?? innerWidth),
+            bottom:(v?.offsetTop ?? 0)+(v?.height ?? innerHeight)
+          };
+        }''')
+        self.assertGreaterEqual(box['width'], 43.99)
+        self.assertGreaterEqual(box['height'], 43.99)
+        self.assertGreaterEqual(box['x'], viewport['left'] - 1)
+        self.assertGreaterEqual(box['y'], viewport['top'] - 1)
+        self.assertLessEqual(box['x'] + box['width'], viewport['right'] + 1)
+        self.assertLessEqual(box['y'] + box['height'], viewport['bottom'] + 1)
+        self.assertTrue(close.evaluate('''e => {
+          const r=e.getBoundingClientRect();
+          const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+          return !!hit && (hit===e || e.contains(hit));
+        }'''))
+        self.assertLessEqual(panel.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+        Path('test-results').mkdir(exist_ok=True)
+        self.page.screenshot(
+            path='test-results/whispersync-short-enlarged-panel.png',
+            full_page=True
+        )
+
+        close.focus()
+        close.press('Enter')
+        expect(panel).not_to_be_visible()
+        trigger = self.page.locator('#ttu-page-footer button[aria-haspopup="dialog"]')
+        expect(trigger).to_be_focused()
+        self.page.evaluate('document.documentElement.style.fontSize = ""')
 
     def test_whispersync_invalid_subtitles_keep_the_last_valid_captions(self):
         self.open_fixture()
