@@ -87,6 +87,68 @@ class UnifiedSearch(ProductJourneyBase):
         expect(self.page.locator('.book-content').first).to_contain_text('猫 passage 2')
         self.checkpoint('unified-independent-content-navigation')
 
+    def test_library_scope_switches_books_and_snippets_without_losing_query(self):
+        self.import_book('Scope book', body='<p>SCOPE_TOKEN book body</p>')
+        self.page.goto(re.sub(r'/manage(?:[?#].*)?        self.import_book('Live search ownership', body='<p>猫</p><p>犬</p>')
+        field = self.library_search('猫')
+        self.filter('Content')
+        expect(self.page.locator('button.passage mark')).to_have_text('猫')
+        field.fill('猫')
+        field.fill('犬')
+        expect(self.page.locator('button.passage mark')).to_have_text('犬')
+        expect(field).to_be_focused()
+        expect(self.page.locator('button.passage')).to_have_count(1)
+        self.checkpoint('unified-latest-query')
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)
+, '/snippets', self.page.url))
+        expect(self.page.get_by_role('button', name='New snippet', exact=True)).to_be_enabled()
+        self.page.get_by_role('button', name='New snippet', exact=True).click()
+        self.page.get_by_role('textbox', name='Snippet text', exact=True).fill(
+            'SCOPE_TOKEN snippet body')
+        self.page.get_by_role('textbox', name='Snippet title', exact=True).fill('Scope snippet')
+        self.page.get_by_role('button', name='Save snippet', exact=True).click()
+        device = self.page.get_by_role('button', name='Keep on this device only', exact=True)
+        if device.is_visible():
+            device.click()
+            self.page.get_by_role('button', name='Save snippet', exact=True).click()
+        expect(self.page.get_by_role('article', name='Snippet content')).to_be_visible()
+
+        self.go_library()
+        field = self.library_search('SCOPE_TOKEN')
+        result_types = self.page.get_by_role('navigation', name='Search result type')
+        scopes = self.page.get_by_role('navigation', name='Search library scope')
+        self.assertEqual(
+            ['Everything', 'Books', 'Snippets'],
+            scopes.get_by_role('button').all_text_contents())
+        expect(scopes.get_by_role('button', name='Everything', exact=True)).to_have_attribute(
+            'aria-pressed', 'true')
+        self.filter('Content')
+        rows = self.page.locator('[data-search-row="content"] small')
+        expect(rows).to_have_count(2)
+        self.assertTrue(any('Book · Scope book' in value for value in rows.all_text_contents()))
+        self.assertTrue(any('Snippet · Scope snippet' in value for value in rows.all_text_contents()))
+
+        scopes.get_by_role('button', name='Books', exact=True).click()
+        expect(scopes.get_by_role('button', name='Books', exact=True)).to_have_attribute(
+            'aria-pressed', 'true')
+        expect(field).to_have_value('SCOPE_TOKEN')
+        expect(result_types.get_by_role('button', name='Dictionary', exact=True)).to_have_count(0)
+        expect(rows).to_have_count(1)
+        expect(rows).to_contain_text('Book · Scope book')
+
+        scopes.get_by_role('button', name='Snippets', exact=True).click()
+        expect(field).to_have_value('SCOPE_TOKEN')
+        expect(rows).to_have_count(1)
+        expect(rows).to_contain_text('Snippet · Scope snippet')
+
+        scopes.get_by_role('button', name='Everything', exact=True).click()
+        expect(result_types.get_by_role('button', name='Dictionary', exact=True)).to_be_visible()
+        expect(rows).to_have_count(2)
+        self.checkpoint('unified-library-scope-switching')
+
     def test_new_query_owns_content_and_searchbox_focus(self):
         self.import_book('Live search ownership', body='<p>猫</p><p>犬</p>')
         field = self.library_search('猫')
