@@ -171,10 +171,23 @@
   border: 1px solid var(--media-border);
   min-width: 0;
 }
-.video-card > input {
+.video-card-select {
   position: absolute;
-  top: 14px;
-  right: 14px;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  cursor: pointer;
+  border-radius: 12px;
+}
+.video-card-select:focus-within {
+  outline: 3px solid var(--ring, #147d90);
+  outline-offset: 1px;
+}
+.video-card-select input {
+  margin: 0;
 }
 .video-card .video-card-title {
   display: block;
