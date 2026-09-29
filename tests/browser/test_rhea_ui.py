@@ -158,8 +158,9 @@ class RheaReader(previous.RefinedAppearance):
         self.open_book(font='Klee One')
         self.wait_for_fonts()
         self.page.emulate_media(reduced_motion='reduce')
-        if not self.page.evaluate('matchMedia("(prefers-reduced-motion: reduce)").matches'):
-            self.skipTest('This engine does not emulate reduced motion')
+        self.assertTrue(
+            self.page.evaluate('matchMedia("(prefers-reduced-motion: reduce)").matches')
+        )
 
         # Start hidden, then exercise the real Reader reveal path. A CSS-only
         # button check cannot detect the Svelte fly transition on the toolbar host.
