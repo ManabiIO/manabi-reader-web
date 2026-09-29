@@ -9,8 +9,8 @@ import struct
 import threading
 import unittest
 import wave
-from http.server import ThreadingHTTPServer
 from playwright.sync_api import sync_playwright, expect
+from test_static_reader import ThreadingHTTPServer
 import test_whispersync as existing
 
 OUTPUT = Path('test-results/voice-pitch-app')
@@ -117,8 +117,8 @@ class VoicePitchBrowser(existing.WhispersyncBrowser):
         expect(self.strip.get_by_text('Ready when you press Play', exact=True)).to_be_visible(timeout=20000)
         self.assertEqual(1, self.page.evaluate('__pitchQA.created'))
         self.page.locator('.panel').get_by_role('button', name='Play', exact=True).click()
-        self.page.wait_for_function('__pitchQA.results.filter(r => r.hz > 85 && r.hz < 520).length >= 8', timeout=20000)
-        self.page.wait_for_function('document.querySelector("audio").currentTime > 8.1', timeout=20000)
+        self.page.wait_for_function('() => __pitchQA.results.filter(r => r.hz > 85 && r.hz < 520).length >= 8', timeout=20000)
+        self.page.wait_for_function('() => document.querySelector("audio").currentTime > 8.1', timeout=20000)
         self.page.locator('.panel').get_by_role('button', name='Pause', exact=True).click()
         expect(self.strip.get_by_text('Paused · trace held', exact=True)).to_be_visible()
         expect(self.strip.locator('path.pitch')).to_have_attribute('d', __import__('re').compile('.*L.*'))
@@ -156,7 +156,7 @@ class VoicePitchBrowser(existing.WhispersyncBrowser):
         expect(self.strip.locator('path.pitch')).to_have_attribute('d', __import__('re').compile('.*L.*'), timeout=10000)
         self.page.get_by_role('dialog').press('Escape')
         expect(self.page.get_by_role('dialog')).not_to_be_visible()
-        self.page.wait_for_function('__pitchQA.created === __pitchQA.terminated')
+        self.page.wait_for_function('() => __pitchQA.created === __pitchQA.terminated')
         position = self.page.locator('audio').evaluate('a => a.currentTime')
         self.page.wait_for_function('(t) => document.querySelector("audio").currentTime > t + .3', arg=position)
         self.open_panel()
