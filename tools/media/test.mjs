@@ -22,9 +22,6 @@ run('tsc', [
   out,
   '--rootDir',
   source,
-  // The app's Vite ambient types are normally supplied by its tsconfig.
-  // This standalone compile enumerates source files directly.
-  'apps/web/node_modules/vite/client.d.ts',
   ...readdirSync(source)
     .filter((n) => n.endsWith('.ts'))
     .map((n) => source + '/' + n)
