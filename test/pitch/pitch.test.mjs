@@ -11,6 +11,27 @@ const { appendPoint, pitchPaths, initialPitchState } = await import(
   new URL('model.mjs', process.env.PITCH_COMPILED)
 );
 const { PitchController } = await import(new URL('controller.mjs', process.env.PITCH_COMPILED));
+const { createPitchController } = await import(new URL('browser.mjs', process.env.PITCH_COMPILED));
+
+test('pitch requests a 48 kHz context and falls back when the device rejects it', () => {
+  const original = globalThis.AudioContext;
+  const requested = [];
+  globalThis.AudioContext = class {
+    constructor(options) {
+      requested.push(options?.sampleRate ?? null);
+      if (options) throw new DOMException('Unsupported output rate', 'NotSupportedError');
+      this.sampleRate = 96000;
+    }
+  };
+  try {
+    const context = createPitchController(() => {}).environment.createContext();
+    assert.equal(context.sampleRate, 96000);
+    assert.deepEqual(requested, [48000, null]);
+  } finally {
+    globalThis.AudioContext = original;
+  }
+});
+
 const flush = async () => {
   for (let i = 0; i < 5; i++) await Promise.resolve();
 };
