@@ -30,6 +30,7 @@ function load(file, imports = {}) {
 }
 const persistence = load('manabi/persistence.ts', {
   idb: {},
+  '$lib/data/database/books-db/commit-transaction.mjs': transactions,
   '../snippets/summary': {
     summarize: () => {
       throw new Error('Snippet summaries are outside the WebDAV book fixture.');
