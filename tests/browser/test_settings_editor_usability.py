@@ -88,12 +88,12 @@ class SettingsEditorUsabilityBrowser(LibraryBase):
             expect(panel).to_have_count(0)
             self.assertEqual(before, self.stores('books', ['storageSource']))
 
-    def test_enlarged_storage_editor_keeps_close_reachable_after_form_scroll(self):
+    def test_enlarged_storage_editor_keeps_cancel_reachable_after_form_scroll(self):
         self.page.set_viewport_size({'width': 320, 'height': 480})
         self.settings()
         self.page.evaluate('document.documentElement.style.fontSize = "200%"')
         panel = self.editor()
-        close = panel.get_by_role('button', name='Close', exact=True)
+        close = panel.get_by_role('button', name='Cancel', exact=True)
         scroll = panel.locator('[data-dialog-scroll]')
 
         self.page.wait_for_function('e => e.scrollHeight > e.clientHeight', arg=scroll.element_handle())
