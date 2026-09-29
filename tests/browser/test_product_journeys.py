@@ -269,7 +269,7 @@ class ProductJourneys(ProductJourneyBase):
         self.page.get_by_role('button', name='Reading tools', exact=True).click()
         self.page.get_by_role('menuitem', name='Settings', exact=True).click()
         expect(self.page.get_by_label('Search settings', exact=True)).to_be_visible()
-        self.page.get_by_role('button', name='Fonts & text', exact=True).click()
+        self.page.get_by_role('navigation', name='Settings categories').get_by_role('link', name='Fonts & text', exact=True).click()
         field = self.page.get_by_role('spinbutton', name='Font size', exact=True)
         field.fill('28')
         field.press('Tab')
