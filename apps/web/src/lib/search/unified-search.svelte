@@ -128,7 +128,15 @@
     filter,
     searchScope,
     scopePlan.books ? books.map((book) => [book.key, book.contentHash, book.lastBookModified]) : [],
-    scopePlan.books ? matches.map((book) => [book.key, book.title]) : [],
+    scopePlan.books
+      ? matches.map((book) => [
+          book.key,
+          book.title,
+          book.canonicalTitle,
+          (book.creators ?? []).map((creator) => [creator.name, creator.sortAs]),
+          book.series?.name ?? null
+        ])
+      : [],
     scopePlan.snippets ? eligible.map((item) => [item.key, item.revision]) : [],
     videoLearningEnabled && searchScope === 'everything' ? mediaRevision : 0
   ]);
