@@ -271,3 +271,14 @@ test('malformed current-account identity is reported as blocked instead of silen
   assert.deepEqual(plan.scopesToCreate, []);
   assert.deepEqual(plan.blockedBookKeys, [bookKey]);
 });
+
+test('contradictory library and personal owners are blocked for either affected account', () => {
+  const metadata = [candidate(1, { libraryOwner: 'alice' })];
+  const scopes = [{ bookId: 1, accountId: 'bob' }];
+  const alice = planPersonalBookClaims(metadata, scopes, 'alice');
+  const bob = planPersonalBookClaims(metadata, scopes, 'bob');
+  assert.deepEqual(alice.books, []);
+  assert.deepEqual(bob.books, []);
+  assert.deepEqual(alice.blockedBookKeys, [bookKey]);
+  assert.deepEqual(bob.blockedBookKeys, [bookKey]);
+});
