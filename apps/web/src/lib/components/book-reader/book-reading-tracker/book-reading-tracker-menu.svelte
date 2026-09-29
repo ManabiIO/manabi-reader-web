@@ -151,6 +151,12 @@
     $lastBlurredTrackerItems$ = new Set([...$lastBlurredTrackerItems$]);
   }
 
+  function privacyMetricLabel(dataKey: string, label: string, value: string | number) {
+    return $lastBlurredTrackerItems$.has(dataKey)
+      ? `${label}: value hidden. Activate to show.`
+      : `${label}: ${value}. Activate to hide.`;
+  }
+
   function getActionIcon(
     action: { icon: IconDefinition; event: string; title: string },
     trackerPaused: boolean
@@ -174,7 +180,8 @@
     onclick={() => dispatch('trackerMenuClosed')}
   />
 </div>
-<div class="flex flex-1 flex-col overflow-auto p-4">
+<div class="relative flex min-h-0 flex-1" aria-busy={actionInProgress}>
+  <div class="flex min-h-0 flex-1 flex-col overflow-auto p-4" inert={actionInProgress}>
   {#if currentReadingGoal}
     <div class="mb-6">
       {#if currentReadingGoal.timeGoal}
@@ -213,17 +220,19 @@
           <!-- eslint-enable svelte/no-unknown-style-directive-property -->
         </div>
       {/if}
-      <div class="grid grid-cols-[max-content_auto] gap-x-4 gap-y-2 mt-4">
-        <div>Current Reading Goal:</div>
-        <div class="flex flex-col sm:block">
+      <div
+        class="mt-4 grid min-w-0 gap-x-4 gap-y-2 sm:grid-cols-[minmax(0,12rem)_minmax(0,1fr)]"
+      >
+        <div class="font-medium">Current Reading Goal</div>
+        <div class="min-w-0 break-words">
           <span>{currentReadingGoalStart}</span>
           {#if currentReadingGoalEnd && currentReadingGoalStart !== currentReadingGoalEnd}
-            <span>-</span>
+            <span> – </span>
             <span>{currentReadingGoalEnd}</span>
           {/if}
         </div>
-        <div>Remaining Time left:</div>
-        <div>
+        <div class="font-medium">Remaining time</div>
+        <div class="min-w-0 break-words">
           {remainingTimeInReadingGoalWindow}
         </div>
       </div>
@@ -252,118 +261,194 @@
         {/if}
       </div>
       <hr />
-      <div class="grid grid-cols-[max-content_auto] gap-x-4 gap-y-2">
+      <div class="grid min-w-0 gap-1">
         {#if statistic.id === 'All Time'}
-          <div class="mt-3">Book started on:</div>
-          <div class="mt-3">{bookStartDate}</div>
+          <div
+            class="grid min-w-0 gap-1 px-2 py-1 sm:grid-cols-[minmax(0,12rem)_minmax(0,1fr)]"
+          >
+            <span class="font-medium">Book started on</span>
+            <span class="min-w-0 break-words">{bookStartDate}</span>
+          </div>
         {/if}
         {#if statistic.id === 'Book Completion' && bookCompletionStatistics}
-          <div class="mt-3">Completed on:</div>
-          <div class="mt-3">{bookCompletionStatistics.dateKey}</div>
+          <div
+            class="grid min-w-0 gap-1 px-2 py-1 sm:grid-cols-[minmax(0,12rem)_minmax(0,1fr)]"
+          >
+            <span class="font-medium">Completed on</span>
+            <span class="min-w-0 break-words">{bookCompletionStatistics.dateKey}</span>
+          </div>
         {/if}
         <button
-          class="text-left"
-          class:mt-3={statistic.id !== 'All Time' && statistic.id !== 'Book Completion'}
+          data-tracker-metric
+          type="button"
+          class="grid min-h-11 min-w-0 gap-1 rounded-xl px-2 py-2 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring sm:grid-cols-[minmax(0,12rem)_minmax(0,1fr)]"
+          aria-pressed={$lastBlurredTrackerItems$.has('charactersRead')}
+          aria-label={privacyMetricLabel(
+            'charactersRead',
+            'Characters Read',
+            statistic.charactersRead
+          )}
           on:click={() => handleBlurredKey('charactersRead')}
         >
-          Characters Read:
+          <span class="font-medium">Characters Read</span>
+          <span
+            data-tracker-value
+            class="min-w-0 break-words"
+            class:blur={$lastBlurredTrackerItems$.has('charactersRead')}
+            aria-hidden={$lastBlurredTrackerItems$.has('charactersRead')}
+            >{statistic.charactersRead}</span
+          >
         </button>
         <button
+          data-tracker-metric
           type="button"
-          class:blur={$lastBlurredTrackerItems$.has('charactersRead')}
-          class:mt-3={statistic.id !== 'All Time' && statistic.id !== 'Book Completion'}
-          on:click={() => handleBlurredKey('charactersRead')}
-        >
-          {statistic.charactersRead}
-        </button>
-        <button class="text-left" on:click={() => handleBlurredKey('lastReadingSpeed')}>
-          Reading Speed:
-        </button>
-        <button
-          type="button"
-          class:blur={$lastBlurredTrackerItems$.has('lastReadingSpeed')}
+          class="grid min-h-11 min-w-0 gap-1 rounded-xl px-2 py-2 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring sm:grid-cols-[minmax(0,12rem)_minmax(0,1fr)]"
+          aria-pressed={$lastBlurredTrackerItems$.has('lastReadingSpeed')}
+          aria-label={privacyMetricLabel(
+            'lastReadingSpeed',
+            'Reading Speed',
+            `${statistic.lastReadingSpeed} per hour`
+          )}
           on:click={() => handleBlurredKey('lastReadingSpeed')}
         >
-          {statistic.lastReadingSpeed} / h
-        </button>
-        <button class="text-left" on:click={() => handleBlurredKey('readingTime')}>
-          Reading Time:
+          <span class="font-medium">Reading Speed</span>
+          <span
+            data-tracker-value
+            class="min-w-0 break-words"
+            class:blur={$lastBlurredTrackerItems$.has('lastReadingSpeed')}
+            aria-hidden={$lastBlurredTrackerItems$.has('lastReadingSpeed')}
+            >{statistic.lastReadingSpeed} / h</span
+          >
         </button>
         <button
+          data-tracker-metric
           type="button"
-          class:blur={$lastBlurredTrackerItems$.has('readingTime')}
+          class="grid min-h-11 min-w-0 gap-1 rounded-xl px-2 py-2 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring sm:grid-cols-[minmax(0,12rem)_minmax(0,1fr)]"
+          aria-pressed={$lastBlurredTrackerItems$.has('readingTime')}
+          aria-label={privacyMetricLabel(
+            'readingTime',
+            'Reading Time',
+            toTimeString(statistic.readingTime)
+          )}
           on:click={() => handleBlurredKey('readingTime')}
         >
-          {toTimeString(statistic.readingTime)}
+          <span class="font-medium">Reading Time</span>
+          <span
+            data-tracker-value
+            class="min-w-0 break-words"
+            class:blur={$lastBlurredTrackerItems$.has('readingTime')}
+            aria-hidden={$lastBlurredTrackerItems$.has('readingTime')}
+            >{toTimeString(statistic.readingTime)}</span
+          >
         </button>
         {#if statistic.id === 'Current Session'}
-          <button class="text-left" on:click={() => handleBlurredKey('finishETA')}>
-            Time to Finish Book:
-          </button>
           <button
+            data-tracker-metric
             type="button"
-            class:blur={$lastBlurredTrackerItems$.has('finishETA')}
+            class="grid min-h-11 min-w-0 gap-1 rounded-xl px-2 py-2 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring sm:grid-cols-[minmax(0,12rem)_minmax(0,1fr)]"
+            aria-pressed={$lastBlurredTrackerItems$.has('finishETA')}
+            aria-label={privacyMetricLabel('finishETA', 'Time to Finish Book', timeToFinishBook)}
             on:click={() => handleBlurredKey('finishETA')}
           >
-            {timeToFinishBook}
+            <span class="font-medium">Time to Finish Book</span>
+            <span
+              data-tracker-value
+              class="min-w-0 break-words"
+              class:blur={$lastBlurredTrackerItems$.has('finishETA')}
+              aria-hidden={$lastBlurredTrackerItems$.has('finishETA')}>{timeToFinishBook}</span
+            >
           </button>
           {#if timeToFinishChapter}
-            <button class="text-left" on:click={() => handleBlurredKey('finishChapterETA')}>
-              Time to Finish Chapter:
-            </button>
             <button
+              data-tracker-metric
               type="button"
-              class:blur={$lastBlurredTrackerItems$.has('finishChapterETA')}
+              class="grid min-h-11 min-w-0 gap-1 rounded-xl px-2 py-2 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring sm:grid-cols-[minmax(0,12rem)_minmax(0,1fr)]"
+              aria-pressed={$lastBlurredTrackerItems$.has('finishChapterETA')}
+              aria-label={privacyMetricLabel(
+                'finishChapterETA',
+                'Time to Finish Chapter',
+                timeToFinishChapter
+              )}
               on:click={() => handleBlurredKey('finishChapterETA')}
             >
-              {timeToFinishChapter}
+              <span class="font-medium">Time to Finish Chapter</span>
+              <span
+                data-tracker-value
+                class="min-w-0 break-words"
+                class:blur={$lastBlurredTrackerItems$.has('finishChapterETA')}
+                aria-hidden={$lastBlurredTrackerItems$.has('finishChapterETA')}
+                >{timeToFinishChapter}</span
+              >
             </button>
           {/if}
-
-          <div class="mt-3">Current Position:</div>
-          <div class="mt-3">{lastExploredCharCount}</div>
-          <div>Previous Position</div>
-          <div>{previousLastExploredCharCount}</div>
+          <div
+            class="grid min-w-0 gap-1 px-2 py-1 sm:grid-cols-[minmax(0,12rem)_minmax(0,1fr)]"
+          >
+            <span class="font-medium">Current Position</span>
+            <span>{lastExploredCharCount}</span>
+          </div>
+          <div
+            class="grid min-w-0 gap-1 px-2 py-1 sm:grid-cols-[minmax(0,12rem)_minmax(0,1fr)]"
+          >
+            <span class="font-medium">Previous Position</span>
+            <span>{previousLastExploredCharCount}</span>
+          </div>
           {#if frozenPosition > -1}
-            <div>Frozen Position</div>
-            <div>{frozenPosition}</div>
+            <div
+              class="grid min-w-0 gap-1 px-2 py-1 sm:grid-cols-[minmax(0,12rem)_minmax(0,1fr)]"
+            >
+              <span class="font-medium">Frozen Position</span>
+              <span>{frozenPosition}</span>
+            </div>
           {/if}
         {/if}
       </div>
       {#if statistic.id === 'Current Session' && trackingHistoryItems.length}
-        <details class="mt-3 mr-4">
-          <summary class="cursor-pointer">Recent History</summary>
-          <div class="grid grid-cols-[repeat(4,max-content)] gap-x-8 items-center">
+        <details class="mt-3 min-w-0">
+          <summary class="flex min-h-11 cursor-pointer items-center">Recent History</summary>
+          <div class="grid min-w-0 gap-2">
             {#each trackingHistoryItems as trackingHistoryItem (trackingHistoryItem.id)}
-              <div>{trackingHistoryItem.dateTimeKey}</div>
               <div
-                class:text-green-500={trackingHistoryItem.timeDiff > 0}
-                class:text-red-500={trackingHistoryItem.timeDiff < 0}
+                data-tracker-history-item
+                class="grid min-w-0 gap-2 rounded-xl border border-border p-3 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto] sm:items-center"
               >
-                {trackingHistoryItem.timeDiff}
-              </div>
-              <div
-                class:text-green-500={trackingHistoryItem.characterDiff > 0}
-                class:text-red-500={trackingHistoryItem.characterDiff < 0}
-              >
-                {trackingHistoryItem.characterDiff}
-              </div>
-              <div class="flex">
-                <Button
-                  variant="destructive"
-                  size="xs"
-                  aria-label="Revert history item"
-                  title="Revert Item"
-                  onclick={() => dispatch('revertStatistic', trackingHistoryItem)}
-                >
-                  <AppIcon icon={faTrash} /> <span>Revert Item</span>
-                </Button>
-                <div
-                  title="Item saved to Database"
-                  class="ml-4 cursor-not-allowed"
-                  class:text-green-500={trackingHistoryItem.saved}
-                >
-                  <AppIcon icon={faFloppyDisk} />
+                <div class="min-w-0 break-words">{trackingHistoryItem.dateTimeKey}</div>
+                <div>
+                  <span class="font-medium sm:sr-only">Time change: </span>
+                  <span
+                    class:text-green-500={trackingHistoryItem.timeDiff > 0}
+                    class:text-red-500={trackingHistoryItem.timeDiff < 0}
+                    >{trackingHistoryItem.timeDiff}</span
+                  >
+                </div>
+                <div>
+                  <span class="font-medium sm:sr-only">Character change: </span>
+                  <span
+                    class:text-green-500={trackingHistoryItem.characterDiff > 0}
+                    class:text-red-500={trackingHistoryItem.characterDiff < 0}
+                    >{trackingHistoryItem.characterDiff}</span
+                  >
+                </div>
+                <div class="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    class="min-h-11"
+                    aria-label="Revert history item"
+                    title="Revert Item"
+                    onclick={() => dispatch('revertStatistic', trackingHistoryItem)}
+                  >
+                    <AppIcon icon={faTrash} /> <span>Revert Item</span>
+                  </Button>
+                  <span
+                    title={trackingHistoryItem.saved ? 'Item saved to database' : 'Item not saved yet'}
+                    class:text-green-500={trackingHistoryItem.saved}
+                  >
+                    <AppIcon icon={faFloppyDisk} />
+                    <span class="sr-only"
+                      >{trackingHistoryItem.saved ? 'Saved to database' : 'Not saved yet'}</span
+                    >
+                  </span>
                 </div>
               </div>
             {/each}
@@ -371,8 +456,9 @@
           <div class="mt-3 flex justify-between">
             <Button
               variant="ghost"
-              size="icon-sm"
+              size="icon"
               shape="circle"
+              class="size-11"
               aria-label="Previous history page"
               title="Previous Page"
               disabled={currentTrackingHistoryIndex === 0}
@@ -382,8 +468,9 @@
             </Button>
             <Button
               variant="ghost"
-              size="icon-sm"
+              size="icon"
               shape="circle"
+              class="size-11"
               aria-label="Next history page"
               title="Next Page"
               disabled={!hasNextPage}
@@ -396,10 +483,19 @@
       {/if}
     </div>
   {/each}
+  </div>
   {#if actionInProgress}
-    <div class="tap-highlight-transparent absolute inset-0 bg-black/[.2]"></div>
-    <div class="absolute inset-0 flex h-full w-full items-center justify-center text-7xl">
+    <div
+      aria-hidden="true"
+      class="tap-highlight-transparent absolute inset-0 bg-black/[.2]"
+    ></div>
+    <div
+      role="status"
+      aria-label="Updating reading tracker"
+      class="pointer-events-none absolute inset-0 flex h-full w-full items-center justify-center text-7xl"
+    >
       <AppIcon icon={faSpinner} spin />
+      <span class="sr-only">Updating reading tracker…</span>
     </div>
   {/if}
 </div>
