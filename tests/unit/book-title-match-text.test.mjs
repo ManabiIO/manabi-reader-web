@@ -1,7 +1,7 @@
 /** @license BSD-3-Clause */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { bookTitleMatchText } from '../../apps/web/src/lib/search/book-title-match-text.ts';
+import { bookTitleMatchIndex } from '../../apps/web/src/lib/search/book-title-match-text.ts';
 
 const book = (key, aliases = [key]) => ({ key, organizationAliases: aliases });
 
@@ -35,7 +35,8 @@ test('book title match context retains nested series and overlapping collection 
     { id: 'other', name: 'Dogs', members: ['book:a'] }
   ];
 
-  assert.deepEqual(bookTitleMatchText([a, b], tree, collections, 'cat'), {
+  const result = bookTitleMatchIndex([a, b], tree, collections, 'cat');
+  assert.deepEqual(result.textByBook, {
     'book:a': [
       { text: 'Cat Studies', detail: 'Series · Cat Studies' },
       { text: 'Cat Studies', detail: 'Collection · Cat Studies' },
@@ -43,8 +44,11 @@ test('book title match context retains nested series and overlapping collection 
     ],
     'book:b': [{ text: 'Cat Archive', detail: 'Collection · Cat Archive' }]
   });
+  assert.deepEqual([...result.matchedKeys], ['book:a', 'book:b']);
 });
 
 test('book title match context is empty without a query', () => {
-  assert.deepEqual(bookTitleMatchText([book('book:a')], [], [], ''), {});
+  const result = bookTitleMatchIndex([book('book:a')], [], [], '');
+  assert.deepEqual(result.textByBook, {});
+  assert.deepEqual([...result.matchedKeys], []);
 });
