@@ -43,10 +43,7 @@ function annotationOperation(accountId: string | null) {
   }
 }
 
-function bindTransactionLifetime(
-  transaction: { abort(): void },
-  signal: AbortSignal
-): () => void {
+function bindTransactionLifetime(transaction: { abort(): void }, signal: AbortSignal): () => void {
   const abort = () => {
     try {
       transaction.abort();
@@ -54,7 +51,8 @@ function bindTransactionLifetime(
       /* The transaction may already have settled. */
     }
   };
-  signal.addEventListener('abort', abort, { once: true });
+  if (signal.aborted) abort();
+  else signal.addEventListener('abort', abort, { once: true });
   return () => signal.removeEventListener('abort', abort);
 }
 
@@ -83,7 +81,6 @@ async function commitAnnotationTransaction<T>(
     unbind();
   }
 }
-
 
 async function visibleAnnotations(records: ReaderAnnotation[]): Promise<ReaderAnnotation[]> {
   if (get(account).status === 'loading') return [];
@@ -175,10 +172,6 @@ async function bookAccounts(
   );
   await tx.done;
   return result;
-}
-
-async function bookAccount(bookKey: string): Promise<string | null | undefined> {
-  return (await bookAccounts([bookKey])).get(bookKey);
 }
 
 export interface ReaderAnnotationArchive {
@@ -771,4 +764,3 @@ export async function removeReaderAnnotation(
     operation.stop();
   }
 }
-
