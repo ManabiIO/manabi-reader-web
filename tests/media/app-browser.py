@@ -368,10 +368,16 @@ def main():
             "node => parseFloat(getComputedStyle(node).fontSize)"
         ))
         assert tab_font >= 29.5, tab_font
+        assert library_sections.evaluate(
+            "node => node.scrollWidth-node.clientWidth"
+        ) <= 1
+        for link in library_sections.get_by_role('link').all():
+            box = link.bounding_box()
+            assert box['height'] >= 43.5, box
+            assert box['x'] >= -1 and box['x'] + box['width'] <= 321, box
         assert page.evaluate(
             "document.documentElement.scrollWidth-innerWidth"
         ) <= 1
-        page.keyboard.press('Tab')
         videos_link.focus()
         expect(videos_link).to_be_focused()
         page.evaluate("document.documentElement.style.fontSize=''")
