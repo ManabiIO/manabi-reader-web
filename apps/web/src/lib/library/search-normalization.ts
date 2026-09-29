@@ -27,12 +27,14 @@ const boundaryBefore = (value: string, index: number) =>
 
 function matchKey(value: string, needle: string, field = 0): SearchMatchKey {
   const folded = foldSearch(value);
-  if (folded === needle) return { tier: 0, index: 0, length: Array.from(folded).length, folded };
+  if (folded === needle)
+    return { tier: 0, field, index: 0, length: Array.from(folded).length, folded };
 
   const first = folded.indexOf(needle);
   if (first < 0)
     return {
       tier: 4,
+      field,
       index: Number.MAX_SAFE_INTEGER,
       length: Array.from(folded).length,
       folded
@@ -86,7 +88,8 @@ function compareKeys(a: SearchMatchKey, b: SearchMatchKey): number {
 
 /**
  * Deterministic metadata-search relevance: exact, prefix, token-boundary,
- * then interior substring. Shorter and earlier matches win within a tier.
+ * then interior substring. Within a tier, primary metadata fields win before
+ * earlier/shorter secondary-field matches.
  * Callers should still filter non-matches before presenting results.
  */
 export function compareSearchText(left: string, right: string, query: string): number {
