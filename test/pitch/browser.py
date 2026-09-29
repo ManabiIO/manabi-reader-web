@@ -1,7 +1,7 @@
-"""Native Web Audio/worker qualification; uses emitted production modules.
+"""Native Web Audio/controller-lifecycle qualification; uses a deterministic detector stub.
 Run: node test/pitch/run.mjs --emit=test-results/pitch-modules
      python test/pitch/browser.py test-results/pitch-modules
-This is a controller/worker harness, not the fully bundled Svelte application.
+This harness does not qualify SwiftF0 inference; the built-app test does.
 """
 import argparse
 import functools
@@ -137,7 +137,7 @@ try:
         page.evaluate('controller.dispose()')
         assert page.evaluate('contextCloses === 1 && routes[0].size === 0')
         assert not errors, errors
-        print(json.dumps({'browser': args.browser, 'transport': 'HTTP modules', 'passed': ['no eager worker', 'worker handshake/loading', 'real 220Hz contour', 'off keeps playback', 'reuse audio capture', 'hide keeps route', 'seek drops stale trace', 'pause stops samples', 'dispose closes context'], 'pageErrors': errors}))
+        print(json.dumps({'browser': args.browser, 'transport': 'HTTP modules', 'passed': ['no eager worker', 'worker handshake/loading', 'stubbed 220Hz contour', 'off keeps playback', 'reuse audio capture', 'hide keeps route', 'seek drops stale trace', 'pause stops samples', 'dispose closes context'], 'pageErrors': errors}))
         browser.close()
 finally:
     server.shutdown()
