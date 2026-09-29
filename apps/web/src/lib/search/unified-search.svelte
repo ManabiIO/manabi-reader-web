@@ -323,6 +323,7 @@
           label: `Open transcript in ${hit.title} at ${formatMediaTime(hit.time)}: ${hit.text}`,
           detail: `${formatMediaTime(hit.time)} · ${hit.trackLabel || hit.language}`,
           excerpt: hit.text,
+          match: hit.match,
           open: () => openVideo(hit.key, hit.time, hit.trackId)
         }));
         const snippetRows: Row[] = selectedSnippets.flatMap((item) =>
