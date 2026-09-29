@@ -303,6 +303,8 @@ try {
   const search = page.getByRole('searchbox', { name: 'Search snippets' });
 
   await search.fill('𠮷'.repeat(512));
+  await expect(search).toHaveValue('𠮷'.repeat(512));
+  await expect(search).not.toHaveAttribute('aria-invalid', 'true');
   await expect(page.getByRole('alert')).toHaveCount(0);
   await expect(
     page.getByText('Some snippet contents could not be searched. Title matches are still available.')
@@ -310,11 +312,15 @@ try {
   await expect(page.getByText('No matching snippets.', { exact: true })).toBeVisible();
 
   await search.fill('𠮷'.repeat(513));
+  await expect(search).toHaveValue('𠮷'.repeat(513));
+  await expect(search).toHaveAttribute('aria-invalid', 'true');
+  await expect(search).toHaveAttribute('aria-describedby', 'snippet-search-limit-error');
   await expect(
     page.getByRole('alert').filter({ hasText: 'Use a search of 512 characters or fewer.' })
   ).toBeVisible();
 
   await search.fill('珍しい言葉');
+  await expect(search).not.toHaveAttribute('aria-invalid', 'true');
   await expect(page.getByRole('alert')).toHaveCount(0);
   await expect(
     page.getByText('Some snippet contents could not be searched. Title matches are still available.')
