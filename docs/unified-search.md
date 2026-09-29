@@ -15,8 +15,12 @@ reloads, and does not rewrite the editable query.
 **Content**. Dictionary is available only for Everything. All previews at most
 two results from each section; See all switches to the corresponding dedicated
 view. Dictionary mode requests full structured entries instead of stretching a
-clipped preview. Titles and Content reveal additional batches of 30 with a
-keyboard focus anchor.
+clipped preview. Titles rank metadata globally across source types as exact,
+prefix, token-boundary, then interior substring matches; source type never lets
+a weaker title outrank a stronger one. Content stays source-diverse because book,
+snippet and transcript body workers do not expose directly comparable relevance
+scores. Titles and Content reveal additional batches of 30 with a keyboard focus
+anchor.
 
 Every asynchronous source owns cancellation, stale-result suppression, loading,
 failure and retry independently. A dictionary, snippet, video-store, or book-body
