@@ -2250,7 +2250,15 @@
   <div
     class="writing-horizontal-tb fixed inset-x-0 top-0 z-20 w-full"
     data-reader-chrome
-    transition:fly|local={{ y: -80, duration: foliatePagination ? 0 : 160, easing: quintInOut }}
+    transition:fly|local={{
+      y: -80,
+      duration:
+        foliatePagination ||
+        (browser && window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+          ? 0
+          : 160,
+      easing: quintInOut
+    }}
   >
     <BookReaderHeader
       bookTitle={$rawBookData$?.title ?? ''}
