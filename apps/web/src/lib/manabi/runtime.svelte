@@ -4,7 +4,6 @@
   import { isSnippetLibraryPath } from '../snippets/discovery';
   import { derived } from 'svelte/store';
   import { onMount } from 'svelte';
-  import { startMediaProfileWatcher } from './media-profile';
   import { videoLearningEnabled } from '$lib/media/feature';
   import { page } from '$app/stores';
   import { base, resolve } from '$app/paths';
@@ -19,7 +18,16 @@
       ['conflict', 'needs_reconnect', 'permission_required', 'unauthorized'].includes(status.state)
     );
   onMount(() => {
-    const stopMediaProfile = videoLearningEnabled ? startMediaProfileWatcher() : () => undefined;
+    let mediaDisposed = false;
+    let stopMediaProfile = () => undefined;
+    if (videoLearningEnabled)
+      void import('./media-profile')
+        .then(({ startMediaProfileWatcher }) => {
+          if (!mediaDisposed) stopMediaProfile = startMediaProfileWatcher();
+        })
+        .catch((error) => {
+          if (!mediaDisposed) console.error('Video profile watcher failed to start', error);
+        });
     const stopSnippets = startSnippets(
       derived(page, (current) => isSnippetLibraryPath(current.url.pathname, base))
     );
@@ -40,6 +48,7 @@
     window.addEventListener('online', refreshOnline);
     window.addEventListener('focus', refreshFocus);
     return () => {
+      mediaDisposed = true;
       stopMediaProfile();
       stopSnippets();
       stopPreferences();
