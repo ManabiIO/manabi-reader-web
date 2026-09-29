@@ -1,0 +1,9 @@
+SwiftF0 0.3.0 model
+
+Upstream: https://github.com/lars76/swift-f0
+Model source: swift_f0/model.onnx
+Upstream Git blob: 3619f9ab7ad7c852b995550c74d971be236225d7
+License: MIT
+
+The model is loaded only when the optional Voice pitch worker is enabled.
+ONNX Runtime Web is pinned separately by the application package manifest.
