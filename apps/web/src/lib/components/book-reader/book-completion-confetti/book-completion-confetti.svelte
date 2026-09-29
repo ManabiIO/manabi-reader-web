@@ -16,13 +16,28 @@
   let confettiAnimationTimer: number | undefined;
   let addConfettiTimer: number | undefined;
   let confettiRuns = 0;
+  let reducedMotion = false;
 
   onMount(() => {
-    setupCanvas();
-    updateConfetti();
-    confettiLoop();
+    const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const applyMotionPreference = (matches: boolean) => {
+      reducedMotion = matches;
+      hideConfetti();
+      if (!matches) {
+        setupCanvas();
+        updateConfetti();
+        confettiLoop();
+      }
+    };
+    const changed = (event: MediaQueryListEvent) => applyMotionPreference(event.matches);
 
-    return hideConfetti;
+    motion.addEventListener('change', changed);
+    applyMotionPreference(motion.matches);
+
+    return () => {
+      motion.removeEventListener('change', changed);
+      hideConfetti();
+    };
   });
 
   function setupCanvas() {
@@ -107,12 +122,15 @@
 </script>
 
 <canvas
+  data-book-completion-confetti
+  class:hidden={reducedMotion}
   class="flex fixed top-0 right-0 h-full w-full"
   style={`max-width: calc(100vw - ${confettiWidthModifier}rem);`}
   bind:this={confettiCanvasElement}
 ></canvas>
 <svelte:window
   on:resize={() => {
+    if (reducedMotion) return;
     hideConfetti();
     setupCanvas();
     updateConfetti();
