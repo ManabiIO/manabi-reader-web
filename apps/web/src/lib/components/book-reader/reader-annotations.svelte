@@ -84,6 +84,13 @@
     side="left"
     showCloseButton={false}
     closeDisabled={busy}
+    onCloseAutoFocus={(event) => {
+      const controls = document.querySelector<HTMLButtonElement>('button[data-reader-controls]');
+      if (controls) {
+        event.preventDefault();
+        controls.focus({ preventScroll: true });
+      }
+    }}
     aria-busy={busy}
     class="writing-horizontal-tb p-[20px] pb-[max(20px,env(safe-area-inset-bottom))] data-[side=left]:w-full data-[side=left]:sm:max-w-md"
   >
