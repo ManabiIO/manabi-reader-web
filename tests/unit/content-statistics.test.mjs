@@ -141,6 +141,7 @@ test('raw recovery retains assigned legacy source and local identity receipts', 
   await db.put('statistic', day(copy.title, '2026-09-20', 12));
   const bookKey = await migrateLegacyStatistics(db, copy);
   const snapshot = JSON.parse(JSON.stringify(await readStatisticsRecoverySnapshot(db)));
+  assert.deepEqual(snapshot.books, [{ id: copy.id, title: copy.title }]);
   assert.equal(snapshot.contentRows[0].bookKey, bookKey);
   assert.equal(snapshot.legacyRows[0].charactersRead, 12);
   assert.deepEqual(snapshot.migrationReceipts, [{ title: copy.title, state: 'assigned', bookKey }]);
@@ -473,5 +474,19 @@ test('identity deletion rechecks persistent reader ownership inside its transact
   );
   assert.equal((await db.getAll('readerStatistic')).length, 1);
   assert.equal((await db.getAll('lastModified')).length, 0);
+  db.close();
+});
+
+test('statistics recovery metadata preserves verified and hashless books together', async () => {
+  const db = await database();
+  const legacy = book(1, 'Legacy recovery');
+  const verified = book(2, 'Verified recovery', 'a');
+  await db.put('data', legacy);
+  await db.put('data', verified);
+  const snapshot = JSON.parse(JSON.stringify(await readStatisticsRecoverySnapshot(db)));
+  assert.deepEqual(snapshot.books, [
+    { id: 1, title: legacy.title },
+    { id: 2, title: verified.title, contentHash: verified.contentHash }
+  ]);
   db.close();
 });

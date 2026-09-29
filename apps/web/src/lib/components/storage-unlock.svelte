@@ -1,10 +1,10 @@
 <script lang="ts">
   import DialogTemplate from '$lib/components/dialog-template.svelte';
-  import Ripple from '$lib/components/ripple.svelte';
-  import { buttonClasses } from '$lib/css-classes';
+  import { Button } from '$lib/components/ui/button';
+  import { Input } from '$lib/components/ui/input';
   import { decrypt, type StorageUnlockAction } from '$lib/data/storage/storage-source-manager';
   import { skipKeyDownListener$ } from '$lib/data/store';
-  import { createEventDispatcher, onMount } from 'svelte';
+  import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 
   export let description: string;
   export let action: string;
@@ -14,116 +14,111 @@
   export let encryptedData: ArrayBuffer | undefined;
   export let resolver: (arg0: StorageUnlockAction | undefined) => void;
 
-  let containerElm: HTMLElement;
-  let passwordElm: HTMLInputElement;
+  let passwordElm: HTMLInputElement | null = null;
   let secret = '';
   let error = '';
+  let pending = false;
+  let settled = false;
+  let active = true;
 
   const dispatch = createEventDispatcher<{
     close: void;
   }>();
 
+  onDestroy(() => {
+    active = false;
+    if (settled) return;
+    settled = true;
+    resolver(undefined);
+  });
+
+  onMount(() => {
+    skipKeyDownListener$.next(true);
+    passwordElm?.focus({ preventScroll: true });
+    return () => skipKeyDownListener$.next(false);
+  });
+
   async function unlock() {
-    containerElm.classList.remove('error-animation');
+    if (pending || settled || !active) return;
     error = '';
+    pending = true;
 
     try {
+      let result: StorageUnlockAction;
       if (encryptedData) {
-        closeDialog({
-          ...JSON.parse(new TextDecoder().decode(await decrypt(window, encryptedData, secret))),
-          ...(forwardSecret ? { secret } : {})
-        });
+        const decoded = JSON.parse(
+          new TextDecoder().decode(await decrypt(window, encryptedData, secret))
+        ) as StorageUnlockAction;
+        result = { ...decoded, ...(forwardSecret ? { secret } : {}) };
       } else if (requiresSecret) {
-        throw new Error('No data to unlock found');
+        throw new Error('No encrypted data is available.');
+      } else {
+        result = { clientId: '', clientSecret: '' };
       }
 
-      closeDialog({ clientId: '', clientSecret: '' });
-    } catch (err: any) {
-      error = `Failed to unlock Data${err.message ? `: ${err.message}` : ''}`;
-      containerElm.classList.add('error-animation');
+      closeDialog(result);
+    } catch (cause) {
+      if (active && !settled)
+        error =
+          cause instanceof Error && cause.message
+            ? `Could not unlock data: ${cause.message}`
+            : 'Could not unlock data.';
+    } finally {
+      if (active) pending = false;
     }
   }
 
   function closeDialog(data?: StorageUnlockAction) {
+    if (settled) return;
+    settled = true;
     resolver(data);
     dispatch('close');
   }
-
-  onMount(() => {
-    skipKeyDownListener$.next(true);
-
-    if (passwordElm) { passwordElm.focus() }
-
-    return () => skipKeyDownListener$.next(false);
-  });
 </script>
 
-<DialogTemplate>
-  <div class="flex flex-col text-sm sm:text-base" slot="content" bind:this={containerElm}>
-    <div>{description}</div>
-    <div class="my-2">{action}</div>
-    {#if requiresSecret}
-      <input type="password" placeholder="Password" bind:value={secret} bind:this={passwordElm} on:keyup={(evt) => {if (evt.key === 'Enter') {unlock()}}}/>
-    {/if}
-    <div class="text-red-500">{error}</div>
-  </div>
-  <div class="mt-2 flex grow justify-between" slot="footer">
-    {#if requiresSecret || showCancel}
-      <button
-        class={buttonClasses}
-        on:click={() => {
-          closeDialog();
-        }}
+<form class="min-w-0 w-full" aria-busy={pending} on:submit|preventDefault={unlock}>
+  <DialogTemplate>
+    <svelte:fragment slot="header"
+      >{requiresSecret ? 'Unlock storage source' : 'Continue to sign in'}</svelte:fragment
+    >
+    <div class="min-w-0 space-y-4 text-sm sm:text-base" slot="content">
+      <p class="break-words">{description}</p>
+      <p class="break-words text-muted-foreground">{action}</p>
+      {#if requiresSecret}
+        <label class="grid min-w-0 gap-2 text-sm font-medium">
+          <span>Password</span>
+          <Input
+            type="password"
+            autocomplete="current-password"
+            required
+            disabled={pending}
+            bind:value={secret}
+            bind:ref={passwordElm}
+            onkeydown={(event) => {
+              if (event.key === 'Enter' && (event.isComposing || event.keyCode === 229))
+                event.preventDefault();
+            }}
+            oninput={() => (error = '')}
+          />
+        </label>
+      {/if}
+      {#if error}<p role="alert" class="break-words text-sm text-destructive">{error}</p>{/if}
+    </div>
+    <div class="flex grow flex-wrap justify-end gap-2" slot="footer">
+      {#if requiresSecret || showCancel}
+        <Button type="button" variant="ghost" disabled={pending} onclick={() => closeDialog()}
+          >Cancel</Button
+        >
+      {/if}
+      <Button type="submit" disabled={pending}
+        >{pending
+          ? requiresSecret
+            ? 'Unlocking…'
+            : 'Continuing…'
+          : requiresSecret
+            ? 'Unlock'
+            : 'Continue'}</Button
       >
-        Cancel
-        <Ripple />
-      </button>
-    {/if}
-    <button class={buttonClasses} on:click={unlock}>
-      Confirm
-      <Ripple />
-    </button>
-  </div>
-</DialogTemplate>
-
-<style>
-  .error-animation {
-    animation: shake 0.5s;
-  }
-
-  @keyframes shake {
-    0% {
-      transform: translate(1px, 1px) rotate(0deg);
-    }
-    10% {
-      transform: translate(-1px, -2px) rotate(-1deg);
-    }
-    20% {
-      transform: translate(-3px, 0px) rotate(1deg);
-    }
-    30% {
-      transform: translate(3px, 2px) rotate(0deg);
-    }
-    40% {
-      transform: translate(1px, -1px) rotate(1deg);
-    }
-    50% {
-      transform: translate(-1px, 2px) rotate(-1deg);
-    }
-    60% {
-      transform: translate(-3px, 1px) rotate(0deg);
-    }
-    70% {
-      transform: translate(3px, 1px) rotate(-1deg);
-    }
-    80% {
-      transform: translate(-1px, -1px) rotate(1deg);
-    }
-    90% {
-      transform: translate(1px, 2px) rotate(0deg);
-    }
-    100% {
-      transform: translate(1px, -2px) rotate(-1deg);
-    }
-  }
-</style>
+    </div>
+  </DialogTemplate>
+</form>
