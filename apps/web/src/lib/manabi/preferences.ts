@@ -448,21 +448,28 @@ async function performPreferenceSync(
       if (!isCurrent()) return;
       unchangedUser(user);
       if (!remote) throw new IntegrationError('invalid_response');
+      let pendingUpload = validPendingPreferenceUpload(state.pendingUpload)
+        ? state.pendingUpload
+        : undefined;
+      if (state.pendingUpload && !pendingUpload) delete state.pendingUpload;
       if (
         state.initialized &&
-        (!Number.isSafeInteger(state.revision) ||
-          state.revision < 0 ||
-          remote.revision < state.revision)
+        (!Number.isSafeInteger(state.revision) || state.revision < 0)
       )
         throw new IntegrationError('invalid_response');
+      if (pendingUpload && state.initialized && pendingUpload.revision < state.revision) {
+        delete state.pendingUpload;
+        pendingUpload = undefined;
+      }
+      const knownRevision = Math.max(
+        state.initialized ? state.revision : -1,
+        pendingUpload?.revision ?? -1
+      );
+      if (remote.revision < knownRevision) throw new IntegrationError('invalid_response');
       const supportsExtensions = remote.book_presentation_version === 1;
       const wire = (value: Flat) => preferenceWireSnapshot(value, supportsExtensions);
       const capturedWire = wire(captured);
       const thereRaw = wire(flatten(remote.settings));
-      const pendingUpload = validPendingPreferenceUpload(state.pendingUpload)
-        ? state.pendingUpload
-        : undefined;
-      if (state.pendingUpload && !pendingUpload) delete state.pendingUpload;
       // A PUT may have committed even though its response was lost. When the
       // next GET proves that exact revision + payload was accepted, advance the
       // baseline before merging edits made after that request. Otherwise a
@@ -470,7 +477,7 @@ async function performPreferenceSync(
       if (
         pendingUpload &&
         pendingUpload.supportsExtensions === supportsExtensions &&
-        remote.revision === pendingUpload.revision + 1 &&
+        remote.revision > pendingUpload.revision &&
         equal(thereRaw, pendingUpload.settings)
       ) {
         state.base = supportsExtensions
