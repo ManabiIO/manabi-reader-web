@@ -99,7 +99,7 @@ test('compact metadata projection joins title, hash and owner without reading pa
   ]);
 });
 
-test('compact metadata projection drops invalid owner evidence rather than treating it as local', async () => {
+test('compact metadata projection retains invalid owner evidence for fail-closed callers', async () => {
   const hash = 'f'.repeat(64);
   const store = {
     index(name) {
@@ -112,5 +112,25 @@ test('compact metadata projection drops invalid owner evidence rather than treat
       );
     }
   };
-  assert.deepEqual(await readIndexedBookMetadata(store), []);
+  assert.deepEqual(await readIndexedBookMetadata(store), [
+    { id: 1, title: 'Book', contentHash: hash, invalidOwner: true }
+  ]);
+});
+
+test('compact metadata projection retains hash/owner evidence even when title metadata is malformed', async () => {
+  const hash = '9'.repeat(64);
+  const store = {
+    index(name) {
+      return index(
+        name === 'title'
+          ? [[42, 1]]
+          : name === 'contentHash'
+            ? [[hash, 1]]
+            : [['alice', 1]]
+      );
+    }
+  };
+  assert.deepEqual(await readIndexedBookMetadata(store), [
+    { id: 1, contentHash: hash, libraryOwner: 'alice' }
+  ]);
 });
