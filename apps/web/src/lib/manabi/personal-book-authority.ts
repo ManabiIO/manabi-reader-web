@@ -123,3 +123,14 @@ export function planPersonalBookClaims(
   }
   return { books, scopesToCreate };
 }
+
+export async function tryLivePersonalCopies(
+  ...args: Parameters<typeof livePersonalCopies>
+): Promise<PersonalBook[] | undefined> {
+  try {
+    return await livePersonalCopies(...args);
+  } catch (error) {
+    if (error instanceof PersonalBookOwnershipError) return undefined;
+    throw error;
+  }
+}
