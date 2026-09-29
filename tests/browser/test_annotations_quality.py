@@ -76,7 +76,7 @@ class AnnotationQuality(LibraryBase):
                            panel.element_handle())
         self.page.wait_for_function('(panel) => panel.scrollTop > 0', arg=panel.element_handle())
 
-        close = panel.get_by_role('button', name='Close bookmarks and notes', exact=True)
+        close = panel.locator('[data-modal-dismiss]')
         self.assert_pointer_target(close)
         title = panel.get_by_text('Bookmarks & Notes', exact=True)
         geometry = self.page.evaluate('''([title, close]) => {
