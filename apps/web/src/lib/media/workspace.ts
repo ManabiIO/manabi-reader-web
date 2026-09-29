@@ -783,10 +783,29 @@ export class VideoWorkspace {
           );
           void this.refreshJobs().catch((error) => this.error(error));
         }
-        if (source.isCurrent && !source.isCurrent() && this.current?.source === source) {
-          this.current = undefined;
-          this.currentTranscription = undefined;
-          player.setGenerationAvailable(false, 'The connected account changed. Reopen this video.');
+        let sourceCurrent = true;
+        if (source.isCurrent) {
+          try {
+            sourceCurrent = source.isCurrent();
+          } catch {
+            sourceCurrent = false;
+          }
+        }
+        if (!sourceCurrent) {
+          if (this.current?.source === source) {
+            this.current = undefined;
+            this.currentTranscription = undefined;
+          }
+          if (this.player === player) {
+            this.player = undefined;
+            this.viewing.replaceChildren();
+            player.video.pause();
+            try {
+              await player.dispose();
+            } catch (error) {
+              this.error(error);
+            }
+          }
         }
         this.error(e);
       }

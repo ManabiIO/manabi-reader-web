@@ -202,13 +202,20 @@ def main():
                 };
                 try{
                     await workspace.openSource(source);
-                    return {resolved:true,checks,text:workspace.root.textContent};
+                    return {
+                        resolved:true,checks,text:workspace.root.textContent,
+                        player:!!workspace.player,viewingChildren:workspace.viewing.childElementCount
+                    };
                 }catch(error){
-                    return {resolved:false,checks,error:String(error),text:workspace.root.textContent};
+                    return {
+                        resolved:false,checks,error:String(error),text:workspace.root.textContent,
+                        player:!!workspace.player,viewingChildren:workspace.viewing.childElementCount
+                    };
                 }
             }""")
             assert result['resolved'] is True,result
             assert 'provider authority revoked' in result['text'],result
+            assert result['player'] is False and result['viewingChildren']==0,result
             assert result['checks']>=4,result
         case('a throwing source authority cannot escape the workspace open error handler',
              throwing_source_authority_does_not_escape_error_handler)

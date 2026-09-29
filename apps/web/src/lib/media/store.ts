@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 
+import { abortable } from './abort.js';
 import { authoredTrackIdentity } from './authored-track.js';
 import { assertSparseRepairTiming } from './sparse-transcription.js';
 import {
@@ -52,6 +53,15 @@ export class ImmutableTrackConflict extends Error {
       'This subtitle version already exists or was removed. Save changes as a new track instead.'
     );
   }
+}
+
+/** Optional lifetime for writes admitted by an asynchronous sync operation.
+ * check() must be synchronous. It runs again inside the transaction, not only
+ * before awaiting database availability or a queued read callback.
+ */
+export interface MediaWriteGuard {
+  readonly signal: AbortSignal;
+  readonly check: () => void;
 }
 
 /** Local-first records. Transactions, not per-tab queues, own cross-tab publication. */
@@ -188,7 +198,10 @@ export class MediaStore {
     if (signal?.aborted) return Promise.reject(signal.reason);
     // Admission happens now. close() waits even for calls still opening the database.
     const opening = this.open();
-    const operation = opening.then(
+    // Cancellation can win while the database is opening. Observe the late
+    // open, but do not attach a transaction to a retired caller's continuation.
+    const admitted = signal ? abortable(signal, () => opening) : opening;
+    const operation = admitted.then(
       (db) =>
         new Promise<T>((yes, no) => {
           // Opening storage is asynchronous; cancelled publication must not enter
@@ -262,11 +275,27 @@ export class MediaStore {
       request.onsuccess = () => done(request.result);
     });
   }
-  async putLocal(scope: Scope, kind: string, id: string, value: unknown): Promise<void> {
-    const snapshot = structuredClone(value);
-    return this.tx('local', 'readwrite', (store) => {
-      store.put(snapshot, key(scope, kind, id));
-    });
+  async putLocal(
+    scope: Scope,
+    kind: string,
+    id: string,
+    value: unknown,
+    guard?: MediaWriteGuard
+  ): Promise<void> {
+    const snapshot = structuredClone(value),
+      signal = guard?.signal,
+      check = guard?.check;
+    check?.();
+    return this.tx(
+      'local',
+      'readwrite',
+      (store) => {
+        check?.();
+        store.put(snapshot, key(scope, kind, id));
+      },
+      false,
+      signal
+    );
   }
   /** Compare and update within a single transaction, including across tabs. */
   updateLocal<T>(
@@ -398,15 +427,21 @@ export class MediaStore {
     scope: Scope,
     kind: Kind,
     id: string,
-    fn: (r: Replica | undefined) => Replica
+    fn: (r: Replica | undefined) => Replica,
+    guard?: MediaWriteGuard
   ): Promise<Replica> {
+    const signal = guard?.signal,
+      check = guard?.check;
+    check?.();
     return this.tx(
       'records',
       'readwrite',
       (store, done, fail) => {
+        check?.();
         const request = store.get(key(scope, kind, id));
         request.onsuccess = () => {
           try {
+            check?.();
             const next = fn(request.result);
             if (next.scope !== scope || next.kind !== kind || next.id !== id)
               throw new Error('Media record identity changed');
@@ -417,7 +452,8 @@ export class MediaStore {
           }
         };
       },
-      kind === 'video_track' || kind === 'video_chunk'
+      kind === 'video_track' || kind === 'video_chunk',
+      signal
     );
   }
   async edit(
@@ -435,34 +471,71 @@ export class MediaStore {
       return edit(old, scope, kind, id, mediaKey, snapshot, crypto.randomUUID());
     });
   }
-  prepare(scope: Scope, kind: Kind, id: string) {
-    return this.change(scope, kind, id, (old) => {
-      if (!old) throw new Error('Missing record');
-      return prepare(old, crypto.randomUUID());
-    });
+  prepare(scope: Scope, kind: Kind, id: string, guard?: MediaWriteGuard) {
+    return this.change(
+      scope,
+      kind,
+      id,
+      (old) => {
+        if (!old) throw new Error('Missing record');
+        return prepare(old, crypto.randomUUID());
+      },
+      guard
+    );
   }
-  ack(scope: Scope, kind: Kind, id: string, mutationId: string, value: unknown) {
+  ack(
+    scope: Scope,
+    kind: Kind,
+    id: string,
+    mutationId: string,
+    value: unknown,
+    guard?: MediaWriteGuard
+  ) {
     const accepted = remote(value);
-    return this.change(scope, kind, id, (old) => {
-      if (!old) throw new Error('Missing record');
-      return acknowledge(old, mutationId, accepted);
-    });
+    return this.change(
+      scope,
+      kind,
+      id,
+      (old) => {
+        if (!old) throw new Error('Missing record');
+        return acknowledge(old, mutationId, accepted);
+      },
+      guard
+    );
   }
-  accept(scope: Scope, value: unknown) {
+  accept(scope: Scope, value: unknown, guard?: MediaWriteGuard) {
     const server = remote(value);
-    return this.change(scope, server.kind, server.entity_id, (old) => ingest(old, scope, server));
+    return this.change(
+      scope,
+      server.kind,
+      server.entity_id,
+      (old) => ingest(old, scope, server),
+      guard
+    );
   }
-  conflict(scope: Scope, kind: Kind, id: string, value: Remote, mutationId?: string) {
+  conflict(
+    scope: Scope,
+    kind: Kind,
+    id: string,
+    value: Remote,
+    mutationId?: string,
+    guard?: MediaWriteGuard
+  ) {
     const server = remote(value);
-    return this.change(scope, kind, id, (old) => {
-      if (!old) throw new Error('Missing record');
-      if (server.kind !== kind || server.entity_id !== id || server.book_key !== old.mediaKey)
-        throw new Error('Wrong media conflict identity');
-      // A delayed rejection must not cancel the successor mutation prepared in another tab.
-      if (mutationId !== undefined && old.pending?.request.mutation_id !== mutationId) return old;
-      if (server.revision < Math.max(old.revision, old.conflict?.revision ?? 0)) return old;
-      return { ...old, pending: undefined, conflict: server };
-    });
+    return this.change(
+      scope,
+      kind,
+      id,
+      (old) => {
+        if (!old) throw new Error('Missing record');
+        if (server.kind !== kind || server.entity_id !== id || server.book_key !== old.mediaKey)
+          throw new Error('Wrong media conflict identity');
+        if (mutationId !== undefined && old.pending?.request.mutation_id !== mutationId) return old;
+        if (server.revision < Math.max(old.revision, old.conflict?.revision ?? 0)) return old;
+        return { ...old, pending: undefined, conflict: server };
+      },
+      guard
+    );
   }
   resolve(scope: Scope, kind: Kind, id: string, choice: 'local' | 'remote') {
     return this.change(scope, kind, id, (old) => {

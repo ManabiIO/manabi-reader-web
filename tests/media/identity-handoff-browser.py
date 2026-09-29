@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run shared identity/intent handoff scenarios against real Chromium IndexedDB.
 
-Production queue, store and native Web Locks are used; recognition is scripted.
+Production queue/sync/store and native Web Locks are used; recognition and transport are scripted.
 """
 import argparse
 import functools
@@ -17,8 +17,8 @@ ROOT = Path(__file__).resolve().parents[2]
 HTML = '''<!doctype html><meta charset="utf-8"><title>Identity handoff</title>
 <script type="module">
 import {cases} from '/tests/media/identity-handoff-cases.mjs';
-import {cases as switchCases} from '/tests/media/switch-intent-cases.mjs';
-window.scenarios=[...cases,...switchCases];
+import {cases as syncCases} from '/tests/media/sync-write-authority-cases.mjs';
+window.scenarios=[...cases,...syncCases];
 </script>'''
 
 
