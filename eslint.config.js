@@ -16,6 +16,9 @@ module.exports = (async () => {
     eslintPluginPrettierRecommended,
     {
       ignores: [
+        '**/.cache/**',
+        'apps/web/static/manabitan/**',
+        'apps/web/static/dictionary-archives/**',
         '**/build/*',
         '**/test-results/**',
         '**/.svelte-kit/*',
@@ -82,6 +85,20 @@ module.exports = (async () => {
             }
           }
         ]
+      }
+    },
+    {
+      files: ['scripts/**/*.mjs'],
+      languageOptions: {
+        parserOptions: { project: false },
+        globals: {
+          AbortSignal: 'readonly',
+          Buffer: 'readonly',
+          URL: 'readonly',
+          console: 'readonly',
+          fetch: 'readonly',
+          process: 'readonly'
+        }
       }
     },
     {
