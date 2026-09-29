@@ -5,6 +5,8 @@ import { ESLint } from 'eslint';
 
 const files = [
   'apps/web/src/lib/components/settings/settings-storage-source.svelte',
+  'apps/web/src/lib/components/settings/settings-sync-dialog.svelte',
+  'apps/web/src/lib/components/settings/settings-reading-goals-merge.svelte',
   'apps/web/src/lib/components/settings/settings-dimension-content.svelte',
   'apps/web/src/lib/components/settings/settings-dimension-popover.svelte',
   'apps/web/src/lib/components/settings/settings-user-font-add.svelte',

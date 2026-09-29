@@ -46,9 +46,13 @@
   let saving = false;
   let selectingDirectory = false;
   let active = true;
+  let settled = false;
   const passwordManagerAvailable = browser && 'PasswordCredential' in window;
   onDestroy(() => {
     active = false;
+    if (settled) return;
+    settled = true;
+    resolver(undefined);
   });
   let storageSourceName = configuredName || '';
   let storageSourceIsSyncTarget = configuredIsSyncTarget || false;
@@ -247,7 +251,8 @@
   }
 
   function closeDialog(data?: StorageSourceSaveResult) {
-    if (!active) return;
+    if (!active || settled) return;
+    settled = true;
     resolver(data);
     dispatch('close');
   }
