@@ -148,6 +148,26 @@ class UnifiedSearch(ProductJourneyBase):
         self.assertTrue(all(kinds.nth(index).inner_text().startswith('Book') for index in range(1, 4)))
         self.checkpoint('unified-title-relevance')
 
+    def test_title_ranking_keeps_creator_only_metadata_matches(self):
+        self.seed_video_search(title='cat author')
+        self.import_book(
+            'Completely Different Book',
+            body='<p>Unrelated body text.</p>',
+            creators=('Cat Author',),
+        )
+        self.library_search('cat author')
+        self.filter('Titles')
+        titles = self.page.locator('[data-search-row="titles"] strong')
+        expect(titles).to_have_count(2)
+        self.assertEqual(
+            ['cat author', 'Completely Different Book'],
+            titles.all_text_contents(),
+        )
+        kinds = self.page.locator('[data-search-row="titles"] small')
+        self.assertTrue(kinds.nth(0).inner_text().startswith('Video'))
+        self.assertIn('Cat Author', kinds.nth(1).inner_text())
+        self.checkpoint('unified-title-creator-match-retained')
+
     def test_real_local_dictionary_uses_raw_input_and_bounded_previews(self):
         self.import_book('Neko field guide', body='<p>neko ねこ 猫</p>')
         field = self.library_search('neko')
