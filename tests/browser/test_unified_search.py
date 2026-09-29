@@ -140,17 +140,17 @@ class UnifiedSearch(ProductJourneyBase):
         titles = self.page.locator('[data-search-row="titles"] strong')
         expect(titles).to_have_count(5)
         self.assertEqual(
-            ['cat', 'Dog guide', 'Cat guide', 'A cat story', 'Copycat notes'],
+            ['cat', 'Cat guide', 'A cat story', 'Copycat notes', 'Dog guide'],
             titles.all_text_contents(),
         )
         rows = self.page.locator('[data-search-row="titles"]')
         kinds = rows.locator('small')
         expect(kinds).to_have_count(5)
         self.assertTrue(kinds.nth(0).inner_text().startswith('Video'))
-        self.assertEqual('Book · Author · cat', kinds.nth(1).inner_text())
+        self.assertEqual('Book · Author · cat', kinds.nth(4).inner_text())
         self.assertTrue(all(kinds.nth(index).inner_text().startswith('Book') for index in range(1, 5)))
         expect(rows.nth(0).locator('mark')).to_have_text('cat')
-        expect(rows.nth(1).locator('mark')).to_have_count(0)
+        expect(rows.nth(4).locator('mark')).to_have_count(0)
         self.checkpoint('unified-title-relevance')
 
     def test_title_ranking_keeps_creator_only_metadata_matches(self):
