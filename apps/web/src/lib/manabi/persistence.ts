@@ -5,6 +5,7 @@
  */
 
 import { openDB, type DBSchema } from 'idb';
+import { commitTransaction } from '$lib/data/database/books-db/commit-transaction.mjs';
 import { summarize, type SnippetSummary } from '../snippets/summary';
 import type { SnippetRecord, SnippetDraft, SnippetTransfer } from '../snippets/database';
 
@@ -109,14 +110,12 @@ export async function setMetadata(key: string, value: unknown, signal?: AbortSig
   };
   signal?.addEventListener('abort', cancel, { once: true });
   try {
-    const result = await tx.store.put(value, key);
-    signal?.throwIfAborted();
-    await tx.done;
-    return result;
-  } catch (error) {
-    cancel();
-    await tx.done.catch(() => undefined);
-    throw error;
+    return await commitTransaction(tx, async () => {
+      signal?.throwIfAborted();
+      const result = await tx.store.put(value, key);
+      signal?.throwIfAborted();
+      return result;
+    });
   } finally {
     signal?.removeEventListener('abort', cancel);
   }

@@ -82,3 +82,44 @@ test('versionchange releases the old connection without closing its replacement'
   assert.equal(h.api.integrationDB(), next);
   assert.equal(h.opens.length, 2);
 });
+
+test('metadata writer observes transaction completion before issuing its first request', async () => {
+  let completionObserved = false;
+  const completion = Promise.resolve();
+  const done = {
+    then(onFulfilled, onRejected) {
+      completionObserved = true;
+      return completion.then(onFulfilled, onRejected);
+    },
+    catch(onRejected) {
+      completionObserved = true;
+      return completion.catch(onRejected);
+    }
+  };
+  const tx = {
+    done,
+    store: {
+      async put() {
+        assert.equal(
+          completionObserved,
+          true,
+          'transaction completion was observed only after the request had already started'
+        );
+        return 'key';
+      }
+    },
+    abort() {}
+  };
+  const { api } = loadOfflineModule('apps/web/src/lib/manabi/persistence.ts', {
+    modules: {
+      idb: {
+        openDB: async () => ({
+          transaction() {
+            return tx;
+          }
+        })
+      }
+    }
+  });
+  assert.equal(await api.setMetadata('preference', { value: 1 }), 'key');
+});
