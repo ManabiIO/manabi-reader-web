@@ -761,7 +761,7 @@ export class VideoWorkspace {
       guard();
       for (const sub of subs) {
         guard();
-        if (matchSidecar(source.name, sub.name)) await this.saveSubtitle(key, source.name, sub);
+        if (matchSidecar(source.name, sub.name)) await this.saveSubtitle(key, source.name, sub, signal);
       }
       guard();
       await this.refreshTracks();
@@ -983,13 +983,19 @@ export class VideoWorkspace {
     }
   }
   async importSubtitle(file: File) {
-    if (!this.current || this.current.provisional)
+    const current = this.current,
+      signal = this.openAbort?.signal ?? this.lifetime.signal;
+    if (!current || current.provisional)
       throw new Error('Wait for the video identity before importing captions');
-    await this.saveSubtitle(this.current.key, this.current.source.name, file);
-    await this.refreshTracks();
+    await this.saveSubtitle(current.key, current.source.name, file, signal);
+    if (!signal.aborted && this.current === current) await this.refreshTracks();
   }
-  private async saveSubtitle(key: ContentKey, name: string, file: File) {
-    const signal = this.lifetime.signal;
+  private async saveSubtitle(
+    key: ContentKey,
+    name: string,
+    file: File,
+    signal: AbortSignal = this.lifetime.signal
+  ) {
     signal.throwIfAborted();
     if (file.size > 5 * 1024 * 1024) throw new Error('Subtitles must be at most 5 MiB');
     const found = matchSidecar(name, file.name),
@@ -1016,7 +1022,8 @@ export class VideoWorkspace {
   }
   private pickSubtitle() {
     const current = this.current,
-      generation = this.generation;
+      generation = this.generation,
+      signal = this.openAbort?.signal ?? this.lifetime.signal;
     if (!current || current.provisional) {
       this.notice('Wait for the video identity before importing captions.');
       return;
@@ -1029,7 +1036,7 @@ export class VideoWorkspace {
       void (async () => {
         for (const file of input.files ?? []) {
           if (this.closed || generation !== this.generation || this.current !== current) return;
-          await this.saveSubtitle(current.key, current.source.name, file);
+          await this.saveSubtitle(current.key, current.source.name, file, signal);
         }
         if (this.current === current) await this.refreshTracks();
       })().catch((e) => {
