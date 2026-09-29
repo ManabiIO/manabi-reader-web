@@ -211,24 +211,31 @@
       }
       // Metadata stays local and independent of dictionary initialization and
       // expensive body projection. Do not normalize the editable query to kana.
-      const bookRows: Row[] = selectedBooks.map((book) => ({
-        id: `book:${book.key}`,
-        kind: 'Book',
-        title: book.title,
-        label: `Read ${book.title}`,
-        detail: bookDetail(book, selectedQuery),
-        titleMatch: searchMatchRange(book.title, selectedQuery),
-        searchText: {
-          primary: [book.title],
-          secondary: [
-            ...(book.canonicalTitle !== book.title ? [book.canonicalTitle] : []),
-            ...(book.creators ?? []).map((creator) => creator.name),
-            ...(book.series?.name ? [book.series.name] : []),
-            ...(bookMatchText[book.key] ?? []).map((item) => item.text)
-          ]
-        },
-        open: () => openBook(book)
-      }));
+      const bookRows: Row[] = selectedBooks.map((book) => {
+        const titleMatch = searchMatchRange(book.title, selectedQuery);
+        const detail = bookDetail(book, selectedQuery);
+        return {
+          id: `book:${book.key}`,
+          kind: 'Book',
+          title: book.title,
+          label:
+            !titleMatch && detail
+              ? `Read ${book.title}. Matched ${detail}`
+              : `Read ${book.title}`,
+          detail,
+          titleMatch,
+          searchText: {
+            primary: [book.title],
+            secondary: [
+              ...(book.canonicalTitle !== book.title ? [book.canonicalTitle] : []),
+              ...(book.creators ?? []).map((creator) => creator.name),
+              ...(book.series?.name ? [book.series.name] : []),
+              ...(bookMatchText[book.key] ?? []).map((item) => item.text)
+            ]
+          },
+          open: () => openBook(book)
+        };
+      });
       const snippetRows: Row[] = snippetScope
         ? selectedSnippets
             .filter((item) => foldSearch(item.title).includes(needle))
