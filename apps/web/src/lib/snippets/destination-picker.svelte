@@ -371,8 +371,10 @@
   }
   .remember {
     display: flex;
+    min-height: 44px;
     gap: 0.5rem;
     align-items: center;
+    cursor: pointer;
   }
   form {
     display: flex;
