@@ -136,3 +136,15 @@ export async function tryLivePersonalCopies(
     throw error;
   }
 }
+
+export function needsPersonalHydration(
+  copies: readonly PersonalBook[],
+  scopeRows: readonly PersonalBookScope[],
+  accountId: string
+): boolean {
+  const scopes = new Map(scopeRows.map((scope) => [scope.bookId, scope]));
+  return copies.some((book) => {
+    const scope = scopes.get(book.id);
+    return !scope || scope.accountId !== accountId || !scope.hydrated;
+  });
+}
