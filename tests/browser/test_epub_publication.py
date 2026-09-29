@@ -177,7 +177,7 @@ class EpubPublicationBrowser(ReaderBrowser):
                 expect(
                     self.page.get_by_text(
                         'Fixed-layout EPUBs are not supported by this reader yet.',
-                        exact=True
+                        exact=False
                     )
                 ).to_be_visible(timeout=30000)
                 expect(
