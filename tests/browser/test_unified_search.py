@@ -146,7 +146,7 @@ class UnifiedSearch(ProductJourneyBase):
         kinds = self.page.locator('[data-search-row="titles"] small')
         expect(kinds).to_have_count(5)
         self.assertTrue(kinds.nth(0).inner_text().startswith('Video'))
-        self.assertIn('cat', kinds.nth(1).inner_text())
+        self.assertEqual('Book · Author · cat', kinds.nth(1).inner_text())
         self.assertTrue(all(kinds.nth(index).inner_text().startswith('Book') for index in range(1, 5)))
         self.checkpoint('unified-title-relevance')
 
