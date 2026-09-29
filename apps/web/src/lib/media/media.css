@@ -171,16 +171,26 @@
   border: 1px solid var(--media-border);
   min-width: 0;
 }
-.video-card > input {
+.video-select {
   position: absolute;
-  top: 14px;
-  right: 14px;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.video-select:has(input:focus-visible) {
+  outline: 3px solid var(--ring, #147d90);
+  outline-offset: 1px;
 }
 .video-card .video-card-title {
   display: block;
   border: 0;
   border-radius: 0;
-  padding: 28px 0 8px;
+  padding: 40px 0 8px;
   background: none;
   font-size: 1.1875rem;
   font-weight: 650;
