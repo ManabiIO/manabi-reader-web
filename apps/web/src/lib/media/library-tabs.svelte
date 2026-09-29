@@ -10,6 +10,8 @@
 <style>
   .media-library-tabs {
     display: flex;
+    flex-wrap: wrap;
+    pointer-events: auto;
     gap: 6px;
     width: max-content;
     max-width: calc(100% - 48px);
@@ -24,8 +26,14 @@
   a {
     display: flex;
     align-items: center;
+    justify-content: center;
+    flex: 1 0 auto;
+    max-width: 100%;
+    min-width: 0;
     min-height: 44px;
-    padding: 10px 22px;
+    padding: 10px clamp(10px, 3vw, 22px);
+    overflow-wrap: anywhere;
+    text-align: center;
     border-radius: 20px;
     color: var(--foreground);
     text-decoration: none;

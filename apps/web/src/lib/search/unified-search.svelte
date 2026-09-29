@@ -50,6 +50,7 @@
     title: string;
     label: string;
     detail?: string;
+    detailMatch?: { start: number; end: number };
     titleMatch?: { start: number; end: number };
     /** Search-only metadata used for relevance; never rendered directly. */
     searchText?: SearchTextFields;
@@ -137,7 +138,15 @@
     owner,
     filter,
     searchScope,
-    scopePlan.books ? books.map((book) => [book.key, book.contentHash, book.lastBookModified]) : [],
+    scopePlan.books
+      ? books.map((book) => [
+          book.key,
+          book.bookId,
+          book.title,
+          book.contentHash,
+          book.lastBookModified
+        ])
+      : [],
     scopePlan.books
       ? matches.map((book) => [
           book.key,
@@ -203,13 +212,21 @@
       const bookRows: Row[] = selectedBooks.map((book) => {
         const titleMatch = searchMatchRange(book.title, selectedQuery);
         const detail = bookTitleMatchDetail(book, bookMatchText[book.key] ?? [], selectedQuery);
+        // Metadata reasons have a field label ("Author · "). Highlight the
+        // matched value, so a query for "author" does not light up that label.
+        const detailStart = !titleMatch && detail ? detail.indexOf(' · ') + 3 : 0;
+        const detailMatch = detail
+          ? searchMatchRange(detail.slice(detailStart), selectedQuery)
+          : undefined;
         return {
           id: `book:${book.key}`,
           kind: 'Book',
           title: book.title,
-          label:
-            !titleMatch && detail ? `Read ${book.title}. Matched ${detail}` : `Read ${book.title}`,
+          label: `Read ${book.title}`,
           detail,
+          detailMatch: detailMatch
+            ? { start: detailMatch.start + detailStart, end: detailMatch.end + detailStart }
+            : undefined,
           titleMatch,
           searchText: bookTitleSearchFields(book, bookMatchText[book.key] ?? []),
           open: () => openBook(book)
@@ -563,6 +580,7 @@
               class="result-row"
               data-search-row="titles"
               aria-label={row.label}
+              aria-describedby={`search-title-detail-${encodeURIComponent(row.id)}`}
               onclick={row.open}
             >
               <span class="type-icon" aria-hidden="true"
@@ -574,7 +592,11 @@
               >
               <span class="row-copy"
                 ><strong><SearchExcerpt text={row.title} match={row.titleMatch} /></strong><small
-                  >{row.kind}{row.detail ? ` · ${row.detail}` : ''}</small
+                  id={`search-title-detail-${encodeURIComponent(row.id)}`}
+                  >{row.kind}{#if row.detail}{' · '}<SearchExcerpt
+                      text={row.detail}
+                      match={row.detailMatch}
+                    />{/if}</small
                 ></span
               >
             </button>
