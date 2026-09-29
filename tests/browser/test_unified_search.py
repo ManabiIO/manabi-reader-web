@@ -403,6 +403,7 @@ class UnifiedSearch(ProductJourneyBase):
         )).to_be_visible(timeout=30000)
         self.checkpoint('dictionary-unicode-limit-recovered')
 
+
     def test_unified_search_reflows_at_200_percent_text_on_short_phone(self):
         self.import_book(
             'とても長い日本語の検索結果タイトルと読書ガイド',
