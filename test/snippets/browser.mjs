@@ -256,6 +256,114 @@ try {
   await page.reload();
   await expect(page.getByRole('article', { name: 'Snippet content' })).toContainText('京都');
   passed('create, durable native IndexedDB save and reader reload');
+
+  // Stress the actual reader controls and vertical layout at enlarged UI text.
+  await page.setViewportSize({ width: 320, height: 480 });
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '200%';
+  });
+  const readingToolbar = page.getByRole('toolbar', { name: 'Snippet reading controls' });
+  await expect(readingToolbar).toBeVisible();
+  assert(
+    (await readingToolbar.evaluate((node) => node.scrollWidth - node.clientWidth)) <= 1,
+    'Snippet reading controls must not overflow horizontally at 200% text'
+  );
+  for (const name of ['Smaller text', 'Larger text', 'Vertical reading', 'Save selection to snippet…']) {
+    const control = readingToolbar.getByRole('button', { name, exact: true });
+    const box = await control.boundingBox();
+    assert(box && box.height >= 43.5, `${name} must remain at least 44 CSS px high`);
+    assert(box.x >= -1 && box.x + box.width <= 321, `${name} must stay inside the viewport`);
+  }
+  const verticalToggle = readingToolbar.getByRole('button', {
+    name: 'Vertical reading',
+    exact: true
+  });
+  await verticalToggle.click();
+  await expect(verticalToggle).toHaveAttribute('aria-pressed', 'true');
+  const readingArticle = page.getByRole('article', { name: 'Snippet content' });
+  assert.equal(
+    await readingArticle.evaluate((node) => getComputedStyle(node).writingMode),
+    'vertical-rl'
+  );
+  assert(
+    (await readingArticle.evaluate((node) => node.scrollWidth - node.clientWidth)) >= 0,
+    'Vertical snippet reader geometry must be measurable'
+  );
+  const articleBox = await readingArticle.boundingBox();
+  assert(
+    articleBox.x >= -1 && articleBox.x + articleBox.width <= 321,
+    'Vertical snippet reader must remain inside the narrow viewport'
+  );
+  const readerEvidence = process.env.SNIPPETS_SCREENSHOT;
+  if (readerEvidence) {
+    const path = readerEvidence.replace(/\.png$/i, '-reader-vertical-200.png');
+    await mkdir(dirname(path), { recursive: true });
+    await page.screenshot({ path, fullPage: true });
+  }
+  await verticalToggle.click();
+  await expect(verticalToggle).toHaveAttribute('aria-pressed', 'false');
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '';
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  passed('reader controls and vertical mode reflow at 200% text');
+
+  // Stress the real TipTap toolbar and annotation form, not a substitute editor.
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.setViewportSize({ width: 320, height: 480 });
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '200%';
+  });
+  const formatting = page.getByRole('toolbar', { name: 'Text formatting' });
+  await expect(formatting).toBeVisible();
+  assert(
+    (await formatting.evaluate((node) => node.scrollWidth - node.clientWidth)) <= 1,
+    'Formatting toolbar must wrap without horizontal overflow at 200% text'
+  );
+  for (const button of await formatting.getByRole('button').all()) {
+    const box = await button.boundingBox();
+    assert(box && box.height >= 43.5, 'Formatting actions must remain at least 44 CSS px high');
+    assert(box.x >= -1 && box.x + box.width <= 321, 'Formatting actions must stay in the viewport');
+  }
+  const editable = page.getByRole('textbox', { name: 'Snippet text', exact: true });
+  await editable.locator('p').first().evaluate((paragraph) => {
+    paragraph.closest('[contenteditable]').focus();
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(paragraph);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    document.dispatchEvent(new Event('selectionchange'));
+  });
+  await formatting.getByRole('button', { name: 'Furigana', exact: true }).click();
+  const readingInput = page.getByRole('textbox', { name: 'Furigana reading', exact: true });
+  await expect(readingInput).toBeFocused();
+  const annotationForm = readingInput.locator('xpath=ancestor::form');
+  assert(
+    (await annotationForm.evaluate((node) => node.scrollWidth - node.clientWidth)) <= 1,
+    'Annotation form must wrap without horizontal overflow at 200% text'
+  );
+  for (const name of ['Apply', 'Cancel']) {
+    const control = annotationForm.getByRole('button', { name, exact: true });
+    const box = await control.boundingBox();
+    assert(box && box.height >= 43.5, `${name} annotation action must be at least 44 CSS px high`);
+  }
+  const editorEvidence = process.env.SNIPPETS_SCREENSHOT;
+  if (editorEvidence) {
+    const path = editorEvidence.replace(/\.png$/i, '-editor-annotation-200.png');
+    await mkdir(dirname(path), { recursive: true });
+    await page.screenshot({ path, fullPage: true });
+  }
+  await annotationForm.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(editable).toBeFocused();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Discard draft and leave', exact: true }).click();
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '';
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  passed('editor toolbar and annotation form reflow at 200% text');
+
   await openLibrary(page);
   await page.setViewportSize({ width: 320, height: 640 });
   await page.evaluate(() => {
