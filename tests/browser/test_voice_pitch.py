@@ -14,6 +14,14 @@ from test_static_reader import ThreadingHTTPServer
 import test_whispersync as existing
 
 OUTPUT = Path('test-results/voice-pitch-app')
+GAPPED_CAPTIONS = '''1
+00:00:00,000 --> 00:00:02,000
+First gated cue
+
+2
+00:00:12,000 --> 00:00:14,000
+Second gated cue
+'''
 
 
 def voice_fixture():
@@ -65,7 +73,7 @@ class VoicePitchBrowser(existing.WhispersyncBrowser):
     def setUp(self):
         super().setUp()
         self.context.add_init_script('''(() => {
-          window.__pitchQA = {created: 0, terminated: 0, results: []}
+          window.__pitchQA = {created: 0, terminated: 0, analysisSent: 0, results: []}
           const NativeWorker = window.Worker
           window.Worker = class extends NativeWorker {
             constructor(url, options) {
@@ -80,6 +88,12 @@ class VoicePitchBrowser(existing.WhispersyncBrowser):
                   }
                 })
               }
+            }
+            postMessage(message, transfer) {
+              if (this.pitch && message?.type === 'analyze') __pitchQA.analysisSent++
+              return transfer === undefined
+                ? super.postMessage(message)
+                : super.postMessage(message, transfer)
             }
             terminate() {
               if (this.pitch) __pitchQA.terminated++
@@ -174,6 +188,34 @@ class VoicePitchBrowser(existing.WhispersyncBrowser):
         expect(self.strip.locator('path.pitch')).to_have_attribute('d', '')
         self.page.wait_for_timeout(200)
         expect(self.strip.locator('path.pitch')).to_have_attribute('d', '')
+
+    def test_voice_pitch_stops_sampling_between_timed_cues(self):
+        self.prepare()
+        self.page.locator('input[type=file][accept*=".srt"]').set_input_files({
+            'name': 'gapped.srt',
+            'mimeType': 'application/x-subrip',
+            'buffer': GAPPED_CAPTIONS.encode()
+        })
+        expect(self.page.get_by_text('gapped.srt · 2 cues', exact=True)).to_be_visible()
+
+        # prepare() leaves playback paused after 8 seconds: squarely inside the
+        # 2–12 second subtitle gap. Resume and prove that no analysis requests
+        # are sent while the audio clock advances through background-only time.
+        before = self.page.evaluate('__pitchQA.analysisSent')
+        self.page.locator('.panel').get_by_role('button', name='Play', exact=True).click()
+        expect(self.strip.get_by_text('Waiting for dialogue', exact=True)).to_be_visible()
+        start = self.page.locator('audio').evaluate('a => a.currentTime')
+        self.page.wait_for_function(
+            '(t) => document.querySelector("audio").currentTime > t + .7', arg=start)
+        self.page.wait_for_timeout(250)
+        self.assertEqual(before, self.page.evaluate('__pitchQA.analysisSent'))
+
+        # Enter the next authored cue through the real transcript control.
+        next_cue = self.page.get_by_role('button').filter(has_text='Second gated cue').first
+        next_cue.click()
+        expect(self.strip.get_by_text('Live · last 8 seconds', exact=True)).to_be_visible()
+        self.page.wait_for_function(
+            '(count) => __pitchQA.analysisSent > count', arg=before, timeout=10000)
 
     def test_voice_pitch_mobile_dark_accessibility(self):
         self.prepare(dark=True, mobile=True)
