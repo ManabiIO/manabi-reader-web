@@ -211,7 +211,11 @@
       guard();
       publish({
         state: 'loading',
-        value: { rows: mixMany(bookRows, snippetRows), failed: snippetFailed, truncated: false }
+        value: {
+          rows: sortSearchText([...bookRows, ...snippetRows], selectedQuery, (row) => row.title),
+          failed: snippetFailed,
+          truncated: false
+        }
       });
       let videoRows: Row[] = [],
         videoFailed = 0,
@@ -246,7 +250,11 @@
       publish({
         state: 'ready',
         value: {
-          rows: mixMany(bookRows, videoRows, snippetRows),
+          rows: sortSearchText(
+            [...bookRows, ...videoRows, ...snippetRows],
+            selectedQuery,
+            (row) => row.title
+          ),
           failed: snippetFailed + videoFailed,
           truncated: videoTruncated
         }
