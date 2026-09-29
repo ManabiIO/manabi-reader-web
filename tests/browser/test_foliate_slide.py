@@ -1,6 +1,7 @@
 """Layered page turns in the built Reader, including real touch and wheel input."""
 import os
 import io
+import re
 import threading
 import zipfile
 from pathlib import Path
@@ -159,7 +160,9 @@ class FoliateSlide(ReaderBrowser):
         self.page.mouse.move(195, 600)
         self.page.evaluate(f"async () => {{window.prepared = await {P}.preparePageTurn(1);window.prepared.update(.45)}}")
         expect(self.page.get_by_role('banner', name='Reader toolbar')).not_to_be_visible()
-        expect(self.page.locator('.reader-controls')).to_have_css('opacity', '0')
+        controls = self.page.locator('.reader-controls')
+        expect(controls).to_have_class(re.compile(r'chrome-hidden'))
+        expect(controls).to_have_attribute('aria-expanded', 'false')
         expect(self.page.locator('#ttu-page-footer')).to_have_css('opacity', '0')
         self.assertEqual(self.page.locator('.reader-progress').count(), 0)
         self.assert_pose(self.pose(), .45, 1, False)

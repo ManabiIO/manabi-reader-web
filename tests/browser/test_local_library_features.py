@@ -431,6 +431,7 @@ class LocalFeatureBrowser(LibraryBase):
     def test_yatsu_edit_download_conflict_and_restore(self):
         self.open_migration();self.migrate()
         self.page.get_by_role('link',name='Read '+TITLE,exact=True).click()
+        expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=30000)
         reveal_reader_controls(self.page)
         self.page.get_by_role('button',name='Bookmarks and Notes',exact=True).click()
         notebook=self.page.get_by_role('region',name='Imported Yatsu notes',exact=True)

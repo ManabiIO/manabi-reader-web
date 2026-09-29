@@ -540,7 +540,8 @@ class BooksLibraryBrowser(LibraryBase):
         expect(content.locator('[data-manabi-spine-index="1"]')).to_be_attached(timeout=30000)
         self.assertEqual(baseline, self.stores('books', ['bookmark', 'readerStatistic']))
 
-        controls.click()
+        expect(content).to_have_attribute('aria-busy', 'false')
+        reveal_reader_controls(self.page)
         self.page.get_by_role('button', name='Themes & Settings').click()
         self.page.get_by_role('button', name='Increase text size').click()
         self.page.get_by_role('button', name='Close reading appearance').click()
