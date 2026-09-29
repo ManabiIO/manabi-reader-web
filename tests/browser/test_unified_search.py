@@ -62,6 +62,8 @@ class UnifiedSearch(ProductJourneyBase):
         self.assertLessEqual(full.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
         self.assertLessEqual(
             self.page.evaluate('document.documentElement.scrollWidth-innerWidth'), 1)
+        controls = self.page.locator('.search-controls')
+        self.assertEqual('static', controls.evaluate('e => getComputedStyle(e).position'))
         setup = self.page.get_by_text('Local dictionaries', exact=True)
         setup.scroll_into_view_if_needed()
         self.assertGreaterEqual(setup.bounding_box()['height'], 43.99)

@@ -80,9 +80,7 @@
     owner,
     filter,
     searchScope,
-    scopePlan.books
-      ? books.map((book) => [book.key, book.contentHash, book.lastBookModified])
-      : [],
+    scopePlan.books ? books.map((book) => [book.key, book.contentHash, book.lastBookModified]) : [],
     scopePlan.books ? matches.map((book) => [book.key, book.title]) : [],
     scopePlan.snippets ? eligible.map((item) => [item.key, item.revision]) : []
   ]);
@@ -583,7 +581,7 @@
       font-size: 0.8rem;
     }
   }
-  @media (max-height: 35rem) {
+  @media (max-height: 40rem) {
     .search-controls {
       position: static;
       backdrop-filter: none;
