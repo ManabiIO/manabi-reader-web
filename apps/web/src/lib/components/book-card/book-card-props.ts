@@ -24,4 +24,5 @@ export interface BookCardProps {
   pageDirection?: DirectionEvidence;
   contentHash?: string;
   libraryOwner?: string;
+  readerOwner?: string;
 }
