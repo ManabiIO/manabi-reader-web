@@ -93,7 +93,7 @@ class RheaReader(previous.RefinedAppearance):
                 expect(toolbar).to_have_count(0)
 
     def test_enlarged_reader_toolbar_stays_reachable_in_a_short_phone_viewport(self):
-        self.open_chaptered_reader()
+        self.open_book()
         self.wait_for_fonts()
         self.page.set_viewport_size({'width': 320, 'height': 320})
         self.page.evaluate('document.documentElement.style.fontSize = "200%"')
@@ -137,7 +137,9 @@ class RheaReader(previous.RefinedAppearance):
         content = self.page.locator('.book-content').bounding_box()
         self.assertGreater(content['height'], 64)
         self.assertGreater(content['width'], 64)
-        self.assertLessEqual(content['y'] + content['height'], bounds['y'] + 1)
+        self.assertGreaterEqual(content['y'], bounds['y'] + bounds['height'] - 1)
+        footer = self.page.locator('#ttu-page-footer').bounding_box()
+        self.assertLessEqual(content['y'] + content['height'], footer['y'] + 1)
 
         tools = toolbar.get_by_role('button', name='Reading tools', exact=True)
         tools.focus()

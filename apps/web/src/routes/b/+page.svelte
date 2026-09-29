@@ -2816,6 +2816,18 @@
     padding: 0 max(1rem, env(safe-area-inset-left)) env(safe-area-inset-bottom);
     pointer-events: none;
   }
+  @media (max-width: 639px) and (max-height: 400px) {
+    .reader-controls {
+      width: 44px;
+      height: 44px;
+      right: max(16px, env(safe-area-inset-right));
+      bottom: calc(72px + env(safe-area-inset-bottom));
+    }
+    .reader-footer {
+      height: calc(72px + env(safe-area-inset-bottom));
+      padding-inline: max(16px, env(safe-area-inset-left));
+    }
+  }
   .reader-footer :global(button) {
     pointer-events: auto;
   }
