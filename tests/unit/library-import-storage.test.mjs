@@ -79,13 +79,7 @@ function harness(initial, { onAdd, manual = false } = {}) {
             return draft.get(id);
           },
           index(name) {
-            if (name === 'title')
-              return {
-                async getKey(title) {
-                  return [...draft.values()].find((row) => row.title === title)?.id;
-                }
-              };
-            assert.ok(name === 'contentHash' || name === 'libraryOwner');
+            assert.ok(['title', 'contentHash', 'libraryOwner'].includes(name));
             const values = [...draft.values()].filter((row) => row[name] !== undefined);
             const cursor = (i) =>
               i < values.length
@@ -95,7 +89,12 @@ function harness(initial, { onAdd, manual = false } = {}) {
                     continue: async () => cursor(i + 1)
                   }
                 : null;
-            return { openKeyCursor: async () => cursor(0) };
+            return {
+              openKeyCursor: async () => cursor(0),
+              async getKey(value) {
+                return values.find((row) => row[name] === value)?.id;
+              }
+            };
           },
           async add(value) {
             const id = value.id ?? Math.max(100, ...draft.keys()) + 1;

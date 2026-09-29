@@ -45,6 +45,7 @@ function memoryDB(initial) {
     const rows = tables.get(name);
     return {
       get: async (key) => copy(rows.get(key)),
+      getAll: async () => [...rows.values()].map(copy),
       put: async (row) => {
         rows.set(keyFor(row), copy(row));
         return keyFor(row);
@@ -257,7 +258,24 @@ function annotationFixture({ bookOwner, scopeOwner } = {}) {
       account: { value: { status: 'ready' } },
       localProfileUser: () => user
     },
-    '$lib/reader-location': { snapshotReaderLocator: (value) => globalThis.structuredClone(value) }
+    '$lib/reader-location': { snapshotReaderLocator: (value) => globalThis.structuredClone(value) },
+    '$lib/data/database/books-db/content-hash-index': {
+      readIndexedBookMetadata: async (store) => {
+        const books = [];
+        for (let cursor = await store.openCursor(); cursor; cursor = await cursor.continue()) {
+          const value = cursor.value;
+          if (typeof value.contentHash !== 'string' || !/^[a-f0-9]{64}$/i.test(value.contentHash))
+            continue;
+          books.push({
+            id: value.id,
+            title: value.title ?? '',
+            contentHash: value.contentHash.toLowerCase(),
+            ...(value.libraryOwner ? { libraryOwner: value.libraryOwner } : {})
+          });
+        }
+        return books;
+      }
+    }
   });
   return { api, db, annotation, bookKey, setUser: (id) => (user = id ? { id } : null) };
 }
