@@ -49,9 +49,11 @@ export async function contentHashPrimaryKeys(
 
 export interface IndexedBookMetadata {
   id: number;
-  title: string;
+  title?: string;
   contentHash: string;
   libraryOwner?: string;
+  /** Corrupt/non-string owner evidence must never be reinterpreted as local. */
+  invalidOwner?: true;
 }
 
 interface IndexedBookMetadataStore {
@@ -106,16 +108,14 @@ export async function readIndexedBookMetadata(
     })
   ]);
 
-  return [...hashes].flatMap(([id, contentHash]) =>
-    !titles.has(id) || invalidOwners.has(id)
-      ? []
-      : [
-          {
-            id,
-            title: titles.get(id)!,
-            contentHash,
-            ...(owners.has(id) ? { libraryOwner: owners.get(id)! } : {})
-          }
-        ]
-  );
+  return [...hashes].map(([id, contentHash]) => ({
+    id,
+    ...(titles.has(id) ? { title: titles.get(id)! } : {}),
+    contentHash,
+    ...(invalidOwners.has(id)
+      ? { invalidOwner: true as const }
+      : owners.has(id)
+        ? { libraryOwner: owners.get(id)! }
+        : {})
+  }));
 }
