@@ -31,8 +31,8 @@ export interface VideoTranscriptHit {
   time: number;
   end: number;
   text: string;
-  /** UTF-16 boundaries in the returned text excerpt. */
-  match: { start: number; end: number };
+  /** UTF-16 boundaries in the returned text excerpt when mapping succeeds. */
+  match?: { start: number; end: number };
 }
 
 export interface VideoTranscriptBatch {
@@ -125,16 +125,25 @@ const MAX_EXCERPT_CODEPOINTS = 360;
 const aborted = (error: unknown, signal: AbortSignal) =>
   signal.aborted || (error instanceof DOMException && error.name === 'AbortError');
 
+const transcriptGraphemes = new Intl.Segmenter('ja', { granularity: 'grapheme' });
+
+function boundedExcerpt(text: string): string {
+  const points = Array.from(text);
+  return points.length <= MAX_EXCERPT_CODEPOINTS
+    ? text
+    : `${points.slice(0, MAX_EXCERPT_CODEPOINTS - 1).join('')}…`;
+}
+
 function transcriptExcerpt(
   text: string,
   foldedText: string,
   needle: string
-): { text: string; match: { start: number; end: number } } {
+): { text: string; match?: { start: number; end: number } } {
   const at = foldedText.indexOf(needle);
   let foldedOffset = 0,
     sourceStart = -1,
     sourceEnd = -1;
-  for (const part of new Intl.Segmenter('ja', { granularity: 'grapheme' }).segment(text)) {
+  for (const part of transcriptGraphemes.segment(text)) {
     const next = foldedOffset + foldSearch(part.segment).length;
     if (sourceStart < 0 && at < next) sourceStart = part.index;
     if (at + needle.length <= next) {
@@ -143,8 +152,7 @@ function transcriptExcerpt(
     }
     foldedOffset = next;
   }
-  if (sourceStart < 0 || sourceEnd <= sourceStart)
-    return { text, match: { start: 0, end: Math.min(text.length, 1) } };
+  if (sourceStart < 0 || sourceEnd <= sourceStart) return { text: boundedExcerpt(text) };
 
   const points = Array.from(text);
   if (points.length <= MAX_EXCERPT_CODEPOINTS)
@@ -156,8 +164,9 @@ function transcriptExcerpt(
     units += point.length;
     offsets.push(units);
   }
-  const startPoint = Math.max(0, offsets.indexOf(sourceStart));
-  const endPoint = Math.max(startPoint + 1, offsets.indexOf(sourceEnd));
+  const startPoint = offsets.indexOf(sourceStart);
+  const endPoint = offsets.indexOf(sourceEnd);
+  if (startPoint < 0 || endPoint <= startPoint) return { text: boundedExcerpt(text) };
   const contentBudget = MAX_EXCERPT_CODEPOINTS - 2;
   const matchLength = endPoint - startPoint;
   let from =
