@@ -900,6 +900,43 @@ def main():
             }""")
             assert len(result)==2 and sorted(t['forced'] for t in result)==[False,True]
         case('identical forced and full authored subtitles remain separate, while repeated full imports deduplicate',sidecars)
+        def sidecar_switch_cancellation():
+            page.evaluate('reset()')
+            page.evaluate("workspace.openSource(makeSource('Import-A.mp4'))")
+            page.wait_for_function('workspace.current && !workspace.current.provisional')
+            result=page.evaluate(r"""async()=>{
+                const oldKey=workspace.current.key;
+                let entered,release;
+                const reached=new Promise(resolve=>entered=resolve);
+                const gate=new Promise(resolve=>release=resolve);
+                const text='1\n00:00:00,100 --> 00:00:01,500\n古い字幕です。';
+                const file=new File([text],'Import-A.ja.srt',{type:'text/plain'});
+                Object.defineProperty(file,'text',{value:async()=>{entered();await gate;return text}});
+                const pending=workspace.importSubtitle(file).then(
+                    ()=>({ok:true}),
+                    error=>({ok:false,name:error?.name??'',message:String(error)})
+                );
+                await reached;
+                const opening=workspace.openSource(makeSource('Import-B.mp4'));
+                const settled=await Promise.race([
+                    pending,new Promise(resolve=>setTimeout(()=>resolve('stalled'),100))
+                ]);
+                release();
+                await opening;
+                const final=settled==='stalled'?await pending:settled;
+                return {
+                    final,
+                    current:workspace.current?.source.name??null,
+                    oldSidecars:(await store.tracks('guest',oldKey))
+                        .filter(track=>track.origin==='sidecar').length
+                };
+            }""")
+            assert result['final']!='stalled',result
+            assert result['final']['ok'] is False,result
+            assert result['final']['name']=='AbortError',result
+            assert result['current']=='Import-B.mp4',result
+            assert result['oldSidecars']==0,result
+        case('switching videos cancels an authored subtitle import before it can commit',sidecar_switch_cancellation)
         def external_caption():
             result=page.evaluate("""async()=>{
                 const key=workspace.current.key;
