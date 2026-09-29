@@ -19,6 +19,12 @@ test('metadata relevance uses the same compatibility normalization as library se
   assert.equal(foldSearch('ＡＢＣ'), 'abc');
 });
 
+test('metadata relevance treats supplementary symbols as token boundaries', () => {
+  const values = ['Copycat', '🐱cat notes'];
+  values.sort((a, b) => compareSearchText(a, b, 'cat'));
+  assert.deepEqual(values, ['🐱cat notes', 'Copycat']);
+});
+
 test('metadata relevance deterministically places non-matches after matches', () => {
   const values = ['zzz', 'school notes', 'school'];
   values.sort((a, b) => compareSearchText(a, b, 'school'));
