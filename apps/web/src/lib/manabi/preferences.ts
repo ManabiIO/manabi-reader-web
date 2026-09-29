@@ -30,6 +30,11 @@ import {
 } from '$lib/library/presentation-compatibility';
 
 type Flat = Record<string, unknown>;
+interface PendingPreferenceUpload {
+  revision: number;
+  supportsExtensions: boolean;
+  settings: Flat;
+}
 interface SavedPreferences {
   enabled: boolean;
   initialized: boolean;
@@ -38,6 +43,20 @@ interface SavedPreferences {
   revision: number;
   /** First-sync intent stays local and survives transient failures/reopening. */
   initialChoice?: 'local' | 'remote';
+  /** Exact local-only request identity for a PUT whose acknowledgement may be lost. */
+  pendingUpload?: PendingPreferenceUpload;
+}
+function validPendingPreferenceUpload(value: unknown): value is PendingPreferenceUpload {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const candidate = value as Partial<PendingPreferenceUpload>;
+  return (
+    Number.isSafeInteger(candidate.revision) &&
+    (candidate.revision as number) >= 0 &&
+    typeof candidate.supportsExtensions === 'boolean' &&
+    !!candidate.settings &&
+    typeof candidate.settings === 'object' &&
+    !Array.isArray(candidate.settings)
+  );
 }
 export const preferenceStatus = writable<{ enabled: boolean; state: string; conflicts: string[] }>({
   enabled: false,
@@ -328,6 +347,7 @@ function writePreferenceSnapshot(user: string, save: PendingPreferenceSave): Pro
     .then(async () => {
       if (unsavedPreferences.get(user) !== save) return;
       await setMetadata(`preferences/${user}`, save.value);
+      clearRetry(storageRetryAt, user);
       if (unsavedPreferences.get(user) === save) unsavedPreferences.delete(user);
     })
     .finally(() => {
@@ -428,10 +448,37 @@ async function performPreferenceSync(
       if (!isCurrent()) return;
       unchangedUser(user);
       if (!remote) throw new IntegrationError('invalid_response');
+      if (
+        state.initialized &&
+        (!Number.isSafeInteger(state.revision) ||
+          state.revision < 0 ||
+          remote.revision < state.revision)
+      )
+        throw new IntegrationError('invalid_response');
       const supportsExtensions = remote.book_presentation_version === 1;
       const wire = (value: Flat) => preferenceWireSnapshot(value, supportsExtensions);
       const capturedWire = wire(captured);
       const thereRaw = wire(flatten(remote.settings));
+      const pendingUpload = validPendingPreferenceUpload(state.pendingUpload)
+        ? state.pendingUpload
+        : undefined;
+      if (state.pendingUpload && !pendingUpload) delete state.pendingUpload;
+      // A PUT may have committed even though its response was lost. When the
+      // next GET proves that exact revision + payload was accepted, advance the
+      // baseline before merging edits made after that request. Otherwise a
+      // rapid 24 → 31 → 32 edit can be misreported as a conflict with our own 31.
+      if (
+        pendingUpload &&
+        pendingUpload.supportsExtensions === supportsExtensions &&
+        remote.revision === pendingUpload.revision + 1 &&
+        equal(thereRaw, pendingUpload.settings)
+      ) {
+        state.base = supportsExtensions
+          ? structuredClone(pendingUpload.settings)
+          : retainMissingPreferenceExtensions(state.base, pendingUpload.settings);
+        state.revision = remote.revision;
+        delete state.pendingUpload;
+      }
       // Absence is how an older client represents unknown fields, not a reset.
       const there = supportsExtensions
         ? retainMissingPreferenceExtensions(state.base, thereRaw)
@@ -457,6 +504,17 @@ async function performPreferenceSync(
       }
       let accepted = remote;
       if (!equal(merged, thereRaw)) {
+        state.pendingUpload = {
+          revision: remote.revision,
+          supportsExtensions,
+          settings: structuredClone(merged)
+        };
+        // Do not create an unrecoverable remote ambiguity: persist the exact
+        // request identity before dispatching a conditional PUT.
+        failureKind = 'storage';
+        await persist(user, state);
+        if (!isCurrent()) return;
+        failureKind = 'sync';
         const response = parsePreferenceReply(
           await request<unknown>('preferences/?book_presentation_version=1', {
             method: 'PUT',
@@ -475,7 +533,12 @@ async function performPreferenceSync(
           !equal(flatten(response.settings), merged)
         )
           throw new IntegrationError('invalid_response');
+        delete state.pendingUpload;
         accepted = response;
+      } else if (state.pendingUpload) {
+        // The current remote state already resolves this request (or an explicit
+        // remote choice superseded it); no stale request marker remains useful.
+        delete state.pendingUpload;
       }
       // The server path has completed successfully. Local application/storage
       // failures below must not preserve an older Retry-After or be mistaken
@@ -587,8 +650,23 @@ function startPreferenceSyncReady() {
         return;
       }
       if (!isCurrent()) return;
-      preferenceStatus.set({ enabled: value.state.enabled, state: 'pending', conflicts: [] });
       const user = activeUser;
+      // If application and snapshot persistence failed together, one recovered
+      // application must close both local durability obligations before this
+      // profile contacts the server or waits for another timer tick.
+      const save = user && unsavedPreferences.get(user);
+      if (user && save) {
+        if (Date.now() < retryAt(storageRetryAt, user)) return;
+        try {
+          await writePreferenceSnapshot(user, save);
+        } catch (error) {
+          if (isCurrent() && unsavedPreferences.get(user) === save)
+            reportStorageFailure(user, error, value.state.enabled);
+          return;
+        }
+        if (!isCurrent()) return;
+      }
+      preferenceStatus.set({ enabled: value.state.enabled, state: 'pending', conflicts: [] });
       // Restoration is automatic work. Returning to a profile must not turn a
       // previous Retry-After into an implicit immediate retry. Explicit user
       // sync actions still bypass background backoff through syncPreferences().
