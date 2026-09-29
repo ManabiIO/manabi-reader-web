@@ -18,6 +18,8 @@
     heatmapGridGapValue,
     heatmapDayMargins,
     heatmapDayElementSize,
+    heatmapCompactDayElementSize,
+    heatmapCompactWidth,
     HeatmapStreakType,
     HeatmapDataAggregration,
     type HeatmapGlobalDayData,
@@ -116,7 +118,12 @@
 
   onMount(() =>
     observeElementWidth(heatmapElement, (width) => {
-      dayElementSize = heatmapCellSize(width, heatmapDayElementSize, heatmapGridGapValue, 57);
+      // Compact layouts already scroll horizontally at the old 15px minimum.
+      // Preserve the dense desktop view, but make phone/tablet day controls
+      // genuine touch targets instead of tiny buttons inside the same scroller.
+      const minimum =
+        width <= heatmapCompactWidth ? heatmapCompactDayElementSize : heatmapDayElementSize;
+      dayElementSize = heatmapCellSize(width, minimum, heatmapGridGapValue, 57);
     })
   );
   onDestroy(() => {
