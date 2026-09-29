@@ -154,6 +154,36 @@ class RheaReader(previous.RefinedAppearance):
         expect(toolbar).to_have_count(0)
         expect(self.page.locator('.book-content')).to_be_visible()
 
+    def test_reduced_motion_eliminates_reader_toolbar_entrance_motion(self):
+        self.open_book(font='Klee One')
+        self.wait_for_fonts()
+        self.page.emulate_media(reduced_motion='reduce')
+        if not self.page.evaluate('matchMedia("(prefers-reduced-motion: reduce)").matches'):
+            self.skipTest('This engine does not emulate reduced motion')
+
+        # Start hidden, then exercise the real Reader reveal path. A CSS-only
+        # button check cannot detect the Svelte fly transition on the toolbar host.
+        hide = self.page.get_by_role('button', name='Hide reading controls', exact=True)
+        if hide.is_visible():
+            hide.click()
+        trigger = self.page.get_by_role('button', name='Show reading controls', exact=True)
+        trigger.focus()
+        trigger.press('Enter')
+        toolbar = self.page.get_by_role('banner', name='Reader toolbar')
+        expect(toolbar).to_be_visible()
+
+        motion = toolbar.evaluate('''e => e.getAnimations({subtree:true}).map(a => {
+          const timing = a.effect?.getComputedTiming?.() || {};
+          return {
+            playState:a.playState,
+            currentTime:Number(a.currentTime || 0),
+            duration:Number(timing.duration || 0),
+            endTime:Number(timing.endTime || 0)
+          };
+        }).filter(a => a.duration > 1 || a.endTime > 1)''')
+        self.assertEqual([], motion, motion)
+        expect(self.page.get_by_role('button', name='Hide reading controls', exact=True)).to_be_focused()
+
     def test_in_book_appearance_persists_and_owns_keys_vertical_phone(self):
         self.verify_reading_appearance('vertical-rl', 390)
 
