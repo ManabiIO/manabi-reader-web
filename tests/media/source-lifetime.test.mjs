@@ -114,7 +114,6 @@ test('streamed ranges preserve nonzero offsets above four GiB without truncation
   assert.equal(chunks.at(-1).at(-1), (end - 1) % 251);
 });
 
-
 test('cloud range requests preserve offsets above four GiB end to end', async () => {
   const locationDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'location');
   const fetchDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
