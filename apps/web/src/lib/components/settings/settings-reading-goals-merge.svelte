@@ -104,11 +104,12 @@
       }
 
       await updateExistingReadingGoals();
-
+      if (!active) return;
       showSpinner = false;
     } catch ({ message }: any) {
+      if (!active) return;
       error = `Failed to refresh Reading Goals (${message})`;
-      closeDialog();
+      void closeDialog();
     }
   }
 
@@ -254,11 +255,12 @@
       }
 
       await updateExistingReadingGoals();
-
+      if (!active) return;
       showSpinner = false;
     } catch ({ message }: any) {
+      if (!active) return;
       error = `Failed to set Context (${message})`;
-      closeDialog();
+      void closeDialog();
     }
   }
 
@@ -266,38 +268,44 @@
     updateNextReadingGoalStartDate();
 
     await tick();
+    if (!active) return;
 
+    let nextGoals: BooksDbReadingGoal[] = [];
     if (archiveReadingGoal) {
-      existingReadingGoals = await database.getReadingGoalsForDateWindow(
+      nextGoals = await database.getReadingGoalsForDateWindow(
         archivalStartDate,
         newStartDate,
         archivalEndDate
       );
     } else if (newReadingGoal.goalStartDate) {
-      existingReadingGoals = await database.getReadingGoalsForDateWindow(
+      nextGoals = await database.getReadingGoalsForDateWindow(
         newReadingGoal.goalStartDate,
         newStartDate
       );
-    } else {
-      existingReadingGoals = [];
     }
+    if (active) existingReadingGoals = nextGoals;
   }
 </script>
 
-{#if showSpinner}
-  <div class="tap-highlight-transparent absolute inset-0 bg-black/[.2]"></div>
-  <div
-    role="status"
-    aria-label="Preparing reading goal"
-    class="fixed inset-0 flex h-full w-full items-center justify-center text-7xl"
-  >
-    <AppIcon icon={faSpinner} spin />
-  </div>
-{/if}
+<div class="relative min-w-0" aria-busy={showSpinner}>
+  {#if showSpinner}
+    <div
+      aria-hidden="true"
+      class="tap-highlight-transparent absolute inset-0 z-10 rounded-3xl bg-black/[.2]"
+    ></div>
+    <div
+      role="status"
+      aria-label="Preparing reading goal"
+      class="pointer-events-none absolute inset-0 z-20 flex items-center justify-center text-5xl"
+    >
+      <AppIcon icon={faSpinner} spin />
+      <span class="sr-only">Preparing reading goal…</span>
+    </div>
+  {/if}
 <DialogTemplate>
   <svelte:fragment slot="header">Save Reading Goal</svelte:fragment>
   <svelte:fragment slot="content">
-    <div class="grid min-w-0 gap-4">
+    <fieldset class="grid min-w-0 gap-4 border-0 p-0" disabled={showSpinner}>
       {#if newReadingGoal.goalStartDate}
         <label class="grid min-w-0 gap-2 text-sm font-medium">
           <span>New reading goal starts from</span>
@@ -380,10 +388,11 @@
           {/each}
         </details>
       {/if}
-    </div>
+    </fieldset>
   </svelte:fragment>
   <div class="flex grow flex-wrap justify-between gap-2" slot="footer">
-    <Button variant="ghost" onclick={() => closeDialog(true)}>Cancel</Button>
-    <Button variant="default" onclick={() => closeDialog()}>Confirm</Button>
+    <Button variant="ghost" disabled={showSpinner} onclick={() => closeDialog(true)}>Cancel</Button>
+    <Button variant="default" disabled={showSpinner} onclick={() => closeDialog()}>Confirm</Button>
   </div>
 </DialogTemplate>
+</div>
