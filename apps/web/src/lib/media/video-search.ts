@@ -13,6 +13,7 @@ import {
   type Track
 } from './contracts.js';
 import type { Replica } from './replica.js';
+import { foldSearch, sortSearchText } from './search-text.js';
 
 export interface VideoTitleHit {
   key: ContentKey;
@@ -56,76 +57,6 @@ export interface VideoSearchStore {
     signal?: AbortSignal,
     manifestSnapshot?: readonly Replica[]
   ): Promise<Track[]>;
-}
-
-const foldSearch = (value: string) =>
-  value
-    .normalize('NFKC')
-    .toLowerCase()
-    .replace(/\u03c2/g, '\u03c3');
-
-const boundaryBefore = (value: string, index: number) => {
-  if (index <= 0) return false;
-  const previous = value.charCodeAt(index - 1);
-  const start =
-    previous >= 0xdc00 &&
-    previous <= 0xdfff &&
-    index > 1 &&
-    value.charCodeAt(index - 2) >= 0xd800 &&
-    value.charCodeAt(index - 2) <= 0xdbff
-      ? index - 2
-      : index - 1;
-  return /[\s\p{P}\p{S}]/u.test(value.slice(start, index));
-};
-
-interface SearchMatchKey {
-  tier: number;
-  index: number;
-  length: number;
-  folded: string;
-}
-
-function matchKey(value: string, needle: string): SearchMatchKey {
-  const folded = foldSearch(value);
-  if (folded === needle) return { tier: 0, index: 0, length: Array.from(folded).length, folded };
-
-  const first = folded.indexOf(needle);
-  if (first < 0)
-    return {
-      tier: 4,
-      index: Number.MAX_SAFE_INTEGER,
-      length: Array.from(folded).length,
-      folded
-    };
-
-  let best = first;
-  let tier = first === 0 ? 1 : 3;
-  if (tier === 3) {
-    for (let candidate = first; candidate >= 0; candidate = folded.indexOf(needle, candidate + 1)) {
-      if (boundaryBefore(folded, candidate)) {
-        best = candidate;
-        tier = 2;
-        break;
-      }
-    }
-  }
-  return {
-    tier,
-    index: Array.from(folded.slice(0, best)).length,
-    length: Array.from(folded).length,
-    folded
-  };
-}
-
-const compareStableText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
-
-function compareKeys(a: SearchMatchKey, b: SearchMatchKey): number {
-  return (
-    a.tier - b.tier ||
-    a.index - b.index ||
-    a.length - b.length ||
-    compareStableText(a.folded, b.folded)
-  );
 }
 
 const MAX_TITLE_RESULTS = 300;
@@ -256,14 +187,13 @@ export async function searchVideoTitles(
   if (!needle) return { hits: [], truncated: false };
   const rows = await store.records(scope, 'video_info', signal);
   signal.throwIfAborted();
-  const matches = videoInfoRows(rows)
-    .map((item, order) => ({ item, order, key: matchKey(item.title, needle) }))
-    .filter(({ key }) => key.tier < 4)
-    .sort(
-      (a, b) =>
-        compareKeys(a.key, b.key) || compareStableText(a.item.key, b.item.key) || a.order - b.order
-    )
-    .map(({ item }) => item);
+  const matches = sortSearchText(
+    videoInfoRows(rows),
+    query,
+    (item) => item.title,
+    (a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0),
+    { matchesOnly: true }
+  );
   return {
     hits: matches.slice(0, MAX_TITLE_RESULTS),
     truncated: matches.length > MAX_TITLE_RESULTS
