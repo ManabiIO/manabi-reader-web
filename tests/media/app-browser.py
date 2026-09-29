@@ -314,6 +314,10 @@ def main():
         options_button.press('Enter')
         options_panel = page.locator('.transcript-options')
         expect(options_panel).to_be_visible()
+        options_font = float(options_panel.evaluate(
+            "node => parseFloat(getComputedStyle(node).fontSize)"
+        ))
+        assert options_font >= media_font * 0.8, (options_font, media_font)
         panel_box = options_panel.bounding_box()
         assert panel_box['x'] >= -1 and panel_box['y'] >= -1, panel_box
         assert panel_box['x'] + panel_box['width'] <= 321, panel_box
