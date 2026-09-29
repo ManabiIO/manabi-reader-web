@@ -65,29 +65,34 @@ const foldSearch = (value: string) =>
 const boundaryBefore = (value: string, index: number) =>
   index > 0 && /[\s\p{P}\p{S}]/u.test(Array.from(value.slice(0, index)).at(-1) ?? '');
 
-function compareSearchText(left: string, right: string, query: string): number {
-  const needle = foldSearch(query.trim());
-  const key = (value: string) => {
-    const folded = foldSearch(value);
-    const index = folded.indexOf(needle);
-    return {
-      tier:
-        index < 0
-          ? 4
-          : folded === needle
-            ? 0
-            : index === 0
-              ? 1
-              : boundaryBefore(folded, index)
-                ? 2
-                : 3,
-      index: index < 0 ? Number.MAX_SAFE_INTEGER : index,
-      length: Array.from(folded).length,
-      folded
-    };
+interface SearchMatchKey {
+  tier: number;
+  index: number;
+  length: number;
+  folded: string;
+}
+
+function matchKey(value: string, needle: string): SearchMatchKey {
+  const folded = foldSearch(value);
+  const index = folded.indexOf(needle);
+  return {
+    tier:
+      index < 0
+        ? 4
+        : folded === needle
+          ? 0
+          : index === 0
+            ? 1
+            : boundaryBefore(folded, index)
+              ? 2
+              : 3,
+    index: index < 0 ? Number.MAX_SAFE_INTEGER : index,
+    length: Array.from(folded).length,
+    folded
   };
-  const a = key(left);
-  const b = key(right);
+}
+
+function compareKeys(a: SearchMatchKey, b: SearchMatchKey): number {
   return (
     a.tier - b.tier ||
     a.index - b.index ||
@@ -166,8 +171,15 @@ export async function searchVideoTitles(
   const rows = await store.records(scope, 'video_info', signal);
   signal.throwIfAborted();
   const matches = videoInfoRows(rows)
-    .filter((item) => foldSearch(item.title).includes(needle))
-    .sort((a, b) => compareSearchText(a.title, b.title, query) || a.key.localeCompare(b.key));
+    .map((item, order) => ({ item, order, key: matchKey(item.title, needle) }))
+    .filter(({ key }) => key.tier < 4)
+    .sort(
+      (a, b) =>
+        compareKeys(a.key, b.key) ||
+        a.item.key.localeCompare(b.item.key) ||
+        a.order - b.order
+    )
+    .map(({ item }) => item);
   return {
     hits: matches.slice(0, MAX_TITLE_RESULTS),
     truncated: matches.length > MAX_TITLE_RESULTS
