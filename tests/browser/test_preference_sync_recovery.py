@@ -39,8 +39,8 @@ class PreferenceSyncRecovery(LibraryBase):
             StaticHandler.preference_revision = self.previous_revision
             StaticHandler.account_requests = self.previous_requests
 
-    def snapshot(self):
-        return self.page.evaluate('''async () => {
+    def snapshot(self, key='preferences/42'):
+        return self.page.evaluate('''async key => {
           const open = indexedDB.open('manabi-reader-integrations');
           const db = await new Promise((resolve, reject) => {
             open.onsuccess = () => resolve(open.result);
@@ -48,12 +48,12 @@ class PreferenceSyncRecovery(LibraryBase):
           });
           try {
             return await new Promise((resolve, reject) => {
-              const request = db.transaction('metadata').objectStore('metadata').get('preferences/42');
+              const request = db.transaction('metadata').objectStore('metadata').get(key);
               request.onsuccess = () => resolve(request.result);
               request.onerror = () => reject(request.error);
             });
           } finally { db.close(); }
-        }''')
+        }''', key)
 
     def exercise(self, method, *, reload=False):
         self.page.goto(self.origin + '/reader-web/connections')
@@ -183,6 +183,103 @@ class PreferenceSyncRecovery(LibraryBase):
             self.page.wait_for_timeout(50)
         self.assertGreater(self.preference_request_count(), before)
         self.assertEqual([], self.errors)
+
+    def exercise_accepted_application_recovery(self, *, edit=False):
+        self.page.goto(self.origin + '/reader-web/connections')
+        expect(self.page.get_by_text('preference-recovery', exact=True)).to_be_visible()
+        self.page.get_by_label('Sync reader settings with this Manabi account', exact=True).check()
+        status = self.page.get_by_role('status', name='Settings sync status')
+        expect(status).to_contain_text('synced', timeout=15000)
+
+        # Fail the local application of a later successful HTTP reply. Native
+        # IndexedDB still executes; only this named organization write aborts.
+        self.page.evaluate('''() => {
+          window.__rejectAcceptedOrganization = true;
+          window.__acceptedOrganizationAborts = 0;
+          const put = IDBObjectStore.prototype.put;
+          IDBObjectStore.prototype.put = function (value, key) {
+            const request = put.apply(this, arguments);
+            if (window.__rejectAcceptedOrganization &&
+                this.transaction.db.name === 'manabi-reader-integrations' &&
+                this.name === 'metadata' && key === 'books-organization-v1' &&
+                value.collections.some(item => item.id === 'server-accepted')) {
+              window.__acceptedOrganizationAborts++;
+              this.transaction.abort();
+            }
+            return request;
+          };
+        }''')
+        StaticHandler.preference_revision += 1
+        StaticHandler.preference_settings = {
+            **copy.deepcopy(StaticHandler.preference_settings),
+            'library_organization': {
+                'version': 1,
+                'collections': [{
+                    'id': 'server-accepted', 'name': 'Accepted server shelf', 'members': []
+                }],
+                'books': {}
+            }
+        }
+        self.page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+        expect(status).to_contain_text('unavailable', timeout=15000)
+        self.assertGreater(self.page.evaluate('window.__acceptedOrganizationAborts'), 0)
+        deadline = time.monotonic() + 10
+        while True:
+            saved = self.snapshot()
+            collections = saved.get('local', {}).get('library_organization', {}).get('collections', [])
+            if any(item['id'] == 'server-accepted' for item in collections):
+                break
+            self.assertLess(time.monotonic(), deadline, 'Accepted reply was not retained for recovery')
+            self.page.wait_for_timeout(25)
+        self.assertFalse(any(item['id'] == 'server-accepted'
+                             for item in self.snapshot('books-organization-v1')['collections']))
+
+        attempted = []
+        self.page.on('request', lambda request: attempted.append(request.url)
+                     if urlsplit(request.url).path == '/api/reader-web/preferences/' else None)
+        self.context.set_offline(True)
+        try:
+            self.assertFalse(self.page.evaluate('navigator.onLine'))
+            # Keep the already loaded document. Unlike a route-specific abort
+            # matcher, real offline mode also covers capability-query requests.
+            if edit:
+                font = self.page.get_by_label('Font size', exact=True)
+                font.fill('31')
+                font.press('Tab')
+                expect(font).to_have_value('31')
+            self.page.evaluate('window.__rejectAcceptedOrganization = false')
+            deadline = time.monotonic() + 15
+            while True:
+                organization = self.snapshot('books-organization-v1')
+                if any(item['id'] == 'server-accepted' for item in organization['collections']):
+                    break
+                self.assertLess(time.monotonic(), deadline, 'Accepted settings did not apply offline')
+                # Recovery events are repeatable; the edit and remote update are not retried.
+                self.page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+                self.page.wait_for_timeout(50)
+            self.assertEqual([], attempted, 'Local recovery attempted another preference request')
+            self.assertTrue(any(item['id'] == 'server-accepted' for item in
+                                self.snapshot()['local']['library_organization']['collections']))
+            if edit:
+                expect(self.page.get_by_label('Font size', exact=True)).to_have_value('31')
+                self.assertEqual(31, self.snapshot()['local']['font_size'])
+        finally:
+            self.context.set_offline(False)
+        self.page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+        expect(status).to_contain_text('synced', timeout=15000)
+        self.page.reload()
+        expect(self.page.get_by_text('preference-recovery', exact=True)).to_be_visible()
+        self.assertTrue(any(item['id'] == 'server-accepted' for item in
+                            self.snapshot('books-organization-v1')['collections']))
+        if edit:
+            expect(self.page.get_by_label('Font size', exact=True)).to_have_value('31')
+        self.assertEqual([], self.errors)
+
+    def test_accepted_server_organization_recovers_offline_without_refetch(self):
+        self.exercise_accepted_application_recovery()
+
+    def test_accepted_server_organization_recovers_offline_preserving_later_edit(self):
+        self.exercise_accepted_application_recovery(edit=True)
 
     def test_first_sync_local_choice_recovers_get_failure(self):
         self.exercise('GET')
