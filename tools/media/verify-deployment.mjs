@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /** Fail a production build if its MOSS assets are absent, stale, or altered. */
 import { createHash } from 'node:crypto';
-import { readFile, readdir, lstat } from 'node:fs/promises';
+import { readFile, readdir, lstat, rm } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 
@@ -9,6 +9,12 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const source = join(root, 'apps/web/static/moss');
 const output = join(root, 'apps/web/build/moss');
 const required = ['LICENSE-GGML.txt', 'LICENSE-MOSS.txt', 'moss.mjs', 'moss.wasm'];
+
+if (process.env.VITE_ENABLE_VIDEO_LEARNING !== 'true') {
+  await rm(output, { recursive: true, force: true });
+  console.log('Video learning disabled: removed packaged MOSS runtimes');
+  process.exit(0);
+}
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const fail = (message) => {
   throw new Error(`MOSS deployment: ${message}`);
