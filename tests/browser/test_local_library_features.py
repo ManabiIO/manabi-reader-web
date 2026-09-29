@@ -593,6 +593,7 @@ class LocalFeatureBrowser(LibraryBase):
     def test_webdav_two_devices_annotations_converge_without_revision_churn(self):
         self.establish_dav_state()
         self.page.get_by_role('link',name='Read WebDAV offline book',exact=True).click()
+        expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=35000)
         reveal_reader_controls(self.page)
         self.page.get_by_role('button',name='Bookmarks and Notes',exact=True).click()
         self.page.get_by_role('button',name='Add Bookmark',exact=True).click()
