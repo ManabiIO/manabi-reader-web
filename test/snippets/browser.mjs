@@ -277,6 +277,8 @@ try {
     document.documentElement.style.fontSize = '';
   });
   const localTitle = page.locator('.snippet-shelf .title').filter({ hasText: '散歩の記録' });
+  assert((await localTitle.boundingBox()).height >= 43.5,
+    'Snippet title link must remain at least 44 CSS px high');
   // Control-click opens the native context menu on macOS; Command is its
   // normal multiselect modifier. Linux/Windows use Control.
   await localTitle.click({ modifiers: [process.platform === 'darwin' ? 'Meta' : 'Control'] });
@@ -335,7 +337,10 @@ try {
   await expect(page.getByRole('article', { name: 'Snippet content' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Done selecting', exact: true }).click();
   passed('search passages honor selection mode without navigating away');
-  await page.locator('.snippet-shelf .passage').first().click();
+  const passageLink = page.locator('.snippet-shelf .passage').first();
+  assert((await passageLink.boundingBox()).height >= 43.5,
+    'Snippet passage link must remain at least 44 CSS px high');
+  await passageLink.click();
   await expect(page.getByRole('article', { name: 'Snippet content' })).toContainText('珍しい言葉');
   await page.getByRole('link', { name: '← Back to library', exact: true }).click();
   await expect(page.getByRole('searchbox', { name: 'Search snippets' })).toHaveValue('珍しい言葉');
