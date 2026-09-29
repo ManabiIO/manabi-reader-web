@@ -226,12 +226,17 @@ class WantToReadBrowser(LibraryBase):
         expect(last).to_be_visible()
         self.assertTrue(last.evaluate('''e => {
           const r=e.getBoundingClientRect();
-          const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+          const viewport=e.closest('.collections-scroll').getBoundingClientRect();
+          const left=Math.max(r.left,viewport.left,0), right=Math.min(r.right,viewport.right,innerWidth);
+          const top=Math.max(r.top,viewport.top,0), bottom=Math.min(r.bottom,viewport.bottom,innerHeight);
+          if (right<=left || bottom<=top) return false;
+          const hit=document.elementFromPoint((left+right)/2,(top+bottom)/2);
           return !!hit && (hit===e || e.contains(hit));
         }'''))
 
         edit.click()
-        expect(edit).to_have_text('Done')
+        done = sheet.get_by_role('button', name='Done', exact=True)
+        expect(done).to_be_visible()
         scroll.evaluate('e => { e.scrollTop = e.scrollHeight; }')
         rename = sheet.get_by_role('button', name='Rename collection ' + names[-1], exact=True)
         delete = sheet.get_by_role('button', name='Delete collection ' + names[-1], exact=True)
@@ -249,7 +254,7 @@ class WantToReadBrowser(LibraryBase):
 
         # Header actions must remain reachable after the opposite end of the
         # destination scroller is reached and edit controls are expanded.
-        for control in (edit, close):
+        for control in (done, close):
             self.assertTrue(control.evaluate('''e => {
               const r=e.getBoundingClientRect();
               const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
