@@ -135,6 +135,19 @@ def main():
         expect(page.get_by_role('heading', name='Videos', exact=True)).to_be_visible()
         books_link = page.get_by_role('link', name='Books', exact=True)
         assert books_link.bounding_box()['height'] >= 43.5
+        page.set_viewport_size({'width':320,'height':480})
+        page.evaluate('document.documentElement.style.fontSize = "200%"')
+        library_tabs = page.get_by_role('navigation', name='Library sections', exact=True)
+        expect(library_tabs).to_be_visible()
+        assert page.evaluate('document.documentElement.scrollWidth-innerWidth') <= 1
+        for name in ('Books', 'Videos'):
+            tab = library_tabs.get_by_role('link', name=name, exact=True)
+            box = tab.bounding_box()
+            assert box['height'] >= 43.5, (name, box)
+            assert box['x'] >= -1 and box['x'] + box['width'] <= 321, (name, box)
+        results.append('Library video tabs reflow at 320px and 200% text')
+        page.evaluate('document.documentElement.style.fontSize = ""')
+        page.set_viewport_size({'width':1280,'height':900})
         def upload():
             page.locator('[data-testid=media-files]').set_input_files([
                 {'name':'video.mp4','mimeType':'video/mp4','buffer':(args.fixture / 'video.mp4').read_bytes()},
