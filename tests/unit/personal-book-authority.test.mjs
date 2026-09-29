@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { livePersonalCopies } from '../../apps/web/src/lib/manabi/personal-book-authority.ts';
+import {
+  livePersonalCopies,
+  planPersonalBookClaims
+} from '../../apps/web/src/lib/manabi/personal-book-authority.ts';
 
 const hash = 'a'.repeat(64);
 const bookKey = 'content:' + hash;
@@ -132,4 +135,39 @@ test('authority assertions run while the index inventory is being read', async (
     /account revoked/
   );
   assert.equal(calls, 2);
+});
+
+test('scope planning claims all unowned exact copies for one account in one plan', () => {
+  const metadata = [candidate(1), candidate(2)];
+  const alice = planPersonalBookClaims(metadata, [], 'alice');
+  assert.deepEqual(alice.books, metadata);
+  assert.deepEqual(alice.scopesToCreate, [
+    { bookId: 1, accountId: 'alice' },
+    { bookId: 2, accountId: 'alice' }
+  ]);
+
+  const bob = planPersonalBookClaims(metadata, alice.scopesToCreate, 'bob');
+  assert.deepEqual(bob.books, []);
+  assert.deepEqual(bob.scopesToCreate, []);
+});
+
+test('one pre-existing foreign scope blocks claiming every exact copy for another account', () => {
+  const metadata = [candidate(1), candidate(2)];
+  const plan = planPersonalBookClaims(
+    metadata,
+    [{ bookId: 1, accountId: 'bob' }],
+    'alice'
+  );
+  assert.deepEqual(plan.books, []);
+  assert.deepEqual(plan.scopesToCreate, []);
+});
+
+test('mixed existing owners remain unclaimable for either account', () => {
+  const metadata = [candidate(1), candidate(2)];
+  const scopes = [
+    { bookId: 1, accountId: 'alice' },
+    { bookId: 2, accountId: 'bob' }
+  ];
+  assert.deepEqual(planPersonalBookClaims(metadata, scopes, 'alice').books, []);
+  assert.deepEqual(planPersonalBookClaims(metadata, scopes, 'bob').books, []);
 });
