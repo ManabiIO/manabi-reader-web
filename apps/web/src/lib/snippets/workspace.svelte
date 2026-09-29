@@ -879,6 +879,7 @@
               disabled={busy || !!current.transfer || !!current.conflicts.length}
               onclick={() => action(() => edit())}>Edit</Button
             ><Button
+              class="reader-add-wide"
               variant="secondary"
               disabled={busy || !!current.transfer || !!current.conflicts.length}
               onclick={() => action(() => edit('append'))}>Add text</Button
@@ -987,6 +988,10 @@
               disabled={busy || !!current.transfer}
               onSelect={() => membership([current!.document.id])}>Collections…</Menu.Item
             >
+            {#if !current.document.trashedAt}<Menu.Item
+                disabled={busy || !!current.transfer || !!current.conflicts.length}
+                onSelect={() => action(() => edit('append'))}>Add text</Menu.Item
+              >{/if}
             <Menu.Item
               disabled={busy || !!current.transfer || !!current.conflicts.length}
               onSelect={() => move([current!.document.id])}>Move to…</Menu.Item
@@ -1581,7 +1586,8 @@
     gap: 0.4rem;
   }
   @media (max-width: 640px) {
-    .secondary-actions-wide {
+    .secondary-actions-wide,
+    .reader-add-wide {
       display: none;
     }
     .secondary-actions-menu {
