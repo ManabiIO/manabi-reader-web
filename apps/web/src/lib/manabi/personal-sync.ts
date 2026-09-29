@@ -10,12 +10,13 @@ import type {
   BooksDbBookmarkData,
   BooksDbStatistic
 } from '$lib/data/database/books-db/versions/books-db';
+import { readIndexedBookMetadata } from '$lib/data/database/books-db/content-hash-index';
 import {
-  readIndexedBookMetadata,
-  type IndexedBookMetadata
-} from '$lib/data/database/books-db/content-hash-index';
-
-type PersonalBook = IndexedBookMetadata & { title: string; invalidOwner?: never };
+  livePersonalCopies,
+  planPersonalBookClaims,
+  tryLivePersonalCopies,
+  type PersonalBook
+} from './personal-book-authority';
 import type {
   PersonalConflict,
   PersonalKind,
@@ -27,6 +28,7 @@ import type {
 } from '$lib/data/database/books-db/versions/v7/books-db-v7';
 import { StorageDataType } from '$lib/data/storage/storage-types';
 import { migrateLegacyStatistics } from '$lib/data/database/books-db/reader-statistics';
+import { commitTransaction } from '$lib/data/database/books-db/commit-transaction.mjs';
 import { validCompletion } from '$lib/library/completion';
 import { validateImportedAnnotation } from '$lib/reader-annotations';
 import { isCompletedStatistics } from './completed-statistics.js';
@@ -250,94 +252,119 @@ async function publish(
 
 async function localBooks(accountId: string): Promise<Map<string, PersonalBook[]>> {
   const db = await database.db;
-  const map = new Map<string, PersonalBook[]>();
-  const inventory = db.transaction(['data', 'readerBookScope']);
-  const [allBooks, scopeRows] = await Promise.all([
-    readIndexedBookMetadata(inventory.objectStore('data'), () => scoped(accountId)),
-    inventory.objectStore('readerBookScope').getAll()
-  ]);
-  await inventory.done;
   scoped(accountId);
-  const scopes = new Map(scopeRows.map((scope) => [scope.bookId, scope]));
-  const ownersByBook = new Map<string, Set<string>>();
-  const invalidOwnerKeys = new Set<string>();
-  for (const book of allBooks) {
-    const bookKey = `content:${book.contentHash}`;
-    // One corrupt owner on a same-content copy makes the shared key unsafe,
-    // even when another copy has a valid title and local scope.
-    if (book.invalidOwner) {
-      invalidOwnerKeys.add(bookKey);
-      continue;
+  // Scope adoption is one IndexedDB transaction across the exact-copy set.
+  // This remains safe even when Web Locks is unavailable in another tab.
+  const tx = db.transaction(['data', 'readerBookScope'], 'readwrite');
+  const claimed = await commitTransaction(tx, async () => {
+    const [metadata, scopeRows] = await Promise.all([
+      readIndexedBookMetadata(tx.objectStore('data'), () => scoped(accountId)),
+      tx.objectStore('readerBookScope').getAll()
+    ]);
+    scoped(accountId);
+    const plan = planPersonalBookClaims(metadata, scopeRows, accountId);
+    for (const scope of plan.scopesToCreate) {
+      scoped(accountId);
+      await tx.objectStore('readerBookScope').put(scope);
     }
-    const owners = ownersByBook.get(bookKey) ?? new Set<string>();
-    const scope = scopes.get(book.id);
-    if (scope) owners.add(scope.accountId);
-    if (book.libraryOwner) owners.add(book.libraryOwner);
-    if (!owners.size) continue;
-    ownersByBook.set(bookKey, owners);
-  }
-  for (const candidate of allBooks) {
-    if (
-      invalidOwnerKeys.has(`content:${candidate.contentHash}`) ||
-      typeof candidate.title !== 'string'
-    )
-      continue;
-    const book = candidate as PersonalBook;
-    if (book.libraryOwner && book.libraryOwner !== accountId) continue;
+    scoped(accountId);
+    return plan.books;
+  });
+
+  const map = new Map<string, PersonalBook[]>();
+  scoped(accountId);
+  for (const book of claimed) {
+    await migrateLegacyStatistics(db, book);
     scoped(accountId);
     const bookKey = `content:${book.contentHash}`;
-    const explicitOwners = ownersByBook.get(bookKey) ?? new Set<string>();
-    // Resume/statistics still use a content key, not an account key. Two
-    // explicitly owned copies of the same bytes cannot safely sync either row.
-    if (explicitOwners.size > 1) continue;
-    let owner = scopes.get(book.id);
-    if (!owner) {
-      if (explicitOwners.size && !explicitOwners.has(accountId)) continue;
-      const scopeTx = db.transaction('readerBookScope', 'readwrite');
-      owner = await scopeTx.store.get(book.id);
-      if (!owner) {
-        owner = { bookId: book.id, accountId };
-        await scopeTx.store.put(owner);
-        scopes.set(book.id, owner);
-        explicitOwners.add(accountId);
-        ownersByBook.set(bookKey, explicitOwners);
-      }
-      await scopeTx.done;
-    }
-    if (owner.accountId !== accountId) continue;
-    await migrateLegacyStatistics(db, book);
     map.set(bookKey, [...(map.get(bookKey) ?? []), book]);
   }
   return map;
 }
+
 async function readLocal(
   kind: PersonalKind,
   entityId: string,
   bookKey: string,
-  books: Map<string, PersonalBook[]>
+  books: Map<string, PersonalBook[]>,
+  accountId: string
 ): Promise<Payload> {
+  scoped(accountId);
   const db = await database.db;
+  const copies = books.get(bookKey) ?? [];
   if (kind === 'annotation') {
-    const annotation = await db.get('readerAnnotation', entityId);
+    const tx = db.transaction([
+      'data',
+      'readerBookScope',
+      'readerAnnotation',
+      'readerAnnotationScope'
+    ]);
+    if (copies.length)
+      await livePersonalCopies(
+        bookKey,
+        copies,
+        tx.objectStore('data'),
+        tx.objectStore('readerBookScope'),
+        accountId,
+        () => scoped(accountId)
+      );
+    const [annotation, owner] = await Promise.all([
+      tx.objectStore('readerAnnotation').get(entityId),
+      tx.objectStore('readerAnnotationScope').get(entityId)
+    ]);
+    scoped(accountId);
+    if (owner && owner.accountId !== accountId)
+      throw new Error(
+        'Annotation ownership changed while personal reading data was syncing. No reading state was changed.'
+      );
+    await tx.done;
     return annotation && !annotation.deletedAt
       ? wirePayload(annotation as unknown as Record<string, unknown>)
       : null;
   }
-  const copies = books.get(bookKey) ?? [];
+
   if (!copies.length) return null;
   if (kind === 'statistics') {
     const day = dayId.exec(entityId)?.[1];
     if (!day) return null;
-    const statistic = await db.get('readerStatistic', [bookKey, day]);
+    const tx = db.transaction(['data', 'readerBookScope', 'readerStatistic']);
+    const live = await livePersonalCopies(
+      bookKey,
+      copies,
+      tx.objectStore('data'),
+      tx.objectStore('readerBookScope'),
+      accountId,
+      () => scoped(accountId)
+    );
+    if (!live.length) {
+      await tx.done;
+      return null;
+    }
+    const statistic = await tx.objectStore('readerStatistic').get([bookKey, day]);
+    scoped(accountId);
+    await tx.done;
     return statistic
       ? payloadOf(statistic as unknown as Record<string, unknown>, statFields)
       : null;
   }
-  const bookmarks = (await Promise.all(copies.map((book) => db.get('bookmark', book.id)))).filter(
-    (value): value is BooksDbBookmarkData => !!value
+
+  const tx = db.transaction(['data', 'readerBookScope', 'bookmark']);
+  const live = await livePersonalCopies(
+    bookKey,
+    copies,
+    tx.objectStore('data'),
+    tx.objectStore('readerBookScope'),
+    accountId,
+    () => scoped(accountId)
   );
+  const bookmarks = (
+    await Promise.all(live.map((book) => tx.objectStore('bookmark').get(book.id)))
+  ).filter((value): value is BooksDbBookmarkData => !!value);
+  scoped(accountId);
+  await tx.done;
   return bookmarkPayload(bookmarks, kind);
 }
+
 function bookmarkPayload(bookmarks: BooksDbBookmarkData[], kind: PersonalKind): Payload {
   const bookmark = bookmarks.sort((a, b) =>
     kind === 'completion'
@@ -363,9 +390,30 @@ async function applyLocal(
 ) {
   scoped(accountId);
   const db = await database.db;
+  const copies = books.get(bookKey) ?? [];
   if (kind === 'annotation') {
-    const tx = db.transaction('readerAnnotation', 'readwrite');
-    const before = await tx.store.get(entityId);
+    const tx = db.transaction(
+      ['data', 'readerBookScope', 'readerAnnotation', 'readerAnnotationScope'],
+      'readwrite'
+    );
+    if (copies.length)
+      await livePersonalCopies(
+        bookKey,
+        copies,
+        tx.objectStore('data'),
+        tx.objectStore('readerBookScope'),
+        accountId,
+        () => scoped(accountId)
+      );
+    const [before, owner] = await Promise.all([
+      tx.objectStore('readerAnnotation').get(entityId),
+      tx.objectStore('readerAnnotationScope').get(entityId)
+    ]);
+    scoped(accountId);
+    if (owner && owner.accountId !== accountId)
+      throw new Error(
+        'Annotation ownership changed while personal reading data was syncing. No reading state was changed.'
+      );
     const current =
       before && !before.deletedAt
         ? wirePayload(before as unknown as Record<string, unknown>)
@@ -375,22 +423,37 @@ async function applyLocal(
       throw new IntegrationError('conflict', 409);
     }
     scoped(accountId);
-    if (payload) await tx.store.put(payload as unknown as ReaderAnnotation);
-    else if (before)
-      await tx.store.put({
+    if (payload) {
+      await tx.objectStore('readerAnnotation').put(payload as unknown as ReaderAnnotation);
+      if (!owner)
+        await tx.objectStore('readerAnnotationScope').put({ annotationId: entityId, accountId });
+    } else if (before)
+      await tx.objectStore('readerAnnotation').put({
         ...before,
         deletedAt: new Date().toISOString(),
         revision: before.revision + 1
       });
+    scoped(accountId);
     await tx.done;
     return;
   }
-  const copies = books.get(bookKey) ?? [];
+
   if (!copies.length) return;
   if (kind === 'statistics') {
     const day = dayId.exec(entityId)?.[1];
     if (!day) return;
-    const tx = db.transaction(['readerStatistic', 'lastModified'], 'readwrite');
+    const tx = db.transaction(
+      ['data', 'readerBookScope', 'readerStatistic', 'lastModified'],
+      'readwrite'
+    );
+    const live = await livePersonalCopies(
+      bookKey,
+      copies,
+      tx.objectStore('data'),
+      tx.objectStore('readerBookScope'),
+      accountId,
+      () => scoped(accountId)
+    );
     const before = await tx.objectStore('readerStatistic').get([bookKey, day]);
     const current = before
       ? payloadOf(before as unknown as Record<string, unknown>, statFields)
@@ -404,7 +467,7 @@ async function applyLocal(
       await tx.objectStore('readerStatistic').put({
         ...payload,
         bookKey,
-        title: copies[0].title,
+        title: live[0].title,
         dateKey: day
       } as BooksDbStatistic & { bookKey: string });
     else await tx.objectStore('readerStatistic').delete([bookKey, day]);
@@ -413,21 +476,31 @@ async function applyLocal(
       dataType: StorageDataType.STATISTICS,
       lastModifiedValue: Date.now()
     });
+    scoped(accountId);
     await tx.done;
     database.dataListChanged$.next(undefined);
     return;
   }
-  const tx = db.transaction('bookmark', 'readwrite');
-  const observed = (await Promise.all(copies.map((book) => tx.store.get(book.id)))).filter(
-    (value): value is BooksDbBookmarkData => !!value
+
+  const tx = db.transaction(['data', 'readerBookScope', 'bookmark'], 'readwrite');
+  const live = await livePersonalCopies(
+    bookKey,
+    copies,
+    tx.objectStore('data'),
+    tx.objectStore('readerBookScope'),
+    accountId,
+    () => scoped(accountId)
   );
+  const observed = (
+    await Promise.all(live.map((book) => tx.objectStore('bookmark').get(book.id)))
+  ).filter((value): value is BooksDbBookmarkData => !!value);
   if (!equal(bookmarkPayload(observed, kind), expected)) {
     await tx.done;
     throw new IntegrationError('conflict', 409);
   }
   scoped(accountId);
-  for (const book of copies) {
-    const old = await tx.store.get(book.id);
+  for (const book of live) {
+    const old = await tx.objectStore('bookmark').get(book.id);
     const next: BooksDbBookmarkData = {
       ...(old ?? { dataId: book.id, progress: undefined, lastBookmarkModified: 0 }),
       dataId: book.id
@@ -440,7 +513,8 @@ async function applyLocal(
       for (const field of fields) delete (next as unknown as Record<string, unknown>)[field];
       Object.assign(next, payload ?? {});
     }
-    await tx.store.put(next);
+    await tx.objectStore('bookmark').put(next);
+    scoped(accountId);
   }
   await tx.done;
   database.bookmarksChanged$.next();
@@ -489,7 +563,7 @@ async function acceptRemote(
   const local = foreign
     ? null
     : materialized
-      ? await readLocal(item.kind, item.entity_id, item.book_key, books)
+      ? await readLocal(item.kind, item.entity_id, item.book_key, books, accountId)
       : (baseline?.payload ?? remote);
   const readingPending =
     item.kind === 'annotation'
@@ -797,8 +871,23 @@ async function stageReading(accountId: string, books: Map<string, PersonalBook[]
     for (const entity of entities) {
       const id = key(accountId, entity.kind, entity.entityId);
       const base = await db.get('readerPersonalRecord', id);
-      const local = await readLocal(entity.kind, entity.entityId, bookKey, books);
-      const tx = db.transaction(['readerPersonalOutbox', 'readerPersonalConflict'], 'readwrite');
+      const local = await readLocal(entity.kind, entity.entityId, bookKey, books, accountId);
+      const tx = db.transaction(
+        ['data', 'readerBookScope', 'readerPersonalOutbox', 'readerPersonalConflict'],
+        'readwrite'
+      );
+      const live = await tryLivePersonalCopies(
+        bookKey,
+        books.get(bookKey) ?? [],
+        tx.objectStore('data'),
+        tx.objectStore('readerBookScope'),
+        accountId,
+        () => scoped(accountId)
+      );
+      if (!live) {
+        await tx.done;
+        continue;
+      }
       if (await tx.objectStore('readerPersonalConflict').get(id)) {
         await tx.done;
         continue;
@@ -846,7 +935,7 @@ async function hydrateReading(accountId: string, books: Map<string, PersonalBook
       pending.some((entry) => entry.kind === record.kind && entry.entityId === record.entityId)
     )
       continue;
-    const local = await readLocal(record.kind, record.entityId, record.bookKey, books);
+    const local = await readLocal(record.kind, record.entityId, record.bookKey, books, accountId);
     if (local === null)
       await applyLocal(
         record.kind,
@@ -867,6 +956,29 @@ async function hydrateReading(accountId: string, books: Map<string, PersonalBook
         await tx.store.put({ ...scope, hydrated: true });
     }
   await tx.done;
+}
+
+async function hasLivePersonalAuthority(
+  bookKey: string,
+  books: ReadonlyMap<string, PersonalBook[]>,
+  accountId: string
+): Promise<boolean> {
+  const copies = books.get(bookKey) ?? [];
+  if (!copies.length) return false;
+  const db = await database.db;
+  scoped(accountId);
+  const tx = db.transaction(['data', 'readerBookScope']);
+  const live = await tryLivePersonalCopies(
+    bookKey,
+    copies,
+    tx.objectStore('data'),
+    tx.objectStore('readerBookScope'),
+    accountId,
+    () => scoped(accountId)
+  );
+  scoped(accountId);
+  await tx.done;
+  return !!live;
 }
 
 async function bindMutation(accountId: string, mutation: WireMutation): Promise<WireMutation> {
@@ -915,8 +1027,10 @@ async function flushReading(accountId: string, books: Map<string, PersonalBook[]
     if (processed.has(entityKey)) continue;
     processed.add(entityKey);
     scoped(accountId);
-    // A previously queued request cannot bypass a later ownership ambiguity.
-    if (!books.has(pending.bookKey)) continue;
+    // A previously queued request cannot bypass a later ownership change.
+    // The sync-start map is only a candidate set; re-read durable ownership
+    // immediately before preparing/sending this immutable request.
+    if (!(await hasLivePersonalAuthority(pending.bookKey, books, accountId))) continue;
     if (await db.get('readerPersonalConflict', key(accountId, pending.kind, pending.entityId)))
       continue;
     const current = await db.get('readerPersonalOutbox', pending.id);
@@ -1040,6 +1154,15 @@ async function flushAnnotations(accountId: string, books: Map<string, PersonalBo
       | (ReaderAnnotationMutation & { request?: WireMutation })
       | undefined;
     if (!current || current.accountId !== accountId) continue;
+    // Downloaded books carry live durable ownership. If this sync began with an
+    // owned copy and that copy became foreign, do not send the retained note
+    // mutation under stale authority. Undownloaded annotations remain governed
+    // by their annotation scope, as before.
+    if (
+      books.has(current.bookKey) &&
+      !(await hasLivePersonalAuthority(current.bookKey, books, accountId))
+    )
+      continue;
     const latestAnnotation = await db.get('readerAnnotation', current.annotationId);
     if (!current.request && latestAnnotation?.revision !== current.localRevision) {
       await db.delete('readerAnnotationOutbox', current.id);
@@ -1173,7 +1296,7 @@ export async function resolvePersonalConflict(id: string, choice: 'local' | 'rem
     const conflict = await db.get('readerPersonalConflict', id);
     if (!conflict || conflict.accountId !== accountId) throw new IntegrationError('not_found');
     const books = await localBooks(accountId);
-    const latestLocal = await readLocal(conflict.kind, conflict.entityId, conflict.bookKey, books);
+    const latestLocal = await readLocal(conflict.kind, conflict.entityId, conflict.bookKey, books, accountId);
     if (!equal(latestLocal, conflict.local)) {
       scoped(accountId);
       await db.put('readerPersonalConflict', { ...conflict, local: latestLocal });
