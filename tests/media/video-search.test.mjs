@@ -124,14 +124,14 @@ test('video title relevance uses the best occurrence and code-point position', a
     infos: [
       replica('video_info', key('a'), info('Copycat only')),
       replica('video_info', key('b'), info('Copycat cat')),
-      replica('video_info', key('c'), info('Before cat')),
-      replica('video_info', key('d'), info('🐱🐱 cat'))
+      replica('video_info', key('c'), info('abc cat')),
+      replica('video_info', key('d'), info('🐱x cat trailing text'))
     ]
   });
   const result = await searchVideoTitles(store, 'guest', 'cat', new AbortController().signal);
   assert.deepEqual(
     result.hits.map((hit) => hit.title),
-    ['Before cat', '🐱🐱 cat', 'Copycat cat', 'Copycat only']
+    ['🐱x cat trailing text', 'abc cat', 'Copycat cat', 'Copycat only']
   );
 });
 
