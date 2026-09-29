@@ -3,8 +3,11 @@
 Snippets are library documents, not EPUB-shaped database records and not browser-session notes.
 Their canonical format is versioned TipTap JSON inside a UTF-8 `.manabi-snippet.json` file.
 The embedded UUID survives edits, title changes and moves between providers. Content and
-provider revision tokens are separate. A single primary location receives edits; discovered
-secondary copies remain visible and divergent versions require explicit conflict resolution.
+provider revision tokens are separate. A single primary location receives edits. Discovery is
+order-independent for causal history: when two locations contain the same UUID and one clean
+revision descends from the other, the descendant becomes the logical document and writable primary
+regardless of which provider was listed first. Concurrent sibling revisions remain explicit
+conflicts; secondary/ancestor copies stay visible rather than becoming writable replicas.
 
 ## Reading and editing
 
@@ -36,7 +39,10 @@ Search passage links use the same selection handler as titles, so batch-selectio
 unexpectedly navigate away.
 
 The reader supports horizontal/vertical reading, typography size, source attribution and
-capture to a new/existing snippet. Book selection capture copies the selected authored DOM
+capture to a new/existing snippet. Capture provenance stores stable source identity rather than a
+device-local numeric book URL. Snippet-to-snippet provenance resolves its `snippet:<UUID>` item
+inside the current deployment, and automatic source titles use the same derived title shown to
+the user. Book selection capture copies the selected authored DOM
 before the annotation panel can lose selection. Stable block/quote locators restore reading
 and search destinations; an ambiguous or deleted quote does not jump to an unrelated offset.
 Reading state uses the existing conditional source-state transport with a domain-separated
@@ -58,6 +64,9 @@ asks when there are multiple eligible sources. Clearing the default never moves 
 required to start: choosing this-device-only is explicit and labeled, and Move publishes such
 a document later. Native local-folder and strong-ETag WebDAV adapters are included. Local folder
 writes cannot atomically exclude external applications; the picker warns users to close them.
+A first-create crash can leave File System Access's newly created directory entry at zero bytes.
+Retry may reclaim only the exact deterministic filename for that pending snippet; unrelated
+zero-byte names and non-empty malformed files are never overwritten.
 Switching source/folder immediately invalidates the previous destination's write capability.
 Only a successfully loaded folder can be chosen. Failed folder loads offer Retry, expired local
 permissions offer renewal, and delayed folder creation cannot retarget a newer picker selection.
