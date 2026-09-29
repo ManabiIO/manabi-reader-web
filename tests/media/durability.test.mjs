@@ -132,6 +132,45 @@ test('throwing subscribers cannot strand a committed transaction promise', () =>
     }
     assert.deepEqual(await store.local(scope, 'device', 'x'), { n: 1 });
   }));
+test('store notifications classify searchable metadata and captions', () =>
+  harness(async (store) => {
+    const changes = [];
+    const stop = store.subscribe((captions, metadata) => {
+      changes.push([captions, metadata]);
+    });
+    const settle = () => new Promise((resolve) => queueMicrotask(resolve));
+    try {
+      await store.putLocal(scope, 'settings', 'search-noise', { value: 1 });
+      await settle();
+      assert.deepEqual(changes.at(-1), [false, false]);
+
+      await store.edit(scope, 'video_info', key, key, info('Searchable title'));
+      await settle();
+      assert.deepEqual(changes.at(-1), [false, true]);
+
+      await store.edit(scope, 'video_resume', key, key, {
+        version: 1,
+        mediaKey: key,
+        position: 1,
+        duration: 10,
+        rate: 1,
+        finished: false,
+        updatedAt: 2,
+        primary: null,
+        secondary: null,
+        delays: {}
+      });
+      await settle();
+      assert.deepEqual(changes.at(-1), [false, false]);
+
+      await store.saveImportedTrack(scope, track(), new AbortController().signal);
+      await settle();
+      assert.deepEqual(changes.at(-1), [true, false]);
+    } finally {
+      stop();
+    }
+  }));
+
 test('close cancels writes waiting for database open and rejects new admissions', () =>
   harness(async (store, factory) => {
     factory.holdOpen = true;
