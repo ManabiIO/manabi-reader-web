@@ -190,6 +190,16 @@ class SettingsEditorUsabilityBrowser(LibraryBase):
             expect(menu).to_have_count(0)
             expect(navigate).to_be_focused()
 
+    def test_direct_settings_entry_keeps_library_back_fallback_across_categories(self):
+        self.settings('library')
+        back = self.page.get_by_role('link', name='Back', exact=True)
+        expect(back).to_have_attribute('href', '/reader-web/manage')
+        typography = self.page.get_by_role('navigation', name='Settings categories').get_by_role(
+            'link', name='Fonts & text', exact=True)
+        typography.click()
+        expect(typography).to_have_attribute('aria-current', 'page')
+        expect(back).to_have_attribute('href', '/reader-web/manage')
+
     def test_reader_origin_survives_settings_category_navigation(self):
         self.import_book('Settings back origin')
         self.page.get_by_role('button', name='Read Settings back origin', exact=True).click()
