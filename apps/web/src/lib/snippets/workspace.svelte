@@ -856,7 +856,7 @@
   {:else if current && admitted}
     <section class="reading" aria-label="Snippet reader">
       <Button
-        class="back min-h-11 px-0"
+        class="back h-auto min-h-[44px] px-0 py-[4px]"
         href={resolve(libraryPath(params.get('returnTo')))}
         variant="link"
         size="sm">← Back to library</Button
@@ -869,6 +869,7 @@
         </div>
         <div class="actions">
           {#if current.document.trashedAt}<Button
+              class="h-auto min-h-[44px] py-[6px]"
               disabled={busy}
               onclick={() =>
                 action(async () => {
@@ -876,9 +877,11 @@
                   await loadRecord(false);
                 })}>Restore snippet</Button
             >{:else}<Button
+              class="h-auto min-h-[44px] py-[6px]"
               disabled={busy || !!current.transfer || !!current.conflicts.length}
               onclick={() => action(() => edit())}>Edit</Button
             ><Button
+              class="reader-add-wide h-auto min-h-[44px] py-[6px]"
               variant="secondary"
               disabled={busy || !!current.transfer || !!current.conflicts.length}
               onclick={() => action(() => edit('append'))}>Add text</Button
@@ -979,45 +982,56 @@
         <Menu.Root>
           <Menu.Trigger>
             {#snippet child({ props })}
-              <Button {...props} variant="secondary" class="min-h-11">More actions</Button>
+              <Button {...props} variant="secondary" class="h-auto min-h-[44px] py-[6px]"
+                >More actions</Button
+              >
             {/snippet}
           </Menu.Trigger>
-          <Menu.Content
-            align="start"
-            collisionPadding={8}
-            class="w-64 max-w-[calc(100vw-1rem)]"
-          >
+          <Menu.Content align="start" collisionPadding={8} class="w-64 max-w-[calc(100vw-1rem)]">
             <Menu.Item
               disabled={busy || !!current.transfer}
-              onSelect={() => membership([current!.document.id])}>Collections…</Menu.Item
+              onSelect={() => membership([current!.document.id])}
             >
+              Collections…
+            </Menu.Item>
+            {#if !current.document.trashedAt}<Menu.Item
+                disabled={busy || !!current.transfer || !!current.conflicts.length}
+                onSelect={() => action(() => edit('append'))}>Add text</Menu.Item
+              >{/if}
             <Menu.Item
               disabled={busy || !!current.transfer || !!current.conflicts.length}
-              onSelect={() => move([current!.document.id])}>Move to…</Menu.Item
+              onSelect={() => move([current!.document.id])}
             >
+              Move to…
+            </Menu.Item>
             <Menu.Item
               disabled={busy}
               onSelect={() =>
                 action(() => newSnippet(current!.document.content, current!.document))}
-              >Duplicate</Menu.Item
             >
+              Duplicate
+            </Menu.Item>
             <Menu.Separator />
             <Menu.Item
               disabled={busy}
               onSelect={() => action(() => exportSnippets([current!.document.id], admitted))}
-              >Export JSON</Menu.Item
             >
+              Export JSON
+            </Menu.Item>
             <Menu.Item
               disabled={busy}
-              onSelect={() => action(() => exportSnippets([current!.document.id], admitted, 'html'))}
-              >HTML</Menu.Item
+              onSelect={() =>
+                action(() => exportSnippets([current!.document.id], admitted, 'html'))}
             >
+              HTML
+            </Menu.Item>
             <Menu.Item
               disabled={busy}
               onSelect={() =>
                 action(() => exportSnippets([current!.document.id], admitted, 'markdown'))}
-              >Markdown</Menu.Item
             >
+              Markdown
+            </Menu.Item>
             {#if !current.document.trashedAt}
               <Menu.Separator />
               <Menu.Item
@@ -1025,8 +1039,10 @@
                 onSelect={() => {
                   deleteIds = [current!.document.id];
                   deleteOpen = true;
-                }}>Trash</Menu.Item
+                }}
               >
+                Trash
+              </Menu.Item>
             {/if}
           </Menu.Content>
         </Menu.Root>
@@ -1584,25 +1600,44 @@
     gap: 0.4rem;
   }
   @media (max-width: 640px) {
-    .secondary-actions-wide {
+    .secondary-actions-wide,
+    :global(.reader-add-wide) {
       display: none;
     }
     .secondary-actions-menu {
       display: block;
+      padding-block: 4px 8px;
+    }
+    .reading > .heading {
+      gap: 8px;
+      margin-block: 12px;
     }
     .heading {
       align-items: start;
       flex-direction: column;
+      gap: 12px;
+      margin-block: 20px;
+    }
+    .heading > .actions {
+      gap: 8px;
+    }
+    .heading > .actions :global(button) {
+      padding-inline: 16px;
     }
     .search-row {
       align-items: stretch;
       flex-direction: column;
     }
     .snippet-workspace {
-      padding-inline: 1rem;
+      padding-block-start: 16px;
+      padding-inline: 16px;
     }
     .top {
-      padding-bottom: 0.5rem;
+      gap: 12px;
+      padding-block: 8px;
+    }
+    .brand {
+      white-space: nowrap;
     }
     .draft {
       align-items: start;
