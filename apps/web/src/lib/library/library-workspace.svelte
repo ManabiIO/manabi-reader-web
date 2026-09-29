@@ -367,11 +367,9 @@
         (alias) => collectionNamesByMember.get(alias) ?? []
       );
       if (!names.length) continue;
-      const values = matched.get(book.key);
-      for (const name of names)
-        if (values) {
-          if (!values.includes(name)) values.push(name);
-        } else matched.set(book.key, [name]);
+      const values = matched.get(book.key) ?? [];
+      for (const name of names) if (!values.includes(name)) values.push(name);
+      if (values.length) matched.set(book.key, values);
     }
     return Object.fromEntries(matched);
   })();
