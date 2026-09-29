@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { ensureDictionaryRepository } from './dictionary-source.mjs';
 const root = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const version = JSON.parse(
   await fs.readFile(path.join(root, 'apps/web/src/lib/search/manabitan-version.json'), 'utf8')
@@ -49,16 +50,13 @@ async function valid() {
 await fs.mkdir(cache, { recursive: true });
 let manifest = await valid();
 if (!manifest) {
-  const source = process.env.MANABITAN_SOURCE
-    ? path.resolve(process.env.MANABITAN_SOURCE)
-    : path.join(cache, 'source');
+  const source = await ensureDictionaryRepository(
+    process.env.MANABITAN_SOURCE
+      ? path.resolve(process.env.MANABITAN_SOURCE)
+      : path.join(cache, 'source'),
+    !process.env.MANABITAN_SOURCE
+  );
   if (!process.env.MANABITAN_SOURCE) {
-    await fs.mkdir(source, { recursive: true });
-    try {
-      git(['rev-parse', '--git-dir'], source);
-    } catch {
-      run('git', ['init', '--quiet'], source);
-    }
     let current;
     try {
       current = git(['rev-parse', 'HEAD'], source);
