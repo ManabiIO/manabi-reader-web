@@ -13,6 +13,7 @@ import {
   type Track
 } from './contracts.js';
 import type { Replica } from './replica.js';
+import { compareSearchText, foldSearch } from '../library/search-normalization.js';
 
 export interface VideoTitleHit {
   key: ContentKey;
@@ -55,12 +56,6 @@ export interface VideoSearchStore {
     manifestSnapshot?: readonly Replica[]
   ): Promise<Track[]>;
 }
-
-const foldSearch = (value: string) =>
-  value
-    .normalize('NFKC')
-    .toLowerCase()
-    .replace(/\u03c2/g, '\u03c3');
 
 const MAX_TITLE_RESULTS = 300;
 const MAX_TRANSCRIPT_RESULTS = 300;
@@ -133,7 +128,7 @@ export async function searchVideoTitles(
   signal.throwIfAborted();
   const matches = videoInfoRows(rows)
     .filter((item) => foldSearch(item.title).includes(needle))
-    .sort((a, b) => a.title.localeCompare(b.title) || a.key.localeCompare(b.key));
+    .sort((a, b) => compareSearchText(a.title, b.title, query) || a.key.localeCompare(b.key));
   return {
     hits: matches.slice(0, MAX_TITLE_RESULTS),
     truncated: matches.length > MAX_TITLE_RESULTS
@@ -214,8 +209,9 @@ export async function searchVideoTranscripts(
     for (const track of [...tracks].filter((item) => item.complete).sort(trackOrder)) {
       const delay = playback.get(video.key)?.delays[track.id] ?? 0;
       for (const cue of track.cues) {
-        if (!foldSearch(cue.text).includes(needle)) continue;
-        const identity = `${cue.start}\u0000${cue.end}\u0000${foldSearch(cue.text)}`;
+        const foldedText = foldSearch(cue.text);
+        if (!foldedText.includes(needle)) continue;
+        const identity = `${cue.start}\u0000${cue.end}\u0000${foldedText}`;
         if (seen.has(identity)) continue;
         seen.add(identity);
         if (matchesForVideo >= MAX_MATCHES_PER_VIDEO) {
