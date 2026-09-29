@@ -174,6 +174,16 @@ class AnnotationQuality(LibraryBase):
         expect(saved.get_by_text('Note · Section 1', exact=True)).to_have_count(1)
         expect(saved.get_by_text('Selected-passage QA note', exact=True)).to_be_visible()
 
+        panel.locator('[data-modal-dismiss]').click()
+        expect(panel).to_have_count(0)
+        self.page.wait_for_function(
+            "() => [...document.querySelectorAll('.reader-highlight')].some(e => {"
+            " const r=e.getBoundingClientRect(); return r.width > 0 && r.height > 0;"
+            "})")
+        self.page.screenshot(path=str(self.output / 'saved-note-highlight.png'))
+
+        panel = self.open_annotations()
+        saved = panel.get_by_label('Saved annotations')
         saved.get_by_role('button').filter(has_text='Go to saved passage').click()
         expect(panel).to_have_count(0)
         expect(self.page.get_by_role('button', name='Return to where I was', exact=True)).to_be_visible()
