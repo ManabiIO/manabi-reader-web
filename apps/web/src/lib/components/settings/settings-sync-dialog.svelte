@@ -6,7 +6,7 @@
   import type { BooksDbStorageSource } from '$lib/data/database/books-db/versions/books-db';
   import type { SyncSelection } from '$lib/data/dialog-manager';
   import { lastSyncedSettingsSource$, lastSyncedSettingsTarget$ } from '$lib/data/store';
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onDestroy } from 'svelte';
   import AppIcon from '$lib/components/app-icon.svelte';
 
   export let settingsSyncHeader = '';
@@ -27,6 +27,14 @@
     }))
   ];
 
+  let settled = false;
+
+  onDestroy(() => {
+    if (settled) return;
+    settled = true;
+    resolver([]);
+  });
+
   let selectedSource =
     syncSources.find((entry) => entry.id === $lastSyncedSettingsSource$)?.id || syncSources[0].id;
   let selectedTarget =
@@ -38,6 +46,9 @@
   $: targets = syncSources.filter((entry) => entry.id !== selectedSource);
 
   function closeDialog(wasCanceled = false) {
+    if (settled) return;
+    settled = true;
+
     if (!wasCanceled) {
       $lastSyncedSettingsSource$ = selectedSource;
       $lastSyncedSettingsTarget$ = selectedTarget;

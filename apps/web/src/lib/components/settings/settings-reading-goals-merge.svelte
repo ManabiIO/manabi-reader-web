@@ -20,7 +20,7 @@
     secondsToMinutes
   } from '$lib/functions/statistic-util';
   import { pluralize } from '$lib/functions/utils';
-  import { createEventDispatcher, onMount, tick } from 'svelte';
+  import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
   import AppIcon from '$lib/components/app-icon.svelte';
 
   export let newReadingGoal: ReadingGoal;
@@ -43,6 +43,21 @@
   let error = '';
   let existingReadingGoals: BooksDbReadingGoal[] = [];
   let readingGoalsToReplace: BooksDbReadingGoal[] = [];
+  let settled = false;
+  let active = true;
+
+  const cancelledResult = (): ReadingGoalSaveResult => ({
+    readingGoalsToDelete: [],
+    readingGoalsToInsert: [],
+    error: ''
+  });
+
+  onDestroy(() => {
+    active = false;
+    if (settled) return;
+    settled = true;
+    resolver(cancelledResult());
+  });
 
   $: selectedArchiveOptionObject = archivalOptions.find(
     (opt) => opt.label === selectedArchiveOption
@@ -98,21 +113,23 @@
   }
 
   async function closeDialog(wasCanceled = false) {
+    if (settled || !active) return;
     const exitEarly = wasCanceled || error;
 
     const resultObject: ReadingGoalSaveResult = {
-      readingGoalsToDelete: [],
-      readingGoalsToInsert: [],
+      ...cancelledResult(),
       error
     };
 
+    if (!exitEarly) await tick();
+    if (settled || !active) return;
+
     if (exitEarly) {
+      settled = true;
       resolver(resultObject);
       dispatch('close');
       return;
     }
-
-    await tick();
 
     const goalsToDelete = new Set<string>();
 
@@ -146,6 +163,7 @@
         : [])
     ];
 
+    settled = true;
     resolver(resultObject);
     dispatch('close');
   }
