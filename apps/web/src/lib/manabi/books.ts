@@ -282,14 +282,25 @@ export function startBookSync() {
         };
         continue;
       }
-      const conflicts = status.conflicts.filter(
-        (value) => value.bookKey === `content:${link.contentHash}`
-      );
+      const hash = normalizedContentHash(link.contentHash);
+      const bookKey = hash ? `content:${hash}` : '';
+      const conflicts = status.conflicts.filter((value) => value.bookKey === bookKey);
+      const blocked = !!bookKey && status.blockedBookKeys.includes(bookKey);
       entries[link.id] = {
-        state: conflicts.length ? 'conflict' : status.state,
+        state: conflicts.length
+          ? 'conflict'
+          : blocked
+            ? 'identity_conflict'
+            : status.state === 'identity_conflict'
+              ? 'synced'
+              : status.state,
         message: conflicts.length
           ? `${conflicts.length} personal-state conflict(s) need review.`
-          : status.message,
+          : blocked
+            ? 'This book has conflicting or incomplete identity evidence. Personal sync skipped its reading history until the issue is resolved.'
+            : status.state === 'identity_conflict'
+              ? 'Personal reading data synced.'
+              : status.message,
         conflicts: conflicts.map((value) => `${value.kind}: ${value.fields.join(', ')}`),
         at: Date.now()
       };

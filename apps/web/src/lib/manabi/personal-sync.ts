@@ -13,6 +13,7 @@ import type {
 import { readIndexedBookMetadata } from '$lib/data/database/books-db/content-hash-index';
 import {
   livePersonalCopies,
+  needsPersonalHydration,
   planPersonalBookClaims,
   tryLivePersonalCopies,
   type PersonalBook
@@ -83,7 +84,8 @@ export const personalSyncStatus = writable<{
   state: string;
   message: string;
   conflicts: PersonalConflict[];
-}>({ state: 'idle', message: '', conflicts: [] });
+  blockedBookKeys: string[];
+}>({ state: 'idle', message: '', conflicts: [], blockedBookKeys: [] });
 
 function key(accountId: string, kind: PersonalKind, entityId: string) {
   return JSON.stringify([accountId, kind, entityId]);
@@ -219,7 +221,8 @@ function validRemote(value: RemoteRecord): boolean {
 async function publish(
   accountId: string,
   state = 'synced',
-  message = 'Personal reading data synced.'
+  message = 'Personal reading data synced.',
+  blockedBookKeys: readonly string[] = []
 ) {
   if (currentUser()?.id !== accountId) return;
   const db = await database.db;
@@ -236,21 +239,28 @@ async function publish(
       ? 'conflict'
       : state === 'synced' && pending
         ? 'pending'
-        : state === 'synced' && ambiguous
-          ? 'legacy_statistics'
-          : state,
+        : state === 'synced' && blockedBookKeys.length
+          ? 'identity_conflict'
+          : state === 'synced' && ambiguous
+            ? 'legacy_statistics'
+            : state,
     message: conflicts.length
       ? `${conflicts.length} reading sync conflict(s) need review.`
       : state === 'synced' && pending
         ? `${pending} local change(s) are queued for sync.`
-        : state === 'synced' && ambiguous
-          ? `${ambiguous} older same-title statistics record(s) remain on this device because their book could not be identified.`
-          : message,
-    conflicts
+        : state === 'synced' && blockedBookKeys.length
+          ? `${blockedBookKeys.length} book identit${blockedBookKeys.length === 1 ? 'y has' : 'ies have'} conflicting or incomplete evidence. Personal sync skipped the affected reading histories.`
+          : state === 'synced' && ambiguous
+            ? `${ambiguous} older same-title statistics record(s) remain on this device because their book could not be identified.`
+            : message,
+    conflicts,
+    blockedBookKeys: [...blockedBookKeys]
   });
 }
 
-async function localBooks(accountId: string): Promise<Map<string, PersonalBook[]>> {
+async function localBooks(
+  accountId: string
+): Promise<{ books: Map<string, PersonalBook[]>; blockedBookKeys: string[] }> {
   const db = await database.db;
   scoped(accountId);
   // Scope adoption is one IndexedDB transaction across the exact-copy set.
@@ -268,18 +278,18 @@ async function localBooks(accountId: string): Promise<Map<string, PersonalBook[]
       await tx.objectStore('readerBookScope').put(scope);
     }
     scoped(accountId);
-    return plan.books;
+    return plan;
   });
 
   const map = new Map<string, PersonalBook[]>();
   scoped(accountId);
-  for (const book of claimed) {
+  for (const book of claimed.books) {
     await migrateLegacyStatistics(db, book);
     scoped(accountId);
     const bookKey = `content:${book.contentHash}`;
     map.set(bookKey, [...(map.get(bookKey) ?? []), book]);
   }
-  return map;
+  return { books: map, blockedBookKeys: claimed.blockedBookKeys };
 }
 
 async function readLocal(
@@ -922,11 +932,18 @@ async function stageReading(accountId: string, books: Map<string, PersonalBook[]
 async function hydrateReading(accountId: string, books: Map<string, PersonalBook[]>) {
   const db = await database.db;
   const pending = await db.getAllFromIndex('readerPersonalOutbox', 'accountId', accountId);
-  const unhydrated = new Set<string>();
-  for (const [bookKey, copies] of books) {
-    const scopes = await Promise.all(copies.map((book) => db.get('readerBookScope', book.id)));
-    if (scopes.every((scope) => !scope?.hydrated)) unhydrated.add(bookKey);
-  }
+  scoped(accountId);
+
+  // Personal sync owns one reading-history row per content identity. Reconcile
+  // that row until its durable scope records successful first-use hydration.
+  const scopeSnapshot = await db.getAll('readerBookScope');
+  scoped(accountId);
+  const unhydrated = new Set(
+    [...books].flatMap(([bookKey, copies]) =>
+      needsPersonalHydration(copies, scopeSnapshot, accountId) ? [bookKey] : []
+    )
+  );
+
   for (const record of await db.getAllFromIndex('readerPersonalRecord', 'accountId', accountId)) {
     if (
       record.kind === 'annotation' ||
@@ -947,14 +964,28 @@ async function hydrateReading(accountId: string, books: Map<string, PersonalBook
         local
       );
   }
+
   scoped(accountId);
-  const tx = db.transaction('readerBookScope', 'readwrite');
-  for (const copies of books.values())
-    for (const book of copies) {
-      const scope = await tx.store.get(book.id);
+  const tx = db.transaction(['data', 'readerBookScope'], 'readwrite');
+  for (const [bookKey, copies] of books) {
+    if (!unhydrated.has(bookKey)) continue;
+    const live = await tryLivePersonalCopies(
+      bookKey,
+      copies,
+      tx.objectStore('data'),
+      tx.objectStore('readerBookScope'),
+      accountId,
+      () => scoped(accountId)
+    );
+    if (!live) continue;
+    for (const book of live) {
+      const scope = await tx.objectStore('readerBookScope').get(book.id);
+      scoped(accountId);
       if (scope?.accountId === accountId && !scope.hydrated)
-        await tx.store.put({ ...scope, hydrated: true });
+        await tx.objectStore('readerBookScope').put({ ...scope, hydrated: true });
     }
+  }
+  scoped(accountId);
   await tx.done;
 }
 
@@ -1258,9 +1289,11 @@ export async function syncPersonalState() {
       personalSyncStatus.set({
         state: 'syncing',
         message: 'Syncing personal reading data…',
-        conflicts: get(personalSyncStatus).conflicts
+        conflicts: get(personalSyncStatus).conflicts,
+        blockedBookKeys: []
       });
-      const books = await localBooks(accountId);
+      const inventory = await localBooks(accountId);
+      const { books } = inventory;
       for (let attempt = 0; attempt < 2; attempt += 1) {
         try {
           await bootstrap(accountId, books); // Never upload before every remote page is applied.
@@ -1271,7 +1304,12 @@ export async function syncPersonalState() {
           await flushAnnotations(accountId, books);
           await stageReading(accountId, books);
           await stageAnnotations(accountId, books);
-          await publish(accountId);
+          await publish(
+            accountId,
+            'synced',
+            'Personal reading data synced.',
+            inventory.blockedBookKeys
+          );
           return;
         } catch (error) {
           // A compaction can race a mutation after bootstrap. Refresh the
@@ -1316,7 +1354,8 @@ export async function resolvePersonalConflict(id: string, choice: 'local' | 'rem
     const db = await database.db;
     const conflict = await db.get('readerPersonalConflict', id);
     if (!conflict || conflict.accountId !== accountId) throw new IntegrationError('not_found');
-    const books = await localBooks(accountId);
+    const inventory = await localBooks(accountId);
+    const { books } = inventory;
     const latestLocal = await readLocal(
       conflict.kind,
       conflict.entityId,
@@ -1441,7 +1480,8 @@ export function startPersonalSync() {
         message: accountId
           ? 'Checking personal reading data…'
           : 'Sign in to sync personal reading data.',
-        conflicts: []
+        conflicts: [],
+        blockedBookKeys: []
       });
       lastAccountId = accountId;
     }
