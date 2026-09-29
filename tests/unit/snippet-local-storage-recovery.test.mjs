@@ -112,7 +112,7 @@ const { writeDocument } = await import(
   `data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString('base64')}`
 );
 
-function source(id = crypto.randomUUID()) {
+function source(id = globalThis.crypto.randomUUID()) {
   return { id, owner: null, provider: 'local', root: '', name: 'Local snippets' };
 }
 async function setup() {
@@ -143,7 +143,11 @@ test('retry recovers the deterministic zero-byte placeholder left by an aborted 
     () => writeDocument(destination, doc, undefined, guard),
     /injected first-write crash/
   );
-  assert.equal((await fs.handle(name)).bytes.length, 0, 'aborted create leaves the native placeholder');
+  assert.equal(
+    (await fs.handle(name)).bytes.length,
+    0,
+    'aborted create leaves the native placeholder'
+  );
 
   fs.hooks.write = undefined;
   const location = await writeDocument(destination, doc, undefined, guard);
@@ -154,7 +158,7 @@ test('retry recovers the deterministic zero-byte placeholder left by an aborted 
 test('an unrelated zero-byte filename is not reclaimed as this snippet', async () => {
   const { fs, src } = await setup(),
     doc = createSnippet(plainContent('keep collision safe')),
-    other = `Unrelated — ${crypto.randomUUID()}.manabi-snippet.json`;
+    other = `Unrelated — ${globalThis.crypto.randomUUID()}.manabi-snippet.json`;
   await fs.handle(other, true);
   await assert.rejects(
     () => writeDocument({ source: src, parent: '', name: other }, doc, undefined, guard),
