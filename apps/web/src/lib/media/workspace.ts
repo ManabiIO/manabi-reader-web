@@ -768,10 +768,21 @@ export class VideoWorkspace {
             sourceCurrent = false;
           }
         }
-        if (!sourceCurrent && this.current?.source === source) {
-          this.current = undefined;
-          this.currentTranscription = undefined;
-          player.setGenerationAvailable(false, 'The connected account changed. Reopen this video.');
+        if (!sourceCurrent) {
+          if (this.current?.source === source) {
+            this.current = undefined;
+            this.currentTranscription = undefined;
+          }
+          if (this.player === player) {
+            this.player = undefined;
+            this.viewing.replaceChildren();
+            player.video.pause();
+            try {
+              await player.dispose();
+            } catch (error) {
+              this.error(error);
+            }
+          }
         }
         this.error(e);
       }
