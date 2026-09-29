@@ -118,10 +118,10 @@
 
 <style>
   .voice-pitch {
-    margin-block: 0.5rem 1rem;
-    padding: 0.75rem 1rem;
+    margin-block: 8px 16px;
+    padding: 12px 16px;
     border: 1px solid var(--border);
-    border-radius: 0.875rem;
+    border-radius: 14px;
     background: var(--background);
     color: var(--foreground);
     writing-mode: horizontal-tb;
@@ -130,11 +130,11 @@
   .heading {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: 12px;
   }
   .heading-icon {
-    width: 1.375rem;
-    height: 1.375rem;
+    width: 22px;
+    height: 22px;
     flex: none;
     opacity: 0.65;
   }
@@ -159,17 +159,17 @@
     opacity: 0.72;
   }
   button {
-    min-height: 2.75rem;
-    padding: 0.375rem 0.875rem;
+    min-height: 44px;
+    padding: 6px 14px;
     border: 1px solid var(--border);
-    border-radius: 0.5rem;
+    border-radius: 8px;
     background: transparent;
     color: inherit;
     cursor: pointer;
     font-size: 0.8125rem;
   }
   .toggle {
-    min-width: 4.25rem;
+    min-width: 68px;
     flex: none;
   }
   .toggle[aria-expanded='true'] {
@@ -189,14 +189,14 @@
     cursor: default;
   }
   .visualization {
-    margin-top: 0.875rem;
-    min-height: 8.75rem;
+    margin-top: 14px;
+    min-height: clamp(140px, 8.75rem, 180px);
   }
   .chart {
     position: relative;
     display: grid;
-    grid-template-columns: 2rem minmax(0, 1fr);
-    height: 7.5rem;
+    grid-template-columns: 32px minmax(0, 1fr);
+    height: clamp(120px, 7.5rem, 160px);
   }
   .frequency-scale {
     position: relative;
@@ -269,7 +269,7 @@
   .time-scale {
     display: flex;
     justify-content: space-between;
-    margin: 0.25rem 0.35rem 0 2.35rem;
+    margin: 4px 6px 0 38px;
     font-size: 0.625rem;
     line-height: 1.4;
     opacity: 0.65;
@@ -280,21 +280,21 @@
   }
   .empty-label {
     position: absolute;
-    inset-inline: 2.5rem 0.5rem;
+    inset-inline: 40px 8px;
     top: 50%;
     transform: translateY(-50%);
     margin: 0;
     font-size: 0.75rem;
     text-align: center;
     background: var(--background);
-    padding: 0.4rem;
+    padding: 6px;
   }
   .feedback {
-    min-height: 8.75rem;
+    min-height: clamp(140px, 8.75rem, 180px);
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 0.75rem;
+    gap: 12px;
     font-size: 0.8125rem;
     line-height: 1.5;
   }
@@ -309,13 +309,16 @@
     flex: none;
   }
   details {
-    margin-top: 0.5rem;
+    margin-top: 8px;
     font-size: 0.75rem;
     line-height: 1.6;
   }
   summary {
     cursor: pointer;
-    padding-block: 0.5rem;
+    display: flex;
+    min-height: 44px;
+    align-items: center;
+    padding-block: 8px;
     width: fit-content;
     border-radius: 0.25rem;
     opacity: 0.75;
@@ -328,8 +331,8 @@
   .spinner {
     display: inline-block;
     flex: none;
-    width: 1rem;
-    height: 1rem;
+    width: clamp(16px, 1rem, 24px);
+    height: clamp(16px, 1rem, 24px);
     border: 2px solid currentColor;
     border-inline-end-color: transparent;
     border-radius: 50%;
@@ -342,10 +345,10 @@
   }
   @media (max-width: 420px) {
     .voice-pitch {
-      padding-inline: 0.75rem;
+      padding-inline: 12px;
     }
     .heading {
-      gap: 0.5rem;
+      gap: 8px;
     }
     .heading-icon {
       display: none;
