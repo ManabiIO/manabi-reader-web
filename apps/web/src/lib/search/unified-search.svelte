@@ -141,7 +141,7 @@
           book.key,
           book.title,
           book.canonicalTitle,
-          (book.creators ?? []).map((creator) => [creator.name, creator.sortAs]),
+          (book.creators ?? []).map((creator) => creator.name),
           book.series?.name ?? null,
           bookMatchText[book.key] ?? []
         ])
