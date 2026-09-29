@@ -52,6 +52,9 @@ function harness(records, { manual = false, fail = false, scopes = {} } = {}) {
       return {
         async get(id) {
           return scopes[id];
+        },
+        async getAll() {
+          return Object.values(scopes);
         }
       };
     assert.fail(`unexpected store ${name}`);
@@ -99,6 +102,19 @@ test('library summaries use a cursor and retain neither book text nor image buff
     for (const key of ['blobs', 'elementHtml', 'styleSheet', 'htmlBackup', 'manabiTtuImport'])
       assert.equal(Object.hasOwn(summary, key), false, key);
   }
+});
+
+test('library summaries project personal reading owners without retaining book payloads', async () => {
+  const a = stored();
+  const b = { ...stored(), id: 4, title: 'Second' };
+  const h = harness([a, b], {
+    scopes: { [a.id]: { bookId: a.id, accountId: 'account-a' } }
+  });
+  const summaries = await readBookSummaries(h.db);
+  assert.equal(summaries.find((book) => book.id === a.id).readerOwner, 'account-a');
+  assert.equal(summaries.find((book) => book.id === b.id).readerOwner, undefined);
+  for (const summary of summaries)
+    assert.equal(Object.hasOwn(summary, 'elementHtml'), false);
 });
 
 test('last-read changes preserve latest content and receipt, without encoding image bytes', async () => {
