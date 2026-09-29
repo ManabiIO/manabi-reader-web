@@ -27,9 +27,7 @@ export function assertSupportedEpubRendition(
   const fixedPackage =
     typeof globalLayout === 'string' &&
     globalLayout.trim().toLowerCase() === 'pre-paginated';
-  const fixedOverride = spine.some((item) =>
-    item.properties?.includes('rendition:layout-pre-paginated')
-  );
+  const fixedOverride = spine.some((item) => item.properties?.includes('rendition:layout-pre-paginated'));
   if (fixedPackage || fixedOverride)
     throw new Error('Fixed-layout EPUBs are not supported by this reader yet.');
 }

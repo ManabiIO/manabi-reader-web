@@ -9,6 +9,7 @@ import { davSyncStatus, syncDavBook, syncEnabledDavBooks } from '$lib/webdav/syn
 import { get, writable } from 'svelte/store';
 import { database } from '$lib/data/store';
 import { stabilizeOrganization } from '$lib/library/organization';
+import { visibleLibraryEntries } from '$lib/library/account-visibility';
 import { StorageKey } from '$lib/data/storage/storage-types';
 import { storageSource$ } from '$lib/data/storage/storage-view';
 import { getStorageHandler } from '$lib/data/storage/storage-handler-factory';
@@ -62,15 +63,22 @@ export async function refreshLinkedBooks() {
     generation === linkRefreshGeneration && (localProfileUser()?.id ?? null) === owner;
   const books = await (await integrationDB()).getAll('books');
   if (!current()) return;
-  const visible = books.filter((book) => book.owner === null || book.owner === owner);
   const records = await readIndexedBookIdentities(await database.db);
   if (!current()) return;
-  await stabilizeOrganization(visible, records);
+  const accountEntries = visibleLibraryEntries(records, books, owner);
+  const visible = accountEntries.links;
+  const visibleIds = new Set(accountEntries.cards.map((record) => record.id));
+  // Alias migration must see conflicting stale claims for an otherwise visible
+  // book so it can refuse a path shared by different content hashes.
+  const migrationLinks = books.filter(
+    (link) => (link.owner === null || link.owner === owner) && visibleIds.has(link.bookId)
+  );
+  await stabilizeOrganization(migrationLinks, records);
   if (!current()) return;
   allLinkedBooks.set(books);
   const byId = new Map(records.map((record) => [record.id, record]));
-  // Keep historical claims in allLinkedBooks and alias migration, but do not
-  // expose stale claims as usable links to cached-open, cover or sync callers.
+  // Keep historical claims in allLinkedBooks, but do not expose stale claims
+  // as usable links to cached-open, cover or sync callers.
   linkedBooks.set(
     visible.filter((link) => {
       const record = byId.get(link.bookId);
@@ -274,14 +282,25 @@ export function startBookSync() {
         };
         continue;
       }
-      const conflicts = status.conflicts.filter(
-        (value) => value.bookKey === `content:${link.contentHash}`
-      );
+      const hash = normalizedContentHash(link.contentHash);
+      const bookKey = hash ? `content:${hash}` : '';
+      const conflicts = status.conflicts.filter((value) => value.bookKey === bookKey);
+      const blocked = !!bookKey && status.blockedBookKeys.includes(bookKey);
       entries[link.id] = {
-        state: conflicts.length ? 'conflict' : status.state,
+        state: conflicts.length
+          ? 'conflict'
+          : blocked
+            ? 'identity_conflict'
+            : status.state === 'identity_conflict'
+              ? 'synced'
+              : status.state,
         message: conflicts.length
           ? `${conflicts.length} personal-state conflict(s) need review.`
-          : status.message,
+          : blocked
+            ? 'This book has conflicting or incomplete identity evidence. Personal sync skipped its reading history until the issue is resolved.'
+            : status.state === 'identity_conflict'
+              ? 'Personal reading data synced.'
+              : status.message,
         conflicts: conflicts.map((value) => `${value.kind}: ${value.fields.join(', ')}`),
         at: Date.now()
       };

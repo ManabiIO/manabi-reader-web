@@ -83,6 +83,12 @@ export function saveLabel(
   if (record.dirty) return `Saved on this device · waiting for ${label}`;
   return `Saved to ${label}`;
 }
+export function snippetSourceId(item: unknown): string | undefined {
+  if (typeof item !== 'string' || !item.startsWith('snippet:')) return;
+  const id = item.slice(8);
+  return isUUID(id) ? id : undefined;
+}
+
 export function parseLocator(raw: string | null): SnippetLocator | undefined {
   if (!raw || raw.length > 16000) return;
   try {
