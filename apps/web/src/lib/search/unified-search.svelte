@@ -2,7 +2,7 @@
   import { onMount, tick } from 'svelte';
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
-  import { BookOpen, FileText } from '@lucide/svelte';
+  import { BookOpen, FileText, Video } from '@lucide/svelte';
   import { localUser, localProfileUser } from '../manabi/client';
   import { videoLearningEnabled } from '../media/feature';
   import type { VideoTranscriptBatch } from '../media/video-search';
@@ -568,9 +568,7 @@
               onclick={row.open}
             >
               <span class="type-icon" aria-hidden="true"
-                >{#if row.kind === 'Book'}<BookOpen size={20} />{:else if row.kind === 'Video'}<span
-                    class="video-glyph">▶</span
-                  >{:else}<FileText size={20} />{/if}</span
+                >{#if row.kind === 'Book'}<BookOpen size={20} />{:else if row.kind === 'Video'}<Video size={20} />{:else}<FileText size={20} />{/if}</span
               >
               <span class="row-copy"
                 ><strong>{row.title}</strong><small
@@ -618,9 +616,7 @@
               onclick={row.open}
             >
               <span class="type-icon" aria-hidden="true"
-                >{#if row.kind === 'Book'}<BookOpen size={20} />{:else if row.kind === 'Video'}<span
-                    class="video-glyph">▶</span
-                  >{:else}<FileText size={20} />{/if}</span
+                >{#if row.kind === 'Book'}<BookOpen size={20} />{:else if row.kind === 'Video'}<Video size={20} />{:else}<FileText size={20} />{/if}</span
               >
               <span class="row-copy"
                 ><span class="excerpt"
@@ -766,10 +762,6 @@
     height: 40px;
     background: var(--muted);
     border-radius: 10px;
-  }
-  .video-glyph {
-    font-size: 0.9rem;
-    line-height: 1;
   }
   .row-copy {
     display: grid;
