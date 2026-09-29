@@ -4,15 +4,16 @@
   "license": "BSD-3-Clause",
   "private": true,
   "scripts": {
-    "dev": "cd apps/web && pnpm dev",
-    "build": "cd apps/web && pnpm build",
+    "dev": "node scripts/prepare-dictionary.mjs && cd apps/web && pnpm dev",
+    "build": "node scripts/prepare-dictionary.mjs && cd apps/web && pnpm build",
     "prepare": "husky",
     "check": "eslint --fix-dry-run .",
     "check:pretty": "prettier --debug-check .",
     "lint": "eslint --fix .",
     "format": "prettier --write .",
     "test:reader": "node test/reader/run.mjs",
-    "test:whispersync": "node test/whispersync/run.mjs --coverage"
+    "test:whispersync": "node test/whispersync/run.mjs --coverage",
+    "prepare:dictionary": "node scripts/prepare-dictionary.mjs"
   },
   "devDependencies": {
     "@commitlint/cli": "21.2.2",

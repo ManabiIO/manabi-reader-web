@@ -84,8 +84,13 @@
 <Dialog.Root bind:open>
   <Dialog.Content
     class="writing-horizontal-tb sm:max-w-lg"
-    onCloseAutoFocus={() => {
+    onCloseAutoFocus={(event) => {
       if (!savedChoice() && !manabitanPresent()) choose('skip');
+      const controls = document.querySelector<HTMLButtonElement>('button[data-reader-controls]');
+      if (controls) {
+        event.preventDefault();
+        controls.focus({ preventScroll: true });
+      }
     }}
   >
     <Dialog.Header>
