@@ -16,20 +16,28 @@ test('EPUB spine linearity defaults to sequential and preserves explicit auxilia
     assert.equal(normalizeEpubSpineLinear(value), 'yes');
 });
 
-test('pre-paginated EPUB packages fail closed instead of entering the reflow engine', () => {
+test('pre-paginated EPUB packages and per-spine overrides fail closed', () => {
   for (const layout of ['pre-paginated', ' PRE-PAGINATED '])
     assert.throws(
       () => assertSupportedEpubRendition({ layout }),
       /Fixed-layout EPUBs are not supported/i
     );
-  for (const value of [
-    undefined,
-    null,
-    {},
-    { layout: 'reflowable' },
-    { layout: '' },
-    { layout: 1 },
-    []
+  assert.throws(
+    () =>
+      assertSupportedEpubRendition(
+        { layout: 'reflowable' },
+        [{ properties: ['rendition:layout-pre-paginated'] }]
+      ),
+    /Fixed-layout EPUBs are not supported/i
+  );
+  for (const [value, spine] of [
+    [undefined, []],
+    [null, []],
+    [{}, []],
+    [{ layout: 'reflowable' }, []],
+    [{ layout: '' }, [{ properties: ['rendition:layout-reflowable'] }]],
+    [{ layout: 1 }, [{ properties: ['rendition:flow-paginated'] }]],
+    [[], []]
   ])
-    assert.doesNotThrow(() => assertSupportedEpubRendition(value));
+    assert.doesNotThrow(() => assertSupportedEpubRendition(value, spine));
 });

@@ -110,7 +110,7 @@ export async function importEpubPublication(
   let imported: LoadData;
   try {
     const { book } = publication;
-    assertSupportedEpubRendition(book.rendition);
+    assertSupportedEpubRendition(book.rendition, book.resources.spine);
     const items = book.resources.manifest;
     const byId = new Map(items.map((item) => [item.id, item]));
     const byHref = new Map(items.map((item) => [item.href, item]));

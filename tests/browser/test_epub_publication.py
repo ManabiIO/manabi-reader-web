@@ -72,16 +72,22 @@ def linear_epub():
     return output.getvalue()
 
 
-def fixed_layout_epub():
+def fixed_layout_epub(spine_override=False):
     output = io.BytesIO()
     with zipfile.ZipFile(io.BytesIO(resource_epub())) as source, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as target:
         for entry in source.infolist():
             data = source.read(entry)
             if entry.filename == 'EPUB/book.opf':
-                data = data.replace(
-                    b'</metadata>',
-                    b'<meta property="rendition:layout">pre-paginated</meta></metadata>'
-                )
+                if spine_override:
+                    data = data.replace(
+                        b'<itemref idref="two"/>',
+                        b'<itemref idref="two" properties="rendition:layout-pre-paginated"/>'
+                    )
+                else:
+                    data = data.replace(
+                        b'</metadata>',
+                        b'<meta property="rendition:layout">pre-paginated</meta></metadata>'
+                    )
             target.writestr(entry, data)
     return output.getvalue()
 
@@ -159,17 +165,25 @@ class EpubPublicationBrowser(ReaderBrowser):
             "localStorage.setItem('manabi-dev-foliate-epub','true');"
             "localStorage.setItem('viewMode','paginated')"
         )
-        self.page.goto(self.origin + '/reader-web/manage')
-        expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
-        self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
-            'name': 'fixed.epub',
-            'mimeType': 'application/epub+zip',
-            'buffer': fixed_layout_epub()
-        })
-        expect(
-            self.page.get_by_text('Fixed-layout EPUBs are not supported by this reader yet.', exact=True)
-        ).to_be_visible(timeout=30000)
-        expect(self.page.get_by_role('button', name='Read ' + TITLE, exact=True)).to_have_count(0)
+        for spine_override in (False, True):
+            with self.subTest(spine_override=spine_override):
+                self.page.goto(self.origin + '/reader-web/manage')
+                expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
+                self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
+                    'name': 'fixed.epub',
+                    'mimeType': 'application/epub+zip',
+                    'buffer': fixed_layout_epub(spine_override)
+                })
+                expect(
+                    self.page.get_by_text(
+                        'Fixed-layout EPUBs are not supported by this reader yet.',
+                        exact=True
+                    )
+                ).to_be_visible(timeout=30000)
+                expect(
+                    self.page.get_by_role('button', name='Read ' + TITLE, exact=True)
+                ).to_have_count(0)
+                self.page.keyboard.press('Escape')
         self.assertEqual([], StaticHandler.probes)
         self.assertEqual([], self.errors)
 

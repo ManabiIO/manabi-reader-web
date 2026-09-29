@@ -32,7 +32,7 @@ export interface FoliateManifestItem {
 export interface FoliateEpubBook {
   resources: {
     manifest: FoliateManifestItem[];
-    spine: Array<{ idref: string; linear?: string }>;
+    spine: Array<{ idref: string; linear?: string; properties?: string[] }>;
     cover?: FoliateManifestItem;
   };
   sections: FoliateSection[];
