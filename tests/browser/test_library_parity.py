@@ -93,6 +93,13 @@ class LibraryParityBrowser(LibraryBase):
         self.count(1)
         self.assertEqual(1, self.items().count())
 
+        # Clearing the filter is another visible selection scope. The filtered
+        # selection must not silently reappear among the full shelf.
+        search.fill('')
+        self.count(0)
+        self.assertEqual(3, self.items().count())
+        expect(self.items().filter(has=self.page.get_by_text('Selected', exact=True))).to_have_count(0)
+
     def start_drag(self, layout):
         first, second = self.items().nth(0).bounding_box(), self.items().nth(1).bounding_box()
         if layout == 'Grid':
