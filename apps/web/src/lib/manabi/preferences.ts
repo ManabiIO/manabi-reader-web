@@ -483,18 +483,15 @@ async function performPreferenceSync(
         state.revision = remote.revision;
         delete state.pendingUpload;
       }
-      // Absence is how an older client represents unknown fields, not a reset.
-      const there = supportsExtensions
-        ? retainMissingPreferenceExtensions(state.base, thereRaw)
-        : thereRaw;
+      // A negotiated v1 reply can express extension removal authoritatively.
+      // Only an unversioned/legacy reply needs omission-preservation locally.
+      const there = thereRaw;
       let merged: Flat;
       if (
         resolution === 'remote' ||
         (!state.initialized && remote.revision > 0 && resolution !== 'local')
       ) {
-        merged = supportsExtensions
-          ? retainMissingPreferenceExtensions(capturedWire, { ...capturedWire, ...there })
-          : { ...capturedWire, ...there };
+        merged = { ...capturedWire, ...there };
       } else if (resolution === 'local' || !state.initialized) {
         merged = { ...there, ...capturedWire };
       } else {
@@ -564,7 +561,9 @@ async function performPreferenceSync(
       state.base = supportsExtensions
         ? merged
         : retainMissingPreferenceExtensions(state.base, merged);
-      state.local = retainMissingPreferenceExtensions(state.local, newer.merged);
+      state.local = supportsExtensions
+        ? newer.merged
+        : retainMissingPreferenceExtensions(state.local, newer.merged);
       state.revision = accepted.revision;
       state.initialized = true;
       delete state.initialChoice;
