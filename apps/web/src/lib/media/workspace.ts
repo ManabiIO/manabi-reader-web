@@ -397,13 +397,16 @@ export class VideoWorkspace {
     this.selected.clear();
     // The durable shelf refresh can be asynchronous. Keep the already-rendered
     // controls consistent with the model/status in the same interaction turn.
-    for (const check of this.shelf.querySelectorAll<HTMLInputElement>('input[type=checkbox]'))
-      check.checked = false;
     this.updateSelectionActions();
   }
 
   private updateSelectionActions() {
     const visible = [...this.shelf.querySelectorAll<HTMLInputElement>('input[type=checkbox]')];
+    for (const check of visible) {
+      const selected = this.selected.has(check.value as ContentKey);
+      if (check.checked !== selected) check.checked = selected;
+      check.closest('.video-card')?.classList.toggle('selected', selected);
+    }
     this.clearSelectionButton.disabled = this.selected.size === 0;
     this.bulkGenerateButton.disabled = this.selected.size === 0;
     this.selectVisibleButton.disabled =
