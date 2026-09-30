@@ -309,6 +309,7 @@ class PreferenceSyncRecovery(LibraryBase):
         attempted = []
         self.page.on('request', lambda request: attempted.append(request.url)
                      if urlsplit(request.url).path == '/api/reader-web/preferences/' else None)
+        error_start = len(self.errors)
         self.context.set_offline(True)
         try:
             self.assertFalse(self.page.evaluate('navigator.onLine'))
@@ -337,6 +338,24 @@ class PreferenceSyncRecovery(LibraryBase):
                 self.assertEqual(31, self.snapshot()['local']['font_size'])
         finally:
             self.context.set_offline(False)
+        if self.engine == 'webkit':
+            # WebKit reports the account change-feed request as a page error
+            # while this test deliberately takes the entire context offline.
+            # The request is unrelated to preference recovery, is expected only
+            # during this bounded offline interval, and is already handled by
+            # the account sync lifetime. Keep every other page error visible.
+            expected = [
+                error for error in self.errors[error_start:]
+                if '/api/reader-web/personal/changes/' in error
+                and 'due to access control checks.' in error
+            ]
+            unexpected = [
+                error for error in self.errors[error_start:]
+                if error not in expected
+            ]
+            self.assertEqual([], unexpected)
+            if expected:
+                del self.errors[error_start:]
         self.page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
         expect(status).to_contain_text('synced', timeout=15000)
         self.page.reload()
