@@ -127,7 +127,7 @@ test('sign-out from another tab invalidates a pending request and does not rewri
   assert.equal(data.has(key), false);
 });
 
-test('known offline account API requests do not fetch or revoke the confirmed account', async () => {
+test('explicit account requests may probe connectivity when the browser offline hint is stale', async () => {
   const { api, context } = client();
   context.navigator.onLine = true;
   context.fetch = async () => session(alice);
@@ -135,12 +135,13 @@ test('known offline account API requests do not fetch or revoke the confirmed ac
   let requests = 0;
   context.fetch = async () => {
     requests++;
-    throw new Error('unexpected request');
+    return new Response(JSON.stringify({ ok: true }), {
+      headers: { 'Content-Type': 'application/json', 'X-Manabi-User': 'alice' }
+    });
   };
   context.navigator.onLine = false;
-  await assert.rejects(api.request('personal/changes/?cursor=0&limit=3'), { code: 'offline' });
-  await assert.rejects(api.request('preferences/'), { code: 'offline' });
-  assert.equal(requests, 0);
+  assert.deepEqual(await api.request('preferences/'), { ok: true });
+  assert.equal(requests, 1);
   assert.equal(api.currentUser()?.id, 'alice');
 });
 
