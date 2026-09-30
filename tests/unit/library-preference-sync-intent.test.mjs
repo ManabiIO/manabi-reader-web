@@ -1035,7 +1035,6 @@ test('later equivalent server revision can retire a lost upload and preserve new
   }
 });
 
-
 test('negotiated v1 removal is authoritative and is not resurrected locally', async () => {
   const book = `content:${'a'.repeat(64)}`;
   const before = {
@@ -1083,7 +1082,6 @@ test('negotiated v1 removal is authoritative and is not resurrected locally', as
     h.stop();
   }
 });
-
 
 test('concurrent scalar edit survives an authoritative v1 presentation removal', async () => {
   const book = `content:${'b'.repeat(64)}`;
