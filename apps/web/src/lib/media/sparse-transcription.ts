@@ -15,6 +15,9 @@ export const SPARSE_CONTEXT_SECONDS = 2;
 export interface SparseWindow {
   cues: Cue[];
   inferenceMs: number;
+  /** Strong negative evidence from the exact PCM passed to MOSS. Optional so
+   * older saved windows keep their historical reconciliation semantics. */
+  digitalSilence?: true;
 }
 export interface SparseState {
   policy: 'overlap-sparse-v1' | 'overlap-sparse-v2';
@@ -89,10 +92,17 @@ export function validateSparseState(value: unknown, duration: number): SparseSta
   const windows = state.windows.map((raw, index) => {
     if (raw === null) return null;
     const w = record(raw);
-    onlyKeys(w, ['cues', 'inferenceMs']);
-    if (!Array.isArray(w.cues) || w.cues.length > 2048) throw new Error('Invalid sparse window');
+    onlyKeys(w, ['cues', 'inferenceMs', 'digitalSilence']);
+    if (
+      !Array.isArray(w.cues) ||
+      w.cues.length > 2048 ||
+      (w.digitalSilence !== undefined && w.digitalSilence !== true)
+    )
+      throw new Error('Invalid sparse window');
     const bounds = sparseBounds(index, duration);
     const cues = w.cues.map(validateCue);
+    if (w.digitalSilence === true && cues.length)
+      throw new Error('Digital-silent sparse window cannot contain speech');
     if (
       new Set(cues.map((cue) => cue.id)).size !== cues.length ||
       cues.some(
@@ -103,7 +113,11 @@ export function validateSparseState(value: unknown, duration: number): SparseSta
       )
     )
       throw new Error('Sparse cue lies outside its input');
-    return { cues, inferenceMs: finite(w.inferenceMs, 0, 3600000) };
+    return {
+      cues,
+      inferenceMs: finite(w.inferenceMs, 0, 3600000),
+      ...(w.digitalSilence === true ? { digitalSilence: true as const } : {})
+    };
   });
   const repairs = rawRepairs.map((raw, index) => {
     if (raw === null) return null;
@@ -232,6 +246,28 @@ interface SparseComponent {
   cues: Cue[];
 }
 
+/** A neighboring exact-zero input is stronger evidence than a one-sided MOSS
+ * hypothesis wholly inside that same PCM. Filter only the reconciliation copy:
+ * source hypotheses remain durable, and a cue crossing the zero-input boundary
+ * stays whole and unresolved. Repairs are not rewritten by older silence evidence. */
+function rawSparseCues(state: SparseState, index: number): Cue[] {
+  const window = state.windows[index];
+  if (!window) return [];
+  const previousSeam = index * SPARSE_CORE_SECONDS;
+  const nextSeam = (index + 1) * SPARSE_CORE_SECONDS;
+  return window.cues.filter(
+    (cue) =>
+      !(
+        (index > 0 &&
+          state.windows[index - 1]?.digitalSilence === true &&
+          cue.end <= previousSeam + SPARSE_CONTEXT_SECONDS) ||
+        (index + 1 < state.windows.length &&
+          state.windows[index + 1]?.digitalSilence === true &&
+          cue.start >= nextSeam - SPARSE_CONTEXT_SECONDS)
+      )
+  );
+}
+
 /** Reconcile the same whole-cue hypotheses for display, readiness and publication.
  * A repair is one two-core input; its superseded raw windows never decide its
  * outer seams. The cursor advances by time, not an arbitrary last-N cue slice.
@@ -250,7 +286,7 @@ function sparseComponents(
     if (repair) {
       segments.push({ first: index, last: index + 1, cues: [...repair] });
     } else if (window && !state.repairs[index - 1])
-      segments.push({ first: index, last: index, cues: [...window.cues] });
+      segments.push({ first: index, last: index, cues: rawSparseCues(state, index) });
   }
   for (const segment of segments) {
     if (active && active.last + 1 >= segment.first) {
