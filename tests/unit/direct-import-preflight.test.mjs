@@ -69,15 +69,20 @@ function loadFixture({
       BaseStorageHandler,
       FilePrefix: { AUDIO_BOOK: 'audioBook_', SUBTITLE: 'subtitles_' }
     },
-    '$lib/data/window/navigator/storage': {
-      storage: {
-        async persist() {
+    '$lib/data/window/navigator/persistent-storage': {
+      requestPersistentStorageOnce: (() => {
+        let request;
+        return () => {
+          if (request) return request;
           persistCalls++;
-          if (persistenceError) throw persistenceError;
-          if (persistenceNeverSettles) return new Promise(() => {});
-          return persistenceResult;
-        }
-      }
+          request = persistenceNeverSettles
+            ? new Promise(() => {})
+            : persistenceError
+              ? Promise.resolve(false)
+              : Promise.resolve(persistenceResult);
+          return request;
+        };
+      })()
     },
     '$lib/data/storage/storage-types': {
       StorageDataType: {
