@@ -46,3 +46,8 @@ export function retryPersistentStorage(): Promise<boolean> {
   if (automaticResult === true) return Promise.resolve(true);
   return startRequest();
 }
+
+/** Return the current automatic request without starting browser permission UI. */
+export function currentPersistentStorageRequest(): Promise<boolean> | undefined {
+  return automaticRequest;
+}
