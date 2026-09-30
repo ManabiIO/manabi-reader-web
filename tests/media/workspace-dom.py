@@ -1035,16 +1035,21 @@ def main():
             assert page.evaluate('workspace.selected.size')==0
             assert not page.get_by_label('Select Watching',exact=True).is_checked()
 
-            select_visible.click()
+            select_visible.focus()
+            select_visible.press('Enter')
             assert status.inner_text()=='3 videos selected'
             assert select_visible.is_disabled()
             assert clear.is_enabled() and generate.is_enabled()
+            assert clear.is_focused()
             generate.click()
             assert len(page.evaluate('bulkSelections[1]'))==3
-            clear.click()
+
+            clear.focus()
+            clear.press('Enter')
             assert page.evaluate('workspace.selected.size')==0
             assert status.inner_text()=='No videos selected'
             assert clear.is_disabled() and generate.is_disabled()
+            assert select_visible.is_focused()
             assert all(not check.is_checked() for check in page.get_by_label(re.compile('^Select ')).all())
         case('video batch actions expose selection state and card generation does not mutate it',
              batch_selection_state)
