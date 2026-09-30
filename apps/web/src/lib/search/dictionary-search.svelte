@@ -14,6 +14,7 @@
     signature = '',
     attempt = 0,
     installing = false,
+    retryableError = false,
     message = '';
   let state: SearchState<DictionaryResult> = { state: 'idle' };
   let runtime: DictionaryRuntime | undefined;
@@ -21,6 +22,7 @@
   let installController: AbortController | undefined;
   const task = queryTask<DictionaryResult>((next) => {
     state = next;
+    if (next.state === 'error') retryableError = true;
   });
   $: nextSignature = JSON.stringify([query, full, attempt, installing]);
   $: if (mounted && signature !== nextSignature) {
@@ -30,6 +32,7 @@
   function search() {
     task.stop();
     state = { state: 'idle' };
+    retryableError = false;
     if (!query.trim() || installing) return;
     if ([...query].length > 256) {
       state = {
@@ -156,7 +159,9 @@
     </p>
   {:else if state.state === 'error'}
     <p class="note" role="status">
-      {state.error} <button type="button" onclick={retry}>Retry dictionary</button>
+      {state.error}{#if retryableError}
+        <button type="button" onclick={retry}>Retry dictionary</button>
+      {/if}
     </p>
   {:else if state.value}
     {#if state.value.dictionaryCount === 0}
