@@ -211,4 +211,3 @@ test('persistent storage is automatic infrastructure with status-only settings',
   assert.equal(route.includes('setPersistentStorage$'), false);
   assert.equal(replicator.includes('requestPersistentStorage$.getValue()'), false);
 });
-
