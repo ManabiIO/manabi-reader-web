@@ -148,7 +148,13 @@ a second full transcription pass. Bulk jobs and saved v1/v2 jobs retain their
 original sequential policy and can resume without reinterpretation.
 
 Draft captions use whole cues away from unresolved seams. Once neighboring
-windows agree, their boundary cues can appear too. A completed track is
+windows agree, their boundary cues can appear too. A normal sparse window whose exact
+model PCM is entirely zero now persists that fact as optional device-only evidence. It
+may refute only a neighboring one-sided cue wholly covered by the same zero-valued
+input; a cue crossing outside that input remains whole and unresolved. An ordinary
+empty hypothesis has no such authority and still requires agreement or repair. Older
+saved windows do not gain silence evidence retroactively.
+ A completed track is
 published only after every core is covered and the whole-cue hypotheses join.
 An ambiguous seam is repaired with a bounded union input; overlapping repairs
 that exceed the model budget fail with the original hypotheses preserved.
