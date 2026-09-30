@@ -307,8 +307,11 @@ class PreferenceSyncRecovery(LibraryBase):
                              for item in prior.get('collections', [])))
 
         attempted = []
+        personal_attempted = []
         self.page.on('request', lambda request: attempted.append(request.url)
                      if urlsplit(request.url).path == '/api/reader-web/preferences/' else None)
+        self.page.on('request', lambda request: personal_attempted.append(request.url)
+                     if urlsplit(request.url).path.startswith('/api/reader-web/personal/') else None)
         self.context.set_offline(True)
         try:
             self.assertFalse(self.page.evaluate('navigator.onLine'))
@@ -330,6 +333,7 @@ class PreferenceSyncRecovery(LibraryBase):
                 self.page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
                 self.page.wait_for_timeout(50)
             self.assertEqual([], attempted, 'Local recovery attempted another preference request')
+            self.assertEqual([], personal_attempted, 'Offline recovery started a personal-data request')
             self.assertTrue(any(item['id'] == 'server-accepted' for item in
                                 self.snapshot()['local']['library_organization']['collections']))
             if edit:

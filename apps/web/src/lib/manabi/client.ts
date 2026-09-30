@@ -253,6 +253,9 @@ export async function request<T>(
   const scope = accountScope();
   if (options.userId && options.userId !== scope.userId)
     throw new IntegrationError('account_changed', 409);
+  // API responses are account-scoped and never served from the offline cache.
+  // Avoid knowingly starting a doomed request during local-only recovery.
+  if (!navigator.onLine) throw new IntegrationError('offline');
   const session = get(account).session!;
   const headers = new Headers({ 'X-Manabi-User': scope.userId });
   if (path.split('?', 1)[0] === 'preferences/')
@@ -274,10 +277,11 @@ export async function request<T>(
       credentials: 'same-origin',
       redirect: 'error',
       cache: 'no-store',
-      // Library source discovery can still be in flight when a document closes.
-      // Keep this small account-scoped GET alive so WebKit does not report its
+      // Source discovery and paginated reading feeds can outlive navigation.
+      // Keep these account-scoped GETs alive so WebKit does not report their
       // unload cancellation as an uncaught cross-origin fetch error.
-      keepalive: method === 'GET' && path === 'connections/',
+      keepalive:
+        method === 'GET' && (path === 'connections/' || path.startsWith('personal/changes/?')),
       signal: AbortSignal.timeout(45000)
     });
   } catch {
