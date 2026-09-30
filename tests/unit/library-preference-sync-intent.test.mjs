@@ -1034,3 +1034,52 @@ test('later equivalent server revision can retire a lost upload and preserve new
     h.stop();
   }
 });
+
+
+test('negotiated v1 removal is authoritative and is not resurrected locally', async () => {
+  const book = `content:${'a'.repeat(64)}`;
+  const before = {
+    version: 1,
+    collections: [],
+    books: {
+      [book]: {
+        modifiedAt: 10,
+        metadata: { publisher: 'Removed remotely' },
+        series: { name: 'Old series', index: 2 },
+        coverBlur: true
+      }
+    }
+  };
+  const remote = {
+    version: 1,
+    collections: [],
+    books: { [book]: { modifiedAt: 11 } }
+  };
+  const h = await loadedHarness({
+    enabled: true,
+    initialized: true,
+    revision: 1,
+    base: { library_organization: before },
+    local: { library_organization: before }
+  });
+  h.setRequestHandler(({ options }) => {
+    assert.equal(options.method, undefined, 'remote deletion should not be compensated with a PUT');
+    return {
+      user_id: 'a',
+      schema_version: 1,
+      book_presentation_version: 1,
+      revision: 2,
+      settings: { library_organization: remote }
+    };
+  });
+  try {
+    await h.api.syncPreferences();
+    assert.equal(h.requests.length, 1);
+    assert.deepEqual(h.subjects.get('organization').getValue(), remote);
+    assert.deepEqual(h.writes.at(-1).value.base.library_organization, remote);
+    assert.deepEqual(h.writes.at(-1).value.local.library_organization, remote);
+    assert.equal(h.status().state, 'synced');
+  } finally {
+    h.stop();
+  }
+});
