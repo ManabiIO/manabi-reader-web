@@ -192,7 +192,7 @@ test('eligible exact reimport hashes and preflights without parsing or writing',
   assert.equal(error, '');
   assert.deepEqual(h.events, ['hash', 'preflight']);
   assert.deepEqual(h.changed, []);
-  assert.equal(h.persistCalls(), 1);
+  assert.equal(h.persistCalls(), 0, 'an exact no-op reimport must not request persistence');
   assert.equal(h.progress.filter(([kind]) => kind === 'complete').length, 3);
 });
 
@@ -212,6 +212,7 @@ test('preflight ambiguity/error stops before parser and preserves the import err
   assert.match(error, /multiple exact histories/);
   assert.deepEqual(h.events, ['hash', 'preflight']);
   assert.deepEqual(h.changed, []);
+  assert.equal(h.persistCalls(), 0, 'a rejected import must not request persistence');
 });
 
 test('character-count mode still parses without hashing or identity preflight', async () => {
@@ -289,6 +290,38 @@ test('background replication without book data does not request persistent stora
     0,
     'progress/statistics-only background work must not cause a persistence prompt'
   );
+});
+
+test('already-up-to-date book replication does not request persistent storage', async () => {
+  const h = loadFixture();
+  const source = {
+    storageType: 'backup',
+    isCacheDisabled: () => false,
+    clearData: () => assert.fail('source cache should stay enabled'),
+    startContext() {},
+    async getFilenameForRecentCheck() {
+      return 'bookdata_existing';
+    }
+  };
+  const target = {
+    ...h.handler,
+    startContext() {},
+    async isBookPresentAndUpToDate() {
+      return true;
+    }
+  };
+  assert.equal(
+    await h.replicateData(
+      source,
+      target,
+      false,
+      [{ title: 'Existing', imagePath: '' }],
+      ['data'],
+      h.signal
+    ),
+    ''
+  );
+  assert.equal(h.persistCalls(), 0, 'a no-op replication must not request persistence');
 });
 
 test('book replication with no selected contexts does not request persistent storage', async () => {
