@@ -37,15 +37,29 @@ export async function analyseSwiftF0Window(
     });
 
   const session = await prepareSwiftF0();
-  const result = await session.run({
+  const feeds = {
     audio: new ort.Tensor('float32', samples, [1, samples.length]),
     fmin: new ort.Tensor('float32', Float32Array.of(MIN_HZ), []),
     fmax: new ort.Tensor('float32', Float32Array.of(MAX_HZ), [])
-  });
-  const pitch = result.pitch?.data as ArrayLike<number> | undefined;
-  const confidence = result.confidence?.data as ArrayLike<number> | undefined;
-  if (!pitch || !confidence) throw new Error('SwiftF0 returned malformed output');
-  return measurementFromSwiftF0(samples, pitch, confidence, {
-    windowSeconds: input.length / rate
-  });
+  };
+  let result: Awaited<ReturnType<ort.InferenceSession['run']>> | undefined;
+  try {
+    result = await session.run(feeds);
+    const pitch = result.pitch?.data as ArrayLike<number> | undefined;
+    const confidence = result.confidence?.data as ArrayLike<number> | undefined;
+    const expectedFrames = Math.max(1, Math.floor(samples.length / 256));
+    if (
+      !pitch ||
+      !confidence ||
+      pitch.length !== expectedFrames ||
+      confidence.length !== expectedFrames
+    )
+      throw new Error('SwiftF0 returned malformed output');
+    return measurementFromSwiftF0(samples, pitch, confidence, {
+      windowSeconds: input.length / rate
+    });
+  } finally {
+    for (const tensor of Object.values(result ?? {})) tensor.dispose();
+    for (const tensor of Object.values(feeds)) tensor.dispose();
+  }
 }
