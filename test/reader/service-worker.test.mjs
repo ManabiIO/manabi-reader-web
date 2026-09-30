@@ -3,7 +3,8 @@ import { test } from 'node:test';
 import {
   registerReaderServiceWorker,
   isShellAsset,
-  isPackagedFont
+  isPackagedFont,
+  isRequiredPublicShellAsset
 } from '../../apps/web/src/lib/service-worker/reader-service-worker.mjs';
 
 const origin = 'https://reader.example';
@@ -182,13 +183,16 @@ test('installation never skips waiting or claims existing tabs', async () => {
   assert.deepEqual(h.precached.sort(), [url('/'), url('/b'), url('/app.js')].sort());
 });
 
-test('archive, dictionary and WASM assets are not mandatory shell entries', async () => {
+test('archives, optional engines and decorative public files are not mandatory shell entries', async () => {
   const h = makeHarness({
     files: [
       '/dict.ZIP?download=1',
       '/dictionaries/preset.bin',
       '/dictionary-archives/jiten.zip',
       '/manabitan/worker.js',
+      '/moss/single/moss.mjs',
+      '/moss/single/build.json',
+      '/moss/single/LICENSE-MOSS.txt',
       '/sqlite.wasm',
       '/book.epub',
       '/backup.htmlz',
@@ -197,13 +201,19 @@ test('archive, dictionary and WASM assets are not mandatory shell entries', asyn
       '/%64ictionaries/entries.bin',
       '/%2E%2E%2Fdictionaries/data',
       '/%ff',
-      '/icon.png'
+      '/icon.png',
+      '/manifest.webmanifest',
+      '/safari-pinned-tab.svg',
+      '/licenses/foliate-js.txt',
+      '/legal/privacy.txt',
+      '/sample.mp3',
+      '/models/pitch.onnx'
     ]
   });
   await h.event('install');
   assert.deepEqual(
     h.precached.filter((p) => ![url('/'), url('/b'), url('/app.js')].includes(p)),
-    [url('/icon.png')]
+    []
   );
 });
 
@@ -386,13 +396,38 @@ test('font classification excludes imported fonts, dictionary assets and unknown
   assert.equal(isPackagedFont(new URL(url('/_app/immutable/assets/Klee.ABC.woff2'))), true);
 });
 
-test('every packaged font format is excluded from the shell, case-insensitively', async () => {
+test('every packaged font format and decorative public image is excluded from the shell', async () => {
   const h = makeHarness({ files: ['/a.WOFF', '/b.WOFF2', '/c.TTF', '/d.OTF', '/icon.png'] });
+  await h.event('install');
+  assert.deepEqual(h.precached.sort(), [url('/'), url('/b'), url('/app.js')].sort());
+});
+
+test('built images stay mandatory while equivalent public images do not', async () => {
+  const h = makeHarness({
+    build: ['/app.js', '/_app/immutable/cover-hash.png'],
+    files: ['/cover.png', '/manifest.webmanifest', '/licenses/reader.txt']
+  });
   await h.event('install');
   assert.deepEqual(
     h.precached.sort(),
-    [url('/'), url('/b'), url('/app.js'), url('/icon.png')].sort()
+    [url('/'), url('/b'), url('/app.js'), url('/_app/immutable/cover-hash.png')].sort()
   );
+});
+
+test('public shell classification keeps executable/config files but excludes optional presentation', () => {
+  for (const path of ['/appearance-init.js', '/runtime.css', '/config.json'])
+    assert.equal(isRequiredPublicShellAsset(new URL(url(path))), true, path);
+  for (const path of [
+    '/favicon.ico',
+    '/icons/app.png',
+    '/manifest.webmanifest',
+    '/licenses/foliate.txt',
+    '/legal/terms.md',
+    '/audio/sample.mp3',
+    '/models/pitch.onnx',
+    '/debug/app.js.map'
+  ])
+    assert.equal(isRequiredPublicShellAsset(new URL(url(path))), false, path);
 });
 
 test('font error responses are not mistaken for usable cached font data', async () => {
