@@ -128,7 +128,7 @@ export function renderContent(content: TextNode): string {
   validateContent(content);
   return cleanHTML(generateHTML(content as JSONContent, extensions()));
 }
-function requiresHTMLMarkdown(content: TextNode): boolean {
+export function requiresHTMLMarkdown(content: TextNode): boolean {
   if (content.marks?.some((mark) => mark.type === 'rubyText')) return true;
   if (content.type === 'orderedList' && content.attrs?.start === 0) return true;
   return content.content?.some(requiresHTMLMarkdown) ?? false;
