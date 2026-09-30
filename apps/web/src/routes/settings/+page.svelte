@@ -75,7 +75,10 @@
   import { mergeEntries } from '$lib/components/merged-header-icon/merged-entries';
   import { pagePath } from '$lib/data/env';
   import { storage } from '$lib/data/window/navigator/storage';
-  import { retryPersistentStorage } from '$lib/data/window/navigator/persistent-storage';
+  import {
+    currentPersistentStorageRequest,
+    retryPersistentStorage
+  } from '$lib/data/window/navigator/persistent-storage';
   import { formatPageTitle } from '$lib/functions/format-page-title';
   import { writableSubject } from '$lib/functions/svelte/store';
 
@@ -83,6 +86,7 @@
 
   onMount(() => {
     storage.persisted().then(setPersistentStorage);
+    currentPersistentStorageRequest()?.then(setPersistentStorage);
     setStorageQuota();
   });
 
