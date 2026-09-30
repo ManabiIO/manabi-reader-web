@@ -191,6 +191,7 @@ export async function refreshSnippets(
       try {
         const sources = await sourceDescriptors();
         selected.guard();
+        const activeSources = new Set(sources.map(sourceKey));
         const db = await integrationDB();
         for (let sourceIndex = 0; sourceIndex < sources.length; sourceIndex++) {
           const source = sources[sourceIndex];
@@ -277,7 +278,8 @@ export async function refreshSnippets(
                   selected.owner,
                   remote.document,
                   remote.location,
-                  selected.guard
+                  selected.guard,
+                  activeSources
                 );
               } catch (error) {
                 selected.guard();
