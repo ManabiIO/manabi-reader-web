@@ -168,6 +168,16 @@ class LibraryParityBrowser(LibraryBase):
         expect(toolbar).to_have_count(0)
         restored_actions = self.page.get_by_role('button', name='Library actions', exact=True)
         expect(restored_actions).to_be_focused()
+
+        # Escape must work from the toolbar too, not only from a focused book.
+        restored_actions.press('Enter')
+        self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
+        toolbar = self.page.get_by_label('Book selection', exact=True)
+        select_all = toolbar.get_by_role('button', name='Select All Visible', exact=True)
+        select_all.focus()
+        select_all.press('Escape')
+        expect(toolbar).to_have_count(0)
+        expect(restored_actions).to_be_focused()
         self.page.evaluate('document.documentElement.style.fontSize = ""')
 
     def start_drag(self, layout):
