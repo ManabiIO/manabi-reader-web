@@ -162,8 +162,12 @@ class LibraryParityBrowser(LibraryBase):
         expect(selected_menu).to_have_count(0)
         expect(more).to_be_focused()
 
-        cancel.click()
+        cancel.focus()
+        expect(cancel).to_be_focused()
+        cancel.press('Enter')
         expect(toolbar).to_have_count(0)
+        restored_actions = self.page.get_by_role('button', name='Library actions', exact=True)
+        expect(restored_actions).to_be_focused()
         self.page.evaluate('document.documentElement.style.fontSize = ""')
 
     def start_drag(self, layout):
