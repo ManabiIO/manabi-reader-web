@@ -54,10 +54,23 @@ export function registerReaderServiceWorker(worker, config) {
       .map((url) => url.href)
   );
   const shellAssets = new Set(
-    [...config.build, ...config.files, ...config.prerendered]
-      .map((path) => new URL(path, scope))
-      .filter((url) => inScope(url) && isShellAsset(url) && !lazyAssets.has(url.href))
-      .map((url) => url.href)
+    [
+      ...config.build
+        .map((path) => new URL(path, scope))
+        .filter((url) => inScope(url) && isShellAsset(url) && !lazyAssets.has(url.href)),
+      ...config.files
+        .map((path) => new URL(path, scope))
+        .filter(
+          (url) =>
+            inScope(url) &&
+            isShellAsset(url) &&
+            isRequiredPublicShellAsset(url) &&
+            !lazyAssets.has(url.href)
+        ),
+      ...config.prerendered
+        .map((path) => new URL(path, scope))
+        .filter((url) => inScope(url) && isShellAsset(url) && !lazyAssets.has(url.href))
+    ].map((url) => url.href)
   );
   const pages = new Set(config.prerendered.map((path) => new URL(path, scope).href));
   const immutableAssets = new Set(config.build.map((path) => new URL(path, scope).href));
@@ -330,11 +343,29 @@ export function isShellAsset(url) {
     return false;
   }
   return (
-    !/(?:^|\/)(?:dictionaries|dictionary-archives|manabitan)(?:\/|$)/.test(path) &&
-    // Offline readiness is the executable Reader shell, not every public file.
-    // Decorative/PWA assets, legal text and large optional media/model payloads
-    // must not be able to make an otherwise usable application fail install.
-    !/\.(?:zip|epub|htmlz|sqlite3?|db|wasm|woff2?|ttf|otf|png|jpe?g|gif|webp|avif|svg|ico|webmanifest|txt|md|pdf|mp3|m4a|aac|ogg|opus|wav|flac|mp4|webm|mov|bin|onnx|gguf|safetensors)$/.test(
+    !/(?:^|\/)(?:dictionaries|dictionary-archives|manabitan|moss)(?:\/|$)/.test(path) &&
+    !/\.(?:zip|epub|htmlz|sqlite3?|db|wasm|woff2?|ttf|otf)$/.test(path)
+  );
+}
+
+/**
+ * Public/static files are not automatically part of the executable Reader.
+ * Keep code/config that may be required at runtime, but do not let decorative
+ * install metadata, legal text, optional media or model payloads make service
+ * worker installation fail. Built assets are deliberately not filtered here:
+ * a hashed image imported by application code can be a real route dependency.
+ * @param {URL} url
+ */
+export function isRequiredPublicShellAsset(url) {
+  let path;
+  try {
+    path = decodeURIComponent(url.pathname).toLowerCase();
+  } catch {
+    return false;
+  }
+  return (
+    !/(?:^|\/)(?:legal|licenses)(?:\/|$)/.test(path) &&
+    !/\.(?:png|jpe?g|gif|webp|avif|svg|ico|webmanifest|mp3|m4a|aac|ogg|opus|wav|flac|mp4|webm|mov|bin|onnx|gguf|safetensors|map)$/.test(
       path
     )
   );
