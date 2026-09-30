@@ -280,6 +280,7 @@ export class VideoWorkspace {
     this.selectionStatus.className = 'media-selection-status';
     this.selectionStatus.setAttribute('role', 'status');
     this.selectionStatus.setAttribute('aria-live', 'polite');
+    this.selectionStatus.setAttribute('aria-atomic', 'true');
     this.selectVisibleButton = action('Select visible videos', () => {
       const ownsFocus = document.activeElement === this.selectVisibleButton;
       for (const check of this.shelf.querySelectorAll<HTMLInputElement>('input[type=checkbox]')) {
@@ -410,10 +411,13 @@ export class VideoWorkspace {
     this.selectVisibleButton.disabled =
       visible.length === 0 ||
       visible.every((check) => this.selected.has(check.value as ContentKey));
-    this.selectionStatus.textContent =
+    const status =
       this.selected.size === 0
         ? 'No videos selected'
         : `${this.selected.size} ${this.selected.size === 1 ? 'video' : 'videos'} selected`;
+    // Refreshes are frequent (storage, captions, jobs). Do not recreate the
+    // live-region text node unless the user-visible selection state changed.
+    if (this.selectionStatus.textContent !== status) this.selectionStatus.textContent = status;
   }
 
   private notice(text: string) {
