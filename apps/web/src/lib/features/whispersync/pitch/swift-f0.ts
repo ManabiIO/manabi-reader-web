@@ -42,7 +42,7 @@ export async function analyseSwiftF0Window(
     fmin: new ort.Tensor('float32', Float32Array.of(MIN_HZ), []),
     fmax: new ort.Tensor('float32', Float32Array.of(MAX_HZ), [])
   };
-  let result: Awaited<ReturnType<ort.InferenceSession['run']>> | undefined;
+  let result: ort.InferenceSession.ReturnType | undefined;
   try {
     result = await session.run(feeds);
     const pitch = result.pitch?.data as ArrayLike<number> | undefined;
