@@ -8,7 +8,7 @@ import { BackupStorageHandler } from '$lib/data/storage/handler/backup-handler';
 import { BaseStorageHandler, FilePrefix } from '$lib/data/storage/handler/base-handler';
 import { storage } from '$lib/data/window/navigator/storage';
 import { StorageDataType, StorageKey } from '$lib/data/storage/storage-types';
-import { database, requestPersistentStorage$ } from '$lib/data/store';
+import { database } from '$lib/data/store';
 import loadEpub from '$lib/functions/file-loaders/epub/load-epub';
 import loadHtmlz from '$lib/functions/file-loaders/htmlz/load-htmlz';
 import loadTxt from '$lib/functions/file-loaders/txt/load-txt';
@@ -39,7 +39,7 @@ export async function importData(
 
   replicationProgress$.next({ progressBase, maxProgress });
 
-  await persistStorage(targetHandler.storageType);
+  if (!fileCountData) await persistStorage(targetHandler.storageType);
 
   if (targetHandler.isCacheDisabled()) {
     targetHandler.clearData(false);
@@ -207,7 +207,8 @@ export async function replicateData(
 
   replicationProgress$.next({ maxProgress });
 
-  await persistStorage(targetHandler.storageType).catch(() => {});
+  if (dataToReplicate.includes(StorageDataType.DATA))
+    await persistStorage(targetHandler.storageType).catch(() => {});
 
   [sourceHandler, targetHandler].forEach((handler) => {
     if (handler.isCacheDisabled()) {
@@ -431,14 +432,18 @@ export async function replicateData(
   return errorMessage;
 }
 
+let browserPersistenceAttempt: Promise<void> | undefined;
+
 async function persistStorage(target: StorageKey) {
-  if (target === StorageKey.BROWSER && requestPersistentStorage$.getValue()) {
-    try {
-      await storage.persist();
-    } catch (_) {
-      // no-op
-    }
-  }
+  if (target !== StorageKey.BROWSER) return;
+  // Offline/local data protection is infrastructure, not a feature opt-in.
+  // Ask at most once per page lifetime so Firefox cannot repeatedly prompt
+  // after a denial. A later document can retry after engagement has changed.
+  browserPersistenceAttempt ??= storage
+    .persist()
+    .then(() => undefined)
+    .catch(() => undefined);
+  await browserPersistenceAttempt;
 }
 
 function checkCancelAndProgress(
