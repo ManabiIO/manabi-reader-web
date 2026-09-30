@@ -8,7 +8,7 @@
  */
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { chromium, webkit, expect as baseExpect } from '@playwright/test';
 const url = process.env.SNIPPETS_URL ?? 'http://127.0.0.1:4178/reader-web';
@@ -668,10 +668,38 @@ try {
     'Hi. there',
     'Alphabetic sentence prefixes must not become TipTap ordered-list markers.'
   );
+  await page.getByRole('textbox', { name: 'Snippet title', exact: true }).fill('CommonMark round trip');
+  await commit(page, true);
+
+  const roundTripMenu = page.getByRole('button', { name: 'More actions', exact: true });
+  await roundTripMenu.click();
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('menuitem', { name: 'Markdown', exact: true }).click();
+  const markdownDownload = await downloadPromise;
+  const markdownPath = await markdownDownload.path();
+  assert(markdownPath, 'Markdown export must produce a downloadable file');
+  const exportedMarkdown = await readFile(markdownPath, 'utf8');
+  assert.match(exportedMarkdown, /Hi\. there/);
+  assert.match(
+    exportedMarkdown,
+    /<ol[^>]*start=["']0["']/,
+    'Zero-start ordered lists must use lossless HTML inside Markdown export'
+  );
+
+  await openLibrary(page);
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'round-trip.md',
+    mimeType: 'text/markdown',
+    buffer: Buffer.from(exportedMarkdown)
+  });
+  const roundTripEditor = page.getByRole('textbox', { name: 'Snippet text', exact: true });
+  await expect(roundTripEditor).toContainText('Hi. there');
+  await expect(roundTripEditor.locator('ol')).toHaveAttribute('start', '0');
+  await expect(roundTripEditor.locator('li').first()).toContainText('zero');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'Discard draft and leave', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Snippets', exact: true })).toBeVisible();
-  passed('Markdown import preserves prose prefixes and CommonMark zero-start lists in TipTap');
+  passed('Markdown import and export round-trip prose plus CommonMark zero-start lists');
   await local.ctx.close();
 
   const cloud = await context('alice');
