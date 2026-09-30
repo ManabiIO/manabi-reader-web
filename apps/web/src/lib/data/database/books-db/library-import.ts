@@ -138,8 +138,11 @@ export async function commitLibraryBook(
       assertCurrent();
       signal?.throwIfAborted();
       if (existing?.elementHtml) {
-        if (request.source.owner !== null && existing.libraryOwner === undefined)
+        if (request.source.owner !== null && existing.libraryOwner === undefined) {
           await tx.store.put({ ...existing, libraryOwner: request.source.owner });
+          assertCurrent();
+          signal?.throwIfAborted();
+        }
         return { id: existing.id, title: existing.title, compatibleBookIds: ids };
       }
       if (!prepared) throw new Error('The saved book changed while opening. Refresh the Library.');

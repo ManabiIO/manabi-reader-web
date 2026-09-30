@@ -113,6 +113,20 @@ test('enabled links preserve already-resolved internal and external destinations
   }
 });
 
+test('buttons and link actions expose an explicit native keyboard tab stop', () => {
+  for (const props of [{}, { href: '/reader-web/manage' }]) {
+    assert.match(html('Button', props), /tabindex="0"/);
+  }
+});
+
+test('caller-owned negative and positive tab order is preserved', () => {
+  for (const href of [undefined, '/reader-web/manage']) {
+    for (const tabindex of [-1, 3]) {
+      assert.ok(html('Button', { href, tabindex }).includes(`tabindex="${tabindex}"`));
+    }
+  }
+});
+
 test('labels wrap without a fixed height and activation does not displace the control', () => {
   const result = classes({ size: 'default' });
   assert.ok(result.includes('whitespace-normal'));

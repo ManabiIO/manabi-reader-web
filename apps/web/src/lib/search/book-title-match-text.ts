@@ -6,7 +6,7 @@
 
 import {
   foldSearch,
-  sortSearchText,
+  searchMatchedField,
   type SearchTextFields
 } from '../library/search-normalization.ts';
 import { creatorLine } from '../library/book-metadata.ts';
@@ -90,6 +90,26 @@ export function bookTitleMatchIndex(
   };
 }
 
+/** Keep ranking and the displayed reason for a match on the same metadata fields. */
+function secondaryContexts(
+  book: ShelfBook,
+  contexts: readonly BookTitleMatchContext[]
+): BookTitleMatchContext[] {
+  return [
+    ...(book.canonicalTitle !== book.title
+      ? [{ text: book.canonicalTitle, detail: `Original title · ${book.canonicalTitle}` }]
+      : []),
+    ...(book.creators ?? []).map((creator) => ({
+      text: creator.name,
+      detail: `Author · ${creator.name}`
+    })),
+    ...(book.series?.name
+      ? [{ text: book.series.name, detail: `Series · ${book.series.name}` }]
+      : []),
+    ...contexts
+  ];
+}
+
 /** The exact fields used to rank a Book in the global Titles section. */
 export function bookTitleSearchFields(
   book: ShelfBook,
@@ -97,12 +117,7 @@ export function bookTitleSearchFields(
 ): SearchTextFields {
   return {
     primary: [book.title],
-    secondary: [
-      ...(book.canonicalTitle !== book.title ? [book.canonicalTitle] : []),
-      ...(book.creators ?? []).map((creator) => creator.name),
-      ...(book.series?.name ? [book.series.name] : []),
-      ...contexts.map((item) => item.text)
-    ]
+    secondary: secondaryContexts(book, contexts).map((item) => item.text)
   };
 }
 
@@ -117,16 +132,11 @@ export function bookTitleMatchDetail(
 ): string | undefined {
   const needle = foldSearch(query.trim());
   const creators = creatorLine(book.creators) || undefined;
-  if (foldSearch(book.title).includes(needle)) return creators;
-  const candidates = [
-    ...(book.canonicalTitle !== book.title
-      ? [{ text: book.canonicalTitle, detail: `Original title · ${book.canonicalTitle}` }]
-      : []),
-    ...(book.creators ?? []).map((creator) => ({
-      text: creator.name,
-      detail: `Author · ${creator.name}`
-    })),
-    ...contexts
-  ].filter((item) => foldSearch(item.text).includes(needle));
-  return sortSearchText(candidates, query, (item) => item.text)[0]?.detail ?? creators;
+  if (!needle || foldSearch(book.title).includes(needle)) return creators;
+  const candidates = secondaryContexts(book, contexts);
+  const field = searchMatchedField(
+    candidates.map((item) => item.text),
+    query
+  );
+  return field === undefined ? creators : candidates[field].detail;
 }

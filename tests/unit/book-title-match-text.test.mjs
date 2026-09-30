@@ -85,3 +85,27 @@ test('metadata-only book matches explain their strongest matching field', () => 
   });
   assert.equal(bookTitleMatchDetail({ ...item, title: 'Cat guide' }, [], 'cat'), 'Cat Author');
 });
+
+test('metadata explanation honors field precedence within the winning relevance tier', () => {
+  const item = {
+    title: 'Dog guide',
+    canonicalTitle: 'Dog guide',
+    creators: [{ name: 'Cat Author With A Long Name' }]
+  };
+  const contexts = [{ text: 'Cat Box', detail: 'Collection · Cat Box' }];
+  assert.equal(bookTitleMatchDetail(item, contexts, 'cat'), 'Author · Cat Author With A Long Name');
+  assert.equal(
+    bookTitleMatchDetail(item, [{ text: 'cat', detail: 'Collection · cat' }], 'cat'),
+    'Collection · cat'
+  );
+});
+
+test('personal series is ranked and explained even without a shelf-tree context', () => {
+  const item = { title: 'Dog guide', canonicalTitle: 'Dog guide', series: { name: 'Cat Studies' } };
+  assert.deepEqual(bookTitleSearchFields(item, []), {
+    primary: ['Dog guide'],
+    secondary: ['Cat Studies']
+  });
+  assert.equal(bookTitleMatchDetail(item, [], 'cat'), 'Series · Cat Studies');
+  assert.equal(bookTitleMatchDetail(item, [], 'dog'), undefined);
+});

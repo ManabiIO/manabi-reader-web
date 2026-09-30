@@ -162,7 +162,7 @@ class CompletedReadingBrowser(LocalLibraryBrowser):
             exported=json.loads(archive.read(name))
         self.assertEqual(completion,next(row['completedData'] for row in exported if row.get('completedBook')))
 
-        destination=self.browser.new_context()
+        destination=self.new_context()
         try:
             page=destination.new_page()
             page.on('pageerror',lambda error:self.errors.append(str(error)))
@@ -187,7 +187,6 @@ class CompletedReadingBrowser(LocalLibraryBrowser):
         finally:
             Path('test-results').mkdir(exist_ok=True)
             page.screenshot(path='test-results/completed-book-migration.png',full_page=True)
-            destination.close()
 
 
 if __name__=='__main__':

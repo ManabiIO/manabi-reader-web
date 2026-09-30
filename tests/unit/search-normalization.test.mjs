@@ -102,3 +102,28 @@ test('metadata relevance deterministically places non-matches after matches', ()
   values.sort((a, b) => compareSearchText(a, b, 'school'));
   assert.deepEqual(values, ['school', 'school notes', 'zzz']);
 });
+
+test('match-only metadata ranking filters in the same normalized pass', () => {
+  let reads = 0;
+  const values = ['unrelated', 'Copycat', 'cat', 'Cat guide', '🐱cat notes'];
+  const result = sortSearchText(
+    values,
+    ' CAT ',
+    (value) => {
+      reads++;
+      return value;
+    },
+    undefined,
+    { matchesOnly: true }
+  );
+  assert.equal(reads, values.length);
+  assert.deepEqual(result, ['cat', 'Cat guide', '🐱cat notes', 'Copycat']);
+  assert.deepEqual(
+    sortSearchText(values, ' ', (value) => value, undefined, { matchesOnly: true }),
+    []
+  );
+  assert.deepEqual(
+    sortSearchText(values, ' ', (value) => value),
+    values
+  );
+});

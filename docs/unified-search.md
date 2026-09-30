@@ -31,6 +31,25 @@ failure and retry independently. A dictionary, snippet, video-store, or book-bod
 failure must not erase successful sibling results. Switching to Books does not
 require Snippets scope readiness, and vice versa.
 
+## Code ownership
+
+- `media/search-text.ts` owns dependency-free normalization, field precedence,
+  ranking and metadata highlight offsets. Both Reader and the standalone media
+  build compile this implementation. `library/search-normalization.ts` preserves
+  existing library and worker imports through re-exports.
+- `search/result-rows.ts` turns book, snippet and video hits into display rows
+  with typed navigation targets. Canonical book/snippet locators and precise video
+  timestamps remain source data; the component opens those targets.
+- `search/source-session.ts` owns concurrent Content source admission, stable
+  interleaving, partial-result failures and cancellation. Each source reports
+  completion through its batches; receiving its cleanup only confirms admission.
+  A session retires workers returned after cancellation and suppresses results
+  after an account boundary changes.
+- `search/unified-search.svelte` owns scope/filter interactions, query admission,
+  navigation, accessible rendering and focus. Dictionary, Titles and Content keep
+  their independent query lifetimes. Source workers own idempotent termination,
+  including initial receiver/postMessage failures.
+
 ## Dictionary behavior
 
 Raw text stays unchanged in the global input. Dictionary search alone evaluates

@@ -34,7 +34,7 @@ const link = (bookId, changes = {}) => ({
 
 // Only the IndexedDB transport is substituted. The actual cursor projection,
 // identity decision, insertion, placeholder hydration and transaction wrapper run.
-function harness(initial, { onAdd, manual = false } = {}) {
+function harness(initial, { onAdd, onPut, manual = false } = {}) {
   let rows = new Map(initial.map((row) => [row.id, row]));
   const writes = [];
   let opened = 0;
@@ -108,6 +108,7 @@ function harness(initial, { onAdd, manual = false } = {}) {
           async put(value) {
             draft.set(value.id, value);
             writes.push(['put', value]);
+            onPut?.();
             return value.id;
           }
         }
@@ -195,6 +196,35 @@ test('reopening a legacy cloud copy durably records its account scope', async ()
   assert.equal(h.rows()[0].elementHtml, 'Keep');
   assert.equal(h.rows()[0].lastBookOpen, 900);
 });
+
+for (const placeholder of [false, true]) {
+  test(`session revocation rolls back ${placeholder ? 'placeholder hydration' : 'legacy owner promotion'}`, async () => {
+    const saved = record(1, { elementHtml: placeholder ? '' : 'Keep', lastBookOpen: 900 });
+    let valid = true;
+    const h = harness([saved], { onPut: () => (valid = false) });
+    // A cloud session generation can change while the local profile remains
+    // the same, so the profile AbortSignal alone does not fence this write.
+    const controller = new AbortController();
+    const failure = new Error('session revoked');
+    const check = () => {
+      if (!valid) throw failure;
+    };
+    await assert.rejects(
+      commit(
+        h.db,
+        [link(1, { owner: 'alice', fileId: 'copy.epub' })],
+        request({ source: { ...source, owner: 'alice' } }),
+        prepared(),
+        check,
+        controller.signal
+      ),
+      (error) => error === failure
+    );
+    assert.equal(controller.signal.aborted, false);
+    assert.equal(h.writes.length, 1, 'a pending write must be rolled back');
+    assert.deepEqual(h.rows(), [saved]);
+  });
+}
 
 test('a deleted expected book is never recreated from a previously prepared import', async () => {
   const h = harness([]);

@@ -5,6 +5,7 @@ Composition tests emulate DOM contracts; they do not claim physical IME coverage
 """
 import io
 import json
+import re
 import unittest
 import zipfile
 from playwright.sync_api import expect
@@ -115,6 +116,55 @@ class UnifiedSearch(ProductJourneyBase):
           channel.postMessage({type:'media-change',captions:true});channel.close();
         }""", {'identity': identity, 'cues': cues})
 
+    def assert_no_document_horizontal_overflow(self):
+        diagnostic = self.page.evaluate(r"""() => {
+          const root = document.documentElement;
+          const overflow = root.scrollWidth - innerWidth;
+          if (overflow <= 1) return {overflow, active: null, offenders: []};
+          const describe = (node) => {
+            const rect = node.getBoundingClientRect();
+            const style = getComputedStyle(node);
+            return {
+              tag: node.tagName.toLowerCase(),
+              id: node.id,
+              className: typeof node.className === 'string' ? node.className : '',
+              role: node.getAttribute('role'),
+              ariaLabel: node.getAttribute('aria-label'),
+              text: (node.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 120),
+              left: rect.left,
+              right: rect.right,
+              width: rect.width,
+              clientWidth: node.clientWidth,
+              scrollWidth: node.scrollWidth,
+              overflowX: style.overflowX,
+              outlineWidth: style.outlineWidth,
+              outlineOffset: style.outlineOffset,
+              boxShadow: style.boxShadow
+            };
+          };
+          const offenders = [...document.querySelectorAll('body *')]
+            .filter((node) => {
+              const rect = node.getBoundingClientRect();
+              return (
+                rect.left < -1 ||
+                rect.right > innerWidth + 1 ||
+                node.scrollWidth > node.clientWidth + 1
+              );
+            })
+            .slice(0, 20)
+            .map(describe);
+          return {
+            overflow,
+            active: document.activeElement instanceof Element ? describe(document.activeElement) : null,
+            offenders
+          };
+        }""")
+        self.assertLessEqual(
+            diagnostic['overflow'],
+            1,
+            f"document horizontal overflow: {json.dumps(diagnostic, ensure_ascii=False)}",
+        )
+
     def filter(self, name):
         button = self.page.get_by_role('group', name='Show').get_by_role(
             'button', name=name, exact=True)
@@ -129,6 +179,40 @@ class UnifiedSearch(ProductJourneyBase):
         expect(button).to_have_attribute('aria-pressed', 'true')
         expect(button).to_be_focused()
         return button
+
+    def test_library_section_switch_is_reachable_and_clear_of_desktop_sidebar(self):
+        for width, text_size in ((1200, '100%'), (320, '200%')):
+            with self.subTest(width=width):
+                self.page.set_viewport_size({'width': width, 'height': 900})
+                self.page.evaluate('size => document.documentElement.style.fontSize = size', text_size)
+                nav = self.page.get_by_role('navigation', name='Library sections', exact=True)
+                expect(nav).to_be_visible()
+                if width >= 1024:
+                    rail = self.page.get_by_role('complementary', name='Collections', exact=True)
+                    self.assertGreaterEqual(nav.bounding_box()['x'],
+                                            rail.bounding_box()['x'] + rail.bounding_box()['width'])
+                else:
+                    # Stress wider platform fonts without depending on a font
+                    # that is installed on only one development/CI machine.
+                    nav.evaluate("e => {e.style.fontFamily = 'monospace'; e.style.letterSpacing = '.15em'}")
+                self.assertLessEqual(nav.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+                self.assert_no_document_horizontal_overflow()
+                for name in ('Books', 'Videos'):
+                    link = nav.get_by_role('link', name=name, exact=True)
+                    self.assertGreaterEqual(link.bounding_box()['height'], 43.99)
+                self.checkpoint('library-sections-' + str(width))
+                videos = nav.get_by_role('link', name='Videos', exact=True)
+                if width == 320:
+                    videos.focus()
+                    self.page.keyboard.press('Enter')
+                else:
+                    videos.click()
+                expect(self.page).to_have_url(re.compile(r'/reader-web/videos$'))
+                self.page.get_by_role('navigation', name='Library sections', exact=True).get_by_role(
+                    'link', name='Books', exact=True).click()
+                expect(self.page).to_have_url(re.compile(r'/reader-web/manage$'))
+                expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute(
+                    'data-hydrated', 'true')
 
     def test_title_results_prioritize_relevance_across_source_types(self):
         self.seed_video_search(title='cat')
@@ -149,11 +233,11 @@ class UnifiedSearch(ProductJourneyBase):
         self.assertTrue(kinds.nth(0).inner_text().startswith('Video'))
         self.assertEqual('Book · Author · cat', kinds.nth(4).inner_text())
         self.assertTrue(all(kinds.nth(index).inner_text().startswith('Book') for index in range(1, 5)))
-        expect(rows.nth(4)).to_have_attribute(
-            'aria-label', 'Read Dog guide. Matched Author · cat'
-        )
+        expect(rows.nth(4)).to_have_accessible_name('Read Dog guide')
+        expect(rows.nth(4)).to_have_accessible_description('Book · Author · cat')
         expect(rows.nth(0).locator('mark')).to_have_text('cat')
-        expect(rows.nth(4).locator('mark')).to_have_count(0)
+        expect(rows.nth(4).locator('strong mark')).to_have_count(0)
+        expect(rows.nth(4).locator('small mark')).to_have_text('cat')
         self.checkpoint('unified-title-relevance')
 
     def test_title_ranking_keeps_creator_only_metadata_matches(self):
@@ -196,8 +280,7 @@ class UnifiedSearch(ProductJourneyBase):
         self.page.set_viewport_size({'width': 320, 'height': 568})
         self.page.evaluate('document.documentElement.style.fontSize = "200%"')
         self.assertLessEqual(full.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
-        self.assertLessEqual(
-            self.page.evaluate('document.documentElement.scrollWidth-innerWidth'), 1)
+        self.assert_no_document_horizontal_overflow()
         controls = self.page.locator('.search-controls')
         self.assertEqual('static', controls.evaluate('e => getComputedStyle(e).position'))
         setup = self.page.get_by_text('Local dictionaries', exact=True)
@@ -346,6 +429,31 @@ class UnifiedSearch(ProductJourneyBase):
         expect(field).to_have_value('SCOPE_TOKEN')
         self.checkpoint('unified-library-scope-switching')
 
+    def test_content_search_updates_book_name_after_rename_in_another_tab(self):
+        self.import_book('Original book name', body='<p>UNIQUE_BODY_TOKEN</p>')
+        self.library_search('UNIQUE_BODY_TOKEN')
+        self.filter('Content')
+        passage = self.page.locator('[data-search-row="content"]')
+        expect(passage).to_have_count(1)
+        expect(passage).to_have_accessible_name('Open passage in Original book name: UNIQUE_BODY_TOKEN')
+        editor = self.context.new_page()
+        editor.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))
+        try:
+            editor.goto(self.origin + '/reader-web/manage')
+            expect(editor.get_by_role('region', name='Library shelves')).to_have_attribute(
+                'data-hydrated', 'true')
+            editor.get_by_role('button', name='Actions for Original book name', exact=True).click()
+            editor.get_by_role('menuitem', name='Rename…', exact=True).click()
+            dialog = editor.get_by_role('dialog', name='Rename book', exact=True)
+            dialog.get_by_label('Name', exact=True).fill('Renamed book')
+            dialog.get_by_role('button', name='Save', exact=True).click()
+            expect(editor.get_by_role('button', name='Read Renamed book', exact=True)).to_be_visible()
+            expect(passage.locator('small')).to_contain_text('Renamed book')
+            expect(passage).to_have_accessible_name('Open passage in Renamed book: UNIQUE_BODY_TOKEN')
+            self.checkpoint('content-search-renamed-book')
+        finally:
+            editor.close()
+
     def test_new_query_owns_content_and_searchbox_focus(self):
         self.import_book('Live search ownership', body='<p>猫</p><p>犬</p>')
         field = self.library_search('猫')
@@ -460,7 +568,7 @@ class UnifiedSearch(ProductJourneyBase):
         expect(self.page.get_by_text(
             'Use a dictionary query of 256 characters or fewer.', exact=False
         )).to_be_visible()
-        expect(self.page.get_by_role('button', name='Retry dictionary', exact=True)).to_be_visible()
+        expect(self.page.get_by_role('button', name='Retry dictionary', exact=True)).to_have_count(0)
 
         field.fill('猫')
         expect(self.page.get_by_text(
@@ -486,8 +594,7 @@ class UnifiedSearch(ProductJourneyBase):
         results = self.page.get_by_label('Library search results', exact=True)
         expect(results).to_be_visible()
         self.assertLessEqual(results.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
-        self.assertLessEqual(
-            self.page.evaluate('document.documentElement.scrollWidth-innerWidth'), 1)
+        self.assert_no_document_horizontal_overflow()
 
         controls = results.locator('.search-controls')
         self.assertEqual('static', controls.evaluate('e => getComputedStyle(e).position'))

@@ -38,7 +38,7 @@ jobs:
         run: pnpm build
       - name: Real storage loss and recovery through the application UI
         run: |
-          python -m pip install 'playwright==1.55.0'
+          python -m pip install 'playwright==1.63.0'
           python -m playwright install --with-deps chromium
           set -o pipefail
           python tests/browser/test_reading_recovery.py 2>&1 | tee reading-recovery.log

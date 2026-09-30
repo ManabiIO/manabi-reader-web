@@ -137,7 +137,13 @@ class LibraryBase(unittest.TestCase):
         output = Path('test-results')
         output.mkdir(exist_ok=True)
         try:
-            self.page.screenshot(path=str(output / (self.engine + '-' + self._testMethodName + '.png')), full_page=True)
+            # WebKit cannot capture a full document beyond its bitmap limit.
+            # Keep a viewport screenshot and the complete HTML for large fixtures.
+            dimensions = self.page.evaluate('''() => [
+                document.documentElement.scrollWidth, document.documentElement.scrollHeight]''')
+            self.page.screenshot(
+                path=str(output / (self.engine + '-' + self._testMethodName + '.png')),
+                full_page=max(dimensions) < 32767)
             (output / (self.engine + '-' + self._testMethodName + '.html')).write_text(self.page.content())
         finally:
             self.context.close()
