@@ -140,10 +140,12 @@
   export let selectMode = false;
   export let destinationTitle = 'Library';
   export let menu: LibraryMenuModel | undefined = undefined;
-  /** Parent-owned selection eligibility; binding avoids lifecycle-sensitive scope events. */
-  export let selectionScopeKey = '';
-  export let selectableBookIds: number[] = [];
-  export let selectablePreviewKeys: string[] = [];
+  /** One immutable snapshot keeps scope and eligibility atomic across the component boundary. */
+  export let selectionEligibility: { key: string; ids: number[]; previews: string[] } = {
+    key: '',
+    ids: [],
+    previews: []
+  };
   const dispatch = createEventDispatcher<{
     bookClick: { id: number };
     prepareBook: { prepare: () => Promise<number>; locator?: ReaderLocator };
@@ -174,6 +176,9 @@
   $: personalSeriesNames = [
     ...new Set(books.flatMap((book) => (book.series ? [book.series.name] : [])))
   ].sort();
+  let selectionScopeKey = '',
+    selectableBookIds: number[] = [],
+    selectablePreviewKeys: string[] = [];
   let organizationScope = '';
   let dialogOpen = false,
     dialog: 'details' | 'rename' | 'date' | 'membership' | 'series-name' | 'new-series' = 'rename';
@@ -419,6 +424,11 @@
   $: selectableBookIds = visibleBooks.flatMap((book) => (book.bookId ? [book.bookId] : []));
   $: selectionScopeKey = `${viewerId ?? 'local'}:${collectionId}:${series?.id || ''}:${notFinished ? 'unfinished' : 'all'}:${normalizedQuery}`;
   $: selectablePreviewKeys = visibleBooks.filter((book) => !book.bookId).map((book) => book.key);
+  $: selectionEligibility = {
+    key: selectionScopeKey,
+    ids: selectableBookIds,
+    previews: selectablePreviewKeys
+  };
   $: if (organizationScope !== selectionScopeKey) {
     organizationScope = selectionScopeKey;
     organizationEpoch++;
