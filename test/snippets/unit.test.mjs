@@ -1314,6 +1314,57 @@ test('restoring the same durable locator does not manufacture a newer position u
   assert.deepEqual(after.progress, locator);
 });
 
+test('discovery rebinds dirty local edits when the same document returns under a new source ID', async () => {
+  const selected = { owner: owner(), guard },
+    original = document('remote ancestor'),
+    edited = editSnippet(original, plainContent('offline local descendant'), ''),
+    oldSource = source('disconnected-source'),
+    newSource = source('reconnected-source'),
+    oldLocation = {
+      source: oldSource,
+      fileId: 'same-file-old',
+      name: original.id + '.manabi-snippet.json',
+      parent: '',
+      token: 'old-token'
+    },
+    newLocation = {
+      source: newSource,
+      fileId: 'same-file-new',
+      name: original.id + '.manabi-snippet.json',
+      parent: '',
+      token: 'new-token'
+    },
+    previousSources = memory.sources;
+  await acceptRemote(selected.owner, original, oldLocation, guard);
+  await mutateRecord(selected.owner, original.id, guard, (current) => ({
+    ...current,
+    document: edited,
+    dirty: true,
+    upload: {
+      document: structuredClone(edited),
+      destination: oldLocation,
+      expected: oldLocation
+    }
+  }));
+  memory.sources = [newSource];
+  memory.files.set(original.id, { document: original, location: newLocation });
+  try {
+    await refreshSnippets(selected, true);
+    const after = await getRecord(selected.owner, original.id);
+    assert.equal(after.primary, locationKey(newLocation));
+    assert.equal(after.destination.source.id, newSource.id);
+    assert.equal(after.document.revision, edited.revision);
+    assert.equal(passages(after.document.content)[0].text, 'offline local descendant');
+    assert.equal(after.remoteRevision, original.revision);
+    assert.equal(after.dirty, true);
+    assert.equal(after.upload, undefined);
+    assert.equal(after.conflicts.length, 0);
+  } finally {
+    memory.files.delete(original.id);
+    memory.sources = previousSources;
+  }
+});
+
 test('a stale listing snapshot cannot mark a location created during that scan as missing', async () => {
   const selected = { owner: owner(), guard },
     src = source(),
