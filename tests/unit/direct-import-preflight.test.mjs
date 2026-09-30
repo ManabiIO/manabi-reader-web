@@ -165,6 +165,7 @@ function loadFixture({
   };
   return {
     importData: exports.importData,
+    replicateData: exports.replicateData,
     handler,
     document,
     file: new File(['exact bytes'], 'book.epub', { type: 'application/epub+zip' }),
@@ -229,4 +230,54 @@ test('multiple imports in one page lifetime request persistent storage only once
   assert.equal(await h.importData(h.document, h.handler, [h.file], h.signal), '');
   assert.equal(await h.importData(h.document, h.handler, [h.file], h.signal), '');
   assert.equal(h.persistCalls(), 1, 'Firefox could otherwise prompt on every import');
+});
+
+test('empty imports do not request persistent storage', async () => {
+  const h = loadFixture();
+  assert.equal(await h.importData(h.document, h.handler, [], h.signal), '');
+  assert.equal(h.persistCalls(), 0);
+});
+
+test('background replication without book data does not request persistent storage', async () => {
+  const h = loadFixture();
+  const source = {
+    storageType: 'backup',
+    isCacheDisabled: () => false,
+    clearData: () => assert.fail('source cache should stay enabled'),
+    startContext() {}
+  };
+  const target = {
+    ...h.handler,
+    startContext() {}
+  };
+  assert.equal(
+    await h.replicateData(
+      source,
+      target,
+      false,
+      [{ title: 'Progress only', imagePath: '' }],
+      [],
+      h.signal
+    ),
+    ''
+  );
+  assert.equal(
+    h.persistCalls(),
+    0,
+    'progress/statistics-only background work must not cause a persistence prompt'
+  );
+});
+
+test('book replication with no selected contexts does not request persistent storage', async () => {
+  const h = loadFixture();
+  const source = {
+    storageType: 'backup',
+    isCacheDisabled: () => false,
+    clearData: () => assert.fail('source cache should stay enabled')
+  };
+  assert.equal(
+    await h.replicateData(source, h.handler, false, [], ['data'], h.signal),
+    ''
+  );
+  assert.equal(h.persistCalls(), 0);
 });
