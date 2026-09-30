@@ -624,6 +624,7 @@ export class MediaStore {
                 'duration',
                 'modelSha256',
                 'engineRevision',
+                'sparsePolicy',
                 'nextWindow',
                 'createdAt'
               ] as const;
