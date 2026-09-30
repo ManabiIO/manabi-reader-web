@@ -403,9 +403,7 @@ export class VideoWorkspace {
   }
 
   private updateSelectionActions() {
-    const visible = [
-      ...this.shelf.querySelectorAll<HTMLInputElement>('input[type=checkbox]')
-    ];
+    const visible = [...this.shelf.querySelectorAll<HTMLInputElement>('input[type=checkbox]')];
     this.clearSelectionButton.disabled = this.selected.size === 0;
     this.bulkGenerateButton.disabled = this.selected.size === 0;
     this.selectVisibleButton.disabled =
