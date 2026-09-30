@@ -700,6 +700,29 @@ try {
   await page.getByRole('button', { name: 'Discard draft and leave', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Snippets', exact: true })).toBeVisible();
   passed('Markdown import and export round-trip prose plus CommonMark zero-start lists');
+
+  await openLibrary(page);
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'hostile.md',
+    mimeType: 'text/markdown',
+    buffer: Buffer.from(
+      '<script>window.__snippetMarkdownExecuted=true</script>\n\n' +
+        '[unsafe](javascript:alert(1))\n\n' +
+        '<iframe src="https://example.invalid/"></iframe>\n\n' +
+        '**safe text remains**'
+    )
+  });
+  const hostileEditor = page.getByRole('textbox', { name: 'Snippet text', exact: true });
+  await expect(hostileEditor).toContainText('safe text remains');
+  await expect(hostileEditor.locator('script, iframe, [href^="javascript:"]')).toHaveCount(0);
+  assert.equal(
+    await page.evaluate(() => window.__snippetMarkdownExecuted),
+    undefined,
+    'Markdown raw HTML must be sanitized before it can execute'
+  );
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Discard draft and leave', exact: true }).click();
+  passed('Markdown import retains the shared HTML sanitization boundary');
   await local.ctx.close();
 
   const cloud = await context('alice');
