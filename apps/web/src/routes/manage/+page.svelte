@@ -161,8 +161,8 @@
   let collectionsOpen = false;
   let destinationTitle = 'Library';
   let selectionScopeKey = '';
-  let selectableBookIds: number[] = [];
-  let selectablePreviewKeys: string[] = [];
+  let selectableBookIds: readonly number[] = [];
+  let selectablePreviewKeys: readonly string[] = [];
   let selectionEligibility: LibrarySelectionEligibility = {
     key: '',
     ids: [],
