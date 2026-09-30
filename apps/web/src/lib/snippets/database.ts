@@ -288,8 +288,8 @@ export async function acceptRemote(
     // edits. Rebind that ancestor and preserve the local descendant for upload.
     if (
       rebindable &&
-      current.document.parents.includes(document.revision) &&
-      (current.dirty || uploadUnavailable)
+      (primaryMissing || primaryUnavailable) &&
+      current.document.parents.includes(document.revision)
     )
       return {
         ...current,
