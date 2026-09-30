@@ -7,6 +7,7 @@
 import { summarize, type SnippetSummary } from './summary';
 import { integrationDB, equal } from '../manabi/persistence';
 import type { SourceDescriptor } from '../library/catalog';
+import { sourceKey } from '../library/organization-keys';
 import {
   canonical,
   retainRemoteAncestor,
@@ -220,7 +221,8 @@ export async function acceptRemote(
   owner: string,
   document: SnippetDocument,
   location: Location,
-  guard: Guard
+  guard: Guard,
+  activeSources?: ReadonlySet<string>
 ) {
   location = { ...location, observedRevision: document.revision, missing: false };
   return mutateRecord(owner, document.id, guard, (current) => {
@@ -240,21 +242,61 @@ export async function acceptRemote(
       locations = [...current.locations.filter((item) => locationKey(item) !== key), location];
     const previous = current.locations.find((item) => locationKey(item) === current.primary);
     const primaryMissing = previous?.missing && !current.transfer && !current.conflicts.length;
-    const relocated =
-      primaryMissing || current.primary === key
-        ? {
-            primary: key,
-            destination: location,
-            remoteRevision: document.revision,
-            issue: undefined
-          }
-        : {};
-    // Discovery cannot adopt provider changes while a move or exact upload owns the document.
+    const incomingActive = activeSources?.has(sourceKey(location.source)) ?? false;
+    const primaryUnavailable =
+      !!activeSources &&
+      incomingActive &&
+      !!current.primary &&
+      (!previous || !activeSources.has(sourceKey(previous.source)));
+    const uploadUnavailable =
+      !!activeSources &&
+      !!current.upload &&
+      !activeSources.has(sourceKey(current.upload.destination.source));
+    const rebindable =
+      !current.transfer &&
+      !current.conflicts.length &&
+      (primaryMissing || primaryUnavailable || current.primary === key);
+    const relocated = rebindable
+      ? {
+          primary: key,
+          destination: location,
+          remoteRevision: document.revision,
+          issue: undefined
+        }
+      : {};
+    // Discovery cannot adopt provider changes while a move owns the document.
     if (current.transfer) return { ...current, locations };
-    if (current.upload && canonical(current.upload.document) === canonical(document))
+    // A pending snapshot targeting an active source still owns its exact retry.
+    // If that source disappeared from the admitted source snapshot, discovery may
+    // retire it only when the newly found file is causally compatible below.
+    if (
+      current.upload &&
+      !uploadUnavailable &&
+      canonical(current.upload.document) === canonical(document)
+    )
       return { ...current, locations };
     if (canonical(current.document) === canonical(document))
-      return { ...current, ...relocated, locations };
+      return {
+        ...current,
+        ...relocated,
+        ...(rebindable && uploadUnavailable ? { upload: undefined, dirty: false } : {}),
+        locations
+      };
+    // Reconnecting the same storage under a new source ID can rediscover the
+    // provider's older acknowledged revision while this browser has newer dirty
+    // edits. Rebind that ancestor and preserve the local descendant for upload.
+    if (
+      rebindable &&
+      current.document.parents.includes(document.revision) &&
+      (current.dirty || uploadUnavailable)
+    )
+      return {
+        ...current,
+        ...relocated,
+        upload: uploadUnavailable ? undefined : current.upload,
+        dirty: true,
+        locations
+      };
     if (primaryMissing && current.dirty && document.revision === current.remoteRevision)
       return { ...current, ...relocated, locations };
     // A causally newer copy is the same logical snippet, regardless of which
