@@ -20,6 +20,8 @@ export const SWIFT_F0_LOOKAHEAD_FRAMES = 10;
 export const ANALYSIS_WINDOW_SECONDS = 0.55;
 export const SAMPLE_INTERVAL_MS = 96;
 const SILENCE_PEAK = 1e-3;
+const QUIET_PEAK = 10 ** (-35 / 20);
+const QUIET_TARGET_PEAK = 0.5;
 
 const finite = (value: number, fallback = 0) => (Number.isFinite(value) ? value : fallback);
 const clamp = (value: number, minimum: number, maximum: number) =>
@@ -54,6 +56,12 @@ export function resampleForSwiftF0(input: Float32Array, rate: number): Float32Ar
     output[index] = Math.abs(weightTotal) > 1e-8 ? weighted / weightTotal : 0;
   }
   return output;
+}
+
+export function swiftF0ModelGain(samples: Float32Array): number {
+  let peak = 0;
+  for (const sample of samples) peak = Math.max(peak, Math.abs(finite(sample)));
+  return peak >= SILENCE_PEAK && peak < QUIET_PEAK ? QUIET_TARGET_PEAK / peak : 1;
 }
 
 function frameLevel(samples: Float32Array, frame: number) {
