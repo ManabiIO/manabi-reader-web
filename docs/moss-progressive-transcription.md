@@ -152,8 +152,9 @@ windows agree, their boundary cues can appear too. A normal sparse window whose 
 model PCM is entirely zero now persists that fact as optional device-only evidence. It
 may refute only a neighboring one-sided cue wholly covered by the same zero-valued
 input; a cue crossing outside that input remains whole and unresolved. An ordinary
-empty hypothesis has no such authority and still requires agreement or repair. Older
-saved windows do not gain silence evidence retroactively.
+empty hypothesis has no such authority and still requires agreement or repair. The
+new reconciliation evidence applies only to `overlap-sparse-v2`; legacy v1 jobs retain
+their historical acceptance semantics. Older saved windows do not gain silence evidence retroactively.
  A completed track is
 published only after every core is covered and the whole-cue hypotheses join.
 An ambiguous seam is repaired with a bounded union input; overlapping repairs
