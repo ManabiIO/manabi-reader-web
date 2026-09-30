@@ -180,13 +180,20 @@ def main():
         expect(clear_selection).to_be_disabled()
         expect(bulk_generate).to_be_disabled()
 
-        select_visible.click()
+        select_visible.focus()
+        select_visible.press('Enter')
         expect(card_select).to_be_checked()
         expect(selection_status).to_have_text('1 video selected')
-        clear_selection.click()
+        expect(select_visible).to_be_disabled()
+        expect(clear_selection).to_be_focused()
+
+        clear_selection.press('Enter')
+        # The checked DOM state clears in the same activation turn; async shelf
+        # refresh must not create a checked/no-selection visual contradiction.
         expect(card_select).not_to_be_checked()
         expect(selection_status).to_have_text('No videos selected')
         expect(clear_selection).to_be_disabled()
+        expect(select_visible).to_be_focused()
         expect(bulk_generate).to_be_disabled()
         results.append('video batch selection exposes one coherent count and disables no-op actions')
 
