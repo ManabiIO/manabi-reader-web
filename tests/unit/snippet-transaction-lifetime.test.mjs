@@ -4,6 +4,7 @@ import { loadOfflineModule } from './fixtures/offline-module.mjs';
 
 function harness() {
   let completionObserved = false;
+  let persistenceCalls = 0;
   const completion = Promise.resolve();
   const done = {
     then(onFulfilled, onRejected) {
@@ -57,15 +58,19 @@ function harness() {
         SnippetError
       },
       '$lib/data/window/navigator/persistent-storage': {
-        requestPersistentStorageOnce: () => Promise.resolve(false)
+        requestPersistentStorageOnce() {
+          persistenceCalls += 1;
+          return new Promise(() => {});
+        }
       }
     }
   });
-  return { api };
+  return { api, persistenceCalls: () => persistenceCalls };
 }
 
 test('snippet draft transaction observes completion before its first request', async () => {
-  const { api } = harness();
+  const h = harness();
+  const { api } = h;
   await api.saveDraft(
     {
       key: JSON.stringify(['owner', 'session']),
@@ -78,6 +83,19 @@ test('snippet draft transaction observes completion before its first request', a
     },
     () => undefined
   );
+  assert.equal(h.persistenceCalls(), 1, 'draft save did not request browser storage protection');
+});
+
+test('snippet document save does not wait for persistence permission', async () => {
+  const h = harness();
+  await h.api.saveDocument(
+    'owner',
+    { id: 'document', revision: '1' },
+    null,
+    undefined,
+    () => undefined
+  );
+  assert.equal(h.persistenceCalls(), 1);
 });
 
 test('snippet record transaction observes completion before its first request', async () => {
