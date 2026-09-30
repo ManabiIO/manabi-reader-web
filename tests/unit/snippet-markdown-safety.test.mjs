@@ -1,7 +1,11 @@
 /** @license BSD-3-Clause */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {\n  exportMarkdown,\n  markdownHTML,\n  requiresHTMLMarkdown\n} from '../../apps/web/src/lib/snippets/editor.ts';
+import {
+  exportMarkdown,
+  markdownHTML,
+  requiresHTMLMarkdown
+} from '../../apps/web/src/lib/snippets/editor.ts';
 import { validateContent } from '../../apps/web/src/lib/snippets/document.ts';
 
 function text(html) {
