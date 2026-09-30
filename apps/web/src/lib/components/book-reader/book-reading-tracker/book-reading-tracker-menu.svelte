@@ -473,7 +473,7 @@
                 variant="ghost"
                 size="icon"
                 shape="circle"
-                class="size-11"
+                class="tracker-history-page"
                 aria-label="Previous history page"
                 title="Previous Page"
                 disabled={currentTrackingHistoryIndex === 0}
@@ -482,7 +482,7 @@
                 <AppIcon icon={faChevronLeft} />
               </Button>
               <span
-                class="text-center text-sm text-muted-foreground"
+                class="min-w-0 flex-1 whitespace-nowrap text-center text-sm text-muted-foreground"
                 role="status"
                 aria-live="polite"
               >
@@ -493,7 +493,7 @@
                 variant="ghost"
                 size="icon"
                 shape="circle"
-                class="size-11"
+                class="tracker-history-page"
                 aria-label="Next history page"
                 title="Next Page"
                 disabled={!hasNextPage}
@@ -519,3 +519,13 @@
     </div>
   {/if}
 </div>
+
+<style>
+  .tracker-history-page {
+    inline-size: 44px;
+    block-size: 44px;
+    min-inline-size: 44px;
+    min-block-size: 44px;
+    flex: 0 0 44px;
+  }
+</style>
