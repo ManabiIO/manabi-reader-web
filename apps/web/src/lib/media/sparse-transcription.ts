@@ -428,6 +428,10 @@ export function sparsePlaybackSnapshot(state: SparseState, duration: number) {
     if (!window) return;
     const bounds = sparseBounds(index, duration);
     count++;
+    // Coverage includes exact-silent cores, but they bypass MOSS entirely and
+    // are not an ASR throughput sample. Including their cheap decode time makes
+    // later speech look artificially fast and understates likely buffering.
+    if (window.digitalSilence) return;
     totalMs += window.inferenceMs;
     inputSeconds += bounds.end - bounds.start;
     coreSeconds += bounds.coreEnd - bounds.coreStart;
