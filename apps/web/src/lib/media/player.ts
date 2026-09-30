@@ -1070,7 +1070,7 @@ export class VideoPlayer {
       missing && totalMs > 0 && inputSeconds > 0
         ? `about ${formatMediaTime(Math.ceil((workSeconds * totalMs) / inputSeconds / 1000))}`
         : missing
-          ? `estimating after the first window${this.firstWindowStartedAt ? ` (${formatMediaTime((Date.now() - this.firstWindowStartedAt) / 1000)} elapsed on this device)` : ''}`
+          ? `estimating after the first speech window${this.firstWindowStartedAt ? ` (${formatMediaTime((Date.now() - this.firstWindowStartedAt) / 1000)} elapsed on this device)` : ''}`
           : 'ready';
     const speed =
       count && totalMs > coreSeconds * 1000
