@@ -25,7 +25,8 @@ function loadFixture({
   preflightError,
   countMode = false,
   persistenceError,
-  persistenceResult = true
+  persistenceResult = true,
+  persistenceNeverSettles = false
 } = {}) {
   const events = [];
   const progress = [];
@@ -73,6 +74,7 @@ function loadFixture({
         async persist() {
           persistCalls++;
           if (persistenceError) throw persistenceError;
+          if (persistenceNeverSettles) return new Promise(() => {});
           return persistenceResult;
         }
       }
@@ -221,6 +223,19 @@ test('persistent-storage denial never blocks the book import', async () => {
   const h = loadFixture({ persistenceError: new Error('permission denied') });
   const error = await h.importData(h.document, h.handler, [h.file], h.signal);
   assert.equal(error, '');
+  assert.deepEqual(h.events, ['hash', 'preflight', 'load', 'context', 'save', 'cover']);
+  assert.equal(h.persistCalls(), 1);
+});
+
+test('a pending browser permission prompt never blocks the book import', async () => {
+  const h = loadFixture({ persistenceNeverSettles: true });
+  const completed = Promise.race([
+    h.importData(h.document, h.handler, [h.file], h.signal),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('book import waited for persistent-storage permission')), 250)
+    )
+  ]);
+  assert.equal(await completed, '');
   assert.deepEqual(h.events, ['hash', 'preflight', 'load', 'context', 'save', 'cover']);
   assert.equal(h.persistCalls(), 1);
 });
