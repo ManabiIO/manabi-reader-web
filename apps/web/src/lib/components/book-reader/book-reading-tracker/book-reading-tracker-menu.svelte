@@ -473,7 +473,8 @@
                 variant="ghost"
                 size="icon"
                 shape="circle"
-                class="tracker-history-page"
+                class="shrink-0"
+                style="inline-size:44px;block-size:44px;min-inline-size:44px;min-block-size:44px"
                 aria-label="Previous history page"
                 title="Previous Page"
                 disabled={currentTrackingHistoryIndex === 0}
@@ -493,7 +494,8 @@
                 variant="ghost"
                 size="icon"
                 shape="circle"
-                class="tracker-history-page"
+                class="shrink-0"
+                style="inline-size:44px;block-size:44px;min-inline-size:44px;min-block-size:44px"
                 aria-label="Next history page"
                 title="Next Page"
                 disabled={!hasNextPage}
@@ -520,12 +522,3 @@
   {/if}
 </div>
 
-<style>
-  .tracker-history-page {
-    inline-size: 44px;
-    block-size: 44px;
-    min-inline-size: 44px;
-    min-block-size: 44px;
-    flex: 0 0 44px;
-  }
-</style>
