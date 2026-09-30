@@ -174,6 +174,15 @@ class PanelUsabilityBrowser(LibraryBase):
 
         previous = panel.get_by_role('button', name='Previous history page', exact=True)
         next_page = panel.get_by_role('button', name='Next history page', exact=True)
+        for pager in (previous, next_page):
+            box = pager.bounding_box()
+            self.assertGreaterEqual(box['width'], 43.5)
+            self.assertLessEqual(box['width'], 44.5)
+            self.assertGreaterEqual(box['height'], 43.5)
+            self.assertLessEqual(box['height'], 44.5)
+        page_status = panel.get_by_role('status').filter(has_text='Page 1 of 2')
+        expect(page_status).to_be_visible()
+        self.assertEqual('nowrap', page_status.evaluate('e => getComputedStyle(e).whiteSpace'))
         expect(previous).to_be_disabled()
         expect(next_page).to_be_enabled()
         expect(panel.get_by_role('status').filter(has_text='Page 1 of 2')).to_be_visible()
