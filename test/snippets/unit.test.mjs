@@ -460,7 +460,14 @@ test('reconnected source with identical bytes replaces an unavailable old primar
       token: 'new-token'
     };
   await acceptRemote(who, doc, oldLocation, guard);
-  await acceptRemote(who, doc, newLocation, guard, new Set([sourceKey(newSource)]));
+  await acceptRemote(
+    who,
+    doc,
+    newLocation,
+    guard,
+    new Set([sourceKey(newSource)]),
+    new Set([sourceKey(oldSource)])
+  );
   const current = await getRecord(who, doc.id);
   assert.equal(current.primary, locationKey(newLocation));
   assert.equal(current.destination.source.id, newSource.id);
@@ -491,7 +498,14 @@ test('reconnected source republishes a clean newer descendant over its remote an
       token: 'new-token'
     };
   await acceptRemote(who, newer, oldLocation, guard);
-  await acceptRemote(who, original, newLocation, guard, new Set([sourceKey(newSource)]));
+  await acceptRemote(
+    who,
+    original,
+    newLocation,
+    guard,
+    new Set([sourceKey(newSource)]),
+    new Set([sourceKey(oldSource)])
+  );
   const current = await getRecord(who, original.id);
   assert.equal(current.document.revision, newer.revision);
   assert.equal(passages(current.document.content)[0].text, 'newer cached descendant');
@@ -538,7 +552,8 @@ test('reconnected source binds a remote ancestor under newer dirty local edits',
     original,
     newLocation,
     guard,
-    new Set([sourceKey(newSource)])
+    new Set([sourceKey(newSource)]),
+    new Set([sourceKey(oldSource)])
   );
   const current = await getRecord(who, original.id);
   assert.equal(current.document.revision, edited.revision);
@@ -586,6 +601,65 @@ test('reconnection never promotes a sibling over dirty local edits', async () =>
   assert.equal(current.conflicts[0].revision, remote.revision);
 });
 
+test('offline cached cloud absence cannot rebind a storage home', async () => {
+  changeUser('alice');
+  const selected = scope(),
+    doc = document('cloud cached copy'),
+    oldSource = {
+      id: crypto.randomUUID(),
+      owner: 'alice',
+      provider: 'dropbox',
+      root: 'old-root',
+      name: 'Old Dropbox'
+    },
+    newSource = {
+      id: crypto.randomUUID(),
+      owner: 'alice',
+      provider: 'dropbox',
+      root: 'new-root',
+      name: 'New Dropbox'
+    },
+    oldLocation = {
+      source: oldSource,
+      parent: 'old-root',
+      name: doc.id + '.manabi-snippet.json',
+      fileId: 'old-file',
+      token: 'old-token'
+    },
+    newLocation = {
+      source: newSource,
+      parent: 'new-root',
+      name: doc.id + '.manabi-snippet.json',
+      fileId: 'new-file',
+      token: 'new-token'
+    },
+    previousSources = memory.sources,
+    previousAuthority = memory.cloudAuthoritative;
+  try {
+    await acceptRemote(selected.owner, doc, oldLocation, selected.guard);
+    memory.sources = [newSource];
+    memory.files.set(doc.id, { document: doc, location: newLocation });
+
+    memory.cloudAuthoritative = false;
+    await refreshSnippets(selected, true);
+    let current = await getRecord(selected.owner, doc.id);
+    assert.equal(current.primary, locationKey(oldLocation));
+    assert.equal(current.locations.length, 2);
+
+    memory.cloudAuthoritative = true;
+    await refreshSnippets(selected, true);
+    current = await getRecord(selected.owner, doc.id);
+    assert.equal(current.primary, locationKey(newLocation));
+    assert.equal(current.destination.source.id, newSource.id);
+    assert.equal(current.conflicts.length, 0);
+  } finally {
+    memory.files.delete(doc.id);
+    memory.sources = previousSources;
+    memory.cloudAuthoritative = previousAuthority;
+    changeUser(null);
+  }
+});
+
 test('an active upload to a still-present source cannot be stolen by discovery', async () => {
   const who = owner(),
     doc = document('upload owner'),
@@ -620,7 +694,8 @@ test('an active upload to a still-present source cannot be stolen by discovery',
     doc,
     other,
     guard,
-    new Set([sourceKey(primarySource), sourceKey(otherSource)])
+    new Set([sourceKey(primarySource), sourceKey(otherSource)]),
+    new Set()
   );
   const current = await getRecord(who, doc.id);
   assert.equal(current.primary, locationKey(primary));
