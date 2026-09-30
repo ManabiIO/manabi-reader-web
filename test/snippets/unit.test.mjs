@@ -470,6 +470,38 @@ test('reconnected source with identical bytes replaces an unavailable old primar
   assert.equal(current.locations.length, 2);
 });
 
+test('reconnected source republishes a clean newer descendant over its remote ancestor', async () => {
+  const who = owner(),
+    original = document('provider ancestor'),
+    newer = editSnippet(original, plainContent('newer cached descendant'), ''),
+    oldSource = source('old-source'),
+    newSource = source('new-source'),
+    oldLocation = {
+      source: oldSource,
+      parent: '',
+      name: 'doc.manabi-snippet.json',
+      fileId: 'old-file',
+      token: 'old-token'
+    },
+    newLocation = {
+      source: newSource,
+      parent: '',
+      name: 'doc.manabi-snippet.json',
+      fileId: 'new-file',
+      token: 'new-token'
+    };
+  await acceptRemote(who, newer, oldLocation, guard);
+  await acceptRemote(who, original, newLocation, guard, new Set([sourceKey(newSource)]));
+  const current = await getRecord(who, original.id);
+  assert.equal(current.document.revision, newer.revision);
+  assert.equal(passages(current.document.content)[0].text, 'newer cached descendant');
+  assert.equal(current.primary, locationKey(newLocation));
+  assert.equal(current.destination.source.id, newSource.id);
+  assert.equal(current.remoteRevision, original.revision);
+  assert.equal(current.dirty, true);
+  assert.equal(current.conflicts.length, 0);
+});
+
 test('reconnected source binds a remote ancestor under newer dirty local edits', async () => {
   const who = owner(),
     original = document('provider copy'),
