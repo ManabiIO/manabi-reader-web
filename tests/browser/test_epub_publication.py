@@ -150,15 +150,24 @@ class EpubPublicationBrowser(ReaderBrowser):
     def test_framed_reader_receives_imported_language_and_page_direction(self):
         self.open_resource_book(payload=rtl_language_epub())
         actual = self.page.evaluate(f"""() => {{
-          const p={P}, doc=p.getContents()[0].doc;
-          return {{lang:doc.documentElement.lang,bookDir:p.bookDir,turnDir:p.pageTurnDirection}};
+          const p={P}, doc=p.getContents()[0].doc, view=doc.defaultView;
+          return {{lang:doc.documentElement.lang,bookDir:p.bookDir,turnDir:p.pageTurnDirection,
+            hostDir:p.getAttribute('dir'),
+            rootDir:view.getComputedStyle(doc.documentElement).direction,
+            bodyDir:view.getComputedStyle(doc.body).direction}};
         }}""")
-        self.assertEqual({'lang':'ja','bookDir':'rtl','turnDir':'rtl'}, actual)
+        self.assertEqual({
+            'lang':'ja','bookDir':'rtl','turnDir':'rtl','hostDir':'rtl',
+            'rootDir':'rtl','bodyDir':'ltr'
+        }, actual)
         self.page.reload()
         self.page.wait_for_function(f"() => {P}?.getContents?.()[0]?.doc?.querySelector('.text')")
         again = self.page.evaluate(f"""() => {{
-          const p={P}, doc=p.getContents()[0].doc;
-          return {{lang:doc.documentElement.lang,bookDir:p.bookDir,turnDir:p.pageTurnDirection}};
+          const p={P}, doc=p.getContents()[0].doc, view=doc.defaultView;
+          return {{lang:doc.documentElement.lang,bookDir:p.bookDir,turnDir:p.pageTurnDirection,
+            hostDir:p.getAttribute('dir'),
+            rootDir:view.getComputedStyle(doc.documentElement).direction,
+            bodyDir:view.getComputedStyle(doc.body).direction}};
         }}""")
         self.assertEqual(actual, again)
         self.assertEqual([], self.errors)
