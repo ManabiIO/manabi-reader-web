@@ -253,6 +253,9 @@ interface SparseComponent {
 function rawSparseCues(state: SparseState, index: number): Cue[] {
   const window = state.windows[index];
   if (!window) return [];
+  // v1 accepted disconnected components immediately. Never reinterpret its
+  // historical hypotheses with evidence introduced by the later v2 policy.
+  if (state.policy === 'overlap-sparse-v1') return [...window.cues];
   const previousSeam = index * SPARSE_CORE_SECONDS;
   const nextSeam = (index + 1) * SPARSE_CORE_SECONDS;
   return window.cues.filter(
