@@ -474,7 +474,7 @@ class PresentationServer(StaticHandler):
         if self.headers.get('If-Match') != '"%d"' % self.preference_revision:
             return self.send_error(412)
         settings = type(self).account_requests[-1]['body']['settings']
-        # Deliberately reject the additive fields like the current deployed contract.
+        # Deliberately model the legacy/unversioned contract: additive fields are unsupported.
         if not self.wants_extensions():
             allowed = {'title','cover','direction','modifiedAt'}
             if any(not set(value) <= allowed for value in settings.get('library_organization',{}).get('books',{}).values()):
