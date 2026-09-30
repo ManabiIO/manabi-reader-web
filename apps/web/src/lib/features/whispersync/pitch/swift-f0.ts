@@ -6,6 +6,7 @@ import {
   MIN_HZ,
   measurementFromSwiftF0,
   resampleForSwiftF0,
+  swiftF0ModelGain,
   type Measurement
 } from './analysis';
 
@@ -37,8 +38,14 @@ export async function analyseSwiftF0Window(
     });
 
   const session = await prepareSwiftF0();
+  const gain = swiftF0ModelGain(samples);
+  const modelSamples =
+    gain === 1 ? samples : Float32Array.from(samples, (sample) => sample * gain);
   const feeds = {
-    audio: new ort.Tensor('float32', samples, [1, samples.length]),
+    // Gain only the model input. measurementFromSwiftF0 below intentionally
+    // receives the original samples so waveform/level/silence semantics do not
+    // change with automatic low-level compensation.
+    audio: new ort.Tensor('float32', modelSamples, [1, modelSamples.length]),
     fmin: new ort.Tensor('float32', Float32Array.of(MIN_HZ), []),
     fmax: new ort.Tensor('float32', Float32Array.of(MAX_HZ), [])
   };
