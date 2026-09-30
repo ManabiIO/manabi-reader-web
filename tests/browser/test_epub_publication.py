@@ -58,6 +58,17 @@ def resource_epub(malformed=False):
     return output.getvalue()
 
 
+def rtl_language_epub():
+    output = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(resource_epub())) as source, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as target:
+        for entry in source.infolist():
+            data = source.read(entry)
+            if entry.filename == 'EPUB/book.opf':
+                data = data.replace(b'<spine>', b'<spine page-progression-direction="rtl">')
+            target.writestr(entry, data)
+    return output.getvalue()
+
+
 def linear_epub():
     output = io.BytesIO()
     with zipfile.ZipFile(io.BytesIO(resource_epub())) as source, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as target:
@@ -135,6 +146,22 @@ class EpubPublicationBrowser(ReaderBrowser):
             self.page.wait_for_function(f"() => {P}?.getContents?.()[0]?.doc?.querySelector('#same')")
         else:
             expect(self.page.locator('#ttu-epub-0 .text')).to_be_visible(timeout=30000)
+
+    def test_framed_reader_receives_imported_language_and_page_direction(self):
+        self.open_resource_book(payload=rtl_language_epub())
+        actual = self.page.evaluate(f"""() => {{
+          const p={P}, doc=p.getContents()[0].doc;
+          return {{lang:doc.documentElement.lang,bookDir:p.bookDir,turnDir:p.pageTurnDirection}};
+        }}""")
+        self.assertEqual({'lang':'ja','bookDir':'rtl','turnDir':'rtl'}, actual)
+        self.page.reload()
+        self.page.wait_for_function(f"() => {P}?.getContents?.()[0]?.doc?.querySelector('.text')")
+        again = self.page.evaluate(f"""() => {{
+          const p={P}, doc=p.getContents()[0].doc;
+          return {{lang:doc.documentElement.lang,bookDir:p.bookDir,turnDir:p.pageTurnDirection}};
+        }}""")
+        self.assertEqual(actual, again)
+        self.assertEqual([], self.errors)
 
     def test_non_linear_spine_hint_is_persisted_without_changing_current_reading_order(self):
         self.open_resource_book(payload=linear_epub())
