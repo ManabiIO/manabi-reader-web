@@ -593,7 +593,14 @@ test('reconnection never promotes a sibling over dirty local edits', async () =>
     document: local,
     dirty: true
   }));
-  await acceptRemote(who, remote, newLocation, guard, new Set([sourceKey(newSource)]));
+  await acceptRemote(
+    who,
+    remote,
+    newLocation,
+    guard,
+    new Set([sourceKey(newSource)]),
+    new Set([sourceKey(oldSource)])
+  );
   const current = await getRecord(who, base.id);
   assert.equal(current.document.revision, local.revision);
   assert.equal(current.primary, locationKey(oldLocation));
