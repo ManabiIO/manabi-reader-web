@@ -159,8 +159,12 @@
   let selectionScopeKey = '';
   let selectableBookIds: number[] = [];
   let selectablePreviewKeys: string[] = [];
-  let reconciledSelectionScopeKey = '';
-  let reconciledSelectionEligibility = '';
+  let selectionEligibility: { key: string; ids: number[]; previews: string[] } = {
+    key: '',
+    ids: [],
+    previews: []
+  };
+  let reconciledSelectionEligibility = selectionEligibility;
   let libraryMenu: LibraryMenuModel | undefined;
   let pageAlive = true;
   let openGeneration = 0;
@@ -204,24 +208,20 @@
     }
   }
 
-  $: {
-    const eligibility = JSON.stringify([
-      selectionScopeKey,
-      selectableBookIds,
-      selectablePreviewKeys
-    ]);
-    if (selectionScopeKey !== reconciledSelectionScopeKey) {
-      reconciledSelectionScopeKey = selectionScopeKey;
-      reconciledSelectionEligibility = eligibility;
-      if (selectMode) {
+  $: if (selectionEligibility !== reconciledSelectionEligibility) {
+    const previousScope = reconciledSelectionEligibility.key;
+    reconciledSelectionEligibility = selectionEligibility;
+    selectionScopeKey = selectionEligibility.key;
+    selectableBookIds = selectionEligibility.ids;
+    selectablePreviewKeys = selectionEligibility.previews;
+
+    if (selectMode) {
+      if (selectionScopeKey !== previousScope) {
         // A search/collection/series scope is a distinct selection operation.
         // Never carry hidden selections into a different visible scope.
         selectedPreviewKeys = new Set();
         selectedBookIds = new Set();
-      }
-    } else if (eligibility !== reconciledSelectionEligibility) {
-      reconciledSelectionEligibility = eligibility;
-      if (selectMode) {
+      } else {
         // Same scope, changing availability: retain only still-actionable items.
         const eligibleBooks = new Set(selectableBookIds);
         const eligiblePreviews = new Set(selectablePreviewKeys);
@@ -1249,9 +1249,7 @@
       <LibraryWorkspace
         bind:this={libraryWorkspace}
         {selectedPreviewKeys}
-        bind:selectionScopeKey
-        bind:selectableBookIds
-        bind:selectablePreviewKeys
+        bind:selectionEligibility
         currentBookId={currentBookAvailable ? $currentBookId$ : undefined}
         {selectedBookIds}
         {selectMode}
