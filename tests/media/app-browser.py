@@ -160,6 +160,7 @@ def main():
         bulk_generate = batch.get_by_role('button', name='Generate missing transcripts', exact=True)
         selection_status = batch.get_by_role('status')
         expect(selection_status).to_have_text('No videos selected')
+        expect(selection_status).to_have_attribute('aria-atomic', 'true')
         expect(select_visible).to_be_enabled()
         expect(clear_selection).to_be_disabled()
         expect(bulk_generate).to_be_disabled()
