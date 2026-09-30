@@ -1010,6 +1010,20 @@ def main():
             generate=batch.get_by_role('button',name='Generate missing transcripts',exact=True)
             status=batch.get_by_role('status')
             assert status.inner_text()=='No videos selected'
+            assert status.get_attribute('aria-atomic')=='true'
+            redundant=page.evaluate("""async()=>{
+                const status=document.querySelector(
+                  '[aria-label="Video selection actions"] [role=status]');
+                let mutations=0;
+                const observer=new MutationObserver(records=>mutations+=records.length);
+                observer.observe(status,{subtree:true,childList:true,characterData:true});
+                workspace.updateSelectionActions();
+                workspace.updateSelectionActions();
+                await Promise.resolve();
+                observer.disconnect();
+                return mutations;
+            }""")
+            assert redundant==0,redundant
             assert select_visible.is_enabled()
             assert clear.is_disabled() and generate.is_disabled()
 
