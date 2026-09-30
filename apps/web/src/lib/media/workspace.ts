@@ -283,15 +283,26 @@ export class VideoWorkspace {
     this.selectionStatus.setAttribute('role', 'status');
     this.selectionStatus.setAttribute('aria-live', 'polite');
     this.selectVisibleButton = action('Select visible videos', () => {
+      const ownsFocus = document.activeElement === this.selectVisibleButton;
       for (const check of this.shelf.querySelectorAll<HTMLInputElement>('input[type=checkbox]')) {
         check.checked = true;
         this.selected.add(check.value as ContentKey);
       }
       this.updateSelectionActions();
+      if (ownsFocus && this.selectVisibleButton.disabled)
+        this.clearSelectionButton.focus({ preventScroll: true });
     });
     this.clearSelectionButton = action('Clear selection', () => {
+      const ownsFocus = document.activeElement === this.clearSelectionButton;
       this.selected.clear();
+      // Reflect the cleared model immediately. Refresh can still reconcile the
+      // complete shelf, but keyboard/pointer users should never observe checked
+      // boxes while the status already says that nothing is selected.
+      for (const check of this.shelf.querySelectorAll<HTMLInputElement>('input[type=checkbox]'))
+        check.checked = false;
       this.updateSelectionActions();
+      if (ownsFocus && this.clearSelectionButton.disabled)
+        this.selectVisibleButton.focus({ preventScroll: true });
       void this.refresh();
     });
     this.bulkGenerateButton = action(
