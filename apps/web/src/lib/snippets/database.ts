@@ -6,6 +6,7 @@
 
 import { summarize, type SnippetSummary } from './summary';
 import { integrationDB, equal } from '../manabi/persistence';
+import { requestPersistentStorageOnce } from '$lib/data/window/navigator/persistent-storage';
 import type { SourceDescriptor } from '../library/catalog';
 import {
   canonical,
@@ -153,6 +154,8 @@ export async function saveDocument(
   destination: Destination | undefined,
   guard: Guard
 ) {
+  guard();
+  void requestPersistentStorageOnce();
   return mutateRecord(owner, document.id, guard, (current) => {
     if ((current?.document.revision ?? null) !== base)
       throw new SnippetError(
@@ -189,6 +192,7 @@ export async function saveDraft(draft: SnippetDraft, guard: Guard) {
   if (draft.key !== recordKey(draft.owner, draft.session) || draft.id !== draft.document.id)
     throw new Error('Invalid draft identity.');
   parseSnippet(encodeSnippet(draft.document));
+  void requestPersistentStorageOnce();
   const db = await integrationDB(),
     tx = db.transaction('snippetDrafts', 'readwrite');
   try {
