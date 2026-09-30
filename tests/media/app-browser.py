@@ -197,6 +197,22 @@ def main():
         expect(bulk_generate).to_be_disabled()
         results.append('video batch selection exposes one coherent count and disables no-op actions')
 
+        page.set_viewport_size({'width':320,'height':568})
+        page.evaluate("document.documentElement.style.fontSize='200%'")
+        batch.scroll_into_view_if_needed()
+        assert batch.evaluate("e => e.scrollWidth-e.clientWidth") <= 1
+        assert page.locator('html').evaluate("e => e.scrollWidth-e.clientWidth") <= 1
+        for control in (select_visible, clear_selection, bulk_generate):
+            box = control.bounding_box()
+            assert box and box['height'] >= 43.5, box
+            assert box['x'] >= -1 and box['x'] + box['width'] <= 321, box
+        status_box = selection_status.bounding_box()
+        assert status_box and status_box['x'] >= -1 and status_box['x'] + status_box['width'] <= 321
+        page.screenshot(path=str(args.output/'video-selection-200-percent.png'), full_page=True)
+        page.evaluate("document.documentElement.style.fontSize=''")
+        page.set_viewport_size({'width':1280,'height':900})
+        results.append('video batch actions reflow without overflow at 200 percent text')
+
         existing = page.get_by_label('Choose existing subtitles', exact=True)
         expect(existing.locator('option')).to_have_count(3)
         assert page.locator('.transcript-cue').count() == 0
