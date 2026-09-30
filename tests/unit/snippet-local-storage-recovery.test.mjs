@@ -56,10 +56,7 @@ globalThis[Symbol.for(fixtureKey)] = {
     const current = await fixture.db.get('localLibraries', admitted.id);
     if (
       !current ||
-      !(
-        current.handle === admitted.handle ||
-        (await current.handle.isSameEntry(admitted.handle))
-      )
+      !(current.handle === admitted.handle || (await current.handle.isSameEntry(admitted.handle)))
     )
       throw new globalThis[Symbol.for(fixtureKey)].classIntegrationError('not_found');
     if (
@@ -80,7 +77,10 @@ const mock = {
   },
   '../manabi/persistence': { integrationDB: 'integrationDB', exclusive: 'exclusive' },
   '../library/file-operations': { openDirectory: 'openDirectory', safePath: 'safePath' },
-  '../manabi/sources': { sha256: 'sha256', withLocalLibraryConnection: 'withLocalLibraryConnection' },
+  '../manabi/sources': {
+    sha256: 'sha256',
+    withLocalLibraryConnection: 'withLocalLibraryConnection'
+  },
   '../library/catalog': { librarySource: 'unused' },
   '../webdav/source': { davSource: 'unused', withDavSourceLock: 'unused' },
   '../webdav/client': {
@@ -209,7 +209,6 @@ test('successful retry writes the exact portable document bytes', async () => {
   assert.equal(await fs.read(name), encodeSnippet(doc));
 });
 
-
 test('local snippet writes reject a replaced source before touching the stale handle', async () => {
   const { fs, src } = await setup(),
     doc = createSnippet(plainContent('replacement must not retarget writes')),
@@ -265,7 +264,6 @@ test('normal local snippet create enters shared source authority as a write oper
   assert.deepEqual(fixture.authorityCalls, [{ id: src.id, write: true }]);
 });
 
-
 test('local read, capability, folder creation and remove all enter shared source authority', async () => {
   const { fs, src } = await setup(),
     doc = createSnippet(plainContent('all local operations are fenced')),
@@ -306,12 +304,7 @@ test('write permission revoked before commit aborts without publishing new bytes
   };
   await assert.rejects(
     () =>
-      writeDocument(
-        { source: src, parent: first.parent, name: first.name },
-        edited,
-        first,
-        guard
-      ),
+      writeDocument({ source: src, parent: first.parent, name: first.name }, edited, first, guard),
     (error) => error?.code === 'permission_required'
   );
   fs.hooks.write = undefined;
