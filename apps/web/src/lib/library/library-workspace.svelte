@@ -2,6 +2,7 @@
   import { foldSearch } from './search-normalization';
   import { bookTitleMatchIndex } from '../search/book-title-match-text';
   import { librarySelection } from './selection-action';
+  import type { LibrarySelectionEligibility } from './selection';
   import BookOrganizationDialog from './book-organization-dialog.svelte';
   import type { BookPresentation, PresentationChange } from './organization';
   import { onMount, createEventDispatcher, tick, type Snippet } from 'svelte';
@@ -141,7 +142,7 @@
   export let destinationTitle = 'Library';
   export let menu: LibraryMenuModel | undefined = undefined;
   /** One immutable snapshot keeps scope and eligibility atomic across the component boundary. */
-  export let selectionEligibility: { key: string; ids: number[]; previews: string[] } = {
+  export let selectionEligibility: LibrarySelectionEligibility = {
     key: '',
     ids: [],
     previews: []
