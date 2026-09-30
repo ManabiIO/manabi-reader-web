@@ -237,7 +237,10 @@ test('a pending browser permission prompt never blocks the book import', async (
   const completed = Promise.race([
     h.importData(h.document, h.handler, [h.file], h.signal),
     new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('book import waited for persistent-storage permission')), 250)
+      setTimeout(
+        () => reject(new Error('book import waited for persistent-storage permission')),
+        250
+      )
     )
   ]);
   assert.equal(await completed, '');
@@ -295,9 +298,6 @@ test('book replication with no selected contexts does not request persistent sto
     isCacheDisabled: () => false,
     clearData: () => assert.fail('source cache should stay enabled')
   };
-  assert.equal(
-    await h.replicateData(source, h.handler, false, [], ['data'], h.signal),
-    ''
-  );
+  assert.equal(await h.replicateData(source, h.handler, false, [], ['data'], h.signal), '');
   assert.equal(h.persistCalls(), 0);
 });
