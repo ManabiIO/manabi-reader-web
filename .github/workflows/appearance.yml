@@ -110,6 +110,9 @@ jobs:
             LIBRARY_BROWSER=$engine timeout -v -k 10s 90s python tests/browser/test_modal_controls.py ModalControlsBrowser.test_onboarding_dialog_fits_short_viewports_and_larger_text -v 2>&1 | tee artifacts/appearance/$engine/onboarding-enlarged-text.log
             result=${PIPESTATUS[0]}
             if [ "$result" -ne 0 ]; then status=1; fi
+            LIBRARY_BROWSER=$engine timeout -v -k 10s 90s python tests/browser/test_modal_controls.py ModalControlsBrowser.test_long_library_dialogs_clear_the_close_target_in_light_and_dark -v 2>&1 | tee artifacts/appearance/$engine/modal-keyboard.log
+            result=${PIPESTATUS[0]}
+            if [ "$result" -ne 0 ]; then status=1; fi
             LIBRARY_BROWSER=$engine timeout -v -k 10s 180s python tests/browser/test_panel_usability.py 2>&1 | tee artifacts/appearance/$engine/panel-usability.log
             result=${PIPESTATUS[0]}
             if [ "$result" -ne 0 ]; then status=1; fi

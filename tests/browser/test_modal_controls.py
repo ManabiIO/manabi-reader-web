@@ -129,8 +129,10 @@ class ModalControlsBrowser(LibraryBase):
                     done = panel.get_by_role('button', name='Done', exact=True)
                     shape = done.evaluate('e => ({height:e.getBoundingClientRect().height, radius:parseFloat(getComputedStyle(e).borderRadius)})')
                     self.assertGreaterEqual(shape['radius'], shape['height'] / 2)
-                    for key in ['Tab', 'Shift+Tab'] * 3:
+                    for key, target in [('Tab', done), ('Tab', close), ('Tab', done),
+                                        ('Shift+Tab', close), ('Shift+Tab', done), ('Shift+Tab', close)]:
                         self.page.keyboard.press(key)
+                        expect(target).to_be_focused()
                         expect(panel.locator(':focus')).to_have_count(1)
                     self.capture(f'modal-book-info-{mode}-{width}')
                     close.click()
