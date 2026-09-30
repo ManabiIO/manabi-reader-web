@@ -5,7 +5,8 @@ const {
   ANALYSIS_WINDOW_SECONDS,
   SWIFT_F0_FRAME_SECONDS,
   measurementFromSwiftF0,
-  resampleForSwiftF0
+  resampleForSwiftF0,
+  swiftF0ModelGain
 } = await import(new URL('analysis.mjs', process.env.PITCH_COMPILED));
 const { appendPoint, pitchPaths, initialPitchState } = await import(
   new URL('model.mjs', process.env.PITCH_COMPILED)
@@ -101,6 +102,15 @@ test('a voiced previous hop cannot authorize pitch inside the current silent hop
   }
   assert.equal(measurementFromSwiftF0(samples, pitch, confidence).hz, 220);
 });
+test('very quiet voiced audio gets model-only gain without lifting silence or normal levels', () => {
+  const quiet = tone(220, 16000, ANALYSIS_WINDOW_SECONDS, 0.005);
+  const gain = swiftF0ModelGain(quiet);
+  assert.ok(gain > 50 && gain < 150);
+  assert.ok(Math.abs(Math.max(...quiet.map((sample) => Math.abs(sample))) * gain - 0.5) < 0.001);
+  assert.equal(swiftF0ModelGain(tone(220, 16000, ANALYSIS_WINDOW_SECONDS, 0.2)), 1);
+  assert.equal(swiftF0ModelGain(new Float32Array(4096)), 1);
+});
+
 test('empty model output and malformed source rates fail closed', () => {
   assert.equal(measurementFromSwiftF0(new Float32Array(32), [], []).hz, null);
   for (const rate of [NaN, Infinity, 0, 7999, 192001])
