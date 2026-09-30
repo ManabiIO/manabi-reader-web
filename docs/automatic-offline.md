@@ -104,6 +104,9 @@ empty selections and progress/statistics-only background replication do not.
 The replication layer attempts this at most once per page lifetime, so a
 Firefox denial cannot produce a permission prompt on every subsequent import;
 a later document may retry after user engagement or browser policy changes.
+The permission promise is deliberately not awaited by the import/replication
+operation: a native prompt that remains unanswered must never delay saving the
+book itself.
 
 The old local `requestPersistentStorage` preference no longer gates this
 infrastructure request. Settings reports the browser's real persisted state and
