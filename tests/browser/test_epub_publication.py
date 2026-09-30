@@ -69,6 +69,19 @@ def rtl_language_epub():
     return output.getvalue()
 
 
+def resource_semantics_epub():
+    output = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(resource_epub())) as source, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as target:
+        for entry in source.infolist():
+            data = source.read(entry)
+            if entry.filename == 'EPUB/book.opf':
+                data = data.replace(b'<dc:language>ja</dc:language>', b'<dc:language>en</dc:language>')
+            elif entry.filename == 'EPUB/one.xhtml':
+                data = data.replace(b'<body class="body-one">', b'<body class="body-one" dir="rtl">')
+            target.writestr(entry, data)
+    return output.getvalue()
+
+
 def linear_epub():
     output = io.BytesIO()
     with zipfile.ZipFile(io.BytesIO(resource_epub())) as source, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as target:
@@ -170,6 +183,16 @@ class EpubPublicationBrowser(ReaderBrowser):
             bodyDir:view.getComputedStyle(doc.body).direction}};
         }}""")
         self.assertEqual(actual, again)
+        self.assertEqual([], self.errors)
+
+    def test_resource_language_and_text_direction_override_package_fallbacks(self):
+        self.open_resource_book(payload=resource_semantics_epub())
+        actual = self.page.evaluate(f"""() => {{
+          const p={P}, doc=p.getContents()[0].doc, view=doc.defaultView;
+          return {{lang:doc.documentElement.lang,rootDir:view.getComputedStyle(doc.documentElement).direction,
+            bodyDir:view.getComputedStyle(doc.body).direction}};
+        }}""")
+        self.assertEqual({'lang':'ja','rootDir':'rtl','bodyDir':'rtl'}, actual)
         self.assertEqual([], self.errors)
 
     def test_non_linear_spine_hint_is_persisted_without_changing_current_reading_order(self):
