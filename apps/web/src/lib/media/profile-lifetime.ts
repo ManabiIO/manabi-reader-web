@@ -23,6 +23,7 @@ export class ProfileLifetime<Connection> {
   private scope?: Scope;
   private workspace?: ProfileWorkspace<Connection>;
   private chain: Promise<void> = Promise.resolve();
+  private closing?: Promise<void>;
 
   constructor(
     private offlineProfile: () => Promise<string | null>,
@@ -31,7 +32,7 @@ export class ProfileLifetime<Connection> {
   ) {}
 
   update(event: ProfileEvent<Connection>): Promise<void> {
-    if (this.stopped) return this.chain;
+    if (this.stopped) return this.closing ?? this.chain;
     const epoch = ++this.epoch;
     // Same-account available refreshes already contain enough identity to update
     // authority synchronously. Let the workspace compare connection generations
@@ -72,14 +73,17 @@ export class ProfileLifetime<Connection> {
     return this.chain;
   }
 
-  async stop(): Promise<void> {
+  stop(): Promise<void> {
+    if (this.closing) return this.closing;
     this.stopped = true;
     ++this.epoch;
     this.workspace?.setConnection(undefined);
-    await this.chain;
-    const retired = this.workspace;
-    this.workspace = undefined;
-    this.scope = undefined;
-    await retired?.dispose();
+    this.closing = this.chain.then(async () => {
+      const retired = this.workspace;
+      this.workspace = undefined;
+      this.scope = undefined;
+      await retired?.dispose();
+    });
+    return this.closing;
   }
 }

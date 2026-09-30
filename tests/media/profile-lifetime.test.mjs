@@ -102,3 +102,95 @@ test('unavailable same account revokes network authority immediately', async () 
   assert.equal(disposed.length, 0);
   await lifetime.stop();
 });
+
+test('every shutdown caller waits for the same workspace retirement', async () => {
+  const entered = deferred(),
+    gate = deferred();
+  let disposed = 0,
+    completed = false,
+    mounts = 0;
+  const lifetime = new ProfileLifetime(
+    async () => null,
+    () => {
+      mounts++;
+      return {
+        setConnection() {},
+        async dispose() {
+          disposed++;
+          entered.resolve();
+          await gate.promise;
+        }
+      };
+    },
+    (error) => {
+      throw error;
+    }
+  );
+  await lifetime.update({ status: 'available', userId: 'u' });
+  const first = lifetime.stop();
+  await entered.promise;
+  const second = lifetime.stop();
+  assert.equal(first, second);
+  const ignoredUpdate = lifetime.update({ status: 'available', userId: 'other' });
+  assert.equal(ignoredUpdate, first);
+  second.then(() => {
+    completed = true;
+  });
+  await Promise.resolve();
+  assert.equal(completed, false);
+  gate.resolve();
+  await Promise.all([first, second, ignoredUpdate]);
+  assert.equal(completed, true);
+  assert.equal(disposed, 1);
+  assert.equal(mounts, 1);
+});
+
+test('repeated shutdown preserves the original retirement failure', async () => {
+  const failure = new Error('workspace retirement failed');
+  let disposed = 0;
+  const lifetime = new ProfileLifetime(
+    async () => null,
+    () => ({
+      setConnection() {},
+      async dispose() {
+        disposed++;
+        throw failure;
+      }
+    }),
+    (error) => {
+      throw error;
+    }
+  );
+  await lifetime.update({ status: 'available', userId: 'u' });
+  const first = lifetime.stop();
+  await assert.rejects(first, (error) => error === failure);
+  assert.equal(lifetime.stop(), first);
+  await assert.rejects(lifetime.stop(), (error) => error === failure);
+  assert.equal(disposed, 1);
+});
+
+test('shutdown fences a pending offline identity read before it can mount', async () => {
+  const entered = deferred(),
+    gate = deferred();
+  let mounts = 0;
+  const lifetime = new ProfileLifetime(
+    async () => {
+      entered.resolve();
+      await gate.promise;
+      return 'old-owner';
+    },
+    () => {
+      mounts++;
+      return { setConnection() {}, async dispose() {} };
+    },
+    (error) => {
+      throw error;
+    }
+  );
+  const updating = lifetime.update({ status: 'offline', userId: null });
+  await entered.promise;
+  const closing = lifetime.stop();
+  gate.resolve();
+  await Promise.all([closing, updating]);
+  assert.equal(mounts, 0);
+});
