@@ -6,7 +6,7 @@
 
 import { BackupStorageHandler } from '$lib/data/storage/handler/backup-handler';
 import { BaseStorageHandler, FilePrefix } from '$lib/data/storage/handler/base-handler';
-import { storage } from '$lib/data/window/navigator/storage';
+import { requestPersistentStorageOnce } from '$lib/data/window/navigator/persistent-storage';
 import { StorageDataType, StorageKey } from '$lib/data/storage/storage-types';
 import { database } from '$lib/data/store';
 import loadEpub from '$lib/functions/file-loaders/epub/load-epub';
@@ -431,18 +431,8 @@ export async function replicateData(
   return errorMessage;
 }
 
-let browserPersistenceAttempt: Promise<void> | undefined;
-
-async function persistStorage(target: StorageKey) {
-  if (target !== StorageKey.BROWSER) return;
-  // Offline/local data protection is infrastructure, not a feature opt-in.
-  // Ask at most once per page lifetime so Firefox cannot repeatedly prompt
-  // after a denial. A later document can retry after engagement has changed.
-  browserPersistenceAttempt ??= storage
-    .persist()
-    .then(() => undefined)
-    .catch(() => undefined);
-  await browserPersistenceAttempt;
+function persistStorage(target: StorageKey) {
+  if (target === StorageKey.BROWSER) void requestPersistentStorageOnce();
 }
 
 function checkCancelAndProgress(
