@@ -1034,3 +1034,116 @@ test('later equivalent server revision can retire a lost upload and preserve new
     h.stop();
   }
 });
+
+test('negotiated v1 removal is authoritative and is not resurrected locally', async () => {
+  const book = `content:${'a'.repeat(64)}`;
+  const before = {
+    version: 1,
+    collections: [],
+    books: {
+      [book]: {
+        modifiedAt: 10,
+        metadata: { publisher: 'Removed remotely' },
+        series: { name: 'Old series', index: 2 },
+        coverBlur: true
+      }
+    }
+  };
+  const remote = {
+    version: 1,
+    collections: [],
+    books: { [book]: { modifiedAt: 11 } }
+  };
+  const h = await loadedHarness({
+    enabled: true,
+    initialized: true,
+    revision: 1,
+    base: { library_organization: before },
+    local: { library_organization: before }
+  });
+  h.setRequestHandler(({ options }) => {
+    assert.equal(options.method, undefined, 'remote deletion should not be compensated with a PUT');
+    return {
+      user_id: 'a',
+      schema_version: 1,
+      book_presentation_version: 1,
+      revision: 2,
+      settings: { library_organization: remote }
+    };
+  });
+  try {
+    await h.api.syncPreferences();
+    assert.equal(h.requests.length, 1);
+    assert.deepEqual(h.subjects.get('organization').getValue(), remote);
+    assert.deepEqual(h.writes.at(-1).value.base.library_organization, remote);
+    assert.deepEqual(h.writes.at(-1).value.local.library_organization, remote);
+    assert.equal(h.status().state, 'synced');
+  } finally {
+    h.stop();
+  }
+});
+
+test('concurrent scalar edit survives an authoritative v1 presentation removal', async () => {
+  const book = `content:${'b'.repeat(64)}`;
+  const before = {
+    version: 1,
+    collections: [],
+    books: { [book]: { modifiedAt: 20, metadata: { publisher: 'Delete me' } } }
+  };
+  const remoteLibrary = {
+    version: 1,
+    collections: [],
+    books: { [book]: { modifiedAt: 21 } }
+  };
+  const h = await loadedHarness({
+    enabled: true,
+    initialized: true,
+    revision: 2,
+    base: { font_size: 24, library_organization: before },
+    local: { font_size: 24, library_organization: before }
+  });
+  const pending = deferred();
+  let server = {
+    user_id: 'a',
+    schema_version: 1,
+    book_presentation_version: 1,
+    revision: 3,
+    settings: { font_size: 24, library_organization: remoteLibrary }
+  };
+  h.setRequestHandler(({ options }) => {
+    if (h.requests.length === 1) return pending.promise;
+    if (options.method === 'PUT') {
+      server = {
+        ...server,
+        revision: server.revision + 1,
+        settings: globalThis.structuredClone(options.value.settings)
+      };
+    }
+    return server;
+  });
+  try {
+    const first = h.api.syncPreferences();
+    await drain();
+    h.subjects.get('fontSize$').next(31);
+    await drain();
+    pending.resolve(server);
+    await first;
+    assert.equal(h.status().state, 'pending');
+    assert.equal(h.subjects.get('fontSize$').getValue(), 31);
+    assert.deepEqual(h.subjects.get('organization').getValue(), remoteLibrary);
+
+    await h.api.syncPreferences();
+    const put = h.requests.find(({ options }) => options.method === 'PUT');
+    assert.ok(put, 'newer scalar edit was not uploaded');
+    assert.equal(put.options.value.settings.font_size, 31);
+    assert.deepEqual(put.options.value.settings.library_organization, remoteLibrary);
+    assert.equal(
+      Object.hasOwn(put.options.value.settings.library_organization.books[book], 'metadata'),
+      false,
+      'follow-up PUT resurrected remotely deleted metadata'
+    );
+    assert.equal(h.status().state, 'synced');
+  } finally {
+    h.stop();
+  }
+});
