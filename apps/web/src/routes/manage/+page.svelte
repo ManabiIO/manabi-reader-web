@@ -6,6 +6,10 @@
   import { beforeNavigate, goto } from '$app/navigation';
   import BookCardList from '$lib/components/book-card/book-card-list.svelte';
   import LibraryWorkspace from '$lib/library/library-workspace.svelte';
+  import {
+    reconcileSelectionEligibility,
+    type LibrarySelectionEligibility
+  } from '$lib/library/selection';
   import type { BookCardProps } from '$lib/components/book-card/book-card-props';
   import BookManagerHeader from '$lib/components/book-card/book-manager-header.svelte';
   import BookExportDialog from '$lib/components/book-export/book-export-dialog.svelte';
@@ -157,8 +161,14 @@
   let collectionsOpen = false;
   let destinationTitle = 'Library';
   let selectionScopeKey = '';
-  let selectableBookIds: number[] = [];
-  let selectablePreviewKeys: string[] = [];
+  let selectableBookIds: readonly number[] = [];
+  let selectablePreviewKeys: readonly string[] = [];
+  let selectionEligibility: LibrarySelectionEligibility = {
+    key: '',
+    ids: [],
+    previews: []
+  };
+  let reconciledSelectionEligibility = selectionEligibility;
   let libraryMenu: LibraryMenuModel | undefined;
   let pageAlive = true;
   let openGeneration = 0;
@@ -199,6 +209,25 @@
     if (!selectMode) {
       selectedPreviewKeys = new Set();
       selectedBookIds = new Set();
+    }
+  }
+
+  $: if (selectionEligibility !== reconciledSelectionEligibility) {
+    const previousScope = reconciledSelectionEligibility.key;
+    reconciledSelectionEligibility = selectionEligibility;
+    selectionScopeKey = selectionEligibility.key;
+    selectableBookIds = selectionEligibility.ids;
+    selectablePreviewKeys = selectionEligibility.previews;
+
+    if (selectMode) {
+      const reconciled = reconcileSelectionEligibility(
+        previousScope,
+        selectionEligibility,
+        selectedBookIds,
+        selectedPreviewKeys
+      );
+      selectedBookIds = reconciled.ids;
+      selectedPreviewKeys = reconciled.previews;
     }
   }
 
@@ -629,22 +658,6 @@
         else set.add(id);
       }
     });
-  }
-
-  function updateSelectionScope(key: string, ids: number[], previews: string[] = []) {
-    selectableBookIds = ids;
-    selectablePreviewKeys = previews;
-    if (key !== selectionScopeKey) {
-      selectionScopeKey = key;
-      selectedPreviewKeys = new Set();
-      selectedBookIds = new Set();
-    } else {
-      const eligible = new Set(ids);
-      selectedPreviewKeys = new Set(
-        [...selectedPreviewKeys].filter((key) => previews.includes(key))
-      );
-      selectedBookIds = new Set([...selectedBookIds].filter((id) => eligible.has(id)));
-    }
   }
 
   function toggleCollections() {
@@ -1232,6 +1245,7 @@
       <LibraryWorkspace
         bind:this={libraryWorkspace}
         {selectedPreviewKeys}
+        bind:selectionEligibility
         currentBookId={currentBookAvailable ? $currentBookId$ : undefined}
         {selectedBookIds}
         {selectMode}
@@ -1252,8 +1266,6 @@
           }
         }}
         on:selectionCancel={() => (selectMode = false)}
-        on:selectionScopeChange={(ev) =>
-          updateSelectionScope(ev.detail.key, ev.detail.ids, ev.detail.previews)}
         on:removeBookClick={(ev) => removeBooks([ev.detail.id])}
       >
         {@render emptyLibrary()}

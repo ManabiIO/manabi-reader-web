@@ -58,6 +58,7 @@
   let hydrated = false;
   let searchInput: HTMLInputElement | undefined;
   let searchButton: HTMLButtonElement | null = null;
+  let libraryActionsButton: HTMLButtonElement | null = null;
   onMount(() => {
     hydrated = true;
     const media = window.matchMedia('(max-width: 1023px)');
@@ -116,6 +117,13 @@
             ?.focus();
       })
     );
+  }
+  async function exitSelectionMode() {
+    selectMode = false;
+    // Compact selection removes the ordinary header, including its actions
+    // trigger. Wait for that trigger to be recreated before restoring focus.
+    await tick();
+    libraryActionsButton?.focus({ preventScroll: true });
   }
   let countImportElm: HTMLInputElement;
   $: isOldUrl = browser && isOnOldUrl(window);
@@ -318,6 +326,7 @@
             <Menu.Trigger>
               {#snippet child({ props })}
                 <Button
+                  bind:ref={libraryActionsButton}
                   {...props}
                   variant="outline"
                   size="icon"
@@ -591,13 +600,18 @@
         class:compact-selection={compactLibrary}
         class="library-selection-toolbar mx-auto flex min-h-14 max-w-6xl flex-wrap items-center gap-2 border-t border-border/60 px-[16px] py-[8px] sm:px-[24px]"
         aria-label="Book selection"
+        onkeydown={(event) => {
+          if (event.key !== 'Escape' || event.isComposing || event.altKey) return;
+          event.preventDefault();
+          void exitSelectionMode();
+        }}
       >
         <Button
           class="selection-action"
           variant="ghost"
           aria-label="Cancel selection"
           disabled={libraryMenu?.selectedActions?.busy}
-          onclick={() => (selectMode = false)}
+          onclick={() => void exitSelectionMode()}
           >{#if compactLibrary}<X class="size-[24px]" aria-hidden="true" />{:else}Cancel selection{/if}</Button
         >
         <span class="whitespace-nowrap text-sm" aria-live="polite">{selectedCount} selected</span>

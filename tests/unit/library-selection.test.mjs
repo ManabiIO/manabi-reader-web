@@ -3,7 +3,8 @@ import test from 'node:test';
 import {
   LibrarySelection,
   adjacentSelection,
-  marqueeSelection
+  marqueeSelection,
+  reconcileSelectionEligibility
 } from '../../apps/web/src/lib/library/selection.ts';
 const items = ['a', 'b', 'c', 'd', 'e'].map((key, i) => ({ key, ids: [i + 1] }));
 const ids = (value) => [...value].sort((a, b) => a - b);
@@ -88,6 +89,29 @@ test('external Select All replaces the old range baseline while equal UI echoes 
   assert.deepEqual(ids(selection.choose('c', items, { shift: true })), [2, 3]);
   selection.sync(new Set([1, 2, 3, 4, 5]), items);
   assert.deepEqual(ids(selection.choose('b', items, { shift: true })), [1, 2, 3, 4, 5]);
+});
+
+test('visible-scope reconciliation clears selection when the scope changes', () => {
+  const result = reconcileSelectionEligibility(
+    'local:books::all:',
+    { key: 'local:books::all:parity 1', ids: [2], previews: ['preview-b'] },
+    new Set([1]),
+    new Set(['preview-a'])
+  );
+  assert.equal(result.scope, 'local:books::all:parity 1');
+  assert.deepEqual([...result.ids], []);
+  assert.deepEqual([...result.previews], []);
+});
+
+test('visible-scope reconciliation only trims unavailable items inside one scope', () => {
+  const result = reconcileSelectionEligibility(
+    'local:books::all:',
+    { key: 'local:books::all:', ids: [2, 3], previews: ['preview-b'] },
+    new Set([1, 2, 3]),
+    new Set(['preview-a', 'preview-b'])
+  );
+  assert.deepEqual([...result.ids], [2, 3]);
+  assert.deepEqual([...result.previews], ['preview-b']);
 });
 
 test('rendered string identities select unopened previews without manufacturing browser IDs', () => {
