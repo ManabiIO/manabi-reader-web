@@ -153,7 +153,6 @@ export async function saveDocument(
   guard: Guard
 ) {
   guard();
-  void requestPersistentStorageOnce();
   return mutateRecord(owner, document.id, guard, (current) => {
     if ((current?.document.revision ?? null) !== base)
       throw new SnippetError(
@@ -168,6 +167,7 @@ export async function saveDocument(
         'conflict',
         'Resolve the conflicting version before editing this snippet.'
       );
+    void requestPersistentStorageOnce();
     return {
       ...current,
       key: recordKey(owner, document.id),
@@ -190,7 +190,6 @@ export async function saveDraft(draft: SnippetDraft, guard: Guard) {
   if (draft.key !== recordKey(draft.owner, draft.session) || draft.id !== draft.document.id)
     throw new Error('Invalid draft identity.');
   parseSnippet(encodeSnippet(draft.document));
-  void requestPersistentStorageOnce();
   const db = await integrationDB(),
     tx = db.transaction('snippetDrafts', 'readwrite');
   await commitTransaction(tx, async () => {
