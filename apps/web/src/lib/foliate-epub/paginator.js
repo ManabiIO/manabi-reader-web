@@ -1204,7 +1204,7 @@ export class Paginator extends HTMLElement {
                     this.dispatchEvent(new CustomEvent('navigationerror', { detail: error }))
                 return false
             }
-            if (typeof src !== 'string' || !src) {
+            if (src == null || src === '') {
                 if (!this.#destroyed && generation === this.#navigationGeneration)
                     this.dispatchEvent(new CustomEvent('navigationerror', {
                         detail: new Error('EPUB section did not provide a renderable source'),
