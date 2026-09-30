@@ -159,6 +159,8 @@
   let selectionScopeKey = '';
   let selectableBookIds: number[] = [];
   let selectablePreviewKeys: string[] = [];
+  let reconciledSelectionScopeKey = '';
+  let reconciledSelectionEligibility = '';
   let libraryMenu: LibraryMenuModel | undefined;
   let pageAlive = true;
   let openGeneration = 0;
@@ -199,6 +201,37 @@
     if (!selectMode) {
       selectedPreviewKeys = new Set();
       selectedBookIds = new Set();
+    }
+  }
+
+  $: {
+    const eligibility = JSON.stringify([
+      selectionScopeKey,
+      selectableBookIds,
+      selectablePreviewKeys
+    ]);
+    if (selectionScopeKey !== reconciledSelectionScopeKey) {
+      reconciledSelectionScopeKey = selectionScopeKey;
+      reconciledSelectionEligibility = eligibility;
+      if (selectMode) {
+        // A search/collection/series scope is a distinct selection operation.
+        // Never carry hidden selections into a different visible scope.
+        selectedPreviewKeys = new Set();
+        selectedBookIds = new Set();
+      }
+    } else if (eligibility !== reconciledSelectionEligibility) {
+      reconciledSelectionEligibility = eligibility;
+      if (selectMode) {
+        // Same scope, changing availability: retain only still-actionable items.
+        const eligibleBooks = new Set(selectableBookIds);
+        const eligiblePreviews = new Set(selectablePreviewKeys);
+        selectedPreviewKeys = new Set(
+          [...selectedPreviewKeys].filter((key) => eligiblePreviews.has(key))
+        );
+        selectedBookIds = new Set(
+          [...selectedBookIds].filter((id) => eligibleBooks.has(id))
+        );
+      }
     }
   }
 
@@ -629,22 +662,6 @@
         else set.add(id);
       }
     });
-  }
-
-  function updateSelectionScope(key: string, ids: number[], previews: string[] = []) {
-    selectableBookIds = ids;
-    selectablePreviewKeys = previews;
-    if (key !== selectionScopeKey) {
-      selectionScopeKey = key;
-      selectedPreviewKeys = new Set();
-      selectedBookIds = new Set();
-    } else {
-      const eligible = new Set(ids);
-      selectedPreviewKeys = new Set(
-        [...selectedPreviewKeys].filter((key) => previews.includes(key))
-      );
-      selectedBookIds = new Set([...selectedBookIds].filter((id) => eligible.has(id)));
-    }
   }
 
   function toggleCollections() {
@@ -1232,6 +1249,9 @@
       <LibraryWorkspace
         bind:this={libraryWorkspace}
         {selectedPreviewKeys}
+        bind:selectionScopeKey
+        bind:selectableBookIds
+        bind:selectablePreviewKeys
         currentBookId={currentBookAvailable ? $currentBookId$ : undefined}
         {selectedBookIds}
         {selectMode}
@@ -1252,8 +1272,6 @@
           }
         }}
         on:selectionCancel={() => (selectMode = false)}
-        on:selectionScopeChange={(ev) =>
-          updateSelectionScope(ev.detail.key, ev.detail.ids, ev.detail.previews)}
         on:removeBookClick={(ev) => removeBooks([ev.detail.id])}
       >
         {@render emptyLibrary()}
