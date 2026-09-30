@@ -21,14 +21,15 @@ import { planWindows } from './moss-output.js';
 import { validateAudioProofs, type AudioProof } from './audio-proof.js';
 import type { DeviceKey } from './device-checkpoint.js';
 import {
-  SPARSE_CORE_SECONDS,
   assembleSparse,
   acceptedSparseCues,
   sparseBounds,
   pendingSparseSeam,
   unsafeSparseRepairTiming,
   sparseCoverage,
+  sparseWindowCount,
   validateSparseState,
+  type SparsePolicy,
   type SparseState
 } from './sparse-transcription.js';
 import { legacySparseCues, legacyAssembleSparse } from './sparse-legacy.js';
@@ -46,6 +47,8 @@ export interface Job {
   version: 1 | 2 | 3;
   progressive?: ProgressiveState;
   sparse?: SparseState;
+  /** Retained after sparse hypotheses are compacted following publication. */
+  sparsePolicy?: SparsePolicy;
   id: string;
   mediaKey: ContentKey;
   /** An unverified, device-only File job uses a random local key until full hashing finishes. */
@@ -84,7 +87,9 @@ export function jobCanResume(job: Job): boolean {
     if (
       seam !== undefined &&
       (job.sparse.repairs[seam] ||
-        sparseBounds(seam + 1, job.duration).end - sparseBounds(seam, job.duration).start > 60)
+        sparseBounds(seam + 1, job.duration, job.sparse.policy).end -
+          sparseBounds(seam, job.duration, job.sparse.policy).start >
+          60)
     )
       return false;
   }
@@ -118,7 +123,8 @@ export function validateJob(value: unknown): Job {
     'cancelRequested',
     'pauseReason',
     'progressive',
-    'sparse'
+    'sparse',
+    'sparsePolicy'
   ]);
   if (
     (j.version !== 1 && j.version !== 2 && j.version !== 3) ||
@@ -158,6 +164,20 @@ export function validateJob(value: unknown): Job {
     j.cues.length === 0;
   const sparse =
     j.version === 3 && !compactSparse ? validateSparseState(j.sparse, duration) : undefined;
+  const suppliedSparsePolicy = j.sparsePolicy as SparsePolicy | undefined;
+  if (
+    suppliedSparsePolicy !== undefined &&
+    suppliedSparsePolicy !== 'overlap-sparse-v1' &&
+    suppliedSparsePolicy !== 'overlap-sparse-v2' &&
+    suppliedSparsePolicy !== 'overlap-sparse-v3'
+  )
+    throw new Error('Invalid saved sparse policy identity');
+  if (j.version !== 3 && suppliedSparsePolicy !== undefined)
+    throw new Error('Sparse policy identity requires a sparse job');
+  const sparsePolicy =
+    j.version === 3 ? (suppliedSparsePolicy ?? sparse?.policy ?? 'overlap-sparse-v2') : undefined;
+  if (sparse && sparsePolicy !== sparse.policy)
+    throw new Error('Sparse policy identity does not match saved hypotheses');
   const audioProofs =
     j.audioProofs === undefined
       ? undefined
@@ -173,7 +193,7 @@ export function validateJob(value: unknown): Job {
   )
     throw new Error('Job window policies cannot be mixed');
   const windowCount = compactSparse
-    ? Math.ceil(duration / SPARSE_CORE_SECONDS)
+    ? sparseWindowCount(duration, sparsePolicy!)
     : sparse
       ? sparse.windows.length
       : progressive
@@ -286,6 +306,7 @@ export function validateJob(value: unknown): Job {
     version: j.version as 1 | 2 | 3,
     ...(progressive ? { progressive } : {}),
     ...(sparse ? { sparse } : {}),
+    ...(sparsePolicy ? { sparsePolicy } : {}),
     id: j.id,
     mediaKey: j.mediaKey,
     ...(j.provisional === true ? { provisional: true as const } : {}),
