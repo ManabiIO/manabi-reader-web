@@ -69,13 +69,15 @@ export function validateAudioProofs(
 ): AudioProof[] {
   if (!Array.isArray(value)) throw new Error('Invalid saved audio proofs');
   const expected = [
-    ...sparse.windows.flatMap((window, index) => (window ? [sparseBounds(index, duration)] : [])),
+    ...sparse.windows.flatMap((window, index) =>
+      window ? [sparseBounds(index, duration, sparse.policy)] : []
+    ),
     ...sparse.repairs.flatMap((repair, index) =>
       repair
         ? [
             {
-              start: sparseBounds(index, duration).start,
-              end: sparseBounds(index + 1, duration).end
+              start: sparseBounds(index, duration, sparse.policy).start,
+              end: sparseBounds(index + 1, duration, sparse.policy).end
             }
           ]
         : []
