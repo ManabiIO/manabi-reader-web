@@ -98,20 +98,24 @@ method receivers. It reports unknown usage as an empty estimate instead of
 the previous synthetic 1/1 (100% used) value. Concurrent persistence requests
 share one promise and already granted persistence is reused.
 
-Normal EPUB/TXT/HTMLZ import and replication that actually writes book data to
-the browser request persistence automatically. Character-count-only imports,
-empty selections and progress/statistics-only background replication do not.
-The replication layer attempts this at most once per page lifetime, so a
-Firefox denial cannot produce a permission prompt on every subsequent import;
-a later document may retry after user engagement or browser policy changes.
-The permission promise is deliberately not awaited by the import/replication
-operation: a native prompt that remains unanswered must never delay saving the
-book itself.
+A real EPUB/TXT/HTMLZ browser write, a replication pass that actually saves
+book content, or an explicit snippet document save requests persistence
+automatically. Exact reusable/no-op imports, already-up-to-date book copies,
+character-count-only imports, empty selections, snippet draft autosaves and
+progress/statistics-only background replication do not.
+
+Books and snippets share one automatic request per page lifetime, so a Firefox
+denial cannot produce a permission prompt on every subsequent save; a later
+document may retry after user engagement or browser policy changes. The
+permission promise is deliberately not awaited by the content write: a native
+prompt that remains unanswered must never delay saving the book or snippet.
 
 The old local `requestPersistentStorage` preference no longer gates this
 infrastructure request. Settings reports the browser's real persisted state and
 offers an explicit retry when storage is still best-effort; it is not an
-enable/disable switch for offline reading. Browser policy remains authoritative:
+enable/disable switch for offline reading. Retry joins an already-active
+permission request instead of opening a second prompt, and can make one new
+request after a settled denial. Browser policy remains authoritative:
 Chromium/WebKit may grant or deny heuristically, while Firefox may ask the user.
 Persistent mode reduces automatic eviction risk but is not a backup and the
 user can still clear site data.
