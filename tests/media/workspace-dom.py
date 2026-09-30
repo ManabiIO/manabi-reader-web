@@ -1062,6 +1062,7 @@ def main():
             select_visible.focus()
             select_visible.press('Enter')
             assert status.inner_text()=='3 videos selected'
+            assert page.locator('.video-card.selected').count()==3
             assert select_visible.is_disabled()
             assert clear.is_enabled() and generate.is_enabled()
             assert clear.is_focused()
@@ -1072,6 +1073,7 @@ def main():
             clear.press('Enter')
             assert page.evaluate('workspace.selected.size')==0
             assert status.inner_text()=='No videos selected'
+            assert page.locator('.video-card.selected').count()==0
             assert clear.is_disabled() and generate.is_disabled()
             assert select_visible.is_focused()
             assert all(not check.is_checked() for check in page.get_by_label(re.compile('^Select ')).all())
