@@ -78,6 +78,34 @@ export class LibrarySelection<Id = number> {
   }
 }
 
+export interface LibrarySelectionEligibility {
+  key: string;
+  ids: readonly number[];
+  previews: readonly string[];
+}
+
+export function reconcileSelectionEligibility(
+  previousScope: string,
+  next: LibrarySelectionEligibility,
+  selectedIds: ReadonlySet<number>,
+  selectedPreviews: ReadonlySet<string>
+) {
+  if (next.key !== previousScope)
+    return {
+      scope: next.key,
+      ids: new Set<number>(),
+      previews: new Set<string>()
+    };
+
+  const eligibleIds = new Set(next.ids);
+  const eligiblePreviews = new Set(next.previews);
+  return {
+    scope: next.key,
+    ids: new Set([...selectedIds].filter((id) => eligibleIds.has(id))),
+    previews: new Set([...selectedPreviews].filter((key) => eligiblePreviews.has(key)))
+  };
+}
+
 export interface SelectionRect {
   key: string;
   left: number;
