@@ -253,9 +253,6 @@ export async function request<T>(
   const scope = accountScope();
   if (options.userId && options.userId !== scope.userId)
     throw new IntegrationError('account_changed', 409);
-  // API responses are account-scoped and never served from the offline cache.
-  // Avoid knowingly starting a doomed request during local-only recovery.
-  if (!navigator.onLine) throw new IntegrationError('offline');
   const session = get(account).session!;
   const headers = new Headers({ 'X-Manabi-User': scope.userId });
   if (path.split('?', 1)[0] === 'preferences/')
