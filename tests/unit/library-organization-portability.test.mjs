@@ -161,7 +161,6 @@ test('promotion to a verified content key makes formerly local details portable'
   assert.deepEqual(portableOrganization(promoted), promoted);
 });
 
-
 test('accepted portable presentation omissions are authoritative while local-only identities survive', () => {
   const localOnly = { ...details('Device-only'), metadata: { publisher: 'Keep locally' } };
   const local = organization(
