@@ -24,8 +24,10 @@ types, while portable Ttu archives retain the version-6 format. Account ownershi
 rules, sync consent, source adapters, database identifiers and imported-font cache
 are unchanged.
 No remote library is mirrored, no account/API responses are cached, and no
-large optional payload is downloaded by this change. Existing persistence
-preferences and the browser's native permission decisions are respected.
+large optional payload is downloaded by this change. Persistent-storage
+protection is requested automatically when actual book content is being saved
+to browser storage; it is not an offline-feature opt-in. The browser's native
+grant/deny decision remains authoritative.
 
 ## Re-evaluation of the earlier proposal
 
@@ -94,10 +96,22 @@ The shared storage wrapper tolerates missing/partial browser APIs, throwing
 getters, synchronous errors and rejected promises, while preserving native
 method receivers. It reports unknown usage as an empty estimate instead of
 the previous synthetic 1/1 (100% used) value. Concurrent persistence requests
-share one promise; already granted persistence is reused, and a denial does
-not permanently prohibit a later request. This is not a new permission-request
-policy. A native permission prompt still belongs to the browser; this wrapper
-does not dismiss it or claim it cannot remain pending.
+share one promise and already granted persistence is reused.
+
+Normal EPUB/TXT/HTMLZ import and replication that actually writes book data to
+the browser request persistence automatically. Character-count-only imports,
+empty selections and progress/statistics-only background replication do not.
+The replication layer attempts this at most once per page lifetime, so a
+Firefox denial cannot produce a permission prompt on every subsequent import;
+a later document may retry after user engagement or browser policy changes.
+
+The old local `requestPersistentStorage` preference no longer gates this
+infrastructure request. Settings reports the browser's real persisted state and
+offers an explicit retry when storage is still best-effort; it is not an
+enable/disable switch for offline reading. Browser policy remains authoritative:
+Chromium/WebKit may grant or deny heuristically, while Firefox may ask the user.
+Persistent mode reduces automatic eviction risk but is not a backup and the
+user can still clear site data.
 
 ### Durable imported images
 
