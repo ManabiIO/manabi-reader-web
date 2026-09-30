@@ -50,6 +50,25 @@ globalThis[Symbol.for(fixtureKey)] = {
           ? new Uint8Array(value)
           : new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
     return createHash('sha256').update(bytes).digest('hex');
+  },
+  withLocalLibraryConnection: async (admitted, write, work) => {
+    await fixture.beforeConnect?.();
+    const current = await fixture.db.get('localLibraries', admitted.id);
+    if (
+      !current ||
+      !(
+        current.handle === admitted.handle ||
+        (await current.handle.isSameEntry(admitted.handle))
+      )
+    )
+      throw new globalThis[Symbol.for(fixtureKey)].classIntegrationError('not_found');
+    if (
+      (write && !current.writable) ||
+      (await current.handle.queryPermission({ mode: write ? 'readwrite' : 'read' })) !== 'granted'
+    )
+      throw new globalThis[Symbol.for(fixtureKey)].classIntegrationError('permission_required');
+    fixture.authorityCalls.push({ id: admitted.id, write });
+    return work(current);
   }
 };
 
@@ -61,7 +80,7 @@ const mock = {
   },
   '../manabi/persistence': { integrationDB: 'integrationDB', exclusive: 'exclusive' },
   '../library/file-operations': { openDirectory: 'openDirectory', safePath: 'safePath' },
-  '../manabi/sources': { sha256: 'sha256' },
+  '../manabi/sources': { sha256: 'sha256', withLocalLibraryConnection: 'withLocalLibraryConnection' },
   '../library/catalog': { librarySource: 'unused' },
   '../webdav/source': { davSource: 'unused', withDavSourceLock: 'unused' },
   '../webdav/client': {
@@ -120,7 +139,9 @@ async function setup() {
     src = source();
   fixture = {
     fs,
-    db: integrationDatabase({ id: src.id, name: src.name, handle: fs.root, writable: true })
+    db: integrationDatabase({ id: src.id, name: src.name, handle: fs.root, writable: true }),
+    authorityCalls: [],
+    beforeConnect: undefined
   };
   return { fs, src };
 }
@@ -186,4 +207,60 @@ test('successful retry writes the exact portable document bytes', async () => {
   await fs.handle(name, true);
   await writeDocument({ source: src, parent: '', name }, doc, undefined, guard);
   assert.equal(await fs.read(name), encodeSnippet(doc));
+});
+
+
+test('local snippet writes reject a replaced source before touching the stale handle', async () => {
+  const { fs, src } = await setup(),
+    doc = createSnippet(plainContent('replacement must not retarget writes')),
+    replacement = filesystem();
+  fixture.beforeConnect = async () => {
+    const current = fixture.db.tables.get('localLibraries').get(src.id);
+    current.handle = replacement.root;
+    fixture.beforeConnect = undefined;
+  };
+  await assert.rejects(
+    () => writeDocument({ source: src, parent: '' }, doc, undefined, guard),
+    (error) => error?.code === 'not_found'
+  );
+  assert.deepEqual(fs.events, []);
+  assert.deepEqual(replacement.events, []);
+  assert.deepEqual(fixture.authorityCalls, []);
+});
+
+test('local snippet writes reject disconnect before physical admission', async () => {
+  const { fs, src } = await setup(),
+    doc = createSnippet(plainContent('disconnect must fence writes'));
+  fixture.beforeConnect = async () => {
+    fixture.db.tables.get('localLibraries').delete(src.id);
+    fixture.beforeConnect = undefined;
+  };
+  await assert.rejects(
+    () => writeDocument({ source: src, parent: '' }, doc, undefined, guard),
+    (error) => error?.code === 'not_found'
+  );
+  assert.deepEqual(fs.events, []);
+  assert.deepEqual(fixture.authorityCalls, []);
+});
+
+test('local snippet writes require durable write consent from the current source row', async () => {
+  const { fs, src } = await setup(),
+    doc = createSnippet(plainContent('consent must be current'));
+  fixture.beforeConnect = async () => {
+    fixture.db.tables.get('localLibraries').get(src.id).writable = false;
+    fixture.beforeConnect = undefined;
+  };
+  await assert.rejects(
+    () => writeDocument({ source: src, parent: '' }, doc, undefined, guard),
+    (error) => error?.code === 'permission_required'
+  );
+  assert.deepEqual(fs.events, []);
+  assert.deepEqual(fixture.authorityCalls, []);
+});
+
+test('normal local snippet create enters shared source authority as a write operation', async () => {
+  const { src } = await setup(),
+    doc = createSnippet(plainContent('shared source authority'));
+  await writeDocument({ source: src, parent: '' }, doc, undefined, guard);
+  assert.deepEqual(fixture.authorityCalls, [{ id: src.id, write: true }]);
 });
