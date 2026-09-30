@@ -568,7 +568,7 @@ class UnifiedSearch(ProductJourneyBase):
         expect(self.page.get_by_text(
             'Use a dictionary query of 256 characters or fewer.', exact=False
         )).to_be_visible()
-        expect(self.page.get_by_role('button', name='Retry dictionary', exact=True)).to_be_visible()
+        expect(self.page.get_by_role('button', name='Retry dictionary', exact=True)).to_have_count(0)
 
         field.fill('猫')
         expect(self.page.get_by_text(
