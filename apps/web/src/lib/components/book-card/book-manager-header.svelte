@@ -600,6 +600,11 @@
         class:compact-selection={compactLibrary}
         class="library-selection-toolbar mx-auto flex min-h-14 max-w-6xl flex-wrap items-center gap-2 border-t border-border/60 px-[16px] py-[8px] sm:px-[24px]"
         aria-label="Book selection"
+        onkeydown={(event) => {
+          if (event.key !== 'Escape' || event.isComposing || event.altKey) return;
+          event.preventDefault();
+          void exitSelectionMode();
+        }}
       >
         <Button
           class="selection-action"
