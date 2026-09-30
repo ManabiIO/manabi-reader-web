@@ -119,6 +119,14 @@
 .media-actions {
   margin: 16px 0;
 }
+.media-selection-status {
+  flex: 1 1 100%;
+  min-width: 0;
+  min-height: 1.5em;
+  color: var(--media-secondary);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
 .media-actions input[type='search'] {
   flex: 1;
   min-width: 160px;
