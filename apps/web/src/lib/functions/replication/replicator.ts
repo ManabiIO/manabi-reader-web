@@ -39,8 +39,6 @@ export async function importData(
 
   replicationProgress$.next({ progressBase, maxProgress });
 
-  if (files.length && !fileCountData) void persistStorage(targetHandler.storageType);
-
   if (targetHandler.isCacheDisabled()) {
     targetHandler.clearData(false);
   }
@@ -112,6 +110,7 @@ export async function importData(
         cancelSignal
       );
 
+      void persistStorage(targetHandler.storageType);
       dataIds.push(await targetHandler.saveBook(bookContent, false));
 
       checkCancelAndProgress(cancelSignal, false);
@@ -207,8 +206,6 @@ export async function replicateData(
 
   replicationProgress$.next({ maxProgress });
 
-  if (contexts.length && processBookData) void persistStorage(targetHandler.storageType);
-
   [sourceHandler, targetHandler].forEach((handler) => {
     if (handler.isCacheDisabled()) {
       handler.clearData(false);
@@ -239,6 +236,7 @@ export async function replicateData(
             checkCancelAndProgress(cancelSignal);
 
             if (bookData) {
+              void persistStorage(targetHandler.storageType);
               const savedId = await targetHandler.saveBook(bookData);
               // A verified backup may create a second copy with the same title.
               // Subsequent progress must target the ID actually written, not
