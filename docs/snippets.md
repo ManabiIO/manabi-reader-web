@@ -67,7 +67,12 @@ writes cannot atomically exclude external applications; the picker warns users t
 Every local snippet read, capability check, folder creation, write and remove holds the same
 connected-folder generation lock as book/state operations. Disconnect/reconnect therefore waits for
 admitted physical I/O; queued snippet work revalidates the exact directory handle and durable write
-consent before touching disk, so a reused source ID cannot retarget an older operation.
+consent before touching disk, so a reused source ID cannot retarget an older operation. If the same
+portable snippet later reappears under a newly connected source ID, discovery may rebind the storage
+home only when the old source is absent from that discovery snapshot and the newly found document is
+identical or causally related. Dirty local descendants are preserved and uploaded over their remote
+ancestor; sibling revisions still require explicit conflict resolution, and an upload targeting a
+still-active source keeps ownership.
 A first-create crash can leave File System Access's newly created directory entry at zero bytes.
 Retry may reclaim only the exact deterministic filename for that pending snippet; unrelated
 zero-byte names and non-empty malformed files are never overwritten.
