@@ -23,9 +23,11 @@ test('automatic persistence request is single-flight for the whole module lifeti
     }
   );
 
+  assert.equal(api.currentPersistentStorageRequest(), undefined);
   const first = api.requestPersistentStorageOnce();
   const second = api.requestPersistentStorageOnce();
   assert.equal(first, second);
+  assert.equal(api.currentPersistentStorageRequest(), first);
   assert.equal(calls, 1);
   pending.resolve(false);
   assert.equal(await first, false);
