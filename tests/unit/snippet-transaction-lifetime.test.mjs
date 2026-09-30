@@ -83,7 +83,11 @@ test('snippet draft transaction observes completion before its first request', a
     },
     () => undefined
   );
-  assert.equal(h.persistenceCalls(), 1, 'draft save did not request browser storage protection');
+  assert.equal(
+    h.persistenceCalls(),
+    0,
+    'draft autosave should not surface a browser persistence prompt'
+  );
 });
 
 test('snippet document save does not wait for persistence permission', async () => {
