@@ -100,6 +100,72 @@ class LibraryParityBrowser(LibraryBase):
         self.assertEqual(3, self.items().count())
         expect(self.items().filter(has=self.page.get_by_text('Selected', exact=True))).to_have_count(0)
 
+    def test_compact_selection_toolbar_reflows_at_200_percent_text(self):
+        self.page.set_viewport_size({'width': 320, 'height': 568})
+        self.populate(3)
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+
+        actions = self.page.get_by_role('button', name='Library actions', exact=True)
+        actions.click()
+        menu = self.page.get_by_role('menu')
+        expect(menu).to_be_visible()
+        menu.get_by_role('menuitem', name='Select Books', exact=True).click()
+
+        toolbar = self.page.get_by_label('Book selection', exact=True)
+        expect(toolbar).to_be_visible()
+        self.assertLessEqual(toolbar.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+        self.assertLessEqual(
+            self.page.evaluate('document.documentElement.scrollWidth-innerWidth'), 1)
+
+        def reachable(control):
+            box = control.bounding_box()
+            self.assertIsNotNone(box)
+            self.assertGreaterEqual(box['width'], 43.99)
+            self.assertGreaterEqual(box['height'], 43.99)
+            self.assertGreaterEqual(box['x'], -1)
+            self.assertGreaterEqual(box['y'], -1)
+            self.assertLessEqual(box['x'] + box['width'], 321)
+            self.assertLessEqual(box['y'] + box['height'], 569)
+            self.assertTrue(control.evaluate('''e => {
+              const r=e.getBoundingClientRect();
+              const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+              return !!hit && (hit===e || e.contains(hit));
+            }'''))
+
+        cancel = toolbar.get_by_role('button', name='Cancel selection', exact=True)
+        select_all = toolbar.get_by_role('button', name='Select All Visible', exact=True)
+        reachable(cancel)
+        reachable(select_all)
+        expect(toolbar.get_by_text('0 selected', exact=True)).to_be_visible()
+
+        select_all.click()
+        expect(toolbar.get_by_text('3 selected', exact=True)).to_be_visible()
+        export = toolbar.get_by_role('button', name='Export', exact=True)
+        more = toolbar.get_by_role('button', name='Selected book actions', exact=True)
+        reachable(export)
+        reachable(more)
+        self.assertLessEqual(toolbar.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+
+        more.focus()
+        more.press('Enter')
+        selected_menu = self.page.get_by_role('menu')
+        expect(selected_menu).to_be_visible()
+        menu_box = selected_menu.bounding_box()
+        self.assertGreaterEqual(menu_box['x'], -1)
+        self.assertGreaterEqual(menu_box['y'], -1)
+        self.assertLessEqual(menu_box['x'] + menu_box['width'], 321)
+        self.assertLessEqual(menu_box['y'] + menu_box['height'], 569)
+        self.assertLessEqual(selected_menu.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+        for item in selected_menu.get_by_role('menuitem').all():
+            self.assertGreaterEqual(item.bounding_box()['height'], 43.99)
+        self.page.keyboard.press('Escape')
+        expect(selected_menu).to_have_count(0)
+        expect(more).to_be_focused()
+
+        cancel.click()
+        expect(toolbar).to_have_count(0)
+        self.page.evaluate('document.documentElement.style.fontSize = ""')
+
     def start_drag(self, layout):
         first, second = self.items().nth(0).bounding_box(), self.items().nth(1).bounding_box()
         if layout == 'Grid':
