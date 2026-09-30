@@ -95,6 +95,7 @@ function matchKey(value: string, needle: string, field = 0, group = 0): SearchMa
 }
 
 const compareStableText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+const searchGraphemes = new Intl.Segmenter('ja', { granularity: 'grapheme' });
 
 function bestKey(values: readonly string[], needle: string, group = 0): SearchMatchKey {
   let best = matchKey(values[0] ?? '', needle, 0, group);
@@ -176,17 +177,19 @@ export function searchMatchRange(
 ): { start: number; end: number } | undefined {
   const needle = foldSearch(query.trim());
   if (!needle) return;
+  const at = matchKey(value, needle).foldedIndex;
+  // Metadata-only Book hits call this for the displayed title first. Avoid
+  // grapheme segmentation entirely when that title is not the matching field.
+  if (at < 0) return;
   const starts: number[] = [],
     ends: number[] = [];
-  for (const part of new Intl.Segmenter('ja', { granularity: 'grapheme' }).segment(value)) {
+  for (const part of searchGraphemes.segment(value)) {
     const unit = foldSearch(part.segment);
     for (let index = 0; index < unit.length; index++) {
       starts.push(part.index);
       ends.push(part.index + part.segment.length);
     }
   }
-  const at = matchKey(value, needle).foldedIndex;
-  if (at < 0) return;
   const start = starts[at],
     end = ends[at + needle.length - 1];
   return Number.isInteger(start) && Number.isInteger(end) && end > start
