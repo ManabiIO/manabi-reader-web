@@ -169,8 +169,8 @@ the identities and timing of matched accepted cues.
 Completed version-3 jobs are compacted after atomic track publication, so
 routine queue reads do not reload the complete window hypotheses.
 
-The player measures decode plus warm inference time for each finished core,
-excluding first-time model download/preparation, and estimates how
+The player measures decode plus warm inference time for each finished **non-silent** core,
+excluding first-time model download/preparation and exact-zero cores that bypass MOSS, and estimates how
 long it will take to build a 26-second caption lead. The estimate is updated
 as more windows finish; before the first window it says that it is estimating.
 If inference takes longer than one core of playback, the UI says captions may
