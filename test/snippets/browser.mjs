@@ -448,7 +448,7 @@ try {
   }
 
   const selectionToggleLarge = page.getByRole('button', { name: 'Select', exact: true });
-  selectionToggleLarge.focus();
+  await selectionToggleLarge.focus();
   await selectionToggleLarge.press('Enter');
   const enlargedBatch = page.getByRole('toolbar', {
     name: 'Selected snippet actions',
@@ -471,7 +471,7 @@ try {
     name: 'Select all visible',
     exact: true
   });
-  selectAllLarge.focus();
+  await selectAllLarge.focus();
   await selectAllLarge.press('Enter');
   await expect(batchStatus).toHaveText('1 selected');
   const enlargedSelection = page.getByRole('checkbox', { name: 'Select 散歩の記録', exact: true });
@@ -492,14 +492,14 @@ try {
     const selectionPath = largeTextEvidence.replace(/\.png$/i, '-selection-large-text.png');
     await page.screenshot({ path: selectionPath, fullPage: true });
   }
-  selectAllLarge.press('Escape');
+  await selectAllLarge.press('Escape');
   await expect(enlargedBatch).toHaveCount(0);
   await expect(selectionToggleLarge).toHaveText('Select');
   await expect(selectionToggleLarge).toBeFocused();
 
   await selectionToggleLarge.press('Enter');
   const checkboxEscape = page.getByRole('checkbox', { name: 'Select 散歩の記録', exact: true });
-  checkboxEscape.focus();
+  await checkboxEscape.focus();
   await checkboxEscape.press('Space');
   await expect(
     page.getByRole('toolbar', { name: 'Selected snippet actions', exact: true }).getByRole('status')
