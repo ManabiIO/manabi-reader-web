@@ -254,6 +254,7 @@ export async function acceptRemote(
       !activeSources.has(sourceKey(current.upload.destination.source));
     const rebindable =
       !current.transfer &&
+      (!current.upload || uploadUnavailable) &&
       !current.conflicts.length &&
       (primaryMissing || primaryUnavailable || current.primary === key);
     const relocated = rebindable
