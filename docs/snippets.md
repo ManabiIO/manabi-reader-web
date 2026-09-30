@@ -64,6 +64,10 @@ asks when there are multiple eligible sources. Clearing the default never moves 
 required to start: choosing this-device-only is explicit and labeled, and Move publishes such
 a document later. Native local-folder and strong-ETag WebDAV adapters are included. Local folder
 writes cannot atomically exclude external applications; the picker warns users to close them.
+Every local snippet read, capability check, folder creation, write and remove holds the same
+connected-folder generation lock as book/state operations. Disconnect/reconnect therefore waits for
+admitted physical I/O; queued snippet work revalidates the exact directory handle and durable write
+consent before touching disk, so a reused source ID cannot retarget an older operation.
 A first-create crash can leave File System Access's newly created directory entry at zero bytes.
 Retry may reclaim only the exact deterministic filename for that pending snippet; unrelated
 zero-byte names and non-empty malformed files are never overwritten.
