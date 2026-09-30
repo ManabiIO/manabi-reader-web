@@ -8,6 +8,25 @@ import { createStorageAccess } from './storage-access.mjs';
 
 const automaticStorage = createStorageAccess(() => globalThis.navigator?.storage);
 let automaticRequest: Promise<boolean> | undefined;
+let automaticSettled = false;
+let automaticResult: boolean | undefined;
+
+function startRequest() {
+  automaticSettled = false;
+  let current: Promise<boolean>;
+  current = automaticStorage
+    .persist()
+    .catch(() => false)
+    .then((result) => {
+      if (automaticRequest === current) automaticResult = result;
+      return result;
+    })
+    .finally(() => {
+      if (automaticRequest === current) automaticSettled = true;
+    });
+  automaticRequest = current;
+  return current;
+}
 
 /**
  * Request origin-level eviction protection at most once per page lifetime.
@@ -15,6 +34,15 @@ let automaticRequest: Promise<boolean> | undefined;
  * delay the local write that motivated the request.
  */
 export function requestPersistentStorageOnce(): Promise<boolean> {
-  automaticRequest ??= automaticStorage.persist().catch(() => false);
-  return automaticRequest;
+  return automaticRequest ?? startRequest();
+}
+
+/**
+ * User-initiated retry shares any active browser prompt. A completed denial can
+ * be retried explicitly, but a successful grant is never requested twice.
+ */
+export function retryPersistentStorage(): Promise<boolean> {
+  if (automaticRequest && !automaticSettled) return automaticRequest;
+  if (automaticResult === true) return Promise.resolve(true);
+  return startRequest();
 }
