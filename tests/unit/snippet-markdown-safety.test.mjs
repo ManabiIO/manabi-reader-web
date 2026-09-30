@@ -1,7 +1,7 @@
 /** @license BSD-3-Clause */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { markdownHTML } from '../../apps/web/src/lib/snippets/editor.ts';
+import {\n  exportMarkdown,\n  markdownHTML,\n  requiresHTMLMarkdown\n} from '../../apps/web/src/lib/snippets/editor.ts';
 import { validateContent } from '../../apps/web/src/lib/snippets/document.ts';
 
 function text(html) {
@@ -43,6 +43,61 @@ test('Markdown parsing stays stable after repeated editor extension construction
   for (let n = 0; n < 8; n++) extensions();
   const after = markdownHTML('Hi. there\n\n1. one\n2. two');
   assert.equal(after, before);
+});
+
+test('repeated Markdown serialization stays isolated and deterministic', () => {
+  const content = {
+    type: 'doc',
+    content: [
+      {
+        type: 'paragraph',
+        attrs: { id: crypto.randomUUID() },
+        content: [
+          { type: 'text', text: 'One ' },
+          { type: 'text', text: 'bold', marks: [{ type: 'bold' }] },
+          { type: 'text', text: ' sentence.' }
+        ]
+      }
+    ]
+  };
+  const first = exportMarkdown(content);
+  for (let n = 0; n < 12; n++) assert.equal(exportMarkdown(content), first);
+  assert.match(first, /One \*\*bold\*\* sentence\./);
+});
+
+test('ruby and zero-start lists select lossless HTML Markdown export', () => {
+  assert.equal(
+    requiresHTMLMarkdown({
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          attrs: { id: crypto.randomUUID() },
+          content: [
+            {
+              type: 'text',
+              text: '東京',
+              marks: [{ type: 'rubyText', attrs: { rt: 'とうきょう' } }]
+            }
+          ]
+        }
+      ]
+    }),
+    true
+  );
+  assert.equal(
+    requiresHTMLMarkdown({
+      type: 'doc',
+      content: [
+        {
+          type: 'orderedList',
+          attrs: { id: crypto.randomUUID(), start: 0 },
+          content: []
+        }
+      ]
+    }),
+    true
+  );
 });
 
 test('fenced code containing list-like prose is not treated as a list', () => {
