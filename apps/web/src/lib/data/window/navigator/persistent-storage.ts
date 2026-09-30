@@ -4,8 +4,9 @@
  * All rights reserved.
  */
 
-import { storage } from './storage';
+import { createStorageAccess } from './storage-access.mjs';
 
+const automaticStorage = createStorageAccess(() => globalThis.navigator?.storage);
 let automaticRequest: Promise<boolean> | undefined;
 
 /**
@@ -14,6 +15,6 @@ let automaticRequest: Promise<boolean> | undefined;
  * delay the local write that motivated the request.
  */
 export function requestPersistentStorageOnce(): Promise<boolean> {
-  automaticRequest ??= storage.persist().catch(() => false);
+  automaticRequest ??= automaticStorage.persist().catch(() => false);
   return automaticRequest;
 }
