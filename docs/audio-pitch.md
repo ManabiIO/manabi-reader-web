@@ -70,8 +70,12 @@ vendored upstream model identified in `pitch/SWIFTF0-NOTICE.txt`. The model
 runs locally through ONNX Runtime Web's WASM backend. Reader constrains the
 search to 85–520 Hz, uses SwiftF0's confidence with a 0.52 voiced threshold,
 retains a rolling −35 dB relative level gate, and maps the model's fixed 16 ms
-frames back to media time. The previous custom autocorrelation estimator has
-been removed rather than retained as a silent fallback.
+frames back to media time. For analysis windows peaking below −35 dBFS but above
+the digital-silence floor, only the model tensor is scaled toward 0.5 peak,
+following SwiftF0's guidance for very quiet recordings; waveform amplitude,
+silence gating, and UI level remain based on the original samples. The previous
+custom autocorrelation estimator has been removed rather than retained as a
+silent fallback.
 
 SwiftF0 requires about 176 ms of future context for a final streaming frame.
 Reader therefore analyzes a short rolling window and displays a slightly
