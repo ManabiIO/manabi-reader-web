@@ -1018,10 +1018,20 @@ def main():
             assert status.inner_text()=='1 video selected'
             assert clear.is_enabled() and generate.is_enabled()
 
-            page.get_by_label('Search videos',exact=True).fill('Finished')
+            immediate=page.evaluate("""()=>{
+                const input=document.querySelector('[aria-label="Search videos"]');
+                input.value='Finished';
+                input.dispatchEvent(new Event('input',{bubbles:true}));
+                return {
+                    selected:workspace.selected.size,
+                    checked:[...document.querySelectorAll('.video-card input[type=checkbox]')]
+                      .map(input=>input.checked),
+                    status:document.querySelector('[aria-label="Video selection actions"] [role=status]')
+                      ?.textContent
+                };
+            }""")
+            assert immediate==dict(selected=0,checked=[False,False,False],status='No videos selected'),immediate
             page.wait_for_function('document.querySelectorAll(".video-card").length===1')
-            assert page.evaluate('workspace.selected.size')==0
-            assert status.inner_text()=='No videos selected'
             assert clear.is_disabled() and generate.is_disabled()
 
             page.get_by_label('Search videos',exact=True).fill('')
