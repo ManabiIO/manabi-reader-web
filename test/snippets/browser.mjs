@@ -652,6 +652,26 @@ try {
     conflictedRecord.conflicts.some((version) => version.revision === conflictingImport.revision)
   );
   passed('single-document conflicting import keeps both versions instead of rejecting the file');
+
+  await openLibrary(page);
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'commonmark.md',
+    mimeType: 'text/markdown',
+    buffer: Buffer.from('Hi. there\n\n0. zero\n1. one')
+  });
+  const markdownEditor = page.getByRole('textbox', { name: 'Snippet text', exact: true });
+  await expect(markdownEditor).toContainText('Hi. there');
+  await expect(markdownEditor.locator('ol')).toHaveAttribute('start', '0');
+  await expect(markdownEditor.locator('li').first()).toContainText('zero');
+  assert.equal(
+    await markdownEditor.locator('p').first().innerText(),
+    'Hi. there',
+    'Alphabetic sentence prefixes must not become TipTap ordered-list markers.'
+  );
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Discard draft and leave', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Snippets', exact: true })).toBeVisible();
+  passed('Markdown import preserves prose prefixes and CommonMark zero-start lists in TipTap');
   await local.ctx.close();
 
   const cloud = await context('alice');
