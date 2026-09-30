@@ -78,6 +78,25 @@ test('low confidence, silence and out-of-band SwiftF0 frames are unvoiced', () =
   confidence[13] = 1;
   assert.equal(measurementFromSwiftF0(samples, pitch, confidence).hz, null);
 });
+
+test('a voiced previous hop cannot authorize pitch inside the current silent hop', () => {
+  const frames = 24;
+  const selected = frames - 1 - 10;
+  const samples = new Float32Array(frames * 256);
+  for (let index = (selected - 1) * 256; index < selected * 256; index++) {
+    samples[index] = 0.8 * Math.sin((2 * Math.PI * 220 * index) / 16000);
+  }
+  const pitch = new Float64Array(frames).fill(220);
+  const confidence = new Float32Array(frames).fill(1);
+  const silent = measurementFromSwiftF0(samples, pitch, confidence);
+  assert.equal(silent.hz, null);
+  assert.equal(silent.amplitude > 0, true, 'loudness may retain the preceding hop while voicing does not');
+
+  for (let index = selected * 256; index < (selected + 1) * 256; index++) {
+    samples[index] = 0.8 * Math.sin((2 * Math.PI * 220 * index) / 16000);
+  }
+  assert.equal(measurementFromSwiftF0(samples, pitch, confidence).hz, 220);
+});
 test('empty model output and malformed source rates fail closed', () => {
   assert.equal(measurementFromSwiftF0(new Float32Array(32), [], []).hz, null);
   for (const rate of [NaN, Infinity, 0, 7999, 192001])
