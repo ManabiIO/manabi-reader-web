@@ -394,44 +394,44 @@ export async function writeDocument(
       guard();
       let before: Awaited<ReturnType<typeof localReadConnected>> | undefined;
       const id = join(parent, name);
-    if (handle) {
-      const existing = await handle.getFile();
+      if (handle) {
+        const existing = await handle.getFile();
+        guard();
+        // File System Access creates the directory entry before a writable stream
+        // is committed. A crash/abort during a first create can therefore leave a
+        // zero-byte placeholder. Only reclaim the deterministic filename for this
+        // exact logical document; corrupt/non-empty external files remain conflicts.
+        const recoverablePlaceholder =
+          !expected && existing.size === 0 && name === filename(document);
+        if (!recoverablePlaceholder) {
+          before = await localReadConnected(source, entry, id, guard);
+          if (!permitUpdate(before.document, document, expected, before.location))
+            return before.location;
+        }
+      } else if (expected) throw new IntegrationError('not_found', 404);
+      handle ??= await directory.getFileHandle(name, { create: true });
       guard();
-      // File System Access creates the directory entry before a writable stream
-      // is committed. A crash/abort during a first create can therefore leave a
-      // zero-byte placeholder. Only reclaim the deterministic filename for this
-      // exact logical document; corrupt/non-empty external files remain conflicts.
-      const recoverablePlaceholder =
-        !expected && existing.size === 0 && name === filename(document);
-      if (!recoverablePlaceholder) {
-        before = await localReadConnected(source, entry, id, guard);
-        if (!permitUpdate(before.document, document, expected, before.location))
-          return before.location;
+      const stream = await handle.createWritable();
+      try {
+        await stream.write(raw);
+        guard();
+        // A browser cannot exclude external editors. Recheck immediately before committing.
+        const latest = await handle.getFile();
+        guard();
+        if (
+          before
+            ? (await sha256(await latest.arrayBuffer())) !== before.location.token
+            : latest.size !== 0
+        )
+          throw new IntegrationError('conflict');
+        if ((await entry.handle.queryPermission({ mode: 'readwrite' })) !== 'granted')
+          throw new IntegrationError('permission_required');
+        guard();
+        await stream.close();
+      } catch (error) {
+        await stream.abort().catch(() => undefined);
+        throw error;
       }
-    } else if (expected) throw new IntegrationError('not_found', 404);
-    handle ??= await directory.getFileHandle(name, { create: true });
-    guard();
-    const stream = await handle.createWritable();
-    try {
-      await stream.write(raw);
-      guard();
-      // A browser cannot exclude external editors. Recheck immediately before committing.
-      const latest = await handle.getFile();
-      guard();
-      if (
-        before
-          ? (await sha256(await latest.arrayBuffer())) !== before.location.token
-          : latest.size !== 0
-      )
-        throw new IntegrationError('conflict');
-      if ((await entry.handle.queryPermission({ mode: 'readwrite' })) !== 'granted')
-        throw new IntegrationError('permission_required');
-      guard();
-      await stream.close();
-    } catch (error) {
-      await stream.abort().catch(() => undefined);
-      throw error;
-    }
       const confirmed = await localReadConnected(source, entry, id, guard);
       if (canonical(confirmed.document) !== canonical(document))
         throw new IntegrationError('conflict');
