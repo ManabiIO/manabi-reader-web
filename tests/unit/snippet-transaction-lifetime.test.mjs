@@ -102,14 +102,19 @@ test('snippet record transaction observes completion before its first request', 
   const { api } = harness();
   const owner = 'owner';
   const id = 'document';
-  await api.mutateRecord(owner, id, () => undefined, () => ({
-    key: JSON.stringify([owner, id]),
+  await api.mutateRecord(
     owner,
-    document: { id },
-    locations: [],
-    dirty: false,
-    conflicts: []
-  }));
+    id,
+    () => undefined,
+    () => ({
+      key: JSON.stringify([owner, id]),
+      owner,
+      document: { id },
+      locations: [],
+      dirty: false,
+      conflicts: []
+    })
+  );
 });
 
 test('snippet transfer transaction observes completion before its first request', async () => {
@@ -121,7 +126,10 @@ test('snippet transfer transaction observes completion before its first request'
       id: 'move',
       snippetId: 'document',
       document: { id: 'document' },
-      to: { source: { id: 'source', owner: null, provider: 'local', root: '', name: 'Local' }, parent: '' },
+      to: {
+        source: { id: 'source', owner: null, provider: 'local', root: '', name: 'Local' },
+        parent: ''
+      },
       phase: 'prepared'
     },
     () => undefined
