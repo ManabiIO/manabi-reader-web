@@ -39,7 +39,7 @@ export async function importData(
 
   replicationProgress$.next({ progressBase, maxProgress });
 
-  if (!fileCountData) await persistStorage(targetHandler.storageType);
+  if (files.length && !fileCountData) await persistStorage(targetHandler.storageType);
 
   if (targetHandler.isCacheDisabled()) {
     targetHandler.clearData(false);
@@ -207,7 +207,7 @@ export async function replicateData(
 
   replicationProgress$.next({ maxProgress });
 
-  if (dataToReplicate.includes(StorageDataType.DATA))
+  if (contexts.length && processBookData)
     await persistStorage(targetHandler.storageType).catch(() => {});
 
   [sourceHandler, targetHandler].forEach((handler) => {
