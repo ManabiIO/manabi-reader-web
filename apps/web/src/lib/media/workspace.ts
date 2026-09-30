@@ -190,8 +190,7 @@ export class VideoWorkspace {
     this.search.placeholder = 'Search videos';
     this.search.setAttribute('aria-label', 'Search videos');
     this.search.addEventListener('input', () => {
-      this.selected.clear();
-      this.updateSelectionActions();
+      this.clearSelectionView();
       void this.refresh();
     });
     for (const [value, label] of [
@@ -216,8 +215,7 @@ export class VideoWorkspace {
       this.filter.append(option);
     }
     this.filter.addEventListener('change', () => {
-      this.selected.clear();
-      this.updateSelectionActions();
+      this.clearSelectionView();
       void this.refresh();
     });
     tools.append(this.search, this.sort, this.filter);
@@ -294,13 +292,7 @@ export class VideoWorkspace {
     });
     this.clearSelectionButton = action('Clear selection', () => {
       const ownsFocus = document.activeElement === this.clearSelectionButton;
-      this.selected.clear();
-      // Reflect the cleared model immediately. Refresh can still reconcile the
-      // complete shelf, but keyboard/pointer users should never observe checked
-      // boxes while the status already says that nothing is selected.
-      for (const check of this.shelf.querySelectorAll<HTMLInputElement>('input[type=checkbox]'))
-        check.checked = false;
-      this.updateSelectionActions();
+      this.clearSelectionView();
       if (ownsFocus && this.clearSelectionButton.disabled)
         this.selectVisibleButton.focus({ preventScroll: true });
       void this.refresh();
@@ -400,6 +392,15 @@ export class VideoWorkspace {
     label.append(document.createTextNode(text), control);
     return label;
   }
+  private clearSelectionView() {
+    this.selected.clear();
+    // The durable shelf refresh can be asynchronous. Keep the already-rendered
+    // controls consistent with the model/status in the same interaction turn.
+    for (const check of this.shelf.querySelectorAll<HTMLInputElement>('input[type=checkbox]'))
+      check.checked = false;
+    this.updateSelectionActions();
+  }
+
   private updateSelectionActions() {
     const visible = [
       ...this.shelf.querySelectorAll<HTMLInputElement>('input[type=checkbox]')
