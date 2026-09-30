@@ -123,6 +123,16 @@ test('verified digital silence resolves only whole cues covered by the zero inpu
   state.windows[1] = { cues: [cue(1, 24, 27, 'reverse hallucination')], inferenceMs: 1 };
   assert.deepEqual(assembleSparse(state), { cues: [] });
 });
+test('legacy sparse v1 does not reinterpret saved boundaries with newer silence evidence', () => {
+  const state = newSparseState(52);
+  state.policy = 'overlap-sparse-v1';
+  state.windows[0] = {
+    cues: [cue(0, 24, 27, 'historically accepted boundary')],
+    inferenceMs: 1
+  };
+  state.windows[1] = { cues: [], inferenceMs: 1, digitalSilence: true };
+  assert.deepEqual(assembleSparse(state), { repair: 0 });
+});
 test('digital-silence evidence is explicit and cannot coexist with saved speech', () => {
   const state = newSparseState(52);
   state.windows[0] = {
