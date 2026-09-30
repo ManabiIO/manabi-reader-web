@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import pathlib
+import re
 import sys
 import threading
 from playwright.sync_api import sync_playwright, expect
@@ -176,6 +177,7 @@ def main():
 
         page.keyboard.press('Space')
         expect(card_select).not_to_be_checked()
+        expect(library_card).not_to_have_class(re.compile(r'.*\bselected\b.*'))
         expect(selection_status).to_have_text('No videos selected')
         expect(select_visible).to_be_enabled()
         expect(clear_selection).to_be_disabled()
@@ -184,6 +186,7 @@ def main():
         select_visible.focus()
         select_visible.press('Enter')
         expect(card_select).to_be_checked()
+        expect(library_card).to_have_class(re.compile(r'.*\bselected\b.*'))
         expect(selection_status).to_have_text('1 video selected')
         expect(select_visible).to_be_disabled()
         expect(clear_selection).to_be_focused()
@@ -210,6 +213,17 @@ def main():
         status_box = selection_status.bounding_box()
         assert status_box and status_box['x'] >= -1 and status_box['x'] + status_box['width'] <= 321
         page.screenshot(path=str(args.output/'video-selection-200-percent.png'), full_page=True)
+
+        page.emulate_media(forced_colors='active')
+        select_visible.focus()
+        select_visible.press('Enter')
+        expect(library_card).to_have_class(re.compile(r'.*\bselected\b.*'))
+        selected_outline = library_card.evaluate("node => getComputedStyle(node).outlineStyle")
+        assert selected_outline != 'none', selected_outline
+        page.emulate_media(forced_colors='none')
+        clear_selection.focus()
+        clear_selection.press('Enter')
+
         page.evaluate("document.documentElement.style.fontSize=''")
         page.set_viewport_size({'width':1280,'height':900})
         results.append('video batch actions reflow without overflow at 200 percent text')
