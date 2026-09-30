@@ -31,7 +31,7 @@
     task.stop();
     state = { state: 'idle' };
     if (!query.trim() || installing) return;
-    if (query.length > 256) {
+    if ([...query].length > 256) {
       state = {
         state: 'error',
         error:
@@ -47,7 +47,11 @@
       runtime = opened;
       const value = await opened.client.search(needle, detailed, { signal });
       signal.throwIfAborted();
-      if (value.version !== 1 || value.query !== needle.trim())
+      if (
+        value.version !== 1 ||
+        value.query !== needle.trim() ||
+        typeof value.prefix !== 'boolean'
+      )
         throw new Error('The dictionary returned a mismatched search response.');
       publish({ state: 'ready', value });
     });
@@ -162,7 +166,9 @@
           >{/if}
       </p>
     {:else}
-      {#if state.value.matchedQuery !== query.trim()}<p class="note">
+      {#if state.value.prefix}<p class="note">
+          Showing prefix matches for <span lang="ja">{state.value.matchedQuery}</span>
+        </p>{:else if state.value.matchedQuery !== query.trim()}<p class="note">
           Showing matches for <span lang="ja">{state.value.matchedQuery}</span>
         </p>{/if}
       {#if full && state.value.lookup}
@@ -189,7 +195,7 @@
           {/each}
         </ul>
         {#if !state.value.preview.items.length}<p class="note">
-            No dictionary matches. Try kana, another spelling, or a trailing * for prefix search.
+            No dictionary matches. Keep typing, try kana or another spelling, or use a trailing * for an explicit prefix search.
           </p>{/if}
       {/if}
     {/if}

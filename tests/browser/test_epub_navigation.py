@@ -3,6 +3,7 @@ import unittest
 import json
 from pathlib import Path
 from test_foliate_slide import FoliateSlide, P
+from reader_controls import reveal_reader_controls
 
 
 class EpubNavigationBrowser(FoliateSlide):
@@ -82,7 +83,7 @@ class EpubNavigationBrowser(FoliateSlide):
         }}""")
         initial = self.pose()['page']
         self.assertGreater(initial, 1)
-        self.toggle_controls()
+        reveal_reader_controls(self.page)
         self.page.get_by_role('button', name='Reading tools', exact=True).click()
         self.page.get_by_role('menuitem', name='Search Book').click()
         self.page.get_by_role('searchbox', name='Search within book').fill('本を読む')

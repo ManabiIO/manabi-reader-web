@@ -1013,22 +1013,29 @@
         scheduleReplication(StorageDataType.PROGRESS);
       }
 
+      const celebrateCompletion = !window.matchMedia(
+        '(prefers-reduced-motion: reduce)'
+      ).matches;
+
       if ($statisticsEnabled$ && $openTrackerOnCompletion$) {
         confettiWidthModifier = 36;
         confettiMaxRuns = 0;
-        bookCompleted = window.matchMedia('(min-width: 900px)').matches;
+        bookCompleted =
+          celebrateCompletion && window.matchMedia('(min-width: 900px)').matches;
         isTrackerMenuOpen$.next(true);
       } else {
         dialogManager.dialogs$.next([]);
         confettiWidthModifier = 0;
         confettiMaxRuns = 3;
-        bookCompleted = true;
+        bookCompleted = celebrateCompletion;
 
-        merge(fromEvent(document, 'pointerup'), timer(10000))
-          .pipe(take(1))
-          .subscribe(() => {
-            bookCompleted = false;
-          });
+        if (bookCompleted) {
+          merge(fromEvent(document, 'pointerup'), timer(10000))
+            .pipe(take(1))
+            .subscribe(() => {
+              bookCompleted = false;
+            });
+        }
       }
     } catch ({ message }: any) {
       dialogManager.dialogs$.next([
@@ -1327,6 +1334,19 @@
   }
 
   let chromeMousePointer = false;
+  function hasVisibleModalSurface() {
+    return [...document.querySelectorAll<HTMLElement>('[role="dialog"], [role="menu"]')].some(
+      (element) => {
+        if (element.hidden || element.getAttribute('aria-hidden') === 'true') return false;
+        const style = getComputedStyle(element);
+        return (
+          style.display !== 'none' &&
+          style.visibility !== 'hidden' &&
+          element.getClientRects().length > 0
+        );
+      }
+    );
+  }
   function chromeProtected() {
     return (
       showSpinner ||
@@ -1337,7 +1357,7 @@
       showReaderImageGallery ||
       $tocIsOpen$ ||
       $skipKeyDownListener$ ||
-      !!document.querySelector('[role="dialog"], [role="menu"]') ||
+      hasVisibleModalSurface() ||
       !!document.activeElement?.closest('[data-reader-chrome]') ||
       (chromeMousePointer && !!document.querySelector('[data-reader-chrome]:hover')) ||
       !!window.getSelection()?.toString() ||
@@ -2250,7 +2270,15 @@
   <div
     class="writing-horizontal-tb fixed inset-x-0 top-0 z-20 w-full"
     data-reader-chrome
-    transition:fly|local={{ y: -80, duration: foliatePagination ? 0 : 160, easing: quintInOut }}
+    transition:fly|local={{
+      y: -80,
+      duration:
+        foliatePagination ||
+        (browser && window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+          ? 0
+          : 160,
+      easing: quintInOut
+    }}
   >
     <BookReaderHeader
       bookTitle={$rawBookData$?.title ?? ''}
@@ -2807,6 +2835,18 @@
     height: calc(4.5rem + env(safe-area-inset-bottom));
     padding: 0 max(1rem, env(safe-area-inset-left)) env(safe-area-inset-bottom);
     pointer-events: none;
+  }
+  @media (max-width: 639px) and (max-height: 400px) {
+    .reader-controls {
+      width: 44px;
+      height: 44px;
+      right: max(16px, env(safe-area-inset-right));
+      bottom: calc(72px + env(safe-area-inset-bottom));
+    }
+    .reader-footer {
+      height: calc(72px + env(safe-area-inset-bottom));
+      padding-inline: max(16px, env(safe-area-inset-left));
+    }
   }
   .reader-footer :global(button) {
     pointer-events: auto;

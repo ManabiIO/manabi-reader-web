@@ -4,6 +4,7 @@ import hashlib
 import time
 import unittest
 from playwright.sync_api import expect
+from reader_controls import reveal_reader_controls
 from test_local_library_features import LocalFeatureBrowser
 
 
@@ -91,7 +92,7 @@ class LocalLibraryLifecycle(LocalFeatureBrowser):
             while not self.page.evaluate("async () => (await navigator.locks.query()).pending.length > 0"):
                 self.assertLess(time.monotonic(), deadline)
                 self.page.wait_for_timeout(25)
-            self.page.get_by_role('link', name='← Books', exact=True).click()
+            self.page.get_by_role('link', name='Back to Library', exact=True).click()
             expect(self.page.get_by_role('region', name='Library shelves', exact=True)).to_have_attribute('data-hydrated', 'true')
         finally:
             self.release_source_lock()
@@ -230,7 +231,7 @@ class LocalLibraryLifecycle(LocalFeatureBrowser):
         self.sync_dav()
         self.assertEqual(puts, self.dav.state['puts'])
         self.page.get_by_role('link', name='Read WebDAV offline book', exact=True).click()
-        self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+        reveal_reader_controls(self.page)
         self.page.get_by_role('button', name='Bookmarks and Notes', exact=True).click()
         notebook = self.page.get_by_role('region', name='Imported Yatsu notes', exact=True)
         expect(notebook.get_by_text('Unlocated highlight', exact=True)).to_be_visible()

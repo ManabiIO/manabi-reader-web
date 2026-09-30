@@ -2,21 +2,84 @@
   import { onMount, tick } from 'svelte';
   import { Button } from '$lib/components/ui/button';
   import { readerHTML } from './presentation';
-  import { passages, resolveLocator, type SnippetDocument, type SnippetLocator } from './document';
-  import { saveProgress, touchReading } from './reading-state';
+  import {
+    displayTitle,
+    passages,
+    resolveLocator,
+    type SnippetDocument,
+    type SnippetLocator
+  } from './document';
+  import { saveProgress, syncReading, touchReading } from './reading-state';
+  import { getRecord } from './database';
   import type { SnippetScope } from './scope';
   export let document: SnippetDocument;
   export let selectedScope: SnippetScope;
   export let locator: SnippetLocator | undefined = undefined;
+  /** Explicit search/navigation locators must not be replaced by background reading-state hydration. */
+  export let followRemotePosition = true;
   let host: HTMLElement,
     notice = '',
     fontSize = 20,
     vertical = false,
     ready = false,
     pendingPosition: SnippetLocator | undefined,
-    timer: ReturnType<typeof setTimeout> | undefined;
+    timer: ReturnType<typeof setTimeout> | undefined,
+    intentTimer: ReturnType<typeof setTimeout> | undefined,
+    appliedLocator = '',
+    committedLocator = '',
+    userScrollIntent = false,
+    mountedAlive = false,
+    restoreGeneration = 0,
+    hydrating = false,
+    lastHydration = 0;
   $: html = readerHTML(document.content);
+  $: incomingLocator = locator ? JSON.stringify(locator) : '';
+  // The signature equality guard stops restoration from re-entering this block.
+  /* eslint-disable svelte/infinite-reactive-loop */
+  $: if (ready && incomingLocator && incomingLocator !== appliedLocator) {
+    // A newer remote cursor must not yank the view while the user is actively
+    // scrolling. Their next durable position becomes authoritative instead.
+    if (userScrollIntent || pendingPosition || incomingLocator === committedLocator)
+      appliedLocator = incomingLocator;
+    else void restore(locator, incomingLocator, followRemotePosition);
+  }
   const cssEscape = (id: string) => CSS.escape(id);
+  const locatorSignature = (value: SnippetLocator | undefined) =>
+    value ? JSON.stringify(value) : '';
+
+  async function restore(
+    value: SnippetLocator | undefined,
+    signature = locatorSignature(value),
+    respectUserIntent = false
+  ) {
+    if (!value || !host) return;
+    const generation = ++restoreGeneration;
+    await tick();
+    if (
+      !mountedAlive ||
+      generation !== restoreGeneration ||
+      !host ||
+      (respectUserIntent && (userScrollIntent || pendingPosition))
+    )
+      return;
+    const resolved = resolveLocator(document, value);
+    host
+      .querySelectorAll('.snippet-match')
+      .forEach((node) => node.classList.remove('snippet-match'));
+    appliedLocator = signature;
+    userScrollIntent = false;
+    pendingPosition = undefined;
+    clearTimeout(timer);
+    clearTimeout(intentTimer);
+    if (resolved) {
+      const target = host.querySelector<HTMLElement>(`[data-id="${cssEscape(resolved.blockId)}"]`);
+      target?.scrollIntoView({ block: 'center' });
+      target?.classList.add('snippet-match');
+      notice = '';
+    } else notice = 'The saved passage changed. Showing the current snippet instead.';
+  }
+  /* eslint-enable svelte/infinite-reactive-loop */
+
   function capture() {
     selectedScope.guard();
     const selection = window.getSelection();
@@ -30,7 +93,7 @@
       new CustomEvent('manabi-capture-snippet', {
         detail: {
           html: wrapper.innerHTML,
-          title: document.title.text,
+          title: displayTitle(document),
           item: `snippet:${document.id}`,
           owner: selectedScope.owner === 'local' ? null : selectedScope.owner.slice(8)
         }
@@ -55,49 +118,123 @@
       }) ?? candidates[0];
     const block = blocks.find((x) => x.blockId === at?.dataset.id);
     if (!block) return;
-    const value: SnippetLocator = {
+    pendingPosition = {
       blockId: block.blockId,
       quote: block.text.slice(0, 80),
       before: '',
       offset: 0,
       revision: document.revision
     };
-    pendingPosition = value;
   }
   function commitPosition() {
     const value = pendingPosition;
     pendingPosition = undefined;
-    if (value) void saveProgress(document.id, value, selectedScope).catch(() => undefined);
+    userScrollIntent = false;
+    clearTimeout(intentTimer);
+    if (value) {
+      // Keep the old parent locator acknowledged until the local write reaches
+      // the summary. Otherwise it can be restored between commit and that write.
+      committedLocator = locatorSignature(value);
+      void saveProgress(document.id, value, selectedScope).catch(() => undefined);
+    }
   }
   function schedule() {
+    // Programmatic scrollIntoView, layout changes and resize restoration are not
+    // reading intent. A user input must arm position capture first.
+    if (!userScrollIntent) return;
     position();
+    if (!pendingPosition) return;
     clearTimeout(timer);
     timer = setTimeout(commitPosition, 600);
   }
+  function markUserScrollIntent(event: Event) {
+    if (!ready) return;
+    if (event instanceof KeyboardEvent) {
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        target.closest('button,input,textarea,select,[contenteditable="true"]')
+      )
+        return;
+      if (!['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End', ' '].includes(event.key))
+        return;
+    }
+    if (event instanceof PointerEvent && event.target !== host) return;
+    userScrollIntent = true;
+    clearTimeout(intentTimer);
+    // A gesture at the scroll boundary may never emit scroll. Do not let it
+    // suppress remote hydration for the rest of this reader session.
+    intentTimer = setTimeout(() => {
+      if (!pendingPosition) userScrollIntent = false;
+    }, 1200);
+  }
+  async function hydrateRemotePosition(force = false) {
+    if (
+      hydrating ||
+      !mountedAlive ||
+      !ready ||
+      !followRemotePosition ||
+      userScrollIntent ||
+      pendingPosition ||
+      (!force && Date.now() - lastHydration < 60_000)
+    )
+      return;
+    hydrating = true;
+    lastHydration = Date.now();
+    try {
+      await syncReading(document.id, selectedScope);
+      selectedScope.guard();
+      const latest = await getRecord(selectedScope.owner, document.id);
+      selectedScope.guard();
+      if (
+        !mountedAlive ||
+        !followRemotePosition ||
+        userScrollIntent ||
+        pendingPosition ||
+        !latest?.progress
+      )
+        return;
+      const signature = locatorSignature(latest.progress);
+      if (signature !== appliedLocator) await restore(latest.progress, signature, true);
+    } catch {
+      // Retain the current view. Online/focus or an explicit refresh can retry.
+    } finally {
+      hydrating = false;
+    }
+  }
   onMount(() => {
-    let alive = true;
-    void tick().then(() => {
-      if (!alive) return;
-      const resolved = locator ? resolveLocator(document, locator) : null;
-      if (resolved) {
-        const target = host.querySelector<HTMLElement>(
-          `[data-id="${cssEscape(resolved.blockId)}"]`
-        );
-        target?.scrollIntoView({ block: 'center' });
-        target?.classList.add('snippet-match');
-      } else if (locator)
-        notice = 'The saved passage changed. Showing the current snippet instead.';
+    mountedAlive = true;
+    void restore(locator).then(() => {
+      if (!mountedAlive) return;
       void touchReading(document.id, selectedScope).catch(() => undefined);
-      ready = true; // Do not overwrite the saved position merely by opening a result or resizing.
+      ready = true;
+      // loadRoute already attempted a remote refresh; avoid immediately duplicating it.
+      lastHydration = Date.now();
     });
+    const onOnline = () => void hydrateRemotePosition(true);
+    const onFocus = () => void hydrateRemotePosition(false);
     window.addEventListener('scroll', schedule, { passive: true });
     host.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('wheel', markUserScrollIntent, { passive: true });
+    window.addEventListener('touchstart', markUserScrollIntent, { passive: true });
+    window.addEventListener('keydown', markUserScrollIntent);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('focus', onFocus);
+    host.addEventListener('pointerdown', markUserScrollIntent, { passive: true });
     return () => {
-      alive = false;
+      mountedAlive = false;
+      restoreGeneration++;
       clearTimeout(timer);
+      clearTimeout(intentTimer);
       commitPosition(); // Keep the last deliberate scroll when the reader closes before the debounce.
       window.removeEventListener('scroll', schedule);
       host?.removeEventListener('scroll', schedule);
+      window.removeEventListener('wheel', markUserScrollIntent);
+      window.removeEventListener('touchstart', markUserScrollIntent);
+      window.removeEventListener('keydown', markUserScrollIntent);
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('focus', onFocus);
+      host?.removeEventListener('pointerdown', markUserScrollIntent);
     };
   });
 </script>
@@ -200,5 +337,17 @@
   .snippet-reading :global(hr) {
     border-color: var(--border);
     margin-block: 1em;
+  }
+  @media (max-width: 640px) {
+    .reading-tools {
+      gap: 6px;
+      padding-block: 8px;
+    }
+    .reading-tools :global(button) {
+      padding-inline: 10px;
+    }
+    .snippet-reading {
+      margin-block: 20px;
+    }
   }
 </style>

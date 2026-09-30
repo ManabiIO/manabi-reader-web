@@ -132,3 +132,22 @@ test('destroyed unresolved dialogs cancel once even if cleanup is repeated', () 
     assert.deepEqual(h.dispatched, []);
   }
 });
+
+test('external-read dismissal cancels an unresolved choice exactly once', () => {
+  const h = dialog('external-read');
+  h.destroy();
+  h.destroy();
+  assert.deepEqual(h.received, ['cancel']);
+  assert.deepEqual(h.dispatched, []);
+});
+
+test('external-read explicit choices own settlement before destruction', () => {
+  for (const result of ['cancel', 'export', '']) {
+    const h = dialog('external-read');
+    h.closeDialog(result);
+    h.closeDialog('cancel');
+    h.destroy();
+    assert.deepEqual(h.received, [result]);
+    assert.deepEqual(h.dispatched, ['close']);
+  }
+});

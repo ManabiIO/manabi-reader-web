@@ -7,6 +7,12 @@
 /** The file is the document. Provider IDs, paths and hashes are only locations/revisions. */
 export const SNIPPET_SUFFIX = '.manabi-snippet.json';
 export const MAX_SNIPPET_BYTES = 2 * 1024 * 1024;
+export const MAX_SNIPPET_SEARCH_CODEPOINTS = 512;
+export function snippetSearchTooLong(value: string) {
+  let count = 0;
+  for (const _ of value) if (++count > MAX_SNIPPET_SEARCH_CODEPOINTS) return true;
+  return false;
+}
 export const isSnippetFile = (name: string) => name.toLowerCase().endsWith(SNIPPET_SUFFIX);
 export const isUUID = (value: unknown): value is string =>
   typeof value === 'string' &&
@@ -52,6 +58,8 @@ export interface SnippetLocator {
 export interface SnippetHit {
   locator: SnippetLocator;
   excerpt: string;
+  /** UTF-16 boundaries in the original excerpt. */
+  excerptMatch: { start: number; end: number };
   reading: boolean;
 }
 export class SnippetError extends Error {
@@ -481,8 +489,9 @@ export function fold(value: string): string {
     .replace(/[ァ-ヶ]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0x60));
 }
 export function searchSnippet(document: SnippetDocument, query: string, limit = 20): SnippetHit[] {
+  if (snippetSearchTooLong(query)) return [];
   const needle = fold(query.trim());
-  if (!needle || query.length > 512) return [];
+  if (!needle) return [];
   const hits: SnippetHit[] = [];
   for (const block of passages(document.content)) {
     // Normalize per grapheme and retain original UTF-16 offsets, including width expansion.
@@ -502,6 +511,7 @@ export function searchSnippet(document: SnippetDocument, query: string, limit = 
     if (index < 0 && !ruby) continue;
     const start = index >= 0 ? offsets[index] : ruby!.start;
     const end = index >= 0 ? (ends[index + needle.length - 1] ?? block.text.length) : ruby!.end;
+    const excerptStart = Math.max(0, start - 40);
     hits.push({
       locator: {
         blockId: block.blockId,
@@ -510,7 +520,8 @@ export function searchSnippet(document: SnippetDocument, query: string, limit = 
         offset: start,
         revision: document.revision
       },
-      excerpt: block.text.slice(Math.max(0, start - 40), Math.max(end, start + 100)),
+      excerpt: block.text.slice(excerptStart, Math.max(end, start + 100)),
+      excerptMatch: { start: start - excerptStart, end: end - excerptStart },
       reading: index < 0
     });
     if (hits.length >= limit) break;

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { foldSearch } from './search-normalization';
+  import { bookTitleMatchIndex } from '../search/book-title-match-text';
   import { librarySelection } from './selection-action';
   import BookOrganizationDialog from './book-organization-dialog.svelte';
   import type { BookPresentation, PresentationChange } from './organization';
@@ -73,7 +74,12 @@
   } from './view-model';
   import { isFinished, finishedDay, calendarDay } from './completion';
   import { visibleLibraryEntries } from './account-visibility';
-  import { WANT_TO_READ_ID, wantToReadCollection, collectionContains } from './want-to-read';
+  import {
+    WANT_TO_READ_ID,
+    wantToReadCollection,
+    collectionContains,
+    collectionItemCount
+  } from './want-to-read';
   import { setCompletion } from './commands';
   import {
     createLocalSeries,
@@ -90,6 +96,10 @@
   import CollectionsSheet from './collections-sheet.svelte';
   import type { ReaderLocator } from '../reader-location';
   import UnifiedSearch from '../search/unified-search.svelte';
+  import {
+    parseLibrarySearchScope,
+    type LibrarySearchScope
+  } from '../search/library-search-scope';
   import SnippetShelf from '../snippets/shelf.svelte';
   import { snippetItems } from '../snippets/service';
   import { snippetKey } from '../snippets/document';
@@ -273,7 +283,16 @@
     collectionId === WANT_TO_READ_ID
       ? wantToRead
       : customCollections.find((c) => c.id === collectionId);
-  $: wantToReadCount = books.filter((book) => collectionContains(wantToRead, book)).length;
+  $: activeSnippetKeys = new Set(
+    $snippetItems.filter((item) => !item.trashedAt).map((item) => snippetKey(item.id))
+  );
+  $: wantToReadCount = collectionItemCount(wantToRead, books, activeSnippetKeys);
+  $: customCollectionCounts = Object.fromEntries(
+    customCollections.map((collection) => [
+      collection.id,
+      collectionItemCount(collection, books, activeSnippetKeys)
+    ])
+  );
   $: selectedKeys = new Set([
     ...selectedPreviewKeys,
     ...visibleBooks
@@ -298,25 +317,30 @@
   $: notFinished = $page.url.searchParams.get('unfinished') === '1';
   $: destinationTitle = series?.name || (collectionId === 'books' ? 'Library' : collectionTitle);
   let queryURL = '';
+  let librarySearchScope: LibrarySearchScope = 'everything';
   $: nextQueryURL = $page.url.searchParams.get('q') ?? '';
   $: if (queryURL !== nextQueryURL) {
     queryURL = nextQueryURL;
     query = nextQueryURL;
   }
+  $: nextLibrarySearchScope = parseLibrarySearchScope($page.url.searchParams.get('scope'));
+  $: if (librarySearchScope !== nextLibrarySearchScope) {
+    librarySearchScope = nextLibrarySearchScope;
+  }
   // The unified search spans the library. Collection/series navigation must
   // not silently constrain the All/Titles/Content filters.
   $: searchableBooks = books;
   $: normalizedQuery = foldSearch(query.trim());
-  $: metadataSeries = normalizedQuery ? booksInMatchingSeries(tree, normalizedQuery) : [];
-  $: metadataCollections = $organization.collections.filter((c) =>
-    foldSearch(c.name).includes(normalizedQuery)
+  $: metadataMatchIndex = bookTitleMatchIndex(
+    searchableBooks,
+    tree,
+    $organization.collections,
+    normalizedQuery
   );
+  $: metadataMatchText = metadataMatchIndex.textByBook;
   $: metadataMatches = searchableBooks.filter(
     (book) =>
-      matchesBookQuery(book, normalizedQuery, metadataSeries) ||
-      metadataCollections.some((c) =>
-        book.organizationAliases.some((key) => c.members.includes(key))
-      )
+      matchesBookQuery(book, normalizedQuery, []) || metadataMatchIndex.matchedKeys.has(book.key)
   );
   $: flatDestination = !series && (collectionId === 'finished' || !!selectedCollection);
   $: seriesMatchedKeys =
@@ -532,6 +556,17 @@
     const url = new URL($page.url);
     if (value) url.searchParams.set('q', value);
     else url.searchParams.delete('q');
+    void goto(resolve(`/manage?${url.searchParams.toString()}`), {
+      replaceState: true,
+      noScroll: true,
+      keepFocus: true
+    });
+  }
+  function setSearchScope(value: LibrarySearchScope) {
+    librarySearchScope = value;
+    const url = new URL($page.url);
+    if (value === 'everything') url.searchParams.delete('scope');
+    else url.searchParams.set('scope', value);
     void goto(resolve(`/manage?${url.searchParams.toString()}`), {
       replaceState: true,
       noScroll: true,
@@ -1301,9 +1336,7 @@
             navigate(undefined, collection.id, false);
           }}
           ><List aria-hidden="true" /><span>{collection.name}</span><span
-            >{books.filter((book) =>
-              book.organizationAliases.some((alias) => collection.members.includes(alias))
-            ).length}</span
+            >{customCollectionCounts[collection.id] ?? 0}</span
           ></button
         >{/each}
       <button onclick={() => (collectionsOpen = true)}
@@ -1479,10 +1512,13 @@
     {#if normalizedQuery && !selectMode}
       <UnifiedSearch
         {query}
+        searchScope={librarySearchScope}
         books={searchableBooks}
         matches={metadataMatches}
+        bookMatchText={metadataMatchText}
         {openBook}
         onquery={setQuery}
+        onscope={setSearchScope}
         returnTo={$page.url.pathname + $page.url.search}
       />
     {:else if completedGroups.length && collectionId === 'finished' && !series && currentLayout === 'timeline'}

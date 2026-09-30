@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { base } from '$app/paths';
+  import { asset } from '$app/paths';
   import * as Sheet from '$lib/components/ui/sheet';
+  import CloseButton from '$lib/components/ui/close-button.svelte';
   import type { BookmarkManager } from '$lib/components/book-reader/types';
   import {
     CueTimeline,
@@ -43,6 +44,7 @@
   let alive = false;
   let ready = false;
   let audioHost: HTMLDivElement;
+  let audioBarOpenButton: HTMLButtonElement | undefined;
   let player: LocalAudioPlayer;
   let pitch: PitchController;
   let pitchState = initialPitchState();
@@ -85,6 +87,8 @@
   let clearing = false;
   let confirmClear = false;
   let transcriptPage = 0;
+  let previousTranscriptPage: HTMLButtonElement | undefined;
+  let nextTranscriptPage: HTMLButtonElement | undefined;
   const pageSize = 30;
   const key = sessionKey(bookId, bookTitle);
 
@@ -131,7 +135,10 @@
         revokeURL: (url) => URL.revokeObjectURL(url),
         attach: (audio) => {
           pitch.setAudio(audio);
+          // The local player owns its media element; Svelte does not render children here.
+          // eslint-disable-next-line svelte/no-dom-manipulating
           if (audio) audioHost.replaceChildren(audio);
+          // eslint-disable-next-line svelte/no-dom-manipulating
           else audioHost.replaceChildren();
         },
         requestFrame: (callback) => requestAnimationFrame(callback),
@@ -249,7 +256,7 @@
       }, 5000);
   }
 
-  function closeAudio() {
+  async function closeAudio() {
     if (snapshot.file && snapshot.ready) {
       try {
         sessionSnapshot();
@@ -260,6 +267,13 @@
     }
     navigation.cancel();
     player.clear();
+    await tick();
+    returnFocus();
+  }
+  async function pauseFromBar() {
+    player?.pause();
+    await tick();
+    audioBarOpenButton?.focus({ preventScroll: true });
   }
 
   function selectAudio(event: Event) {
@@ -499,6 +513,14 @@
   function moveCue(direction: -1 | 1) {
     selectCue(timeline.adjacent(snapshot.time, direction, delay));
   }
+  async function pageTranscript(delta: -1 | 1) {
+    transcriptPage = Math.min(pageCount - 1, Math.max(0, transcriptPage + delta));
+    await tick();
+    if (delta > 0 && nextTranscriptPage?.disabled)
+      previousTranscriptPage?.focus({ preventScroll: true });
+    else if (delta < 0 && previousTranscriptPage?.disabled)
+      nextTranscriptPage?.focus({ preventScroll: true });
+  }
   function toggleLoop() {
     if (snapshot.loop) player.setLoop();
     else if (activeCue) {
@@ -586,6 +608,7 @@
 >
   <div class="audio-heading">
     <button
+      bind:this={audioBarOpenButton}
       type="button"
       on:click={() => {
         open = true;
@@ -593,10 +616,12 @@
     >
     <span class="audio-title" title={snapshot.file?.name}>{snapshot.file?.name}</span>
     {#if snapshot.file}
-      <button type="button" on:click={() => player?.pause()} disabled={snapshot.paused}
+      <button type="button" on:click={() => void pauseFromBar()} disabled={snapshot.paused}
         >Pause</button
       >
-      <button type="button" on:click={closeAudio} aria-label="Close audio playback">×</button>
+      <button type="button" on:click={() => void closeAudio()} aria-label="Close audio playback"
+        >×</button
+      >
     {/if}
   </div>
   <div bind:this={audioHost}></div>
@@ -620,259 +645,263 @@
 <Sheet.Root bind:open>
   <Sheet.Content
     side="bottom"
-    class="audiobook-sheet max-h-[85dvh] overflow-y-auto p-4 pr-12 pb-[calc(1rem+env(safe-area-inset-bottom))] [writing-mode:horizontal-tb]"
+    showCloseButton={false}
+    class="audiobook-sheet max-h-[85dvh] overflow-hidden p-0 [writing-mode:horizontal-tb]"
     onCloseAutoFocus={(event) => {
       event.preventDefault();
       returnFocus();
     }}
   >
-    <Sheet.Title>Audiobook</Sheet.Title>
-    <Sheet.Description
-      >Listen alongside {bookTitle} using local audio and timed subtitles. Files are not uploaded. Following
-      resumes after this panel closes.</Sheet.Description
-    >
-    <div class="panel" data-ui-overlay="audiobook-panel">
-      {#if !ready}<p role="status">Loading saved audiobook settings…</p>{/if}
-      <div class="file-fields">
-        <label
-          >Audio file
-          <input
-            type="file"
-            accept="audio/*,.mp3,.m4a,.m4b,.ogg,.wav,.flac"
-            disabled={!ready || clearing}
-            on:change={selectAudio}
-          />
-        </label>
-        <label
-          >Subtitles (.srt or .vtt; .txt also accepted)
-          <input
-            type="file"
-            accept=".srt,.vtt,.txt,text/vtt,application/x-subrip,text/plain"
-            disabled={!ready || clearing}
-            on:change={selectSubtitles}
-          />
-        </label>
-      </div>
-      <p class="hint">
-        Select the same audio file again after reopening the book to resume. Audio is not stored;
-        subtitles, settings, and position are saved only in this browser. Codec support depends on
-        your browser.
-      </p>
-      {#if subtitleLoading}<p role="status">Reading subtitles…</p>{/if}
-      {#if subtitleName}<p>{subtitleName} · {cues.length.toLocaleString()} cues</p>{/if}
-      {#if error}<p role="alert">{error}</p>{/if}
-      {#if storageError}<p role="status">{storageError}</p>{/if}
-      {#if snapshot.error}<p role="alert">{snapshot.error}</p>{/if}
-      {#if snapshot.file}
-        <div class="actions">
-          <button
-            type="button"
-            disabled={!snapshot.ready}
-            on:click={() => (snapshot.paused ? void player.play() : player.pause())}
-            >{snapshot.paused ? 'Play' : 'Pause'}</button
-          >
-          <button
-            type="button"
-            disabled={!snapshot.ready}
-            on:click={() => player.seek(snapshot.time - 10)}>−10 seconds</button
-          >
-          <button
-            type="button"
-            disabled={!snapshot.ready}
-            on:click={() => player.seek(snapshot.time + 10)}>+10 seconds</button
-          >
+    <div class="audiobook-header">
+      <Sheet.Title>Audiobook</Sheet.Title>
+      <CloseButton aria-label="Close audiobook" onclick={() => (open = false)} />
+    </div>
+    <div class="audiobook-scroll">
+      <Sheet.Description
+        >Listen alongside {bookTitle} using local audio and timed subtitles. Files are not uploaded.
+        Following resumes after this panel closes.</Sheet.Description
+      >
+      <div class="panel" data-ui-overlay="audiobook-panel">
+        {#if !ready}<p role="status">Loading saved audiobook settings…</p>{/if}
+        <div class="file-fields">
           <label
-            >Speed
+            >Audio file
+            <input
+              type="file"
+              accept="audio/*,.mp3,.m4a,.m4b,.ogg,.wav,.flac"
+              disabled={!ready || clearing}
+              on:change={selectAudio}
+            />
+          </label>
+          <label
+            >Subtitles (.srt or .vtt; .txt also accepted)
+            <input
+              type="file"
+              accept=".srt,.vtt,.txt,text/vtt,application/x-subrip,text/plain"
+              disabled={!ready || clearing}
+              on:change={selectSubtitles}
+            />
+          </label>
+        </div>
+        <p class="hint">
+          Select the same audio file again after reopening the book to resume. Audio is not stored;
+          subtitles, settings, and position are saved only in this browser. Codec support depends on
+          your browser.
+        </p>
+        {#if subtitleLoading}<p role="status">Reading subtitles…</p>{/if}
+        {#if subtitleName}<p>{subtitleName} · {cues.length.toLocaleString()} cues</p>{/if}
+        {#if error}<p role="alert">{error}</p>{/if}
+        {#if storageError}<p role="status">{storageError}</p>{/if}
+        {#if snapshot.error}<p role="alert">{snapshot.error}</p>{/if}
+        {#if snapshot.file}
+          <div class="actions">
+            <button
+              type="button"
+              disabled={!snapshot.ready}
+              on:click={() => (snapshot.paused ? void player.play() : player.pause())}
+              >{snapshot.paused ? 'Play' : 'Pause'}</button
+            >
+            <button
+              type="button"
+              disabled={!snapshot.ready}
+              on:click={() => player.seek(snapshot.time - 10)}>−10 seconds</button
+            >
+            <button
+              type="button"
+              disabled={!snapshot.ready}
+              on:click={() => player.seek(snapshot.time + 10)}>+10 seconds</button
+            >
+            <label
+              >Speed
+              <input
+                type="number"
+                min="0.5"
+                max="3"
+                step="0.05"
+                value={snapshot.rate}
+                on:change={(event) => player.setRate(event.currentTarget.valueAsNumber)}
+              />×
+            </label>
+            <span>{toTimeString(snapshot.time)} / {toTimeString(snapshot.duration)}</span>
+          </div>
+        {/if}
+        {#if cues.length}
+          <div class="actions">
+            <button type="button" disabled={!snapshot.ready} on:click={() => moveCue(-1)}
+              >Previous cue</button
+            >
+            <button
+              type="button"
+              disabled={!snapshot.ready || !activeCue}
+              on:click={() => selectCue(current, true)}>Replay cue</button
+            >
+            <button type="button" disabled={!snapshot.ready} on:click={() => moveCue(1)}
+              >Next cue</button
+            >
+            <button
+              type="button"
+              disabled={!snapshot.ready || (!activeCue && !snapshot.loop)}
+              aria-pressed={!!snapshot.loop}
+              on:click={toggleLoop}>{snapshot.loop ? 'Stop looping' : 'Loop cue'}</button
+            >
+          </div>
+          <label
+            >Subtitle delay (seconds)
             <input
               type="number"
-              min="0.5"
-              max="3"
-              step="0.05"
-              value={snapshot.rate}
-              on:change={(event) => player.setRate(event.currentTarget.valueAsNumber)}
-            />×
+              min="-3600"
+              max="3600"
+              step="0.1"
+              value={delay}
+              on:change={changeDelay}
+            />
           </label>
-          <span>{toTimeString(snapshot.time)} / {toTimeString(snapshot.duration)}</span>
-        </div>
-      {/if}
-      {#if cues.length}
-        <div class="actions">
-          <button type="button" disabled={!snapshot.ready} on:click={() => moveCue(-1)}
-            >Previous cue</button
-          >
-          <button
-            type="button"
-            disabled={!snapshot.ready || !activeCue}
-            on:click={() => selectCue(current, true)}>Replay cue</button
-          >
-          <button type="button" disabled={!snapshot.ready} on:click={() => moveCue(1)}
-            >Next cue</button
-          >
-          <button
-            type="button"
-            disabled={!snapshot.ready || (!activeCue && !snapshot.loop)}
-            aria-pressed={!!snapshot.loop}
-            on:click={toggleLoop}>{snapshot.loop ? 'Stop looping' : 'Loop cue'}</button
-          >
-        </div>
-        <label
-          >Subtitle delay (seconds)
-          <input
-            type="number"
-            min="-3600"
-            max="3600"
-            step="0.1"
-            value={delay}
-            on:change={changeDelay}
-          />
-        </label>
-        <p class="hint">
-          Positive delay means the spoken audio comes later than the subtitle timestamp.
-        </p>
-        <div class="matching">
-          <label
-            ><input type="checkbox" checked={follow} on:change={changeFollow} /> Follow matched text
-            while playing</label
-          >
-          <label
-            ><input
-              type="checkbox"
-              checked={approximate}
-              disabled={matching}
-              on:change={changeApproximate}
-            /> Allow approximate matches (review highlighted text)</label
-          >
-          <div class="actions">
-            <button type="button" disabled={matching || subtitleLoading} on:click={matchBook}
-              >Match book</button
-            >
-            {#if matching}<button type="button" on:click={cancelMatch}>Cancel</button><span
-                role="status">{matchProgress}% processed</span
-              >{/if}
-            {#if hasMatched}<span role="status"
-                >{matchedCount} / {cues.length} matched{approximateCount
-                  ? ` (${approximateCount} approximate)`
-                  : ''}</span
-              >{/if}
-          </div>
           <p class="hint">
-            {selectionHint
-              ? 'Matching starts at the selected book text.'
-              : 'Matching starts at the beginning of the book.'}
-            {#if selectionHint}<button
-                type="button"
+            Positive delay means the spoken audio comes later than the subtitle timestamp.
+          </p>
+          <div class="matching">
+            <label
+              ><input type="checkbox" checked={follow} on:change={changeFollow} /> Follow matched text
+              while playing</label
+            >
+            <label
+              ><input
+                type="checkbox"
+                checked={approximate}
                 disabled={matching}
-                on:click={() => {
-                  selectionHint = undefined;
-                  invalidateMatches('Starting point changed. Select “Match book” to apply it.');
-                }}>Clear starting selection</button
-              >{/if}
-          </p>
-          <p class="hint">
-            Matching does not edit the book. For a chapter-only recording, select its starting text
-            in the book first. Unmatched cues still play. Matches span the whole book, including
-            chapters not currently displayed. Chapters are opened using the reader’s normal
-            navigation.
-          </p>
-          {#if !highlightSupported}<p>
-              Inline highlighting is unavailable in this browser. Transcript playback and
-              matched-text navigation still work.
-            </p>{/if}
-          {#if matchError}<p role="status">{matchError}</p>{/if}
-        </div>
-        <section aria-label="Audiobook transcript">
-          <PitchStrip
-            state={pitchState}
-            available={snapshot.ready}
-            onToggle={() => pitch.setEnabled(!pitchState.enabled)}
-            onRetry={() => pitch.retry()}
-          />
-          <div class="actions">
-            <h3>Transcript</h3>
-            <button
-              type="button"
-              disabled={current < 0}
-              on:click={() => {
-                transcriptPage = Math.floor(current / pageSize);
-              }}>Show current cue</button
+                on:change={changeApproximate}
+              /> Allow approximate matches (review highlighted text)</label
             >
-            <button
-              type="button"
-              disabled={transcriptPage === 0}
-              on:click={() => {
-                transcriptPage -= 1;
-              }}>Previous 30</button
-            >
-            <span>Page {transcriptPage + 1} / {pageCount}</span>
-            <button
-              type="button"
-              disabled={transcriptPage + 1 >= pageCount}
-              on:click={() => {
-                transcriptPage += 1;
-              }}>Next 30</button
-            >
-          </div>
-          <ol start={transcriptPage * pageSize + 1}>
-            {#each visibleCues as cue, offset (cue.id)}
-              {@const cueIndex = transcriptPage * pageSize + offset}
-              <li class:active={cueIndex === current}>
-                <button
+            <div class="actions">
+              <button type="button" disabled={matching || subtitleLoading} on:click={matchBook}
+                >Match book</button
+              >
+              {#if matching}<button type="button" on:click={cancelMatch}>Cancel</button><span
+                  role="status">{matchProgress}% processed</span
+                >{/if}
+              {#if hasMatched}<span role="status"
+                  >{matchedCount} / {cues.length} matched{approximateCount
+                    ? ` (${approximateCount} approximate)`
+                    : ''}</span
+                >{/if}
+            </div>
+            <p class="hint">
+              {selectionHint
+                ? 'Matching starts at the selected book text.'
+                : 'Matching starts at the beginning of the book.'}
+              {#if selectionHint}<button
                   type="button"
-                  disabled={!snapshot.ready || !cueAudioBounds(cue, delay, snapshot.duration)}
-                  aria-current={cueIndex === current ? 'true' : undefined}
-                  on:click={() => selectCue(cueIndex, true)}
-                >
-                  <time>{toTimeString(cue.start + delay)}</time>
-                  {cue.text}
-                </button>
-                {#if matches[cueIndex]}<button
+                  disabled={matching}
+                  on:click={() => {
+                    selectionHint = undefined;
+                    invalidateMatches('Starting point changed. Select “Match book” to apply it.');
+                  }}>Clear starting selection</button
+                >{/if}
+            </p>
+            <p class="hint">
+              Matching does not edit the book. For a chapter-only recording, select its starting
+              text in the book first. Unmatched cues still play. Matches span the whole book,
+              including chapters not currently displayed. Chapters are opened using the reader’s
+              normal navigation.
+            </p>
+            {#if !highlightSupported}<p>
+                Inline highlighting is unavailable in this browser. Transcript playback and
+                matched-text navigation still work.
+              </p>{/if}
+            {#if matchError}<p role="status">{matchError}</p>{/if}
+          </div>
+          <section aria-label="Audiobook transcript">
+            <PitchStrip
+              state={pitchState}
+              available={snapshot.ready}
+              onToggle={() => pitch.setEnabled(!pitchState.enabled)}
+              onRetry={() => pitch.retry()}
+            />
+            <div class="actions">
+              <h3>Transcript</h3>
+              <button
+                type="button"
+                disabled={current < 0}
+                on:click={() => {
+                  transcriptPage = Math.floor(current / pageSize);
+                }}>Show current cue</button
+              >
+              <button
+                bind:this={previousTranscriptPage}
+                type="button"
+                disabled={transcriptPage === 0}
+                on:click={() => void pageTranscript(-1)}>Previous 30</button
+              >
+              <span role="status" aria-live="polite">Page {transcriptPage + 1} / {pageCount}</span>
+              <button
+                bind:this={nextTranscriptPage}
+                type="button"
+                disabled={transcriptPage + 1 >= pageCount}
+                on:click={() => void pageTranscript(1)}>Next 30</button
+              >
+            </div>
+            <ol start={transcriptPage * pageSize + 1}>
+              {#each visibleCues as cue, offset (cue.id)}
+                {@const cueIndex = transcriptPage * pageSize + offset}
+                <li class:active={cueIndex === current}>
+                  <button
                     type="button"
-                    class="locate"
-                    on:click={() => showInBook(cueIndex)}
-                    aria-label={`Show cue ${cueIndex + 1} in book`}
-                    >{matches[cueIndex]!.approximate
-                      ? 'Approximate location'
-                      : 'Show in book'}</button
-                  >{/if}
-              </li>
-            {/each}
-          </ol>
-        </section>
-      {/if}
-      <div class="actions">
-        <button
-          type="button"
-          disabled={!ready || clearing}
-          on:click={() => {
-            confirmClear = true;
-          }}>Remove saved audiobook data</button
-        >
-        {#if confirmClear}<span>Remove captions and resume position for this book?</span><button
+                    disabled={!snapshot.ready || !cueAudioBounds(cue, delay, snapshot.duration)}
+                    aria-current={cueIndex === current ? 'true' : undefined}
+                    on:click={() => selectCue(cueIndex, true)}
+                  >
+                    <time>{toTimeString(cue.start + delay)}</time>
+                    {cue.text}
+                  </button>
+                  {#if matches[cueIndex]}<button
+                      type="button"
+                      class="locate"
+                      on:click={() => showInBook(cueIndex)}
+                      aria-label={`Show cue ${cueIndex + 1} in book`}
+                      >{matches[cueIndex]!.approximate
+                        ? 'Approximate location'
+                        : 'Show in book'}</button
+                    >{/if}
+                </li>
+              {/each}
+            </ol>
+          </section>
+        {/if}
+        <div class="actions">
+          <button
             type="button"
-            disabled={clearing}
-            on:click={removeSaved}>Remove</button
-          ><button
-            type="button"
+            disabled={!ready || clearing}
             on:click={() => {
-              confirmClear = false;
-            }}>Cancel</button
-          >{/if}
+              confirmClear = true;
+            }}>Remove saved audiobook data</button
+          >
+          {#if confirmClear}<span>Remove captions and resume position for this book?</span><button
+              type="button"
+              disabled={clearing}
+              on:click={removeSaved}>Remove</button
+            ><button
+              type="button"
+              on:click={() => {
+                confirmClear = false;
+              }}>Cancel</button
+            >{/if}
+        </div>
+        <p class="credits">
+          Adapted from <a
+            href="https://github.com/4890A/ttu-whispersync"
+            target="_blank"
+            rel="noopener noreferrer">4890A/ttu-whispersync</a
+          >, originally by
+          <a
+            href="https://github.com/Renji-XD/ttu-whispersync"
+            target="_blank"
+            rel="noopener noreferrer">Renji-XD</a
+          >.
+          <a href={asset('/licenses/ttu-whispersync.txt')} target="_blank" rel="noopener noreferrer"
+            >MIT license</a
+          >. This built-in player does not require their userscript or Anki.
+        </p>
       </div>
-      <p class="credits">
-        Adapted from <a
-          href="https://github.com/4890A/ttu-whispersync"
-          target="_blank"
-          rel="noopener noreferrer">4890A/ttu-whispersync</a
-        >, originally by
-        <a
-          href="https://github.com/Renji-XD/ttu-whispersync"
-          target="_blank"
-          rel="noopener noreferrer">Renji-XD</a
-        >.
-        <a href={`${base}/licenses/ttu-whispersync.txt`} target="_blank" rel="noopener noreferrer"
-          >MIT license</a
-        >. This built-in player does not require their userscript or Anki.
-      </p>
     </div>
   </Sheet.Content>
 </Sheet.Root>
@@ -923,6 +952,22 @@
     overflow-y: auto;
     white-space: pre-wrap;
   }
+  .audiobook-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 44px;
+    align-items: start;
+    gap: 16px;
+    flex-shrink: 0;
+    padding: 16px;
+    border-block-end: 1px solid var(--border);
+  }
+  .audiobook-scroll {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 16px;
+    padding-block-end: max(16px, env(safe-area-inset-bottom));
+  }
   .panel {
     display: grid;
     gap: 1rem;
@@ -957,14 +1002,27 @@
   button,
   input[type='number'] {
     border: 1px solid currentColor;
-    border-radius: 0.375rem;
-    padding: 0.3rem 0.6rem;
-    min-height: 2.25rem;
+    border-radius: 0.5rem;
+    padding: 0.55rem 0.7rem;
+    min-height: 44px;
     background: transparent;
     color: inherit;
   }
+  .matching > label {
+    display: flex;
+    min-height: 44px;
+    align-items: center;
+    gap: 0.55rem;
+    cursor: pointer;
+  }
   input[type='checkbox'] {
-    margin-inline-end: 0.4rem;
+    width: 20px;
+    height: 20px;
+    margin: 0;
+    flex: 0 0 20px;
+  }
+  .file-fields input[type='file'] {
+    min-height: 44px;
   }
   button {
     cursor: pointer;

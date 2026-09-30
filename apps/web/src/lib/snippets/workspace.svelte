@@ -8,6 +8,7 @@
   import { Button } from '$lib/components/ui/button';
   import { Input } from '$lib/components/ui/input';
   import * as Dialog from '$lib/components/ui/dialog';
+  import * as Menu from '$lib/components/ui/dropdown-menu';
   import { account, localUser, providerLabels } from '../manabi/client';
   import {
     organization,
@@ -53,13 +54,14 @@
     passages,
     plainContent,
     snippetKey,
+    snippetSearchTooLong,
     MAX_SNIPPET_BYTES,
     filename,
     type SnippetDocument,
     type TextNode
   } from './document';
   import { currentTransfer, moveSnippet, resumeTransfer, keepBoth } from './transfers';
-  import { parseLocator, safeReturn, saveLabel } from './presentation';
+  import { parseLocator, safeReturn, saveLabel, snippetSourceId } from './presentation';
   import { exportSnippets, restoreBackup, MAX_BACKUP_BYTES, download } from './portability';
   import Shelf from './shelf.svelte';
   import Reader from './reader.svelte';
@@ -131,12 +133,14 @@
     if (request) void loadRoute(request);
   }
   $: selectedSummary = $snippetItems.find((item) => item.id === id);
+  $: sourceSnippetId = snippetSourceId(current?.document.source?.item) ?? '';
   $: nextRecordSignature = JSON.stringify([
     selectedSummary?.revision,
     selectedSummary?.dirty,
     selectedSummary?.issue,
     selectedSummary?.conflicts,
-    selectedSummary?.transfer
+    selectedSummary?.transfer,
+    selectedSummary?.progressAt
   ]);
   $: if (mounted && admitted && !editing && recordSignature !== nextRecordSignature) {
     recordSignature = nextRecordSignature;
@@ -852,7 +856,7 @@
   {:else if current && admitted}
     <section class="reading" aria-label="Snippet reader">
       <Button
-        class="back min-h-11 px-0"
+        class="back h-auto min-h-[44px] px-0 py-[4px]"
         href={resolve(libraryPath(params.get('returnTo')))}
         variant="link"
         size="sm">← Back to library</Button
@@ -865,6 +869,7 @@
         </div>
         <div class="actions">
           {#if current.document.trashedAt}<Button
+              class="h-auto min-h-[44px] py-[6px]"
               disabled={busy}
               onclick={() =>
                 action(async () => {
@@ -872,9 +877,11 @@
                   await loadRecord(false);
                 })}>Restore snippet</Button
             >{:else}<Button
+              class="h-auto min-h-[44px] py-[6px]"
               disabled={busy || !!current.transfer || !!current.conflicts.length}
               onclick={() => action(() => edit())}>Edit</Button
             ><Button
+              class="reader-add-wide h-auto min-h-[44px] py-[6px]"
               variant="secondary"
               disabled={busy || !!current.transfer || !!current.conflicts.length}
               onclick={() => action(() => edit('append'))}>Add text</Button
@@ -933,7 +940,7 @@
               >
             </details>{/each}
         </section>{/if}
-      <div class="actions secondary">
+      <div class="actions secondary secondary-actions-wide">
         <Button
           variant="ghost"
           disabled={busy || !!current.transfer}
@@ -971,6 +978,75 @@
             }}>Trash</Button
           >{/if}
       </div>
+      <div class="secondary-actions-menu">
+        <Menu.Root>
+          <Menu.Trigger>
+            {#snippet child({ props })}
+              <Button {...props} variant="secondary" class="h-auto min-h-[44px] py-[6px]"
+                >More actions</Button
+              >
+            {/snippet}
+          </Menu.Trigger>
+          <Menu.Content align="start" collisionPadding={8} class="w-64 max-w-[calc(100vw-1rem)]">
+            <Menu.Item
+              disabled={busy || !!current.transfer}
+              onSelect={() => membership([current!.document.id])}
+            >
+              Collections…
+            </Menu.Item>
+            {#if !current.document.trashedAt}<Menu.Item
+                disabled={busy || !!current.transfer || !!current.conflicts.length}
+                onSelect={() => action(() => edit('append'))}>Add text</Menu.Item
+              >{/if}
+            <Menu.Item
+              disabled={busy || !!current.transfer || !!current.conflicts.length}
+              onSelect={() => move([current!.document.id])}
+            >
+              Move to…
+            </Menu.Item>
+            <Menu.Item
+              disabled={busy}
+              onSelect={() =>
+                action(() => newSnippet(current!.document.content, current!.document))}
+            >
+              Duplicate
+            </Menu.Item>
+            <Menu.Separator />
+            <Menu.Item
+              disabled={busy}
+              onSelect={() => action(() => exportSnippets([current!.document.id], admitted))}
+            >
+              Export JSON
+            </Menu.Item>
+            <Menu.Item
+              disabled={busy}
+              onSelect={() =>
+                action(() => exportSnippets([current!.document.id], admitted, 'html'))}
+            >
+              HTML
+            </Menu.Item>
+            <Menu.Item
+              disabled={busy}
+              onSelect={() =>
+                action(() => exportSnippets([current!.document.id], admitted, 'markdown'))}
+            >
+              Markdown
+            </Menu.Item>
+            {#if !current.document.trashedAt}
+              <Menu.Separator />
+              <Menu.Item
+                disabled={busy || !!current.transfer}
+                onSelect={() => {
+                  deleteIds = [current!.document.id];
+                  deleteOpen = true;
+                }}
+              >
+                Trash
+              </Menu.Item>
+            {/if}
+          </Menu.Content>
+        </Menu.Root>
+      </div>
       {#if current.destination}<details class="locations">
           <summary>Storage location{current.locations.length > 1 ? 's' : ''}</summary
           >{#each current.locations as location (JSON.stringify( [location.source.id, location.source.root, location.fileId] ))}<p
@@ -986,9 +1062,12 @@
           document={current.document}
           selectedScope={admitted}
           locator={locator ?? current.progress}
+          followRemotePosition={!locator}
         />{/key}
       {#if current.document.source}<p class="source">
-          Captured from {current.document.source.title}{#if current.document.source.url}
+          Captured from {current.document.source.title}{#if sourceSnippetId}
+            · <a href={resolve(`/snippets?id=${sourceSnippetId}`)}>Open source</a
+            >{:else if current.document.source.url}
             · <a
               href={current.document.source.url}
               target="_blank"
@@ -1025,7 +1104,10 @@
             type="search"
             aria-label="Search snippets"
             placeholder="Search titles and content"
-            maxlength={512}
+            aria-invalid={snippetSearchTooLong(query) ? true : undefined}
+            aria-describedby={snippetSearchTooLong(query)
+              ? 'snippet-search-limit-error'
+              : undefined}
             bind:value={query}
             oninput={(event) => {
               query = event.currentTarget.value;
@@ -1184,27 +1266,33 @@
   {/if}
 </div>
 {#if pickerOpen && admitted}<Dialog.Root bind:open={pickerOpen}
-    ><Dialog.Content closeDisabled={busy || pickerWriteBusy}
-      ><Dialog.Header
-        ><Dialog.Title
-          >{pickerPurpose === 'move'
-            ? 'Move snippets'
-            : pickerPurpose === 'default'
-              ? 'Default snippet location'
-              : 'Save location'}</Dialog.Title
-        ><Dialog.Description
-          >Choose one real storage home. Your documents remain together in the Snippets view.</Dialog.Description
-        ></Dialog.Header
-      ><DestinationPicker
-        initial={destination ?? current?.destination}
-        guard={admitted.guard}
-        allowDevice={pickerPurpose === 'save'}
-        allowUnsetDefault={pickerPurpose === 'default'}
-        onwritebusy={(value) => (pickerWriteBusy = value)}
-        choose={(value, remember) => void action(() => chooseDestination(value, remember))}
-      /></Dialog.Content
-    ></Dialog.Root
-  >{/if}
+    ><Dialog.Content class="overflow-hidden p-0" closeDisabled={busy || pickerWriteBusy}
+      ><div
+        data-snippet-picker-scroll
+        class="max-h-[inherit] min-h-0 overflow-y-auto overscroll-contain p-[24px]"
+      >
+        <Dialog.Header class="pe-[48px]"
+          ><Dialog.Title
+            >{pickerPurpose === 'move'
+              ? 'Move snippets'
+              : pickerPurpose === 'default'
+                ? 'Default snippet location'
+                : 'Save location'}</Dialog.Title
+          ><Dialog.Description
+            >Choose one real storage home. Your documents remain together in the Snippets view.</Dialog.Description
+          ></Dialog.Header
+        ><DestinationPicker
+          initial={destination ?? current?.destination}
+          guard={admitted.guard}
+          allowDevice={pickerPurpose === 'save'}
+          allowUnsetDefault={pickerPurpose === 'default'}
+          onwritebusy={(value) => (pickerWriteBusy = value)}
+          choose={(value, remember) => void action(() => chooseDestination(value, remember))}
+        />
+      </div></Dialog.Content
+    >
+  </Dialog.Root>
+{/if}
 {#if collectionsOpen}<Dialog.Root bind:open={collectionsOpen}
     ><Dialog.Content closeDisabled={busy}
       ><Dialog.Header
@@ -1331,6 +1419,10 @@
   }
   .secondary {
     padding: 0.6rem 0;
+  }
+  .secondary-actions-menu {
+    display: none;
+    padding-block: 0.35rem 0.6rem;
   }
   .reading,
   .editing {
@@ -1494,8 +1586,10 @@
   }
   .membership {
     display: flex;
+    min-height: 44px;
     gap: 0.6rem;
     align-items: center;
+    cursor: pointer;
   }
   form {
     display: grid;
@@ -1506,19 +1600,44 @@
     gap: 0.4rem;
   }
   @media (max-width: 640px) {
+    .secondary-actions-wide,
+    :global(.reader-add-wide) {
+      display: none;
+    }
+    .secondary-actions-menu {
+      display: block;
+      padding-block: 4px 8px;
+    }
+    .reading > .heading {
+      gap: 8px;
+      margin-block: 12px;
+    }
     .heading {
       align-items: start;
       flex-direction: column;
+      gap: 12px;
+      margin-block: 20px;
+    }
+    .heading > .actions {
+      gap: 8px;
+    }
+    .heading > .actions :global(button) {
+      padding-inline: 16px;
     }
     .search-row {
       align-items: stretch;
       flex-direction: column;
     }
     .snippet-workspace {
-      padding-inline: 1rem;
+      padding-block-start: 16px;
+      padding-inline: 16px;
     }
     .top {
-      padding-bottom: 0.5rem;
+      gap: 12px;
+      padding-block: 8px;
+    }
+    .brand {
+      white-space: nowrap;
     }
     .draft {
       align-items: start;

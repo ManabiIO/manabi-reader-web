@@ -1,6 +1,7 @@
 """Layered page turns in the built Reader, including real touch and wheel input."""
 import os
 import io
+import re
 import threading
 import zipfile
 from pathlib import Path
@@ -72,7 +73,9 @@ class FoliateSlide(ReaderBrowser):
             insets:['Top','Right','Bottom','Left'].map(side => parseFloat(getComputedStyle(el)['padding'+side])),
             indicator:rect(el.querySelector('.page-indicator')),
             label:el.querySelector('.page-indicator').textContent,
-            globalPage:Number(el.querySelector('.page-indicator').dataset.page)
+            globalPage:Number(el.querySelector('.page-indicator').dataset.page),
+            total:el.querySelector('.page-indicator').dataset.total,
+            expanded:el.querySelector('.page-indicator').getAttribute('aria-expanded') === 'true'
           }});
           return {{page:p.page, index:p.getContents()[0].index, width:p.getBoundingClientRect().width,
             host:rect(p), viewport:{{width:visualViewport.width,height:visualViewport.height}},
@@ -121,7 +124,10 @@ class FoliateSlide(ReaderBrowser):
             self.assertAlmostEqual(surface['bounds']['y'], 0, delta=1)
             self.assertAlmostEqual(surface['indicator']['x'] + surface['indicator']['width']/2,
                                    surface['bounds']['x'] + width/2, delta=1)
-            self.assertEqual(surface['label'], str(surface['globalPage']))
+            expected = str(surface['globalPage'])
+            if surface['expanded'] and surface['total']:
+                expected += ' of ' + surface['total']
+            self.assertEqual(surface['label'], expected)
             for layer in ['shade', 'background']:
                 for axis in ['x', 'y', 'width', 'height']:
                     self.assertAlmostEqual(surface[layer][axis], surface['bounds'][axis], delta=1,
@@ -147,20 +153,24 @@ class FoliateSlide(ReaderBrowser):
 
     def test_controls_hide_at_turn_start_and_numbers_move_with_both_pages(self):
         self.open_slide(False, mobile=True)
-        self.assertEqual(self.indicator(), '1')
-        self.toggle_controls()
+        self.assertRegex(self.indicator(), r'^1 of \d+$')
         expect(self.page.get_by_role('banner', name='Reader toolbar')).to_be_visible()
         self.assertRegex(self.indicator(), r'^1 of \d+$')
+        self.page.evaluate('document.activeElement?.blur()')
+        self.page.mouse.move(195, 600)
         self.page.evaluate(f"async () => {{window.prepared = await {P}.preparePageTurn(1);window.prepared.update(.45)}}")
         expect(self.page.get_by_role('banner', name='Reader toolbar')).not_to_be_visible()
-        expect(self.page.locator('.reader-controls')).not_to_be_visible()
-        expect(self.page.locator('#ttu-page-footer')).not_to_be_visible()
+        controls = self.page.locator('.reader-controls')
+        expect(controls).to_have_class(re.compile(r'chrome-hidden'))
+        expect(controls).to_have_attribute('aria-expanded', 'false')
+        expect(self.page.locator('#ttu-page-footer')).to_have_css('opacity', '0')
         self.assertEqual(self.page.locator('.reader-progress').count(), 0)
         self.assert_pose(self.pose(), .45, 1, False)
         self.screenshot('page-number-forward-held')
         self.page.evaluate('window.prepared.commit()')
         self.assertEqual(self.indicator(), '2')
-        self.toggle_controls()
+        self.page.evaluate("window.slideRoot.querySelector('#top .page-indicator').focus()")
+        self.page.keyboard.press('Enter')
         self.assertRegex(self.indicator(), r'^2 of \d+$')
         self.screenshot('page-number-expanded')
         self.toggle_controls()
@@ -182,12 +192,17 @@ class FoliateSlide(ReaderBrowser):
         for index in range(4):
             self.page.evaluate(f"async index => await {P}.goTo({{index}})", index)
             self.assertEqual(self.page.evaluate(f'{P}.pages - 2'), initial[index])
-            self.assertEqual(self.indicator(), str(1 + sum(initial[:index])))
+            self.assertEqual(
+                self.indicator(),
+                f'{1 + sum(initial[:index])} of {sum(initial)}'
+            )
         self.page.evaluate(f"async () => {{window.prepared=await {P}.preparePageTurn(-1);window.prepared.update(.5)}}")
         self.assert_pose(self.pose(), .5, -1, False)
         self.screenshot('chapter-page-number-back-held')
         self.page.evaluate('window.prepared.cancel()')
-        self.toggle_controls()
+        self.assertEqual(self.indicator(), str(1 + sum(initial[:3])))
+        self.page.evaluate("window.slideRoot.querySelector('#top .page-indicator').focus()")
+        self.page.keyboard.press('Enter')
         self.assertEqual(self.indicator(), f'{1 + sum(initial[:3])} of {sum(initial)}')
         self.page.set_viewport_size({'width': 600, 'height': 600})
         self.page.wait_for_function(f"old => {P}.pageCounts.every(Number.isFinite) && JSON.stringify({P}.pageCounts)!==JSON.stringify(old)", arg=initial)
@@ -235,6 +250,11 @@ class FoliateSlide(ReaderBrowser):
         self.page.evaluate('window.countGates[3]()')
         self.page.wait_for_function(f"() => {P}.pageCounts.every(Number.isFinite)")
         counts = self.page.evaluate(f'{P}.pageCounts')
+        # Controls were explicitly collapsed at the start of this test. Once
+        # every chapter is measured, the exact current page is known but the
+        # compact indicator intentionally withholds the total until expanded.
+        self.assertEqual(self.indicator(), str(1 + sum(counts[:2])))
+        self.toggle_controls()
         self.assertEqual(self.indicator(), f'{1 + sum(counts[:2])} of {sum(counts)}')
         self.screenshot('page-number-total-ready')
 

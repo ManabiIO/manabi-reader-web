@@ -119,3 +119,60 @@ export async function readIndexedBookMetadata(
         : {})
   }));
 }
+
+export interface IndexedBookTitleMetadata {
+  id: number;
+  title: string;
+  contentHash?: string;
+}
+
+interface IndexedBookTitleStore {
+  index(name: 'title' | 'contentHash'): ContentHashIndex;
+}
+
+/** Recovery/export projection that retains hashless legacy books. */
+export async function readIndexedBookTitles(
+  store: IndexedBookTitleStore,
+  assertCurrent: () => void = () => undefined,
+  signal?: AbortSignal
+): Promise<IndexedBookTitleMetadata[]> {
+  const titles = new Map<number, string>();
+  const hashes = new Map<number, string>();
+
+  const read = async (
+    name: 'title' | 'contentHash',
+    accept: (id: number, key: IDBValidKey) => void
+  ) => {
+    for (
+      let cursor = await store.index(name).openKeyCursor();
+      cursor;
+      cursor = await cursor.continue()
+    ) {
+      assertCurrent();
+      signal?.throwIfAborted();
+      if (
+        typeof cursor.primaryKey !== 'number' ||
+        !Number.isSafeInteger(cursor.primaryKey) ||
+        cursor.primaryKey <= 0
+      )
+        continue;
+      accept(cursor.primaryKey, cursor.key);
+    }
+  };
+
+  await Promise.all([
+    read('title', (id, key) => {
+      if (typeof key === 'string') titles.set(id, key);
+    }),
+    read('contentHash', (id, key) => {
+      const hash = normalizedIndexedContentHash(key);
+      if (hash) hashes.set(id, hash);
+    })
+  ]);
+
+  return [...titles].map(([id, title]) => ({
+    id,
+    title,
+    ...(hashes.has(id) ? { contentHash: hashes.get(id)! } : {})
+  }));
+}

@@ -21,6 +21,7 @@
     onInteractOutside,
     onkeydowncapture,
     onOpenAutoFocus,
+    onscroll,
     ...restProps
   }: WithoutChildrenOrChild<DialogPrimitive.ContentProps> & {
     portalProps?: WithoutChildrenOrChild<ComponentProps<typeof DialogPortal>>;
@@ -50,6 +51,13 @@
       preserveModalFocus(event, ref, onOpenAutoFocus);
       if (!event.defaultPrevented && ref) focusModalStart(event, ref);
     }}
+    onscroll={(event) => {
+      event.currentTarget.style.setProperty(
+        '--dialog-close-scroll-offset',
+        `${event.currentTarget.scrollTop}px`
+      );
+      onscroll?.(event);
+    }}
     data-modal-close-button={showCloseButton ? '' : undefined}
     data-slot="dialog-content"
     class={cn(
@@ -62,7 +70,12 @@
     {#if showCloseButton}
       <DialogPrimitive.Close data-slot="dialog-close">
         {#snippet child({ props })}
-          <CloseButton {...props} disabled={closeDisabled} class="absolute top-[16px] end-[16px]" />
+          <CloseButton
+            {...props}
+            disabled={closeDisabled}
+            class="absolute top-[16px] end-[16px]"
+            style="transform: translateY(var(--dialog-close-scroll-offset, 0px));"
+          />
         {/snippet}
       </DialogPrimitive.Close>
     {/if}

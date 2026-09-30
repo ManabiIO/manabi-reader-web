@@ -256,6 +256,180 @@ try {
   await page.reload();
   await expect(page.getByRole('article', { name: 'Snippet content' })).toContainText('京都');
   passed('create, durable native IndexedDB save and reader reload');
+
+  // Stress the actual reader controls and vertical layout at enlarged UI text.
+  await page.setViewportSize({ width: 320, height: 480 });
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '200%';
+  });
+  const moreActions = page.getByRole('button', { name: 'More actions', exact: true });
+  await expect(moreActions).toBeVisible();
+  const readingToolbar = page.getByRole('toolbar', { name: 'Snippet reading controls' });
+  await expect(readingToolbar).toBeVisible();
+  const articleTop = (await page.getByRole('article', { name: 'Snippet content' }).boundingBox()).y;
+  assert(
+    articleTop <= 480 * 2.5,
+    `Secondary actions push reading content too far below the fold: ${articleTop}px`
+  );
+  moreActions.focus();
+  await moreActions.press('Enter');
+  const actionMenu = page.getByRole('menu');
+  await expect(actionMenu).toBeVisible();
+  const mobileActions = [
+    'Collections…',
+    'Add text',
+    'Move to…',
+    'Duplicate',
+    'Export JSON',
+    'HTML',
+    'Markdown',
+    'Trash'
+  ];
+  await expect(
+    actionMenu.getByRole('menuitem', { name: mobileActions[0], exact: true })
+  ).toBeFocused();
+  for (const [index, name] of mobileActions.entries()) {
+    if (index > 0) await page.keyboard.press('ArrowDown');
+    const item = actionMenu.getByRole('menuitem', { name, exact: true });
+    await expect(item).toBeFocused();
+    const box = await item.boundingBox();
+    assert(box && box.height >= 43.5, `${name} menu item must remain at least 44 CSS px high`);
+    if (index === mobileActions.length - 1) {
+      assert(
+        box.y >= -1 && box.y + box.height <= 481,
+        `Last Snippets action must scroll into the short viewport: ${JSON.stringify(box)}`
+      );
+      assert(
+        await item.evaluate((node) => {
+          const r = node.getBoundingClientRect();
+          const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return !!hit && (hit === node || node.contains(hit));
+        }),
+        'Last Snippets action must remain hit-testable after keyboard scrolling'
+      );
+    }
+  }
+  await page.keyboard.press('Escape');
+  await expect(actionMenu).toHaveCount(0);
+  await expect(moreActions).toBeFocused();
+  assert(
+    (await readingToolbar.evaluate((node) => node.scrollWidth - node.clientWidth)) <= 1,
+    'Snippet reading controls must not overflow horizontally at 200% text'
+  );
+  for (const name of [
+    'Smaller text',
+    'Larger text',
+    'Vertical reading',
+    'Save selection to snippet…'
+  ]) {
+    const control = readingToolbar.getByRole('button', { name, exact: true });
+    await control.scrollIntoViewIfNeeded();
+    const box = await control.boundingBox();
+    assert(box && box.height >= 43.5, `${name} must remain at least 44 CSS px high`);
+    assert(box.x >= -1 && box.x + box.width <= 321, `${name} must stay inside the viewport`);
+    assert(box.y >= -1 && box.y + box.height <= 481, `${name} must be vertically reachable`);
+    assert(
+      await control.evaluate((node) => {
+        const r = node.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return !!hit && (hit === node || node.contains(hit));
+      }),
+      `${name} must remain hit-testable after enlarged-text scrolling`
+    );
+  }
+  const verticalToggle = readingToolbar.getByRole('button', {
+    name: 'Vertical reading',
+    exact: true
+  });
+  await verticalToggle.click();
+  await expect(verticalToggle).toHaveAttribute('aria-pressed', 'true');
+  const readingArticle = page.getByRole('article', { name: 'Snippet content' });
+  assert.equal(
+    await readingArticle.evaluate((node) => window.getComputedStyle(node).writingMode),
+    'vertical-rl'
+  );
+  assert(
+    (await page.locator('html').evaluate((node) => node.scrollWidth - node.clientWidth)) <= 1,
+    'Vertical snippet reader must not make the page overflow horizontally'
+  );
+  const articleBox = await readingArticle.boundingBox();
+  assert(
+    articleBox.x >= -1 && articleBox.x + articleBox.width <= 321,
+    'Vertical snippet reader must remain inside the narrow viewport'
+  );
+  const readerEvidence = process.env.SNIPPETS_SCREENSHOT;
+  if (readerEvidence) {
+    const path = readerEvidence.replace(/\.png$/i, '-reader-vertical-200.png');
+    await mkdir(dirname(path), { recursive: true });
+    await page.screenshot({ path, fullPage: true });
+  }
+  await verticalToggle.click();
+  await expect(verticalToggle).toHaveAttribute('aria-pressed', 'false');
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '';
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  passed('reader controls and vertical mode reflow at 200% text');
+
+  // Stress the real TipTap toolbar and annotation form, not a substitute editor.
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.setViewportSize({ width: 320, height: 480 });
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '200%';
+  });
+  const formatting = page.getByRole('toolbar', { name: 'Text formatting' });
+  await expect(formatting).toBeVisible();
+  assert(
+    (await formatting.evaluate((node) => node.scrollWidth - node.clientWidth)) <= 1,
+    'Formatting toolbar must wrap without horizontal overflow at 200% text'
+  );
+  for (const button of await formatting.getByRole('button').all()) {
+    const box = await button.boundingBox();
+    assert(box && box.height >= 43.5, 'Formatting actions must remain at least 44 CSS px high');
+    assert(box.x >= -1 && box.x + box.width <= 321, 'Formatting actions must stay in the viewport');
+  }
+  const editable = page.getByRole('textbox', { name: 'Snippet text', exact: true });
+  await editable
+    .locator('p')
+    .first()
+    .evaluate((paragraph) => {
+      paragraph.closest('[contenteditable]').focus();
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(paragraph);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      document.dispatchEvent(new Event('selectionchange'));
+    });
+  await formatting.getByRole('button', { name: 'Furigana', exact: true }).click();
+  const readingInput = page.getByRole('textbox', { name: 'Furigana reading', exact: true });
+  await expect(readingInput).toBeFocused();
+  const annotationForm = readingInput.locator('xpath=ancestor::form');
+  assert(
+    (await annotationForm.evaluate((node) => node.scrollWidth - node.clientWidth)) <= 1,
+    'Annotation form must wrap without horizontal overflow at 200% text'
+  );
+  for (const name of ['Apply', 'Cancel']) {
+    const control = annotationForm.getByRole('button', { name, exact: true });
+    const box = await control.boundingBox();
+    assert(box && box.height >= 43.5, `${name} annotation action must be at least 44 CSS px high`);
+  }
+  const editorEvidence = process.env.SNIPPETS_SCREENSHOT;
+  if (editorEvidence) {
+    const path = editorEvidence.replace(/\.png$/i, '-editor-annotation-200.png');
+    await mkdir(dirname(path), { recursive: true });
+    await page.screenshot({ path, fullPage: true });
+  }
+  await annotationForm.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(editable).toBeFocused();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Discard draft and leave', exact: true }).click();
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '';
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  passed('editor toolbar and annotation form reflow at 200% text');
+
   await openLibrary(page);
   await page.setViewportSize({ width: 320, height: 640 });
   await page.evaluate(() => {
@@ -277,6 +451,10 @@ try {
     document.documentElement.style.fontSize = '';
   });
   const localTitle = page.locator('.snippet-shelf .title').filter({ hasText: '散歩の記録' });
+  assert(
+    (await localTitle.boundingBox()).height >= 43.5,
+    'Snippet title link must remain at least 44 CSS px high'
+  );
   // Control-click opens the native context menu on macOS; Command is its
   // normal multiselect modifier. Linux/Windows use Control.
   await localTitle.click({ modifiers: [process.platform === 'darwin' ? 'Meta' : 'Control'] });
@@ -284,10 +462,53 @@ try {
     page.getByRole('toolbar', { name: 'Selected snippet actions', exact: true })
   ).toBeVisible();
   await expect(page.getByRole('list', { name: 'Snippets', exact: true })).toBeVisible();
-  await expect(page.getByRole('checkbox', { name: 'Select 散歩の記録' })).toBeChecked();
+  const selectedCheckbox = page.getByRole('checkbox', { name: 'Select 散歩の記録' });
+  await expect(selectedCheckbox).toBeChecked();
+  const selectionTarget = selectedCheckbox.locator('..');
+  const selectionBox = await selectionTarget.boundingBox();
+  assert(
+    selectionBox.width >= 43.5 && selectionBox.height >= 43.5,
+    'Snippet selection target must remain at least 44x44 CSS px'
+  );
+  assert(
+    await selectionTarget.evaluate((label) => {
+      const r = label.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return !!hit && (hit === label || label.contains(hit));
+    }),
+    'Snippet selection target center must be hit-testable'
+  );
   await page.getByRole('button', { name: 'Done selecting', exact: true }).click();
   passed('modifier-click enters visible selection mode');
-  await page.getByRole('searchbox', { name: 'Search snippets' }).fill('珍しい言葉');
+  const search = page.getByRole('searchbox', { name: 'Search snippets' });
+
+  await search.fill('𠮷'.repeat(512));
+  await expect(search).toHaveValue('𠮷'.repeat(512));
+  await expect(search).not.toHaveAttribute('aria-invalid', 'true');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(
+    page.getByText(
+      'Some snippet contents could not be searched. Title matches are still available.'
+    )
+  ).toHaveCount(0, { timeout: 15000 });
+  await expect(page.getByText('No matching snippets.', { exact: true })).toBeVisible();
+
+  await search.fill('𠮷'.repeat(513));
+  await expect(search).toHaveValue('𠮷'.repeat(513));
+  await expect(search).toHaveAttribute('aria-invalid', 'true');
+  await expect(search).toHaveAttribute('aria-describedby', 'snippet-search-limit-error');
+  await expect(
+    page.getByRole('alert').filter({ hasText: 'Use a search of 512 characters or fewer.' })
+  ).toBeVisible();
+
+  await search.fill('珍しい言葉');
+  await expect(search).not.toHaveAttribute('aria-invalid', 'true');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(
+    page.getByText(
+      'Some snippet contents could not be searched. Title matches are still available.'
+    )
+  ).toHaveCount(0);
   await expect(page.locator('.snippet-shelf .title')).toHaveText(['散歩の記録']);
   await page.getByRole('button', { name: 'Select', exact: true }).click();
   await page.locator('.snippet-shelf .passage').first().click();
@@ -298,7 +519,12 @@ try {
   await expect(page.getByRole('article', { name: 'Snippet content' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Done selecting', exact: true }).click();
   passed('search passages honor selection mode without navigating away');
-  await page.locator('.snippet-shelf .passage').first().click();
+  const passageLink = page.locator('.snippet-shelf .passage').first();
+  assert(
+    (await passageLink.boundingBox()).height >= 43.5,
+    'Snippet passage link must remain at least 44 CSS px high'
+  );
+  await passageLink.click();
   await expect(page.getByRole('article', { name: 'Snippet content' })).toContainText('珍しい言葉');
   await page.getByRole('link', { name: '← Back to library', exact: true }).click();
   await expect(page.getByRole('searchbox', { name: 'Search snippets' })).toHaveValue('珍しい言葉');
@@ -353,7 +579,13 @@ try {
     .getByRole('textbox', { name: 'New collection name', exact: true })
     .fill('日本語の文章');
   await page.getByRole('button', { name: 'Create collection', exact: true }).click();
-  await expect(page.getByRole('checkbox', { name: '日本語の文章' })).toBeChecked();
+  const collectionMembership = page.getByRole('checkbox', { name: '日本語の文章' });
+  await expect(collectionMembership).toBeChecked();
+  const collectionTarget = collectionMembership.locator('..');
+  assert(
+    (await collectionTarget.boundingBox()).height >= 43.5,
+    'Collection membership label must remain at least 44 CSS px high'
+  );
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   const metadata = await records(page, 'metadata');
   assert(
@@ -447,6 +679,68 @@ try {
   await expect(rootCrumb).toHaveAttribute('data-slot', 'button');
   await expect(rootCrumb).toHaveAttribute('aria-current', 'page');
   assert((await rootCrumb.boundingBox()).height >= 43.5);
+
+  await page.setViewportSize({ width: 320, height: 320 });
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '200%';
+  });
+  const pickerScroll = picker.locator('[data-snippet-picker-scroll]');
+  await expect
+    .poll(() => pickerScroll.evaluate((element) => element.scrollHeight > element.clientHeight))
+    .toBe(true);
+  await pickerScroll.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await expect.poll(() => pickerScroll.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  const enlargedPickerClose = picker.getByRole('button', { name: 'Close', exact: true });
+  // Resizing the viewport animates the dialog from its previous max-height.
+  // Check the settled position so this measures reachability, not a transition frame.
+  await expect
+    .poll(async () => {
+      const box = await enlargedPickerClose.boundingBox();
+      return (
+        !!box && box.x >= -1 && box.y >= -1 && box.x + box.width <= 321 && box.y + box.height <= 321
+      );
+    })
+    .toBe(true);
+  const closeBox = await enlargedPickerClose.boundingBox();
+  assert(
+    closeBox.width >= 43.5 && closeBox.height >= 43.5,
+    'Save-location close target must remain at least 44x44 CSS px'
+  );
+  assert(
+    closeBox.x >= -1 &&
+      closeBox.y >= -1 &&
+      closeBox.x + closeBox.width <= 321 &&
+      closeBox.y + closeBox.height <= 321,
+    'Save-location close target must remain inside the short visual viewport'
+  );
+  assert(
+    await enlargedPickerClose.evaluate((button) => {
+      const r = button.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return !!hit && (hit === button || button.contains(hit));
+    }),
+    'Save-location close target must remain hit-testable after picker scrolling'
+  );
+  assert(
+    (await picker.evaluate((element) => element.scrollWidth - element.clientWidth)) <= 1,
+    'Save-location dialog must not overflow horizontally at 200% text'
+  );
+  const enlargedEvidence = process.env.SNIPPETS_SCREENSHOT;
+  if (enlargedEvidence) {
+    const pickerPath = enlargedEvidence.replace(/\.png$/i, '-picker-large-text.png');
+    await mkdir(dirname(pickerPath), { recursive: true });
+    await page.screenshot({ path: pickerPath, fullPage: true });
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '';
+  });
+  await pickerScroll.evaluate((element) => {
+    element.scrollTop = 0;
+  });
+
   holdMkdir = true;
   await picker.getByLabel('New folder name').fill('Study folder');
   await picker.getByRole('button', { name: 'Create folder', exact: true }).click();
@@ -477,7 +771,15 @@ try {
   await sourceSelect.selectOption({ label: 'Dropbox · Dropbox snippets' });
   await expect(picker.getByRole('button', { name: 'Use this folder', exact: true })).toBeEnabled();
   passed('failed destination switch cannot reuse the previously writable folder');
-  await picker.getByRole('checkbox', { name: 'Use this location for new snippets' }).check();
+  const rememberLocation = picker.getByRole('checkbox', {
+    name: 'Use this location for new snippets'
+  });
+  const rememberTarget = rememberLocation.locator('..');
+  assert(
+    (await rememberTarget.boundingBox()).height >= 43.5,
+    'Remember-location label must remain at least 44 CSS px high'
+  );
+  await rememberLocation.check();
   await picker.getByRole('button', { name: 'Use this folder', exact: true }).click();
   const cloudID = await commit(page);
   await expect
@@ -585,12 +887,61 @@ try {
     .poll(async () => (await records(page)).find((r) => r.document.id === cloudID)?.dirty)
     .toBe(false);
   passed('ruby editor composition Enter guard and explicit commit');
-  await page
-    .getByRole('article', { name: 'Snippet content' })
-    .locator('p')
-    .last()
-    .scrollIntoViewIfNeeded();
+  // Only genuine reader navigation may create position intent. Programmatic
+  // restoration/layout scrolling is deliberately ignored by the production reader.
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  });
+  await page.keyboard.press('End');
+  await page.mouse.wheel(0, 1200);
   await expect.poll(() => [...states.values()].some((s) => s.value?.id === cloudID)).toBe(true);
+
+  const stateEntry = [...states.entries()].find(
+      ([key, state]) => key.includes(providers[0].id) && state.value?.id === cloudID
+    ),
+    cloudFile = [...files.values()].find((file) => file.document.id === cloudID);
+  assert(stateEntry, 'The Dropbox reading state must exist before reconnect hydration.');
+  assert(cloudFile, 'The cloud snippet file must still exist.');
+  const targetBlock = cloudFile.document.content.content.find(
+      (node) => node.type === 'paragraph' && node.attrs?.id
+    ),
+    targetText = (targetBlock?.content ?? []).map((node) => node.text ?? '').join('');
+  assert(targetBlock?.attrs?.id, 'A stable target block is required for the reading-state test.');
+  const stateWritesBeforeHydration = counts.stateWrites;
+  states.set(stateEntry[0], {
+    value: {
+      ...stateEntry[1].value,
+      readAt: Date.now() + 1_000_000,
+      locator: {
+        blockId: targetBlock.attrs.id,
+        quote: targetText.slice(0, 80),
+        before: '',
+        offset: 0,
+        revision: cloudFile.document.revision
+      }
+    },
+    revision: String(Number(stateEntry[1].revision) + 1)
+  });
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  await expect(
+    page
+      .getByRole('article', { name: 'Snippet content' })
+      .locator(`[data-id="${targetBlock.attrs.id}"]`)
+  ).toHaveClass(/snippet-match/);
+  await expect
+    .poll(
+      async () => (await records(page)).find((r) => r.document.id === cloudID)?.progress?.blockId
+    )
+    .toBe(targetBlock.attrs.id);
+  await page.waitForTimeout(1200);
+  assert.equal(
+    counts.stateWrites,
+    stateWritesBeforeHydration,
+    'Adopting/restoring a remote cursor must not echo it back as a newer local write.'
+  );
+  assert.equal((await records(page)).find((r) => r.document.id === cloudID)?.progressDirty, false);
+  passed('open reader adopts a newer remote cursor after reconnect without echoing restoration');
+
   // Movement exercises real durable client journals and conditional HTTP cleanup.
   failCleanup = true;
   const writesBefore = counts.writes;

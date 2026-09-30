@@ -72,9 +72,10 @@ class AnnotationQuality(LibraryBase):
         self.add_bookmarks(panel, 12)
         self.page.set_viewport_size({'width': 320, 'height': 320})
         self.page.evaluate('document.documentElement.style.fontSize = "200%"')
-        self.page.evaluate('''panel => { panel.scrollTop = panel.scrollHeight; }''',
-                           panel.element_handle())
-        self.page.wait_for_function('(panel) => panel.scrollTop > 0', arg=panel.element_handle())
+        # The sheet header stays fixed while its dedicated body scrolls.
+        body = panel.locator('[data-annotations-scroll]')
+        body.evaluate('element => { element.scrollTop = element.scrollHeight; }')
+        self.assertGreater(body.evaluate('element => element.scrollTop'), 0)
 
         close = panel.locator('[data-modal-dismiss]')
         self.assert_pointer_target(close)

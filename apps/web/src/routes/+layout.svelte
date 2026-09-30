@@ -5,7 +5,7 @@
   import { sanitizeDialogHtml } from '$lib/functions/book-security/dialog-content-security';
   import { page } from '$app/stores';
   import { base } from '$app/paths';
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import ManabiRuntime from '$lib/manabi/runtime.svelte';
   import { basePath, clearConsoleOnReload } from '$lib/data/env';
   import { dialogManager, type Dialog } from '$lib/data/dialog-manager';
@@ -99,6 +99,22 @@
   }
 
   const dialogsSubscription = dialogManager.dialogs$.subscribe((d) => {
+    if (browser && dialogs.length && !d.length) {
+      const returnFocus = dialogReturnFocus;
+      void tick().then(() => {
+        requestAnimationFrame(() => {
+          if (dialogs.length) return;
+          const target =
+            document.querySelector<HTMLElement>('button[data-reader-controls]') ??
+            (returnFocus?.isConnected ? returnFocus : undefined);
+          target?.focus({ preventScroll: true });
+          if (document.activeElement !== target)
+            document
+              .querySelector<HTMLElement>('button[data-reader-controls]')
+              ?.focus({ preventScroll: true });
+        });
+      });
+    }
     if (browser && !dialogs.length && d.length) {
       const active = document.activeElement;
       dialogReturnFocus =
@@ -150,7 +166,7 @@
   {#if dialogs.length > 0}
     <Modal.Content
       showCloseButton={false}
-      class="max-h-[90dvh] overflow-y-auto p-0 pt-12 sm:max-w-3xl"
+      class="max-h-[90dvh] overflow-hidden p-0 pt-12 sm:max-w-3xl"
       style={`z-index: ${zIndex || '60'}`}
       onInteractOutside={(event) => {
         if (clickOnCloseDisabled) event.preventDefault();
@@ -160,7 +176,14 @@
       }}
       onCloseAutoFocus={(event) => {
         event.preventDefault();
-        dialogReturnFocus?.focus();
+        const target =
+          document.querySelector<HTMLElement>('button[data-reader-controls]') ??
+          (dialogReturnFocus?.isConnected ? dialogReturnFocus : undefined);
+        target?.focus({ preventScroll: true });
+        if (document.activeElement !== target)
+          document
+            .querySelector<HTMLElement>('button[data-reader-controls]')
+            ?.focus({ preventScroll: true });
         dialogReturnFocus = undefined;
       }}
     >
@@ -168,15 +191,20 @@
       <Modal.Description class="sr-only"
         >Adjust the options below, then confirm or cancel.</Modal.Description
       >
-      {#each dialogs as dialog}
-        {#if typeof dialog.component === 'string'}
-          <div class="p-6">
-            {@html browser ? sanitizeDialogHtml(dialog.component, document) : ''}
-          </div>
-        {:else}
-          <svelte:component this={dialog.component} {...dialog.props} on:close={closeAllDialogs} />
-        {/if}
-      {/each}
+      <div
+        class="min-h-0 max-h-[calc(90dvh-3rem)] overflow-y-auto overscroll-contain"
+        data-dialog-scroll
+      >
+        {#each dialogs as dialog}
+          {#if typeof dialog.component === 'string'}
+            <div class="p-6">
+              {@html browser ? sanitizeDialogHtml(dialog.component, document) : ''}
+            </div>
+          {:else}
+            <svelte:component this={dialog.component} {...dialog.props} on:close={closeAllDialogs} />
+          {/if}
+        {/each}
+      </div>
       {#if !clickOnCloseDisabled}<CloseButton
           class="absolute top-2 end-2"
           onclick={closeAllDialogs}

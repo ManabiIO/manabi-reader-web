@@ -16,6 +16,8 @@ export interface DictionaryResult {
   version: 1;
   query: string;
   matchedQuery: string;
+  /** True when the pinned runtime produced prefix-derived results. */
+  prefix: boolean;
   dictionaryCount: number;
   preview: { items: DictionaryPreview[]; hasMore: boolean };
   lookup?: { dictionaryEntries: unknown[] };

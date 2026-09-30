@@ -240,7 +240,10 @@ class LibraryDeletionStatic(LibraryBase):
         expect(self.page.get_by_role('button', name='Read Kept history', exact=True)).to_have_count(0)
         before = self.stores('books',['readerStatistic'])['readerStatistic']
         self.assertEqual([kept_key], [row['bookKey'] for row in before])
-        self.page.goto(self.origin + '/reader-web/settings')
+        # A direct page load can display the SSR Appearance pane before Svelte
+        # hydrates. The hash-selected Library pane proves search handlers are live.
+        self.page.goto(self.origin + '/reader-web/settings#library')
+        expect(self.page.get_by_role('heading', name='Library & sync', exact=True)).to_be_visible()
         search = self.page.get_by_role('searchbox',name='Search settings',exact=True)
         search.fill('Keep Local Data on Deletion')
         keep = self.page.get_by_role('switch',name='Keep Local Data on Deletion',exact=True)

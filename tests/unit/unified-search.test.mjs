@@ -1,6 +1,7 @@
 /** @license BSD-3-Clause */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { setImmediate as turn } from 'node:timers/promises';
 import { queryTask } from '../../apps/web/src/lib/search/query-task.mjs';
 const wait = () => new Promise((resolve) => globalThis.setTimeout(resolve, 5));
 test('dictionary, titles and content publish independently', async () => {
@@ -111,4 +112,107 @@ test('streaming partial results survive a sibling source pending state', async (
   await wait();
   assert.deepEqual(states.at(-1).value, ['book', 'snippet']);
   task.stop();
+});
+
+async function withTimers(run) {
+  const set = globalThis.setTimeout,
+    clear = globalThis.clearTimeout,
+    queued = [];
+  globalThis.setTimeout = (callback) => {
+    const timer = { callback, cancelled: false };
+    queued.push(timer);
+    return timer;
+  };
+  globalThis.clearTimeout = (timer) => {
+    if (timer) timer.cancelled = true;
+  };
+  try {
+    await run(queued);
+  } finally {
+    globalThis.setTimeout = set;
+    globalThis.clearTimeout = clear;
+  }
+}
+
+test('a throwing cleanup retires once and cannot block the next query', () =>
+  withTimers(async (queued) => {
+    const states = [];
+    let retired = 0;
+    const task = queryTask((state) => states.push(state));
+    task.start(() => () => {
+      retired++;
+      throw new Error('worker cleanup failed');
+    });
+    await queued[0].callback();
+    assert.doesNotThrow(() =>
+      task.start((_signal, publish) => publish({ state: 'ready', value: 'next' }))
+    );
+    await queued[1].callback();
+    task.stop();
+    task.stop();
+    assert.equal(retired, 1);
+    assert.equal(states.at(-1).value, 'next');
+  }));
+
+test('clearing or replacing loading prevents stale work from being scheduled', () =>
+  withTimers(async (queued) => {
+    for (const replace of [false, true]) {
+      let handled = false,
+        oldCalls = 0,
+        newCalls = 0;
+      const task = queryTask(() => {
+        if (handled) return;
+        handled = true;
+        if (replace) task.start(() => newCalls++);
+        else task.stop();
+      });
+      const before = queued.length;
+      task.start(() => oldCalls++);
+      const admitted = queued.slice(before);
+      assert.equal(admitted.length, replace ? 1 : 0);
+      for (const timer of admitted) await timer.callback();
+      assert.equal(oldCalls, 0);
+      assert.equal(newCalls, replace ? 1 : 0);
+      task.stop();
+    }
+  }));
+
+test('a queued timer cannot admit work after cancellation', () =>
+  withTimers(async (queued) => {
+    let calls = 0;
+    const task = queryTask(() => {});
+    task.start(() => calls++);
+    task.stop();
+    assert.equal(queued[0].cancelled, true);
+    // Model a timer callback already queued by the host before clearTimeout.
+    await queued[0].callback();
+    assert.equal(calls, 0);
+  }));
+
+test('late throwing cleanup cannot affect an already completed replacement query', async () => {
+  const started = Promise.withResolvers(),
+    gate = Promise.withResolvers(),
+    replacement = Promise.withResolvers(),
+    states = [];
+  let retired = 0;
+  const task = queryTask((state) => states.push(state));
+  task.start(async () => {
+    started.resolve();
+    await gate.promise;
+    return () => {
+      retired++;
+      throw new Error('late cleanup failed');
+    };
+  }, 0);
+  await started.promise;
+  task.start((_signal, publish) => {
+    publish({ state: 'ready', value: 'replacement' });
+    replacement.resolve();
+  }, 0);
+  await replacement.promise;
+  gate.resolve();
+  await turn();
+  task.stop();
+  assert.equal(retired, 1);
+  assert.equal(states.at(-1).value, 'replacement');
 });

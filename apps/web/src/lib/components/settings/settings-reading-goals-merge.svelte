@@ -20,7 +20,7 @@
     secondsToMinutes
   } from '$lib/functions/statistic-util';
   import { pluralize } from '$lib/functions/utils';
-  import { createEventDispatcher, onMount, tick } from 'svelte';
+  import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
   import AppIcon from '$lib/components/app-icon.svelte';
 
   export let newReadingGoal: ReadingGoal;
@@ -43,6 +43,21 @@
   let error = '';
   let existingReadingGoals: BooksDbReadingGoal[] = [];
   let readingGoalsToReplace: BooksDbReadingGoal[] = [];
+  let settled = false;
+  let active = true;
+
+  const cancelledResult = (): ReadingGoalSaveResult => ({
+    readingGoalsToDelete: [],
+    readingGoalsToInsert: [],
+    error: ''
+  });
+
+  onDestroy(() => {
+    active = false;
+    if (settled) return;
+    settled = true;
+    resolver(cancelledResult());
+  });
 
   $: selectedArchiveOptionObject = archivalOptions.find(
     (opt) => opt.label === selectedArchiveOption
@@ -89,37 +104,43 @@
       }
 
       await updateExistingReadingGoals();
-
+      if (!active) return;
       showSpinner = false;
     } catch ({ message }: any) {
+      if (!active) return;
       error = `Failed to refresh Reading Goals (${message})`;
-      closeDialog();
+      void closeDialog();
     }
   }
 
   async function closeDialog(wasCanceled = false) {
+    if (settled || !active) return;
     const exitEarly = wasCanceled || error;
 
     const resultObject: ReadingGoalSaveResult = {
-      readingGoalsToDelete: [],
-      readingGoalsToInsert: [],
+      ...cancelledResult(),
       error
     };
 
+    if (!exitEarly) await tick();
+    if (settled || !active) return;
+
     if (exitEarly) {
+      settled = true;
       resolver(resultObject);
       dispatch('close');
       return;
     }
 
-    await tick();
+    const goalsToDelete: string[] = [];
+    const addGoalToDelete = (date: string) => {
+      if (!goalsToDelete.includes(date)) goalsToDelete.push(date);
+    };
 
-    const goalsToDelete = new Set<string>();
-
-    readingGoalsToReplace.forEach((goal) => goalsToDelete.add(goal.goalStartDate));
+    readingGoalsToReplace.forEach((goal) => addGoalToDelete(goal.goalStartDate));
 
     if ($readingGoal$.goalStartDate) {
-      goalsToDelete.add($readingGoal$.goalStartDate);
+      addGoalToDelete($readingGoal$.goalStartDate);
     }
 
     if (archiveReadingGoal) {
@@ -133,7 +154,7 @@
       });
     }
 
-    resultObject.readingGoalsToDelete = [...goalsToDelete];
+    resultObject.readingGoalsToDelete = goalsToDelete;
     resultObject.readingGoalsToInsert = [
       ...resultObject.readingGoalsToInsert,
       ...(newReadingGoal.goalStartDate
@@ -146,6 +167,7 @@
         : [])
     ];
 
+    settled = true;
     resolver(resultObject);
     dispatch('close');
   }
@@ -236,11 +258,12 @@
       }
 
       await updateExistingReadingGoals();
-
+      if (!active) return;
       showSpinner = false;
     } catch ({ message }: any) {
+      if (!active) return;
       error = `Failed to set Context (${message})`;
-      closeDialog();
+      void closeDialog();
     }
   }
 
@@ -248,124 +271,133 @@
     updateNextReadingGoalStartDate();
 
     await tick();
+    if (!active) return;
 
+    let nextGoals: BooksDbReadingGoal[] = [];
     if (archiveReadingGoal) {
-      existingReadingGoals = await database.getReadingGoalsForDateWindow(
+      nextGoals = await database.getReadingGoalsForDateWindow(
         archivalStartDate,
         newStartDate,
         archivalEndDate
       );
     } else if (newReadingGoal.goalStartDate) {
-      existingReadingGoals = await database.getReadingGoalsForDateWindow(
+      nextGoals = await database.getReadingGoalsForDateWindow(
         newReadingGoal.goalStartDate,
         newStartDate
       );
-    } else {
-      existingReadingGoals = [];
     }
+    if (active) existingReadingGoals = nextGoals;
   }
 </script>
 
-{#if showSpinner}
-  <div class="tap-highlight-transparent absolute inset-0 bg-black/[.2]"></div>
-  <div
-    role="status"
-    aria-label="Preparing reading goal"
-    class="fixed inset-0 flex h-full w-full items-center justify-center text-7xl"
-  >
-    <AppIcon icon={faSpinner} spin />
-  </div>
-{/if}
-<DialogTemplate>
-  <svelte:fragment slot="header">Save Reading Goal</svelte:fragment>
-  <svelte:fragment slot="content">
-    <div class="grid min-w-0 gap-4">
-      {#if newReadingGoal.goalStartDate}
-        <label class="grid min-w-0 gap-2 text-sm font-medium">
-          <span>New reading goal starts from</span>
-          <Input
-            disabled
-            type="date"
-            min={newReadingGoal.goalStartDate}
-            bind:value={newStartDate}
-          />
-        </label>
-      {/if}
-
-      {#if archivalOptions.length}
-        <label class="flex min-h-11 items-center gap-2 text-sm font-medium">
-          <input
-            type="checkbox"
-            class="size-5 shrink-0 accent-primary"
-            bind:checked={archiveReadingGoal}
-            on:change={checkDates}
-          />
-          <span>Archive current reading goal</span>
-        </label>
-
-        <div
-          class="grid gap-3"
-          class:opacity-50={!archiveReadingGoal}
-        >
-          <div class="grid gap-3 sm:grid-cols-2">
-            <label class="grid min-w-0 gap-2 text-sm font-medium">
-              <span>Archive from</span>
-              <Input
-                type="date"
-                disabled={!archiveReadingGoal || !archiveDateEditable}
-                bind:value={archivalStartDate}
-                onchange={checkDates}
-              />
-            </label>
-            <label class="grid min-w-0 gap-2 text-sm font-medium">
-              <span>Archive through</span>
-              <Input
-                type="date"
-                disabled={!archiveReadingGoal || !archiveDateEditable}
-                bind:value={archivalEndDate}
-                onchange={checkDates}
-              />
-            </label>
-          </div>
-
-          <fieldset class="grid gap-2" disabled={!archiveReadingGoal}>
-            <legend class="text-sm font-medium">Archive boundary</legend>
-            <div class="grid gap-1">
-              {#each archivalOptions as archivalOption (archivalOption.label)}
-                <label class="flex min-h-11 items-center gap-2 text-sm">
-                  <input
-                    type="radio"
-                    name="action"
-                    class="size-5 shrink-0 accent-primary"
-                    value={archivalOption.label}
-                    bind:group={selectedArchiveOption}
-                    on:change={checkDates}
-                  />
-                  <span>{archivalOption.label}</span>
-                </label>
-              {/each}
-            </div>
-          </fieldset>
-        </div>
-      {/if}
-
-      {#if readingGoalToReplaceMessage}
-        <details class="max-h-[10rem] cursor-pointer overflow-auto rounded-xl border border-border p-3">
-          <summary>{readingGoalToReplaceMessage}</summary>
-          {#each readingGoalsToReplace as goalToReplace (goalToReplace.goalStartDate)}
-            <div class="my-2 break-words text-sm">
-              {getDateRangeLabel(goalToReplace.goalStartDate, goalToReplace.goalEndDate)} / {secondsToMinutes(
-                goalToReplace.timeGoal
-              )} min / {goalToReplace.characterGoal}
-              characters / {goalToReplace.goalFrequency}
-            </div>
-          {/each}
-        </details>
-      {/if}
+<div class="relative min-w-0" aria-busy={showSpinner}>
+  {#if showSpinner}
+    <div
+      aria-hidden="true"
+      class="tap-highlight-transparent absolute inset-0 z-10 rounded-3xl bg-black/[.2]"
+    ></div>
+    <div
+      role="status"
+      aria-label="Preparing reading goal"
+      class="pointer-events-none absolute inset-0 z-20 flex items-center justify-center text-5xl"
+    >
+      <AppIcon icon={faSpinner} spin />
+      <span class="sr-only">Preparing reading goal…</span>
     </div>
-  </svelte:fragment>
-  <div class="flex grow flex-wrap justify-between gap-2" slot="footer">
-    <Button variant="ghost" onclick={() => closeDialog(true)}>Cancel</Button>
-    <Button variant="default" onclick={() => closeDialog()}>Confirm</Button>
-  </div>
-</DialogTemplate>
+  {/if}
+  <DialogTemplate>
+    <svelte:fragment slot="header">Save Reading Goal</svelte:fragment>
+    <svelte:fragment slot="content">
+      <fieldset class="grid min-w-0 gap-4 border-0 p-0" disabled={showSpinner}>
+        {#if newReadingGoal.goalStartDate}
+          <label class="grid min-w-0 gap-2 text-sm font-medium">
+            <span>New reading goal starts from</span>
+            <Input
+              disabled
+              type="date"
+              min={newReadingGoal.goalStartDate}
+              bind:value={newStartDate}
+            />
+          </label>
+        {/if}
+
+        {#if archivalOptions.length}
+          <label class="flex min-h-11 items-center gap-2 text-sm font-medium">
+            <input
+              type="checkbox"
+              class="size-5 shrink-0 accent-primary"
+              bind:checked={archiveReadingGoal}
+              on:change={checkDates}
+            />
+            <span>Archive current reading goal</span>
+          </label>
+
+          <div class="grid gap-3" class:opacity-50={!archiveReadingGoal}>
+            <div class="grid gap-3 sm:grid-cols-2">
+              <label class="grid min-w-0 gap-2 text-sm font-medium">
+                <span>Archive from</span>
+                <Input
+                  type="date"
+                  disabled={!archiveReadingGoal || !archiveDateEditable}
+                  bind:value={archivalStartDate}
+                  onchange={checkDates}
+                />
+              </label>
+              <label class="grid min-w-0 gap-2 text-sm font-medium">
+                <span>Archive through</span>
+                <Input
+                  type="date"
+                  disabled={!archiveReadingGoal || !archiveDateEditable}
+                  bind:value={archivalEndDate}
+                  onchange={checkDates}
+                />
+              </label>
+            </div>
+
+            <fieldset class="grid gap-2" disabled={!archiveReadingGoal}>
+              <legend class="text-sm font-medium">Archive boundary</legend>
+              <div class="grid gap-1">
+                {#each archivalOptions as archivalOption (archivalOption.label)}
+                  <label class="flex min-h-11 items-center gap-2 text-sm">
+                    <input
+                      type="radio"
+                      name="action"
+                      class="size-5 shrink-0 accent-primary"
+                      value={archivalOption.label}
+                      bind:group={selectedArchiveOption}
+                      on:change={checkDates}
+                    />
+                    <span>{archivalOption.label}</span>
+                  </label>
+                {/each}
+              </div>
+            </fieldset>
+          </div>
+        {/if}
+
+        {#if readingGoalToReplaceMessage}
+          <details
+            class="max-h-[10rem] cursor-pointer overflow-auto rounded-xl border border-border p-3"
+          >
+            <summary>{readingGoalToReplaceMessage}</summary>
+            {#each readingGoalsToReplace as goalToReplace (goalToReplace.goalStartDate)}
+              <div class="my-2 break-words text-sm">
+                {getDateRangeLabel(goalToReplace.goalStartDate, goalToReplace.goalEndDate)} / {secondsToMinutes(
+                  goalToReplace.timeGoal
+                )} min / {goalToReplace.characterGoal}
+                characters / {goalToReplace.goalFrequency}
+              </div>
+            {/each}
+          </details>
+        {/if}
+      </fieldset>
+    </svelte:fragment>
+    <div class="flex grow flex-wrap justify-between gap-2" slot="footer">
+      <Button variant="ghost" disabled={showSpinner} onclick={() => closeDialog(true)}
+        >Cancel</Button
+      >
+      <Button variant="default" disabled={showSpinner} onclick={() => closeDialog()}>Confirm</Button
+      >
+    </div>
+  </DialogTemplate>
+</div>

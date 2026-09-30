@@ -92,6 +92,108 @@ class RheaReader(previous.RefinedAppearance):
                 self.page.get_by_role('button', name='Hide reading controls', exact=True).click()
                 expect(toolbar).to_have_count(0)
 
+    def test_enlarged_reader_toolbar_stays_reachable_in_a_short_phone_viewport(self):
+        self.open_book()
+        self.wait_for_fonts()
+        self.page.set_viewport_size({'width': 320, 'height': 320})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        reveal_reader_controls(self.page)
+
+        toolbar = self.page.get_by_role('banner', name='Reader toolbar')
+        expect(toolbar).to_be_visible()
+        self.assertLessEqual(toolbar.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
+        bounds = toolbar.bounding_box()
+        self.assertGreaterEqual(bounds['x'], -1)
+        self.assertGreaterEqual(bounds['y'], -1)
+        self.assertLessEqual(bounds['x'] + bounds['width'], 321)
+        self.assertLessEqual(bounds['y'] + bounds['height'], 321)
+
+        def assert_target(control):
+            box = control.bounding_box()
+            self.assertGreaterEqual(box['width'], 43.99)
+            self.assertGreaterEqual(box['height'], 43.99)
+            self.assertGreaterEqual(box['x'], -1)
+            self.assertGreaterEqual(box['y'], -1)
+            self.assertLessEqual(box['x'] + box['width'], 321)
+            self.assertLessEqual(box['y'] + box['height'], 321)
+            self.assertTrue(control.evaluate('''e => {
+              const r = e.getBoundingClientRect();
+              const hit = document.elementFromPoint(r.left + r.width/2, r.top + r.height/2);
+              return !!hit && (hit === e || e.contains(hit));
+            }'''))
+
+        for name in (
+            'Library', 'Contents', 'Bookmarks and Notes', 'Themes & Settings', 'Reading tools'
+        ):
+            assert_target(toolbar.get_by_role('button', name=name, exact=True))
+        fullscreen = toolbar.get_by_role(
+            'button', name='Enter Fullscreen', exact=True
+        )
+        if fullscreen.count():
+            assert_target(fullscreen)
+        progress = self.page.locator('button[title="Copy Progress"]')
+        assert_target(progress)
+
+        content = self.page.locator('.book-content').bounding_box()
+        self.assertGreater(content['height'], 64)
+        self.assertGreater(content['width'], 64)
+        self.assertGreaterEqual(content['y'], bounds['y'] + bounds['height'] - 1)
+        footer = self.page.locator('#ttu-page-footer').bounding_box()
+        self.assertLessEqual(content['y'] + content['height'], footer['y'] + 1)
+
+        tools = toolbar.get_by_role('button', name='Reading tools', exact=True)
+        tools.focus()
+        tools.press('Enter')
+        menu = self.page.get_by_role('menu')
+        expect(menu).to_be_visible()
+        menu_box = menu.bounding_box()
+        self.assertGreaterEqual(menu_box['x'], -1)
+        self.assertGreaterEqual(menu_box['y'], -1)
+        self.assertLessEqual(menu_box['x'] + menu_box['width'], 321)
+        self.assertLessEqual(menu_box['y'] + menu_box['height'], 321)
+        self.assertLessEqual(menu.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
+        for item in menu.get_by_role('menuitem').all():
+            box = item.bounding_box()
+            self.assertGreaterEqual(box['height'], 43.99)
+        self.page.screenshot(path='test-results/reader-toolbar-enlarged-short.png')
+        self.page.keyboard.press('Escape')
+        expect(menu).to_have_count(0)
+        expect(tools).to_be_focused()
+        self.page.get_by_role('button', name='Hide reading controls', exact=True).click()
+        expect(toolbar).to_have_count(0)
+        expect(self.page.locator('.book-content')).to_be_visible()
+
+    def test_reduced_motion_eliminates_reader_toolbar_entrance_motion(self):
+        self.open_book(font='Klee One')
+        self.wait_for_fonts()
+        self.page.emulate_media(reduced_motion='reduce')
+        self.assertTrue(
+            self.page.evaluate('matchMedia("(prefers-reduced-motion: reduce)").matches')
+        )
+
+        # Start hidden, then exercise the real Reader reveal path. A CSS-only
+        # button check cannot detect the Svelte fly transition on the toolbar host.
+        hide = self.page.get_by_role('button', name='Hide reading controls', exact=True)
+        if hide.is_visible():
+            hide.click()
+        trigger = self.page.get_by_role('button', name='Show reading controls', exact=True)
+        trigger.focus()
+        trigger.press('Enter')
+        toolbar = self.page.get_by_role('banner', name='Reader toolbar')
+        expect(toolbar).to_be_visible()
+
+        motion = toolbar.evaluate('''e => e.getAnimations({subtree:true}).map(a => {
+          const timing = a.effect?.getComputedTiming?.() || {};
+          return {
+            playState:a.playState,
+            currentTime:Number(a.currentTime || 0),
+            duration:Number(timing.duration || 0),
+            endTime:Number(timing.endTime || 0)
+          };
+        }).filter(a => a.duration > 1 || a.endTime > 1)''')
+        self.assertEqual([], motion, motion)
+        expect(self.page.get_by_role('button', name='Hide reading controls', exact=True)).to_be_focused()
+
     def test_in_book_appearance_persists_and_owns_keys_vertical_phone(self):
         self.verify_reading_appearance('vertical-rl', 390)
 
@@ -172,7 +274,7 @@ class RheaReader(previous.RefinedAppearance):
             self.page.wait_for_function('localStorage.getItem("fontSize") === "21"')
             self.page.touchscreen.tap(20, 20)
             expect(panel).to_have_count(0)
-            expect(self.page.locator('button[data-reader-controls]')).to_be_focused()
+            expect(self.page.get_by_role('button', name='Themes & Settings', exact=True)).to_be_focused()
             reveal_reader_controls(self.page)
             self.page.get_by_role('button', name='Themes & Settings', exact=True).tap()
             close = panel.get_by_role('button', name='Close reading appearance', exact=True)
@@ -291,7 +393,7 @@ class RheaReader(previous.RefinedAppearance):
 
     def category(self, name):
         self.page.get_by_role('navigation', name='Settings categories').get_by_role(
-            'button', name=name, exact=True).click()
+            'link', name=name, exact=True).click()
 
     def test_empty_library_has_keyboard_import_action(self):
         self.page.goto(self.origin + '/reader-web/manage')
@@ -340,8 +442,8 @@ class RheaReader(previous.RefinedAppearance):
         search = self.page.get_by_role('searchbox', name='Search library', exact=True)
         expect(search).to_be_focused()
         search.fill('not-this-book')
-        expect(self.page.get_by_role('heading', name='Books 0', exact=True)).to_be_visible()
-        expect(self.page.get_by_text('No matching book metadata.', exact=True)).to_be_visible()
+        expect(self.page.get_by_role('heading', name='Titles', exact=True)).to_be_visible()
+        expect(self.page.get_by_text('No matching titles.', exact=True)).to_be_visible()
         search.fill('reader browser')
         self.page.keyboard.press('Escape')
         expect(compact_search).to_be_focused()
@@ -481,6 +583,8 @@ class RheaReader(previous.RefinedAppearance):
         toolbar.get_by_role('button', name='Reading tools', exact=True).click()
         expect(self.page.get_by_role('menu')).to_be_visible()
         self.page.keyboard.press('Escape')
+        expect(self.page.get_by_role('menu')).to_have_count(0)
+        expect(self.page.locator('[data-slot="dropdown-menu-content"]')).to_have_count(0)
         expect(toolbar).to_be_visible()
         expect(toolbar.get_by_role('button', name='Reading tools', exact=True)).to_be_focused()
         viewport = self.page.viewport_size
@@ -568,7 +672,7 @@ class RheaReader(previous.RefinedAppearance):
         dialog = self.page.locator('[data-slot="dialog-content"]')
         expect(dialog).to_be_visible()
         expect(dialog.get_by_role('button', name='Zip File', exact=True)).to_be_visible()
-        for name in ['Book Data','Bookmark','Statistics','Audiobook','Subtitles']:
+        for name in ['Book data','Reading position','Statistics','Audiobook','Subtitles']:
             expect(dialog.get_by_label(name, exact=True)).to_be_visible()
         dialog.get_by_role('button', name='Cancel', exact=True).click()
         expect(dialog).to_have_count(0)
@@ -582,6 +686,7 @@ class RheaReader(previous.RefinedAppearance):
 
     def test_book_details_match_persisted_metadata_in_grid_and_list(self):
         self.open_book(font='Klee One')
+        expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
         book_id = int(self.page.evaluate('new URL(location.href).searchParams.get("id")'))
         toolbar = self.page.get_by_role('banner', name='Reader toolbar')
         reveal_reader_controls(self.page)
@@ -770,12 +875,67 @@ class RheaReader(previous.RefinedAppearance):
         expect(close).to_have_attribute('data-shape', 'circle')
         self.assertGreaterEqual(close.bounding_box()['height'], 43.99)
         self.assertLessEqual(sheet.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
-        for label in ['Toggle Tracker', 'Update Position', 'Toggle Freeze Position', 'Save']:
+        for label in [
+            'Resume tracking after closing',
+            'Update position',
+            'Keep reading position fixed',
+            'Save statistics',
+        ]:
             expect(sheet.get_by_role('button', name=label, exact=True)).to_be_visible()
-        expect(sheet.get_by_role('button', name='Save', exact=True)).to_be_disabled()
-        for _ in range(12):
+
+        resume = sheet.get_by_role('button', name='Resume tracking after closing', exact=True)
+        fixed = sheet.get_by_role('button', name='Keep reading position fixed', exact=True)
+        save = sheet.get_by_role('button', name='Save statistics', exact=True)
+        expect(resume).to_have_attribute('aria-pressed', 'false')
+        expect(fixed).to_have_attribute('aria-pressed', 'false')
+        expect(save).to_be_disabled()
+        expect(
+            sheet.get_by_text(
+                'Tracking is paused while this panel is open. It will remain paused after closing.',
+                exact=True,
+            )
+        ).to_be_visible()
+
+        resume.focus()
+        resume.press('Enter')
+        expect(resume).to_have_attribute('aria-pressed', 'true')
+        expect(
+            sheet.get_by_text(
+                'Tracking is paused while this panel is open. It will resume after closing.',
+                exact=True,
+            )
+        ).to_be_visible()
+
+        # Update position sits between the two toggles in native tab order.
+        update = sheet.get_by_role('button', name='Update position', exact=True)
+        self.page.keyboard.press('Tab')
+        expect(update).to_be_focused()
+        self.page.keyboard.press('Tab')
+        expect(fixed).to_be_focused()
+        fixed.press('Space')
+        expect(fixed).to_have_attribute('aria-pressed', 'true')
+        fixed.press('Space')
+        expect(fixed).to_have_attribute('aria-pressed', 'false')
+
+        for _ in range(8):
             self.page.keyboard.press('Tab')
             expect(sheet.locator(':focus')).to_have_count(1)
+        self.page.keyboard.press('Escape')
+        expect(sheet).to_have_count(0)
+        expect(trigger).to_be_focused()
+
+        # The post-close choice must match the actual tracker state on reopen.
+        trigger.click()
+        sheet = self.page.get_by_role('dialog', name='Reading tracker', exact=True)
+        expect(sheet).to_be_visible()
+        resume = sheet.get_by_role('button', name='Resume tracking after closing', exact=True)
+        expect(resume).to_have_attribute('aria-pressed', 'true')
+        expect(
+            sheet.get_by_text(
+                'Tracking is paused while this panel is open. It will resume after closing.',
+                exact=True,
+            )
+        ).to_be_visible()
         self.page.keyboard.press('Escape')
         expect(sheet).to_have_count(0)
         expect(trigger).to_be_focused()
@@ -807,10 +967,7 @@ class RheaReader(previous.RefinedAppearance):
         self.wait_for_fonts()
 
     def open_gallery(self):
-        controls = self.page.locator('button[data-reader-controls]')
-        controls.evaluate('element => element.focus({preventScroll: true})')
-        self.page.keyboard.press('Tab')
-        expect(controls).to_have_attribute('aria-expanded', 'true')
+        reveal_reader_controls(self.page)
         self.page.get_by_role('button', name='Reading tools', exact=True).click()
         self.page.get_by_role('menuitem', name='Image Gallery', exact=True).click()
         gallery = self.page.get_by_role('dialog', name='Image gallery', exact=True)

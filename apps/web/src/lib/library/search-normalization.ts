@@ -4,12 +4,14 @@
  * All rights reserved.
  */
 
-/** Shared, locale-independent search normalization (not general Unicode case folding).
- * Lowercasing whole words can produce a final sigma, whereas lowercasing each
- * grapheme cannot see that context. Equate both sigma forms so the worker's
- * source-offset mapping and metadata/query matching agree. Never store this
- * normalized text in a book, excerpt, or durable locator.
- */
-export const foldSearchCase = (value: string) => value.toLowerCase().replace(/\u03c2/g, '\u03c3');
-
-export const foldSearch = (value: string) => foldSearchCase(value.normalize('NFKC'));
+// Keep existing library/worker imports stable. The implementation has no media
+// runtime dependencies and also compiles in the standalone media test runner.
+export {
+  foldSearchCase,
+  foldSearch,
+  compareSearchText,
+  searchMatchedField,
+  sortSearchText,
+  searchMatchRange,
+  type SearchTextFields
+} from '../media/search-text.ts';

@@ -8,7 +8,6 @@ import functools
 import http.server
 import json
 from pathlib import Path
-import shutil
 import threading
 from playwright.sync_api import sync_playwright
 
@@ -22,13 +21,14 @@ html = '''<!doctype html><html><head><meta charset="utf-8"><title>Pitch native h
 <script type="module">
 import {createPitchController} from './browser.mjs';
 import {pitchPaths} from './model.mjs';
-window.workersCreated = 0; window.workerReady = 0; window.contexts = []; window.audioEvents = [];
+window.workersCreated = 0; window.workerReady = 0; window.detector = null; window.contexts = []; window.contextOptions = []; window.audioEvents = [];
 const OriginalWorker = window.Worker;
-window.Worker = class extends OriginalWorker { constructor(...args) { super(...args); this.addEventListener('error', event => console.error('Worker error:', event.message, event.filename)); this.addEventListener('message', event => { if (event.data?.type === 'ready') window.workerReady++; }); window.workersCreated++; } };
+window.Worker = class extends OriginalWorker { constructor(...args) { super(...args); this.addEventListener('error', event => console.error('Worker error:', event.message, event.filename)); this.addEventListener('message', event => { if (event.data?.type === 'ready') { window.workerReady++; window.detector = event.data.detector ?? null; } }); window.workersCreated++; } };
 window.states = []; window.captured = []; window.routes = []; window.contextCloses = 0;
 const Original = window.AudioContext;
 window.AudioContext = class extends Original {
   constructor(...args) {
+    window.contextOptions.push(args[0] ?? null);
     super(...args); window.contexts.push(this);
     this.addEventListener('statechange', () => window.audioEvents.push('state:' + this.state));
   }
@@ -55,7 +55,14 @@ text(0, 'RIFF'); view.setUint32(4, buffer.byteLength - 8, true); text(8, 'WAVE')
 view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
 view.setUint32(24, rate, true); view.setUint32(28, rate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
 text(36, 'data'); view.setUint32(40, count * 2, true);
-for (let i = 0; i < count; i++) view.setInt16(44 + i * 2, Math.sin(2 * Math.PI * 220 * i / rate) * 24000, true);
+let noiseState = 0x5eed1234;
+for (let i = 0; i < count; i++) {
+  const clean = Math.sin(2 * Math.PI * 220 * i / rate) * 19000;
+  noiseState = (Math.imul(1664525, noiseState) + 1013904223) >>> 0;
+  const broadband = ((noiseState / 0xffffffff) * 2 - 1) * 9000;
+  const noisy = i >= rate * 6 ? clean + broadband : clean;
+  view.setInt16(44 + i * 2, Math.max(-32767, Math.min(32767, Math.round(noisy))), true);
+}
 const audio = document.querySelector('audio'); audio.src = URL.createObjectURL(new Blob([buffer], {type:'audio/wav'}));
 window.audio = audio;
 window.controller = createPitchController(state => { window.state = state; window.states.push(state.status); window.paths = pitchPaths(state.points, state.time); });
@@ -74,8 +81,7 @@ thread = threading.Thread(target=server.serve_forever, daemon=True)
 thread.start()
 try:
     with sync_playwright() as p:
-        executable = shutil.which('chromium') if args.browser == 'chromium' else None
-        browser = getattr(p, args.browser).launch(headless=True, **({'executable_path': executable} if executable else {}))
+        browser = getattr(p, args.browser).launch(headless=True)
         page = browser.new_page()
         page.set_default_timeout(20000)
         page.on("console", lambda message: print("console:", message.type, message.text, flush=True))
@@ -84,16 +90,25 @@ try:
         page.on('request', lambda request: requests.append(request.url))
         page.goto(f'http://127.0.0.1:{server.server_port}/')
         page.wait_for_function('window.ready && audio.readyState >= 2')
-        assert not any('voice-pitch.worker' in url for url in requests), 'worker fetched while disabled'
+        assert not any(
+            token in url
+            for url in requests
+            for token in ('voice-pitch.worker', 'swift-f0-0.3.0', 'ort-wasm-simd-threaded')
+        ), 'pitch runtime fetched while disabled'
         page.click('#show')
         page.wait_for_function("['ready','error'].includes(window.state?.status)")
-        diagnostics = page.evaluate('''() => ({state, workerReady, workersCreated, audioEvents,
+        diagnostics = page.evaluate('''() => ({state, workerReady, workersCreated, detector, audioEvents, contextOptions,
             contexts: contexts.map(context => ({state: context.state, time: context.currentTime,
                 sampleRate: context.sampleRate})), userActivation: navigator.userActivation?.hasBeenActive})''')
         (root / 'startup.json').write_text(json.dumps(diagnostics, indent=2))
         assert page.evaluate("state.status === 'ready'"), json.dumps(diagnostics)
+        assert diagnostics['contextOptions'] == [{'sampleRate': 48000}], diagnostics
+        assert diagnostics['contexts'][0]['sampleRate'] == 48000, diagnostics
         assert page.evaluate('workersCreated === 1')
         assert any('voice-pitch.worker' in url for url in requests), 'worker was not loaded on demand'
+        assert any('swift-f0-0.3.0' in url for url in requests), 'SwiftF0 model was not loaded on demand'
+        assert any('ort-wasm-simd-threaded' in url and '.wasm' in url for url in requests), 'ORT WASM was not loaded on demand'
+        assert page.evaluate("detector === 'swift-f0-0.3.0'")
         assert 'loading' in page.evaluate('window.states')
         page.click('#play')
         try:
@@ -129,6 +144,17 @@ try:
         page.wait_for_function("state.status === 'ready' && state.points.length > 2")
         page.evaluate('audio.currentTime = 7')
         page.wait_for_function('state.points.length > 2 && state.points.every(p => p.time > 6.8)')
+        page.wait_for_function(
+            'state.points.filter(p => p.time > 6.8 && p.hz > 205 && p.hz < 235).length >= 3'
+        )
+        noisy = page.evaluate('''() => ({
+          total: state.points.filter(p => p.time > 6.8).length,
+          voiced: state.points.filter(p => p.time > 6.8 && p.hz !== null).length,
+          nearTarget: state.points.filter(p => p.time > 6.8 && p.hz > 205 && p.hz < 235).length,
+          frequencies: state.points.filter(p => p.time > 6.8 && p.hz !== null).map(p => p.hz)
+        })''')
+        (root / 'noisy.json').write_text(json.dumps(noisy, indent=2))
+        assert noisy['nearTarget'] >= 3, noisy
         page.evaluate('audio.pause()')
         page.wait_for_timeout(120)
         count_before = page.evaluate('state.points.length')
@@ -137,7 +163,7 @@ try:
         page.evaluate('controller.dispose()')
         assert page.evaluate('contextCloses === 1 && routes[0].size === 0')
         assert not errors, errors
-        print(json.dumps({'browser': args.browser, 'transport': 'HTTP modules', 'passed': ['no eager worker', 'worker handshake/loading', 'real 220Hz contour', 'off keeps playback', 'reuse audio capture', 'hide keeps route', 'seek drops stale trace', 'pause stops samples', 'dispose closes context'], 'pageErrors': errors}))
+        print(json.dumps({'browser': args.browser, 'transport': 'HTTP modules', 'passed': ['no eager worker', 'worker handshake/loading', 'real SwiftF0 220Hz contour', 'off keeps playback', 'reuse audio capture', 'hide keeps route', 'seek drops stale trace', 'broadband-noise 220Hz contour', 'pause stops samples', 'dispose closes context'], 'pageErrors': errors}))
         browser.close()
 finally:
     server.shutdown()

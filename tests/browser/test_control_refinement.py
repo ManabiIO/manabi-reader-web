@@ -156,6 +156,129 @@ class ControlRefinementBrowser(modal_controls.ModalControlsBrowser):
         expect(panel.get_by_role('searchbox')).to_have_value('文章')
         expect(panel.get_by_text('180 results', exact=True)).to_be_visible()
 
+
+    def test_reader_tool_round_trips_never_leave_focus_in_a_closed_surface(self):
+        self.open_reader()
+        controls = self.page.locator('button[data-reader-controls]')
+
+        panel = self.open_tool('Search Book')
+        search = panel.get_by_role('searchbox', name='Search within book', exact=True)
+        search.focus()
+        expect(search).to_be_focused()
+        search.press('Escape')
+        expect(panel).to_have_count(0)
+        expect(controls).to_be_focused()
+        expect(self.page.get_by_role('menu')).to_have_count(0)
+
+        panel = self.open_tool('Browse Book')
+        slider = panel.get_by_role('slider', name='Book position', exact=True)
+        slider.focus()
+        expect(slider).to_be_focused()
+        slider.press('Escape')
+        expect(panel).to_have_count(0)
+        expect(controls).to_be_focused()
+        expect(self.page.get_by_role('menu')).to_have_count(0)
+
+        panel = self.open_tool('Jump to Position')
+        field = panel.get_by_role('spinbutton', name='Jump to Position', exact=True)
+        field.focus()
+        expect(field).to_be_focused()
+        field.press('Escape')
+        expect(panel).to_have_count(0)
+        expect(controls).to_be_focused()
+        expect(self.page.get_by_role('menu')).to_have_count(0)
+
+        panel = self.open_tool('Dictionary Setup')
+        not_now = panel.get_by_role('button', name='Not now', exact=True)
+        not_now.focus()
+        expect(not_now).to_be_focused()
+        self.page.keyboard.press('Escape')
+        expect(panel).to_have_count(0)
+        expect(controls).to_be_focused()
+        expect(self.page.get_by_role('menu')).to_have_count(0)
+
+        # Re-enter the first tool after four portal lifecycles. A stale focus
+        # scope or hidden menu must not prevent a fresh keyboard interaction.
+        panel = self.open_tool('Search Book')
+        search = panel.get_by_role('searchbox', name='Search within book', exact=True)
+        search.fill('文章')
+        expect(panel.get_by_text('180 results', exact=True)).to_be_visible(timeout=15000)
+        expect(search).to_be_focused()
+        self.capture('reader-tool-round-trip-focus')
+        self.page.keyboard.press('Escape')
+        expect(panel).to_have_count(0)
+        expect(controls).to_be_focused()
+
+
+    def test_notes_panel_keeps_sticky_dismissal_reachable_at_200_percent_text(self):
+        self.open_reader()
+        self.page.set_viewport_size({'width': 320, 'height': 320})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        reveal_reader_controls(self.page)
+        trigger = self.page.get_by_role('button', name='Bookmarks and Notes', exact=True)
+        trigger.focus()
+        trigger.press('Enter')
+        panel = self.page.get_by_role('dialog').last
+        expect(panel.get_by_role('heading', name='Bookmarks & Notes', exact=True)).to_be_visible()
+        add = panel.get_by_role('button', name='Add Bookmark', exact=True)
+        self.assertGreaterEqual(add.bounding_box()['height'], 43.99)
+        add.click()
+
+        saved = panel.get_by_role('button').filter(has_text='Go to saved passage')
+        expect(saved).to_have_count(1)
+        scroll = panel.locator('[data-annotations-scroll]')
+        self.page.wait_for_function('e => e.scrollHeight > e.clientHeight', arg=scroll.element_handle())
+        scroll.evaluate('e => { e.scrollTop = e.scrollHeight; }')
+        self.page.wait_for_function('e => e.scrollTop > 0', arg=scroll.element_handle())
+        saved = panel.get_by_role('button').filter(has_text='Go to saved passage')
+        expect(saved).to_be_visible()
+
+        close = panel.get_by_role('button', name='Close bookmarks and notes', exact=True)
+        box = close.bounding_box()
+        viewport = self.page.evaluate('''() => {
+          const v=visualViewport;
+          return {
+            left:v?.offsetLeft ?? 0, top:v?.offsetTop ?? 0,
+            right:(v?.offsetLeft ?? 0)+(v?.width ?? innerWidth),
+            bottom:(v?.offsetTop ?? 0)+(v?.height ?? innerHeight)
+          };
+        }''')
+        self.assertGreaterEqual(box['width'], 43.99)
+        self.assertGreaterEqual(box['height'], 43.99)
+        self.assertGreaterEqual(box['x'], viewport['left'] - 1)
+        self.assertGreaterEqual(box['y'], viewport['top'] - 1)
+        self.assertLessEqual(box['x'] + box['width'], viewport['right'] + 1)
+        self.assertLessEqual(box['y'] + box['height'], viewport['bottom'] + 1)
+        self.assertTrue(close.evaluate('''e => {
+          const r=e.getBoundingClientRect();
+          const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+          return !!hit && (hit===e || e.contains(hit));
+        }'''))
+        self.assertLessEqual(panel.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+
+        remove = panel.get_by_role('button', name='Remove bookmark', exact=True)
+        expect(remove).to_be_visible()
+        self.assertGreaterEqual(remove.bounding_box()['height'], 43.99)
+        self.assertTrue(remove.evaluate('''e => {
+          const r=e.getBoundingClientRect();
+          const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+          return !!hit && (hit===e || e.contains(hit));
+        }'''))
+        # The sticky header must still own dismissal after the annotation action
+        # at the opposite end of the scroller is reached.
+        self.assertTrue(close.evaluate('''e => {
+          const r=e.getBoundingClientRect();
+          const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+          return !!hit && (hit===e || e.contains(hit));
+        }'''))
+        self.capture('notes-short-enlarged-sticky-dismissal')
+
+        close.focus()
+        close.press('Enter')
+        expect(panel).to_have_count(0)
+        expect(self.page.locator('button[data-reader-controls]')).to_be_focused()
+        self.page.evaluate('document.documentElement.style.fontSize = ""')
+
     def test_notes_actions_have_distinct_shapes_and_remain_reachable_in_landscape(self):
         self.open_reader()
         self.page.set_viewport_size({'width': 568, 'height': 320})

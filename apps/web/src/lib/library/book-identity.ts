@@ -48,6 +48,7 @@ export class BookIdentityIndex {
   private readonly byContent = new Map<string, Set<number>>();
   private readonly byFile = new Map<string, IdentityLink[]>();
   private readonly libraryOwners = new Map<number, string>();
+  private readonly ambiguousLegacyOwners = new Set<number>();
 
   constructor(records: readonly BookIdentityRecord[], links: readonly IdentityLink[]) {
     const owners = new Map<number, Set<string | null>>();
@@ -79,10 +80,18 @@ export class BookIdentityIndex {
       owners.set(link.bookId, scopes);
     }
     for (const [bookId, hash] of this.books) {
+      const inferred = owners.get(bookId);
+      // Legacy rows predate durable libraryOwner. If the same numeric reading
+      // history has valid private links from multiple accounts and no local
+      // public copy, neither account is authority to reuse that row.
+      if (!this.libraryOwners.has(bookId) && inferred && !inferred.has(null) && inferred.size > 1) {
+        this.ambiguousLegacyOwners.add(bookId);
+        continue;
+      }
       // Browser imports without an owner belong to the local source scope.
       // A connected import keeps its recorded owner even if link publication
       // fails. Legacy books with only stale links have no safe inferred scope.
-      for (const owner of owners.get(bookId) ??
+      for (const owner of inferred ??
         (this.libraryOwners.has(bookId)
           ? [this.libraryOwners.get(bookId)!]
           : linked.has(bookId)
@@ -101,6 +110,7 @@ export class BookIdentityIndex {
     if (contentHash !== undefined && !hash) return { kind: 'unmatched' };
     const exact = new Set<number>();
     for (const link of this.byFile.get(sourceBookKey(source, fileId)) ?? []) {
+      if (this.ambiguousLegacyOwners.has(link.bookId)) continue;
       const linkedHash = normalizedContentHash(link.contentHash);
       if (
         linkedHash &&

@@ -15,6 +15,12 @@
     }
   }
 }
+
+/* Bits UI keeps a closed menu mounted briefly while it exits. Its inline
+   pointer-events and child nodes can cover a newly opened Reader dialog. */
+[data-slot='dropdown-menu-content'][data-state='closed'] {
+  display: none !important;
+}
 @theme inline {
   --color-card: var(--card);
   --color-accent: var(--accent);

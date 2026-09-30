@@ -82,6 +82,15 @@ class RefinedAppearance(previous.AppearanceBrowser):
         Path('test-results').mkdir(exist_ok=True)
         Path('test-results', self._testMethodName + '-network.json').write_text(json.dumps(self.network, indent=2))
         try:
+            if (os.environ.get('APPEARANCE_BROWSER') == 'webkit' and
+                    self._testMethodName == 'test_offline_reload_preserves_book_and_never_caches_account_requests'):
+                # This case deliberately stops the origin before reloading the
+                # offline shell. WebKit reports the aborted optional catalog
+                # request as a page error even though the app handles it.
+                self.errors = [error for error in self.errors if not (
+                    error.startswith('Fetch API cannot load http://127.0.0.1:') and
+                    '/static/reader/books/opds/index.xml due to access control checks.' in
+                    error.splitlines()[0])]
             super().tearDown()
         finally:
             self.lifecycle.write(type(self).__name__ + '-' + self._testMethodName)
@@ -245,7 +254,7 @@ class RefinedAppearance(previous.AppearanceBrowser):
 
     def test_focus_and_escape_do_not_commit_the_device_font_fallback(self):
         self.settings()
-        self.page.get_by_role('button', name='Fonts & text', exact=True).click()
+        self.page.get_by_role('navigation', name='Settings categories').get_by_role('link', name='Fonts & text', exact=True).click()
         font = self.page.get_by_role('textbox', name='Primary / Serif font', exact=True)
         saved = self.page.evaluate('localStorage.getItem("fontFamilyGroupOne")')
         font.focus()

@@ -50,7 +50,11 @@
       },
       // A text action is not an empty capsule. Keep its usable hit height,
       // but remove box styling unless a caller explicitly requests a shape.
-      { variant: 'link', shape: 'auto', class: 'rounded-none border-0 px-0 text-start shadow-none' },
+      {
+        variant: 'link',
+        shape: 'auto',
+        class: 'rounded-none border-0 px-0 text-start shadow-none'
+      },
       // Keep explicit shapes authoritative over the size's default radius.
       { shape: ['capsule', 'circle'], class: 'rounded-full' }
     ],
@@ -82,6 +86,8 @@
     ref = $bindable(null),
     href = undefined,
     type = 'button',
+    // Explicit tab stops keep actions reachable in WebKit's native keyboard order.
+    tabindex = 0,
     disabled,
     children,
     ...restProps
@@ -103,7 +109,7 @@
     {...restProps}
     aria-disabled={disabled || restProps['aria-disabled']}
     role={disabled ? 'link' : restProps.role}
-    tabindex={disabled ? -1 : restProps.tabindex}
+    tabindex={disabled ? -1 : tabindex}
     onclick={(event) => {
       if (disabled) {
         event.preventDefault();
@@ -127,6 +133,7 @@
     class={cn(buttonVariants({ variant, size, shape }), className)}
     {type}
     {disabled}
+    {tabindex}
     {...restProps}
   >
     {@render children?.()}

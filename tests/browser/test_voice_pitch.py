@@ -37,11 +37,13 @@ def voice_fixture():
 
 
 class PitchHandler(existing.StaticHandler):
-    worker_requests = []
+    analysis_requests = []
 
     def do_GET(self):
-        if 'voice-pitch.worker-' in self.path:
-            self.worker_requests.append(self.path)
+        if ('voice-pitch.worker-' in self.path or
+                'swift-f0-0.3.0-' in self.path or
+                'ort-wasm-simd-threaded-' in self.path):
+            self.analysis_requests.append(self.path)
         super().do_GET()
 
 
@@ -85,7 +87,7 @@ class VoicePitchBrowser(existing.WhispersyncBrowser):
             }
           }
         })()''')
-        self.worker_start = len(PitchHandler.worker_requests)
+        self.analysis_start = len(PitchHandler.analysis_requests)
 
     def tearDown(self):
         try:
@@ -93,7 +95,7 @@ class VoicePitchBrowser(existing.WhispersyncBrowser):
               text: document.querySelector('[data-testid="voice-pitch"]')?.innerText,
               audio: [...document.querySelectorAll('audio')].map(a => ({time: a.currentTime,
                 paused: a.paused, ended: a.ended, readyState: a.readyState}))})''')
-            report['workerRequests'] = PitchHandler.worker_requests[self.worker_start:]
+            report['workerRequests'] = PitchHandler.analysis_requests[self.analysis_start:]
             (OUTPUT / (self._testMethodName + '.json')).write_text(json.dumps(report, indent=2))
         finally:
             super().tearDown()
@@ -109,7 +111,7 @@ class VoicePitchBrowser(existing.WhispersyncBrowser):
           navigator.serviceWorker.ready,
           new Promise((_, reject) => setTimeout(() => reject(Error('offline shell did not install')), 20000))
         ]).then(() => true)''')
-        self.assertEqual([], PitchHandler.worker_requests[self.worker_start:], 'eager worker download')
+        self.assertEqual([], PitchHandler.analysis_requests[self.analysis_start:], 'eager pitch runtime download')
         self.assertEqual(0, self.page.evaluate('__pitchQA.created'))
         self.strip = self.page.get_by_test_id('voice-pitch')
         expect(self.strip.get_by_role('button', name='Show voice pitch')).to_have_attribute('aria-expanded', 'false')
@@ -122,7 +124,10 @@ class VoicePitchBrowser(existing.WhispersyncBrowser):
         self.page.locator('.panel').get_by_role('button', name='Pause', exact=True).click()
         expect(self.strip.get_by_text('Paused · trace held', exact=True)).to_be_visible()
         expect(self.strip.locator('path.pitch')).to_have_attribute('d', __import__('re').compile('.*L.*'))
-        self.assertTrue(PitchHandler.worker_requests[self.worker_start:])
+        requested = PitchHandler.analysis_requests[self.analysis_start:]
+        self.assertTrue(any('voice-pitch.worker-' in path for path in requested))
+        self.assertTrue(any('swift-f0-0.3.0-' in path for path in requested))
+        self.assertTrue(any('ort-wasm-simd-threaded-' in path for path in requested))
         self.strip.scroll_into_view_if_needed()
 
     def capture(self, name):
@@ -173,12 +178,76 @@ class VoicePitchBrowser(existing.WhispersyncBrowser):
     def test_voice_pitch_mobile_dark_accessibility(self):
         self.prepare(dark=True, mobile=True)
         self.capture('mobile-dark')
-        self.strip.locator('summary').press('Enter')
+        summary = self.strip.locator('summary')
+        self.assertGreaterEqual(summary.bounding_box()['height'], 43.99)
+        summary.press('Enter')
         expect(self.strip.locator('details p')).to_be_visible()
         self.strip.locator('summary').press('Enter')
         self.strip.get_by_role('button', name='Hide voice pitch').press('Space')
         expect(self.strip.get_by_role('button', name='Show voice pitch')).to_be_focused()
         expect(self.strip.get_by_role('button', name='Show voice pitch')).to_have_attribute('aria-expanded', 'false')
+
+
+    def test_voice_pitch_short_enlarged_panel_keeps_chart_and_controls_bounded(self):
+        self.prepare(dark=True, mobile=True)
+        panel = self.page.get_by_role('dialog', name='Audiobook', exact=True)
+        scroll = panel.locator('.audiobook-scroll')
+        self.page.set_viewport_size({'width': 320, 'height': 320})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        self.page.wait_for_function('e => e.scrollHeight > e.clientHeight', arg=scroll.element_handle())
+
+        toggle = self.strip.get_by_role('button', name='Hide voice pitch', exact=True)
+        summary = self.strip.locator('summary')
+        chart = self.strip.locator('.chart')
+        for control in (toggle, summary):
+            box = control.bounding_box()
+            self.assertGreaterEqual(box['height'], 43.99)
+            self.assertLessEqual(box['x'] + box['width'], 321)
+        self.assertLessEqual(toggle.bounding_box()['height'], 72)
+        self.assertLessEqual(chart.bounding_box()['height'], 161)
+        self.assertLessEqual(self.strip.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+
+        summary.focus()
+        summary.press('Enter')
+        expect(self.strip.locator('details p')).to_be_visible()
+        self.assertLessEqual(
+            self.strip.locator('details p').evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+        self.assertLessEqual(self.strip.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+
+        scroll.evaluate('e => { e.scrollTop = e.scrollHeight; }')
+        self.page.wait_for_function('e => e.scrollTop > 0', arg=scroll.element_handle())
+        close = panel.get_by_role('button', name='Close audiobook', exact=True)
+        box = close.bounding_box()
+        viewport = self.page.evaluate('''() => {
+          const v=visualViewport;
+          return {
+            left:v?.offsetLeft ?? 0, top:v?.offsetTop ?? 0,
+            right:(v?.offsetLeft ?? 0)+(v?.width ?? innerWidth),
+            bottom:(v?.offsetTop ?? 0)+(v?.height ?? innerHeight)
+          };
+        }''')
+        self.assertGreaterEqual(box['width'], 43.99)
+        self.assertGreaterEqual(box['height'], 43.99)
+        self.assertGreaterEqual(box['x'], viewport['left'] - 1)
+        self.assertGreaterEqual(box['y'], viewport['top'] - 1)
+        self.assertLessEqual(box['x'] + box['width'], viewport['right'] + 1)
+        self.assertLessEqual(box['y'] + box['height'], viewport['bottom'] + 1)
+        self.assertTrue(close.evaluate('''e => {
+          const r=e.getBoundingClientRect();
+          const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+          return !!hit && (hit===e || e.contains(hit));
+        }'''))
+
+        self.page.screenshot(
+            path=str(OUTPUT / 'short-enlarged-panel.png'),
+            full_page=True
+        )
+        close.focus()
+        close.press('Enter')
+        expect(panel).not_to_be_visible()
+        trigger = self.page.locator('#ttu-page-footer button[aria-haspopup="dialog"]')
+        expect(trigger).to_be_focused()
+        self.page.evaluate('document.documentElement.style.fontSize = ""')
 
 
 def load_tests(loader, tests, pattern):

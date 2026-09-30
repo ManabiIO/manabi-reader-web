@@ -8,6 +8,7 @@ import zipfile
 from pathlib import Path
 
 from playwright.sync_api import expect
+from reader_controls import reveal_reader_controls
 from test_books_library import LibraryBase, book, raster
 from test_static_reader import StaticHandler
 
@@ -93,7 +94,7 @@ class GalleryRevealBase(LibraryBase):
         })
         self.page.get_by_role('button', name='Read ' + title, exact=True).click()
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
-        expect(self.page.get_by_role('button', name='Show reading controls', exact=True)).to_be_visible()
+        expect(self.page.locator('button[data-reader-controls]')).to_be_attached()
 
     def open_gallery(self):
         self.reveal_controls()
@@ -106,13 +107,7 @@ class GalleryRevealBase(LibraryBase):
         return panel
 
     def reveal_controls(self):
-        controls = self.page.locator('button[data-reader-controls]')
-        # Focus the top-level return control before the keyboard reveal. Tab
-        # pins even transient chrome; the book's iframe cannot consume it.
-        controls.evaluate('element => element.focus({preventScroll: true})')
-        self.page.keyboard.press('Tab')
-        expect(controls).to_have_attribute('aria-expanded', 'true')
-        expect(self.page.get_by_role('banner', name='Reader toolbar')).to_be_visible()
+        reveal_reader_controls(self.page)
 
     def close_gallery(self, panel):
         panel.get_by_role('button', name='Close Image Gallery', exact=True).click()

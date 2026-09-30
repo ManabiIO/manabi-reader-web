@@ -20,6 +20,8 @@ import {
   resolveLocator,
   filename,
   MAX_SNIPPET_BYTES,
+  MAX_SNIPPET_SEARCH_CODEPOINTS,
+  snippetSearchTooLong,
   validateContent
 } from '../../apps/web/src/lib/snippets/document.ts';
 import {
@@ -41,7 +43,8 @@ import { integrationDB, setMetadata } from '../../apps/web/src/lib/manabi/persis
 import {
   readerHTML,
   parseLocator,
-  safeReturn
+  safeReturn,
+  snippetSourceId
 } from '../../apps/web/src/lib/snippets/presentation.ts';
 import { scope } from '../../apps/web/src/lib/snippets/scope.ts';
 import {
@@ -189,13 +192,29 @@ test('ruby search includes reading but does not pollute base text', () => {
   const hit = searchSnippet(doc, 'トウキョウ')[0];
   assert.equal(hit.reading, true);
   assert.equal(hit.locator.quote, '東京');
-  assert.equal(searchSnippet(doc, '東京')[0].reading, false);
+  assert.equal(hit.excerpt.slice(hit.excerptMatch.start, hit.excerptMatch.end), '東京');
+  const literal = searchSnippet(doc, '東京')[0];
+  assert.equal(literal.reading, false);
+  assert.equal(literal.excerpt.slice(literal.excerptMatch.start, literal.excerptMatch.end), '東京');
 });
 test('width normalization maps expanded text back to original offsets', () => {
   const doc = document('㍿ＡＢＣ');
   const hit = searchSnippet(doc, '株式会社')[0];
   assert.equal(hit.locator.quote, '㍿');
-  assert.equal(searchSnippet(doc, 'abc')[0].locator.quote, 'ＡＢＣ');
+  assert.equal(hit.excerpt.slice(hit.excerptMatch.start, hit.excerptMatch.end), '㍿');
+  const width = searchSnippet(doc, 'abc')[0];
+  assert.equal(width.locator.quote, 'ＡＢＣ');
+  assert.equal(width.excerpt.slice(width.excerptMatch.start, width.excerptMatch.end), 'ＡＢＣ');
+});
+test('snippet search limit counts Unicode code points end to end', () => {
+  const accepted = '𠮷'.repeat(MAX_SNIPPET_SEARCH_CODEPOINTS);
+  assert.equal(snippetSearchTooLong(accepted), false);
+  assert.equal(snippetSearchTooLong(accepted + '𠮷'), true);
+  const doc = document(accepted);
+  const hit = searchSnippet(doc, accepted, 1);
+  assert.equal(hit.length, 1);
+  assert.equal(hit[0].locator.quote, accepted);
+  assert.deepEqual(searchSnippet(doc, accepted + '𠮷', 1), []);
 });
 test('locator follows changed text and refuses ambiguous matches', () => {
   const doc = document('before 東京 after'),
@@ -216,6 +235,20 @@ test('document byte budget includes the newline', () => {
   assert(new TextEncoder().encode(encodeSnippet(doc)).length < MAX_SNIPPET_BYTES);
   assert.throws(() => encodeSnippet(document('あ'.repeat(800000))));
 });
+test('portable snippet provenance resolves only a validated snippet UUID', () => {
+  const id = crypto.randomUUID();
+  assert.equal(snippetSourceId(`snippet:${id}`), id);
+  for (const value of [
+    undefined,
+    '',
+    'book:' + id,
+    'snippet:not-a-uuid',
+    'snippet:' + id + '/extra',
+    'snippet:../../b?id=1'
+  ])
+    assert.equal(snippetSourceId(value), undefined);
+});
+
 test('malicious return links cannot leave Reader routes', () => {
   for (const raw of [
     '//evil.test',
@@ -341,6 +374,70 @@ test('same UUID in another location is discovered without content-identity repla
   assert.equal(record.primary, locationKey(a));
   assert.equal(record.conflicts.length, 0);
 });
+test('causal descendant in another source wins independent of discovery order', async () => {
+  const who = owner(),
+    original = document('before'),
+    newer = editSnippet(original, plainContent('after'), ''),
+    staleLocation = {
+      source: source('stale-source'),
+      parent: '',
+      name: 'stale.manabi-snippet.json',
+      fileId: 'stale',
+      token: 'stale-token'
+    },
+    newerLocation = {
+      source: source('new-source'),
+      parent: '',
+      name: 'new.manabi-snippet.json',
+      fileId: 'new',
+      token: 'new-token'
+    };
+  // Fresh browser happens to discover the stale replica first.
+  await acceptRemote(who, original, staleLocation, guard);
+  await acceptRemote(who, newer, newerLocation, guard);
+  let record = await getRecord(who, original.id);
+  assert.equal(record.document.revision, newer.revision);
+  assert.equal(record.primary, locationKey(newerLocation));
+  assert.equal(record.conflicts.length, 0);
+  assert.equal(passages(record.document.content)[0].text, 'after');
+
+  // The reverse order must converge to the same logical state.
+  const secondOwner = owner();
+  await acceptRemote(secondOwner, newer, newerLocation, guard);
+  await acceptRemote(secondOwner, original, staleLocation, guard);
+  record = await getRecord(secondOwner, original.id);
+  assert.equal(record.document.revision, newer.revision);
+  assert.equal(record.primary, locationKey(newerLocation));
+  assert.equal(record.conflicts.length, 0);
+});
+
+test('causal descendant preserves portable trash state instead of resurrecting stale copy', async () => {
+  const who = owner(),
+    original = document('trash me'),
+    trashed = editSnippet(original, original.content, '');
+  trashed.trashedAt = Date.now();
+  const staleLocation = {
+      source: source('old-copy'),
+      parent: '',
+      name: 'old.manabi-snippet.json',
+      fileId: 'old',
+      token: '1'
+    },
+    trashedLocation = {
+      source: source('new-copy'),
+      parent: '',
+      name: 'new.manabi-snippet.json',
+      fileId: 'new',
+      token: '2'
+    };
+  await acceptRemote(who, original, staleLocation, guard);
+  await acceptRemote(who, parseSnippet(encodeSnippet(trashed)), trashedLocation, guard);
+  const record = await getRecord(who, original.id);
+  assert.equal(record.document.trashedAt, trashed.trashedAt);
+  assert.equal(record.primary, locationKey(trashedLocation));
+  assert.equal(record.conflicts.length, 0);
+});
+
 test('divergent remote edits are retained rather than last-write-wins', async () => {
   const who = owner(),
     doc = document(),
@@ -1035,4 +1132,53 @@ test('lost create reply followed by repeated trash and restore still drains one 
   assert.equal(current.conflicts.length, 0);
   assert.equal(current.document.trashedAt, undefined);
   assert.equal([...memory.files.values()].filter((x) => x.document.id === doc.id).length, 1);
+});
+
+test('restoring the same durable locator does not manufacture a newer position upload', async () => {
+  const { selected, doc } = await stored('位置を保持する文章');
+  const block = passages(doc.content)[0];
+  const locator = {
+    blockId: block.blockId,
+    quote: block.text.slice(0, 80),
+    before: '',
+    offset: 0,
+    revision: doc.revision
+  };
+  await saveProgress(doc.id, locator, selected);
+  await syncReading(doc.id, selected);
+  const before = await getRecord(selected.owner, doc.id);
+  assert.equal(before.progressDirty, false);
+  const changedAt = before.progressAt;
+  await saveProgress(doc.id, structuredClone(locator), selected);
+  const after = await getRecord(selected.owner, doc.id);
+  assert.equal(after.progressAt, changedAt);
+  assert.equal(after.progressDirty, false);
+  assert.deepEqual(after.progress, locator);
+});
+
+test('a stale listing snapshot cannot mark a location created during that scan as missing', async () => {
+  const selected = { owner: owner(), guard },
+    src = source(),
+    doc = document('走査中に保存される文章'),
+    previousSources = memory.sources;
+  memory.sources = [src];
+  try {
+    await saveDocument(selected.owner, doc, null, { source: src, parent: '' }, guard);
+    assert.equal((await getRecord(selected.owner, doc.id)).locations.length, 0);
+    memory.beforeScan = async () => {
+      memory.beforeScan = null;
+      await flushRecord(doc.id, selected);
+      const saved = await getRecord(selected.owner, doc.id);
+      assert.equal(saved.locations.length, 1);
+      assert.equal(saved.locations[0].missing, false);
+    };
+    await refreshSnippets(selected, true);
+    const after = await getRecord(selected.owner, doc.id);
+    assert.equal(after.locations.length, 1);
+    assert.equal(after.locations[0].missing, false);
+    assert.equal(after.primary, locationKey(after.locations[0]));
+  } finally {
+    memory.beforeScan = null;
+    memory.sources = previousSources;
+  }
 });

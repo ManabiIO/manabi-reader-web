@@ -3,9 +3,13 @@
 The fixture uses Chromium's real origin-private filesystem, not mocked handles
 or a replaced picker. Native OS chooser/permission dialogs still need manual
 platform qualification; this suite checks import, local persistence, and physical series moves.
+Each case uses a disposable persistent profile. Bundled Chromium 153 crashes
+reading stored filesystem handles in Incognito; independent private-profile
+qualification remains in the Video workflow using the fixed Chromium 154 build.
 """
 from pathlib import Path
 import threading
+import tempfile
 import time
 import unittest
 from playwright.sync_api import Error as PlaywrightError, sync_playwright, expect
@@ -22,18 +26,24 @@ class LocalLibraryBrowser(unittest.TestCase):
         cls.thread.start()
         cls.origin = 'http://127.0.0.1:' + str(cls.server.server_port)
         cls.playwright = sync_playwright().start()
-        cls.browser = cls.playwright.chromium.launch()
 
     @classmethod
     def tearDownClass(cls):
-        cls.browser.close()
         cls.playwright.stop()
         cls.server.shutdown()
         cls.server.server_close()
         cls.thread.join()
 
+    def new_context(self):
+        profile = tempfile.TemporaryDirectory(prefix='reader-local-library-')
+        self.addCleanup(profile.cleanup)
+        context = self.playwright.chromium.launch_persistent_context(profile.name)
+        # Cleanup runs after tearDown and also if setUp fails midway through admission.
+        self.addCleanup(context.close)
+        return context
+
     def setUp(self):
-        self.context = self.browser.new_context()
+        self.context = self.new_context()
         self.page = self.context.new_page()
         self.page.set_default_timeout(20000)
         self.errors = []
@@ -55,11 +65,6 @@ class LocalLibraryBrowser(unittest.TestCase):
             if 'closed' not in str(error).lower():
                 raise
             # Keep the original browser/process failure as the primary error.
-        try:
-            self.context.close()
-        except PlaywrightError as error:
-            if 'closed' not in str(error).lower():
-                raise
         self.assertEqual([], self.errors)
 
     def seed(self, writable):
@@ -142,7 +147,7 @@ class LocalLibraryBrowser(unittest.TestCase):
         self.page.get_by_role('button', name='Disconnect local folder', exact=True).click()
         expect(self.page.get_by_role('button', name='Browse Fixture books')).to_have_count(0)
         self.assertEqual(CONTENT, self.original())
-        self.page.get_by_role('link', name='← Books', exact=True).click()
+        self.page.get_by_role('link', name='Back to Library', exact=True).click()
         expect(self.page.get_by_role('button', name='Read local-book', exact=True)).to_be_visible()
 
     def test_real_handle_reload_keeps_local_reading_data_without_folder_writeback(self):

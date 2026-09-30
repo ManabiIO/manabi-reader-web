@@ -30,6 +30,74 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
         }''')
         self.assertLessEqual(result['delta'], 1, result)
 
+    def test_primary_workspaces_remain_operable_in_short_enlarged_viewport(self):
+        self.page.set_viewport_size({'width': 320, 'height': 320})
+        cases = (
+            (
+                '/reader-web/manage',
+                lambda: self.page.get_by_role('banner', name='Library toolbar', exact=True),
+                lambda: self.page.get_by_role('button', name='Collections', exact=True),
+                'library'
+            ),
+            (
+                '/reader-web/snippets',
+                lambda: self.page.get_by_role('heading', name='Snippets', exact=True),
+                lambda: self.page.get_by_role('button', name='New snippet', exact=True),
+                'snippets'
+            ),
+            (
+                '/reader-web/statistics',
+                lambda: self.page.get_by_role('banner', name='Statistics toolbar', exact=True),
+                lambda: self.page.get_by_role('button', name='Statistics options', exact=True),
+                'statistics'
+            ),
+            (
+                '/reader-web/settings',
+                lambda: self.page.get_by_role('heading', name='Settings', exact=True),
+                lambda: self.page.get_by_role('searchbox', name='Search settings', exact=True),
+                'settings'
+            ),
+            (
+                '/reader-web/connections',
+                lambda: self.page.get_by_role('heading', name='Accounts and libraries', exact=True),
+                lambda: self.page.get_by_role('link', name='Sign in to Manabi', exact=True),
+                'connections'
+            ),
+        )
+
+        for route, ready, action, label in cases:
+            with self.subTest(route=route):
+                self.page.goto(self.origin + route)
+                self.page.evaluate('''() => {
+                  document.documentElement.style.fontSize = "200%";
+                  scrollTo(0, 0);
+                }''')
+                expect(ready()).to_be_visible()
+                self.assert_no_horizontal_overflow(self.page.locator('html'))
+
+                control = action()
+                expect(control).to_be_attached()
+                control.scroll_into_view_if_needed()
+                expect(control).to_be_visible()
+                box = control.bounding_box()
+                self.assertGreaterEqual(box['height'], 43.99, (route, box))
+                self.assertGreaterEqual(box['x'], -1, (route, box))
+                self.assertGreaterEqual(box['y'], -1, (route, box))
+                self.assertLessEqual(box['x'] + box['width'], 321, (route, box))
+                self.assertLessEqual(box['y'] + box['height'], 321, (route, box))
+                self.assertTrue(control.evaluate('''e => {
+                  const r=e.getBoundingClientRect();
+                  const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+                  return !!hit && (hit===e || e.contains(hit));
+                }'''), route)
+
+                control.focus()
+                expect(control).to_be_focused()
+                self.assert_no_horizontal_overflow(self.page.locator('html'))
+                self.capture(f'connect-short-enlarged-{label}')
+
+        self.page.evaluate('document.documentElement.style.fontSize = ""')
+
     def test_settings_navigation_and_fields_distinguish_selection_from_actions(self):
         for mode in ('light', 'dark'):
             self.page.evaluate('v => localStorage.setItem("appearance", v)', mode)
@@ -283,14 +351,15 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
             ('Start date', None)
         )
         for label, role in fields:
-            field = goals.get_by_label(label, exact=True)
+            field = goals.get_by_role(role, name=label, exact=True) if role else goals.get_by_label(label, exact=True)
             expect(field).to_be_visible()
             self.assertGreaterEqual(field.bounding_box()['height'], 43.99)
             expect(field).to_be_disabled()
 
         edit.click()
-        for label, _ in fields:
-            expect(goals.get_by_label(label, exact=True)).to_be_enabled()
+        for label, role in fields:
+            field = goals.get_by_role(role, name=label, exact=True) if role else goals.get_by_label(label, exact=True)
+            expect(field).to_be_enabled()
         expect(goals.get_by_role('button', name='Save', exact=True)).to_have_attribute(
             'data-variant', 'default'
         )
@@ -306,8 +375,8 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
         title_box = title.bounding_box()
         panel_box = dialog.locator('section.ui-panel').bounding_box()
         self.assertGreaterEqual(title_box['width'], panel_box['width'] * 0.7)
-        source = dialog.get_by_label('Source', exact=True)
-        target = dialog.get_by_label('Target', exact=True)
+        source = dialog.get_by_role('combobox', name='Source', exact=True)
+        target = dialog.get_by_role('combobox', name='Target', exact=True)
         self.assertGreaterEqual(source.bounding_box()['height'], 43.99)
         self.assertGreaterEqual(target.bounding_box()['height'], 43.99)
         swap = dialog.get_by_role('button', name='Swap sync source and target', exact=True)
@@ -340,7 +409,7 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
         name = dialog.get_by_label('Name', exact=True)
         sync_target = dialog.get_by_label('Is Sync Target', exact=True)
         source_default = dialog.get_by_label('Is Source Default', exact=True)
-        source_type = dialog.get_by_label('Storage type', exact=True)
+        source_type = dialog.get_by_role('combobox', name='Storage type', exact=True)
         client_id = dialog.get_by_label('Client ID', exact=True)
         client_secret = dialog.get_by_label('Client Secret', exact=True)
         password = dialog.get_by_label('Password', exact=True)

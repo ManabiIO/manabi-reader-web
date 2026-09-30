@@ -52,7 +52,12 @@ class ModalControlsBrowser(LibraryBase):
             panel: { x: bounds.x, y: bounds.y, right: bounds.right, bottom: bounds.bottom },
             close: { x: box.x, y: box.y, right: box.right, bottom: box.bottom },
             viewport: { width: innerWidth, height: innerHeight },
-            overflow: panel.scrollWidth - panel.clientWidth };
+            overflow: panel.scrollWidth - panel.clientWidth,
+            hit: (() => {
+              const x = box.left + box.width / 2, y = box.top + box.height / 2;
+              const hit = document.elementFromPoint(x, y);
+              return !!hit && (hit === close || close.contains(hit));
+            })() };
         }''')
         self.assertEqual([], result['overlaps'], result)
         self.assertGreaterEqual(result['width'], 43.99, result)
@@ -67,6 +72,7 @@ class ModalControlsBrowser(LibraryBase):
         self.assertGreaterEqual(result['close']['y'], result['panel']['y'], result)
         self.assertLessEqual(result['close']['right'], result['panel']['right'], result)
         self.assertLessEqual(result['close']['bottom'], result['panel']['bottom'], result)
+        self.assertTrue(result['hit'], result)
         return close
 
     def open_reader(self):
@@ -123,23 +129,85 @@ class ModalControlsBrowser(LibraryBase):
                     done = panel.get_by_role('button', name='Done', exact=True)
                     shape = done.evaluate('e => ({height:e.getBoundingClientRect().height, radius:parseFloat(getComputedStyle(e).borderRadius)})')
                     self.assertGreaterEqual(shape['radius'], shape['height'] / 2)
-                    for key in ['Tab', 'Shift+Tab'] * 3:
+                    for key, target in [('Tab', done), ('Tab', close), ('Tab', done),
+                                        ('Shift+Tab', close), ('Shift+Tab', done), ('Shift+Tab', close)]:
                         self.page.keyboard.press(key)
+                        expect(target).to_be_focused()
                         expect(panel.locator(':focus')).to_have_count(1)
                     self.capture(f'modal-book-info-{mode}-{width}')
                     close.click()
                     expect(panel).to_have_count(0)
         self.assertEqual(saved, self.stores('books', ['bookmark']))
 
+    def test_long_dialog_keeps_dismissal_reachable_after_own_scroll(self):
+        title = 'Scrollable Book Details — ' + '長い日本語の題名と副題' * 20
+        self.import_book(title)
+        self.page.set_viewport_size({'width': 320, 'height': 320})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        self.menu(title, 'Book Details')
+        panel = self.dialog()
+        close = self.check_modal(panel)
+        self.assertTrue(
+            panel.evaluate('e => e.scrollHeight > e.clientHeight'),
+            'The regression fixture must genuinely overflow the dialog.'
+        )
+        panel.evaluate('e => { e.scrollTop = e.scrollHeight; }')
+        self.page.wait_for_function('e => e.scrollTop > 0', arg=panel.element_handle())
+
+        # The entire dialog is the scroll owner. Dismissal must track that
+        # scroll rather than moving off the visual viewport with its content.
+        close = self.check_modal(panel)
+        self.capture('modal-book-info-post-scroll-200')
+        close.focus()
+        expect(close).to_be_focused()
+        close.press('Enter')
+        expect(panel).to_have_count(0)
+        self.page.evaluate('document.documentElement.style.fontSize = ""')
+
     def test_onboarding_dialog_fits_short_viewports_and_larger_text(self):
         self.open_reader()
-        for width, height, font_size in ((320, 480, '125%'), (568, 320, '100%')):
-            with self.subTest(width=width):
+        for width, height, font_size in (
+            (320, 480, '125%'),
+            (568, 320, '100%'),
+            (320, 320, '200%'),
+        ):
+            with self.subTest(width=width, height=height, font_size=font_size):
                 self.page.set_viewport_size({'width': width, 'height': height})
                 self.page.evaluate('(size) => document.documentElement.style.fontSize = size', font_size)
                 panel = self.open_tool('Dictionary Setup')
                 self.check_modal(panel)
-                self.capture(f'modal-dictionary-{width}')
+
+                if font_size == '200%':
+                    controls = (
+                        panel.get_by_role('link', name='Get Manabitan', exact=True),
+                        panel.get_by_role('button', name='Use another extension', exact=True),
+                        panel.get_by_role('button', name='Not now', exact=True),
+                    )
+                    self.assertTrue(
+                        panel.evaluate('e => e.scrollHeight > e.clientHeight'),
+                        'The 200% onboarding fixture must genuinely overflow.'
+                    )
+                    for control in controls:
+                        control.scroll_into_view_if_needed()
+                        expect(control).to_be_visible()
+                        box = control.bounding_box()
+                        self.assertGreaterEqual(box['height'], 43.99, box)
+                        self.assertGreaterEqual(box['x'], -1, box)
+                        self.assertGreaterEqual(box['y'], -1, box)
+                        self.assertLessEqual(box['x'] + box['width'], width + 1, box)
+                        self.assertLessEqual(box['y'] + box['height'], height + 1, box)
+                        self.assertTrue(control.evaluate('''e => {
+                          const r=e.getBoundingClientRect();
+                          const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+                          return !!hit && (hit===e || e.contains(hit));
+                        }'''))
+                    # Dismissal must remain independently reachable after the
+                    # body has scrolled all the way to the final choice.
+                    close = self.check_modal(panel)
+                    close.focus()
+                    expect(close).to_be_focused()
+
+                self.capture(f'modal-dictionary-{width}-{height}-{font_size}')
                 panel.get_by_role('button', name='Not now', exact=True).click()
                 expect(panel).to_have_count(0)
         self.page.evaluate('document.documentElement.style.fontSize = ""')
@@ -237,6 +305,50 @@ class ModalControlsBrowser(LibraryBase):
         panel.get_by_role('button').filter(has_text='Section 1').first.click()
         expect(panel).to_have_count(0)
         expect(self.page.get_by_role('button', name='Return to where I was', exact=True)).to_be_visible()
+
+
+    def test_export_dialog_uses_native_targets_and_reflows_at_200_percent_text(self):
+        title = 'Export dialog accessibility'
+        self.import_book(title)
+        header = self.page.locator('header[aria-label="Library toolbar"]')
+        header.get_by_role('button', name='Library actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
+        header.get_by_role('button', name='Select All Visible', exact=True).click()
+        export = header.get_by_role('button', name='Export', exact=True)
+        expect(export).to_be_visible()
+        self.page.set_viewport_size({'width': 320, 'height': 568})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        export.click()
+        panel = self.dialog()
+        expect(
+            panel.get_by_role('heading', name='Export books and reading data', exact=True)
+        ).to_be_visible()
+        self.frames()
+        self.assertLessEqual(panel.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
+
+        target = panel.get_by_role('button', name='Zip File', exact=True)
+        self.assertEqual('BUTTON', target.evaluate('e => e.tagName'))
+        expect(target).to_have_attribute('aria-pressed', 'true')
+        target.focus()
+        expect(target).to_be_focused()
+        self.assertGreaterEqual(target.bounding_box()['height'], 43.99)
+
+        checkboxes = panel.get_by_role('checkbox')
+        self.assertEqual(5, checkboxes.count())
+        for checkbox in checkboxes.all():
+            label = checkbox.locator('xpath=ancestor::label')
+            self.assertGreaterEqual(label.bounding_box()['height'], 43.99)
+            checkbox.uncheck()
+        start = panel.get_by_role('button', name='Start export', exact=True)
+        expect(start).to_be_disabled()
+        checkboxes.first.check()
+        expect(start).to_be_enabled()
+        self.capture('modal-export-phone-200')
+
+        panel.get_by_role('button', name='Cancel', exact=True).click()
+        expect(panel).to_have_count(0)
+        expect(export).to_be_focused()
+        self.page.evaluate('document.documentElement.style.fontSize = ""')
 
 
 if __name__ == '__main__':

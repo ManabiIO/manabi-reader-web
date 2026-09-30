@@ -257,16 +257,21 @@ export async function acceptRemote(
       return { ...current, ...relocated, locations };
     if (primaryMissing && current.dirty && document.revision === current.remoteRevision)
       return { ...current, ...relocated, locations };
-    // A primary file can advance a clean local snapshot. A divergent copy cannot silently win.
+    // A causally newer copy is the same logical snippet, regardless of which
+    // provider happened to be scanned first in this browser. The primary home
+    // is local metadata and cannot make a stale ancestor win after reinstall.
+    // Concurrent siblings still become explicit conflicts.
     if (
       !current.dirty &&
       !current.transfer &&
-      (current.primary === key || primaryMissing) &&
+      !current.upload &&
+      !current.conflicts.length &&
       document.parents.includes(current.document.revision)
     )
       return {
         ...current,
-        ...relocated,
+        primary: key,
+        destination: location,
         document,
         locations,
         remoteRevision: document.revision,
@@ -450,11 +455,22 @@ export async function transfers(owner: string) {
   return (await integrationDB()).getAllFromIndex('snippetTransfers', 'owner', owner);
 }
 
-/** Call only after a complete successful listing; an access failure is not deletion. */
+export interface SourceListingObservation {
+  token: string;
+  observedRevision?: string;
+  missing?: boolean;
+}
+export type SourceListingFence = ReadonlyMap<string, SourceListingObservation>;
+export const sourceListingFenceKey = (id: string, fileId: string) => JSON.stringify([id, fileId]);
+
+/** Call only after a complete successful listing; an access failure is not deletion.
+ * The fence is captured before traversal. Locations created or changed while that
+ * traversal is in flight cannot be declared missing by its older snapshot. */
 export async function reconcileSourceListing(
   owner: string,
   source: SourceDescriptor,
   files: ReadonlySet<string>,
+  fence: SourceListingFence,
   guard: Guard
 ) {
   const sameSource = (item: Location) =>
@@ -464,18 +480,24 @@ export async function reconcileSourceListing(
   for (const record of await summaries(owner)) {
     guard();
     if (!record.locations.some((item) => sameSource(item as Location))) continue;
-    await mutateRecord(
-      owner,
-      record.id,
-      guard,
-      (current) =>
-        current && {
-          ...current,
-          locations: current.locations.map((item) =>
-            sameSource(item) ? { ...item, missing: !files.has(item.fileId) } : item
+    await mutateRecord(owner, record.id, guard, (current) => {
+      if (!current || current.transfer || current.upload) return current;
+      return {
+        ...current,
+        locations: current.locations.map((item) => {
+          if (!sameSource(item)) return item;
+          const observed = fence.get(sourceListingFenceKey(current.document.id, item.fileId));
+          if (
+            !observed ||
+            item.token !== observed.token ||
+            item.observedRevision !== observed.observedRevision ||
+            item.missing !== observed.missing
           )
-        }
-    );
+            return item;
+          return { ...item, missing: !files.has(item.fileId) };
+        })
+      };
+    });
   }
 }
 

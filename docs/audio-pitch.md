@@ -24,18 +24,22 @@ pause or buffering begins a separate contour segment. The About this view
 disclosure explains these limits without occupying the main transcript view.
 
 This is a **live rolling visualization**, not a precomputed full-cue graph.
-Not-yet-played passages have no contour. The 85–520 Hz range does not cover every
-voice, and music, noise or creaky speech can produce inaccurate estimates. It is
-a listening aid, **not dictionary pitch-accent inference or pronunciation grading**.
-Synthetic tone tests do not establish accuracy on Japanese speech.
+Not-yet-played passages have no contour. The 85–520 Hz speech range does not cover
+every voice. SwiftF0 is robust to many degraded-audio conditions but detects
+pitched sound rather than speaker identity, so music or another simultaneous
+speaker can still produce an estimate. It is a listening aid, **not dictionary
+pitch-accent inference or pronunciation grading**. Synthetic tone tests do not
+establish accuracy on Japanese speech.
 
 ## Loading and playback lifetime
 
-A small, same-origin analysis worker is requested only on enable. It is not a
-machine-learning model and is excluded from the service worker’s eager shell
-installation through the existing `lazyAssets` contract. Normal HTTP caching
-may reuse the content-hashed worker on later enables. An uncached offline first
-use can fail; Retry and Hide remain available.
+A same-origin analysis worker, the 135 KB SwiftF0 0.3.0 model, and ONNX Runtime
+Web's WASM CPU runtime are requested only on first enable. All three are excluded
+from the service worker’s eager shell installation through the existing
+`lazyAssets` contract. Normal HTTP caching may reuse the content-hashed assets
+later. An uncached offline first use can fail; Retry and Hide remain available.
+The runtime is fixed to one WASM thread and does not request WebGPU, limiting
+contention with transcription.
 
 The loading spinner remains until both worker readiness and AudioContext resume
 complete. Worker/download failures and unavailable audio output have distinct
@@ -44,9 +48,10 @@ button has a 44 px minimum target, accurate expanded/control semantics and
 keyboard focus styling. Reduced-motion and forced-colors modes are supported.
 
 The controller belongs to the persistent audiobook player, not the dismissible
-Sheet. It samples bounded 40 ms frames at most 25 times per second with one worker
-request in flight, and keeps at most 400 history points. It never decodes or
-copies the entire audiobook. Analysis stops when the strip, panel or browser tab
+Sheet. It samples a bounded rolling ~0.55 s Web Audio window about every 96 ms,
+with one worker request in flight, and keeps at most 400 history points. SwiftF0
+resamples only that window to 16 kHz and selects the newest estimate with its
+documented future context; it never decodes or copies the entire audiobook. Analysis stops when the strip, panel or browser tab
 is hidden; pausing, ending and buffering retire both pending results and their
 watchdogs. A fresh native audio window and available media data are required
 before sampling resumes. Stale callbacks cannot restore retired traces.
@@ -60,28 +65,28 @@ source; final player disposal closes the context.
 
 ## Provenance
 
-The estimator is adapted from ManabiIO/japanesevids-template
-`src/pitch-analysis.js`, used by the Japanese Vids Black Belt template and
-ManabiIO/japanesevids-cli. The initial port inspected main on 2026-09-28 and the
-tuning rationale in `PITCH-ANALYSIS-TUNING.md` (blob
-`4a6a1bf3dced6aad2a87a142104868420a66735b`).
+F0 estimation uses **SwiftF0 0.3.0** by Lars Nieradzik (MIT), with the exact
+vendored upstream model identified in `pitch/SWIFTF0-NOTICE.txt`. The model
+runs locally through ONNX Runtime Web's WASM backend. Reader constrains the
+search to 85–520 Hz, uses SwiftF0's confidence with a 0.52 voiced threshold,
+retains a rolling −35 dB relative level gate, and maps the model's fixed 16 ms
+frames back to media time. The previous custom autocorrelation estimator has
+been removed rather than retained as a silent fallback.
 
-The port retains at-most-12-kHz block averaging, mean-centred Hann frames,
-paired-energy normalized correlation, genuine local peak selection, 88%
-candidate preference, a 0.52 voicing threshold, interpolated lag and peak/RMS
-amplitude blend. Causal three-frame log-frequency smoothing and a rolling
-−35 dB relative gate replace offline look-ahead and whole-clip analysis.
-Timestamp centres follow media time and playback rate; they are not
-sample-exact transcript alignment. No subtitle-delay, matcher or database
-schema change is required.
+SwiftF0 requires about 176 ms of future context for a final streaming frame.
+Reader therefore analyzes a short rolling window and displays a slightly
+delayed acoustic estimate. Timestamp mapping follows media time and playback
+rate; it is not sample-exact transcript alignment. No subtitle-delay, matcher
+or database schema change is required.
 
 ## Qualification
 
 `node test/pitch/run.mjs` executes the actual TypeScript core through Node type
-stripping. The 52 tests include estimator fixtures at six sample rates, bounds,
-unvoiced gaps, missing/malformed replies, delayed initialization, seek/pause/end/
-buffering races, timeouts, retries, replacement, native resume, preserved routing,
-and the rolling graph geometry.
+stripping. The deterministic tests cover SwiftF0 resampling/selection contracts, bounds,
+silence and malformed output, plus missing/malformed replies, delayed
+initialization, seek/pause/end/buffering races, timeouts, retries, replacement,
+native resume, preserved routing, and rolling graph geometry. Native browser
+qualification exercises the real vendored model and WASM runtime.
 
 `node test/pitch/run.mjs --emit=test-results/pitch-modules` followed by
 `python test/pitch/browser.py test-results/pitch-modules --browser chromium`

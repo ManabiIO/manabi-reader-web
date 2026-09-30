@@ -3,6 +3,7 @@ import re
 import time
 
 from playwright.sync_api import expect
+from reader_controls import reveal_reader_controls
 from test_books_library import LibraryBase
 from test_static_reader import StaticHandler
 
@@ -10,16 +11,19 @@ from test_static_reader import StaticHandler
 class OfflineAccountProfile(LibraryBase):
     def tearDown(self):
         try:
-            if (self.engine == 'webkit' and self._testMethodName ==
-                    'test_owned_book_opens_offline_and_disappears_after_confirmed_signout'):
+            if (self.engine == 'webkit' and self._testMethodName in (
+                    'test_owned_book_opens_offline_and_disappears_after_confirmed_signout',
+                    'test_account_annotation_is_hidden_on_a_public_book_after_signout')):
                 # WebKit reports an aborted fetch as a page error while this
-                # case deliberately cuts network access and leaves documents.
+                # case cuts network access or signs out during a live sync.
                 # Keep every other page error subject to the base assertion.
+                paths = ('/api/reader-web/personal/changes/',)
+                if self._testMethodName == 'test_owned_book_opens_offline_and_disappears_after_confirmed_signout':
+                    paths += ('/static/reader/books/opds/index.xml',)
                 self.errors = [error for error in self.errors if not (
                     error.startswith('Fetch API cannot load http://127.0.0.1:') and
-                    ' due to access control checks.' in error and
-                    ('/api/reader-web/personal/changes/' in error or
-                     '/static/reader/books/opds/index.xml' in error))]
+                    ' due to access control checks.' in error.splitlines()[0] and
+                    any(path in error.splitlines()[0] for path in paths))]
             super().tearDown()
         finally:
             StaticHandler.account_fixture = None
@@ -97,7 +101,7 @@ class OfflineAccountProfile(LibraryBase):
         expect(self.page.get_by_text('reader-a', exact=True)).to_be_visible()
         self.page.goto(self.origin + '/reader-web/b?id=' + str(book_id))
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=35000)
-        self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+        reveal_reader_controls(self.page)
         self.page.get_by_role('button', name='Bookmarks and Notes', exact=True).click()
         self.page.get_by_role('button', name='Add Bookmark', exact=True).click()
         saved = self.page.get_by_label('Saved annotations')
@@ -115,7 +119,7 @@ class OfflineAccountProfile(LibraryBase):
         self.page.get_by_role('button', name='Refresh connections', exact=True).click()
         self.page.goto(self.origin + '/reader-web/b?id=' + str(book_id))
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=35000)
-        self.page.get_by_role('button', name='Show reading controls', exact=True).click()
+        reveal_reader_controls(self.page)
         self.page.get_by_role('button', name='Bookmarks and Notes', exact=True).click()
         expect(self.page.get_by_label('Saved annotations').get_by_text(
             'No saved bookmarks or notes yet.', exact=True)).to_be_visible()

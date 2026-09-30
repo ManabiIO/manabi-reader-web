@@ -145,10 +145,10 @@ class MigrationBrowser(unittest.TestCase):
             expect(page.get_by_text('2 selected', exact=True)).to_be_visible(timeout=15000)
             page.get_by_role('button', name='Export', exact=True).click()
             page.get_by_role('button', name='Zip File', exact=True).click()
-            for label in ('Book Data', 'Bookmark', 'Statistics', 'Audiobook', 'Subtitles'):
+            for label in ('Book data', 'Reading position', 'Statistics', 'Audiobook', 'Subtitles'):
                 page.get_by_label(label, exact=True).check()
             with page.expect_download(timeout=60000) as pending:
-                page.get_by_role('button', name='Start', exact=True).click()
+                page.get_by_role('button', name='Start export', exact=True).click()
             download = pending.value
             raw = Path(download.path()).read_bytes()
             assert not errors, errors
