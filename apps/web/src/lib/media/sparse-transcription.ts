@@ -9,9 +9,11 @@ import { joinBoundary, SAMPLE_RATE } from './moss-progressive.js';
 import { sameCueTiming } from './moss-cue-agreement.js';
 import { cueDigest } from './captions.js';
 
-/** A fixed 26-second core keeps each input within MOSS's 30-second budget. */
+/** Normal sparse cores are 26 seconds so a two-second halo fits one 30s MOSS block. */
 export const SPARSE_CORE_SECONDS = 26;
+export const SPARSE_BOOTSTRAP_CORE_SECONDS = 10;
 export const SPARSE_CONTEXT_SECONDS = 2;
+export type SparsePolicy = 'overlap-sparse-v1' | 'overlap-sparse-v2' | 'overlap-sparse-v3';
 export interface SparseWindow {
   cues: Cue[];
   inferenceMs: number;
@@ -20,15 +22,59 @@ export interface SparseWindow {
   digitalSilence?: true;
 }
 export interface SparseState {
-  policy: 'overlap-sparse-v1' | 'overlap-sparse-v2';
+  policy: SparsePolicy;
   windows: (SparseWindow | null)[];
   /** A failed seam keeps both original hypotheses until an explicit repair succeeds. */
   repairs: (Cue[] | null)[];
   targetSeconds: number;
 }
-export function sparseBounds(index: number, duration: number) {
-  const coreStart = index * SPARSE_CORE_SECONDS;
-  const coreEnd = Math.min(duration, coreStart + SPARSE_CORE_SECONDS);
+function sparseCoreStart(index: number, policy: SparsePolicy): number {
+  if (policy !== 'overlap-sparse-v3') return index * SPARSE_CORE_SECONDS;
+  if (index === 0) return 0;
+  if (index === 1) return SPARSE_BOOTSTRAP_CORE_SECONDS;
+  return (index - 1) * SPARSE_CORE_SECONDS;
+}
+function sparseCoreNominalEnd(index: number, policy: SparsePolicy): number {
+  if (policy !== 'overlap-sparse-v3') return (index + 1) * SPARSE_CORE_SECONDS;
+  if (index === 0) return SPARSE_BOOTSTRAP_CORE_SECONDS;
+  return index * SPARSE_CORE_SECONDS;
+}
+function sparseIndexForPosition(position: number, policy: SparsePolicy, count: number): number {
+  if (policy !== 'overlap-sparse-v3')
+    return Math.min(count - 1, Math.floor(position / SPARSE_CORE_SECONDS));
+  if (position < SPARSE_BOOTSTRAP_CORE_SECONDS) return 0;
+  if (position < SPARSE_CORE_SECONDS) return Math.min(1, count - 1);
+  return Math.min(
+    count - 1,
+    2 + Math.floor((position - SPARSE_CORE_SECONDS) / SPARSE_CORE_SECONDS)
+  );
+}
+export function sparseWindowCount(duration: number, policy: SparsePolicy): number {
+  if (!Number.isFinite(duration) || duration <= 0 || duration > 604800)
+    throw new Error('Invalid sparse transcription duration');
+  if (policy !== 'overlap-sparse-v3') return Math.ceil(duration / SPARSE_CORE_SECONDS);
+  if (duration <= SPARSE_BOOTSTRAP_CORE_SECONDS) return 1;
+  if (duration <= SPARSE_CORE_SECONDS) return 2;
+  return 2 + Math.ceil((duration - SPARSE_CORE_SECONDS) / SPARSE_CORE_SECONDS);
+}
+export function sparseWindowIndex(position: number, duration: number, policy: SparsePolicy): number {
+  if (!Number.isFinite(position)) throw new Error('Invalid sparse playback position');
+  return sparseIndexForPosition(
+    Math.max(0, Math.min(duration, position)),
+    policy,
+    sparseWindowCount(duration, policy)
+  );
+}
+export function sparseBounds(
+  index: number,
+  duration: number,
+  policy: SparsePolicy = 'overlap-sparse-v2'
+) {
+  const count = sparseWindowCount(duration, policy);
+  if (!Number.isSafeInteger(index) || index < 0 || index >= count)
+    throw new Error('Invalid sparse window index');
+  const coreStart = sparseCoreStart(index, policy);
+  const coreEnd = Math.min(duration, sparseCoreNominalEnd(index, policy));
   return {
     start: Math.max(0, coreStart - SPARSE_CONTEXT_SECONDS),
     end: Math.min(duration, coreEnd + SPARSE_CONTEXT_SECONDS),
@@ -60,7 +106,11 @@ export function sparseModelPcm(
   return pcm.length === expected ? pcm : pcm.subarray(0, expected);
 }
 
-export function newSparseState(duration: number, targetSeconds = 0): SparseState {
+export function newSparseState(
+  duration: number,
+  targetSeconds = 0,
+  policy: SparsePolicy = 'overlap-sparse-v2'
+): SparseState {
   if (
     !Number.isFinite(duration) ||
     duration <= 0 ||
@@ -68,9 +118,9 @@ export function newSparseState(duration: number, targetSeconds = 0): SparseState
     !Number.isFinite(targetSeconds)
   )
     throw new Error('Invalid sparse transcription duration');
-  const count = Math.ceil(duration / SPARSE_CORE_SECONDS);
+  const count = sparseWindowCount(duration, policy);
   return {
-    policy: 'overlap-sparse-v2',
+    policy,
     windows: Array.from({ length: count }, () => null),
     repairs: Array.from({ length: Math.max(0, count - 1) }, () => null),
     targetSeconds: Math.min(duration, Math.max(0, targetSeconds))
@@ -79,11 +129,13 @@ export function newSparseState(duration: number, targetSeconds = 0): SparseState
 export function validateSparseState(value: unknown, duration: number): SparseState {
   const state = record(value);
   onlyKeys(state, ['policy', 'windows', 'repairs', 'targetSeconds']);
-  const count = Math.ceil(duration / SPARSE_CORE_SECONDS);
+  const policy = state.policy as SparsePolicy;
   if (
-    (state.policy !== 'overlap-sparse-v1' && state.policy !== 'overlap-sparse-v2') ||
+    (policy !== 'overlap-sparse-v1' &&
+      policy !== 'overlap-sparse-v2' &&
+      policy !== 'overlap-sparse-v3') ||
     !Array.isArray(state.windows) ||
-    state.windows.length !== count ||
+    state.windows.length !== sparseWindowCount(duration, policy) ||
     !Array.isArray(state.repairs) ||
     state.repairs.length !== Math.max(0, count - 1)
   )
@@ -99,7 +151,7 @@ export function validateSparseState(value: unknown, duration: number): SparseSta
       (w.digitalSilence !== undefined && w.digitalSilence !== true)
     )
       throw new Error('Invalid sparse window');
-    const bounds = sparseBounds(index, duration);
+    const bounds = sparseBounds(index, duration, policy);
     const cues = w.cues.map(validateCue);
     if (w.digitalSilence === true && cues.length)
       throw new Error('Digital-silent sparse window cannot contain speech');
@@ -123,8 +175,8 @@ export function validateSparseState(value: unknown, duration: number): SparseSta
     if (raw === null) return null;
     if (!windows[index] || !windows[index + 1] || !Array.isArray(raw) || raw.length > 4096)
       throw new Error('Invalid sparse seam repair');
-    const start = sparseBounds(index, duration).start;
-    const end = sparseBounds(index + 1, duration).end;
+    const start = sparseBounds(index, duration, policy).start;
+    const end = sparseBounds(index + 1, duration, policy).end;
     const cues = raw.map(validateCue);
     const originals = new Map(
       [
@@ -157,7 +209,7 @@ export function validateSparseState(value: unknown, duration: number): SparseSta
     return cues;
   });
   return {
-    policy: state.policy,
+    policy,
     windows,
     repairs,
     targetSeconds: finite(state.targetSeconds, 0, duration)
@@ -167,7 +219,9 @@ export function sparseCoverage(state: SparseState, duration: number) {
   return state.windows.reduce(
     (sum, window, index) =>
       window
-        ? sum + sparseBounds(index, duration).coreEnd - sparseBounds(index, duration).coreStart
+        ? sum +
+          sparseBounds(index, duration, state.policy).coreEnd -
+          sparseBounds(index, duration, state.policy).coreStart
         : sum,
     0
   );
@@ -188,10 +242,7 @@ export function sparseLead(state: SparseState, duration: number, position: numbe
   return interval ? interval.end - position : 0;
 }
 export function nextSparseWindow(state: SparseState): number {
-  const target = Math.min(
-    state.windows.length - 1,
-    Math.floor(state.targetSeconds / SPARSE_CORE_SECONDS)
-  );
+  const target = sparseIndexForPosition(state.targetSeconds, state.policy, state.windows.length);
   if (!state.windows[target]) return target;
   const predecessor = sparsePredecessor(state, state.targetSeconds);
   if (predecessor !== undefined) return predecessor;
@@ -215,7 +266,8 @@ export function sparseMissingWindowsForLead(
     duration,
     position,
     leadSeconds,
-    sparsePredecessor(state, position)
+    sparsePredecessor(state, position),
+    state.policy
   );
 }
 function missingPlaybackWindows(
@@ -223,17 +275,20 @@ function missingPlaybackWindows(
   duration: number,
   position: number,
   leadSeconds: number,
-  predecessor: number | undefined
+  predecessor: number | undefined,
+  policy: SparsePolicy
 ): number[] {
-  const first = Math.min(windows.length - 1, Math.floor(position / SPARSE_CORE_SECONDS));
+  const first = sparseIndexForPosition(position, policy, windows.length);
   const end = Math.min(duration, position + leadSeconds);
-  const last = Math.min(
-    windows.length - 1,
-    Math.max(first, Math.ceil((end + SPARSE_CONTEXT_SECONDS) / SPARSE_CORE_SECONDS) - 1)
-  );
+  let last = first;
+  while (
+    last + 1 < windows.length &&
+    sparseCoreStart(last + 1, policy) < end + SPARSE_CONTEXT_SECONDS
+  )
+    last++;
   const start =
     predecessor ??
-    (first > 0 && position < first * SPARSE_CORE_SECONDS + SPARSE_CONTEXT_SECONDS
+    (first > 0 && position < sparseCoreStart(first, policy) + SPARSE_CONTEXT_SECONDS
       ? first - 1
       : first);
   return Array.from({ length: last - start + 1 }, (_, offset) => start + offset).filter(
@@ -256,8 +311,8 @@ function rawSparseCues(state: SparseState, index: number): Cue[] {
   // v1 accepted disconnected components immediately. Never reinterpret its
   // historical hypotheses with evidence introduced by the later v2 policy.
   if (state.policy === 'overlap-sparse-v1') return [...window.cues];
-  const previousSeam = index * SPARSE_CORE_SECONDS;
-  const nextSeam = (index + 1) * SPARSE_CORE_SECONDS;
+  const previousSeam = sparseCoreStart(index, state.policy);
+  const nextSeam = sparseCoreNominalEnd(index, state.policy);
   return window.cues.filter(
     (cue) =>
       !(
@@ -293,18 +348,20 @@ function sparseComponents(
   }
   for (const segment of segments) {
     if (active && active.last + 1 >= segment.first) {
-      // Adjacent two-core repairs share an entire 26-second core. Join their
-      // whole-cue hypotheses at its midpoint, retaining the older IDs where
-      // they agree. Disagreement remains an unresolved seam, never a clip.
+      // Adjacent two-core repairs share an entire core. Join their whole-cue
+      // hypotheses at that shared core's far seam, retaining older IDs where
+      // they agree. Disagreement remains unresolved, never clipped.
       const overlap = active.last >= segment.first;
-      const seam = (segment.first + (overlap ? 1 : 0)) * SPARSE_CORE_SECONDS;
+      const seam = overlap
+        ? sparseCoreNominalEnd(segment.first, state.policy)
+        : sparseCoreStart(segment.first, state.policy);
       const start = overlap
         ? seam - SPARSE_CONTEXT_SECONDS
-        : Math.max(0, segment.first * SPARSE_CORE_SECONDS - SPARSE_CONTEXT_SECONDS);
+        : Math.max(0, sparseCoreStart(segment.first, state.policy) - SPARSE_CONTEXT_SECONDS);
       while (cursor < active.cues.length && active.cues[cursor].end <= start) cursor++;
       const overlapStart = Math.max(
         0,
-        segment.first * SPARSE_CORE_SECONDS - SPARSE_CONTEXT_SECONDS
+        sparseCoreStart(segment.first, state.policy) - SPARSE_CONTEXT_SECONDS
       );
       const early = (cues: readonly Cue[]) =>
         cues.filter((cue) => cue.start >= overlapStart && cue.end <= start);
@@ -357,10 +414,11 @@ function sparseComponents(
 function sparsePredecessor(state: SparseState, position: number): number | undefined {
   const component = sparseComponents(state).find(
     ({ first, last }) =>
-      position >= first * SPARSE_CORE_SECONDS && position < (last + 1) * SPARSE_CORE_SECONDS
+      position >= sparseCoreStart(first, state.policy) &&
+      position < sparseCoreNominalEnd(last, state.policy)
   );
   if (!component || !component.first || state.windows[component.first - 1]) return undefined;
-  const edge = component.first * SPARSE_CORE_SECONDS + SPARSE_CONTEXT_SECONDS;
+  const edge = sparseCoreStart(component.first, state.policy) + SPARSE_CONTEXT_SECONDS;
   const neededUntil = component.cues.reduce(
     (end, cue) => (cue.start < edge ? Math.max(end, cue.end) : end),
     edge
@@ -381,11 +439,13 @@ function sparseProjection(
     // when its preceding seam is repaired. Never make that text immutable.
     if (acceptedOnly && component.first !== 0) break;
     const start =
-      component.first === 0 ? 0 : component.first * SPARSE_CORE_SECONDS + SPARSE_CONTEXT_SECONDS;
+      component.first === 0
+        ? 0
+        : sparseCoreStart(component.first, state.policy) + SPARSE_CONTEXT_SECONDS;
     const end =
       component.last === state.windows.length - 1
         ? Math.ceil(duration * SAMPLE_RATE) / SAMPLE_RATE
-        : (component.last + 1) * SPARSE_CORE_SECONDS - SPARSE_CONTEXT_SECONDS;
+        : sparseCoreNominalEnd(component.last, state.policy) - SPARSE_CONTEXT_SECONDS;
     let readyStart = start;
     let readyEnd = Math.min(end, duration);
     for (const cue of component.cues) {
@@ -412,11 +472,11 @@ export function sparsePlaybackSnapshot(state: SparseState, duration: number) {
   const { cues, ready } = sparseProjection(state, duration, false, components);
   const present = state.windows.map(Boolean);
   const predecessors = components.map((component) => {
-    const edge = component.first * SPARSE_CORE_SECONDS + SPARSE_CONTEXT_SECONDS;
+    const edge = sparseCoreStart(component.first, state.policy) + SPARSE_CONTEXT_SECONDS;
     return {
       first: component.first,
-      start: component.first * SPARSE_CORE_SECONDS,
-      end: (component.last + 1) * SPARSE_CORE_SECONDS,
+      start: sparseCoreStart(component.first, state.policy),
+      end: sparseCoreNominalEnd(component.last, state.policy),
       neededUntil: component.cues.reduce(
         (end, cue) => (cue.start < edge ? Math.max(end, cue.end) : end),
         edge
@@ -429,7 +489,7 @@ export function sparsePlaybackSnapshot(state: SparseState, duration: number) {
     coreSeconds = 0;
   state.windows.forEach((window, index) => {
     if (!window) return;
-    const bounds = sparseBounds(index, duration);
+    const bounds = sparseBounds(index, duration, state.policy);
     count++;
     // Coverage includes exact-silent cores, but they bypass MOSS entirely and
     // are not an ASR throughput sample. Including their cheap decode time makes
@@ -460,7 +520,14 @@ export function sparsePlaybackSnapshot(state: SparseState, duration: number) {
         position < component.neededUntil
           ? component.first - 1
           : undefined;
-      return missingPlaybackWindows(present, duration, position, leadSeconds, predecessor);
+      return missingPlaybackWindows(
+        present,
+        duration,
+        position,
+        leadSeconds,
+        predecessor,
+        state.policy
+      );
     }
   });
 }
@@ -476,7 +543,7 @@ export function safeSparseCues(state: SparseState, duration: number): Cue[] {
  * the reconciled prefix. Existing jobs retain their original interpretation.
  */
 export function acceptedSparseCues(state: SparseState, duration: number): Cue[] {
-  return sparseProjection(state, duration, state.policy === 'overlap-sparse-v2').cues;
+  return sparseProjection(state, duration, state.policy !== 'overlap-sparse-v1').cues;
 }
 
 /** Earliest ambiguous computed seam, even when unrelated windows are missing. */
@@ -490,7 +557,7 @@ export function pendingSparseSeam(
     if (components[index - 1].last + 1 >= components[index].first)
       seams.push(components[index].first - 1);
   }
-  const target = Math.floor(targetSeconds / SPARSE_CORE_SECONDS);
+  const target = sparseIndexForPosition(targetSeconds, state.policy, state.windows.length);
   return (
     seams.find((seam) => seam === target - 1) ?? seams.find((seam) => seam === target) ?? seams[0]
   );
