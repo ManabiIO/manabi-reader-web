@@ -48,7 +48,7 @@ window.AudioContext = class extends Original {
   }
   close() { window.contextCloses++; return super.close(); }
 };
-const rate = 48000, seconds = 12, count = rate * seconds;
+const rate = 48000, seconds = 15, count = rate * seconds;
 const buffer = new ArrayBuffer(44 + count * 2), view = new DataView(buffer);
 const text = (at, s) => [...s].forEach((c, i) => view.setUint8(at + i, c.charCodeAt(0)));
 text(0, 'RIFF'); view.setUint32(4, buffer.byteLength - 8, true); text(8, 'WAVE'); text(12, 'fmt ');
@@ -60,8 +60,12 @@ for (let i = 0; i < count; i++) {
   const clean = Math.sin(2 * Math.PI * 220 * i / rate) * 19000;
   noiseState = (Math.imul(1664525, noiseState) + 1013904223) >>> 0;
   const broadband = ((noiseState / 0xffffffff) * 2 - 1) * 9000;
-  const noisy = i >= rate * 6 ? clean + broadband : clean;
-  view.setInt16(44 + i * 2, Math.max(-32767, Math.min(32767, Math.round(noisy))), true);
+  const sample = i >= rate * 12
+    ? clean * .008
+    : i >= rate * 6
+      ? clean + broadband
+      : clean;
+  view.setInt16(44 + i * 2, Math.max(-32767, Math.min(32767, Math.round(sample))), true);
 }
 const audio = document.querySelector('audio'); audio.src = URL.createObjectURL(new Blob([buffer], {type:'audio/wav'}));
 window.audio = audio;
@@ -155,6 +159,19 @@ try:
         })''')
         (root / 'noisy.json').write_text(json.dumps(noisy, indent=2))
         assert noisy['nearTarget'] >= 3, noisy
+        page.evaluate('audio.currentTime = 12.2')
+        page.wait_for_function('state.points.length > 2 && state.points.every(p => p.time > 12)')
+        page.wait_for_function(
+            'state.points.filter(p => p.time > 12 && p.hz > 205 && p.hz < 235).length >= 3'
+        )
+        quiet = page.evaluate('''() => ({
+          total: state.points.filter(p => p.time > 12).length,
+          voiced: state.points.filter(p => p.time > 12 && p.hz !== null).length,
+          nearTarget: state.points.filter(p => p.time > 12 && p.hz > 205 && p.hz < 235).length,
+          frequencies: state.points.filter(p => p.time > 12 && p.hz !== null).map(p => p.hz)
+        })''')
+        (root / 'quiet.json').write_text(json.dumps(quiet, indent=2))
+        assert quiet['nearTarget'] >= 3, quiet
         page.evaluate('audio.pause()')
         page.wait_for_timeout(120)
         count_before = page.evaluate('state.points.length')
@@ -163,7 +180,7 @@ try:
         page.evaluate('controller.dispose()')
         assert page.evaluate('contextCloses === 1 && routes[0].size === 0')
         assert not errors, errors
-        print(json.dumps({'browser': args.browser, 'transport': 'HTTP modules', 'passed': ['no eager worker', 'worker handshake/loading', 'real SwiftF0 220Hz contour', 'off keeps playback', 'reuse audio capture', 'hide keeps route', 'seek drops stale trace', 'broadband-noise 220Hz contour', 'pause stops samples', 'dispose closes context'], 'pageErrors': errors}))
+        print(json.dumps({'browser': args.browser, 'transport': 'HTTP modules', 'passed': ['no eager worker', 'worker handshake/loading', 'real SwiftF0 220Hz contour', 'off keeps playback', 'reuse audio capture', 'hide keeps route', 'seek drops stale trace', 'broadband-noise 220Hz contour', 'quiet 220Hz contour', 'pause stops samples', 'dispose closes context'], 'pageErrors': errors}))
         browser.close()
 finally:
     server.shutdown()
