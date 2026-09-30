@@ -16,7 +16,7 @@ import StarterKit from '@tiptap/starter-kit';
 import RubyText from '@tiptap/extension-ruby-text';
 import UniqueID from '@tiptap/extension-unique-id';
 import { Markdown, MarkdownManager } from '@tiptap/markdown';
-import { Marked } from 'marked';
+import { Marked, marked } from 'marked';
 import DOMPurify from 'dompurify';
 import {
   identifyBlocks,
@@ -25,6 +25,13 @@ import {
   validateContent,
   type TextNode
 } from './document';
+
+function isolatedMarked(): typeof marked {
+  // TipTap's option type names the callable singleton, but MarkdownManager only
+  // consumes its Marked-instance surface (defaults/Lexer/use/setOptions). Upstream
+  // recommends a private Marked instance to avoid global tokenizer accumulation.
+  return new Marked() as unknown as typeof marked;
+}
 
 export function extensions(): Extensions {
   return [
@@ -50,7 +57,7 @@ export function extensions(): Extensions {
         'horizontalRule'
       ]
     }),
-    Markdown.configure({ marked: new Marked() })
+    Markdown.configure({ marked: isolatedMarked() })
   ];
 }
 export function cleanHTML(html: string): string {
@@ -111,7 +118,7 @@ export function markdownHTML(value: string): string {
   // alphabetic/roman sentence prefixes (for example "Hi. there") as list markers.
   // Import only needs CommonMark -> HTML, so use an isolated vanilla Marked lexer.
   // Never share its tokenizer registry with an editor or another import.
-  return new Marked().parse(value, { async: false }) as string;
+  return new Marked().parse(value, { async: false });
 }
 export function importContent(value: string, format: 'text' | 'html' | 'markdown'): TextNode {
   if (new TextEncoder().encode(value).length > MAX_SNIPPET_BYTES)
@@ -139,7 +146,7 @@ export function exportMarkdown(content: TextNode): string {
   // is the lossless representation for either case.
   return requiresHTMLMarkdown(content)
     ? renderContent(content) + '\n'
-    : new MarkdownManager({ extensions: extensions(), marked: new Marked() }).serialize(
+    : new MarkdownManager({ extensions: extensions(), marked: isolatedMarked() }).serialize(
         content as JSONContent
       );
 }
