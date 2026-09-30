@@ -71,9 +71,7 @@ const result = await build({
       name: 'source-snapshot-fixture',
       setup(builder) {
         builder.onResolve({ filter: /.*/ }, (args) =>
-          Object.hasOwn(mocks, args.path)
-            ? { path: args.path, namespace: 'fixture' }
-            : undefined
+          Object.hasOwn(mocks, args.path) ? { path: args.path, namespace: 'fixture' } : undefined
         );
         builder.onLoad({ filter: /.*/, namespace: 'fixture' }, (args) => ({
           contents: mocks[args.path],
