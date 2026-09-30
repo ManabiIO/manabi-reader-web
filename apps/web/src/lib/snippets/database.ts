@@ -222,7 +222,8 @@ export async function acceptRemote(
   document: SnippetDocument,
   location: Location,
   guard: Guard,
-  activeSources?: ReadonlySet<string>
+  activeSources?: ReadonlySet<string>,
+  authoritativeAbsentSources?: ReadonlySet<string>
 ) {
   location = { ...location, observedRevision: document.revision, missing: false };
   return mutateRecord(owner, document.id, guard, (current) => {
@@ -245,13 +246,14 @@ export async function acceptRemote(
     const incomingActive = activeSources?.has(sourceKey(location.source)) ?? false;
     const primaryUnavailable =
       !!activeSources &&
+      !!authoritativeAbsentSources &&
       incomingActive &&
-      !!current.primary &&
-      (!previous || !activeSources.has(sourceKey(previous.source)));
+      !!previous &&
+      authoritativeAbsentSources.has(sourceKey(previous.source));
     const uploadUnavailable =
-      !!activeSources &&
+      !!authoritativeAbsentSources &&
       !!current.upload &&
-      !activeSources.has(sourceKey(current.upload.destination.source));
+      authoritativeAbsentSources.has(sourceKey(current.upload.destination.source));
     const rebindable =
       !current.transfer &&
       (!current.upload || uploadUnavailable) &&
