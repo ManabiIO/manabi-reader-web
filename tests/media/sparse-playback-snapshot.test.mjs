@@ -17,7 +17,15 @@ function compare(state, duration) {
   assert.ok(Object.isFrozen(snapshot));
   assert.equal(snapshot.cueDigest, cueDigest(safeSparseCues(state, duration)));
   const completed = state.windows.flatMap((w, i) =>
-      w ? [{ ...sparseBounds(i, duration), ms: w.inferenceMs, digitalSilence: w.digitalSilence }] : []
+      w
+        ? [
+            {
+              ...sparseBounds(i, duration),
+              ms: w.inferenceMs,
+              digitalSilence: w.digitalSilence
+            }
+          ]
+        : []
     ),
     samples = completed.filter((sample) => !sample.digitalSilence);
   assert.equal(snapshot.count, completed.length);
