@@ -6,6 +6,10 @@
   import { beforeNavigate, goto } from '$app/navigation';
   import BookCardList from '$lib/components/book-card/book-card-list.svelte';
   import LibraryWorkspace from '$lib/library/library-workspace.svelte';
+  import {
+    reconcileSelectionEligibility,
+    type LibrarySelectionEligibility
+  } from '$lib/library/selection';
   import type { BookCardProps } from '$lib/components/book-card/book-card-props';
   import BookManagerHeader from '$lib/components/book-card/book-manager-header.svelte';
   import BookExportDialog from '$lib/components/book-export/book-export-dialog.svelte';
@@ -159,7 +163,7 @@
   let selectionScopeKey = '';
   let selectableBookIds: number[] = [];
   let selectablePreviewKeys: string[] = [];
-  let selectionEligibility: { key: string; ids: number[]; previews: string[] } = {
+  let selectionEligibility: LibrarySelectionEligibility = {
     key: '',
     ids: [],
     previews: []
@@ -216,22 +220,14 @@
     selectablePreviewKeys = selectionEligibility.previews;
 
     if (selectMode) {
-      if (selectionScopeKey !== previousScope) {
-        // A search/collection/series scope is a distinct selection operation.
-        // Never carry hidden selections into a different visible scope.
-        selectedPreviewKeys = new Set();
-        selectedBookIds = new Set();
-      } else {
-        // Same scope, changing availability: retain only still-actionable items.
-        const eligibleBooks = new Set(selectableBookIds);
-        const eligiblePreviews = new Set(selectablePreviewKeys);
-        selectedPreviewKeys = new Set(
-          [...selectedPreviewKeys].filter((key) => eligiblePreviews.has(key))
-        );
-        selectedBookIds = new Set(
-          [...selectedBookIds].filter((id) => eligibleBooks.has(id))
-        );
-      }
+      const reconciled = reconcileSelectionEligibility(
+        previousScope,
+        selectionEligibility,
+        selectedBookIds,
+        selectedPreviewKeys
+      );
+      selectedBookIds = reconciled.ids;
+      selectedPreviewKeys = reconciled.previews;
     }
   }
 
