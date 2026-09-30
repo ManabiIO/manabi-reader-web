@@ -288,7 +288,8 @@ test('a verified-zero neighbor removes a sparse halo hallucination without repai
     async prepare() {},
     async transcribe() {
       inferred.push(1);
-      if (inferred.length > 1) throw Error('silence reconciliation must not start repair inference');
+      if (inferred.length > 1)
+        throw Error('silence reconciliation must not start repair inference');
       return '[3][S01]real speech[4][24][S01]silence hallucination[27]';
     },
     dispose() {}
