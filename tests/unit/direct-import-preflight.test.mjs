@@ -20,10 +20,17 @@ const code = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
 }).outputText;
 
-function loadFixture({ reusable, preflightError, countMode = false } = {}) {
+function loadFixture({
+  reusable,
+  preflightError,
+  countMode = false,
+  persistenceError,
+  persistenceResult = true
+} = {}) {
   const events = [];
   const progress = [];
   const changed = [];
+  let persistCalls = 0;
   const contentHash = 'a'.repeat(64);
   const BaseStorageHandler = class {
     static reportProgress(value = 1) {
@@ -61,7 +68,15 @@ function loadFixture({ reusable, preflightError, countMode = false } = {}) {
       BaseStorageHandler,
       FilePrefix: { AUDIO_BOOK: 'audioBook_', SUBTITLE: 'subtitles_' }
     },
-    '$lib/data/window/navigator/storage': { storage: { persist: async () => true } },
+    '$lib/data/window/navigator/storage': {
+      storage: {
+        async persist() {
+          persistCalls++;
+          if (persistenceError) throw persistenceError;
+          return persistenceResult;
+        }
+      }
+    },
     '$lib/data/storage/storage-types': {
       StorageDataType: {
         DATA: 'data',
@@ -74,8 +89,7 @@ function loadFixture({ reusable, preflightError, countMode = false } = {}) {
       StorageKey: { BROWSER: 'browser', BACKUP: 'backup' }
     },
     '$lib/data/store': {
-      database: { dataListChanged$: { next: (value) => changed.push(value) } },
-      requestPersistentStorage$: { getValue: () => false }
+      database: { dataListChanged$: { next: (value) => changed.push(value) } }
     },
     '$lib/functions/file-loaders/epub/load-epub': { __esModule: true, default: loaders.epub },
     '$lib/functions/file-loaders/htmlz/load-htmlz': { __esModule: true, default: loaders.htmlz },
@@ -159,7 +173,8 @@ function loadFixture({ reusable, preflightError, countMode = false } = {}) {
     events,
     progress,
     changed,
-    contentHash
+    contentHash,
+    persistCalls: () => persistCalls
   };
 }
 
@@ -169,6 +184,7 @@ test('eligible exact reimport hashes and preflights without parsing or writing',
   assert.equal(error, '');
   assert.deepEqual(h.events, ['hash', 'preflight']);
   assert.deepEqual(h.changed, []);
+  assert.equal(h.persistCalls(), 1);
   assert.equal(h.progress.filter(([kind]) => kind === 'complete').length, 3);
 });
 
@@ -178,6 +194,7 @@ test('missing exact copy hashes before parser and reuses that digest for storage
   assert.equal(error, '');
   assert.deepEqual(h.events, ['hash', 'preflight', 'load', 'context', 'save', 'cover']);
   assert.equal(h.changed.length, 1);
+  assert.equal(h.persistCalls(), 1);
 });
 
 test('preflight ambiguity/error stops before parser and preserves the import error', async () => {
@@ -196,4 +213,20 @@ test('character-count mode still parses without hashing or identity preflight', 
   assert.deepEqual(h.events, ['load']);
   assert.equal(h.fileCountData['book.epub'], 12);
   assert.deepEqual(h.changed, []);
+  assert.equal(h.persistCalls(), 0, 'character-count mode should not request durable storage');
+});
+
+test('persistent-storage denial never blocks the book import', async () => {
+  const h = loadFixture({ persistenceError: new Error('permission denied') });
+  const error = await h.importData(h.document, h.handler, [h.file], h.signal);
+  assert.equal(error, '');
+  assert.deepEqual(h.events, ['hash', 'preflight', 'load', 'context', 'save', 'cover']);
+  assert.equal(h.persistCalls(), 1);
+});
+
+test('multiple imports in one page lifetime request persistent storage only once', async () => {
+  const h = loadFixture();
+  assert.equal(await h.importData(h.document, h.handler, [h.file], h.signal), '');
+  assert.equal(await h.importData(h.document, h.handler, [h.file], h.signal), '');
+  assert.equal(h.persistCalls(), 1, 'Firefox could otherwise prompt on every import');
 });
