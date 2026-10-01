@@ -504,11 +504,35 @@ try {
   await expect(
     page.getByRole('toolbar', { name: 'Selected snippet actions', exact: true }).getByRole('status')
   ).toHaveText('1 selected');
+  await page.setViewportSize({ width: 320, height: 320 });
+  await checkboxEscape.scrollIntoViewIfNeeded();
+  const beforeExit = await selectionToggleLarge.boundingBox();
+  assert(
+    beforeExit.y < 0 || beforeExit.y + beforeExit.height > 321,
+    'Short-viewport fixture must actually move the selection toggle offscreen'
+  );
   await checkboxEscape.press('Escape');
   await expect(
     page.getByRole('toolbar', { name: 'Selected snippet actions', exact: true })
   ).toHaveCount(0);
   await expect(selectionToggleLarge).toBeFocused();
+  const returnedToggle = await selectionToggleLarge.boundingBox();
+  assert(
+    returnedToggle.x >= -1 &&
+      returnedToggle.y >= -1 &&
+      returnedToggle.x + returnedToggle.width <= 321 &&
+      returnedToggle.y + returnedToggle.height <= 321,
+    `Selection exit must return visible focus: ${JSON.stringify(returnedToggle)}`
+  );
+  assert(
+    await selectionToggleLarge.evaluate((button) => {
+      const r = button.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return !!hit && (hit === button || button.contains(hit));
+    }),
+    'Selection exit target must be hit-testable after focus restoration'
+  );
+  await page.setViewportSize({ width: 320, height: 640 });
 
   // The explicit mode toggle is itself a valid keyboard exit point. Escape
   // should behave the same there instead of requiring an extra Enter activation.
