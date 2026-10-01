@@ -46,6 +46,7 @@ export class PitchController {
   private buffering = false;
   private sampleAfter = 0;
   private breakBefore = true;
+  private speechGateEnabled = false;
   private speechActive = true;
   private speechSince = -Infinity;
 
@@ -158,7 +159,9 @@ export class PitchController {
   setSpeechActive(active: boolean, mediaTime = this.audio?.currentTime ?? this.state.time) {
     if (this.disposed) return;
     const time = Number.isFinite(mediaTime) ? Math.max(0, mediaTime) : this.state.time;
-    if (active === this.speechActive) {
+    const firstSync = !this.speechGateEnabled;
+    this.speechGateEnabled = true;
+    if (!firstSync && active === this.speechActive) {
       if (!active && Math.abs(time - this.state.time) >= 0.1) this.publish({ time });
       return;
     }
@@ -292,7 +295,11 @@ export class PitchController {
             // Consecutive analysis windows overlap by design. Keep only newly
             // stable frames; never reset history because an overlap repeated
             // a timestamp already published by the previous batch.
-            if (time < this.speechSince - 0.004 || time <= previousTime + 0.004) continue;
+            if (
+              (this.speechGateEnabled && time < this.speechSince - 0.004) ||
+              time <= previousTime + 0.004
+            )
+              continue;
             points = appendPoint(points, {
               time,
               hz: result.hz,
@@ -353,7 +360,7 @@ export class PitchController {
       this.audio.ended ||
       this.audio.seeking ||
       this.buffering ||
-      !this.speechActive
+      (this.speechGateEnabled && !this.speechActive)
     )
       return;
     const generation = this.generation;
