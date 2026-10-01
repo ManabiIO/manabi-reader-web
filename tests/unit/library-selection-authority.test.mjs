@@ -610,6 +610,9 @@ function linkFixture(records, links) {
     '$lib/data/storage/storage-handler-factory': {},
     '$lib/data/database/books-db/book-binary': {},
     '$lib/data/database/books-db/commit-transaction.mjs': { commitTransaction },
+    '$lib/data/window/navigator/persistent-storage': {
+      requestPersistentStorageOnce: () => Promise.resolve(false)
+    },
     '$lib/data/database/books-db/library-import': {
       readIndexedBookIdentities: async () => records
     },
