@@ -127,6 +127,12 @@
     try {
       await deleteDraft(key, selected.guard);
     } catch {
+      try {
+        selected.guard();
+      } catch {
+        busy = false;
+        return;
+      }
       status = status
         ? `${status} The added selection's saved draft could not be cleaned up and remains recoverable.`
         : "Added to snippet. The saved capture draft could not be cleaned up and remains recoverable.";
