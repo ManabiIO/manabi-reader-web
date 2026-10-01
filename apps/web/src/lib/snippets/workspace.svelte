@@ -650,20 +650,18 @@
     selected = new Set();
   }
   function selectionEscape(event: KeyboardEvent) {
-    if (
-      !selecting ||
-      event.key !== 'Escape' ||
-      event.isComposing ||
-      event.altKey ||
-      event.defaultPrevented
-    )
-      return;
+    const shouldExit =
+      selecting &&
+      event.key === 'Escape' &&
+      !event.isComposing &&
+      !event.altKey &&
+      !event.defaultPrevented;
+    if (!shouldExit) return;
     const target = event.target;
-    if (
-      !(target instanceof HTMLElement) ||
-      (target !== selectionModeButton && !target.closest('.batch, .snippet-shelf'))
-    )
-      return;
+    if (!(target instanceof HTMLElement)) return;
+    const ownsSelection =
+      target === selectionModeButton || !!target.closest('.batch, .snippet-shelf');
+    if (!ownsSelection) return;
     event.preventDefault();
     void exitSelectionMode();
   }
