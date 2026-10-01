@@ -245,3 +245,148 @@ test('WebDAV disconnect observes transaction completion before deleting authorit
   });
   await api.disconnectDav('webdav-test');
 });
+
+function annotationHarness(transactionFactory, databaseExtras = {}) {
+  const scope = {
+    profileId: null,
+    signal: new AbortController().signal,
+    assertCurrent() {},
+    stop() {}
+  };
+  return loadOfflineModule('apps/web/src/lib/reader-annotations.ts', {
+    modules: {
+      '$lib/data/store': {
+        database: {
+          db: Promise.resolve({
+            transaction: transactionFactory,
+            getAllFromIndex: async () => [],
+            get: async () => undefined,
+            ...databaseExtras
+          })
+        }
+      },
+      'svelte/store': { get: () => ({ status: 'available' }) },
+      '$lib/manabi/client': {
+        account: {},
+        localProfileUser: () => null
+      },
+      '$lib/reader-location': {
+        snapshotReaderLocator(target, bookKey) {
+          return { ...target, bookKey };
+        }
+      },
+      '$lib/data/database/books-db/content-hash-index': {
+        readIndexedBookMetadata: async (store) => store.getAll()
+      },
+      '$lib/manabi/operation-scope': {
+        captureLibraryOperation: () => scope
+      }
+    }
+  }).api;
+}
+
+test('annotation write wrapper observes completion before its first store read', async () => {
+  let observed = false;
+  const empty = {
+    async get() {
+      assert.equal(observed, true);
+      return undefined;
+    },
+    async put() {
+      assert.equal(observed, true);
+    },
+    async getAll() {
+      assert.equal(observed, true);
+      return [];
+    }
+  };
+  const tx = {
+    done: {
+      then(onFulfilled, onRejected) {
+        observed = true;
+        return Promise.resolve().then(onFulfilled, onRejected);
+      }
+    },
+    objectStore() {
+      return empty;
+    },
+    abort() {}
+  };
+  const api = annotationHarness(() => tx);
+  const bookKey = 'local:11111111-1111-4111-8111-111111111111';
+  const saved = await api.saveReaderAnnotation({
+    bookKey,
+    kind: 'bookmark',
+    targets: [
+      {
+        bookKey,
+        resource: { spineIndex: 0, href: 'chapter.xhtml', sectionId: 's1' },
+        resourceDigest: 'digest',
+        start: 0,
+        end: 0,
+        quote: '',
+        prefix: '',
+        suffix: ''
+      }
+    ]
+  });
+  assert.equal(saved.bookKey, bookKey);
+});
+
+test('annotation ownership lookup observes readonly completion before inventory reads', async () => {
+  const contentHash = 'a'.repeat(64);
+  const bookKey = `content:${contentHash}`;
+  const record = {
+    id: '11111111-1111-4111-8111-111111111111',
+    bookKey,
+    kind: 'bookmark',
+    targets: [
+      {
+        bookKey,
+        resource: { spineIndex: 0, href: 'chapter.xhtml', sectionId: 's1' },
+        resourceDigest: 'digest',
+        start: 0,
+        end: 0,
+        quote: '',
+        prefix: '',
+        suffix: ''
+      }
+    ],
+    createdAt: '2026-10-01T00:00:00.000Z',
+    modifiedAt: '2026-10-01T00:00:00.000Z',
+    revision: 1
+  };
+  let observed = false;
+  const data = {
+    async getAll() {
+      assert.equal(observed, true);
+      return [{ id: 7, contentHash, invalidOwner: false, libraryOwner: null }];
+    }
+  };
+  const scopes = {
+    async getAll() {
+      assert.equal(observed, true);
+      return [];
+    }
+  };
+  const tx = {
+    done: {
+      then(onFulfilled, onRejected) {
+        observed = true;
+        return Promise.resolve().then(onFulfilled, onRejected);
+      }
+    },
+    objectStore(name) {
+      return name === 'data' ? data : scopes;
+    },
+    abort() {}
+  };
+  const api = annotationHarness(() => tx, {
+    getAllFromIndex: async () => [record],
+    get: async () => undefined
+  });
+  const rows = await api.listReaderAnnotations(bookKey);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, record.id);
+});
+
