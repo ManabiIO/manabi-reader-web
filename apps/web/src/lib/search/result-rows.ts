@@ -72,47 +72,59 @@ export function bookTitleRows(
   });
 }
 
-function snippetTitleMatchRange(
+const snippetTitleSegmenter = new Intl.Segmenter('ja', { granularity: 'grapheme' });
+
+function snippetTitleProjection(
   value: string,
   query: string
-): { start: number; end: number } | undefined {
+): { folded: string; match?: { start: number; end: number } } {
   const needle = foldSnippetSearch(query.trim());
-  if (!needle) return;
-  let normalized = '';
+  let folded = '';
   const starts: number[] = [],
     ends: number[] = [];
-  for (const part of new Intl.Segmenter('ja', { granularity: 'grapheme' }).segment(value)) {
-    const folded = foldSnippetSearch(part.segment);
-    normalized += folded;
-    for (let index = 0; index < folded.length; index++) {
+  for (const part of snippetTitleSegmenter.segment(value)) {
+    const normalized = foldSnippetSearch(part.segment);
+    folded += normalized;
+    for (let index = 0; index < normalized.length; index++) {
       starts.push(part.index);
       ends.push(part.index + part.segment.length);
     }
   }
-  const found = normalized.indexOf(needle);
-  if (found < 0) return;
+  const found = needle ? folded.indexOf(needle) : -1;
   return {
-    start: starts[found] ?? 0,
-    end: ends[found + needle.length - 1] ?? value.length
+    folded,
+    ...(found >= 0
+      ? {
+          match: {
+            start: starts[found] ?? 0,
+            end: ends[found + needle.length - 1] ?? value.length
+          }
+        }
+      : {})
   };
 }
 
 export function snippetTitleRows(snippets: readonly SnippetSummary[], query: string): SearchRow[] {
   const needle = foldSnippetSearch(query.trim());
-  return snippets
-    .filter((item) => foldSnippetSearch(item.title).includes(needle))
-    .map((snippet) => ({
-      id: `snippet:${snippet.key}`,
-      kind: 'Snippet',
-      title: snippet.title,
-      label: `Read snippet ${snippet.title}`,
-      titleMatch: snippetTitleMatchRange(snippet.title, query),
-      // Generic cross-source ranking does not fold Kana. Give it both the
-      // original title and Snippets' Kana-folded search form so either script
-      // receives real relevance instead of an unmatched fallback tier.
-      searchText: { primary: [snippet.title, foldSnippetSearch(snippet.title)] },
-      target: { kind: 'snippet', snippet }
-    }));
+  if (!needle) return [];
+  return snippets.flatMap((snippet): SearchRow[] => {
+    const projection = snippetTitleProjection(snippet.title, query);
+    if (!projection.folded.includes(needle)) return [];
+    return [
+      {
+        id: `snippet:${snippet.key}`,
+        kind: 'Snippet',
+        title: snippet.title,
+        label: `Read snippet ${snippet.title}`,
+        titleMatch: projection.match,
+        // Generic cross-source ranking does not fold Kana. Give it both the
+        // original title and Snippets' Kana-folded search form so either script
+        // receives real relevance instead of an unmatched fallback tier.
+        searchText: { primary: [snippet.title, projection.folded] },
+        target: { kind: 'snippet', snippet }
+      }
+    ];
+  });
 }
 export function scopedSnippetTitleRows(
   snippets: readonly SnippetSummary[],
