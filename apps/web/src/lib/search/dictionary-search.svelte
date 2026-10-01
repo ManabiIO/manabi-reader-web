@@ -89,6 +89,9 @@
   }
   function reopenRuntime() {
     task.stop();
+    statusController?.abort();
+    statusController = undefined;
+    statusLoading = false;
     lease.release();
     lease = dictionaryLease();
     runtime = undefined;
@@ -361,7 +364,7 @@
               <span class="dictionary-actions">
                 <button
                   type="button"
-                  disabled={installing || !!managing}
+                  disabled={installing || statusLoading || !!managing}
                   aria-label={`${disabledTitles.has(dictionary.title) ? 'Enable' : 'Disable'} ${dictionary.title}`}
                   onclick={() =>
                     void toggleDictionary(dictionary.title, disabledTitles.has(dictionary.title))}
@@ -372,13 +375,13 @@
                     <span>Delete this dictionary?</span>
                     <button
                       type="button"
-                      disabled={installing || !!managing}
+                      disabled={installing || statusLoading || !!managing}
                       aria-label={`Confirm delete ${dictionary.title}`}
                       onclick={() => void deleteDictionary(dictionary.title)}>Delete</button
                     >
                     <button
                       type="button"
-                      disabled={installing || !!managing}
+                      disabled={installing || statusLoading || !!managing}
                       aria-label={`Cancel deleting ${dictionary.title}`}
                       onclick={() => (pendingDelete = '')}>Cancel</button
                     >
@@ -386,7 +389,7 @@
                 {:else}
                   <button
                     type="button"
-                    disabled={installing || !!managing}
+                    disabled={installing || statusLoading || !!managing}
                     aria-label={`Delete ${dictionary.title}`}
                     onclick={() => (pendingDelete = dictionary.title)}>Delete…</button
                   >
@@ -399,13 +402,13 @@
         <p class="note">No local dictionaries are installed.</p>
       {/if}
       <div class="setup-actions">
-        <button type="button" disabled={installing || !!managing} onclick={() => void install()}
+        <button type="button" disabled={installing || statusLoading || !!managing} onclick={() => void install()}
           >Install Jitendex</button
         ><label class="upload"
           >Import dictionary ZIP<input
             type="file"
             accept=".zip,application/zip"
-            disabled={installing || !!managing}
+            disabled={installing || statusLoading || !!managing}
             onchange={chooseArchive}
           /></label
         >{#if installing}<button type="button" onclick={() => installController?.abort()}
