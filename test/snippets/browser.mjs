@@ -792,7 +792,11 @@ try {
     '東京'
   );
   await expect(markdownEditor).toContainText('勉強します。');
-  await page.getByRole('button', { name: 'Discard draft and leave', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  const leaveDialog = page.getByRole('dialog', { name: 'Keep this draft?' });
+  await expect(leaveDialog).toBeVisible();
+  await leaveDialog.getByRole('button', { name: 'Discard draft and leave', exact: true }).click();
+  await expect(leaveDialog).toHaveCount(0);
   passed('ruby survives Markdown export and Markdown import through actual TipTap');
   await page.locator('.snippet-shelf .title').filter({ hasText: '日本語の抜粋' }).click();
   await expect(page.getByRole('article', { name: 'Snippet content' })).toBeVisible();
