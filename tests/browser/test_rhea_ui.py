@@ -152,9 +152,26 @@ class RheaReader(previous.RefinedAppearance):
         self.assertLessEqual(menu_box['x'] + menu_box['width'], 321)
         self.assertLessEqual(menu_box['y'] + menu_box['height'], 321)
         self.assertLessEqual(menu.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
-        for item in menu.get_by_role('menuitem').all():
+        items = menu.get_by_role('menuitem')
+        for item in items.all():
             box = item.bounding_box()
             self.assertGreaterEqual(box['height'], 43.99)
+        # The short menu intentionally scrolls. Keyboard navigation must bring
+        # its final action completely into view instead of merely exposing a
+        # clipped label at the viewport edge.
+        items.first.focus()
+        for _ in range(items.count() - 1):
+            self.page.keyboard.press('ArrowDown')
+        last = items.last
+        expect(last).to_be_focused()
+        last_box = last.bounding_box()
+        self.assertGreaterEqual(last_box['y'], -1)
+        self.assertLessEqual(last_box['y'] + last_box['height'], 321)
+        self.assertTrue(last.evaluate('''e => {
+          const r=e.getBoundingClientRect();
+          const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+          return !!hit && (hit===e || e.contains(hit));
+        }'''))
         self.page.screenshot(path='test-results/reader-toolbar-enlarged-short.png')
         self.page.keyboard.press('Escape')
         expect(menu).to_have_count(0)
