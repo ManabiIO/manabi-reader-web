@@ -75,4 +75,3 @@ test('manual retry joins a pending prompt, then may retry one settled denial', a
   assert.equal(await api.retryPersistentStorage(), true);
   assert.equal(calls, 2, 'a granted persistence request was repeated');
 });
-
