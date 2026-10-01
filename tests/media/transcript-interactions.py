@@ -107,6 +107,39 @@ def main():
             assert page.evaluate("player.primary.value===ja.id && player.secondary.value===''")
         case('restoring a saved main transcript with translation Off never opts back in', restored)
 
+        def cue_keyboard_and_selection():
+            page.evaluate('make()')
+            page.evaluate("""ja={...ja,cues:[
+                {id:'first',start:0,end:1.5,text:'最初の行です。'},
+                {id:'second',start:2,end:3.5,text:'二番目の行です。'}
+            ]};player.setTracks([ja]);player.setDiscovery('complete');select('Transcript track',ja.id);
+            player.video.muted=true;player.video.pause();player.video.currentTime=.25;""")
+            second = page.locator('[data-cue="second"]')
+            second.focus()
+            assert second.evaluate('node=>node===document.activeElement')
+            second.press('Enter')
+            page.wait_for_function('player.video.currentTime>=1.9')
+            assert second.evaluate('node=>node===document.activeElement'), (
+                'Keyboard cue activation must not discard the user\'s transcript focus'
+            )
+            assert second.get_attribute('aria-current') == 'true'
+
+            # Text selection is a reading/dictionary action, not transport intent.
+            page.evaluate("""player.video.pause();player.video.currentTime=.25;
+                const row=document.querySelector('[data-cue="first"]');
+                const text=row.querySelector('.transcript-text').firstChild;
+                const selection=getSelection(),range=document.createRange();
+                range.selectNodeContents(text);selection.removeAllRanges();selection.addRange(range);""")
+            before = page.evaluate('player.video.currentTime')
+            page.locator('[data-cue="first"]').click(position={'x': 8, 'y': 8})
+            assert abs(page.evaluate('player.video.currentTime') - before) < .05, (
+                'Clicking a cue while its text is selected must not seek'
+            )
+            assert page.evaluate("getSelection().toString().includes('最初')")
+            page.evaluate('getSelection().removeAllRanges();player.video.pause()')
+
+        case('transcript cues seek by keyboard without losing focus and text selection never seeks', cue_keyboard_and_selection)
+
         def replay():
             page.evaluate('make()')
             page.evaluate("player.setTracks([{...ja,cues:Array.from({length:180},(_,i)=>({id:'line-'+i,start:i*3,end:i*3+2,text:'Line '+i}))}]);player.setDiscovery('complete');select('Transcript track',ja.id)")
