@@ -240,6 +240,34 @@ test('a restored merge revision can advance current and retire conflict ancestor
   assert.equal(current.dirty, true);
 });
 
+test('deterministic restore blockers are preflighted before any earlier document mutates', async () => {
+  reset();
+  const first = createSnippet(plainContent('first before'));
+  const firstNext = editSnippet(first, plainContent('first after'), '');
+  const second = createSnippet(plainContent('second before'));
+  const secondNext = editSnippet(second, plainContent('second after'), '');
+  const firstRecord = record(first);
+  const secondRecord = record(second, {
+    dirty: true,
+    upload: {
+      document: globalThis.structuredClone(second),
+      destination: location(second),
+      expected: location(second)
+    }
+  });
+  memory.records.set(key(first.id), firstRecord);
+  memory.records.set(key(second.id), secondRecord);
+
+  await assert.rejects(
+    () => restoreBackup(backup(firstNext, secondNext), selected),
+    /Finish the pending snippet operation/
+  );
+
+  assert.deepEqual(memory.records.get(key(first.id)), firstRecord);
+  assert.deepEqual(memory.records.get(key(second.id)), secondRecord);
+  assert.deepEqual(memory.collectionImports, []);
+});
+
 test('a pending provider upload owns non-identical restore changes until it settles', async () => {
   reset();
   const base = createSnippet(plainContent('base'));
