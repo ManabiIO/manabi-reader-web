@@ -2602,7 +2602,7 @@
   <Sheet.Content
     side="left"
     showCloseButton={false}
-    class="writing-horizontal-tb data-[side=left]:w-full data-[side=left]:sm:max-w-md"
+    class="writing-horizontal-tb overflow-hidden data-[side=left]:w-full data-[side=left]:sm:max-w-md"
     onCloseAutoFocus={(event) => {
       event.preventDefault();
       document.querySelector<HTMLButtonElement>('[aria-label="Show reading controls"]')?.focus();
