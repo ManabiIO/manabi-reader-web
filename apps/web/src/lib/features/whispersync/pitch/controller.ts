@@ -46,9 +46,7 @@ export class PitchController {
   private buffering = false;
   private sampleAfter = 0;
   private breakBefore = true;
-  private speechGateEnabled = false;
-  private speechActive = true;
-  private speechSince = -Infinity;
+  private speechWindow?: { start: number; end: number };
 
   constructor(environment: PitchEnvironment, changed: (state: PitchState) => void) {
     this.environment = environment;
@@ -77,6 +75,7 @@ export class PitchController {
     this.source = undefined;
     this.audio = audio;
     this.buffering = false;
+    this.speechWindow = undefined;
     this.reset();
     if (audio) {
       const listen = (event: string, callback: () => void) => {
@@ -156,35 +155,35 @@ export class PitchController {
     this.reset();
     if (visible && this.state.enabled) this.start();
   }
-  setSpeechActive(
-    active: boolean,
-    mediaTime = this.audio?.currentTime ?? this.state.time,
-    speechStart = mediaTime
-  ) {
+  setSpeechWindow(bounds?: { start: number; end: number } | null) {
     if (this.disposed) return;
-    const time = Number.isFinite(mediaTime) ? Math.max(0, mediaTime) : this.state.time;
-    const start = Number.isFinite(speechStart) ? Math.max(0, speechStart) : time;
-    const firstSync = !this.speechGateEnabled;
-    this.speechGateEnabled = true;
-    if (!firstSync && active === this.speechActive) {
-      if (active && Math.abs(start - this.speechSince) > 0.01) this.speechSince = start;
-      if (!active && Math.abs(time - this.state.time) >= 0.1) this.publish({ time });
+    const start = Number(bounds?.start);
+    const end = Number(bounds?.end);
+    const next =
+      Number.isFinite(start) && Number.isFinite(end) && end > start
+        ? { start: Math.max(0, start), end }
+        : undefined;
+    if (
+      (!next && !this.speechWindow) ||
+      (next &&
+        this.speechWindow &&
+        Math.abs(next.start - this.speechWindow.start) < 1e-6 &&
+        Math.abs(next.end - this.speechWindow.end) < 1e-6)
+    )
       return;
-    }
-    this.speechActive = active;
+    this.speechWindow = next;
     this.invalidateSamples();
     this.cancelFrame();
-    if (!active) {
-      this.speechSince = Infinity;
-      this.publish({ time });
-      return;
+    if (next) {
+      // The analyser already owns past context. Wait only for SwiftF0's
+      // future context, then mask samples outside this exact subtitle cue.
+      this.sampleAfter = (this.context?.currentTime ?? 0) + SWIFT_F0_FUTURE_CONTEXT_SECONDS;
     }
-    this.speechSince = start;
-    // The rolling analyser already contains past context. Wait only for
-    // SwiftF0's future context, then discard estimates preceding this cue.
-    this.sampleAfter = (this.context?.currentTime ?? 0) + SWIFT_F0_FUTURE_CONTEXT_SECONDS;
-    this.publish({ time });
-    this.schedule();
+    this.publish({
+      speechActive: !!next,
+      time: this.audio?.currentTime ?? this.state.time
+    });
+    if (next) this.schedule();
   }
   retry() {
     if (this.state.enabled) this.setEnabled(true);
@@ -203,7 +202,11 @@ export class PitchController {
   private reset() {
     this.invalidateSamples();
     this.lastAudioTime = -Infinity;
-    this.publish({ points: [], time: this.audio?.currentTime ?? 0 });
+    this.publish({
+      points: [],
+      speechActive: !!this.speechWindow,
+      time: this.audio?.currentTime ?? 0
+    });
   }
   private start() {
     if (this.disposed || !this.state.enabled || !this.visible || this.worker) return;
@@ -300,8 +303,11 @@ export class PitchController {
             // Consecutive analysis windows overlap by design. Keep only newly
             // stable frames; never reset history because an overlap repeated
             // a timestamp already published by the previous batch.
+            const speechWindow = this.speechWindow;
             if (
-              (this.speechGateEnabled && time < this.speechSince - 0.004) ||
+              !speechWindow ||
+              time < speechWindow.start - 0.004 ||
+              time > speechWindow.end + 0.004 ||
               time <= previousTime + 0.004
             )
               continue;
@@ -370,7 +376,7 @@ export class PitchController {
       this.audio.ended ||
       this.audio.seeking ||
       this.buffering ||
-      (this.speechGateEnabled && !this.speechActive)
+      !this.speechWindow
     )
       return;
     const generation = this.generation;
@@ -411,6 +417,32 @@ export class PitchController {
             0,
             audio.currentTime - (samples.length / context.sampleRate) * audio.playbackRate
           );
+          const speechWindow = this.speechWindow;
+          if (!speechWindow) {
+            this.schedule();
+            return;
+          }
+          // The rolling analyser contains audio before the cue and can extend
+          // slightly beyond it at a boundary. Zero those samples before
+          // SwiftF0 inference so BGM outside the authored dialogue cannot own
+          // a candidate that is later projected into the cue.
+          const mediaSecondsPerSample = audio.playbackRate / context.sampleRate;
+          const cueStartIndex = Math.max(
+            0,
+            Math.min(
+              samples.length,
+              Math.ceil((speechWindow.start - windowStart) / mediaSecondsPerSample)
+            )
+          );
+          const cueEndIndex = Math.max(
+            cueStartIndex,
+            Math.min(
+              samples.length,
+              Math.ceil((speechWindow.end - windowStart) / mediaSecondsPerSample)
+            )
+          );
+          samples.fill(0, 0, cueStartIndex);
+          samples.fill(0, cueEndIndex);
           const id = ++this.sequence;
           this.pending = { id, windowStart, playbackRate: audio.playbackRate };
           this.worker!.postMessage(
