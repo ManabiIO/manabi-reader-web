@@ -131,8 +131,12 @@ prepare first.
 Runtime assets are under `static/manabitan/<revision>/`; the optional Jitendex
 ZIP is under `static/dictionary-archives/`. Service-worker exclusions keep both
 out of eager shell caching. The runtime is dynamically loaded only when dictionary
-search is used. Installing Jitendex or an imported ZIP is explicit. The Jitendex
-archive is pinned by byte count and SHA-256.
+search is used. Installing Jitendex or an imported ZIP is explicit. Full Dictionary mode also
+lists Reader-local dictionaries and lets the user enable, disable, or explicitly
+confirm deletion without touching extension storage. Any such mutation reopens
+the local translator before the active query runs again, so stale dictionary
+state cannot survive management changes. The Jitendex archive is pinned by byte
+count and SHA-256.
 
 One lease-owned dictionary worker is shared per tab. Closing search retires its
 worker; a replacement waits for retirement. Other tabs' exclusive-storage
