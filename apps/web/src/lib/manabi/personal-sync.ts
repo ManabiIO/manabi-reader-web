@@ -309,28 +309,29 @@ async function readLocal(
       'readerAnnotation',
       'readerAnnotationScope'
     ]);
-    if (copies.length)
-      await livePersonalCopies(
-        bookKey,
-        copies,
-        tx.objectStore('data'),
-        tx.objectStore('readerBookScope'),
-        accountId,
-        () => scoped(accountId)
-      );
-    const [annotation, owner] = await Promise.all([
-      tx.objectStore('readerAnnotation').get(entityId),
-      tx.objectStore('readerAnnotationScope').get(entityId)
-    ]);
-    scoped(accountId);
-    if (owner && owner.accountId !== accountId)
-      throw new Error(
-        'Annotation ownership changed while personal reading data was syncing. No reading state was changed.'
-      );
-    await tx.done;
-    return annotation && !annotation.deletedAt
-      ? wirePayload(annotation as unknown as Record<string, unknown>)
-      : null;
+    return commitTransaction(tx, async () => {
+      if (copies.length)
+        await livePersonalCopies(
+          bookKey,
+          copies,
+          tx.objectStore('data'),
+          tx.objectStore('readerBookScope'),
+          accountId,
+          () => scoped(accountId)
+        );
+      const [annotation, owner] = await Promise.all([
+        tx.objectStore('readerAnnotation').get(entityId),
+        tx.objectStore('readerAnnotationScope').get(entityId)
+      ]);
+      scoped(accountId);
+      if (owner && owner.accountId !== accountId)
+        throw new Error(
+          'Annotation ownership changed while personal reading data was syncing. No reading state was changed.'
+        );
+      return annotation && !annotation.deletedAt
+        ? wirePayload(annotation as unknown as Record<string, unknown>)
+        : null;
+    });
   }
 
   if (!copies.length) return null;
@@ -338,6 +339,26 @@ async function readLocal(
     const day = dayId.exec(entityId)?.[1];
     if (!day) return null;
     const tx = db.transaction(['data', 'readerBookScope', 'readerStatistic']);
+    return commitTransaction(tx, async () => {
+      const live = await livePersonalCopies(
+        bookKey,
+        copies,
+        tx.objectStore('data'),
+        tx.objectStore('readerBookScope'),
+        accountId,
+        () => scoped(accountId)
+      );
+      if (!live.length) return null;
+      const statistic = await tx.objectStore('readerStatistic').get([bookKey, day]);
+      scoped(accountId);
+      return statistic
+        ? payloadOf(statistic as unknown as Record<string, unknown>, statFields)
+        : null;
+    });
+  }
+
+  const tx = db.transaction(['data', 'readerBookScope', 'bookmark']);
+  return commitTransaction(tx, async () => {
     const live = await livePersonalCopies(
       bookKey,
       copies,
@@ -346,33 +367,12 @@ async function readLocal(
       accountId,
       () => scoped(accountId)
     );
-    if (!live.length) {
-      await tx.done;
-      return null;
-    }
-    const statistic = await tx.objectStore('readerStatistic').get([bookKey, day]);
+    const bookmarks = (
+      await Promise.all(live.map((book) => tx.objectStore('bookmark').get(book.id)))
+    ).filter((value): value is BooksDbBookmarkData => !!value);
     scoped(accountId);
-    await tx.done;
-    return statistic
-      ? payloadOf(statistic as unknown as Record<string, unknown>, statFields)
-      : null;
-  }
-
-  const tx = db.transaction(['data', 'readerBookScope', 'bookmark']);
-  const live = await livePersonalCopies(
-    bookKey,
-    copies,
-    tx.objectStore('data'),
-    tx.objectStore('readerBookScope'),
-    accountId,
-    () => scoped(accountId)
-  );
-  const bookmarks = (
-    await Promise.all(live.map((book) => tx.objectStore('bookmark').get(book.id)))
-  ).filter((value): value is BooksDbBookmarkData => !!value);
-  scoped(accountId);
-  await tx.done;
-  return bookmarkPayload(bookmarks, kind);
+    return bookmarkPayload(bookmarks, kind);
+  });
 }
 
 function bookmarkPayload(bookmarks: BooksDbBookmarkData[], kind: PersonalKind): Payload {
@@ -406,45 +406,43 @@ async function applyLocal(
       ['data', 'readerBookScope', 'readerAnnotation', 'readerAnnotationScope'],
       'readwrite'
     );
-    if (copies.length)
-      await livePersonalCopies(
-        bookKey,
-        copies,
-        tx.objectStore('data'),
-        tx.objectStore('readerBookScope'),
-        accountId,
-        () => scoped(accountId)
-      );
-    const [before, owner] = await Promise.all([
-      tx.objectStore('readerAnnotation').get(entityId),
-      tx.objectStore('readerAnnotationScope').get(entityId)
-    ]);
-    scoped(accountId);
-    if (owner && owner.accountId !== accountId)
-      throw new Error(
-        'Annotation ownership changed while personal reading data was syncing. No reading state was changed.'
-      );
-    const current =
-      before && !before.deletedAt
-        ? wirePayload(before as unknown as Record<string, unknown>)
-        : null;
-    if (!equal(current, expected)) {
-      await tx.done;
-      throw new IntegrationError('conflict', 409);
-    }
-    scoped(accountId);
-    if (payload) {
-      await tx.objectStore('readerAnnotation').put(payload as unknown as ReaderAnnotation);
-      if (!owner)
-        await tx.objectStore('readerAnnotationScope').put({ annotationId: entityId, accountId });
-    } else if (before)
-      await tx.objectStore('readerAnnotation').put({
-        ...before,
-        deletedAt: new Date().toISOString(),
-        revision: before.revision + 1
-      });
-    scoped(accountId);
-    await tx.done;
+    await commitTransaction(tx, async () => {
+      if (copies.length)
+        await livePersonalCopies(
+          bookKey,
+          copies,
+          tx.objectStore('data'),
+          tx.objectStore('readerBookScope'),
+          accountId,
+          () => scoped(accountId)
+        );
+      const [before, owner] = await Promise.all([
+        tx.objectStore('readerAnnotation').get(entityId),
+        tx.objectStore('readerAnnotationScope').get(entityId)
+      ]);
+      scoped(accountId);
+      if (owner && owner.accountId !== accountId)
+        throw new Error(
+          'Annotation ownership changed while personal reading data was syncing. No reading state was changed.'
+        );
+      const current =
+        before && !before.deletedAt
+          ? wirePayload(before as unknown as Record<string, unknown>)
+          : null;
+      if (!equal(current, expected)) throw new IntegrationError('conflict', 409);
+      scoped(accountId);
+      if (payload) {
+        await tx.objectStore('readerAnnotation').put(payload as unknown as ReaderAnnotation);
+        if (!owner)
+          await tx.objectStore('readerAnnotationScope').put({ annotationId: entityId, accountId });
+      } else if (before)
+        await tx.objectStore('readerAnnotation').put({
+          ...before,
+          deletedAt: new Date().toISOString(),
+          revision: before.revision + 1
+        });
+      scoped(accountId);
+    });
     return;
   }
 
@@ -456,6 +454,42 @@ async function applyLocal(
       ['data', 'readerBookScope', 'readerStatistic', 'lastModified'],
       'readwrite'
     );
+    await commitTransaction(tx, async () => {
+      const live = await livePersonalCopies(
+        bookKey,
+        copies,
+        tx.objectStore('data'),
+        tx.objectStore('readerBookScope'),
+        accountId,
+        () => scoped(accountId)
+      );
+      const before = await tx.objectStore('readerStatistic').get([bookKey, day]);
+      const current = before
+        ? payloadOf(before as unknown as Record<string, unknown>, statFields)
+        : null;
+      if (!equal(current, expected)) throw new IntegrationError('conflict', 409);
+      scoped(accountId);
+      if (payload)
+        await tx.objectStore('readerStatistic').put({
+          ...payload,
+          bookKey,
+          title: live[0].title,
+          dateKey: day
+        } as BooksDbStatistic & { bookKey: string });
+      else await tx.objectStore('readerStatistic').delete([bookKey, day]);
+      await tx.objectStore('lastModified').put({
+        title: bookKey,
+        dataType: StorageDataType.STATISTICS,
+        lastModifiedValue: Date.now()
+      });
+      scoped(accountId);
+    });
+    database.dataListChanged$.next(undefined);
+    return;
+  }
+
+  const tx = db.transaction(['data', 'readerBookScope', 'bookmark'], 'readwrite');
+  await commitTransaction(tx, async () => {
     const live = await livePersonalCopies(
       bookKey,
       copies,
@@ -464,69 +498,30 @@ async function applyLocal(
       accountId,
       () => scoped(accountId)
     );
-    const before = await tx.objectStore('readerStatistic').get([bookKey, day]);
-    const current = before
-      ? payloadOf(before as unknown as Record<string, unknown>, statFields)
-      : null;
-    if (!equal(current, expected)) {
-      await tx.done;
+    const observed = (
+      await Promise.all(live.map((book) => tx.objectStore('bookmark').get(book.id)))
+    ).filter((value): value is BooksDbBookmarkData => !!value);
+    if (!equal(bookmarkPayload(observed, kind), expected))
       throw new IntegrationError('conflict', 409);
+    scoped(accountId);
+    for (const book of live) {
+      const old = await tx.objectStore('bookmark').get(book.id);
+      const next: BooksDbBookmarkData = {
+        ...(old ?? { dataId: book.id, progress: undefined, lastBookmarkModified: 0 }),
+        dataId: book.id
+      };
+      if (kind === 'completion') {
+        if (payload?.completion)
+          next.completion = payload.completion as BooksDbBookmarkData['completion'];
+        else delete next.completion;
+      } else {
+        for (const field of fields) delete (next as unknown as Record<string, unknown>)[field];
+        Object.assign(next, payload ?? {});
+      }
+      await tx.objectStore('bookmark').put(next);
+      scoped(accountId);
     }
-    scoped(accountId);
-    if (payload)
-      await tx.objectStore('readerStatistic').put({
-        ...payload,
-        bookKey,
-        title: live[0].title,
-        dateKey: day
-      } as BooksDbStatistic & { bookKey: string });
-    else await tx.objectStore('readerStatistic').delete([bookKey, day]);
-    await tx.objectStore('lastModified').put({
-      title: bookKey,
-      dataType: StorageDataType.STATISTICS,
-      lastModifiedValue: Date.now()
-    });
-    scoped(accountId);
-    await tx.done;
-    database.dataListChanged$.next(undefined);
-    return;
-  }
-
-  const tx = db.transaction(['data', 'readerBookScope', 'bookmark'], 'readwrite');
-  const live = await livePersonalCopies(
-    bookKey,
-    copies,
-    tx.objectStore('data'),
-    tx.objectStore('readerBookScope'),
-    accountId,
-    () => scoped(accountId)
-  );
-  const observed = (
-    await Promise.all(live.map((book) => tx.objectStore('bookmark').get(book.id)))
-  ).filter((value): value is BooksDbBookmarkData => !!value);
-  if (!equal(bookmarkPayload(observed, kind), expected)) {
-    await tx.done;
-    throw new IntegrationError('conflict', 409);
-  }
-  scoped(accountId);
-  for (const book of live) {
-    const old = await tx.objectStore('bookmark').get(book.id);
-    const next: BooksDbBookmarkData = {
-      ...(old ?? { dataId: book.id, progress: undefined, lastBookmarkModified: 0 }),
-      dataId: book.id
-    };
-    if (kind === 'completion') {
-      if (payload?.completion)
-        next.completion = payload.completion as BooksDbBookmarkData['completion'];
-      else delete next.completion;
-    } else {
-      for (const field of fields) delete (next as unknown as Record<string, unknown>)[field];
-      Object.assign(next, payload ?? {});
-    }
-    await tx.objectStore('bookmark').put(next);
-    scoped(accountId);
-  }
-  await tx.done;
+  });
   database.bookmarksChanged$.next();
 }
 
