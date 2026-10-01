@@ -463,6 +463,8 @@ class UnifiedSearch(ProductJourneyBase):
         field.fill('犬')
         expect(self.page.locator('button.passage mark')).to_have_text('犬')
         expect(field).to_be_focused()
+        expect(field).to_have_value('犬')
+        expect(self.page).to_have_url(re.compile(r'[?&]q=%E7%8A%AC(?:&|$)'))
         expect(self.page.locator('button.passage')).to_have_count(1)
         self.checkpoint('unified-latest-query')
 
