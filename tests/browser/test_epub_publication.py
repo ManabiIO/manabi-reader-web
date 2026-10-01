@@ -185,6 +185,49 @@ class EpubPublicationBrowser(ReaderBrowser):
         self.assertEqual(actual, again)
         self.assertEqual([], self.errors)
 
+    def test_rtl_missing_resource_keeps_current_document_direction_and_can_retry(self):
+        self.open_resource_book(payload=rtl_language_epub())
+        result = self.page.evaluate(f"""async () => {{
+          const p={P}, section=p.sections[1], load=section.load;
+          let errors=0; p.addEventListener('navigationerror',()=>errors++);
+          const before={{
+            index:p.getContents()[0].index,
+            text:p.getContents()[0].doc.body.textContent,
+            bookDir:p.bookDir,
+            turnDir:p.pageTurnDirection,
+            hostDir:p.getAttribute('dir')
+          }};
+          section.load=async()=>null;
+          const failed=await p.goTo({{index:1}});
+          const afterFailure={{
+            index:p.getContents()[0].index,
+            text:p.getContents()[0].doc.body.textContent,
+            bookDir:p.bookDir,
+            turnDir:p.pageTurnDirection,
+            hostDir:p.getAttribute('dir')
+          }};
+          section.load=load;
+          const retry=await p.goTo({{index:1}});
+          const afterRetry={{
+            index:p.getContents()[0].index,
+            text:p.getContents()[0].doc.body.textContent,
+            bookDir:p.bookDir,
+            turnDir:p.pageTurnDirection,
+            hostDir:p.getAttribute('dir')
+          }};
+          return {{failed,retry,errors,before,afterFailure,afterRetry}};
+        }}""")
+        self.assertFalse(result['failed'])
+        self.assertTrue(result['retry'])
+        self.assertEqual(1, result['errors'])
+        self.assertEqual(result['before'], result['afterFailure'])
+        self.assertEqual('rtl', result['afterRetry']['bookDir'])
+        self.assertEqual('rtl', result['afterRetry']['turnDir'])
+        self.assertEqual('rtl', result['afterRetry']['hostDir'])
+        self.assertEqual(1, result['afterRetry']['index'])
+        self.assertIn('別の章', result['afterRetry']['text'])
+        self.assertEqual([], self.errors)
+
     def test_resource_language_and_text_direction_override_package_fallbacks(self):
         self.open_resource_book(payload=resource_semantics_epub())
         actual = self.page.evaluate(f"""() => {{
