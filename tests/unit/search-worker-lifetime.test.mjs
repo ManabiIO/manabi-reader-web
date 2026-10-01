@@ -68,13 +68,9 @@ test('a failed initial result receiver does not leave a worker alive', () =>
 test('change-driven snippet publication skips scan-only batches but keeps failures and completion', () =>
   withWorker((_Worker, workers) => {
     const states = [];
-    const stop = searchBodies(
-      '猫',
-      ['one'],
-      scope(),
-      (state) => states.push(state),
-      { progress: false }
-    );
+    const stop = searchBodies('猫', ['one'], scope(), (state) => states.push(state), {
+      progress: false
+    });
     assert.equal(states.length, 1);
     workers[0].emit('batch', { scanned: 20, failed: 0, batch: [] });
     assert.equal(states.length, 1);
