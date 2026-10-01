@@ -335,19 +335,27 @@
       if (plan.snippets && selectedSnippets.length)
         sources.push({
           start: (_signal, receive) => {
-            let rows: SearchRow[] = [];
+            let latest = { rows: [] as SearchRow[], failed: 0, truncated: false };
             return searchBodies(
               needle,
               selectedSnippets.map((item) => item.id),
               scope(),
               (batch) => {
-                rows = snippetContentRows(batch.hits, selectedSnippets);
-                receive({ ...batch, rows });
+                latest = {
+                  rows: snippetContentRows(batch.hits, selectedSnippets),
+                  failed: batch.failed,
+                  truncated: batch.truncated
+                };
+                receive({ ...batch, rows: latest.rows });
               },
               {
                 progress: false,
                 invalidated: () =>
-                  receive({ rows, busy: false, failed: 1, truncated: false })
+                  receive({
+                    ...latest,
+                    busy: false,
+                    failed: Math.max(1, latest.failed)
+                  })
               }
             );
           }
