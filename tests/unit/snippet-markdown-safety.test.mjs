@@ -162,6 +162,46 @@ test('underline and non-CommonMark list/link semantics select lossless HTML expo
   assert.equal(requiresHTMLMarkdown(paragraph([{ type: 'bold' }])), false);
 });
 
+test('lossless fallback emits HTML that preserves underline and list marker type', () => {
+  const underlined = {
+    type: 'doc',
+    content: [
+      {
+        type: 'paragraph',
+        attrs: { id: randomUUID() },
+        content: [{ type: 'text', text: 'underlined', marks: [{ type: 'underline' }] }]
+      }
+    ]
+  };
+  assert.match(exportMarkdown(underlined), /<u>underlined<\/u>/);
+
+  const alphaList = {
+    type: 'doc',
+    content: [
+      {
+        type: 'orderedList',
+        attrs: { id: randomUUID(), start: 1, type: 'a' },
+        content: [
+          {
+            type: 'listItem',
+            attrs: { id: randomUUID() },
+            content: [
+              {
+                type: 'paragraph',
+                attrs: { id: randomUUID() },
+                content: [{ type: 'text', text: 'alpha' }]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  };
+  const markdown = exportMarkdown(alphaList);
+  assert.match(markdown, /<ol[^>]*type="a"/);
+  assert.match(markdown, />alpha</);
+});
+
 test('fenced code containing list-like prose is not treated as a list', () => {
   const markdown = ['```text', 'Hi. there', '0. zero', '```'].join('\n');
   const html = markdownHTML(markdown);
