@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   librarySearchScopePlan,
   librarySearchScopes,
+  libraryShelfSearchQuery,
   parseLibrarySearchScope
 } from '../../apps/web/src/lib/search/library-search-scope.ts';
 
@@ -33,4 +34,12 @@ test('library search scopes define one orthogonal corpus plan', () => {
   assert.equal(parseLibrarySearchScope('all'), 'everything');
   assert.equal(parseLibrarySearchScope('unknown'), 'everything');
   assert.equal(parseLibrarySearchScope(null), 'everything');
+});
+
+
+test('unified search suppresses hidden shelf filtering until selection mode owns the shelf', () => {
+  assert.equal(libraryShelfSearchQuery('猫', false), '');
+  assert.equal(libraryShelfSearchQuery('猫', true), '猫');
+  assert.equal(libraryShelfSearchQuery('', false), '');
+  assert.equal(libraryShelfSearchQuery('', true), '');
 });
