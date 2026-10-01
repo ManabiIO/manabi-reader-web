@@ -380,7 +380,7 @@ def main():
                 const r=child.getBoundingClientRect();
                 return {
                     tag:child.tagName, cls:String(child.className || '').slice(0,120),
-                    text:(child.textContent || '').trim().replace(/\s+/g,' ').slice(0,80),
+                    text:(child.textContent || '').trim().replace(/\\s+/g,' ').slice(0,80),
                     left:r.left, right:r.right, width:r.width
                 };
             }).filter(item => item.right > bounds.right + 1 || item.left < bounds.left - 1)
