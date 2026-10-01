@@ -246,6 +246,10 @@ class PanelUsabilityBrowser(LibraryBase):
         self.assertGreaterEqual(metric.bounding_box()['height'], 43.99)
         self.assert_unoccluded(metric)
         expect(metric).to_have_attribute('aria-pressed', 'true')
+        hidden_value = metric.locator('[aria-hidden="true"]').first
+        expect(hidden_value).to_be_attached()
+        self.assertEqual('none', metric.evaluate('e => getComputedStyle(e).filter'))
+        self.assertNotEqual('none', hidden_value.evaluate('e => getComputedStyle(e).filter'))
         hidden_label = metric.get_attribute('aria-label')
         self.assertIn('value hidden', hidden_label)
         self.assertNotIn('1 min', hidden_label)
