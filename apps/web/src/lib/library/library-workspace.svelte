@@ -97,6 +97,7 @@
   import type { ReaderLocator } from '../reader-location';
   import UnifiedSearch from '../search/unified-search.svelte';
   import {
+    libraryShelfSearchQuery,
     parseLibrarySearchScope,
     type LibrarySearchScope
   } from '../search/library-search-scope';
@@ -343,6 +344,8 @@
   // not silently constrain the All/Titles/Content filters.
   $: searchableBooks = books;
   $: normalizedQuery = foldSearch(query.trim());
+  $: unifiedSearchOwnsShelf = !!normalizedQuery && !selectMode;
+  $: shelfQuery = libraryShelfSearchQuery(normalizedQuery, selectMode);
   $: metadataMatchIndex = bookTitleMatchIndex(
     searchableBooks,
     tree,
@@ -356,11 +359,13 @@
   );
   $: flatDestination = !series && (collectionId === 'finished' || !!selectedCollection);
   $: seriesMatchedKeys =
-    normalizedQuery && !flatDestination
-      ? booksInMatchingSeries(series?.children || tree, normalizedQuery)
+    shelfQuery && !flatDestination
+      ? booksInMatchingSeries(series?.children || tree, shelfQuery)
       : [];
-  $: destinationNodes = flatDestination
-    ? books
+  $: destinationNodes = unifiedSearchOwnsShelf
+    ? []
+    : flatDestination
+      ? books
         .filter((book) =>
           includesBook(
             book,
@@ -381,7 +386,7 @@
         collectionId,
         selectedCollection?.members,
         notFinished,
-        normalizedQuery,
+        shelfQuery,
         seriesMatchedKeys
       ),
     sort,
@@ -392,7 +397,7 @@
       ? orderFinishedNodes(sortedDestination, finishedOrder)
       : sortedDestination;
   $: visibleBooks = allBooks(displayed);
-  $: scopedSeriesBooks = series
+  $: scopedSeriesBooks = !unifiedSearchOwnsShelf && series
     ? series.books.filter((book) =>
         includesBook(
           book,
@@ -404,7 +409,7 @@
         )
       )
     : [];
-  $: scopedVolumeOrder = series
+  $: scopedVolumeOrder = !unifiedSearchOwnsShelf && series
     ? allBooks(series.children).filter((book) =>
         includesBook(
           book,
