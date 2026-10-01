@@ -75,3 +75,59 @@ test('manual retry joins a pending prompt, then may retry one settled denial', a
   assert.equal(await api.retryPersistentStorage(), true);
   assert.equal(calls, 2, 'a granted persistence request was repeated');
 });
+
+test('status cannot let a stale persisted false overwrite an in-flight grant', async () => {
+  const persisted = deferred();
+  const granted = deferred();
+  const { api } = loadOfflineModule(
+    'apps/web/src/lib/data/window/navigator/persistent-storage.ts',
+    {
+      modules: {
+        './storage-access.mjs': {
+          createStorageAccess() {
+            return {
+              persisted: () => persisted.promise,
+              persist: () => granted.promise
+            };
+          }
+        }
+      }
+    }
+  );
+
+  const status = api.persistentStorageStatus();
+  const request = api.requestPersistentStorageOnce();
+  granted.resolve(true);
+  assert.equal(await request, true);
+  persisted.resolve(false);
+  assert.equal(
+    await status,
+    true,
+    'an older persisted() snapshot overwrote the newer successful request'
+  );
+});
+
+test('status inspection never starts a browser permission request by itself', async () => {
+  let requests = 0;
+  const { api } = loadOfflineModule(
+    'apps/web/src/lib/data/window/navigator/persistent-storage.ts',
+    {
+      modules: {
+        './storage-access.mjs': {
+          createStorageAccess() {
+            return {
+              persisted: async () => false,
+              persist: async () => {
+                requests += 1;
+                return true;
+              }
+            };
+          }
+        }
+      }
+    }
+  );
+  assert.equal(await api.persistentStorageStatus(), false);
+  assert.equal(requests, 0);
+});
+
