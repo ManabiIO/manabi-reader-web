@@ -299,14 +299,7 @@ try {
         box.y >= -1 && box.y + box.height <= 481,
         `Last Snippets action must scroll into the short viewport: ${JSON.stringify(box)}`
       );
-      assert(
-        await item.evaluate((node) => {
-          const r = node.getBoundingClientRect();
-          const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-          return !!hit && (hit === node || node.contains(hit));
-        }),
-        'Last Snippets action must remain hit-testable after keyboard scrolling'
-      );
+      await item.click({ trial: true });
     }
   }
   await page.keyboard.press('Escape');
@@ -328,14 +321,7 @@ try {
     assert(box && box.height >= 43.5, `${name} must remain at least 44 CSS px high`);
     assert(box.x >= -1 && box.x + box.width <= 321, `${name} must stay inside the viewport`);
     assert(box.y >= -1 && box.y + box.height <= 481, `${name} must be vertically reachable`);
-    assert(
-      await control.evaluate((node) => {
-        const r = node.getBoundingClientRect();
-        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-        return !!hit && (hit === node || node.contains(hit));
-      }),
-      `${name} must remain hit-testable after enlarged-text scrolling`
-    );
+    await control.click({ trial: true });
   }
   const verticalToggle = readingToolbar.getByRole('button', {
     name: 'Vertical reading',
