@@ -661,7 +661,7 @@
     const target = event.target;
     if (
       !(target instanceof HTMLElement) ||
-      !target.closest('.batch, .snippet-shelf')
+      (target !== selectionModeButton && !target.closest('.batch, .snippet-shelf'))
     )
       return;
     event.preventDefault();
