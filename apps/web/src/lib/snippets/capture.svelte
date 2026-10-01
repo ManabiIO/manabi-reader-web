@@ -13,6 +13,7 @@
     createSnippet,
     passages,
     snippetKey,
+    truncateValidText,
     type SnippetDocument,
     type TextNode
   } from './document';
@@ -65,12 +66,14 @@
     const text = importContent(value.html, 'html');
     const created = createSnippet(text);
     created.source = {
-      title: value.title.slice(0, 1000),
-      item: value.item.slice(0, 1000),
-      quote: passages(text)
-        .map((passage) => passage.text)
-        .join('\n')
-        .slice(0, 4000)
+      title: truncateValidText(value.title, 1000),
+      item: truncateValidText(value.item, 1000),
+      quote: truncateValidText(
+        passages(text)
+          .map((passage) => passage.text)
+          .join('\n'),
+        4000
+      )
     };
     const key = crypto.randomUUID();
     await saveDraft(
