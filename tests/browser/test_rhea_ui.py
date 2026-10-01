@@ -1042,6 +1042,56 @@ class RheaReader(previous.RefinedAppearance):
         self.page.keyboard.press('Escape')
         expect(panel).to_have_count(0)
 
+    def test_statistics_options_close_stays_reachable_after_enlarged_body_scroll(self):
+        self.page.goto(self.origin + '/reader-web/statistics')
+        self.page.set_viewport_size({'width': 320, 'height': 320})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+
+        trigger = self.page.get_by_role('button', name='Statistics options', exact=True)
+        trigger.click()
+        self.page.get_by_role('menuitem', name='Statistics Settings', exact=True).click()
+        panel = self.page.get_by_role('dialog', name='Statistics options', exact=True)
+        expect(panel).to_be_visible()
+        scroll = panel.locator('[data-statistics-options-scroll]')
+        self.page.wait_for_function('e => e.scrollHeight > e.clientHeight', arg=scroll.element_handle())
+        scroll.evaluate('e => e.scrollTop = e.scrollHeight')
+        self.page.wait_for_function('e => e.scrollTop > 0', arg=scroll.element_handle())
+
+        close = panel.get_by_role('button', name='Close statistics options', exact=True)
+        box = close.bounding_box()
+        viewport = self.page.evaluate('''() => {
+          const v = visualViewport;
+          return {
+            left: v?.offsetLeft ?? 0,
+            top: v?.offsetTop ?? 0,
+            right: (v?.offsetLeft ?? 0) + (v?.width ?? innerWidth),
+            bottom: (v?.offsetTop ?? 0) + (v?.height ?? innerHeight)
+          };
+        }''')
+        self.assertGreaterEqual(box['width'], 43.99)
+        self.assertGreaterEqual(box['height'], 43.99)
+        self.assertGreaterEqual(box['x'], viewport['left'] - 1)
+        self.assertGreaterEqual(box['y'], viewport['top'] - 1)
+        self.assertLessEqual(box['x'] + box['width'], viewport['right'] + 1)
+        self.assertLessEqual(box['y'] + box['height'], viewport['bottom'] + 1)
+        self.assertTrue(close.evaluate('''e => {
+          const r = e.getBoundingClientRect();
+          const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return !!hit && (hit === e || e.contains(hit));
+        }'''))
+        self.assertEqual('hidden', panel.evaluate('e => getComputedStyle(e).overflowY'))
+
+        Path('test-results').mkdir(exist_ok=True)
+        self.page.screenshot(
+            path='test-results/statistics-options-post-scroll-200.png'
+        )
+        close.focus()
+        expect(close).to_be_focused()
+        close.press('Enter')
+        expect(panel).to_have_count(0)
+        expect(trigger).to_be_focused()
+        self.page.evaluate('document.documentElement.style.fontSize = ""')
+
     def test_statistics_raw_recovery_download_preserves_ambiguous_days(self):
         self.page.goto(self.origin + '/reader-web/statistics')
         expect(self.page.get_by_role('button', name='Statistics options', exact=True)).to_be_visible()
