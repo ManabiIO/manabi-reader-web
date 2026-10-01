@@ -228,6 +228,16 @@ class EpubPublicationBrowser(ReaderBrowser):
         self.assertIn('別の章', result['afterRetry']['text'])
         self.assertEqual([], self.errors)
 
+    def test_resource_without_language_inherits_package_language(self):
+        self.open_resource_book()
+        self.assertTrue(self.page.evaluate(f"async()=>await {P}.goTo({{index:1}})"))
+        self.page.wait_for_function(f"() => {P}.getContents()[0]?.index === 1")
+        self.assertEqual(
+            'ja',
+            self.page.evaluate(f"{P}.getContents()[0].doc.documentElement.lang")
+        )
+        self.assertEqual([], self.errors)
+
     def test_resource_language_and_text_direction_override_package_fallbacks(self):
         self.open_resource_book(payload=resource_semantics_epub())
         actual = self.page.evaluate(f"""() => {{
