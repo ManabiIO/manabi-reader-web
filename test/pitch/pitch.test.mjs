@@ -12,6 +12,9 @@ const { appendPoint, pitchPaths, initialPitchState } = await import(
 );
 const { PitchController } = await import(new URL('controller.mjs', process.env.PITCH_COMPILED));
 const { createPitchController } = await import(new URL('browser.mjs', process.env.PITCH_COMPILED));
+const { runSwiftF0Inference, swiftF0ModelGain } = await import(
+  new URL('swift-f0-runtime.mjs', process.env.PITCH_COMPILED)
+);
 
 test('pitch requests a 48 kHz context and falls back when the device rejects it', () => {
   const original = globalThis.AudioContext;
@@ -60,6 +63,93 @@ test('SwiftF0 frame selection retains its future-context margin and speech bound
   assert.ok(result.offsetSeconds <= result.windowSeconds - 0.15);
   assert.ok(Math.abs((result.offsetSeconds / SWIFT_F0_FRAME_SECONDS) % 1) < 1e-8);
 });
+test('SwiftF0 runtime copies results and disposes every native tensor', async () => {
+  let live = 0;
+  class Tensor {
+    constructor(type, data, dims) {
+      Object.assign(this, { type, data, dims, disposed: false });
+      live++;
+    }
+    dispose() {
+      assert.equal(this.disposed, false);
+      this.disposed = true;
+      live--;
+    }
+  }
+  const samples = tone(220, 16000);
+  const expected = Math.floor(samples.length / 256);
+  const session = {
+    async run() {
+      return {
+        pitch: new Tensor('float32', new Float32Array(expected).fill(220), [1, expected]),
+        confidence: new Tensor('float32', new Float32Array(expected).fill(0.9), [1, expected])
+      };
+    }
+  };
+  const result = await runSwiftF0Inference(
+    session,
+    (type, data, dims) => new Tensor(type, data, dims),
+    samples,
+    85,
+    520
+  );
+  assert.equal(result.pitch.length, expected);
+  assert.equal(result.pitch[0], 220);
+  assert.ok(Math.abs(result.confidence[0] - 0.9) < 1e-6);
+  assert.equal(live, 0, 'all input and output tensors must be disposed after each inference');
+});
+
+test('SwiftF0 runtime releases feeds after failure and rejects malformed model output', async () => {
+  let live = 0;
+  class Tensor {
+    constructor(type, data, dims) {
+      Object.assign(this, { type, data, dims });
+      live++;
+    }
+    dispose() {
+      live--;
+    }
+  }
+  const samples = tone(220, 16000);
+  await assert.rejects(
+    runSwiftF0Inference(
+      { run: async () => { throw new Error('inference failed'); } },
+      (type, data, dims) => new Tensor(type, data, dims),
+      samples,
+      85,
+      520
+    ),
+    /inference failed/
+  );
+  assert.equal(live, 0);
+
+  const expected = Math.floor(samples.length / 256);
+  await assert.rejects(
+    runSwiftF0Inference(
+      {
+        run: async () => ({
+          pitch: new Tensor('float32', new Float32Array(expected - 1).fill(220), [1, expected - 1]),
+          confidence: new Tensor('float32', new Float32Array(expected).fill(0.9), [1, expected])
+        })
+      },
+      (type, data, dims) => new Tensor(type, data, dims),
+      samples,
+      85,
+      520
+    ),
+    /malformed frame counts/
+  );
+  assert.equal(live, 0);
+});
+
+test('very quiet non-silent windows are lifted only for model inference', () => {
+  assert.equal(swiftF0ModelGain(new Float32Array(100).fill(0)), 1);
+  assert.equal(swiftF0ModelGain(new Float32Array(100).fill(0.1)), 1);
+  const gain = swiftF0ModelGain(new Float32Array(100).fill(0.005));
+  assert.ok(gain > 1);
+  assert.ok(Math.abs(0.005 * gain - 0.5) < 1e-6);
+});
+
 test('low confidence, silence and out-of-band SwiftF0 frames are unvoiced', () => {
   const samples = tone(220, 16000);
   const pitch = new Float64Array(24).fill(220);
@@ -78,6 +168,19 @@ test('low confidence, silence and out-of-band SwiftF0 frames are unvoiced', () =
   confidence[13] = 1;
   assert.equal(measurementFromSwiftF0(samples, pitch, confidence).hz, null);
 });
+test('a preceding voiced hop cannot authorize pitch in a silent current hop', () => {
+  const frameCount = 24;
+  const selected = frameCount - 1 - 10;
+  const samples = new Float32Array(frameCount * 256);
+  samples.fill(0.5, (selected - 1) * 256, selected * 256);
+  const pitch = new Float64Array(frameCount).fill(220);
+  const confidence = new Float32Array(frameCount).fill(1);
+  const result = measurementFromSwiftF0(samples, pitch, confidence);
+  assert.equal(result.hz, null);
+  assert.ok(result.rms > 0, 'the centered level window still sees the preceding hop');
+  assert.equal(result.amplitude > 0, true);
+});
+
 test('empty model output and malformed source rates fail closed', () => {
   assert.equal(measurementFromSwiftF0(new Float32Array(32), [], []).hz, null);
   for (const rate of [NaN, Infinity, 0, 7999, 192001])
