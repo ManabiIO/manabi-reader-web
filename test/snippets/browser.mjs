@@ -505,18 +505,22 @@ try {
     page.getByRole('toolbar', { name: 'Selected snippet actions', exact: true }).getByRole('status')
   ).toHaveText('1 selected');
   await checkboxEscape.press('Escape');
-  await expect(page.getByRole('toolbar', { name: 'Selected snippet actions', exact: true })).toHaveCount(
-    0
-  );
+  await expect(
+    page.getByRole('toolbar', { name: 'Selected snippet actions', exact: true })
+  ).toHaveCount(0);
   await expect(selectionToggleLarge).toBeFocused();
 
   // The explicit mode toggle is itself a valid keyboard exit point. Escape
   // should behave the same there instead of requiring an extra Enter activation.
   await selectionToggleLarge.press('Enter');
-  await expect(page.getByRole('toolbar', { name: 'Selected snippet actions', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('toolbar', { name: 'Selected snippet actions', exact: true })
+  ).toBeVisible();
   await expect(selectionToggleLarge).toHaveText('Done selecting');
   await selectionToggleLarge.press('Escape');
-  await expect(page.getByRole('toolbar', { name: 'Selected snippet actions', exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole('toolbar', { name: 'Selected snippet actions', exact: true })
+  ).toHaveCount(0);
   await expect(selectionToggleLarge).toHaveText('Select');
   await expect(selectionToggleLarge).toBeFocused();
   passed('snippet selection reflows and exits consistently by keyboard at 200% text');
