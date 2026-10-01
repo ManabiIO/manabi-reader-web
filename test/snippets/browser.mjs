@@ -257,6 +257,175 @@ try {
   await expect(page.getByRole('article', { name: 'Snippet content' })).toContainText('京都');
   passed('create, durable native IndexedDB save and reader reload');
 
+  // Every deliberate capture is persisted before presentation. Dispatch both
+  // in the same task so the second event exercises the first capture's busy
+  // suspension, not merely the already-open dialog path.
+  const capturePrefix = 'capture-durability-' + Date.now();
+  const draftCount = async () =>
+    (await records(page, 'snippetDrafts')).filter((draft) =>
+      draft.document?.source?.item?.startsWith(capturePrefix)
+    ).length;
+  await page.evaluate((capturePrefix) => {
+    const dispatch = (suffix, html) =>
+      window.dispatchEvent(
+        new CustomEvent('manabi-capture-snippet', {
+          detail: {
+            html,
+            title: 'Concurrent capture source',
+            item: capturePrefix + '-' + suffix,
+            owner: null
+          }
+        })
+      );
+    dispatch('first', '<p>最初の選択は開いたダイアログで処理します。</p>');
+    dispatch('second', '<p>二番目の選択も失わず後で復元します。</p>');
+  }, capturePrefix);
+  const captureDialog = page.getByRole('dialog', { name: 'Add to snippet' });
+  await expect(captureDialog).toBeVisible();
+  await expect.poll(draftCount).toBe(2);
+  await expect(captureDialog.getByRole('status')).toContainText(
+    '1 additional selection saved for later.'
+  );
+  await captureDialog.getByRole('button', { name: 'Keep for later', exact: true }).click();
+  await expect(captureDialog).toHaveCount(0);
+  await expect(page.getByRole('status')).toContainText('1 additional selection saved for later.');
+  await page.reload();
+  await expect.poll(draftCount).toBe(2);
+  const capturedDrafts = (await records(page, 'snippetDrafts')).filter((draft) =>
+    draft.document?.source?.item?.startsWith(capturePrefix)
+  );
+  assert.deepEqual(capturedDrafts.map((draft) => draft.document.source.item).sort(), [
+    capturePrefix + '-first',
+    capturePrefix + '-second'
+  ]);
+  assert(
+    capturedDrafts.some((draft) =>
+      JSON.stringify(draft.document.content).includes('最初の選択は開いたダイアログで処理します。')
+    )
+  );
+  assert(
+    capturedDrafts.some((draft) =>
+      JSON.stringify(draft.document.content).includes('二番目の選択も失わず後で復元します。')
+    )
+  );
+  const deleteDraftKeys = (keys) =>
+    page.evaluate(
+      async (keys) =>
+        new Promise((resolve, reject) => {
+          const open = indexedDB.open('manabi-reader-integrations');
+          open.onerror = () => reject(open.error);
+          open.onsuccess = () => {
+            const db = open.result;
+            const tx = db.transaction('snippetDrafts', 'readwrite');
+            for (const key of keys) tx.objectStore('snippetDrafts').delete(key);
+            tx.onerror = () => reject(tx.error);
+            tx.oncomplete = () => {
+              db.close();
+              resolve();
+            };
+          };
+        }),
+      keys
+    );
+  await deleteDraftKeys(capturedDrafts.map((draft) => draft.key));
+  passed('concurrent captures persist independently before destination UI');
+
+  // A failing first capture must not hide or discard a second capture that was
+  // already admitted during the same busy window.
+  const mixedPrefix = 'capture-mixed-outcome-' + Date.now();
+  await page.evaluate((mixedPrefix) => {
+    const dispatch = (suffix, html) =>
+      window.dispatchEvent(
+        new CustomEvent('manabi-capture-snippet', {
+          detail: {
+            html,
+            title: 'Mixed capture source',
+            item: mixedPrefix + '-' + suffix,
+            owner: null
+          }
+        })
+      );
+    dispatch('too-large', '<p>' + 'x'.repeat(2 * 1024 * 1024 + 1) + '</p>');
+    dispatch('saved', '<p>先の選択が失敗しても、この選択は下書きに残します。</p>');
+  }, mixedPrefix);
+  const mixedDrafts = async () =>
+    (await records(page, 'snippetDrafts')).filter((draft) =>
+      draft.document?.source?.item?.startsWith(mixedPrefix)
+    );
+  await expect.poll(async () => (await mixedDrafts()).length).toBe(1);
+  await expect(page.getByRole('dialog', { name: 'Add to snippet' })).toHaveCount(0);
+  const captureNotice = page.getByRole('alert');
+  await expect(captureNotice).toContainText('Pasted content exceeds the 2 MiB limit.');
+  await expect(captureNotice).toContainText('1 additional selection saved for later.');
+  const [mixedDraft] = await mixedDrafts();
+  assert.equal(mixedDraft.document.source.item, mixedPrefix + '-saved');
+  assert(JSON.stringify(mixedDraft.document.content).includes('この選択は下書きに残します。'));
+  await deleteDraftKeys([mixedDraft.key]);
+  await captureNotice.getByRole('button', { name: 'Dismiss', exact: true }).click();
+  passed('a failed capture cannot hide or discard a concurrent persisted capture');
+
+  // A committed append must not be reported as failed merely because best-effort
+  // cleanup of its already-durable capture draft failed. The capture receipt
+  // remains the duplicate-prevention authority while the stale draft stays recoverable.
+  const cleanupPrefix = 'capture-cleanup-failure-' + Date.now();
+  await page.evaluate((cleanupPrefix) => {
+    window.dispatchEvent(
+      new CustomEvent('manabi-capture-snippet', {
+        detail: {
+          html: '<p>追加は成功し、下書き削除だけ失敗します。</p>',
+          title: 'Cleanup failure source',
+          item: cleanupPrefix,
+          owner: null
+        }
+      })
+    );
+  }, cleanupPrefix);
+  const cleanupDialog = page.getByRole('dialog', { name: 'Add to snippet' });
+  await expect(cleanupDialog).toBeVisible();
+  await expect
+    .poll(
+      async () =>
+        (await records(page, 'snippetDrafts')).filter(
+          (draft) => draft.document?.source?.item === cleanupPrefix
+        ).length
+    )
+    .toBe(1);
+  await page.evaluate(() => {
+    const original = globalThis.IDBObjectStore.prototype.delete;
+    let armed = true;
+    globalThis.IDBObjectStore.prototype.delete = function (key) {
+      if (armed && this.name === 'snippetDrafts') {
+        armed = false;
+        globalThis.IDBObjectStore.prototype.delete = original;
+        throw new globalThis.DOMException('Injected capture cleanup failure', 'AbortError');
+      }
+      return original.call(this, key);
+    };
+  });
+  await cleanupDialog.getByRole('link', { name: '散歩の記録', exact: true }).click();
+  await expect(cleanupDialog).toHaveCount(0);
+  const cleanupNotice = page
+    .getByRole('status')
+    .filter({ hasText: 'Added to snippet. The saved capture draft could not be cleaned up' });
+  await expect(cleanupNotice).toBeVisible();
+  await expect
+    .poll(async () => {
+      const item = (await records(page)).find((record) => record.document.id === id);
+      return (
+        JSON.stringify(item?.document.content ?? {}).match(
+          /追加は成功し、下書き削除だけ失敗します。/g
+        )?.length ?? 0
+      );
+    })
+    .toBe(1);
+  const cleanupDrafts = (await records(page, 'snippetDrafts')).filter(
+    (draft) => draft.document?.source?.item === cleanupPrefix
+  );
+  assert.equal(cleanupDrafts.length, 1, 'Failed cleanup keeps the capture draft recoverable.');
+  await deleteDraftKeys(cleanupDrafts.map((draft) => draft.key));
+  await cleanupNotice.getByRole('button', { name: 'Dismiss', exact: true }).click();
+  passed('committed capture append survives draft cleanup failure without inviting a retry');
+
   // Stress the actual reader controls and vertical layout at enlarged UI text.
   await page.setViewportSize({ width: 320, height: 480 });
   await page.evaluate(() => {
