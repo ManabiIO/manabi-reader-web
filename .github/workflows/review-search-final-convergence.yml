@@ -1,0 +1,82 @@
+name: Final search convergence
+on:
+  push:
+    branches: [review/search-final-convergence-20261001]
+permissions:
+  contents: write
+jobs:
+  converge:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: pnpm
+      - name: Merge focused search branches onto current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/search-convergence"
+          git config user.name 'Manabi development'
+          git config user.email 'development@manabi.io'
+          git fetch origin \
+            review/search-convergence-219-222-20261001 \
+            fix/search-source-retirement-20261001 \
+            feat/dictionary-management-20261001
+          merge_one() {
+            local ref="$1"
+            if ! git merge --no-edit --no-ff "origin/$ref"; then
+              git status --porcelain=v1 > "$RUNNER_TEMP/search-convergence/status.txt"
+              git diff --name-only --diff-filter=U > "$RUNNER_TEMP/search-convergence/conflicts.txt"
+              git diff > "$RUNNER_TEMP/search-convergence/conflict.diff"
+              exit 86
+            fi
+          }
+          merge_one review/search-convergence-219-222-20261001
+          merge_one fix/search-source-retirement-20261001
+          merge_one feat/dictionary-management-20261001
+          git rev-parse HEAD > "$RUNNER_TEMP/search-convergence/merged-head.txt"
+          git diff origin/main...HEAD > "$RUNNER_TEMP/search-convergence/product.patch"
+      - name: Install exact dependency graph
+        run: pnpm install --frozen-lockfile
+      - name: Sync and typecheck
+        run: |
+          pnpm --dir apps/web exec svelte-kit sync
+          pnpm --dir apps/web check
+      - name: Lint
+        run: pnpm check
+      - name: Search unit contracts
+        run: |
+          node --experimental-strip-types --test \
+            tests/unit/unified-search.test.mjs \
+            tests/unit/library-search-scope.test.mjs \
+            tests/unit/search-normalization.test.mjs \
+            tests/unit/search-invalidation.test.mjs \
+            tests/unit/search-source-session.test.mjs \
+            tests/unit/search-result-rows.test.mjs \
+            tests/unit/search-worker-lifetime.test.mjs
+          node test/snippets/run.mjs
+          node tools/media/test.mjs
+      - name: Production build
+        env:
+          BASE_PATH: /reader-web
+          VITE_ENABLE_VIDEO_LEARNING: 'true'
+        run: pnpm build
+      - name: Publish qualified convergence branch
+        run: |
+          set -euo pipefail
+          git push origin HEAD:refs/heads/feat/search-final-convergence-20261001
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: search-final-convergence-evidence
+          path: \${{ runner.temp }}/search-convergence
+          retention-days: 3
