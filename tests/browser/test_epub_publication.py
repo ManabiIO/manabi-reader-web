@@ -58,6 +58,39 @@ def resource_epub(malformed=False):
     return output.getvalue()
 
 
+def illustration_epub():
+    output = io.BytesIO()
+    svg = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 900">
+      <rect width="600" height="900" fill="#ddd"/><circle cx="300" cy="450" r="180" fill="#555"/>
+    </svg>'''
+    package = f'''<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>{TITLE}</dc:title><dc:language>ja</dc:language></metadata>
+<manifest>
+<item id="start" href="start.xhtml" media-type="application/xhtml+xml"/>
+<item id="one" href="image1.xhtml" media-type="application/xhtml+xml"/>
+<item id="two" href="image2.xhtml" media-type="application/xhtml+xml"/>
+<item id="plate" href="plate.svg" media-type="image/svg+xml"/>
+</manifest><spine><itemref idref="start"/><itemref idref="one"/><itemref idref="two"/></spine></package>'''
+    start = '''<html xmlns="http://www.w3.org/1999/xhtml"><body>
+<p>挿絵の前</p><a id="to-image" href="image1.xhtml">挿絵へ</a></body></html>'''
+    image1 = '''<html xmlns="http://www.w3.org/1999/xhtml"><body><p>
+<img id="plate1" src="plate.svg" alt="First illustration"/></p></body></html>'''
+    image2 = '''<html xmlns="http://www.w3.org/1999/xhtml"><body><p>
+<img id="plate2" src="plate.svg" alt="Second illustration"/></p></body></html>'''
+    with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr('mimetype', 'application/epub+zip')
+        archive.writestr(
+            'META-INF/container.xml',
+            '<container><rootfiles><rootfile full-path="book.opf"/></rootfiles></container>'
+        )
+        archive.writestr('book.opf', package)
+        archive.writestr('start.xhtml', start)
+        archive.writestr('image1.xhtml', image1)
+        archive.writestr('image2.xhtml', image2)
+        archive.writestr('plate.svg', svg)
+    return output.getvalue()
+
+
 def deep_fragment_epub():
     """Put the linked target well past page one so chapter-start navigation cannot pass."""
     output = io.BytesIO()
@@ -247,6 +280,64 @@ class EpubPublicationBrowser(ReaderBrowser):
             expect(self.page.locator('.book-content-container #same')).to_be_visible(timeout=30000)
         else:
             expect(self.page.locator('#ttu-epub-0 .text')).to_be_visible(timeout=30000)
+
+    def test_foliate_consecutive_illustration_sections_are_single_visible_pages(self):
+        self.page.set_viewport_size({'width': 390, 'height': 844})
+        self.open_resource_book(payload=illustration_epub())
+        result = self.page.evaluate(f"""async () => {{
+          const p={P};
+          const check=async(index,id)=>{{
+            if(!(await p.goTo({{index}}))) throw Error('Failed illustration navigation');
+            await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+            const doc=p.getContents()[0].doc, image=doc.getElementById(id);
+            const ir=image.getBoundingClientRect(), pr=p.getBoundingClientRect();
+            return {{index:p.getContents()[0].index,pages:p.pages-2,
+              visible:ir.width>0&&ir.height>0&&ir.right>0&&ir.bottom>0&&ir.left<pr.width&&ir.top<pr.height,
+              fits:ir.width<=pr.width+1&&ir.height<=pr.height+1,natural:[image.naturalWidth,image.naturalHeight]}};
+          }};
+          return [await check(1,'plate1'),await check(2,'plate2')];
+        }}""")
+        for index, state in enumerate(result, start=1):
+            self.assertEqual(index, state['index'], state)
+            self.assertEqual(1, state['pages'], state)
+            self.assertTrue(state['visible'], state)
+            self.assertTrue(state['fits'], state)
+            self.assertGreater(state['natural'][0], 0, state)
+            self.assertGreater(state['natural'][1], 0, state)
+        self.assertEqual([], StaticHandler.probes)
+        self.assertEqual([], self.errors)
+
+    def test_legacy_consecutive_illustration_sections_do_not_create_blank_turns(self):
+        self.page.set_viewport_size({'width': 390, 'height': 844})
+        self.open_resource_book(payload=illustration_epub(), foliate=False)
+        self.page.locator('.book-content-container #to-image').click()
+        self.page.wait_for_function("""() =>
+          document.querySelector('.book-content-container')?.dataset.manabiSpineIndex === '1'
+          && document.querySelector('#plate1')?.naturalWidth > 0""")
+        first = self.page.evaluate("""() => {
+          const host=document.querySelector('.book-content').getBoundingClientRect();
+          const image=document.querySelector('#plate1').getBoundingClientRect();
+          return {visible:image.width>0&&image.height>0&&image.right>host.left&&image.left<host.right
+            &&image.bottom>host.top&&image.top<host.bottom,
+            fits:image.width<=host.width+1&&image.height<=host.height+1};
+        }""")
+        self.assertTrue(first['visible'], first)
+        self.assertTrue(first['fits'], first)
+        # One page turn must reach the next image-only spine item; an extra
+        # empty wrapper/page between the illustrations is a regression.
+        self.page.keyboard.press('ArrowRight')
+        self.page.wait_for_function("""() =>
+          document.querySelector('.book-content-container')?.dataset.manabiSpineIndex === '2'
+          && document.querySelector('#plate2')?.naturalWidth > 0""")
+        second = self.page.evaluate("""() => {
+          const host=document.querySelector('.book-content').getBoundingClientRect();
+          const image=document.querySelector('#plate2').getBoundingClientRect();
+          return {visible:image.width>0&&image.height>0&&image.right>host.left&&image.left<host.right
+            &&image.bottom>host.top&&image.top<host.bottom};
+        }""")
+        self.assertTrue(second['visible'], second)
+        self.assertEqual([], StaticHandler.probes)
+        self.assertEqual([], self.errors)
 
     def test_legacy_paginated_cross_resource_link_reveals_deep_fragment(self):
         self.page.set_viewport_size({'width': 390, 'height': 844})
