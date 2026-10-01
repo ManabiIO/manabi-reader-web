@@ -6,6 +6,8 @@
 
 import { summarize, type SnippetSummary } from './summary';
 import { integrationDB, equal } from '../manabi/persistence';
+import { commitTransaction } from '$lib/data/database/books-db/commit-transaction.mjs';
+import { requestPersistentStorageOnce } from '$lib/data/window/navigator/persistent-storage';
 import type { SourceDescriptor } from '../library/catalog';
 import { sourceKey } from '../library/organization-keys';
 import {
@@ -122,30 +124,27 @@ export async function mutateRecord(
   guard();
   const db = await integrationDB(),
     tx = db.transaction(['snippets', 'snippetSummaries'], 'readwrite');
-  try {
+  let modified = false;
+  const next = await commitTransaction(tx, async () => {
     const current = await tx.objectStore('snippets').get(recordKey(owner, id));
     guard();
-    const next = change(current);
-    const modified = !!next && !equal(current, next);
-    if (next && modified) {
-      if (next.owner !== owner || next.key !== recordKey(owner, id) || next.document.id !== id)
+    const candidate = change(current);
+    modified = !!candidate && !equal(current, candidate);
+    if (candidate && modified) {
+      if (
+        candidate.owner !== owner ||
+        candidate.key !== recordKey(owner, id) ||
+        candidate.document.id !== id
+      )
         throw new Error('Snippet ownership changed.');
-      parseSnippet(encodeSnippet(next.document));
-      await tx.objectStore('snippets').put(next);
-      await tx.objectStore('snippetSummaries').put(summarize(next));
+      parseSnippet(encodeSnippet(candidate.document));
+      await tx.objectStore('snippets').put(candidate);
+      await tx.objectStore('snippetSummaries').put(summarize(candidate));
     }
-    await tx.done;
-    if (modified) changed();
-    return next;
-  } catch (error) {
-    try {
-      tx.abort();
-    } catch {
-      /* already aborted */
-    }
-    await tx.done.catch(() => undefined);
-    throw error;
-  }
+    return candidate;
+  });
+  if (modified) changed();
+  return next;
 }
 export async function saveDocument(
   owner: string,
@@ -154,6 +153,7 @@ export async function saveDocument(
   destination: Destination | undefined,
   guard: Guard
 ) {
+  guard();
   return mutateRecord(owner, document.id, guard, (current) => {
     if ((current?.document.revision ?? null) !== base)
       throw new SnippetError(
@@ -168,6 +168,7 @@ export async function saveDocument(
         'conflict',
         'Resolve the conflicting version before editing this snippet.'
       );
+    void requestPersistentStorageOnce();
     return {
       ...current,
       key: recordKey(owner, document.id),
@@ -192,20 +193,11 @@ export async function saveDraft(draft: SnippetDraft, guard: Guard) {
   parseSnippet(encodeSnippet(draft.document));
   const db = await integrationDB(),
     tx = db.transaction('snippetDrafts', 'readwrite');
-  try {
+  await commitTransaction(tx, async () => {
     const previous = await tx.store.get(draft.key);
     guard();
     if (!previous || previous.updatedAt <= draft.updatedAt) await tx.store.put(draft);
-    await tx.done;
-  } catch (error) {
-    try {
-      tx.abort();
-    } catch {
-      /* settled */
-    }
-    await tx.done.catch(() => undefined);
-    throw error;
-  }
+  });
 }
 export async function drafts(owner: string) {
   return (await integrationDB()).getAllFromIndex('snippetDrafts', 'owner', owner);
@@ -411,7 +403,7 @@ export async function putTransfer(transfer: SnippetTransfer, guard: Guard) {
   guard();
   const db = await integrationDB(),
     tx = db.transaction('snippetTransfers', 'readwrite');
-  try {
+  await commitTransaction(tx, async () => {
     const previous = await tx.store.get(transfer.key);
     guard();
     if (
@@ -433,17 +425,8 @@ export async function putTransfer(transfer: SnippetTransfer, guard: Guard) {
     )
       throw new Error('This move already advanced in another tab. Reload its current status.');
     await tx.store.put(transfer);
-    await tx.done;
-    changed();
-  } catch (error) {
-    try {
-      tx.abort();
-    } catch {
-      /* settled */
-    }
-    await tx.done.catch(() => undefined);
-    throw error;
-  }
+  });
+  changed();
 }
 /** Releasing editing and completing its journal must be one durable transaction. */
 export async function finishTransfer(
@@ -454,7 +437,7 @@ export async function finishTransfer(
   guard();
   const db = await integrationDB(),
     tx = db.transaction(['snippets', 'snippetSummaries', 'snippetTransfers'], 'readwrite');
-  try {
+  await commitTransaction(tx, async () => {
     const journal = await tx.objectStore('snippetTransfers').get(operation.key);
     const current = await tx
       .objectStore('snippets')
@@ -484,17 +467,8 @@ export async function finishTransfer(
         .objectStore('snippetTransfers')
         .put({ ...journal, phase: 'complete', issue: operation.issue });
     }
-    await tx.done;
-    changed();
-  } catch (error) {
-    try {
-      tx.abort();
-    } catch {
-      /* settled */
-    }
-    await tx.done.catch(() => undefined);
-    throw error;
-  }
+  });
+  changed();
 }
 export async function transfers(owner: string) {
   return (await integrationDB()).getAllFromIndex('snippetTransfers', 'owner', owner);
@@ -555,7 +529,7 @@ export async function beginTransfer(
   guard();
   const db = await integrationDB(),
     tx = db.transaction(['snippets', 'snippetSummaries', 'snippetTransfers'], 'readwrite');
-  try {
+  await commitTransaction(tx, async () => {
     const current = await tx
       .objectStore('snippets')
       .get(recordKey(operation.owner, operation.snippetId));
@@ -581,15 +555,6 @@ export async function beginTransfer(
     await tx.objectStore('snippetTransfers').put(operation);
     await tx.objectStore('snippets').put(next);
     await tx.objectStore('snippetSummaries').put(summarize(next));
-    await tx.done;
-    changed();
-  } catch (error) {
-    try {
-      tx.abort();
-    } catch {
-      /* Retain local state; the next explicit refresh can retry. */
-    }
-    await tx.done.catch(() => undefined);
-    throw error;
-  }
+  });
+  changed();
 }
