@@ -659,13 +659,13 @@ test('subtitle gaps stop inference and cue restart discards pre-cue batch frames
   assert.equal(f.workers[0].sent.length, beforeGap, 'known transcript gaps must not run SwiftF0');
 
   f.controller.setSpeechActive(true, 1.25);
-  assert.ok(
-    Math.abs(f.context.currentTime + SWIFT_F0_FUTURE_CONTEXT_SECONDS - 1.176) < 1e-9
-      || SWIFT_F0_FUTURE_CONTEXT_SECONDS > 0,
-  );
+  const worker = f.workers[0];
+  f.a.currentTime = 1.35;
+  f.frame(1100);
+  assert.equal(worker.sent.length, beforeGap, 'cue restart must wait for future context');
   f.a.currentTime = 1.45;
   f.frame(1200);
-  const worker = f.workers[0];
+  assert.equal(worker.sent.length, beforeGap + 1);
   const id = worker.sent.at(-1).id;
   const windowSeconds = ANALYSIS_WINDOW_SECONDS;
   worker.onmessage({
