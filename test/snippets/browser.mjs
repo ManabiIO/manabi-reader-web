@@ -785,10 +785,7 @@ try {
   assert.equal(
     await roundTripRuby.evaluate((ruby) =>
       [...ruby.childNodes]
-        .filter(
-          (node) =>
-            !(node instanceof Element && (node.matches('rt') || node.matches('rp')))
-        )
+        .filter((node) => node.nodeName !== 'RT' && node.nodeName !== 'RP')
         .map((node) => node.textContent ?? '')
         .join('')
     ),
