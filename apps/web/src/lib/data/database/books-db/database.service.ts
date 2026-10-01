@@ -1218,58 +1218,19 @@ export class DatabaseService {
     }
 
     const tx = db.transaction(['readingGoal'], 'readwrite');
-
-    try {
+    await commitTransaction(tx, async () => {
       const readingGoalStore = tx.objectStore('readingGoal');
-      const limiter = pLimit(1);
-      const tasks: Promise<void>[] = [];
 
       readingGoalsToStore.sort(readingGoalSortFunction);
+      await readingGoalStore.clear();
+      for (const readingGoal of readingGoalsToStore) await readingGoalStore.put(readingGoal);
+    });
 
-      tasks.push(
-        limiter(async () => {
-          try {
-            await readingGoalStore.clear();
-          } catch (error: any) {
-            limiter.clearQueue();
+    lastReadingGoalsModified$.next(newReadingGoalModified);
 
-            throw error;
-          }
-        })
-      );
+    const currentUserGoal = await getCurrentReadingGoal();
 
-      readingGoalsToStore.forEach((readingGoal) =>
-        tasks.push(
-          limiter(async () => {
-            try {
-              await readingGoalStore.put(readingGoal);
-            } catch (error: any) {
-              limiter.clearQueue();
-
-              throw error;
-            }
-          })
-        )
-      );
-
-      await Promise.all(tasks);
-      await tx.done;
-
-      lastReadingGoalsModified$.next(newReadingGoalModified);
-
-      const currentUserGoal = await getCurrentReadingGoal();
-
-      readingGoal$.next(currentUserGoal);
-    } catch (error: any) {
-      try {
-        tx.abort();
-        await tx.done;
-      } catch (_) {
-        // no-op
-      }
-
-      throw error;
-    }
+    readingGoal$.next(currentUserGoal);
   }
 
   async deleteReadingGoal(dateKey?: string) {
