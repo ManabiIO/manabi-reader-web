@@ -52,13 +52,18 @@ export async function runSwiftF0Inference(
     throw new RangeError('SwiftF0 input gain is invalid');
 
   const audio = gain === 1 ? samples : Float32Array.from(samples, (value) => value * gain);
-  const feeds = {
-    audio: createTensor('float32', audio, [1, audio.length]),
-    fmin: createTensor('float32', Float32Array.of(minimum), []),
-    fmax: createTensor('float32', Float32Array.of(maximum), [])
-  };
+  const feeds: Record<string, SwiftF0TensorLike> = {};
+  const ownedFeeds: SwiftF0TensorLike[] = [];
   let result: Record<string, SwiftF0TensorLike> | undefined;
   try {
+    const tensor = (type: 'float32', data: Float32Array, dims: number[]) => {
+      const created = createTensor(type, data, dims);
+      ownedFeeds.push(created);
+      return created;
+    };
+    feeds.audio = tensor('float32', audio, [1, audio.length]);
+    feeds.fmin = tensor('float32', Float32Array.of(minimum), []);
+    feeds.fmax = tensor('float32', Float32Array.of(maximum), []);
     result = await session.run(feeds);
     const rawPitch = result.pitch?.data;
     const rawConfidence = result.confidence?.data;
@@ -84,6 +89,6 @@ export async function runSwiftF0Inference(
     }
     return { pitch, confidence };
   } finally {
-    disposeAll([...(result ? Object.values(result) : []), ...Object.values(feeds)]);
+    disposeAll([...(result ? Object.values(result) : []), ...ownedFeeds]);
   }
 }
