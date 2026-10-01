@@ -1,5 +1,6 @@
 /** @license BSD-3-Clause */
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import {
   exportMarkdown,
@@ -55,7 +56,7 @@ test('repeated Markdown serialization stays isolated and deterministic', () => {
     content: [
       {
         type: 'paragraph',
-        attrs: { id: crypto.randomUUID() },
+        attrs: { id: randomUUID() },
         content: [
           { type: 'text', text: 'One ' },
           { type: 'text', text: 'bold', marks: [{ type: 'bold' }] },
@@ -76,7 +77,7 @@ test('ruby and zero-start lists select lossless HTML Markdown export', () => {
       content: [
         {
           type: 'paragraph',
-          attrs: { id: crypto.randomUUID() },
+          attrs: { id: randomUUID() },
           content: [
             {
               type: 'text',
@@ -95,13 +96,70 @@ test('ruby and zero-start lists select lossless HTML Markdown export', () => {
       content: [
         {
           type: 'orderedList',
-          attrs: { id: crypto.randomUUID(), start: 0 },
+          attrs: { id: randomUUID(), start: 0 },
           content: []
         }
       ]
     }),
     true
   );
+});
+
+test('underline and non-CommonMark list/link semantics select lossless HTML export', () => {
+  const paragraph = (marks) => ({
+    type: 'doc',
+    content: [
+      {
+        type: 'paragraph',
+        attrs: { id: randomUUID() },
+        content: [{ type: 'text', text: 'styled', marks }]
+      }
+    ]
+  });
+  assert.equal(requiresHTMLMarkdown(paragraph([{ type: 'underline' }])), true);
+  assert.equal(
+    requiresHTMLMarkdown(
+      paragraph([
+        {
+          type: 'link',
+          attrs: {
+            href: 'https://example.com/',
+            target: '_self',
+            rel: 'noopener',
+            class: null,
+            title: null
+          }
+        }
+      ])
+    ),
+    true
+  );
+  assert.equal(
+    requiresHTMLMarkdown({
+      type: 'doc',
+      content: [
+        {
+          type: 'orderedList',
+          attrs: { id: randomUUID(), start: 1, type: 'a' },
+          content: [
+            {
+              type: 'listItem',
+              attrs: { id: randomUUID() },
+              content: [
+                {
+                  type: 'paragraph',
+                  attrs: { id: randomUUID() },
+                  content: [{ type: 'text', text: 'alpha' }]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }),
+    true
+  );
+  assert.equal(requiresHTMLMarkdown(paragraph([{ type: 'bold' }])), false);
 });
 
 test('fenced code containing list-like prose is not treated as a list', () => {
@@ -117,15 +175,15 @@ test('snippet schema accepts zero-start ordered lists but still rejects negative
     content: [
       {
         type: 'orderedList',
-        attrs: { id: crypto.randomUUID(), start: 0 },
+        attrs: { id: randomUUID(), start: 0 },
         content: [
           {
             type: 'listItem',
-            attrs: { id: crypto.randomUUID() },
+            attrs: { id: randomUUID() },
             content: [
               {
                 type: 'paragraph',
-                attrs: { id: crypto.randomUUID() },
+                attrs: { id: randomUUID() },
                 content: [{ type: 'text', text: 'zero' }]
               }
             ]
@@ -135,7 +193,7 @@ test('snippet schema accepts zero-start ordered lists but still rejects negative
     ]
   };
   assert.doesNotThrow(() => validateContent(valid));
-  const invalid = structuredClone(valid);
+  const invalid = globalThis.structuredClone(valid);
   invalid.content[0].attrs.start = -1;
   assert.throws(() => validateContent(invalid));
 });
