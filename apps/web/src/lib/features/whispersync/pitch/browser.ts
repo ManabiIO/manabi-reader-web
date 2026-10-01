@@ -7,8 +7,7 @@ import { PitchController } from './controller';
 import type { PitchState } from './model';
 
 const MIN_CONTEXT_SECONDS =
-  (SWIFT_F0_LEFT_CONTEXT_FRAMES + 1 + SWIFT_F0_LOOKAHEAD_FRAMES) *
-  SWIFT_F0_FRAME_SECONDS;
+  (SWIFT_F0_LEFT_CONTEXT_FRAMES + 1 + SWIFT_F0_LOOKAHEAD_FRAMES) * SWIFT_F0_FRAME_SECONDS;
 const MAX_ANALYSIS_CONTEXT_RATE = Math.floor(32768 / MIN_CONTEXT_SECONDS);
 
 function createAudioContext() {
