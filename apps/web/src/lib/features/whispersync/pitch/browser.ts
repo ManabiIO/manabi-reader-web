@@ -2,15 +2,17 @@ import { PitchController } from './controller';
 import type { PitchState } from './model';
 
 function createAudioContext() {
-  try {
-    // AnalyserNode is capped at 32,768 samples. A 48 kHz context preserves
-    // the full 550 ms SwiftF0 window even on devices with 96/192 kHz output.
-    return new AudioContext({ sampleRate: 48000 });
-  } catch {
-    // Some output devices reject an explicit rate. Retain pitch at the native
-    // rate rather than disabling it; the analyser still provides a shorter window.
-    return new AudioContext();
+  // AnalyserNode is capped at 32,768 samples. Keep the analysis context at a
+  // normal speech/audio rate so the full 640 ms SwiftF0 context fits even when
+  // the physical output device itself runs at 96/192 kHz.
+  for (const sampleRate of [48000, 44100]) {
+    try {
+      return new AudioContext({ sampleRate });
+    } catch {
+      // Try the other common rate before accepting the device-native context.
+    }
   }
+  return new AudioContext();
 }
 
 export function createPitchController(changed: (state: PitchState) => void) {
