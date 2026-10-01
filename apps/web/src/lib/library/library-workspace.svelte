@@ -97,6 +97,7 @@
   import type { ReaderLocator } from '../reader-location';
   import UnifiedSearch from '../search/unified-search.svelte';
   import {
+    libraryShelfSearchQuery,
     parseLibrarySearchScope,
     type LibrarySearchScope
   } from '../search/library-search-scope';
@@ -331,6 +332,7 @@
   // not silently constrain the All/Titles/Content filters.
   $: searchableBooks = books;
   $: normalizedQuery = foldSearch(query.trim());
+  $: shelfQuery = libraryShelfSearchQuery(normalizedQuery, selectMode);
   $: metadataMatchIndex = bookTitleMatchIndex(
     searchableBooks,
     tree,
@@ -344,8 +346,8 @@
   );
   $: flatDestination = !series && (collectionId === 'finished' || !!selectedCollection);
   $: seriesMatchedKeys =
-    normalizedQuery && !flatDestination
-      ? booksInMatchingSeries(series?.children || tree, normalizedQuery)
+    shelfQuery && !flatDestination
+      ? booksInMatchingSeries(series?.children || tree, shelfQuery)
       : [];
   $: destinationNodes = flatDestination
     ? books
@@ -355,7 +357,7 @@
             collectionId,
             selectedCollection?.members,
             notFinished,
-            normalizedQuery,
+            shelfQuery,
             seriesMatchedKeys
           )
         )
@@ -369,7 +371,7 @@
         collectionId,
         selectedCollection?.members,
         notFinished,
-        normalizedQuery,
+        shelfQuery,
         seriesMatchedKeys
       ),
     sort,
@@ -387,7 +389,7 @@
           collectionId,
           selectedCollection?.members,
           notFinished,
-          normalizedQuery,
+          shelfQuery,
           seriesMatchedKeys
         )
       )
@@ -399,7 +401,7 @@
           collectionId,
           selectedCollection?.members,
           notFinished,
-          normalizedQuery,
+          shelfQuery,
           seriesMatchedKeys
         )
       )
@@ -415,7 +417,7 @@
   $: currentLayout =
     collectionId === 'finished' && !series ? finishedLayout : series ? seriesLayout : layout;
   $: selectableBookIds = visibleBooks.flatMap((book) => (book.bookId ? [book.bookId] : []));
-  $: selectionScopeKey = `${viewerId ?? 'local'}:${collectionId}:${series?.id || ''}:${notFinished ? 'unfinished' : 'all'}:${normalizedQuery}`;
+  $: selectionScopeKey = `${viewerId ?? 'local'}:${collectionId}:${series?.id || ''}:${notFinished ? 'unfinished' : 'all'}:${shelfQuery}`;
   $: selectablePreviewKeys = visibleBooks.filter((book) => !book.bookId).map((book) => book.key);
   $: selectionSignature = JSON.stringify([
     selectionScopeKey,
