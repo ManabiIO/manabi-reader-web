@@ -22,6 +22,7 @@
     statusError = '',
     managing = '',
     pendingDelete = '',
+    setupOpen = false,
     message = '';
   let state: SearchState<DictionaryResult> = { state: 'idle' };
   let dictionaryStatus: DictionaryStatus | undefined;
@@ -33,6 +34,7 @@
   const task = queryTask<DictionaryResult>((next) => {
     state = next;
     if (next.state === 'error') retryableError = true;
+    if (full && next.state === 'ready' && next.value?.dictionaryCount === 0) setupOpen = true;
   });
   $: nextSignature = JSON.stringify([query, full, attempt, installing]);
   $: if (mounted && signature !== nextSignature) {
@@ -194,6 +196,7 @@
       });
       imported = true;
       if (!file) await opened.client.setDefault('installed', result.summary.title);
+      if (mounted) setupOpen = false;
       if (mounted)
         message = result.cancelledAfterCommit
           ? 'The dictionary finished installing before cancellation.'
@@ -300,7 +303,7 @@
     {/if}
   {/if}
   {#if full}
-    <details class="setup" open={state.value?.dictionaryCount === 0}>
+    <details class="setup" bind:open={setupOpen}>
       <summary>Local dictionaries</summary>
       <p class="note">
         These dictionaries stay in this browser and are separate from your extension’s dictionaries.
