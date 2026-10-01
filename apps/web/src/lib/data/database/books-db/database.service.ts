@@ -1051,59 +1051,19 @@ export class DatabaseService {
 
     const db = await this.db;
     const tx = db.transaction(['statistic', 'lastModified'], 'readwrite');
-    const titlesToDelete = new Set<string>();
-
-    try {
+    await commitTransaction(tx, async () => {
       const statisticsStore = tx.objectStore('statistic');
       const lastModifiedStore = tx.objectStore('lastModified');
-      const limiter = pLimit(1);
-      const tasks: Promise<void>[] = [];
+      const titlesToDelete = new Set(lastModifiedTitlesToDelete);
 
-      for (let index = 0, { length } = lastModifiedTitlesToDelete; index < length; index += 1) {
-        titlesToDelete.add(lastModifiedTitlesToDelete[index]);
+      for (const statistic of statistics) {
+        titlesToDelete.add(statistic.title);
+        await statisticsStore.delete([statistic.title, statistic.dateKey]);
       }
 
-      statistics.forEach((statistic) =>
-        tasks.push(
-          limiter(async () => {
-            try {
-              titlesToDelete.add(statistic.title);
-              await statisticsStore.delete([statistic.title, statistic.dateKey]);
-            } catch (error: any) {
-              limiter.clearQueue();
-
-              throw error;
-            }
-          })
-        )
-      );
-
-      [...titlesToDelete].forEach((titleToDelete) =>
-        tasks.push(
-          limiter(async () => {
-            try {
-              await lastModifiedStore.delete([titleToDelete, StorageDataType.STATISTICS]);
-            } catch (error: any) {
-              limiter.clearQueue();
-
-              throw error;
-            }
-          })
-        )
-      );
-
-      await Promise.all(tasks);
-      await tx.done;
-    } catch (error: any) {
-      try {
-        tx.abort();
-        await tx.done;
-      } catch (_) {
-        // no-op
-      }
-
-      throw error;
-    }
+      for (const titleToDelete of titlesToDelete)
+        await lastModifiedStore.delete([titleToDelete, StorageDataType.STATISTICS]);
+    });
   }
 
   async deleteStatisticEntries(
