@@ -8,20 +8,21 @@ import { createStorageAccess } from './storage-access.mjs';
 
 const automaticStorage = createStorageAccess(() => globalThis.navigator?.storage);
 let automaticRequest: Promise<boolean> | undefined;
-let automaticSettled = false;
+let automaticAttempted = false;
 let automaticResult: boolean | undefined;
 
 function startRequest() {
-  automaticSettled = false;
-  const current = automaticStorage
+  automaticAttempted = true;
+  let current: Promise<boolean>;
+  current = automaticStorage
     .persist()
     .catch(() => false)
     .then((result) => {
-      if (automaticRequest === current) automaticResult = result;
+      if (automaticRequest === current && automaticResult !== true) automaticResult = result;
       return result;
     })
     .finally(() => {
-      if (automaticRequest === current) automaticSettled = true;
+      if (automaticRequest === current) automaticRequest = undefined;
     });
   automaticRequest = current;
   return current;
@@ -33,7 +34,9 @@ function startRequest() {
  * delay the local write that motivated the request.
  */
 export function requestPersistentStorageOnce(): Promise<boolean> {
-  return automaticRequest ?? startRequest();
+  if (automaticRequest) return automaticRequest;
+  if (automaticAttempted) return Promise.resolve(automaticResult === true);
+  return startRequest();
 }
 
 /**
@@ -41,22 +44,27 @@ export function requestPersistentStorageOnce(): Promise<boolean> {
  * be retried explicitly, but a successful grant is never requested twice.
  */
 export function retryPersistentStorage(): Promise<boolean> {
-  if (automaticRequest && !automaticSettled) return automaticRequest;
+  if (automaticRequest) return automaticRequest;
   if (automaticResult === true) return Promise.resolve(true);
   return startRequest();
 }
 
-/** Return current persistence state without racing a stale persisted() snapshot. */
+/**
+ * Return current persistence state without racing a stale persisted() snapshot.
+ * This never starts browser permission UI.
+ */
 export async function persistentStorageStatus(): Promise<boolean> {
   if (await automaticStorage.persisted()) {
+    automaticAttempted = true;
     automaticResult = true;
     return true;
   }
   const request = automaticRequest;
-  return request ? await request : false;
+  if (request) return request;
+  return automaticResult === true;
 }
 
-/** Return the current automatic request without starting browser permission UI. */
+/** Return only the currently in-flight automatic/manual request, if any. */
 export function currentPersistentStorageRequest(): Promise<boolean> | undefined {
   return automaticRequest;
 }
