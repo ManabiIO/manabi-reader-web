@@ -526,10 +526,10 @@ test('bounded work: one in-flight request, timestamp at selected frame, no dupli
   assert.ok(
     Math.abs(f.state.points[0].time - (1 - worker.sent[0].samples.length / 48000 + 0.32)) < 1e-9
   );
-  f.frame(800);
+  f.frame(900);
   assert.equal(worker.sent.length, 2);
   f.result();
-  f.frame(900);
+  f.frame(1000);
   assert.equal(worker.sent.length, 2);
   f.controller.dispose();
 });
@@ -627,7 +627,8 @@ test('pause drops a pending result and watchdog while retaining the completed tr
   f.result();
   const completed = f.state.points;
   f.a.currentTime += 0.1;
-  f.frame(700);
+  f.frame(900);
+  assert.equal(f.workers[0].sent.length, 2, 'pause test must retire an active inference');
   f.a.paused = true;
   f.a.dispatchEvent(new Event('pause'));
   assert.equal(f.state.activity, 'paused');
@@ -638,7 +639,7 @@ test('pause drops a pending result and watchdog while retaining the completed tr
   f.play();
   await flush();
   f.a.currentTime += 0.1;
-  f.frame(1300);
+  f.frame(1600);
   f.result();
   assert.equal(f.state.points.length, 2);
   assert.equal(f.state.points[1].breakBefore, true);
