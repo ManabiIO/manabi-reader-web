@@ -58,6 +58,7 @@
   let renderFullStatisticsSummaryTable = window && window.matchMedia('(min-width: 768px)').matches;
   let statisticsSummaryTableContainerElm: HTMLElement;
   let statisticsSummaryPopover: Popover;
+  let statisticsSummaryDetailsClose: HTMLButtonElement | null = null;
   let statisticsSummaryButtonContainer: HTMLElement;
   let previousSummaryPage: HTMLButtonElement | null = null;
   let nextSummaryPage: HTMLButtonElement | null = null;
@@ -150,9 +151,12 @@
       : `${label}: ${value}. Activate for details.`;
   }
 
-  function openDetails(anchor: HTMLElement, details: string[]) {
+  async function openDetails(anchor: HTMLElement, details: string[]) {
     statisticsSummaryPopoverDetails = details;
-    void tick().then(() => statisticsSummaryPopover?.openAt(anchor));
+    await tick();
+    statisticsSummaryPopover?.openAt(anchor);
+    await tick();
+    statisticsSummaryDetailsClose?.focus({ preventScroll: true });
   }
 
   function openMetricDetails(
@@ -165,7 +169,7 @@
       $lastBlurredTrackerItems$ = new Set([...$lastBlurredTrackerItems$]);
       return;
     }
-    openDetails(anchor, details);
+    void openDetails(anchor, details);
   }
 
   async function pageSummary(delta: -1 | 1) {
@@ -519,7 +523,7 @@
           aria-label={`View details for ${currentStatisticsSummaryRow.title}`}
           title={currentStatisticsSummaryRow.title}
           on:click={(event) =>
-            openDetails(event.currentTarget, [currentStatisticsSummaryRow.title])}
+            void openDetails(event.currentTarget, [currentStatisticsSummaryRow.title])}
         >
           {currentStatisticsSummaryRow.title}
         </button>
@@ -633,6 +637,7 @@
       >
         <div slot="content" class="relative min-w-48 p-4 pr-14">
           <Button
+            bind:ref={statisticsSummaryDetailsClose}
             variant="ghost"
             size="icon"
             shape="circle"
