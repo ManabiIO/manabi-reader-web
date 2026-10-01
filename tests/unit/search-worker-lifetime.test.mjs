@@ -84,10 +84,17 @@ test('change-driven snippet publication skips scan-only batches but keeps failur
     });
     assert.equal(states.length, 3);
     assert.equal(states.at(-1).hits.size, 1);
-    workers[0].emit('done', { scanned: 61, failed: 1, batch: [], truncated: false });
+    workers[0].emit('batch', {
+      scanned: 61,
+      failed: 1,
+      batch: [{ id: 'one', hits: [{ locator: {}, excerpt: '猫 updated', reading: false }] }]
+    });
     assert.equal(states.length, 4);
+    assert.equal(states.at(-1).hits.get('one')[0].excerpt, '猫 updated');
+    workers[0].emit('done', { scanned: 62, failed: 1, batch: [], truncated: false });
+    assert.equal(states.length, 5);
     assert.equal(states.at(-1).busy, false);
-    assert.equal(states.at(-1).scanned, 61);
+    assert.equal(states.at(-1).scanned, 62);
     stop();
   }));
 
