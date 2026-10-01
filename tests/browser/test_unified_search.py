@@ -391,6 +391,9 @@ class UnifiedSearch(ProductJourneyBase):
 
         self.scope('Books')
         expect(field).to_have_value('SCOPE_TOKEN')
+        params = self.page.evaluate("""() => Object.fromEntries(new URL(location.href).searchParams)""")
+        self.assertEqual('SCOPE_TOKEN', params['q'])
+        self.assertEqual('books', params['scope'])
         expect(result_types.get_by_role('button', name='Dictionary', exact=True)).to_have_count(0)
         expect(rows).to_have_count(1, timeout=30000)
         expect(rows).to_contain_text('Book · Scope book')
