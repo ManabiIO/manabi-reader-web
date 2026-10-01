@@ -26,8 +26,10 @@ disclosure explains these limits without occupying the main transcript view.
 This is a **live rolling visualization**, not a precomputed full-cue graph.
 Not-yet-played passages have no contour. The 85–520 Hz speech range does not cover
 every voice. SwiftF0 is robust to many degraded-audio conditions but detects
-pitched sound rather than speaker identity, so music or another simultaneous
-speaker can still produce an estimate. It is a listening aid, **not dictionary
+pitched sound rather than speaker identity. Reader therefore does not run it in
+known subtitle gaps, which prevents background music from owning the contour
+when no dialogue is expected. Music or another simultaneous speaker during an
+active cue can still produce an estimate. It is a listening aid, **not dictionary
 pitch-accent inference or pronunciation grading**. Synthetic tone tests do not
 establish accuracy on Japanese speech.
 
@@ -48,11 +50,19 @@ button has a 44 px minimum target, accurate expanded/control semantics and
 keyboard focus styling. Reduced-motion and forced-colors modes are supported.
 
 The controller belongs to the persistent audiobook player, not the dismissible
-Sheet. It samples a bounded rolling ~0.55 s Web Audio window about every 96 ms,
-with one worker request in flight, and keeps at most 400 history points. SwiftF0
-resamples only that window to 16 kHz and selects the newest estimate with its
-documented future context; it never decodes or copies the entire audiobook. Analysis stops when the strip, panel or browser tab
-is hidden; pausing, ending and buffering retire both pending results and their
+Sheet. It samples a bounded rolling ~0.64 s Web Audio window about every 256 ms,
+with one worker request in flight. Each model run emits the newly stable
+32 ms-spaced contour frames that have both SwiftF0's required past and future
+context instead of discarding all but one. The 256 ms cadence cuts repeated
+overlapping model work by more than half while keeping the displayed trace
+dense. The history remains bounded to 400 points. SwiftF0 resamples only that window to 16 kHz and emits only newly stable
+estimates with the documented past/future context; it never decodes or copies
+the entire audiobook. Analysis stops when the strip, panel or browser tab is
+hidden and during known subtitle gaps. The rolling input is also zero-masked
+outside the exact active subtitle interval before inference, so music immediately
+before or after a cue cannot leak into a returned cue estimate. While inference
+is gated, the graph clock still follows media time so older dialogue naturally
+scrolls out. Pausing, ending and buffering retire both pending results and their
 watchdogs. A fresh native audio window and available media data are required
 before sampling resumes. Stale callbacks cannot restore retired traces.
 
@@ -74,8 +84,9 @@ frames back to media time. The previous custom autocorrelation estimator has
 been removed rather than retained as a silent fallback.
 
 SwiftF0 requires about 176 ms of future context for a final streaming frame.
-Reader therefore analyzes a short rolling window and displays a slightly
-delayed acoustic estimate. Timestamp mapping follows media time and playback
+Reader therefore analyzes a short rolling window, discards the eleven
+left-edge frames that lack normal streaming history, and displays only estimates
+with the required past/future context. Timestamp mapping follows media time and playback
 rate; it is not sample-exact transcript alignment. No subtitle-delay, matcher
 or database schema change is required.
 
@@ -95,11 +106,12 @@ workflow runs Chromium and Firefox on Linux with an explicit audio output and
 WebKit on macOS. This module harness is separate from the application UI tests.
 
 After `BASE_PATH=/reader-web pnpm build`, run
-`python tests/browser/test_voice_pitch.py`. Its two actual-app journeys use
-normal EPUB/subtitle/audio import, the emitted worker and a changing-F0 audio
-fixture. They check no eager worker request during offline-shell installation,
-enable/disable, held paused traces, panel dismissal/reopening, seeking, mobile
-keyboard interaction, theme-derived waveform colors and the yellow contour.
+`python tests/browser/test_voice_pitch.py`. Its actual-app journeys use normal EPUB/subtitle/audio import, the emitted
+worker and a changing-F0 audio fixture. They check no eager worker request
+during offline-shell installation, enable/disable, held paused traces, panel
+dismissal/reopening, seeking, subtitle-gap inference suppression, mobile keyboard
+interaction, constrained enlarged layouts, theme-derived waveform colors and the
+yellow contour.
 Screenshots and diagnostics are retained under `test-results/voice-pitch-app`.
 
 Repository lint, application type-check and build, the native engine matrix,

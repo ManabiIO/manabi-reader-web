@@ -17,8 +17,12 @@ export const SWIFT_F0_SAMPLE_RATE = 16000;
 export const SWIFT_F0_HOP = 256;
 export const SWIFT_F0_FRAME_SECONDS = SWIFT_F0_HOP / SWIFT_F0_SAMPLE_RATE;
 export const SWIFT_F0_LOOKAHEAD_FRAMES = 10;
-export const ANALYSIS_WINDOW_SECONDS = 0.55;
-export const SAMPLE_INTERVAL_MS = 96;
+export const SWIFT_F0_LEFT_CONTEXT_FRAMES = 11;
+export const SWIFT_F0_FUTURE_CONTEXT_SECONDS =
+  (SWIFT_F0_LOOKAHEAD_FRAMES + 1) * SWIFT_F0_FRAME_SECONDS;
+export const ANALYSIS_WINDOW_SECONDS = 0.64;
+export const SAMPLE_INTERVAL_MS = 256;
+export const SWIFT_F0_EMIT_STRIDE = 2;
 const SILENCE_PEAK = 1e-3;
 
 const finite = (value: number, fallback = 0) => (Number.isFinite(value) ? value : fallback);
@@ -64,15 +68,19 @@ function frameLevel(samples: Float32Array, center: number) {
   if (last <= first) return { rms: 0, peak: 0 };
   let square = 0;
   let peak = 0;
+  const hopEnd = Math.min(samples.length, Math.floor(center) + SWIFT_F0_HOP);
   for (let index = first; index < last; index++) {
     const value = finite(samples[index]);
     square += value * value;
-    peak = Math.max(peak, Math.abs(value));
+    // SwiftF0's silence contract belongs to the current 256-sample hop.
+    // A voiced preceding hop may contribute to the centered RMS envelope but
+    // must not authorize pitch after playback enters digital silence.
+    if (index >= center && index < hopEnd) peak = Math.max(peak, Math.abs(value));
   }
   return { rms: Math.sqrt(square / (last - first)), peak };
 }
 
-export function measurementFromSwiftF0(
+export function measurementsFromSwiftF0(
   samples: Float32Array,
   pitch: ArrayLike<number>,
   confidence: ArrayLike<number>,
@@ -80,43 +88,74 @@ export function measurementFromSwiftF0(
     minHz = MIN_HZ,
     maxHz = MAX_HZ,
     voicingThreshold = VOICING_THRESHOLD,
-    windowSeconds = samples.length / SWIFT_F0_SAMPLE_RATE
+    windowSeconds = samples.length / SWIFT_F0_SAMPLE_RATE,
+    stride = SWIFT_F0_EMIT_STRIDE
   }: {
+    minHz?: number;
+    maxHz?: number;
+    voicingThreshold?: number;
+    windowSeconds?: number;
+    stride?: number;
+  } = {}
+): Measurement[] {
+  const count = Math.min(pitch.length, confidence.length);
+  if (!samples.length || !count) return [];
+  const stableCount = Math.max(0, count - SWIFT_F0_LOOKAHEAD_FRAMES);
+  const step = Math.max(1, Math.floor(finite(stride, SWIFT_F0_EMIT_STRIDE)));
+  const results: Measurement[] = [];
+  // A rolling window is not the beginning of the audio stream. Discard the
+  // first eleven frames so every published estimate has the same left context
+  // SwiftF0 uses when chunking a longer signal.
+  for (let index = SWIFT_F0_LEFT_CONTEXT_FRAMES; index < stableCount; index += step) {
+    const score = clamp(finite(Number(confidence[index])), 0, 1);
+    const candidate = Number(pitch[index]);
+    const level = frameLevel(samples, index * SWIFT_F0_HOP);
+    const hz =
+      score >= clamp(finite(voicingThreshold, VOICING_THRESHOLD), 0, 1) &&
+      level.peak >= SILENCE_PEAK &&
+      Number.isFinite(candidate) &&
+      candidate >= minHz &&
+      candidate <= maxHz
+        ? candidate
+        : null;
+    results.push({
+      hz,
+      confidence: score,
+      rms: level.rms,
+      amplitude: level.peak * 0.68 + level.rms * 0.32,
+      offsetSeconds: index * SWIFT_F0_FRAME_SECONDS,
+      windowSeconds: Math.max(0, finite(windowSeconds))
+    });
+  }
+  return results;
+}
+
+export function measurementFromSwiftF0(
+  samples: Float32Array,
+  pitch: ArrayLike<number>,
+  confidence: ArrayLike<number>,
+  options: {
     minHz?: number;
     maxHz?: number;
     voicingThreshold?: number;
     windowSeconds?: number;
   } = {}
 ): Measurement {
-  const count = Math.min(pitch.length, confidence.length);
-  const empty: Measurement = {
-    hz: null,
-    confidence: 0,
-    rms: 0,
-    amplitude: 0,
-    offsetSeconds: 0,
-    windowSeconds: Math.max(0, finite(windowSeconds))
-  };
-  if (!samples.length || !count) return empty;
-
-  const index = Math.max(0, count - 1 - SWIFT_F0_LOOKAHEAD_FRAMES);
-  const score = clamp(finite(Number(confidence[index])), 0, 1);
-  const candidate = Number(pitch[index]);
-  const level = frameLevel(samples, index * SWIFT_F0_HOP);
-  const hz =
-    score >= clamp(finite(voicingThreshold, VOICING_THRESHOLD), 0, 1) &&
-    level.peak >= SILENCE_PEAK &&
-    Number.isFinite(candidate) &&
-    candidate >= minHz &&
-    candidate <= maxHz
-      ? candidate
-      : null;
-  return {
-    hz,
-    confidence: score,
-    rms: level.rms,
-    amplitude: level.peak * 0.68 + level.rms * 0.32,
-    offsetSeconds: index * SWIFT_F0_FRAME_SECONDS,
-    windowSeconds: Math.max(0, finite(windowSeconds))
-  };
+  const measurements = measurementsFromSwiftF0(samples, pitch, confidence, {
+    ...options,
+    stride: 1
+  });
+  return (
+    measurements.at(-1) ?? {
+      hz: null,
+      confidence: 0,
+      rms: 0,
+      amplitude: 0,
+      offsetSeconds: 0,
+      windowSeconds: Math.max(
+        0,
+        finite(options.windowSeconds, samples.length / SWIFT_F0_SAMPLE_RATE)
+      )
+    }
+  );
 }
