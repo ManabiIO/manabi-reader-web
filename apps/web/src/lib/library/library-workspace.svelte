@@ -2,6 +2,7 @@
   import { foldSearch } from './search-normalization';
   import { bookTitleMatchIndex } from '../search/book-title-match-text';
   import { librarySelection } from './selection-action';
+  import type { LibrarySelectionEligibility } from './selection';
   import BookOrganizationDialog from './book-organization-dialog.svelte';
   import type { BookPresentation, PresentationChange } from './organization';
   import { onMount, createEventDispatcher, tick, type Snippet } from 'svelte';
@@ -141,13 +142,18 @@
   export let selectMode = false;
   export let destinationTitle = 'Library';
   export let menu: LibraryMenuModel | undefined = undefined;
+  /** Atomic scope + eligibility snapshot; bound by the page that owns batch actions. */
+  export let selectionEligibility: LibrarySelectionEligibility = {
+    key: '',
+    ids: [],
+    previews: []
+  };
   const dispatch = createEventDispatcher<{
     bookClick: { id: number };
     prepareBook: { prepare: () => Promise<number>; locator?: ReaderLocator };
     selectionManyClick: { ids: number[] };
     selectionChange: { ids: number[]; previews: string[] };
     selectionCancel: void;
-    selectionScopeChange: { key: string; ids: number[]; previews: string[] };
     removeBookClick: { id: number };
   }>();
   let catalogs: Catalog[] = [],
@@ -172,7 +178,6 @@
   $: personalSeriesNames = [
     ...new Set(books.flatMap((book) => (book.series ? [book.series.name] : [])))
   ].sort();
-  let announcedSelectionScope = '';
   let organizationScope = '';
   let dialogOpen = false,
     dialog: 'details' | 'rename' | 'date' | 'membership' | 'series-name' | 'new-series' = 'rename';
@@ -431,27 +436,28 @@
     collectionId === 'finished' && !series ? finishedGroups(visibleBooks, finishedOrder) : [];
   $: currentLayout =
     collectionId === 'finished' && !series ? finishedLayout : series ? seriesLayout : layout;
+  function selectionScopeFor(search: string, searchScope: LibrarySearchScope) {
+    return `${viewerId ?? 'local'}:${collectionId}:${series?.id || ''}:${notFinished ? 'unfinished' : 'all'}:${searchScope}:${search}`;
+  }
+  function retireSelectionScope(key: string) {
+    if (!selectMode || key === selectionScopeKey) return;
+    // Search state mutates before the shelf graph settles. Publish a new empty
+    // scope synchronously so hidden selections cannot remain actionable.
+    selectionEligibility = { key, ids: [], previews: [] };
+  }
   $: selectableBookIds = visibleBooks.flatMap((book) => (book.bookId ? [book.bookId] : []));
-  $: selectionScopeKey = `${viewerId ?? 'local'}:${collectionId}:${series?.id || ''}:${notFinished ? 'unfinished' : 'all'}:${normalizedQuery}`;
+  $: selectionScopeKey = selectionScopeFor(normalizedQuery, librarySearchScope);
   $: selectablePreviewKeys = visibleBooks.filter((book) => !book.bookId).map((book) => book.key);
-  $: selectionSignature = JSON.stringify([
-    selectionScopeKey,
-    selectableBookIds,
-    selectablePreviewKeys
-  ]);
+  $: selectionEligibility = {
+    key: selectionScopeKey,
+    ids: selectableBookIds,
+    previews: selectablePreviewKeys
+  };
   $: if (organizationScope !== selectionScopeKey) {
     organizationScope = selectionScopeKey;
     organizationEpoch++;
     organizationDialog = undefined;
     organizationTargets = [];
-  }
-  $: if (selectionSignature !== announcedSelectionScope) {
-    announcedSelectionScope = selectionSignature;
-    dispatch('selectionScopeChange', {
-      key: selectionScopeKey,
-      ids: selectableBookIds,
-      previews: selectablePreviewKeys
-    });
   }
   const groupKey = (source: SourceDescriptor) =>
     source.owner === null ? source.id : sourceKey(source);
@@ -583,11 +589,13 @@
     replaceState(resolve(`/manage${url.search}${url.hash}`), $page.state);
   }
   function setQuery(value: string) {
+    retireSelectionScope(selectionScopeFor(foldSearch(value.trim()), librarySearchScope));
     query = queryURL = value;
     pendingQueryURL = value;
     replaceLibrarySearchURL(librarySearchURL(value, librarySearchScope));
   }
   function setSearchScope(value: LibrarySearchScope) {
+    retireSelectionScope(selectionScopeFor(normalizedQuery, value));
     librarySearchScope = value;
     pendingLibrarySearchScope = value;
     replaceLibrarySearchURL(librarySearchURL(queryURL, value));
