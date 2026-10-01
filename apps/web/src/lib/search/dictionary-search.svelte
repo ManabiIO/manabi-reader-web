@@ -4,7 +4,8 @@
   import {
     dictionaryLease,
     type DictionaryResult,
-    type DictionaryRuntime
+    type DictionaryRuntime,
+    type DictionaryStatus
   } from './dictionary-runtime';
   export let query = '';
   export let full = false;
@@ -15,11 +16,20 @@
     attempt = 0,
     installing = false,
     retryableError = false,
+    statusSignature = '',
+    statusAttempt = 0,
+    statusLoading = false,
+    statusError = '',
+    managing = '',
+    pendingDelete = '',
     message = '';
   let state: SearchState<DictionaryResult> = { state: 'idle' };
+  let dictionaryStatus: DictionaryStatus | undefined;
   let runtime: DictionaryRuntime | undefined;
   let lease: ReturnType<typeof dictionaryLease>;
   let installController: AbortController | undefined;
+  let statusController: AbortController | undefined;
+  let manageController: AbortController | undefined;
   const task = queryTask<DictionaryResult>((next) => {
     state = next;
     if (next.state === 'error') retryableError = true;
@@ -29,6 +39,17 @@
     signature = nextSignature;
     search();
   }
+  $: nextStatusSignature = JSON.stringify([full, statusAttempt]);
+  $: if (mounted && statusSignature !== nextStatusSignature) {
+    statusSignature = nextStatusSignature;
+    if (full) void refreshStatus();
+    else {
+      statusController?.abort();
+      statusError = '';
+      pendingDelete = '';
+    }
+  }
+  $: disabledTitles = new Set(dictionaryStatus?.preferences.disabled ?? []);
   function search() {
     task.stop();
     state = { state: 'idle' };
@@ -59,11 +80,82 @@
       publish({ state: 'ready', value });
     });
   }
-  function retry() {
+  function reopenRuntime() {
     task.stop();
     lease.release();
     lease = dictionaryLease();
+    runtime = undefined;
     attempt++;
+    statusAttempt++;
+  }
+  function retry() {
+    reopenRuntime();
+  }
+  async function refreshStatus() {
+    statusController?.abort();
+    const controller = (statusController = new AbortController());
+    statusLoading = true;
+    statusError = '';
+    try {
+      const opened = await lease.get();
+      controller.signal.throwIfAborted();
+      const next = await opened.client.status({ signal: controller.signal });
+      controller.signal.throwIfAborted();
+      if (mounted && full) dictionaryStatus = next;
+    } catch (error) {
+      if (!controller.signal.aborted && mounted && full)
+        statusError =
+          error instanceof Error ? error.message : 'Installed dictionaries could not be loaded.';
+    } finally {
+      if (statusController === controller) {
+        statusController = undefined;
+        if (mounted) statusLoading = false;
+      }
+    }
+  }
+  async function toggleDictionary(title: string, enabled: boolean) {
+    if (managing || installing) return;
+    managing = title;
+    pendingDelete = '';
+    message = enabled ? `Enabling ${title}…` : `Disabling ${title}…`;
+    task.stop();
+    try {
+      const opened = await lease.get();
+      const next = await opened.client.setEnabled(title, enabled);
+      if (!mounted) return;
+      dictionaryStatus = next;
+      message = `${enabled ? 'Enabled' : 'Disabled'} ${title}.`;
+      reopenRuntime();
+    } catch (error) {
+      if (mounted)
+        message = error instanceof Error ? error.message : 'Dictionary settings could not be saved.';
+    } finally {
+      if (mounted) managing = '';
+    }
+  }
+  async function deleteDictionary(title: string) {
+    if (managing || installing || pendingDelete !== title) return;
+    managing = title;
+    message = `Deleting ${title}…`;
+    task.stop();
+    const controller = (manageController = new AbortController());
+    try {
+      const opened = await lease.get();
+      controller.signal.throwIfAborted();
+      const next = await opened.client.deleteDictionary(title, { signal: controller.signal });
+      controller.signal.throwIfAborted();
+      if (!mounted) return;
+      dictionaryStatus = next;
+      pendingDelete = '';
+      message = `Deleted ${title}.`;
+      reopenRuntime();
+    } catch (error) {
+      if (!controller.signal.aborted && mounted)
+        message = error instanceof Error ? error.message : 'Dictionary could not be deleted.';
+    } finally {
+      if (manageController === controller) manageController = undefined;
+      if (mounted) managing = '';
+    }
   }
   function definitions(node: HTMLElement, value: DictionaryResult) {
     const dispose =
@@ -77,7 +169,7 @@
     };
   }
   async function install(file?: File) {
-    if (installing) return;
+    if (installing || managing) return;
     installing = true;
     message = 'Preparing dictionary…';
     const controller = (installController = new AbortController());
@@ -114,13 +206,13 @@
         if (imported) {
           // The current translator can retain stale headword fields after a
           // commit. Reopen against the durable dictionary before searching.
-          task.stop();
-          lease.release();
-          lease = dictionaryLease();
-          runtime = undefined;
+          reopenRuntime();
         }
         installing = false;
-        attempt++;
+        if (!imported) {
+          attempt++;
+          statusAttempt++;
+        }
       }
       if (installController === controller) installController = undefined;
     }
@@ -138,6 +230,8 @@
       mounted = false;
       task.stop();
       installController?.abort();
+      statusController?.abort();
+      manageController?.abort();
       lease.release();
     };
   });
@@ -145,7 +239,7 @@
 
 <section
   aria-labelledby="dictionary-search-heading"
-  aria-busy={state.state === 'loading' || installing}
+  aria-busy={state.state === 'loading' || installing || statusLoading || !!managing}
 >
   <header>
     <h2 id="dictionary-search-heading">Dictionary</h2>
@@ -212,14 +306,67 @@
         These dictionaries stay in this browser and are separate from your extension’s dictionaries.
         Import your existing Yomitan ZIPs or install Jitendex. Nothing installs automatically.
       </p>
+      {#if statusLoading}
+        <p class="note" role="status">Loading installed dictionaries…</p>
+      {:else if statusError}
+        <p class="note" role="status">
+          {statusError} <button type="button" onclick={() => void refreshStatus()}>Retry list</button>
+        </p>
+      {:else if dictionaryStatus?.dictionaries.length}
+        <ul class="dictionary-list" aria-label="Installed local dictionaries">
+          {#each dictionaryStatus.dictionaries as dictionary (dictionary.title)}
+            <li class="dictionary-row">
+              <span class="dictionary-copy"
+                ><strong>{dictionary.title}</strong><small
+                  >{disabledTitles.has(dictionary.title) ? 'Disabled' : 'Enabled'}{dictionary.revision
+                    ? ` · ${dictionary.revision}`
+                    : ''}</small
+                >{#if dictionary.author}<small>{dictionary.author}</small>{/if}</span
+              >
+              <span class="dictionary-actions">
+                <button
+                  type="button"
+                  disabled={installing || !!managing}
+                  onclick={() =>
+                    void toggleDictionary(dictionary.title, disabledTitles.has(dictionary.title))}
+                  >{disabledTitles.has(dictionary.title) ? 'Enable' : 'Disable'}</button
+                >
+                {#if pendingDelete === dictionary.title}
+                  <span class="delete-confirm">
+                    <span>Delete this dictionary?</span>
+                    <button
+                      type="button"
+                      disabled={installing || !!managing}
+                      onclick={() => void deleteDictionary(dictionary.title)}>Delete</button
+                    >
+                    <button
+                      type="button"
+                      disabled={installing || !!managing}
+                      onclick={() => (pendingDelete = '')}>Cancel</button
+                    >
+                  </span>
+                {:else}
+                  <button
+                    type="button"
+                    disabled={installing || !!managing}
+                    onclick={() => (pendingDelete = dictionary.title)}>Delete…</button
+                  >
+                {/if}
+              </span>
+            </li>
+          {/each}
+        </ul>
+      {:else if dictionaryStatus}
+        <p class="note">No local dictionaries are installed.</p>
+      {/if}
       <div class="setup-actions">
-        <button type="button" disabled={installing} onclick={() => void install()}
+        <button type="button" disabled={installing || !!managing} onclick={() => void install()}
           >Install Jitendex</button
         ><label class="upload"
           >Import dictionary ZIP<input
             type="file"
             accept=".zip,application/zip"
-            disabled={installing}
+            disabled={installing || !!managing}
             onchange={chooseArchive}
           /></label
         >{#if installing}<button type="button" onclick={() => installController?.abort()}
@@ -326,6 +473,34 @@
     border-top: 1px solid var(--border);
     padding-top: 0.5rem;
   }
+  .dictionary-list {
+    margin-block: 0.75rem 1rem;
+  }
+  .dictionary-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .dictionary-copy {
+    display: grid;
+    gap: 0.15rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .dictionary-actions,
+  .delete-confirm {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+  .delete-confirm > span {
+    font-size: 0.8rem;
+    color: var(--muted-foreground);
+  }
   .setup-actions {
     display: flex;
     flex-wrap: wrap;
@@ -377,6 +552,12 @@
   @keyframes spin {
     to {
       transform: rotate(360deg);
+    }
+  }
+  @media (max-width: 640px) {
+    .dictionary-row {
+      align-items: stretch;
+      flex-direction: column;
     }
   }
   @media (prefers-reduced-motion: reduce) {
