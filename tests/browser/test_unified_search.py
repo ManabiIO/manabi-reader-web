@@ -385,6 +385,8 @@ class UnifiedSearch(ProductJourneyBase):
         expect(full).to_have_count(0)
         expect(field).to_have_value('neko')
         expect(self.page.get_by_role('button', name='Read Neko field guide', exact=True)).to_be_visible()
+        content_section = self.page.locator('section[aria-labelledby="content-search-heading"]')
+        expect(content_section).to_have_attribute('aria-busy', 'false', timeout=30000)
         expect(self.page.locator('button.passage')).to_have_count(1)
         self.checkpoint('unified-all-real-dictionary')
         self.page.set_viewport_size({'width': 360, 'height': 740})
