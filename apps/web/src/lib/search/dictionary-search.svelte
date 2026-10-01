@@ -124,7 +124,7 @@
     }
   }
   async function toggleDictionary(title: string, enabled: boolean) {
-    if (managing || installing) return;
+    if (managing || installing || statusLoading) return;
     managing = title;
     pendingDelete = '';
     message = enabled ? `Enabling ${title}…` : `Disabling ${title}…`;
@@ -144,7 +144,7 @@
     }
   }
   async function deleteDictionary(title: string) {
-    if (managing || installing || pendingDelete !== title) return;
+    if (managing || installing || statusLoading || pendingDelete !== title) return;
     managing = title;
     message = `Deleting ${title}…`;
     task.stop();
