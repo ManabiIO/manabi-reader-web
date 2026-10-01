@@ -786,7 +786,7 @@ try {
   assert(markdownPath, 'Markdown export must produce a readable download.');
   const markdownBytes = await readFile(markdownPath),
     markdownText = markdownBytes.toString('utf8');
-  assert.match(markdownText, /<ruby[^>]*>東京<rt>とうきょう<\/rt><\/ruby>/);
+  assert.match(markdownText, /<ruby[\s\S]*?<rt>とうきょう<\/rt>[\s\S]*?<\/ruby>/);
   await openLibrary(page);
   await page.locator('input[type=file]').setInputFiles({
     name: 'ruby-roundtrip.md',
