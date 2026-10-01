@@ -65,6 +65,36 @@ test('a failed initial result receiver does not leave a worker alive', () =>
     assert.equal(workers[0].request, undefined);
   }));
 
+test('change-driven snippet publication skips scan-only batches but keeps failures and completion', () =>
+  withWorker((_Worker, workers) => {
+    const states = [];
+    const stop = searchBodies(
+      '猫',
+      ['one'],
+      scope(),
+      (state) => states.push(state),
+      { progress: false }
+    );
+    assert.equal(states.length, 1);
+    workers[0].emit('batch', { scanned: 20, failed: 0, batch: [] });
+    assert.equal(states.length, 1);
+    workers[0].emit('batch', { scanned: 40, failed: 1, batch: [] });
+    assert.equal(states.length, 2);
+    assert.equal(states.at(-1).failed, 1);
+    workers[0].emit('batch', {
+      scanned: 60,
+      failed: 1,
+      batch: [{ id: 'one', hits: [{ locator: {}, excerpt: '猫', reading: false }] }]
+    });
+    assert.equal(states.length, 3);
+    assert.equal(states.at(-1).hits.size, 1);
+    workers[0].emit('done', { scanned: 61, failed: 1, batch: [], truncated: false });
+    assert.equal(states.length, 4);
+    assert.equal(states.at(-1).busy, false);
+    assert.equal(states.at(-1).scanned, 61);
+    stop();
+  }));
+
 test('postMessage failure retires its worker and does not block another search source', () =>
   withWorker((Worker, workers) => {
     Worker.failPost = true;
