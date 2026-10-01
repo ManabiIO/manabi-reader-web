@@ -648,6 +648,30 @@ test('pause drops a pending result and watchdog while retaining the completed tr
   assert.equal((pitchPaths(f.state.points, f.state.time).pitch.match(/M/g) || []).length, 2);
   f.controller.dispose();
 });
+test('first subtitle synchronization establishes a cue boundary even when speech is active', async () => {
+  const f = await running();
+  f.a.currentTime = 3;
+  f.controller.setSpeechActive(true, 3);
+  f.frame(800);
+  const worker = f.workers[0];
+  assert.equal(worker.sent.length, 0, 'first active sync must wait for fresh future context');
+  f.frame(1000);
+  assert.equal(worker.sent.length, 1);
+  const id = worker.sent[0].id;
+  worker.onmessage({
+    data: {
+      type: 'result',
+      id,
+      results: [
+        { hz: 110, amplitude: 0.3, confidence: 1, rms: 0.2, offsetSeconds: 0.1, windowSeconds: ANALYSIS_WINDOW_SECONDS },
+        { hz: 220, amplitude: 0.3, confidence: 1, rms: 0.2, offsetSeconds: 0.6, windowSeconds: ANALYSIS_WINDOW_SECONDS }
+      ]
+    }
+  });
+  assert.ok(f.state.points.every((point) => point.time >= 2.996));
+  f.controller.dispose();
+});
+
 test('subtitle gaps stop inference and cue restart discards pre-cue batch frames', async () => {
   const f = await running();
   f.frame(700);
