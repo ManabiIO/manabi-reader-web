@@ -677,6 +677,7 @@ test('active cue boundary can advance without requiring a subtitle gap', async (
   f.a.currentTime = 4;
   f.controller.setSpeechActive(true, 4, 3.5);
   f.controller.setSpeechActive(true, 4.2, 4.15);
+  f.a.currentTime = 4.2;
   f.frame(200);
   const worker = f.workers[0];
   const id = worker.sent.at(-1).id;
@@ -690,6 +691,7 @@ test('active cue boundary can advance without requiring a subtitle gap', async (
       ]
     }
   });
+  assert.equal(f.state.points.length, 1);
   assert.ok(f.state.points.every((point) => point.time >= 4.146));
   f.controller.dispose();
 });
