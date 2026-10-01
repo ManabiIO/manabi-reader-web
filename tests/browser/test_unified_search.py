@@ -530,6 +530,68 @@ class UnifiedSearch(ProductJourneyBase):
         self.assertEqual(0, local_count_after)
         self.checkpoint('unified-video-transcript-deep-link')
 
+    def test_video_search_invalidates_titles_and_content_independently(self):
+        self.seed_video_search(title='Stable video', cues=[
+            {'id': 'cue', 'start': 1, 'end': 2, 'text': 'unrelated transcript'}
+        ])
+        self.library_search('Stable')
+        title = self.page.get_by_role('button', name='Open video Stable video', exact=True)
+        expect(title).to_be_visible(timeout=30000)
+        title_section = self.page.locator('section[aria-labelledby="title-search-heading"]')
+        content_section = self.page.locator('section[aria-labelledby="content-search-heading"]')
+        expect(title_section).to_have_attribute('aria-busy', 'false')
+        expect(content_section).to_have_attribute('aria-busy', 'false', timeout=30000)
+
+        self.page.evaluate("""() => {
+          const title = document.querySelector('section[aria-labelledby="title-search-heading"]');
+          const content = document.querySelector('section[aria-labelledby="content-search-heading"]');
+          window.__searchInvalidation = {titleBusy: 0, contentBusy: 0};
+          const count = (key, node) => {
+            if (node.getAttribute('aria-busy') === 'true') window.__searchInvalidation[key]++;
+          };
+          window.__searchInvalidationObservers = [
+            new MutationObserver(() => count('titleBusy', title)),
+            new MutationObserver(() => count('contentBusy', content))
+          ];
+          window.__searchInvalidationObservers[0].observe(title, {
+            attributes: true, attributeFilter: ['aria-busy']
+          });
+          window.__searchInvalidationObservers[1].observe(content, {
+            attributes: true, attributeFilter: ['aria-busy']
+          });
+        }""")
+
+        self.page.evaluate("""() => {
+          const channel = new BroadcastChannel('manabi-media-v1');
+          channel.postMessage({type: 'media-change', captions: true, metadata: false});
+          channel.close();
+        }""")
+        self.page.wait_for_function("() => window.__searchInvalidation.contentBusy > 0")
+        expect(content_section).to_have_attribute('aria-busy', 'false', timeout=30000)
+        counters = self.page.evaluate("() => ({...window.__searchInvalidation})")
+        self.assertEqual(0, counters['titleBusy'])
+        self.assertGreaterEqual(counters['contentBusy'], 1)
+
+        self.page.evaluate("""() => {
+          window.__searchInvalidation.titleBusy = 0;
+          window.__searchInvalidation.contentBusy = 0;
+          const channel = new BroadcastChannel('manabi-media-v1');
+          channel.postMessage({type: 'media-change', captions: false, metadata: true});
+          channel.close();
+        }""")
+        self.page.wait_for_function(
+            "() => window.__searchInvalidation.titleBusy > 0 && "
+            "window.__searchInvalidation.contentBusy > 0"
+        )
+        expect(title_section).to_have_attribute('aria-busy', 'false', timeout=30000)
+        expect(content_section).to_have_attribute('aria-busy', 'false', timeout=30000)
+        self.page.evaluate("""() => {
+          for (const observer of window.__searchInvalidationObservers) observer.disconnect();
+          delete window.__searchInvalidationObservers;
+          delete window.__searchInvalidation;
+        }""")
+        self.checkpoint('unified-independent-media-invalidation')
+
     def test_video_transcript_search_refreshes_after_published_track_change_and_latest_query_wins(self):
         identity = self.seed_video_search()
         field = self.library_search('字幕検索')
