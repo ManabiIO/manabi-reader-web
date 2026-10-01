@@ -1,8 +1,15 @@
-import { ANALYSIS_WINDOW_SECONDS } from './analysis';
+import {
+  SWIFT_F0_FRAME_SECONDS,
+  SWIFT_F0_LEFT_CONTEXT_FRAMES,
+  SWIFT_F0_LOOKAHEAD_FRAMES
+} from './analysis';
 import { PitchController } from './controller';
 import type { PitchState } from './model';
 
-const MAX_ANALYSIS_CONTEXT_RATE = Math.floor(32768 / ANALYSIS_WINDOW_SECONDS);
+const MIN_CONTEXT_SECONDS =
+  (SWIFT_F0_LEFT_CONTEXT_FRAMES + 1 + SWIFT_F0_LOOKAHEAD_FRAMES) *
+  SWIFT_F0_FRAME_SECONDS;
+const MAX_ANALYSIS_CONTEXT_RATE = Math.floor(32768 / MIN_CONTEXT_SECONDS);
 
 function createAudioContext() {
   // AnalyserNode is capped at 32,768 samples. Keep the analysis context at a
