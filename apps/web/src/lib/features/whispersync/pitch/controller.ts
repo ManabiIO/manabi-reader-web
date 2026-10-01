@@ -156,12 +156,18 @@ export class PitchController {
     this.reset();
     if (visible && this.state.enabled) this.start();
   }
-  setSpeechActive(active: boolean, mediaTime = this.audio?.currentTime ?? this.state.time) {
+  setSpeechActive(
+    active: boolean,
+    mediaTime = this.audio?.currentTime ?? this.state.time,
+    speechStart = mediaTime
+  ) {
     if (this.disposed) return;
     const time = Number.isFinite(mediaTime) ? Math.max(0, mediaTime) : this.state.time;
+    const start = Number.isFinite(speechStart) ? Math.max(0, speechStart) : time;
     const firstSync = !this.speechGateEnabled;
     this.speechGateEnabled = true;
     if (!firstSync && active === this.speechActive) {
+      if (active && Math.abs(start - this.speechSince) > 0.01) this.speechSince = start;
       if (!active && Math.abs(time - this.state.time) >= 0.1) this.publish({ time });
       return;
     }
@@ -173,7 +179,7 @@ export class PitchController {
       this.publish({ time });
       return;
     }
-    this.speechSince = time;
+    this.speechSince = start;
     // The rolling analyser already contains past context. Wait only for
     // SwiftF0's future context, then discard estimates preceding this cue.
     this.sampleAfter =
