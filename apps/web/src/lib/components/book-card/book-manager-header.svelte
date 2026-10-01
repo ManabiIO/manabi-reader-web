@@ -653,7 +653,9 @@
           onclick={() => void exitSelectionMode()}
           >{#if compactLibrary}<X class="size-[24px]" aria-hidden="true" />{:else}Cancel selection{/if}</Button
         >
-        <span class="whitespace-nowrap text-sm" aria-live="polite">{selectedCount} selected</span>
+        <span role="status" aria-live="polite" aria-atomic="true" class="whitespace-nowrap text-sm"
+          >{selectedCount} selected</span
+        >
         <Button
           class="selection-action"
           variant="outline"
@@ -784,7 +786,9 @@
           disabled={libraryMenu?.selectedActions?.busy}
           onclick={() => (selectMode = false)}>Cancel selection</Button
         >
-        <span class="whitespace-nowrap text-sm" aria-live="polite">{selectedCount} selected</span>
+        <span role="status" aria-live="polite" aria-atomic="true" class="whitespace-nowrap text-sm"
+          >{selectedCount} selected</span
+        >
         <Button
           variant="outline"
           disabled={libraryMenu?.selectedActions?.busy}
