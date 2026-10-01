@@ -295,6 +295,20 @@ class UnifiedSearch(ProductJourneyBase):
         expect(self.page.locator('.full-dictionary .headword')).to_contain_text('猫', timeout=30000)
         expect(field).to_have_value('neko')
 
+        self.page.get_by_text('Recommended dictionaries', exact=True).click()
+        recommended = self.page.get_by_role(
+            'list', name='Recommended Japanese dictionaries', exact=True
+        )
+        expect(recommended).to_be_visible(timeout=30000)
+        self.assertEqual(6, recommended.get_by_role('listitem').count())
+        jmnedict = recommended.get_by_role('listitem').filter(has_text='JMnedict')
+        expect(jmnedict).to_contain_text('terms')
+        for name in ('About', 'Download ZIP'):
+            link = jmnedict.get_by_role('link', name=name, exact=True)
+            self.assertTrue(link.get_attribute('href').startswith('https://'))
+            expect(link).to_have_attribute('target', '_blank')
+        expect(installed.get_by_role('listitem')).to_have_count(1)
+
         self.page.set_viewport_size({'width': 320, 'height': 480})
         self.page.evaluate('document.documentElement.style.fontSize = "200%"')
         self.assertLessEqual(row.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
