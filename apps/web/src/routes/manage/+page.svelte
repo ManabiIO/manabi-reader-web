@@ -1273,7 +1273,7 @@
 </div>
 
 <Dialog.Root bind:open={editorsPicksOpen}>
-  <Dialog.Content class="max-h-[85dvh] overflow-y-auto sm:max-w-2xl">
+  <Dialog.Content class="max-h-[85dvh] overflow-hidden sm:max-w-2xl">
     <Dialog.Title class="sr-only">Editor's Picks</Dialog.Title>
     <Dialog.Description class="sr-only">Open a book selected by Manabi.</Dialog.Description>
     {#if editorsPicksOpen}
