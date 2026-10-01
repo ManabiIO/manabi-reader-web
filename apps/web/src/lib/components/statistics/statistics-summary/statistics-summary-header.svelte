@@ -2,6 +2,7 @@
   import faArrowDownWideShort from '@lucide/svelte/icons/arrow-down-wide-narrow';
   import faArrowUpShortWide from '@lucide/svelte/icons/arrow-up-narrow-wide';
   import Popover from '$lib/components/popover/popover.svelte';
+  import { Button } from '$lib/components/ui/button';
   import type {
     StatisticsDataSourceChange,
     StatisticsSummaryKey
@@ -49,7 +50,7 @@
     <Popover
       placement={'bottom-start'}
       fallbackPlacements={['top']}
-      innerContainerStyles={'width: 100%'}
+      innerContainerStyles={'width:100%;min-height:44px;padding:0 8px;'}
       containerStyles={'flex: 1;'}
       bind:this={summaryHeaderPopover}
     >
@@ -57,7 +58,7 @@
       <div slot="content" class="flex flex-col overflow-auto w-46 p-2">
         {#each options as option (option.key)}
           <button
-            class="flex flex-1 my-2 hover:opacity-50 hover:bg-accent hover:text-foreground"
+            class="my-1 flex min-h-11 w-full items-center rounded-lg px-3 py-2 text-left hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
             on:click|stopPropagation={() => {
               selectedOption = option;
               dispatch('propertyChange', { property: option.key, statisticsSummaryKey });
@@ -71,7 +72,7 @@
     </Popover>
   {:else}
     <button
-      class="flex flex-1 text-left"
+      class="flex min-h-11 flex-1 items-center rounded-lg px-2 text-left focus-visible:outline-2 focus-visible:outline-ring"
       class:cursor-not-allowed={hasRowInEdit}
       disabled={hasRowInEdit}
       {title}
@@ -82,14 +83,16 @@
       {selectedOption.label}
     </button>
   {/if}
-  <button
-    title="Click to select/sort by this Attribute"
-    aria-label={`Sort by ${selectedOption.label}`}
-    class="ml-4"
+  <Button
+    variant="ghost"
+    size="icon"
+    shape="circle"
+    class="ml-2 size-11"
     class:opacity-20={!optionKeys.has($lastStatisticsSummarySortProperty$)}
-    class:cursor-not-allowed={hasRowInEdit}
+    aria-label={`Sort by ${selectedOption.label}`}
+    title="Sort by this attribute"
     disabled={hasRowInEdit}
-    on:click={() =>
+    onclick={() =>
       dispatch('propertyChange', { property: selectedOption.key, statisticsSummaryKey })}
   >
     {#if $lastStatisticsSummarySortDirection$ === SortDirection.ASC}
@@ -97,5 +100,5 @@
     {:else}
       <AppIcon icon={faArrowDownWideShort} />
     {/if}
-  </button>
+  </Button>
 </div>
