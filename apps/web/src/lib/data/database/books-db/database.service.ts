@@ -937,69 +937,21 @@ export class DatabaseService {
     ));
 
     const tx = db.transaction(['statistic', 'lastModified'], 'readwrite');
-
-    try {
+    await commitTransaction(tx, async () => {
       const statisticsStore = tx.objectStore('statistic');
       const lastModifiedStore = tx.objectStore('lastModified');
-      const limiter = pLimit(1);
-      const tasks: Promise<void>[] = [];
 
-      if (statisticsMergeMode !== MergeMode.LOCAL) {
-        tasks.push(
-          limiter(async () => {
-            try {
-              await statisticsStore.delete(IDBKeyRange.bound([bookTitle], [bookTitle, []]));
-            } catch (error: any) {
-              limiter.clearQueue();
+      if (statisticsMergeMode !== MergeMode.LOCAL)
+        await statisticsStore.delete(IDBKeyRange.bound([bookTitle], [bookTitle, []]));
 
-              throw error;
-            }
-          })
-        );
-      }
+      for (const statistic of statisticsToStore) await statisticsStore.put(statistic);
 
-      statisticsToStore.forEach((statistic) =>
-        tasks.push(
-          limiter(async () => {
-            try {
-              await statisticsStore.put(statistic);
-            } catch (error: any) {
-              limiter.clearQueue();
-
-              throw error;
-            }
-          })
-        )
-      );
-
-      tasks.push(
-        limiter(async () => {
-          try {
-            await lastModifiedStore.put({
-              title: bookTitle,
-              dataType: StorageDataType.STATISTICS,
-              lastModifiedValue: newStatisticModified
-            });
-          } catch (error: any) {
-            limiter.clearQueue();
-
-            throw error;
-          }
-        })
-      );
-
-      await Promise.all(tasks);
-      await tx.done;
-    } catch (error: any) {
-      try {
-        tx.abort();
-        await tx.done;
-      } catch (_) {
-        // no-op
-      }
-
-      throw error;
-    }
+      await lastModifiedStore.put({
+        title: bookTitle,
+        dataType: StorageDataType.STATISTICS,
+        lastModifiedValue: newStatisticModified
+      });
+    });
   }
 
   async updateStatistic(newStatistic: BookStatistic) {
