@@ -8,11 +8,7 @@ import {
   resampleForSwiftF0,
   type Measurement
 } from './analysis';
-import {
-  runSwiftF0Inference,
-  swiftF0ModelGain,
-  type SwiftF0SessionLike
-} from './swift-f0-runtime';
+import { runSwiftF0Inference, swiftF0ModelGain, type SwiftF0SessionLike } from './swift-f0-runtime';
 
 ort.env.wasm.numThreads = 1;
 ort.env.wasm.proxy = false;
