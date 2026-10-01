@@ -63,7 +63,8 @@
   let titles: SearchState<Results> = { state: 'idle' };
   let content: SearchState<Results> = { state: 'idle' };
   let results: HTMLElement;
-  let focusGeneration = 0;
+  let titleFocusGeneration = 0;
+  let contentFocusGeneration = 0;
   const titleTask = queryTask<Results>((value) => {
     titles = value;
   });
@@ -326,7 +327,7 @@
   }
 
   function refreshTitles() {
-    focusGeneration++;
+    titleFocusGeneration++;
     titleTask.stop();
     titles = { state: 'idle' };
     titleLimit = 30;
@@ -334,7 +335,7 @@
     startTitles();
   }
   function refreshContent() {
-    focusGeneration++;
+    contentFocusGeneration++;
     contentTask.stop();
     content = { state: 'idle' };
     contentLimit = 30;
@@ -360,12 +361,13 @@
       ?.focus({ preventScroll: true });
   }
   async function more(kind: 'titles' | 'content') {
-    const admitted = focusGeneration;
+    const admitted = kind === 'titles' ? titleFocusGeneration : contentFocusGeneration;
     const before = kind === 'titles' ? titleLimit : contentLimit;
     if (kind === 'titles') titleLimit += 30;
     else contentLimit += 30;
     await tick();
-    if (admitted !== focusGeneration || !mounted) return;
+    const current = kind === 'titles' ? titleFocusGeneration : contentFocusGeneration;
+    if (admitted !== current || !mounted) return;
     const target = results.querySelectorAll<HTMLButtonElement>(`[data-search-row="${kind}"]`)[
       before
     ];
