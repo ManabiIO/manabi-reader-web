@@ -8,7 +8,11 @@ import {
   resampleForSwiftF0,
   type Measurement
 } from './analysis';
-import { runSwiftF0Inference, swiftF0ModelGain } from './swift-f0-runtime';
+import {
+  runSwiftF0Inference,
+  swiftF0ModelGain,
+  type SwiftF0SessionLike
+} from './swift-f0-runtime';
 
 ort.env.wasm.numThreads = 1;
 ort.env.wasm.proxy = false;
@@ -38,8 +42,13 @@ export async function analyseSwiftF0Window(
     });
 
   const session = await prepareSwiftF0();
+  const tensorSession: SwiftF0SessionLike<ort.Tensor> = {
+    async run(feeds) {
+      return (await session.run(feeds)) as Record<string, ort.Tensor>;
+    }
+  };
   const { pitch, confidence } = await runSwiftF0Inference(
-    session,
+    tensorSession,
     (type, data, dims) => new ort.Tensor(type, data, dims),
     samples,
     MIN_HZ,
