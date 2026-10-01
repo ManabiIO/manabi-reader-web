@@ -260,6 +260,56 @@ class UnifiedSearch(ProductJourneyBase):
         self.assertIn('Cat Author', kinds.nth(1).inner_text())
         self.checkpoint('unified-title-creator-match-retained')
 
+    def test_local_dictionary_management_disable_enable_and_delete(self):
+        field = self.library_search('neko')
+        self.filter('Dictionary')
+        expect(self.page.get_by_text('No enabled local dictionary yet.', exact=False)).to_be_visible(
+            timeout=30000
+        )
+        self.page.get_by_label('Import dictionary ZIP', exact=True).set_input_files({
+            'name': 'managed-fixture.zip',
+            'mimeType': 'application/zip',
+            'buffer': dictionary_archive(),
+        })
+        expect(
+            self.page.get_by_text('Installed Unified search fixture.', exact=True)
+        ).to_be_visible(timeout=60000)
+        expect(self.page.locator('.full-dictionary .headword')).to_contain_text('猫')
+
+        setup = self.page.get_by_text('Local dictionaries', exact=True)
+        setup.click()
+        installed = self.page.get_by_role('list', name='Installed local dictionaries', exact=True)
+        expect(installed).to_be_visible()
+        row = installed.get_by_role('listitem').filter(has_text='Unified search fixture')
+        expect(row).to_contain_text('Enabled')
+        row.get_by_role('button', name='Disable', exact=True).click()
+        expect(self.page.get_by_text('Disabled Unified search fixture.', exact=True)).to_be_visible()
+        expect(row).to_contain_text('Disabled')
+        expect(self.page.get_by_text('No enabled local dictionary yet.', exact=False)).to_be_visible(
+            timeout=30000
+        )
+
+        row.get_by_role('button', name='Enable', exact=True).click()
+        expect(self.page.get_by_text('Enabled Unified search fixture.', exact=True)).to_be_visible()
+        expect(row).to_contain_text('Enabled')
+        expect(self.page.locator('.full-dictionary .headword')).to_contain_text('猫', timeout=30000)
+        expect(field).to_have_value('neko')
+
+        row.get_by_role('button', name='Delete…', exact=True).click()
+        expect(row.get_by_text('Delete this dictionary?', exact=True)).to_be_visible()
+        row.get_by_role('button', name='Cancel', exact=True).click()
+        expect(row.get_by_text('Delete this dictionary?', exact=True)).to_have_count(0)
+        row.get_by_role('button', name='Delete…', exact=True).click()
+        row.get_by_role('button', name='Delete', exact=True).click()
+        expect(self.page.get_by_text('Deleted Unified search fixture.', exact=True)).to_be_visible(
+            timeout=30000
+        )
+        expect(self.page.get_by_text('No local dictionaries are installed.', exact=True)).to_be_visible()
+        expect(self.page.get_by_text('No enabled local dictionary yet.', exact=False)).to_be_visible(
+            timeout=30000
+        )
+        self.checkpoint('dictionary-local-management')
+
     def test_real_local_dictionary_uses_raw_input_and_bounded_previews(self):
         self.import_book('Neko field guide', body='<p>neko ねこ 猫</p>')
         field = self.library_search('neko')
