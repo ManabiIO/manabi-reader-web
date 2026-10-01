@@ -154,6 +154,13 @@
         return;
       }
 
+      // Clear the previous presentation before suspending. Concurrent capture
+      // events after busy=true own any newer status/error and must not be erased
+      // when this first persistence later resumes.
+      query = '';
+      error = '';
+      status = '';
+      deferredCount = 0;
       busy = true;
       try {
         const saved = await persistCapture(value);
@@ -163,10 +170,6 @@
         content = saved.text;
         document = saved.document;
         session = saved.session;
-        query = '';
-        error = '';
-        status = '';
-        deferredCount = 0;
         open = true;
       } catch (reason) {
         error = reason instanceof Error ? reason.message : 'The selection could not be captured.';
