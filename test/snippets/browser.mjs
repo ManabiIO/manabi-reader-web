@@ -432,6 +432,101 @@ try {
     await mkdir(dirname(largeTextPath), { recursive: true });
     await page.screenshot({ path: largeTextPath, fullPage: true });
   }
+
+  const selectionToggleLarge = page.getByRole('button', { name: 'Select', exact: true });
+  await selectionToggleLarge.focus();
+  await selectionToggleLarge.press('Enter');
+  const enlargedBatch = page.getByRole('toolbar', {
+    name: 'Selected snippet actions',
+    exact: true
+  });
+  await expect(enlargedBatch).toBeVisible();
+  assert(
+    (await enlargedBatch.evaluate((node) => node.scrollWidth - node.clientWidth)) <= 1,
+    'Snippet batch actions must not overflow horizontally at 200% text'
+  );
+  const batchBox = await enlargedBatch.boundingBox();
+  assert(
+    batchBox.x >= -1 && batchBox.x + batchBox.width <= 321,
+    'Snippet batch toolbar must remain inside the narrow viewport'
+  );
+  const batchStatus = enlargedBatch.getByRole('status');
+  await expect(batchStatus).toHaveAttribute('aria-atomic', 'true');
+  await expect(batchStatus).toHaveText('0 selected');
+  const selectAllLarge = enlargedBatch.getByRole('button', {
+    name: 'Select all visible',
+    exact: true
+  });
+  await selectAllLarge.focus();
+  await selectAllLarge.press('Enter');
+  await expect(batchStatus).toHaveText('1 selected');
+  const enlargedSelection = page.getByRole('checkbox', { name: 'Select 散歩の記録', exact: true });
+  await expect(enlargedSelection).toBeChecked();
+  for (const name of [
+    'Select all visible',
+    'Collections…',
+    'Move to…',
+    'Export selected',
+    'Move to Trash'
+  ]) {
+    const control = enlargedBatch.getByRole('button', { name, exact: true });
+    const box = await control.boundingBox();
+    assert(box && box.height >= 43.5, `${name} must remain at least 44 CSS px high`);
+    assert(box.x >= -1 && box.x + box.width <= 321, `${name} must stay inside the viewport`);
+  }
+  if (largeTextEvidence) {
+    const selectionPath = largeTextEvidence.replace(/\.png$/i, '-selection-large-text.png');
+    await page.screenshot({ path: selectionPath, fullPage: true });
+  }
+
+  await selectAllLarge.press('Escape');
+  await expect(enlargedBatch).toHaveCount(0);
+  await expect(selectionToggleLarge).toHaveText('Select');
+  await expect(selectionToggleLarge).toBeFocused();
+
+  await selectionToggleLarge.press('Enter');
+  const checkboxEscape = page.getByRole('checkbox', { name: 'Select 散歩の記録', exact: true });
+  await checkboxEscape.focus();
+  await checkboxEscape.press('Space');
+  await expect(
+    page.getByRole('toolbar', { name: 'Selected snippet actions', exact: true }).getByRole('status')
+  ).toHaveText('1 selected');
+  await page.setViewportSize({ width: 320, height: 320 });
+  await checkboxEscape.scrollIntoViewIfNeeded();
+  const beforeExit = await selectionToggleLarge.boundingBox();
+  assert(
+    beforeExit.y < 0 || beforeExit.y + beforeExit.height > 321,
+    'Short-viewport fixture must actually move the selection toggle offscreen'
+  );
+  await checkboxEscape.press('Escape');
+  await expect(
+    page.getByRole('toolbar', { name: 'Selected snippet actions', exact: true })
+  ).toHaveCount(0);
+  await expect(selectionToggleLarge).toBeFocused();
+  const returnedToggle = await selectionToggleLarge.boundingBox();
+  assert(
+    returnedToggle.x >= -1 &&
+      returnedToggle.y >= -1 &&
+      returnedToggle.x + returnedToggle.width <= 321 &&
+      returnedToggle.y + returnedToggle.height <= 321,
+    `Selection exit must return visible focus: ${JSON.stringify(returnedToggle)}`
+  );
+  await selectionToggleLarge.click({ trial: true });
+  await page.setViewportSize({ width: 320, height: 640 });
+
+  await selectionToggleLarge.press('Enter');
+  await expect(
+    page.getByRole('toolbar', { name: 'Selected snippet actions', exact: true })
+  ).toBeVisible();
+  await expect(selectionToggleLarge).toHaveText('Done selecting');
+  await selectionToggleLarge.press('Escape');
+  await expect(
+    page.getByRole('toolbar', { name: 'Selected snippet actions', exact: true })
+  ).toHaveCount(0);
+  await expect(selectionToggleLarge).toHaveText('Select');
+  await expect(selectionToggleLarge).toBeFocused();
+  passed('snippet selection reflows and exits consistently by keyboard at 200% text');
+
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.evaluate(() => {
     document.documentElement.style.fontSize = '';
