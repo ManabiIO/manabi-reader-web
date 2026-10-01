@@ -65,6 +65,39 @@ test('a failed initial result receiver does not leave a worker alive', () =>
     assert.equal(workers[0].request, undefined);
   }));
 
+test('change-driven snippet publication skips scan-only batches but keeps failures and completion', () =>
+  withWorker((_Worker, workers) => {
+    const states = [];
+    const stop = searchBodies('猫', ['one'], scope(), (state) => states.push(state), {
+      progress: false
+    });
+    assert.equal(states.length, 1);
+    workers[0].emit('batch', { scanned: 20, failed: 0, batch: [] });
+    assert.equal(states.length, 1);
+    workers[0].emit('batch', { scanned: 40, failed: 1, batch: [] });
+    assert.equal(states.length, 2);
+    assert.equal(states.at(-1).failed, 1);
+    workers[0].emit('batch', {
+      scanned: 60,
+      failed: 1,
+      batch: [{ id: 'one', hits: [{ locator: {}, excerpt: '猫', reading: false }] }]
+    });
+    assert.equal(states.length, 3);
+    assert.equal(states.at(-1).hits.size, 1);
+    workers[0].emit('batch', {
+      scanned: 61,
+      failed: 1,
+      batch: [{ id: 'one', hits: [{ locator: {}, excerpt: '猫 updated', reading: false }] }]
+    });
+    assert.equal(states.length, 4);
+    assert.equal(states.at(-1).hits.get('one')[0].excerpt, '猫 updated');
+    workers[0].emit('done', { scanned: 62, failed: 1, batch: [], truncated: false });
+    assert.equal(states.length, 5);
+    assert.equal(states.at(-1).busy, false);
+    assert.equal(states.at(-1).scanned, 62);
+    stop();
+  }));
+
 test('postMessage failure retires its worker and does not block another search source', () =>
   withWorker((Worker, workers) => {
     Worker.failPost = true;
@@ -97,6 +130,105 @@ test('postMessage failure retires its worker and does not block another search s
       state: 'ready',
       value: { rows: ['video'], failed: 1, truncated: false }
     });
+    stop();
+  }));
+
+test('scope invalidation emits one control callback without publishing a stale batch', () =>
+  withWorker((_Worker, workers) => {
+    let current = true;
+    let invalidations = 0;
+    const states = [];
+    const selected = {
+      owner: 'alice',
+      guard() {
+        if (!current) throw new Error('Scope expired');
+      }
+    };
+    const stop = searchBodies('猫', ['one'], selected, (batch) => states.push(batch), {
+      invalidated: () => invalidations++
+    });
+    workers[0].emit('batch', {
+      scanned: 1,
+      failed: 0,
+      batch: [{ id: 'one', hits: [{ locator: {}, excerpt: '猫', reading: false }] }]
+    });
+    assert.equal(states.at(-1).hits.get('one')[0].excerpt, '猫');
+    const count = states.length;
+
+    current = false;
+    workers[0].emit('batch', {
+      scanned: 2,
+      failed: 0,
+      batch: [{ id: 'one', hits: [{ locator: {}, excerpt: 'stale', reading: false }] }]
+    });
+    workers[0].emit('done', { scanned: 2, failed: 0, batch: [] });
+
+    assert.equal(invalidations, 1);
+    assert.equal(states.length, count);
+    assert.equal(workers[0].terminated, 1);
+    stop();
+  }));
+
+test('expired snippet scope settles only that aggregate source and preserves published rows', () =>
+  withWorker((_Worker, workers) => {
+    let current = true;
+    const selected = {
+      owner: 'alice',
+      guard() {
+        if (!current) throw new Error('Scope expired');
+      }
+    };
+    const states = [];
+    const stop = startSearchSources(
+      [
+        {
+          start(_signal, receive) {
+            let rows = [];
+            return searchBodies(
+              '猫',
+              ['one'],
+              selected,
+              (batch) => {
+                rows = [...batch.hits.values()].flat().map((hit) => hit.excerpt);
+                receive({
+                  rows,
+                  busy: batch.busy,
+                  failed: batch.failed,
+                  truncated: batch.truncated
+                });
+              },
+              {
+                progress: false,
+                invalidated: () => receive({ rows, busy: false, failed: 1, truncated: false })
+              }
+            );
+          }
+        },
+        {
+          start(_signal, receive) {
+            receive({ rows: ['video'], busy: false, failed: 0, truncated: false });
+          }
+        }
+      ],
+      new AbortController().signal,
+      (state) => states.push(state)
+    );
+
+    workers[0].emit('batch', {
+      scanned: 1,
+      failed: 0,
+      batch: [{ id: 'one', hits: [{ locator: {}, excerpt: 'snippet', reading: false }] }]
+    });
+    assert.equal(states.at(-1).state, 'loading');
+
+    current = false;
+    workers[0].emit('batch', { scanned: 2, failed: 0, batch: [] });
+
+    assert.deepEqual(states.at(-1), {
+      state: 'ready',
+      value: { rows: ['snippet', 'video'], failed: 1, truncated: false }
+    });
+    assert.equal(workers[0].terminated, 1);
     stop();
   }));
 

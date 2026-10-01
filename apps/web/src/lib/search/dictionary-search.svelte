@@ -4,7 +4,9 @@
   import {
     dictionaryLease,
     type DictionaryResult,
-    type DictionaryRuntime
+    type DictionaryRuntime,
+    type DictionaryStatus,
+    type RecommendedDictionary
   } from './dictionary-runtime';
   export let query = '';
   export let full = false;
@@ -15,20 +17,46 @@
     attempt = 0,
     installing = false,
     retryableError = false,
+    statusSignature = '',
+    statusAttempt = 0,
+    statusLoading = false,
+    statusError = '',
+    managing = '',
+    pendingDelete = '',
+    setupOpen = false,
+    recommendationsLoading = false,
+    recommendationsError = '',
     message = '';
   let state: SearchState<DictionaryResult> = { state: 'idle' };
+  let dictionaryStatus: DictionaryStatus | undefined;
+  let recommendations: RecommendedDictionary[] | undefined;
   let runtime: DictionaryRuntime | undefined;
   let lease: ReturnType<typeof dictionaryLease>;
   let installController: AbortController | undefined;
+  let statusController: AbortController | undefined;
+  let manageController: AbortController | undefined;
+  let recommendationsController: AbortController | undefined;
   const task = queryTask<DictionaryResult>((next) => {
     state = next;
     if (next.state === 'error') retryableError = true;
+    if (full && next.state === 'ready' && next.value?.dictionaryCount === 0) setupOpen = true;
   });
   $: nextSignature = JSON.stringify([query, full, attempt, installing]);
   $: if (mounted && signature !== nextSignature) {
     signature = nextSignature;
     search();
   }
+  $: nextStatusSignature = JSON.stringify([full, statusAttempt]);
+  $: if (mounted && statusSignature !== nextStatusSignature) {
+    statusSignature = nextStatusSignature;
+    if (full) void refreshStatus();
+    else {
+      statusController?.abort();
+      statusError = '';
+      pendingDelete = '';
+    }
+  }
+  $: disabledTitles = new Set(dictionaryStatus?.preferences.disabled ?? []);
   function search() {
     task.stop();
     state = { state: 'idle' };
@@ -59,11 +87,85 @@
       publish({ state: 'ready', value });
     });
   }
-  function retry() {
+  function reopenRuntime() {
     task.stop();
+    statusController?.abort();
+    statusController = undefined;
+    statusLoading = false;
     lease.release();
     lease = dictionaryLease();
+    runtime = undefined;
     attempt++;
+    statusAttempt++;
+  }
+  function retry() {
+    reopenRuntime();
+  }
+  async function refreshStatus() {
+    statusController?.abort();
+    const controller = (statusController = new AbortController());
+    statusLoading = true;
+    statusError = '';
+    try {
+      const opened = await lease.get();
+      controller.signal.throwIfAborted();
+      const next = await opened.client.status({ signal: controller.signal });
+      controller.signal.throwIfAborted();
+      if (mounted && full) dictionaryStatus = next;
+    } catch (error) {
+      if (!controller.signal.aborted && mounted && full)
+        statusError =
+          error instanceof Error ? error.message : 'Installed dictionaries could not be loaded.';
+    } finally {
+      if (statusController === controller) {
+        statusController = undefined;
+        if (mounted) statusLoading = false;
+      }
+    }
+  }
+  async function toggleDictionary(title: string, enabled: boolean) {
+    if (managing || installing || statusLoading) return;
+    managing = title;
+    pendingDelete = '';
+    message = enabled ? `Enabling ${title}…` : `Disabling ${title}…`;
+    task.stop();
+    try {
+      const opened = await lease.get();
+      const next = await opened.client.setEnabled(title, enabled);
+      if (!mounted) return;
+      dictionaryStatus = next;
+      message = `${enabled ? 'Enabled' : 'Disabled'} ${title}.`;
+      reopenRuntime();
+    } catch (error) {
+      if (mounted)
+        message = error instanceof Error ? error.message : 'Dictionary settings could not be saved.';
+    } finally {
+      if (mounted) managing = '';
+    }
+  }
+  async function deleteDictionary(title: string) {
+    if (managing || installing || statusLoading || pendingDelete !== title) return;
+    managing = title;
+    message = `Deleting ${title}…`;
+    task.stop();
+    const controller = (manageController = new AbortController());
+    try {
+      const opened = await lease.get();
+      controller.signal.throwIfAborted();
+      const next = await opened.client.deleteDictionary(title, { signal: controller.signal });
+      controller.signal.throwIfAborted();
+      if (!mounted) return;
+      dictionaryStatus = next;
+      pendingDelete = '';
+      message = `Deleted ${title}.`;
+      reopenRuntime();
+    } catch (error) {
+      if (!controller.signal.aborted && mounted)
+        message = error instanceof Error ? error.message : 'Dictionary could not be deleted.';
+    } finally {
+      if (manageController === controller) manageController = undefined;
+      if (mounted) managing = '';
+    }
   }
   function definitions(node: HTMLElement, value: DictionaryResult) {
     const dispose =
@@ -77,7 +179,7 @@
     };
   }
   async function install(file?: File) {
-    if (installing) return;
+    if (installing || managing) return;
     installing = true;
     message = 'Preparing dictionary…';
     const controller = (installController = new AbortController());
@@ -102,6 +204,7 @@
       });
       imported = true;
       if (!file) await opened.client.setDefault('installed', result.summary.title);
+      if (mounted) setupOpen = false;
       if (mounted)
         message = result.cancelledAfterCommit
           ? 'The dictionary finished installing before cancellation.'
@@ -114,13 +217,13 @@
         if (imported) {
           // The current translator can retain stale headword fields after a
           // commit. Reopen against the durable dictionary before searching.
-          task.stop();
-          lease.release();
-          lease = dictionaryLease();
-          runtime = undefined;
+          reopenRuntime();
         }
         installing = false;
-        attempt++;
+        if (!imported) {
+          attempt++;
+          statusAttempt++;
+        }
       }
       if (installController === controller) installController = undefined;
     }
@@ -131,6 +234,32 @@
     input.value = '';
     if (file) void install(file);
   }
+  async function loadRecommendations() {
+    if (recommendations || recommendationsLoading) return;
+    recommendationsController?.abort();
+    const controller = (recommendationsController = new AbortController());
+    recommendationsLoading = true;
+    recommendationsError = '';
+    try {
+      const opened = await lease.get();
+      const items = await opened.recommendations({ signal: controller.signal });
+      controller.signal.throwIfAborted();
+      if (mounted) recommendations = items;
+    } catch (error) {
+      if (!controller.signal.aborted && mounted)
+        recommendationsError =
+          error instanceof Error ? error.message : 'Recommended dictionaries could not be loaded.';
+    } finally {
+      if (recommendationsController === controller) {
+        recommendationsController = undefined;
+        if (mounted) recommendationsLoading = false;
+      }
+    }
+  }
+  function recommendationToggle(event: Event) {
+    const details = event.currentTarget;
+    if (details instanceof HTMLDetailsElement && details.open) void loadRecommendations();
+  }
   onMount(() => {
     lease = dictionaryLease();
     mounted = true;
@@ -138,6 +267,9 @@
       mounted = false;
       task.stop();
       installController?.abort();
+      statusController?.abort();
+      manageController?.abort();
+      recommendationsController?.abort();
       lease.release();
     };
   });
@@ -145,7 +277,7 @@
 
 <section
   aria-labelledby="dictionary-search-heading"
-  aria-busy={state.state === 'loading' || installing}
+  aria-busy={state.state === 'loading' || installing || statusLoading || !!managing}
 >
   <header>
     <h2 id="dictionary-search-heading">Dictionary</h2>
@@ -206,20 +338,77 @@
     {/if}
   {/if}
   {#if full}
-    <details class="setup" open={state.value?.dictionaryCount === 0}>
+    <details class="setup" bind:open={setupOpen}>
       <summary>Local dictionaries</summary>
       <p class="note">
         These dictionaries stay in this browser and are separate from your extension’s dictionaries.
         Import your existing Yomitan ZIPs or install Jitendex. Nothing installs automatically.
       </p>
+      {#if statusLoading}
+        <p class="note" role="status">Loading installed dictionaries…</p>
+      {:else if statusError}
+        <p class="note" role="status">
+          {statusError} <button type="button" onclick={() => void refreshStatus()}>Retry list</button>
+        </p>
+      {:else if dictionaryStatus?.dictionaries.length}
+        <ul class="dictionary-list" aria-label="Installed local dictionaries">
+          {#each dictionaryStatus.dictionaries as dictionary (dictionary.title)}
+            <li class="dictionary-row">
+              <span class="dictionary-copy"
+                ><strong>{dictionary.title}</strong><small
+                  >{disabledTitles.has(dictionary.title) ? 'Disabled' : 'Enabled'}{dictionary.revision
+                    ? ` · ${dictionary.revision}`
+                    : ''}</small
+                >{#if dictionary.author}<small>{dictionary.author}</small>{/if}</span
+              >
+              <span class="dictionary-actions">
+                <button
+                  type="button"
+                  disabled={installing || statusLoading || !!managing}
+                  aria-label={`${disabledTitles.has(dictionary.title) ? 'Enable' : 'Disable'} ${dictionary.title}`}
+                  onclick={() =>
+                    void toggleDictionary(dictionary.title, disabledTitles.has(dictionary.title))}
+                  >{disabledTitles.has(dictionary.title) ? 'Enable' : 'Disable'}</button
+                >
+                {#if pendingDelete === dictionary.title}
+                  <span class="delete-confirm" role="group" aria-label={`Delete ${dictionary.title}`}>
+                    <span>Delete this dictionary?</span>
+                    <button
+                      type="button"
+                      disabled={installing || statusLoading || !!managing}
+                      aria-label={`Confirm delete ${dictionary.title}`}
+                      onclick={() => void deleteDictionary(dictionary.title)}>Delete</button
+                    >
+                    <button
+                      type="button"
+                      disabled={installing || statusLoading || !!managing}
+                      aria-label={`Cancel deleting ${dictionary.title}`}
+                      onclick={() => (pendingDelete = '')}>Cancel</button
+                    >
+                  </span>
+                {:else}
+                  <button
+                    type="button"
+                    disabled={installing || statusLoading || !!managing}
+                    aria-label={`Delete ${dictionary.title}`}
+                    onclick={() => (pendingDelete = dictionary.title)}>Delete…</button
+                  >
+                {/if}
+              </span>
+            </li>
+          {/each}
+        </ul>
+      {:else if dictionaryStatus}
+        <p class="note">No local dictionaries are installed.</p>
+      {/if}
       <div class="setup-actions">
-        <button type="button" disabled={installing} onclick={() => void install()}
+        <button type="button" disabled={installing || statusLoading || !!managing} onclick={() => void install()}
           >Install Jitendex</button
         ><label class="upload"
           >Import dictionary ZIP<input
             type="file"
             accept=".zip,application/zip"
-            disabled={installing}
+            disabled={installing || statusLoading || !!managing}
             onchange={chooseArchive}
           /></label
         >{#if installing}<button type="button" onclick={() => installController?.abort()}
@@ -230,6 +419,37 @@
         Jitendex by Stephen Kraus · CC BY-SA 4.0. Includes JMdict, Tatoeba and JmdictFurigana data.
         The full dictionary retains its source labels.
       </p>
+      <details class="recommendations" ontoggle={recommendationToggle}>
+        <summary>Recommended dictionaries</summary>
+        <p class="note">
+          From Manabitan’s pinned Japanese catalog. Downloads open on their publisher’s site; Reader
+          never downloads or installs them in the background.
+        </p>
+        {#if recommendationsLoading}
+          <p class="note" role="status">Loading recommendations…</p>
+        {:else if recommendationsError}
+          <p class="note" role="status">
+            {recommendationsError}
+            <button type="button" onclick={() => void loadRecommendations()}>Retry recommendations</button>
+          </p>
+        {:else if recommendations}
+          <ul class="recommendation-list" aria-label="Recommended Japanese dictionaries">
+            {#each recommendations as item (`${item.category}:${item.name}`)}
+              <li class="recommendation-row">
+                <span class="dictionary-copy"
+                  ><strong>{item.name}</strong><small>{item.category}</small><span
+                    >{item.description}</span
+                  ></span
+                >
+                <span class="dictionary-actions">
+                  <a href={item.homepage} target="_blank" rel="noopener noreferrer">About</a>
+                  <a href={item.downloadUrl} target="_blank" rel="noopener noreferrer">Download ZIP</a>
+                </span>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </details>
     </details>
     {#if message}<p class="note" role="status">{message}</p>{/if}
   {/if}
@@ -326,6 +546,52 @@
     border-top: 1px solid var(--border);
     padding-top: 0.5rem;
   }
+  .dictionary-list,
+  .recommendation-list {
+    margin-block: 0.75rem 1rem;
+  }
+  .dictionary-row,
+  .recommendation-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .dictionary-copy {
+    display: grid;
+    gap: 0.15rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .dictionary-actions,
+  .delete-confirm {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+  .delete-confirm > span {
+    font-size: 0.8rem;
+    color: var(--muted-foreground);
+  }
+  .recommendations {
+    margin-top: 0.75rem;
+  }
+  .recommendation-row a {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    padding: 0.55rem 0.7rem;
+    border-radius: 0.65rem;
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+  }
+  .recommendation-row a:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 3px;
+  }
   .setup-actions {
     display: flex;
     flex-wrap: wrap;
@@ -377,6 +643,13 @@
   @keyframes spin {
     to {
       transform: rotate(360deg);
+    }
+  }
+  @media (max-width: 640px) {
+    .dictionary-row,
+    .recommendation-row {
+      align-items: stretch;
+      flex-direction: column;
     }
   }
   @media (prefers-reduced-motion: reduce) {
