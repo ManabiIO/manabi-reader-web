@@ -472,7 +472,7 @@
     current = snapshot.file && snapshot.ready ? timeline.at(snapshot.time, delay) : -1;
     const pitchBounds =
       current >= 0 ? cueAudioBounds(cues[current], delay, snapshot.duration) : undefined;
-    pitch?.setSpeechActive(current >= 0, snapshot.time, pitchBounds?.start ?? snapshot.time);
+    pitch?.setSpeechWindow(pitchBounds);
     navigation?.cueChanged(current);
     if (current === lastCue) return;
     lastCue = current;
