@@ -59,6 +59,72 @@ test('slow source admission does not delay siblings, and admission is not comple
   assert.deepEqual(retired.sort(), ['book', 'snippet', 'video']);
 });
 
+test('completed sources retire promptly while a sibling remains busy', () => {
+  const states = [];
+  let slowReceive,
+    completedReceive,
+    retired = 0;
+  const stop = startSearchSources(
+    [
+      {
+        start(_signal, receive) {
+          completedReceive = receive;
+          receive(batch(['done']));
+          return () => retired++;
+        }
+      },
+      {
+        start(_signal, receive) {
+          slowReceive = receive;
+          receive(batch(['pending'], true));
+        }
+      }
+    ],
+    new AbortController().signal,
+    (state) => states.push(state)
+  );
+  assert.equal(retired, 1);
+  assert.equal(states.at(-1).state, 'loading');
+  const count = states.length;
+  completedReceive(batch(['late'], true));
+  assert.equal(states.length, count);
+  slowReceive(batch(['finished']));
+  assert.equal(states.at(-1).state, 'ready');
+  stop();
+  assert.equal(retired, 1);
+});
+
+test('late async cleanup retires immediately after its source already completed', async () => {
+  const gate = Promise.withResolvers();
+  let retired = 0;
+  const states = [];
+  const stop = startSearchSources(
+    [
+      {
+        async start(_signal, receive) {
+          receive(batch(['complete']));
+          await gate.promise;
+          return () => retired++;
+        }
+      },
+      {
+        start(_signal, receive) {
+          receive(batch(['sibling'], true));
+        }
+      }
+    ],
+    new AbortController().signal,
+    (state) => states.push(state)
+  );
+  assert.equal(retired, 0);
+  assert.equal(states.at(-1).state, 'loading');
+  gate.resolve();
+  await turn();
+  assert.equal(retired, 1);
+  stop();
+  assert.equal(retired, 1);
+});
+
 test('sync and async source failures retain successful and partial results', async () => {
   const gate = Promise.withResolvers();
   const states = [];
