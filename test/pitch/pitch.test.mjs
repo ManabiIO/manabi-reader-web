@@ -31,7 +31,7 @@ test('pitch requests a 48 kHz context and falls back when the device rejects it'
   try {
     const context = createPitchController(() => {}).environment.createContext();
     assert.equal(context.sampleRate, 96000);
-    assert.deepEqual(requested, [48000, null]);
+    assert.deepEqual(requested, [48000, 44100, null]);
   } finally {
     globalThis.AudioContext = original;
   }
@@ -61,6 +61,7 @@ test('SwiftF0 batches stable frames at 32 ms spacing while retaining future cont
   const confidence = new Float32Array(frameCount).fill(0.9);
   const results = measurementsFromSwiftF0(samples, pitch, confidence);
   assert.ok(results.length >= 10);
+  assert.ok(results[0].offsetSeconds >= 11 * SWIFT_F0_FRAME_SECONDS);
   assert.ok(results.at(-1).offsetSeconds <= ANALYSIS_WINDOW_SECONDS - 0.15);
   for (let index = 1; index < results.length; index++) {
     assert.ok(Math.abs(results[index].offsetSeconds - results[index - 1].offsetSeconds - 0.032) < 1e-9);
