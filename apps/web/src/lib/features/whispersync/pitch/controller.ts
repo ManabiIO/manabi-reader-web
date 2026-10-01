@@ -182,8 +182,7 @@ export class PitchController {
     this.speechSince = start;
     // The rolling analyser already contains past context. Wait only for
     // SwiftF0's future context, then discard estimates preceding this cue.
-    this.sampleAfter =
-      (this.context?.currentTime ?? 0) + SWIFT_F0_FUTURE_CONTEXT_SECONDS;
+    this.sampleAfter = (this.context?.currentTime ?? 0) + SWIFT_F0_FUTURE_CONTEXT_SECONDS;
     this.publish({ time });
     this.schedule();
   }
