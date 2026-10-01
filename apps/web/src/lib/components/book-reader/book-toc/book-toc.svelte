@@ -113,9 +113,11 @@
 <!-- The enclosing Sheet is the sole scroll owner. A long title, large text or
      short landscape viewport must never shrink the chapter list to nothing. -->
 <section class="contents-panel flex min-h-full shrink-0 flex-col" aria-label="Table of contents">
-  <header class="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 px-6 pt-6 pb-4">
+  <header
+    class="grid grid-cols-[minmax(0,1fr)_44px] items-start gap-[16px] px-[24px] pt-[24px] pb-[16px]"
+  >
     <div class="min-w-0">
-      <h2 class="text-xl font-semibold">Contents</h2>
+      <h2 class="whitespace-nowrap text-xl font-semibold">Contents</h2>
       <p class="mt-1 text-sm text-muted-foreground [overflow-wrap:anywhere]">{bookTitle}</p>
     </div>
     <CloseButton aria-label="Close Table of Contents" onclick={closeTocMenu} />
