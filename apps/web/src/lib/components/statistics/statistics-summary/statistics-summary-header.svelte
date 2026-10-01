@@ -32,7 +32,7 @@
   }>();
 
   const tableHeaderClasses =
-    'flex items-center py-2.5 px-0 text-sm w-full bg-transparent border-0 md:border-b-2 border-border appearance-none focus:outline-none focus:ring-0 focus:border-border peer lg:text-base';
+    'flex items-center py-0 px-0 text-sm w-full bg-transparent border-0 md:border-b-2 border-border appearance-none focus:outline-none focus:ring-0 focus:border-border peer lg:text-base';
 
   let summaryHeaderPopover: Popover;
 
