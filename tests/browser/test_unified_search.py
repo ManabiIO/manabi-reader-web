@@ -514,7 +514,11 @@ class UnifiedSearch(ProductJourneyBase):
         # library usable, explain the reconnect requirement, and never invent a
         # source merely because the global search result was actionable.
         expect(self.page.get_by_role('heading', name='Videos', exact=True)).to_be_visible()
-        expect(self.page.get_by_role('status')).to_contain_text(
+        expect(
+            self.page.get_by_role('status').filter(
+                has_text='Reopen this video to reconnect its local file'
+            )
+        ).to_contain_text(
             'Reopen this video to reconnect its local file, or sign in to reconnect its cloud folder.',
             timeout=30000,
         )
