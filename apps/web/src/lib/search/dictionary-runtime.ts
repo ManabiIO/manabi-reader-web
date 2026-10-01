@@ -46,10 +46,7 @@ interface Client {
     blob: Blob,
     options: { signal: AbortSignal; onProgress: (value: unknown) => void }
   ): Promise<{ summary: { title: string }; warnings: string[]; cancelledAfterCommit: boolean }>;
-  deleteDictionary(
-    title: string,
-    options?: { signal?: AbortSignal }
-  ): Promise<DictionaryStatus>;
+  deleteDictionary(title: string, options?: { signal?: AbortSignal }): Promise<DictionaryStatus>;
   setEnabled(title: string, enabled: boolean): Promise<DictionaryStatus>;
   setDefault(choice: string, title?: string): Promise<DictionaryStatus>;
   close(): Promise<void>;
@@ -121,11 +118,14 @@ async function open(): Promise<DictionaryRuntime> {
         options
       ),
     recommendations: async ({ signal }) => {
-      const response = await fetch(new URL(`${root}data/recommended-dictionaries.json`, location.origin), {
-        credentials: 'omit',
-        signal,
-        cache: 'force-cache'
-      });
+      const response = await fetch(
+        new URL(`${root}data/recommended-dictionaries.json`, location.origin),
+        {
+          credentials: 'omit',
+          signal,
+          cache: 'force-cache'
+        }
+      );
       if (!response.ok) throw new Error('Recommended dictionaries are unavailable.');
       const catalog: unknown = await response.json();
       if (!catalog || typeof catalog !== 'object' || Array.isArray(catalog))
