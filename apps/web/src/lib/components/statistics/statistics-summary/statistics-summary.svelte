@@ -685,7 +685,7 @@
       statisticsSummaryPagesContainer.scrollTo(0, middle);
     }}
   >
-    <span class="tabular-nums" role="status" aria-live="polite">{statisticsSummaryPageLabel}</span>
+    <span class="tabular-nums">{statisticsSummaryPageLabel}</span>
     <div
       slot="content"
       class="flex max-h-48 w-32 flex-col overflow-auto p-2"
@@ -709,6 +709,7 @@
       {/each}
     </div>
   </Popover>
+  <span class="sr-only" role="status" aria-live="polite">{statisticsSummaryPageLabel}</span>
   <Button
     bind:ref={nextSummaryPage}
     variant="ghost"
