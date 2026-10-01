@@ -176,6 +176,10 @@ const CSS_PROPERTIES = new Set([
   'text-orientation',
   'text-combine-upright',
   'text-transform',
+  // Book-scoped bidi properties are inert layout semantics. Preserve them so
+  // publisher-authored RTL/LTR runs survive sanitization without affecting app UI.
+  'direction',
+  'unicode-bidi',
   'writing-mode',
   'line-break',
   'word-break',
