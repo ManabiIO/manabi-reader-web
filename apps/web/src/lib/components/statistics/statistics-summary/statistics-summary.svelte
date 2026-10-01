@@ -53,7 +53,7 @@
   }>();
 
   const statisticsSummaryBaseRowRem = 3;
-  const statisticsSummaryBaseRowGap = 1.5;
+  const statisticsSummaryRowGapPx = 24;
 
   let renderFullStatisticsSummaryTable = window && window.matchMedia('(min-width: 768px)').matches;
   let statisticsSummaryTableContainerElm: HTMLElement;
@@ -252,10 +252,8 @@
             Math.ceil(
               (getFullHeight(window, statisticsSummaryTableContainerElm) -
                 getFullHeight(window, statisticsSummaryButtonContainer, true)) /
-                convertRemToPixels(
-                  window,
-                  statisticsSummaryBaseRowRem + statisticsSummaryBaseRowGap + 0.4
-                )
+                convertRemToPixels(window, statisticsSummaryBaseRowRem + 0.4) +
+                statisticsSummaryRowGapPx
             )
           )
         : 1;
@@ -380,7 +378,7 @@
 </div>
 <div
   data-statistics-summary-scroll
-  class="grow p-2 overflow-auto"
+  class="grow overflow-auto p-[8px]"
   class:flex={!statisticsData.length}
   class:justify-center={!statisticsData.length}
   class:items-center={!statisticsData.length}
@@ -396,7 +394,7 @@
       $lastPrimaryReadingDataAggregationMode$ === StatisticsReadingDataAggregationMode.TITLE}
     <div
       data-statistics-summary-grid
-      class="grid grid-cols-[0.75fr_1fr] gap-x-8 items-center"
+      class="grid grid-cols-[0.75fr_1fr] gap-x-[32px] items-center"
       class:md:grid-cols-[0.31fr_0.6fr_0.77fr_0.74fr_0.6fr_0.57fr]={isNoneAggregation}
       class:lg:grid-cols-[0.14fr_0.26fr_0.85fr_repeat(2,_0.59fr)_0.45fr]={isNoneAggregation}
       class:md:grid-cols-[0.1fr_0.6fr_1fr_1.1fr_0.85fr]={isDateAggregation}
@@ -404,7 +402,7 @@
       class:md:grid-cols-[0.1fr_1fr_repeat(3,_0.45fr)]={isTitleAggregation}
       class:lg:grid-cols-[0.1fr_0.93fr_0.35fr_0.42fr_0.3fr]={isTitleAggregation}
       style:grid-auto-rows={`${statisticsSummaryBaseRowRem}rem`}
-      style:row-gap={`${statisticsSummaryBaseRowGap}rem`}
+      style:row-gap={`${statisticsSummaryRowGapPx}px`}
     >
       {#if renderFullStatisticsSummaryTable}
         <div></div>
@@ -655,7 +653,7 @@
   {/if}
 </div>
 <div
-  class="my-6 flex items-center justify-between gap-2"
+  class="my-[24px] flex items-center justify-between gap-[8px]"
   class:invisible={statisticsSummaryMaxPages < 2}
   bind:this={statisticsSummaryButtonContainer}
 >
