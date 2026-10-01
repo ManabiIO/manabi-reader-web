@@ -9,6 +9,7 @@ import { integrationDB, equal } from '../manabi/persistence';
 import { commitTransaction } from '$lib/data/database/books-db/commit-transaction.mjs';
 import { requestPersistentStorageOnce } from '$lib/data/window/navigator/persistent-storage';
 import type { SourceDescriptor } from '../library/catalog';
+import { sourceKey } from '../library/organization-keys';
 import {
   canonical,
   retainRemoteAncestor,
@@ -212,7 +213,9 @@ export async function acceptRemote(
   owner: string,
   document: SnippetDocument,
   location: Location,
-  guard: Guard
+  guard: Guard,
+  activeSources?: ReadonlySet<string>,
+  authoritativeAbsentSources?: ReadonlySet<string>
 ) {
   location = { ...location, observedRevision: document.revision, missing: false };
   return mutateRecord(owner, document.id, guard, (current) => {
@@ -232,27 +235,77 @@ export async function acceptRemote(
       locations = [...current.locations.filter((item) => locationKey(item) !== key), location];
     const previous = current.locations.find((item) => locationKey(item) === current.primary);
     const primaryMissing = previous?.missing && !current.transfer && !current.conflicts.length;
-    const relocated =
-      primaryMissing || current.primary === key
-        ? {
-            primary: key,
-            destination: location,
-            remoteRevision: document.revision,
-            issue: undefined
-          }
-        : {};
-    // Discovery cannot adopt provider changes while a move or exact upload owns the document.
+    const incomingActive = activeSources?.has(sourceKey(location.source)) ?? false;
+    const primaryUnavailable =
+      !!activeSources &&
+      !!authoritativeAbsentSources &&
+      incomingActive &&
+      !!previous &&
+      authoritativeAbsentSources.has(sourceKey(previous.source));
+    const uploadUnavailable =
+      !!authoritativeAbsentSources &&
+      !!current.upload &&
+      authoritativeAbsentSources.has(sourceKey(current.upload.destination.source));
+    const rebindable =
+      !current.transfer &&
+      (!current.upload || uploadUnavailable) &&
+      !current.conflicts.length &&
+      (primaryMissing || primaryUnavailable || current.primary === key);
+    const relocated = rebindable
+      ? {
+          primary: key,
+          destination: location,
+          remoteRevision: document.revision,
+          issue: undefined
+        }
+      : {};
+
+    // A move owns source/destination identity until its journal settles.
     if (current.transfer) return { ...current, locations };
-    if (current.upload && canonical(current.upload.document) === canonical(document))
+
+    // A pending immutable upload to a still-active source owns its exact retry.
+    if (
+      current.upload &&
+      !uploadUnavailable &&
+      canonical(current.upload.document) === canonical(document)
+    )
       return { ...current, locations };
+
     if (canonical(current.document) === canonical(document))
-      return { ...current, ...relocated, locations };
+      return {
+        ...current,
+        ...relocated,
+        ...(rebindable
+          ? {
+              upload: uploadUnavailable ? undefined : current.upload,
+              dirty: false
+            }
+          : {}),
+        locations
+      };
+
+    // A reconnected location can contain the last acknowledged ancestor while
+    // this browser has a newer local descendant. Bind that remote ancestor as
+    // the expected revision, preserve the local document, and republish it.
+    if (
+      rebindable &&
+      (primaryMissing || primaryUnavailable) &&
+      current.document.parents.includes(document.revision)
+    )
+      return {
+        ...current,
+        ...relocated,
+        upload: uploadUnavailable ? undefined : current.upload,
+        dirty: true,
+        locations
+      };
+
+    // Bounded ancestry may no longer contain the acknowledged revision.
     if (primaryMissing && current.dirty && document.revision === current.remoteRevision)
       return { ...current, ...relocated, locations };
-    // A causally newer copy is the same logical snippet, regardless of which
-    // provider happened to be scanned first in this browser. The primary home
-    // is local metadata and cannot make a stale ancestor win after reinstall.
-    // Concurrent siblings still become explicit conflicts.
+
+    // A causally newer clean copy is the same logical snippet regardless of
+    // provider discovery order. Concurrent siblings remain explicit conflicts.
     if (
       !current.dirty &&
       !current.transfer &&
@@ -269,6 +322,7 @@ export async function acceptRemote(
         remoteRevision: document.revision,
         issue: undefined
       };
+
     if (current.document.parents.includes(document.revision)) return { ...current, locations };
     const conflicts = current.conflicts.filter((other) => canonical(other) !== canonical(document));
     if (conflicts.length >= 8)
