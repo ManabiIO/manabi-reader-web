@@ -456,14 +456,7 @@ try {
     selectionBox.width >= 43.5 && selectionBox.height >= 43.5,
     'Snippet selection target must remain at least 44x44 CSS px'
   );
-  assert(
-    await selectionTarget.evaluate((label) => {
-      const r = label.getBoundingClientRect();
-      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-      return !!hit && (hit === label || label.contains(hit));
-    }),
-    'Snippet selection target center must be hit-testable'
-  );
+  await selectionTarget.click({ trial: true });
   await page.getByRole('button', { name: 'Done selecting', exact: true }).click();
   passed('modifier-click enters visible selection mode');
   const search = page.getByRole('searchbox', { name: 'Search snippets' });
@@ -701,14 +694,7 @@ try {
       closeBox.y + closeBox.height <= 321,
     'Save-location close target must remain inside the short visual viewport'
   );
-  assert(
-    await enlargedPickerClose.evaluate((button) => {
-      const r = button.getBoundingClientRect();
-      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-      return !!hit && (hit === button || button.contains(hit));
-    }),
-    'Save-location close target must remain hit-testable after picker scrolling'
-  );
+  await enlargedPickerClose.click({ trial: true });
   assert(
     (await picker.evaluate((element) => element.scrollWidth - element.clientWidth)) <= 1,
     'Save-location dialog must not overflow horizontally at 200% text'
