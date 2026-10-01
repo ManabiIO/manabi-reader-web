@@ -672,6 +672,28 @@ test('first subtitle synchronization establishes a cue boundary even when speech
   f.controller.dispose();
 });
 
+test('active cue boundary can advance without requiring a subtitle gap', async () => {
+  const f = await running();
+  f.a.currentTime = 4;
+  f.controller.setSpeechActive(true, 4, 3.5);
+  f.controller.setSpeechActive(true, 4.2, 4.15);
+  f.frame(200);
+  const worker = f.workers[0];
+  const id = worker.sent.at(-1).id;
+  worker.onmessage({
+    data: {
+      type: 'result',
+      id,
+      results: [
+        { hz: 180, amplitude: 0.4, confidence: 1, rms: 0.3, offsetSeconds: 0.2, windowSeconds: ANALYSIS_WINDOW_SECONDS },
+        { hz: 220, amplitude: 0.4, confidence: 1, rms: 0.3, offsetSeconds: 0.6, windowSeconds: ANALYSIS_WINDOW_SECONDS }
+      ]
+    }
+  });
+  assert.ok(f.state.points.every((point) => point.time >= 4.146));
+  f.controller.dispose();
+});
+
 test('subtitle gaps stop inference and cue restart discards pre-cue batch frames', async () => {
   const f = await running();
   f.frame(700);
