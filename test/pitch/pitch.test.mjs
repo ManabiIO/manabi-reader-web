@@ -4,7 +4,9 @@ import assert from 'node:assert/strict';
 const {
   ANALYSIS_WINDOW_SECONDS,
   SWIFT_F0_FRAME_SECONDS,
+  SAMPLE_INTERVAL_MS,
   measurementFromSwiftF0,
+  measurementsFromSwiftF0,
   resampleForSwiftF0
 } = await import(new URL('analysis.mjs', process.env.PITCH_COMPILED));
 const { appendPoint, pitchPaths, initialPitchState } = await import(
@@ -52,6 +54,23 @@ for (const rate of [8000, 16000, 44100, 48000, 96000, 192000]) {
     assert.ok(Math.abs(result.length / 16000 - ANALYSIS_WINDOW_SECONDS) < 0.002);
   });
 }
+test('SwiftF0 batches stable frames at 32 ms spacing while retaining future context', () => {
+  const samples = tone(220, 16000);
+  const frameCount = Math.floor(samples.length / 256);
+  const pitch = new Float64Array(frameCount).fill(220);
+  const confidence = new Float32Array(frameCount).fill(0.9);
+  const results = measurementsFromSwiftF0(samples, pitch, confidence);
+  assert.ok(results.length >= 10);
+  assert.ok(results.at(-1).offsetSeconds <= ANALYSIS_WINDOW_SECONDS - 0.15);
+  for (let index = 1; index < results.length; index++) {
+    assert.ok(Math.abs(results[index].offsetSeconds - results[index - 1].offsetSeconds - 0.032) < 1e-9);
+  }
+});
+test('live inference cadence is aligned to multiple emitted pitch frames', () => {
+  assert.equal(SAMPLE_INTERVAL_MS, 256);
+  assert.equal(SAMPLE_INTERVAL_MS % 32, 0);
+});
+
 test('SwiftF0 frame selection retains its future-context margin and speech bounds', () => {
   const samples = tone(220, 16000);
   const frameCount = Math.floor(samples.length / 256);
@@ -457,6 +476,43 @@ test('show/hide and off/on stop analysis but retain the playback destination', a
   assert.equal(f.context.closes, 1);
   assert.equal(source.connections.size, 0);
 });
+test('overlapping result batches append only newly stable timestamps', async () => {
+  const f = await running();
+  f.frame(600);
+  const worker = f.workers[0];
+  const id1 = worker.sent.at(-1).id;
+  worker.onmessage({
+    data: {
+      type: 'result',
+      id: id1,
+      results: [
+        { hz: 220, amplitude: 0.4, confidence: 1, rms: 0.3, offsetSeconds: 0.256, windowSeconds: ANALYSIS_WINDOW_SECONDS },
+        { hz: 221, amplitude: 0.4, confidence: 1, rms: 0.3, offsetSeconds: 0.288, windowSeconds: ANALYSIS_WINDOW_SECONDS }
+      ]
+    }
+  });
+  assert.equal(f.state.points.length, 2);
+  const previousLast = f.state.points.at(-1).time;
+
+  f.a.currentTime += 0.256;
+  f.frame(900);
+  const id2 = worker.sent.at(-1).id;
+  worker.onmessage({
+    data: {
+      type: 'result',
+      id: id2,
+      results: [
+        // This maps to the previous window's last absolute timestamp.
+        { hz: 221, amplitude: 0.4, confidence: 1, rms: 0.3, offsetSeconds: 0.032, windowSeconds: ANALYSIS_WINDOW_SECONDS },
+        { hz: 222, amplitude: 0.4, confidence: 1, rms: 0.3, offsetSeconds: 0.064, windowSeconds: ANALYSIS_WINDOW_SECONDS }
+      ]
+    }
+  });
+  assert.ok(f.state.points.length >= 3);
+  assert.ok(f.state.points.at(-1).time > previousLast);
+  f.controller.dispose();
+});
+
 test('bounded work: one in-flight request, timestamp at selected frame, no duplicate stalled samples', async () => {
   const f = await running();
   f.frame(600);
