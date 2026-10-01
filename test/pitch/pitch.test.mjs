@@ -5,7 +5,8 @@ const {
   ANALYSIS_WINDOW_SECONDS,
   SWIFT_F0_FRAME_SECONDS,
   measurementFromSwiftF0,
-  resampleForSwiftF0
+  resampleForSwiftF0,
+  swiftF0ModelGain
 } = await import(new URL('analysis.mjs', process.env.PITCH_COMPILED));
 const { appendPoint, pitchPaths, initialPitchState } = await import(
   new URL('model.mjs', process.env.PITCH_COMPILED)
@@ -78,6 +79,38 @@ test('low confidence, silence and out-of-band SwiftF0 frames are unvoiced', () =
   confidence[13] = 1;
   assert.equal(measurementFromSwiftF0(samples, pitch, confidence).hz, null);
 });
+
+test('a voiced previous hop cannot authorize pitch inside the current silent hop', () => {
+  const frames = 24;
+  const selected = frames - 1 - 10;
+  const samples = new Float32Array(frames * 256);
+  for (let index = (selected - 1) * 256; index < selected * 256; index++) {
+    samples[index] = 0.8 * Math.sin((2 * Math.PI * 220 * index) / 16000);
+  }
+  const pitch = new Float64Array(frames).fill(220);
+  const confidence = new Float32Array(frames).fill(1);
+  const silent = measurementFromSwiftF0(samples, pitch, confidence);
+  assert.equal(silent.hz, null);
+  assert.equal(
+    silent.amplitude > 0,
+    true,
+    'loudness may retain the preceding hop while voicing does not'
+  );
+
+  for (let index = selected * 256; index < (selected + 1) * 256; index++) {
+    samples[index] = 0.8 * Math.sin((2 * Math.PI * 220 * index) / 16000);
+  }
+  assert.equal(measurementFromSwiftF0(samples, pitch, confidence).hz, 220);
+});
+test('very quiet voiced audio gets model-only gain without lifting silence or normal levels', () => {
+  const quiet = tone(220, 16000, ANALYSIS_WINDOW_SECONDS, 0.005);
+  const gain = swiftF0ModelGain(quiet);
+  assert.ok(gain > 50 && gain < 150);
+  assert.ok(Math.abs(Math.max(...quiet.map((sample) => Math.abs(sample))) * gain - 0.5) < 0.001);
+  assert.equal(swiftF0ModelGain(tone(220, 16000, ANALYSIS_WINDOW_SECONDS, 0.2)), 1);
+  assert.equal(swiftF0ModelGain(new Float32Array(4096)), 1);
+});
+
 test('empty model output and malformed source rates fail closed', () => {
   assert.equal(measurementFromSwiftF0(new Float32Array(32), [], []).hz, null);
   for (const rate of [NaN, Infinity, 0, 7999, 192001])
@@ -264,6 +297,7 @@ function fixture(options = {}) {
   };
 }
 async function running(f = fixture()) {
+  f.controller.setSpeechWindow({ start: 0, end: 100 });
   f.controller.setEnabled(true);
   f.ready();
   await flush();
@@ -382,6 +416,7 @@ test('replacement audio retires only the old route and rejects late callbacks', 
 });
 test('load and result timeouts expose retry without closing the output route', async () => {
   const f = fixture();
+  f.controller.setSpeechWindow({ start: 0, end: 100 });
   f.controller.setEnabled(true);
   f.timer(15000);
   assert.equal(f.state.status, 'error');
@@ -526,6 +561,53 @@ test('native Play waits for suspended output to resume before scheduling analysi
   assert.equal(f.frames.size, 1);
   f.controller.dispose();
 });
+
+test('transcript cue gate suppresses background-only sampling and breaks the next contour', async () => {
+  const f = await running();
+  f.controller.setSpeechWindow();
+  assert.equal(f.state.speechActive, false);
+  assert.equal(f.frames.size, 0);
+  f.frame(1000);
+  assert.equal(f.workers[0].sent.length, 0);
+
+  f.controller.setSpeechWindow({ start: 1, end: 2 });
+  assert.equal(f.state.speechActive, true);
+  f.frame(1100);
+  assert.equal(f.workers[0].sent.length, 0, 'wait for SwiftF0 future context inside the cue');
+  f.a.currentTime += 0.25;
+  f.frame(1300);
+  assert.equal(f.workers[0].sent.length, 1);
+  assert.ok(
+    f.workers[0].sent[0].samples.slice(0, 12000).every((sample) => sample === 0),
+    'pre-cue samples must be zeroed before SwiftF0 inference'
+  );
+  assert.ok(
+    f.workers[0].sent[0].samples.slice(16000).some((sample) => Math.abs(sample) > 0.01),
+    'the authored cue samples must remain available to SwiftF0'
+  );
+  f.result();
+  assert.equal(f.state.points.length, 1);
+  assert.equal(f.state.points[0].breakBefore, true);
+
+  f.controller.setSpeechWindow();
+  f.a.currentTime += 0.05;
+  f.frame(1400);
+  assert.equal(f.workers[0].sent.length, 1, 'cue gaps must not enqueue pitch work');
+
+  f.controller.setSpeechWindow({ start: 1.3, end: 2.3 });
+  f.a.currentTime += 0.25;
+  f.frame(1700);
+  assert.equal(f.workers[0].sent.length, 2);
+  f.result();
+  assert.equal(f.state.points.length, 2);
+  assert.equal(
+    f.state.points[1].breakBefore,
+    true,
+    'new cues must not join across a background gap'
+  );
+  f.controller.dispose();
+});
+
 test('startup timeout distinguishes ready worker from unavailable audio output', async () => {
   const f = fixture({ resume: () => new Promise(() => {}) });
   f.controller.setEnabled(true);

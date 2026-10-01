@@ -6,6 +6,7 @@ import {
   MIN_HZ,
   measurementFromSwiftF0,
   resampleForSwiftF0,
+  swiftF0ModelGain,
   type Measurement
 } from './analysis';
 
@@ -37,15 +38,35 @@ export async function analyseSwiftF0Window(
     });
 
   const session = await prepareSwiftF0();
-  const result = await session.run({
-    audio: new ort.Tensor('float32', samples, [1, samples.length]),
+  const gain = swiftF0ModelGain(samples);
+  const modelSamples =
+    gain === 1 ? samples : Float32Array.from(samples, (sample) => sample * gain);
+  const feeds = {
+    // Gain only the model input. measurementFromSwiftF0 below intentionally
+    // receives the original samples so waveform/level/silence semantics do not
+    // change with automatic low-level compensation.
+    audio: new ort.Tensor('float32', modelSamples, [1, modelSamples.length]),
     fmin: new ort.Tensor('float32', Float32Array.of(MIN_HZ), []),
     fmax: new ort.Tensor('float32', Float32Array.of(MAX_HZ), [])
-  });
-  const pitch = result.pitch?.data as ArrayLike<number> | undefined;
-  const confidence = result.confidence?.data as ArrayLike<number> | undefined;
-  if (!pitch || !confidence) throw new Error('SwiftF0 returned malformed output');
-  return measurementFromSwiftF0(samples, pitch, confidence, {
-    windowSeconds: input.length / rate
-  });
+  };
+  let result: ort.InferenceSession.ReturnType | undefined;
+  try {
+    result = await session.run(feeds);
+    const pitch = result.pitch?.data as ArrayLike<number> | undefined;
+    const confidence = result.confidence?.data as ArrayLike<number> | undefined;
+    const expectedFrames = Math.max(1, Math.floor(samples.length / 256));
+    if (
+      !pitch ||
+      !confidence ||
+      pitch.length !== expectedFrames ||
+      confidence.length !== expectedFrames
+    )
+      throw new Error('SwiftF0 returned malformed output');
+    return measurementFromSwiftF0(samples, pitch, confidence, {
+      windowSeconds: input.length / rate
+    });
+  } finally {
+    for (const tensor of Object.values(result ?? {})) tensor.dispose();
+    for (const tensor of Object.values(feeds)) tensor.dispose();
+  }
 }

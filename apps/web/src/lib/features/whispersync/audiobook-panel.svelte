@@ -98,6 +98,10 @@
   $: if (mounted) contentChanged(htmlContent, layoutKey);
   $: if (mounted) panelVisibilityChanged(open);
   $: if (mounted) pitch.setVisible(open && cues.length > 0 && !document.hidden);
+  $: if (mounted)
+    pitch.setSpeechWindow(
+      activeCue ? cueAudioBounds(activeCue, delay, snapshot.duration) : undefined
+    );
 
   onMount(() => {
     alive = true;

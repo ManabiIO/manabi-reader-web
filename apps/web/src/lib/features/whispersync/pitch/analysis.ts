@@ -20,6 +20,8 @@ export const SWIFT_F0_LOOKAHEAD_FRAMES = 10;
 export const ANALYSIS_WINDOW_SECONDS = 0.55;
 export const SAMPLE_INTERVAL_MS = 96;
 const SILENCE_PEAK = 1e-3;
+const QUIET_PEAK = 10 ** (-35 / 20);
+const QUIET_TARGET_PEAK = 0.5;
 
 const finite = (value: number, fallback = 0) => (Number.isFinite(value) ? value : fallback);
 const clamp = (value: number, minimum: number, maximum: number) =>
@@ -56,20 +58,31 @@ export function resampleForSwiftF0(input: Float32Array, rate: number): Float32Ar
   return output;
 }
 
-function frameLevel(samples: Float32Array, center: number) {
-  const width = Math.round(SWIFT_F0_SAMPLE_RATE * 0.032);
-  const half = Math.max(1, Math.floor(width / 2));
-  const first = Math.max(0, Math.floor(center) - half);
-  const last = Math.min(samples.length, Math.floor(center) + half);
+export function swiftF0ModelGain(samples: Float32Array): number {
+  let peak = 0;
+  for (const sample of samples) peak = Math.max(peak, Math.abs(finite(sample)));
+  return peak >= SILENCE_PEAK && peak < QUIET_PEAK ? QUIET_TARGET_PEAK / peak : 1;
+}
+
+function frameLevel(samples: Float32Array, frame: number) {
+  const center = Math.max(0, Math.floor(frame)) * SWIFT_F0_HOP;
+  const first = Math.max(0, center - SWIFT_F0_HOP);
+  const last = Math.min(samples.length, center + SWIFT_F0_HOP);
   if (last <= first) return { rms: 0, peak: 0 };
   let square = 0;
   let peak = 0;
   for (let index = first; index < last; index++) {
     const value = finite(samples[index]);
     square += value * value;
-    peak = Math.max(peak, Math.abs(value));
+    // SwiftF0 gates digital silence on the *current* 256-sample hop.
+    // The previous hop participates only in the 32 ms loudness envelope.
+    // Using a centered peak lets speech immediately before a pause authorize
+    // a bogus voiced frame inside the silent hop.
+    if (index >= center) peak = Math.max(peak, Math.abs(value));
   }
-  return { rms: Math.sqrt(square / (last - first)), peak };
+  // Upstream loudness uses a fixed two-hop denominator, including at the
+  // beginning of a signal where the missing previous hop is implicit zero.
+  return { rms: Math.sqrt(square / (SWIFT_F0_HOP * 2)), peak };
 }
 
 export function measurementFromSwiftF0(
@@ -102,7 +115,7 @@ export function measurementFromSwiftF0(
   const index = Math.max(0, count - 1 - SWIFT_F0_LOOKAHEAD_FRAMES);
   const score = clamp(finite(Number(confidence[index])), 0, 1);
   const candidate = Number(pitch[index]);
-  const level = frameLevel(samples, index * SWIFT_F0_HOP);
+  const level = frameLevel(samples, index);
   const hz =
     score >= clamp(finite(voicingThreshold, VOICING_THRESHOLD), 0, 1) &&
     level.peak >= SILENCE_PEAK &&
