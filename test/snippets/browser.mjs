@@ -364,6 +364,66 @@ try {
   await captureNotice.getByRole('button', { name: 'Dismiss', exact: true }).click();
   passed('a failed capture cannot hide or discard a concurrent persisted capture');
 
+  // A committed append must not be reported as failed merely because best-effort
+  // cleanup of its already-durable capture draft failed. The capture receipt
+  // remains the duplicate-prevention authority while the stale draft stays recoverable.
+  const cleanupPrefix = 'capture-cleanup-failure-' + Date.now();
+  await page.evaluate((cleanupPrefix) => {
+    window.dispatchEvent(
+      new CustomEvent('manabi-capture-snippet', {
+        detail: {
+          html: '<p>追加は成功し、下書き削除だけ失敗します。</p>',
+          title: 'Cleanup failure source',
+          item: cleanupPrefix,
+          owner: null
+        }
+      })
+    );
+  }, cleanupPrefix);
+  const cleanupDialog = page.getByRole('dialog', { name: 'Add to snippet' });
+  await expect(cleanupDialog).toBeVisible();
+  await expect
+    .poll(
+      async () =>
+        (await records(page, 'snippetDrafts')).filter(
+          (draft) => draft.document?.source?.item === cleanupPrefix
+        ).length
+    )
+    .toBe(1);
+  await page.evaluate(() => {
+    const original = globalThis.IDBObjectStore.prototype.delete;
+    let armed = true;
+    globalThis.IDBObjectStore.prototype.delete = function (key) {
+      if (armed && this.name === 'snippetDrafts') {
+        armed = false;
+        globalThis.IDBObjectStore.prototype.delete = original;
+        throw new globalThis.DOMException('Injected capture cleanup failure', 'AbortError');
+      }
+      return original.call(this, key);
+    };
+  });
+  await cleanupDialog.getByRole('link', { name: '散歩の記録', exact: true }).click();
+  await expect(cleanupDialog).toHaveCount(0);
+  const cleanupNotice = page
+    .getByRole('status')
+    .filter({ hasText: 'Added to snippet. The saved capture draft could not be cleaned up' });
+  await expect(cleanupNotice).toBeVisible();
+  await expect
+    .poll(async () => {
+      const item = (await records(page)).find((record) => record.document.id === id);
+      return JSON.stringify(item?.document.content ?? {}).match(
+        /追加は成功し、下書き削除だけ失敗します。/g
+      )?.length ?? 0;
+    })
+    .toBe(1);
+  const cleanupDrafts = (await records(page, 'snippetDrafts')).filter(
+    (draft) => draft.document?.source?.item === cleanupPrefix
+  );
+  assert.equal(cleanupDrafts.length, 1, 'Failed cleanup keeps the capture draft recoverable.');
+  await deleteDraftKeys(cleanupDrafts.map((draft) => draft.key));
+  await cleanupNotice.getByRole('button', { name: 'Dismiss', exact: true }).click();
+  passed('committed capture append survives draft cleanup failure without inviting a retry');
+
   // Stress the actual reader controls and vertical layout at enlarged UI text.
   await page.setViewportSize({ width: 320, height: 480 });
   await page.evaluate(() => {
