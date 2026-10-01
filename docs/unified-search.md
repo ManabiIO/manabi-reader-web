@@ -29,7 +29,10 @@ reveal additional batches of 30 with a keyboard focus anchor.
 Every asynchronous source owns cancellation, stale-result suppression, loading,
 failure and retry independently. A dictionary, snippet, video-store, or book-body
 failure must not erase successful sibling results. Switching to Books does not
-require Snippets scope readiness, and vice versa.
+require Snippets scope readiness, and vice versa. Titles and Content also own
+independent invalidation lifetimes: caption-only video changes refresh Content
+without restarting Titles, while video metadata changes refresh both sections.
+Dictionary-only typing does not restart either library section.
 
 ## Code ownership
 
