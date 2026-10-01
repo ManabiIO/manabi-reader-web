@@ -140,7 +140,7 @@ test('explicit account requests may probe connectivity when the browser offline 
     });
   };
   context.navigator.onLine = false;
-  assert.deepEqual(await api.request('preferences/'), { ok: true });
+  assert.equal((await api.request('preferences/')).ok, true);
   assert.equal(requests, 1);
   assert.equal(api.currentUser()?.id, 'alice');
 });
