@@ -257,37 +257,32 @@ try {
   await expect(page.getByRole('article', { name: 'Snippet content' })).toContainText('京都');
   passed('create, durable native IndexedDB save and reader reload');
 
-  // Every deliberate capture is persisted before presentation. A second capture
-  // while the first dialog is open must become its own recoverable draft.
+  // Every deliberate capture is persisted before presentation. Dispatch both
+  // in the same task so the second event exercises the first capture's busy
+  // suspension, not merely the already-open dialog path.
   const capturePrefix = 'capture-durability-' + Date.now();
-  const capture = (suffix, html) =>
-    page.evaluate(
-      ({ suffix, html, capturePrefix }) => {
-        window.dispatchEvent(
-          new CustomEvent('manabi-capture-snippet', {
-            detail: {
-              html,
-              title: 'Concurrent capture source',
-              item: capturePrefix + '-' + suffix,
-              owner: null
-            }
-          })
-        );
-      },
-      { suffix, html, capturePrefix }
-    );
   const draftCount = async () =>
     (await records(page, 'snippetDrafts')).filter((draft) =>
       draft.document?.source?.item?.startsWith(capturePrefix)
     ).length;
-  await capture('first', '<p>最初の選択は開いたダイアログで処理します。</p>');
+  await page.evaluate((capturePrefix) => {
+    const dispatch = (suffix, html) =>
+      window.dispatchEvent(
+        new CustomEvent('manabi-capture-snippet', {
+          detail: {
+            html,
+            title: 'Concurrent capture source',
+            item: capturePrefix + '-' + suffix,
+            owner: null
+          }
+        })
+      );
+    dispatch('first', '<p>最初の選択は開いたダイアログで処理します。</p>');
+    dispatch('second', '<p>二番目の選択も失わず後で復元します。</p>');
+  }, capturePrefix);
   const captureDialog = page.getByRole('dialog', { name: 'Add to snippet' });
   await expect(captureDialog).toBeVisible();
-  await expect.poll(draftCount).toBe(1);
-  await capture('second', '<p>二番目の選択も失わず後で復元します。</p>');
-  await expect
-    .poll(draftCount)
-    .toBe(2);
+  await expect.poll(draftCount).toBe(2);
   await expect(captureDialog.getByRole('status')).toContainText(
     '1 additional selection saved for later.'
   );
