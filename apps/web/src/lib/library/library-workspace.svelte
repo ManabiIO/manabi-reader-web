@@ -6,7 +6,7 @@
   import type { BookPresentation, PresentationChange } from './organization';
   import { onMount, createEventDispatcher, tick, type Snippet } from 'svelte';
   import { page } from '$app/stores';
-  import { goto } from '$app/navigation';
+  import { goto, replaceState } from '$app/navigation';
   import { resolve } from '$app/paths';
   import { Button } from '$lib/components/ui/button';
   import * as Menu from '$lib/components/ui/dropdown-menu';
@@ -551,27 +551,25 @@
       false
     );
   }
+  function replaceLibrarySearchURL(url: URL) {
+    // q/scope are local presentation state for this already-mounted route.
+    // Shallow replacement keeps the address bar/shareability in sync without
+    // starting SvelteKit navigation work on each keystroke or filter change.
+    replaceState(url, $page.state);
+  }
   function setQuery(value: string) {
     query = value;
     const url = new URL($page.url);
     if (value) url.searchParams.set('q', value);
     else url.searchParams.delete('q');
-    void goto(resolve(`/manage?${url.searchParams.toString()}`), {
-      replaceState: true,
-      noScroll: true,
-      keepFocus: true
-    });
+    replaceLibrarySearchURL(url);
   }
   function setSearchScope(value: LibrarySearchScope) {
     librarySearchScope = value;
     const url = new URL($page.url);
     if (value === 'everything') url.searchParams.delete('scope');
     else url.searchParams.set('scope', value);
-    void goto(resolve(`/manage?${url.searchParams.toString()}`), {
-      replaceState: true,
-      noScroll: true,
-      keepFocus: true
-    });
+    replaceLibrarySearchURL(url);
   }
   function setLayout(value: string) {
     if (collectionId === 'finished' && !series) {
