@@ -94,6 +94,14 @@ const validText = (value: unknown, length: number): value is string =>
   value.length <= length &&
   // eslint-disable-next-line no-control-regex -- reject unsafe control characters
   !/[\u0000\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/u.test(value);
+const safeLinkRel = (value: string) => {
+  const tokens = value.trim().split(/\s+/).filter(Boolean);
+  return (
+    tokens.length > 0 &&
+    tokens.every((token) => ['noopener', 'noreferrer', 'nofollow'].includes(token)) &&
+    new Set(tokens).size === tokens.length
+  );
+};
 const blockTypes = new Set([
   'paragraph',
   'heading',
@@ -192,7 +200,17 @@ export function validateContent(value: unknown): asserts value is TextNode {
             fail();
           if (mark.attrs.target != null && !['_blank', '_self'].includes(String(mark.attrs.target)))
             fail();
-          if (mark.attrs.rel != null && !validText(mark.attrs.rel, 120)) fail();
+          if (
+            mark.attrs.rel != null &&
+            (!validText(mark.attrs.rel, 120) || !safeLinkRel(String(mark.attrs.rel)))
+          )
+            fail();
+          if (
+            mark.attrs.target === '_blank' &&
+            mark.attrs.rel != null &&
+            !String(mark.attrs.rel).split(/\s+/).includes('noopener')
+          )
+            fail();
           if (
             mark.attrs.class != null ||
             (mark.attrs.title != null && !validText(mark.attrs.title, 1000))
