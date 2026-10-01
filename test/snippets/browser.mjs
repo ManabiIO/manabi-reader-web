@@ -659,12 +659,12 @@ try {
     mimeType: 'text/markdown',
     buffer: Buffer.from('Hi. there\n\n0. zero\n1. one')
   });
-  const markdownEditor = page.getByRole('textbox', { name: 'Snippet text', exact: true });
-  await expect(markdownEditor).toContainText('Hi. there');
-  await expect(markdownEditor.locator('ol')).toHaveAttribute('start', '0');
-  await expect(markdownEditor.locator('li').first()).toContainText('zero');
+  const safetyMarkdownEditor = page.getByRole('textbox', { name: 'Snippet text', exact: true });
+  await expect(safetyMarkdownEditor).toContainText('Hi. there');
+  await expect(safetyMarkdownEditor.locator('ol')).toHaveAttribute('start', '0');
+  await expect(safetyMarkdownEditor.locator('li').first()).toContainText('zero');
   assert.equal(
-    await markdownEditor.locator('p').first().innerText(),
+    await safetyMarkdownEditor.locator('p').first().innerText(),
     'Hi. there',
     'Alphabetic sentence prefixes must not become TipTap ordered-list markers.'
   );
@@ -677,10 +677,10 @@ try {
   await roundTripMenu.click();
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('menuitem', { name: 'Markdown', exact: true }).click();
-  const markdownDownload = await downloadPromise;
-  const markdownPath = await markdownDownload.path();
-  assert(markdownPath, 'Markdown export must produce a downloadable file');
-  const exportedMarkdown = await readFile(markdownPath, 'utf8');
+  const safetyMarkdownDownload = await downloadPromise;
+  const safetyMarkdownPath = await safetyMarkdownDownload.path();
+  assert(safetyMarkdownPath, 'Markdown export must produce a downloadable file');
+  const exportedMarkdown = await readFile(safetyMarkdownPath, 'utf8');
   assert.match(exportedMarkdown, /Hi\. there/);
   assert.match(
     exportedMarkdown,
