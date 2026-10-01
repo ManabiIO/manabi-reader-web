@@ -1,5 +1,8 @@
+import { ANALYSIS_WINDOW_SECONDS } from './analysis';
 import { PitchController } from './controller';
 import type { PitchState } from './model';
+
+const MAX_ANALYSIS_CONTEXT_RATE = Math.floor(32768 / ANALYSIS_WINDOW_SECONDS);
 
 function createAudioContext() {
   // AnalyserNode is capped at 32,768 samples. Keep the analysis context at a
@@ -12,7 +15,14 @@ function createAudioContext() {
       // Try the other common rate before accepting the device-native context.
     }
   }
-  return new AudioContext();
+  const context = new AudioContext();
+  if (context.sampleRate > MAX_ANALYSIS_CONTEXT_RATE) {
+    void context.close().catch(() => {});
+    throw new Error(
+      `Voice pitch needs an audio context at or below ${MAX_ANALYSIS_CONTEXT_RATE} Hz in this browser.`
+    );
+  }
+  return context;
 }
 
 export function createPitchController(changed: (state: PitchState) => void) {
