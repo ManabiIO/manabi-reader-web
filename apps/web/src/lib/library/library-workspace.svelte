@@ -372,7 +372,7 @@
             collectionId,
             selectedCollection?.members,
             notFinished,
-            normalizedQuery,
+            shelfQuery,
             seriesMatchedKeys
           )
         )
@@ -404,7 +404,7 @@
           collectionId,
           selectedCollection?.members,
           notFinished,
-          normalizedQuery,
+          shelfQuery,
           seriesMatchedKeys
         )
       )
@@ -416,7 +416,7 @@
           collectionId,
           selectedCollection?.members,
           notFinished,
-          normalizedQuery,
+          shelfQuery,
           seriesMatchedKeys
         )
       )
