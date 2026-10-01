@@ -462,7 +462,7 @@
             variant={currentRowInEdit ? 'ghost' : 'destructive'}
             size="icon"
             shape="circle"
-            class="size-11"
+            class="size-[44px]"
             aria-label={currentRowInEdit
               ? 'Cancel edit'
               : `Delete row ${currentStatisticsSummaryRow.title}`}
@@ -483,7 +483,7 @@
               variant={currentRowInEdit ? 'secondary' : 'ghost'}
               size="icon"
               shape="circle"
-              class="ml-1 size-11"
+              class="ml-1 size-[44px]"
               aria-label={currentRowInEdit
                 ? 'Save changes'
                 : `Edit row ${currentStatisticsSummaryRow.title}`}
@@ -514,7 +514,7 @@
         </div>
         <button
           type="button"
-          class="line-clamp-2 min-h-11 rounded-lg px-2 py-2 text-left focus-visible:outline-2 focus-visible:outline-ring"
+          class="line-clamp-2 min-h-[44px] rounded-lg px-2 py-2 text-left focus-visible:outline-2 focus-visible:outline-ring"
           class:hidden={isDateAggregation}
           aria-label={`View details for ${currentStatisticsSummaryRow.title}`}
           title={currentStatisticsSummaryRow.title}
@@ -525,7 +525,7 @@
         </button>
         {#if currentRowInEdit}
           <input
-            class="min-h-11 w-full rounded-lg border border-input bg-background px-2"
+            class="min-h-[44px] w-full rounded-lg border border-input bg-background px-2"
             type="number"
             bind:value={rowInEditTime}
             on:change={() => {
@@ -541,7 +541,7 @@
           <button
             type="button"
             data-summary-metric="readingTime"
-            class="min-h-11 rounded-lg px-2 py-2 text-left focus-visible:outline-2 focus-visible:outline-ring"
+            class="min-h-[44px] rounded-lg px-2 py-2 text-left focus-visible:outline-2 focus-visible:outline-ring"
             class:blur={$lastBlurredTrackerItems$.has('readingTime')}
             aria-pressed={$lastBlurredTrackerItems$.has('readingTime')}
             aria-label={metricAccessibleLabel('readingTime', 'Reading time', readingTimeValue)}
@@ -559,7 +559,7 @@
         {/if}
         {#if currentRowInEdit}
           <input
-            class="min-h-11 w-full rounded-lg border border-input bg-background px-2"
+            class="min-h-[44px] w-full rounded-lg border border-input bg-background px-2"
             type="number"
             bind:value={rowInEditCharacters}
             on:change={() => {
@@ -575,7 +575,7 @@
           <button
             type="button"
             data-summary-metric="charactersRead"
-            class="min-h-11 rounded-lg px-2 py-2 text-left focus-visible:outline-2 focus-visible:outline-ring"
+            class="min-h-[44px] rounded-lg px-2 py-2 text-left focus-visible:outline-2 focus-visible:outline-ring"
             class:blur={$lastBlurredTrackerItems$.has('charactersRead')}
             aria-pressed={$lastBlurredTrackerItems$.has('charactersRead')}
             aria-label={metricAccessibleLabel('charactersRead', 'Characters', charactersValue)}
@@ -592,7 +592,7 @@
           </button>
         {/if}
         {#if currentRowInEdit}
-          <label class="flex min-h-11 items-center gap-2 rounded-lg px-2">
+          <label class="flex min-h-[44px] items-center gap-2 rounded-lg px-2">
             <input class="size-5" type="checkbox" bind:checked={rowInEditResetMinMaxValues} />
             <span>Reset Min/Max</span>
           </label>
@@ -604,7 +604,7 @@
           <button
             type="button"
             data-summary-metric="lastReadingSpeed"
-            class="min-h-11 rounded-lg px-2 py-2 text-left focus-visible:outline-2 focus-visible:outline-ring"
+            class="min-h-[44px] rounded-lg px-2 py-2 text-left focus-visible:outline-2 focus-visible:outline-ring"
             class:blur={$lastBlurredTrackerItems$.has('lastReadingSpeed')}
             aria-pressed={$lastBlurredTrackerItems$.has('lastReadingSpeed')}
             aria-label={metricAccessibleLabel('lastReadingSpeed', 'Reading speed', speedValue)}
@@ -636,7 +636,7 @@
             variant="ghost"
             size="icon"
             shape="circle"
-            class="absolute top-2 right-2 size-11"
+            class="absolute top-2 right-2 size-[44px]"
             aria-label="Close statistic details"
             onclick={() => statisticsSummaryPopover.close(true)}
           >
@@ -662,7 +662,7 @@
     variant="ghost"
     size="icon"
     shape="circle"
-    class="size-11"
+    class="size-[44px]"
     aria-label="Previous statistics page"
     disabled={currentStatisticsSummaryPage === 1}
     onclick={() => void pageSummary(-1)}
@@ -693,7 +693,7 @@
     >
       {#each statisticsSummaryPages as statisticsSummaryPage, pageIndex (statisticsSummaryPage)}
         <button
-          class="min-h-11 rounded-lg px-3 py-2 text-center hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+          class="min-h-[44px] rounded-lg px-3 py-2 text-center hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
           class:bg-accent={statisticsSummaryPage === currentStatisticsSummaryPage}
           class:text-foreground={statisticsSummaryPage === currentStatisticsSummaryPage}
           aria-current={statisticsSummaryPage === currentStatisticsSummaryPage ? 'page' : undefined}
@@ -715,7 +715,7 @@
     variant="ghost"
     size="icon"
     shape="circle"
-    class="size-11"
+    class="size-[44px]"
     aria-label="Next statistics page"
     disabled={currentStatisticsSummaryPage === statisticsSummaryMaxPages}
     onclick={() => void pageSummary(1)}
