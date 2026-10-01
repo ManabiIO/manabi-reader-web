@@ -22,7 +22,7 @@ globalThis[Symbol.for(fixtureKey)] = memory;
 
 const result = await build({
   stdin: {
-    contents: `export { restoreBackup } from './src/lib/snippets/portability.ts';`,
+    contents: `export { exportSnippets, restoreBackup } from './src/lib/snippets/portability.ts';`,
     resolveDir: fileURLToPath(new URL('../../apps/web/', import.meta.url))
   },
   bundle: true,
@@ -90,7 +90,7 @@ const result = await build({
     }
   ]
 });
-const { restoreBackup } = await import(
+const { exportSnippets, restoreBackup } = await import(
   'data:text/javascript;base64,' + Buffer.from(result.outputFiles[0].text).toString('base64')
 );
 
@@ -262,4 +262,29 @@ test('a pending provider upload owns non-identical restore changes until it sett
     /Finish the pending snippet operation/
   );
   assert.deepEqual(memory.records.get(key(base.id)), current);
+});
+
+
+test('JSON backup refuses to silently drop unresolved conflict branches', async () => {
+  reset();
+  const base = createSnippet(plainContent('base'));
+  const local = editSnippet(base, plainContent('local'), '');
+  const remote = editSnippet(base, plainContent('remote'), '');
+  memory.records.set(
+    key(base.id),
+    record(local, {
+      remoteRevision: base.revision,
+      dirty: true,
+      conflicts: [remote],
+      issue: 'Conflicting versions found. Both have been kept.'
+    })
+  );
+
+  await assert.rejects(
+    () => exportSnippets([base.id], selected),
+    /Resolve this snippet’s conflicting versions/
+  );
+  const current = memory.records.get(key(base.id));
+  assert.equal(current.conflicts.length, 1);
+  assert.equal(current.conflicts[0].revision, remote.revision);
 });
