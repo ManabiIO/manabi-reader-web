@@ -200,7 +200,8 @@ export async function refreshSnippets(
         for (const record of known) {
           const candidates = [
             ...record.locations.map((location) => location.source),
-            ...(record.destination ? [record.destination.source] : [])
+            ...(record.destination ? [record.destination.source] : []),
+            ...(record.upload ? [record.upload.destination.source] : [])
           ];
           for (const candidate of candidates) {
             const key = sourceKey(candidate);
