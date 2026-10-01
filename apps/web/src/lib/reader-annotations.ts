@@ -13,6 +13,7 @@ import type {
 } from '$lib/data/database/books-db/versions/v7/books-db-v7';
 import { snapshotReaderLocator } from '$lib/reader-location';
 import { readIndexedBookMetadata } from '$lib/data/database/books-db/content-hash-index';
+import { commitTransaction } from '$lib/data/database/books-db/commit-transaction.mjs';
 import { captureLibraryOperation } from '$lib/manabi/operation-scope';
 
 export type AnnotationDraft = Pick<ReaderAnnotation, 'bookKey' | 'kind' | 'targets'> &
@@ -63,20 +64,13 @@ async function commitAnnotationTransaction<T>(
 ): Promise<T> {
   const unbind = bindTransactionLifetime(transaction, operation.signal);
   try {
-    const result = await work();
-    operation.assertCurrent();
-    await transaction.done;
+    const result = await commitTransaction(transaction, async () => {
+      const value = await work();
+      operation.assertCurrent();
+      return value;
+    });
     operation.assertCurrent();
     return result;
-  } catch (error) {
-    try {
-      transaction.abort();
-    } catch {
-      /* The transaction may already have settled. */
-    }
-    await transaction.done.catch(() => undefined);
-    operation.assertCurrent();
-    throw error;
   } finally {
     unbind();
   }
@@ -165,13 +159,9 @@ async function bookAccounts(
 ): Promise<Map<string, string | null | undefined>> {
   const db = await database.db;
   const tx = db.transaction(['data', 'readerBookScope']);
-  const result = await bookAccountsFromStores(
-    bookKeys,
-    tx.objectStore('data'),
-    tx.objectStore('readerBookScope')
+  return commitTransaction(tx, () =>
+    bookAccountsFromStores(bookKeys, tx.objectStore('data'), tx.objectStore('readerBookScope'))
   );
-  await tx.done;
-  return result;
 }
 
 export interface ReaderAnnotationArchive {
@@ -443,11 +433,7 @@ export async function resolveAnnotationImportConflict(
     await commitAnnotationTransaction(tx, operation, async () => {
       const conflict = await tx.objectStore('readerConflict').get(id);
       operation.assertCurrent();
-      if (!conflict) {
-        await tx.done;
-        operation.assertCurrent();
-        return;
-      }
+      if (!conflict) return;
       if (id !== `import:${conflict.local.id}`) throw new Error('Invalid archive conflict.');
       const [existingOwner, current] = await Promise.all([
         tx.objectStore('readerAnnotationScope').get(conflict.local.id),
@@ -703,11 +689,7 @@ export async function removeReaderAnnotation(
     await commitAnnotationTransaction(tx, operation, async () => {
       const current = await tx.objectStore('readerAnnotation').get(id);
       operation.assertCurrent();
-      if (!current || current.deletedAt) {
-        await tx.done;
-        operation.assertCurrent();
-        return;
-      }
+      if (!current || current.deletedAt) return;
       const [owner, bookOwner] = await Promise.all([
         tx.objectStore('readerAnnotationScope').get(id),
         bookAccountFromStores(
