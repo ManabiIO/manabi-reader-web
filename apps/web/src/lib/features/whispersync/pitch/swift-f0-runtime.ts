@@ -32,7 +32,12 @@ function disposeAll(values: Iterable<SwiftF0TensorLike | undefined>) {
   for (const value of values) {
     if (!value || seen.has(value)) continue;
     seen.add(value);
-    value.dispose?.();
+    try {
+      value.dispose?.();
+    } catch {
+      // Release is best-effort: one failed native cleanup must not leak the
+      // remaining tensors from this inference.
+    }
   }
 }
 
