@@ -56,7 +56,8 @@
   ];
   let filter: SearchResultFilter = 'all',
     mounted = false,
-    signature = '',
+    titleSignature = '',
+    contentSignature = '',
     titleLimit = 30,
     contentLimit = 30;
   let titles: SearchState<Results> = { state: 'idle' };
@@ -122,43 +123,50 @@
   // Scope can also change through URL history/parent state, not only chooseScope().
   // Never retain a hidden Dictionary filter when the new source family excludes it.
   $: if (!scopePlan.dictionary && filter === 'dictionary') filter = 'all';
-  $: nextSignature = JSON.stringify([
-    resultPlan.titles || resultPlan.content ? query : '',
-    resultPlan.titles || resultPlan.content ? owner : null,
-    filter,
-    searchScope,
-    resultPlan.content && scopePlan.books
-      ? books.map((book) => [
-          book.key,
-          book.bookId,
-          book.title,
-          book.contentHash,
-          book.lastBookModified
-        ])
-      : [],
-    resultPlan.titles && scopePlan.books
-      ? matches.map((book) => [
-          book.key,
-          book.title,
-          book.canonicalTitle,
-          (book.creators ?? []).map((creator) => creator.name),
-          book.series?.name ?? null,
-          bookMatchText[book.key] ?? []
-        ])
-      : [],
-    (resultPlan.titles || resultPlan.content) && scopePlan.snippets
-      ? eligible.map((item) => [item.key, item.revision])
-      : [],
-    videoLearningEnabled && searchScope === 'everything' && resultPlan.titles
-      ? mediaTitleRevision
-      : 0,
-    videoLearningEnabled && searchScope === 'everything' && resultPlan.content
-      ? mediaContentRevision
-      : 0
-  ]);
-  $: if (mounted && nextSignature !== signature) {
-    signature = nextSignature;
-    start();
+  $: nextTitleSignature = resultPlan.titles
+    ? JSON.stringify([
+        query,
+        owner,
+        searchScope,
+        scopePlan.books
+          ? matches.map((book) => [
+              book.key,
+              book.title,
+              book.canonicalTitle,
+              (book.creators ?? []).map((creator) => creator.name),
+              book.series?.name ?? null,
+              bookMatchText[book.key] ?? []
+            ])
+          : [],
+        scopePlan.snippets ? eligible.map((item) => [item.key, item.revision]) : [],
+        videoLearningEnabled && searchScope === 'everything' ? mediaTitleRevision : 0
+      ])
+    : 'inactive';
+  $: nextContentSignature = resultPlan.content
+    ? JSON.stringify([
+        query,
+        owner,
+        searchScope,
+        scopePlan.books
+          ? books.map((book) => [
+              book.key,
+              book.bookId,
+              book.title,
+              book.contentHash,
+              book.lastBookModified
+            ])
+          : [],
+        scopePlan.snippets ? eligible.map((item) => [item.key, item.revision]) : [],
+        videoLearningEnabled && searchScope === 'everything' ? mediaContentRevision : 0
+      ])
+    : 'inactive';
+  $: if (mounted && nextTitleSignature !== titleSignature) {
+    titleSignature = nextTitleSignature;
+    refreshTitles();
+  }
+  $: if (mounted && nextContentSignature !== contentSignature) {
+    contentSignature = nextContentSignature;
+    refreshContent();
   }
   $: visibleTitles = (titles.value?.rows ?? []).slice(0, filter === 'all' ? 2 : titleLimit);
   $: visibleContent = (content.value?.rows ?? []).slice(0, filter === 'all' ? 2 : contentLimit);
@@ -315,16 +323,21 @@
     });
   }
 
-  function start() {
+  function refreshTitles() {
     focusGeneration++;
     titleTask.stop();
-    contentTask.stop();
     titles = { state: 'idle' };
+    titleLimit = 30;
+    if (!resultPlan.titles || !query.trim() || [...query].length > 512) return;
+    startTitles();
+  }
+  function refreshContent() {
+    focusGeneration++;
+    contentTask.stop();
     content = { state: 'idle' };
-    titleLimit = contentLimit = 30;
-    if (!query.trim() || [...query].length > 512) return;
-    if (filter === 'all' || filter === 'titles') startTitles();
-    if (filter === 'all' || filter === 'content') startContent();
+    contentLimit = 30;
+    if (!resultPlan.content || !query.trim() || [...query].length > 512) return;
+    startContent();
   }
   async function choose(value: SearchResultFilter) {
     filter = value;
