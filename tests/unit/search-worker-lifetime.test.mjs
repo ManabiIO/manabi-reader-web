@@ -133,6 +133,106 @@ test('postMessage failure retires its worker and does not block another search s
     stop();
   }));
 
+test('scope invalidation emits one control callback without publishing a stale batch', () =>
+  withWorker((_Worker, workers) => {
+    let current = true;
+    let invalidations = 0;
+    const states = [];
+    const selected = {
+      owner: 'alice',
+      guard() {
+        if (!current) throw new Error('Scope expired');
+      }
+    };
+    const stop = searchBodies('猫', ['one'], selected, (batch) => states.push(batch), {
+      invalidated: () => invalidations++
+    });
+    workers[0].emit('batch', {
+      scanned: 1,
+      failed: 0,
+      batch: [{ id: 'one', hits: [{ locator: {}, excerpt: '猫', reading: false }] }]
+    });
+    assert.equal(states.at(-1).hits.get('one')[0].excerpt, '猫');
+    const count = states.length;
+
+    current = false;
+    workers[0].emit('batch', {
+      scanned: 2,
+      failed: 0,
+      batch: [{ id: 'one', hits: [{ locator: {}, excerpt: 'stale', reading: false }] }]
+    });
+    workers[0].emit('done', { scanned: 2, failed: 0, batch: [] });
+
+    assert.equal(invalidations, 1);
+    assert.equal(states.length, count);
+    assert.equal(workers[0].terminated, 1);
+    stop();
+  }));
+
+test('expired snippet scope settles only that aggregate source and preserves published rows', () =>
+  withWorker((_Worker, workers) => {
+    let current = true;
+    const selected = {
+      owner: 'alice',
+      guard() {
+        if (!current) throw new Error('Scope expired');
+      }
+    };
+    const states = [];
+    const stop = startSearchSources(
+      [
+        {
+          start(_signal, receive) {
+            let rows = [];
+            return searchBodies(
+              '猫',
+              ['one'],
+              selected,
+              (batch) => {
+                rows = [...batch.hits.values()].flat().map((hit) => hit.excerpt);
+                receive({
+                  rows,
+                  busy: batch.busy,
+                  failed: batch.failed,
+                  truncated: batch.truncated
+                });
+              },
+              {
+                progress: false,
+                invalidated: () =>
+                  receive({ rows, busy: false, failed: 1, truncated: false })
+              }
+            );
+          }
+        },
+        {
+          start(_signal, receive) {
+            receive({ rows: ['video'], busy: false, failed: 0, truncated: false });
+          }
+        }
+      ],
+      new AbortController().signal,
+      (state) => states.push(state)
+    );
+
+    workers[0].emit('batch', {
+      scanned: 1,
+      failed: 0,
+      batch: [{ id: 'one', hits: [{ locator: {}, excerpt: 'snippet', reading: false }] }]
+    });
+    assert.equal(states.at(-1).state, 'loading');
+
+    current = false;
+    workers[0].emit('batch', { scanned: 2, failed: 0, batch: [] });
+
+    assert.deepEqual(states.at(-1), {
+      state: 'ready',
+      value: { rows: ['snippet', 'video'], failed: 1, truncated: false }
+    });
+    assert.equal(workers[0].terminated, 1);
+    stop();
+  }));
+
 test('account revocation drops queued snippet messages and retires the worker', () =>
   withWorker((_Worker, workers) => {
     let current = true;
