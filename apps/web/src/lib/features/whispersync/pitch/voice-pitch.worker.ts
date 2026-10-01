@@ -15,13 +15,22 @@ scope.onmessage = ({ data }) => {
     levels = [];
   }
   void analyseSwiftF0Window(data.samples, data.rate)
-    .then((result) => {
+    .then((results) => {
       if (data.epoch !== epoch) return;
-      levels.push(result.rms);
-      if (levels.length > 24) levels.shift();
-      const peak = Math.max(0, ...levels);
-      if (result.rms < peak * 10 ** (-35 / 20)) result.hz = null;
-      scope.postMessage({ type: 'result', id: data.id, result });
+      const gated = results.map((result) => {
+        levels.push(result.rms);
+        if (levels.length > 64) levels.shift();
+        const peak = Math.max(0, ...levels);
+        return result.rms < peak * 10 ** (-35 / 20) ? { ...result, hz: null } : result;
+      });
+      scope.postMessage({
+        type: 'result',
+        id: data.id,
+        results: gated,
+        // Retain one value for older test/protocol consumers while the
+        // controller consumes the complete batch.
+        result: gated.at(-1) ?? null
+      });
     })
     .catch((error) => {
       if (data.epoch !== epoch) return;
