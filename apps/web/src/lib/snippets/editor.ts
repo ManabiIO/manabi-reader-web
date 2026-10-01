@@ -136,8 +136,32 @@ export function renderContent(content: TextNode): string {
   return cleanHTML(generateHTML(content as JSONContent, extensions()));
 }
 export function requiresHTMLMarkdown(content: TextNode): boolean {
-  if (content.marks?.some((mark) => mark.type === 'rubyText')) return true;
-  if (content.type === 'orderedList' && content.attrs?.start === 0) return true;
+  // CommonMark/GFM has no lossless syntax for ruby or underline. It also cannot
+  // represent HTML ordered-list marker styles, and TipTap 3.31.x rewrites a
+  // valid zero start to one. Raw HTML is valid Markdown, so prefer that over
+  // silently erasing authored semantics.
+  if (content.marks?.some((mark) => mark.type === 'rubyText' || mark.type === 'underline'))
+    return true;
+  if (
+    content.type === 'orderedList' &&
+    (content.attrs?.start === 0 ||
+      (content.attrs?.type !== undefined &&
+        content.attrs?.type !== null &&
+        content.attrs?.type !== '1'))
+  )
+    return true;
+  // A non-default imported HTML link has semantics Markdown cannot carry.
+  if (
+    content.marks?.some(
+      (mark) =>
+        mark.type === 'link' &&
+        (mark.attrs?.target === '_self' ||
+          (mark.attrs?.rel !== undefined &&
+            mark.attrs?.rel !== null &&
+            mark.attrs?.rel !== 'noopener noreferrer nofollow'))
+    )
+  )
+    return true;
   return content.content?.some(requiresHTMLMarkdown) ?? false;
 }
 export function exportMarkdown(content: TextNode): string {
