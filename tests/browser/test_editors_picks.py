@@ -241,6 +241,58 @@ class EditorsPicksBrowser(unittest.TestCase):
         self.page.goto(self.origin + '/reader-web/manage')
         expect(self.page.get_by_role('button', name='Read A Pick from Manabi')).to_have_count(1)
 
+    def test_dialog_close_stays_reachable_after_enlarged_picks_scroll(self):
+        self.page.set_viewport_size({'width': 320, 'height': 320})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        self.library()
+        self.page.get_by_role('button', name='Library actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Add Books', exact=True).click()
+        self.page.get_by_role('menuitem', name="Editor's Picks", exact=True).click()
+
+        dialog = self.page.get_by_role('dialog').filter(has_text="Editor's Picks")
+        expect(dialog).to_be_visible()
+        region = dialog.get_by_role('region', name="Editor's Picks books", exact=True)
+        expect(region).to_be_visible()
+        self.page.wait_for_function('e => e.scrollHeight > e.clientHeight', arg=region.element_handle())
+        region.evaluate('e => e.scrollTop = e.scrollHeight')
+        self.page.wait_for_function('e => e.scrollTop > 0', arg=region.element_handle())
+
+        close = dialog.get_by_role('button', name='Close', exact=True)
+        box = close.bounding_box()
+        viewport = self.page.evaluate('''() => {
+          const v = visualViewport;
+          return {
+            left: v?.offsetLeft ?? 0,
+            top: v?.offsetTop ?? 0,
+            right: (v?.offsetLeft ?? 0) + (v?.width ?? innerWidth),
+            bottom: (v?.offsetTop ?? 0) + (v?.height ?? innerHeight)
+          };
+        }''')
+        self.assertGreaterEqual(box['width'], 43.99)
+        self.assertGreaterEqual(box['height'], 43.99)
+        self.assertGreaterEqual(box['x'], viewport['left'] - 1)
+        self.assertGreaterEqual(box['y'], viewport['top'] - 1)
+        self.assertLessEqual(box['x'] + box['width'], viewport['right'] + 1)
+        self.assertLessEqual(box['y'] + box['height'], viewport['bottom'] + 1)
+        self.assertTrue(close.evaluate('''e => {
+          const r = e.getBoundingClientRect();
+          const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return !!hit && (hit === e || e.contains(hit));
+        }'''))
+        self.assertEqual('hidden', dialog.evaluate('e => getComputedStyle(e).overflowY'))
+
+        folder = Path('test-results')
+        folder.mkdir(exist_ok=True)
+        self.page.screenshot(
+            path=str(folder / f'{self.engine}-editors-picks-dialog-scroll-200.png')
+        )
+
+        close.focus()
+        expect(close).to_be_focused()
+        close.press('Enter')
+        expect(dialog).to_have_count(0)
+        self.page.evaluate('document.documentElement.style.fontSize = ""')
+
     def test_open_action_stays_focusable_during_slow_failure_and_returns_after_error(self):
         self.page.set_viewport_size({'width': 320, 'height': 568})
         self.page.evaluate('document.documentElement.style.fontSize = "200%"')
