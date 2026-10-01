@@ -192,10 +192,19 @@ const setSelectionTo = (target, collapse) => {
 
 const getDirection = doc => {
     const { defaultView } = doc
-    const { writingMode, direction } = defaultView.getComputedStyle(doc.body)
+    const bodyStyle = defaultView.getComputedStyle(doc.body)
+    const { writingMode } = bodyStyle
     const vertical = writingMode === 'vertical-rl'
         || writingMode === 'vertical-lr'
-    const rtl = doc.body.dir === 'rtl'
+    // The reader owns the writing axis on the synthetic iframe body, while
+    // publisher html/body direction is scoped to the preserved EPUB wrappers.
+    // Read horizontal bidi semantics from that content root so pagination can
+    // keep text direction separate from explicit page progression.
+    const contentRoot = !vertical
+        ? doc.querySelector('.ttu-book-body-wrapper') ?? doc.body
+        : doc.body
+    const direction = defaultView.getComputedStyle(contentRoot).direction
+    const rtl = contentRoot.getAttribute?.('dir')?.trim?.().toLowerCase?.() === 'rtl'
         || direction === 'rtl'
         || doc.documentElement.dir === 'rtl'
     return { vertical, rtl }

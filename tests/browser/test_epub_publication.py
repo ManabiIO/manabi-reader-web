@@ -113,6 +113,19 @@ def malformed_root_semantics_epub():
     return output.getvalue()
 
 
+def css_direction_epub():
+    output = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(resource_epub())) as source, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as target:
+        for entry in source.infolist():
+            data = source.read(entry)
+            if entry.filename == 'EPUB/book.opf':
+                data = data.replace(b'<spine>', b'<spine page-progression-direction="ltr">')
+            elif entry.filename == 'EPUB/one.css':
+                data = b'body{direction:rtl;unicode-bidi:isolate}' + data
+            target.writestr(entry, data)
+    return output.getvalue()
+
+
 def linear_epub():
     output = io.BytesIO()
     with zipfile.ZipFile(io.BytesIO(resource_epub())) as source, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as target:
@@ -302,6 +315,23 @@ class EpubPublicationBrowser(ReaderBrowser):
             bodyDir:view.getComputedStyle(doc.body).direction}};
         }}""")
         self.assertEqual({'lang':'ja','rootDir':'rtl','bodyDir':'rtl'}, actual)
+        self.assertEqual([], self.errors)
+
+    def test_scoped_publisher_bidi_css_survives_without_changing_page_progression(self):
+        self.open_resource_book(payload=css_direction_epub())
+        actual = self.page.evaluate(f"""() => {{
+          const p={P}, doc=p.getContents()[0].doc, view=doc.defaultView;
+          const content=doc.querySelector('.ttu-book-body-wrapper');
+          return {{bookDir:p.bookDir,turnDir:p.pageTurnDirection,hostDir:p.getAttribute('dir'),
+            rootDir:view.getComputedStyle(doc.documentElement).direction,
+            bodyDir:view.getComputedStyle(doc.body).direction,
+            contentDir:view.getComputedStyle(content).direction,
+            unicodeBidi:view.getComputedStyle(content).unicodeBidi}};
+        }}""")
+        self.assertEqual({
+            'bookDir':'ltr','turnDir':'ltr','hostDir':'ltr',
+            'rootDir':'ltr','bodyDir':'rtl','contentDir':'rtl','unicodeBidi':'isolate'
+        }, actual)
         self.assertEqual([], self.errors)
 
     def test_non_linear_spine_hint_is_persisted_without_changing_current_reading_order(self):
