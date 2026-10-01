@@ -138,7 +138,7 @@
               bookMatchText[book.key] ?? []
             ])
           : [],
-        scopePlan.snippets ? eligible.map((item) => [item.key, item.revision]) : [],
+        scopePlan.snippets ? eligible.map((item) => [item.key, item.title]) : [],
         videoLearningEnabled && searchScope === 'everything' ? mediaTitleRevision : 0
       ])
     : 'inactive';
@@ -156,7 +156,9 @@
               book.lastBookModified
             ])
           : [],
-        scopePlan.snippets ? eligible.map((item) => [item.key, item.revision]) : [],
+        scopePlan.snippets
+          ? eligible.map((item) => [item.key, item.title, item.revision])
+          : [],
         videoLearningEnabled && searchScope === 'everything' ? mediaContentRevision : 0
       ])
     : 'inactive';
