@@ -376,6 +376,12 @@ class UnifiedSearch(ProductJourneyBase):
         for name in ('Disable Unified search fixture', 'Delete Unified search fixture'):
             control = row.get_by_role('button', name=name, exact=True)
             self.assertGreaterEqual(control.bounding_box()['height'], 43.99)
+        for name in ('About', 'Download ZIP'):
+            link = jmnedict.get_by_role('link', name=name, exact=True)
+            box = link.bounding_box()
+            self.assertGreaterEqual(box['height'], 43.99)
+            self.assertGreaterEqual(box['x'], -1)
+            self.assertLessEqual(box['x'] + box['width'], 321)
         self.assert_no_document_horizontal_overflow()
         self.page.evaluate('document.documentElement.style.fontSize = "100%"')
         self.page.set_viewport_size({'width': 1280, 'height': 800})
