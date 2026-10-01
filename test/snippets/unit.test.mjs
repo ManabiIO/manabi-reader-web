@@ -27,6 +27,7 @@ import {
 import {
   saveDocument,
   getRecord,
+  mutateRecord,
   saveDraft,
   drafts,
   deleteDraft,
@@ -40,6 +41,7 @@ import {
   transfers
 } from '../../apps/web/src/lib/snippets/database.ts';
 import { integrationDB, setMetadata } from '../../apps/web/src/lib/manabi/persistence.ts';
+import { sourceKey } from '../../apps/web/src/lib/library/organization-keys.ts';
 import {
   readerHTML,
   parseLocator,
@@ -436,6 +438,276 @@ test('causal descendant preserves portable trash state instead of resurrecting s
   assert.equal(record.document.trashedAt, trashed.trashedAt);
   assert.equal(record.primary, locationKey(trashedLocation));
   assert.equal(record.conflicts.length, 0);
+});
+
+test('reconnected source with identical bytes replaces an unavailable old primary', async () => {
+  const who = owner(),
+    doc = document('same bytes'),
+    oldSource = source('old-source'),
+    newSource = source('new-source'),
+    oldLocation = {
+      source: oldSource,
+      parent: '',
+      name: 'same.manabi-snippet.json',
+      fileId: 'same-old',
+      token: 'old-token'
+    },
+    newLocation = {
+      source: newSource,
+      parent: '',
+      name: 'same.manabi-snippet.json',
+      fileId: 'same-new',
+      token: 'new-token'
+    };
+  await acceptRemote(who, doc, oldLocation, guard);
+  await acceptRemote(
+    who,
+    doc,
+    newLocation,
+    guard,
+    new Set([sourceKey(newSource)]),
+    new Set([sourceKey(oldSource)])
+  );
+  const current = await getRecord(who, doc.id);
+  assert.equal(current.primary, locationKey(newLocation));
+  assert.equal(current.destination.source.id, newSource.id);
+  assert.equal(current.remoteRevision, doc.revision);
+  assert.equal(current.dirty, false);
+  assert.equal(current.conflicts.length, 0);
+  assert.equal(current.locations.length, 2);
+});
+
+test('reconnected source republishes a clean newer descendant over its remote ancestor', async () => {
+  const who = owner(),
+    original = document('provider ancestor'),
+    newer = editSnippet(original, plainContent('newer cached descendant'), ''),
+    oldSource = source('old-source'),
+    newSource = source('new-source'),
+    oldLocation = {
+      source: oldSource,
+      parent: '',
+      name: 'doc.manabi-snippet.json',
+      fileId: 'old-file',
+      token: 'old-token'
+    },
+    newLocation = {
+      source: newSource,
+      parent: '',
+      name: 'doc.manabi-snippet.json',
+      fileId: 'new-file',
+      token: 'new-token'
+    };
+  await acceptRemote(who, newer, oldLocation, guard);
+  await acceptRemote(
+    who,
+    original,
+    newLocation,
+    guard,
+    new Set([sourceKey(newSource)]),
+    new Set([sourceKey(oldSource)])
+  );
+  const current = await getRecord(who, original.id);
+  assert.equal(current.document.revision, newer.revision);
+  assert.equal(passages(current.document.content)[0].text, 'newer cached descendant');
+  assert.equal(current.primary, locationKey(newLocation));
+  assert.equal(current.destination.source.id, newSource.id);
+  assert.equal(current.remoteRevision, original.revision);
+  assert.equal(current.dirty, true);
+  assert.equal(current.conflicts.length, 0);
+});
+
+test('reconnected source binds a remote ancestor under newer dirty local edits', async () => {
+  const who = owner(),
+    original = document('provider copy'),
+    edited = editSnippet(original, plainContent('newer local edit'), ''),
+    oldSource = source('old-source'),
+    newSource = source('new-source'),
+    oldLocation = {
+      source: oldSource,
+      parent: '',
+      name: 'doc.manabi-snippet.json',
+      fileId: 'old-file',
+      token: 'old-token'
+    },
+    newLocation = {
+      source: newSource,
+      parent: '',
+      name: 'doc.manabi-snippet.json',
+      fileId: 'new-file',
+      token: 'new-token'
+    };
+  await acceptRemote(who, original, oldLocation, guard);
+  await mutateRecord(who, original.id, guard, (current) => ({
+    ...current,
+    document: edited,
+    dirty: true,
+    upload: {
+      document: structuredClone(edited),
+      destination: oldLocation,
+      expected: oldLocation
+    }
+  }));
+  await acceptRemote(
+    who,
+    original,
+    newLocation,
+    guard,
+    new Set([sourceKey(newSource)]),
+    new Set([sourceKey(oldSource)])
+  );
+  const current = await getRecord(who, original.id);
+  assert.equal(current.document.revision, edited.revision);
+  assert.equal(passages(current.document.content)[0].text, 'newer local edit');
+  assert.equal(current.primary, locationKey(newLocation));
+  assert.equal(current.destination.source.id, newSource.id);
+  assert.equal(current.remoteRevision, original.revision);
+  assert.equal(current.dirty, true);
+  assert.equal(current.upload, undefined);
+  assert.equal(current.conflicts.length, 0);
+});
+
+test('reconnection never promotes a sibling over dirty local edits', async () => {
+  const who = owner(),
+    base = document('base'),
+    local = editSnippet(base, plainContent('local branch'), ''),
+    remote = editSnippet(base, plainContent('remote branch'), ''),
+    oldSource = source('old-source'),
+    newSource = source('new-source'),
+    oldLocation = {
+      source: oldSource,
+      parent: '',
+      name: 'doc.manabi-snippet.json',
+      fileId: 'old-file',
+      token: 'old-token'
+    },
+    newLocation = {
+      source: newSource,
+      parent: '',
+      name: 'doc.manabi-snippet.json',
+      fileId: 'new-file',
+      token: 'new-token'
+    };
+  await acceptRemote(who, base, oldLocation, guard);
+  await mutateRecord(who, base.id, guard, (current) => ({
+    ...current,
+    document: local,
+    dirty: true
+  }));
+  await acceptRemote(
+    who,
+    remote,
+    newLocation,
+    guard,
+    new Set([sourceKey(newSource)]),
+    new Set([sourceKey(oldSource)])
+  );
+  const current = await getRecord(who, base.id);
+  assert.equal(current.document.revision, local.revision);
+  assert.equal(current.primary, locationKey(oldLocation));
+  assert.equal(current.conflicts.length, 1);
+  assert.equal(current.conflicts[0].revision, remote.revision);
+});
+
+test('offline cached cloud absence cannot rebind a storage home', async () => {
+  changeUser('alice');
+  const selected = scope(),
+    doc = document('cloud cached copy'),
+    oldSource = {
+      id: crypto.randomUUID(),
+      owner: 'alice',
+      provider: 'dropbox',
+      root: 'old-root',
+      name: 'Old Dropbox'
+    },
+    newSource = {
+      id: crypto.randomUUID(),
+      owner: 'alice',
+      provider: 'dropbox',
+      root: 'new-root',
+      name: 'New Dropbox'
+    },
+    oldLocation = {
+      source: oldSource,
+      parent: 'old-root',
+      name: doc.id + '.manabi-snippet.json',
+      fileId: 'old-file',
+      token: 'old-token'
+    },
+    newLocation = {
+      source: newSource,
+      parent: 'new-root',
+      name: doc.id + '.manabi-snippet.json',
+      fileId: 'new-file',
+      token: 'new-token'
+    },
+    previousSources = memory.sources,
+    previousAuthority = memory.cloudAuthoritative;
+  try {
+    await acceptRemote(selected.owner, doc, oldLocation, selected.guard);
+    memory.sources = [newSource];
+    memory.files.set(doc.id, { document: doc, location: newLocation });
+
+    memory.cloudAuthoritative = false;
+    await refreshSnippets(selected, true);
+    let current = await getRecord(selected.owner, doc.id);
+    assert.equal(current.primary, locationKey(oldLocation));
+    assert.equal(current.locations.length, 2);
+
+    memory.cloudAuthoritative = true;
+    await refreshSnippets(selected, true);
+    current = await getRecord(selected.owner, doc.id);
+    assert.equal(current.primary, locationKey(newLocation));
+    assert.equal(current.destination.source.id, newSource.id);
+    assert.equal(current.conflicts.length, 0);
+  } finally {
+    memory.files.delete(doc.id);
+    memory.sources = previousSources;
+    memory.cloudAuthoritative = previousAuthority;
+    changeUser(null);
+  }
+});
+
+test('an active upload to a still-present source cannot be stolen by discovery', async () => {
+  const who = owner(),
+    doc = document('upload owner'),
+    primarySource = source('primary-source'),
+    otherSource = source('other-source'),
+    primary = {
+      source: primarySource,
+      parent: '',
+      name: 'doc.manabi-snippet.json',
+      fileId: 'primary',
+      token: '1'
+    },
+    other = {
+      source: otherSource,
+      parent: '',
+      name: 'doc.manabi-snippet.json',
+      fileId: 'other',
+      token: '2'
+    };
+  await acceptRemote(who, doc, primary, guard);
+  await mutateRecord(who, doc.id, guard, (current) => ({
+    ...current,
+    dirty: true,
+    upload: {
+      document: structuredClone(current.document),
+      destination: primary,
+      expected: primary
+    }
+  }));
+  await acceptRemote(
+    who,
+    doc,
+    other,
+    guard,
+    new Set([sourceKey(primarySource), sourceKey(otherSource)]),
+    new Set()
+  );
+  const current = await getRecord(who, doc.id);
+  assert.equal(current.primary, locationKey(primary));
+  assert.equal(current.upload.destination.source.id, primarySource.id);
+  assert.equal(current.locations.length, 2);
 });
 
 test('divergent remote edits are retained rather than last-write-wins', async () => {
@@ -1154,6 +1426,57 @@ test('restoring the same durable locator does not manufacture a newer position u
   assert.equal(after.progressAt, changedAt);
   assert.equal(after.progressDirty, false);
   assert.deepEqual(after.progress, locator);
+});
+
+test('discovery rebinds dirty local edits when the same document returns under a new source ID', async () => {
+  const selected = { owner: owner(), guard },
+    original = document('remote ancestor'),
+    edited = editSnippet(original, plainContent('offline local descendant'), ''),
+    oldSource = source('disconnected-source'),
+    newSource = source('reconnected-source'),
+    oldLocation = {
+      source: oldSource,
+      fileId: 'same-file-old',
+      name: original.id + '.manabi-snippet.json',
+      parent: '',
+      token: 'old-token'
+    },
+    newLocation = {
+      source: newSource,
+      fileId: 'same-file-new',
+      name: original.id + '.manabi-snippet.json',
+      parent: '',
+      token: 'new-token'
+    },
+    previousSources = memory.sources;
+  await acceptRemote(selected.owner, original, oldLocation, guard);
+  await mutateRecord(selected.owner, original.id, guard, (current) => ({
+    ...current,
+    document: edited,
+    dirty: true,
+    upload: {
+      document: structuredClone(edited),
+      destination: oldLocation,
+      expected: oldLocation
+    }
+  }));
+  memory.sources = [newSource];
+  memory.files.set(original.id, { document: original, location: newLocation });
+  try {
+    await refreshSnippets(selected, true);
+    const after = await getRecord(selected.owner, original.id);
+    assert.equal(after.primary, locationKey(newLocation));
+    assert.equal(after.destination.source.id, newSource.id);
+    assert.equal(after.document.revision, edited.revision);
+    assert.equal(passages(after.document.content)[0].text, 'offline local descendant');
+    assert.equal(after.remoteRevision, original.revision);
+    assert.equal(after.dirty, true);
+    assert.equal(after.upload, undefined);
+    assert.equal(after.conflicts.length, 0);
+  } finally {
+    memory.files.delete(original.id);
+    memory.sources = previousSources;
+  }
 });
 
 test('a stale listing snapshot cannot mark a location created during that scan as missing', async () => {
