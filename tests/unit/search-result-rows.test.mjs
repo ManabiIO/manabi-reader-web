@@ -66,6 +66,20 @@ test('snippet title rows use Kana folding and preserve original source offsets',
     'が'
   );
   assert.deepEqual(dakuten.titleMatch, { start: 0, end: 1 });
+
+  const [hiragana] = snippetTitleRows(
+    [{ key: 'snippet:hiragana', id: 'hiragana', title: 'とうきょう散歩' }],
+    'トウキョウ'
+  );
+  assert.deepEqual(hiragana.titleMatch, { start: 0, end: 5 });
+  assert.deepEqual(hiragana.searchText, { primary: ['とうきょう散歩', 'トウキョウ散歩'] });
+  const unmatched = {
+    ...hiragana,
+    id: 'snippet:unmatched',
+    title: 'Unrelated',
+    searchText: { primary: ['Unrelated'] }
+  };
+  assert.equal(sortTitleRows([unmatched, hiragana], 'トウキョウ')[0], hiragana);
 });
 
 test('snippet title rows disappear when their captured scope expires', () => {
