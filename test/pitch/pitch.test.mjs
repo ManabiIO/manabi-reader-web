@@ -18,20 +18,28 @@ const { runSwiftF0Inference, swiftF0ModelGain } = await import(
   new URL('swift-f0-runtime.mjs', process.env.PITCH_COMPILED)
 );
 
-test('pitch prefers standard-rate contexts before falling back to the device rate', () => {
+test('pitch rejects a native context too fast for the analyser window', () => {
   const original = globalThis.AudioContext;
   const requested = [];
+  let closed = 0;
   globalThis.AudioContext = class {
     constructor(options) {
       requested.push(options?.sampleRate ?? null);
       if (options) throw new DOMException('Unsupported output rate', 'NotSupportedError');
       this.sampleRate = 96000;
     }
+    close() {
+      closed++;
+      return Promise.resolve();
+    }
   };
   try {
-    const context = createPitchController(() => {}).environment.createContext();
-    assert.equal(context.sampleRate, 96000);
+    assert.throws(
+      () => createPitchController(() => {}).environment.createContext(),
+      /audio context at or below/
+    );
     assert.deepEqual(requested, [48000, 44100, null]);
+    assert.equal(closed, 1);
   } finally {
     globalThis.AudioContext = original;
   }
