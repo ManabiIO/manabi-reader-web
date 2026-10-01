@@ -332,6 +332,7 @@
   // not silently constrain the All/Titles/Content filters.
   $: searchableBooks = books;
   $: normalizedQuery = foldSearch(query.trim());
+  $: unifiedSearchOwnsShelf = !!normalizedQuery && !selectMode;
   $: shelfQuery = libraryShelfSearchQuery(normalizedQuery, selectMode);
   $: metadataMatchIndex = bookTitleMatchIndex(
     searchableBooks,
@@ -349,20 +350,22 @@
     shelfQuery && !flatDestination
       ? booksInMatchingSeries(series?.children || tree, shelfQuery)
       : [];
-  $: destinationNodes = flatDestination
-    ? books
-        .filter((book) =>
-          includesBook(
-            book,
-            collectionId,
-            selectedCollection?.members,
-            notFinished,
-            shelfQuery,
-            seriesMatchedKeys
+  $: destinationNodes = unifiedSearchOwnsShelf
+    ? []
+    : flatDestination
+      ? books
+          .filter((book) =>
+            includesBook(
+              book,
+              collectionId,
+              selectedCollection?.members,
+              notFinished,
+              shelfQuery,
+              seriesMatchedKeys
+            )
           )
-        )
-        .map((book) => ({ kind: 'book' as const, id: book.key, book }))
-    : series?.children || tree;
+          .map((book) => ({ kind: 'book' as const, id: book.key, book }))
+      : series?.children || tree;
   $: sortedDestination = visibleShelf(
     destinationNodes,
     (book) =>
@@ -382,7 +385,7 @@
       ? orderFinishedNodes(sortedDestination, finishedOrder)
       : sortedDestination;
   $: visibleBooks = allBooks(displayed);
-  $: scopedSeriesBooks = series
+  $: scopedSeriesBooks = !unifiedSearchOwnsShelf && series
     ? series.books.filter((book) =>
         includesBook(
           book,
@@ -394,7 +397,7 @@
         )
       )
     : [];
-  $: scopedVolumeOrder = series
+  $: scopedVolumeOrder = !unifiedSearchOwnsShelf && series
     ? allBooks(series.children).filter((book) =>
         includesBook(
           book,
@@ -417,7 +420,7 @@
   $: currentLayout =
     collectionId === 'finished' && !series ? finishedLayout : series ? seriesLayout : layout;
   $: selectableBookIds = visibleBooks.flatMap((book) => (book.bookId ? [book.bookId] : []));
-  $: selectionScopeKey = `${viewerId ?? 'local'}:${collectionId}:${series?.id || ''}:${notFinished ? 'unfinished' : 'all'}:${shelfQuery}`;
+  $: selectionScopeKey = `${viewerId ?? 'local'}:${collectionId}:${series?.id || ''}:${notFinished ? 'unfinished' : 'all'}:${normalizedQuery}`;
   $: selectablePreviewKeys = visibleBooks.filter((book) => !book.bookId).map((book) => book.key);
   $: selectionSignature = JSON.stringify([
     selectionScopeKey,
