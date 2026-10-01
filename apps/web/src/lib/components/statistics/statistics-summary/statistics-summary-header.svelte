@@ -59,7 +59,7 @@
         {#each options as option (option.key)}
           <button
             type="button"
-            class="my-1 flex min-h-11 w-full items-center rounded-lg px-3 py-2 text-left hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+            class="my-1 flex min-h-[44px] w-full items-center rounded-lg px-3 py-2 text-left hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
             on:click|stopPropagation={() => {
               selectedOption = option;
               dispatch('propertyChange', { property: option.key, statisticsSummaryKey });
@@ -74,7 +74,7 @@
   {:else}
     <button
       type="button"
-      class="flex min-h-11 flex-1 items-center rounded-lg px-2 text-left focus-visible:outline-2 focus-visible:outline-ring"
+      class="flex min-h-[44px] flex-1 items-center rounded-lg px-2 text-left focus-visible:outline-2 focus-visible:outline-ring"
       class:cursor-not-allowed={hasRowInEdit}
       disabled={hasRowInEdit}
       {title}
@@ -89,7 +89,7 @@
     variant="ghost"
     size="icon"
     shape="circle"
-    class={`ml-2 size-11 ${
+    class={`ml-2 size-[44px] ${
       !optionKeys.has($lastStatisticsSummarySortProperty$) ? 'opacity-20' : ''
     }`}
     aria-label={`Sort by ${selectedOption.label}`}
