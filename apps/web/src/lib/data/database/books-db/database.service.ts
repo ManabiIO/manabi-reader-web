@@ -1185,54 +1185,14 @@ export class DatabaseService {
 
     const db = await this.db;
     const tx = db.transaction(['readingGoal'], 'readwrite');
-
-    try {
+    await commitTransaction(tx, async () => {
       const store = tx.objectStore('readingGoal');
-      const limiter = pLimit(1);
-      const tasks: Promise<void>[] = [];
 
-      readingGoalsToDelete.forEach((readingGoal) =>
-        tasks.push(
-          limiter(async () => {
-            try {
-              await store.delete(readingGoal);
-            } catch (error: any) {
-              limiter.clearQueue();
+      for (const readingGoal of readingGoalsToDelete) await store.delete(readingGoal);
+      for (const readingGoal of readingGoalsToInsert) await store.put(readingGoal);
+    });
 
-              throw error;
-            }
-          })
-        )
-      );
-
-      readingGoalsToInsert.forEach((readingGoal) =>
-        tasks.push(
-          limiter(async () => {
-            try {
-              await store.put(readingGoal);
-            } catch (error: any) {
-              limiter.clearQueue();
-
-              throw error;
-            }
-          })
-        )
-      );
-
-      await Promise.all(tasks);
-      await tx.done;
-
-      lastReadingGoalsModified$.next(Date.now());
-    } catch (error: any) {
-      try {
-        tx.abort();
-        await tx.done;
-      } catch (_) {
-        // no-op
-      }
-
-      throw error;
-    }
+    lastReadingGoalsModified$.next(Date.now());
   }
 
   async storeReadingGoals(
