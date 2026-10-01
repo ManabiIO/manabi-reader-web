@@ -193,12 +193,18 @@
     searchComposing = false;
     libraryMenu?.search.setQuery(searchDraft);
   }
+  function searchInputBlurred() {
+    if (!searchComposing) return;
+    searchComposing = false;
+    searchDraft = externalSearchQuery;
+  }
   async function openSearch() {
     searchExpanded = true;
     await tick();
     searchInput?.focus();
   }
   async function closeSearch() {
+    searchComposing = false;
     searchDraft = '';
     libraryMenu?.search.setQuery('');
     searchExpanded = false;
@@ -272,6 +278,7 @@
               oninput={searchInputChanged}
               oncompositionstart={searchCompositionStarted}
               oncompositionend={searchCompositionEnded}
+              onblur={searchInputBlurred}
               onkeydown={(event) => {
                 if (event.isComposing || event.keyCode === 229) return;
                 if (event.key === 'Escape') {
@@ -584,6 +591,7 @@
                 oninput={searchInputChanged}
                 oncompositionstart={searchCompositionStarted}
                 oncompositionend={searchCompositionEnded}
+                onblur={searchInputBlurred}
               /></label
             >
           {/if}
