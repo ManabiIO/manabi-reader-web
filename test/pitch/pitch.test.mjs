@@ -94,7 +94,9 @@ test('SwiftF0 batches stable frames at 32 ms spacing while retaining future cont
   assert.ok(results[0].offsetSeconds >= 11 * SWIFT_F0_FRAME_SECONDS);
   assert.ok(results.at(-1).offsetSeconds <= ANALYSIS_WINDOW_SECONDS - 0.15);
   for (let index = 1; index < results.length; index++) {
-    assert.ok(Math.abs(results[index].offsetSeconds - results[index - 1].offsetSeconds - 0.032) < 1e-9);
+    assert.ok(
+      Math.abs(results[index].offsetSeconds - results[index - 1].offsetSeconds - 0.032) < 1e-9
+    );
   }
 });
 test('live inference cadence is aligned to multiple emitted pitch frames', () => {
@@ -163,7 +165,11 @@ test('SwiftF0 runtime releases feeds after failure and rejects malformed model o
   const samples = tone(220, 16000);
   await assert.rejects(
     runSwiftF0Inference(
-      { run: async () => { throw new Error('inference failed'); } },
+      {
+        run: async () => {
+          throw new Error('inference failed');
+        }
+      },
       (type, data, dims) => new Tensor(type, data, dims),
       samples,
       85,
@@ -518,8 +524,22 @@ test('overlapping result batches append only newly stable timestamps', async () 
       type: 'result',
       id: id1,
       results: [
-        { hz: 220, amplitude: 0.4, confidence: 1, rms: 0.3, offsetSeconds: 0.256, windowSeconds: ANALYSIS_WINDOW_SECONDS },
-        { hz: 221, amplitude: 0.4, confidence: 1, rms: 0.3, offsetSeconds: 0.288, windowSeconds: ANALYSIS_WINDOW_SECONDS }
+        {
+          hz: 220,
+          amplitude: 0.4,
+          confidence: 1,
+          rms: 0.3,
+          offsetSeconds: 0.256,
+          windowSeconds: ANALYSIS_WINDOW_SECONDS
+        },
+        {
+          hz: 221,
+          amplitude: 0.4,
+          confidence: 1,
+          rms: 0.3,
+          offsetSeconds: 0.288,
+          windowSeconds: ANALYSIS_WINDOW_SECONDS
+        }
       ]
     }
   });
@@ -535,8 +555,22 @@ test('overlapping result batches append only newly stable timestamps', async () 
       id: id2,
       results: [
         // This maps to the previous window's last absolute timestamp.
-        { hz: 221, amplitude: 0.4, confidence: 1, rms: 0.3, offsetSeconds: 0.032, windowSeconds: ANALYSIS_WINDOW_SECONDS },
-        { hz: 222, amplitude: 0.4, confidence: 1, rms: 0.3, offsetSeconds: 0.064, windowSeconds: ANALYSIS_WINDOW_SECONDS }
+        {
+          hz: 221,
+          amplitude: 0.4,
+          confidence: 1,
+          rms: 0.3,
+          offsetSeconds: 0.032,
+          windowSeconds: ANALYSIS_WINDOW_SECONDS
+        },
+        {
+          hz: 222,
+          amplitude: 0.4,
+          confidence: 1,
+          rms: 0.3,
+          offsetSeconds: 0.064,
+          windowSeconds: ANALYSIS_WINDOW_SECONDS
+        }
       ]
     }
   });
@@ -708,8 +742,22 @@ test('first subtitle synchronization establishes a cue boundary even when speech
       type: 'result',
       id,
       results: [
-        { hz: 110, amplitude: 0.3, confidence: 1, rms: 0.2, offsetSeconds: 0.1, windowSeconds: ANALYSIS_WINDOW_SECONDS },
-        { hz: 220, amplitude: 0.3, confidence: 1, rms: 0.2, offsetSeconds: 0.6, windowSeconds: ANALYSIS_WINDOW_SECONDS }
+        {
+          hz: 110,
+          amplitude: 0.3,
+          confidence: 1,
+          rms: 0.2,
+          offsetSeconds: 0.1,
+          windowSeconds: ANALYSIS_WINDOW_SECONDS
+        },
+        {
+          hz: 220,
+          amplitude: 0.3,
+          confidence: 1,
+          rms: 0.2,
+          offsetSeconds: 0.6,
+          windowSeconds: ANALYSIS_WINDOW_SECONDS
+        }
       ]
     }
   });
@@ -732,8 +780,22 @@ test('active cue boundary can advance without requiring a subtitle gap', async (
       type: 'result',
       id,
       results: [
-        { hz: 180, amplitude: 0.4, confidence: 1, rms: 0.3, offsetSeconds: 0.2, windowSeconds: ANALYSIS_WINDOW_SECONDS },
-        { hz: 220, amplitude: 0.4, confidence: 1, rms: 0.3, offsetSeconds: 0.6, windowSeconds: ANALYSIS_WINDOW_SECONDS }
+        {
+          hz: 180,
+          amplitude: 0.4,
+          confidence: 1,
+          rms: 0.3,
+          offsetSeconds: 0.2,
+          windowSeconds: ANALYSIS_WINDOW_SECONDS
+        },
+        {
+          hz: 220,
+          amplitude: 0.4,
+          confidence: 1,
+          rms: 0.3,
+          offsetSeconds: 0.6,
+          windowSeconds: ANALYSIS_WINDOW_SECONDS
+        }
       ]
     }
   });
