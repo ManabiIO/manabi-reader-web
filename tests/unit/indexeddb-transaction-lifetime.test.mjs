@@ -390,3 +390,51 @@ test('annotation ownership lookup observes readonly completion before inventory 
   assert.equal(rows[0].id, record.id);
 });
 
+test('statistics recovery export observes readonly completion before inventory reads', async () => {
+  let observed = false;
+  const store = {
+    async getAll() {
+      assert.equal(observed, true);
+      return [];
+    }
+  };
+  const tx = {
+    done: {
+      then(onFulfilled, onRejected) {
+        observed = true;
+        return Promise.resolve().then(onFulfilled, onRejected);
+      }
+    },
+    objectStore() {
+      return store;
+    },
+    abort() {}
+  };
+  const { api } = loadOfflineModule(
+    'apps/web/src/lib/data/database/books-db/reader-statistics.ts',
+    {
+      modules: {
+        idb: {},
+        './versions/books-db': {},
+        './content-hash-index.ts': {
+          contentHashPrimaryKeys: async () => [],
+          readIndexedBookTitles: async (source) => source.getAll()
+        }
+      },
+      globals: {
+        IDBKeyRange: {
+          bound: () => ({})
+        }
+      }
+    }
+  );
+  const snapshot = await api.readStatisticsRecoverySnapshot({
+    transaction() {
+      observed = false;
+      return tx;
+    }
+  });
+  assert.equal(snapshot.format, 'manabi-reader-statistics-recovery');
+  assert.deepEqual(snapshot.books, []);
+});
+
