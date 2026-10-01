@@ -224,6 +224,12 @@ class PanelUsabilityBrowser(LibraryBase):
         self.assertGreaterEqual(page_trigger.bounding_box()['height'], 43.99)
         self.assertLessEqual(
             self.page.evaluate('document.documentElement.scrollWidth - innerWidth'), 1)
+        summary_scroll = self.page.locator('[data-statistics-summary-scroll]')
+        self.assertLessEqual(
+            summary_scroll.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
+        self.assertLessEqual(
+            self.page.locator('[data-statistics-summary-grid]').evaluate(
+                'e => e.scrollWidth - e.clientWidth'), 1)
 
         for control in (
             self.page.get_by_role('button', name='Delete row Panel title 000', exact=True),
