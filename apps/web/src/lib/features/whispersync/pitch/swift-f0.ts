@@ -32,8 +32,7 @@ export async function analyseSwiftF0Window(
   rate: number
 ): Promise<Measurement[]> {
   const samples = resampleForSwiftF0(input, rate);
-  if (!samples.length)
-    return [];
+  if (!samples.length) return [];
 
   const session = await prepareSwiftF0();
   const tensorSession: SwiftF0SessionLike<ort.Tensor> = {
