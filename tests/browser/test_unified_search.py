@@ -262,6 +262,11 @@ class UnifiedSearch(ProductJourneyBase):
             isComposing: true
           }));
           element.blur();
+          // Some engines can deliver a trailing compositionend after blur.
+          element.dispatchEvent(new CompositionEvent('compositionend', {
+            bubbles: true,
+            data: '犬'
+          }));
         }""")
         expect(field).to_have_value('猫')
         expect(self.page).to_have_url(re.compile(r'[?&]q=%E7%8C%AB(?:&|$)'))
