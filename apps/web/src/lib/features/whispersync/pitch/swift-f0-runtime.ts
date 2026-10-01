@@ -1,7 +1,7 @@
 import { SWIFT_F0_HOP } from './analysis';
 
 export interface SwiftF0TensorLike {
-  data: ArrayLike<number>;
+  data: ArrayLike<unknown>;
   dispose?: () => void;
 }
 
