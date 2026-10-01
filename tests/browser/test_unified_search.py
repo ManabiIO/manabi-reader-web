@@ -214,6 +214,42 @@ class UnifiedSearch(ProductJourneyBase):
                 expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute(
                     'data-hydrated', 'true')
 
+    def test_library_ime_draft_survives_unrelated_header_rerender(self):
+        self.page.set_viewport_size({'width': 500, 'height': 800})
+        self.go_library()
+        self.page.get_by_role('button', name='Search library', exact=True).click()
+        field = self.page.get_by_role('searchbox', name='Search library', exact=True)
+        expect(field).to_be_focused()
+        field.fill('cat')
+        expect(self.page).to_have_url(re.compile(r'[?&]q=cat(?:&|$)'))
+
+        field.dispatch_event('compositionstart', {'data': ''})
+        field.evaluate("""element => {
+          element.value = '猫';
+          element.dispatchEvent(new InputEvent('input', {
+            bubbles: true,
+            data: '猫',
+            inputType: 'insertCompositionText',
+            isComposing: true
+          }));
+        }""")
+        expect(field).to_have_value('猫')
+        # Intermediate IME text stays local and must not rewrite navigation state.
+        expect(self.page).to_have_url(re.compile(r'[?&]q=cat(?:&|$)'))
+
+        # Crossing only the compact-menu breakpoint rerenders the same header/search
+        # surface without replacing the compact-library input.
+        self.page.set_viewport_size({'width': 700, 'height': 800})
+        expect(field).to_be_visible()
+        expect(field).to_have_value('猫')
+        expect(field).to_be_focused()
+        expect(self.page).to_have_url(re.compile(r'[?&]q=cat(?:&|$)'))
+
+        field.dispatch_event('compositionend', {'data': '猫'})
+        expect(field).to_have_value('猫')
+        expect(self.page).to_have_url(re.compile(r'[?&]q=%E7%8C%AB(?:&|$)'))
+        self.checkpoint('library-ime-draft-rerender')
+
     def test_title_results_prioritize_relevance_across_source_types(self):
         self.seed_video_search(title='cat')
         self.import_book('Dog guide', body='<p>Unrelated body text.</p>', creators=('cat',))
