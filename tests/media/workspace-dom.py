@@ -1050,7 +1050,10 @@ def main():
 
             page.get_by_label('Search videos',exact=True).fill('')
             page.wait_for_function('document.querySelectorAll(".video-card").length===3')
-            page.evaluate('window.bulkSelections=[];workspace.bulk=async selection=>bulkSelections.push([...selection])')
+            page.evaluate("""window.bulkSelections=[];
+                workspace.bulk=async selection=>bulkSelections.push(
+                    [...(selection ?? workspace.selected)]
+                )""")
             card=page.locator('.video-card').filter(
                 has=page.get_by_role('button',name='Watching',exact=True))
             card.get_by_text('Actions',exact=True).click()
