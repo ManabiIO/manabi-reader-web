@@ -240,8 +240,17 @@ export async function acceptRemote(
         conflicts: []
       };
     const key = locationKey(location),
-      locations = [...current.locations.filter((item) => locationKey(item) !== key), location];
-    const previous = current.locations.find((item) => locationKey(item) === current.primary);
+      previous = current.locations.find((item) => locationKey(item) === current.primary),
+      locations = [
+        ...current.locations
+          .filter((item) => locationKey(item) !== key)
+          .map((item) =>
+            authoritativeAbsentSources?.has(sourceKey(item.source))
+              ? { ...item, missing: true }
+              : item
+          ),
+        location
+      ];
     const primaryMissing = previous?.missing && !current.transfer && !current.conflicts.length;
     const incomingActive = activeSources?.has(sourceKey(location.source)) ?? false;
     const primaryUnavailable =
