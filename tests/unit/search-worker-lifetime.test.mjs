@@ -199,8 +199,7 @@ test('expired snippet scope settles only that aggregate source and preserves pub
               },
               {
                 progress: false,
-                invalidated: () =>
-                  receive({ rows, busy: false, failed: 1, truncated: false })
+                invalidated: () => receive({ rows, busy: false, failed: 1, truncated: false })
               }
             );
           }
