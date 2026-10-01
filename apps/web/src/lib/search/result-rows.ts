@@ -97,6 +97,14 @@ function snippetTitleMatchRange(
   };
 }
 
+function snippetTitleSearchFields(title: string): SearchTextFields {
+  const folded = foldSnippetSearch(title);
+  const katakana = folded.replace(/[ぁ-ゖ]/g, (char) =>
+    String.fromCharCode(char.charCodeAt(0) + 0x60)
+  );
+  return { primary: [...new Set([title, folded, katakana])] };
+}
+
 export function snippetTitleRows(snippets: readonly SnippetSummary[], query: string): SearchRow[] {
   const needle = foldSnippetSearch(query.trim());
   return snippets
@@ -110,7 +118,7 @@ export function snippetTitleRows(snippets: readonly SnippetSummary[], query: str
       // Generic cross-source ranking does not fold Kana. Give it both the
       // original title and Snippets' Kana-folded search form so either script
       // receives real relevance instead of an unmatched fallback tier.
-      searchText: { primary: [snippet.title, foldSnippetSearch(snippet.title)] },
+      searchText: snippetTitleSearchFields(snippet.title),
       target: { kind: 'snippet', snippet }
     }));
 }
