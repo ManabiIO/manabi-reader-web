@@ -58,6 +58,31 @@ def resource_epub(malformed=False):
     return output.getvalue()
 
 
+def deep_fragment_epub():
+    """Put the linked target well past page one so chapter-start navigation cannot pass."""
+    output = io.BytesIO()
+    filler = ''.join(
+        f'<p id="filler-{index}">前の文章を読みます。まだ目的の位置ではありません。</p>'
+        for index in range(260)
+    )
+    chapter = (
+        '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Second</title>'
+        '<link rel="stylesheet" href="two.css"/></head><body>'
+        '<p id="chapter-start">第二章の先頭</p>' + filler +
+        '<p class="text" id="same">深いリンク先</p>'
+        '<a id="back" href="one.xhtml#same">戻る</a></body></html>'
+    )
+    with zipfile.ZipFile(io.BytesIO(resource_epub())) as source, zipfile.ZipFile(
+        output, 'w', zipfile.ZIP_DEFLATED
+    ) as target:
+        for entry in source.infolist():
+            data = source.read(entry)
+            if entry.filename == 'EPUB/two.xhtml':
+                data = chapter.encode()
+            target.writestr(entry, data)
+    return output.getvalue()
+
+
 def rtl_language_epub():
     output = io.BytesIO()
     with zipfile.ZipFile(io.BytesIO(resource_epub())) as source, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as target:
@@ -186,9 +211,10 @@ class EpubPublicationBrowser(ReaderBrowser):
         cls.playwright = sync_playwright().start()
         cls.browser = getattr(cls.playwright, os.environ.get('SLIDE_BROWSER', 'chromium')).launch()
 
-    def open_resource_book(self, view='paginated', malformed=False, payload=None):
+    def open_resource_book(self, view='paginated', malformed=False, payload=None, foliate=True):
         settings = {
-            'manabi-dev-foliate-epub': 'true', 'viewMode': view, 'writingMode': 'horizontal-tb',
+            'manabi-dev-foliate-epub': 'true' if foliate else 'false',
+            'viewMode': view, 'writingMode': 'horizontal-tb',
             'hideFurigana': 'false', 'hideSpoilerImage': 'false'
         }
         self.context.add_init_script('if (location.origin === ' + json.dumps(self.origin) + ') {'
@@ -199,10 +225,42 @@ class EpubPublicationBrowser(ReaderBrowser):
             'name': 'resources.epub', 'mimeType': 'application/epub+zip', 'buffer': resource_epub(malformed) if payload is None else payload
         })
         self.page.get_by_role('button', name='Read ' + TITLE, exact=True).click(timeout=30000)
-        if view == 'paginated':
+        if view == 'paginated' and foliate:
             self.page.wait_for_function(f"() => {P}?.getContents?.()[0]?.doc?.querySelector('#same')")
+        elif view == 'paginated':
+            expect(self.page.locator('.book-content-container #same')).to_be_visible(timeout=30000)
         else:
             expect(self.page.locator('#ttu-epub-0 .text')).to_be_visible(timeout=30000)
+
+    def test_legacy_paginated_cross_resource_link_reveals_deep_fragment(self):
+        self.page.set_viewport_size({'width': 390, 'height': 844})
+        self.open_resource_book(payload=deep_fragment_epub(), foliate=False)
+        self.assertEqual(0, self.page.locator('foliate-paginator').count())
+        self.page.locator('.book-content-container #cross').click()
+        self.page.wait_for_function("""() => {
+          const section=document.querySelector('.book-content-container');
+          return section?.dataset.manabiSpineIndex === '1' && section.querySelector('#same');
+        }""")
+        visible = self.page.evaluate("""() => {
+          const host=document.querySelector('.book-content');
+          const target=document.querySelector('.book-content-container #same');
+          const start=document.querySelector('.book-content-container #chapter-start');
+          const intersects=(element) => {
+            const r=element.getBoundingClientRect(), h=host.getBoundingClientRect();
+            return r.right > h.left && r.left < h.right && r.bottom > h.top && r.top < h.bottom;
+          };
+          return {
+            target:intersects(target),
+            start:intersects(start),
+            scrollLeft:host.scrollLeft,
+            transform:getComputedStyle(document.querySelector('.book-content-container')).transform
+          };
+        }""")
+        self.assertTrue(visible['target'], visible)
+        self.assertFalse(visible['start'], visible)
+        self.assertTrue(visible['scrollLeft'] > 0 or visible['transform'] != 'none', visible)
+        self.assertEqual([], StaticHandler.probes)
+        self.assertEqual([], self.errors)
 
     def test_framed_reader_receives_imported_language_and_page_direction(self):
         self.open_resource_book(payload=rtl_language_epub())

@@ -7,7 +7,10 @@
     type ReaderLocator
   } from '$lib/reader-location';
   import { browser } from '$app/environment';
-  import { nextChapter$ } from '$lib/components/book-reader/book-toc/book-toc';
+  import {
+    nextChapter$,
+    type ReaderChapterTarget
+  } from '$lib/components/book-reader/book-toc/book-toc';
   import HtmlRenderer from '$lib/components/html-renderer.svelte';
   import type { BooksDbBookmarkData } from '$lib/data/database/books-db/versions/books-db';
   import { SECTION_CHANGE } from '$lib/data/events';
@@ -168,6 +171,7 @@
   let currentSectionId = '';
   let currentSpineIndex = -1;
   let mountedGeneration = 0;
+  let chapterNavigationGeneration = 0;
 
   let disposed = false;
   let renderGeneration = 0;
@@ -389,6 +393,7 @@
   onDestroy(() => {
     disposed = true;
     renderGeneration += 1;
+    chapterNavigationGeneration += 1;
     stopFontLayout?.();
     sectionReady$.complete();
     sectionRenderComplete$.complete();
@@ -708,7 +713,21 @@
     }
   }
 
-  nextChapter$.pipe(takeUntil(destroy$)).subscribe((target) => {
+  function scrollRectToPage(rect: DOMRect | DOMRectReadOnly, isUser: boolean): boolean {
+    if (!scrollEl || !concretePageManager) return false;
+    const host = scrollEl.getBoundingClientRect();
+    const pageSize = (verticalMode ? height : width) + gap;
+    const relative = verticalMode ? rect.top - host.top : rect.left - host.left;
+    const target = Math.max(
+      0,
+      Math.floor((virtualScrollPos$.getValue() + relative) / pageSize) * pageSize
+    );
+    concretePageManager.scrollTo(target, isUser);
+    return true;
+  }
+
+  async function navigateChapterTarget(target: ReaderChapterTarget) {
+    const generation = ++chapterNavigationGeneration;
     const nextSectionIndex =
       typeof target === 'string'
         ? sections.findIndex(
@@ -717,9 +736,43 @@
           )
         : target.spineIndex;
 
-    if (nextSectionIndex < 0 || nextSectionIndex >= sections.length) return;
-    sectionIndex$.next(nextSectionIndex);
-    concretePageManager?.scrollTo(0, true);
+    if (nextSectionIndex < 0 || nextSectionIndex >= sections.length || disposed) return;
+    const fragment = typeof target === 'string' ? undefined : target.fragment;
+
+    if (sectionIndex$.getValue() !== nextSectionIndex) {
+      const ready = new Promise<void>((resolve) => {
+        sectionRenderComplete$
+          .pipe(
+            filter((index) => index === nextSectionIndex),
+            take(1)
+          )
+          .subscribe(() => resolve());
+      });
+      sectionIndex$.next(nextSectionIndex);
+      concretePageManager?.scrollTo(0, false);
+      await ready;
+      await tick();
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    }
+    if (
+      disposed ||
+      generation !== chapterNavigationGeneration ||
+      sectionIndex$.getValue() !== nextSectionIndex ||
+      !concretePageManager
+    )
+      return;
+
+    if (!fragment) {
+      concretePageManager.scrollTo(0, true);
+      return;
+    }
+    const targetElement = contentEl?.querySelector<HTMLElement>(`#${CSS.escape(fragment)}`);
+    if (!targetElement || !scrollRectToPage(targetElement.getBoundingClientRect(), true))
+      concretePageManager.scrollTo(0, true);
+  }
+
+  nextChapter$.pipe(takeUntil(destroy$)).subscribe((target) => {
+    void navigateChapterTarget(target);
   });
 
   /** Reveal a source range after its virtual section has mounted and measured. */
@@ -755,14 +808,8 @@
     const range = rangeAt(projected, position.start, position.end);
     if (!range) return false;
     const rect = range.getBoundingClientRect();
-    const host = scrollEl.getBoundingClientRect();
-    const pageSize = (verticalMode ? height : width) + gap;
-    const relative = verticalMode ? rect.top - host.top : rect.left - host.left;
-    const target = Math.max(
-      0,
-      Math.floor((virtualScrollPos$.getValue() + relative) / pageSize) * pageSize
-    );
-    concretePageManager.scrollTo(target, false);
+    if (!scrollRectToPage(rect, false)) return false;
+    const target = virtualScrollPos$.getValue();
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     return (
       !disposed &&
