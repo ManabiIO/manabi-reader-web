@@ -308,25 +308,61 @@ try {
       JSON.stringify(draft.document.content).includes('二番目の選択も失わず後で復元します。')
     )
   );
-  await page.evaluate(
-    async (keys) =>
-      new Promise((resolve, reject) => {
-        const open = indexedDB.open('manabi-reader-integrations');
-        open.onerror = () => reject(open.error);
-        open.onsuccess = () => {
-          const db = open.result;
-          const tx = db.transaction('snippetDrafts', 'readwrite');
-          for (const key of keys) tx.objectStore('snippetDrafts').delete(key);
-          tx.onerror = () => reject(tx.error);
-          tx.oncomplete = () => {
-            db.close();
-            resolve();
+  const deleteDraftKeys = (keys) =>
+    page.evaluate(
+      async (keys) =>
+        new Promise((resolve, reject) => {
+          const open = indexedDB.open('manabi-reader-integrations');
+          open.onerror = () => reject(open.error);
+          open.onsuccess = () => {
+            const db = open.result;
+            const tx = db.transaction('snippetDrafts', 'readwrite');
+            for (const key of keys) tx.objectStore('snippetDrafts').delete(key);
+            tx.onerror = () => reject(tx.error);
+            tx.oncomplete = () => {
+              db.close();
+              resolve();
+            };
           };
-        };
-      }),
-    capturedDrafts.map((draft) => draft.key)
-  );
+        }),
+      keys
+    );
+  await deleteDraftKeys(capturedDrafts.map((draft) => draft.key));
   passed('concurrent captures persist independently before destination UI');
+
+  // A failing first capture must not hide or discard a second capture that was
+  // already admitted during the same busy window.
+  const mixedPrefix = 'capture-mixed-outcome-' + Date.now();
+  await page.evaluate((mixedPrefix) => {
+    const dispatch = (suffix, html) =>
+      window.dispatchEvent(
+        new CustomEvent('manabi-capture-snippet', {
+          detail: {
+            html,
+            title: 'Mixed capture source',
+            item: mixedPrefix + '-' + suffix,
+            owner: null
+          }
+        })
+      );
+    dispatch('too-large', '<p>' + 'x'.repeat(2 * 1024 * 1024 + 1) + '</p>');
+    dispatch('saved', '<p>先の選択が失敗しても、この選択は下書きに残します。</p>');
+  }, mixedPrefix);
+  const mixedDrafts = async () =>
+    (await records(page, 'snippetDrafts')).filter((draft) =>
+      draft.document?.source?.item?.startsWith(mixedPrefix)
+    );
+  await expect.poll(async () => (await mixedDrafts()).length).toBe(1);
+  await expect(page.getByRole('dialog', { name: 'Add to snippet' })).toHaveCount(0);
+  const captureNotice = page.getByRole('alert');
+  await expect(captureNotice).toContainText('Pasted content exceeds the 2 MiB limit.');
+  await expect(captureNotice).toContainText('1 additional selection saved for later.');
+  const [mixedDraft] = await mixedDrafts();
+  assert.equal(mixedDraft.document.source.item, mixedPrefix + '-saved');
+  assert(JSON.stringify(mixedDraft.document.content).includes('この選択は下書きに残します。'));
+  await deleteDraftKeys([mixedDraft.key]);
+  await captureNotice.getByRole('button', { name: 'Dismiss', exact: true }).click();
+  passed('a failed capture cannot hide or discard a concurrent persisted capture');
 
   // Stress the actual reader controls and vertical layout at enlarged UI text.
   await page.setViewportSize({ width: 320, height: 480 });
