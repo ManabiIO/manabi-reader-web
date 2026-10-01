@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import {
   exportMarkdown,
+  importContent,
   markdownHTML,
   requiresHTMLMarkdown
 } from '../../apps/web/src/lib/snippets/editor.ts';
@@ -200,6 +201,78 @@ test('lossless fallback emits HTML that preserves underline and list marker type
   const markdown = exportMarkdown(alphaList);
   assert.match(markdown, /<ol[^>]*type="a"/);
   assert.match(markdown, />alpha</);
+});
+
+test('lossless HTML Markdown preserves safe non-default link semantics', () => {
+  const content = {
+    type: 'doc',
+    content: [
+      {
+        type: 'paragraph',
+        attrs: { id: randomUUID() },
+        content: [
+          {
+            type: 'text',
+            text: 'safe link',
+            marks: [
+              {
+                type: 'link',
+                attrs: {
+                  href: 'https://example.com/',
+                  target: '_self',
+                  rel: 'noopener',
+                  class: null,
+                  title: 'Example'
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  };
+  const markdown = exportMarkdown(content);
+  assert.match(markdown, /target="_self"/);
+  assert.match(markdown, /rel="noopener"/);
+  const imported = importContent(markdown, 'markdown');
+  const link = imported.content[0].content[0].marks.find((mark) => mark.type === 'link');
+  assert.equal(link.attrs.href, 'https://example.com/');
+  assert.equal(link.attrs.target, '_self');
+  assert.equal(link.attrs.rel, 'noopener');
+  assert.equal(link.attrs.title, 'Example');
+});
+
+test('snippet schema rejects unsafe link rel tokens and opener semantics', () => {
+  const unsafe = {
+    type: 'doc',
+    content: [
+      {
+        type: 'paragraph',
+        attrs: { id: randomUUID() },
+        content: [
+          {
+            type: 'text',
+            text: 'unsafe',
+            marks: [
+              {
+                type: 'link',
+                attrs: {
+                  href: 'https://example.com/',
+                  target: '_blank',
+                  rel: 'opener',
+                  class: null,
+                  title: null
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  };
+  assert.throws(() => validateContent(unsafe));
+  unsafe.content[0].content[0].marks[0].attrs.rel = 'noopener noreferrer';
+  assert.doesNotThrow(() => validateContent(unsafe));
 });
 
 test('fenced code containing list-like prose is not treated as a list', () => {
