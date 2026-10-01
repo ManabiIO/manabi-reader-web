@@ -110,9 +110,11 @@
   }
 </script>
 
-<!-- The enclosing Sheet is the sole scroll owner. A long title, large text or
-     short landscape viewport must never shrink the chapter list to nothing. -->
-<section class="contents-panel flex min-h-full shrink-0 flex-col" aria-label="Table of contents">
+<!-- Header/footer remain available while only the chapter list scrolls. -->
+<section
+  class="contents-panel flex min-h-0 flex-1 flex-col overflow-hidden"
+  aria-label="Table of contents"
+>
   <header
     class="grid grid-cols-[minmax(0,1fr)_44px] items-start gap-[16px] px-[24px] pt-[24px] pb-[16px]"
   >
@@ -123,7 +125,7 @@
     <CloseButton aria-label="Close Table of Contents" onclick={closeTocMenu} />
   </header>
   {#if currentChapter}
-    <div class="mx-6 mb-3 border-b border-border pb-4">
+    <div class="mx-6 mb-3 shrink-0 border-b border-border pb-4">
       <p class="text-xs font-medium text-muted-foreground">Current chapter</p>
       <p class="mt-1 font-medium [overflow-wrap:anywhere]">
         {currentChapter.label || `Chapter ${currentChapterIndex + 1}`}
@@ -153,7 +155,11 @@
       </p>
     </div>
   {/if}
-  <nav bind:this={chapterList} class="flex-1 px-3 pb-4" aria-label="Chapters">
+  <nav
+    bind:this={chapterList}
+    class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-4"
+    aria-label="Chapters"
+  >
     {#each chapters as chapter, index (chapter.reference)}
       <button
         type="button"
@@ -177,7 +183,7 @@
       <p class="px-3 py-6 text-sm text-muted-foreground">No chapters available for this book.</p>
     {/each}
   </nav>
-  <footer class="flex flex-wrap justify-between gap-2 border-t border-border p-4">
+  <footer class="flex shrink-0 flex-wrap justify-between gap-2 border-t border-border p-4">
     <Button
       variant="ghost"
       class="min-h-11"
