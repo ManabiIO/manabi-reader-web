@@ -94,6 +94,63 @@ class LibraryParityBrowser(LibraryBase):
         self.count(1)
         self.assertEqual(1, self.items().count())
 
+        search.fill('')
+        self.count(0)
+        self.assertEqual(3, self.items().count())
+        expect(self.items().filter(has=self.page.get_by_text('Selected', exact=True))).to_have_count(0)
+
+    def test_compact_selection_toolbar_reflows_at_200_percent_text(self):
+        self.page.set_viewport_size({'width': 320, 'height': 568})
+        self.populate(3)
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+
+        actions = self.page.get_by_role('button', name='Library actions', exact=True)
+        actions.click()
+        self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
+
+        toolbar = self.page.get_by_label('Book selection', exact=True)
+        expect(toolbar).to_be_visible()
+        self.assertLessEqual(toolbar.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+        self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth-innerWidth'), 1)
+
+        cancel = toolbar.get_by_role('button', name='Cancel selection', exact=True)
+        select_all = toolbar.get_by_role('button', name='Select All Visible', exact=True)
+        for control in (cancel, select_all):
+            box = control.bounding_box()
+            self.assertGreaterEqual(box['width'], 43.99)
+            self.assertGreaterEqual(box['height'], 43.99)
+            self.assertGreaterEqual(box['x'], -1)
+            self.assertLessEqual(box['x'] + box['width'], 321)
+
+        select_all.click()
+        expect(toolbar.get_by_role('status')).to_have_text('3 selected')
+        more = toolbar.get_by_role('button', name='Selected book actions', exact=True)
+        more.focus()
+        more.press('Enter')
+        menu = self.page.get_by_role('menu')
+        expect(menu).to_be_visible()
+        self.assertLessEqual(menu.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+        for item in menu.get_by_role('menuitem').all():
+            self.assertGreaterEqual(item.bounding_box()['height'], 43.99)
+        self.page.keyboard.press('Escape')
+        expect(menu).to_have_count(0)
+        expect(more).to_be_focused()
+
+        cancel.focus()
+        cancel.press('Enter')
+        expect(toolbar).to_have_count(0)
+        expect(self.page.get_by_role('button', name='Library actions', exact=True)).to_be_focused()
+
+        actions = self.page.get_by_role('button', name='Library actions', exact=True)
+        actions.press('Enter')
+        self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
+        toolbar = self.page.get_by_label('Book selection', exact=True)
+        select_all = toolbar.get_by_role('button', name='Select All Visible', exact=True)
+        select_all.focus()
+        select_all.press('Escape')
+        expect(toolbar).to_have_count(0)
+        expect(actions).to_be_focused()
+
     def start_drag(self, layout):
         first, second = self.items().nth(0).bounding_box(), self.items().nth(1).bounding_box()
         if layout == 'Grid':
