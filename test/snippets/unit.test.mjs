@@ -22,6 +22,7 @@ import {
   MAX_SNIPPET_BYTES,
   MAX_SNIPPET_SEARCH_CODEPOINTS,
   snippetSearchTooLong,
+  truncateValidText,
   validateContent
 } from '../../apps/web/src/lib/snippets/document.ts';
 import {
@@ -112,6 +113,21 @@ async function stored(text = '元の文章', s = source()) {
   await flushRecord(doc.id, selected);
   return { selected, doc, source: s };
 }
+
+test('bounded provenance truncation never splits a Unicode surrogate pair', () => {
+  const exact = 'a'.repeat(998) + '😀';
+  assert.equal(exact.length, 1000);
+  assert.equal(truncateValidText(exact, 1000), exact);
+
+  const crossing = 'a'.repeat(999) + '😀';
+  const truncated = truncateValidText(crossing, 1000);
+  assert.equal(truncated, 'a'.repeat(999));
+  assert.equal(truncated.length, 999);
+  assert.doesNotThrow(() => new TextEncoder().encode(truncated));
+  assert.equal(truncateValidText('日本語', 2), '日本');
+  assert.equal(truncateValidText('😀', 0), '');
+  assert.throws(() => truncateValidText('x', -1), /Invalid text limit/);
+});
 
 test('automatic titles exclude ruby and preserve Japanese graphemes', () => {
   const doc = ruby();
