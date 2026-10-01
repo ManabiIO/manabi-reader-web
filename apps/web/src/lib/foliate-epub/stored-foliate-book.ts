@@ -30,9 +30,7 @@ function canonicalLanguage(value: string | null | undefined): string {
 
 function canonicalDirection(value: string | null | undefined): 'ltr' | 'rtl' | 'auto' | undefined {
   const direction = value?.trim().toLowerCase();
-  return direction === 'ltr' || direction === 'rtl' || direction === 'auto'
-    ? direction
-    : undefined;
+  return direction === 'ltr' || direction === 'rtl' || direction === 'auto' ? direction : undefined;
 }
 
 function resourceSemantics(section: Element, fallbackLanguage: string) {
