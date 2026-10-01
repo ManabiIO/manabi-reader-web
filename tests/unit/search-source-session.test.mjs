@@ -233,6 +233,53 @@ test('account changes close the session before another batch can publish', () =>
   assert.equal(retired, 1);
 });
 
+test('a throwing session receiver stops before admitting any source', () => {
+  let admitted = 0;
+  const stop = startSearchSources(
+    [
+      {
+        start() {
+          admitted++;
+        }
+      }
+    ],
+    new AbortController().signal,
+    () => {
+      throw new Error('receiver failed');
+    }
+  );
+  assert.equal(admitted, 0);
+  assert.doesNotThrow(stop);
+});
+
+test('a late session receiver failure retires admitted resources and suppresses later batches', () => {
+  let receiveSource,
+    retired = 0,
+    publications = 0;
+  const stop = startSearchSources(
+    [
+      {
+        start(_signal, receive) {
+          receiveSource = receive;
+          return () => retired++;
+        }
+      }
+    ],
+    new AbortController().signal,
+    () => {
+      publications++;
+      if (publications > 1) throw new Error('late receiver failure');
+    }
+  );
+  receiveSource(batch(['first'], true));
+  assert.equal(retired, 1);
+  const count = publications;
+  receiveSource(batch(['late']));
+  assert.equal(publications, count);
+  stop();
+  assert.equal(retired, 1);
+});
+
 test('already-cancelled requests never admit a source', () => {
   const parent = new AbortController();
   parent.abort();
