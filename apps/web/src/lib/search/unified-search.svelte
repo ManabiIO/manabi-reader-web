@@ -17,7 +17,7 @@
   import type { BookTitleMatchContext } from './book-title-match-text';
   import {
     bookTitleRows,
-    snippetTitleRows,
+    scopedSnippetTitleRows,
     videoTitleRows,
     sortTitleRows,
     bookContentRows,
@@ -174,6 +174,7 @@
           throw new DOMException('Account changed', 'AbortError');
       };
       let snippetScope: ReturnType<typeof scope> | undefined,
+        snippetRows: SearchRow[] = [],
         snippetFailed = 0;
       if (plan.snippets && selectedSnippets.length) {
         try {
@@ -182,10 +183,23 @@
           snippetFailed = 1;
         }
       }
+      const refreshSnippetRows = () => {
+        if (!snippetScope) return;
+        const admitted = scopedSnippetTitleRows(
+          selectedSnippets,
+          selectedQuery,
+          snippetScope.guard
+        );
+        snippetRows = admitted.rows;
+        if (admitted.failed) {
+          snippetFailed = 1;
+          snippetScope = undefined;
+        }
+      };
       // Metadata stays local and independent of dictionary initialization and
       // expensive body projection. Do not normalize the editable query to kana.
       const bookRows = bookTitleRows(selectedBooks, selectedBookMatchText, selectedQuery);
-      const snippetRows = snippetScope ? snippetTitleRows(selectedSnippets, selectedQuery) : [];
+      refreshSnippetRows();
       guard();
       publish({
         state: 'loading',
@@ -218,6 +232,7 @@
         }
       }
       guard();
+      refreshSnippetRows();
       publish({
         state: 'ready',
         value: {
