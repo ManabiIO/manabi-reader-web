@@ -446,6 +446,7 @@ function fixture(options = {}) {
   };
 }
 async function running(f = fixture()) {
+  f.controller.setSpeechWindow({ start: 0, end: 100 });
   f.controller.setEnabled(true);
   f.ready();
   await flush();
@@ -601,6 +602,7 @@ test('replacement audio retires only the old route and rejects late callbacks', 
 });
 test('load and result timeouts expose retry without closing the output route', async () => {
   const f = fixture();
+  f.controller.setSpeechWindow({ start: 0, end: 100 });
   f.controller.setEnabled(true);
   f.timer(15000);
   assert.equal(f.state.status, 'error');
@@ -680,7 +682,7 @@ test('pause drops a pending result and watchdog while retaining the completed tr
 test('first subtitle synchronization establishes a cue boundary even when speech is active', async () => {
   const f = await running();
   f.a.currentTime = 3;
-  f.controller.setSpeechActive(true, 3);
+  f.controller.setSpeechWindow({ start: 3, end: 4 });
   f.frame(100);
   const worker = f.workers[0];
   assert.equal(worker.sent.length, 0, 'first active sync must wait for fresh future context');
@@ -706,8 +708,8 @@ test('first subtitle synchronization establishes a cue boundary even when speech
 test('active cue boundary can advance without requiring a subtitle gap', async () => {
   const f = await running();
   f.a.currentTime = 4;
-  f.controller.setSpeechActive(true, 4, 3.5);
-  f.controller.setSpeechActive(true, 4.2, 4.15);
+  f.controller.setSpeechWindow({ start: 3.5, end: 4.1 });
+  f.controller.setSpeechWindow({ start: 4.15, end: 5 });
   f.a.currentTime = 4.2;
   f.frame(200);
   const worker = f.workers[0];
@@ -731,13 +733,13 @@ test('subtitle gaps stop inference and cue restart discards pre-cue batch frames
   const f = await running();
   f.frame(700);
   const beforeGap = f.workers[0].sent.length;
-  f.controller.setSpeechActive(false, 1.05);
+  f.controller.setSpeechWindow();
   assert.equal(f.frames.size, 0);
   f.a.currentTime = 1.25;
   f.frame(1000);
   assert.equal(f.workers[0].sent.length, beforeGap, 'known transcript gaps must not run SwiftF0');
 
-  f.controller.setSpeechActive(true, 1.25);
+  f.controller.setSpeechWindow({ start: 1.25, end: 2 });
   const worker = f.workers[0];
   f.a.currentTime = 1.35;
   f.frame(1100);
