@@ -652,10 +652,11 @@ test('first subtitle synchronization establishes a cue boundary even when speech
   const f = await running();
   f.a.currentTime = 3;
   f.controller.setSpeechActive(true, 3);
-  f.frame(800);
+  f.frame(100);
   const worker = f.workers[0];
   assert.equal(worker.sent.length, 0, 'first active sync must wait for fresh future context');
-  f.frame(1000);
+  f.a.currentTime = 3.2;
+  f.frame(200);
   assert.equal(worker.sent.length, 1);
   const id = worker.sent[0].id;
   worker.onmessage({
