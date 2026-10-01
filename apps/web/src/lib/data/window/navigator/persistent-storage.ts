@@ -46,6 +46,16 @@ export function retryPersistentStorage(): Promise<boolean> {
   return startRequest();
 }
 
+/** Return current persistence state without racing a stale persisted() snapshot. */
+export async function persistentStorageStatus(): Promise<boolean> {
+  if (await automaticStorage.persisted()) {
+    automaticResult = true;
+    return true;
+  }
+  const request = automaticRequest;
+  return request ? await request : false;
+}
+
 /** Return the current automatic request without starting browser permission UI. */
 export function currentPersistentStorageRequest(): Promise<boolean> | undefined {
   return automaticRequest;
