@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { compileFunction } from 'node:vm';
 import test from 'node:test';
 import ts from 'typescript';
+import { commitTransaction } from '../../apps/web/src/lib/data/database/books-db/commit-transaction.mjs';
 
 const root = new URL('../../apps/web/src/lib/', import.meta.url);
 let database;
@@ -29,6 +30,8 @@ function load(url) {
   compileFunction(outputText, ['require', 'module', 'exports'])(
     (name) => {
       if (name === '$lib/data/store') return { database };
+      if (name === '$lib/data/database/books-db/commit-transaction.mjs')
+        return { commitTransaction };
       if (name === 'svelte/store') return { get: () => ({ status: 'ready' }) };
       if (name === '$lib/manabi/client') return { account: {}, localProfileUser: () => profile };
       if (name === '$lib/manabi/operation-scope')
