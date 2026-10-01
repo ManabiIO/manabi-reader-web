@@ -272,13 +272,14 @@ export class DatabaseService {
       const dateKey = getDateKey(startDaysHoursForTracker);
       const statistic = { ...getDefaultStatistic(bookTitle, dateKey), bookKey };
       const tx = db.transaction(['readerStatistic', 'lastModified'], 'readwrite');
-      await tx.objectStore('readerStatistic').put(statistic);
-      await tx.objectStore('lastModified').put({
-        title: bookKey,
-        dataType: StorageDataType.STATISTICS,
-        lastModifiedValue: statistic.lastStatisticModified
+      await commitTransaction(tx, async () => {
+        await tx.objectStore('readerStatistic').put(statistic);
+        await tx.objectStore('lastModified').put({
+          title: bookKey,
+          dataType: StorageDataType.STATISTICS,
+          lastModifiedValue: statistic.lastStatisticModified
+        });
       });
-      await tx.done;
       return [dateKey, true];
     }
 
@@ -294,8 +295,7 @@ export class DatabaseService {
 
     const dateKey = getDateKey(startDaysHoursForTracker);
     const tx = db.transaction(['statistic', 'lastModified'], 'readwrite');
-
-    try {
+    await commitTransaction(tx, async () => {
       const statisticsStore = tx.objectStore('statistic');
       const lastModifiedStore = tx.objectStore('lastModified');
       const newStatistic = getDefaultStatistic(bookTitle, dateKey);
@@ -306,18 +306,7 @@ export class DatabaseService {
         dataType: StorageDataType.STATISTICS,
         lastModifiedValue: newStatistic.lastStatisticModified
       });
-
-      await tx.done;
-    } catch (error: any) {
-      try {
-        tx.abort();
-        await tx.done;
-      } catch (_) {
-        // no-op
-      }
-
-      throw error;
-    }
+    });
 
     return [dateKey, true];
   }
