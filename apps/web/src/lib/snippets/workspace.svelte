@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { createRouteLoads, type RouteLoad } from './route-load';
   import { page } from '$app/stores';
   import { base, resolve } from '$app/paths';
@@ -96,7 +96,8 @@
     sort: 'edited' | 'read' | 'created' | 'title' = 'edited';
   let selecting = false,
     selected = new Set<string>(),
-    visibleIds: string[] = [];
+    visibleIds: string[] = [],
+    selectionModeButton: HTMLButtonElement | null = null;
   let pickerOpen = false,
     pickerWriteBusy = false,
     pickerPurpose: 'save' | 'move' | 'default' = 'save',
@@ -634,6 +635,38 @@
     selected = new Set(ids);
     if (ids.length) selecting = true;
   }
+  async function exitSelectionMode() {
+    selecting = false;
+    selected = new Set();
+    await tick();
+    if (!selectionModeButton?.isConnected) return;
+    selectionModeButton.focus({ preventScroll: true });
+    selectionModeButton.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+  function toggleSelectionMode() {
+    if (selecting) {
+      void exitSelectionMode();
+      return;
+    }
+    selecting = true;
+    selected = new Set();
+  }
+  function selectionEscape(event: KeyboardEvent) {
+    const shouldExit =
+      selecting &&
+      event.key === 'Escape' &&
+      !event.isComposing &&
+      !event.altKey &&
+      !event.defaultPrevented;
+    if (!shouldExit) return;
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const ownsSelection =
+      target === selectionModeButton || !!target.closest('.batch, .snippet-shelf');
+    if (!ownsSelection) return;
+    event.preventDefault();
+    void exitSelectionMode();
+  }
   function resetTransientAccountState() {
     editing = undefined;
     instance = undefined;
@@ -741,7 +774,7 @@
   ><title>{current ? displayTitle(current.document) + ' — ' : ''}Snippets · Manabi Reader</title
   ></svelte:head
 >
-<div class="snippet-workspace">
+<div class="snippet-workspace" onkeydown={selectionEscape}>
   <header class="top">
     <a class="brand" href={resolve('/manage')}>Manabi Reader</a><AppNav />
   </header>
@@ -1140,12 +1173,10 @@
             ><option value="list">List</option><option value="grid">Cards</option></select
           ></label
         ><Button
+          bind:ref={selectionModeButton}
           variant="ghost"
           disabled={busy}
-          onclick={() => {
-            selecting = !selecting;
-            selected = new Set();
-          }}>{selecting ? 'Done selecting' : 'Select'}</Button
+          onclick={toggleSelectionMode}>{selecting ? 'Done selecting' : 'Select'}</Button
         ><Button
           variant="ghost"
           disabled={busy || !admitted}
@@ -1165,7 +1196,9 @@
             </p>{/each}
         </details>{/if}
       {#if selecting}<div class="batch" role="toolbar" aria-label="Selected snippet actions">
-          <strong>{selected.size} selected</strong><Button
+          <strong role="status" aria-live="polite" aria-atomic="true"
+            >{selected.size} selected</strong
+          ><Button
             variant="secondary"
             onclick={() => (selected = new Set(visibleIds))}>Select all visible</Button
           ><Button
