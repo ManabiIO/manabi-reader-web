@@ -5,7 +5,8 @@
     dictionaryLease,
     type DictionaryResult,
     type DictionaryRuntime,
-    type DictionaryStatus
+    type DictionaryStatus,
+    type RecommendedDictionary
   } from './dictionary-runtime';
   export let query = '';
   export let full = false;
@@ -23,14 +24,18 @@
     managing = '',
     pendingDelete = '',
     setupOpen = false,
+    recommendationsLoading = false,
+    recommendationsError = '',
     message = '';
   let state: SearchState<DictionaryResult> = { state: 'idle' };
   let dictionaryStatus: DictionaryStatus | undefined;
+  let recommendations: RecommendedDictionary[] | undefined;
   let runtime: DictionaryRuntime | undefined;
   let lease: ReturnType<typeof dictionaryLease>;
   let installController: AbortController | undefined;
   let statusController: AbortController | undefined;
   let manageController: AbortController | undefined;
+  let recommendationsController: AbortController | undefined;
   const task = queryTask<DictionaryResult>((next) => {
     state = next;
     if (next.state === 'error') retryableError = true;
@@ -226,6 +231,32 @@
     input.value = '';
     if (file) void install(file);
   }
+  async function loadRecommendations() {
+    if (recommendations || recommendationsLoading) return;
+    recommendationsController?.abort();
+    const controller = (recommendationsController = new AbortController());
+    recommendationsLoading = true;
+    recommendationsError = '';
+    try {
+      const opened = await lease.get();
+      const items = await opened.recommendations({ signal: controller.signal });
+      controller.signal.throwIfAborted();
+      if (mounted) recommendations = items;
+    } catch (error) {
+      if (!controller.signal.aborted && mounted)
+        recommendationsError =
+          error instanceof Error ? error.message : 'Recommended dictionaries could not be loaded.';
+    } finally {
+      if (recommendationsController === controller) {
+        recommendationsController = undefined;
+        if (mounted) recommendationsLoading = false;
+      }
+    }
+  }
+  function recommendationToggle(event: Event) {
+    const details = event.currentTarget;
+    if (details instanceof HTMLDetailsElement && details.open) void loadRecommendations();
+  }
   onMount(() => {
     lease = dictionaryLease();
     mounted = true;
@@ -235,6 +266,7 @@
       installController?.abort();
       statusController?.abort();
       manageController?.abort();
+      recommendationsController?.abort();
       lease.release();
     };
   });
@@ -384,6 +416,37 @@
         Jitendex by Stephen Kraus · CC BY-SA 4.0. Includes JMdict, Tatoeba and JmdictFurigana data.
         The full dictionary retains its source labels.
       </p>
+      <details class="recommendations" ontoggle={recommendationToggle}>
+        <summary>Recommended dictionaries</summary>
+        <p class="note">
+          From Manabitan’s pinned Japanese catalog. Downloads open on their publisher’s site; Reader
+          never downloads or installs them in the background.
+        </p>
+        {#if recommendationsLoading}
+          <p class="note" role="status">Loading recommendations…</p>
+        {:else if recommendationsError}
+          <p class="note" role="status">
+            {recommendationsError}
+            <button type="button" onclick={() => void loadRecommendations()}>Retry recommendations</button>
+          </p>
+        {:else if recommendations}
+          <ul class="recommendation-list" aria-label="Recommended Japanese dictionaries">
+            {#each recommendations as item (`${item.category}:${item.name}`)}
+              <li class="recommendation-row">
+                <span class="dictionary-copy"
+                  ><strong>{item.name}</strong><small>{item.category}</small><span
+                    >{item.description}</span
+                  ></span
+                >
+                <span class="dictionary-actions">
+                  <a href={item.homepage} target="_blank" rel="noopener noreferrer">About</a>
+                  <a href={item.downloadUrl} target="_blank" rel="noopener noreferrer">Download ZIP</a>
+                </span>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </details>
     </details>
     {#if message}<p class="note" role="status">{message}</p>{/if}
   {/if}
@@ -480,10 +543,12 @@
     border-top: 1px solid var(--border);
     padding-top: 0.5rem;
   }
-  .dictionary-list {
+  .dictionary-list,
+  .recommendation-list {
     margin-block: 0.75rem 1rem;
   }
-  .dictionary-row {
+  .dictionary-row,
+  .recommendation-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -507,6 +572,22 @@
   .delete-confirm > span {
     font-size: 0.8rem;
     color: var(--muted-foreground);
+  }
+  .recommendations {
+    margin-top: 0.75rem;
+  }
+  .recommendation-row a {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    padding: 0.55rem 0.7rem;
+    border-radius: 0.65rem;
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+  }
+  .recommendation-row a:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 3px;
   }
   .setup-actions {
     display: flex;
@@ -562,7 +643,8 @@
     }
   }
   @media (max-width: 640px) {
-    .dictionary-row {
+    .dictionary-row,
+    .recommendation-row {
       align-items: stretch;
       flex-direction: column;
     }
