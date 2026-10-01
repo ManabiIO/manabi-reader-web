@@ -679,6 +679,19 @@ test('pause drops a pending result and watchdog while retaining the completed tr
   assert.equal((pitchPaths(f.state.points, f.state.time).pitch.match(/M/g) || []).length, 2);
   f.controller.dispose();
 });
+test('invalid speech windows fail closed after clamping', async () => {
+  const f = await running();
+  f.controller.setSpeechWindow({ start: -5, end: -1 });
+  assert.equal(f.state.speechActive, false);
+  f.a.currentTime = 2;
+  f.controller.setSpeechWindow({ start: -5, end: -1 });
+  assert.equal(f.state.time, 2);
+  const before = f.workers[0].sent.length;
+  f.frame(1200);
+  assert.equal(f.workers[0].sent.length, before);
+  f.controller.dispose();
+});
+
 test('first subtitle synchronization establishes a cue boundary even when speech is active', async () => {
   const f = await running();
   f.a.currentTime = 3;
