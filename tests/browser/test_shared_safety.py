@@ -158,7 +158,10 @@ class SharedStorageRuntime(static.ReaderBrowser):
                     with urlopen(cls.origin + '/reader-web/manage', timeout=2) as response:
                         if response.status == 200:
                             break
-                except (URLError, TimeoutError):
+                except (URLError, TimeoutError, ConnectionError):
+                    # Vite can accept the TCP connection and reset it while its
+                    # module graph is still becoming ready. A transient reset is
+                    # another not-ready signal, not a failed qualification.
                     pass
                 time.sleep(0.2)
             else:
