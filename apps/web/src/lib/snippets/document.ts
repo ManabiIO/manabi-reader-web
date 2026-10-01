@@ -14,6 +14,22 @@ export function snippetSearchTooLong(value: string) {
   return false;
 }
 export const isSnippetFile = (name: string) => name.toLowerCase().endsWith(SNIPPET_SUFFIX);
+/** Apply schema character bounds without manufacturing an unpaired UTF-16 surrogate. */
+export function truncateValidText(value: string, maximum: number): string {
+  if (!Number.isSafeInteger(maximum) || maximum < 0) throw new Error('Invalid text limit.');
+  if (value.length <= maximum) return value;
+  let end = maximum;
+  if (
+    end > 0 &&
+    end < value.length &&
+    value.charCodeAt(end - 1) >= 0xd800 &&
+    value.charCodeAt(end - 1) <= 0xdbff &&
+    value.charCodeAt(end) >= 0xdc00 &&
+    value.charCodeAt(end) <= 0xdfff
+  )
+    end--;
+  return value.slice(0, end);
+}
 export const isUUID = (value: unknown): value is string =>
   typeof value === 'string' &&
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value);
