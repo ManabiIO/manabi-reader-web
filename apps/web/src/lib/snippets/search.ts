@@ -13,18 +13,31 @@ export interface SearchBatch {
   failed: number;
   truncated: boolean;
 }
+export interface SearchPublicationOptions {
+  /** Omit scan-progress batches whose visible result state did not change. */
+  progress?: boolean;
+  /**
+   * Scope invalidation is a control event, not a stale result. Callers that
+   * aggregate independent sources can retire only this source without
+   * invalidating valid siblings.
+   */
+  invalidated?: () => void;
+}
 let sequence = 0;
 /** A query owns its worker lifetime; late messages cannot cross an account, scope, or newer query. */
 export function searchBodies(
   query: string,
   ids: string[],
   selected: SnippetScope,
-  receive: (batch: SearchBatch) => void
+  receive: (batch: SearchBatch) => void,
+  options: SearchPublicationOptions = {}
 ): () => void {
   selected.guard();
   const requestId = ++sequence;
   let stopped = false;
   const hits = new Map<string, SnippetHit[]>();
+  let visibleRevision = 0;
+  let published = { visibleRevision: 0, busy: true, failed: 0, truncated: false };
   if (!query.trim() || !ids.length || snippetSearchTooLong(query)) {
     receive({ hits, busy: false, scanned: 0, failed: 0, truncated: false });
     return () => undefined;
@@ -35,41 +48,76 @@ export function searchBodies(
     stopped = true;
     worker.terminate();
   };
-  const fail = () => {
-    if (stopped) return;
+  const publish = (
+    busy: boolean,
+    scanned: number,
+    failed: number,
+    truncated: boolean,
+    force = false
+  ) => {
+    const next = { visibleRevision, busy, failed, truncated };
+    if (
+      !force &&
+      options.progress === false &&
+      next.visibleRevision === published.visibleRevision &&
+      next.busy === published.busy &&
+      next.failed === published.failed &&
+      next.truncated === published.truncated
+    )
+      return;
+    published = next;
+    receive({ hits: new Map(hits), busy, scanned, failed, truncated });
+  };
+  const stillOwned = () => {
     try {
       selected.guard();
-      receive({ hits: new Map(hits), busy: false, scanned: 0, failed: 1, truncated: false });
+      return true;
     } catch {
-      /* Retain local state; the next explicit refresh can retry. */
+      try {
+        options.invalidated?.();
+      } catch {
+        /* A failed owner must still retire even if its aggregator is gone. */
+      } finally {
+        stop();
+      }
+      return false;
     }
-    stop();
+  };
+  const fail = () => {
+    if (stopped || !stillOwned()) return;
+    try {
+      publish(false, 0, 1, false, true);
+    } finally {
+      stop();
+    }
   };
   worker.onerror = fail;
   worker.onmessageerror = fail;
   worker.onmessage = ({ data }) => {
-    if (stopped || data.requestId !== requestId) return;
+    if (stopped || data.requestId !== requestId || !stillOwned()) return;
     try {
-      selected.guard();
       if (data.type === 'error') {
         fail();
         return;
       }
-      for (const item of data.batch ?? []) hits.set(item.id, item.hits);
-      receive({
-        hits: new Map(hits),
-        busy: data.type !== 'done',
-        scanned: data.scanned,
-        failed: data.failed,
-        truncated: !!data.truncated
-      });
+      if (data.batch?.length) {
+        for (const item of data.batch) hits.set(item.id, item.hits);
+        visibleRevision++;
+      }
+      publish(
+        data.type !== 'done',
+        data.scanned,
+        data.failed,
+        !!data.truncated,
+        data.type === 'done'
+      );
       if (data.type === 'done') stop();
     } catch {
       stop();
     }
   };
   try {
-    receive({ hits: new Map(), busy: true, scanned: 0, failed: 0, truncated: false });
+    publish(true, 0, 0, false, true);
     worker.postMessage({ requestId, owner: selected.owner, ids, query });
   } catch (error) {
     stop();
