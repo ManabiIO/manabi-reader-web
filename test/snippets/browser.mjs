@@ -668,7 +668,9 @@ try {
     'Hi. there',
     'Alphabetic sentence prefixes must not become TipTap ordered-list markers.'
   );
-  await page.getByRole('textbox', { name: 'Snippet title', exact: true }).fill('CommonMark round trip');
+  await page
+    .getByRole('textbox', { name: 'Snippet title', exact: true })
+    .fill('CommonMark round trip');
   await commit(page, true);
 
   const roundTripMenu = page.getByRole('button', { name: 'More actions', exact: true });
