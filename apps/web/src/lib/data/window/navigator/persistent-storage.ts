@@ -13,8 +13,7 @@ let automaticResult: boolean | undefined;
 
 function startRequest() {
   automaticSettled = false;
-  let current: Promise<boolean>;
-  current = automaticStorage
+  const current = automaticStorage
     .persist()
     .catch(() => false)
     .then((result) => {
