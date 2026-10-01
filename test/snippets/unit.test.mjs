@@ -667,6 +667,52 @@ test('offline cached cloud absence cannot rebind a storage home', async () => {
   }
 });
 
+test('discovery retires an exact stale upload whose own source disappeared', async () => {
+  const selected = { owner: owner(), guard },
+    doc = document('stale upload source'),
+    activeSource = source('active-home'),
+    deadUploadSource = source('dead-upload-home'),
+    activeLocation = {
+      source: activeSource,
+      parent: '',
+      name: 'doc.manabi-snippet.json',
+      fileId: 'active-file',
+      token: 'active-token'
+    },
+    deadUploadLocation = {
+      source: deadUploadSource,
+      parent: '',
+      name: 'doc.manabi-snippet.json',
+      fileId: 'dead-file',
+      token: 'dead-token'
+    },
+    previousSources = memory.sources;
+  await acceptRemote(selected.owner, doc, activeLocation, guard);
+  await mutateRecord(selected.owner, doc.id, guard, (current) => ({
+    ...current,
+    dirty: true,
+    upload: {
+      document: structuredClone(doc),
+      destination: deadUploadLocation,
+      expected: deadUploadLocation
+    }
+  }));
+  memory.sources = [activeSource];
+  memory.files.set(doc.id, { document: doc, location: activeLocation });
+  try {
+    await refreshSnippets(selected, true);
+    const current = await getRecord(selected.owner, doc.id);
+    assert.equal(current.primary, locationKey(activeLocation));
+    assert.equal(current.destination.source.id, activeSource.id);
+    assert.equal(current.upload, undefined);
+    assert.equal(current.dirty, false);
+    assert.equal(current.conflicts.length, 0);
+  } finally {
+    memory.files.delete(doc.id);
+    memory.sources = previousSources;
+  }
+});
+
 test('an active upload to a still-present source cannot be stolen by discovery', async () => {
   const who = owner(),
     doc = document('upload owner'),
