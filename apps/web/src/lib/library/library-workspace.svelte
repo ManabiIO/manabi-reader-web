@@ -414,8 +414,18 @@
     collectionId === 'finished' && !series ? finishedGroups(visibleBooks, finishedOrder) : [];
   $: currentLayout =
     collectionId === 'finished' && !series ? finishedLayout : series ? seriesLayout : layout;
+  function selectionScopeFor(search: string, searchScope: LibrarySearchScope) {
+    return `${viewerId ?? 'local'}:${collectionId}:${series?.id || ''}:${notFinished ? 'unfinished' : 'all'}:${searchScope}:${search}`;
+  }
+  function retireSelectionScope(key: string) {
+    if (!selectMode || key === selectionScopeKey) return;
+    // Search controls update before SvelteKit navigation and before the full
+    // visible-book graph necessarily settles. Retire the old scope immediately
+    // so a now-hidden book can never remain actionable for that interval.
+    dispatch('selectionScopeChange', { key, ids: [], previews: [] });
+  }
   $: selectableBookIds = visibleBooks.flatMap((book) => (book.bookId ? [book.bookId] : []));
-  $: selectionScopeKey = `${viewerId ?? 'local'}:${collectionId}:${series?.id || ''}:${notFinished ? 'unfinished' : 'all'}:${normalizedQuery}`;
+  $: selectionScopeKey = selectionScopeFor(normalizedQuery, librarySearchScope);
   $: selectablePreviewKeys = visibleBooks.filter((book) => !book.bookId).map((book) => book.key);
   $: selectionSignature = JSON.stringify([
     selectionScopeKey,
@@ -552,6 +562,8 @@
     );
   }
   function setQuery(value: string) {
+    const nextQuery = foldSearch(value.trim());
+    retireSelectionScope(selectionScopeFor(nextQuery, librarySearchScope));
     query = value;
     const url = new URL($page.url);
     if (value) url.searchParams.set('q', value);
@@ -563,6 +575,7 @@
     });
   }
   function setSearchScope(value: LibrarySearchScope) {
+    retireSelectionScope(selectionScopeFor(normalizedQuery, value));
     librarySearchScope = value;
     const url = new URL($page.url);
     if (value === 'everything') url.searchParams.delete('scope');
