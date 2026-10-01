@@ -155,7 +155,7 @@ export function validateContent(value: unknown): asserts value is TextNode {
         fail();
       if (
         attrs.start !== undefined &&
-        (!Number.isInteger(attrs.start) || Number(attrs.start) < 1 || Number(attrs.start) > 1000000)
+        (!Number.isInteger(attrs.start) || Number(attrs.start) < 0 || Number(attrs.start) > 1000000)
       )
         fail();
       if (attrs.type != null && !['1', 'a', 'A', 'i', 'I'].includes(String(attrs.type))) fail();
