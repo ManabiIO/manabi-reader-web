@@ -262,6 +262,7 @@ class PanelUsabilityBrowser(LibraryBase):
         expect(details).to_be_visible()
         expect(details).to_contain_text('Time: 1 min')
         close = details.get_by_role('button', name='Close statistic details', exact=True)
+        expect(close).to_be_focused()
         self.assertGreaterEqual(close.bounding_box()['height'], 43.99)
         self.assert_unoccluded(close)
         close.press('Enter')
