@@ -178,17 +178,16 @@
     if (!$cacheStorageData$) getStorageHandler(window, key).clearData();
     storageSource$.next(key);
   }
-  function searchInputChanged(event: InputEvent & { currentTarget: HTMLInputElement }) {
+  function searchInputChanged(event: Event & { currentTarget: EventTarget & HTMLInputElement }) {
     searchDraft = event.currentTarget.value;
-    if (!searchComposing && !event.isComposing) libraryMenu?.search.setQuery(searchDraft);
+    const composing = 'isComposing' in event && event.isComposing === true;
+    if (!searchComposing && !composing) libraryMenu?.search.setQuery(searchDraft);
   }
-  function searchCompositionStarted(
-    event: CompositionEvent & { currentTarget: HTMLInputElement }
-  ) {
+  function searchCompositionStarted(event: Event & { currentTarget: EventTarget & HTMLInputElement }) {
     searchComposing = true;
     searchDraft = event.currentTarget.value;
   }
-  function searchCompositionEnded(event: CompositionEvent & { currentTarget: HTMLInputElement }) {
+  function searchCompositionEnded(event: Event & { currentTarget: EventTarget & HTMLInputElement }) {
     searchDraft = event.currentTarget.value;
     searchComposing = false;
     libraryMenu?.search.setQuery(searchDraft);
