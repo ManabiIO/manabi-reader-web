@@ -367,7 +367,15 @@ export async function appendToSnippet(
     );
     return { ...current, document, dirty: !!current.destination, issue: undefined };
   });
-  await reloadSnippets(selected);
+
+  // The IndexedDB mutation above is authoritative and records the capture
+  // receipt atomically. A presentation refresh failure after that point must
+  // not report the append as failed and invite a duplicate retry.
+  try {
+    await reloadSnippets(selected);
+  } catch {
+    /* The committed mutation already broadcast its change. A later refresh can republish summaries. */
+  }
 }
 export async function duplicateSnippet(id: string, selected = scope()) {
   const record = await getRecord(selected.owner, id);
