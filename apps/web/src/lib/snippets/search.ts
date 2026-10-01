@@ -30,7 +30,8 @@ export function searchBodies(
   const requestId = ++sequence;
   let stopped = false;
   const hits = new Map<string, SnippetHit[]>();
-  let published = { hits: 0, busy: true, failed: 0, truncated: false };
+  let visibleRevision = 0;
+  let published = { visibleRevision: 0, busy: true, failed: 0, truncated: false };
   if (!query.trim() || !ids.length || snippetSearchTooLong(query)) {
     receive({ hits, busy: false, scanned: 0, failed: 0, truncated: false });
     return () => undefined;
@@ -48,11 +49,11 @@ export function searchBodies(
     truncated: boolean,
     force = false
   ) => {
-    const next = { hits: hits.size, busy, failed, truncated };
+    const next = { visibleRevision, busy, failed, truncated };
     if (
       !force &&
       options.progress === false &&
-      next.hits === published.hits &&
+      next.visibleRevision === published.visibleRevision &&
       next.busy === published.busy &&
       next.failed === published.failed &&
       next.truncated === published.truncated
@@ -81,7 +82,10 @@ export function searchBodies(
         fail();
         return;
       }
-      for (const item of data.batch ?? []) hits.set(item.id, item.hits);
+      if (data.batch?.length) {
+        for (const item of data.batch) hits.set(item.id, item.hits);
+        visibleRevision++;
+      }
       publish(
         data.type !== 'done',
         data.scanned,
