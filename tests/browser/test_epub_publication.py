@@ -94,6 +94,22 @@ def rtl_language_epub():
     return output.getvalue()
 
 
+def rtl_long_epub():
+    output = io.BytesIO()
+    filler = ''.join(
+        f'<p>右から左へページを読み進めます。段落 {index}。</p>' for index in range(180)
+    ).encode()
+    with zipfile.ZipFile(io.BytesIO(rtl_language_epub())) as source, zipfile.ZipFile(
+        output, 'w', zipfile.ZIP_DEFLATED
+    ) as target:
+        for entry in source.infolist():
+            data = source.read(entry)
+            if entry.filename == 'EPUB/one.xhtml':
+                data = data.replace(b'</body>', filler + b'</body>')
+            target.writestr(entry, data)
+    return output.getvalue()
+
+
 def resource_semantics_epub():
     output = io.BytesIO()
     with zipfile.ZipFile(io.BytesIO(resource_epub())) as source, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as target:
@@ -264,7 +280,7 @@ class EpubPublicationBrowser(ReaderBrowser):
 
     def test_legacy_paginated_horizontal_rtl_uses_imported_page_progression(self):
         self.page.set_viewport_size({'width': 390, 'height': 844})
-        self.open_resource_book(payload=rtl_language_epub(), foliate=False)
+        self.open_resource_book(payload=rtl_long_epub(), foliate=False)
         host = self.page.locator('.book-content')
         container = self.page.locator('.book-content-container')
         self.assertEqual('0', container.get_attribute('data-manabi-spine-index'))
