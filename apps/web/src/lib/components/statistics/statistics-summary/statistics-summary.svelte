@@ -379,6 +379,7 @@
   Data for {statisticsDateRangeLabel}
 </div>
 <div
+  data-statistics-summary-scroll
   class="grow p-2 overflow-auto"
   class:flex={!statisticsData.length}
   class:justify-center={!statisticsData.length}
@@ -394,6 +395,7 @@
     {@const isTitleAggregation =
       $lastPrimaryReadingDataAggregationMode$ === StatisticsReadingDataAggregationMode.TITLE}
     <div
+      data-statistics-summary-grid
       class="grid grid-cols-[0.75fr_1fr] gap-x-8 items-center"
       class:md:grid-cols-[0.31fr_0.6fr_0.77fr_0.74fr_0.6fr_0.57fr]={isNoneAggregation}
       class:lg:grid-cols-[0.14fr_0.26fr_0.85fr_repeat(2,_0.59fr)_0.45fr]={isNoneAggregation}
