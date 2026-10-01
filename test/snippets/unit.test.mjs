@@ -477,6 +477,48 @@ test('reconnected source with identical bytes replaces an unavailable old primar
   assert.equal(current.locations.length, 2);
 });
 
+test('exact replacement copy clears stale dirty state without an upload journal', async () => {
+  const who = owner(),
+    doc = document('already durable elsewhere'),
+    oldSource = source('old-source'),
+    newSource = source('new-source'),
+    oldLocation = {
+      source: oldSource,
+      parent: '',
+      name: 'same.manabi-snippet.json',
+      fileId: 'same-old',
+      token: 'old-token'
+    },
+    newLocation = {
+      source: newSource,
+      parent: '',
+      name: 'same.manabi-snippet.json',
+      fileId: 'same-new',
+      token: 'new-token'
+    };
+  await acceptRemote(who, doc, oldLocation, guard);
+  await mutateRecord(who, doc.id, guard, (current) => ({
+    ...current,
+    dirty: true,
+    upload: undefined
+  }));
+  await acceptRemote(
+    who,
+    doc,
+    newLocation,
+    guard,
+    new Set([sourceKey(newSource)]),
+    new Set([sourceKey(oldSource)])
+  );
+  const current = await getRecord(who, doc.id);
+  assert.equal(current.primary, locationKey(newLocation));
+  assert.equal(current.destination.source.id, newSource.id);
+  assert.equal(current.remoteRevision, doc.revision);
+  assert.equal(current.dirty, false);
+  assert.equal(current.upload, undefined);
+  assert.equal(current.conflicts.length, 0);
+});
+
 test('reconnected source republishes a clean newer descendant over its remote ancestor', async () => {
   const who = owner(),
     original = document('provider ancestor'),
