@@ -291,6 +291,9 @@ class EditorsPicksBrowser(unittest.TestCase):
         expect(close).to_be_focused()
         close.press('Enter')
         expect(dialog).to_have_count(0)
+        library_actions = self.page.get_by_role('button', name='Library actions', exact=True)
+        expect(library_actions).to_be_focused()
+        expect(self.page.get_by_role('menu')).to_have_count(0)
         self.page.evaluate('document.documentElement.style.fontSize = ""')
 
     def test_open_action_stays_focusable_during_slow_failure_and_returns_after_error(self):
