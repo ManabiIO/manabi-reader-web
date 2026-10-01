@@ -221,16 +221,26 @@
           onchoose={(item) => void append(item.id)}
         />
       </div>
-      {#if error}<p role="alert">{error}</p>{/if}<Button
-        variant="secondary"
-        disabled={busy}
-        onclick={() => (open = false)}>Keep for later</Button
+      {#if status}<p role="status">{status}</p>{/if}
+      {#if error}<p role="alert">{error}</p>{/if}
+      <Button variant="secondary" disabled={busy} onclick={() => (open = false)}
+        >Keep for later</Button
       >
     </Dialog.Content>
   </Dialog.Root>
-{:else if error}<div role="alert" class="capture-error">
-    <span>{error}</span><Button variant="ghost" size="sm" onclick={() => (error = '')}
-      >Dismiss</Button
+{:else if error || status}<div
+    role={error ? 'alert' : 'status'}
+    class:capture-error={!!error}
+    class:capture-status={!error}
+  >
+    <span>{error || status}</span><Button
+      variant="ghost"
+      size="sm"
+      onclick={() => {
+        error = '';
+        status = '';
+        deferredCount = 0;
+      }}>Dismiss</Button
     >
   </div>{/if}
 
@@ -241,7 +251,8 @@
     overflow-y: auto;
     gap: 0.3rem;
   }
-  .capture-error {
+  .capture-error,
+  .capture-status {
     position: fixed;
     inset-inline: 1rem;
     bottom: max(1rem, env(safe-area-inset-bottom));
@@ -257,5 +268,11 @@
     border-radius: 1rem;
     background: var(--card);
     box-shadow: 0 8px 30px #0002;
+  }
+  .capture-error {
+    color: var(--destructive);
+  }
+  .capture-status {
+    color: var(--foreground);
   }
 </style>
