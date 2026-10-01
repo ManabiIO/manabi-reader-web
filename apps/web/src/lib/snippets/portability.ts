@@ -12,6 +12,7 @@ import {
   encodeSnippet,
   filename,
   parseSnippet,
+  retainRemoteAncestor,
   snippetKey,
   type SnippetDocument
 } from './document';
@@ -122,27 +123,53 @@ export async function restoreBackup(raw: string, selected: SnippetScope) {
   for (const document of backup.items) {
     selected.guard();
     await mutateRecord(selected.owner, document.id, selected.guard, (current) => {
-      if (current) {
-        if (
-          canonical(current.document) === canonical(document) ||
-          current.conflicts.some((c) => canonical(c) === canonical(document))
-        )
-          return current;
-        if (current.transfer || current.conflicts.length >= 8)
-          throw new Error('Resolve existing document conflicts before restoring more versions.');
+      if (!current)
+        return {
+          key: JSON.stringify([selected.owner, document.id]),
+          owner: selected.owner,
+          document,
+          locations: [],
+          dirty: false,
+          conflicts: []
+        };
+      if (
+        canonical(current.document) === canonical(document) ||
+        current.conflicts.some((conflict) => canonical(conflict) === canonical(document))
+      )
+        return current;
+
+      // Bounded revision ancestry is part of the portable document. Restoring an
+      // older known ancestor is history, not a competing version.
+      if (current.document.parents.includes(document.revision)) return current;
+      if (current.conflicts.some((conflict) => conflict.parents.includes(document.revision)))
+        return current;
+
+      if (current.transfer || current.upload)
+        throw new Error('Finish the pending snippet operation before restoring another version.');
+
+      // If the backup advances an existing branch, replace only ancestors on
+      // that branch. Unrelated siblings stay explicit conflicts.
+      const conflicts = current.conflicts.filter(
+        (conflict) => !document.parents.includes(conflict.revision)
+      );
+      if (document.parents.includes(current.document.revision)) {
+        const restored = retainRemoteAncestor(document, current.remoteRevision);
         return {
           ...current,
-          conflicts: [...current.conflicts, document],
-          issue: 'A different version was restored. Both versions are kept.'
+          document: restored,
+          conflicts,
+          upload: undefined,
+          dirty: !!current.destination,
+          issue: conflicts.length ? 'Conflicting versions found. Both have been kept.' : undefined
         };
       }
+
+      if (conflicts.length >= 8)
+        throw new Error('Resolve existing document conflicts before restoring more versions.');
       return {
-        key: JSON.stringify([selected.owner, document.id]),
-        owner: selected.owner,
-        document,
-        locations: [],
-        dirty: false,
-        conflicts: []
+        ...current,
+        conflicts: [...conflicts, document],
+        issue: 'A different version was restored. Both versions are kept.'
       };
     });
   }
