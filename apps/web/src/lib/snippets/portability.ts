@@ -6,12 +6,13 @@
 
 import { get } from 'svelte/store';
 import { organization, importSnippetCollections } from '../library/organization';
-import { getRecord, mutateRecord } from './database';
+import { getRecord, mutateRecord, type SnippetRecord } from './database';
 import {
   canonical,
   encodeSnippet,
   filename,
   parseSnippet,
+  retainRemoteAncestor,
   snippetKey,
   type SnippetDocument
 } from './document';
@@ -39,6 +40,10 @@ export async function exportSnippets(
     const item = await getRecord(selected.owner, id);
     selected.guard();
     if (!item) throw new Error('A selected snippet is missing.');
+    if (format === 'json' && item.conflicts.length)
+      throw new Error(
+        'Resolve this snippet’s conflicting versions, or export each version explicitly, before creating a JSON backup.'
+      );
     const raw = encodeSnippet(item.document);
     total += new TextEncoder().encode(raw).length;
     if (total > MAX_BACKUP_BYTES)
@@ -116,35 +121,76 @@ export function decodeBackup(raw: string): {
     throw new Error('Duplicate collections in this backup.');
   return { items, collections };
 }
-/** Restore never overwrites an existing conflicting document or adopts another installation's locators. */
+function restoredRecord(
+  owner: string,
+  current: SnippetRecord | undefined,
+  document: SnippetDocument
+): SnippetRecord {
+  if (!current)
+    return {
+      key: JSON.stringify([owner, document.id]),
+      owner,
+      document,
+      locations: [],
+      dirty: false,
+      conflicts: []
+    };
+  if (
+    canonical(current.document) === canonical(document) ||
+    current.conflicts.some((conflict) => canonical(conflict) === canonical(document))
+  )
+    return current;
+
+  // Bounded revision ancestry is part of the portable document. Restoring an
+  // older known ancestor is history, not a competing version.
+  if (current.document.parents.includes(document.revision)) return current;
+  if (current.conflicts.some((conflict) => conflict.parents.includes(document.revision)))
+    return current;
+
+  if (current.transfer || current.upload)
+    throw new Error('Finish the pending snippet operation before restoring another version.');
+
+  // If the backup advances an existing branch, replace only ancestors on
+  // that branch. Unrelated siblings stay explicit conflicts.
+  const conflicts = current.conflicts.filter(
+    (conflict) => !document.parents.includes(conflict.revision)
+  );
+  if (document.parents.includes(current.document.revision)) {
+    const restored = retainRemoteAncestor(document, current.remoteRevision);
+    return {
+      ...current,
+      document: restored,
+      conflicts,
+      upload: undefined,
+      dirty: !!current.destination,
+      issue: conflicts.length ? 'Conflicting versions found. Both have been kept.' : undefined
+    };
+  }
+
+  if (conflicts.length >= 8)
+    throw new Error('Resolve existing document conflicts before restoring more versions.');
+  return {
+    ...current,
+    conflicts: [...conflicts, document],
+    issue: 'A different version was restored. Both versions are kept.'
+  };
+}
+
+/** Restore never overwrites an existing conflicting document or adopts another installation's locators.
+ * Predictable blockers are preflighted before the first mutation; a concurrent
+ * cross-tab change can still interrupt safely and a retry remains idempotent. */
 export async function restoreBackup(raw: string, selected: SnippetScope) {
   const backup = decodeBackup(raw);
   for (const document of backup.items) {
+    const current = await getRecord(selected.owner, document.id);
     selected.guard();
-    await mutateRecord(selected.owner, document.id, selected.guard, (current) => {
-      if (current) {
-        if (
-          canonical(current.document) === canonical(document) ||
-          current.conflicts.some((c) => canonical(c) === canonical(document))
-        )
-          return current;
-        if (current.transfer || current.conflicts.length >= 8)
-          throw new Error('Resolve existing document conflicts before restoring more versions.');
-        return {
-          ...current,
-          conflicts: [...current.conflicts, document],
-          issue: 'A different version was restored. Both versions are kept.'
-        };
-      }
-      return {
-        key: JSON.stringify([selected.owner, document.id]),
-        owner: selected.owner,
-        document,
-        locations: [],
-        dirty: false,
-        conflicts: []
-      };
-    });
+    restoredRecord(selected.owner, current, document);
+  }
+  for (const document of backup.items) {
+    selected.guard();
+    await mutateRecord(selected.owner, document.id, selected.guard, (current) =>
+      restoredRecord(selected.owner, current, document)
+    );
   }
   selected.guard();
   await importSnippetCollections(backup.collections, selected.guard);

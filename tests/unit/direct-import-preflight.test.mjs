@@ -20,10 +20,18 @@ const code = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
 }).outputText;
 
-function loadFixture({ reusable, preflightError, countMode = false } = {}) {
+function loadFixture({
+  reusable,
+  preflightError,
+  countMode = false,
+  persistenceError,
+  persistenceResult = true,
+  persistenceNeverSettles = false
+} = {}) {
   const events = [];
   const progress = [];
   const changed = [];
+  let persistCalls = 0;
   const contentHash = 'a'.repeat(64);
   const BaseStorageHandler = class {
     static reportProgress(value = 1) {
@@ -61,7 +69,21 @@ function loadFixture({ reusable, preflightError, countMode = false } = {}) {
       BaseStorageHandler,
       FilePrefix: { AUDIO_BOOK: 'audioBook_', SUBTITLE: 'subtitles_' }
     },
-    '$lib/data/window/navigator/storage': { storage: { persist: async () => true } },
+    '$lib/data/window/navigator/persistent-storage': {
+      requestPersistentStorageOnce: (() => {
+        let request;
+        return () => {
+          if (request) return request;
+          persistCalls++;
+          request = persistenceNeverSettles
+            ? new Promise(() => {})
+            : persistenceError
+              ? Promise.resolve(false)
+              : Promise.resolve(persistenceResult);
+          return request;
+        };
+      })()
+    },
     '$lib/data/storage/storage-types': {
       StorageDataType: {
         DATA: 'data',
@@ -74,8 +96,7 @@ function loadFixture({ reusable, preflightError, countMode = false } = {}) {
       StorageKey: { BROWSER: 'browser', BACKUP: 'backup' }
     },
     '$lib/data/store': {
-      database: { dataListChanged$: { next: (value) => changed.push(value) } },
-      requestPersistentStorage$: { getValue: () => false }
+      database: { dataListChanged$: { next: (value) => changed.push(value) } }
     },
     '$lib/functions/file-loaders/epub/load-epub': { __esModule: true, default: loaders.epub },
     '$lib/functions/file-loaders/htmlz/load-htmlz': { __esModule: true, default: loaders.htmlz },
@@ -151,6 +172,7 @@ function loadFixture({ reusable, preflightError, countMode = false } = {}) {
   };
   return {
     importData: exports.importData,
+    replicateData: exports.replicateData,
     handler,
     document,
     file: new File(['exact bytes'], 'book.epub', { type: 'application/epub+zip' }),
@@ -159,7 +181,8 @@ function loadFixture({ reusable, preflightError, countMode = false } = {}) {
     events,
     progress,
     changed,
-    contentHash
+    contentHash,
+    persistCalls: () => persistCalls
   };
 }
 
@@ -169,6 +192,7 @@ test('eligible exact reimport hashes and preflights without parsing or writing',
   assert.equal(error, '');
   assert.deepEqual(h.events, ['hash', 'preflight']);
   assert.deepEqual(h.changed, []);
+  assert.equal(h.persistCalls(), 0, 'an exact no-op reimport must not request persistence');
   assert.equal(h.progress.filter(([kind]) => kind === 'complete').length, 3);
 });
 
@@ -178,6 +202,7 @@ test('missing exact copy hashes before parser and reuses that digest for storage
   assert.equal(error, '');
   assert.deepEqual(h.events, ['hash', 'preflight', 'load', 'context', 'save', 'cover']);
   assert.equal(h.changed.length, 1);
+  assert.equal(h.persistCalls(), 1);
 });
 
 test('preflight ambiguity/error stops before parser and preserves the import error', async () => {
@@ -187,6 +212,7 @@ test('preflight ambiguity/error stops before parser and preserves the import err
   assert.match(error, /multiple exact histories/);
   assert.deepEqual(h.events, ['hash', 'preflight']);
   assert.deepEqual(h.changed, []);
+  assert.equal(h.persistCalls(), 0, 'a rejected import must not request persistence');
 });
 
 test('character-count mode still parses without hashing or identity preflight', async () => {
@@ -196,4 +222,115 @@ test('character-count mode still parses without hashing or identity preflight', 
   assert.deepEqual(h.events, ['load']);
   assert.equal(h.fileCountData['book.epub'], 12);
   assert.deepEqual(h.changed, []);
+  assert.equal(h.persistCalls(), 0, 'character-count mode should not request durable storage');
+});
+
+test('persistent-storage denial never blocks the book import', async () => {
+  const h = loadFixture({ persistenceError: new Error('permission denied') });
+  const error = await h.importData(h.document, h.handler, [h.file], h.signal);
+  assert.equal(error, '');
+  assert.deepEqual(h.events, ['hash', 'preflight', 'load', 'context', 'save', 'cover']);
+  assert.equal(h.persistCalls(), 1);
+});
+
+test('a pending browser permission prompt never blocks the book import', async () => {
+  const h = loadFixture({ persistenceNeverSettles: true });
+  const completed = Promise.race([
+    h.importData(h.document, h.handler, [h.file], h.signal),
+    new Promise((_, reject) =>
+      setTimeout(
+        () => reject(new Error('book import waited for persistent-storage permission')),
+        250
+      )
+    )
+  ]);
+  assert.equal(await completed, '');
+  assert.deepEqual(h.events, ['hash', 'preflight', 'load', 'context', 'save', 'cover']);
+  assert.equal(h.persistCalls(), 1);
+});
+
+test('multiple imports in one page lifetime request persistent storage only once', async () => {
+  const h = loadFixture();
+  assert.equal(await h.importData(h.document, h.handler, [h.file], h.signal), '');
+  assert.equal(await h.importData(h.document, h.handler, [h.file], h.signal), '');
+  assert.equal(h.persistCalls(), 1, 'Firefox could otherwise prompt on every import');
+});
+
+test('empty imports do not request persistent storage', async () => {
+  const h = loadFixture();
+  assert.equal(await h.importData(h.document, h.handler, [], h.signal), '');
+  assert.equal(h.persistCalls(), 0);
+});
+
+test('background replication without book data does not request persistent storage', async () => {
+  const h = loadFixture();
+  const source = {
+    storageType: 'backup',
+    isCacheDisabled: () => false,
+    clearData: () => assert.fail('source cache should stay enabled'),
+    startContext() {}
+  };
+  const target = {
+    ...h.handler,
+    startContext() {}
+  };
+  assert.equal(
+    await h.replicateData(
+      source,
+      target,
+      false,
+      [{ title: 'Progress only', imagePath: '' }],
+      [],
+      h.signal
+    ),
+    ''
+  );
+  assert.equal(
+    h.persistCalls(),
+    0,
+    'progress/statistics-only background work must not cause a persistence prompt'
+  );
+});
+
+test('already-up-to-date book replication does not request persistent storage', async () => {
+  const h = loadFixture();
+  const source = {
+    storageType: 'backup',
+    isCacheDisabled: () => false,
+    clearData: () => assert.fail('source cache should stay enabled'),
+    startContext() {},
+    async getFilenameForRecentCheck() {
+      return 'bookdata_existing';
+    }
+  };
+  const target = {
+    ...h.handler,
+    startContext() {},
+    async isBookPresentAndUpToDate() {
+      return true;
+    }
+  };
+  assert.equal(
+    await h.replicateData(
+      source,
+      target,
+      false,
+      [{ title: 'Existing', imagePath: '' }],
+      ['data'],
+      h.signal
+    ),
+    ''
+  );
+  assert.equal(h.persistCalls(), 0, 'a no-op replication must not request persistence');
+});
+
+test('book replication with no selected contexts does not request persistent storage', async () => {
+  const h = loadFixture();
+  const source = {
+    storageType: 'backup',
+    isCacheDisabled: () => false,
+    clearData: () => assert.fail('source cache should stay enabled')
+  };
+  assert.equal(await h.replicateData(source, h.handler, false, [], ['data'], h.signal), '');
+  assert.equal(h.persistCalls(), 0);
 });
