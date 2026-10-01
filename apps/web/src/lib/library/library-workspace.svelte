@@ -580,8 +580,7 @@
     // q/scope are local presentation state for this already-mounted route.
     // Shallow replacement keeps the address bar/shareability in sync without
     // starting SvelteKit navigation work on each keystroke or filter change.
-    // The base path is resolved above; q/scope/hash are already-normalized presentation state.
-    // eslint-disable-next-line svelte/no-navigation-without-resolve
+    // eslint-disable-next-line svelte/no-navigation-without-resolve -- the typed route is resolved before appending shallow search/hash state.
     replaceState(`${resolve('/manage')}${url.search}${url.hash}`, $page.state);
   }
   function setQuery(value: string) {
