@@ -177,6 +177,12 @@
   let chapterNavigationGeneration = 0;
   let cancelChapterNavigationWait: (() => void) | undefined;
 
+  const cancelPendingChapterNavigation = () => {
+    chapterNavigationGeneration += 1;
+    cancelChapterNavigationWait?.();
+    cancelChapterNavigationWait = undefined;
+  };
+
   let disposed = false;
   let renderGeneration = 0;
 
@@ -401,9 +407,7 @@
   onDestroy(() => {
     disposed = true;
     renderGeneration += 1;
-    chapterNavigationGeneration += 1;
-    cancelChapterNavigationWait?.();
-    cancelChapterNavigationWait = undefined;
+    cancelPendingChapterNavigation();
     stopFontLayout?.();
     sectionReady$.complete();
     sectionRenderComplete$.complete();
@@ -436,6 +440,7 @@
     });
 
   pageChange$.pipe(takeUntil(destroy$)).subscribe((isUser) => {
+    if (isUser) cancelPendingChapterNavigation();
     if (!calculator) return;
 
     if (!isResizing) {
@@ -727,7 +732,7 @@
     cancelChapterNavigationWait?.();
     return new Promise<boolean>((resolve) => {
       let settled = false;
-      let subscription: ReturnType<typeof sectionRenderComplete$.subscribe>;
+      let subscription: ReturnType<typeof sectionRenderComplete$.subscribe> | undefined;
       const cancel = () => finish(false);
       const finish = (value: boolean) => {
         if (settled) return;
@@ -773,7 +778,7 @@
     // bookmarks and Return. Viewport rectangles are relative to the currently
     // clipped CSS column and can map a deep target back to page one.
     if (target.textContent?.trim()) {
-      const range = document.createRange();
+      const range = target.ownerDocument.createRange();
       range.selectNodeContents(target);
       range.collapse(true);
       const characterCount = calculator.calcExploredCharCount(range);
@@ -790,9 +795,8 @@
   }
 
   async function navigateChapterTarget(target: ReaderChapterTarget) {
-    const generation = ++chapterNavigationGeneration;
-    cancelChapterNavigationWait?.();
-    cancelChapterNavigationWait = undefined;
+    cancelPendingChapterNavigation();
+    const generation = chapterNavigationGeneration;
 
     const nextSectionIndex =
       typeof target === 'string'
