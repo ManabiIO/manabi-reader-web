@@ -347,8 +347,13 @@ export class PitchController {
         .catch(() => {
           if (current()) this.fail('Press Retry to allow audio analysis in this browser.');
         });
-    } catch {
-      this.fail('Voice pitch requires browser Web Audio and worker support.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      this.fail(
+        message.startsWith('Voice pitch needs an audio context')
+          ? message
+          : 'Voice pitch requires browser Web Audio and worker support.'
+      );
     }
   }
   private schedule() {
