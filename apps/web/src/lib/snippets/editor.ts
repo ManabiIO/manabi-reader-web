@@ -24,7 +24,7 @@ import {
   plainContent,
   validateContent,
   type TextNode
-} from './document';
+} from './document.ts';
 
 function isolatedMarked(): typeof marked {
   // TipTap's option type names the callable singleton, but MarkdownManager only
