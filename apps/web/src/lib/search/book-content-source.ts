@@ -56,8 +56,9 @@ export async function searchBookContents(
     { type: 'module' }
   );
   let hits: ContentHit[] = [],
-    stopped = false;
-  let published = { hits: 0, busy: true, failed: 0, truncated: false };
+    stopped = false,
+    visibleRevision = 0;
+  let published = { visibleRevision: 0, busy: true, failed: 0, truncated: false };
   const stop = () => {
     if (stopped) return;
     stopped = true;
@@ -66,10 +67,10 @@ export async function searchBookContents(
   };
   const publish = (busy: boolean, failed = 0, truncated = false) => {
     if (stopped) return;
-    const next = { hits: hits.length, busy, failed, truncated };
+    const next = { visibleRevision, busy, failed, truncated };
     if (
       options.progress === false &&
-      next.hits === published.hits &&
+      next.visibleRevision === published.visibleRevision &&
       next.busy === published.busy &&
       next.failed === published.failed &&
       next.truncated === published.truncated
@@ -91,7 +92,10 @@ export async function searchBookContents(
   worker.onmessage = ({ data }) => {
     if (data.requestId !== 1 || stopped) return;
     if (data.type === 'batch') {
-      hits = [...hits, ...data.hits];
+      if (data.hits.length) {
+        hits = [...hits, ...data.hits];
+        visibleRevision++;
+      }
       publish(true);
     } else if (data.type === 'progress') publish(true, data.failed);
     else if (data.type === 'done') {
