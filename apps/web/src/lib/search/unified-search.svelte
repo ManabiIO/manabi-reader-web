@@ -28,6 +28,11 @@
   import { startSearchSources, type SearchSource, type SearchResults } from './source-session';
   import { queryTask, type SearchState } from './query-task.mjs';
   import {
+    advanceMediaSearchRevisions,
+    searchResultPlan,
+    type SearchResultFilter
+  } from './invalidation';
+  import {
     librarySearchScopePlan,
     librarySearchScopes,
     type LibrarySearchScope
@@ -42,15 +47,14 @@
   export let openBook: (book: ShelfBook, locator?: ReaderLocator) => void;
   export let onquery: (query: string) => void;
   export let onscope: (scope: LibrarySearchScope) => void;
-  type Filter = 'all' | 'dictionary' | 'titles' | 'content';
   type Results = SearchResults<SearchRow>;
-  const filters: { id: Filter; label: string }[] = [
+  const filters: { id: SearchResultFilter; label: string }[] = [
     { id: 'all', label: 'All' },
     { id: 'dictionary', label: 'Dictionary' },
     { id: 'titles', label: 'Titles' },
     { id: 'content', label: 'Content' }
   ];
-  let filter: Filter = 'all',
+  let filter: SearchResultFilter = 'all',
     mounted = false,
     signature = '',
     titleLimit = 30,
@@ -70,7 +74,8 @@
   let mediaSubscribed = false;
   let mediaDisposed = false;
   let stopMedia: () => void = () => {};
-  let mediaRevision = 0;
+  let mediaTitleRevision = 0;
+  let mediaContentRevision = 0;
   async function mediaRuntime(): Promise<LazyMediaRuntime> {
     if (!videoLearningEnabled) throw new Error('Video learning is disabled.');
     if (!mediaRuntimePromise) {
@@ -90,7 +95,14 @@
     if (!mediaSubscribed) {
       mediaSubscribed = true;
       stopMedia = runtime.store.subscribe((captionsChanged, metadataChanged) => {
-        if (mounted && (captionsChanged || metadataChanged)) mediaRevision++;
+        if (!mounted || (!captionsChanged && !metadataChanged)) return;
+        const next = advanceMediaSearchRevisions(
+          { titles: mediaTitleRevision, content: mediaContentRevision },
+          captionsChanged,
+          metadataChanged
+        );
+        mediaTitleRevision = next.titles;
+        mediaContentRevision = next.content;
       });
     }
     return runtime;
@@ -103,6 +115,7 @@
     (item) => !item.trashedAt && (!snippetMembers || snippetMembers.includes(snippetKey(item.id)))
   );
   $: scopePlan = librarySearchScopePlan(searchScope);
+  $: resultPlan = searchResultPlan(filter);
   $: availableFilters = scopePlan.dictionary
     ? filters
     : filters.filter((item) => item.id !== 'dictionary');
@@ -110,11 +123,11 @@
   // Never retain a hidden Dictionary filter when the new source family excludes it.
   $: if (!scopePlan.dictionary && filter === 'dictionary') filter = 'all';
   $: nextSignature = JSON.stringify([
-    query,
-    owner,
+    resultPlan.titles || resultPlan.content ? query : '',
+    resultPlan.titles || resultPlan.content ? owner : null,
     filter,
     searchScope,
-    scopePlan.books
+    resultPlan.content && scopePlan.books
       ? books.map((book) => [
           book.key,
           book.bookId,
@@ -123,7 +136,7 @@
           book.lastBookModified
         ])
       : [],
-    scopePlan.books
+    resultPlan.titles && scopePlan.books
       ? matches.map((book) => [
           book.key,
           book.title,
@@ -133,8 +146,15 @@
           bookMatchText[book.key] ?? []
         ])
       : [],
-    scopePlan.snippets ? eligible.map((item) => [item.key, item.revision]) : [],
-    videoLearningEnabled && searchScope === 'everything' ? mediaRevision : 0
+    (resultPlan.titles || resultPlan.content) && scopePlan.snippets
+      ? eligible.map((item) => [item.key, item.revision])
+      : [],
+    videoLearningEnabled && searchScope === 'everything' && resultPlan.titles
+      ? mediaTitleRevision
+      : 0,
+    videoLearningEnabled && searchScope === 'everything' && resultPlan.content
+      ? mediaContentRevision
+      : 0
   ]);
   $: if (mounted && nextSignature !== signature) {
     signature = nextSignature;
@@ -306,7 +326,7 @@
     if (filter === 'all' || filter === 'titles') startTitles();
     if (filter === 'all' || filter === 'content') startContent();
   }
-  async function choose(value: Filter) {
+  async function choose(value: SearchResultFilter) {
     filter = value;
     await tick();
     // Keep the selected chip, rather than a now-removed See all button, as the
