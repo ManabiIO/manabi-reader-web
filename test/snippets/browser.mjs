@@ -780,8 +780,21 @@ try {
     buffer: markdownBytes
   });
   const markdownEditor = page.getByRole('textbox', { name: 'Snippet text', exact: true });
-  await expect(markdownEditor.locator('ruby rt')).toHaveText('とうきょう');
-  await expect(markdownEditor).toContainText('東京で勉強します。');
+  const roundTripRuby = markdownEditor.locator('ruby').first();
+  await expect(roundTripRuby.locator('rt')).toHaveText('とうきょう');
+  assert.equal(
+    await roundTripRuby.evaluate((ruby) =>
+      [...ruby.childNodes]
+        .filter(
+          (node) =>
+            !(node instanceof Element && (node.matches('rt') || node.matches('rp')))
+        )
+        .map((node) => node.textContent ?? '')
+        .join('')
+    ),
+    '東京'
+  );
+  await expect(markdownEditor).toContainText('勉強します。');
   await page.getByRole('button', { name: 'Discard draft and leave', exact: true }).click();
   passed('ruby survives Markdown export and Markdown import through actual TipTap');
   await page.locator('.snippet-shelf .title').filter({ hasText: '日本語の抜粋' }).click();
