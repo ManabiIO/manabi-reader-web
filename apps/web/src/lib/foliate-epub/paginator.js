@@ -2,6 +2,7 @@
 // See LICENSE.foliate-js.txt in this directory.
 import { slideGeometry } from './slide-geometry.ts'
 import { PageCountCache, pageNumber, pageNumberLabel } from './page-counts.ts'
+import { paginatedPageRtl } from './page-direction.ts'
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -803,12 +804,12 @@ export class Paginator extends HTMLElement {
         cancelAnimationFrame(this.#resizeFrame)
         this.#resizeFrame = 0
         const flow = this.getAttribute('flow')
-        const pageRtl =
-            flow !== 'scrolled' && !vertical && this.bookDir === 'rtl'
-                ? true
-                : flow !== 'scrolled' && !vertical && this.bookDir === 'ltr'
-                  ? false
-                  : rtl
+        const pageRtl = paginatedPageRtl({
+            flow,
+            vertical,
+            bookDirection: this.bookDir,
+            contentRtl: rtl,
+        })
         this.#vertical = vertical
         this.#contentRtl = rtl
         this.#rtl = pageRtl

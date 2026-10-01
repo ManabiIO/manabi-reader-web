@@ -18,6 +18,7 @@
   import { observeReaderFontLayout } from '$lib/functions/reader-font-layout';
   import { FuriganaStyle } from '$lib/data/furigana-style';
   import type { PageDirection } from '$lib/library/direction';
+  import { reversesPhysicalPageTurns } from '$lib/foliate-epub/page-direction';
   import {
     disableWheelNavigation$,
     firstDimensionMargin$,
@@ -236,7 +237,7 @@
 
   // The legacy paginator remains the production fallback while Foliate is gated.
   // Keep reading order separate from paragraph bidi direction here too.
-  $: reversePageOrder = verticalMode || (!verticalMode && pageDirection === 'rtl');
+  $: reversePageOrder = reversesPhysicalPageTurns(verticalMode, pageDirection);
 
   $: {
     if (htmlContent) {
