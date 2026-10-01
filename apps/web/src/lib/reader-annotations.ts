@@ -71,6 +71,12 @@ async function commitAnnotationTransaction<T>(
     });
     operation.assertCurrent();
     return result;
+  } catch (error) {
+    // Account/profile authority outranks a lower-level transaction abort. This
+    // preserves the pre-helper behavior when revocation happens while waiting
+    // for commit.
+    operation.assertCurrent();
+    throw error;
   } finally {
     unbind();
   }
