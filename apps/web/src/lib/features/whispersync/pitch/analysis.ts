@@ -64,10 +64,14 @@ function frameLevel(samples: Float32Array, center: number) {
   if (last <= first) return { rms: 0, peak: 0 };
   let square = 0;
   let peak = 0;
+  const hopEnd = Math.min(samples.length, Math.floor(center) + SWIFT_F0_HOP);
   for (let index = first; index < last; index++) {
     const value = finite(samples[index]);
     square += value * value;
-    peak = Math.max(peak, Math.abs(value));
+    // SwiftF0's silence contract belongs to the current 256-sample hop.
+    // A voiced preceding hop may contribute to the centered RMS envelope but
+    // must not authorize pitch after playback enters digital silence.
+    if (index >= center && index < hopEnd) peak = Math.max(peak, Math.abs(value));
   }
   return { rms: Math.sqrt(square / (last - first)), peak };
 }
