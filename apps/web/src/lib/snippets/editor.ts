@@ -95,7 +95,7 @@ export function cleanHTML(html: string): string {
       'rp',
       'span'
     ],
-    ALLOWED_ATTR: ['href', 'title', 'start', 'type', 'data-id'],
+    ALLOWED_ATTR: ['href', 'title', 'target', 'rel', 'start', 'type', 'data-id'],
     ALLOW_DATA_ATTR: false,
     ADD_URI_SAFE_ATTR: ['data-id', 'start', 'type', 'title'],
     FORBID_TAGS: [
