@@ -17,6 +17,7 @@
   import { resolveReaderFont } from '$lib/data/reader-typography';
   import { observeReaderFontLayout } from '$lib/functions/reader-font-layout';
   import { FuriganaStyle } from '$lib/data/furigana-style';
+  import type { PageDirection } from '$lib/library/direction';
   import {
     disableWheelNavigation$,
     firstDimensionMargin$,
@@ -60,6 +61,8 @@
   export let height: number;
 
   export let verticalMode: boolean;
+
+  export let pageDirection: PageDirection = 'unknown';
 
   export let fontFeatureSettings: string;
 
@@ -224,6 +227,10 @@
   $: if (height) height$.next(height);
 
   $: columnCount = verticalMode ? 1 : pageColumns || Math.ceil(width / 1000);
+
+  // The legacy paginator remains the production fallback while Foliate is gated.
+  // Keep reading order separate from paragraph bidi direction here too.
+  $: reversePageOrder = verticalMode || (!verticalMode && pageDirection === 'rtl');
 
   $: {
     if (htmlContent) {
@@ -504,7 +511,7 @@
       takeUntil(destroy$)
     )
     .subscribe((ev) => {
-      let multiplier = (ev.deltaX < 0 ? -1 : 1) * (verticalMode ? -1 : 1);
+      let multiplier = (ev.deltaX < 0 ? -1 : 1) * (reversePageOrder ? -1 : 1);
       if (!ev.deltaX) {
         multiplier = ev.deltaY < 0 ? -1 : 1;
       }
@@ -681,7 +688,7 @@
     if (!concretePageManager || $skipKeyDownListener$ || readerUIOwnsEvent(ev)) return;
     if (ev.detail.direction !== 'left' && ev.detail.direction !== 'right') return;
     const swipeLeft = ev.detail.direction === 'left';
-    const nextPage = verticalMode ? !swipeLeft : swipeLeft;
+    const nextPage = reversePageOrder ? !swipeLeft : swipeLeft;
     concretePageManager.flipPage(nextPage ? 1 : -1);
   }
 
@@ -700,11 +707,11 @@
     switch (ev.code) {
       case 'ArrowLeft':
       case 'KeyA':
-        concretePageManager[verticalMode ? 'nextPage' : 'prevPage']();
+        concretePageManager[reversePageOrder ? 'nextPage' : 'prevPage']();
         break;
       case 'ArrowRight':
       case 'KeyD':
-        concretePageManager[verticalMode ? 'prevPage' : 'nextPage']();
+        concretePageManager[reversePageOrder ? 'prevPage' : 'nextPage']();
         break;
       case 'ArrowUp':
         concretePageManager.prevPage();

@@ -262,6 +262,45 @@ class EpubPublicationBrowser(ReaderBrowser):
         self.assertEqual([], StaticHandler.probes)
         self.assertEqual([], self.errors)
 
+    def test_legacy_paginated_horizontal_rtl_uses_imported_page_progression(self):
+        self.page.set_viewport_size({'width': 390, 'height': 844})
+        self.open_resource_book(payload=rtl_language_epub(), foliate=False)
+        host = self.page.locator('.book-content')
+        container = self.page.locator('.book-content-container')
+        self.assertEqual('0', container.get_attribute('data-manabi-spine-index'))
+        before = self.page.evaluate("""() => ({
+          left: document.querySelector('.book-content').scrollLeft,
+          transform: getComputedStyle(document.querySelector('.book-content-container')).transform
+        })""")
+
+        # In a horizontal RTL publication, the physical-left key advances the
+        # logical reading order. The LTR fallback used to treat this as "previous"
+        # and remain at the first page.
+        self.page.keyboard.press('ArrowLeft')
+        self.page.wait_for_function("""before => {
+          const host=document.querySelector('.book-content');
+          const transform=getComputedStyle(document.querySelector('.book-content-container')).transform;
+          return host.scrollLeft !== before.left || transform !== before.transform;
+        }""", arg=before)
+        advanced = self.page.evaluate("""() => ({
+          left: document.querySelector('.book-content').scrollLeft,
+          transform: getComputedStyle(document.querySelector('.book-content-container')).transform
+        })""")
+        self.assertNotEqual(before, advanced)
+
+        self.page.keyboard.press('ArrowRight')
+        self.page.wait_for_function("""before => {
+          const host=document.querySelector('.book-content');
+          const transform=getComputedStyle(document.querySelector('.book-content-container')).transform;
+          return host.scrollLeft === before.left && transform === before.transform;
+        }""", arg=before)
+        self.assertEqual(before, self.page.evaluate("""() => ({
+          left: document.querySelector('.book-content').scrollLeft,
+          transform: getComputedStyle(document.querySelector('.book-content-container')).transform
+        })"""))
+        self.assertEqual([], StaticHandler.probes)
+        self.assertEqual([], self.errors)
+
     def test_framed_reader_receives_imported_language_and_page_direction(self):
         self.open_resource_book(payload=rtl_language_epub())
         actual = self.page.evaluate(f"""() => {{
