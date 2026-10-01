@@ -113,9 +113,14 @@ Collections use existing organization storage and preferences, adding `snippet:<
 members. The client sends the `snippets-v1` capability so an older client cannot silently strip
 members in the backend compatibility path. Membership changes capture scope inside the shared
 transaction. JSON backup import is additive and preserves conflicting bodies rather than
-adopting another installation's provider locators. JSON/HTML/Markdown export is available;
-ruby Markdown exports retain raw HTML rather than silently dropping annotations. Multi-document
-backups preserve collection memberships. Reading state is independently stored at the source.
+adopting another installation's provider locators. JSON/HTML/Markdown export is available.
+TipTap JSON remains canonical: Markdown is explicit interchange only. Markdown import uses a fresh
+vanilla Marked instance rather than TipTap's experimental registered tokenizer state, so ordinary
+CommonMark prose cannot be reclassified by alpha/roman ordered-list extensions and repeated editors
+cannot accumulate parser behavior globally. Ruby and valid zero-start ordered lists export as raw
+HTML (valid Markdown) because that is lossless where TipTap 3.31.x's Markdown serializer is not.
+Multi-document backups preserve collection memberships. Reading state is independently stored at
+the source.
 
 ## Verification and rollout
 
