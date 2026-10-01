@@ -330,21 +330,24 @@
                 <button
                   type="button"
                   disabled={installing || !!managing}
+                  aria-label={`${disabledTitles.has(dictionary.title) ? 'Enable' : 'Disable'} ${dictionary.title}`}
                   onclick={() =>
                     void toggleDictionary(dictionary.title, disabledTitles.has(dictionary.title))}
                   >{disabledTitles.has(dictionary.title) ? 'Enable' : 'Disable'}</button
                 >
                 {#if pendingDelete === dictionary.title}
-                  <span class="delete-confirm">
+                  <span class="delete-confirm" role="group" aria-label={`Delete ${dictionary.title}`}>
                     <span>Delete this dictionary?</span>
                     <button
                       type="button"
                       disabled={installing || !!managing}
+                      aria-label={`Confirm delete ${dictionary.title}`}
                       onclick={() => void deleteDictionary(dictionary.title)}>Delete</button
                     >
                     <button
                       type="button"
                       disabled={installing || !!managing}
+                      aria-label={`Cancel deleting ${dictionary.title}`}
                       onclick={() => (pendingDelete = '')}>Cancel</button
                     >
                   </span>
@@ -352,6 +355,7 @@
                   <button
                     type="button"
                     disabled={installing || !!managing}
+                    aria-label={`Delete ${dictionary.title}`}
                     onclick={() => (pendingDelete = dictionary.title)}>Delete…</button
                   >
                 {/if}
