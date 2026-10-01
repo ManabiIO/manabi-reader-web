@@ -54,7 +54,8 @@ export function startSearchSources<T>(
     failed: 0,
     truncated: false
   }));
-  const cleanups = new Set<Cleanup>();
+  const cleanups: (Cleanup | undefined)[] = sources.map(() => undefined);
+  const completed = sources.map(() => false);
   const rejected = sources.map(() => false);
   let stopped = false;
   const retire = (cleanup: Cleanup) => {
@@ -69,8 +70,11 @@ export function startSearchSources<T>(
     stopped = true;
     signal.removeEventListener('abort', stop);
     active.abort();
-    for (const cleanup of cleanups) retire(cleanup);
-    cleanups.clear();
+    for (let index = 0; index < cleanups.length; index++) {
+      const cleanup = cleanups[index];
+      cleanups[index] = undefined;
+      if (cleanup) retire(cleanup);
+    }
   };
   signal.addEventListener('abort', stop, { once: true });
   const current = () => {
@@ -95,33 +99,46 @@ export function startSearchSources<T>(
       }
     });
   };
+  const retireSource = (index: number) => {
+    const cleanup = cleanups[index];
+    cleanups[index] = undefined;
+    if (cleanup) retire(cleanup);
+  };
   const failed = (index: number) => {
-    if (!current() || rejected[index]) return;
+    if (!current() || rejected[index] || completed[index]) return;
     rejected[index] = true;
+    completed[index] = true;
     batches[index] = { ...batches[index], busy: false, failed: batches[index].failed + 1 };
     publish();
+    retireSource(index);
   };
-  const admitted = (cleanup: void | Cleanup) => {
+  const admitted = (index: number, cleanup: void | Cleanup) => {
     if (!cleanup) return;
-    if (stopped) retire(cleanup);
-    else cleanups.add(cleanup);
+    if (stopped || completed[index] || rejected[index]) retire(cleanup);
+    else cleanups[index] = cleanup;
   };
   publish();
   sources.forEach((source, index) => {
     if (!current()) return;
     try {
       const cleanup = source.start(active.signal, (batch) => {
-        if (!current() || rejected[index]) return;
+        if (!current() || rejected[index] || completed[index]) return;
         batches[index] = {
           rows: [...batch.rows],
           busy: batch.busy,
           failed: batch.failed,
           truncated: batch.truncated
         };
+        if (!batch.busy) completed[index] = true;
         publish();
+        if (completed[index]) retireSource(index);
       });
-      if (typeof cleanup === 'function') admitted(cleanup);
-      else if (cleanup) void Promise.resolve(cleanup).then(admitted, () => failed(index));
+      if (typeof cleanup === 'function') admitted(index, cleanup);
+      else if (cleanup)
+        void Promise.resolve(cleanup).then(
+          (value) => admitted(index, value),
+          () => failed(index)
+        );
     } catch {
       failed(index);
     }
