@@ -55,10 +55,14 @@ with one worker request in flight. Each model run emits the newly stable
 32 ms-spaced contour frames that have both SwiftF0's required past and future
 context instead of discarding all but one. The 256 ms cadence cuts repeated
 overlapping model work by more than half while keeping the displayed trace
-dense. The history remains bounded to 400 points. SwiftF0
-resamples only that window to 16 kHz and selects the newest estimate with its
-documented future context; it never decodes or copies the entire audiobook. Analysis stops when the strip, panel or browser tab is hidden and during known
-subtitle gaps; pausing, ending and buffering retire both pending results and their
+dense. The history remains bounded to 400 points. SwiftF0 resamples only that window to 16 kHz and emits only newly stable
+estimates with the documented past/future context; it never decodes or copies
+the entire audiobook. Analysis stops when the strip, panel or browser tab is
+hidden and during known subtitle gaps. The rolling input is also zero-masked
+outside the exact active subtitle interval before inference, so music immediately
+before or after a cue cannot leak into a returned cue estimate. While inference
+is gated, the graph clock still follows media time so older dialogue naturally
+scrolls out. Pausing, ending and buffering retire both pending results and their
 watchdogs. A fresh native audio window and available media data are required
 before sampling resumes. Stale callbacks cannot restore retired traces.
 
@@ -102,11 +106,12 @@ workflow runs Chromium and Firefox on Linux with an explicit audio output and
 WebKit on macOS. This module harness is separate from the application UI tests.
 
 After `BASE_PATH=/reader-web pnpm build`, run
-`python tests/browser/test_voice_pitch.py`. Its two actual-app journeys use
-normal EPUB/subtitle/audio import, the emitted worker and a changing-F0 audio
-fixture. They check no eager worker request during offline-shell installation,
-enable/disable, held paused traces, panel dismissal/reopening, seeking, mobile
-keyboard interaction, theme-derived waveform colors and the yellow contour.
+`python tests/browser/test_voice_pitch.py`. Its actual-app journeys use normal EPUB/subtitle/audio import, the emitted
+worker and a changing-F0 audio fixture. They check no eager worker request
+during offline-shell installation, enable/disable, held paused traces, panel
+dismissal/reopening, seeking, subtitle-gap inference suppression, mobile keyboard
+interaction, constrained enlarged layouts, theme-derived waveform colors and the
+yellow contour.
 Screenshots and diagnostics are retained under `test-results/voice-pitch-app`.
 
 Repository lint, application type-check and build, the native engine matrix,
