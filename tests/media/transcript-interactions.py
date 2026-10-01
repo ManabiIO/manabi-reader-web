@@ -108,35 +108,50 @@ def main():
         case('restoring a saved main transcript with translation Off never opts back in', restored)
 
         def cue_keyboard_and_selection():
-            page.evaluate('make()')
-            page.evaluate("""ja={...ja,cues:[
-                {id:'first',start:0,end:1.5,text:'最初の行です。'},
-                {id:'second',start:2,end:3.5,text:'二番目の行です。'}
-            ]};player.setTracks([ja]);player.setDiscovery('complete');select('Transcript track',ja.id);
-            player.video.muted=true;player.video.pause();player.video.currentTime=.25;""")
-            second = page.locator('[data-cue="second"]')
-            second.focus()
-            assert second.evaluate('node=>node===document.activeElement')
-            second.press('Enter')
-            page.wait_for_function('player.video.currentTime>=1.9')
-            assert second.evaluate('node=>node===document.activeElement'), (
-                'Keyboard cue activation must not discard the user\'s transcript focus'
-            )
-            assert second.get_attribute('aria-current') == 'true'
+            page.evaluate('window.originalJa=structuredClone(ja);make()')
+            try:
+                page.evaluate("""ja={...ja,cues:[
+                    {id:'first',start:0,end:1.5,text:'最初の行です。'},
+                    {id:'second',start:2,end:3.5,text:'二番目の行です。'}
+                ]};player.setTracks([ja]);player.setDiscovery('complete');select('Transcript track',ja.id);
+                player.video.muted=true;player.video.pause();player.video.currentTime=.25;""")
+                second = page.locator('[data-cue="second"]')
+                second.focus()
+                assert second.evaluate('node=>node===document.activeElement'), (
+                    'Transcript cue must accept keyboard focus before activation'
+                )
+                second.press('Enter')
+                page.wait_for_function(
+                    """() => {
+                      const row=document.querySelector('[data-cue="second"]');
+                      return player.video.currentTime>=1.9 &&
+                        row?.getAttribute('aria-current')==='true';
+                    }"""
+                )
+                assert second.evaluate('node=>node===document.activeElement'), (
+                    'Keyboard cue activation must not discard the user\'s transcript focus'
+                )
 
-            # Text selection is a reading/dictionary action, not transport intent.
-            page.evaluate("""player.video.pause();player.video.currentTime=.25;
-                const row=document.querySelector('[data-cue="first"]');
-                const text=row.querySelector('.transcript-text').firstChild;
-                const selection=getSelection(),range=document.createRange();
-                range.selectNodeContents(text);selection.removeAllRanges();selection.addRange(range);""")
-            before = page.evaluate('player.video.currentTime')
-            page.locator('[data-cue="first"]').click(position={'x': 8, 'y': 8})
-            assert abs(page.evaluate('player.video.currentTime') - before) < .05, (
-                'Clicking a cue while its text is selected must not seek'
-            )
-            assert page.evaluate("getSelection().toString().includes('最初')")
-            page.evaluate('getSelection().removeAllRanges();player.video.pause()')
+                # Model the actual reading gesture: dragging across transcript text.
+                # A drag-created selection must not accidentally activate the row.
+                page.evaluate('player.video.pause();player.video.currentTime=.25')
+                text = page.locator('[data-cue="first"] .transcript-text')
+                box = text.bounding_box()
+                assert box and box['width'] > 8, 'Transcript text needs measurable drag geometry'
+                before = page.evaluate('player.video.currentTime')
+                y = box['y'] + box['height'] / 2
+                page.mouse.move(box['x'] + 3, y)
+                page.mouse.down()
+                page.mouse.move(box['x'] + box['width'] - 3, y, steps=8)
+                page.mouse.up()
+                page.wait_for_function("getSelection().toString().includes('最初')")
+                assert abs(page.evaluate('player.video.currentTime') - before) < .05, (
+                    'Dragging to select transcript text must not seek'
+                )
+            finally:
+                page.evaluate("""getSelection().removeAllRanges();player.video.pause();
+                    ja=originalJa;delete window.originalJa;player.setTracks([ja,en]);""")
+
 
         case('transcript cues seek by keyboard without losing focus and text selection never seeks', cue_keyboard_and_selection)
 
