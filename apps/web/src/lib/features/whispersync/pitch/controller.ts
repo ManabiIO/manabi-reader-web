@@ -1,5 +1,10 @@
 import { appendPoint, initialPitchState, type PitchState } from './model';
-import { ANALYSIS_WINDOW_SECONDS, SAMPLE_INTERVAL_MS, type Measurement } from './analysis';
+import {
+  ANALYSIS_WINDOW_SECONDS,
+  SAMPLE_INTERVAL_MS,
+  SWIFT_F0_FUTURE_CONTEXT_SECONDS,
+  type Measurement
+} from './analysis';
 
 export interface PitchEnvironment {
   createContext(): AudioContext;
@@ -41,6 +46,8 @@ export class PitchController {
   private buffering = false;
   private sampleAfter = 0;
   private breakBefore = true;
+  private speechActive = true;
+  private speechSince = -Infinity;
 
   constructor(environment: PitchEnvironment, changed: (state: PitchState) => void) {
     this.environment = environment;
@@ -147,6 +154,29 @@ export class PitchController {
     this.stopWork();
     this.reset();
     if (visible && this.state.enabled) this.start();
+  }
+  setSpeechActive(active: boolean, mediaTime = this.audio?.currentTime ?? this.state.time) {
+    if (this.disposed) return;
+    const time = Number.isFinite(mediaTime) ? Math.max(0, mediaTime) : this.state.time;
+    if (active === this.speechActive) {
+      if (!active && Math.abs(time - this.state.time) >= 0.1) this.publish({ time });
+      return;
+    }
+    this.speechActive = active;
+    this.invalidateSamples();
+    this.cancelFrame();
+    if (!active) {
+      this.speechSince = Infinity;
+      this.publish({ time });
+      return;
+    }
+    this.speechSince = time;
+    // The rolling analyser already contains past context. Wait only for
+    // SwiftF0's future context, then discard estimates preceding this cue.
+    this.sampleAfter =
+      (this.context?.currentTime ?? 0) + SWIFT_F0_FUTURE_CONTEXT_SECONDS;
+    this.publish({ time });
+    this.schedule();
   }
   retry() {
     if (this.state.enabled) this.setEnabled(true);
@@ -262,7 +292,7 @@ export class PitchController {
             // Consecutive analysis windows overlap by design. Keep only newly
             // stable frames; never reset history because an overlap repeated
             // a timestamp already published by the previous batch.
-            if (time <= previousTime + 0.004) continue;
+            if (time < this.speechSince - 0.004 || time <= previousTime + 0.004) continue;
             points = appendPoint(points, {
               time,
               hz: result.hz,
@@ -322,7 +352,8 @@ export class PitchController {
       this.audio.paused ||
       this.audio.ended ||
       this.audio.seeking ||
-      this.buffering
+      this.buffering ||
+      !this.speechActive
     )
       return;
     const generation = this.generation;
