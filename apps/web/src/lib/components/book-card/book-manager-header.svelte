@@ -61,11 +61,6 @@
   let searchDraft = '';
   let searchComposing = false;
   let lastExternalSearchQuery = '';
-  $: externalSearchQuery = libraryMenu?.search.query ?? '';
-  $: if (externalSearchQuery !== lastExternalSearchQuery) {
-    lastExternalSearchQuery = externalSearchQuery;
-    if (!searchComposing) searchDraft = externalSearchQuery;
-  }
   onMount(() => {
     hydrated = true;
     const media = window.matchMedia('(max-width: 1023px)');
@@ -77,6 +72,11 @@
   export let title = 'Library';
   export let collectionsExpanded = false;
   export let libraryMenu: LibraryMenuModel | undefined = undefined;
+  $: externalSearchQuery = libraryMenu?.search.query ?? '';
+  $: if (externalSearchQuery !== lastExternalSearchQuery) {
+    lastExternalSearchQuery = externalSearchQuery;
+    if (!searchComposing) searchDraft = externalSearchQuery;
+  }
   export let hasBookOpened: boolean;
   export let selectMode: boolean;
   export let selectedCount: number;
