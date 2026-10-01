@@ -157,6 +157,25 @@ class ModalControlsBrowser(LibraryBase):
         # The entire dialog is the scroll owner. Dismissal must track that
         # scroll rather than moving off the visual viewport with its content.
         close = self.check_modal(panel)
+        overlap = panel.evaluate('''panel => {
+          const close = panel.querySelector('[data-modal-dismiss]').getBoundingClientRect();
+          const details = panel.querySelector('dl');
+          const collisions = [];
+          const walker = document.createTreeWalker(details, NodeFilter.SHOW_TEXT);
+          while (walker.nextNode()) {
+            if (!walker.currentNode.textContent.trim()) continue;
+            const range = document.createRange();
+            range.selectNodeContents(walker.currentNode);
+            for (const box of range.getClientRects()) {
+              if (
+                Math.min(box.right, close.right) - Math.max(box.left, close.left) > 1 &&
+                Math.min(box.bottom, close.bottom) - Math.max(box.top, close.top) > 1
+              ) collisions.push(walker.currentNode.textContent.trim());
+            }
+          }
+          return collisions;
+        }''')
+        self.assertEqual([], overlap, overlap)
         self.capture('modal-book-info-post-scroll-200')
         close.focus()
         expect(close).to_be_focused()
