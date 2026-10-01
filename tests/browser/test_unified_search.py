@@ -282,25 +282,39 @@ class UnifiedSearch(ProductJourneyBase):
         expect(installed).to_be_visible()
         row = installed.get_by_role('listitem').filter(has_text='Unified search fixture')
         expect(row).to_contain_text('Enabled')
-        row.get_by_role('button', name='Disable', exact=True).click()
+        row.get_by_role('button', name='Disable Unified search fixture', exact=True).click()
         expect(self.page.get_by_text('Disabled Unified search fixture.', exact=True)).to_be_visible()
         expect(row).to_contain_text('Disabled')
         expect(self.page.get_by_text('No enabled local dictionary yet.', exact=False)).to_be_visible(
             timeout=30000
         )
 
-        row.get_by_role('button', name='Enable', exact=True).click()
+        row.get_by_role('button', name='Enable Unified search fixture', exact=True).click()
         expect(self.page.get_by_text('Enabled Unified search fixture.', exact=True)).to_be_visible()
         expect(row).to_contain_text('Enabled')
         expect(self.page.locator('.full-dictionary .headword')).to_contain_text('猫', timeout=30000)
         expect(field).to_have_value('neko')
 
-        row.get_by_role('button', name='Delete…', exact=True).click()
+        self.page.set_viewport_size({'width': 320, 'height': 480})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        self.assertLessEqual(row.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+        for name in ('Enable Unified search fixture', 'Delete Unified search fixture'):
+            control = row.get_by_role('button', name=name, exact=True)
+            self.assertGreaterEqual(control.bounding_box()['height'], 43.99)
+        self.assert_no_document_horizontal_overflow()
+        self.page.evaluate('document.documentElement.style.fontSize = "100%"')
+        self.page.set_viewport_size({'width': 1280, 'height': 800})
+
+        row.get_by_role('button', name='Delete Unified search fixture', exact=True).click()
         expect(row.get_by_text('Delete this dictionary?', exact=True)).to_be_visible()
-        row.get_by_role('button', name='Cancel', exact=True).click()
+        row.get_by_role(
+            'button', name='Cancel deleting Unified search fixture', exact=True
+        ).click()
         expect(row.get_by_text('Delete this dictionary?', exact=True)).to_have_count(0)
-        row.get_by_role('button', name='Delete…', exact=True).click()
-        row.get_by_role('button', name='Delete', exact=True).click()
+        row.get_by_role('button', name='Delete Unified search fixture', exact=True).click()
+        row.get_by_role(
+            'button', name='Confirm delete Unified search fixture', exact=True
+        ).click()
         expect(self.page.get_by_text('Deleted Unified search fixture.', exact=True)).to_be_visible(
             timeout=30000
         )
