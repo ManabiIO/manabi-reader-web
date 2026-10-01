@@ -546,7 +546,6 @@
             type="button"
             data-summary-metric="readingTime"
             class="min-h-[44px] rounded-lg px-2 py-2 text-left focus-visible:outline-2 focus-visible:outline-ring"
-            class:blur={$lastBlurredTrackerItems$.has('readingTime')}
             aria-pressed={$lastBlurredTrackerItems$.has('readingTime')}
             aria-label={metricAccessibleLabel('readingTime', 'Reading time', readingTimeValue)}
             on:click={(event) =>
@@ -558,7 +557,7 @@
                 )} min`
               ])}
           >
-            <span aria-hidden={$lastBlurredTrackerItems$.has('readingTime')}>{readingTimeValue}</span>
+            <span class:blur={$lastBlurredTrackerItems$.has('readingTime')} aria-hidden={$lastBlurredTrackerItems$.has('readingTime')}>{readingTimeValue}</span>
           </button>
         {/if}
         {#if currentRowInEdit}
@@ -580,7 +579,6 @@
             type="button"
             data-summary-metric="charactersRead"
             class="min-h-[44px] rounded-lg px-2 py-2 text-left focus-visible:outline-2 focus-visible:outline-ring"
-            class:blur={$lastBlurredTrackerItems$.has('charactersRead')}
             aria-pressed={$lastBlurredTrackerItems$.has('charactersRead')}
             aria-label={metricAccessibleLabel('charactersRead', 'Characters', charactersValue)}
             on:click={(event) =>
@@ -590,7 +588,7 @@
                 `Weighted Characters: ${currentStatisticsSummaryRow.averageWeightedCharactersRead}`
               ])}
           >
-            <span aria-hidden={$lastBlurredTrackerItems$.has('charactersRead')}
+            <span class:blur={$lastBlurredTrackerItems$.has('charactersRead')} aria-hidden={$lastBlurredTrackerItems$.has('charactersRead')}
               >{charactersValue}</span
             >
           </button>
@@ -609,7 +607,6 @@
             type="button"
             data-summary-metric="lastReadingSpeed"
             class="min-h-[44px] rounded-lg px-2 py-2 text-left focus-visible:outline-2 focus-visible:outline-ring"
-            class:blur={$lastBlurredTrackerItems$.has('lastReadingSpeed')}
             aria-pressed={$lastBlurredTrackerItems$.has('lastReadingSpeed')}
             aria-label={metricAccessibleLabel('lastReadingSpeed', 'Reading speed', speedValue)}
             on:click={(event) =>
@@ -620,7 +617,7 @@
                 `Max Speed: ${currentStatisticsSummaryRow.maxReadingSpeed}`
               ])}
           >
-            <span aria-hidden={$lastBlurredTrackerItems$.has('lastReadingSpeed')}>{speedValue}</span>
+            <span class:blur={$lastBlurredTrackerItems$.has('lastReadingSpeed')} aria-hidden={$lastBlurredTrackerItems$.has('lastReadingSpeed')}>{speedValue}</span>
           </button>
         {/if}
       {/each}
