@@ -55,7 +55,7 @@
       bind:this={summaryHeaderPopover}
     >
       <div {title}>{selectedOption.label}</div>
-      <div slot="content" class="flex flex-col overflow-auto w-46 p-2">
+      <div slot="content" class="flex w-[min(11.5rem,calc(100vw-32px))] flex-col overflow-auto p-[8px]">
         {#each options as option (option.key)}
           <button
             type="button"
@@ -89,7 +89,7 @@
     variant="ghost"
     size="icon"
     shape="circle"
-    class={`ml-2 size-[44px] ${
+    class={`ml-[4px] size-[44px] ${
       !optionKeys.has($lastStatisticsSummarySortProperty$) ? 'opacity-20' : ''
     }`}
     aria-label={`Sort by ${selectedOption.label}`}
