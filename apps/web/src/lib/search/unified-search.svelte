@@ -250,8 +250,13 @@
       if (plan.books && selectedBooks.length)
         sources.push({
           start: (signal, receive) =>
-            searchBookContents(needle, selectedBooks, selectedOwner, signal, (batch) =>
-              receive({ ...batch, rows: bookContentRows(batch.hits, selectedBooksById) })
+            searchBookContents(
+              needle,
+              selectedBooks,
+              selectedOwner,
+              signal,
+              (batch) => receive({ ...batch, rows: bookContentRows(batch.hits, selectedBooksById) }),
+              { progress: false }
             )
         });
       if (runVideos)
@@ -270,7 +275,8 @@
                   busy: batch.scanned < batch.total,
                   failed: batch.failed,
                   truncated: batch.truncated
-                })
+                }),
+              { progress: false }
             );
             receive({
               rows: videoContentRows(result.hits),
@@ -288,7 +294,8 @@
               selectedSnippets.map((item) => item.id),
               scope(),
               (batch) =>
-                receive({ ...batch, rows: snippetContentRows(batch.hits, selectedSnippets) })
+                receive({ ...batch, rows: snippetContentRows(batch.hits, selectedSnippets) }),
+              { progress: false }
             )
         });
       return startSearchSources(sources, signal, publish, guard);
