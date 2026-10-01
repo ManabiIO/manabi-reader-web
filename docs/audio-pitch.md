@@ -48,11 +48,12 @@ button has a 44 px minimum target, accurate expanded/control semantics and
 keyboard focus styling. Reduced-motion and forced-colors modes are supported.
 
 The controller belongs to the persistent audiobook player, not the dismissible
-Sheet. It samples a bounded rolling ~0.55 s Web Audio window about every 256 ms,
+Sheet. It samples a bounded rolling ~0.64 s Web Audio window about every 256 ms,
 with one worker request in flight. Each model run emits the newly stable
-32 ms-spaced contour frames from that window instead of discarding all but one,
-cutting overlapping inference work substantially while keeping the displayed
-trace dense. The history remains bounded to 400 points. SwiftF0
+32 ms-spaced contour frames that have both SwiftF0's required past and future
+context instead of discarding all but one. The 256 ms cadence cuts repeated
+overlapping model work by more than half while keeping the displayed trace
+dense. The history remains bounded to 400 points. SwiftF0
 resamples only that window to 16 kHz and selects the newest estimate with its
 documented future context; it never decodes or copies the entire audiobook. Analysis stops when the strip, panel or browser tab
 is hidden; pausing, ending and buffering retire both pending results and their
@@ -77,8 +78,9 @@ frames back to media time. The previous custom autocorrelation estimator has
 been removed rather than retained as a silent fallback.
 
 SwiftF0 requires about 176 ms of future context for a final streaming frame.
-Reader therefore analyzes a short rolling window and displays a slightly
-delayed acoustic estimate. Timestamp mapping follows media time and playback
+Reader therefore analyzes a short rolling window, discards the eleven
+left-edge frames that lack normal streaming history, and displays only estimates
+with the required past/future context. Timestamp mapping follows media time and playback
 rate; it is not sample-exact transcript alignment. No subtitle-delay, matcher
 or database schema change is required.
 
