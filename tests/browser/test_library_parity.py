@@ -85,6 +85,7 @@ class LibraryParityBrowser(LibraryBase):
         self.count(1)
         search = self.page.get_by_role('searchbox', name='Search library', exact=True)
         search.fill('Parity 1')
+        expect(self.items()).to_have_count(1)
         self.count(0)
         search.press(self.modifier() + '+a')
         self.assertEqual([0, 8], search.evaluate('e => [e.selectionStart,e.selectionEnd]'))
