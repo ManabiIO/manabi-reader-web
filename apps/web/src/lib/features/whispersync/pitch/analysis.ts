@@ -17,7 +17,8 @@ export const SWIFT_F0_SAMPLE_RATE = 16000;
 export const SWIFT_F0_HOP = 256;
 export const SWIFT_F0_FRAME_SECONDS = SWIFT_F0_HOP / SWIFT_F0_SAMPLE_RATE;
 export const SWIFT_F0_LOOKAHEAD_FRAMES = 10;
-export const ANALYSIS_WINDOW_SECONDS = 0.55;
+export const SWIFT_F0_LEFT_CONTEXT_FRAMES = 11;
+export const ANALYSIS_WINDOW_SECONDS = 0.64;
 export const SAMPLE_INTERVAL_MS = 256;
 export const SWIFT_F0_EMIT_STRIDE = 2;
 const SILENCE_PEAK = 1e-3;
@@ -100,7 +101,10 @@ export function measurementsFromSwiftF0(
   const stableCount = Math.max(0, count - SWIFT_F0_LOOKAHEAD_FRAMES);
   const step = Math.max(1, Math.floor(finite(stride, SWIFT_F0_EMIT_STRIDE)));
   const results: Measurement[] = [];
-  for (let index = 0; index < stableCount; index += step) {
+  // A rolling window is not the beginning of the audio stream. Discard the
+  // first eleven frames so every published estimate has the same left context
+  // SwiftF0 uses when chunking a longer signal.
+  for (let index = SWIFT_F0_LEFT_CONTEXT_FRAMES; index < stableCount; index += step) {
     const score = clamp(finite(Number(confidence[index])), 0, 1);
     const candidate = Number(pitch[index]);
     const level = frameLevel(samples, index * SWIFT_F0_HOP);
