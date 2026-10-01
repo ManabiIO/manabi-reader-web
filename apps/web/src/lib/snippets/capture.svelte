@@ -236,7 +236,11 @@
     class:capture-error={!!error}
     class:capture-status={!error}
   >
-    <span>{error || status}</span><Button
+    <span>
+      {#if error}{error}{/if}
+      {#if error && status}<br />{/if}
+      {#if status}{status}{/if}
+    </span><Button
       variant="ghost"
       size="sm"
       onclick={() => {
