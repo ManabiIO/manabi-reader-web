@@ -19,6 +19,7 @@
     createSnippet,
     passages,
     snippetKey,
+    truncateValidText,
     type SnippetDocument,
     type TextNode
   } from './document';
@@ -47,21 +48,6 @@
     captured: SnippetScope | undefined;
   $: choices = $snippetItems.filter((item) => !item.trashedAt && !item.transfer && !item.conflicts);
 
-  function boundedText(value: string, maximum: number) {
-    if (value.length <= maximum) return value;
-    let end = maximum;
-    const previous = value.charCodeAt(end - 1),
-      next = value.charCodeAt(end);
-    if (
-      previous >= 0xd800 &&
-      previous <= 0xdbff &&
-      next >= 0xdc00 &&
-      next <= 0xdfff
-    )
-      end--;
-    return value.slice(0, end);
-  }
-
   function capturePayload(event: Event): CapturePayload {
     const value = (event as CustomEvent<unknown>).detail;
     if (
@@ -88,9 +74,9 @@
     const text = importContent(value.html, 'html');
     const created = createSnippet(text);
     created.source = {
-      title: boundedText(value.title, 1000),
-      item: boundedText(value.item, 1000),
-      quote: boundedText(
+      title: truncateValidText(value.title, 1000),
+      item: truncateValidText(value.item, 1000),
+      quote: truncateValidText(
         passages(text)
           .map((passage) => passage.text)
           .join('\n'),
