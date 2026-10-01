@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   bookTitleRows,
   snippetTitleRows,
+  scopedSnippetTitleRows,
   videoTitleRows,
   sortTitleRows,
   bookContentRows,
@@ -36,6 +37,23 @@ test('literal title highlights preserve compatibility source offsets', () => {
   assert.deepEqual(row.titleMatch, { start: 0, end: 1 });
   assert.equal(row.title, 'ﬁ guide');
   assert.equal(row.target.book, item);
+});
+
+test('snippet title rows disappear when their captured scope expires', () => {
+  const snippets = [
+    { key: 'snippet:one', id: 'one', title: '猫のノート' },
+    { key: 'snippet:two', id: 'two', title: '犬のノート' }
+  ];
+  let active = true;
+  const guard = () => {
+    if (!active) throw new Error('scope expired');
+  };
+  assert.deepEqual(
+    scopedSnippetTitleRows(snippets, '猫', guard).rows.map((row) => row.title),
+    ['猫のノート']
+  );
+  active = false;
+  assert.deepEqual(scopedSnippetTitleRows(snippets, '猫', guard), { rows: [], failed: 1 });
 });
 
 test('titles rank across source types with metadata-only results after literal title matches', () => {
