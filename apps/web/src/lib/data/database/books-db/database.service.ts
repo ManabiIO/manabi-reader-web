@@ -880,40 +880,41 @@ export class DatabaseService {
         );
       const updated = updateStatisticToStore(rows, currentLastModified);
       const tx = db.transaction(['readerStatistic', 'lastModified'], 'readwrite');
-      const store = tx.objectStore('readerStatistic');
-      if (statisticsMergeMode !== MergeMode.LOCAL) await store.delete(statisticRange(bookKey));
-      const movesCompletion = updated.statisticsToStore.some((row) => row.completedBook === 1);
-      for (const row of updated.statisticsToStore) {
-        const existing =
+      await commitTransaction(tx, async () => {
+        const store = tx.objectStore('readerStatistic');
+        if (statisticsMergeMode !== MergeMode.LOCAL) await store.delete(statisticRange(bookKey));
+        const movesCompletion = updated.statisticsToStore.some((row) => row.completedBook === 1);
+        for (const row of updated.statisticsToStore) {
+          const existing =
+            statisticsMergeMode === MergeMode.LOCAL
+              ? await store.get([bookKey, row.dateKey])
+              : undefined;
+          // A tracker flush may have captured this day before Complete Book
+          // committed it. Preserve that explicit completion when the older flush
+          // reaches IndexedDB later. A deliberate completion-date move writes a
+          // new completed row in the same batch, so it may clear the old flag.
+          await store.put(
+            preserveCompletedStatistic(
+              existing,
+              { ...row, title: bookTitle, bookKey },
+              movesCompletion
+            )
+          );
+        }
+        const modifiedStore = tx.objectStore('lastModified');
+        const previousModified =
           statisticsMergeMode === MergeMode.LOCAL
-            ? await store.get([bookKey, row.dateKey])
+            ? await modifiedStore.get([bookKey, StorageDataType.STATISTICS])
             : undefined;
-        // A tracker flush may have captured this day before Complete Book
-        // committed it. Preserve that explicit completion when the older flush
-        // reaches IndexedDB later. A deliberate completion-date move writes a
-        // new completed row in the same batch, so it may clear the old flag.
-        await store.put(
-          preserveCompletedStatistic(
-            existing,
-            { ...row, title: bookTitle, bookKey },
-            movesCompletion
+        await modifiedStore.put({
+          title: bookKey,
+          dataType: StorageDataType.STATISTICS,
+          lastModifiedValue: Math.max(
+            updated.newStatisticModified,
+            previousModified?.lastModifiedValue ?? 0
           )
-        );
-      }
-      const modifiedStore = tx.objectStore('lastModified');
-      const previousModified =
-        statisticsMergeMode === MergeMode.LOCAL
-          ? await modifiedStore.get([bookKey, StorageDataType.STATISTICS])
-          : undefined;
-      await modifiedStore.put({
-        title: bookKey,
-        dataType: StorageDataType.STATISTICS,
-        lastModifiedValue: Math.max(
-          updated.newStatisticModified,
-          previousModified?.lastModifiedValue ?? 0
-        )
+        });
       });
-      await tx.done;
       return;
     }
 
