@@ -319,15 +319,23 @@
         });
       if (plan.snippets && selectedSnippets.length)
         sources.push({
-          start: (_signal, receive) =>
-            searchBodies(
+          start: (_signal, receive) => {
+            let rows: SearchRow[] = [];
+            return searchBodies(
               needle,
               selectedSnippets.map((item) => item.id),
               scope(),
-              (batch) =>
-                receive({ ...batch, rows: snippetContentRows(batch.hits, selectedSnippets) }),
-              { progress: false }
-            )
+              (batch) => {
+                rows = snippetContentRows(batch.hits, selectedSnippets);
+                receive({ ...batch, rows });
+              },
+              {
+                progress: false,
+                invalidated: () =>
+                  receive({ rows, busy: false, failed: 1, truncated: false })
+              }
+            );
+          }
         });
       return startSearchSources(sources, signal, publish, guard);
     });
