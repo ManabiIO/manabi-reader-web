@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { createRouteLoads, type RouteLoad } from './route-load';
   import { page } from '$app/stores';
   import { base, resolve } from '$app/paths';
