@@ -8,7 +8,7 @@
  */
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { chromium, webkit, expect as baseExpect } from '@playwright/test';
 const url = process.env.SNIPPETS_URL ?? 'http://127.0.0.1:4178/reader-web';
@@ -778,6 +778,28 @@ try {
     page.getByRole('article', { name: 'Snippet content' }).locator('ruby rt')
   ).toHaveText('とうきょう');
   passed('HTML ruby import through actual TipTap and chosen Dropbox document save');
+
+  const markdownEvent = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Markdown', exact: true }).click();
+  const markdownDownload = await markdownEvent,
+    markdownPath = await markdownDownload.path();
+  assert(markdownPath, 'Markdown export must produce a readable download.');
+  const markdownBytes = await readFile(markdownPath),
+    markdownText = markdownBytes.toString('utf8');
+  assert.match(markdownText, /<ruby[^>]*>東京<rt>とうきょう<\/rt><\/ruby>/);
+  await openLibrary(page);
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'ruby-roundtrip.md',
+    mimeType: 'text/markdown',
+    buffer: markdownBytes
+  });
+  const markdownEditor = page.getByRole('textbox', { name: 'Snippet text', exact: true });
+  await expect(markdownEditor.locator('ruby rt')).toHaveText('とうきょう');
+  await expect(markdownEditor).toContainText('東京で勉強します。');
+  await page.getByRole('button', { name: 'Discard draft and leave', exact: true }).click();
+  passed('ruby survives Markdown export and Markdown import through actual TipTap');
+  await page.locator('.snippet-shelf .title').filter({ hasText: '日本語の抜粋' }).click();
+  await expect(page.getByRole('article', { name: 'Snippet content' })).toBeVisible();
   await openLibrary(page);
   await page.getByRole('button', { name: 'Default save location…', exact: true }).click();
   await page
