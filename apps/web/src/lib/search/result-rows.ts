@@ -21,7 +21,7 @@ import type { VideoTitleHit, VideoTranscriptHit } from '../media/video-search';
 import type { ShelfBook } from '../library/view-model';
 import type { ContentHit } from '../library/content-search';
 import type { ReaderLocator } from '../reader-location';
-import type { SnippetHit } from '../snippets/document';
+import { fold as foldSnippetSearch, type SnippetHit } from '../snippets/document';
 import type { SnippetSummary } from '../snippets/summary';
 
 /** Navigation is data. The UI decides how to open it; matching never rewrites locators. */
@@ -73,16 +73,45 @@ export function bookTitleRows(
   });
 }
 
+function snippetTitleMatchRange(
+  value: string,
+  query: string
+): { start: number; end: number } | undefined {
+  const needle = foldSnippetSearch(query.trim());
+  if (!needle) return;
+  let normalized = '';
+  const starts: number[] = [],
+    ends: number[] = [];
+  for (const part of new Intl.Segmenter('ja', { granularity: 'grapheme' }).segment(value)) {
+    const folded = foldSnippetSearch(part.segment);
+    normalized += folded;
+    for (let index = 0; index < folded.length; index++) {
+      starts.push(part.index);
+      ends.push(part.index + part.segment.length);
+    }
+  }
+  const found = normalized.indexOf(needle);
+  if (found < 0) return;
+  return {
+    start: starts[found] ?? 0,
+    end: ends[found + needle.length - 1] ?? value.length
+  };
+}
+
 export function snippetTitleRows(snippets: readonly SnippetSummary[], query: string): SearchRow[] {
-  const needle = foldSearch(query.trim());
+  const needle = foldSnippetSearch(query.trim());
   return snippets
-    .filter((item) => foldSearch(item.title).includes(needle))
+    .filter((item) => foldSnippetSearch(item.title).includes(needle))
     .map((snippet) => ({
       id: `snippet:${snippet.key}`,
       kind: 'Snippet',
       title: snippet.title,
       label: `Read snippet ${snippet.title}`,
-      titleMatch: searchMatchRange(snippet.title, query),
+      titleMatch: snippetTitleMatchRange(snippet.title, query),
+      // Generic cross-source ranking does not fold Kana. Give it both the
+      // original title and Snippets' Kana-folded search form so either script
+      // receives real relevance instead of an unmatched fallback tier.
+      searchText: { primary: [snippet.title, foldSnippetSearch(snippet.title)] },
       target: { kind: 'snippet', snippet }
     }));
 }
