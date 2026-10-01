@@ -7,24 +7,92 @@
   import { Button } from '$lib/components/ui/button';
   import { Input } from '$lib/components/ui/input';
   import * as Dialog from '$lib/components/ui/dialog';
-  import { scope, snippetItems, flushSnippets, appendToSnippet } from './service';
+  import { scope, snippetItems, flushSnippets, appendToSnippet, type SnippetScope } from './service';
   import { saveDraft, deleteDraft, recordKey } from './database';
   import {
     createSnippet,
     passages,
     snippetKey,
+    truncateValidText,
     type SnippetDocument,
     type TextNode
   } from './document';
+
+  interface CapturePayload {
+    html: string;
+    title: string;
+    item: string;
+    owner: string | null;
+  }
+  interface PersistedCapture {
+    selected: SnippetScope;
+    text: TextNode;
+    document: SnippetDocument;
+    session: string;
+  }
+
   let open = false,
     busy = false,
     error = '',
+    status = '',
+    deferredCount = 0,
     query = '';
   let content: TextNode | undefined,
     document: SnippetDocument | undefined,
     session = '',
-    captured: ReturnType<typeof scope> | undefined;
+    captured: SnippetScope | undefined;
   $: choices = $snippetItems.filter((item) => !item.trashedAt && !item.transfer && !item.conflicts);
+
+  function capturePayload(event: Event): CapturePayload {
+    const value = (event as CustomEvent<unknown>).detail;
+    if (
+      !value ||
+      typeof value !== 'object' ||
+      typeof (value as CapturePayload).html !== 'string' ||
+      typeof (value as CapturePayload).title !== 'string' ||
+      typeof (value as CapturePayload).item !== 'string' ||
+      ((value as CapturePayload).owner !== null && typeof (value as CapturePayload).owner !== 'string')
+    )
+      throw new Error('The captured selection is invalid.');
+    return value as CapturePayload;
+  }
+
+  async function persistCapture(value: CapturePayload): Promise<PersistedCapture> {
+    const selected = scope();
+    if (selected.owner !== (value.owner ? `account:${value.owner}` : 'local'))
+      throw new Error('The account changed before capture.');
+    const { importContent } = await import('./editor');
+    selected.guard();
+    const text = importContent(value.html, 'html');
+    const created = createSnippet(text);
+    created.source = {
+      title: truncateValidText(value.title, 1000),
+      item: truncateValidText(value.item, 1000),
+      quote: truncateValidText(
+        passages(text)
+          .map((passage) => passage.text)
+          .join('\n'),
+        4000
+      )
+    };
+    const key = crypto.randomUUID();
+    await saveDraft(
+      {
+        key: recordKey(selected.owner, key),
+        owner: selected.owner,
+        id: created.id,
+        session: key,
+        base: null,
+        document: created,
+        updatedAt: Date.now(),
+        mode: 'new'
+      },
+      selected.guard
+    );
+    selected.guard();
+    return { selected, text, document: created, session: key };
+  }
+
   async function create() {
     if (!captured || !content || !document || busy) return;
     busy = true;
@@ -38,69 +106,90 @@
       busy = false;
     }
   }
+
   async function append(id: string) {
     if (!captured || !content || busy) return;
     busy = true;
     error = '';
+    const selected = captured,
+      text = content,
+      key = recordKey(selected.owner, session);
     try {
-      const selected = captured,
-        text = content;
       await appendToSnippet(id, text, session, selected);
-      await deleteDraft(recordKey(selected.owner, session), selected.guard);
-      open = false;
-      void flushSnippets(selected).catch(() => undefined);
     } catch (reason) {
       error = reason instanceof Error ? reason.message : 'The capture is preserved as a draft.';
-    } finally {
       busy = false;
+      return;
     }
+    // The append commit and its receipt are authoritative. Draft cleanup is
+    // best-effort after that point; reporting a committed append as failed would
+    // invite a retry that the receipt correctly rejects as already applied.
+    try {
+      await deleteDraft(key, selected.guard);
+    } catch {
+      try {
+        selected.guard();
+      } catch {
+        busy = false;
+        return;
+      }
+      status = status
+        ? `${status} The added selection's saved draft could not be cleaned up and remains recoverable.`
+        : "Added to snippet. The saved capture draft could not be cleaned up and remains recoverable.";
+    }
+    open = false;
+    void flushSnippets(selected).catch(() => undefined);
+    busy = false;
   }
+
   onMount(() => {
     let alive = true;
     const receive = async (event: Event) => {
-      if (open || busy) return;
-      busy = true;
-      const value = (
-        event as CustomEvent<{ html: string; title: string; item: string; owner: string | null }>
-      ).detail;
+      let value: CapturePayload;
       try {
-        const selected = scope();
-        if (selected.owner !== (value.owner ? `account:${value.owner}` : 'local'))
-          throw new Error('The account changed before capture.');
-        const { importContent } = await import('./editor');
-        selected.guard();
-        const text = importContent(value.html, 'html');
-        const created = createSnippet(text);
-        created.source = {
-          title: value.title.slice(0, 1000),
-          item: value.item.slice(0, 1000),
-          quote: passages(text)
-            .map((p) => p.text)
-            .join('\n')
-            .slice(0, 4000)
-        };
-        const key = crypto.randomUUID();
-        await saveDraft(
-          {
-            key: recordKey(selected.owner, key),
-            owner: selected.owner,
-            id: created.id,
-            session: key,
-            base: null,
-            document: created,
-            updatedAt: Date.now(),
-            mode: 'new'
-          },
-          selected.guard
-        );
-        selected.guard();
+        value = capturePayload(event);
+      } catch (reason) {
+        error = reason instanceof Error ? reason.message : 'The selection could not be captured.';
+        return;
+      }
+
+      // A second user action must never disappear behind the currently open
+      // capture dialog or an in-flight append/navigation. Persist it immediately
+      // as an independent draft, without replacing the capture the user is
+      // already resolving.
+      if (open || busy) {
+        try {
+          const saved = await persistCapture(value);
+          saved.selected.guard();
+          if (!alive) return;
+          deferredCount++;
+          status = `${deferredCount} additional selection${deferredCount === 1 ? '' : 's'} saved for later.`;
+        } catch (reason) {
+          if (alive)
+            error =
+              reason instanceof Error
+                ? reason.message
+                : 'The additional selection could not be captured.';
+        }
+        return;
+      }
+
+      // Clear the previous presentation before suspending. Concurrent capture
+      // events after busy=true own any newer status/error and must not be erased
+      // when this first persistence later resumes.
+      query = '';
+      error = '';
+      status = '';
+      deferredCount = 0;
+      busy = true;
+      try {
+        const saved = await persistCapture(value);
+        saved.selected.guard();
         if (!alive) return;
-        captured = selected;
-        content = text;
-        document = created;
-        session = key;
-        query = '';
-        error = '';
+        captured = saved.selected;
+        content = saved.text;
+        document = saved.document;
+        session = saved.session;
         open = true;
       } catch (reason) {
         error = reason instanceof Error ? reason.message : 'The selection could not be captured.';
@@ -108,6 +197,7 @@
         busy = false;
       }
     };
+
     const stopAccount = localUser.subscribe(() => {
       try {
         captured?.guard();
@@ -118,6 +208,8 @@
         captured = undefined;
         query = '';
         error = '';
+        status = '';
+        deferredCount = 0;
       }
     });
     window.addEventListener('manabi-capture-snippet', receive);
@@ -152,16 +244,30 @@
           onchoose={(item) => void append(item.id)}
         />
       </div>
-      {#if error}<p role="alert">{error}</p>{/if}<Button
-        variant="secondary"
-        disabled={busy}
-        onclick={() => (open = false)}>Keep for later</Button
+      {#if status}<p role="status">{status}</p>{/if}
+      {#if error}<p role="alert">{error}</p>{/if}
+      <Button variant="secondary" disabled={busy} onclick={() => (open = false)}
+        >Keep for later</Button
       >
     </Dialog.Content>
   </Dialog.Root>
-{:else if error}<div role="alert" class="capture-error">
-    <span>{error}</span><Button variant="ghost" size="sm" onclick={() => (error = '')}
-      >Dismiss</Button
+{:else if error || status}<div
+    role={error ? 'alert' : 'status'}
+    class:capture-error={!!error}
+    class:capture-status={!error}
+  >
+    <span>
+      {#if error}{error}{/if}
+      {#if error && status}<br />{/if}
+      {#if status}{status}{/if}
+    </span><Button
+      variant="ghost"
+      size="sm"
+      onclick={() => {
+        error = '';
+        status = '';
+        deferredCount = 0;
+      }}>Dismiss</Button
     >
   </div>{/if}
 
@@ -172,7 +278,8 @@
     overflow-y: auto;
     gap: 0.3rem;
   }
-  .capture-error {
+  .capture-error,
+  .capture-status {
     position: fixed;
     inset-inline: 1rem;
     bottom: max(1rem, env(safe-area-inset-bottom));
@@ -188,5 +295,11 @@
     border-radius: 1rem;
     background: var(--card);
     box-shadow: 0 8px 30px #0002;
+  }
+  .capture-error {
+    color: var(--destructive);
+  }
+  .capture-status {
+    color: var(--foreground);
   }
 </style>
