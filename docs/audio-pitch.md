@@ -48,8 +48,11 @@ button has a 44 px minimum target, accurate expanded/control semantics and
 keyboard focus styling. Reduced-motion and forced-colors modes are supported.
 
 The controller belongs to the persistent audiobook player, not the dismissible
-Sheet. It samples a bounded rolling ~0.55 s Web Audio window about every 96 ms,
-with one worker request in flight, and keeps at most 400 history points. SwiftF0
+Sheet. It samples a bounded rolling ~0.55 s Web Audio window about every 256 ms,
+with one worker request in flight. Each model run emits the newly stable
+32 ms-spaced contour frames from that window instead of discarding all but one,
+cutting overlapping inference work substantially while keeping the displayed
+trace dense. The history remains bounded to 400 points. SwiftF0
 resamples only that window to 16 kHz and selects the newest estimate with its
 documented future context; it never decodes or copies the entire audiobook. Analysis stops when the strip, panel or browser tab
 is hidden; pausing, ending and buffering retire both pending results and their
