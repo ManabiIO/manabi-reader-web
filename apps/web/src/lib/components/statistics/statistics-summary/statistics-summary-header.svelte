@@ -58,6 +58,7 @@
       <div slot="content" class="flex flex-col overflow-auto w-46 p-2">
         {#each options as option (option.key)}
           <button
+            type="button"
             class="my-1 flex min-h-11 w-full items-center rounded-lg px-3 py-2 text-left hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
             on:click|stopPropagation={() => {
               selectedOption = option;
@@ -72,6 +73,7 @@
     </Popover>
   {:else}
     <button
+      type="button"
       class="flex min-h-11 flex-1 items-center rounded-lg px-2 text-left focus-visible:outline-2 focus-visible:outline-ring"
       class:cursor-not-allowed={hasRowInEdit}
       disabled={hasRowInEdit}
@@ -87,8 +89,9 @@
     variant="ghost"
     size="icon"
     shape="circle"
-    class="ml-2 size-11"
-    class:opacity-20={!optionKeys.has($lastStatisticsSummarySortProperty$)}
+    class={`ml-2 size-11 ${
+      !optionKeys.has($lastStatisticsSummarySortProperty$) ? 'opacity-20' : ''
+    }`}
     aria-label={`Sort by ${selectedOption.label}`}
     title="Sort by this attribute"
     disabled={hasRowInEdit}
