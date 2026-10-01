@@ -22,18 +22,29 @@ export interface DictionaryResult {
   preview: { items: DictionaryPreview[]; hasMore: boolean };
   lookup?: { dictionaryEntries: unknown[] };
 }
-interface Status {
-  dictionaries: { title: string }[];
+export interface DictionaryStatus {
+  dictionaries: {
+    title: string;
+    revision?: string;
+    author?: string;
+    description?: string;
+  }[];
   preferences: { disabled: string[] };
 }
 interface Client {
-  open(): Promise<Status>;
+  open(): Promise<DictionaryStatus>;
+  status(options?: { signal?: AbortSignal }): Promise<DictionaryStatus>;
   search(query: string, full: boolean, options: { signal: AbortSignal }): Promise<DictionaryResult>;
   importDictionary(
     blob: Blob,
     options: { signal: AbortSignal; onProgress: (value: unknown) => void }
   ): Promise<{ summary: { title: string }; warnings: string[]; cancelledAfterCommit: boolean }>;
-  setDefault(choice: string, title?: string): Promise<Status>;
+  deleteDictionary(
+    title: string,
+    options?: { signal?: AbortSignal }
+  ): Promise<DictionaryStatus>;
+  setEnabled(title: string, enabled: boolean): Promise<DictionaryStatus>;
+  setDefault(choice: string, title?: string): Promise<DictionaryStatus>;
   close(): Promise<void>;
 }
 export interface DictionaryRuntime {
