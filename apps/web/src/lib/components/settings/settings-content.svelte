@@ -190,6 +190,8 @@
 
   export let persistentStorage: boolean;
 
+  export let requestPersistentStorage: () => Promise<void>;
+
   export let hideExternalReadHint: boolean;
 
   export let confirmClose: boolean;
@@ -478,8 +480,8 @@
     ? 'Avoids breaking words/sentences into different pages'
     : 'Allow words/sentences to break into different pages';
   $: persistentStorageTooltip = persistentStorage
-    ? 'Reader uses higher storage limit for local data'
-    : 'Uses lower temporary storage for local data.\nMay require bookmark or notification permissions for enablement';
+    ? 'Browser storage is protected from automatic eviction. The user can still clear site data.'
+    : 'Reader requests browser storage protection automatically when saving books locally. Until granted, local data remains best-effort and may be evicted under storage pressure.';
   $: switch (importHTMLFixMode) {
     case ImportHTMLFixMode.OFF:
       importHTMLFixModeTooltip = 'Imports epub files as is';
@@ -1227,10 +1229,23 @@
       title="Persistent storage"
       tooltip={persistentStorageTooltip}
     >
-      <div class="flex items-center">
-        <ButtonToggleGroup options={optionsForToggle} bind:selectedOptionId={persistentStorage} />
+      <div class="flex flex-wrap items-center gap-3">
+        <span role="status" class="text-sm">
+          {persistentStorage
+            ? 'Protected from automatic browser eviction'
+            : 'Using best-effort browser storage'}
+        </span>
+        {#if !persistentStorage}
+          <Button
+            variant="secondary"
+            size="sm"
+            onclick={() => void requestPersistentStorage()}
+          >
+            Retry protection
+          </Button>
+        {/if}
         {#if storageQuota}
-          <div class="ml-4">{storageQuota}</div>
+          <span class="text-sm text-muted-foreground">{storageQuota}</span>
         {/if}
       </div>
     </SettingsItemGroup>
