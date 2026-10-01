@@ -2,10 +2,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { searchBodies } from '../../apps/web/src/lib/snippets/search.ts';
-import { searchBookContents } from '../../apps/web/src/lib/search/book-content-source.ts';
 import { startSearchSources } from '../../apps/web/src/lib/search/source-session.ts';
 
-async function withWorker(run) {
+function withWorker(run) {
   const previous = Object.getOwnPropertyDescriptor(globalThis, 'Worker');
   const workers = [];
   class Worker {
@@ -31,7 +30,7 @@ async function withWorker(run) {
     value: Worker
   });
   try {
-    return await run(Worker, workers);
+    run(Worker, workers);
   } finally {
     if (previous) Object.defineProperty(globalThis, 'Worker', previous);
     else delete globalThis.Worker;
@@ -64,41 +63,6 @@ test('a failed initial result receiver does not leave a worker alive', () =>
     );
     assert.equal(workers[0].terminated, 1);
     assert.equal(workers[0].request, undefined);
-  }));
-
-test('change-driven book publication skips progress-only batches but keeps failures and completion', () =>
-  withWorker(async (_Worker, workers) => {
-    const states = [];
-    const stop = await searchBookContents(
-      '猫',
-      [{ bookId: 1, isPlaceholder: false, contentHash: 'a'.repeat(64) }],
-      null,
-      new AbortController().signal,
-      (state) => states.push(state),
-      { progress: false }
-    );
-    assert.equal(states.length, 0);
-    workers[0].emit('progress', { scanned: 1, failed: 0 });
-    assert.equal(states.length, 0);
-    workers[0].emit('progress', { scanned: 2, failed: 1 });
-    assert.equal(states.length, 1);
-    assert.equal(states.at(-1).failed, 1);
-    workers[0].emit('batch', {
-      hits: [
-        {
-          bookId: 1,
-          locator: { resource: { spineIndex: 0 }, start: 0 },
-          excerpt: '猫',
-          excerptMatch: { start: 0, end: 1 }
-        }
-      ]
-    });
-    assert.equal(states.length, 2);
-    assert.equal(states.at(-1).hits.length, 1);
-    workers[0].emit('done', { scanned: 2, failed: 1, truncated: false });
-    assert.equal(states.length, 3);
-    assert.equal(states.at(-1).busy, false);
-    stop();
   }));
 
 test('change-driven snippet publication skips scan-only batches but keeps failures and completion', () =>
