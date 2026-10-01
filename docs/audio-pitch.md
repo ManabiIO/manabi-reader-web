@@ -26,8 +26,10 @@ disclosure explains these limits without occupying the main transcript view.
 This is a **live rolling visualization**, not a precomputed full-cue graph.
 Not-yet-played passages have no contour. The 85–520 Hz speech range does not cover
 every voice. SwiftF0 is robust to many degraded-audio conditions but detects
-pitched sound rather than speaker identity, so music or another simultaneous
-speaker can still produce an estimate. It is a listening aid, **not dictionary
+pitched sound rather than speaker identity. Reader therefore does not run it in
+known subtitle gaps, which prevents background music from owning the contour
+when no dialogue is expected. Music or another simultaneous speaker during an
+active cue can still produce an estimate. It is a listening aid, **not dictionary
 pitch-accent inference or pronunciation grading**. Synthetic tone tests do not
 establish accuracy on Japanese speech.
 
@@ -55,8 +57,8 @@ context instead of discarding all but one. The 256 ms cadence cuts repeated
 overlapping model work by more than half while keeping the displayed trace
 dense. The history remains bounded to 400 points. SwiftF0
 resamples only that window to 16 kHz and selects the newest estimate with its
-documented future context; it never decodes or copies the entire audiobook. Analysis stops when the strip, panel or browser tab
-is hidden; pausing, ending and buffering retire both pending results and their
+documented future context; it never decodes or copies the entire audiobook. Analysis stops when the strip, panel or browser tab is hidden and during known
+subtitle gaps; pausing, ending and buffering retire both pending results and their
 watchdogs. A fresh native audio window and available media data are required
 before sampling resumes. Stale callbacks cannot restore retired traces.
 
