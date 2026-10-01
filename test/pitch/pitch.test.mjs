@@ -4,7 +4,6 @@ import assert from 'node:assert/strict';
 const {
   ANALYSIS_WINDOW_SECONDS,
   SWIFT_F0_FRAME_SECONDS,
-  SWIFT_F0_FUTURE_CONTEXT_SECONDS,
   SAMPLE_INTERVAL_MS,
   measurementFromSwiftF0,
   measurementsFromSwiftF0,
@@ -19,7 +18,7 @@ const { runSwiftF0Inference, swiftF0ModelGain } = await import(
   new URL('swift-f0-runtime.mjs', process.env.PITCH_COMPILED)
 );
 
-test('pitch requests a 48 kHz context and falls back when the device rejects it', () => {
+test('pitch prefers standard-rate contexts before falling back to the device rate', () => {
   const original = globalThis.AudioContext;
   const requested = [];
   globalThis.AudioContext = class {
