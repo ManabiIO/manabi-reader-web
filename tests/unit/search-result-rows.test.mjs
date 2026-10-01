@@ -39,6 +39,35 @@ test('literal title highlights preserve compatibility source offsets', () => {
   assert.equal(row.target.book, item);
 });
 
+test('snippet title rows use Kana folding and preserve original source offsets', () => {
+  const snippet = {
+    key: 'snippet:kana',
+    id: 'kana',
+    title: '𠮟るトウキョウ散歩'
+  };
+  const [row] = snippetTitleRows([snippet], 'とうきょう');
+  assert.equal(row.title, snippet.title);
+  assert.deepEqual(row.titleMatch, { start: 3, end: 8 });
+  assert.equal(row.title.slice(row.titleMatch.start, row.titleMatch.end), 'トウキョウ');
+  assert.deepEqual(row.searchText, {
+    primary: ['𠮟るトウキョウ散歩', '𠮟るとうきょう散歩']
+  });
+
+  const unrelated = {
+    ...row,
+    id: 'snippet:unrelated',
+    title: 'Unrelated',
+    searchText: 'Unrelated'
+  };
+  assert.equal(sortTitleRows([unrelated, row], 'とうきょう')[0], row);
+
+  const [dakuten] = snippetTitleRows(
+    [{ key: 'snippet:dakuten', id: 'dakuten', title: 'ガイド' }],
+    'が'
+  );
+  assert.deepEqual(dakuten.titleMatch, { start: 0, end: 1 });
+});
+
 test('snippet title rows disappear when their captured scope expires', () => {
   const snippets = [
     { key: 'snippet:one', id: 'one', title: '猫のノート' },
