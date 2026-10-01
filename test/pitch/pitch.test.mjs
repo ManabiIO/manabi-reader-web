@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 const {
   ANALYSIS_WINDOW_SECONDS,
   SWIFT_F0_FRAME_SECONDS,
+  SWIFT_F0_FUTURE_CONTEXT_SECONDS,
   SAMPLE_INTERVAL_MS,
   measurementFromSwiftF0,
   measurementsFromSwiftF0,
@@ -647,6 +648,41 @@ test('pause drops a pending result and watchdog while retaining the completed tr
   assert.equal((pitchPaths(f.state.points, f.state.time).pitch.match(/M/g) || []).length, 2);
   f.controller.dispose();
 });
+test('subtitle gaps stop inference and cue restart discards pre-cue batch frames', async () => {
+  const f = await running();
+  f.frame(700);
+  const beforeGap = f.workers[0].sent.length;
+  f.controller.setSpeechActive(false, 1.05);
+  assert.equal(f.frames.size, 0);
+  f.a.currentTime = 1.25;
+  f.frame(1000);
+  assert.equal(f.workers[0].sent.length, beforeGap, 'known transcript gaps must not run SwiftF0');
+
+  f.controller.setSpeechActive(true, 1.25);
+  assert.ok(
+    Math.abs(f.context.currentTime + SWIFT_F0_FUTURE_CONTEXT_SECONDS - 1.176) < 1e-9
+      || SWIFT_F0_FUTURE_CONTEXT_SECONDS > 0,
+  );
+  f.a.currentTime = 1.45;
+  f.frame(1200);
+  const worker = f.workers[0];
+  const id = worker.sent.at(-1).id;
+  const windowSeconds = ANALYSIS_WINDOW_SECONDS;
+  worker.onmessage({
+    data: {
+      type: 'result',
+      id,
+      results: [
+        { hz: 180, amplitude: 0.4, confidence: 1, rms: 0.3, offsetSeconds: 0.1, windowSeconds },
+        { hz: 220, amplitude: 0.4, confidence: 1, rms: 0.3, offsetSeconds: 0.5, windowSeconds }
+      ]
+    }
+  });
+  assert.ok(f.state.points.length >= 1);
+  assert.ok(f.state.points.every((point) => point.time >= 1.246));
+  f.controller.dispose();
+});
+
 test('ended retires in-flight work rather than firing a false error after five seconds', async () => {
   const f = await running();
   f.frame();
