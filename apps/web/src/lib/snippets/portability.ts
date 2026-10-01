@@ -40,6 +40,10 @@ export async function exportSnippets(
     const item = await getRecord(selected.owner, id);
     selected.guard();
     if (!item) throw new Error('A selected snippet is missing.');
+    if (format === 'json' && item.conflicts.length)
+      throw new Error(
+        'Resolve this snippet’s conflicting versions, or export each version explicitly, before creating a JSON backup.'
+      );
     const raw = encodeSnippet(item.document);
     total += new TextEncoder().encode(raw).length;
     if (total > MAX_BACKUP_BYTES)
