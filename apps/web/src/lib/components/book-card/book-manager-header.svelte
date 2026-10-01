@@ -58,6 +58,14 @@
   let hydrated = false;
   let searchInput: HTMLInputElement | undefined;
   let searchButton: HTMLButtonElement | null = null;
+  let searchDraft = '';
+  let searchComposing = false;
+  let lastExternalSearchQuery = '';
+  $: externalSearchQuery = libraryMenu?.search.query ?? '';
+  $: if (externalSearchQuery !== lastExternalSearchQuery) {
+    lastExternalSearchQuery = externalSearchQuery;
+    if (!searchComposing) searchDraft = externalSearchQuery;
+  }
   onMount(() => {
     hydrated = true;
     const media = window.matchMedia('(max-width: 1023px)');
@@ -170,12 +178,28 @@
     if (!$cacheStorageData$) getStorageHandler(window, key).clearData();
     storageSource$.next(key);
   }
+  function searchInputChanged(event: InputEvent & { currentTarget: HTMLInputElement }) {
+    searchDraft = event.currentTarget.value;
+    if (!searchComposing && !event.isComposing) libraryMenu?.search.setQuery(searchDraft);
+  }
+  function searchCompositionStarted(
+    event: CompositionEvent & { currentTarget: HTMLInputElement }
+  ) {
+    searchComposing = true;
+    searchDraft = event.currentTarget.value;
+  }
+  function searchCompositionEnded(event: CompositionEvent & { currentTarget: HTMLInputElement }) {
+    searchDraft = event.currentTarget.value;
+    searchComposing = false;
+    libraryMenu?.search.setQuery(searchDraft);
+  }
   async function openSearch() {
     searchExpanded = true;
     await tick();
     searchInput?.focus();
   }
   async function closeSearch() {
+    searchDraft = '';
     libraryMenu?.search.setQuery('');
     searchExpanded = false;
     await tick();
@@ -244,12 +268,10 @@
               disabled={!hydrated || !libraryMenu}
               class="min-w-0 w-full border-0 bg-transparent p-0 shadow-none outline-none focus:border-transparent focus:shadow-none focus:ring-0"
               placeholder="Search dictionary and library"
-              value={libraryMenu?.search.query || ''}
-              oninput={(event) => {
-                if (!('isComposing' in event && event.isComposing))
-                  libraryMenu?.search.setQuery(event.currentTarget.value);
-              }}
-              oncompositionend={(event) => libraryMenu?.search.setQuery(event.currentTarget.value)}
+              bind:value={searchDraft}
+              oninput={searchInputChanged}
+              oncompositionstart={searchCompositionStarted}
+              oncompositionend={searchCompositionEnded}
               onkeydown={(event) => {
                 if (event.isComposing || event.keyCode === 229) return;
                 if (event.key === 'Escape') {
@@ -558,13 +580,10 @@
                 type="search"
                 disabled={!hydrated || !libraryMenu}
                 placeholder="Search dictionary and library"
-                value={libraryMenu?.search.query || ''}
-                oninput={(event) => {
-                  if (!('isComposing' in event && event.isComposing))
-                    libraryMenu?.search.setQuery(event.currentTarget.value);
-                }}
-                oncompositionend={(event) =>
-                  libraryMenu?.search.setQuery(event.currentTarget.value)}
+                bind:value={searchDraft}
+                oninput={searchInputChanged}
+                oncompositionstart={searchCompositionStarted}
+                oncompositionend={searchCompositionEnded}
               /></label
             >
           {/if}
