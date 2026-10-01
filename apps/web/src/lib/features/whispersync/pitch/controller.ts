@@ -232,31 +232,47 @@ export class PitchController {
           this.pending = undefined;
           if (this.replyTimer !== undefined) this.environment.clearTimer(this.replyTimer);
           this.replyTimer = undefined;
-          const result = event.data.result as Measurement;
+          const results = (
+            Array.isArray(event.data.results) ? event.data.results : [event.data.result]
+          ) as Measurement[];
           if (
-            !result ||
-            !Number.isFinite(result.amplitude) ||
-            result.amplitude < 0 ||
-            !Number.isFinite(result.offsetSeconds) ||
-            !Number.isFinite(result.windowSeconds) ||
-            result.offsetSeconds < 0 ||
-            result.offsetSeconds > result.windowSeconds ||
-            (result.hz !== null &&
-              (!Number.isFinite(result.hz) || result.hz < 85 || result.hz > 520))
+            !results.length ||
+            results.some(
+              (result) =>
+                !result ||
+                !Number.isFinite(result.amplitude) ||
+                result.amplitude < 0 ||
+                !Number.isFinite(result.offsetSeconds) ||
+                !Number.isFinite(result.windowSeconds) ||
+                result.windowSeconds <= 0 ||
+                result.offsetSeconds < 0 ||
+                result.offsetSeconds > result.windowSeconds ||
+                (result.hz !== null &&
+                  (!Number.isFinite(result.hz) || result.hz < 85 || result.hz > 520))
+            )
           ) {
             this.fail('Pitch analysis returned invalid data. Retry to reload it.');
             return;
           }
-          this.publish({
-            points: appendPoint(this.state.points, {
-              time: pending.windowStart + result.offsetSeconds * pending.playbackRate,
+          let points = this.state.points;
+          let appended = false;
+          for (const result of results) {
+            const time = pending.windowStart + result.offsetSeconds * pending.playbackRate;
+            const previousTime = points.at(-1)?.time ?? -Infinity;
+            // Consecutive analysis windows overlap by design. Keep only newly
+            // stable frames; never reset history because an overlap repeated
+            // a timestamp already published by the previous batch.
+            if (time <= previousTime + 0.004) continue;
+            points = appendPoint(points, {
+              time,
               hz: result.hz,
               amplitude: result.amplitude,
-              breakBefore: this.breakBefore
-            }),
-            time: audio.currentTime
-          });
-          this.breakBefore = false;
+              breakBefore: this.breakBefore && !appended
+            });
+            appended = true;
+          }
+          this.publish({ points, time: audio.currentTime });
+          if (appended) this.breakBefore = false;
         } else if (event.data?.type === 'error') {
           this.fail('Pitch analysis could not load or run. Check your connection and retry.');
         }
