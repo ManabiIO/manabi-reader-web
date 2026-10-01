@@ -89,15 +89,21 @@ export function startSearchSources<T>(
     }
   };
   const publish = () => {
-    if (!current()) return;
-    receive({
-      state: batches.some((batch) => batch.busy) ? 'loading' : 'ready',
-      value: {
-        rows: interleave(batches.map((batch) => batch.rows)),
-        failed: batches.reduce((sum, batch) => sum + batch.failed, 0),
-        truncated: batches.some((batch) => batch.truncated)
-      }
-    });
+    if (!current()) return false;
+    try {
+      receive({
+        state: batches.some((batch) => batch.busy) ? 'loading' : 'ready',
+        value: {
+          rows: interleave(batches.map((batch) => batch.rows)),
+          failed: batches.reduce((sum, batch) => sum + batch.failed, 0),
+          truncated: batches.some((batch) => batch.truncated)
+        }
+      });
+      return true;
+    } catch {
+      stop();
+      return false;
+    }
   };
   const retireSource = (index: number) => {
     const cleanup = cleanups[index];
@@ -117,7 +123,7 @@ export function startSearchSources<T>(
     if (stopped || completed[index] || rejected[index]) retire(cleanup);
     else cleanups[index] = cleanup;
   };
-  publish();
+  if (!publish()) return stop;
   sources.forEach((source, index) => {
     if (!current()) return;
     try {
@@ -130,8 +136,9 @@ export function startSearchSources<T>(
           truncated: batch.truncated
         };
         if (!batch.busy) completed[index] = true;
-        publish();
+        const published = publish();
         if (completed[index]) retireSource(index);
+        if (!published) return;
       });
       if (typeof cleanup === 'function') admitted(index, cleanup);
       else if (cleanup)
