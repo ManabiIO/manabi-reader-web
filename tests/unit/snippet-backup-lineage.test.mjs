@@ -60,7 +60,7 @@ const result = await build({
                 };
                 export async function importSnippetCollections(collections, guard) {
                   guard();
-                  memory.collectionImports.push(structuredClone(collections));
+                  memory.collectionImports.push(globalThis.structuredClone(collections));
                 }`
             };
           if (path === 'database')
@@ -69,14 +69,14 @@ const result = await build({
               contents: `
                 const memory = globalThis[Symbol.for('manabi-snippet-backup-lineage')];
                 export async function getRecord(owner, id) {
-                  return structuredClone(memory.records.get(JSON.stringify([owner, id])));
+                  return globalThis.structuredClone(memory.records.get(JSON.stringify([owner, id])));
                 }
                 export async function mutateRecord(owner, id, guard, change) {
                   guard();
                   const key = JSON.stringify([owner, id]);
                   const current = memory.records.get(key);
-                  const next = change(current ? structuredClone(current) : undefined);
-                  if (next) memory.records.set(key, structuredClone(next));
+                  const next = change(current ? globalThis.structuredClone(current) : undefined);
+                  if (next) memory.records.set(key, globalThis.structuredClone(next));
                   return next;
                 }`
             };
@@ -157,11 +157,8 @@ test('restoring a known ancestor is a no-op rather than a false conflict', async
   reset();
   const base = createSnippet(plainContent('before'));
   const newer = editSnippet(base, plainContent('after'), '');
-  memory.records.set(
-    key(base.id),
-    record(newer, { remoteRevision: base.revision, dirty: true })
-  );
-  const before = structuredClone(memory.records.get(key(base.id)));
+  memory.records.set(key(base.id), record(newer, { remoteRevision: base.revision, dirty: true }));
+  const before = globalThis.structuredClone(memory.records.get(key(base.id)));
 
   await restoreBackup(backup(base), selected);
 
@@ -204,7 +201,10 @@ test('restoring a descendant of an existing conflict replaces that branch ancest
 
   const current = memory.records.get(key(base.id));
   assert.equal(current.document.revision, local.revision);
-  assert.deepEqual(current.conflicts.map((value) => value.revision), [remote2.revision]);
+  assert.deepEqual(
+    current.conflicts.map((value) => value.revision),
+    [remote2.revision]
+  );
 });
 
 test('a restored merge revision can advance current and retire conflict ancestors', async () => {
@@ -247,7 +247,7 @@ test('a pending provider upload owns non-identical restore changes until it sett
   const current = record(base, {
     dirty: true,
     upload: {
-      document: structuredClone(base),
+      document: globalThis.structuredClone(base),
       destination: location(base),
       expected: location(base)
     }
@@ -263,7 +263,6 @@ test('a pending provider upload owns non-identical restore changes until it sett
   );
   assert.deepEqual(memory.records.get(key(base.id)), current);
 });
-
 
 test('JSON backup refuses to silently drop unresolved conflict branches', async () => {
   reset();
