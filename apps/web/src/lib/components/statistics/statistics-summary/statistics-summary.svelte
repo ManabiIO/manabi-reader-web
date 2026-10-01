@@ -627,14 +627,21 @@
         yOffset={5}
         containerStyles={`align-self:flex-start;display:${isDateAggregation ? 'none' : 'flex'}`}
         bind:this={statisticsSummaryPopover}
+        dialog
+        label="Statistic details"
+        restoreAnchorFocus
       >
-        <div slot="content" class="p-4">
-          <button
-            class="flex w-full justify-end absolute top-1 right-2"
-            on:click={() => (statisticsSummaryPopoverDetails = [])}
+        <div slot="content" class="relative min-w-48 p-4 pr-14">
+          <Button
+            variant="ghost"
+            size="icon"
+            shape="circle"
+            class="absolute top-2 right-2 size-11"
+            aria-label="Close statistic details"
+            onclick={() => statisticsSummaryPopover.close(true)}
           >
             <AppIcon icon={faClose} />
-          </button>
+          </Button>
           {#each statisticsSummaryPopoverDetails as popoverDetail (popoverDetail)}
             <div class="mb-2 last:mb-0">{popoverDetail}</div>
           {/each}
@@ -646,23 +653,25 @@
   {/if}
 </div>
 <div
-  class="my-6 flex justify-between"
+  class="my-6 flex items-center justify-between gap-2"
   class:invisible={statisticsSummaryMaxPages < 2}
   bind:this={statisticsSummaryButtonContainer}
 >
-  <button
+  <Button
+    bind:ref={previousSummaryPage}
+    variant="ghost"
+    size="icon"
+    shape="circle"
+    class="size-11"
+    aria-label="Previous statistics page"
     disabled={currentStatisticsSummaryPage === 1}
-    class:opacity-25={currentStatisticsSummaryPage === 1}
-    class:cursor-not-allowed={currentStatisticsSummaryPage === 1}
-    on:click={() => {
-      setRowInEditMode();
-      currentStatisticsSummaryPage -= 1;
-    }}
+    onclick={() => void pageSummary(-1)}
   >
     <AppIcon icon={faChevronLeft} />
-  </button>
+  </Button>
   <Popover
     yOffset={5}
+    innerContainerStyles={'min-height:44px;padding-inline:12px;'}
     on:open={() => {
       const currentPageElement = statisticsSummaryPageRefs[currentStatisticsSummaryPage];
 
@@ -676,23 +685,23 @@
       statisticsSummaryPagesContainer.scrollTo(0, middle);
     }}
   >
-    <div class="mx-6">{statisticsSummaryPageLabel}</div>
+    <span class="tabular-nums" role="status" aria-live="polite">{statisticsSummaryPageLabel}</span>
     <div
       slot="content"
-      class="max-h-32 w-32 p-2 flex flex-col overflow-auto"
+      class="flex max-h-48 w-32 flex-col overflow-auto p-2"
       bind:this={statisticsSummaryPagesContainer}
     >
       {#each statisticsSummaryPages as statisticsSummaryPage, pageIndex (statisticsSummaryPage)}
         <button
-          class="hover:opacity-50 hover:bg-accent hover:text-foreground"
+          class="min-h-11 rounded-lg px-3 py-2 text-center hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
           class:bg-accent={statisticsSummaryPage === currentStatisticsSummaryPage}
           class:text-foreground={statisticsSummaryPage === currentStatisticsSummaryPage}
+          aria-current={statisticsSummaryPage === currentStatisticsSummaryPage ? 'page' : undefined}
           bind:this={statisticsSummaryPageRefs[pageIndex + 1]}
-          on:click={({ target }) => {
+          on:click={({ currentTarget }) => {
             setRowInEditMode();
-
             currentStatisticsSummaryPage = statisticsSummaryPage;
-            target?.dispatchEvent(new CustomEvent(CLOSE_POPOVER, { bubbles: true }));
+            currentTarget.dispatchEvent(new CustomEvent(CLOSE_POPOVER, { bubbles: true }));
           }}
         >
           {statisticsSummaryPage}
@@ -700,15 +709,16 @@
       {/each}
     </div>
   </Popover>
-  <button
+  <Button
+    bind:ref={nextSummaryPage}
+    variant="ghost"
+    size="icon"
+    shape="circle"
+    class="size-11"
+    aria-label="Next statistics page"
     disabled={currentStatisticsSummaryPage === statisticsSummaryMaxPages}
-    class:opacity-25={currentStatisticsSummaryPage === statisticsSummaryMaxPages}
-    class:cursor-not-allowed={currentStatisticsSummaryPage === statisticsSummaryMaxPages}
-    on:click={() => {
-      setRowInEditMode();
-      currentStatisticsSummaryPage += 1;
-    }}
+    onclick={() => void pageSummary(1)}
   >
     <AppIcon icon={faChevronRight} />
-  </button>
+  </Button>
 </div>
