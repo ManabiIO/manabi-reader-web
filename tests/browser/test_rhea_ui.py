@@ -297,6 +297,34 @@ class RheaReader(previous.RefinedAppearance):
         self.page.get_by_role('button', name='Read ' + TITLE, exact=True).click(timeout=30000)
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
         self.wait_for_fonts()
+
+        self.page.set_viewport_size({'width': 320, 'height': 360})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        reveal_reader_controls(self.page)
+        self.page.get_by_role('button', name='Contents', exact=True).click()
+        enlarged = self.page.get_by_role('dialog', name='Table of contents', exact=True)
+        heading = enlarged.get_by_role('heading', name='Contents', exact=True)
+        close = enlarged.get_by_role('button', name='Close Table of Contents', exact=True)
+        expect(heading).to_be_visible()
+        self.assertEqual('nowrap', heading.evaluate('e => getComputedStyle(e).whiteSpace'))
+        heading_box, close_box = heading.bounding_box(), close.bounding_box()
+        self.assertLessEqual(heading_box['height'], float(
+            heading.evaluate('e => parseFloat(getComputedStyle(e).lineHeight)')) + 1)
+        self.assertLessEqual(heading_box['x'] + heading_box['width'], close_box['x'] - 1)
+        self.assertGreaterEqual(close_box['width'], 43.99)
+        self.assertGreaterEqual(close_box['height'], 43.99)
+        self.assertLessEqual(close_box['x'] + close_box['width'], 321)
+        self.assertLessEqual(close_box['y'] + close_box['height'], 361)
+        self.assertTrue(close.evaluate('''e => {
+          const r=e.getBoundingClientRect();
+          const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+          return !!hit && (hit===e || e.contains(hit));
+        }'''))
+        self.page.screenshot(path='test-results/contents-enlarged-word-intact.png')
+        close.click()
+        expect(enlarged).to_have_count(0)
+        self.page.evaluate('document.documentElement.style.fontSize = ""')
+
         for width in (320, 390, 1440):
             self.page.set_viewport_size({'width': width, 'height': 844})
             reveal_reader_controls(self.page)
