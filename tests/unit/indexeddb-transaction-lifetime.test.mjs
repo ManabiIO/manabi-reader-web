@@ -437,4 +437,3 @@ test('statistics recovery export observes readonly completion before inventory r
   assert.equal(snapshot.format, 'manabi-reader-statistics-recovery');
   assert.deepEqual(snapshot.books, []);
 });
-
