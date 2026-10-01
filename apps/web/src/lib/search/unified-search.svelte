@@ -28,6 +28,11 @@
   import { startSearchSources, type SearchSource, type SearchResults } from './source-session';
   import { queryTask, type SearchState } from './query-task.mjs';
   import {
+    advanceMediaSearchRevisions,
+    searchResultPlan,
+    type SearchResultFilter
+  } from './invalidation';
+  import {
     librarySearchScopePlan,
     librarySearchScopes,
     type LibrarySearchScope
@@ -42,17 +47,17 @@
   export let openBook: (book: ShelfBook, locator?: ReaderLocator) => void;
   export let onquery: (query: string) => void;
   export let onscope: (scope: LibrarySearchScope) => void;
-  type Filter = 'all' | 'dictionary' | 'titles' | 'content';
   type Results = SearchResults<SearchRow>;
-  const filters: { id: Filter; label: string }[] = [
+  const filters: { id: SearchResultFilter; label: string }[] = [
     { id: 'all', label: 'All' },
     { id: 'dictionary', label: 'Dictionary' },
     { id: 'titles', label: 'Titles' },
     { id: 'content', label: 'Content' }
   ];
-  let filter: Filter = 'all',
+  let filter: SearchResultFilter = 'all',
     mounted = false,
-    signature = '',
+    titleSignature = '',
+    contentSignature = '',
     titleLimit = 30,
     contentLimit = 30;
   let titles: SearchState<Results> = { state: 'idle' };
@@ -70,7 +75,8 @@
   let mediaSubscribed = false;
   let mediaDisposed = false;
   let stopMedia: () => void = () => {};
-  let mediaRevision = 0;
+  let mediaTitleRevision = 0;
+  let mediaContentRevision = 0;
   async function mediaRuntime(): Promise<LazyMediaRuntime> {
     if (!videoLearningEnabled) throw new Error('Video learning is disabled.');
     if (!mediaRuntimePromise) {
@@ -90,7 +96,14 @@
     if (!mediaSubscribed) {
       mediaSubscribed = true;
       stopMedia = runtime.store.subscribe((captionsChanged, metadataChanged) => {
-        if (mounted && (captionsChanged || metadataChanged)) mediaRevision++;
+        if (!mounted || (!captionsChanged && !metadataChanged)) return;
+        const next = advanceMediaSearchRevisions(
+          { titles: mediaTitleRevision, content: mediaContentRevision },
+          captionsChanged,
+          metadataChanged
+        );
+        mediaTitleRevision = next.titles;
+        mediaContentRevision = next.content;
       });
     }
     return runtime;
@@ -103,42 +116,59 @@
     (item) => !item.trashedAt && (!snippetMembers || snippetMembers.includes(snippetKey(item.id)))
   );
   $: scopePlan = librarySearchScopePlan(searchScope);
+  $: resultPlan = searchResultPlan(filter);
   $: availableFilters = scopePlan.dictionary
     ? filters
     : filters.filter((item) => item.id !== 'dictionary');
   // Scope can also change through URL history/parent state, not only chooseScope().
   // Never retain a hidden Dictionary filter when the new source family excludes it.
   $: if (!scopePlan.dictionary && filter === 'dictionary') filter = 'all';
-  $: nextSignature = JSON.stringify([
-    query,
-    owner,
-    filter,
-    searchScope,
-    scopePlan.books
-      ? books.map((book) => [
-          book.key,
-          book.bookId,
-          book.title,
-          book.contentHash,
-          book.lastBookModified
-        ])
-      : [],
-    scopePlan.books
-      ? matches.map((book) => [
-          book.key,
-          book.title,
-          book.canonicalTitle,
-          (book.creators ?? []).map((creator) => creator.name),
-          book.series?.name ?? null,
-          bookMatchText[book.key] ?? []
-        ])
-      : [],
-    scopePlan.snippets ? eligible.map((item) => [item.key, item.revision]) : [],
-    videoLearningEnabled && searchScope === 'everything' ? mediaRevision : 0
-  ]);
-  $: if (mounted && nextSignature !== signature) {
-    signature = nextSignature;
-    start();
+  $: nextTitleSignature = resultPlan.titles
+    ? JSON.stringify([
+        query,
+        owner,
+        searchScope,
+        scopePlan.books
+          ? matches.map((book) => [
+              book.key,
+              book.title,
+              book.canonicalTitle,
+              (book.creators ?? []).map((creator) => creator.name),
+              book.series?.name ?? null,
+              bookMatchText[book.key] ?? []
+            ])
+          : [],
+        scopePlan.snippets ? eligible.map((item) => [item.key, item.title]) : [],
+        videoLearningEnabled && searchScope === 'everything' ? mediaTitleRevision : 0
+      ])
+    : 'inactive';
+  $: nextContentSignature = resultPlan.content
+    ? JSON.stringify([
+        query,
+        owner,
+        searchScope,
+        scopePlan.books
+          ? books.map((book) => [
+              book.key,
+              book.bookId,
+              book.title,
+              book.contentHash,
+              book.lastBookModified
+            ])
+          : [],
+        scopePlan.snippets
+          ? eligible.map((item) => [item.key, item.title, item.revision])
+          : [],
+        videoLearningEnabled && searchScope === 'everything' ? mediaContentRevision : 0
+      ])
+    : 'inactive';
+  $: if (mounted && nextTitleSignature !== titleSignature) {
+    titleSignature = nextTitleSignature;
+    refreshTitles();
+  }
+  $: if (mounted && nextContentSignature !== contentSignature) {
+    contentSignature = nextContentSignature;
+    refreshContent();
   }
   $: visibleTitles = (titles.value?.rows ?? []).slice(0, filter === 'all' ? 2 : titleLimit);
   $: visibleContent = (content.value?.rows ?? []).slice(0, filter === 'all' ? 2 : contentLimit);
@@ -250,8 +280,13 @@
       if (plan.books && selectedBooks.length)
         sources.push({
           start: (signal, receive) =>
-            searchBookContents(needle, selectedBooks, selectedOwner, signal, (batch) =>
-              receive({ ...batch, rows: bookContentRows(batch.hits, selectedBooksById) })
+            searchBookContents(
+              needle,
+              selectedBooks,
+              selectedOwner,
+              signal,
+              (batch) => receive({ ...batch, rows: bookContentRows(batch.hits, selectedBooksById) }),
+              { progress: false }
             )
         });
       if (runVideos)
@@ -270,7 +305,8 @@
                   busy: batch.scanned < batch.total,
                   failed: batch.failed,
                   truncated: batch.truncated
-                })
+                }),
+              { progress: false }
             );
             receive({
               rows: videoContentRows(result.hits),
@@ -288,25 +324,31 @@
               selectedSnippets.map((item) => item.id),
               scope(),
               (batch) =>
-                receive({ ...batch, rows: snippetContentRows(batch.hits, selectedSnippets) })
+                receive({ ...batch, rows: snippetContentRows(batch.hits, selectedSnippets) }),
+              { progress: false }
             )
         });
       return startSearchSources(sources, signal, publish, guard);
     });
   }
 
-  function start() {
+  function refreshTitles() {
     focusGeneration++;
     titleTask.stop();
-    contentTask.stop();
     titles = { state: 'idle' };
-    content = { state: 'idle' };
-    titleLimit = contentLimit = 30;
-    if (!query.trim() || [...query].length > 512) return;
-    if (filter === 'all' || filter === 'titles') startTitles();
-    if (filter === 'all' || filter === 'content') startContent();
+    titleLimit = 30;
+    if (!resultPlan.titles || !query.trim() || [...query].length > 512) return;
+    startTitles();
   }
-  async function choose(value: Filter) {
+  function refreshContent() {
+    focusGeneration++;
+    contentTask.stop();
+    content = { state: 'idle' };
+    contentLimit = 30;
+    if (!resultPlan.content || !query.trim() || [...query].length > 512) return;
+    startContent();
+  }
+  async function choose(value: SearchResultFilter) {
     filter = value;
     await tick();
     // Keep the selected chip, rather than a now-removed See all button, as the
