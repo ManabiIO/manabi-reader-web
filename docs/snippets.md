@@ -64,6 +64,18 @@ asks when there are multiple eligible sources. Clearing the default never moves 
 required to start: choosing this-device-only is explicit and labeled, and Move publishes such
 a document later. Native local-folder and strong-ETag WebDAV adapters are included. Local folder
 writes cannot atomically exclude external applications; the picker warns users to close them.
+Every local snippet read, capability check, folder creation, write and remove holds the same
+connected-folder generation lock as book/state operations. Disconnect/reconnect therefore waits for
+admitted physical I/O; queued snippet work revalidates the exact directory handle and durable write
+consent before touching disk, so a reused source ID cannot retarget an older operation. If the same
+portable snippet later reappears under a newly connected source ID, discovery may rebind the storage
+home only when the old source is **authoritatively** absent and the newly found document is identical
+or causally related. Local-folder and WebDAV absence comes directly from local connection state.
+Cloud absence is authoritative only when the signed-in connections endpoint successfully supplied
+that snapshot; an offline/mismatched-account cached cloud list is never deletion/disconnect evidence.
+Dirty local descendants are preserved and uploaded over their remote ancestor; sibling revisions
+still require explicit conflict resolution, and an upload targeting a still-active source keeps
+ownership.
 A first-create crash can leave File System Access's newly created directory entry at zero bytes.
 Retry may reclaim only the exact deterministic filename for that pending snippet; unrelated
 zero-byte names and non-empty malformed files are never overwritten.
