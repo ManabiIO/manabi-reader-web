@@ -321,6 +321,90 @@ class UnifiedSearch(ProductJourneyBase):
         self.assertIn('Cat Author', kinds.nth(1).inner_text())
         self.checkpoint('unified-title-creator-match-retained')
 
+    def test_local_dictionary_management_disable_enable_and_delete(self):
+        field = self.library_search('neko')
+        self.filter('Dictionary')
+        expect(self.page.get_by_text('No enabled local dictionary yet.', exact=False)).to_be_visible(
+            timeout=30000
+        )
+        self.page.get_by_label('Import dictionary ZIP', exact=True).set_input_files({
+            'name': 'managed-fixture.zip',
+            'mimeType': 'application/zip',
+            'buffer': dictionary_archive(),
+        })
+        expect(
+            self.page.get_by_text('Installed Unified search fixture.', exact=True)
+        ).to_be_visible(timeout=60000)
+        expect(self.page.locator('.full-dictionary .headword')).to_contain_text('猫')
+
+        setup = self.page.get_by_text('Local dictionaries', exact=True)
+        setup.click()
+        installed = self.page.get_by_role('list', name='Installed local dictionaries', exact=True)
+        expect(installed).to_be_visible()
+        row = installed.get_by_role('listitem').filter(has_text='Unified search fixture')
+        expect(row).to_contain_text('Enabled')
+        row.get_by_role('button', name='Disable Unified search fixture', exact=True).click()
+        expect(self.page.get_by_text('Disabled Unified search fixture.', exact=True)).to_be_visible()
+        expect(row).to_contain_text('Disabled')
+        expect(self.page.get_by_text('No enabled local dictionary yet.', exact=False)).to_be_visible(
+            timeout=30000
+        )
+
+        row.get_by_role('button', name='Enable Unified search fixture', exact=True).click()
+        expect(self.page.get_by_text('Enabled Unified search fixture.', exact=True)).to_be_visible()
+        expect(row).to_contain_text('Enabled')
+        expect(self.page.locator('.full-dictionary .headword')).to_contain_text('猫', timeout=30000)
+        expect(field).to_have_value('neko')
+
+        self.page.get_by_text('Recommended dictionaries', exact=True).click()
+        recommended = self.page.get_by_role(
+            'list', name='Recommended Japanese dictionaries', exact=True
+        )
+        expect(recommended).to_be_visible(timeout=30000)
+        self.assertEqual(6, recommended.get_by_role('listitem').count())
+        jmnedict = recommended.get_by_role('listitem').filter(has_text='JMnedict')
+        expect(jmnedict).to_contain_text('terms')
+        for name in ('About', 'Download ZIP'):
+            link = jmnedict.get_by_role('link', name=name, exact=True)
+            self.assertTrue(link.get_attribute('href').startswith('https://'))
+            expect(link).to_have_attribute('target', '_blank')
+        expect(installed.get_by_role('listitem')).to_have_count(1)
+
+        self.page.set_viewport_size({'width': 320, 'height': 480})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        self.assertLessEqual(row.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+        for name in ('Disable Unified search fixture', 'Delete Unified search fixture'):
+            control = row.get_by_role('button', name=name, exact=True)
+            self.assertGreaterEqual(control.bounding_box()['height'], 43.99)
+        for name in ('About', 'Download ZIP'):
+            link = jmnedict.get_by_role('link', name=name, exact=True)
+            box = link.bounding_box()
+            self.assertGreaterEqual(box['height'], 43.99)
+            self.assertGreaterEqual(box['x'], -1)
+            self.assertLessEqual(box['x'] + box['width'], 321)
+        self.assert_no_document_horizontal_overflow()
+        self.page.evaluate('document.documentElement.style.fontSize = "100%"')
+        self.page.set_viewport_size({'width': 1280, 'height': 800})
+
+        row.get_by_role('button', name='Delete Unified search fixture', exact=True).click()
+        expect(row.get_by_text('Delete this dictionary?', exact=True)).to_be_visible()
+        row.get_by_role(
+            'button', name='Cancel deleting Unified search fixture', exact=True
+        ).click()
+        expect(row.get_by_text('Delete this dictionary?', exact=True)).to_have_count(0)
+        row.get_by_role('button', name='Delete Unified search fixture', exact=True).click()
+        row.get_by_role(
+            'button', name='Confirm delete Unified search fixture', exact=True
+        ).click()
+        expect(self.page.get_by_text('Deleted Unified search fixture.', exact=True)).to_be_visible(
+            timeout=30000
+        )
+        expect(self.page.get_by_text('No local dictionaries are installed.', exact=True)).to_be_visible()
+        expect(self.page.get_by_text('No enabled local dictionary yet.', exact=False)).to_be_visible(
+            timeout=30000
+        )
+        self.checkpoint('dictionary-local-management')
+
     def test_real_local_dictionary_uses_raw_input_and_bounded_previews(self):
         self.import_book('Neko field guide', body='<p>neko ねこ 猫</p>')
         field = self.library_search('neko')
