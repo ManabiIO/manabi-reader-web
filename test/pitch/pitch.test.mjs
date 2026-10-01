@@ -668,6 +668,7 @@ test('first subtitle synchronization establishes a cue boundary even when speech
       ]
     }
   });
+  assert.equal(f.state.points.length, 1);
   assert.ok(f.state.points.every((point) => point.time >= 2.996));
   f.controller.dispose();
 });
