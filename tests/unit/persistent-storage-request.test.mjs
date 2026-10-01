@@ -31,6 +31,7 @@ test('automatic persistence request is single-flight for the whole module lifeti
   assert.equal(calls, 1);
   pending.resolve(false);
   assert.equal(await first, false);
+  assert.equal(api.currentPersistentStorageRequest(), undefined);
   assert.equal(await api.requestPersistentStorageOnce(), false);
   assert.equal(calls, 1, 'a denied request must not prompt repeatedly in one page lifetime');
 });
@@ -129,5 +130,36 @@ test('status inspection never starts a browser permission request by itself', as
   );
   assert.equal(await api.persistentStorageStatus(), false);
   assert.equal(requests, 0);
+});
+
+test('later origin-level grant supersedes an earlier denied automatic attempt', async () => {
+  let persisted = false;
+  let persistCalls = 0;
+  const { api } = loadOfflineModule(
+    'apps/web/src/lib/data/window/navigator/persistent-storage.ts',
+    {
+      modules: {
+        './storage-access.mjs': {
+          createStorageAccess() {
+            return {
+              persisted: async () => persisted,
+              persist: async () => {
+                persistCalls += 1;
+                return false;
+              }
+            };
+          }
+        }
+      }
+    }
+  );
+
+  assert.equal(await api.requestPersistentStorageOnce(), false);
+  assert.equal(persistCalls, 1);
+  persisted = true;
+  assert.equal(await api.persistentStorageStatus(), true);
+  assert.equal(await api.requestPersistentStorageOnce(), true);
+  assert.equal(await api.retryPersistentStorage(), true);
+  assert.equal(persistCalls, 1, 'known persistent origin requested permission again');
 });
 
