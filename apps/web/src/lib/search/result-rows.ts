@@ -5,7 +5,6 @@
  */
 
 import {
-  foldSearch,
   searchMatchRange,
   sortSearchText,
   type SearchTextFields
