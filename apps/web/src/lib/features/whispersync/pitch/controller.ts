@@ -159,9 +159,10 @@ export class PitchController {
     if (this.disposed) return;
     const start = Number(bounds?.start);
     const end = Number(bounds?.end);
+    const normalizedStart = Math.max(0, start);
     const next =
-      Number.isFinite(start) && Number.isFinite(end) && end > start
-        ? { start: Math.max(0, start), end }
+      Number.isFinite(start) && Number.isFinite(end) && end > normalizedStart
+        ? { start: normalizedStart, end }
         : undefined;
     const mediaTime = this.audio?.currentTime ?? this.state.time;
     if (!next && !this.speechWindow) {
