@@ -5,15 +5,15 @@ export interface SwiftF0TensorLike {
   dispose?: () => void;
 }
 
-export interface SwiftF0SessionLike {
-  run(feeds: Record<string, SwiftF0TensorLike>): Promise<Record<string, SwiftF0TensorLike>>;
+export interface SwiftF0SessionLike<TTensor extends SwiftF0TensorLike = SwiftF0TensorLike> {
+  run(feeds: Record<string, TTensor>): Promise<Record<string, TTensor>>;
 }
 
-export type SwiftF0TensorFactory = (
+export type SwiftF0TensorFactory<TTensor extends SwiftF0TensorLike = SwiftF0TensorLike> = (
   type: 'float32',
   data: Float32Array,
   dims: number[]
-) => SwiftF0TensorLike;
+) => TTensor;
 
 const SILENCE_PEAK = 1e-3;
 const QUIET_PEAK = 10 ** (-35 / 20);
@@ -36,9 +36,9 @@ function disposeAll(values: Iterable<SwiftF0TensorLike | undefined>) {
   }
 }
 
-export async function runSwiftF0Inference(
-  session: SwiftF0SessionLike,
-  createTensor: SwiftF0TensorFactory,
+export async function runSwiftF0Inference<TTensor extends SwiftF0TensorLike>(
+  session: SwiftF0SessionLike<TTensor>,
+  createTensor: SwiftF0TensorFactory<TTensor>,
   samples: Float32Array,
   minimum: number,
   maximum: number,
@@ -52,9 +52,9 @@ export async function runSwiftF0Inference(
     throw new RangeError('SwiftF0 input gain is invalid');
 
   const audio = gain === 1 ? samples : Float32Array.from(samples, (value) => value * gain);
-  const feeds: Record<string, SwiftF0TensorLike> = {};
-  const ownedFeeds: SwiftF0TensorLike[] = [];
-  let result: Record<string, SwiftF0TensorLike> | undefined;
+  const feeds: Record<string, TTensor> = {};
+  const ownedFeeds: TTensor[] = [];
+  let result: Record<string, TTensor> | undefined;
   try {
     const tensor = (type: 'float32', data: Float32Array, dims: number[]) => {
       const created = createTensor(type, data, dims);
