@@ -6,7 +6,7 @@
   import type { BookPresentation, PresentationChange } from './organization';
   import { onMount, createEventDispatcher, tick, type Snippet } from 'svelte';
   import { page } from '$app/stores';
-  import { goto } from '$app/navigation';
+  import { goto, replaceState } from '$app/navigation';
   import { resolve } from '$app/paths';
   import { Button } from '$lib/components/ui/button';
   import * as Menu from '$lib/components/ui/dropdown-menu';
@@ -97,6 +97,7 @@
   import type { ReaderLocator } from '../reader-location';
   import UnifiedSearch from '../search/unified-search.svelte';
   import {
+    libraryShelfSearchQuery,
     parseLibrarySearchScope,
     type LibrarySearchScope
   } from '../search/library-search-scope';
@@ -318,19 +319,33 @@
   $: destinationTitle = series?.name || (collectionId === 'books' ? 'Library' : collectionTitle);
   let queryURL = '';
   let librarySearchScope: LibrarySearchScope = 'everything';
+  let pendingQueryURL: string | undefined;
+  let pendingLibrarySearchScope: LibrarySearchScope | undefined;
   $: nextQueryURL = $page.url.searchParams.get('q') ?? '';
-  $: if (queryURL !== nextQueryURL) {
+  $: if (pendingQueryURL !== undefined && nextQueryURL === pendingQueryURL)
+    pendingQueryURL = undefined;
+  $: if (pendingQueryURL === undefined && queryURL !== nextQueryURL) {
     queryURL = nextQueryURL;
     query = nextQueryURL;
   }
   $: nextLibrarySearchScope = parseLibrarySearchScope($page.url.searchParams.get('scope'));
-  $: if (librarySearchScope !== nextLibrarySearchScope) {
+  $: if (
+    pendingLibrarySearchScope !== undefined &&
+    nextLibrarySearchScope === pendingLibrarySearchScope
+  )
+    pendingLibrarySearchScope = undefined;
+  $: if (
+    pendingLibrarySearchScope === undefined &&
+    librarySearchScope !== nextLibrarySearchScope
+  ) {
     librarySearchScope = nextLibrarySearchScope;
   }
   // The unified search spans the library. Collection/series navigation must
   // not silently constrain the All/Titles/Content filters.
   $: searchableBooks = books;
   $: normalizedQuery = foldSearch(query.trim());
+  $: unifiedSearchOwnsShelf = !!normalizedQuery && !selectMode;
+  $: shelfQuery = libraryShelfSearchQuery(normalizedQuery, selectMode);
   $: metadataMatchIndex = bookTitleMatchIndex(
     searchableBooks,
     tree,
@@ -344,18 +359,20 @@
   );
   $: flatDestination = !series && (collectionId === 'finished' || !!selectedCollection);
   $: seriesMatchedKeys =
-    normalizedQuery && !flatDestination
-      ? booksInMatchingSeries(series?.children || tree, normalizedQuery)
+    shelfQuery && !flatDestination
+      ? booksInMatchingSeries(series?.children || tree, shelfQuery)
       : [];
-  $: destinationNodes = flatDestination
-    ? books
+  $: destinationNodes = unifiedSearchOwnsShelf
+    ? []
+    : flatDestination
+      ? books
         .filter((book) =>
           includesBook(
             book,
             collectionId,
             selectedCollection?.members,
             notFinished,
-            normalizedQuery,
+            shelfQuery,
             seriesMatchedKeys
           )
         )
@@ -369,7 +386,7 @@
         collectionId,
         selectedCollection?.members,
         notFinished,
-        normalizedQuery,
+        shelfQuery,
         seriesMatchedKeys
       ),
     sort,
@@ -380,26 +397,26 @@
       ? orderFinishedNodes(sortedDestination, finishedOrder)
       : sortedDestination;
   $: visibleBooks = allBooks(displayed);
-  $: scopedSeriesBooks = series
+  $: scopedSeriesBooks = !unifiedSearchOwnsShelf && series
     ? series.books.filter((book) =>
         includesBook(
           book,
           collectionId,
           selectedCollection?.members,
           notFinished,
-          normalizedQuery,
+          shelfQuery,
           seriesMatchedKeys
         )
       )
     : [];
-  $: scopedVolumeOrder = series
+  $: scopedVolumeOrder = !unifiedSearchOwnsShelf && series
     ? allBooks(series.children).filter((book) =>
         includesBook(
           book,
           collectionId,
           selectedCollection?.members,
           notFinished,
-          normalizedQuery,
+          shelfQuery,
           seriesMatchedKeys
         )
       )
@@ -551,27 +568,29 @@
       false
     );
   }
-  function setQuery(value: string) {
-    query = value;
+  function librarySearchURL(queryValue: string, scopeValue: LibrarySearchScope) {
     const url = new URL($page.url);
-    if (value) url.searchParams.set('q', value);
+    if (queryValue) url.searchParams.set('q', queryValue);
     else url.searchParams.delete('q');
-    void goto(resolve(`/manage?${url.searchParams.toString()}`), {
-      replaceState: true,
-      noScroll: true,
-      keepFocus: true
-    });
+    if (scopeValue === 'everything') url.searchParams.delete('scope');
+    else url.searchParams.set('scope', scopeValue);
+    return url;
+  }
+  function replaceLibrarySearchURL(url: URL) {
+    // q/scope are local presentation state for this already-mounted route.
+    // Shallow replacement keeps the address bar/shareability in sync without
+    // starting SvelteKit navigation work on each keystroke or filter change.
+    replaceState(resolve(`/manage${url.search}${url.hash}`), $page.state);
+  }
+  function setQuery(value: string) {
+    query = queryURL = value;
+    pendingQueryURL = value;
+    replaceLibrarySearchURL(librarySearchURL(value, librarySearchScope));
   }
   function setSearchScope(value: LibrarySearchScope) {
     librarySearchScope = value;
-    const url = new URL($page.url);
-    if (value === 'everything') url.searchParams.delete('scope');
-    else url.searchParams.set('scope', value);
-    void goto(resolve(`/manage?${url.searchParams.toString()}`), {
-      replaceState: true,
-      noScroll: true,
-      keepFocus: true
-    });
+    pendingLibrarySearchScope = value;
+    replaceLibrarySearchURL(librarySearchURL(queryURL, value));
   }
   function setLayout(value: string) {
     if (collectionId === 'finished' && !series) {
