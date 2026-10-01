@@ -163,12 +163,21 @@ export class PitchController {
       Number.isFinite(start) && Number.isFinite(end) && end > start
         ? { start: Math.max(0, start), end }
         : undefined;
+    const mediaTime = this.audio?.currentTime ?? this.state.time;
+    if (!next && !this.speechWindow) {
+      // Analysis is intentionally idle between subtitle cues, but the rolling
+      // chart still represents media time. Advance its clock cheaply so old
+      // dialogue scrolls out instead of leaving “Now” frozen at the gap edge.
+      if (Number.isFinite(mediaTime) && Math.abs(mediaTime - this.state.time) >= 0.1) {
+        this.publish({ speechActive: false, time: Math.max(0, mediaTime) });
+      }
+      return;
+    }
     if (
-      (!next && !this.speechWindow) ||
-      (next &&
-        this.speechWindow &&
-        Math.abs(next.start - this.speechWindow.start) < 1e-6 &&
-        Math.abs(next.end - this.speechWindow.end) < 1e-6)
+      next &&
+      this.speechWindow &&
+      Math.abs(next.start - this.speechWindow.start) < 1e-6 &&
+      Math.abs(next.end - this.speechWindow.end) < 1e-6
     )
       return;
     this.speechWindow = next;
