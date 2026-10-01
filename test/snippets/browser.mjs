@@ -257,6 +257,82 @@ try {
   await expect(page.getByRole('article', { name: 'Snippet content' })).toContainText('京都');
   passed('create, durable native IndexedDB save and reader reload');
 
+  // Every deliberate capture is persisted before presentation. A second capture
+  // while the first dialog is open must become its own recoverable draft.
+  const capturePrefix = 'capture-durability-' + Date.now();
+  const capture = (suffix, html) =>
+    page.evaluate(
+      ({ suffix, html, capturePrefix }) => {
+        window.dispatchEvent(
+          new CustomEvent('manabi-capture-snippet', {
+            detail: {
+              html,
+              title: 'Concurrent capture source',
+              item: capturePrefix + '-' + suffix,
+              owner: null
+            }
+          })
+        );
+      },
+      { suffix, html, capturePrefix }
+    );
+  const draftCount = async () =>
+    (await records(page, 'snippetDrafts')).filter((draft) =>
+      draft.document?.source?.item?.startsWith(capturePrefix)
+    ).length;
+  await capture('first', '<p>最初の選択は開いたダイアログで処理します。</p>');
+  const captureDialog = page.getByRole('dialog', { name: 'Add to snippet' });
+  await expect(captureDialog).toBeVisible();
+  await expect.poll(draftCount).toBe(1);
+  await capture('second', '<p>二番目の選択も失わず後で復元します。</p>');
+  await expect
+    .poll(draftCount)
+    .toBe(2);
+  await expect(captureDialog.getByRole('status')).toContainText(
+    '1 additional selection saved for later.'
+  );
+  await captureDialog.getByRole('button', { name: 'Keep for later', exact: true }).click();
+  await expect(captureDialog).toHaveCount(0);
+  await expect(page.getByRole('status')).toContainText('1 additional selection saved for later.');
+  await page.reload();
+  await expect.poll(draftCount).toBe(2);
+  const capturedDrafts = (await records(page, 'snippetDrafts')).filter((draft) =>
+    draft.document?.source?.item?.startsWith(capturePrefix)
+  );
+  assert.deepEqual(
+    capturedDrafts.map((draft) => draft.document.source.item).sort(),
+    [capturePrefix + '-first', capturePrefix + '-second']
+  );
+  assert(
+    capturedDrafts.some((draft) =>
+      JSON.stringify(draft.document.content).includes('最初の選択は開いたダイアログで処理します。')
+    )
+  );
+  assert(
+    capturedDrafts.some((draft) =>
+      JSON.stringify(draft.document.content).includes('二番目の選択も失わず後で復元します。')
+    )
+  );
+  await page.evaluate(
+    async (keys) =>
+      new Promise((resolve, reject) => {
+        const open = indexedDB.open('manabi-reader-integrations');
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const db = open.result;
+          const tx = db.transaction('snippetDrafts', 'readwrite');
+          for (const key of keys) tx.objectStore('snippetDrafts').delete(key);
+          tx.onerror = () => reject(tx.error);
+          tx.oncomplete = () => {
+            db.close();
+            resolve();
+          };
+        };
+      }),
+    capturedDrafts.map((draft) => draft.key)
+  );
+  passed('concurrent captures persist independently before destination UI');
+
   // Stress the actual reader controls and vertical layout at enlarged UI text.
   await page.setViewportSize({ width: 320, height: 480 });
   await page.evaluate(() => {
