@@ -75,6 +75,8 @@ export function searchBodies(
     } catch {
       try {
         options.invalidated?.();
+      } catch {
+        /* A failed owner must still retire even if its aggregator is gone. */
       } finally {
         stop();
       }
@@ -83,8 +85,11 @@ export function searchBodies(
   };
   const fail = () => {
     if (stopped || !stillOwned()) return;
-    publish(false, 0, 1, false, true);
-    stop();
+    try {
+      publish(false, 0, 1, false, true);
+    } finally {
+      stop();
+    }
   };
   worker.onerror = fail;
   worker.onmessageerror = fail;
