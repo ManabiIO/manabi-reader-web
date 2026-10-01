@@ -111,18 +111,29 @@
     if (!captured || !content || busy) return;
     busy = true;
     error = '';
+    const selected = captured,
+      text = content,
+      key = recordKey(selected.owner, session);
     try {
-      const selected = captured,
-        text = content;
       await appendToSnippet(id, text, session, selected);
-      await deleteDraft(recordKey(selected.owner, session), selected.guard);
-      open = false;
-      void flushSnippets(selected).catch(() => undefined);
     } catch (reason) {
       error = reason instanceof Error ? reason.message : 'The capture is preserved as a draft.';
-    } finally {
       busy = false;
+      return;
     }
+    // The append commit and its receipt are authoritative. Draft cleanup is
+    // best-effort after that point; reporting a committed append as failed would
+    // invite a retry that the receipt correctly rejects as already applied.
+    try {
+      await deleteDraft(key, selected.guard);
+    } catch {
+      status = status
+        ? `${status} The added selection's saved draft could not be cleaned up and remains recoverable.`
+        : "Added to snippet. The saved capture draft could not be cleaned up and remains recoverable.";
+    }
+    open = false;
+    void flushSnippets(selected).catch(() => undefined);
+    busy = false;
   }
 
   onMount(() => {
