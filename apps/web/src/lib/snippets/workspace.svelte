@@ -639,7 +639,9 @@
     selecting = false;
     selected = new Set();
     await tick();
-    selectionModeButton?.focus({ preventScroll: true });
+    if (!selectionModeButton?.isConnected) return;
+    selectionModeButton.focus({ preventScroll: true });
+    selectionModeButton.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
   function toggleSelectionMode() {
     if (selecting) {
