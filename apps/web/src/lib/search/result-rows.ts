@@ -5,7 +5,6 @@
  */
 
 import {
-  foldSearch,
   searchMatchRange,
   sortSearchText,
   type SearchTextFields
@@ -21,7 +20,7 @@ import type { VideoTitleHit, VideoTranscriptHit } from '../media/video-search';
 import type { ShelfBook } from '../library/view-model';
 import type { ContentHit } from '../library/content-search';
 import type { ReaderLocator } from '../reader-location';
-import { fold as foldSnippetSearch, type SnippetHit } from '../snippets/document';
+import { fold as foldSnippetSearch, type SnippetHit } from '../snippets/document.ts';
 import type { SnippetSummary } from '../snippets/summary';
 
 /** Navigation is data. The UI decides how to open it; matching never rewrites locators. */
