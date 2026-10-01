@@ -762,8 +762,7 @@ export class DatabaseService {
   ) {
     const db = await this.db;
     const tx = db.transaction(['storageSource'], 'readwrite');
-
-    try {
+    await commitTransaction(tx, async () => {
       const store = tx.objectStore('storageSource');
 
       if (oldName && storageSource.name !== oldName) {
@@ -775,29 +774,18 @@ export class DatabaseService {
       } else {
         await store.add(storageSource);
       }
+    });
 
-      await tx.done;
+    if (isSyncTarget) {
+      syncTarget$.next(storageSource.name);
+    } else if (oldName) {
+      syncTarget$.next('');
+    }
 
-      if (isSyncTarget) {
-        syncTarget$.next(storageSource.name);
-      } else if (oldName) {
-        syncTarget$.next('');
-      }
-
-      if (isStorageSourceDefault) {
-        setStorageSourceDefault(storageSource.name, storageSource.type);
-      } else if (oldName) {
-        setStorageSourceDefault('', storageSource.type);
-      }
-    } catch (error: any) {
-      try {
-        tx.abort();
-        await tx.done;
-      } catch (_) {
-        // no-op
-      }
-
-      throw error;
+    if (isStorageSourceDefault) {
+      setStorageSourceDefault(storageSource.name, storageSource.type);
+    } else if (oldName) {
+      setStorageSourceDefault('', storageSource.type);
     }
   }
 
