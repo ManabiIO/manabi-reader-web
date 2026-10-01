@@ -631,6 +631,94 @@ try {
     conflictedRecord.conflicts.some((version) => version.revision === conflictingImport.revision)
   );
   passed('single-document conflicting import keeps both versions instead of rejecting the file');
+
+  await openLibrary(page);
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'commonmark.md',
+    mimeType: 'text/markdown',
+    buffer: Buffer.from('Hi. there\n\nOk. Next step.\n\nEx) aside\n\n0. zero\n1. one')
+  });
+  const safetyMarkdownEditor = page.getByRole('textbox', { name: 'Snippet text', exact: true });
+  await expect(safetyMarkdownEditor).toContainText('Hi. there');
+  await expect(safetyMarkdownEditor).toContainText('Ok. Next step.');
+  await expect(safetyMarkdownEditor).toContainText('Ex) aside');
+  await expect(safetyMarkdownEditor.locator('ol')).toHaveAttribute('start', '0');
+  await expect(safetyMarkdownEditor.locator('li').first()).toContainText('zero');
+  assert.equal(
+    await safetyMarkdownEditor.locator('p').first().innerText(),
+    'Hi. there',
+    'Alphabetic sentence prefixes must not become TipTap ordered-list markers.'
+  );
+  await page
+    .getByRole('textbox', { name: 'Snippet title', exact: true })
+    .fill('CommonMark round trip');
+  await commit(page, true);
+
+  const roundTripMenu = page.getByRole('button', { name: 'More actions', exact: true });
+  await roundTripMenu.click();
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('menuitem', { name: 'Markdown', exact: true }).click();
+  const safetyMarkdownDownload = await downloadPromise,
+    safetyMarkdownPath = await safetyMarkdownDownload.path();
+  assert(safetyMarkdownPath, 'Markdown export must produce a downloadable file');
+  const exportedMarkdown = await readFile(safetyMarkdownPath, 'utf8');
+  assert.match(exportedMarkdown, /Hi\. there/);
+  assert.match(exportedMarkdown, /Ok\. Next step\./);
+  assert.match(exportedMarkdown, /Ex\) aside/);
+  assert.match(
+    exportedMarkdown,
+    /<ol[^>]*start=["']0["']/,
+    'Zero-start ordered lists must use lossless HTML inside Markdown export'
+  );
+
+  await openLibrary(page);
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'round-trip.md',
+    mimeType: 'text/markdown',
+    buffer: Buffer.from(exportedMarkdown)
+  });
+  const roundTripEditor = page.getByRole('textbox', { name: 'Snippet text', exact: true });
+  await expect(roundTripEditor).toContainText('Hi. there');
+  await expect(roundTripEditor).toContainText('Ok. Next step.');
+  await expect(roundTripEditor).toContainText('Ex) aside');
+  await expect(roundTripEditor.locator('ol')).toHaveAttribute('start', '0');
+  await expect(roundTripEditor.locator('li').first()).toContainText('zero');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  let markdownLeave = page.getByRole('dialog', { name: 'Keep this draft?' });
+  await expect(markdownLeave).toBeVisible();
+  await markdownLeave
+    .getByRole('button', { name: 'Discard draft and leave', exact: true })
+    .click();
+  await expect(page.getByRole('heading', { name: 'Snippets', exact: true })).toBeVisible();
+  passed('Markdown import and export round-trip prose plus CommonMark zero-start lists');
+
+  await openLibrary(page);
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'hostile.md',
+    mimeType: 'text/markdown',
+    buffer: Buffer.from(
+      '<script>window.__snippetMarkdownExecuted=true</script>\n\n' +
+        '[unsafe](javascript:alert(1))\n\n' +
+        '<iframe src="https://example.invalid/"></iframe>\n\n' +
+        '**safe text remains**'
+    )
+  });
+  const hostileEditor = page.getByRole('textbox', { name: 'Snippet text', exact: true });
+  await expect(hostileEditor).toContainText('safe text remains');
+  await expect(hostileEditor.locator('script, iframe, [href^="javascript:"]')).toHaveCount(0);
+  assert.equal(
+    await page.evaluate(() => window.__snippetMarkdownExecuted),
+    undefined,
+    'Markdown raw HTML must be sanitized before it can execute'
+  );
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  markdownLeave = page.getByRole('dialog', { name: 'Keep this draft?' });
+  await expect(markdownLeave).toBeVisible();
+  await markdownLeave
+    .getByRole('button', { name: 'Discard draft and leave', exact: true })
+    .click();
+  passed('Markdown import retains the shared HTML sanitization boundary');
+
   await local.ctx.close();
 
   const cloud = await context('alice');
