@@ -248,6 +248,26 @@ class UnifiedSearch(ProductJourneyBase):
         field.dispatch_event('compositionend', {'data': '猫'})
         expect(field).to_have_value('猫')
         expect(self.page).to_have_url(re.compile(r'[?&]q=%E7%8C%AB(?:&|$)'))
+
+        # If a browser/layout interruption blurs composition without a final
+        # compositionend, discard only that uncommitted draft and keep the
+        # committed navigation/query state usable for the next edit.
+        field.dispatch_event('compositionstart', {'data': ''})
+        field.evaluate("""element => {
+          element.value = '犬';
+          element.dispatchEvent(new InputEvent('input', {
+            bubbles: true,
+            data: '犬',
+            inputType: 'insertCompositionText',
+            isComposing: true
+          }));
+          element.blur();
+        }""")
+        expect(field).to_have_value('猫')
+        expect(self.page).to_have_url(re.compile(r'[?&]q=%E7%8C%AB(?:&|$)'))
+        field.focus()
+        field.fill('犬')
+        expect(self.page).to_have_url(re.compile(r'[?&]q=%E7%8A%AC(?:&|$)'))
         self.checkpoint('library-ime-draft-rerender')
 
     def test_title_results_prioritize_relevance_across_source_types(self):
