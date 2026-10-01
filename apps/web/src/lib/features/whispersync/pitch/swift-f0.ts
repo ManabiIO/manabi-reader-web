@@ -8,6 +8,7 @@ import {
   resampleForSwiftF0,
   type Measurement
 } from './analysis';
+import { runSwiftF0Inference, swiftF0ModelGain } from './swift-f0-runtime';
 
 ort.env.wasm.numThreads = 1;
 ort.env.wasm.proxy = false;
@@ -37,14 +38,14 @@ export async function analyseSwiftF0Window(
     });
 
   const session = await prepareSwiftF0();
-  const result = await session.run({
-    audio: new ort.Tensor('float32', samples, [1, samples.length]),
-    fmin: new ort.Tensor('float32', Float32Array.of(MIN_HZ), []),
-    fmax: new ort.Tensor('float32', Float32Array.of(MAX_HZ), [])
-  });
-  const pitch = result.pitch?.data as ArrayLike<number> | undefined;
-  const confidence = result.confidence?.data as ArrayLike<number> | undefined;
-  if (!pitch || !confidence) throw new Error('SwiftF0 returned malformed output');
+  const { pitch, confidence } = await runSwiftF0Inference(
+    session,
+    (type, data, dims) => new ort.Tensor(type, data, dims),
+    samples,
+    MIN_HZ,
+    MAX_HZ,
+    swiftF0ModelGain(samples)
+  );
   return measurementFromSwiftF0(samples, pitch, confidence, {
     windowSeconds: input.length / rate
   });
