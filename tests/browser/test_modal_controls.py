@@ -337,7 +337,13 @@ class ModalControlsBrowser(LibraryBase):
         self.assertEqual(5, checkboxes.count())
         for checkbox in checkboxes.all():
             label = checkbox.locator('xpath=ancestor::label')
+            text = label.locator('span')
             self.assertGreaterEqual(label.bounding_box()['height'], 43.99)
+            box, copy = checkbox.bounding_box(), text.bounding_box()
+            self.assertAlmostEqual(box['width'], 20, delta=0.5)
+            self.assertAlmostEqual(box['height'], 20, delta=0.5)
+            self.assertAlmostEqual(copy['x'] - (box['x'] + box['width']), 12, delta=1)
+            self.assertEqual('normal', text.evaluate('e => getComputedStyle(e).overflowWrap'))
             checkbox.uncheck()
         start = panel.get_by_role('button', name='Start export', exact=True)
         expect(start).to_be_disabled()
