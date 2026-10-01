@@ -318,13 +318,25 @@
   $: destinationTitle = series?.name || (collectionId === 'books' ? 'Library' : collectionTitle);
   let queryURL = '';
   let librarySearchScope: LibrarySearchScope = 'everything';
+  let pendingQueryURL: string | undefined;
+  let pendingLibrarySearchScope: LibrarySearchScope | undefined;
   $: nextQueryURL = $page.url.searchParams.get('q') ?? '';
-  $: if (queryURL !== nextQueryURL) {
+  $: if (pendingQueryURL !== undefined && nextQueryURL === pendingQueryURL)
+    pendingQueryURL = undefined;
+  $: if (pendingQueryURL === undefined && queryURL !== nextQueryURL) {
     queryURL = nextQueryURL;
     query = nextQueryURL;
   }
   $: nextLibrarySearchScope = parseLibrarySearchScope($page.url.searchParams.get('scope'));
-  $: if (librarySearchScope !== nextLibrarySearchScope) {
+  $: if (
+    pendingLibrarySearchScope !== undefined &&
+    nextLibrarySearchScope === pendingLibrarySearchScope
+  )
+    pendingLibrarySearchScope = undefined;
+  $: if (
+    pendingLibrarySearchScope === undefined &&
+    librarySearchScope !== nextLibrarySearchScope
+  ) {
     librarySearchScope = nextLibrarySearchScope;
   }
   // The unified search spans the library. Collection/series navigation must
@@ -551,6 +563,14 @@
       false
     );
   }
+  function librarySearchURL(queryValue: string, scopeValue: LibrarySearchScope) {
+    const url = new URL($page.url);
+    if (queryValue) url.searchParams.set('q', queryValue);
+    else url.searchParams.delete('q');
+    if (scopeValue === 'everything') url.searchParams.delete('scope');
+    else url.searchParams.set('scope', scopeValue);
+    return url;
+  }
   function replaceLibrarySearchURL(url: URL) {
     // q/scope are local presentation state for this already-mounted route.
     // Shallow replacement keeps the address bar/shareability in sync without
@@ -558,18 +578,14 @@
     replaceState(url, $page.state);
   }
   function setQuery(value: string) {
-    query = value;
-    const url = new URL($page.url);
-    if (value) url.searchParams.set('q', value);
-    else url.searchParams.delete('q');
-    replaceLibrarySearchURL(url);
+    query = queryURL = value;
+    pendingQueryURL = value;
+    replaceLibrarySearchURL(librarySearchURL(value, librarySearchScope));
   }
   function setSearchScope(value: LibrarySearchScope) {
     librarySearchScope = value;
-    const url = new URL($page.url);
-    if (value === 'everything') url.searchParams.delete('scope');
-    else url.searchParams.set('scope', value);
-    replaceLibrarySearchURL(url);
+    pendingLibrarySearchScope = value;
+    replaceLibrarySearchURL(librarySearchURL(queryURL, value));
   }
   function setLayout(value: string) {
     if (collectionId === 'finished' && !series) {
