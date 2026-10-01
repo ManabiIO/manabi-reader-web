@@ -36,7 +36,6 @@ test('library search scopes define one orthogonal corpus plan', () => {
   assert.equal(parseLibrarySearchScope(null), 'everything');
 });
 
-
 test('unified search suppresses hidden shelf filtering until selection mode owns the shelf', () => {
   assert.equal(libraryShelfSearchQuery('猫', false), '');
   assert.equal(libraryShelfSearchQuery('猫', true), '猫');
