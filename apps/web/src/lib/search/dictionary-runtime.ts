@@ -31,6 +31,13 @@ export interface DictionaryStatus {
   }[];
   preferences: { disabled: string[] };
 }
+export interface RecommendedDictionary {
+  name: string;
+  description: string;
+  category: 'terms' | 'kanji' | 'frequency';
+  homepage: string;
+  downloadUrl: string;
+}
 interface Client {
   open(): Promise<DictionaryStatus>;
   status(options?: { signal?: AbortSignal }): Promise<DictionaryStatus>;
@@ -59,6 +66,7 @@ export interface DictionaryRuntime {
     signal: AbortSignal;
     onProgress: (loaded: number, total: number) => void;
   }) => Promise<Blob>;
+  recommendations: (options: { signal: AbortSignal }) => Promise<RecommendedDictionary[]>;
 }
 let active: Promise<DictionaryRuntime> | undefined;
 let retirement = Promise.resolve();
@@ -111,7 +119,61 @@ async function open(): Promise<DictionaryRuntime> {
           location.origin
         ),
         options
-      )
+      ),
+    recommendations: async ({ signal }) => {
+      const response = await fetch(new URL(`${root}data/recommended-dictionaries.json`, location.origin), {
+        credentials: 'omit',
+        signal,
+        cache: 'force-cache'
+      });
+      if (!response.ok) throw new Error('Recommended dictionaries are unavailable.');
+      const catalog: unknown = await response.json();
+      if (!catalog || typeof catalog !== 'object' || Array.isArray(catalog))
+        throw new Error('Recommended dictionary catalog is invalid.');
+      const japanese = (catalog as Record<string, unknown>).ja;
+      if (!japanese || typeof japanese !== 'object' || Array.isArray(japanese))
+        throw new Error('Japanese dictionary recommendations are unavailable.');
+      const result: RecommendedDictionary[] = [];
+      for (const category of ['terms', 'kanji', 'frequency'] as const) {
+        const items = (japanese as Record<string, unknown>)[category];
+        if (!Array.isArray(items)) continue;
+        for (const item of items) {
+          if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+          const record = item as Record<string, unknown>;
+          if (
+            typeof record.name !== 'string' ||
+            typeof record.description !== 'string' ||
+            typeof record.homepage !== 'string' ||
+            typeof record.downloadUrl !== 'string'
+          )
+            continue;
+          let homepage: URL, download: URL;
+          try {
+            homepage = new URL(record.homepage);
+            download = new URL(record.downloadUrl);
+          } catch {
+            continue;
+          }
+          if (
+            homepage.protocol !== 'https:' ||
+            download.protocol !== 'https:' ||
+            homepage.username ||
+            homepage.password ||
+            download.username ||
+            download.password
+          )
+            continue;
+          result.push({
+            name: record.name.slice(0, 256),
+            description: record.description.slice(0, 2000),
+            category,
+            homepage: homepage.href,
+            downloadUrl: download.href
+          });
+        }
+      }
+      return result;
+    }
   };
 }
 /** One local-storage owner per tab; retiring owners finish before a new one opens. */
