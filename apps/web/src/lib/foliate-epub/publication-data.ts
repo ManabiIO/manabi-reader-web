@@ -5,6 +5,7 @@
  */
 
 import type { PublicationManifest, PublicationResource } from '../reader-location';
+import { assertSupportedEpubRendition } from './epub-import-policy.ts';
 
 /** Prepared runtime resource. Image URLs belong to the owning read lifetime. */
 export interface EpubResourceData extends PublicationResource {
@@ -223,6 +224,7 @@ export function readEpubPublication(value: unknown, source: string): EpubPublica
   if (position !== source.length) throw new Error('EPUB resource ranges do not cover the source.');
   const navigation = readNavigation(publication.navigation);
   const rendition = readRendition(publication.rendition);
+  assertSupportedEpubRendition(rendition);
   return {
     version: 1,
     resources,

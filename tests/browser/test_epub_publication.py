@@ -58,6 +58,148 @@ def resource_epub(malformed=False):
     return output.getvalue()
 
 
+def illustration_epub():
+    output = io.BytesIO()
+    svg = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 900">
+      <rect width="600" height="900" fill="#ddd"/><circle cx="300" cy="450" r="180" fill="#555"/>
+    </svg>'''
+    package = f'''<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>{TITLE}</dc:title><dc:language>ja</dc:language></metadata>
+<manifest>
+<item id="start" href="start.xhtml" media-type="application/xhtml+xml"/>
+<item id="one" href="image1.xhtml" media-type="application/xhtml+xml"/>
+<item id="two" href="image2.xhtml" media-type="application/xhtml+xml"/>
+<item id="plate" href="plate.svg" media-type="image/svg+xml"/>
+</manifest><spine><itemref idref="start"/><itemref idref="one"/><itemref idref="two"/></spine></package>'''
+    start = '''<html xmlns="http://www.w3.org/1999/xhtml"><body>
+<p>挿絵の前</p><a id="to-image" href="image1.xhtml">挿絵へ</a></body></html>'''
+    image1 = '''<html xmlns="http://www.w3.org/1999/xhtml"><body><p>
+<img id="plate1" src="plate.svg" alt="First illustration"/></p></body></html>'''
+    image2 = '''<html xmlns="http://www.w3.org/1999/xhtml"><body><p>
+<img id="plate2" src="plate.svg" alt="Second illustration"/></p></body></html>'''
+    with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr('mimetype', 'application/epub+zip')
+        archive.writestr(
+            'META-INF/container.xml',
+            '<container><rootfiles><rootfile full-path="book.opf"/></rootfiles></container>'
+        )
+        archive.writestr('book.opf', package)
+        archive.writestr('start.xhtml', start)
+        archive.writestr('image1.xhtml', image1)
+        archive.writestr('image2.xhtml', image2)
+        archive.writestr('plate.svg', svg)
+    return output.getvalue()
+
+
+def deep_fragment_epub():
+    """Put the linked target well past page one so chapter-start navigation cannot pass."""
+    output = io.BytesIO()
+    filler = ''.join(
+        f'<p id="filler-{index}">前の文章を読みます。まだ目的の位置ではありません。</p>'
+        for index in range(260)
+    )
+    chapter = (
+        '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Second</title>'
+        '<link rel="stylesheet" href="two.css"/></head><body>'
+        '<p id="chapter-start">第二章の先頭</p>' + filler +
+        '<p class="text" id="same">深いリンク先</p>'
+        '<a id="back" href="one.xhtml#same">戻る</a></body></html>'
+    )
+    with zipfile.ZipFile(io.BytesIO(resource_epub())) as source, zipfile.ZipFile(
+        output, 'w', zipfile.ZIP_DEFLATED
+    ) as target:
+        for entry in source.infolist():
+            data = source.read(entry)
+            if entry.filename == 'EPUB/two.xhtml':
+                data = chapter.encode()
+            target.writestr(entry, data)
+    return output.getvalue()
+
+
+def rtl_language_epub():
+    output = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(resource_epub())) as source, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as target:
+        for entry in source.infolist():
+            data = source.read(entry)
+            if entry.filename == 'EPUB/book.opf':
+                data = data.replace(b'<spine>', b'<spine page-progression-direction="rtl">')
+            target.writestr(entry, data)
+    return output.getvalue()
+
+
+def rtl_long_epub():
+    output = io.BytesIO()
+    filler = ''.join(
+        f'<p>右から左へページを読み進めます。段落 {index}。</p>' for index in range(180)
+    ).encode()
+    with zipfile.ZipFile(io.BytesIO(rtl_language_epub())) as source, zipfile.ZipFile(
+        output, 'w', zipfile.ZIP_DEFLATED
+    ) as target:
+        for entry in source.infolist():
+            data = source.read(entry)
+            if entry.filename == 'EPUB/one.xhtml':
+                data = data.replace(b'</body>', filler + b'</body>')
+            target.writestr(entry, data)
+    return output.getvalue()
+
+
+def resource_semantics_epub():
+    output = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(resource_epub())) as source, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as target:
+        for entry in source.infolist():
+            data = source.read(entry)
+            if entry.filename == 'EPUB/book.opf':
+                data = data.replace(b'<dc:language>ja</dc:language>', b'<dc:language>en</dc:language>')
+            elif entry.filename == 'EPUB/one.xhtml':
+                data = data.replace(b'<body class="body-one">', b'<body class="body-one" dir="rtl">')
+            target.writestr(entry, data)
+    return output.getvalue()
+
+
+def ltr_pages_rtl_content_epub():
+    output = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(resource_semantics_epub())) as source, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as target:
+        for entry in source.infolist():
+            data = source.read(entry)
+            if entry.filename == 'EPUB/book.opf':
+                data = data.replace(b'<spine>', b'<spine page-progression-direction="ltr">')
+            target.writestr(entry, data)
+    return output.getvalue()
+
+
+def malformed_root_semantics_epub():
+    output = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(resource_epub())) as source, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as target:
+        for entry in source.infolist():
+            data = source.read(entry)
+            if entry.filename == 'EPUB/book.opf':
+                data = data.replace(b'<dc:language>ja</dc:language>', b'<dc:language>en</dc:language>')
+            elif entry.filename == 'EPUB/one.xhtml':
+                data = data.replace(
+                    b'<html xmlns="http://www.w3.org/1999/xhtml" class="root" lang="ja">',
+                    b'<html xmlns="http://www.w3.org/1999/xhtml" class="root" dir="RTL">'
+                )
+                data = data.replace(
+                    b'<body class="body-one">',
+                    b'<body class="body-one" lang="not_a_language" xml:lang="ja" dir="sideways">'
+                )
+            target.writestr(entry, data)
+    return output.getvalue()
+
+
+def css_direction_epub():
+    output = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(resource_epub())) as source, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as target:
+        for entry in source.infolist():
+            data = source.read(entry)
+            if entry.filename == 'EPUB/book.opf':
+                data = data.replace(b'<spine>', b'<spine page-progression-direction="ltr">')
+            elif entry.filename == 'EPUB/one.css':
+                data = b'body{direction:rtl;unicode-bidi:isolate}' + data
+            target.writestr(entry, data)
+    return output.getvalue()
+
+
 def linear_epub():
     output = io.BytesIO()
     with zipfile.ZipFile(io.BytesIO(resource_epub())) as source, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as target:
@@ -118,9 +260,10 @@ class EpubPublicationBrowser(ReaderBrowser):
         cls.playwright = sync_playwright().start()
         cls.browser = getattr(cls.playwright, os.environ.get('SLIDE_BROWSER', 'chromium')).launch()
 
-    def open_resource_book(self, view='paginated', malformed=False, payload=None):
+    def open_resource_book(self, view='paginated', malformed=False, payload=None, foliate=True):
         settings = {
-            'manabi-dev-foliate-epub': 'true', 'viewMode': view, 'writingMode': 'horizontal-tb',
+            'manabi-dev-foliate-epub': 'true' if foliate else 'false',
+            'viewMode': view, 'writingMode': 'horizontal-tb',
             'hideFurigana': 'false', 'hideSpoilerImage': 'false'
         }
         self.context.add_init_script('if (location.origin === ' + json.dumps(self.origin) + ') {'
@@ -131,10 +274,269 @@ class EpubPublicationBrowser(ReaderBrowser):
             'name': 'resources.epub', 'mimeType': 'application/epub+zip', 'buffer': resource_epub(malformed) if payload is None else payload
         })
         self.page.get_by_role('button', name='Read ' + TITLE, exact=True).click(timeout=30000)
-        if view == 'paginated':
+        if view == 'paginated' and foliate:
             self.page.wait_for_function(f"() => {P}?.getContents?.()[0]?.doc?.querySelector('#same')")
+        elif view == 'paginated':
+            expect(self.page.locator('.book-content-container #same')).to_be_visible(timeout=30000)
         else:
             expect(self.page.locator('#ttu-epub-0 .text')).to_be_visible(timeout=30000)
+
+    def test_foliate_consecutive_illustration_sections_are_single_visible_pages(self):
+        self.page.set_viewport_size({'width': 390, 'height': 844})
+        self.open_resource_book(payload=illustration_epub())
+        result = self.page.evaluate(f"""async () => {{
+          const p={P};
+          const check=async(index,id)=>{{
+            if(!(await p.goTo({{index}}))) throw Error('Failed illustration navigation');
+            await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+            const doc=p.getContents()[0].doc, image=doc.getElementById(id);
+            const ir=image.getBoundingClientRect(), pr=p.getBoundingClientRect();
+            return {{index:p.getContents()[0].index,pages:p.pages-2,
+              visible:ir.width>0&&ir.height>0&&ir.right>0&&ir.bottom>0&&ir.left<pr.width&&ir.top<pr.height,
+              fits:ir.width<=pr.width+1&&ir.height<=pr.height+1,natural:[image.naturalWidth,image.naturalHeight]}};
+          }};
+          return [await check(1,'plate1'),await check(2,'plate2')];
+        }}""")
+        for index, state in enumerate(result, start=1):
+            self.assertEqual(index, state['index'], state)
+            self.assertEqual(1, state['pages'], state)
+            self.assertTrue(state['visible'], state)
+            self.assertTrue(state['fits'], state)
+            self.assertGreater(state['natural'][0], 0, state)
+            self.assertGreater(state['natural'][1], 0, state)
+        self.assertEqual([], StaticHandler.probes)
+        self.assertEqual([], self.errors)
+
+    def test_legacy_consecutive_illustration_sections_do_not_create_blank_turns(self):
+        self.page.set_viewport_size({'width': 390, 'height': 844})
+        self.open_resource_book(payload=illustration_epub(), foliate=False)
+        self.page.locator('.book-content-container #to-image').click()
+        self.page.wait_for_function("""() =>
+          document.querySelector('.book-content-container')?.dataset.manabiSpineIndex === '1'
+          && document.querySelector('#plate1')?.naturalWidth > 0""")
+        first = self.page.evaluate("""() => {
+          const host=document.querySelector('.book-content').getBoundingClientRect();
+          const image=document.querySelector('#plate1').getBoundingClientRect();
+          return {visible:image.width>0&&image.height>0&&image.right>host.left&&image.left<host.right
+            &&image.bottom>host.top&&image.top<host.bottom,
+            fits:image.width<=host.width+1&&image.height<=host.height+1};
+        }""")
+        self.assertTrue(first['visible'], first)
+        self.assertTrue(first['fits'], first)
+        # One page turn must reach the next image-only spine item; an extra
+        # empty wrapper/page between the illustrations is a regression.
+        self.page.keyboard.press('ArrowRight')
+        self.page.wait_for_function("""() =>
+          document.querySelector('.book-content-container')?.dataset.manabiSpineIndex === '2'
+          && document.querySelector('#plate2')?.naturalWidth > 0""")
+        second = self.page.evaluate("""() => {
+          const host=document.querySelector('.book-content').getBoundingClientRect();
+          const image=document.querySelector('#plate2').getBoundingClientRect();
+          return {visible:image.width>0&&image.height>0&&image.right>host.left&&image.left<host.right
+            &&image.bottom>host.top&&image.top<host.bottom};
+        }""")
+        self.assertTrue(second['visible'], second)
+        self.assertEqual([], StaticHandler.probes)
+        self.assertEqual([], self.errors)
+
+    def test_legacy_paginated_cross_resource_link_reveals_deep_fragment(self):
+        self.page.set_viewport_size({'width': 390, 'height': 844})
+        self.open_resource_book(payload=deep_fragment_epub(), foliate=False)
+        self.assertEqual(0, self.page.locator('foliate-paginator').count())
+        self.page.locator('.book-content-container #cross').click()
+        self.page.wait_for_function("""() => {
+          const section=document.querySelector('.book-content-container');
+          return section?.dataset.manabiSpineIndex === '1' && section.querySelector('#same');
+        }""")
+        visible = self.page.evaluate("""() => {
+          const host=document.querySelector('.book-content');
+          const target=document.querySelector('.book-content-container #same');
+          const start=document.querySelector('.book-content-container #chapter-start');
+          const intersects=(element) => {
+            const r=element.getBoundingClientRect(), h=host.getBoundingClientRect();
+            return r.right > h.left && r.left < h.right && r.bottom > h.top && r.top < h.bottom;
+          };
+          return {
+            target:intersects(target),
+            start:intersects(start),
+            scrollLeft:host.scrollLeft,
+            transform:getComputedStyle(document.querySelector('.book-content-container')).transform
+          };
+        }""")
+        self.assertTrue(visible['target'], visible)
+        self.assertFalse(visible['start'], visible)
+        self.assertTrue(visible['scrollLeft'] > 0 or visible['transform'] != 'none', visible)
+        self.assertEqual([], StaticHandler.probes)
+        self.assertEqual([], self.errors)
+
+    def test_legacy_paginated_horizontal_rtl_uses_imported_page_progression(self):
+        self.page.set_viewport_size({'width': 390, 'height': 844})
+        self.open_resource_book(payload=rtl_long_epub(), foliate=False)
+        host = self.page.locator('.book-content')
+        container = self.page.locator('.book-content-container')
+        self.assertEqual('0', container.get_attribute('data-manabi-spine-index'))
+        before = self.page.evaluate("""() => ({
+          left: document.querySelector('.book-content').scrollLeft,
+          transform: getComputedStyle(document.querySelector('.book-content-container')).transform
+        })""")
+
+        # In a horizontal RTL publication, the physical-left key advances the
+        # logical reading order. The LTR fallback used to treat this as "previous"
+        # and remain at the first page.
+        self.page.keyboard.press('ArrowLeft')
+        self.page.wait_for_function("""before => {
+          const host=document.querySelector('.book-content');
+          const transform=getComputedStyle(document.querySelector('.book-content-container')).transform;
+          return host.scrollLeft !== before.left || transform !== before.transform;
+        }""", arg=before)
+        advanced = self.page.evaluate("""() => ({
+          left: document.querySelector('.book-content').scrollLeft,
+          transform: getComputedStyle(document.querySelector('.book-content-container')).transform
+        })""")
+        self.assertNotEqual(before, advanced)
+
+        self.page.keyboard.press('ArrowRight')
+        self.page.wait_for_function("""before => {
+          const host=document.querySelector('.book-content');
+          const transform=getComputedStyle(document.querySelector('.book-content-container')).transform;
+          return host.scrollLeft === before.left && transform === before.transform;
+        }""", arg=before)
+        self.assertEqual(before, self.page.evaluate("""() => ({
+          left: document.querySelector('.book-content').scrollLeft,
+          transform: getComputedStyle(document.querySelector('.book-content-container')).transform
+        })"""))
+        self.assertEqual([], StaticHandler.probes)
+        self.assertEqual([], self.errors)
+
+    def test_framed_reader_receives_imported_language_and_page_direction(self):
+        self.open_resource_book(payload=rtl_language_epub())
+        actual = self.page.evaluate(f"""() => {{
+          const p={P}, doc=p.getContents()[0].doc, view=doc.defaultView;
+          return {{lang:doc.documentElement.lang,bookDir:p.bookDir,turnDir:p.pageTurnDirection,
+            hostDir:p.getAttribute('dir'),
+            rootDir:view.getComputedStyle(doc.documentElement).direction,
+            bodyDir:view.getComputedStyle(doc.body).direction}};
+        }}""")
+        self.assertEqual({
+            'lang':'ja','bookDir':'rtl','turnDir':'rtl','hostDir':'rtl',
+            'rootDir':'rtl','bodyDir':'ltr'
+        }, actual)
+        self.page.reload()
+        self.page.wait_for_function(f"() => {P}?.getContents?.()[0]?.doc?.querySelector('.text')")
+        again = self.page.evaluate(f"""() => {{
+          const p={P}, doc=p.getContents()[0].doc, view=doc.defaultView;
+          return {{lang:doc.documentElement.lang,bookDir:p.bookDir,turnDir:p.pageTurnDirection,
+            hostDir:p.getAttribute('dir'),
+            rootDir:view.getComputedStyle(doc.documentElement).direction,
+            bodyDir:view.getComputedStyle(doc.body).direction}};
+        }}""")
+        self.assertEqual(actual, again)
+        self.assertEqual([], self.errors)
+
+    def test_rtl_missing_resource_keeps_current_document_direction_and_can_retry(self):
+        self.open_resource_book(payload=rtl_language_epub())
+        result = self.page.evaluate(f"""async () => {{
+          const p={P}, section=p.sections[1], load=section.load;
+          let errors=0; p.addEventListener('navigationerror',()=>errors++);
+          const before={{
+            index:p.getContents()[0].index,
+            text:p.getContents()[0].doc.body.textContent,
+            bookDir:p.bookDir,
+            turnDir:p.pageTurnDirection,
+            hostDir:p.getAttribute('dir')
+          }};
+          section.load=async()=>null;
+          const failed=await p.goTo({{index:1}});
+          const afterFailure={{
+            index:p.getContents()[0].index,
+            text:p.getContents()[0].doc.body.textContent,
+            bookDir:p.bookDir,
+            turnDir:p.pageTurnDirection,
+            hostDir:p.getAttribute('dir')
+          }};
+          section.load=load;
+          const retry=await p.goTo({{index:1}});
+          const afterRetry={{
+            index:p.getContents()[0].index,
+            text:p.getContents()[0].doc.body.textContent,
+            bookDir:p.bookDir,
+            turnDir:p.pageTurnDirection,
+            hostDir:p.getAttribute('dir')
+          }};
+          return {{failed,retry,errors,before,afterFailure,afterRetry}};
+        }}""")
+        self.assertFalse(result['failed'])
+        self.assertTrue(result['retry'])
+        self.assertEqual(1, result['errors'])
+        self.assertEqual(result['before'], result['afterFailure'])
+        self.assertEqual('rtl', result['afterRetry']['bookDir'])
+        self.assertEqual('rtl', result['afterRetry']['turnDir'])
+        self.assertEqual('rtl', result['afterRetry']['hostDir'])
+        self.assertEqual(1, result['afterRetry']['index'])
+        self.assertIn('別の章', result['afterRetry']['text'])
+        self.assertEqual([], self.errors)
+
+    def test_resource_without_language_inherits_package_language(self):
+        self.open_resource_book()
+        self.assertTrue(self.page.evaluate(f"async()=>await {P}.goTo({{index:1}})"))
+        self.page.wait_for_function(f"() => {P}.getContents()[0]?.index === 1")
+        self.assertEqual(
+            'ja',
+            self.page.evaluate(f"{P}.getContents()[0].doc.documentElement.lang")
+        )
+        self.assertEqual([], self.errors)
+
+    def test_resource_language_and_text_direction_override_package_fallbacks(self):
+        self.open_resource_book(payload=resource_semantics_epub())
+        actual = self.page.evaluate(f"""() => {{
+          const p={P}, doc=p.getContents()[0].doc, view=doc.defaultView;
+          return {{lang:doc.documentElement.lang,rootDir:view.getComputedStyle(doc.documentElement).direction,
+            bodyDir:view.getComputedStyle(doc.body).direction}};
+        }}""")
+        self.assertEqual({'lang':'ja','rootDir':'rtl','bodyDir':'rtl'}, actual)
+        self.assertEqual([], self.errors)
+
+    def test_ltr_page_progression_does_not_override_rtl_chapter_text(self):
+        self.open_resource_book(payload=ltr_pages_rtl_content_epub())
+        actual = self.page.evaluate(f"""() => {{
+          const p={P}, doc=p.getContents()[0].doc, view=doc.defaultView;
+          return {{bookDir:p.bookDir,turnDir:p.pageTurnDirection,hostDir:p.getAttribute('dir'),
+            rootDir:view.getComputedStyle(doc.documentElement).direction,
+            bodyDir:view.getComputedStyle(doc.body).direction}};
+        }}""")
+        self.assertEqual({
+            'bookDir':'ltr','turnDir':'ltr','hostDir':'ltr',
+            'rootDir':'ltr','bodyDir':'rtl'
+        }, actual)
+        self.assertEqual([], self.errors)
+
+    def test_invalid_body_semantics_fall_back_to_valid_authored_root_values(self):
+        self.open_resource_book(payload=malformed_root_semantics_epub())
+        actual = self.page.evaluate(f"""() => {{
+          const p={P}, doc=p.getContents()[0].doc, view=doc.defaultView;
+          return {{lang:doc.documentElement.lang,
+            rootDir:view.getComputedStyle(doc.documentElement).direction,
+            bodyDir:view.getComputedStyle(doc.body).direction}};
+        }}""")
+        self.assertEqual({'lang':'ja','rootDir':'rtl','bodyDir':'rtl'}, actual)
+        self.assertEqual([], self.errors)
+
+    def test_scoped_publisher_bidi_css_survives_without_changing_page_progression(self):
+        self.open_resource_book(payload=css_direction_epub())
+        actual = self.page.evaluate(f"""() => {{
+          const p={P}, doc=p.getContents()[0].doc, view=doc.defaultView;
+          const content=doc.querySelector('.ttu-book-body-wrapper');
+          return {{bookDir:p.bookDir,turnDir:p.pageTurnDirection,hostDir:p.getAttribute('dir'),
+            rootDir:view.getComputedStyle(doc.documentElement).direction,
+            bodyDir:view.getComputedStyle(doc.body).direction,
+            contentDir:view.getComputedStyle(content).direction,
+            unicodeBidi:view.getComputedStyle(content).unicodeBidi}};
+        }}""")
+        self.assertEqual({
+            'bookDir':'ltr','turnDir':'ltr','hostDir':'ltr',
+            'rootDir':'ltr','bodyDir':'rtl','contentDir':'rtl','unicodeBidi':'isolate'
+        }, actual)
+        self.assertEqual([], self.errors)
 
     def test_non_linear_spine_hint_is_persisted_without_changing_current_reading_order(self):
         self.open_resource_book(payload=linear_epub())
