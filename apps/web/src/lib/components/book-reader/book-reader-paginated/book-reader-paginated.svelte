@@ -798,9 +798,10 @@
 
     const fragment = typeof target === 'string' ? undefined : target.fragment;
     if (sectionIndex$.getValue() !== nextSectionIndex) {
+      const rendered = waitForChapterSection(nextSectionIndex, generation);
       sectionIndex$.next(nextSectionIndex);
       concretePageManager?.scrollTo(0, false);
-      if (!(await waitForChapterSection(nextSectionIndex, generation))) return;
+      if (!(await rendered)) return;
       await tick();
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     }
