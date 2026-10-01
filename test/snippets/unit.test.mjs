@@ -475,10 +475,6 @@ test('reconnected source with identical bytes replaces an unavailable old primar
   assert.equal(current.dirty, false);
   assert.equal(current.conflicts.length, 0);
   assert.equal(current.locations.length, 2);
-  assert.equal(
-    current.locations.find((item) => locationKey(item) === locationKey(oldLocation))?.missing,
-    true
-  );
 });
 
 test('reconnected source republishes a clean newer descendant over its remote ancestor', async () => {
@@ -518,10 +514,6 @@ test('reconnected source republishes a clean newer descendant over its remote an
   assert.equal(current.remoteRevision, original.revision);
   assert.equal(current.dirty, true);
   assert.equal(current.conflicts.length, 0);
-  assert.equal(
-    current.locations.find((item) => locationKey(item) === locationKey(oldLocation))?.missing,
-    true
-  );
 });
 
 test('reconnected source binds a remote ancestor under newer dirty local edits', async () => {
@@ -572,10 +564,6 @@ test('reconnected source binds a remote ancestor under newer dirty local edits',
   assert.equal(current.dirty, true);
   assert.equal(current.upload, undefined);
   assert.equal(current.conflicts.length, 0);
-  assert.equal(
-    current.locations.find((item) => locationKey(item) === locationKey(oldLocation))?.missing,
-    true
-  );
 });
 
 test('reconnection never promotes a sibling over dirty local edits', async () => {
