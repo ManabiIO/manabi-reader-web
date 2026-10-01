@@ -736,8 +736,10 @@ test('subtitle gaps stop inference and cue restart discards pre-cue batch frames
   f.controller.setSpeechWindow();
   assert.equal(f.frames.size, 0);
   f.a.currentTime = 1.25;
+  f.controller.setSpeechWindow();
   f.frame(1000);
   assert.equal(f.workers[0].sent.length, beforeGap, 'known transcript gaps must not run SwiftF0');
+  assert.equal(f.state.time, 1.25, 'the rolling chart clock must advance while inference is gated');
 
   f.controller.setSpeechWindow({ start: 1.25, end: 2 });
   const worker = f.workers[0];
