@@ -337,6 +337,29 @@ class RheaReader(previous.RefinedAppearance):
           const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
           return !!hit && (hit===e || e.contains(hit));
         }'''))
+
+        chapters = enlarged.get_by_role('navigation', name='Chapters', exact=True)
+        self.page.wait_for_function(
+            'e => e.scrollHeight > e.clientHeight',
+            arg=chapters.element_handle()
+        )
+        chapters.evaluate('e => e.scrollTop = e.scrollHeight')
+        self.page.wait_for_function('e => e.scrollTop > 0', arg=chapters.element_handle())
+        self.assertEqual('hidden', enlarged.evaluate('e => getComputedStyle(e).overflowY'))
+        for control_name in ('Close Table of Contents', 'Previous Chapter', 'Next Chapter'):
+            control = enlarged.get_by_role('button', name=control_name, exact=True)
+            bounds = control.bounding_box()
+            self.assertGreaterEqual(bounds['height'], 43.99)
+            self.assertGreaterEqual(bounds['x'], -1)
+            self.assertGreaterEqual(bounds['y'], -1)
+            self.assertLessEqual(bounds['x'] + bounds['width'], 321)
+            self.assertLessEqual(bounds['y'] + bounds['height'], 361)
+            self.assertTrue(control.evaluate('''e => {
+              const r=e.getBoundingClientRect();
+              const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+              return !!hit && (hit===e || e.contains(hit));
+            }'''), control_name)
+
         self.page.screenshot(path='test-results/contents-enlarged-word-intact.png')
         close.click()
         expect(enlarged).to_have_count(0)
