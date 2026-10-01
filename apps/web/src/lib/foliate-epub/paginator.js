@@ -334,12 +334,12 @@ class View {
     }
     render(layout) {
         if (!layout || this.#disposed || !this.document?.body) return
-        const { vertical, rtl } = getDirection(this.document)
+        const { vertical, rtl: contentRtl } = getDirection(this.document)
         this.#vertical = vertical
-        this.#rtl = rtl
+        this.#rtl = !vertical && typeof layout.pageRtl === 'boolean' ? layout.pageRtl : contentRtl
         this.#column = layout.flow !== 'scrolled'
         this.#layout = layout
-        if (this.#column) this.columnize(layout)
+        if (this.#column) this.columnize(layout, contentRtl)
         else this.scrolled(layout)
     }
     scrolled({ gap, columnWidth }) {
@@ -359,11 +359,13 @@ class View {
         this.setImageSize()
         this.expand()
     }
-    columnize({ width, height, gap, columnWidth }) {
+    columnize({ width, height, gap, columnWidth, pageRtl }, contentRtl) {
         const vertical = this.#vertical
         this.#size = vertical ? height : width
 
         const doc = this.document
+        const separatesPageProgression =
+            !vertical && typeof pageRtl === 'boolean' && pageRtl !== contentRtl
         setStylesImportant(doc.documentElement, {
             'box-sizing': 'border-box',
             'column-width': `${Math.trunc(columnWidth)}px`,
@@ -382,11 +384,17 @@ class View {
             'min-height': 'none', 'min-width': 'none',
             // fix glyph clipping in WebKit
             '-webkit-line-box-contain': 'block glyphs replaced',
+            ...(separatesPageProgression
+                ? { 'direction': pageRtl ? 'rtl' : 'ltr' }
+                : {}),
         })
         setStylesImportant(doc.body, {
             'max-height': 'none',
             'max-width': 'none',
             'margin': '0',
+            ...(separatesPageProgression
+                ? { 'direction': contentRtl ? 'rtl' : 'ltr' }
+                : {}),
         })
         this.setImageSize()
         this.expand()
@@ -508,6 +516,7 @@ export class Paginator extends HTMLElement {
     #pendingView
     #vertical = false
     #rtl = false
+    #contentRtl = false
     #margin = 0
     #index = -1
     #anchor = 0 // anchor view to a fraction (0-1), Range, or Element
@@ -784,8 +793,16 @@ export class Paginator extends HTMLElement {
     #beforeRender({ vertical, rtl, background }) {
         cancelAnimationFrame(this.#resizeFrame)
         this.#resizeFrame = 0
+        const flow = this.getAttribute('flow')
+        const pageRtl =
+            flow !== 'scrolled' && !vertical && this.bookDir === 'rtl'
+                ? true
+                : flow !== 'scrolled' && !vertical && this.bookDir === 'ltr'
+                  ? false
+                  : rtl
         this.#vertical = vertical
-        this.#rtl = rtl
+        this.#contentRtl = rtl
+        this.#rtl = pageRtl
         this.#top.classList.toggle('vertical', vertical)
 
         // set background to `doc` background
@@ -822,7 +839,6 @@ export class Paginator extends HTMLElement {
         // So we apply the inverse, f⁻¹ = -x / (x - 1) to the column gap.
         const gap = -g / (g - 1) * size
 
-        const flow = this.getAttribute('flow')
         if (flow === 'scrolled') {
             // FIXME: vertical-rl only, not -lr
             this.setAttribute('dir', vertical ? 'rtl' : 'ltr')
@@ -839,7 +855,7 @@ export class Paginator extends HTMLElement {
 
         const divisor = Math.min(maxColumnCount, Math.ceil(size / maxInlineSize))
         const columnWidth = (size / divisor) - gap
-        this.setAttribute('dir', rtl ? 'rtl' : 'ltr')
+        this.setAttribute('dir', pageRtl ? 'rtl' : 'ltr')
 
         const marginalDivisor = vertical
             ? Math.min(2, Math.ceil(width / maxInlineSize))
@@ -847,7 +863,7 @@ export class Paginator extends HTMLElement {
         const marginalStyle = {
             gridTemplateColumns: `repeat(${marginalDivisor}, 1fr)`,
             gap: `${gap}px`,
-            direction: this.bookDir === 'rtl' ? 'rtl' : 'ltr',
+            direction: pageRtl ? 'rtl' : 'ltr',
         }
         Object.assign(this.#header.style, marginalStyle)
         Object.assign(this.#footer.style, marginalStyle)
@@ -858,7 +874,7 @@ export class Paginator extends HTMLElement {
         this.#header.replaceChildren(...heads)
         this.#footer.replaceChildren(...feet)
 
-        return { height, width, margin, gap, columnWidth }
+        return { height, width, margin, gap, columnWidth, pageRtl }
     }
     render() {
         cancelAnimationFrame(this.#resizeFrame)
@@ -867,7 +883,7 @@ export class Paginator extends HTMLElement {
         if (this.#destroyed || !this.#view?.document?.body) return
         this.#view.render(this.#beforeRender({
             vertical: this.#vertical,
-            rtl: this.#rtl,
+            rtl: this.#contentRtl,
         }))
         this.#scrollToAnchor(this.#anchor)
     }
@@ -1202,6 +1218,13 @@ export class Paginator extends HTMLElement {
             } catch (error) {
                 if (!this.#destroyed && generation === this.#navigationGeneration)
                     this.dispatchEvent(new CustomEvent('navigationerror', { detail: error }))
+                return false
+            }
+            if (src == null || src === '') {
+                if (!this.#destroyed && generation === this.#navigationGeneration)
+                    this.dispatchEvent(new CustomEvent('navigationerror', {
+                        detail: new Error('EPUB section did not provide a renderable source'),
+                    }))
                 return false
             }
             await this.#display({ index, src, anchor, onLoad, select }, generation)
@@ -1607,7 +1630,7 @@ export class Paginator extends HTMLElement {
             const doc = this.#view.document
             this.#background.style.background = getBackground(doc)
             const { vertical, rtl } = getDirection(doc)
-            if (vertical !== this.#vertical || rtl !== this.#rtl) {
+            if (vertical !== this.#vertical || rtl !== this.#contentRtl) {
                 this.cancelPageTurn()
                 this.#view.render(this.#beforeRender({ vertical, rtl, background: getBackground(doc) }))
                 this.#scrollToAnchor(this.#anchor)

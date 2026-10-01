@@ -12,7 +12,35 @@ const CSP =
   "style-src 'unsafe-inline'; script-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'";
 
 function escapeAttribute(value: string): string {
-  return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;');
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
+function canonicalLanguage(value: string | null | undefined): string {
+  if (!value) return '';
+  try {
+    return Intl.getCanonicalLocales(value.trim())[0] ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function resourceSemantics(section: Element, fallbackLanguage: string) {
+  const html = section.firstElementChild;
+  const body = html?.firstElementChild;
+  const language =
+    canonicalLanguage(body?.getAttribute('lang') ?? body?.getAttribute('xml:lang')) ||
+    canonicalLanguage(html?.getAttribute('lang') ?? html?.getAttribute('xml:lang')) ||
+    canonicalLanguage(fallbackLanguage);
+  const rawDirection = body?.getAttribute('dir') ?? html?.getAttribute('dir');
+  const direction =
+    rawDirection === 'ltr' || rawDirection === 'rtl' || rawDirection === 'auto'
+      ? rawDirection
+      : undefined;
+  return { language, direction };
 }
 
 export interface StoredFoliateSection {
@@ -97,9 +125,11 @@ export function createStoredFoliateBook(
     let currentUrl: string | undefined;
     let references = 0;
     const body = section.outerHTML;
+    const semantics = resourceSemantics(section, language);
     const markup =
       '<!doctype html><html' +
-      (language ? ` lang="${escapeAttribute(language)}"` : '') +
+      (semantics.language ? ` lang="${escapeAttribute(semantics.language)}"` : '') +
+      (semantics.direction ? ` dir="${semantics.direction}"` : '') +
       '><head><meta charset="utf-8">' +
       `<meta http-equiv="Content-Security-Policy" content="${escapeAttribute(CSP)}">` +
       `<style>html,body{margin:0;padding:0}body{writing-mode:${writingMode};}${resources?.[index].styleSheet ?? styleSheet}</style>` +
