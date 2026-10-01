@@ -312,7 +312,7 @@ class UnifiedSearch(ProductJourneyBase):
         self.page.set_viewport_size({'width': 320, 'height': 480})
         self.page.evaluate('document.documentElement.style.fontSize = "200%"')
         self.assertLessEqual(row.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
-        for name in ('Enable Unified search fixture', 'Delete Unified search fixture'):
+        for name in ('Disable Unified search fixture', 'Delete Unified search fixture'):
             control = row.get_by_role('button', name=name, exact=True)
             self.assertGreaterEqual(control.bounding_box()['height'], 43.99)
         self.assert_no_document_horizontal_overflow()
