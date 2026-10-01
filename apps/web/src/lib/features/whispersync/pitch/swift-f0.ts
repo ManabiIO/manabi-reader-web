@@ -4,7 +4,7 @@ import modelUrl from './swift-f0-0.3.0.onnx?url';
 import {
   MAX_HZ,
   MIN_HZ,
-  measurementFromSwiftF0,
+  measurementsFromSwiftF0,
   resampleForSwiftF0,
   type Measurement
 } from './analysis';
@@ -34,12 +34,10 @@ export function prepareSwiftF0(): Promise<ort.InferenceSession> {
 export async function analyseSwiftF0Window(
   input: Float32Array,
   rate: number
-): Promise<Measurement> {
+): Promise<Measurement[]> {
   const samples = resampleForSwiftF0(input, rate);
   if (!samples.length)
-    return measurementFromSwiftF0(samples, [], [], {
-      windowSeconds: Number.isFinite(rate) && rate > 0 ? input.length / rate : 0
-    });
+    return [];
 
   const session = await prepareSwiftF0();
   const tensorSession: SwiftF0SessionLike<ort.Tensor> = {
@@ -55,7 +53,7 @@ export async function analyseSwiftF0Window(
     MAX_HZ,
     swiftF0ModelGain(samples)
   );
-  return measurementFromSwiftF0(samples, pitch, confidence, {
+  return measurementsFromSwiftF0(samples, pitch, confidence, {
     windowSeconds: input.length / rate
   });
 }
