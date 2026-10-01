@@ -93,6 +93,26 @@ def ltr_pages_rtl_content_epub():
     return output.getvalue()
 
 
+def malformed_root_semantics_epub():
+    output = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(resource_epub())) as source, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as target:
+        for entry in source.infolist():
+            data = source.read(entry)
+            if entry.filename == 'EPUB/book.opf':
+                data = data.replace(b'<dc:language>ja</dc:language>', b'<dc:language>en</dc:language>')
+            elif entry.filename == 'EPUB/one.xhtml':
+                data = data.replace(
+                    b'<html xmlns="http://www.w3.org/1999/xhtml" class="root" lang="ja">',
+                    b'<html xmlns="http://www.w3.org/1999/xhtml" class="root" dir="RTL">'
+                )
+                data = data.replace(
+                    b'<body class="body-one">',
+                    b'<body class="body-one" lang="not_a_language" xml:lang="ja" dir="sideways">'
+                )
+            target.writestr(entry, data)
+    return output.getvalue()
+
+
 def linear_epub():
     output = io.BytesIO()
     with zipfile.ZipFile(io.BytesIO(resource_epub())) as source, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as target:
@@ -271,6 +291,17 @@ class EpubPublicationBrowser(ReaderBrowser):
             'bookDir':'ltr','turnDir':'ltr','hostDir':'ltr',
             'rootDir':'ltr','bodyDir':'rtl'
         }, actual)
+        self.assertEqual([], self.errors)
+
+    def test_invalid_body_semantics_fall_back_to_valid_authored_root_values(self):
+        self.open_resource_book(payload=malformed_root_semantics_epub())
+        actual = self.page.evaluate(f"""() => {{
+          const p={P}, doc=p.getContents()[0].doc, view=doc.defaultView;
+          return {{lang:doc.documentElement.lang,
+            rootDir:view.getComputedStyle(doc.documentElement).direction,
+            bodyDir:view.getComputedStyle(doc.body).direction}};
+        }}""")
+        self.assertEqual({'lang':'ja','rootDir':'rtl','bodyDir':'rtl'}, actual)
         self.assertEqual([], self.errors)
 
     def test_non_linear_spine_hint_is_persisted_without_changing_current_reading_order(self):

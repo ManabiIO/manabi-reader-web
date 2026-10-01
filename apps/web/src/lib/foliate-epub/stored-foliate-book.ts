@@ -28,18 +28,26 @@ function canonicalLanguage(value: string | null | undefined): string {
   }
 }
 
+function canonicalDirection(value: string | null | undefined): 'ltr' | 'rtl' | 'auto' | undefined {
+  const direction = value?.trim().toLowerCase();
+  return direction === 'ltr' || direction === 'rtl' || direction === 'auto'
+    ? direction
+    : undefined;
+}
+
 function resourceSemantics(section: Element, fallbackLanguage: string) {
   const html = section.firstElementChild;
   const body = html?.firstElementChild;
+  // Invalid or empty higher-precedence attributes must not mask the next valid
+  // authored source. Malformed EPUBs commonly contain both lang and xml:lang.
   const language =
-    canonicalLanguage(body?.getAttribute('lang') ?? body?.getAttribute('xml:lang')) ||
-    canonicalLanguage(html?.getAttribute('lang') ?? html?.getAttribute('xml:lang')) ||
+    canonicalLanguage(body?.getAttribute('lang')) ||
+    canonicalLanguage(body?.getAttribute('xml:lang')) ||
+    canonicalLanguage(html?.getAttribute('lang')) ||
+    canonicalLanguage(html?.getAttribute('xml:lang')) ||
     canonicalLanguage(fallbackLanguage);
-  const rawDirection = body?.getAttribute('dir') ?? html?.getAttribute('dir');
   const direction =
-    rawDirection === 'ltr' || rawDirection === 'rtl' || rawDirection === 'auto'
-      ? rawDirection
-      : undefined;
+    canonicalDirection(body?.getAttribute('dir')) ?? canonicalDirection(html?.getAttribute('dir'));
   return { language, direction };
 }
 
