@@ -432,6 +432,64 @@ try {
     await mkdir(dirname(largeTextPath), { recursive: true });
     await page.screenshot({ path: largeTextPath, fullPage: true });
   }
+
+  const selectionToggleLarge = page.getByRole('button', { name: 'Select', exact: true });
+  await selectionToggleLarge.focus();
+  await selectionToggleLarge.press('Enter');
+  const enlargedBatch = page.getByRole('toolbar', {
+    name: 'Selected snippet actions',
+    exact: true
+  });
+  await expect(enlargedBatch).toBeVisible();
+  assert(
+    (await enlargedBatch.evaluate((node) => node.scrollWidth - node.clientWidth)) <= 1,
+    'Snippet batch actions must not overflow horizontally at 200% text'
+  );
+  const batchStatus = enlargedBatch.getByRole('status');
+  await expect(batchStatus).toHaveAttribute('aria-atomic', 'true');
+  await expect(batchStatus).toHaveText('0 selected');
+  const enlargedSelection = page.getByRole('checkbox', {
+    name: 'Select 散歩の記録',
+    exact: true
+  });
+  await enlargedSelection.focus();
+  await enlargedSelection.press('Space');
+  await expect(batchStatus).toHaveText('1 selected');
+
+  await page.setViewportSize({ width: 320, height: 320 });
+  await enlargedSelection.scrollIntoViewIfNeeded();
+  await enlargedSelection.press('Escape');
+  await expect(enlargedBatch).toHaveCount(0);
+  await expect(selectionToggleLarge).toHaveText('Select');
+  await expect(selectionToggleLarge).toBeFocused();
+  const returnedToggle = await selectionToggleLarge.boundingBox();
+  assert(
+    returnedToggle &&
+      returnedToggle.x >= -1 &&
+      returnedToggle.y >= -1 &&
+      returnedToggle.x + returnedToggle.width <= 321 &&
+      returnedToggle.y + returnedToggle.height <= 321,
+    `Selection exit must return visible focus: ${JSON.stringify(returnedToggle)}`
+  );
+  assert(
+    await selectionToggleLarge.evaluate((button) => {
+      const r = button.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return !!hit && (hit === button || button.contains(hit));
+    }),
+    'Selection exit target must be hit-testable after focus restoration'
+  );
+
+  await page.setViewportSize({ width: 320, height: 640 });
+  await selectionToggleLarge.press('Enter');
+  await expect(enlargedBatch).toBeVisible();
+  await expect(selectionToggleLarge).toHaveText('Done selecting');
+  await selectionToggleLarge.press('Escape');
+  await expect(enlargedBatch).toHaveCount(0);
+  await expect(selectionToggleLarge).toHaveText('Select');
+  await expect(selectionToggleLarge).toBeFocused();
+  passed('snippet selection reflows and exits consistently by keyboard at 200% text');
+
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.evaluate(() => {
     document.documentElement.style.fontSize = '';
