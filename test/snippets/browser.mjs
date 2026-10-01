@@ -411,9 +411,11 @@ try {
   await expect
     .poll(async () => {
       const item = (await records(page)).find((record) => record.document.id === id);
-      return JSON.stringify(item?.document.content ?? {}).match(
-        /追加は成功し、下書き削除だけ失敗します。/g
-      )?.length ?? 0;
+      return (
+        JSON.stringify(item?.document.content ?? {}).match(
+          /追加は成功し、下書き削除だけ失敗します。/g
+        )?.length ?? 0
+      );
     })
     .toBe(1);
   const cleanupDrafts = (await records(page, 'snippetDrafts')).filter(
