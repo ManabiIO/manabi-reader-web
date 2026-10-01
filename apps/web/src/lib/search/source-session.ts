@@ -19,7 +19,8 @@ export interface SourceBatch<T> extends SearchResults<T> {
 type Cleanup = () => void;
 export interface SearchSource<T> {
   /** Returning a cleanup means admission finished, not that the search finished.
-   * Streaming sources publish busy:false when their results are complete.
+   * Streaming sources publish busy:false exactly once when their results are complete.
+   * The session may run the cleanup immediately after that terminal publication.
    */
   start(
     signal: AbortSignal,
