@@ -146,6 +146,8 @@ def main():
         shelf = page.get_by_label('Video library', exact=True)
         card_select = shelf.get_by_role('checkbox').first
         expect(card_select).to_be_visible()
+        library_card = card_select.locator('..').locator('..')
+        expect(library_card).to_have_class(re.compile(r'.*\bvideo-card\b.*'))
         select_target = card_select.locator('..')
         select_box = select_target.bounding_box()
         assert select_box['width'] >= 43.5 and select_box['height'] >= 43.5, select_box
@@ -413,7 +415,6 @@ def main():
         for control in library_controls:
             assert_reachable(control)
 
-        library_card = page.locator('.video-card').filter(has_text='video.mp4')
         library_card.scroll_into_view_if_needed()
         expect(library_card).to_be_visible()
         assert library_card.evaluate("node => node.scrollWidth-node.clientWidth") <= 1
