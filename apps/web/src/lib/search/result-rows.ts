@@ -86,6 +86,18 @@ export function snippetTitleRows(snippets: readonly SnippetSummary[], query: str
       target: { kind: 'snippet', snippet }
     }));
 }
+export function scopedSnippetTitleRows(
+  snippets: readonly SnippetSummary[],
+  query: string,
+  guard: () => void
+): { rows: SearchRow[]; failed: number } {
+  try {
+    guard();
+    return { rows: snippetTitleRows(snippets, query), failed: 0 };
+  } catch {
+    return { rows: [], failed: 1 };
+  }
+}
 
 export function videoTitleRows(hits: readonly VideoTitleHit[], query: string): SearchRow[] {
   return hits.map((hit) => ({
