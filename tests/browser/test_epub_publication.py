@@ -82,6 +82,17 @@ def resource_semantics_epub():
     return output.getvalue()
 
 
+
+def ltr_pages_rtl_content_epub():
+    output = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(resource_semantics_epub())) as source, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as target:
+        for entry in source.infolist():
+            data = source.read(entry)
+            if entry.filename == 'EPUB/book.opf':
+                data = data.replace(b'<spine>', b'<spine page-progression-direction="ltr">')
+            target.writestr(entry, data)
+    return output.getvalue()
+
 def linear_epub():
     output = io.BytesIO()
     with zipfile.ZipFile(io.BytesIO(resource_epub())) as source, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as target:
@@ -246,6 +257,20 @@ class EpubPublicationBrowser(ReaderBrowser):
             bodyDir:view.getComputedStyle(doc.body).direction}};
         }}""")
         self.assertEqual({'lang':'ja','rootDir':'rtl','bodyDir':'rtl'}, actual)
+        self.assertEqual([], self.errors)
+
+    def test_ltr_page_progression_does_not_override_rtl_chapter_text(self):
+        self.open_resource_book(payload=ltr_pages_rtl_content_epub())
+        actual = self.page.evaluate(f"""() => {{
+          const p={P}, doc=p.getContents()[0].doc, view=doc.defaultView;
+          return {{bookDir:p.bookDir,turnDir:p.pageTurnDirection,hostDir:p.getAttribute('dir'),
+            rootDir:view.getComputedStyle(doc.documentElement).direction,
+            bodyDir:view.getComputedStyle(doc.body).direction}};
+        }}""")
+        self.assertEqual({
+            'bookDir':'ltr','turnDir':'ltr','hostDir':'ltr',
+            'rootDir':'ltr','bodyDir':'rtl'
+        }, actual)
         self.assertEqual([], self.errors)
 
     def test_non_linear_spine_hint_is_persisted_without_changing_current_reading_order(self):
