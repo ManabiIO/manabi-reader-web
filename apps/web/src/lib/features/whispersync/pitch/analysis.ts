@@ -25,7 +25,7 @@ export const SAMPLE_INTERVAL_MS = 256;
 export const SWIFT_F0_EMIT_STRIDE = 2;
 const SILENCE_PEAK = 1e-3;
 
-const finite = (value: number, fallback = 0) => (Number.isFinite(value) ? value : fallback);
+const finite = (value: number | undefined, fallback = 0) =>\n  Number.isFinite(value) ? (value as number) : fallback;
 const clamp = (value: number, minimum: number, maximum: number) =>
   Math.min(maximum, Math.max(minimum, value));
 const sinc = (value: number) =>
