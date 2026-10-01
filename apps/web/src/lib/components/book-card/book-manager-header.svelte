@@ -60,6 +60,8 @@
   let searchButton: HTMLButtonElement | null = null;
   let searchDraft = '';
   let searchComposing = false;
+  let searchCompositionCancelled = false;
+  let searchCompositionBaseQuery = '';
   let lastExternalSearchQuery = '';
   onMount(() => {
     hydrated = true;
@@ -75,7 +77,9 @@
   $: externalSearchQuery = libraryMenu?.search.query ?? '';
   $: if (externalSearchQuery !== lastExternalSearchQuery) {
     lastExternalSearchQuery = externalSearchQuery;
-    if (!searchComposing) searchDraft = externalSearchQuery;
+    if (searchComposing && externalSearchQuery !== searchCompositionBaseQuery)
+      searchCompositionCancelled = true;
+    else if (!searchComposing) searchDraft = externalSearchQuery;
   }
   export let hasBookOpened: boolean;
   export let selectMode: boolean;
@@ -185,15 +189,24 @@
   }
   function searchCompositionStarted(event: Event & { currentTarget: EventTarget & HTMLInputElement }) {
     searchComposing = true;
+    searchCompositionCancelled = false;
+    searchCompositionBaseQuery = externalSearchQuery;
     searchDraft = event.currentTarget.value;
   }
   function searchCompositionEnded(event: Event & { currentTarget: EventTarget & HTMLInputElement }) {
-    searchDraft = event.currentTarget.value;
+    const value = event.currentTarget.value;
     searchComposing = false;
+    if (searchCompositionCancelled || externalSearchQuery !== searchCompositionBaseQuery) {
+      searchCompositionCancelled = false;
+      searchDraft = externalSearchQuery;
+      return;
+    }
+    searchDraft = value;
     libraryMenu?.search.setQuery(searchDraft);
   }
   function searchInputBlurred() {
     if (!searchComposing) return;
+    searchCompositionCancelled = true;
     searchComposing = false;
     searchDraft = externalSearchQuery;
   }
@@ -203,6 +216,7 @@
     searchInput?.focus();
   }
   async function closeSearch() {
+    searchCompositionCancelled = searchComposing;
     searchComposing = false;
     searchDraft = '';
     libraryMenu?.search.setQuery('');
