@@ -294,10 +294,10 @@ try {
   const capturedDrafts = (await records(page, 'snippetDrafts')).filter((draft) =>
     draft.document?.source?.item?.startsWith(capturePrefix)
   );
-  assert.deepEqual(
-    capturedDrafts.map((draft) => draft.document.source.item).sort(),
-    [capturePrefix + '-first', capturePrefix + '-second']
-  );
+  assert.deepEqual(capturedDrafts.map((draft) => draft.document.source.item).sort(), [
+    capturePrefix + '-first',
+    capturePrefix + '-second'
+  ]);
   assert(
     capturedDrafts.some((draft) =>
       JSON.stringify(draft.document.content).includes('最初の選択は開いたダイアログで処理します。')
