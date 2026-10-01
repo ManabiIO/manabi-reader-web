@@ -142,6 +142,35 @@ test('SwiftF0 runtime releases feeds after failure and rejects malformed model o
   assert.equal(live, 0);
 });
 
+test('partial tensor-construction failure releases tensors already created', async () => {
+  let live = 0;
+  let created = 0;
+  class Tensor {
+    constructor(type, data, dims) {
+      Object.assign(this, { type, data, dims });
+      live++;
+    }
+    dispose() {
+      live--;
+    }
+  }
+  await assert.rejects(
+    runSwiftF0Inference(
+      { run: async () => ({}) },
+      (type, data, dims) => {
+        created++;
+        if (created === 2) throw new Error('tensor allocation failed');
+        return new Tensor(type, data, dims);
+      },
+      tone(220, 16000),
+      85,
+      520
+    ),
+    /tensor allocation failed/
+  );
+  assert.equal(live, 0);
+});
+
 test('very quiet non-silent windows are lifted only for model inference', () => {
   assert.equal(swiftF0ModelGain(new Float32Array(100).fill(0)), 1);
   assert.equal(swiftF0ModelGain(new Float32Array(100).fill(0.1)), 1);
