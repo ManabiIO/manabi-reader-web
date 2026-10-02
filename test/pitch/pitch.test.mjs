@@ -238,6 +238,17 @@ test('SwiftF0 worker queue serializes inference and skips stale queued epochs', 
   assert.equal(maximum, 1);
 });
 
+test('SwiftF0 worker queue never re-admits an older epoch', async () => {
+  const started = [];
+  const queue = new LatestEpochQueue(async (request) => {
+    started.push(request.id);
+  });
+  await queue.submit({ id: 1, epoch: 4 });
+  await queue.submit({ id: 2, epoch: 3 });
+  await queue.submit({ id: 3, epoch: 4 });
+  assert.deepEqual(started, [1, 3]);
+});
+
 test('SwiftF0 worker queue admits later work after a failed inference', async () => {
   const started = [];
   const queue = new LatestEpochQueue(async (request) => {
