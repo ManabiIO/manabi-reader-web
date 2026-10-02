@@ -406,6 +406,7 @@ function annotationFixture({ bookOwner, scopeOwner, onTransaction } = {}) {
   const operationControllers = new Set();
   const api = load('reader-annotations.ts', {
     '$lib/data/store': { database: { db: Promise.resolve(db) } },
+    '$lib/data/database/books-db/commit-transaction.mjs': { commitTransaction },
     'svelte/store': { get: (value) => value.value },
     '$lib/manabi/client': {
       account: { value: { status: 'ready' } },

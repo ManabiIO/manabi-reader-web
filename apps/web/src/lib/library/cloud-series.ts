@@ -6,6 +6,7 @@
 
 import { currentUser, request } from '$lib/manabi/client';
 import { integrationDB, metadata, setMetadata } from '$lib/manabi/persistence';
+import { commitTransaction } from '$lib/data/database/books-db/commit-transaction.mjs';
 import { sourceKey } from './organization';
 import type { SourceDescriptor } from './catalog';
 
@@ -162,7 +163,7 @@ export async function applyCloudSeriesReceipts(source: SourceDescriptor, plan: C
   if (plan.root !== source.root) throw new Error('Receipt root changed.');
   const db = await integrationDB();
   const tx = db.transaction('metadata', 'readwrite');
-  try {
+  return commitTransaction(tx, async () => {
     let changed = false;
     for (const receipt of plan.receipts) {
       if (receipt.connection_id !== source.id || receipt.root !== source.root)
@@ -174,15 +175,6 @@ export async function applyCloudSeriesReceipts(source: SourceDescriptor, plan: C
       }
     }
     if (changed) await tx.store.delete(`library-catalog:${sourceKey(source)}`);
-    await tx.done;
     return changed;
-  } catch (error) {
-    try {
-      tx.abort();
-    } catch {
-      /* already settled */
-    }
-    await tx.done.catch(() => undefined);
-    throw error;
-  }
+  });
 }

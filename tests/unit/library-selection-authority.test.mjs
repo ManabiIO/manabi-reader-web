@@ -131,6 +131,7 @@ function dav(owner, read) {
   }
   const { WebDavSource } = load('webdav/source.ts', {
     '$lib/manabi/persistence': { integrationDB: async () => ({ get: async () => configuration }) },
+    '$lib/data/database/books-db/commit-transaction.mjs': { commitTransaction },
     '$lib/manabi/operation-scope': owner.scope,
     '$lib/library/book-download': download,
     './client': {

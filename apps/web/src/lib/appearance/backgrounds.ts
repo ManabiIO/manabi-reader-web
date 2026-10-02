@@ -5,6 +5,7 @@
  */
 
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
+import { commitTransaction } from '$lib/data/database/books-db/commit-transaction.mjs';
 import { writable } from 'svelte/store';
 import type { BackgroundMode, BackgroundTarget } from './state';
 import {
@@ -306,21 +307,23 @@ export function chooseBackground(
     // Decode outside the transaction; keep read-modify-write atomic across tabs.
     const image = await prepare(file);
     const tx = database.transaction('backgrounds', 'readwrite');
-    const saved = (await tx.store.get(target)) ?? {};
-    saved[mode] = image;
-    await tx.store.put(saved, target);
-    await tx.done;
+    await commitTransaction(tx, async () => {
+      const saved = (await tx.store.get(target)) ?? {};
+      saved[mode] = image;
+      await tx.store.put(saved, target);
+    });
   });
 }
 
 export function removeBackground(target: BackgroundTarget, mode: BackgroundMode): Promise<void> {
   return mutate(target, [mode], async (database) => {
     const tx = database.transaction('backgrounds', 'readwrite');
-    const saved = (await tx.store.get(target)) ?? {};
-    delete saved[mode];
-    if (saved.light || saved.dark) await tx.store.put(saved, target);
-    else await tx.store.delete(target);
-    await tx.done;
+    await commitTransaction(tx, async () => {
+      const saved = (await tx.store.get(target)) ?? {};
+      delete saved[mode];
+      if (saved.light || saved.dark) await tx.store.put(saved, target);
+      else await tx.store.delete(target);
+    });
   });
 }
 

@@ -498,14 +498,18 @@ export async function readStatisticsRecoverySnapshot(db: IDBPDatabase<BooksDb>) 
     ['data', 'statistic', 'readerStatistic', 'readerStatisticMigration', 'readerLocalIdentity'],
     'readonly'
   );
-  const [books, legacyRows, contentRows, migrationReceipts, localIdentities] = await Promise.all([
-    readIndexedBookTitles(tx.objectStore('data')),
-    tx.objectStore('statistic').getAll(),
-    tx.objectStore('readerStatistic').getAll(),
-    tx.objectStore('readerStatisticMigration').getAll(),
-    tx.objectStore('readerLocalIdentity').getAll()
-  ]);
-  await tx.done;
+  const { books, legacyRows, contentRows, migrationReceipts, localIdentities } =
+    await commitTransaction(tx, async () => {
+      const [books, legacyRows, contentRows, migrationReceipts, localIdentities] =
+        await Promise.all([
+          readIndexedBookTitles(tx.objectStore('data')),
+          tx.objectStore('statistic').getAll(),
+          tx.objectStore('readerStatistic').getAll(),
+          tx.objectStore('readerStatisticMigration').getAll(),
+          tx.objectStore('readerLocalIdentity').getAll()
+        ]);
+      return { books, legacyRows, contentRows, migrationReceipts, localIdentities };
+    });
   return {
     format: 'manabi-reader-statistics-recovery',
     version: 1,
