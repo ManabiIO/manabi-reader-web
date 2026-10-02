@@ -244,15 +244,13 @@ export class PitchController {
         } else if (
           event.data?.type === 'result' &&
           this.pending &&
-          event.data.id === this.pending.id &&
-          !audio.paused &&
-          !audio.seeking &&
-          !this.buffering
+          event.data.id === this.pending.id
         ) {
-          const pending = this.pending!;
+          const pending = this.pending;
           this.pending = undefined;
           if (this.replyTimer !== undefined) this.environment.clearTimer(this.replyTimer);
           this.replyTimer = undefined;
+          if (audio.paused || audio.seeking || this.buffering) return;
           const result = event.data.result as Measurement;
           if (
             !result ||
@@ -390,8 +388,13 @@ export class PitchController {
             [samples.buffer]
           );
           this.replyTimer = this.environment.setTimer(() => {
-            if (this.pending?.id === id)
-              this.fail('Pitch analysis stopped responding. Retry to restart it.');
+            if (this.pending?.id !== id) return;
+            if (audio.paused || audio.seeking || this.buffering) {
+              this.pending = undefined;
+              this.replyTimer = undefined;
+              return;
+            }
+            this.fail('Pitch analysis stopped responding. Retry to restart it.');
           }, 5000);
         } catch {
           this.fail(
