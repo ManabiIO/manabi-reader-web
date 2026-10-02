@@ -445,7 +445,7 @@
                     <Button
                       variant="destructive"
                       size="sm"
-                      class="min-h-11"
+                      class="min-h-11 whitespace-nowrap"
                       aria-label="Revert history item"
                       title="Revert Item"
                       onclick={() => dispatch('revertStatistic', trackingHistoryItem)}
