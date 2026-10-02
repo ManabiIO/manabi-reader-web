@@ -2,7 +2,7 @@
 
 Status: exploratory handoff draft for revision by the next worker. This document intentionally changes no production code.
 
-Reviewed source: `feat/expo-android-web-migration` at `c3b0c0ba225f9f14373b8594db7062e300f9c504` on 2026-10-02.
+Reviewed source: `feat/expo-android-web-migration` at `37f2660f20405f4917d438cd1cc4f347ddd62665` on 2026-10-02.
 
 Target product direction: add a Podcasts category focused first on Japanese native-immersion listening, using original publisher podcast enclosures directly in the client and reusing the existing local MOSS transcription stack. No audio proxy or Manabi audio rehosting is proposed.
 
