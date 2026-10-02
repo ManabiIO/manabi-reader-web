@@ -1056,9 +1056,12 @@ def main():
                 )""")
             card=page.locator('.video-card').filter(
                 has=page.get_by_role('button',name='Watching',exact=True))
+            card_key=card.get_attribute('data-media-key')
+            assert card_key
             card.get_by_text('Actions',exact=True).click()
             card.get_by_role('button',name='Generate missing transcript',exact=True).click()
-            assert page.evaluate('bulkSelections')==[[page.evaluate("syntheticKey('a')")]]
+            page.wait_for_function('bulkSelections.length===1')
+            assert page.evaluate('bulkSelections')==[[card_key]]
             assert page.evaluate('workspace.selected.size')==0
             assert not page.get_by_label('Select Watching',exact=True).is_checked()
 
